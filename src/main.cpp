@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.57 2003/04/30 04:15:20 joshk Exp $ */
+/* $Id: main.cpp,v 1.58 2003/05/01 15:54:11 joshk Exp $ */
 
 #include "config.h"
 
@@ -39,6 +39,7 @@ int main (int argc, char *argv[])
 		printf ("error: not enough parameters\n");
 syntax:
 		printf("Usage: %s [options] dsp-file\n", argv[0]);
+		printf("Try %s -h for help\n", argv[0]);
 		exit(1);
 	}
   
@@ -48,6 +49,10 @@ syntax:
 				printf (PACKAGE " " VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
 				/* TODO: insert some helpful text here */
 				printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
+
+				printf("-h: display this help screen\n");
+				printf("-p PATH: modify the plugin search path\n");
+				printf("-m MOD: change the mod that will be used\n");
 				exit(0);
 
 				break;

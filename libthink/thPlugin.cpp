@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.28 2003/05/01 14:23:36 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.29 2003/05/01 15:54:11 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -15,7 +15,7 @@
 #ifdef PARAMS
 extern "C" { extern char *basename PARAMS ((const char *)); }
 #else
-#error Blah, all our efforts to find a working basename have failed!
+#error no basename implementation available! get a better unix
 #endif
 #endif
 
@@ -58,11 +58,9 @@ thPlugin::~thPlugin ()
 	free(plugDesc);
 }
 
-int thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
+void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	plugCallback(node, mod, windowlen);
-
-	return 0;
 }
 
 void thPlugin::SetDesc (const char *desc)

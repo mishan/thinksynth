@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.30 2003/05/01 14:52:20 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.31 2003/05/01 15:54:11 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
