@@ -273,7 +273,7 @@ int main (int argc, char *argv[])
 			case 'h':
 			{
 				printf(syntax, argv[0]);
-				exit(0);
+				return 0;
 				break;
 			}
 			case 'p':
@@ -292,7 +292,7 @@ int main (int argc, char *argv[])
 				if (optind != argc)
 				{
 					printf(syntax, argv[0]);
-					exit(1);
+					return 1;
 				}
 				break;
 			}
@@ -360,7 +360,7 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
 		if (driver == "jack")
 			fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
-		exit (1);
+		return 1;
 	}
 
 	/* create UI thread */
