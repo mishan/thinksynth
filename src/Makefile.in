@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.5 2003/05/03 07:47:41 aaronl Exp $
+# $Id: Makefile.in,v 1.6 2003/05/03 07:54:20 aaronl Exp $
 
 bindir=@bindir@
 prefix=@prefix@
@@ -35,6 +35,8 @@ thinksynth: $(OBJS)
 
 thinklex.cpp: thinklex.ll thinklang.o
 	flex -o $@ thinklex.ll
+
+thinklang.hpp:
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp
