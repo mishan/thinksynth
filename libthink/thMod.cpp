@@ -12,6 +12,7 @@
 thMod::thMod (char *name)
 {
 	modname = strdup(name);
+	nodes = new thBTree;
 
 	/* create any other objects */
 }
