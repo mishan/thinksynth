@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.156 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: main.cpp,v 1.157 2004/04/08 08:51:14 misha Exp $ */
 
 #include "config.h"
 
@@ -47,9 +47,6 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 	audio->Write(synthbuffer, l);
 }
 
-/* XXX: rewrite main event routine; pass Audio object a set of signal objects
-   with appropriate callbacks set; e.g: readyRead callback, readyWrite, etc. */
-
 string plugin_path;
 
 const char syntax[] = \
@@ -97,10 +94,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			{
 				m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
 
-				/* XXX make this part better */
-				*pbuf = 0;
-				synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
-								  "trigger", pbuf, 1);
+				synth->DelNote(ev->data.note.channel, ev->data.note.note);
 				break;
 			}
 			case SND_SEQ_EVENT_TEMPO:
