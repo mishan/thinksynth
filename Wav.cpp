@@ -66,7 +66,12 @@ Wav::~Wav (void)
 
 int Wav::write_wav (void *data, int len)
 {
-	int r = 0;
+	int r = -1;
+
+	if(type == READING) {
+		/* XXX: throw an exception */
+		return -1;
+	}
 
 	switch(fmt.bits) {
 	case 8:
@@ -123,6 +128,11 @@ int Wav::read_wav(void *data, int len)
 {
 	int r = -1;
 
+	if(type == WRITING) {
+		/* XXX: throw an exception */
+		return -1;
+	}
+	
 	switch(fmt.bits) {
 	case 8:
 		r = read(fd, data, len);
