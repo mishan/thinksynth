@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.1 2003/05/06 09:04:39 ink Exp $ */
+/* $Id: rds.cpp,v 1.2 2003/05/08 01:49:35 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -62,7 +62,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	last = (*in_last)[0];
 
 	for(i=0;i<windowlen;i++) {
-	  fact = 1-(SQR((*in_cutoff)[i]));
+	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));
 	  rfact = 1-(SQR((*in_res)[i]));
 
 	  diff = (*in_arg)[i] - last;

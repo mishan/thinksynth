@@ -24,10 +24,17 @@ node map1 env::map {
 	outmin = 25;
 	outmax = 100;
 	};
+node map2 env::map {
+        in = env->out;
+        inmin = 0;
+        inmax = 256;
+        outmin = 0;
+        outmax = 1;
+        };
 node filt filt::rds {
 	in = osc->out;
-	cutoff = 0.1;
-	res = 0.7;
+	cutoff = map2->out;
+	res = 0.4;
 	};
 node osc osc::simple {
 	freq = map1->out;
