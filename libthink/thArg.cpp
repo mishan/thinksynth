@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.45 2004/07/23 20:18:54 ink Exp $ */
+/* $Id: thArg.cpp,v 1.46 2004/07/29 06:24:35 ink Exp $ */
 
 #include "config.h"
 
@@ -39,6 +39,7 @@ thArg::thArg(const string &name, const string &chanarg)
     argType = ARG_CHANNEL;
     argPointNodeID = -1;   /* so we know it has not been set yet */
     argPointArgID = -1;   /* so we know it has not been set yet */
+	argPointArg = NULL;
 }
 
 /* the equivalent of creating a thArg(NULL, NULL, 0) */

@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.56 2004/07/23 20:18:54 ink Exp $ */
+/* $Id: thNode.cpp,v 1.57 2004/07/29 06:24:35 ink Exp $ */
 
 #include "config.h"
 
@@ -124,6 +124,10 @@ void thNode::CopyArgs (const map<string, thArg*> &newargs)
 							   data->argPointName);
 			newarg->argPointNodeID = data->argPointNodeID;
 			newarg->argPointArgID = data->argPointArgID;
+		}
+		else if(data->argType == ARG_CHANNEL) {
+			newarg = new thArg(data->argName, data->argPointName);
+			newarg->argPointArg = data->argPointArg;
 		}
 		else continue;
 		args[data->argName] = newarg;

@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.85 2004/07/18 21:22:50 ink Exp $ */
+/* $Id: thMod.cpp,v 1.86 2004/07/29 06:24:35 ink Exp $ */
 
 #include "config.h"
 
@@ -126,6 +126,11 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 		  }*/
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
+	if (args->argType == ARG_CHANNEL)
+	{
+		args = args->argPointArg;
+	}
+
 	return args;
 }
 
@@ -135,7 +140,12 @@ thArg *thMod::GetArg (thNode *node, int argindex)
 	thArg *args;
 	
 	args = node->GetArg(argindex);
-		
+
+	if (args->argType == ARG_CHANNEL)
+	{
+		args = args->argPointArg;
+	}
+
 	while (args && (args->argType == ARG_POINTER) && node) { 
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);

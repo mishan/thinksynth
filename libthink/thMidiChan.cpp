@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.73 2004/07/18 22:29:52 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.74 2004/07/29 06:24:35 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -17,6 +17,9 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	if(!mod) {
 		fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
 	}
+
+	CopyChanArgs(mod);
+	AssignChanArgPointers(mod);
 
 	modnode = mod;
 	windowlength = windowlen;
@@ -118,10 +121,9 @@ void thMidiChan::CopyChanArgs (thMod *mod)
 {
 	thArg *data, *newdata;
 	float *newvalues;
+	map<string, thArg*> sourceargs = mod->GetChanArgs();
 
-	(mod->GetChanArgs()).clear();
-
-	for (map<string,thArg*>::const_iterator i = (mod->GetChanArgs()).begin(); i != (mod->GetChanArgs()).end(); i++)
+	for (map<string,thArg*>::const_iterator i = sourceargs.begin(); i != sourceargs.end(); i++)
 	{
 		data = i->second;
 
@@ -288,4 +290,30 @@ int thMidiChan::GetLen (int num)
 	}
 
 	return RangeSize+1;
+}
+
+void thMidiChan::AssignChanArgPointers (thMod *mod)
+{
+	thNode *curnode;
+	thArg *curarg;
+	map<string, thNode*> sourcenodes = mod->GetNodeList();
+	map<string, thArg*> sourceargs;
+
+	for (map<string, thNode*>::const_iterator i = sourcenodes.begin();
+		 i != sourcenodes.end(); i++)
+	{
+		curnode = i->second;
+		sourceargs = curnode->GetArgTree();
+
+		for (map<string, thArg*>::const_iterator j = sourceargs.begin();
+		 j != sourceargs.end(); j++)
+		{
+			curarg = j->second;
+
+			if(curarg->argType == ARG_CHANNEL)
+			{
+				curarg->argPointArg = args[curarg->argPointName];
+			}
+		}
+	}
 }

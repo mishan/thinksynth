@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.37 2004/07/23 20:18:54 ink Exp $ */
+/* $Id: thArg.h,v 1.38 2004/07/29 06:24:35 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -48,6 +48,8 @@ class thArg {
 	string argPointName; /* name of the argument a pointer points to */
 	int argPointNodeID; /* index of the node to which the pointer points */
 	int argPointArgID;  /* index of the arg to which the pointer points */
+	thArg *argPointArg; /* actual pointer to another arg- for midi chan and
+						   note args */
 	thArgType argType; /* is this arg a value or a pointer? */
 
 /* Okay, a bit more info about the data */

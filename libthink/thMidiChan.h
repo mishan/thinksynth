@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.26 2004/07/18 22:26:53 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.27 2004/07/29 06:24:35 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -28,6 +28,7 @@ public:
 	
 private:
 	int GetLen(int);
+	void AssignChanArgPointers(thMod *mod);
 	
 	bool dirty;
 	thMod *modnode;

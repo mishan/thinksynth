@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.38 2004/07/18 22:26:53 ink Exp $ */
+/* $Id: thMod.h,v 1.39 2004/07/29 06:24:35 ink Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -40,6 +40,8 @@ public:
 
 	thArg *GetChanArg (string argName) { return chanargs[argName]; }
 	void SetChanArg (thArg *arg);
+
+	map<string,thNode*> GetNodeList (void) { return modnodes; }
 
 	map<string, thArg*> GetChanArgs (void) { return chanargs; } 
 
