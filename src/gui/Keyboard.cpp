@@ -427,9 +427,9 @@ void Keyboard::drawKeyboard (int mode)
 			if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
 			{
 				/* white keys */
-				if (i == 69) 
+				if (i == 60) 
 				{	
-					/* A (440 Hz) */
+					/* middle C */
 					c = (unsigned int)
 					    (active_keys[i] ? color6 : color3);
 				}

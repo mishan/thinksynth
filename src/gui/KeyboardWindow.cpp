@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.19 2004/04/03 06:05:29 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.20 2004/04/03 08:33:51 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -69,6 +69,8 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 KeyboardWindow::~KeyboardWindow (void)
 {
+	delete chanVal;
+	delete transVal;
 }
 
 void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)

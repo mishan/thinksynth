@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.4 2004/04/03 06:05:29 misha Exp $ */
+/* $Id: Keyboard.h,v 1.5 2004/04/03 08:33:51 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -35,10 +35,10 @@ protected:
 	thSynth *synth;
 	int channel;
 	int transpose;
-
+private:
 	type_signal_note_on  m_signal_note_on;
 	type_signal_note_off m_signal_note_off;
-private:
+
 	/* lower-level widget stuff */
 	GdkWindow *drawable;
 	GdkGC *kbgc;
