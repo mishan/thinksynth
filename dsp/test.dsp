@@ -1,8 +1,8 @@
 name "test";
 
 node ionode test::test {
-    out0 = filt->out;
-	out1 = filt->out;
+    out0 = mixer->out;
+	out1 = mixer->out;
     channels = 2;
     play = env->play;
 	test = freq->foo;
@@ -13,15 +13,15 @@ node freq misc::midi2freq {
 };
 
 node mixer mixer::mul {
-	in0 = osc->out;
+	in0 = filt->out;
 	in1 = env->out;
 };
 
 node env env::adsr {
-	a = 10000;
+	a = 1000;
 	d = 6000;
-	s = 20;
-	r = 5000;
+	s = 40;
+	r = 3000;
 	trigger = 0;
 };
 
@@ -34,14 +34,24 @@ node map1 env::map {
 };
 
 node filt filt::rds {
-	in = osc->out;
+	in = mixer2->out;
 	cutoff = map1->out;
-	res = 0.6;
+	res = 0.9;
 };
 
 node osc osc::simple {
 	freq = freq->out;
+	waveform = 2;
+};
+
+node osc2 osc::simple {
+	freq = freq->out;
 	waveform = 4;
+};
+
+node mixer2 mixer::add {
+	in0 = osc->out;
+	in1 = osc2->out;
 };
 
 io ionode;

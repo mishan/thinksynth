@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.41 2003/05/07 16:36:05 misha Exp $ */
+/* $Id: thinklang.yy,v 1.42 2003/05/08 00:53:33 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -43,8 +43,6 @@ extern "C" int yywrap(void)
 	return 1;
 }
 %}
-
-%name thinklang
 
 %token NODE IO NAME
 %token WORD 
@@ -192,6 +190,7 @@ nameset:
 NAME STRING
 {
 	parsemod->SetName($2.str);
+	free($2.str);
 	printf("DSP Name: %s\n", parsemod->GetName());
 }
 ;

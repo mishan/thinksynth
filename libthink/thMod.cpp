@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.64 2003/05/07 03:21:14 aaronl Exp $ */
+/* $Id: thMod.cpp,v 1.65 2003/05/08 00:53:33 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -77,7 +77,7 @@ void thMod::NewNode (thNode *node)
 void thMod::SetName (char *name)
 {
 	free (modname);
-	modname = name;
+	modname = strdup(name);
 }
 
 void thMod::SetIONode (const char *name)

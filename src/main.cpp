@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.75 2003/05/06 19:39:36 aaronl Exp $ */
+/* $Id: main.cpp,v 1.76 2003/05/08 00:53:33 ink Exp $ */
 
 #include "config.h"
 
@@ -105,7 +105,7 @@ syntax:
 	Synth.LoadMod(filename);
 
 	Synth.AddChannel(strdup("chan1"), dspname, 40.0);
-	Synth.AddNote("chan1", 40, 100);
+	Synth.AddNote("chan1", 45, 100);
 
 	audiofmt.channels = Synth.GetChans();
 	audiofmt.bits = 16;
@@ -121,24 +121,38 @@ syntax:
 	outputbuffer = (signed short *)alloca(buflen * sizeof(signed short));
 
 	mixedbuffer = Synth.GetOutput();
-	for(i = 0; i < 100; i++) {  /* For testing... */
-		if(i==20) {
-			Synth.AddNote("chan1", 35, 100);
+	for(i = 0; i < 150; i++) {  /* For testing... */
+		if(i==10) {
+			Synth.AddNote("chan1", 47, 100);
+		}
+		else if(i==20) {
+			Synth.AddNote("chan1", 49, 100);
 		}
 		else if(i==30) {
-			Synth.AddNote("chan1", 40, 100);
-		}
-		else if(i==50) {
-			Synth.AddNote("chan1", 40, 100);
+			Synth.AddNote("chan1", 52, 100);
 			//Synth.AddNote("chan1", 45, 100);
 			//Synth.AddNote("chan1", 49, 100);
 		}
-		else if(i==80) {
-			Synth.AddNote("chan1", 38, 100);
+		else if(i==40) {
+			Synth.AddNote("chan1", 56, 100);
 			//Synth.AddNote("chan1", 44, 100);
 			//Synth.AddNote("chan1", 47, 100);
 		}
-		
+		else if(i==50) {
+		  Synth.AddNote("chan1", 52, 100);
+		}
+		else if(i==60) {
+		  Synth.AddNote("chan1", 49, 100);
+		}
+		else if(i==70) {
+		  Synth.AddNote("chan1", 47, 100);
+		}
+		else if(i==80) {
+		  Synth.AddNote("chan1", 44, 100);
+		}
+		else if(i==90) {
+		  Synth.AddNote("chan1", 40, 100);
+		}
 
 		Synth.Process();
 		for(j=0; j < buflen; j++) {

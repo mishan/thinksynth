@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.35 2003/05/04 08:09:35 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.36 2003/05/08 00:53:33 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -83,7 +83,7 @@ int thPluginManager::LoadPlugin (char *name)
 		return 1;
 	}
 	
-	plugins->Insert((void *)name, (void *)plugin);
+	plugins->Insert((void *)strdup(name), (void *)plugin); /* XXX we must free this name later */
 
 	return 0;
 }

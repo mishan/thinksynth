@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.22 2003/05/03 09:31:06 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.23 2003/05/08 00:53:33 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -30,6 +30,8 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 
 	ionode->SetArg("note", notep, 1);
 	ionode->SetArg("velocity", velocityp, 1);
+
+	noteid = (int)note;
 }
 
 thMidiNote::thMidiNote (thMod *mod)
@@ -43,27 +45,9 @@ thMidiNote::thMidiNote (thMod *mod)
 
 thMidiNote::~thMidiNote ()
 {
-  //	delete args;
-}
-/*
-void thMidiNote::SetArg (const char *name, float *value, int num)
-{
-	thArg *arg = (thArg *)args->GetData((void *)name);
-
-	if(!arg) {
-		arg = new thArg(name, value, num);
-		args->Insert((void *)name, (void *)arg);
-	} else {
-		arg->SetArg(name, value, num);
-	}
+  	delete modnode;
 }
 
-thArgValue *thMidiNote::GetArg (const char *name)
-{
-	thArg *arg = (thArg *)args->GetData((void *)name);
-	return (thArgValue *)arg->GetArg();
-}
-*/
 void thMidiNote::Process (int length)
 {
   modnode->SetActiveNodes();
