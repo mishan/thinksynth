@@ -1,4 +1,4 @@
-# $Id: organ1.dsp,v 1.4 2004/04/19 07:01:50 ink Exp $
+# $Id: organ1.dsp,v 1.5 2004/05/05 09:16:06 ink Exp $
 # Synth Organ
 # Leif Ames <ink@bespin.org>
 # 4/7/2004
@@ -15,22 +15,21 @@ node ionode {
 	vmax = 1;
 
 	fade = vmap->out;
-	waveform = 5;
 
 	band1 = 2;
-	band2 = 4;
-	band3 = 8;
-	band4 = 16;
+	band2 = 3;
+	band3 = 4;
+	band4 = 5;
 
-	a = 100;
-	d = 1000;
-	s = 0.5;
-	r = 6000;
+	a = 5ms;
+	d = 20ms;
+	s = 0.8;
+	r = 300ms;
 
-	fa = 0;
-	fd = 3000;
-	fs = 0.8;
-	fr = 6000;
+	fa = 10ms;
+	fd = 100ms;
+	fs = 0.6;
+	fr = 500ms;
 
 	cutmin = 0;
 	cutmax = 0.2;
@@ -86,31 +85,22 @@ node bandcalc4 math::mul {
 node osc1 osc::softsqr {
 	freq = freq->out;
 	sfreq = bandcalc1->out;
-	waveform = ionode->waveform;
 };
 
 node osc2 osc::softsqr {
-        freq = freq->out;
+    freq = freq->out;
 	sfreq = bandcalc2->out;
-        waveform = ionode->waveform;
-	mul = 2;
-#	reset = osc1->sync;
 };
 
 node osc3 osc::softsqr {
-        freq = freq->out;
-		sfreq = bandcalc3->out;
-        waveform = ionode->waveform;
-        mul = 4;
-#        reset = osc2->sync;
+    freq = freq->out;
+	sfreq = bandcalc3->out;
 };
 
 node osc4 osc::softsqr {
-        freq = freq->out;
-		sfreq = bandcalc4->out;
-        waveform = ionode->waveform;
-        mul = 8;
- #       reset = osc3->sync;
+    freq = freq->out;
+	sfreq = bandcalc4->out;
+
 };
 
 node submix1 mixer::fade {
