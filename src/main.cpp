@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.158 2004/04/08 22:44:58 misha Exp $ */
+/* $Id: main.cpp,v 1.159 2004/04/08 23:15:41 misha Exp $ */
 
 #include "config.h"
 
@@ -47,14 +47,13 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "  -o [file|device]\tchange output dest\n"
 ;
 
+Glib::Thread *ui = NULL;
+
 void cleanup (int signum)
 {
 	printf("received SIGTERM!\n\n exiting...\n");
 
 	save_prefs(&Synth);
-
-	if (gtkMain)
-		delete gtkMain;
 
 	exit (0);
 }
@@ -203,8 +202,7 @@ int main (int argc, char *argv[])
 
 	read_prefs (&Synth);
 
-	Glib::Thread *const ui = Glib::Thread::create(SigC::slot(&ui_thread),
-												  true);
+	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
