@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.103 2004/09/08 21:26:59 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.104 2004/09/16 10:32:24 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -508,4 +508,20 @@ float *thSynth::GetOutput (void) const
 	pthread_mutex_unlock(synthMutex);
 
 	return output;
+}
+
+float *thSynth::getChanBuffer (int chan)
+{
+	return &thOutput[chan * thWindowlen];
+}
+
+void thSynth::setWindowLen (int windowlen)
+{
+#if 0
+	pthread_mutex_lock(synthMutex);
+	thWindowlen = windowlen;
+	delete [] thOutput;
+	thOutput = new float[thChans*thWindowlen];
+	pthread_mutex_unlock(synthMutex);
+#endif
 }

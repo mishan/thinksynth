@@ -1,4 +1,4 @@
-/* $Id: comb.cpp,v 1.3 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: comb.cpp,v 1.4 2004/09/16 10:32:24 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -86,7 +86,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	buffer = inout_buffer->Allocate((int)buf_size[0]);
 
 	for(i = 0; i < windowlen; i++) {
-		period = TH_SAMPLE / buf_freq[i];
+		period = samples / buf_freq[i];
 
 		if(*bufpos > inout_buffer->argNum) {
 			*bufpos = 0;

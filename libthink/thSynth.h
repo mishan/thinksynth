@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.55 2004/09/08 21:26:59 misha Exp $ */
+/* $Id: thSynth.h,v 1.56 2004/09/16 10:32:24 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,7 +30,8 @@ typedef SigC::Signal1<void, int> type_signal_chan_deleted;
 
 class thSynth {
 public:
-	thSynth (int windowlen, int samples);
+	thSynth (int windowlen=TH_DEFAULT_WINDOW_LENGTH,
+			 int samples=TH_DEFAULT_SAMPLES);
 	thSynth (const string &plugin_path, int windowlen, int samples);
 	~thSynth (void);
 
@@ -59,20 +60,14 @@ public:
 	}
 
 	int GetWindowLen(void) const { return thWindowlen; }
-//	float *GetOutput(void) const { return thOutput; }
+	void setWindowLen (int);
+
 	float *GetOutput (void) const;
 
-	float *GetChanBuffer (int chan) { 
-//		pthread_mutex_lock(synthMutex);
-//		pthread_mutex_unlock(synthMutex);
-		return &thOutput[chan * thWindowlen]; };
+	float *getChanBuffer (int chan);
 
-	/* note that as of 9/15/03 these don't do anything. corresponding changes
-	   elsewhere in the implementation must be made (thSamples is intialized to
-	   TH_SAMPLE in the the constructor though, so calls to GetSamples should
-	   work ok) (brandon) */
 	long GetSamples(void) { return thSamples; }
-	void SetSamples(long) { return; }
+	void setSamples(long samples) { thSamples = samples; }
 
 	int GetChannelCount (void) const { return channelcount; }
 	map<int, string> *GetPatchlist (void) { return &patchlist; }

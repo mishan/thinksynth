@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.9 2004/09/15 08:31:38 joshk Exp $ */
+/* $Id: gthJackAudio.h,v 1.10 2004/09/16 10:32:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -45,6 +45,9 @@ public:
 	bool ProcessEvents (void);
 
 	bool tryConnect (bool connect = true);
+
+	int getSampleRate (void);
+	int getBufferSize (void);
 
 	jack_client_t *jack_handle;
 protected:

@@ -136,13 +136,14 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
 	gthJackAudio *jack = static_cast<gthJackAudio *>(arg);
+
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
 //	mainMutex->lock();
 	for(int i = 0; i < chans; i++)
 	{
-		float *synthbuffer = Synth->GetChanBuffer(i);
+		float *synthbuffer = Synth->getChanBuffer(i);
 		void *buf = jack->GetOutBuf(i, nframes);
 
 		memcpy(buf, synthbuffer, l * sizeof(float));

@@ -1,4 +1,4 @@
-/* $Id: multiwave.cpp,v 1.4 2004/09/08 22:32:52 misha Exp $ */
+/* $Id: multiwave.cpp,v 1.5 2004/09/16 10:32:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -44,7 +44,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	int i, j;
 	float *out;
@@ -97,7 +98,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		ampmul = (*in_ampmul)[i];
 		ampadd = (*in_ampadd)[i];
 
-		wavelength = TH_SAMPLE / freq;
+		wavelength = samples / freq;
 		out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
 		if(++(out_last[0]) > wavelength)
 			out_last[0] = 0;
@@ -105,7 +106,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		for(j = 1; j < waves; j++)
 		{
 			wfreq = freq * pow(pitchmul, j) + (pitchadd * j);
-			wavelength = TH_SAMPLE / wfreq;
+			wavelength = samples / wfreq;
 			out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * (pow(ampmul, j) + (ampadd * j)));
 			if(++(out_last[j]) > wavelength)
 				out_last[j] = 0;

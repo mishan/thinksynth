@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.17 2004/09/16 07:59:06 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.18 2004/09/16 10:32:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -38,11 +38,7 @@ extern gthPrefs *prefs;
 void jack_shutdown (void *arg)
 {
 //	gthJackAudio *jout = (gthJackAudio *)arg;
-
 	debug("shutting down");
-
-	/* kill ourselves */
-//	kill (0, SIGTERM);
 }
 
 gthJackAudio::gthJackAudio (thSynth *argsynth)
@@ -57,11 +53,13 @@ gthJackAudio::gthJackAudio (thSynth *argsynth)
 
 	registerPorts();
 
-//	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
+	jack_on_shutdown (jack_handle, jack_shutdown, this);
+
+	printf("attempting to set synth parameters to match JACK\n");
+	synth->setSamples(jack_get_sample_rate(jack_handle));
+//	synth->setWindowLen(jack_get_buffer_size(jack_handle));
 
 	getStats();
-
-	jack_on_shutdown (jack_handle, jack_shutdown, this);
 }
 
 gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
@@ -76,13 +74,15 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 	}
 
 	registerPorts();
-	
-//	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
-//	jack_set_buffer_size(jack_handle, argsynth->GetWindowLen());
-
-	getStats();
 
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
+
+	printf("attempting to set synth parameters to match JACK\n");
+	synth->setSamples(jack_get_sample_rate(jack_handle));
+//	synth->setWindowLen(jack_get_buffer_size(jack_handle));
+	synth->Process();
+
+	getStats();
 
 	jack_set_process_callback(jack_handle, callback, this);
 	jack_activate(jack_handle);
@@ -232,4 +232,15 @@ void *gthJackAudio::GetOutBuf (int argchan, jack_nframes_t nframes)
 		return NULL;
 
 	return jack_port_get_buffer(out_ports[argchan], nframes);
+}
+
+
+int gthJackAudio::getSampleRate (void)
+{
+	return jack_get_sample_rate(jack_handle);
+}
+
+int gthJackAudio::getBufferSize (void)
+{
+	return jack_get_buffer_size(jack_handle);
 }
