@@ -14,10 +14,10 @@
 #include "thNode.h"
 
 thNode::thNode (const char *name, thPlugin *thplug)	
-	:plugin(thplug),
-	nodename(strdup(name)),
-	recalc(false)
 {
+	plugin = thplug;
+	nodename = strdup(name);
+	recalc = false;
 }
 
 thNode::~thNode (void)

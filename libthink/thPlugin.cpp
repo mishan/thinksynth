@@ -12,9 +12,10 @@
 #include "thPlugin.h"
 
 thPlugin::thPlugin (const char *path)
-	:plugPath (strdup(path)),
-	plugDesc (NULL)
 {
+	plugPath = strdup(path);
+	plugDesc = NULL;
+
 	if(ModuleLoad() == 1) { /* fail = return (1) */
 		fprintf(stderr, "thPlugin::thPlugin: Failed to load plugin\n");
 	}
@@ -22,8 +23,7 @@ thPlugin::thPlugin (const char *path)
 #ifdef USE_DEBUG
 	printf ("Plugin: %s\nDescription: %s\nState: ", plugPath, plugDesc);
 	
-	switch (plugState)
-	{
+	switch (plugState) {
 		case thNotLoaded:
 			printf ("thActive\n");
 			break;

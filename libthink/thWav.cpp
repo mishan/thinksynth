@@ -20,9 +20,10 @@
 
 thWav::thWav(char *name)
 	throw(thIOException, thWavException)
-	:filename(strdup(name)),
-	type(READING)
 {
+	filename = strdup(name);
+	type = READING;
+
 	if(!(file = fopen(filename, "r"))) {
 		throw (thIOException) errno;
 	}

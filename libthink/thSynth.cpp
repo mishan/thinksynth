@@ -25,8 +25,8 @@ thMod *parsemod;
 */
 
 thSynth::thSynth()
-	:windowlen(1024)
 {
+	windowlen = 1024;
 }
 
 thSynth::~thSynth()

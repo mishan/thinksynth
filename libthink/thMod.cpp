@@ -14,9 +14,9 @@
 #include "thMod.h"
 
 thMod::thMod (const char *name)
-	:ionode(NULL),
-	modname(strdup(name))
 {
+	ionode = NULL;
+	modname = strdup(name);
 }
 
 thMod::~thMod ()

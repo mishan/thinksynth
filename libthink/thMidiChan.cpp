@@ -17,8 +17,8 @@
 #include "thMidiChan.h"
 
 thMidiChan::thMidiChan (thMod *mod)
-	:modnode(mod)
 {
+	modnode = mod;
 }
 
 thMidiChan::~thMidiChan ()
