@@ -26,17 +26,20 @@
 #include <time.h>
 #include <signal.h>
 
-#include <alsa/asoundlib.h>
-#include <jack/jack.h>
-
 #include <gtkmm.h>
 
-#include "think.h"
+#include <alsa/asoundlib.h>
 
+#include "think.h"
 #include "gthAudio.h"
 #include "gthALSAAudio.h"
 #include "gthALSAMidi.h"
+
+#ifdef HAVE_JACK
+#include <jack/jack.h>
 #include "gthJackAudio.h"
+#endif
+
 #include "gthSignal.h"
 #include "gthPrefs.h"
 
@@ -51,7 +54,6 @@ gthPrefs *prefs = NULL;
 gthAudio *aout = NULL;
 
 static gthALSAMidi *midi = NULL;
-
 
 Glib::RefPtr<Glib::MainContext> mainContext;
 
@@ -132,6 +134,7 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 	process_synth ();
 }
 
+#ifdef HAVE_JACK
 /* JACK callback */
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
@@ -157,6 +160,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 	return 0;
 }
+#endif /* HAVE_JACK */
 
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
@@ -338,10 +342,12 @@ int main (int argc, char *argv[])
 				SigC::bind<gthAudio *,thSynth *>(SigC::slot(&audio_readywrite),
 												 aout, Synth)); 
 		}
+#ifdef HAVE_JACK
  		else if (driver == "jack")
 		{
 			aout = new gthJackAudio(Synth, playback_callback);
 		}
+#endif /* HAVE_JACK */
 		else
 		{
 			fprintf(stderr, "Sorry, only JACK/ALSA drivers are supported currently for output.\n");

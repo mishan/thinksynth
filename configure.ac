@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.97 2004/09/11 22:52:09 joshk Exp $
+dnl $Id: configure.ac,v 1.98 2004/09/18 05:30:34 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -62,12 +62,7 @@ AC_TYPE_SIZE_T
 
 CXXFLAGS="-Wall -ffast-math"
 
-AC_CHECK_HEADERS(dlfcn.h)
-
-AC_CHECK_HEADER(libgen.h,
-[
-	AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])
-])
+AC_CHECK_HEADERS([dlfcn.h libgen.h])
 
 AC_CHECK_LIB(iw, iw_get_stats,
 [
@@ -181,56 +176,27 @@ AC_CHECK_FUNC(basename,,
 
 AC_SUBST(BASENAME_CPP)
 
-AC_MSG_CHECKING([for gthread-2.0])
-
-if ! pkg-config gthread-2.0 --libs >/dev/null 2>&1; then
-  AC_MSG_RESULT([not found])
-  AC_MSG_ERROR([You should install the Glib development headers before building this software. Try libglib2.0-dev in Debian.])
-else
-  AC_MSG_RESULT([found])
-  AC_SUBST(GTHREAD_LIBS, [`pkg-config gthread-2.0 --libs`])
-fi
+PKG_CHECK_MODULES(GTHREAD, gthread-2.0)
 
 if test "$system" != "Darwin/OS X"; then
 
-AC_MSG_CHECKING([for GTK--]) 
+PKG_CHECK_MODULES(GTKMM, gtkmm-2.0)
 
-if ! pkg-config gtkmm-2.0 --cflags >/dev/null 2>&1; then
-  AC_MSG_RESULT([not found])
-  AC_MSG_ERROR([You should install the GTK-- headers before building this software. Try libgtkmm2.0-dev in Debian.])
-else
-  AC_MSG_RESULT([found])
-  AC_SUBST(GTKMM_CFLAGS, [`pkg-config gtkmm-2.0 --cflags`])
-  AC_SUBST(GTKMM_LIBS,  [`pkg-config gtkmm-2.0 --libs`])
-fi
+PKG_CHECK_MODULES(JACK, jack,
+[
+	have_jack=1
+	AC_DEFINE(HAVE_JACK, 1, [Define to 1 if JACK is available.])
+	GTH_JACK_AUDIO=gthJackAudio.o
+	
+], have_jack=0)
 
-AC_MSG_CHECKING([for JACK])
+AC_SUBST(GTH_JACK_AUDIO)
 
-if ! pkg-config --cflags jack >/dev/null 2>&1; then
-  AC_MSG_RESULT([not found])
-  have_jack=0
-else
-  AC_MSG_RESULT([found])
-  AC_SUBST(JACK_CFLAGS, [`pkg-config --cflags jack`])
-  AC_SUBST(JACK_LIBS, [`pkg-config --libs jack`])
-  have_jack=1
-fi
-
-AC_DEFINE_UNQUOTED(HAVE_JACK, $have_jack, [Define to 1 if JACK is available.])
-
-AC_MSG_CHECKING([for ALSA])
-
-if ! pkg-config --cflags alsa >/dev/null 2>&1; then
-  AC_MSG_RESULT([not found])
-  have_alsa=0
-else
-  AC_MSG_RESULT([found])
-  AC_SUBST(ALSA_CFLAGS, [`pkg-config --cflags alsa`])
-  AC_SUBST(ALSA_LIBS, [`pkg-config --libs alsa`])
-  have_alsa=1
-fi
-
-AC_DEFINE_UNQUOTED(HAVE_ALSA, $have_alsa, [Define to 1 if ALSA files are available.])
+PKG_CHECK_MODULES(ALSA, alsa, 
+[
+	have_alsa=1
+	AC_DEFINE(HAVE_ALSA, 1, [Define if ALSA is available.])
+])
 
 else
 
@@ -239,22 +205,10 @@ have_jack=0
 
 fi
 
-AC_MSG_CHECKING([for SigC++])
+PKG_CHECK_MODULES(SIGC, sigc++-1.2)
 
-if pkg-config --cflags sigc++-1.2 >/dev/null 2>&1; then
-	SIGC_CFLAGS=`pkg-config --cflags sigc++-1.2`
-	SIGC_LIBS=`pkg-config --libs sigc++-1.2`
-	AC_MSG_RESULT(yes)
-else
-	AC_MSG_RESULT(no)
-	AC_MSG_ERROR([You need SigC++ to build libthink. Try libsigc++1.2-dev in Debian.])
-fi
-
-AC_SUBST(SIGC_CFLAGS)
-AC_SUBST(SIGC_LIBS)
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
-AC_SUBST(ALSA_LIBS)
 
 dnl Flatten out all of the paths.
 AC_SUBST_DIR(libdir)

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.39 2004/09/18 02:16:47 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.40 2004/09/18 05:30:34 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -37,7 +37,10 @@
 #include "MainSynthWindow.h"
 #include "AboutBox.h"
 
-#include "../gthJackAudio.h"
+#ifdef HAVE_JACK
+# include "../gthJackAudio.h"
+#endif
+
 #include "../gthPrefs.h"
 
 /* SUPER XXX */
@@ -52,6 +55,8 @@ void MainSynthWindow::toggleConnects (void)
 	me->set_sensitive(!c);
 	dis->set_sensitive(c);
 }
+
+#ifdef HAVE_JACK
 
 static void connectDialog (int error)
 {
@@ -76,6 +81,8 @@ static void connectDialog (int error)
 	errorDialog.run();
 }
 
+#endif /* HAVE_JACK */
+
 MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)
 {
 	string ** vals;
@@ -93,6 +100,7 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	menuBar.accelerate(*patchSel);
 
+#ifdef HAVE_JACK
 	/* Not the best place to do it but we need to call toggleConnects */
 	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
 	{
@@ -106,6 +114,7 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 				connectDialog (error);
 		}
 	}
+#endif
 	
 	add(vbox);
 
@@ -156,6 +165,7 @@ void MainSynthWindow::populateMenu (void)
 										SigC::slot(*this, &MainSynthWindow::menuQuit)));
 	}
 
+#ifdef HAVE_JACK
 	/* JACK */
 	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
 	{
@@ -187,6 +197,7 @@ void MainSynthWindow::populateMenu (void)
 		sel = !!(vals && *vals[0] == "true");
 		elem->set_active(sel);
 	}
+#endif /* HAVE_JACK */
 	
 	/* Help */
 	{
@@ -206,9 +217,11 @@ void MainSynthWindow::populateMenu (void)
 		menulist.push_back(Gtk::Menu_Helpers::MenuElem("_File",
 													   menuFile));
 
+#ifdef HAVE_JACK
 		if (dynamic_cast<gthJackAudio*>(audio) != NULL)
 			menulist.push_back(Gtk::Menu_Helpers::MenuElem("_JACK",
 														menuJack));
+#endif
 		
 		Gtk::MenuItem *helpMenu = manage(new Gtk::MenuItem("_Help", true));
 		helpMenu->set_submenu(menuHelp);
@@ -216,6 +229,8 @@ void MainSynthWindow::populateMenu (void)
 		menulist.push_back(*helpMenu);
 	}
 }
+
+#ifdef HAVE_JACK
 
 void MainSynthWindow::menuJackDis (void)
 {
@@ -266,6 +281,8 @@ void MainSynthWindow::menuJackAuto (void)
 	debug("setting autoconnect to %s (was %s)", val->c_str(), res[0]->c_str());
 	prefs->Set("autoconnect", vals);
 }
+
+#endif /* HAVE_JACK */
 
 void MainSynthWindow::menuKeyboard (void)
 {
