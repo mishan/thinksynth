@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.68 2004/04/04 21:54:08 joshk Exp $
+dnl $Id: configure.ac,v 1.69 2004/05/11 19:46:10 misha Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -73,6 +73,8 @@ AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h
 AC_CHECK_HEADERS(dlfcn.h)
 
 AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])],[LIBS="$LIBS -liberty"])
+
+AC_CHECK_HEADER([iwlib.h], [AC_DEFINE(HAVE_IWLIB_H, 1, [Define if iwlib.h is present.])], [LIBS="$LIBS"])
 
 AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
 AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])

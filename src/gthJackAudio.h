@@ -1,9 +1,9 @@
-/* $Id: gthJackAudio.h,v 1.4 2004/05/11 02:16:31 misha Exp $ */
+/* $Id: gthJackAudio.h,v 1.5 2004/05/11 19:46:11 misha Exp $ */
 
 #ifndef THF_JACKAUDIO_H
 #define THF_JACKAUDIO_H
 
-class thfJackAudio : public thAudio
+class thfJackAudio : public thfAudio
 {
 public:
 	thfJackAudio (thSynth *argsynth)
@@ -16,23 +16,21 @@ public:
 
 	void *GetOutBuf (int chan, jack_nframes_t nframes);
 
-	void Play (thAudio *audioPtr);
 	int Write (float *, int len);
 	int Read (void *, int len);
-	const thAudioFmt *GetFormat (void) { return &ofmt; };
+	const thfAudioFmt *GetFormat (void) { return &ofmt; };
 	void SetFormat (thSynth *argsynth);
-	void SetFormat (const thAudioFmt *afmt);
+	void SetFormat (const thfAudioFmt *afmt);
 
 	bool ProcessEvents (void);
 
 	jack_client_t *jack_handle;
-	jack_port_t *out_1, *out_2;
 protected:
 	int chans;
 	jack_port_t **out_ports;
 	thSynth *synth;
 private:
-	thAudioFmt ofmt, ifmt;
+	thfAudioFmt ofmt, ifmt;
 };
 
 #endif /* THF_JACKAUDIO_H */

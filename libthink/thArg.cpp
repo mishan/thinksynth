@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.42 2004/05/08 18:52:50 ink Exp $ */
+/* $Id: thArg.cpp,v 1.43 2004/05/11 19:46:10 misha Exp $ */
 
 #include "config.h"
 
@@ -62,7 +62,10 @@ void thArg::SetArg(const string &name, float *value, const int num)
 {
 	argValues = Allocate(num);
 
-	string *argName = new string(name);
+	/* XXX: who wrote this crackheaded code?? */
+//	string *argName = new string(name);
+	
+	argName = name;
 	
 	memcpy(argValues, value, num * sizeof(float));
 

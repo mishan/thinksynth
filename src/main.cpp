@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.177 2004/05/11 05:46:36 misha Exp $ */
+/* $Id: main.cpp,v 1.178 2004/05/11 19:46:11 misha Exp $ */
 
 #include "config.h"
 
@@ -16,10 +16,8 @@
 
 #include "think.h"
 
-#include "thAudio.h"
-#include "thALSAAudio.h"
-#include "thOSSAudio.h"
-#include "thWav.h"
+#include "thfAudio.h"
+#include "thfALSAAudio.h"
 #include "thfALSAMidi.h"
 #include "thfJackAudio.h"
 
@@ -100,7 +98,7 @@ void process_synth (void)
 
 }
 
-void audio_readywrite (thAudio *audio, thSynth *synth)
+void audio_readywrite (thfAudio *audio, thSynth *synth)
 {
 	int l = synth->GetWindowLen();
 	float *synthbuffer = synth->GetOutput();
@@ -213,11 +211,10 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 int main (int argc, char *argv[])
 {
 	string outputfname;
-	string driver = "alsa";
+	string driver = "jack";
 	int havearg = -1;
-//	thALSAAudio *aout = NULL;
 	thfALSAMidi *midi = NULL;
-	thAudio *aout = NULL;
+	thfAudio *aout = NULL;
 
 	/* seed the random number generator */
 	srand(time(NULL));
@@ -301,14 +298,14 @@ int main (int argc, char *argv[])
 		if (driver == "alsa")
 		{ 
 			if (outputfname.length() > 0)
-				aout = new thALSAAudio(&Synth, outputfname.c_str());
+				aout = new thfALSAAudio(&Synth, outputfname.c_str());
 			else
-				aout = new thALSAAudio(&Synth);
+				aout = new thfALSAAudio(&Synth);
 
 			/* connect our audio out event handler and bind a synth to this
 			   instance */
-			((thALSAAudio *)aout)->signal_ready_write().connect(
-				SigC::bind<thAudio *, thSynth *>(SigC::slot(&audio_readywrite),
+			((thfALSAAudio *)aout)->signal_ready_write().connect(
+				SigC::bind<thfAudio *,thSynth *>(SigC::slot(&audio_readywrite),
 												 aout, &Synth)); 
 		}
  		else if (driver == "jack")

@@ -1,7 +1,7 @@
-/* $Id: thALSAAudio.h,v 1.5 2004/05/04 04:05:59 misha Exp $ */
+/* $Id: gthALSAAudio.h,v 1.1 2004/05/11 19:46:11 misha Exp $ */
 
-#ifndef TH_ALSAAUDIO_H
-#define TH_ALSAAUDIO_H
+#ifndef THF_ALSAAUDIO_H
+#define THF_ALSAAUDIO_H
 
 #include "thException.h"
 #include <alsa/asoundlib.h>
@@ -13,23 +13,21 @@
 /* additional arguments are usually bound to the callbacks of this signal */
 typedef SigC::Signal0<void> sigReadyWrite_t;
 
-class thALSAAudio : public thAudio, public SigC::Object
+class thfALSAAudio : public thfAudio, public SigC::Object
 {
 public:
-	thALSAAudio (thSynth *argsynth)
+	thfALSAAudio (thSynth *argsynth)
 		throw(thIOException);
-	thALSAAudio (thSynth *argsynth, const char *device)
+	thfALSAAudio (thSynth *argsynth, const char *device)
 		throw(thIOException);
 
-	virtual ~thALSAAudio ();
-
-	void Play (thAudio *audioPtr);
+	virtual ~thfALSAAudio ();
 
 	int Write (float *, int len);
 	int Read (void *, int len);
-	const thAudioFmt *GetFormat (void) { return &ofmt; };
+	const thfAudioFmt *GetFormat (void) { return &ofmt; };
 	void SetFormat (thSynth *argsynth);
-	void SetFormat (const thAudioFmt *afmt);
+	void SetFormat (const thfAudioFmt *afmt);
 
 	sigReadyWrite_t signal_ready_write (void);
 
@@ -47,8 +45,8 @@ protected:
 	void main (void);
 private:
 	Glib::Thread *thread;
-	thAudioFmt ofmt, ifmt;
+	thfAudioFmt ofmt, ifmt;
 	void *outbuf;
 };
 
-#endif /* TH_ALSAAUDIO_H */
+#endif /* THF_ALSAAUDIO_H */
