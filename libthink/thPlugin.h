@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.13 2003/04/27 03:15:19 misha Exp $ */
+/* $Id: thPlugin.h,v 1.14 2003/04/27 07:43:01 joshk Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -15,8 +15,8 @@ class thPlugin {
 		thPlugin(const char *path);
 		~thPlugin ();
 
-		char *GetPath (void) const { return plugPath; };
-		char *GetDesc (void) const { return plugDesc; };
+		inline char *GetPath (void) const { return plugPath; };
+		inline char *GetDesc (void) const { return plugDesc; };
 		thPluginState GetState (void) const { return plugState; };
 
 		void MakePath (void);
