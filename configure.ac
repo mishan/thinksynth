@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.81 2004/08/16 02:20:43 joshk Exp $
+dnl $Id: configure.ac,v 1.82 2004/08/16 02:26:15 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -205,6 +205,11 @@ else
 fi
 
 AC_DEFINE_UNQUOTED(HAVE_ALSA, $have_alsa, [Define to 1 if ALSA files are available.])
+
+else
+
+have_alsa=0
+have_jack=0
 
 fi
 
