@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.5 2004/09/16 09:14:15 misha Exp $
+# $Id: Makefile.in,v 1.6 2004/10/01 08:52:26 misha Exp $
 
 all: gth.a
 
@@ -7,7 +7,7 @@ include ../../build.mk
 PICFLAGS =
 LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
 INCLUDES = -I../.. -I.. -I../../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
-WIDGETOBJS = AboutBox.o MainSynthWindow.o PatchSelWindow.o Keyboard.o KeyboardWindow.o
+WIDGETOBJS = AboutBox.o ArgTable.o MainSynthWindow.o PatchSelWindow.o Keyboard.o KeyboardWindow.o
 
 gth.a: $(WIDGETOBJS)
 	ar crsv $@ $(WIDGETOBJS)

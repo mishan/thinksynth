@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.40 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thArg.h,v 1.41 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,10 +25,11 @@ public:
 	thArg(const string &name, float *value, const int num);
 	thArg(const string &name, const string &node, const string &value);
 	thArg(const string &name, const string &chanarg);
+	thArg(const thArg *copyArg);
 	thArg(void);
 	~thArg(void);
 
-	enum thArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
+	enum ArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
 	/* immidiate value, pointer to another node, pointer to a channel arg, or
 	   pointer to a note arg. */
 
@@ -39,48 +40,49 @@ public:
 	void SetArg(const string &name, const string &node, const string &value);
 	void SetArg(const string &name, const string &chanarg);
 
-	void SetIndex (int i) { argIndex = i; };
-	int GetIndex (void) { return argIndex; };
+	void SetIndex (int i) { index_ = i; };
+	int GetIndex (void) { return index_; };
 	void GetBuffer(float *buffer, unsigned int size);
 
-	const string &GetArgName (void) const { return argName; };
-	const string &GetArgLabel (void) const { return argLabel; };
-	const string &GetArgUnits (void) const { return argUnits; };
-	float GetArgMin (void) { return argMin; };
-	float GetArgMax (void) { return argMax; };
-	WidgetType GetArgWidget (void) { return argWidget; };
+	unsigned int getLen (void) { return len_; }
 
-	void SetArgLabel (const string &label) { argLabel = label; };
-	void SetArgUnits (const string &units) { argUnits = units; };
-	void SetArgMin (float min) { argMin = min; };
-	void SetArgMax (float max) { argMax = max; };
-	void SetArgWidget (WidgetType widget) { argWidget = widget; };
+	const string &getName (void) const { return name_; };
+	const string &getLabel (void) const { return label_; };
+	const string &getUnits (void) const { return units_; };
+	const string &getComment (void) const { return comment_; };
+	float getMin (void) { return min_; };
+	float getMax (void) { return max_; };
+	WidgetType getWidgetType (void) { return widgetType_; };
+
+	void setLabel (const string &label) { label_ = label; };
+	void setUnits (const string &units) { units_ = units; };
+	void setComment (const string &comment) { comment_ = comment; };
+	void setMin (float min) { min_ = min; };
+	void setMax (float max) { max_ = max; };
+	void setWidgetType (WidgetType widgetType) { widgetType_ = widgetType; };
 
 	float *Allocate (unsigned int elements);
 
-
-	string argName; /* argument's name */
-	int argIndex; /* where in the arg index this arg is located */
-	float *argValues; /* a pointer to an array of values */
-	unsigned int argNum; /* number of elements in argValues */
 	string argPointNode; /* name of the node a pointer points to */
 	string argPointName; /* name of the argument a pointer points to */
 	int argPointNodeID; /* index of the node to which the pointer points */
 	int argPointArgID;  /* index of the arg to which the pointer points */
 	thArg *argPointArg; /* actual pointer to another arg- for midi chan and
 						   note args */
-	thArgType argType; /* is this arg a value or a pointer? */
+	ArgType argType; /* is this arg a value or a pointer? */
+
+	string name_; /* argument's name */
+	int index_; /* where in the arg index this arg is located */
+	float *values_; /* a pointer to an array of values */
+	unsigned int len_; /* number of elements in argValues */
 
 	/* Okay, a bit more info about the data */
-	float argMin, argMax;  /* for knobs and stuff, I'm sure it will be useful
+	float min_, max_;  /* for knobs and stuff, I'm sure it will be useful
 							  elsewhere, too */
-	WidgetType argWidget;  /* XXX We must #define widget types, like slider,
-							   knob, input box, etc etc etc...  This is
-							   optional, and will only really be used by io
-							   node args */
-	/* if argWidget is 0, the parameter is not to be displayed in the UI */
-	string argLabel;  /* This will be displayed in the UI */
-	string argUnits;  /* This will be displayed too...  ms, Hz, sec etc... */
+	WidgetType widgetType_;  /* our widget type */
+	string label_;  /* This will be displayed in the UI */
+	string units_;  /* This will be displayed too...  ms, Hz, sec etc... */
+	string comment_;
 
 	/* In the near future we have to also implement some way of limiting the
 	   values...  like only ints, or only certain fractions (some things will
@@ -91,19 +93,22 @@ public:
 	   could think of NEEDING right now. */
 
 	float operator[] (unsigned int i) const {
-		if(!argNum) {
+		/* empty */
+		if(len_ == 0) 
+		{
 			return 0;
 		}
-		else if(argNum == 1)
+		
+		else if(len_ == 1)
 		{
-			return argValues[0];
+			return values_[0];
 		}
-		else if(i < argNum) {
-			return argValues[i];
+		else if(i < len_) {
+			return values_[i];
 		}
 
 		/* else */
-		return argValues[i%argNum];
+		return values_[i%len_];
 	}
 
 };

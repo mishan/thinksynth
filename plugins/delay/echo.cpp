@@ -1,4 +1,4 @@
-/* $Id: echo.cpp,v 1.9 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: echo.cpp,v 1.10 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -73,12 +73,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 		feedback = (*in_feedback)[i];
 		dry = (*in_dry)[i];
 
-		if(myBufpos > inout_buffer->argNum) {
+		unsigned int inOutLen = inout_buffer->getLen();
+
+		if(myBufpos > inOutLen) {
 			myBufpos = 0;
 		}
 		index = (int)(myBufpos - (*in_delay)[i]);
 		while(index < 0) {
-			index += inout_buffer->argNum;
+			index += inOutLen;
 		}
 		delay = buffer[index];
 

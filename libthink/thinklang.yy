@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.64 2004/10/01 08:35:12 joshk Exp $ */
+/* $Id: thinklang.yy,v 1.65 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -57,7 +57,7 @@ extern "C" int yywrap(void)
 }
 %}
 
-%token NODE IO NAME DESC
+%token NODE IO NAME DESC AUTHOR
 %token MS
 %token WORD 
 %token FLOAT NUMBER
@@ -92,6 +92,8 @@ ionode
 nameset
 |
 descset
+|
+authset
 |
 expression
 {
@@ -241,15 +243,15 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
 
 	if(strcmp($4.str, "min") == 0)
 	{
-		chanarg->SetArgMin($6.floatval);
+		chanarg->setMin($6.floatval);
 	}
 	else if(strcmp($4.str, "max") == 0)
 	{
-		chanarg->SetArgMax($6.floatval);
+		chanarg->setMax($6.floatval);
 	}
 	else if(strcmp($4.str, "widget") == 0)
 	{
-		chanarg->SetArgWidget((thArg::WidgetType)$6.floatval);
+		chanarg->setWidgetType((thArg::WidgetType)$6.floatval);
 	}
 	else
 		printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);
@@ -266,11 +268,11 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 
 	if(strcmp($4.str, "label") == 0)
 	{
-		chanarg->SetArgLabel($6.str);
+		chanarg->setLabel($6.str);
 	}
 	else if(strcmp($4.str, "units") == 0)
 	{
-		chanarg->SetArgUnits($6.str);
+		chanarg->setUnits($6.str);
 	}
 	else
 		printf("ERROR:  Invalid arg parameter '%s <string>'\n", $4.str);
@@ -284,21 +286,33 @@ IO WORD
 }
 ;
 
+authset:
+AUTHOR STRING
+{
+	thArg *autharg = new thArg("author", NULL, 0);
+	autharg->setComment($2.str);
+
+	parsemod->SetChanArg(autharg);
+}
+;
+
 nameset:
 NAME STRING
 {
-	parsemod->SetName($2.str);
-	free($2.str);
-	debug("DSP Name: %s", parsemod->GetName().c_str());
+	thArg *namearg = new thArg("name", NULL, 0);
+	namearg->setComment($2.str);
+
+	parsemod->SetChanArg(namearg);
 }
 ;
 
 descset:
 DESC STRING
 {
-	parsemod->SetDesc($2.str);
-	free($2.str);
-	debug("DSP Description: %s", parsemod->GetDesc().c_str());
+	thArg *descarg = new thArg("desc", NULL, 0);
+	descarg->setComment($2.str);
+
+	parsemod->SetChanArg(descarg);
 };
 
 assignments:
@@ -310,7 +324,6 @@ assignment:
 WORD ASSIGN expression
 {
 //	XXX - MORE FIXING
-//	modify_num(&targs, (char *)$1.str, $3.floatval);
 
 	float *copy = new float[1];
 	*copy = $3.floatval;

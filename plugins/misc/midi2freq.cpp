@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.16 2004/09/08 22:32:52 misha Exp $ */
+/* $Id: midi2freq.cpp,v 1.17 2004/10/01 08:52:26 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -60,7 +60,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_note->GetBuffer(buf_in, windowlen);
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	argnum = (unsigned int) in_note->argNum;
+	argnum = (unsigned int) in_note->getLen();
 	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {

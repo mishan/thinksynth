@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.14 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: fir.cpp,v 1.15 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -49,14 +49,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i, j;
 	int index;
 	float impulse, mix;
+	unsigned int impulse_len;
 
 	in_arg = mod->GetArg(node, "in");
 	in_impulse = mod->GetArg(node, "impulse");
 	in_mix = mod->GetArg(node, "mix");
 
+	impulse_len = in_impulse->getLen();
+
 	inout_buffer = mod->GetArg(node, "buffer");
 	inout_bufpos = mod->GetArg(node, "bufpos");
-	buffer = inout_buffer->Allocate(in_impulse->argNum);
+	buffer = inout_buffer->Allocate(impulse_len);
 	bufpos = inout_bufpos->Allocate(1);
 
 	out_arg = mod->GetArg(node, "out");
@@ -65,15 +68,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	for(i=0;i<windowlen;i++) {
 		out[i] = 0;
 
-		if(*bufpos > inout_buffer->argNum) {
+		if(*bufpos > inout_buffer->getLen()) {
 			*bufpos = 0;
 		}
 		buffer[(int)*bufpos] = (*in_arg)[i];
 
-		for(j = 0; j < in_impulse->argNum; j++) {
+		for(j = 0; j < impulse_len; j++) {
 			index = (int)*bufpos - j;
 			if(index < 0) {
-				index += in_impulse->argNum;
+				index += impulse_len;
 			}
 			impulse = (*in_impulse)[j];
 			if(impulse) {

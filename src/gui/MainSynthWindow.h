@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.15 2004/09/16 09:36:40 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.16 2004/10/01 08:52:26 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,8 +41,6 @@ protected:
 	void menuJackTry (void);
 	void menuJackDis (void);
 	void menuJackAuto (void);
-
-	void sliderChanged (Gtk::HScale *, thArg *);
 
 	void populate (void);
 

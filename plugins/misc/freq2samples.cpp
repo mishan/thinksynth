@@ -1,4 +1,4 @@
-/* $Id: freq2samples.cpp,v 1.6 2004/09/08 22:32:52 misha Exp $ */
+/* $Id: freq2samples.cpp,v 1.7 2004/10/01 08:52:26 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,7 +50,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_freq = mod->GetArg(node, "freq");
 
 	out_arg = mod->GetArg(node, "out");
-	argnum = (unsigned int) in_freq->argNum;
+	argnum = (unsigned int) in_freq->getLen();
 	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {

@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.88 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thMod.cpp,v 1.89 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -210,14 +210,14 @@ void thMod::PrintIONode (void)
 
 void thMod::SetChanArg (thArg *arg)
 {
-	thArg *oldArg = chanargs[arg->GetArgName()];
+	thArg *oldArg = chanargs[arg->getName()];
 
 	if (oldArg)
 	{
 		delete oldArg;
 	}
 
-	chanargs[arg->GetArgName()] = arg;
+	chanargs[arg->getName()] = arg;
 }
 
 void thMod::Process (unsigned int windowlen)
@@ -424,7 +424,7 @@ void thMod::SetPointers (void)
 						tmp[0] = 0;
 						arg = node->SetArg(curarg->argPointName, tmp, 1);
 
-						node->GetArgTree()[arg->argName] = arg;
+						node->GetArgTree()[arg->getName()] = arg;
 					} 
 					curarg->argPointNodeID = node->GetID();
 					curarg->argPointArgID = arg->GetIndex();

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.41 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.42 2004/10/01 08:52:26 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,6 +36,7 @@
 #include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
 #include "AboutBox.h"
+#include "ArgTable.h"
 
 #ifdef HAVE_JACK
 # include "../gthJackAudio.h"
@@ -171,7 +172,8 @@ void MainSynthWindow::populateMenu (void)
 	{
 		Gtk::Menu::MenuList &menulist = menuJack.items();
 		Gtk::CheckMenuItem *elem;
-		sigc::slot0<void> autoslot = sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto);
+		sigc::slot0<void> autoslot =
+			sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto);
 		string** vals;
 		bool sel;
 		
@@ -317,11 +319,6 @@ void MainSynthWindow::menuAbout (void)
 		sigc::mem_fun(*this, &MainSynthWindow::onAboutBoxHide));
 }
 
-void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
-{
-	arg->argValues[0] = slider->get_value();
-}
-
 void MainSynthWindow::populate (void)
 {
 	/* populate notebook */
@@ -341,7 +338,6 @@ void MainSynthWindow::populate (void)
 
 		std::map<string, thArg *> args = synth->GetChanArgs(i->first);
 		
-		
 		/* only 'amp' */
 		if (args.size() == 1)
 		{
@@ -351,8 +347,32 @@ void MainSynthWindow::populate (void)
 			continue;
 		}
 		
-		Gtk::Table *table = manage(new Gtk::Table(args.size(), 3));
-		int row = 0;
+		Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
+		Gtk::Frame *info_frame = manage(new Gtk::Frame);
+		Gtk::Table *info_table = manage(new Gtk::Table(2, 2));
+
+		info_frame->set_label("DSP Information");
+		info_frame->add(*info_table);
+
+		thArg *dspName = args["name"];
+
+		if (dspName)
+		{
+			Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
+			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->getComment()));
+		
+			info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+			info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+		}
+
+		Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
+		ArgTable *dsp_table = manage(new ArgTable);
+
+		dsp_frame->set_label("DSP Parameters");
+		dsp_frame->add(*dsp_table);
+
+		tab_vbox->pack_start(*info_frame, Gtk::PACK_SHRINK);
+		tab_vbox->pack_start(*dsp_frame);
 
 		/* populate each tab */
 		for (std::map<string, thArg *>::iterator j = args.begin();
@@ -364,44 +384,13 @@ void MainSynthWindow::populate (void)
 			if (arg == NULL)
 				continue;
 
-			switch (arg->argWidget)
+			switch (arg->getWidgetType())
 			{
 				case thArg::HIDE:
 					break;
 				case thArg::SLIDER:
 				{
-					Gtk::Label *label = manage(new Gtk::Label(
-											   arg->argLabel.length() > 0 ? 
-											   arg->argLabel : argName));
-
-					Gtk::HScale *slider = manage(new Gtk::HScale(arg->argMin,
-																 arg->argMax,
-																 .0001));
-					Gtk::Adjustment *argAdjust = slider->get_adjustment();
-
-					slider->set_draw_value(false);
-
-					slider->signal_value_changed().connect(
-						sigc::bind<Gtk::HScale *, thArg *>(
-							sigc::mem_fun(*this, &MainSynthWindow::sliderChanged),
-							slider, arg));
-
-					slider->set_value(arg->argValues[0]);
-
-					Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
-														   *argAdjust, .0001,
-														   4));
-
-					table->attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
-								  Gtk::SHRINK);
-					table->attach(*slider, 1, 2, row, row+1,
-								  Gtk::EXPAND|Gtk::FILL,
-								  Gtk::EXPAND|Gtk::FILL);
-					table->attach(*valEntry, 2, 3, row, row+1,
-								  Gtk::SHRINK|Gtk::FILL,
-								  Gtk::SHRINK|Gtk::FILL);
-					row++;
-
+					dsp_table->insertArg(arg);
 					break;				
 				}
 				default:
@@ -409,7 +398,7 @@ void MainSynthWindow::populate (void)
 			}
 		}
 
-		notebook.append_page(*table, tabName);
+		notebook.append_page(*tab_vbox, tabName);
 	}
 
 }

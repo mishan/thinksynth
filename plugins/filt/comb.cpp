@@ -1,4 +1,4 @@
-/* $Id: comb.cpp,v 1.4 2004/09/16 10:32:24 misha Exp $ */
+/* $Id: comb.cpp,v 1.5 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -88,7 +88,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	for(i = 0; i < windowlen; i++) {
 		period = samples / buf_freq[i];
 
-		if(*bufpos > inout_buffer->argNum) {
+		if(*bufpos > inout_buffer->getLen()) {
 			*bufpos = 0;
 		}
 		if(*bufpos > period) {

@@ -1,4 +1,4 @@
-/* $Id: midi2range.cpp,v 1.3 2004/09/08 22:32:52 misha Exp $ */
+/* $Id: midi2range.cpp,v 1.4 2004/10/01 08:52:26 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -58,7 +58,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_arg = mod->GetArg(node, args[IN_ARG]);
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	argnum = (unsigned int) in_arg->argNum;
+	argnum = (unsigned int) in_arg->getLen();
 	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {

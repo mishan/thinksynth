@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.59 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thNode.cpp,v 1.60 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -125,29 +125,18 @@ void thNode::CopyArgs (const map<string, thArg*> &newargs)
 {
 	thArg *newarg;
 	thArg *data;
-	float *newvalues;
 	thArg **newindex;
 
 	for (map<string,thArg*>::const_iterator i = (newargs).begin(); i != (newargs).end(); i++)
 	{
 		data = i->second;
-		if(data->argType == thArg::ARG_VALUE) {
-			newvalues = new float[data->argNum];
-			memcpy(newvalues, data->argValues, data->argNum*sizeof(float));
-			newarg = new thArg(data->argName, newvalues, data->argNum);
-		}
-		else if(data->argType == thArg::ARG_POINTER) {
-			newarg = new thArg(data->argName, data->argPointNode,
-							   data->argPointName);
-			newarg->argPointNodeID = data->argPointNodeID;
-			newarg->argPointArgID = data->argPointArgID;
-		}
-		else if(data->argType == thArg::ARG_CHANNEL) {
-			newarg = new thArg(data->argName, data->argPointName);
-			newarg->argPointArg = data->argPointArg;
-		}
-		else continue;
-		args[data->argName] = newarg;
+
+		if (data->argType == thArg::ARG_NOTE)
+			continue;
+
+		newarg = new thArg(data);
+
+		args[data->getName()] = newarg;
 
 		newarg->SetIndex(data->GetIndex());
 		while(newarg->GetIndex() > argsize)

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.106 2004/10/01 08:35:12 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.107 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -241,7 +241,7 @@ int thSynth::SetChanArgData (int channum, const string &argname, float *data, in
 	argp = chan->GetArg(argname);
 	buffer = argp->Allocate(len);
 	memcpy(buffer, data, len * sizeof(float));
-	argp->argNum = len;
+	argp->len_ = len;
 
 	return 1;
 }

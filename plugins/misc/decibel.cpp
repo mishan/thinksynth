@@ -1,4 +1,4 @@
-/* $Id: decibel.cpp,v 1.8 2004/09/08 22:32:52 misha Exp $ */
+/* $Id: decibel.cpp,v 1.9 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,7 +50,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	db = mod->GetArg(node, "db");
 
 	out_arg = mod->GetArg(node, "out");
-	argnum = (unsigned int)db->argNum;
+	argnum = (unsigned int)db->getLen();
 	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {

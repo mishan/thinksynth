@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.76 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.77 2004/10/01 08:52:25 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -46,7 +46,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	args[string("amp")] = new thArg(string("amp"), allocatedamp, 1);
 
 	chanarg = modnode->GetArg("channels");
-	channels = (int)chanarg->argValues[0];
+	channels = (int)chanarg->values_[0];
 
 	output = new float[channels*windowlen];
 	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
@@ -66,14 +66,14 @@ thMidiChan::~thMidiChan (void)
 
 void thMidiChan::SetArg (thArg *arg)
 {
-	thArg *oldArg = args[arg->GetArgName()];
+	thArg *oldArg = args[arg->getName()];
 
 	if (oldArg)
 	{
 		delete oldArg;
 	}
 
-	args[arg->GetArgName()] = arg;
+	args[arg->getName()] = arg;
 }
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
@@ -137,22 +137,13 @@ int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
 void thMidiChan::CopyChanArgs (thMod *mod)
 {
 	thArg *data, *newdata;
-	float *newvalues;
 	map<string, thArg*> sourceargs = mod->GetChanArgs();
 
 	for (map<string,thArg*>::const_iterator i = sourceargs.begin(); i != sourceargs.end(); i++)
 	{
 		data = i->second;
 
-		newvalues = (float *)malloc(data->argNum * sizeof(float));
-
-		memcpy(newvalues, data->argValues, data->argNum * sizeof(float));
-		newdata = new thArg(data->GetArgName(), newvalues, data->argNum);
-		newdata->SetArgLabel(data->GetArgLabel());
-		newdata->SetArgUnits(data->GetArgUnits());
-		newdata->SetArgMin(data->GetArgMin());
-		newdata->SetArgMax(data->GetArgMax());
-		newdata->SetArgWidget(data->GetArgWidget());
+		newdata = new thArg(data);
 
 		args[(*i).first] = newdata;
 	}
