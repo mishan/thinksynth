@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.71 2003/05/06 09:11:44 ink Exp $ */
+/* $Id: main.cpp,v 1.72 2003/05/06 09:17:48 aaronl Exp $ */
 
 #include "config.h"
 
@@ -38,7 +38,6 @@ int main (int argc, char *argv[])
 	thWav *outputwav = NULL;
 	signed short *outputbuffer;
 	float *mixedbuffer;
-	thWavException e;
 
 	plugin_path = strdup(PLUGIN_PATH);
 	plugin_len = strlen(plugin_path);
