@@ -14,6 +14,7 @@ Cygwin			no		no
 Darwin			???		???
 
 IRIX			???		???
+| waiting on mdl to install soundcard dev headers for sys/soundcard.h
 
 Solaris			???		???
 
@@ -21,4 +22,4 @@ HP-UX			???		???
 
 Update this file as ports continue to progress.
 
-$Id: PORTING,v 1.4 2003/05/07 17:55:43 aaronl Exp $
+$Id: PORTING,v 1.5 2003/05/08 04:52:37 joshk Exp $
