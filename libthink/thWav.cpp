@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.21 2003/05/06 07:53:56 misha Exp $ */
+/* $Id: thWav.cpp,v 1.22 2003/05/06 19:39:36 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -101,19 +101,7 @@ int thWav::Write (void *data, int len)
 		r = write(fd, ((unsigned char *)data), len);
 		break;
 	case 16:
-	{
-		int i, c, l;
-		
-		for(i = 0; i < len; i += fmt.channels) {
-			for(c = 0; c < fmt.channels; c++) {
-				/* if data is 16bit, then it must be signed */
-				if((l = lewrite16(fd, ((signed short *)data)[c+i])) < 0) {
-					/* XXX: handle error */
-				}
-				else { r += l; }
-			}
-		}
-	}
+		write(fd, data, len*sizeof(short));
 	}
 
 	return r;

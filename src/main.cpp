@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.74 2003/05/06 18:08:09 misha Exp $ */
+/* $Id: main.cpp,v 1.75 2003/05/06 19:39:36 aaronl Exp $ */
 
 #include "config.h"
 
@@ -21,6 +21,7 @@
 #include "thException.h"
 #include "thAudio.h"
 #include "thWav.h"
+#include "thEndian.h"
 
 #include "parser.h"
 
@@ -141,8 +142,8 @@ syntax:
 
 		Synth.Process();
 		for(j=0; j < buflen; j++) {
-			outputbuffer[j] = (signed short)(((float)mixedbuffer[j]/TH_MAX)
-											 *32767);
+			le16(outputbuffer[j], (signed short)(((float)mixedbuffer[j]/TH_MAX)
+											 *32767));
 		}
 		outputwav->Write(outputbuffer, buflen);
 	}

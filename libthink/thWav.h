@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.7 2003/04/27 04:43:46 misha Exp $ */
+/* $Id: thWav.h,v 1.8 2003/05/06 19:39:36 aaronl Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -58,6 +58,7 @@ public:
 	/* our deconstructor, should close fd */
 	virtual ~thWav();
 
+	/* Len is the total number of samples. Data must be byteswapped if necessary. */
  	int Write(void *data, int len);
 	int Read(void *data, int len);
 
