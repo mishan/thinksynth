@@ -1,3 +1,5 @@
+/* $Id: Keyboard.cpp,v 1.6 2004/04/04 04:55:20 misha Exp $ */
+
 #include "config.h"
 #include "think.h"
 
