@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.80 2004/04/02 08:14:56 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.81 2004/04/02 08:15:40 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -88,6 +88,11 @@ thMod * thSynth::LoadMod (const string &filename)
 	else if (S_ISDIR(dspinfo.st_mode))
 	{
 		fprintf(stderr, "%s is a directory\n", filename.c_str());
+
+#ifdef EISDIR
+		errno = EISDIR; /* XXX */
+#endif
+
 		return NULL;
 	}
 
