@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.54 2004/12/22 04:19:59 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.55 2004/12/22 08:00:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,6 +22,7 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 #include <string.h>
 #include <errno.h>
 #include <libgen.h>
@@ -286,16 +287,28 @@ void PatchSelWindow::SavePatch (void)
 
 		if (prevDir)
 			fileSel.set_filename(prevDir);
-
+		
 		if(fileSel.run() == Gtk::RESPONSE_OK)
 		{
 			char *file = strdup(fileSel.get_filename().c_str());
+			gthPatchManager::PatchFile *patch = NULL;
 			const char *b = NULL;
 			gthPrefs *prefs = NULL;
 			string **vals = NULL;
+			int chan = (*iter)[patchViewCols.chanNum]-1;
+
+			assert (chan == currchan);
+		
+			/* cull metadata */
+			patch = patchManager->getPatch(chan);
+
+			patch->info["revised"] = patchRevised.get_text();
+			patch->info["category"] = patchCategory.get_text();
+			patch->info["author"] = patchAuthor.get_text();
+			patch->info["title"] = patchTitle.get_text();
+			patch->info["comments"] = patchComments.get_buffer()->get_text();
 			
-			patchManager->savePatch(fileSel.get_filename(),
-									(*iter)[patchViewCols.chanNum]-1);
+			patchManager->savePatch(fileSel.get_filename(), chan);
 
 			/* update prefs file "prevDir" info */
 			fileEntry.set_text(fileSel.get_filename());
@@ -305,7 +318,7 @@ void PatchSelWindow::SavePatch (void)
 			/* update patch window with new name */
 			(*iter)[patchViewCols.dspName] = b;
 
-			m_signal_patch_name_changed((*iter)[patchViewCols.chanNum]-1, b);
+			m_signal_patch_name_changed(chan, b);
 
 			if (prevDir)
 				free (prevDir);
@@ -342,6 +355,9 @@ void PatchSelWindow::SetChannelAmp (void)
 		{
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			float *val = new float;
+
+			assert (chanNum == currchan);
+
 			*val = (float)dspAmp.get_value();
 			thArg *arg = new thArg(string("amp"), val, 1);
 
@@ -435,6 +451,8 @@ void PatchSelWindow::CursorChanged (void)
 			saveButton.set_sensitive(loaded);
 		}
 	}
+	else
+		currchan = -1;
 }
 
 void PatchSelWindow::populate (void)
