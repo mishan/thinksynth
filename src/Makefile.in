@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.35 2004/04/09 19:33:44 aaronl Exp $
+# $Id: Makefile.in,v 1.36 2004/04/15 07:41:17 misha Exp $
 
 BINARY = thinksynth
 
@@ -12,9 +12,9 @@ include ../build.mk
 
 PICFLAGS =
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@
-LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink
+LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink -ljack
 
-MAINOBJS = main.o ui.o prefs.o $(WIDGETOBJS) thALSAAudio.o thOSSAudio.o thWav.o
+MAINOBJS = main.o ui.o prefs.o $(WIDGETOBJS) thfALSAMidi.o thfJackAudio.o thALSAAudio.o thOSSAudio.o thWav.o
 MONOMAINOBJS = monotest.o thALSAAudio.o thWav.o
 WIDGETOBJS = MainSynthWindow.o PatchSelWindow.o Keyboard.o KeyboardWindow.o
 
