@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.22 2003/04/27 00:02:50 joshk Exp $
+dnl $Id: configure.ac,v 1.23 2003/04/27 07:44:24 joshk Exp $
 
 AC_INIT
 
@@ -27,7 +27,7 @@ YACC_LANG=CXX
 
 AM_PROG_LEX
 
-if test "`basename $LEX`" = "missing"; then
+if test `expr "$LEX" : .*missing 2>/dev/null` -ne 0; then 
 	AC_MSG_ERROR([A lex implementation is required to build this program.])
 fi
 
@@ -63,7 +63,7 @@ if test "_$sedpath" = _; then
 	AC_MSG_ERROR("Cannot find sed: I need it\!")
 fi
 
-CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
+CXXFLAGS="-Wall -pedantic -ffast-math"
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
@@ -79,14 +79,17 @@ dnl Others may have it in libc_r
 	lcr_for_dl=yes
 ],
 
+	[AC_CHECK_LIB(cygwin, dlopen,
+		[LIBS="$LIBS -lcygwin"],
 dnl We need at least one of these
-[AC_MSG_ERROR([No dlopen implementation found on your system. Sorry.])])])
+[AC_MSG_ERROR([No dlopen implementation found on your system. Sorry.])])])])
 
 dnl Be smart this time round
 if test "$lcr_for_dl" = yes; then
 	AC_CHECK_LIB(c_r, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
 else
-	AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
+	AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],
+		[AC_CHECK_LIB(cygwin, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)])
 fi
 
 AC_PATH_PROG(unamepath, uname)
@@ -96,16 +99,26 @@ else
 	AC_MSG_CHECKING(system type)
 	system=`$unamepath -s`
 	AC_MSG_RESULT($system)
-	if test "$system" = "Linux"; then
-		AC_DEFINE([USING_LINUX], 1, [Define if using Linux])
-	fi
-	if test "$system" = "FreeBSD"; then
-		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
-		CXXFLAGS="$CXXFLAGS -Wno-long-long"
-	fi
-	if test "$system" = "Darwin"; then
-	        CXXFLAGS="$CXXFLAGS -traditional-cpp"
-	        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
+	case "$system" in
+		Linux)
+			AC_DEFINE([USING_LINUX], 1, [Define if using Linux])
+		;;
+		FreeBSD)
+			AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
+			CXXFLAGS="$CXXFLAGS -Wno-long-long"
+		;;
+		Darwin)
+		        CXXFLAGS="$CXXFLAGS -traditional-cpp"
+		        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
+		;;
+		CYGWIN*)
+			AC_DEFINE([USING_CYGWIN], 1, [Define if using Cygwin/Win32])
+		;;
+	esac
+	
+	dnl Cygwin's g++ port doesn't support this, just kill some warnings
+	if test `expr $system : CYGWIN` -eq 0; then
+		CXXFLAGS="$CXXFLAGS -rdynamic"
 	fi
 fi
 
