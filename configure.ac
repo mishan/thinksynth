@@ -83,13 +83,15 @@ dnl Debug is enabled:
 	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
 	CXXFLAGS="$CXXFLAGS -g -ggdb"
 	
-	dnl thinklang is too fucking broken, efence will die in yyparse()
-	dnl so let's disable this for now
-	dnl AC_CHECK_LIB(efence, malloc, [LIBS="$LIBS -lefence"])
-	
 	debug=yes
 ])
 
+AC_ARG_ENABLE(efence,
+	[AC_HELP_STRING([--enable-efence],[Enable ElectricFence in the build])],
+	[AC_CHECK_LIB(efence, malloc,
+		[LIBS="$LIBS -lefence"],
+		[AC_MSG_WARN([--enable-efence specified but could not link to it - disabling])])])
+	
 AC_ARG_ENABLE(,,,)
 
 AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installed])
