@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.77 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thMod.cpp,v 1.78 2004/04/08 13:33:30 ink Exp $ */
 
 #include "config.h"
 
@@ -24,6 +24,7 @@ thMod::thMod (const thMod &oldmod)
 	nodecount = oldmod.GetNodeCount();
 	modname = oldmod.GetName();
 
+	newnode->SetArgCount(oldionode->GetArgCount());
 	newnode->CopyArgs(oldionode->GetArgTree());
 
 	NewNode(newnode, oldionode->GetID());
@@ -57,6 +58,8 @@ void thMod::CopyHelper (thNode *parentnode)
 
 				argtree = data->GetArgTree();
 
+				newnode->SetArgCount(data->GetArgCount());
+
 				if(!argtree.empty()) {
 					newnode->CopyArgs(argtree);
 				}
@@ -69,6 +72,7 @@ thArg *thMod::GetArg (const string &nodename, const string &argname)
 {
 	map<string, thNode*>::const_iterator i;
 	i = modnodes.find(modname);
+
 	if (i == modnodes.end())
 	{
 		printf("WARNING!!  Trying to get args from nonexistant node %s\n", nodename.c_str());
@@ -82,6 +86,8 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 {
 	thArg *args;
 	float *tmp;
+	string argpointname;
+
 
 	args = node->GetArg(argname);
 
@@ -91,25 +97,52 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 		tmp[0] = 0;
 		args = node->SetArg(argname, tmp, 1);
 	}
-
+	
 	while (args && (args->argType == ARG_POINTER) && node) { 
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
 //		if (i != modnodes.end()) {
 //			node = i->second;
+		
+		node = nodeindex[args->argPointNodeID];
+		//printf("Arg Point: %s (%i)\n", args->argPointName.c_str(), args->argPointArgID);
+		//args = node->GetArg(args->argPointName);
+		argpointname = args->argPointName; /* the arg this arg points to */
+		args = node->GetArg(args->argPointArgID);
+		/* If the arg doesnt exist, make it a 0 */
+		if(args == NULL) {
+			tmp = new float[1];
+			tmp[0] = 0;
+			args = node->SetArg(argpointname, tmp, 1);
+			//args->SetIndex(node->AddArgToIndex(args));
+		}
+		/*}
+		  else {
+		  printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", node->GetName().c_str(), args->argPointNode.c_str());
+		  }*/
+	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
-			node = nodeindex[args->argPointNodeID];
-			args = node->GetArg(args->argPointName);
-			/* If the arg doesnt exist, make it a 0 */
-			if(args == NULL) {
-				tmp = new float[1];
-				tmp[0] = 0;
-				args = node->SetArg(argname, tmp, 1);
-				}
-			/*}
-			else {
-			printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", node->GetName().c_str(), args->argPointNode.c_str());
-			}*/
+	return args;
+}
+
+thArg *thMod::GetArg (thNode *node, int argindex)
+  /* Follow pointers and return a thArg of a float string */
+{
+	thArg *args;
+	
+	args = node->GetArg(argindex);
+		
+	while (args && (args->argType == ARG_POINTER) && node) { 
+		/* Recurse through the list of pointers until we get a real value. */
+//		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
+//		if (i != modnodes.end()) {
+//			node = i->second;		
+		node = nodeindex[args->argPointNodeID];
+		args = node->GetArg(args->argPointArgID);
+		
+		if(args == NULL) {
+			printf("ERROR!  INDEXED NODE POINTS TO NOWHERE!\n");
+		}
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
 	return args;
@@ -203,11 +236,101 @@ void thMod::SetActiveNodesHelper(thNode *node)
 	}
 }
 
+void thMod::BuildArgMap (void)
+{
+	thNode *curnode;  /* current node and arg in the loops */
+	thArg *curarg;
+	thPlugin *plugin;
+
+	float *tmp;
+	int index;
+	int registeredargs = 0;
+
+	int k;
+
+	map<string,thArg*> argiterator;
+	
+	/* for every node in the thMod */
+	for (map<string, thNode*>::const_iterator i = modnodes.begin();
+		 i != modnodes.end(); i++)
+	{
+		curnode = i->second;
+		if(!curnode)
+		{
+			fprintf(stderr, "thMod::BuildArgMap: curnode points to NULL\n");
+		}
+
+/* XXXXXXXXXXXXXX: RIGHT NOW the parser indexes the nodes as it reads them, it
+should not do this.  Until that is fixed (won't take long) we set the counter
+to 0 here and set the index of each node to -1 when it is first created. */
+		curnode->SetArgCount(0);
+
+
+		/* first, set up the args that the plugin registered */
+		plugin = curnode->GetPlugin(); /* get the node's plugin */
+		if(plugin != NULL) /* don't do this for nodes with no plugin */
+		{
+			registeredargs = plugin->GetArgs();
+
+			if(registeredargs == 0)
+			{
+				printf("WARNING: Node %s has registered 0 args.  It is probably doing things the old, slow way.\n", curnode->GetName().c_str());
+			}
+			else
+			{
+				for (k = 0; k < registeredargs; k++)
+				{
+					curarg = curnode->GetArg(plugin->GetArgName(k));
+					/* if the arg does not exist, set it to 0 */
+					if(curarg == NULL)
+					{
+						tmp = new float[1];
+						tmp[0] = 0;
+						curarg = curnode->SetArg(plugin->GetArgName(k), tmp, 1);
+					}
+					else
+					{
+						index = curnode->AddArgToIndex(curarg);
+						curarg->SetIndex(index);
+					}
+
+				}
+			}
+		}
+	
+		argiterator = curnode->GetArgTree();
+		
+		/* We don't need any of this because now the index is assigned via SetArg */
+		/* for each thArg inside each thNode inside the thMod */
+		for (map<string, thArg*>::const_iterator j = argiterator.begin();
+			 j != argiterator.end(); j++)
+		{
+			curarg = j->second;
+			if(!curarg)
+			{
+				fprintf(stderr, "thMod::BuildArgMap: curarg points to NULL\n");
+			}
+			else
+			{
+				if(curarg->GetIndex() < 0) /* has not been indexed yet */
+				{
+					/* add the node to the index */
+					index = curnode->AddArgToIndex(curarg);
+					curarg->SetIndex(index);	
+				}
+			}
+		}
+	}
+}
+
 void thMod::SetPointers (void)
 {
 	thNode *node;     /* for referencing nodes that curnode points to */
 	thNode *curnode;  /* current node and arg in the loops */
+	thArg *arg;
 	thArg *curarg;
+	int index;
+	float *tmp;
 
 	map<string,thArg*> argiterator;
 	
@@ -243,8 +366,25 @@ void thMod::SetPointers (void)
 					printf("SetPointers: Node %s not found!!\n",
 						   curarg->argPointNode.c_str());
 				}
+				else
+				{
+					
+					arg = node->GetArg(curarg->argPointName);
+					
+					/* if the arg does not exist, set it to 0 */
+					if(arg == NULL)
+					{
+						tmp = new float[1];
+						tmp[0] = 0;
+						arg = node->SetArg(curarg->argPointName, tmp, 1);
+						//index = node->AddArgToIndex(arg);
+						//arg->SetIndex(index);
 
-				curarg->argPointNodeID = node->GetID();
+						node->GetArgTree()[arg->argName] = arg;
+					} 
+					curarg->argPointNodeID = node->GetID();
+					curarg->argPointArgID = arg->GetIndex();
+				}
 			}
 		}
 	}

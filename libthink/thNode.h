@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.39 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thNode.h,v 1.40 2004/04/08 13:33:30 ink Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -15,9 +15,18 @@ public:
 	thArg *SetArg (const string &name, float *value, int num);
 	thArg *SetArg (const string &name, const string &node, const string &value);
 
+	int AddArgToIndex (thArg *arg);
+
+	void SetArgCount (int argcnt) { argcounter = argcnt; };
+
+	int GetArgCount (void) { return argcounter; };
+
 	map<string,thArg*> GetArgTree (void) const { return args; }
 	
 	thArg *GetArg (const string &name) { return args[name]; };
+
+	thArg *GetArg (int index) { return argindex[index]; };
+
 	void PrintArgs (void);
 
 	void SetID (int newid) { id = newid; }
@@ -46,6 +55,11 @@ public:
 
 private:
 	map<string, thArg*> args;
+
+	thArg **argindex;
+	int argcounter;
+	int argsize;
+
 	list<thNode*> parents, children;
 	thPlugin *plugin;
 	

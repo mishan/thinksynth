@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.50 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thinklang.yy,v 1.51 2004/04/08 13:33:30 ink Exp $ */
 
 %{
 #include "config.h"
@@ -221,7 +221,8 @@ WORD ASSIGN expression
 
 	float *copy = new float[1];
 	*copy = $3.floatval;
-	parsenode->SetArg($1.str, copy, 1);
+	parsenode->SetArg($1.str, copy, 1)->SetIndex(-1); /* XXX: This is sorta
+										hackish, make it not index it here */
 	free($1.str);
 }
 |
@@ -244,8 +245,8 @@ WORD ASSIGN fstr
 	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
 	arg[argsize] = 0;
-	parsenode->SetArg($1.str, node, arg);
-
+	parsenode->SetArg($1.str, node, arg)->SetIndex(-1); /* XXX: This is sorta
+										hackish, make it not index it here */
 	delete[] node;
 	delete[] arg;
 	delete[] $3.str;

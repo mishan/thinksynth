@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.29 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thArg.h,v 1.30 2004/04/08 13:33:30 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -19,15 +19,20 @@ class thArg {
 	void SetAllocatedArg(const string &name, float *value, const int num);
 	void SetArg(const string &name, const string &node, const string &value);
 
+	void SetIndex (int i) { argIndex = i; };
+	int GetIndex (void) { return argIndex; };
+
 	string GetArgName (void) const { return argName; };
 
 	float *Allocate (unsigned int elements);
 	string argName; /* argument's name */
+	int argIndex; /* where in the arg index this arg is located */
 	float *argValues; /* a pointer to an array of values */
 	unsigned int argNum; /* number of elements in argValues */
 	string argPointNode; /* name of the node a pointer points to */
 	string argPointName; /* name of the argument a pointer points to */
 	int argPointNodeID; /* index of the node to which the pointer points */
+	int argPointArgID;  /* index of the arg to which the pointer points */
 	int argType; /* is this arg a value or a pointer? */
 	float operator[] (unsigned int i) const {
 		if(!argNum) {

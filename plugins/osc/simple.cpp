@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.43 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: simple.cpp,v 1.44 2004/04/08 13:33:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,7 +8,18 @@
 
 #include "think.h"
 
+#include "thArg.h"
+#include "thPlugin.h"
+#include "thPluginManager.h"
+#include "thNode.h"
+#include "thMod.h"
+#include "thSynth.h"
+
 #define SQR(x) ((x)*(x))
+
+enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL, OUT_ARG, OUT_SYNC, INOUT_LAST};
+
+int args[INOUT_LAST + 1];
 
 char		*desc = "Basic Oscillator";
 thPluginState	mystate = thActive;
@@ -25,6 +36,20 @@ int module_init (thPlugin *plugin)
 	printf("Simple Oscillator plugin loaded\n");
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
+
+	args[IN_FREQ] = plugin->RegArg("freq");
+	args[IN_AMP] = plugin->RegArg("amp");
+	args[IN_PW] = plugin->RegArg("pw");
+	args[IN_WAVEFORM] = plugin->RegArg("waveform");
+	args[IN_FM] = plugin->RegArg("fm");
+	args[IN_FMAMT] = plugin->RegArg("fmamt");
+	args[IN_RESET] = plugin->RegArg("reset");
+	args[IN_MUL] = plugin->RegArg("mul");
+
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_SYNC] = plugin->RegArg("sync");
+
+	args[INOUT_LAST] = plugin->RegArg("last");
 
 	return 0;
 }
@@ -45,25 +70,25 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *out_arg, *out_sync;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, "out");
-	out_sync = mod->GetArg(node, "sync"); /* Output a 1 when the wave begins 
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_sync = mod->GetArg(node, args[OUT_SYNC]); /* Output a 1 when the wave begins 
 											 its cycle */
-	inout_last = mod->GetArg(node, "last");
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	out_last = inout_last->Allocate(1);
 	sync = out_sync->Allocate(windowlen);
 
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, "freq");
-	in_amp = mod->GetArg(node, "amp");
-	in_pw = mod->GetArg(node, "pw");
-	in_waveform = mod->GetArg(node, "waveform");
-	in_fm = mod->GetArg(node, "fm"); /* FM Input */
-	in_fmamt = mod->GetArg(node, "fmamt"); /* Modulation amount */
-	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this 
+	in_freq = mod->GetArg(node, args[IN_FREQ]);
+	in_amp = mod->GetArg(node, args[IN_AMP]);
+	in_pw = mod->GetArg(node, args[IN_PW]);
+	in_waveform = mod->GetArg(node, args[IN_WAVEFORM]);
+	in_fm = mod->GetArg(node, args[IN_FM]); /* FM Input */
+	in_fmamt = mod->GetArg(node, args[IN_FMAMT]); /* Modulation amount */
+	in_reset = mod->GetArg(node, args[IN_RESET]); /* Reset position to 0 when this 
 											  goes to 1 */
-	in_mul = mod->GetArg(node, "mul");  /* Multiply the wavelength by this */
+	in_mul = mod->GetArg(node, args[IN_MUL]);  /* Multiply the wavelength by this */
 
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];

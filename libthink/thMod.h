@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.34 2004/03/26 08:50:07 joshk Exp $ */
+/* $Id: thMod.h,v 1.35 2004/04/08 13:33:30 ink Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -19,6 +19,7 @@ public:
 	};
 	thArg *GetArg (const string &nodename, const string &argname);
 	thArg *GetArg (thNode *node, const string &argname);
+	thArg *GetArg (thNode *node, int index);
 	thArg *GetArg (const string &argname) { return GetArg(ionode, argname); }
 
 	void NewNode(thNode *node);
@@ -38,6 +39,8 @@ public:
 	void Process (unsigned int windowlen);
 
 	void SetActiveNodes(void);
+
+	void BuildArgMap (void);
 
 	void SetPointers (void);
 

@@ -1,8 +1,10 @@
-/* $Id: thPlugin.cpp,v 1.38 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thPlugin.cpp,v 1.39 2004/04/08 13:33:30 ink Exp $ */
 
 #include "config.h"
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #ifdef USE_EXTERNAL_BASENAME
 # include "basename.h"
@@ -36,6 +38,10 @@ thPlugin::thPlugin (const string &path)
 	plugState = thNotLoaded;
 
 	plugCallback = NULL;
+
+	args = (string **)calloc(ARGCHUNK, sizeof(string *));
+	argcounter = 0;
+	argsize = ARGCHUNK;
 
 	if(ModuleLoad()) { /* fail = return (1) */
 		fprintf(stderr, "Couldn't load plugin %s\n", path.c_str());
@@ -83,6 +89,30 @@ void thPlugin::SetDesc (const string &desc)
  *	if it can't load correctly, set it thNotLoaded so that
  *	parents et al. can deal with it. 
  */
+
+/* here is how we register args.  plugins can register their arguments and get
+   an integer index for fast lookup */
+int thPlugin::RegArg (const string &argname)
+{
+	string **newargs;
+
+	if (argcounter > argsize)
+	{
+		/* make room for more args */
+		newargs = (string **)calloc(argsize + ARGCHUNK, sizeof(string *));
+		/* copy args over to new memory */
+		memcpy(newargs, args, argcounter * sizeof(string *));
+		free(args);
+
+		args = newargs;
+		argsize += ARGCHUNK;
+	}
+
+	args[argcounter] = new string(argname);
+	argcounter++;
+
+	return (argcounter-1);
+}
 
 int thPlugin::ModuleLoad (void)
 {

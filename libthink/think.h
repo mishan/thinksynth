@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.20 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: think.h,v 1.21 2004/04/08 13:33:30 ink Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -23,6 +23,9 @@ using namespace std;
 
 /* how big many channel references should we allocate when we need more */
 #define CHANNELCHUNK 16
+
+/* number of node argument references allocated at a time */
+#define ARGCHUNK 16
 
 /* Alsa output buffer */
 #define TH_BUFFER_PERIOD 1024
