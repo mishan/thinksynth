@@ -29,13 +29,7 @@ thWav::thWav(char *name)
 		throw (thIOException) errno;
 	}
 
-	try {
-		ReadHeader();
-	}
-	catch (thWavException e) {
-		throw e;
-	}
-
+	ReadHeader();
 }
 
 thWav::thWav(char *name, const thAudioFmt *wfmt)
