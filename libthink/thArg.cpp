@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.40 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thArg.cpp,v 1.41 2004/05/08 11:35:28 ink Exp $ */
 
 #include "config.h"
 
@@ -83,6 +83,24 @@ void thArg::SetArg(const string &name, const string &node, const string &value)
 	argName = name;
 	argPointNode = node;
 	argPointName = value;
-
+	
 	argType = ARG_POINTER;
+}
+
+void thArg::GetBuffer(float *buffer, unsigned int size)
+{
+	unsigned int i, j;	
+
+	if(argType == ARG_VALUE)
+    {
+		j = 0; /* depth into the arg float array (for the loop) */
+		for(i = 0; i < size; i++)
+		{
+			buffer[i] = argValues[j];
+			if(++j > argNum)
+			{
+				j = 0;
+			}
+		}
+	}
 }

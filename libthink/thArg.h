@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.32 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: thArg.h,v 1.33 2004/05/08 11:35:28 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -19,6 +19,7 @@ class thArg {
 
 	void SetIndex (int i) { argIndex = i; };
 	int GetIndex (void) { return argIndex; };
+	void GetBuffer(float *buffer, unsigned int size);
 
 	const string &GetArgName (void) const { return argName; };
 
