@@ -217,6 +217,8 @@ void thBTree::RemoveHelper(thBNode *root, thBNode *node)
 			}
 			break;
 			case 0:
+				fprintf(stderr, "thBTree::InsertHelper: Duplicate node should not exist\n");
+				break;
 			case 1:
 				RemoveHelper(root->left, node);
 				break;
