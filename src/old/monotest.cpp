@@ -1,4 +1,4 @@
-/* $Id: monotest.cpp,v 1.2 2004/02/21 02:58:18 ink Exp $ */
+/* $Id: monotest.cpp,v 1.3 2004/02/21 09:59:07 ink Exp $ */
 
 #include "config.h"
 
@@ -84,7 +84,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
-				if(ev->data.note.velocity == 0) {
+				if(*mononote && ev->data.note.velocity == 0) {
 					if(ev->data.note.note == *targetpitch) {
 						*pbuf = 0;
 						*notevelocity = 0;
@@ -106,12 +106,13 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 						*targetpitch = ev->data.note.note;
 						*notevelocity = ev->data.note.velocity;
 					}
+					return 1;
 				}
 				break;
 			}
 			case SND_SEQ_EVENT_NOTEOFF:
 			{
-				if(ev->data.note.note == *targetpitch) {
+				if(*mononote && ev->data.note.note == *targetpitch) {
 					*pbuf = 0;
 					*notevelocity = 0;
 					(*mononote)->SetArg("trigger", pbuf, 1);
@@ -176,6 +177,7 @@ int main (int argc, char *argv[])
 	float startpitch;
 	float notepitch;
 	float targetpitch;
+	int noteon;
 	float monovelocity = 0;
 	float monoglidemax = 0.1;      /**** this changes how fast the note slides */
 	float monoglidemin = 0.001;
@@ -371,11 +373,14 @@ int main (int argc, char *argv[])
 		{
 			int j;
 
+			noteon = 0;
 			for (j = 0; j < seq_nfds; j++)
 			{
 				if(pfds[j].revents > 0)
 				{
-					processmidi(&Synth, seq_handle, &notepitch, &targetpitch, &monovelocity, &mononote);
+					if(noteon == 0) {
+						noteon = processmidi(&Synth, seq_handle, &notepitch, &targetpitch, &monovelocity, &mononote);
+					}
 				}
 			}
 
