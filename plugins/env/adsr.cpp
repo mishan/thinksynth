@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.27 2004/10/22 04:31:03 ink Exp $ */
+/* $Id: adsr.cpp,v 1.28 2004/11/11 09:57:23 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -132,7 +133,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 			play[i] = 1;
 
-			out[i] = temp2+(((temp-(position++))/temp)*(peak-temp2));
+			out[i] = temp2+((log(M_E - (M_E - 1) * ((position++)/temp))) *
+								 (peak-temp2));
 			if(position >= temp) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
@@ -165,7 +167,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 				phase = 4;
 			} else {
 				play[i] = 1;
-				out[i] = SQR(((position++)-temp)/temp)*temp2;
+				out[i] = (1 - log(1 + (M_E - 1) *
+								  ((position++)/temp))) * temp2;
 			}
 
 			if((*in_trigger)[i] > 0) { // We have been retriggered
