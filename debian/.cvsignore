@@ -1,0 +1,8 @@
+tmp
+libthink3
+libthink3-dev
+thinksynth
+thinksynth-plugins
+*.substvars
+files
+*.debhelper

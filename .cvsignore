@@ -5,4 +5,4 @@ aclocal.m4
 build.mk
 *.wav
 *core
-
+build-stamp
