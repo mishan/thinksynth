@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.21 2004/02/04 21:08:39 misha Exp $
+# $Id: Makefile.in,v 1.22 2004/02/05 07:07:46 misha Exp $
 
 BINARY = thinksynth
 
@@ -14,10 +14,6 @@ INCLUDES = -I.. -I../libthink
 LDFLAGS += @LIBS@ -L../libthink -lthink
 
 MAINOBJS = main.o
-#SEQOBJS = seq.o
-
-#thinkseq: $(SEQOBJS)
-#	$(CXX) $(CXXFLAGS) -o $@ $(SEQOBJS) $(LDFLAGS) -lthink -L.
 
 thinksynth: $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) -lthink -L.
@@ -31,8 +27,6 @@ distclean::
 install:
 	mkdir -p $(DESTDIR)$(bindir)
 	cp -f thinksynth $(DESTDIR)$(bindir)
-#	cp -f thinkseq $(DESTDIR)$(bindir)
 
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/thinksynth
-#	rm -f $(DESTDIR)$(bindir)/thinkseq
