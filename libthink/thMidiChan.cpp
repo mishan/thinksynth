@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.13 2003/04/26 04:22:15 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.14 2003/04/26 23:08:25 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -31,7 +31,7 @@ thMidiChan::~thMidiChan ()
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
-	int *id = malloc(sizeof(int));
+	int *id = (int *)malloc(sizeof(int));
 
 	*id = (int)note;
 	notes.Insert(id, midinote);
