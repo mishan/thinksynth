@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.49 2004/04/14 00:15:29 misha Exp $ */
+/* $Id: simple.cpp,v 1.50 2004/05/08 21:27:27 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,6 +75,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *in_freq, *in_amp, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset, *in_mul;
 	thArg *out_arg, *out_sync;
 	thArg *inout_last;
+	float buf_freq[windowlen], buf_amp[windowlen], buf_pw[windowlen], buf_waveform[windowlen], buf_fm[windowlen], buf_fmamt[windowlen], buf_reset[windowlen], buf_mul[windowlen];
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out_sync = mod->GetArg(node, args[OUT_SYNC]); /* Output a 1 when the wave begins 
@@ -96,10 +97,19 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 											  goes to 1 */
 	in_mul = mod->GetArg(node, args[IN_MUL]);  /* Multiply the wavelength by this */
 
+	in_freq->GetBuffer(buf_freq, windowlen);
+	in_amp->GetBuffer(buf_amp, windowlen);
+	in_pw->GetBuffer(buf_pw, windowlen);
+	in_waveform->GetBuffer(buf_waveform, windowlen);
+	in_fm->GetBuffer(buf_fm, windowlen);
+	in_fmamt->GetBuffer(buf_fmamt, windowlen);
+	in_reset->GetBuffer(buf_reset, windowlen);
+	in_mul->GetBuffer(buf_mul, windowlen);
+
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];
-		freq = (*in_freq)[i];
-		amp_max = (*in_amp)[i];
+		freq = buf_freq[i];
+		amp_max = buf_amp[i];
 		if(amp_max == 0) {
 		  amp_max = TH_MAX;
 		}
@@ -108,17 +118,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 		wavelength = TH_SAMPLE/freq;
 
-		mul = (*in_mul)[i];
+		mul = buf_mul[i];
 		if(mul) {
 			wavelength *= 1/mul;  /* floats are inpresice, if you do freq/2 you
 								   get the beating effect.  grr */
 		}
 
-		position += 1 + (((*in_fm)[i] / TH_MAX) * (*in_fmamt)[i]);
+		position += 1 + ((buf_fm[i] / TH_MAX) * buf_fmamt[i]);
 		//printf("%f\n", position);
 		/* worked FM into the position counter */
 
-		if(position > wavelength || (*in_reset)[i] == 1) {
+		if(position > wavelength || buf_reset[i] == 1) {
 			position -= wavelength;
 			sync[i] = 1;
 		} else if (position < 0) {
@@ -132,7 +142,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 //	fmpos = (int)(position + (((*in_fm)[i] / TH_MAX) * wavelength * fmamt)) % (int)wavelength;
 		fmpos = position;
 
-		pw = (*in_pw)[i];  /* Pulse Width */
+		pw = buf_pw[i];  /* Pulse Width */
 		if(pw == 0) {
 			pw = 0.5;
 		}
@@ -144,7 +154,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			ratio = 0.5*((fmpos - halfwave) / (wavelength - halfwave)) + 0.5;
 		}
 
-		switch((int)(*in_waveform)[i]) {
+		switch((int)buf_waveform[i]) {
 			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle,
 			   5 = parabola */
 			case 0:    /* SINE WAVE */
