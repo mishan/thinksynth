@@ -1,5 +1,21 @@
-/* $Id: moog.cpp,v 1.6 2004/05/26 00:14:04 misha Exp $ */
-
+/* $Id: moog.cpp,v 1.7 2004/09/08 22:32:51 misha Exp $ */
+/*
+ * Copyright (C) 2004 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
 // Moog 24 dB/oct resonant lowpass VCF
 // References: CSound source code, Stilson/Smith CCRMA paper.
 // Modified by paul.kellett@maxim.abel.co.uk July 2000
@@ -15,13 +31,10 @@ thPluginState	mystate = thActive;
 
 void module_cleanup (struct module *mod)
 {
-	printf("Moog Filter plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Moog Filter plugin loaded\n");
-
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 

@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.12 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: rds.cpp,v 1.13 2004/09/08 22:32:51 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,13 +14,10 @@ thPluginState	mystate = thActive;
 
 void module_cleanup (struct module *mod)
 {
-	printf("RDS plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("RDS plugin loaded\n");
-
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
