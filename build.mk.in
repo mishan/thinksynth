@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.3 2003/05/03 07:27:24 joshk Exp $
+# $Id: build.mk.in,v 1.4 2003/05/03 07:45:24 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -15,11 +15,11 @@ endif
 endif
 
 %.o: %.yy
-	bison -o $(<:%.yy=%.cpp) -d -y $<
+	@YACC@ -o $(<:%.yy=%.cpp) $<
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $(<:%.yy=%.cpp)
 
 %.cpp: %.ll
-	flex -o $@ $<
+	@LEX@ -o $@ $<
 
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<

@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.39 2003/05/03 07:27:24 joshk Exp $
+dnl $Id: configure.ac,v 1.40 2003/05/03 07:45:24 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -197,7 +197,7 @@ AC_SUBST_DIR(bindir)
 AC_ARG_WITH(plugin-path,
 	[AC_HELP_STRING([--with-plugin-path], [Define a path to install plugins into.])],
 	[plugin_path=$withval],
-	[plugin_path=${libdir}/${PACKAGE}/plugins/])
+	[plugin_path=${libdir}/${PACKAGE_NAME}/plugins/])
 
 dnl Someone may have been a smartass and configure with
 dnl ./configure --with-plugin-path=${prefix}/bar, so flatten that too

@@ -1,4 +1,13 @@
+<<<<<<< Makefile.in
+# $Id: Makefile.in,v 1.4 2003/05/03 07:45:24 joshk Exp $
+
+bindir=@bindir@
+prefix=@prefix@
+
 all: thinksynth
+=======
+all: thinksynth
+>>>>>>> 1.3
 
 include ../build.mk
 
@@ -33,3 +42,10 @@ thinklex.cpp: thinklex.ll thinklang.o
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp
+
+install:
+	mkdir -p $(DESTDIR)$(bindir)
+	cp -f thinksynth $(DESTDIR)$(bindir)
+
+uninstall:
+	rm -f $(DESTDIR)$(bindir)/thinksynth
