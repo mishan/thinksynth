@@ -1,4 +1,4 @@
-/* $Id: adsfr.cpp,v 1.5 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: adsfr.cpp,v 1.6 2004/05/05 05:37:15 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,6 +11,13 @@ int args[INOUT_POSITION + 1];
 
 char		*desc = "ADSR Envelope Generator";
 thPluginState	mystate = thActive;
+
+
+static inline float SQR (float x)
+{
+	return x*x;
+}
+
 
 void module_cleanup (struct module *mod)
 {
@@ -115,7 +122,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		switch (phase) {  /* Which phase of the ADSR are we in? */
 		case 0:   /* Attack */
 			play[i] = 1;  /* Dont kill this note yet! */
-			out[i] = ((position++)/val_a)*peak;
+			out[i] = SQR((position++)/val_a)*peak;
 			if(position >= val_a) {
 				phase = 1;   /* A ended, go to D */
 				position = 0;  /* ...and go back to the beginnning of the phase */
@@ -124,7 +131,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		case 1:
 			play[i] = 1;
 
-			out[i] = val_s+(((val_d-(position++))/val_d)*(peak-val_s));
+			out[i] = val_s+SQR(((val_d-(position++))/val_d)*(peak-val_s));
 			if(position >= val_d) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
@@ -132,7 +139,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			break;
 		case 2:
 			falloff = val_f;
-			temp = val_s * ((falloff - position++) / falloff);
+			temp = val_s * SQR((falloff - position++) / falloff);
 			if(temp == 0 || position > falloff) {  /* If there is no D section,
 													  make it end */
 				out[i] = 0;
@@ -158,7 +165,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			}
 			else {
 				play[i] = 1;
-				out[i] = ((val_r-(position++))/val_r)*val_s;
+				out[i] = SQR((val_r-(position++))/val_r)*val_s;
 			}
 
 			if(val_trigger > 0) { // We have been retriggered
