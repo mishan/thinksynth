@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.7 2004/04/01 08:38:45 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.8 2004/04/01 08:42:38 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -236,6 +236,8 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 bool KeyboardWindow::clickEvent (GdkEventButton *b)
 {	
 	int	veloc;
+
+	drawArea.grab_focus ();
 
 	if(b->type == GDK_BUTTON_PRESS) {
 		if (mouse_notnum >= 0) {	/* already active */
