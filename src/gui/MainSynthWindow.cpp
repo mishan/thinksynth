@@ -46,9 +46,7 @@
 #include "../gthPrefs.h"
 #include "../gthPatchfile.h"
 
-/* SUPER XXX */
 bool chosen = false;
-extern Glib::Mutex *synthMutex;
 
 void MainSynthWindow::toggleConnects (void)
 {
