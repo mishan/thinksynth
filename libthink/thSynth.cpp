@@ -21,7 +21,7 @@
 
 thSynth::thSynth()
 {
-	thBSTree *modlist = new thBSTree();
+	modlist = new thBSTree();
 }
 
 thSynth::~thSynth()
