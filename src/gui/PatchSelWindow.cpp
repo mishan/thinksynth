@@ -25,7 +25,8 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 //		set_default_size(320, 240);
 
 	realSynth = synth;
-	mySynth = new thSynth(realSynth);
+	mySynth = NULL;
+//	mySynth = new thSynth(realSynth);
 
 	set_title("thinksynth - Patch Selector");
 	
@@ -35,8 +36,8 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 
 	synthMutex->lock();
 		
-	std::map<int, string> *patchlist = Synth.GetPatchlist();
-	int channelcount = Synth.GetChannelCount();
+	std::map<int, string> *patchlist = realSynth->GetPatchlist();
+	int channelcount = realSynth->GetChannelCount();
 
 	synthMutex->unlock();
 

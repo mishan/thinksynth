@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.144 2004/03/26 06:26:42 misha Exp $ */
+/* $Id: main.cpp,v 1.145 2004/03/26 06:29:35 misha Exp $ */
 
 #include "config.h"
 
@@ -259,7 +259,6 @@ int main (int argc, char *argv[])
 	synthMutex = new Glib::Mutex;
 	Glib::Thread *const ui = Glib::Thread::create(
 		SigC::slot(&ui_thread), true);
-
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */

@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.4 2004/03/26 06:25:46 misha Exp $ */
+/* $Id: ui.cpp,v 1.5 2004/03/26 06:29:35 misha Exp $ */
 
 #include "config.h"
 
@@ -23,13 +23,13 @@
 
 #include "PatchSelWindow.h"
 
-extern thSynth *glblSynth;
+extern thSynth Synth;
 
 void ui_thread (void)
 {
 	Gtk::Main kit(NULL, NULL);
 
-	PatchSelWindow patchsel(glblSynth);
+	PatchSelWindow patchsel(&Synth);
 
 	Gtk::Main::run(patchsel);
 }
