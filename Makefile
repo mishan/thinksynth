@@ -13,6 +13,9 @@ clean install uninstall: $(ALL_SUBDIRS)
 config.status: configure
 	sh configure
 
+configure: configure.ac
+	sh autogen.sh --no-configure
+
 $(ALL_SUBDIRS): config.status
 	$(MAKE) -C $@ $(MAKECMDGOALS)
 
