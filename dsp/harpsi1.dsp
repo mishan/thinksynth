@@ -1,4 +1,4 @@
-# $Id: harpsi1.dsp,v 1.2 2004/02/09 10:50:28 misha Exp $
+# $Id: harpsi1.dsp,v 1.3 2004/04/09 06:42:34 ink Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
@@ -20,6 +20,7 @@ node ionode {
 	resmax = 1;
 
 	osc2detune = 0.1;
+	mix2fade = 0.35;
 
 	a = 0;
 	d = 2000;
@@ -97,9 +98,10 @@ node osc2 osc::softsqr {
 	pw = 0.15;
 };
 
-node mixer2 mixer::add {
+node mixer2 mixer::fade {
 	in0 = osc->out;
 	in1 = osc2->out;
+	fade = ionode->mix2fade;
 };
 
 io ionode;
