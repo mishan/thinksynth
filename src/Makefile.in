@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.13 2003/11/04 07:35:24 misha Exp $
+# $Id: Makefile.in,v 1.14 2003/11/05 02:22:52 misha Exp $
 
 BINARY = thinksynth
 
@@ -61,6 +61,7 @@ distclean::
 install:
 	mkdir -p $(DESTDIR)$(bindir)
 	cp -f thinksynth $(DESTDIR)$(bindir)
+	cp -f thinkseq $(DESTDIR)$(bindir)
 	mkdir -p $(DESTDIR)$(libdir)
 	cp -f libthink.so.3 $(DESTDIR)$(libdir)
 	ln -sf libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
