@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.34 2003/05/03 19:09:04 ink Exp $ */
+/* $Id: thinklang.yy,v 1.35 2003/05/03 19:28:26 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -172,6 +172,8 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
+
+	free($2.str);
 }
 ;
 
@@ -205,12 +207,7 @@ WORD ASSIGN expression
 	float *copy = new float;
 	*copy = $3.floatval;
 	parsenode->SetArg($1.str, copy, 1);
-}
-|
-WORD ASSIGN WORD
-{
-//	XXX - MORE FIXING
-//	modify_str(&targs, $1.str, $3.str);
+	free($1.str);
 }
 |
 WORD ASSIGN fstr
@@ -237,6 +234,7 @@ WORD ASSIGN fstr
 	delete $3.str;
 	delete[] node;
 	delete[] arg;
+	free($1.str);
 }
 ;
 
@@ -245,6 +243,8 @@ WORD MODSEP WORD
 {
 	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
+	free($1.str);
+	free($3.str);
 }
 |
 WORD MODSEP plugname
@@ -252,6 +252,7 @@ WORD MODSEP plugname
 	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 	delete $3.str;
+	free($1.str);
 }
 ;
 
@@ -260,6 +261,8 @@ WORD INTO WORD
 {
 	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
+	free($1.str);
+	free($3.str);
 }
 ;
 %%
