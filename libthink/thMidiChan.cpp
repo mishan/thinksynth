@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.41 2003/05/11 04:34:29 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.42 2003/05/11 04:53:16 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -24,6 +24,10 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	float *allocatedamp = new float[1];
 	thArg *argstruct = new thArg("amp", allocatedamp, 1);
 	const thArgValue *chanarg = NULL;
+
+	if(!mod) {
+		fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
+	}
 
 	modnode = mod;
 	windowlength = windowlen;
