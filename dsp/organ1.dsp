@@ -1,4 +1,4 @@
-# $Id: organ1.dsp,v 1.3 2004/04/17 23:59:04 ink Exp $
+# $Id: organ1.dsp,v 1.4 2004/04/19 07:01:50 ink Exp $
 # Synth Organ
 # Leif Ames <ink@bespin.org>
 # 4/7/2004
@@ -37,12 +37,8 @@ node ionode {
 	res = 0.25;
 };
 
-node vel misc::midi2range {
-	in = ionode->velocity;
-};
-
 node suscalc math::mul {
-	in0 = vel->out;
+	in0 = ionode->velocity;
 	in1 = ionode->s;
 };
 
@@ -51,12 +47,12 @@ node env env::adsr {
 	d = ionode->d;
 	s = suscalc->out;
 	r = ionode->r;
-	p = vel->out;
+	p = ionode->velocity;
 	trigger = ionode->trigger;
 };
 
 node vmap env::map {
-	in = vel->out;
+	in = ionode->velocity;
 	inmin = 0;
 	inmax = th_max;
 	outmin = ionode->vmin;
@@ -136,7 +132,7 @@ node mixer mixer::fade {
 };
 
 node filtsuscalc math::mul {
-	in0 = vel->out;
+	in0 = ionode->velocity;
 	in1 = ionode->fs;
 };
 

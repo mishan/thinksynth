@@ -1,4 +1,4 @@
-# $Id: piano0.dsp,v 1.12 2004/04/17 23:59:04 ink Exp $
+# $Id: piano0.dsp,v 1.13 2004/04/19 07:01:50 ink Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
@@ -33,12 +33,8 @@ node freq misc::midi2freq {
 	note = ionode->note;
 };
 
-node vel misc::midi2range {
-	in = ionode->velocity;
-};
-
 node suscalc math::mul {
-	in0 = vel->out;
+	in0 = ionode->velocity;
 	in1 = ionode->s;
 };
 
@@ -48,7 +44,7 @@ node env env::adsfr {
 	s = suscalc->out;
 	f = ionode->f;
 	r = ionode->r;
-	p = vel->out;
+	p = ionode->velocity;
 	trigger = ionode->trigger;
 };
 
