@@ -2,7 +2,6 @@ CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
 INCLUDES = -I../../src -I../..
 
-prefix=@prefix@
 plugin_path=@plugin_path@
 
 LDFLAGS = -ggdb -lm
