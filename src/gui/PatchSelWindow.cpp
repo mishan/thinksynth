@@ -525,6 +525,8 @@ void PatchSelWindow::populate (void)
 
 void PatchSelWindow::on_realize(void)
 {
+	Gtk::Window::on_realize();
+
 	gthPrefs *prefs = gthPrefs::instance();
 	
 	if (prefs)
