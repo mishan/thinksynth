@@ -1,7 +1,7 @@
 sysconfdir=@sysconfdir@
 prefix=@prefix@
 
-all:
+all clean:
 
 install:
 	install -d $(DESTDIR)$(sysconfdir)
@@ -12,3 +12,5 @@ uninstall:
 
 distclean:
 	rm -f thinkrc Makefile
+
+dist: distclean
