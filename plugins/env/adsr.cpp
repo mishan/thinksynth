@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.7 2003/05/03 10:50:26 ink Exp $ */
+/* $Id: adsr.cpp,v 1.8 2003/05/08 01:24:51 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,6 +58,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_position = (thArgValue *)mod->GetArg(node->GetName(), "position");
 	position = (int)(*in_position)[0];
 	phase = (int)(*in_position)[1];
+
+	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
+		phase = 1;
+	}
 
 	for(i=0;i<windowlen;i++) {
 		switch (phase) {  /* Which phase of the ADSR are we in? */
