@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.10 2004/08/01 09:57:40 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.11 2004/08/01 10:54:26 misha Exp $ */
 
 #include "config.h"
 
@@ -88,11 +88,19 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 	/* populate notebook */
 	int chans = realSynth->GetChannelCount();
 	std::map<int, string> *patchList = realSynth->GetPatchlist();
-	for (int i = 0; i < chans; i++)
+	for (std::map<int, string>::iterator i = patchList->begin();
+		 i != patchList->end(); i++)
 	{
-		std::map<string, thArg *> args = realSynth->GetChanArgs(i);
-		Gtk::Table *table = new Gtk::Table(args.size(), 2);
-		string tabName = (*patchList)[i];
+		string tabName = i->second;
+
+		if (tabName.length() == 0)
+			continue;
+
+		std::map<string, thArg *> args = realSynth->GetChanArgs(i->first);
+
+//		Gtk::Table *table = new Gtk::Table(args.size(), 2);
+		Gtk::VBox *vbox = new Gtk::VBox;
+
 		tabName = basename(tabName.c_str());
 		int row = 0;
 
@@ -105,18 +113,23 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 
 			if (arg->argWidget != thArg::HIDE)
 			{
+				Gtk::HBox *hbox = new Gtk::HBox;
 				Gtk::Label *label = new Gtk::Label(argName);
 				ArgSlider *slider = new ArgSlider(arg);
+//				Gtk::HScale *slider = new Gtk::HScale(1, 100, 1);
 
-
-				table->attach(*label, 0, 1, row, row+1);
+				hbox->pack_start(*label, Gtk::PACK_SHRINK);
+				hbox->pack_start(*slider);
+				vbox->pack_start(*hbox);
+/*				table->attach(*label, 0, 1, row, row+1);
 				table->attach(*slider, 1, 2, row, row+1, Gtk::EXPAND|Gtk::FILL,
-							  Gtk::EXPAND|Gtk::FILL);
+				Gtk::EXPAND|Gtk::FILL); */
 				row++;
 			}
 		}
 
-		notebook.prepend_page(*table, tabName);
+//		notebook.prepend_page(*table, tabName);
+		notebook.prepend_page(*vbox, tabName);
 	}
 
 	show_all_children();

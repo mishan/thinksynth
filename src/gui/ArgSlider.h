@@ -8,7 +8,7 @@ public:
 	~ArgSlider (void);
 
 protected:
-	virtual void on_value_changed ();
+//	virtual void on_value_changed ();
 
 private:
 	thArg *arg_;
