@@ -10,8 +10,8 @@
 #include "thBSTree.h"
 
 thBSTree::thBSTree (void)
+	: bRoot(NULL)
 {
-	bRoot = NULL;
 }
 
 thBSTree::~thBSTree (void)

@@ -29,9 +29,9 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	throw(thIOException)
 {
 	int oss_channels = afmt->channels; /* OSS uses the value of 0 to indicate
-										  1 channel, and 1 to indicate 2 
-										  channels, so we must decrement the 
-										  channel count */
+					  1 channel, and 1 to indicate 2 
+					  channels, so we must decrement the 
+					  channel count */
 	int format = afmt->format;
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
@@ -45,19 +45,19 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 		break;
 	}
 
-	if((fd = open("/dev/dsp", O_WRONLY)) < 0) {
+	if ((fd = open("/dev/dsp", O_WRONLY)) < 0) {
 		throw errno;
 	}
 
-	if(ioctl(fd, SNDCTL_DSP_SETFMT, &format) == -1) {
+	if (ioctl(fd, SNDCTL_DSP_SETFMT, &format) == -1) {
 		fprintf(stderr, "setfmt: /dev/dsp: %s\n", strerror(errno));
 	}
 
-	if(ioctl(fd, SNDCTL_DSP_CHANNELS, &oss_channels) == -1) {
+	if (ioctl(fd, SNDCTL_DSP_CHANNELS, &oss_channels) == -1) {
 		fprintf(stderr, "setchannels: /dev/dsp: %s\n", strerror(errno));
 	}
 
-	if(ioctl(fd, SNDCTL_DSP_SPEED, &fmt.samples) == -1) {
+	if (ioctl(fd, SNDCTL_DSP_SPEED, &fmt.samples) == -1) {
 		fprintf(stderr, "setspeed: /dev/dsp: %s\n", strerror(errno));
 	}	
 }

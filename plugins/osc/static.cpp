@@ -28,12 +28,17 @@ void module_cleanup (struct module *mod)
 	printf("Static module unloading\n");
 }
 
+/* ModuleLoad() invokes this function with a pointer to the plugin
+ * instance. */
 int module_init (int version, thPlugin *plugin)
 {
 	printf("Static plugin loaded\n");
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
+
+	/* Seed the RNG */
 	srand(time(NULL));
+	
 	return 0;
 }
 
