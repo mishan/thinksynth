@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.h,v 1.3 2004/04/15 09:38:42 misha Exp $ */
+/* $Id: thALSAAudio.h,v 1.4 2004/04/17 23:01:34 misha Exp $ */
 
 #ifndef TH_ALSAAUDIO_H
 #define TH_ALSAAUDIO_H
@@ -13,7 +13,7 @@
 /* additional arguments are usually bound to the callbacks of this signal */
 typedef SigC::Signal0<void> sigReadyWrite_t;
 
-class thALSAAudio : public thAudio
+class thALSAAudio : public thAudio, public SigC::Object
 {
 public:
 	thALSAAudio (thSynth *argsynth)
@@ -38,6 +38,8 @@ public:
 	snd_pcm_t *play_handle;
 	int nfds;
 	struct pollfd *pfds;
+
+	bool pollAudioEvent (Glib::IOCondition);
 protected:
 	thSynth *synth;
 	sigReadyWrite_t m_sigReadyWrite;

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.9 2004/04/17 04:46:15 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.10 2004/04/17 23:01:34 misha Exp $ */
 
 #include "config.h"
 
@@ -30,6 +30,9 @@ thALSAAudio::thALSAAudio (thSynth *argsynth)
 	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
 	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
+	Glib::signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
+							  pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH);
+	
 	SetFormat(argsynth);
 
 	outbuf = NULL;
@@ -243,6 +246,10 @@ bool thALSAAudio::ProcessEvents (void)
 {
 	bool r = false;
 
+	return r;
+
+	/* XXX */
+
 	if (poll (pfds, nfds, 50) > 0)
 	{
 		int j;
@@ -258,4 +265,11 @@ bool thALSAAudio::ProcessEvents (void)
 	}
 
 	return r;
+}
+
+bool thALSAAudio::pollAudioEvent (Glib::IOCondition)
+{
+	m_sigReadyWrite();
+
+	return true;
 }

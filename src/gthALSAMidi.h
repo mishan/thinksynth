@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.h,v 1.1 2004/04/15 07:41:17 misha Exp $ */
+/* $Id: gthALSAMidi.h,v 1.2 2004/04/17 23:01:34 misha Exp $ */
 
 #ifndef THF_ALSAMIDI_H
 #define THF_ALSAMIDI_H
@@ -7,7 +7,7 @@
 
 typedef SigC::Signal1<int, snd_seq_t *> sigMidiEvent_t;
 
-class thfALSAMidi
+class thfALSAMidi : public SigC::Object
 {
 public:
 	thfALSAMidi (const char *argname)
@@ -17,7 +17,7 @@ public:
 	sigMidiEvent_t signal_midi_event (void);
 
 	bool ProcessEvents (void);
-
+	bool pollMidiEvent (Glib::IOCondition);
 protected:
 	string name, device;
 

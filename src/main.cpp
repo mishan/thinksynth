@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.163 2004/04/16 08:18:01 misha Exp $ */
+/* $Id: main.cpp,v 1.164 2004/04/17 23:01:34 misha Exp $ */
 
 #include "config.h"
 
@@ -62,31 +62,6 @@ void cleanup (int signum)
 	exit (0);
 }
 
-void audio_readywrite (thAudio *audio, thSynth *synth)
-{
-	int l = synth->GetWindowLen();
-	float *synthbuffer = synth->GetOutput();
-
-	audio->Write(synthbuffer, l);
-}
-
-int playback_callback (jack_nframes_t nframes, void *arg)
-{
-	jack_port_t *output_port = (jack_port_t *)arg;
-	float *synthbuffer = Synth.GetOutput();
-	int l = Synth.GetWindowLen();
-
-	jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
-		jack_port_get_buffer(output_port, nframes);
-
-	memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
-
-	/* call the main thread to generate a new window */
-	process->emit();
-
-	return 0;
-}
-
 void process_synth (void)
 {
 	Synth.Process();
@@ -105,6 +80,34 @@ void process_synth (void)
 			printf("%f\t", synthbuf[i]);
 	}
 */
+}
+
+void audio_readywrite (thAudio *audio, thSynth *synth)
+{
+	int l = synth->GetWindowLen();
+	float *synthbuffer = synth->GetOutput();
+
+	audio->Write(synthbuffer, l);
+
+//	process->emit();
+	process_synth ();
+}
+
+int playback_callback (jack_nframes_t nframes, void *arg)
+{
+	jack_port_t *output_port = (jack_port_t *)arg;
+	float *synthbuffer = Synth.GetOutput();
+	int l = Synth.GetWindowLen();
+
+	jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
+		jack_port_get_buffer(output_port, nframes);
+
+	memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
+
+	/* call the main thread to generate a new window */
+	process->emit();
+
+	return 0;
 }
 
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
@@ -246,6 +249,9 @@ int main (int argc, char *argv[])
 
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
+	process = new Glib::Dispatcher;
+	process->connect(SigC::slot(process_synth));
+
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
 	try
@@ -273,9 +279,6 @@ int main (int argc, char *argv[])
  		else if (driver == "jack")
 		{
 			aout = new thfJackAudio(&Synth);
-
-			process = new Glib::Dispatcher;
-			process->connect(SigC::slot(process_synth));
 
 			jack_client_t *jack_handle = ((thfJackAudio *)aout)->jack_handle;
 			jack_port_t *output_port = ((thfJackAudio *)aout)->output_port;
@@ -305,12 +308,7 @@ int main (int argc, char *argv[])
 
 	while (1)
 	{
-		midi->ProcessEvents();
-
-		if (aout->ProcessEvents())
-		{
-			Synth.Process();
-		}
+		/* oh no, nothing to do! */
 	}
 
 	delete aout;

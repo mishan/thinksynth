@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.2 2004/04/16 08:18:01 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.3 2004/04/17 23:01:34 misha Exp $ */
 
 #include "config.h"
 
@@ -32,6 +32,10 @@ thfALSAMidi::~thfALSAMidi (void)
 bool thfALSAMidi::ProcessEvents (void)
 {
 	bool r = false;
+
+	return r;
+	
+	/* XXX */
 
 	if (poll(pfds, seq_nfds, 0) > 0)
 	{
@@ -78,6 +82,18 @@ bool thfALSAMidi::open_seq (void)
 	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
 	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * seq_nfds);
 	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
+
+	/* XXX: is this portable??? */
+	Glib::signal_io().connect(SigC::slot(*this, &thfALSAMidi::pollMidiEvent),
+							  pfds[0].fd, Glib::IO_IN,
+							  Glib::PRIORITY_DEFAULT_IDLE);
+
+	return true;
+}
+
+bool thfALSAMidi::pollMidiEvent (Glib::IOCondition cond)
+{
+	m_sigMidiEvent(seq_handle);
 
 	return true;
 }
