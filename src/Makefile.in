@@ -1,9 +1,8 @@
-# $Id: Makefile.in,v 1.19 2004/01/25 12:54:06 misha Exp $
+# $Id: Makefile.in,v 1.20 2004/01/28 05:25:59 misha Exp $
 
 BINARY = thinksynth
 
 bindir=@bindir@
-libdir=@libdir@
 prefix=@prefix@
 
 all: thinksynth thinkseq
@@ -11,64 +10,29 @@ all: thinksynth thinkseq
 include ../build.mk
 
 PICFLAGS = -fPIC
-INCLUDES = -I..
-LDFLAGS += @LIBS@
-
-LIBOBJS = \
-	@NSMODULE_DL_CPP@ \
-	thinklang.o \
-	thinklex.o \
-	thArg.o \
-	thAudioBuffer.o \
-	thMidiChan.o \
-	thMidiNote.o \
-	thMod.o \
-	thNode.o \
-	thALSAAudio.o \
-	thOSSAudio.o \
-	thPlugin.o \
-	thPluginManager.o \
-	thSynth.o \
-	thWav.o
+INCLUDES = -I.. -I../libthink
+LDFLAGS += @LIBS@ -L../libthink -lthink
 
 MAINOBJS = main.o
 SEQOBJS = seq.o
 
-thinkseq: libthink.so $(SEQOBJS)
+thinkseq: $(SEQOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SEQOBJS) $(LDFLAGS) -lthink -L.
 
-thinksynth: libthink.so $(MAINOBJS)
+thinksynth: $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) -lthink -L.
 
-libthink.so: libthink.so.3
-	ln -sf libthink.so.3 libthink.so
-
-libthink.so.3: $(LIBOBJS)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -Wl,-soname,$@ -o $@ $(LIBOBJS)
-
-libthink.a: $(LIBOBJS)
-	ar crsv $@ $(LIBOBJS)
-
-thinklex.cpp: thinklex.ll thinklang.o
-	flex -o$@ thinklex.ll
-
-thinklang.hpp:
-
 clean::
-	rm -f libthink.so.3
+	rm -f thinksynth thinkseq
 
 distclean::
-	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
+	rm -f Makefile
 
 install:
 	mkdir -p $(DESTDIR)$(bindir)
 	cp -f thinksynth $(DESTDIR)$(bindir)
 	cp -f thinkseq $(DESTDIR)$(bindir)
-	mkdir -p $(DESTDIR)$(libdir)
-	cp -f libthink.so.3 $(DESTDIR)$(libdir)
-	ln -sf libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
 
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/thinksynth
 	rm -f $(DESTDIR)$(bindir)/thinkseq
-	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so

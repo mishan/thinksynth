@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.62 2004/01/25 21:38:59 joshk Exp $
+dnl $Id: configure.ac,v 1.63 2004/01/28 05:25:59 misha Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -206,7 +206,7 @@ fi
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
 
-AC_CONFIG_FILES([src/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile build.mk])
+AC_CONFIG_FILES([libthink/Makefile src/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile build.mk])
 AC_OUTPUT
 
 echo

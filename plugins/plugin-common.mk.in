@@ -6,7 +6,7 @@ all: $(PLUGIN_NAMES)
 
 include ../../build.mk
 
-INCLUDES = -I../../src -I../..
+INCLUDES = -I../../libthink -I../..
 
 plugin_path=@plugin_path@
 

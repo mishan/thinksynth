@@ -1,6 +1,6 @@
-# $Id: Makefile,v 1.15 2003/09/02 04:45:35 joshk Exp $
+# $Id: Makefile,v 1.16 2004/01/28 05:25:59 misha Exp $
 
-SUBDIRS = src plugins dsp
+SUBDIRS = libthink src plugins dsp
 
 all clean install uninstall: $(SUBDIRS)
 
