@@ -2,7 +2,7 @@ Thinksynth MIDI support
 -----------------------
 
 Thinksynth is an ALSA MIDI sequencer client.  Thinksynth can be controlled
-by externel MIDI sequencers or devices.
+by external MIDI sequencers or devices.
 
 You can either use Rosegarden or the simple 'pmidi' to play a MIDI file through
 Thinksynth.
