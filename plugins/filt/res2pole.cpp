@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.6 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: res2pole.cpp,v 1.7 2004/04/08 00:34:56 misha Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org
@@ -12,19 +12,8 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
-
 char		*desc = "Resonant 2-pole Chamberlin filter";
 thPluginState	mystate = thActive;
-
-
-
-
 
 void module_cleanup (struct module *mod)
 {

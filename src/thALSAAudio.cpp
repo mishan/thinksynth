@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.3 2004/04/07 04:09:29 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.4 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
 
@@ -11,15 +11,8 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
 #include "thAudio.h"
 #include "thALSAAudio.h"
-#include "thEndian.h"
 
 thALSAAudio::thALSAAudio (thSynth *argsynth)
 	throw (thIOException)

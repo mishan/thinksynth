@@ -1,17 +1,12 @@
-/* $Id: thMidiNote.cpp,v 1.30 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.31 2004/04/08 00:34:56 misha Exp $ */
 
-#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
+#include "think.h"
 
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 	: modnode(*mod)

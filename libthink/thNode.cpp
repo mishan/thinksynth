@@ -1,15 +1,12 @@
-/* $Id: thNode.cpp,v 1.52 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thNode.cpp,v 1.53 2004/04/08 00:34:56 misha Exp $ */
 
-#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thNode.h"
+#include "think.h"
 
 thNode::thNode (const string &name, thPlugin *thplug)	
 {

@@ -1,16 +1,12 @@
-/* $Id: thMod.cpp,v 1.76 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thMod.cpp,v 1.77 2004/04/08 00:34:56 misha Exp $ */
 
-#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thNode.h"
-#include "thMod.h"
+#include "think.h"
 
 thMod::thMod (const string &name)
 {

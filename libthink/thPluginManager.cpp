@@ -1,7 +1,6 @@
-/* $Id: thPluginManager.cpp,v 1.44 2003/12/21 05:57:48 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.45 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -22,8 +21,7 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "thPlugin.h"
-#include "thPluginManager.h"
+#include "think.h"
 
 thPluginManager::thPluginManager ()
 {

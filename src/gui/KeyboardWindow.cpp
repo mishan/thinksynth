@@ -1,7 +1,6 @@
-/* $Id: KeyboardWindow.cpp,v 1.27 2004/04/07 08:50:31 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.28 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,15 +9,7 @@
 
 #include <gtkmm.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
-#include "thAudio.h"
+#include "think.h"
 
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
@@ -87,6 +78,7 @@ KeyboardWindow::~KeyboardWindow (void)
 	delete transVal;
 }
 
+/* these are Keyboard widget-originated events */
 void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
 {
 	synth->AddNote(chan, note, veloc);
@@ -97,13 +89,24 @@ void KeyboardWindow::eventNoteOff (int chan, int note)
 	synth->DelNote(chan, note);
 }
 
-/* XXX: the synthEvent* callbacks are multi-threaded in origin */
+void KeyboardWindow::eventChannelChanged (int chan)
+{
+	chanVal->set_value(chan+1);
+}
+
+void KeyboardWindow::eventTransposeChanged (int trans)
+{
+	transVal->set_value(trans);
+}
+
+/* these are synthesizer engine thread-originated events, so the appropriate
+   multi-threaded precautions must be taken here .. */
 void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
 {
 	if(chan != keyboard.GetChannel())
-		return;
+ 		return;
 
-	kbMutex.lock();
+ 	kbMutex.lock();
 	keyboard.SetNote((int)note, true);
 	kbMutex.unlock();
 }
@@ -116,16 +119,6 @@ void KeyboardWindow::synthEventNoteOff (int chan, float note)
 	kbMutex.lock();
 	keyboard.SetNote((int)note, false);
 	kbMutex.unlock();
-}
-
-void KeyboardWindow::eventChannelChanged (int chan)
-{
-	chanVal->set_value(chan+1);
-}
-
-void KeyboardWindow::eventTransposeChanged (int trans)
-{
-	transVal->set_value(trans);
 }
 
 void KeyboardWindow::changeChannel (void)

@@ -1,7 +1,6 @@
-/* $Id: thSynth.cpp,v 1.81 2004/04/02 08:15:40 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.82 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,16 +10,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
-
-#include "parser.h"
+#include "think.h"
 
 thSynth::thSynth (void)
 {

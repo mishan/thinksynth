@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.1 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.2 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -19,12 +19,11 @@
 
 #include <errno.h>
 
-#include "thException.h"
+#include "think.h"
+
 #include "thAudio.h"
 #include "thOSSAudio.h"
-#include "thEndian.h"
 
-#include "think.h"
 /* XXX XXX XXX */
 /* XXX: DO NOT PASS ioctl() shorts that are part of a structure as it will
    treat the pointer as a 32-bit integer and overwrite the next 16-bits of the

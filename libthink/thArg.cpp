@@ -1,10 +1,8 @@
-/* $Id: thArg.cpp,v 1.38 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thArg.cpp,v 1.39 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
+
 #include "think.h"
-
-#include "thArg.h"
-
 
 /* Ownership of value will transfer to us. Same goes for SetAllocatedArg. */
 

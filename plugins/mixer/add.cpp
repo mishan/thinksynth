@@ -1,17 +1,10 @@
-/* $Id: add.cpp,v 1.9 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: add.cpp,v 1.10 2004/04/08 00:34:56 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "think.h"
-
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
 
 char		*desc = "Adds two streams";
 thPluginState	mystate = thPassive;

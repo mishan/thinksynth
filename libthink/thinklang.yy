@@ -1,25 +1,13 @@
-/* $Id: thinklang.yy,v 1.49 2004/03/26 08:50:07 joshk Exp $ */
+/* $Id: thinklang.yy,v 1.50 2004/04/08 00:34:56 misha Exp $ */
 
 %{
-#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
-
-#include "yygrammar.h"
-#include "parser.h"
+#include "think.h"
 
 thMod *parsemod;
 thNode *parsenode;

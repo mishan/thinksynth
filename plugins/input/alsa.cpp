@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.9 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: alsa.cpp,v 1.10 2004/04/08 00:34:56 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,20 +8,10 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
-//#include "thAudio.h"
-#include "thException.h"
-//#include "thALSAAudio.h"
-
-char		*desc = "ALSA Input (BROKEN)";
+char		*desc = "ALSA Input";
 thPluginState	mystate = thActive;
 
-//snd_pcm_t *cap_handle = NULL;
+snd_pcm_t *cap_handle = NULL;
 
 void module_cleanup (struct module *mod)
 {
@@ -30,7 +20,7 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-#if 0
+
 	snd_pcm_hw_params_t *hw_params;
 	snd_pcm_sw_params_t *sw_params;
 
@@ -51,7 +41,7 @@ int module_init (thPlugin *plugin)
 	snd_pcm_hw_params_set_rate_near(cap_handle, hw_params, &rate, NULL);
 	printf("input::alsa: set rate to %d\n", rate);
 	snd_pcm_hw_params(cap_handle, hw_params);
-#endif
+
 
 	printf("ALSA Input plugin loading\n");
 
@@ -63,7 +53,6 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-#if 0
 	int channels = 2;
 	thArg *out_arg = mod->GetArg(node, "out");
 	thArg *out_play = mod->GetArg(node, "play");
@@ -83,7 +72,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		play[i] = 1;  /* playback does not end until alsa closes, but we
 						 don't handle that yet */
 	}
-#endif /* 0 */
 
 	return 0;
 }

@@ -1,4 +1,4 @@
-/* $Id: res1pole.cpp,v 1.4 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: res1pole.cpp,v 1.5 2004/04/08 00:34:56 misha Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -9,19 +9,8 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
-
 char		*desc = "Resonant 1-pole LPF";
 thPluginState	mystate = thActive;
-
-
-
-
 
 void module_cleanup (struct module *mod)
 {

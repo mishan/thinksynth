@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.155 2004/04/07 04:10:29 misha Exp $ */
+/* $Id: main.cpp,v 1.156 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
 
@@ -15,21 +15,10 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
-
-#include "thException.h"
 #include "thAudio.h"
-#include "thWav.h"
 #include "thALSAAudio.h"
 #include "thOSSAudio.h"
-#include "thEndian.h"
-
-#include "parser.h"
+#include "thWav.h"
 
 #include "ui.h"
 #include "signal.h"
@@ -216,6 +205,10 @@ int main (int argc, char *argv[])
 
 		Synth.LoadMod(string(inputfname), 0, (float)12.0);
 	}
+	else
+	{
+		Synth.LoadMod("dsp/harpsi1.dsp", 0, (float)12.0);
+	}
 
 	/* seed the random number generator */
 	srand(time(NULL));
@@ -231,6 +224,7 @@ int main (int argc, char *argv[])
 	Synth.LoadMod("dsp/amb01.dsp", 8, (float)12.0);
 	/* drums */
 	Synth.LoadMod("dsp/sd0.dsp", 9, (float)11.0);
+	Synth.LoadMod("dsp/bd0.dsp", 10, (float)11.0);
 
 	Glib::Thread *const ui = Glib::Thread::create(SigC::slot(&ui_thread),
 												  true);

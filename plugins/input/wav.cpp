@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.8 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: wav.cpp,v 1.9 2004/04/08 00:34:56 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,14 +6,7 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
 //#include "thAudio.h"
-#include "thException.h"
 //#include "thWav.h"
 
 char		*desc = "Wav Input (BROKEN)";

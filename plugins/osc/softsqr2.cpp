@@ -1,4 +1,4 @@
-/* $Id: softsqr2.cpp,v 1.10 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: softsqr2.cpp,v 1.11 2004/04/08 00:34:56 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,13 +7,6 @@
 #include <math.h>
 
 #include "think.h"
-
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
 
 char		*desc = "Square wave with sine-like transitions, proportional to the frequency";
 thPluginState	mystate = thActive;

@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.10 2004/04/06 04:07:36 misha Exp $ */
+/* $Id: ui.cpp,v 1.11 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
 
@@ -11,15 +11,6 @@
 #include <gtkmm.h>
 
 #include "think.h"
-
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
 
 #include "Keyboard.h"
 #include "KeyboardWindow.h"

@@ -1,7 +1,6 @@
-/* $Id: thPlugin.cpp,v 1.37 2004/03/30 05:09:39 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.38 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 
@@ -29,7 +28,7 @@ extern "C" { extern char *basename PARAMS ((const char *)); }
 # endif
 #endif
 
-#include "thPlugin.h"
+#include "think.h"
 
 thPlugin::thPlugin (const string &path)
 {

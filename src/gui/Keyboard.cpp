@@ -1,7 +1,6 @@
-/* $Id: Keyboard.cpp,v 1.18 2004/04/07 08:50:31 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.19 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -11,16 +10,11 @@
 #include <gtkmm.h>
 #include <gtk/gtk.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
+#include "think.h"
 
 #include "Keyboard.h"
+
+/* XXX: implement sticky keys??? */
 
 /* conversion table for SHIFT chars */
 static char	key_conv_in[] =  "~!@#$%^&*()_+|{}:\"<>?";
@@ -139,6 +133,7 @@ void Keyboard::SetChannel (int argchan)
 	mouse_notnum = -1;
 	for (int i = 0; i < 128; i++)
 	{
+		/* turn off notes from previous channel */
 		if (active_keys[i])
 		{
 			m_signal_note_off(channel, i);
@@ -164,6 +159,9 @@ void Keyboard::SetTranspose (int argtranspose)
 
 	transpose = argtranspose;
 
+	/* transpose has been changed internally; emit the changed signal so
+	   widgets which interface with us will be able to update their transpose
+	   display, if any */
 	m_signal_transpose_changed.emit(transpose);
 }
 
@@ -246,8 +244,6 @@ bool Keyboard::on_expose_event (GdkEventExpose *e)
 
 bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 {
-//	printf("got focus in\n");
-
 	focus_box = true;
 
 	/* just draw the focus box */
@@ -258,12 +254,10 @@ bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 
 bool Keyboard::on_focus_out_event (GdkEventFocus *f)
 {
-//	printf("got focus out\n");
-
 	focus_box = false;
 
 	/* redraw widget */
-//	drawKeyboard(5);
+	drawKeyboard(5);
 
 	return true;
 }
@@ -278,7 +272,6 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 	if (mouse_notnum >= 0) {	/* already active */
 		m_signal_note_off(channel, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
-//		drawKeyboard (0);
 	}
 		
 	/* get note number */
@@ -298,6 +291,7 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 
 	m_signal_note_on(channel, mouse_notnum, veloc);
 	active_keys[mouse_notnum] = 1;
+
 	drawKeyboard(0);
 
 	mouse_veloc = veloc;	/* save velocity */
@@ -432,9 +426,11 @@ bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 
 	int notenum = get_coord();
 
-	if ((notenum >= 0) && (notenum != mouse_notnum))
+	/* play only valid notes and only play a note once while the mouse is being
+	   moved over it */
+ 	if ((notenum >= 0) && (notenum != mouse_notnum))
 	{
-		active_keys[mouse_notnum] = 0;
+	 	active_keys[mouse_notnum] = 0;
 		m_signal_note_off(channel, mouse_notnum);
 
 		active_keys[notenum] = 1;
@@ -464,17 +460,13 @@ void Keyboard::drawKeyboardFocus (void)
 
 void Keyboard::drawKeyboard (int mode)
 {	
-	int		i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
-	unsigned int	c;
-
-//	printf("entering Keyboard::drawKeyboard\n");
+	int i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
+	unsigned int c;
 
 	if (drawable == NULL)
 		return;
 
-	drawMutex.lock ();
-
-//	printf("entered drawKeyboard\n");
+	drawMutex.lock();
 
 	s0 = key_sizes[cur_size][0];	/* black key height		*/
 	s1 = key_sizes[cur_size][1];	/* total height - b. key height	*/
@@ -507,12 +499,9 @@ void Keyboard::drawKeyboard (int mode)
 	/* draw keys */
 	do
 	{
-//		printf("note: %d [%d:%d]\n", i, prv_active_keys[i], active_keys[i]);
 		/* update only if state changed or redraw window was reqd */
 		if (z || (active_keys[i] != prv_active_keys[i]))
 		{
-//			printf("updating note %d\n", i);
-
 			/* save new state */
 			prv_active_keys[i] = active_keys[i];
 
@@ -587,6 +576,7 @@ void Keyboard::drawKeyboard (int mode)
 
 	} while (++i < 128);
 
+
 /*	if (focus_box)
 	{
 		drawKeyboardFocus();
@@ -594,7 +584,6 @@ void Keyboard::drawKeyboard (int mode)
 
 	drawMutex.unlock();
 
-//	printf("returning Keyboard::drawKeyboard\n");
 }
 
 /* convert key value to note number		*/
@@ -677,7 +666,7 @@ int	Keyboard::get_coord (void)
 	{
 		/* black keys */
 		y = x - ((n >> 1) * key_sizes[cur_size][2]);
-		
+
 		switch (m)
 		{
 			case 0:			/* C */
@@ -739,29 +728,39 @@ void Keyboard::adjust_velocity (int m, int n)
 {
 	int	*veloc;
 
+	/* XXX: make this do stuff */
 	return;
 
-	switch (m) {
-	case 0: veloc = &veloc0; break;
-	case 1: veloc = &veloc1; break;
-	case 2: veloc = &veloc2; break;
-	case 3: veloc = &veloc3; break;
-	default:
-		*veloc = 64; /* XXX: off_vel */
+	switch (m)
+	{
+		case 0: 
+			veloc = &veloc0; break;
+		case 1: 
+			veloc = &veloc1; break;
+		case 2: 
+			veloc = &veloc2; break;
+		case 3:
+			veloc = &veloc3; break;
+		default:
+			*veloc = 64; /* XXX: off_vel */
+			break;
 	}
 	*veloc += n;
+
 	if (*veloc < 1) *veloc = 1;
 	if (*veloc > 127) *veloc = 127;
+
 	if (m == 4) {
 		fprintf (stderr, "note-off velocity: ");
-	} else {
+	}
+	else {
 		fprintf (stderr, "velocity %d: ", m);
 	}
+
 	fprintf (stderr, "%d\n", *veloc);
 }
 
 /* function keys */
-
 void Keyboard::fkeys_func (int key)
 {
 	if (alt_on) {
@@ -798,7 +797,8 @@ void Keyboard::fkeys_func (int key)
 			case GDK_Right:	adjust_velocity (2,  1); return;
 			case GDK_Up:	adjust_velocity (2,  8); return;
 		}
-	} else {
+	}
+	else {
 		switch (key) {
 			/* transpose */
 			case GDK_F1:  SetTranspose(transpose-12); return;
@@ -812,7 +812,6 @@ void Keyboard::fkeys_func (int key)
 			case GDK_Up:	adjust_velocity (3,  8); return;
 		}
 	}
-
 
 #if 0
 	switch (key) {

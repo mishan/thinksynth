@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.19 2004/03/21 06:51:27 ink Exp $ */
+/* $Id: think.h,v 1.20 2004/04/08 00:34:56 misha Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -57,5 +57,20 @@ void DestroyMap (map<T,U> themap)
 	for (typename map<T,U>::iterator i=themap.begin(); i!=themap.end(); i++)
 		delete i->second;
 };
+
+/* XXX: INCLUDES */
+#include "thArg.h"
+#include "thEndian.h"
+#include "thException.h"
+#include "thPlugin.h"
+#include "thPluginManager.h"
+#include "thNode.h"
+#include "thMod.h"
+#include "thMidiNote.h"
+#include "thMidiChan.h"
+#include "thSynth.h"
+
+#include "yygrammar.h"
+#include "parser.h"
 
 #endif /* THINK_H */

@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.7 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: map.cpp,v 1.8 2004/04/08 00:34:56 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -6,19 +6,8 @@
 
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
-
 char		*desc = "Maps a stream to a new value range";
 thPluginState	mystate = thPassive;
-
-
-
-
 
 void module_cleanup (struct module *mod)
 {

@@ -1,4 +1,4 @@
-/* $Id: thinklex.ll,v 1.20 2004/03/26 08:49:59 joshk Exp $ */
+/* $Id: thinklex.ll,v 1.21 2004/04/08 00:34:56 misha Exp $ */
 
 %{
 #include "config.h"
@@ -8,19 +8,6 @@
 #include <string.h>
 
 #include "think.h"
-
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
-
-#include "yygrammar.h"
-#include "parser.h"
 
 int linenum = 1;
 

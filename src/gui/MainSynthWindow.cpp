@@ -1,7 +1,6 @@
-/* $Id: MainSynthWindow.cpp,v 1.8 2004/04/07 07:23:16 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.9 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,14 +12,7 @@
 #include <gtkmm.h>
 #include <gtkmm/messagedialog.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
+#include "think.h"
 
 #include "PatchSelWindow.h"
 #include "Keyboard.h"

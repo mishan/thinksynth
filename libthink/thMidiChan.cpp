@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.55 2004/03/26 08:11:29 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.56 2004/04/08 00:34:56 misha Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -8,13 +8,6 @@
 #include <string.h>
 
 #include "think.h"
-
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
 
 thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 {

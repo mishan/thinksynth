@@ -1,4 +1,4 @@
-/* $Id: ink2.cpp,v 1.3 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: ink2.cpp,v 1.4 2004/04/08 00:34:56 misha Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -7,23 +7,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#define SQR(x) ((x) * (x))
-
 #include "think.h"
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thSynth.h"
+#define SQR(x) ((x) * (x))
 
 char		*desc = "INK Filter ][";
 thPluginState	mystate = thActive;
-
-
-
-
 
 void module_cleanup (struct module *mod)
 {

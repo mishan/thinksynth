@@ -1,7 +1,6 @@
-/* $Id: PatchSelWindow.cpp,v 1.24 2004/04/02 00:38:41 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.25 2004/04/08 00:34:56 misha Exp $ */
 
 #include "config.h"
-#include "think.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,14 +9,7 @@
 
 #include <gtkmm.h>
 
-#include "thArg.h"
-#include "thPlugin.h"
-#include "thPluginManager.h"
-#include "thNode.h"
-#include "thMod.h"
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-#include "thSynth.h"
+#include "think.h"
 
 #include "PatchSelWindow.h"
 
