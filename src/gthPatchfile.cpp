@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.12 2004/12/22 04:19:59 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -354,6 +354,8 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 	fclose(prefsFile);
 
 	patches_[chan]->filename = filename;
+
+	m_signal_patches_changed();
 
 	return true;
 }

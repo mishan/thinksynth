@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.65 2004/10/01 08:52:25 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -187,9 +187,6 @@ NIL
 nodes:
 NODE WORD plugname LCBRACK assignments RCBRACK
 {
-	debug("node %s defined using plugin %s", $2.str, $3.str);
-	debug("Checking if plugin %s is loaded...", $3.str);
-
 	thPluginManager *plugMgr = parseSynth->GetPluginManager();
 
 	if(!plugMgr->GetPlugin($3.str)) {
@@ -212,8 +209,6 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 |
 NODE WORD LCBRACK assignments RCBRACK
 {
-	debug("node %s defined with no plugin", $2.str);
-
 	parsenode->SetName($2.str);
 	parsenode->SetPlugin(NULL);
 	parsemod->NewNode(parsenode);
@@ -226,7 +221,6 @@ NODE WORD LCBRACK assignments RCBRACK
 paramsetup:
 ATSIGN WORD ASSIGN expression
 {
-//	debug("Chan Arg %s = %f", $2.str, $4.floatval);
 	float *copy = new float[1];
 	*copy = $4.floatval;
 	parsemod->SetChanArg(new thArg($2.str, copy, 1));
@@ -236,10 +230,7 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
 {
 	thArg *chanarg;
 
-//	debug("Arg Name: %s \tData: %s \t=> %f", $2.str, $4.str, $6.floatval);
-
 	chanarg = parsemod->GetChanArg($2.str);
-//	debug("Value: %f", chanarg->argValues[0]);
 
 	if(strcmp($4.str, "min") == 0)
 	{
@@ -261,10 +252,7 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 {
 	thArg *chanarg;
 
-//	debug("Arg Name: %s \tData: %s \t=> %s", $2.str, $4.str, $6.str);
-
 	chanarg = parsemod->GetChanArg($2.str);
-//	debug("Value: %f", chanarg->argValues[0]);
 
 	if(strcmp($4.str, "label") == 0)
 	{
@@ -281,7 +269,6 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 ionode:
 IO WORD
 {
-	debug("IO node defined as %s", $2.str);
 	parsemod->SetIONode($2.str);
 }
 ;

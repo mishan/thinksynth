@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.56 2004/12/22 09:15:53 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -331,8 +331,6 @@ void PatchSelWindow::SavePatch (void)
 			/* update patch window with new name */
 			(*iter)[patchViewCols.dspName] = b;
 
-			m_signal_patch_name_changed(chan, b);
-
 			if (prevDir)
 				free (prevDir);
 
@@ -484,8 +482,6 @@ void PatchSelWindow::populate (void)
 		if (iter)
 			selectedChan = (*iter)[patchViewCols.chanNum]-1;
 	}
-	
-	debug("populating contents");
 	
 	patchModel->clear();
 

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.60 2004/12/14 07:50:40 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -53,8 +53,8 @@ extern Glib::Mutex *synthMutex;
 
 void MainSynthWindow::toggleConnects (void)
 {
-	Gtk::MenuItem *me = (Gtk::MenuItem *)&menuJack.items()[0];
-	Gtk::MenuItem *dis = (Gtk::MenuItem *)&menuJack.items()[1];
+	Gtk::MenuItem *me = (Gtk::MenuItem *)&menuJack_.items()[0];
+	Gtk::MenuItem *dis = (Gtk::MenuItem *)&menuJack_.items()[1];
 	bool c = me->is_sensitive();
 	me->set_sensitive(!c);
 	dis->set_sensitive(c);
@@ -87,70 +87,61 @@ static void connectDialog (int error)
 
 #endif /* HAVE_JACK */
 
-MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)
+MainSynthWindow::MainSynthWindow (gthAudio *audio)
 {
-	string ** vals;
+	gthPrefs *prefs = gthPrefs::instance();
+	string **vals;
+
+	audio_ = audio;
 
 	set_title("thinksynth");
 	set_default_size(520, 360);
 
-	synth = _synth;
-	audio = _audio;
-	prefs = _prefs;
-
-	patchSel = new PatchSelWindow(synth);
-	midiMap = NULL;
-	
-	patchSel->signal_patch_name_changed().connect(
-		sigc::mem_fun(*this, &MainSynthWindow::onPatchNameChanged));
+	midiMap_ = NULL;
+	patchSel_ = NULL;
+	aboutBox_ = NULL;
 
 	vals = prefs->Get("dspdir");
 
 	if (vals != NULL)
-		prevDir = strdup(vals[0]->c_str());
+		prevDir_ = strdup(vals[0]->c_str());
 	else
-		prevDir = strdup(DSP_PATH);
+		prevDir_ = strdup(DSP_PATH);
 
 	populateMenu();
 
-	menuBar.accelerate(*patchSel);
-//	menuBar.accelerate(*midiMap); /* this is created on-demand */
-
 #ifdef HAVE_JACK
-	signal_realize().connect(sigc::mem_fun(*this, &MainSynthWindow::jackCheck));
+	signal_realize().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::jackCheck));
 #endif
 	
-	add(vbox);
+	add(vbox_);
 
-	dspEntryLbl.set_label("DSP File: ");
-	dspBrowseBtn.set_label("Browse");
-	dspEntryBox.pack_start(dspEntryLbl, Gtk::PACK_SHRINK);
-	dspEntryBox.pack_start(dspEntry, Gtk::PACK_EXPAND_WIDGET);
-	dspEntryBox.pack_start(dspBrowseBtn, Gtk::PACK_SHRINK);
+	dspEntryLbl_.set_label("DSP File: ");
+	dspBrowseBtn_.set_label("Browse");
+	dspEntryBox_.pack_start(dspEntryLbl_, Gtk::PACK_SHRINK);
+	dspEntryBox_.pack_start(dspEntry_, Gtk::PACK_EXPAND_WIDGET);
+	dspEntryBox_.pack_start(dspBrowseBtn_, Gtk::PACK_SHRINK);
 
-	dspEntry.signal_activate().connect(
+	dspEntry_.signal_activate().connect(
 		sigc::mem_fun(*this, &MainSynthWindow::onDspEntryActivate));
 
-	dspBrowseBtn.signal_clicked().connect(
+	dspBrowseBtn_.signal_clicked().connect(
 		sigc::mem_fun(*this, &MainSynthWindow::onBrowseButton));
 
-	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
-	vbox.pack_start(dspEntryBox, Gtk::PACK_SHRINK);
-	vbox.pack_start(notebook, Gtk::PACK_EXPAND_WIDGET);
+	vbox_.pack_start(menuBar_, Gtk::PACK_SHRINK);
+	vbox_.pack_start(dspEntryBox_, Gtk::PACK_SHRINK);
+	vbox_.pack_start(notebook_, Gtk::PACK_EXPAND_WIDGET);
 
-	notebook.set_scrollable();
+	notebook_.set_scrollable();
 
-	notebook.signal_switch_page().connect(
+	notebook_.signal_switch_page().connect(
 		sigc::mem_fun(*this, &MainSynthWindow::onSwitchPage));
 
 	populate();
 
 	show_all_children();
 
-//	synth->signal_channel_changed().connect(
-//		sigc::mem_fun(*this, &MainSynthWindow::channelChanged));
-//	synth->signal_channel_deleted().connect(
-//		sigc::mem_fun(*this, &MainSynthWindow::channelDeleted));
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	patchMgr->signal_patches_changed().connect(
 		sigc::mem_fun(*this, &MainSynthWindow::onPatchesChanged));
@@ -159,7 +150,6 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	debug("signal connections made");
 
-	aboutBox = NULL;
 }
 
 MainSynthWindow::~MainSynthWindow (void)
@@ -169,9 +159,11 @@ MainSynthWindow::~MainSynthWindow (void)
 
 void MainSynthWindow::populateMenu (void)
 {
+	gthPrefs *prefs = gthPrefs::instance();
+
 	/* File */
 	{
-		Gtk::Menu::MenuList &menulist = menuFile.items();
+		Gtk::Menu::MenuList &menulist = menuFile_.items();
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Keyboard",
@@ -198,9 +190,9 @@ void MainSynthWindow::populateMenu (void)
 
 #ifdef HAVE_JACK
 	/* JACK */
-	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+	if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
 	{
-		Gtk::Menu::MenuList &menulist = menuJack.items();
+		Gtk::Menu::MenuList &menulist = menuJack_.items();
 		Gtk::CheckMenuItem *elem;
 		sigc::slot0<void> autoslot =
 			sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto);
@@ -233,7 +225,7 @@ void MainSynthWindow::populateMenu (void)
 	
 	/* Help */
 	{
-		Gtk::Menu::MenuList &menulist = menuHelp.items();
+		Gtk::Menu::MenuList &menulist = menuHelp_.items();
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_About",
@@ -244,19 +236,19 @@ void MainSynthWindow::populateMenu (void)
 
 	/* add the menus to the menubar */
 	{
-		Gtk::Menu::MenuList &menulist = menuBar.items();
+		Gtk::Menu::MenuList &menulist = menuBar_.items();
 
 		menulist.push_back(Gtk::Menu_Helpers::MenuElem("_File",
-													   menuFile));
+													   menuFile_));
 
 #ifdef HAVE_JACK
-		if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+		if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
 			menulist.push_back(Gtk::Menu_Helpers::MenuElem("_JACK",
-														menuJack));
+														menuJack_));
 #endif
 		
 		Gtk::MenuItem *helpMenu = manage(new Gtk::MenuItem("_Help", true));
-		helpMenu->set_submenu(menuHelp);
+		helpMenu->set_submenu(menuHelp_);
 		helpMenu->set_right_justified();
 		menulist.push_back(*helpMenu);
 	}
@@ -266,7 +258,7 @@ void MainSynthWindow::populateMenu (void)
 
 void MainSynthWindow::menuJackDis (void)
 {
-	gthJackAudio *jaudio = (gthJackAudio*)audio;
+	gthJackAudio *jaudio = (gthJackAudio*)audio_;
 	
 	if (jaudio)
 	{
@@ -277,7 +269,7 @@ void MainSynthWindow::menuJackDis (void)
 
 void MainSynthWindow::menuJackTry (void)
 {
-	gthJackAudio *jaudio = (gthJackAudio*)audio;
+	gthJackAudio *jaudio = (gthJackAudio*)audio_;
 
 	if (jaudio)
 	{
@@ -291,6 +283,7 @@ void MainSynthWindow::menuJackTry (void)
 
 void MainSynthWindow::menuJackAuto (void)
 {
+	gthPrefs *prefs = gthPrefs::instance();
 	string *val = new string;
 	string **vals = new string*[2];
 	
@@ -317,7 +310,7 @@ void MainSynthWindow::menuJackAuto (void)
 
 void MainSynthWindow::menuKeyboard (void)
 {
-	KeyboardWindow *kbwin = new KeyboardWindow (synth);
+	KeyboardWindow *kbwin = new KeyboardWindow (thSynth::instance());
 	/* menuBar.accelerate(*kbwin); */
 	kbwin->show_all_children();
 	kbwin->show();
@@ -328,16 +321,30 @@ void MainSynthWindow::menuKeyboard (void)
 
 void MainSynthWindow::menuPatchSel (void)
 {
-	patchSel->show_all_children();
-	patchSel->show();
+	if (patchSel_ == NULL)
+	{
+		patchSel_ = new PatchSelWindow(thSynth::instance());
+		menuBar_.accelerate(*patchSel_);
+		patchSel_->signal_hide().connect(
+			sigc::mem_fun(*this, &MainSynthWindow::onPatchSelHide));
+	}
+	
+	patchSel_->show_all_children();
+	patchSel_->show();
 }
 
 void MainSynthWindow::menuMidiMap (void)
 {
-	if(!midiMap)
-		midiMap = new MidiMap(synth);
-	midiMap->show_all_children();
-	midiMap->show();
+	if (midiMap_ == NULL)
+	{
+		midiMap_ = new MidiMap(thSynth::instance());
+		menuBar_.accelerate(*midiMap_);
+		midiMap_->signal_hide().connect(
+			sigc::mem_fun(*this, &MainSynthWindow::onMidiMapHide));
+	}
+
+	midiMap_->show_all_children();
+	midiMap_->show();
 }
 
 void MainSynthWindow::menuQuit (void)
@@ -347,12 +354,12 @@ void MainSynthWindow::menuQuit (void)
 
 void MainSynthWindow::menuAbout (void)
 {
-	if (aboutBox)
+	if (aboutBox_)
 		return;
 
-	aboutBox = new AboutBox;
-	aboutBox->show();
-	aboutBox->signal_hide().connect(
+	aboutBox_ = new AboutBox;
+	aboutBox_->show();
+	aboutBox_->signal_hide().connect(
 		sigc::mem_fun(*this, &MainSynthWindow::onAboutBoxHide));
 }
 
@@ -362,7 +369,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	{
 		Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
 		lbl->set_justify(Gtk::JUSTIFY_CENTER);
-		notebook.append_page(*lbl, tabName);
+		notebook_.append_page(*lbl, tabName);
 		return;
 	}
 
@@ -375,7 +382,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	{
 		Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
 		sorry->set_justify(Gtk::JUSTIFY_CENTER);
-		notebook.append_page(*sorry, tabName);
+		notebook_.append_page(*sorry, tabName);
 		return;
 	}
 		
@@ -469,7 +476,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 		}
 	}
 
-	notebook.append_page(*tab_view, tabName);
+	notebook_.append_page(*tab_view, tabName);
 
 }
 
@@ -514,16 +521,17 @@ void MainSynthWindow::populate (void)
 #ifdef HAVE_JACK
 void MainSynthWindow::jackCheck (void)
 {
+	gthPrefs *prefs = gthPrefs::instance();
 	string ** vals;
 
 	/* Not the best place to do it but we need to call toggleConnects */
-	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+	if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
 	{
 		vals = prefs->Get("autoconnect");
 		if (vals && *vals[0] == "true")
 		{
 			int error;
-			if ((error = ((gthJackAudio*)audio)->tryConnect()) == 0)
+			if ((error = ((gthJackAudio*)audio_)->tryConnect()) == 0)
 				toggleConnects();
 			else
 				connectDialog (error);
@@ -532,23 +540,17 @@ void MainSynthWindow::jackCheck (void)
 }
 #endif
 
-void MainSynthWindow::onPatchNameChanged (int chan, const char* name)
-{
-	notebook.set_tab_label_text(*(notebook.get_nth_page(chan)),
-		g_strdup_printf("%d: %s", chan + 1, name));
-}
-
 void MainSynthWindow::onPatchesChanged (void)
 {
-	int pagenum = notebook.get_current_page();
+	int pagenum = notebook_.get_current_page();
 
-	notebook.hide_all();
-	notebook.pages().clear();
+	notebook_.hide_all();
+	notebook_.pages().clear();
 	populate();
-	notebook.show_all();
+	notebook_.show_all();
 
 	if (pagenum != -1)
-		notebook.set_current_page(pagenum);
+		notebook_.set_current_page(pagenum);
 }
 
 void MainSynthWindow::onPatchLoadError (const char* failure)
@@ -564,8 +566,18 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
 
 void MainSynthWindow::onAboutBoxHide (void)
 {
-	delete aboutBox;
-	aboutBox = NULL;
+	delete aboutBox_;
+	aboutBox_ = NULL;
+}
+
+void MainSynthWindow::onPatchSelHide (void)
+{
+	delete patchSel_;
+}
+
+void MainSynthWindow::onMidiMapHide (void)
+{
+	delete midiMap_;
 }
 
 void MainSynthWindow::onKeyboardHide (KeyboardWindow *kbwin)
@@ -580,18 +592,18 @@ void MainSynthWindow::onSwitchPage (GtkNotebookPage *p, int pagenum)
 
 	if (patch == NULL)
 	{
-		dspEntry.set_text("");
+		dspEntry_.set_text("");
 		return;
 	}
 
-	dspEntry.set_text(patch->dspFile);
+	dspEntry_.set_text(patch->dspFile);
 }
 
 void MainSynthWindow::onDspEntryActivate (void)
 {
 	gthPatchManager *patchMgr = gthPatchManager::instance();
-	string dspfile = dspEntry.get_text();
-	int pagenum = notebook.get_current_page();
+	string dspfile = dspEntry_.get_text();
+	int pagenum = notebook_.get_current_page();
 
 	/* noop caused by a spurious Enter */
 	if (dspfile == "")
@@ -611,50 +623,50 @@ void MainSynthWindow::onDspEntryActivate (void)
 		return;
 	}
 
-	notebook.hide_all();
-	notebook.pages().clear();
+	notebook_.hide_all();
+	notebook_.pages().clear();
 	populate();
-	notebook.show_all();
+	notebook_.show_all();
 
-	notebook.set_current_page(pagenum);
+	notebook_.set_current_page(pagenum);
 }
 
 void MainSynthWindow::onBrowseButton (void)
 {
 	gthPatchManager *patchMgr = gthPatchManager::instance();
-	int pagenum = notebook.get_current_page();
+	int pagenum = notebook_.get_current_page();
 	Gtk::FileSelection fileSel("thinksynth - Load DSP");
 
-	if (prevDir)
-		fileSel.set_filename(prevDir);
+	if (prevDir_)
+		fileSel.set_filename(prevDir_);
 
 	if(fileSel.run() == Gtk::RESPONSE_OK)
 	{
-		dspEntry.set_text(fileSel.get_filename());
+		dspEntry_.set_text(fileSel.get_filename());
 
 		if(patchMgr->newPatch(fileSel.get_filename(), pagenum))
 		{
 			char *file = strdup(fileSel.get_filename().c_str());
 
-			if (prevDir)
-				free (prevDir);
+			if (prevDir_)
+				free (prevDir_);
 
-			prevDir = g_strdup_printf("%s/", dirname(file));
+			prevDir_ = g_strdup_printf("%s/", dirname(file));
 			free (file);
 
 			string **vals = new string *[2];
-			vals[0] = new string(prevDir);
+			vals[0] = new string(prevDir_);
 			vals[1] = NULL;
 
 			gthPrefs *prefs = gthPrefs::instance();
 			prefs->Set("dspdir", vals);
 
 			/* load up the patch file */
-			notebook.hide_all();
-			notebook.pages().clear();
+			notebook_.hide_all();
+			notebook_.pages().clear();
 			populate();
-			notebook.show_all();
-			notebook.set_current_page(pagenum);
+			notebook_.show_all();
+			notebook_.set_current_page(pagenum);
 		}
 		else
 		{

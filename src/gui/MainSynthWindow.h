@@ -30,7 +30,7 @@ using namespace std;
 class MainSynthWindow : public Gtk::Window
 {
 public:
-	MainSynthWindow (thSynth *, gthPrefs *, gthAudio *);
+	MainSynthWindow (gthAudio *);
 	~MainSynthWindow (void);
 
 protected:
@@ -49,35 +49,34 @@ protected:
 
 	void onPatchesChanged (void);
 	void onAboutBoxHide (void);
+	void onPatchSelHide (void);
+	void onMidiMapHide (void);
 	void onKeyboardHide (KeyboardWindow *kbwin);
 	void onSwitchPage (GtkNotebookPage *p, int pagenum);
 	void onDspEntryActivate (void);
 	void onBrowseButton (void);
 	void onPatchLoadError (const char* failure);
-	void onPatchNameChanged (int chan, const char* name);
 	void jackCheck (void);
 
-	Gtk::VBox vbox;
-	Gtk::MenuBar menuBar;
-	Gtk::Menu menuFile;
-	Gtk::Menu menuJack;
-	Gtk::Menu menuHelp;
+	Gtk::VBox vbox_;
+	Gtk::MenuBar menuBar_;
+	Gtk::Menu menuFile_;
+	Gtk::Menu menuJack_;
+	Gtk::Menu menuHelp_;
 
-	Gtk::Entry dspEntry;
-	Gtk::Label dspEntryLbl;
-	Gtk::Button dspBrowseBtn;
-	Gtk::HBox dspEntryBox;
+	Gtk::Entry dspEntry_;
+	Gtk::Label dspEntryLbl_;
+	Gtk::Button dspBrowseBtn_;
+	Gtk::HBox dspEntryBox_;
 
-	Gtk::Notebook notebook;
+	Gtk::Notebook notebook_;
 
-	PatchSelWindow *patchSel;
-	AboutBox *aboutBox;
-	MidiMap *midiMap;
+	PatchSelWindow *patchSel_;
+	AboutBox *aboutBox_;
+	MidiMap *midiMap_;
 private:
-	thSynth *synth;
-	gthAudio *audio;
-	gthPrefs *prefs;
-	char *prevDir;
+	gthAudio *audio_;
+	char *prevDir_;
 
 	void toggleConnects(void);
 };

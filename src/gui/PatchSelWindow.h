@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.18 2004/12/22 04:19:59 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,8 +20,6 @@
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
 
-typedef sigc::signal<void, int, const char*> type_signal_patch_name_changed;
-
 class PatchSelColumns : public Gtk::TreeModel::ColumnRecord
 {
 public:
@@ -42,12 +40,6 @@ class PatchSelWindow : public Gtk::Window
 public:
 	PatchSelWindow (thSynth *);
 	~PatchSelWindow (void);
-
-	/* signals */
-	inline type_signal_patch_name_changed signal_patch_name_changed (void)
-	{
-		return m_signal_patch_name_changed;
-	}
 
 protected:
 	bool LoadPatch (void);
@@ -101,7 +93,6 @@ private:
 	char *prevDir;
 
 	int currchan;
-	type_signal_patch_name_changed m_signal_patch_name_changed;
 };
 
 #endif /* PATCHSEL_WINDOW_H */

@@ -62,11 +62,7 @@ gthAudio *aout = NULL;
 static gthALSAMidi *midi = NULL;
 #endif /* HAVE_ALSA */
 
-Glib::RefPtr<Glib::MainContext> mainContext;
-
 Glib::Dispatcher *process = NULL;
-
-
 Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
@@ -152,7 +148,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
-	for(int i = 0; i < chans; i++)
+	for (int i = 0; i < chans; i++)
 	{
 		float *synthbuffer = Synth->getChanBuffer(i);
 		void *buf = jack->GetOutBuf(i, nframes);
@@ -334,8 +330,8 @@ int main (int argc, char *argv[])
 	/* create a window first */
 	Synth->Process();
 
-	/* all thAudio classes will work with floating point buffers converting to
-	   integer internally based on format data */
+	/* all thAudio classes will work with floating point buffers, converting
+	   to other formats internally, if necessary */
 	try
 	{
 #ifdef HAVE_ALSA
@@ -394,11 +390,11 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
-	MainSynthWindow synthWindow(Synth, prefs, aout);
+	MainSynthWindow synthWindow(aout);
 
 	prefs->Load();
 
-	mymain.run( synthWindow );
+	mymain.run(synthWindow);
 
 #ifdef HAVE_ALSA
 	delete midi;
