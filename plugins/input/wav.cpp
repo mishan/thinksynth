@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.6 2003/11/10 12:20:49 ink Exp $ */
+/* $Id: wav.cpp,v 1.7 2004/03/26 09:50:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,9 +19,9 @@
 char		*desc = "Wav Input";
 thPluginState	mystate = thActive;
 
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
+
+
+
 
 static thWav *thwav = NULL;
 

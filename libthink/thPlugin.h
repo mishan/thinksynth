@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.22 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thPlugin.h,v 1.23 2004/03/26 09:50:33 joshk Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -9,6 +9,16 @@
 
 #ifdef PLUGIN_BUILD
 unsigned char apiversion = MODULE_IFACE_VER;
+class thNode;
+class thPlugin;
+class thMod;
+
+/* Provide the prototypes */
+extern "C" {
+	int  module_init (thPlugin *plugin);
+	int  module_callback (thNode *node, thMod *mod, unsigned int windowlen);
+	void module_cleanup (struct module *mod);
+}
 #endif
 
 extern string plugin_path;

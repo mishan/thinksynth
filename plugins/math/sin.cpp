@@ -1,4 +1,4 @@
-/* $Id: sin.cpp,v 1.1 2003/10/12 00:41:04 ink Exp $ */
+/* $Id: sin.cpp,v 1.2 2004/03/26 09:50:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,10 +16,6 @@
 
 char		*desc = "Sine Calculation";
 thPluginState	mystate = thPassive;
-
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {

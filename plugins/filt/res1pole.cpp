@@ -1,4 +1,4 @@
-/* $Id: res1pole.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
+/* $Id: res1pole.cpp,v 1.4 2004/03/26 09:50:33 joshk Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -19,9 +19,9 @@
 char		*desc = "Resonant 1-pole LPF";
 thPluginState	mystate = thActive;
 
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
+
+
+
 
 void module_cleanup (struct module *mod)
 {

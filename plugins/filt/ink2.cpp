@@ -1,4 +1,4 @@
-/* $Id: ink2.cpp,v 1.2 2003/12/02 07:00:09 ink Exp $ */
+/* $Id: ink2.cpp,v 1.3 2004/03/26 09:50:33 joshk Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -21,9 +21,9 @@
 char		*desc = "INK Filter ][";
 thPluginState	mystate = thActive;
 
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
+
+
+
 
 void module_cleanup (struct module *mod)
 {

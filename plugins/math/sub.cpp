@@ -1,4 +1,4 @@
-/* $Id: sub.cpp,v 1.6 2003/09/16 01:02:29 misha Exp $ */
+/* $Id: sub.cpp,v 1.7 2004/03/26 09:50:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,10 +15,6 @@
 
 char		*desc = "Subtracts two streams";
 thPluginState	mystate = thPassive;
-
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {

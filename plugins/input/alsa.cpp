@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.7 2004/02/22 04:02:56 ink Exp $ */
+/* $Id: alsa.cpp,v 1.8 2004/03/26 09:50:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,9 +21,9 @@
 char		*desc = "ALSA Input";
 thPluginState	mystate = thActive;
 
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
+
+
+
 
 snd_pcm_t *cap_handle = NULL;
 

@@ -1,4 +1,4 @@
-/* $Id: pitch.cpp,v 1.2 2004/03/26 09:38:37 joshk Exp $ */
+/* $Id: pitch.cpp,v 1.3 2004/03/26 09:50:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,12 +16,6 @@
 
 char		*desc = "Follows the pitch of the input";
 thPluginState	mystate = thActive;
-
-extern "C" {
-  int	module_init (thPlugin *plugin);
-  int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-  void module_cleanup (struct module *mod);
-}
 
 void module_cleanup (struct module *mod)
 {

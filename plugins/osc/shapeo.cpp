@@ -1,4 +1,4 @@
-/* $Id: shapeo.cpp,v 1.1 2003/09/22 08:18:22 ink Exp $ */
+/* $Id: shapeo.cpp,v 1.2 2004/03/26 09:50:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,9 +18,9 @@
 char		*desc = "Shaped oscillator";
 thPluginState	mystate = thActive;
 
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
+
+
+
 
 void module_cleanup (struct module *mod)
 {
