@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.22 2003/04/27 07:52:03 ink Exp $ */
+/* $Id: thSynth.h,v 1.23 2003/04/29 00:16:35 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -17,12 +17,14 @@ public:
 	thPluginManager *GetPluginManager (void);
 	void AddChannel(char *channame, char *modname, float amp);
 	thMidiNote *AddNote(char *channame, float note, float velocity);
-	void Process(const char *modname);
+	void Process(void);
 
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 	
 	void ListMods(thBSTree *node);
+
+	void ProcessHelper(thBSTree *chan);
 
 	thBSTree *modlist;
 	thPluginManager pluginmanager;

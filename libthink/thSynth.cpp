@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.41 2003/04/28 22:32:48 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.42 2003/04/29 00:16:35 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -97,8 +97,19 @@ thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 	return newnote;
 }
 
-void thSynth::Process(const char *modname)
+void thSynth::Process()
 {
-	thMod *mod = FindMod(modname);
-	mod->Process(windowlen);
+  ProcessHelper(channels);
+}
+
+void thSynth::ProcessHelper(thBSTree *chan)
+{
+  thMidiChan *data;
+
+  if(chan) {
+	ProcessHelper(chan->GetLeft());
+	data = (thMidiChan *)chan->GetData();
+	data->Process();
+	ProcessHelper(chan->GetRight());
+  }
 }

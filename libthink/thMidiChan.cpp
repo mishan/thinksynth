@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.21 2003/04/28 22:47:19 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.22 2003/04/29 00:16:35 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -26,6 +26,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	modnode = mod;
 	args = new thBSTree(StringCompare);
 	notes = new thBSTree(IntCompare);
+	windowlength = windowlen;
 	allocatedamp[0] = amp;
 	args->Insert((void *)strdup("amp"), (void *)allocatedamp);
 
@@ -65,6 +66,18 @@ void thMidiChan::DelNote (int note)
 
 void thMidiChan::Process (void)
 {
+  ProcessHelper(notes);
+}
+
+void thMidiChan::ProcessHelper (thBSTree *note)
+{
+  thMidiNote *data;
+  if(note) {
+	ProcessHelper(note->GetLeft());
+	data = (thMidiNote *)note->GetData();
+	data->Process(windowlength);
+	ProcessHelper(note->GetRight());
+  }
 }
 
 int thMidiChan::GetLen (int num)
