@@ -3,5 +3,4 @@ thinklex.cpp
 thinklang.cpp
 thinklang.h
 Makefile
-.*dt*
-
+.*.dt
