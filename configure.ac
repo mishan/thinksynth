@@ -3,12 +3,14 @@ AC_INIT
 dnl Don't let ancient Autoconfs touch this
 AC_PREREQ(2.5)
 
+if test "$prefix" = "NONE"; then
+	prefix=/usr/local
+fi
+
 AM_CONFIG_HEADER(config.h)
 AM_MAINTAINER_MODE
 
 AC_CANONICAL_TARGET
-
-AC_PREFIX_DEFAULT([/usr/local])
 
 PACKAGE="thinksynth"
 VERSION="0.1"
