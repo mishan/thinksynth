@@ -14,21 +14,21 @@ public:
 	const thArgValue *GetArg (char *name);
 	void PrintArgs (void);
 
-	const thList *GetArgList (void) { return args->GetList(); };
+	const thList *GetArgList (void) { return args.GetList(); };
 
 	bool GetRecalc(void) { return recalc; };
 	void SetRecalc(bool state) { recalc = state; };
 
-	void AddChild(thNode *node) { children->Add(node); };
-	void AddParent(thNode *node) { parents->Add(node); };
+	void AddChild(thNode *node) { children.Add(node); };
+	void AddParent(thNode *node) { parents.Add(node); };
 
-	thList *GetChildren() { return children; };
-	thList *GetParents() { return parents; };
+	thList *GetChildren() { return &children; };
+	thList *GetParents() { return &parents; };
 
 	void Process (void);
 private:
-	thBSTree *args;
-	thList *parents, *children;
+	thBSTree args;
+	thList parents, children;
 	thPlugin *plugin;
 
 	char *nodename;
