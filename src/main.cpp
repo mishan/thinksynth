@@ -198,27 +198,27 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			}
 			case SND_SEQ_EVENT_TEMPO:
 			{
-				printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
+				debug("TEMPO CHANGE:  %i\n", ev->data.control.value);
 				break;
 			}
 			case SND_SEQ_EVENT_TICK:
 			{
-				printf("TICK CHANGE:  %i\n", ev->data.control.value);
+				debug("TICK CHANGE:  %i\n", ev->data.control.value);
 				break;
 			}
 			case SND_SEQ_EVENT_PITCHBEND:
 			{
-				printf("PITCH BEND:  %i\n", ev->data.control.value);
+				debug("PITCH BEND:  %i\n", ev->data.control.value);
 				break;
 			}
 			case SND_SEQ_EVENT_PGMCHANGE:
 			{
-				printf("PGM CHANGE  %d\n", ev->data.control.value);
+				debug("PGM CHANGE  %d\n", ev->data.control.value);
 				break;
 			}
 			case SND_SEQ_EVENT_CONTROLLER:
 			{
-//				printf("CONTROLLER  %d\n", ev->data.control.value);
+//				debug("CONTROLLER  %d\n", ev->data.control.value);
 				break;
 			}
 			default:
