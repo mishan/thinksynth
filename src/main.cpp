@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.114 2004/01/26 00:09:42 ink Exp $ */
+/* $Id: main.cpp,v 1.115 2004/01/29 12:11:03 ink Exp $ */
 
 #include "config.h"
 
@@ -146,10 +146,10 @@ int main (int argc, char *argv[])
 		if (outputfname == "/dev/dsp") {
 			outputstream = new thOSSAudio(NULL, &audiofmt);
 		}
-		else if (outputfname == "hw:0") {
+		else if (outputfname == "hw:0" || outputfname == "file") {
 			audiofmt.period = Synth.GetWindowLen();
 
-			outputstream = new thALSAAudio(NULL, &audiofmt);
+			outputstream = new thALSAAudio(outputfname.c_str(), &audiofmt);
 
 			phandle = ((thALSAAudio *)outputstream)->play_handle;
 

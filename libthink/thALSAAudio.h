@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.h,v 1.1 2004/01/25 11:31:02 misha Exp $ */
+/* $Id: thALSAAudio.h,v 1.2 2004/01/29 12:11:03 ink Exp $ */
 
 #ifndef TH_ALSAAUDIO_H
 #define TH_ALSAAUDIO_H
@@ -12,7 +12,7 @@ class thALSAAudio : public thAudio
 {
 public:
 
-	thALSAAudio (char *null, const thAudioFmt *afmt)
+	thALSAAudio (const char *device, const thAudioFmt *afmt)
 		throw(thIOException);
 
 	virtual ~thALSAAudio ();

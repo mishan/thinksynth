@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.6 2004/01/29 06:12:23 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.7 2004/01/29 12:11:03 ink Exp $ */
 
 #include "config.h"
 
@@ -11,9 +11,14 @@
 
 #include "think.h"
 
-thALSAAudio::thALSAAudio (char *null, const thAudioFmt *afmt)
+thALSAAudio::thALSAAudio (const char *device, const thAudioFmt *afmt)
 	throw (thIOException)
 {
+	if (snd_pcm_open (&play_handle, device, SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+		fprintf(stderr, "thALSAAUdio::SetFormat: %s\n", strerror(errno));
+		return;
+	}
+
 	SetFormat(afmt);
 
 	outbuf = NULL;
@@ -34,10 +39,6 @@ void thALSAAudio::SetFormat (const thAudioFmt *afmt)
 
 	memcpy(&ifmt, afmt, sizeof(thAudioFmt));
 	memcpy(&ofmt, afmt, sizeof(thAudioFmt)); /* XXX */
-
-	if (snd_pcm_open (&play_handle, "hw:0", SND_PCM_STREAM_PLAYBACK, 0) < 0) {
-		fprintf(stderr, "thALSAAUdio::SetFormat: %s\n", strerror(errno));
-	}
 
 	snd_pcm_hw_params_alloca(&hw_params);
 	snd_pcm_hw_params_any(play_handle, hw_params);
