@@ -7,8 +7,7 @@
 #include "ArgSlider.h"
 
 ArgSlider::ArgSlider (thArg *arg)
-//	: Gtk::HScale (arg->argMin, arg->argMax, .01)
-	: Gtk::HScale (1, 100, 1)
+	: Gtk::HScale (arg->argMin, arg->argMax, .01)
 {
 	arg_ = arg;
 	set_value (arg_->argValues[0]);
@@ -20,10 +19,9 @@ ArgSlider::ArgSlider (thArg *arg)
 ArgSlider::~ArgSlider ()
 {
 }
-/*
+
 void ArgSlider::on_value_changed ()
 {
 	Gtk::HScale::on_value_changed();
 	arg_->argValues[0] = get_value();
 }
-*/
