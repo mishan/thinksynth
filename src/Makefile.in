@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.12 2003/09/02 04:45:35 joshk Exp $
+# $Id: Makefile.in,v 1.13 2003/11/04 07:35:24 misha Exp $
 
 BINARY = thinksynth
 
@@ -6,7 +6,7 @@ bindir=@bindir@
 libdir=@libdir@
 prefix=@prefix@
 
-all: thinksynth
+all: thinksynth thinkseq
 
 include ../build.mk
 
@@ -30,6 +30,10 @@ LIBOBJS = \
 	thWav.o
 
 MAINOBJS = main.o
+SEQOBJS = seq.o
+
+thinkseq: $(SEQOBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(SEQOBJS) $(LDFLAGS) -lthink -L.
 
 thinksynth: libthink.so $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) -lthink -L.
