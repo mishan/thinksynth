@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.10 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: ink.cpp,v 1.11 2004/04/09 06:48:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +8,9 @@
 #include "think.h"
 
 #define SQR(x) (x*x)
+
+enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, OUT_AOUT, INOUT_LAST};
+int args[INOUT_LAST + 1];
 
 char		*desc = "`INK Filter`  Gravity-based low pass";
 thPluginState	mystate = thActive;
@@ -24,6 +27,15 @@ int module_init (thPlugin *plugin)
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[IN_RES] = plugin->RegArg("res");
+
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_AOUT] = plugin->RegArg("aout");
+
+	args[INOUT_LAST] = plugin->RegArg("last");
+
 	return 0;
 }
 
@@ -39,9 +51,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	unsigned int i;
 	float in, last, diff, accel;
 
-	out_arg = mod->GetArg(node, "out");
-	out_accel = mod->GetArg(node, "aout");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_accel = mod->GetArg(node, args[OUT_AOUT]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	accel = (*inout_last)[1];
@@ -50,9 +62,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out = out_arg->Allocate(windowlen);
 	aout = out_accel->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_cutoff = mod->GetArg(node, "cutoff");
-	in_res = mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_res = mod->GetArg(node, args[IN_RES]);
 
 	for(i = 0; i < windowlen; i++) {
 		in = (*in_arg)[i];
