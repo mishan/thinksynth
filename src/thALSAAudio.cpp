@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.8 2004/04/16 08:34:00 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.9 2004/04/17 04:46:15 misha Exp $ */
 
 #include "config.h"
 
@@ -206,7 +206,7 @@ int thALSAAudio::Write (float *inbuf, int len)
 		/* under-run */
 		if(w == -EPIPE)
 		{
-			debug("<< BUFFER UNDERRUN >> snd_pcm_prepare()");
+			fprintf(stderr, "<< BUFFER UNDERRUN >> snd_pcm_prepare()\n");
 			snd_pcm_prepare(play_handle);
 		}
 		else if (w == -ESTRPIPE)
@@ -227,7 +227,7 @@ int thALSAAudio::Write (float *inbuf, int len)
 		}
 		else
 		{
-			debug("<< UNKNOWN AUDIO WRITE ERROR >>\n");
+			fprintf(stderr, "<< UNKNOWN AUDIO WRITE ERROR >>\n");
 		}
 	}
 
