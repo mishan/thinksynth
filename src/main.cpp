@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.91 2003/06/14 09:37:55 aaronl Exp $ */
+/* $Id: main.cpp,v 1.92 2003/06/14 09:52:41 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -51,7 +51,7 @@ int main (int argc, char *argv[])
 #if defined (__i386__)
 	asm volatile ("\
 xorl %%edx, %%edx\n\t\
-xorl %%esi, %%esi\n\t\
+xorl %%ecx, %%ecx\n\t\
 xorl %%eax,%%eax         # CPUID function: Vendor ID\n\t\
 cpuid                    # Invoke cpuid function\n\t\
 testl %%eax,%%eax\n\t\
@@ -62,13 +62,13 @@ cmpl $0x80000001, %%eax  # We can execute feature #1, right?\n\t\
 jl  1f                   # If not, we're done here.\n\t\
 movl $0x80000001, %%eax  # CPUID function: Signature + features\n\t\
 cpuid\n\t\
-movl %%edx, %%esi\n\t\
+movl %%edx, %%ecx\n\t\
 andl $0x80000000, %%edx\n\t\
 shrl $0x0000001F, %%edx\n\t\
-andl $0x40000000, %%esi\n\t\
-shrl $0x0000001E, %%esi\n\t\
+andl $0x40000000, %%ecx\n\t\
+shrl $0x0000001E, %%ecx\n\t\
 1:\n\t"
-		: "=d" (threednow), "=S" (threednowext) : : "eax", "ecx");
+		: "=d" (threednow), "=c" (threednowext) : : "eax", "ebx");
 	printf ("3dnow support: %i, 3dnowext support: %i\n", threednow, threednowext);
 #endif
 
