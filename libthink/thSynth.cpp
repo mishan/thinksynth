@@ -59,12 +59,12 @@ void thSynth::BuildSynthTree(char *modname)
 {
   thMod *mod = FindMod(modname);
   thListNode *listnode;
-  thArg *data;
+  thArgValue *data;
   thNode *ionode = mod->GetIONode();
 
   for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
-    data = (thArg *)listnode->data;
-    printf("-=- %s\n", data->GetArgName());
+    data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+    printf("-=- %s %i\n", data->argName, data->argType);
   }
 }
       

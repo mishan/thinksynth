@@ -134,5 +134,3 @@ const thArgValue *thArg::GetArg (void)
 
 
 
-
-
