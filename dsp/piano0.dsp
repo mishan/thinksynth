@@ -9,10 +9,25 @@ node ionode {
 	out1 = mixer->out;
 	channels = 2;
 	play = env->play;
+
+	a = 0;
+	d = 6000;
+	s = 130;
+	r = 12000;
+
+	sfreqlo = 0;
+	sfreqhi = 3000;
+
+	osc2detune = 0.1;
 };
 
 node freq misc::midi2freq {
 	note = ionode->note;
+};
+
+node detune math::add {
+	in0 = freq->out;
+	in1 = ionode->osc2detune;
 };
 
 node mixer mixer::mul {
@@ -21,10 +36,10 @@ node mixer mixer::mul {
 };
 
 node env env::adsr {
-	a = 0;
-	d = 6000;
-	s = 150;
-	r = 10000;
+	a = ionode->a;
+	d = ionode->d;
+	s = ionode->s;
+	r = ionode->r;
 	trigger = 0;
 };
 
@@ -40,8 +55,8 @@ node map2 env::map {
 	in = env->out;
 	inmin = th_min;
 	inmax = th_max;
-	outmin = 0;
-	outmax = 2000;
+	outmin = ionode->sfreqlo;
+	outmax = ionode->sfreqhi;
 };
 
 node filt filt::rds {
@@ -57,7 +72,7 @@ node osc osc::softsqr {
 };
 
 node osc2 osc::softsqr {
-	freq = freq->out;
+	freq = detune->out;
 	sfreq = map2->out;
 	pw = 0.55;
 };
