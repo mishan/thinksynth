@@ -11,8 +11,8 @@ node ionode {
 	snare_len_d = 2000;
 	snare_len_s = 40;
 	snare_len_r = 3000;
-	snare_freqhi = 1200;
-	snare_freqlo = 1000;
+	snare_freqhi = 1000;
+	snare_freqlo = 800;
 	snare_filtq = 0.5;
 
 	tone_len_d = 1000;
