@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.1 2004/11/13 22:54:52 joshk Exp $
+# $Id: Makefile.in,v 1.2 2004/11/15 19:40:47 misha Exp $
 
 prefix=@prefix@
 datadir=@datadir@
@@ -19,7 +19,7 @@ clean::
 install:
 	install -d $(DESTDIR)$(datadir)/thinksynth/
 	install -d $(DESTDIR)$(datadir)/thinksynth/patches
-	for dir in $(dsp_dirs); do \
+	for dir in $(patch_dirs); do \
 		cp -a $$dir $(DESTDIR)$(datadir)/thinksynth/patches/$$dir; \
 	done
 

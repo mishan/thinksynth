@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.4 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.5 2004/11/15 19:40:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -209,9 +209,8 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 	thSynth *synth = thSynth::instance();
 	std::map<string, thArg *> args = synth->GetChanArgs(chan);
 	time_t t = time(NULL);
-	bool r;
 
-	if (!patches_[chan])
+	if (patches_[chan] == NULL)
 		return false;
 
 	if((prefsFile = fopen(filename.c_str(), "w")) == NULL)

@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.53 2004/09/30 08:32:51 ink Exp $ */
+/* $Id: simple.cpp,v 1.54 2004/11/15 19:40:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -87,7 +87,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float amp_max, amp_min, amp_range;
 	float mul;
 	float pw; /* Make pw cooler! */
-	float fmamt;
+//	float fmamt;
 	thArg *in_freq, *in_amp, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset, *in_mul;
 	thArg *out_arg, *out_sync;
 	thArg *inout_last;
