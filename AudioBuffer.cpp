@@ -27,10 +27,10 @@ bool AudioBuffer::is_room(int len)
 
 void AudioBuffer::buf_write(int *udata, int len)
 {
-	int cnt;
+	int i;
 
-	for(cnt = 0; cnt < len; cnt++) {
-		data[(read + woffset + cnt)%size] = udata[cnt];
+	for(i = 0; i < len; i++) {
+		data[(read + woffset + i)%size] = udata[i];
 	}
 
 	woffset += len;
@@ -38,25 +38,25 @@ void AudioBuffer::buf_write(int *udata, int len)
 
 void AudioBuffer::buf_read(int *udata, int len)
 {
-	int cnt;
+	int i;
 
-	for(cnt = 0; cnt < len; cnt++) {
-		udata[cnt] = data[(read+cnt)%size];
+	for(i = 0; i < len; i++) {
+		udata[i] = data[(read+i)%size];
 	}
 
 	read += len;
 }
 
-#if 0
+#ifdef TEST
 int main (void)
 {
 	AudioBuffer *mybuf = new AudioBuffer(100);
 	int tempbuf[30], i;
 	int *readbuf;
 
-	readbuf = (int *)alloca(10);
+	readbuf = new int[10];
 
-	for(i = 0; i < 30; i++) {
+	for(i = 48; i < 78; i++) {
 		tempbuf[i] = i;
 	}
 
@@ -67,5 +67,7 @@ int main (void)
 		mybuf->buf_read(readbuf, 10);
 		printf("%s\n", readbuf);
 	}
+
+	delete readbuf;
 }
 #endif
