@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.101 2004/09/05 00:21:48 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.102 2004/09/08 08:26:14 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -87,6 +87,13 @@ thSynth::~thSynth (void)
 
 	pthread_mutex_destroy(synthMutex);
 	delete synthMutex;
+}
+
+void thSynth::removeChan (int channum)
+{
+	/* XXX */
+	channels[channum] = NULL;
+	channelcount--;
 }
 
 thMod * thSynth::LoadMod (const string &filename)
@@ -359,7 +366,7 @@ thMidiNote *thSynth::AddNote (int channum, float note,
 {
 	if((channum < 0) || (channum > channelcount))
 	{
-		debug("thSynth::AddNote: no such channel %i", channum);
+		debug("thSynth::AddNote: no such channel %d", channum);
 
 		return NULL;
 	}

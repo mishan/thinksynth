@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.37 2004/09/06 21:57:56 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.38 2004/09/08 08:26:14 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -38,6 +38,7 @@ extern gthPrefs *prefs;
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
  	: dspAmp (0, MIDIVALMAX, 1),
 	  browseButton("Browse"),
+	  unloadButton("Unload"),
 	  ampLabel("Amplitude"),
 	  fileLabel("Filename")
 {
@@ -105,6 +106,9 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	browseButton.signal_clicked().connect(
 		SigC::slot(*this, &PatchSelWindow::BrowsePatch));
 
+	unloadButton.signal_clicked().connect(
+		SigC::slot(*this, &PatchSelWindow::UnloadDSP));
+	
 	vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
 
 	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
@@ -115,6 +119,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 						Gtk::FILL|Gtk::EXPAND, 0, 5);
 	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
 						0);
+	controlTable.attach(unloadButton, 3, 4, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5, 0); 
 
 	if (prefs)
 	{
@@ -139,6 +144,40 @@ PatchSelWindow::~PatchSelWindow (void)
 {
 	if (prevDir)
 		free (prevDir);
+}
+
+void PatchSelWindow::UnloadDSP (void)
+{
+	Glib::RefPtr<Gtk::TreeView::Selection> refSelection =
+		patchView.get_selection();
+
+	if (refSelection)
+	{
+		Gtk::TreeModel::iterator iter;
+		iter = refSelection->get_selected();
+
+		if (iter)
+		{
+		  	/* Delete the thMidiChan + modnode */
+			thMidiChan *c = synth->GetChannel((*iter)[patchViewCols.chanNum] - 1);
+			synth->removeChan ((*iter)[patchViewCols.chanNum] - 1);
+			if (c)
+			{
+				thMod *m = c->GetMod();
+				if (m)
+					delete m;
+				delete c;
+			}
+
+			/* Zero everything */
+			(*iter)[patchViewCols.dspName] = "";
+			(*iter)[patchViewCols.amp] = 0;
+
+			/* disable the button */
+			unloadButton.set_sensitive(false);
+			dspAmp.set_sensitive(false);
+		}
+	}
 }
 
 bool PatchSelWindow::LoadPatch (void)
@@ -271,6 +310,7 @@ void PatchSelWindow::CursorChanged (void)
 {
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
+	bool loaded;
 
 	if(refSelection)
 	{
@@ -282,7 +322,6 @@ void PatchSelWindow::CursorChanged (void)
 			Glib::ustring filename = (*iter)[patchViewCols.dspName];
 			float amp = (*iter)[patchViewCols.amp];
 
-
 			/* make these widgets usable now that a valid row is
 			   selected */
 			browseButton.set_sensitive(true);
@@ -291,16 +330,13 @@ void PatchSelWindow::CursorChanged (void)
 			fileEntry.set_text(filename);
 			dspAmp.set_value((double)amp);
 
-			/* if no DSP is loaded, then don't touch the amplitude */
-			if (filename == "")
-			{
-				dspAmp.set_sensitive(false);
-			}
-			else
-			{
-				dspAmp.set_sensitive(true);
-			}
+			/* if no DSP is loaded, then don't touch the amplitude,
+			 * and gray out the unload button because there's nothing
+			 * to unload (except in your face) */
+			loaded = (filename != "");
 
+			dspAmp.set_sensitive(loaded);
+			unloadButton.set_sensitive(loaded);
 		} 
 	}
 }

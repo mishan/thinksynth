@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.53 2004/09/05 00:21:48 misha Exp $ */
+/* $Id: thSynth.h,v 1.54 2004/09/08 08:26:14 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -48,6 +48,7 @@ public:
 	int SetNoteArg (int channum, int note, char *name, float *value, int len);
 	void Process(void);
 	void PrintChan(int chan);
+	void removeChan (int channum);
 
 
 	int GetChans(void) const { return thChans; }
@@ -79,6 +80,14 @@ public:
 	void SetChanArg (int channum, thArg *arg);
 	int SetChanArgData (int channum, const string &argname, float *data,
 						 int len);
+
+	inline thMidiChan * GetChannel (int chan) const
+	{
+		if (chan < channelcount)
+			return channels[chan];
+		else
+			return NULL;
+	}
 
 	type_signal_chan_changed signal_channel_changed (void) {
 		return m_sigChanChanged;
