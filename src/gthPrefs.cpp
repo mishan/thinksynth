@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.15 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: gthPrefs.cpp,v 1.16 2004/11/13 22:45:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -196,16 +196,19 @@ void gthPrefs::Save (void)
 
 		for(int i = 0; i < chans; i++)
 		{
-			string file = (*patchlist)[i];
-			thArg *amp = synth->GetChanArg(i, "amp");
+			gthPatchManager::Patch *patch = patchMgr->getPatch(i);
+
+			if (patch == NULL)
+				continue;
+
+			string file = patch->filename;
 
 			/* after all, the .dsp file is the determining factor in a
 			   channel */
 			if (file.length() > 0)
 			{
-				fprintf(prefsFile, "channel %d,%s,%f\n", i, file.c_str(),
-						amp ? (*amp)[0] : 0.0);
-			}
+ 				fprintf(prefsFile, "channel %d,%s\n", i, file.c_str());
+			} 
 		}
 	}
 
