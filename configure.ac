@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.102 2004/09/22 13:59:23 joshk Exp $
+dnl $Id: configure.ac,v 1.103 2004/11/13 22:54:52 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -291,6 +291,7 @@ AC_CONFIG_FILES([
 	src/Makefile
 	src/gui/Makefile
 	plugins/Makefile
+	patches/Makefile
 	dsp/Makefile
 	etc/Makefile
 	docs/Makefile

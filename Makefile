@@ -1,6 +1,6 @@
-# $Id: Makefile,v 1.26 2004/10/01 09:45:13 joshk Exp $
+# $Id: Makefile,v 1.27 2004/11/13 22:54:52 joshk Exp $
 
-SUBDIRS = src plugins dsp etc docs #libthink is pulled in by dependency
+SUBDIRS = src plugins patches dsp etc docs #libthink is pulled in by dependency
 ALL_SUBDIRS = libthink $(SUBDIRS)
 NAME = thinksynth
 VERSION = devel
