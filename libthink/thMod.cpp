@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.89 2004/10/01 08:52:25 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -110,10 +110,11 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 	string argpointname;
 
 
-	args = node->GetArg(argname);
+	
 
 	/* If the arg doesnt exist, make it a 0 */
-	if(args == NULL) {
+	if ((args = node->GetArg(argname)) == NULL)
+	{
 		tmp = new float[1];
 		tmp[0] = 0;
 		args = node->SetArg(argname, tmp, 1);

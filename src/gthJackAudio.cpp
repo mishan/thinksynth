@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.22 2004/10/01 05:02:32 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -141,13 +141,12 @@ int gthJackAudio::tryConnect (bool connect)
 
 	if (output != "")
 	{
-#define MAX_CHANS 2
 		size_t jacklen = output.size() + 12; /* ???:playback_N + NUL */
 #define thlen 17 /* thinksynth:out_N + NUL */
 		char *out = new char[jacklen], *ths = new char[thlen];
 		int i;
 
-		for (i = 1; i <= MAX_CHANS; i++)
+		for (i = 1; i <= synth_->GetChans(); i++)
 		{
 			snprintf(out, jacklen, "%s:playback_%d", output.c_str(), i);
 			snprintf(ths, thlen, "thinksynth:out_%d", i);
