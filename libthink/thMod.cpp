@@ -87,7 +87,37 @@ void thMod::PrintIONode (void)
 
 void thMod::Process (void)
 {
+  thListNode *listnode;
+  thNode *data;
+
+  ionode->SetRecalc(false);
+
+  for(listnode = ((thList *)ionode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
+    data = (thNode *)listnode->data;
+    if(data->GetRecalc() == true) {
+      ProcessHelper(data);
+    }
+  }
+  printf("thMod::Process  %s\n", ionode->GetName());
+  /* XXX This is where we will fire the IO Node's plugin */
 }
+
+void thMod::ProcessHelper(thNode *node) {
+  thListNode *listnode;
+  thNode *data;
+
+  node->SetRecalc(false);
+  
+  for(listnode = ((thList *)node->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
+    data = (thNode *)listnode->data;
+    if(data->GetRecalc() == true) {
+      ProcessHelper(data);
+    }
+  }
+  printf("thMod::ProcessHelper  %s\n", node->GetName());
+  /* XXX This is where we will fire the IO Node's plugin */
+}
+
 
 
 

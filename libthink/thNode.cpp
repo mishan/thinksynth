@@ -104,6 +104,16 @@ void thNode::AddParent(thNode *node)
   parents->Add(node);
 }
 
+thList *thNode::GetChildren(void)
+{
+  return children;
+}
+
+thList *thNode::GetParents(void)
+{
+  return parents;
+}
+
 void thNode::Process (void)
 {
 }

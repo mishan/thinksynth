@@ -22,6 +22,9 @@ public:
 	void AddChild(thNode *node);
 	void AddParent(thNode *node);
 
+	thList *GetChildren();
+	thList *GetParents();
+
 	void Process (void);
 private:
 	thBSTree *args;
