@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.17 2004/02/13 08:28:51 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.18 2004/02/13 08:31:25 misha Exp $ */
 
 #include "config.h"
 
@@ -127,7 +127,7 @@ int thALSAAudio::Write (float *inbuf, int len)
 		}
 		default:
 		{
-			fprintf(stderr, "thOSSAudio::Write(): %d-bit audio unsupported!\n",
+			fprintf(stderr, "thALSAAudio::Write(): %d-bit audio unsupported!\n",
 					ofmt.bits);
 			exit(1);
 
