@@ -62,7 +62,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	    position = 0;
 	  }
 
-	  switch((int)in_waveform->argValues[0]) { /* MAKE THIS i not 0, once GetValue is reimplemented */
+	  switch((int)(*in_waveform)[0]) { /* MAKE THIS i not 0, once GetValue is reimplemented */
 	    /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri */
 	  case 0:
 		  out[i] = TH_MAX*sin((position/wavelength)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
