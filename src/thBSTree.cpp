@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.26 2003/04/30 15:20:07 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.27 2003/05/09 02:40:12 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -106,6 +106,7 @@ void thBSTree::Remove(void *id)
 
 bool thBSTree::_Remove(void *id, bool freemem)
 {
+	if (!bsId) return false;
 	/* this node isn't it, tell the children to remove this id,
 	   but avoid calling extra children */
 	if(bsCompare(id, bsId) != 0) {
