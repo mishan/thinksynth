@@ -243,11 +243,6 @@ const thAudioFmt *thWav::GetFormat (void)
 	return afmt;
 }
 
-thWavType thWav::GetType (void)
-{
-	return type;
-}
-
 void thWav::SetFormat (const thAudioFmt *wfmt)
 {
 	if(type == READING) {

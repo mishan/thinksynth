@@ -76,13 +76,3 @@ thListNode *thList::GetNth(int n)
 
 	return NULL;
 }
-
-thListNode *thList::GetTail(void)
-{
-	return tail;
-}
-
-thListNode *thList::GetHead(void)
-{
-	return head;
-}

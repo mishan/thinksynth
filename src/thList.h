@@ -15,8 +15,8 @@ public:
 	void Remove(thListNode *node);
 
 	thListNode *GetNth(int n);
-	thListNode *GetTail(void);
-	thListNode *GetHead(void);
+	thListNode *GetTail(void) { return tail; };
+	thListNode *GetHead(void) { return head; };
 private:
 	thListNode *head, *tail;
 };

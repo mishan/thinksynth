@@ -60,7 +60,7 @@ public:
 	int Read(void *data, int len);
 
 	const thAudioFmt *GetFormat (void);
-	thWavType GetType (void);
+	thWavType GetType (void) { return type; };
 
 	void SetFormat(const thAudioFmt *wfmt);
 private:

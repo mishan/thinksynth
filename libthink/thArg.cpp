@@ -89,11 +89,6 @@ void thArg::SetArg(const char *name, const char *node, const char *value)
 	argValue->argType = ARG_POINTER;
 }
 
-const char *thArg::GetArgName (void)
-{
-	return argValue->argName;
-}
-
 const thArgValue *thArg::GetArg (void)
 {
   //	thArgValue *value;
@@ -114,23 +109,3 @@ const thArgValue *thArg::GetArg (void)
 
 	return argValue;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

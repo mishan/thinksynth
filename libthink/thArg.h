@@ -23,7 +23,7 @@ public:
 	void SetArg(const char *name, const float *value, const int num);
 	void SetArg(const char *name, const char *node, const char *value);
 
-	const char *GetArgName (void);
+	const char *GetArgName (void) { return argValue->argName; };
 	const thArgValue *GetArg(void);
 private:
 	/* 	char *argName;
