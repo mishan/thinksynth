@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.23 2003/04/27 07:44:24 joshk Exp $
+dnl $Id: configure.ac,v 1.24 2003/04/27 08:52:45 joshk Exp $
 
 AC_INIT
 
@@ -113,6 +113,8 @@ else
 		;;
 		CYGWIN*)
 			AC_DEFINE([USING_CYGWIN], 1, [Define if using Cygwin/Win32])
+			PLUGIN_FLAGS="-MD -MP -MF '.depend'"
+			AC_SUBST(PLUGIN_FLAGS)
 		;;
 	esac
 	
