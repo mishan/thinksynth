@@ -25,7 +25,7 @@ private:
 	void *plugHandle;
 	char *plugDesc;
 
-	void (*plugCallback)(void *, void *);
+	void (*plugCallback)(void *, void *, unsigned int);
 
 	int ModuleLoad (void);
 	void ModuleUnload (void);

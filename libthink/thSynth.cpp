@@ -10,6 +10,7 @@
 #include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
+#include "thPluginManager.h"
 #include "thNode.h"
 #include "thMod.h"
 #include "thSynth.h"
@@ -22,11 +23,13 @@
 thSynth::thSynth()
 {
 	modlist = new thBSTree();
+	pluginmanager = new thPluginManager();
 }
 
 thSynth::~thSynth()
 {
 	delete modlist;
+	delete pluginmanager;
 }
 
 void thSynth::LoadMod(char *filename)
@@ -100,9 +103,11 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
   }
   return(0);
 }
-    
-      
-      
+
+const thPluginManager *thSynth::GetPluginManager(void)
+{
+  return pluginmanager;
+}
 
 
 

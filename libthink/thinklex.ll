@@ -13,6 +13,9 @@
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"
+#include "thPlugin.h"
+#include "thPluginManager.h"
+#include "thSynth.h"
 
 #include "yygrammar.h"
 #include "parser.h"

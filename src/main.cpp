@@ -10,6 +10,7 @@
 #include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
+#include "thPluginManager.h"
 #include "thNode.h"
 #include "thMod.h"
 
@@ -21,7 +22,7 @@
 
 #include "thSynth.h"
 
-//#include "parser.h"
+#include "parser.h"
 
 int main (int argc, char *argv[])
 {
@@ -38,7 +39,9 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 		exit(1);
 	}
 
-	thSynth *Synth = new thSynth;
+	/*	thSynth *Synth = new thSynth;    This is a global now */
+	Synth = new thSynth;
+
 	Synth->LoadMod(argv[1]);
 	Synth->ListMods();
 	((thMod *)Synth->FindMod("test"))->PrintIONode();

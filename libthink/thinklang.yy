@@ -22,12 +22,16 @@
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"
+#include "thPlugin.h"
+#include "thPluginManager.h"
+#include "thSynth.h"
 
 #include "yygrammar.h"
 #include "parser.h"
 
 thMod *parsemod;
 thNode *parsenode;
+thSynth *Synth;
 
 // XX - REIMPLEMENT GLOBAL STUFFS
 //modnode *parsemod = NULL;
@@ -169,6 +173,10 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 //	args_deinit(&targs);
 //	targs=NULL;
 
+	if(!((thPluginManager *)Synth->GetPluginManager())->GetPlugin($3.str))
+		{
+		((thPluginManager *)Synth->GetPluginManager())->LoadPlugin($3.str);
+		}
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
