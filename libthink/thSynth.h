@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.27 2003/05/06 05:57:50 ink Exp $ */
+/* $Id: thSynth.h,v 1.28 2003/05/06 18:17:15 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -19,9 +19,9 @@ public:
 	thMidiNote *AddNote(char *channame, float note, float velocity);
 	void Process(void);
 	void PrintChan(int chan);
-	int GetChans(void) { return chans; }
-	int GetWindowLen(void) { return windowlen; }
-	float *GetOutput(void) { return output; }
+	int GetChans(void) { return thChans; }
+	int GetWindowLen(void) { return thWindowlen; }
+	float *GetOutput(void) { return thOutput; }
 
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
@@ -34,9 +34,9 @@ private:
 	thPluginManager pluginmanager;
 	thList chanlist;
 	thBSTree *channels; /* MIDI channels */
-	float *output;
-	int chans;  /* Number of channels (mono/stereo/etc) */
-	int windowlen;
+	float *thOutput;
+	int thChans;  /* Number of channels (mono/stereo/etc) */
+	int thWindowlen;
 };
 
 #endif /* TH_SYNTH_H */

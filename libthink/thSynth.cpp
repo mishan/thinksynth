@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.49 2003/05/06 04:37:38 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.50 2003/05/06 18:17:15 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -21,20 +21,18 @@
 #include "thSynth.h"
 
 #include "parser.h"
-/*
-thNode *parsenode;
-thMod *parsemod;
-*/
 
 thSynth::thSynth()
 {
-	windowlen = 1024;
-	chans = 2;  /* mono / stereo / etc */
+	thWindowlen = 1024;
+	thChans = 2;  /* mono / stereo / etc */
 
 	modlist = new thBSTree(StringCompare);
 	channels = new thBSTree(StringCompare);
 
-	output = new float[chans*windowlen];  /* We should make a function to allocate this, so we can easily change chans and windowlen */
+	thOutput = new float[thChans*thWindowlen];  /* We should make a function to
+											 allocate this, so we can easily
+											 change thChans and thWindowlen */
 }
 
 thSynth::~thSynth()
@@ -45,7 +43,7 @@ thSynth::~thSynth()
 
 void thSynth::LoadMod(const char *filename)
 {
-	if ((yyin = fopen(filename, "r")) == NULL) { /* 404 or smth */
+	if ((yyin = fopen(filename, "r")) == NULL) { /* ENOENT or smth */
 		fprintf (stderr, "couldn't open %s: %s\n", filename, strerror(errno));
 		exit(1);
 	}
@@ -56,17 +54,17 @@ void thSynth::LoadMod(const char *filename)
 	yyparse();
 	
 	delete parsenode;
+
 	parsemod->BuildSynthTree();
 	modlist->Insert((void *)strdup(parsemod->GetName()), (void *)parsemod);
 }
 
 thMod *thSynth::FindMod(const char *modname)
 {
-  return (thMod *)modlist->GetData((void *)modname);
+	return (thMod *)modlist->GetData((void *)modname);
 }
 
 /* Make these voids return something and add error checking everywhere! */
-
 void thSynth::ListMods(void)
 {
 	ListMods(modlist);
@@ -90,57 +88,62 @@ thPluginManager *thSynth::GetPluginManager(void)
 
 void thSynth::AddChannel(char *channame, char *modname, float amp)
 {
-	thMidiChan *newchan = new thMidiChan(FindMod(modname), amp, windowlen);
+	thMidiChan *newchan = new thMidiChan(FindMod(modname), amp, thWindowlen);
 	channels->Insert((void *)channame, (void *)newchan);
 }
 
 thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 {
-	thMidiNote *newnote = (thMidiNote *)((thMidiChan *)channels->GetData((void *)channame))->AddNote(note, velocity);
+	thMidiChan *chan = channels->GetData((void *)channame);
+	thMidiNote *newnote = chan->AddNote(note, velocity);
+
 	return newnote;
 }
 
 void thSynth::Process()
 {
-  memset(output, 0, chans*windowlen*sizeof(float));
-  ProcessHelper(channels);
+	memset(thOutput, 0, thChans*thWindowlen*sizeof(float));
+	ProcessHelper(channels);
 }
 
 void thSynth::ProcessHelper(thBSTree *chan)
 {
-  int i, j, mixchannels, notechannels;
-  thMidiChan *data;
-  float *chanoutput;
+	int i, j, mixchannels, notechannels;
+	thMidiChan *data;
+	float *chanoutput;
 
-  if(chan) {
+	if(!chan) {
+		return;
+	}
+
 	ProcessHelper(chan->GetLeft());
 
 	data = (thMidiChan *)chan->GetData();
 
 	notechannels = data->GetChannels();
 	mixchannels = notechannels;
-	if(mixchannels > chans) {
-	  mixchannels = chans;
+
+	if(mixchannels > thChans) {
+		mixchannels = thChans;
 	}
-	data = (thMidiChan *)chan->GetData();
+
 	data->Process();
 	chanoutput = data->GetOutput();
 
-	for(i=0;i<mixchannels;i++) {
-	  for(j=0;j<windowlen;j++) {
-		output[i+(j*chans)] += chanoutput[i+(j*notechannels)];
-	  }
+	for(i = 0; i < mixchannels; i++) {
+		for(j = 0 ;j < thWindowlen; j++) {
+			thOutput[i+(j*thChans)] += chanoutput[i+(j*notechannels)];
+		}
 	}
 
 	ProcessHelper(chan->GetRight());
-  }
 }
 
 void thSynth::PrintChan(int chan)
 {
-  int i;
+	int i;
 
-  for(i=0;i<windowlen;i++) {
-	printf("-=- %f\n", output[(i*chans)+chan]);
-  }
+	for(i = 0; i < thWindowlen; i++) {
+		printf("-=- %f\n", thOutput[(i*thChans)+chan]);
+	}
 }
