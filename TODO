@@ -2,6 +2,5 @@ TODO before the Thinksynth alpha
 --------------------------------
 
 - better descriptions in debian/control
-- better description than "Cows go 'moo'" in thinksynth.1
 - remove or fix (argify) obsolete DSPs
 - make a spec file for RH based distros?
