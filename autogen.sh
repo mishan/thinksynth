@@ -30,5 +30,5 @@ autoheader || exit;
 automake --add-missing --copy;
 autoconf || exit;
 automake || exit;
-./configure $@
+if [ "$1" != "--no-configure" ]; then ./configure $@; fi
 
