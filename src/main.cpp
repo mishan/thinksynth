@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.119 2004/01/31 12:25:13 misha Exp $ */
+/* $Id: main.cpp,v 1.120 2004/01/31 13:48:30 ink Exp $ */
 
 #include "config.h"
 
@@ -131,7 +131,7 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
-	Synth.AddChannel(string("chan0"), dspname, 7.0);
+	Synth.AddChannel(string("chan0"), dspname, 11.0);
 	Synth.LoadMod("dsp/mfm01.dsp");
 	Synth.AddChannel(string("chan1"), "test", 4.0);
 	Synth.LoadMod("dsp/analog01.dsp");
@@ -207,8 +207,16 @@ int main (int argc, char *argv[])
 					int l = Synth.GetWindowLen();
 					Synth.Process();
 					if(outputstream->Write(synthbuffer, l) < l) {
-						fprintf(stderr, "xrun !\n");
+						fprintf(stderr, "<< BUFFER UNDERRUN >>   Restarting ALSA output\n");
 						snd_pcm_prepare(phandle);
+
+						/* this part is experimental */
+						snd_pcm_close(phandle);
+						delete outputstream;
+						outputstream = new thALSAAudio(outputfname.c_str(), &audiofmt);
+						phandle = ((thALSAAudio *)outputstream)->play_handle;
+						//nfds = snd_pcm_poll_descriptors_count (phandle);
+						//snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
 					}
 				}
 			}
