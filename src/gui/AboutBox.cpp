@@ -1,4 +1,4 @@
-/* $Id: AboutBox.cpp,v 1.6 2004/09/17 04:28:38 joshk Exp $ */
+/* $Id: AboutBox.cpp,v 1.7 2004/09/17 04:56:16 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -67,6 +67,10 @@ AboutBox::AboutBox (void)
 	logo = new Gtk::Image(pixmap, mask);
 	frame->add(*logo);
 
+	/* Hack to get it to shrink down to our size */
+	framebox = manage(new Gtk::HBox);
+	framebox->pack_start(*frame, true, false);
+	
 	vbmaster = manage (new Gtk::VBox);
 	
 	/* Too bad that Gtk::Labels lose their alignment if the label has >1
@@ -93,11 +97,12 @@ AboutBox::AboutBox (void)
 	
 	while (*a)
 	{
-		Gtk::Label *label_author = manage(new Gtk::Label(*a, Gtk::ALIGN_RIGHT));
-		Gtk::Label *label_email = manage(new Gtk::Label(*e, Gtk::ALIGN_LEFT));
+		Gtk::Label *label_author = manage(new Gtk::Label(
+			  g_strdup_printf("<b>%s</b>", *a),
+			  Gtk::ALIGN_RIGHT));
+		Gtk::Label *label_email = manage(new Gtk::Label(*e));
 
-		label_author->set_markup (g_strdup_printf("<b>%s</b>", *a));
-
+		label_author->set_use_markup(true);
 		vbleft->pack_start(*label_author);
 		vbright->pack_start(*label_email);
 
@@ -109,7 +114,7 @@ AboutBox::AboutBox (void)
 	hcredits->pack_start(*vbright);
 	hcredits->set_size_request(436, 120);
 
-	vbmaster->pack_start(*frame, true, false);
+	vbmaster->pack_start(*framebox, true, false);
 	vbmaster->pack_start(*txtVersion);
 	vbmaster->pack_start(*txtCopyright);
 	vbmaster->pack_start(*txtMetaphonic);

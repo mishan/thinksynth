@@ -1,4 +1,4 @@
-/* $Id: AboutBox.h,v 1.5 2004/09/17 04:28:38 joshk Exp $ */
+/* $Id: AboutBox.h,v 1.6 2004/09/17 04:56:16 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -39,6 +39,7 @@ protected:
 	Gtk::VBox           *vbright;
 	Gtk::VBox           *spacer;
 	Gtk::HBox           *hcredits;
+	Gtk::HBox           *framebox;
 	Gtk::Label          *txtVersion;
 	Gtk::Label          *txtCopyright;
 	Gtk::Label          *txtMetaphonic;
