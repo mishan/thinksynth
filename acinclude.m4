@@ -1,4 +1,4 @@
-dnl $Id: acinclude.m4,v 1.3 2003/05/03 03:53:49 joshk Exp $
+dnl $Id: acinclude.m4,v 1.4 2003/12/21 22:18:10 joshk Exp $
 
 AC_DEFUN([AC_SUBST_DIR], [
 	ifelse($2,,,$1="[$]$2")
@@ -25,4 +25,22 @@ AC_DEFUN([AC_CXX_MT_BROKEN], [
 	AC_SUBST(CXX_MT_BROKEN)
 
 	rm -f conftest.cpp conftest.so .confdep
+])
+
+AC_DEFUN([AC_LINKER_DYNAMIC], [
+        hold_LDFLAGS=$LDFLAGS
+        AC_MSG_CHECKING(how to run the linker dynamically)
+
+        for opt in -rdynamic -Wl,-export-dynamic -Wl,-B,dynamic; do
+          LDFLAGS="${hold_LDFLAGS} ${opt}"
+          AC_LINK_IFELSE(AC_LANG_PROGRAM([],[int i;]), found=yes, found=no)
+          if test "$found" = yes; then
+            AC_MSG_RESULT($opt)
+            break
+          fi
+        done
+
+        if test "$found" = no; then
+          AC_MSG_RESULT([don't know, ignoring])
+        fi
 ])

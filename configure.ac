@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.59 2003/12/21 05:57:48 joshk Exp $
+dnl $Id: configure.ac,v 1.60 2003/12/21 22:18:10 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -31,6 +31,8 @@ else
 fi
 
 AC_SUBST(GNU_RMDIR_OPTION)
+
+AC_LINKER_DYNAMIC
 
 rm -f .conftest/x
 rmdir .conftest
@@ -103,7 +105,6 @@ else
 	
 	dnl Cygwin's g++ port doesn't support this, just kill some warnings
 	if test `expr $system : CYGWIN` -eq 0; then
-		CXXFLAGS="$CXXFLAGS -rdynamic"
 		USE_SONAME=yes
 		PLUGIN_LDFLAGS="-lm"
 		SHARED_SUFFIX=".so"
