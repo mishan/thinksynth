@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.31 2004/12/22 23:42:36 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,6 +27,8 @@ public:
 	
 	thMidiNote *AddNote (float note, float velocity);
 	void DelNote (int note);
+	
+	void ClearAll (void);
 	
 	thMidiNote *GetNote (int note);
 	int SetNoteArg (int note, char *name, float *value, int len);

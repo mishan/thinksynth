@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.62 2004/11/30 06:43:47 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,6 +50,7 @@ public:
 
 	thMidiNote *AddNote(int channum, float note, float velocity);
 	int DelNote (int channum, float note);
+	void ClearAll (void);
 
 	int SetNoteArg (int channum, int note, char *name, float *value, int len);
 	void Process(void);

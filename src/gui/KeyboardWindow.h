@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.17 2004/09/19 02:53:28 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -38,6 +38,7 @@ protected:
 	void changeChannel (void);
 	void changeTranspose (void);
 	void keyboardReset (void);
+	void keyboardResetKeys (void);
 
 	virtual bool on_scroll_event (GdkEventScroll *s);
 

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.113 2004/12/22 23:42:36 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -461,6 +461,14 @@ int thSynth::DelNote (int channum, float note)
 	pthread_mutex_unlock(synthMutex);
 
 	return 0;
+}
+
+void thSynth::ClearAll (void)
+{
+	thMidiChan **c = channels;
+
+	while (*c)
+		(*c++)->ClearAll();
 }
 
 int thSynth::SetNoteArg (int channum, int note, char *name,

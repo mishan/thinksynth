@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.30 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -241,6 +241,11 @@ bool Keyboard::GetNote (int note)
 type_signal_note_on Keyboard::signal_note_on (void)
 {
 	return m_signal_note_on;
+}
+
+type_signal_note_clear Keyboard::signal_note_clear (void)
+{
+	return m_signal_note_clear;
 }
 
 type_signal_note_off Keyboard::signal_note_off (void)

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.33 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -91,6 +91,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	m_sigNoteOff.connect(
 		sigc::mem_fun(*this, &KeyboardWindow::synthEventNoteOff));
 
+	m_sigNoteClear.connect(
+		sigc::mem_fun(*this, &KeyboardWindow::keyboardResetKeys));
+
 	resetBtn.signal_clicked().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::keyboardReset));
 
@@ -100,6 +103,12 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 }
 
 void KeyboardWindow::keyboardReset (void)
+{
+	synth->ClearAll();
+	/* keyboardResetKeys is called somewhere along the way */
+}
+
+void KeyboardWindow::keyboardResetKeys (void)
 {
 	keyboard.resetKeys();
 }

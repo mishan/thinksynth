@@ -72,6 +72,7 @@ Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
+sigNoteClear m_sigNoteClear;
 
 static string plugin_path = PLUGIN_PATH;
 
@@ -236,9 +237,15 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 				
 				break;
 			}
+			case SND_SEQ_EVENT_PORT_UNSUBSCRIBED:
+			{
+				synth->ClearAll();
+				m_sigNoteClear();
+				break;
+			}
 			default:
 			{
-				debug("got unknown event 0x%02x", ev->type);
+				debug("got unknown event %d\n", ev->type);
 				break;
 			}
 		}

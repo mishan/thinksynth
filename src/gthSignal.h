@@ -1,4 +1,4 @@
-/* $Id: gthSignal.h,v 1.9 2004/11/26 01:12:42 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,8 +22,10 @@
 
 typedef sigc::signal<void, int, float, float> sigNoteOn;
 typedef sigc::signal<void, int, float> sigNoteOff;
+typedef sigc::signal<void> sigNoteClear;
 
 extern sigNoteOn  m_sigNoteOn;
 extern sigNoteOff m_sigNoteOff;
+extern sigNoteClear m_sigNoteClear;
 
 #endif /* GTH_SIGNAL_H */

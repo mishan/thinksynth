@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.78 2004/12/22 23:42:36 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -115,6 +115,17 @@ void thMidiChan::DelNote (int note)
 	map<int, thMidiNote*>::iterator i = notes.find(note);
 	delete i->second;
 	notes.erase(i);
+}
+
+void thMidiChan::ClearAll (void)
+{
+	map<int, thMidiNote*>::iterator i;
+
+	for (i = notes.begin(); i != notes.end(); i++)
+	{
+		delete i->second;
+		notes.erase(i);
+	}
 }
 
 thMidiNote *thMidiChan::GetNote (int note)

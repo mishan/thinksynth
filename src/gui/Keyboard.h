@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.15 2004/11/26 01:12:42 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -21,6 +21,7 @@
 #define KEYBOARD_H
 
 /* this widget's custom signals */
+typedef sigc::signal<void>                  type_signal_note_clear;
 typedef sigc::signal<void, int, int, float> type_signal_note_on;
 typedef sigc::signal<void, int, int>        type_signal_note_off;
 typedef sigc::signal<void, int>             type_signal_channel_changed;
@@ -45,6 +46,7 @@ public:
 	bool GetNote      (int note);
 	
 	/* signal accessor methods */
+	type_signal_note_clear        signal_note_clear        (void);
 	type_signal_note_on           signal_note_on           (void);
  	type_signal_note_off          signal_note_off          (void);
 	type_signal_channel_changed   signal_channel_changed   (void);
@@ -68,6 +70,7 @@ protected:
 	int channel;
 	int transpose;
 private:
+	type_signal_note_clear        m_signal_note_clear;
 	type_signal_note_on           m_signal_note_on;
 	type_signal_note_off          m_signal_note_off;
 	type_signal_channel_changed   m_signal_channel_changed;
