@@ -5,7 +5,7 @@
 
 dspdir @dsp_path@
 patchdir @patch_path@
-channel 0,@dsp_path@patches/leads/SuperRes.patch,20
-channel 1,@dsp_path@patches/bass/FunkMachine.patch,20
-channel 2,@dsp_path@patches/organs/Organ1.patch,20
-channel 3,@dsp_path@patches/pads/SynString.patch,20
+channel 0,@patch_path@/leads/SuperRes.patch,20
+channel 1,@patch_path@/bass/FunkMachine.patch,20
+channel 2,@patch_path@/organs/Organ1.patch,20
+channel 3,@patch_path@/pads/SynString.patch,20
