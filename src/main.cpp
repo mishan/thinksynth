@@ -26,26 +26,25 @@
 
 int main (int argc, char *argv[])
 {
-/*	parsemod = new thMod("newmod");     // these are used by the parser */
-/*	parsenode = new thNode("newnode", NULL);
+  thMod *newmod;
 
-yyparse();
-//	parsemod->PrintIONode();
-printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValues);
-*/
+  if(argc != 2) {
+    printf("Usage: %s <filename>\n", argv[0]);
+    exit(1);
+  }
+  
+  Synth.LoadMod(argv[1]);
+  Synth.ListMods();
+  //((thMod *)Synth->FindMod("test"))->PrintIONode();
+  //printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
+  Synth.BuildSynthTree("static");
+  //	((thMod *)Synth->FindMod("test"))->Process();
+  
+  Synth.Process("static");
 
-	if(argc != 2) {
-		printf("Usage: %s <filename>\n", argv[0]);
-		exit(1);
-	}
+  newmod = ((thMod *)Synth.FindMod("static"))->Copy();
+  newmod->Process(newmod, 1024);
 
-	Synth.LoadMod(argv[1]);
-	Synth.ListMods();
-	//((thMod *)Synth->FindMod("test"))->PrintIONode();
-	//printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
-	Synth.BuildSynthTree("static");
-	//	((thMod *)Synth->FindMod("test"))->Process();
-
-	Synth.Process("static");
-printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]);
+  //  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]);
+  printf("  = %f\n", ((thArgValue *)newmod->GetArg("static", "out"))->argValues[0]);
 }
