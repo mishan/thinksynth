@@ -367,8 +367,10 @@ int main (int argc, char *argv[])
 	printf("saving preferences\n");
 	prefs->Save();
 
+#if 0
 	printf("deleting synth\n");
 	delete Synth;
+#endif
 
 	return 0;
 }
