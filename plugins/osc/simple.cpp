@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.46 2004/04/08 23:21:13 aaronl Exp $ */
+/* $Id: simple.cpp,v 1.47 2004/04/08 23:32:54 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -158,8 +158,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				// out[i] = amp_max if ratio > 0.5
 				// else out[i] = -amp_max
 				float adjusted = ratio - 0.5;
-				out[i] = (*((int *)&amp_max)) |
-						 ((*((int *)&adjusted))&0x80000000);
+				u_int32_t level = (*((u_int32_t *)&amp_max)) |
+								  ((*((u_int32_t *)&adjusted))&0x80000000);
+				out[i] = *((float*)&level);
 				break;
 			}
 			case 3:    /* TRIANGLE WAVE */
