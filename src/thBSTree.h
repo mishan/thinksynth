@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.12 2003/04/26 04:26:28 misha Exp $ */
+/* $Id: thBSTree.h,v 1.13 2003/04/26 04:44:02 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -12,8 +12,8 @@ public:
 	void Insert (void *id, void *data);
 	void Insert (thBSTree *node);
 
-	void Remove (void *id);
-	void Remove (thBSTree *node);
+	bool Remove (void *id);
+	bool Remove (thBSTree *node);
 
 	void *GetData (void *id); /* get data from a specific node id */
 
@@ -25,11 +25,11 @@ public:
 		return bsId;
 	}
 
-	inline void *GetLeft (void) {
+	inline thBSTree *GetLeft (void) {
 		return bsLeft;
 	}
 
-	inline void *GetRight (void) {
+	inline thBSTree *GetRight (void) {
 		return bsRight;
 	}
 

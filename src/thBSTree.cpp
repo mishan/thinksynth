@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.16 2003/04/26 02:53:48 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.17 2003/04/26 04:44:02 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -56,8 +56,6 @@ void thBSTree::Insert(thBSTree *tree)
 
 void thBSTree::Insert(void *id, void *data)
 {
-	thBSNode *node;
-
 	if(!id) {
 		fprintf(stderr, "thBSTree::Insert: Cannot insert node with NULL id\n");
 		return;
