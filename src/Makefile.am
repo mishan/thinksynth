@@ -5,6 +5,7 @@ thinksynth_SOURCES = \
 	Exception.cpp \
 	thArg.cpp \
 	thAudioBuffer.cpp \
+	thBTree.cpp \
 	thList.cpp \
 	thMidiChan.cpp \
 	thMidiNote.cpp \

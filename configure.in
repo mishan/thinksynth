@@ -35,6 +35,9 @@ if test "_$sedpath" = _; then
 	AC_MSG_ERROR("Cannot find sed: I need it\!")
 fi
 
+CFLAGS="-g -Wall -pedantic -rdynamic -ffast-math"
+LIBS="$LIBS -ldl"
+
 AC_PATH_PROG(unamepath, uname)
 if test "_$unamepath" = _; then
 	system="unknown"
@@ -58,9 +61,6 @@ AC_ARG_ENABLE(debug,
 [  --enable-debug	print debug messages to stdout (default off)],
 	debug=$enableval, debug=no)
 AC_ARG_ENABLE(,,,)
-
-CFLAGS="-g -Wall -pedantic -rdynamic -ffast-math"
-LIBS="$LIBS -ldl"
 
 if test "$debug" = no ; then
 	CFLAGS="$CFLAGS -O2"
