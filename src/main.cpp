@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.141 2004/03/21 06:51:27 ink Exp $ */
+/* $Id: main.cpp,v 1.142 2004/03/24 09:58:32 misha Exp $ */
 
 #include "config.h"
 
@@ -9,6 +9,8 @@
 #include <time.h>
 
 #include <alsa/asoundlib.h>
+
+#include <gtkmm.h>
 
 #include "think.h"
 
@@ -27,6 +29,8 @@
 #include "thEndian.h"
 
 #include "parser.h"
+
+#include "ui.h"
 
 /* XXX: remove ALSA/OSS-specific code from libthink */
 
@@ -141,7 +145,6 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 }
 
 
-
 int main (int argc, char *argv[])
 {
 	string dspname = "test";   /* XXX: for debugging ONLY */
@@ -160,6 +163,8 @@ int main (int argc, char *argv[])
 	int seq_nfds, nfds;
 	struct pollfd *pfds;
 	snd_pcm_t *phandle;
+
+	Glib::thread_init();
 
 	plugin_path = PLUGIN_PATH;
 
@@ -237,6 +242,10 @@ int main (int argc, char *argv[])
 
 	/* seed the random number generator */
 	srand(time(NULL));
+
+	Glib::Thread *const ui = Glib::Thread::create(
+		SigC::slot(&ui_thread), true);
+
 
 	Synth.LoadMod("dsp/piano0.dsp");
 	Synth.AddChannel(1, "test", 14.0);
