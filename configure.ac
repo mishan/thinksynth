@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.29 2003/04/30 02:28:38 joshk Exp $
+dnl $Id: configure.ac,v 1.30 2003/04/30 03:36:06 joshk Exp $
 
 AC_INIT
 
@@ -149,7 +149,7 @@ dnl Debug is disabled:
 dnl Debug is enabled:
 [
 	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-	CXXFLAGS="$CXXFLAGS -g -ggdb"
+	CXXFLAGS="$CXXFLAGS -ggdb"
 	debug=yes
 ])
 
