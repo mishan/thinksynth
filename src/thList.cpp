@@ -1,4 +1,4 @@
-/* $Id: thList.cpp,v 1.10 2003/04/26 04:39:54 misha Exp $ */
+/* $Id: thList.cpp,v 1.11 2003/04/26 04:42:06 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -18,7 +18,7 @@ thList::~thList(void)
 {
 	thListNode *node, *prev;
 
-	for(node = head; node; node = prev) {
+	for(node = tail; node; node = prev) {
 		prev = node->prev;
 		delete node;
 	}
@@ -27,19 +27,21 @@ thList::~thList(void)
 void thList::Add(void *data) 
 {
 	thListNode *node = new thListNode;
+
 	node->data = data;
-	node->prev = head;
+
+	node->prev = tail;
 	node->next = NULL;
 	
-	if(head) {
-		head->next = node;
+	if(tail) {
+		tail->next = node;
 	}
 
-	if(!tail) {
-		tail = node;
+	if(!head) {
+		head = node;
 	}
 
-	head = node;
+	tail = node;
 }
 
 void thList::Remove (thListNode *node)
@@ -48,9 +50,9 @@ void thList::Remove (thListNode *node)
 		node->next->prev = node->prev;
 	if(node->prev)
 		node->prev->next = node->next;
-	if(node == head) {
+	if(node == tail) {
 		if(node->prev) {
-			head = node->prev;
+			tail = node->prev;
 		}
 		else { /* it must also be a tail then */
 			head = NULL;
