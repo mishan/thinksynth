@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.13 2004/12/04 20:20:56 joshk Exp $
+# $Id$
 
 libdir=@libdir@
 includedir=@includedir@
@@ -29,7 +29,8 @@ LIBOBJS = \
 	thPluginManager.o \
 	thMidiControllerConnection.o \
 	thMidiController.o \
-	thSynth.o
+	thSynth.o \
+	thUtil.o
 
 libthink.so: libthink.so.$(soname)
 	ln -sf libthink.so.$(soname) libthink.so

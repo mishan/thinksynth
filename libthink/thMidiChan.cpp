@@ -17,7 +17,6 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -25,6 +24,7 @@
 #include <string.h>
 
 #include "think.h"
+#include "thUtil.h"
 
 thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 {
@@ -49,7 +49,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	channels_ = (int)chanarg->values()[0];
 
 	output_ = new float[channels_*windowlen];
-	outputnamelen_ = strlen(OUTPUTPREFIX) + GetLen(channels_);
+	outputnamelen_ = strlen(OUTPUTPREFIX) + thUtil::getNumLength(channels_);
 
 	polymax_ = 10;    /* XXX We need to be able to set this somehow */
 
@@ -316,27 +316,6 @@ void thMidiChan::Process (void)
 			diter++;
 		}
 	}
-}
-
-/* XXX: this is ghetto; but this method can be used globally, move it to
-   util */
-static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
-						   100000000, 1000000000};
-
-static int RangeSize = sizeof(RangeArray)/sizeof(int);
-
-int thMidiChan::GetLen (int num)
-{
-	num = abs(num);
-	int i;
-
-	for(i = 0; i < RangeSize; i++) {
-		if(num < RangeArray[i]) {
-			return i+1;
-		}
-	}
-
-	return RangeSize+1;
 }
 
 void thMidiChan::AssignChanArgPointers (thMod *mod)

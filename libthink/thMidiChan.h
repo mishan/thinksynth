@@ -54,7 +54,6 @@ public:
 	void CopyChanArgs (thMod *mod);
 	
 private:
-	int GetLen(int);
 	void AssignChanArgPointers(thMod *mod);
 	
 	bool dirty_;
