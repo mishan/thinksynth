@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.42 2003/05/11 04:53:16 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.43 2003/05/11 04:56:05 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -86,7 +86,7 @@ void thMidiChan::Process (void)
 void thMidiChan::ProcessHelper (thBSTree *note)
 {
 	thMidiNote *data;
-	thArgValue *arg, *amp, *play, *noteval;
+	thArgValue *arg, *amp, *play;
 	thMod *mod;
 	char *argname;
 	int i, j;
