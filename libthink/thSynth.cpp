@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.52 2003/05/06 18:27:56 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.53 2003/05/06 18:51:16 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -114,7 +114,7 @@ void thSynth::ProcessHelper(thBSTree *node)
 	thMidiChan *chan;
 	float *chanoutput;
 
-	if(!chan) {
+	if(!node) {
 		return;
 	}
 
