@@ -1,4 +1,4 @@
-/* $Id: dsp.c,v 1.2 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *

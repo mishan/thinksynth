@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.3 2004/04/15 09:38:42 misha Exp $ */
+/* $Id$ */
 
 #include "config.h"
 

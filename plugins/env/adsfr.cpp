@@ -63,7 +63,7 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 					 unsigned int samples)
 {
 	/* User args */
@@ -79,7 +79,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float peak;
 	float position;
 	int phase;
-	unsigned int i;
+	unsigned int i = 0;
 	float val_a, val_d, val_s, val_f, val_r, val_p, val_trigger, val_reset;
  
 	out_out = mod->getArg(node, args[OUT_ARG]);
@@ -120,7 +120,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	for(i = 0; i < windowlen; i++) {
 		val_trigger = (*in_trigger)[i];
 		val_reset = (*in_reset)[i];
-
 
 		if(val_reset > 0)
 		{

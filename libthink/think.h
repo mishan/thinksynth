@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.32 2004/10/21 22:47:13 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -79,6 +79,11 @@ void DestroyMap (map<T,U> themap)
 		delete i->second;
 };
 
+/* DATATYPES */
+class thArg;
+typedef map<string, thArg *> thArgMap;
+
+
 /* XXX: INCLUDES */
 #include "thArg.h"
 #include "thEndian.h"
@@ -86,7 +91,7 @@ void DestroyMap (map<T,U> themap)
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
-#include "thMod.h"
+#include "thSynthTree.h"
 #include "thMidiNote.h"
 #include "thMidiChan.h"
 #include "thMidiControllerConnection.h"

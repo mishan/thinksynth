@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.h,v 1.7 2004/12/22 04:19:59 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -46,7 +46,7 @@ public:
 		return numPatches_;
 	}
 
-	thMidiChan::ArgMap getChannelArgs (int chan);
+	thArgMap getChannelArgs (int chan);
 
 	typedef map<string, float> PatchFileArgs;
 	typedef map<string, string> PatchFileInfo;

@@ -278,10 +278,10 @@ void MidiMap::fillDestArgCombo (int chan)
 	if(synth_->getChannel(chan))
 	{
 		gthPatchManager *patchMgr = gthPatchManager::instance();
-		thMidiChan::ArgMap argList = patchMgr->getChannelArgs(chan);
+		thArgMap argList = patchMgr->getChannelArgs(chan);
 		destArgComboStrings.clear();
 		
-		for (thMidiChan::ArgMap::iterator i = argList.begin();
+		for (thArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
 			if(i->second && i->second->widgetType() != thArg::HIDE) 
@@ -339,7 +339,7 @@ void MidiMap::setDestArgCombo (int chan)
 
 	if (patchMgr->isLoaded(chan))
 	{
-		thMidiChan::ArgMap argList = patchMgr->getChannelArgs(chan);
+		thArgMap argList = patchMgr->getChannelArgs(chan);
 
 		destArgComboStrings.clear();
 
@@ -358,7 +358,7 @@ void MidiMap::setDestArgCombo (int chan)
 			destArgComboStrings.push_front(*item);
 		}
 
-		for (thMidiChan::ArgMap::iterator i = argList.begin();
+		for (thArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
 			if(i->second && i->second->widgetType() != thArg::HIDE) {

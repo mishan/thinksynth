@@ -1,6 +1,6 @@
-/* $Id: thNode.h,v 1.42 2004/08/16 09:34:48 misha Exp $ */
+/* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -27,11 +27,12 @@ public:
 
 	void SetName (const string &name) { nodename = name; };
 
-	 string GetName (void) const { return nodename; }
-
-	thArg *SetArg (const string &name, float *value, int num);
-	thArg *SetArg (const string &name, const string &node, const string &value);
-	thArg *SetArg (const string &name, const string &chanarg);
+	string GetName (void) const { return nodename; }
+	
+	thArg *setArg (const string &name, float value);
+	thArg *setArg (const string &name, const float *value, int len);
+	thArg *setArg (const string &name, const string &node, const string &value);
+	thArg *setArg (const string &name, const string &chanarg);
 
 	int AddArgToIndex (thArg *arg);
 

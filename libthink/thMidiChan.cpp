@@ -26,24 +26,22 @@
 #include "think.h"
 #include "thUtil.h"
 
-thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
+thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
 {
-	float *allocatedamp = new float[1];
 	const thArg *chanarg = NULL;
 
 	if(!mod) {
 		fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
 	}
 
-	CopyChanArgs(mod);
-	AssignChanArgPointers(mod);
+	copyChanArgs(mod);
+	assignChanArgPointers(mod);
 
 	modnode_ = mod;
 	windowlength_ = windowlen;
-	allocatedamp[0] = amp;
 	dirty_ = 1;
 
-	args_[string("amp")] = new thArg(string("amp"), allocatedamp, 1);
+	args_[string("amp")] = new thArg(string("amp"), amp);
 
 	chanarg = modnode_->getArg("channels");
 	channels_ = (int)chanarg->values()[0];
@@ -56,7 +54,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	notecount_ = 0;
 	notecount_decay_ = 0;
 
-	argSustain_ = new thArg(string("SusPedal"), new float(0), 1);
+	argSustain_ = new thArg(string("SusPedal"), 0);
 	argSustain_->setWidgetType(thArg::CHANARG);
 	argSustain_->setLabel(string("Sustain Pedal"));
 	args_["SusPedal"] = argSustain_;
@@ -69,7 +67,7 @@ thMidiChan::~thMidiChan (void)
 	delete[] output_;
 }
 
-void thMidiChan::SetArg (thArg *arg)
+void thMidiChan::setArg (thArg *arg)
 {
 	thArg *oldArg = args_[arg->name()];
 
@@ -81,17 +79,14 @@ void thMidiChan::SetArg (thArg *arg)
 	args_[arg->name()] = arg;
 }
 
-thMidiNote *thMidiChan::AddNote (float note, float velocity)
+thMidiNote *thMidiChan::addNote (float note, float velocity)
 {
 	thMidiNote *midinote;
 	int id = (int)note;
 	NoteMap::iterator i = notes_.find(id);
 	if(i != notes_.end()) {
 		/* Make sure to turn off the old note, or it will hang! */
-		float *pbuf = new float;
-		*pbuf = 0;
-
-		i->second->SetArg("trigger", pbuf, 1);
+		i->second->setArg("trigger", 0);
 
 		noteorder_.remove(i->second);
 		decaying_.push_front(i->second);
@@ -109,14 +104,14 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	return midinote;
 }
 
-void thMidiChan::DelNote (int note)
+void thMidiChan::delNote (int note)
 {
 	NoteMap::iterator i = notes_.find(note);
 	delete i->second;
 	notes_.erase(i);
 }
 
-void thMidiChan::ClearAll (void)
+void thMidiChan::clearAll (void)
 {
 	NoteMap::iterator i;
 	NoteList::iterator j;
@@ -133,7 +128,7 @@ void thMidiChan::ClearAll (void)
 	}
 }
 
-thMidiNote *thMidiChan::GetNote (int note)
+thMidiNote *thMidiChan::getNote (int note)
 {
 	NoteMap::iterator i = notes_.find(note);
 
@@ -144,23 +139,37 @@ thMidiNote *thMidiChan::GetNote (int note)
 	return NULL;
 }
 
-int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
+int thMidiChan::setNoteArg (int note, const string &name, float value)
 {
 	NoteMap::iterator i = notes_.find(note);
 
 	if(i != notes_.end()) {
-		i->second->SetArg(name, value, len);
+		i->second->setArg(name, value);
 		return 1;
 	}
+
 	return 0;
 }
 
-void thMidiChan::CopyChanArgs (thMod *mod)
+int thMidiChan::setNoteArg (int note, const string &name, const float *value,
+							int len)
+{
+	NoteMap::iterator i = notes_.find(note);
+
+	if(i != notes_.end()) {
+		i->second->setArg(name, value, len);
+		return 1;
+	}
+
+	return 0;
+}
+
+void thMidiChan::copyChanArgs (thSynthTree *tree)
 {
 	thArg *data, *newdata;
-	thMod::ArgMap sourceargs = mod->getChanArgs();
+	thArgMap sourceargs = tree->chanArgs();
 
-	for (thMod::ArgMap::const_iterator i = sourceargs.begin();
+	for (thArgMap::const_iterator i = sourceargs.begin();
 		 i != sourceargs.end(); i++)
 	{
 		data = i->second;
@@ -171,7 +180,7 @@ void thMidiChan::CopyChanArgs (thMod *mod)
 	}
 }
 
-void thMidiChan::Process (void)
+void thMidiChan::process (void)
 {
 	if (dirty_) 
 	{
@@ -182,7 +191,7 @@ void thMidiChan::Process (void)
 
 	thMidiNote *data;
 	thArg *arg, *amp, *play, *trigger;
-	thMod *mod;
+	thSynthTree *tree;
 	int i, j, index;
 	float buf_mix[windowlength_];
 	float buf_amp[windowlength_];
@@ -214,7 +223,7 @@ void thMidiChan::Process (void)
 			NoteList::iterator iter = noteorder_.begin();
 			while(iter != noteorder_.end() && notecount_ > polymax_)
 			{
-				notes_.erase((*iter)->GetID());
+				notes_.erase((*iter)->id());
 				delete *iter;
 				iter = noteorder_.erase(iter);
 				notecount_--;
@@ -235,12 +244,12 @@ void thMidiChan::Process (void)
 
 		dirty_ = true;
 		
-		data->Process(windowlength_);
+		data->process(windowlength_);
 		
-		mod = data->GetMod();
+		tree = data->synthTree();
 		amp = args_["amp"];
-		play = mod->getArg("play");
-		trigger = mod->getArg("trigger");
+		play = tree->getArg("play");
+		trigger = tree->getArg("trigger");
 
 		if ((*trigger)[0] == 2 && sustain < 0x40)
 			trigger->setValue(0);
@@ -249,7 +258,7 @@ void thMidiChan::Process (void)
 		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
-			arg = mod->getArg(argname);
+			arg = tree->getArg(argname);
 			arg->getBuffer(buf_mix, windowlength_);
 			amp->getBuffer(buf_amp, windowlength_);
 
@@ -280,11 +289,11 @@ void thMidiChan::Process (void)
 		notecount_decay_++;
 		data = *diter;
 		dirty_ = 1;
-		data->Process(windowlength_);
-		mod = data->GetMod();
+		data->process(windowlength_);
+		tree = data->synthTree();
 		amp = args_["amp"];
-		play = mod->getArg("play");
-		trigger = mod->getArg("trigger");
+		play = tree->getArg("play");
+		trigger = tree->getArg("trigger");
 
 		if ((*trigger)[0] == 2 && sustain < 0x40)
 			trigger->setValue(0);
@@ -293,7 +302,7 @@ void thMidiChan::Process (void)
 		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
-			arg = mod->getArg(argname);
+			arg = tree->getArg(argname);
 			arg->getBuffer(buf_mix, windowlength_);
 			amp->getBuffer(buf_amp, windowlength_);
 
@@ -318,20 +327,20 @@ void thMidiChan::Process (void)
 	}
 }
 
-void thMidiChan::AssignChanArgPointers (thMod *mod)
+void thMidiChan::assignChanArgPointers (thSynthTree *tree)
 {
 	thNode *curnode;
 	thArg *curarg;
-	thMod::NodeMap sourcenodes = mod->getNodeList();
-	thMod::ArgMap sourceargs;
+	thSynthTree::NodeMap sourcenodes = tree->nodes();
+	thArgMap sourceargs;
 
-	for (thMod::NodeMap::const_iterator i = sourcenodes.begin();
+	for (thSynthTree::NodeMap::const_iterator i = sourcenodes.begin();
 		 i != sourcenodes.end(); i++)
 	{
 		curnode = i->second;
 		sourceargs = curnode->GetArgTree();
 
-		for (thMod::ArgMap::const_iterator j = sourceargs.begin();
+		for (thArgMap::const_iterator j = sourceargs.begin();
 		 j != sourceargs.end(); j++)
 		{
 			curarg = j->second;

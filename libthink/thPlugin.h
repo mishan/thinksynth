@@ -20,7 +20,7 @@
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
 
-class thMod;
+class thSynthTree;
 class thNode;
 
 #define MODULE_IFACE_VER 4
@@ -33,7 +33,7 @@ class thPlugin;
 /* Provide the prototypes */
 extern "C" {
 	int  module_init (thPlugin *plugin);
-	int  module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+	int  module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 						  unsigned int samples);
 	void module_cleanup (struct module *mod);
 }
@@ -45,7 +45,7 @@ public:
 	~thPlugin ();
 
 	enum State { ACTIVE, PASSIVE, NOTLOADED };
-	typedef int (*Callback)(thNode *, thMod *, unsigned int, unsigned int);
+	typedef int (*Callback)(thNode *, thSynthTree *, unsigned int, unsigned int);
 	typedef int (*ModuleInit)(thPlugin *);
 	typedef void (*ModuleCleanup)(thPlugin *);
 	
@@ -63,7 +63,7 @@ public:
 	int getArgs (void) const { return argcounter_; };
 	string getArgName (int index) { return *args_[index]; };
 	
-	void fire (thNode *node, thMod *mod, unsigned int windowlen,
+	void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
 			   unsigned int samples);
 private:
 	int moduleLoad (void);

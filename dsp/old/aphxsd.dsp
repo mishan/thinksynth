@@ -1,4 +1,4 @@
-# $Id: aphxsd.dsp,v 1.1 2004/09/15 06:07:43 ink Exp $
+# $Id$
 # Snare Drum 0
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

@@ -1,4 +1,4 @@
-# $Id: amb01.dsp,v 1.7 2004/12/07 02:38:57 ink Exp $
+# $Id$
 name "AMB 01";
 author "Leif Ames";
 description "4 oscs in a stereo mix";

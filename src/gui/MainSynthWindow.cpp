@@ -374,7 +374,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	}
 
 	gthPatchManager *patchMgr = gthPatchManager::instance();
-	thMidiChan::ArgMap args = patchMgr->getChannelArgs(num);
+	thArgMap args = patchMgr->getChannelArgs(num);
 
 	/* XXX: this no longer applies */
 	/* only 'amp' */
@@ -453,7 +453,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	tab_vbox->pack_start(*dsp_frame);
 
 	/* populate each tab */
-	for (thMidiChan::ArgMap::iterator j = args.begin();
+	for (thArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{
 		string argName = j->first;

@@ -1,4 +1,4 @@
-# $Id: mfm01.dsp,v 1.5 2004/12/07 03:15:30 ink Exp $
+# $Id$
 name "test";
 
 	@wave1 = 5;

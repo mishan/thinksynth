@@ -169,7 +169,7 @@ void PatchSelWindow::UnloadDSP (void)
 
 			if (c)
 			{
-				thMod *m = c->GetMod();
+				thSynthTree *m = c->GetMod();
 				if (m)
 					delete m;
 				delete c;

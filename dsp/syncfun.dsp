@@ -1,4 +1,4 @@
-# $Id: syncfun.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id$
 name "Sync Fun";
 author "Leif Ames";
 description "A little bit of fun with hard-sync";

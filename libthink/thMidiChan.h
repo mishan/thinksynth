@@ -22,43 +22,43 @@
 
 class thMidiChan {
 public:
-	thMidiChan (thMod *mod, float amp, int windowlen);
+	thMidiChan (thSynthTree *mod, float amp, int windowlen);
 	~thMidiChan (void);
 
-	typedef map<string, thArg*> ArgMap;
 	typedef map<int, thMidiNote*> NoteMap;
 	typedef list<thMidiNote*> NoteList;
 	
-	thMidiNote *AddNote (float note, float velocity);
-	void DelNote (int note);
+	thMidiNote *addNote (float note, float velocity);
+	void delNote (int note);
 	
-	void ClearAll (void);
+	void clearAll (void);
 	
-	thMidiNote *GetNote (int note);
-	int SetNoteArg (int note, char *name, float *value, int len);
+	thMidiNote *getNote (int note);
+	int setNoteArg (int note, const string &name, float value);
+	int setNoteArg (int note, const string &name, const float *value, int len);
 	
-	thArg *GetArg (string argName) { return args_[argName]; }
-	void SetArg (thArg *arg);
+	thArg *getArg (string argName) { return args_[argName]; }
+	void setArg (thArg *arg);
 
-	ArgMap GetArgs (void) { return args_; }
+	thArgMap args (void) { return args_; }
 	
-	void Process (void);
+	void process (void);
 	
-	float *GetOutput (void) const { return output_; }
-	int GetChannels (void) const { return channels_; }
+	float *output (void) const { return output_; }
+	int numChannels (void) const { return channels_; }
 
-	thMod *GetMod (void) { return modnode_; }
+	thSynthTree *modnode (void) { return modnode_; }
 
-	thArg *GetSusPedalArg (void) { return argSustain_; }
+	thArg *sustainPedal (void) { return argSustain_; }
 
-	void CopyChanArgs (thMod *mod);
+	void copyChanArgs (thSynthTree *mod);
 	
 private:
-	void AssignChanArgPointers(thMod *mod);
+	void assignChanArgPointers(thSynthTree *mod);
 	
 	bool dirty_;
-	thMod *modnode_;
-	ArgMap args_;
+	thSynthTree *modnode_;
+	thArgMap args_;
 	NoteMap notes_;
 	NoteList decaying_;  /* linked list for decaying notes */
 	NoteList noteorder_; /* order of the notes for polyphony limits */

@@ -1,4 +1,4 @@
-# $Id: ambient-000.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id$
 # glitch synth 1
 # leif ames <ink@bespin.org>
 # 5-30-2004

@@ -1,4 +1,4 @@
-/* $Id: thException.h,v 1.4 2004/08/16 09:34:48 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *

@@ -22,25 +22,21 @@
 
 class thMidiNote {
 public:
-	thMidiNote(thMod *mod, float note, float velocity);
-	thMidiNote(thMod *mod);
-	~thMidiNote();
+	thMidiNote (thSynthTree *tree, float note, float velocity);
+	thMidiNote (thSynthTree *tree);
+	~thMidiNote ();
 	
-	/* takes the arg name, and a pointer to a list of values */
-	//	void SetArg (const char *name, float *value, int num);
-	
-	/* returns a pointer to a list of values */
-	//thArgValue *GetArg(const char *name);
-	
-	thMod *GetMod(void) { return &modnode; }
-	int GetID(void) const { return noteid; }
+	thSynthTree *synthTree (void) { return &synthTree_; }
+	int id (void) const { return noteid_; }
 
-	void Process (int length);
-	void SetArg (char *name, float *value, int len);
+	void process (int length);
+
+	void setArg (const string &name, float value);
+	void setArg (const string &name, const float *value, int len);
 
 private:
-	thMod modnode;
-	int noteid;
+	thSynthTree synthTree_;
+	int noteid_;
 };
 
 #endif /* TH_MIDINOTE_H */

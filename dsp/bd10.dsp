@@ -1,4 +1,4 @@
-# $Id: bd10.dsp,v 1.4 2004/12/08 01:40:04 ink Exp $
+# $Id$
 name "BD-10";
 author "Leif Ames";
 description "Multiwave Kick Bass";

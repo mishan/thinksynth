@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.11 2004/11/29 04:10:03 joshk Exp $
+# $Id$
 
 dsp_path := @dsp_path@
 default: all

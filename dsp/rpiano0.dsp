@@ -1,4 +1,4 @@
-# $Id: rpiano0.dsp,v 1.3 2004/12/07 02:38:57 ink Exp $
+# $Id$
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

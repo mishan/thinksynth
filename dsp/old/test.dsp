@@ -1,4 +1,4 @@
-# $Id: test.dsp,v 1.1 2004/09/15 06:07:43 ink Exp $
+# $Id$
 name "test";
 description "Test Thinksynth DSP Module";
 

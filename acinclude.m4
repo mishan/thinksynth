@@ -1,4 +1,4 @@
-dnl $Id: acinclude.m4,v 1.7 2004/09/19 22:13:25 joshk Exp $
+dnl $Id$
 
 AC_DEFUN([AC_SUBST_DIR], [
 	ifelse($2,,,$1="[$]$2")

@@ -70,7 +70,7 @@ thPlugin::~thPlugin ()
 	moduleUnload();
 }
 
-void thPlugin::fire (thNode *node, thMod *mod, unsigned int windowlen,
+void thPlugin::fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
 					 unsigned int samples)
 {
 	if(plugCallback_) {

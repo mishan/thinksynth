@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.4 2004/11/29 04:10:03 joshk Exp $
+# $Id$
 
 patch_path := @patch_path@
 default: all

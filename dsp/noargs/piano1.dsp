@@ -1,4 +1,4 @@
-# $Id: piano1.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id$
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-4-2004

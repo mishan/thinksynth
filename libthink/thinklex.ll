@@ -1,4 +1,4 @@
-/* $Id: thinklex.ll,v 1.27 2004/10/01 09:14:29 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *

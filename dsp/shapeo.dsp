@@ -1,4 +1,4 @@
-# $Id: shapeo.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id$
 # TS-1
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

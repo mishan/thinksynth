@@ -1,4 +1,4 @@
-# $Id: aspect2.dsp,v 1.5 2004/12/07 02:38:57 ink Exp $
+# $Id$
 # Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
 # 5-20-2004

@@ -28,7 +28,7 @@
 #include "yygrammar.h"
 #include "parser.h"
 
-thMod *parsemod = NULL;
+thSynthTree *parsetree = NULL;
 thNode *parsenode = NULL;
 static thSynth *parseSynth;
 
@@ -201,7 +201,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 	delete[] $3.str;
 
 	parsenode->SetName($2.str);
-	parsemod->newNode(parsenode);
+	parsetree->newNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
 
 	free($2.str);
@@ -211,7 +211,7 @@ NODE WORD LCBRACK assignments RCBRACK
 {
 	parsenode->SetName($2.str);
 	parsenode->SetPlugin(NULL);
-	parsemod->newNode(parsenode);
+	parsetree->newNode(parsenode);
 	parsenode = new thNode("newnode", NULL);
 
 	free($2.str);
@@ -221,16 +221,14 @@ NODE WORD LCBRACK assignments RCBRACK
 paramsetup:
 ATSIGN WORD ASSIGN expression
 {
-	float *copy = new float[1];
-	*copy = $4.floatval;
-	parsemod->setChanArg(new thArg($2.str, copy, 1));
+	parsetree->setChanArg(new thArg($2.str, $4.floatval));
 }
 |
 ATSIGN WORD PERIOD WORD ASSIGN expression
 {
 	thArg *chanarg;
 
-	chanarg = parsemod->getChanArg($2.str);
+	chanarg = parsetree->getChanArg($2.str);
 
 	if(strcmp($4.str, "min") == 0)
 	{
@@ -252,7 +250,7 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 {
 	thArg *chanarg;
 
-	chanarg = parsemod->getChanArg($2.str);
+	chanarg = parsetree->getChanArg($2.str);
 
 	if(strcmp($4.str, "label") == 0)
 	{
@@ -269,7 +267,7 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 ionode:
 IO WORD
 {
-	parsemod->setIONode($2.str);
+	parsetree->setIONode($2.str);
 }
 ;
 
@@ -279,7 +277,7 @@ AUTHOR STRING
 	thArg *autharg = new thArg("author", NULL, 0);
 	autharg->setComment($2.str);
 
-	parsemod->setChanArg(autharg);
+	parsetree->setChanArg(autharg);
 }
 ;
 
@@ -289,7 +287,7 @@ NAME STRING
 	thArg *namearg = new thArg("name", NULL, 0);
 	namearg->setComment($2.str);
 
-	parsemod->setChanArg(namearg);
+	parsetree->setChanArg(namearg);
 }
 ;
 
@@ -299,7 +297,7 @@ DESC STRING
 	thArg *descarg = new thArg("desc", NULL, 0);
 	descarg->setComment($2.str);
 
-	parsemod->setChanArg(descarg);
+	parsetree->setChanArg(descarg);
 };
 
 assignments:
@@ -310,12 +308,9 @@ assignments assignment ENDSTATE
 assignment:
 WORD ASSIGN expression
 {
-//	XXX - MORE FIXING
+	/* XXX: This is sorta hackish, make it not index it here */
+	parsenode->setArg($1.str, 1)->setIndex(-1);
 
-	float *copy = new float[1];
-	*copy = $3.floatval;
-	parsenode->SetArg($1.str, copy, 1)->setIndex(-1); /* XXX: This is sorta
-										hackish, make it not index it here */
 	free($1.str);
 }
 |
@@ -338,8 +333,10 @@ WORD ASSIGN fstr
 	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
 	arg[argsize] = 0;
-	parsenode->SetArg($1.str, node, arg)->setIndex(-1); /* XXX: This is sorta
-										hackish, make it not index it here */
+
+	/* XXX: This is sorta hackish, make it not index it here */
+	parsenode->setArg($1.str, node, arg)->setIndex(-1);
+
 	delete[] node;
 	delete[] arg;
 	delete[] $3.str;
@@ -355,7 +352,7 @@ WORD ASSIGN ATSIGN WORD
 	chanarg = new char[chanarglen + 1];		/* +1 for the terminating '\0' */
 	memcpy(chanarg, $4.str, chanarglen + 1);
 
-    parsenode->SetArg($1.str, chanarg)->setIndex(-1); /* XXX: This is sorta
+    parsenode->setArg($1.str, chanarg)->setIndex(-1); /* XXX: This is sorta
                                         hackish, make it not index it here */
 }
 ;

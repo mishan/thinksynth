@@ -1,4 +1,4 @@
-# $Id: formant0.dsp,v 1.1 2004/09/15 06:07:43 ink Exp $
+# $Id$
 # Written by Leif Ames <ink@bespin.org>  5/21/2003
 # FM passed through 3 band-pass filters
 name "test";

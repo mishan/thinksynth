@@ -1,4 +1,4 @@
-/* $Id: monotest.cpp,v 1.6 2004/04/07 04:09:29 misha Exp $ */
+/* $Id$ */
 
 #include "config.h"
 
@@ -18,7 +18,7 @@
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
-#include "thMod.h"
+#include "thSynthTree.h"
 #include "thSynth.h"
 #include "thMidiNote.h"
 

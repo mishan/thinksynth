@@ -1,4 +1,4 @@
-# $Id: hat0.dsp,v 1.7 2004/12/07 04:34:23 ink Exp $
+# $Id$
 name "Hat 0";
 author "Leif Ames";
 description "Electronic Hihat";

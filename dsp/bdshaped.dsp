@@ -1,4 +1,4 @@
-# $Id: bdshaped.dsp,v 1.3 2004/12/18 02:45:42 ink Exp $
+# $Id$
 name "BD-10";
 author "Leif Ames";
 description "Simple Kick Drum";

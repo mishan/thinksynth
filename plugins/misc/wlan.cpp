@@ -56,7 +56,7 @@ int module_init (thPlugin *plugin)
 #endif /* HAVE_IWLIB_H */
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 					 unsigned int samples)
 {
 #ifdef HAVE_IWLIB_H

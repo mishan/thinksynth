@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.h,v 1.2 2004/04/15 09:38:42 misha Exp $ */
+/* $Id$ */
 
 #ifndef TH_OSSAUDIO_H
 #define TH_OSSAUDIO_H

@@ -23,7 +23,7 @@ LIBOBJS = \
 	thArg.o \
 	thMidiChan.o \
 	thMidiNote.o \
-	thMod.o \
+	thSynthTree.o \
 	thNode.o \
 	thPlugin.o \
 	thPluginManager.o \

@@ -95,7 +95,7 @@ thSynth::~thSynth (void)
 {
 	delete [] output_;
 
-	DestroyMap(modlist_);
+	DestroyMap(treelist_);
 	free(midiChannels_);
 
 	pthread_mutex_destroy(synthMutex_);
@@ -120,7 +120,7 @@ void thSynth::removeChan (int channum)
 	}
 }
 
-thMod * thSynth::loadMod (const string &filename)
+thSynthTree * thSynth::loadTree (const string &filename)
 {
 	struct stat dspinfo;
 
@@ -151,7 +151,7 @@ thMod * thSynth::loadMod (const string &filename)
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
-	parsemod = new thMod("newmod", this);
+	parsetree = new thSynthTree("newmod", this);
 	parsenode = new thNode("newnode", NULL);
 
 	YYPARSE(this);
@@ -160,17 +160,17 @@ thMod * thSynth::loadMod (const string &filename)
 
 	delete parsenode;
 
-	parsemod->buildArgMap(); /* build the index of args */
-	parsemod->setPointers();
-	parsemod->buildSynthTree();
-	modlist_[parsemod->getName()] = parsemod;
+	parsetree->buildArgMap(); /* build the index of args */
+	parsetree->setPointers();
+	parsetree->buildSynthTree();
+	treelist_[parsetree->name()] = parsetree;
 
 	pthread_mutex_unlock(synthMutex_);
 
-	return parsemod;
+	return parsetree;
 }
 
-thMod * thSynth::loadMod (FILE *input)
+thSynthTree * thSynth::loadTree (FILE *input)
 {
 	if (!input)
 		return NULL;
@@ -181,21 +181,21 @@ thMod * thSynth::loadMod (FILE *input)
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
 	/* these are used by the parser */
-	parsemod = new thMod("newmod", this);
+	parsetree = new thSynthTree("newmod", this);
 	parsenode = new thNode("newnode", NULL);
 
 	YYPARSE(this);
 
 	delete parsenode;
 
-	parsemod->buildArgMap(); /* build the index of args */
-	parsemod->setPointers();
-	parsemod->buildSynthTree();
-	modlist_[parsemod->getName()] = parsemod;
+	parsetree->buildArgMap(); /* build the index of args */
+	parsetree->setPointers();
+	parsetree->buildSynthTree();
+	treelist_[parsetree->name()] = parsetree;
 
 	pthread_mutex_unlock(synthMutex_);
 
-	return parsemod;
+	return parsetree;
 }
 
 void thSynth::setChanArg (int channum, thArg *arg)
@@ -214,7 +214,7 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
 	pthread_mutex_lock(synthMutex_);
 
-	chan->SetArg(arg);
+	chan->setArg(arg);
 
 	pthread_mutex_unlock(synthMutex_);
 }
@@ -233,32 +233,7 @@ thArg *thSynth::getChanArg (int channum, const string &argname)
 		return NULL;
 	}
 
-	return chan->GetArg(argname);
-}
-
-int thSynth::setChanArgData (int channum, const string &argname, float *data, int len)
-{
-	float *buffer;
-	thArg *argp;  /* pointer to the arg we search the chan for...  no need to
-					 search more than once! */
-
-	if((channum < 0) || (channum >= midiChannelCnt_))
-	{
-		return -1;
-	}
-
-	thMidiChan *chan = midiChannels_[channum];
-
-	if(!chan)
-	{
-		return -1;
-	}
-
-	argp = chan->GetArg(argname);
-	buffer = argp->allocate(len);
-	memcpy(buffer, data, len * sizeof(float));
-
-	return 1;
+	return chan->getArg(argname);
 }
 
 void thSynth::handleMidiController (unsigned char channel, unsigned int param,
@@ -274,7 +249,7 @@ void thSynth::newMidiControllerConnection (unsigned char channel,
 	controllerHandler_->newConnection(channel, param, connection);
 }
 
-thMod * thSynth::loadMod (const string &filename, int channum, float amp)
+thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 {
 	struct stat dspinfo;
 
@@ -305,14 +280,14 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
 	/* these are used by the parser */
-	parsemod = new thMod("newmod", this);
+	parsetree = new thSynthTree("newmod", this);
 	parsenode = new thNode("newnode", NULL);
 
 	YYPARSE(this);
 
 	delete parsenode;
 
-	if (parsemod->getIONode() == NULL)
+	if (parsetree->IONode() == NULL)
 	{
 		fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
 			filename.c_str());
@@ -320,10 +295,10 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 		return NULL;
 	}
 	
-	parsemod->buildArgMap(); /* build the index of args */
-	parsemod->setPointers();
-	parsemod->buildSynthTree();
-	modlist_[parsemod->getName()] = parsemod;
+	parsetree->buildArgMap(); /* build the index of args */
+	parsetree->setPointers();
+	parsetree->buildSynthTree();
+	treelist_[parsetree->name()] = parsetree;
 
 	thMidiChan **newchans;
 	int newchancount = midiChannelCnt_;
@@ -349,7 +324,7 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 		delete midiChannels_[channum];
 	}
 
-	midiChannels_[channum] = new thMidiChan(parsemod, amp, windowlen_);
+	midiChannels_[channum] = new thMidiChan(parsetree, amp, windowlen_);
 
 	patchlist_[channum] = filename;
 
@@ -360,14 +335,14 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 
 	m_sigChanChanged_(filename, channum, amp);
 
-	return parsemod;
+	return parsetree;
 }
 
 /* Make these voids return something and add error checking everywhere! */
-void thSynth::listMods (void)
+void thSynth::listTrees (void)
 {
-	for (map<string, thMod*>::const_iterator im = modlist_.begin(); 
-		 im != modlist_.end(); ++im) {
+	for (map<string, thSynthTree*>::const_iterator im = treelist_.begin(); 
+		 im != treelist_.end(); ++im) {
 		printf("%s\n", im->first.c_str());
 	}
 }
@@ -393,7 +368,7 @@ thMidiNote *thSynth::addNote (int channum, float note,
 
  	pthread_mutex_lock(synthMutex_);
 
-	thMidiNote *newnote = chan->AddNote(note, velocity);
+	thMidiNote *newnote = chan->addNote(note, velocity);
 
 	pthread_mutex_unlock(synthMutex_);
 
@@ -410,16 +385,12 @@ int thSynth::delNote (int channum, float note)
 	if(!chan)
 		return 1;
 
-	int sustain = (int)(*(chan->GetSusPedalArg()))[0];
-
-	float *pbuf = new float(0);
-	if(sustain)
-		*pbuf = 2; /* set it to sustain */
+	int sustain = (int)(*(chan->sustainPedal()))[0];
 
 	pthread_mutex_lock(synthMutex_);
 	
-	chan->SetNoteArg ((int)note, "trigger", pbuf, 1);
-/* XXX IS THE OLD BUFFER BEING TAKEN CARE OF?  Possible memory leak */
+	chan->setNoteArg ((int)note, "trigger", sustain ? 2 : 0);
+	/* XXX IS THE OLD BUFFER BEING TAKEN CARE OF?  Possible memory leak */
 
 	pthread_mutex_unlock(synthMutex_);
 
@@ -432,7 +403,7 @@ void thSynth::clearAll (void)
 	thMidiChan **c = midiChannels_;
 
 	while (*c)
-		(*c++)->ClearAll();
+		(*c++)->clearAll();
 }
 
 void thSynth::process (void)
@@ -451,24 +422,28 @@ void thSynth::process (void)
 
 		if (chan)
 		{
-			notechannels = chan->GetChannels();
+			notechannels = chan->numChannels();
 			mixchannels = notechannels;
 			
 			if (mixchannels > channels_) {
 				mixchannels = channels_;
 			}
 			
-			chan->Process();
-			chanoutput = chan->GetOutput();
+			chan->process();
+			chanoutput = chan->output();
 
 			int bufferoffset = 0;
-			
+			int inneroffset, chanoffset;
+
 			for (int j = 0; j < mixchannels; j++)
 			{
+				inneroffset = bufferoffset;
+				chanoffset = j;
 				for (int k = 0; k < windowlen_; k++)
 				{
-					output_[bufferoffset + k] +=
-						chanoutput[j + (k*mixchannels)];
+					output_[inneroffset] += chanoutput[chanoffset];
+					inneroffset++;
+					chanoffset += mixchannels;
 				}
 
 				bufferoffset += windowlen_;

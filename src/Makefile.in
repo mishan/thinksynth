@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.57 2004/11/09 18:38:34 joshk Exp $
+# $Id$
 
 BINARY = thinksynth
 

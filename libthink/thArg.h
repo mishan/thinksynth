@@ -28,7 +28,8 @@ typedef SigC::Signal1<void, thArg *> type_signal_arg_changed;
 
 class thArg {
 public:
-	thArg(const string &name, float *value, const int num);
+	thArg(const string &name, float value);
+	thArg(const string &name, const float *value, int num);
 	thArg(const string &name, const string &node, const string &value);
 	thArg(const string &name, const string &chanarg);
 	thArg(const thArg *copyArg);
@@ -41,8 +42,8 @@ public:
 
 	enum WidgetType { HIDE = 0, SLIDER, CHANARG };
 	
-	void setArg(const string &name, float *value, const int num);
-	void setAllocatedArg(const string &name, float *value, const int num);
+	void setArg(const string &name, float value);
+	void setArg(const string &name, const float *value, int len);
 	void setArg(const string &name, const string &node, const string &value);
 	void setArg(const string &name, const string &chanarg);
 

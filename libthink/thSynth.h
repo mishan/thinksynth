@@ -39,12 +39,11 @@ public:
 		return instance_;
 	}
 
-	thMod *loadMod(const string &filename);
-	thMod *loadMod(const string &filename, int channum, float amp);
-	thMod *loadMod(FILE *input);
-	thMod *findMod(const string &name) { return modlist_[name]; };
+	thSynthTree *loadTree(const string &filename);
+	thSynthTree *loadTree(const string &filename, int channum, float amp);
+	thSynthTree *loadTree(FILE *input);
 
-	void listMods(void);
+	void listTrees (void);
 	thPluginManager *getPluginManager (void) { return pluginmanager_; };
 
 	thMidiNote *addNote(int channum, float note, float velocity);
@@ -57,12 +56,12 @@ public:
 
 	int audioChannelCount (void) const { return channels_; }
 
-	thMidiChan::ArgMap getChanArgs (int chan) {
+	thArgMap getChanArgs (int chan) {
 		if ((chan < 0) || (chan >= midiChannelCnt_) || 
 			(midiChannels_[chan] == NULL))
-			return thMidiChan::ArgMap();
+			return thArgMap();
 
-		return midiChannels_[chan]->GetArgs();
+		return midiChannels_[chan]->args();
 	}
 
 	int getWindowlen (void) const { return windowlen_; }
@@ -79,8 +78,6 @@ public:
 
 	thArg *getChanArg (int channum, const string &argname);
 	void setChanArg (int channum, thArg *arg);
-	int setChanArgData (int channum, const string &argname, float *data,
-						 int len);
 
 	void handleMidiController (unsigned char channel, unsigned int param,
 							   unsigned int value);
@@ -118,7 +115,7 @@ private:
 	type_signal_chan_changed m_sigChanChanged_;
 	type_signal_chan_deleted m_sigChanDeleted_;
 
-	map<string, thMod*> modlist_;
+	map<string, thSynthTree*> treelist_;
 	map<int, string> patchlist_;
 	thPluginManager *pluginmanager_;
 	thMidiChan **midiChannels_; /* MIDI channels */

@@ -24,12 +24,27 @@
 #include "think.h"
 
 /* Ownership of value will transfer to us. Same goes for SetAllocatedArg. */
-
-thArg::thArg(const string &name, float *value, const int num)
+thArg::thArg(const string &name, float value)
 {
 	name_ = name;
-	values_ = value;
-	len_ = num;
+	values_ = new float(value);
+	len_ = 1;
+
+	type_ = ARG_VALUE;
+	nodePtrId_ = -1;
+	argPtrId_ = -1;
+
+	widgetType_ = HIDE;
+	min_ = 0;
+	max_ = MIDIVALMAX;
+}
+
+thArg::thArg(const string &name, const float *value, int len)
+{
+	name_ = name;
+	values_ = new float[len];
+	memcpy(values_, value, len*sizeof(float));
+	len_ = len;
 
 	type_ = ARG_VALUE;
 	nodePtrId_ = -1;   /* so we know it has not been set yet */
@@ -132,23 +147,24 @@ float *thArg::allocate (unsigned int elements)
 	return values_;
 }
 
-void thArg::setArg(const string &name, float *value, const int num)
+void thArg::setArg (const string &name, float value)
 {
-	values_ = allocate(num);
-	
+	values_ = allocate(1);
+	values_[0] = value;
 	name_ = name;
-	
-	memcpy(values_, value, num * sizeof(float));
-
-	len_ = num;
+	len_ = 1;
 	type_ = ARG_VALUE;
 }
 
-void thArg::setAllocatedArg(const string &name, float *value, const int num)
+void thArg::setArg(const string &name, const float *value, int len)
 {
-	values_ = value;
+	values_ = allocate(len);
+
 	name_ = name;
-	len_ = num;
+	
+	memcpy(values_, value, len * sizeof(float));
+
+	len_ = len;
 	type_ = ARG_VALUE;
 }
 

@@ -1,4 +1,4 @@
-/* $Id: ArgTable.h,v 1.2 2004/11/11 10:42:41 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *

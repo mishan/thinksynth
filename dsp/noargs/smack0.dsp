@@ -1,4 +1,4 @@
-# $Id: smack0.dsp,v 1.2 2004/12/07 08:41:47 ink Exp $
+# $Id$
 name "test";
 
 node ionode {

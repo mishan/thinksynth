@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.28 2004/10/01 09:16:21 joshk Exp $
+# $Id$
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@

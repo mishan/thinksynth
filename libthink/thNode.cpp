@@ -41,27 +41,46 @@ thNode::~thNode (void)
 	DestroyMap(args);
 }
 
-thArg *thNode::SetArg (const string &name, float *value, int num)
+thArg *thNode::setArg (const string &name, float value)
 {
-	map<string, thArg*>::const_iterator i = args.find(name);
+	thArgMap::const_iterator i = args.find(name);
 	thArg *arg;
 
 	if(i == args.end() || !i->second /* XXX shouldnt be necessary */) {
-		arg = new thArg(name, value, num);
+		arg = new thArg(name, value);
 		args[name] = arg;
 		arg->setIndex(AddArgToIndex(arg));
 	}
 	else {
 		arg = i->second;
-		arg->setArg(name, value, num);
+		arg->setArg(name, value);
 	}
 
 	return arg;
 }
 
-thArg *thNode::SetArg (const string &name, const string &node, const string &value)
+thArg *thNode::setArg (const string &name, const float *value, int len)
 {
-	map<string, thArg*>::const_iterator i = args.find(name);
+	thArgMap::const_iterator i = args.find(name);
+	thArg *arg;
+
+	if(i == args.end() || !i->second /* XXX shouldnt be necessary */) {
+		arg = new thArg(name, value, len);
+		args[name] = arg;
+		arg->setIndex(AddArgToIndex(arg));
+	}
+	else {
+		arg = i->second;
+		arg->setArg(name, value, len);
+	}
+
+	return arg;
+}
+
+thArg *thNode::setArg (const string &name, const string &node,
+					   const string &value)
+{
+	thArgMap::const_iterator i = args.find(name);
 	thArg *arg;
 
 	if(i != args.end() && i->second /* XXX we should not have to do this */) {
@@ -77,9 +96,9 @@ thArg *thNode::SetArg (const string &name, const string &node, const string &val
 	return arg;
 }
 
-thArg *thNode::SetArg (const string &name, const string &chanarg)
+thArg *thNode::setArg (const string &name, const string &chanarg)
 {
-    map<string, thArg*>::const_iterator i = args.find(name);
+    thArgMap::const_iterator i = args.find(name);
     thArg *arg;
 
     if(i != args.end() && i->second /* XXX we should not have to do this */) {
@@ -117,7 +136,7 @@ int thNode::AddArgToIndex (thArg *arg)
 
 void thNode::PrintArgs (void)
 {
-	for (map<string,thArg*>::const_iterator i = args.begin(); i != args.end(); i++)
+	for (thArgMap::const_iterator i = args.begin(); i != args.end(); i++)
 		printf("%s\n", i->first.c_str());
 }
 

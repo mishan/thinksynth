@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.106 2004/11/29 04:10:03 joshk Exp $
+dnl $Id$
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])

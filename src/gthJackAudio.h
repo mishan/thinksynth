@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.13 2004/10/01 05:02:32 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *

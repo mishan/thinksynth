@@ -25,50 +25,51 @@
 
 #include "think.h"
 
-thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
-	: modnode(*mod)
+thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity)
+	: synthTree_(*tree)
 {
-	float *notep = new float[1], *velocityp = new float[1],
-		*triggerp = new float[1];
+	synthTree_.buildSynthTree();
+	thNode *ionode = synthTree_.IONode();
 
-	modnode.buildSynthTree();
-	thNode *ionode = modnode.getIONode();
+	ionode->setArg("note", note);
+	ionode->setArg("velocity", velocity);
+	ionode->setArg("trigger", 1);
 
-	*notep = note;
-	*velocityp = velocity;
-	*triggerp = 1;
-
-	ionode->SetArg("note", notep, 1);
-	ionode->SetArg("velocity", velocityp, 1);
-	ionode->SetArg("trigger", triggerp, 1);
-
-	noteid = (int)note;
+	noteid_ = (int)note;
 }
 
-thMidiNote::thMidiNote (thMod *mod)
-	: modnode (*mod)
+thMidiNote::thMidiNote (thSynthTree *tree)
+	: synthTree_(*tree)
 {
-	modnode.buildSynthTree();
-	thNode *ionode = modnode.getIONode();
+	synthTree_.buildSynthTree();
+	thNode *ionode = synthTree_.IONode();
 
-	ionode->SetArg("note", 0, 1);  /* set these to 0, it may matter when */
-	ionode->SetArg("velocity", 0, 1); /* the args are indexed as well */
-	ionode->SetArg("trigger", 0, 1);
+	ionode->setArg("note", 0);     /* set these to 0, it may matter when */
+	ionode->setArg("velocity", 0); /* the args are indexed as well */
+	ionode->setArg("trigger", 0);
+
+	noteid_ = -1;
 }
 
 thMidiNote::~thMidiNote ()
 {
 }
 
-void thMidiNote::Process (int length)
+void thMidiNote::process (int length)
 {
-	modnode.setActiveNodes();
-	modnode.process(length);
+	synthTree_.setActiveNodes();
+	synthTree_.process(length);
 }
 
-void thMidiNote::SetArg (char *name, float *value, int len)
+void thMidiNote::setArg (const string &name, float value)
 {
-	thNode *ionode = modnode.getIONode();
-	ionode->SetArg(name, value, len);
+	thNode *ionode = synthTree_.IONode();
+	ionode->setArg(name, value);
+}
+
+void thMidiNote::setArg (const string &name, const float *value, int len)
+{
+	thNode *ionode = synthTree_.IONode();
+	ionode->setArg(name, value, len);
 }
 

@@ -77,7 +77,7 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 		patches_[chan] = NULL;
 	}
 
-	thMod *mod = synth->loadMod(dspName.c_str(), chan, 0);
+	thSynthTree *mod = synth->loadTree(dspName.c_str(), chan, 0);
 
 	if (mod == NULL)
 	{
@@ -136,10 +136,10 @@ bool gthPatchManager::isLoaded (int chan)
 	return true;
 }
 
-thMidiChan::ArgMap gthPatchManager::getChannelArgs (int chan)
+thArgMap gthPatchManager::getChannelArgs (int chan)
 {
 	if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
-		return thMidiChan::ArgMap();
+		return thArgMap();
 
 	thSynth *synth = thSynth::instance();
 	thMidiChan *mchan = synth->getChannel(chan);
@@ -147,10 +147,10 @@ thMidiChan::ArgMap gthPatchManager::getChannelArgs (int chan)
 	if (mchan == NULL)
 	{
 		printf("ERROR! Got NULL MidiChan\n");
-		return thMidiChan::ArgMap();
+		return thArgMap();
 	}
 
-	return mchan->GetArgs();
+	return mchan->args();
 }
 
 /* XXX: add error checking */
@@ -264,7 +264,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 				else
 					f = *values[0];
 					
-				if (synth->loadMod(f.c_str(), chan, 0) == NULL)
+				if (synth->loadTree(f.c_str(), chan, 0) == NULL)
 					goto owned;
 				
 				seen_dsp = true;
@@ -274,9 +274,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 				thArg *arg = synth->getChanArg(chan, key);
 				if (arg == NULL)
 				{
-					float *value = new float;
-					*value = arglist[key];
-					thArg *arg = new thArg(key, value, 1);
+					thArg *arg = new thArg(key, arglist[key]);
 					synth->setChanArg(chan, arg);
 				}
 				else
@@ -313,7 +311,7 @@ owned:
 bool gthPatchManager::savePatch (const string &filename, int chan)
 {
 	FILE *prefsFile;
-	thMidiChan::ArgMap args = getChannelArgs(chan);
+	thArgMap args = getChannelArgs(chan);
 	time_t t = time(NULL);
 
 	if (patches_[chan] == NULL)
@@ -344,7 +342,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 		}
 	}
 	
-	for (thMidiChan::ArgMap::iterator j = args.begin();
+	for (thArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{
 		if(j->second->widgetType() != j->second->HIDE)

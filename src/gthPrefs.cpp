@@ -140,8 +140,7 @@ void gthPrefs::Load (void)
 				if (values[2] != NULL)
 				{
 					thSynth *s = thSynth::instance();
-					float *f = new float (atof(values[2]->c_str()));
-					thArg *arg = new thArg(string("amp"), f, 1);
+					thArg *arg = new thArg("amp", atof(values[2]->c_str()));
 
 					s->setChanArg(chan, arg);
 				}

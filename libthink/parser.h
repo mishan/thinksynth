@@ -1,4 +1,4 @@
-/* $Id: parser.h,v 1.12 2004/08/16 09:34:48 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,7 +26,7 @@ extern int yylex ();
 extern int YYPARSE (thSynth *argsynth);
 extern int linenum;
 extern FILE *yyin;
-extern thMod *parsemod;     /* Damn you yacc, I hate globals */
+extern thSynthTree *parsetree;     /* Damn you yacc, I hate globals */
 extern thNode *parsenode;
 
 #endif /* PARSER_H */

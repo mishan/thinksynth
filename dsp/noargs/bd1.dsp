@@ -1,4 +1,4 @@
-# $Id: bd1.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id$
 name "bd";
 
 node ionode {

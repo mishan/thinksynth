@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.17 2004/12/19 21:05:20 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
