@@ -25,7 +25,7 @@ node map1 env::map {
 	inmin = 0;
 	inmax = th_max;
 	outmin = 25;
-	outmax = 100;
+	outmax = 120;
 };
 
 node map2 env::map {
@@ -44,7 +44,7 @@ node filt filt::rds {
 
 node osc osc::simple {
 	freq = map1->out;
-	waveform = 4;
+	waveform = 5;
 };
 
 io ionode;
