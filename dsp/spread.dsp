@@ -6,11 +6,12 @@ node ionode {
 	out1 = mixer3->out;
 	play = 1;
 
-	amp = 1;
+	amp = 2;
 
-	wmin = 0.5;
-	wmax = 0.9;
+	wmin = 0.4;
+	wmax = 0.6;
 	wdiv = 2;
+	fadd = 4;
 
 	pw = 0.5;
 
@@ -26,10 +27,7 @@ node freq misc::midi2freq {
 node wdiv math::div {
 	in0 = freq->out;
 	in1 = ionode->wdiv;
-foo = print->bar;
 };
-
-node print misc::print { in = wdiv->out; };
 
 node wlfo osc::simple {
 	freq = wdiv->out;
@@ -69,22 +67,22 @@ node freqsin4 math::sin {
 };
 
 node freqadd1 math::add {
-	in0 = 2;
+	in0 = ionode->fadd;
 	in1 = freqsin1->out;
 };
 
 node freqadd2 math::add {
-	in0 = 3;
+	in0 = ionode->fadd;
 	in1 = freqsin2->out;
 };
 
 node freqadd3 math::add {
-	in0 = 4;
+	in0 = ionode->fadd;
 	in1 = freqsin3->out;
 };
 
 node freqadd4 math::add {
-	in0 = 5;
+	in0 = ionode->fadd;
 	in1 = freqsin4->out;
 };
 
@@ -120,15 +118,15 @@ node osc2 osc::softsqr {
 	pw = ionode->pw;
 };
 
-node osc3 osc::softsqr {
+node osc3 osc::bandosc {
 	freq = freq->out;
-	sfreq = freqmul3->out;
+	band = freqmul3->out;
 	pw = ionode->pw;
 };
 
-node osc4 osc::softsqr {
+node osc4 osc::bandosc {
 	freq = freq->out;
-	sfreq = freqmul4->out;
+	band = freqmul4->out;
 	pw = ionode->pw;
 };
 
