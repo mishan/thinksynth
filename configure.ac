@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.79 2004/08/15 23:45:36 joshk Exp $
+dnl $Id: configure.ac,v 1.80 2004/08/16 02:18:45 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -165,6 +165,8 @@ else
   AC_SUBST(GTHREAD_LIBS, [`pkg-config gthread-2.0 --libs`])
 fi
 
+if test "`uname -s`" != "Darwin"; then
+
 AC_MSG_CHECKING([for GTK--]) 
 
 if ! pkg-config gtkmm-2.0 --cflags >/dev/null 2>&1; then
@@ -203,6 +205,8 @@ else
 fi
 
 AC_DEFINE_UNQUOTED(HAVE_ALSA, $have_alsa, [Define to 1 if ALSA files are available.])
+
+fi
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
