@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.10 2004/11/27 05:44:38 joshk Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.11 2004/11/28 02:54:39 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -66,10 +66,13 @@ gthPatchManager *gthPatchManager::instance (void) {
 bool gthPatchManager::newPatch (const string &dspName, int chan)
 {
 	thSynth *synth = thSynth::instance();
+	thArg *amparg = NULL;
 	bool r = true;
 
 	if (patches_[chan])
 	{
+		/* keep copy of amplitude */
+		amparg = new thArg (synth->GetChanArg(chan, "amp"));
 		delete patches_[chan];
 		patches_[chan] = NULL;
 	}
@@ -84,6 +87,9 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 	{
 		patches_[chan] = new PatchFile;
 		patches_[chan]->dspFile = dspName;
+
+		if (amparg != NULL)
+			synth->SetChanArg(chan, amparg); 
 	}
 
 	m_signal_patches_changed();
