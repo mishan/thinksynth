@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.25 2004/09/09 07:10:16 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.26 2004/09/09 07:14:07 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -55,7 +55,7 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth)
 	add(vbox);
 
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
-	vbox.pack_start(notebook, Gtk::PACK_SHRINK);
+	vbox.pack_start(notebook, Gtk::PACK_EXPAND_WIDGET);
 
 	notebook.set_scrollable();
 
