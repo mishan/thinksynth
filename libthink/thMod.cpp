@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.65 2003/05/08 00:53:33 ink Exp $ */
+/* $Id: thMod.cpp,v 1.66 2003/05/08 02:54:22 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -43,6 +43,9 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 	if (node) {
 		args = node->GetArg(argname);
 	}
+	else {
+		printf("WARNING!!  Trying to get args from nonexistant node %s\n", nodename);
+	}
 
 	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
@@ -62,6 +65,9 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 			  tmp[0] = 0;
 			  args = ((thArg *)node->SetArg(argname, tmp, 1))->GetArg();
 			}
+		}
+		else {
+			printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", nodename,  args->argPointNode);
 		}
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
