@@ -5,6 +5,7 @@
 #include <stdlib.h>
 
 #include "thArg.h"
+#include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
 #include "thNode.h"

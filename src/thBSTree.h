@@ -19,6 +19,9 @@ public:
 
 	void PrintTree (void);
 	void *GetData (char *name);
+	
+	/* creates a new thList with pointers to all the data */
+	thList *GetList (void);
 private:
 	thBSNode *bRoot;
 
@@ -27,6 +30,7 @@ private:
 	thBSNode *FindHelper (thBSNode *root, const char *name);
 	thBSNode *GetParent (thBSNode *root, thBSNode *node);
 	void RemoveHelper (thBSNode *root, thBSNode *node);
+	void GetListHelper (thBSNode *root, thList *tlist);
 	
 	void DestroyTree (thBSNode *root);
 

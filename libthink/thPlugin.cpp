@@ -38,7 +38,6 @@ const char *thPlugin::GetDesc (void)
 	return plugDesc;
 }
 
-
 int thPlugin::Fire (void)
 {
 	return 0;

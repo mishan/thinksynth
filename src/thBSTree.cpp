@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "thList.h"
 #include "thBSTree.h"
 
 thBSTree::thBSTree (void)
@@ -161,6 +162,33 @@ void thBSTree::PrintHelper (thBSNode *root)
  	PrintHelper (root->left);
 	printf("%s\n", root->name);
 	PrintHelper (root->right);
+}
+
+thList *thBSTree::GetList (void)
+{
+	thList *tlist;
+
+	if(!bRoot) {
+		return NULL;
+	}
+	
+	tlist = new thList;
+	
+	GetListHelper(bRoot, tlist);
+
+	return tlist;
+}
+
+void thBSTree::GetListHelper(thBSNode *root, thList *tlist)
+{
+	if(!root) {
+		return;
+	}
+
+	tlist->Add(root->data);
+
+	GetListHelper(root->left, tlist);
+	GetListHelper(root->right, tlist);
 }
 
 void thBSTree::RemoveHelper(thBSNode *root, thBSNode *node)
