@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.41 2003/05/03 08:15:04 joshk Exp $
+dnl $Id: configure.ac,v 1.42 2003/05/03 08:29:29 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -21,16 +21,9 @@ YACC_LANG=CXX
 
 AC_PROG_YACC
 
-
-dnl XXX this is a hack until autoconf gets fixed
-if test "$YACC" = "yacc"; then
-	if test ! -x $YACC; then
-		YACC=:
-	fi
-fi
-
-if test "$YACC" = ":"; then
-	AC_MSG_ERROR([A yacc implementation is required to build this program.])
+dnl We need bison to build, byacc just doesn't cut it
+if test "$YACC" != "bison"; then
+	AC_MSG_ERROR([Bison is required to build this program. $YACC just doesn't cut it.])
 fi
 
 dnl The autoconf macro doesn't realize that it NEEDS -d to produce
