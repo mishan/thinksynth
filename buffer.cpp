@@ -7,7 +7,7 @@ Buffer *buffer_new(int size)
 {
 	Buffer *buf = new Buffer[1];
 
-	buf->data = new int[size];;
+	buf->data = new int[size];
 	buf->read = 0;
 	buf->woffset = 0;     /* how far the writing is ahead of the reading */
 	buf->len = size;
