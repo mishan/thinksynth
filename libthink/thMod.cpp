@@ -118,11 +118,33 @@ void thMod::ProcessHelper(thNode *node) {
   /* XXX This is where we will fire the IO Node's plugin */
 }
 
+void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active plugins */
+{
+  thListNode *listnode;
+  thNode *data;
 
+  for(listnode = activelist->GetHead(); listnode; listnode = listnode->prev) {
+    data = (thNode *)listnode->data;
+    if(data->GetRecalc() == false) {
+      data->SetRecalc(true);
+      SetActiveNodesHelper((thNode *)listnode->data);
+    }
+  }
+}
 
+void thMod::SetActiveNodesHelper(thNode *node)
+{
+  thListNode *listnode;
+  thNode *data;
 
-
-
+  for(listnode = ((thList *)node->GetParents())->GetHead(); listnode; listnode = listnode->prev) {
+    data = (thNode *)listnode->data;
+    if(data->GetRecalc() == false) {
+      data->SetRecalc(true);
+      SetActiveNodesHelper(data);
+    }
+  }
+}
 
 
 

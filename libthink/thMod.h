@@ -17,10 +17,14 @@ public:
 
 	void Process (void);
 
+	void SetActiveNodes(void);
+
 private:
 	void ProcessHelper (thNode *node);
+	void SetActiveNodesHelper(thNode *node);
 
-	thBSTree *modnodes, *actlist;
+	thBSTree *modnodes;
+	thList *activelist;
 	thNode *ionode;
 
 	char *modname;
