@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.62 2003/05/03 10:50:26 ink Exp $ */
+/* $Id: main.cpp,v 1.63 2003/05/03 23:05:52 ink Exp $ */
 
 #include "config.h"
 
@@ -31,8 +31,6 @@ int main (int argc, char *argv[])
 
 	plugin_path = strdup(PLUGIN_PATH);
 	plugin_len = strlen(plugin_path);
-
-	/* int i; XXX temporary hack to see more than 1 element of output */
 
 	if (argc < 2) /* Not enough parameters */
 	{
@@ -93,9 +91,6 @@ syntax:
 	}
 
 	Synth.LoadMod(filename);
-	//	Synth.ListMods();
-  
-	((thMod *)Synth.FindMod(dspname))->BuildSynthTree();
 
 	Synth.AddChannel(strdup("chan1"), dspname, 80.0);
 	Synth.AddNote("chan1", 69, 100);
@@ -104,14 +99,5 @@ syntax:
 
 	Synth.PrintChan(0);
 
-	/*newmod = ((thMod *)Synth.FindMod(dspname))->Copy();
-	  newmod->BuildSynthTree();
-	  newmod->Process(1024);
-	*/
-	/*  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]); */
-	//	for(i=0;i<1024;i++) { /* XXX temporary hack to view more than 1 element of data */
-	/*	printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out0"))->argValues[i]);
-	}
-*/
 	free(filename);
 }
