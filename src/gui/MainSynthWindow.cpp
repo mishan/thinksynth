@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.58 2004/11/29 01:50:10 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.59 2004/11/29 01:53:41 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -643,7 +643,7 @@ void MainSynthWindow::onBrowseButton (void)
 			vals[1] = NULL;
 
 			gthPrefs *prefs = gthPrefs::instance();
-			prefs->Set("patchdir", vals);
+			prefs->Set("dspdir", vals);
 
 			/* load up the patch file */
 			notebook.hide_all();
