@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.33 2003/05/03 18:53:58 misha Exp $ */
+/* $Id: thinklang.yy,v 1.34 2003/05/03 19:09:04 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -168,7 +168,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 			}
 		}
 	parsenode->SetPlugin(((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str));
-	free ($3.str);
+	delete $3.str;
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
@@ -228,14 +228,13 @@ WORD ASSIGN fstr
 	node = new char[nodesize];
 	memcpy(node, $3.str, nodesize);
 
-	free($3.str);
-
 	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
 	arg[argsize] = 0;
 //printf("PARSER: %s:  %s->%s (%i)(%i)\n", $1.str, node, arg, nodesize, argsize);
 	parsenode->SetArg($1.str, node, arg);
 
+	delete $3.str;
 	delete[] node;
 	delete[] arg;
 }
@@ -244,22 +243,22 @@ WORD ASSIGN fstr
 plugname:
 WORD MODSEP WORD
 {
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 2);
+	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 |
 WORD MODSEP plugname
 {
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 2);
+	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-	free($3.str);
+	delete $3.str;
 }
 ;
 
 fstr:		/* a node name and an fstring */
 WORD INTO WORD
 {
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 2);
+	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 ;
