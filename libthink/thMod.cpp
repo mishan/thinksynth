@@ -60,7 +60,7 @@ void thMod::NewNode (thNode *node)
 void thMod::SetName (const char *name)
 {
 	if(modname) {
-		delete modname;
+		free (modname);
 	}
 	modname = strdup(name);
 }
