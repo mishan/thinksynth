@@ -1,4 +1,4 @@
-/* $Id: prefs.cpp,v 1.2 2004/04/08 23:18:35 misha Exp $ */
+/* $Id: prefs.cpp,v 1.3 2004/04/09 07:29:40 misha Exp $ */
 
 #include "config.h"
 
@@ -31,7 +31,7 @@ void save_prefs (thSynth *synth)
 	debug("writing to '%s'", path);
 
 	fprintf(prefsFile, "# %s configuration file\n", PACKAGE_STRING);
-	fprintf(prefsFile, "# lines starting with '#' are comments\n\n");
+	fprintf(prefsFile, "# lines beginning with '#' are comments\n\n");
 
 	/* save channel mappings */
 	{
@@ -43,6 +43,8 @@ void save_prefs (thSynth *synth)
 			string file = (*patchlist)[i];
 			thArg *amp = synth->GetChanArg(i, "amp");
 
+			/* after all, the .dsp file is the determining factor in a
+			   channel */
 			if (file.length() > 0)
 			{
 				fprintf(prefsFile, "channel %d,%s,%f\n", i, file.c_str(),
@@ -91,6 +93,8 @@ void read_prefs (thSynth *synth)
 
 			synth->LoadMod(file, atoi(chan), atof(amp));
 		}
+
+		
 	}
 
 	free(path);
@@ -117,10 +121,8 @@ static void trim_leadspc (char *line)
 static char *get_config_path (void)
 {
 	char *home_dir = getenv("HOME"); 
-	char *buffer;
-
-	buffer = (char *)malloc(strlen(home_dir) + 1 + strlen(".thinkrc") + 1);
-	sprintf(buffer, "%s/%s", home_dir, ".thinkrc");
+	char *buffer = (char *)malloc(strlen(home_dir) + 1 + strlen(PREFS_FILE) + 1);
+	sprintf(buffer, "%s/%s", home_dir, PREFS_FILE);
 
 	return buffer;
 }

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.26 2004/04/08 22:44:58 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.27 2004/04/09 07:29:40 misha Exp $ */
 
 #include "config.h"
 
@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <libgen.h>
 
 #include <gtkmm.h>
 
@@ -20,6 +21,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	  ampLabel("Amplitude"),
 	  fileLabel("Filename")
 {
+	prevDir = NULL;
 	synth = argsynth;
 
 	set_default_size(550, 400);
@@ -86,11 +88,8 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	dspAmp.signal_value_changed().connect(
 		SigC::slot(*this, &PatchSelWindow::SetChannelAmp));
 
-//	setButton.signal_clicked().connect(
-//		SigC::slot(*this, &PatchSelWindow::LoadPatch));
-
 	fileEntry.signal_activate().connect(
-		SigC::slot(*this, &PatchSelWindow::LoadPatch));
+		SigC::slot(*this, &PatchSelWindow::fileEntryActivate));
 
 	browseButton.signal_clicked().connect(
 		SigC::slot(*this, &PatchSelWindow::BrowsePatch));
@@ -110,9 +109,11 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 PatchSelWindow::~PatchSelWindow (void)
 {
+	if (prevDir)
+		free (prevDir);
 }
 
-void PatchSelWindow::LoadPatch (void)
+bool PatchSelWindow::LoadPatch (void)
 {
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
@@ -139,27 +140,50 @@ void PatchSelWindow::LoadPatch (void)
 				errorDialog.run();
 				g_free(error);
 				dspAmp.set_sensitive(false);
+
+				return false;
 			}
 			else
 			{
 				(*iter)[patchViewCols.dspName] = fileEntry.get_text();
 
 				dspAmp.set_sensitive(true);
+
+				return true;
 			}
 
 		}
 	}
 
+	return false;
 }
 
 void PatchSelWindow::BrowsePatch (void)
 {
 	Gtk::FileSelection fileSel("thinksynth - Load Patch");
 
-	fileSel.run();
+	if (prevDir)
+		fileSel.set_filename(prevDir);
 
-	fileEntry.set_text(fileSel.get_filename());
+	if(fileSel.run() == Gtk::RESPONSE_OK)
+	{
+		fileEntry.set_text(fileSel.get_filename());
 
+		if(LoadPatch())
+		{
+			char *file = strdup(fileSel.get_filename().c_str());
+
+			if (prevDir)
+				free (prevDir);
+
+			prevDir = g_strdup_printf("%s/", dirname(file));
+			free (file);		
+		}
+	}
+}
+
+void PatchSelWindow::fileEntryActivate (void)
+{
 	LoadPatch ();
 }
 

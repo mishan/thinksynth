@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.10 2004/04/01 02:47:50 misha Exp $ */
+/* $Id: PatchSelWindow.h,v 1.11 2004/04/09 07:29:40 misha Exp $ */
 
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
@@ -25,12 +25,13 @@ public:
 	~PatchSelWindow (void);
 
 protected:
-	void LoadPatch (void);
+	bool LoadPatch (void);
 	void SetChannelAmp (void);
 	void BrowsePatch (void);
 	void CursorChanged (void);
 
 	void patchSelected (GdkEventButton *b);
+	void fileEntryActivate (void);
 
 	Gtk::VBox vbox;
 	Gtk::Table controlTable;
@@ -49,6 +50,7 @@ protected:
 	PatchSelColumns patchViewCols;
 private:
 	thSynth *synth;
+	char *prevDir;
 };
 
 #endif /* PATCHSEL_WINDOW_H */
