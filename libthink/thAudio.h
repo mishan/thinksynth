@@ -1,5 +1,5 @@
-#ifndef HAVE_TH_AUDIO_H
-#define HAVE_TH_AUDIO_H 1
+#ifndef TH_AUDIO_H
+#define TH_AUDIO_H 1
 
 struct thAudioFmt {
 	short format;
@@ -22,4 +22,4 @@ public:
 private:
 };
 
-#endif /* HAVE_TH_AUDIO_H */
+#endif /* TH_AUDIO_H */
