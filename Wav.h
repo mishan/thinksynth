@@ -23,6 +23,8 @@ struct WavFormat {
 
 enum WavException { NORIFFHDR, NOWAVHDR, NOFMTHDR, BADFMTHDR, NODATA };
 
+enum WavType { READING, WRITING };
+
 inline char *WavError(WavException e)
 {
 	switch(e) {
@@ -65,14 +67,12 @@ public:
  	int write_wav(void *data, int len);
 	int read_wav(void *data, int len);
 
-	/* for debugging purposes only */
-	void print_info (void);
-
 	WavFormat get_format (void);
+	WavType get_type (void);
 private:
 	char *filename; /* path to the file */
 	int fd;
-	bool type;      /* 0 for reading, 1 for writing */
+	WavType type;
 	WavFormat fmt;
 
 	void write_riff (void);

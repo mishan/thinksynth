@@ -19,7 +19,7 @@ Wav::Wav(char *name)
 {
 
 	filename = strdup(name);
- 	type = 0; /* reading */
+ 	type = READING; /* reading */
 
 	if((fd = open(filename, O_RDONLY)) < 0) {
 		throw (IOException)errno;
@@ -37,7 +37,7 @@ Wav::Wav(char *name, WavFormat *wfmt)
 	throw(IOException)
 {
 	filename = strdup(name);
-	type = 1; /* writing */
+	type = WRITING; /* writing */
 
 	if((fd = open(name, O_CREAT|O_WRONLY, 0660)) < 0) {
 		throw (IOException)errno;
@@ -48,8 +48,8 @@ Wav::Wav(char *name, WavFormat *wfmt)
 
 Wav::~Wav (void)
 {
-	if(type) { /* if we're writing, we must write the header before we
-				  close */
+	if(type == WRITING) { /* if we're writing, we must write the header before 
+							 we close */
 		/* get our current position in the file, which is the data length */
 		long data_len = lseek(fd, 0, SEEK_CUR) - 44;
 		
@@ -206,4 +206,9 @@ int Wav::find_chunk(const char *label)
 WavFormat Wav::get_format (void)
 {
 	return fmt;
+}
+
+WavType Wav::get_type (void)
+{
+	return type;
 }
