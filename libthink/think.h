@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.28 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: think.h,v 1.29 2004/09/17 06:17:02 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -65,13 +65,11 @@ using namespace std;
 #define unlikely(x) __builtin_expect((x),0)
 
 #ifndef __GNUC__
-#define __builtin_expect(x, expected_value) (x)
-#endif
-
-#ifdef __GNUC__
-#if __GNUC__ < 3
-#define __builtin_expect(x, expected_value) (x)
-#endif
+# define __builtin_expect(x, expected_value) (x)
+#else
+# if __GNUC__ < 3
+#  define __builtin_expect(x, expected_value) (x)
+# endif
 #endif
 
 template <typename T, typename U>
