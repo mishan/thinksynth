@@ -2,6 +2,9 @@
 #include "config.h"
 #endif
 
+#include <stdio.h>
+#include <stdlib.h>
+
 thSynth::thSynth()
 {
 }
@@ -10,7 +13,7 @@ thSynth::~thSynth()
 {
 }
 
-thSynth::LoadMod(char *filename)
+void thSynth::LoadMod(char *filename)
 {
   yyin = fopen(filename, "r");
 
