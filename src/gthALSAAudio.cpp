@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.9 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.10 2004/11/26 06:30:31 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -261,7 +261,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 		else if (w == -EBADFD)
 		{
 			debug("lost ALSA playback handle, exiting");
-			exit(0);
+//			exit(0);
 		}
 		else
 		{
