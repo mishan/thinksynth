@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "thList.h"
+#include "thBTree.h"
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"

@@ -3,7 +3,7 @@
 
 class thNode {
 public:
-	thNode(char *name);
+	thNode(char *name, thPlugin *thplug);
 	~thNode();
 
 	void SetArg(char *name, float *value);
@@ -13,7 +13,7 @@ public:
 
 	void Process (void);
 private:
-	thList *args;
+	thBTree *args;
 	thPlugin *plugin;
 
 	char *nodename;

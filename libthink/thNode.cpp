@@ -2,22 +2,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "thList.h"
+#include "thBTree.h"
 #include "thPlugin.h"
 #include "thNode.h"
 
-thNode::thNode (char *name)
+thNode::thNode (char *name, thPlugin *thplug)
 {
 	nodename = strdup(name);
-
-	/* create any other objects */
-	/* load plugin? */
+	plugin = thplug;
+	args = NULL;
 }
 
 thNode::~thNode ()
 {
 	free(nodename);
-
+	delete args;
  	/* free anything else */
 }
 
