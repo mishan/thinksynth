@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.43 2004/11/09 00:55:40 ink Exp $ */
+/* $Id: thArg.h,v 1.44 2004/11/11 10:42:41 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -19,6 +19,12 @@
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
+
+#include <sigc++/sigc++.h>
+
+class thArg;
+
+typedef SigC::Signal1<void, thArg *> type_signal_arg_changed;
 
 class thArg {
 public:
@@ -87,6 +93,10 @@ public:
 	string units_;  /* This will be displayed too...  ms, Hz, sec etc... */
 	string comment_;
 
+	type_signal_arg_changed signal_arg_changed (void) {
+		return m_signal_arg_changed;
+	}
+
 	/* In the near future we have to also implement some way of limiting the
 	   values...  like only ints, or only certain fractions (some things will
 	   probably use this, I suggest some kind of array of acceptable values,
@@ -114,6 +124,8 @@ public:
 		return values_[i%len_];
 	}
 
+private:
+	type_signal_arg_changed m_signal_arg_changed;
 };
 
 #endif /* TH_ARG_H */

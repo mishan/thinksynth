@@ -1,4 +1,4 @@
-/* $Id: ArgTable.h,v 1.1 2004/10/01 08:52:26 misha Exp $ */
+/* $Id: ArgTable.h,v 1.2 2004/11/11 10:42:41 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,6 +29,7 @@ public:
 	void insertArg (thArg *arg);
 private:
 	void sliderChanged (Gtk::HScale *, thArg *);
+	void argChanged (thArg *, Gtk::HScale *);
 
 	int rows_, args_;
 };

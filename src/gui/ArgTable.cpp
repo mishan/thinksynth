@@ -1,4 +1,4 @@
-/* $Id: ArgTable.cpp,v 1.2 2004/11/09 00:48:17 ink Exp $ */
+/* $Id: ArgTable.cpp,v 1.3 2004/11/11 10:42:41 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -60,6 +60,11 @@ void ArgTable::insertArg (thArg *arg)
 			sigc::mem_fun(*this, &ArgTable::sliderChanged),
 			slider, arg));
 
+	arg->signal_arg_changed().connect(
+		sigc::bind<Gtk::HScale *>(
+			sigc::mem_fun(*this, &ArgTable::argChanged),
+			slider));
+
 	slider->set_value(arg->values_[0]);
 	
 	Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
@@ -78,11 +83,16 @@ void ArgTable::insertArg (thArg *arg)
 		   Gtk::EXPAND|Gtk::FILL,
 		   Gtk::EXPAND|Gtk::FILL);
 	attach(*valEntry, 2, 3, row, row+1,
-				  Gtk::SHRINK|Gtk::FILL,
-				  Gtk::SHRINK|Gtk::FILL);
+		   Gtk::SHRINK|Gtk::FILL,
+		   Gtk::SHRINK|Gtk::FILL);
 }
-
+	
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
 	arg->SetValue(slider->get_value());
+}
+
+void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)
+{
+	slider->set_value((*arg)[0]);
 }

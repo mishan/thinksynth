@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.52 2004/11/11 03:20:12 ink Exp $ */
+/* $Id: thArg.cpp,v 1.53 2004/11/11 10:42:41 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -191,10 +191,12 @@ void thArg::SetValue(float value)
 {
 	values_ = Allocate(1);
 	values_[0] = value;
+	m_signal_arg_changed(this);
 }
 
 void thArg::SetValues(float *values, int len)
 {
 	Allocate(len);
-	memcpy(values_, values, len);
+	memcpy(values_, values, len*sizeof(float));
+	m_signal_arg_changed(this);
 }
