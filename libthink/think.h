@@ -1,7 +1,10 @@
-/* $Id: think.h,v 1.5 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: think.h,v 1.6 2003/04/25 22:22:20 ink Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
+
+/* Sampling Rate */
+#define TH_SAMPLE 44100
 
 /* Signal Range */
 #define TH_MAX 256

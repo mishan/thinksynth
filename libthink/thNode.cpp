@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.34 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thNode.cpp,v 1.35 2003/04/25 22:22:20 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -35,7 +35,7 @@ void thNode::SetName(char *name)
 	nodename = name;
 }
 
-void thNode::SetArg (const char *name, float *value, int num)
+thArg *thNode::SetArg (const char *name, float *value, int num)
 {
 	thArg *arg = (thArg *)args.GetData(name);
 
@@ -46,9 +46,10 @@ void thNode::SetArg (const char *name, float *value, int num)
 	else {
 		arg->SetArg(name, value, num);
 	}
+	return arg;
 }
 
-void thNode::SetArg (const char *name, const char *node, const char *value)
+thArg *thNode::SetArg (const char *name, const char *node, const char *value)
 {
 	thArg *arg = (thArg *)args.GetData(name);
 	
@@ -59,6 +60,7 @@ void thNode::SetArg (const char *name, const char *node, const char *value)
 		arg = new thArg(name, node, value);
 		args.Insert(name, arg);
 	}
+	return arg;
 }
 
 const thArgValue *thNode::GetArg (const char *name)

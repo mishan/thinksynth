@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.26 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thNode.h,v 1.27 2003/04/25 22:22:20 ink Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -10,9 +10,9 @@ public:
 
 	void SetName (char *name);
 	const char *GetName (void) { return nodename; };
-	void SetArg (const char *name, float *value, int num);
-	void SetArg (const char *name, const char *node, const char *value);
-	
+	thArg *SetArg (const char *name, float *value, int num);
+	thArg *SetArg (const char *name, const char *node, const char *value);
+
 	const thArgValue *GetArg (const char *name);
 	void PrintArgs (void);
 
