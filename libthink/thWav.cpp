@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.17 2003/04/27 04:43:46 misha Exp $ */
+/* $Id: thWav.cpp,v 1.18 2003/04/27 07:43:42 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -16,7 +16,11 @@
 #ifdef USING_FREEBSD	/* FreeBSD has endian.h elsewhere */
 # include <machine/endian.h>
 #else
-# include <endian.h>	/* Linux and a lot of other things */
+#  ifdef USING_CYGWIN
+#   include <asm/byteorder.h> /* Cygwin on Win32 */
+#  else
+#   include <endian.h>	/* Linux and a lot of other things */
+#  endif
 #endif
 
 #include "thEndian.h"
