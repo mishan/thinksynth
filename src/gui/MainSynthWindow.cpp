@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.30 2004/09/15 08:38:06 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.31 2004/09/16 07:25:39 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,7 +35,7 @@
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
-#include "ArgSlider.h"
+#include "AboutBox.h"
 
 #include "../gthJackAudio.h"
 #include "../gthPrefs.h"
@@ -257,10 +257,12 @@ void MainSynthWindow::menuQuit (void)
 
 void MainSynthWindow::menuAbout (void)
 {
-	Gtk::MessageDialog dialog (PACKAGE_STRING, Gtk::MESSAGE_INFO,
+/*	Gtk::MessageDialog dialog (PACKAGE_STRING, Gtk::MESSAGE_INFO,
 							   Gtk::BUTTONS_OK, true, true);
 
-	dialog.run();
+							   dialog.run(); */
+	AboutBox *box = new AboutBox;
+	box->show();
 }
 
 void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
