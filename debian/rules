@@ -1,8 +1,12 @@
 #!/usr/bin/make -f
 # debian/rules for thinksynth
 
+ifeq ($(DEBUG),1)
+debug := --enable-debug
+endif
+
 config.status: configure
-	sh configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-default-output=alsa
+	sh configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-default-output=alsa $(debug)
 
 build: build-stamp
 build-stamp: config.status
