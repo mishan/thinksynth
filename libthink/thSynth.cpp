@@ -62,6 +62,9 @@ void thSynth::BuildSynthTree(char *modname)
   thArgValue *data;
   thNode *ionode = mod->GetIONode();
 
+  ionode->SetRecalc(true);  /* We dont want to recalc the root if something
+			       points here */
+
   for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
     printf("-=- %s %i\n", data->argName, data->argType);
@@ -76,14 +79,19 @@ void thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
 {
   thListNode *listnode;
   thArgValue *data;
+  thNode *node;
 
   for(listnode = ((thList *)((thNode *)mod->FindNode(nodename))->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
     printf("--- %s %i\n", data->argName, data->argType);
-    if(data->argType == ARG_POINTER && ((thNode *)listnode->data)->GetRecalc() == false) {
-      ((thNode *)listnode->data)->SetRecalc(true);
-      printf("=-- %s %s\n", data->argPointNode, data->argPointName);
-      BuildSynthTreeHelper(mod, data->argPointNode);
+    if(data->argType == ARG_POINTER) {
+      node = mod->FindNode(data->argPointNode);
+      if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
+	node->SetRecalc(true);  /* This node has been processed */
+	printf("=-- %s %s\n", data->argPointNode, data->argPointName);
+	BuildSynthTreeHelper(mod, data->argPointNode);
+	printf("--=\n");
+      }
     }
   }
 }
