@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.4 2004/05/05 03:42:50 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.5 2004/05/05 06:20:53 misha Exp $ */
 
 #include "config.h"
 
@@ -86,9 +86,10 @@ bool thfALSAMidi::open_seq (void)
 	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
 
 	/* XXX: is this portable??? */
-	mainContext->signal_io().connect(SigC::slot(*this, &thfALSAMidi::pollMidiEvent),
+	mainContext->signal_io().connect(SigC::slot(*this,
+												&thfALSAMidi::pollMidiEvent),
 									 pfds[0].fd, Glib::IO_IN,
-									 Glib::PRIORITY_DEFAULT_IDLE);
+									 Glib::PRIORITY_DEFAULT);
 
 	return true;
 }
