@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.54 2003/04/30 04:03:04 joshk Exp $ */
+/* $Id: main.cpp,v 1.55 2003/04/30 04:08:53 misha Exp $ */
 
 #include "config.h"
 
@@ -27,8 +27,9 @@ int main (int argc, char *argv[])
 	int havearg;
 	char *filename;
 	char dspname[] = "test"; /* XXX for debugging */
-	plugin_path = strdup(PLUGIN_PATH);
 	unsigned int plugin_len = strlen(plugin_path);
+
+	plugin_path = strdup(PLUGIN_PATH);
 
 	/* int i; XXX temporary hack to see more than 1 element of output */
 
@@ -61,9 +62,7 @@ syntax:
 				}
 				
 				plugin_len = strlen (plugin_path);
-				
 				break;
-
 			case 'm':
 				strcpy(dspname, optarg);
 				break;
@@ -81,7 +80,7 @@ syntax:
 		goto syntax;
 	}
 	else {
-		filename = argv[optind];
+		filename = strdup(argv[optind]);
 	}
 
 	Synth.LoadMod(filename);
