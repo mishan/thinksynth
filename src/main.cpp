@@ -329,13 +329,14 @@ int main (int argc, char *argv[])
 		}
 		else
 		{
-			fprintf(stderr,"sorry only JACK/ALSA drivers are supported currently for output.\n");
+			fprintf(stderr, "Sorry, only JACK/ALSA drivers are supported currently for output.\n");
 		}
 
 	}
 	catch (thIOException e)
 	{
-		fprintf(stderr, "error creating audio device: %s\n", strerror(e));
+		fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
+		fprintf(stderr, "Perhaps you should start jackd? Try jackd -d oss.\n");
 		exit (1);
 	}
 
