@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.24 2004/05/11 05:59:59 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.25 2004/05/11 06:06:51 misha Exp $ */
 
 #include "config.h"
 
@@ -121,7 +121,7 @@ Keyboard::Keyboard (void)
 	}
 
 	dispatchRedraw.connect(
-		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 1));
+		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 0));
 }
 
 
@@ -552,7 +552,7 @@ void Keyboard::drawKeyboard (int mode)
 				if (active_keys[i])
 				{
 					/* redraw the key's backdrop */
-					if (z)
+					if (mode & 2)
 					{
 						gdk_draw_rectangle (drawable, kbgc, 1, j, 0, s3, s0);
 					}
