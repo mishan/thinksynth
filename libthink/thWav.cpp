@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.35 2003/06/03 03:54:41 aaronl Exp $ */
+/* $Id: thWav.cpp,v 1.36 2003/09/15 23:17:06 brandon Exp $ */
 
 #include "config.h"
 
@@ -27,6 +27,8 @@
 #include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 #include "thWav.h"
+// added on 9/15/03 by brandon
+#include "think.h"
 
 thWav::thWav(char *name)
 	throw(thIOException, thWavException)
@@ -37,7 +39,8 @@ thWav::thWav(char *name)
 	if(!(file = fopen(filename, "r"))) {
 		throw (thIOException) errno;
 	}
-
+	// added by Brandon on 9/15/03
+	outbuf=NULL;
 	ReadHeader();
 }
 
@@ -53,20 +56,22 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 
 	/* average bytes per sec */
 	avgbytes = wfmt->samples * wfmt->channels * (wfmt->bits/8);
-	
+
 	blockalign = wfmt->channels * (wfmt->bits/8);
-	
+
 	memcpy(&fmt, wfmt, sizeof(thAudioFmt));
 
 	/* XXX: support other formats */
 	fmt.format = PCM;
 
 	lseek(fd, 44, SEEK_SET);
+	// added by brandon on 9/15/03
+	outbuf=NULL;
 }
 
 thWav::~thWav (void)
 {
-	if(type == WRITING) { /* if we're writing, we must write the header before 
+	if(type == WRITING) { /* if we're writing, we must write the header before
 							 we close */
 		/* get our current position in the file, which is the data length */
 		fmt.len = lseek(fd, 0, SEEK_CUR);
@@ -79,26 +84,47 @@ thWav::~thWav (void)
 	if(filename) {
 		free(filename);
 	}
+	if (outbuf) free(outbuf);
 }
 
-int thWav::Write (void *data, int len)
+//* changed this function on 9/15/03
+int thWav::Write (float *inbuf, int len)
 {
 	int r = -1;
-
+	// added this
+	int i;
 	if(type == READING) {
 		/* XXX: throw an exception */
 		return -1;
 	}
-
-	switch(fmt.bits) {
-	case 8:
-		/* if data is 8bit, it must be unsigned */
-		r = write(fd, data, len);
-		break;
-	case 16:
-		write(fd, data, len*sizeof(short));
+	// added this
+	// it would be *bad* if len were to increase
+	// between calls
+	if (!outbuf){
+		outbuf = malloc (len*fmt.bits);
+		if (!outbuf){
+			fprintf(stderr,"thWav::Write -- can't allocate output buffer");
+		}
 	}
-
+	// changed this so as to perform a conversion
+	// on the specified buffer
+	if ( fmt.bits == 8){
+		unsigned char *data=(unsigned char*)outbuf;
+		for (i=0; i < len; i++){
+			data[i]=(unsigned char)(((float)inbuf[i]/TH_MAX)*128);
+		}
+		r = write(fd, data, len);
+	}
+	else if (fmt.bits == 16){
+		unsigned short *data=(unsigned short*)outbuf;
+		for (i=0; i < len; i++){
+			le16(data[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
+		}
+		r=write(fd, data, len*sizeof(short));
+	}
+	else {
+		fprintf(stderr, "thWav::Write -- %d-bit audio is unsupported\n",fmt.bits);
+	}
 	return r;
 }
 

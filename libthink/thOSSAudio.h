@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.h,v 1.5 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thOSSAudio.h,v 1.6 2003/09/15 23:17:06 brandon Exp $ */
 
 #ifndef TH_OSSAUDIO_H
 #define TH_OSSAUDIO_H
@@ -22,15 +22,20 @@ public:
 	virtual ~thOSSAudio();
 
 	void Play (thAudio *audioPtr);
-	int Write (void *stream, int len);
-	int Read (void *data, int len);
-
-	const thAudioFmt *GetFormat (void) { return &fmt; };
-
+	// changed on 9/15/03 by brandon lewis
+	// all thAudio classes will work with floating point buffers
+	// converting to integer internally based on format data
+	int Write (float *, int len);
+	int Read (void *, int len);
+	const thAudioFmt *GetFormat (void) { return &ofmt; };
 	void SetFormat (const thAudioFmt *fmt);
 private:
 	int fd;
-	thAudioFmt fmt;
+	thAudioFmt ofmt;
+	// added second format structure on 9/15/03
+	// intended to store the actual format of the synth data
+	thAudioFmt ifmt;
+	void *outbuf;
 };
 
 inline thOSSAudio *new_thOSSAudio(char *null, const thAudioFmt *afmt)

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.96 2003/09/14 20:43:19 ink Exp $ */
+/* $Id: main.cpp,v 1.97 2003/09/15 23:17:06 brandon Exp $ */
 
 #include "config.h"
 
@@ -33,7 +33,7 @@ int main (int argc, char *argv[])
 	char *filename;
 	string dspname = "test"; /* XXX for debugging */
 
-	int i,j,k;
+	int i;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
 	string outputfname("test.wav");
@@ -53,14 +53,11 @@ syntax:
 		printf("Try %s -h for help\n", argv[0]);
 		exit(1);
 	}
-// changed this line here
 	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:")) != -1) {
 		switch (havearg) {
-// added this case here
 		case 'o':
 			outputfname=optarg;
 			break;
-// and this case here
 		case 's':
 		  printf("changing sample rate\n");
 		  samplerate = atoi(optarg);
@@ -119,15 +116,15 @@ syntax:
 
 	/* Seed the RNG */
 	srand(time(NULL));
-
 	Synth.LoadMod(filename);
-
 	Synth.AddChannel(string("chan1"), dspname, 30.0);
 	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 	//Synth.AddNote(string("chan1"), notetoplay + 4, TH_MAX);
 	//Synth.AddNote(string("chan1"), notetoplay + 7, TH_MAX);
 	/* changed a bunch of code relating to instantiating buffers */
 	try {
+		// note that this is actually bad
+		// since there are other potential /dev/dsp devices
 	  if ( outputfname == "/dev/dsp"){
 	  	audiofmt.channels = Synth.GetChans();
 		audiofmt.bits = 16;
@@ -149,65 +146,24 @@ syntax:
 		/* pass */
 	}
 
-	/* changing all the following code do deal with the
-	potentiality that the output file may not support
-	the intended audio format */
-
-	memcpy(&audiofmt,outputstream->GetFormat(),sizeof(thAudioFmt));
-
+	// changed on 9/15/03 by brandon lewis
+	// all thAudio classes will work with floating point buffers
+	// converting to integer internally based on format data
 	/* allocate space for audio buffer based on returned audio format */
-	buflen = Synth.GetWindowLen() * Synth.GetChans();
-	outputbuffer = (signed short *) malloc(buflen*sizeof(signed short));
-	printf("length of buffer %d", buflen,audiofmt.bits/8);
+
 	// grab address of buffer from synthesizer
 	synthbuffer = Synth.GetOutput();
-
+	buflen = Synth.GetChans()*Synth.GetWindowLen();
 	printf ("Writing %s\n",(char *)outputfname.c_str());
 	// for each window
 	for(i = 0; i < processwindows; i++) {
-	  		// get the synth to process it's data
-	  /*if(i==10) {
-			Synth.AddNote("chan1", 52, 100);
-		}
-		else if(i==20) {
-			Synth.AddNote("chan1", 54, 100);
-		}
-		else if(i==30) {
-			Synth.AddNote("chan1", 55, 100);
-			//Synth.AddNote("chan1", 45, 100);
-			//Synth.AddNote("chan1", 49, 100);
-		}
-		else if(i==40) {
-			Synth.AddNote("chan1",57, 100);
-			//Synth.AddNote("chan1", 44, 100);
-			//Synth.AddNote("chan1", 47, 100);
-		}
-		else if(i==50) {
-		  Synth.AddNote("chan1", 59, 100);
-		}
-		else if(i==60) {
-		  Synth.AddNote("chan1", 61, 100);
-		}
-		else if(i==70) {
-		  Synth.AddNote("chan1", 62, 100);
-		}
-		else if(i==80) {
-		  Synth.AddNote("chan1", 64, 100);
-		}
-		else if(i==100) {
-		  Synth.AddNote("chan1", 50, 100);
-		  Synth.AddNote("chan1", 54, 100);
-		  Synth.AddNote("chan1", 57, 100);
-		  }*/
 		Synth.Process();
-		// convert floating point synth data to integer data
-		// which we use in the real world, normalizing=)
-		// if output channels > than Synth.GetChans()...duplicate sample
-		for(j=0; j < buflen; j++) {
-			outputbuffer[j]= (signed short)(((float)synthbuffer[j]/TH_MAX) *32767);
-		}
+		// changed on 9/15/03 by brandon lewis
+		// all thAudio classes will work with floating point buffers
+		// converting to integer internally based on format data
+
 		// send the window to the output device
-		outputstream->Write(outputbuffer, buflen);
+		outputstream->Write(synthbuffer, buflen);
 	}
 
 	if (outputfname != "/dev/dsp")

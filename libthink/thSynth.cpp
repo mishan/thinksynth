@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.60 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thSynth.cpp,v 1.61 2003/09/15 23:17:06 brandon Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -23,11 +23,13 @@ thSynth::thSynth (void)
 {
 	thWindowlen = 1024;
 	thChans = 2;  /* mono / stereo / etc */
+	/* added by brandon on 9/15/03 */
+	// intialize default sample rate
+	thSamples = TH_SAMPLE;
 
-	thOutput = new float[thChans*thWindowlen];  /* We should make a function to
-												   allocate this, so we can 
-												   easily change thChans and
-												   thWindowlen */
+	/* We should make a function to allocate this,
+	so we can easily change thChans and thWindowlen */
+	thOutput = new float[thChans*thWindowlen];
 }
 
 thSynth::~thSynth (void)
@@ -46,7 +48,7 @@ void thSynth::LoadMod(const char *filename)
 
 	parsemod = new thMod("newmod");     /* these are used by the parser */
 	parsenode = new thNode("newnode", NULL);
-	
+
 	yyparse();
 
 	fclose(yyin);

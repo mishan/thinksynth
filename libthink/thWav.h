@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.9 2003/05/07 07:39:45 aaronl Exp $ */
+/* $Id: thWav.h,v 1.10 2003/09/15 23:17:06 brandon Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -58,9 +58,12 @@ public:
 	/* our deconstructor, should close fd */
 	virtual ~thWav();
 
+	// changed on 9/15/03 by brandon lewis
+	// all thAudio classes will work with floating point buffers
+	// converting to integer internally based on format data
 	/* Len is the total number of samples. Data must be byteswapped if necessary. */
- 	int Write(void *data, int len);
-	int Read(void *data, int len);
+ 	int Write(float *,int len);
+	int Read(void *, int len);
 
 	thAudioFmt *GetFormat (void);
 	thWavType GetType (void) { return type; };
@@ -75,6 +78,7 @@ private:
 
 	short blockalign; /* wav-specific info */
 	int avgbytes;
+	void *outbuf;
 
 	void WriteRiff (void);
 	int FindChunk (const char *label) const;
@@ -90,7 +94,7 @@ inline thWav *new_thWav(char *name)
 		return wav;
 	}
 	catch (thIOException e) {
-		fprintf(stderr, "thWav::thWav: %s: %s\n", name, strerror(e));	
+		fprintf(stderr, "thWav::thWav: %s: %s\n", name, strerror(e));
 	}
 	catch (thWavException e) {
 		fprintf(stderr, "%s\n", thWavError(e));
@@ -107,7 +111,7 @@ inline thWav *new_thWav(char *name, thAudioFmt *wfmt)
 		return wav;
 	}
 	catch (thIOException e) {
-		fprintf(stderr, "thWav::thWav: %s: %s\n", name, strerror(e));	
+		fprintf(stderr, "thWav::thWav: %s: %s\n", name, strerror(e));
 	}
 
 	return NULL;

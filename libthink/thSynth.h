@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.30 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thSynth.h,v 1.31 2003/09/15 23:17:06 brandon Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -23,7 +23,13 @@ public:
 	int GetChans(void) { return thChans; }
 	int GetWindowLen(void) { return thWindowlen; }
 	float *GetOutput(void) { return thOutput; }
-
+	/* these accessors added by Brandon on 9/15/03 */
+	// note that asof 9/15/03 these don't do anything. corresponding changes
+	// elsewhere in the implementation must be made (thSamples is intialized
+	// to TH_SAMPLE in the the constructor though, so calls to GetSamples
+	// should work ok)
+	long GetSamples(void) { return thSamples; }
+	void SetSamples(long) { return;};
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 
@@ -34,6 +40,8 @@ private:
 	float *thOutput;
 	int thChans;  /* Number of channels (mono/stereo/etc) */
 	int thWindowlen;
+	/* this private data member added on 9/15/03 */
+	long thSamples; /* the number of samples per second*/
 };
 
 #endif /* TH_SYNTH_H */

@@ -1,4 +1,4 @@
-/* $Id: thAudio.h,v 1.5 2003/05/07 07:39:45 aaronl Exp $ */
+/* $Id: thAudio.h,v 1.6 2003/09/15 23:17:06 brandon Exp $ */
 
 #ifndef TH_AUDIO_H
 #define TH_AUDIO_H 1
@@ -7,7 +7,7 @@ struct thAudioFmt {
 	short format;
 	short channels;
 	short bits;
-	
+
 	int samples;
 	int len;
 };
@@ -15,8 +15,11 @@ struct thAudioFmt {
 class thAudio
 {
 public:
-	virtual int Read(void *data, int len) = 0;
-	virtual int Write(void *data, int len) = 0;
+	// changed on 9/15/03 by brandon lewis
+	// all thAudio classes will work with floating point buffers
+	// converting to integer internally based on format data
+	virtual int Read(void *, int len) = 0;
+	virtual int Write(float *, int len) = 0;
 
 	virtual const thAudioFmt *GetFormat(void) = 0;
 
