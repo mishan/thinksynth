@@ -91,6 +91,16 @@ void OSSAudio::write_audio (void *buf, int len)
 	ioctl(fd, SNDCTL_DSP_SYNC, 1);
 }
 
+int OSSAudio::read_audio(void *buf, int len)
+{
+	return read(fd, buf, len);
+}
+
+int OSSAudio::Read(void *buf, int len)
+{
+	return read_audio(buf, len);
+}
+
 void OSSAudio::play(AudioBuffer *buffer)
 {
 	unsigned char buf[BUF_SIZE];

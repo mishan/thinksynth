@@ -17,16 +17,18 @@ struct AudioFormat {
 	int bits;
 };
 
-class OSSAudio
+class OSSAudio: public Audio
 {
 public:
 	OSSAudio(char *null, AudioFormat *fmt)
 		throw(IOException);
 
-	~OSSAudio();
+	virtual ~OSSAudio();
 
 	void play(AudioBuffer *buffer);
 	void write_audio(void *stream, int len);
+	int read_audio(void *data, int len);
+	int Read(void *data, int len);
 	void set_format(AudioFormat *fmt);
 	AudioFormat get_format(void);
 private:

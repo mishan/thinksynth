@@ -15,7 +15,6 @@ int main (int argc, char *argv[])
 	OSSAudio *audio;
 	AudioFormat afmt;
 	AudioBuffer *buffer;
-	int len;
 
 	if(argc < 2) {
 		fprintf(stderr, "usage: %s [file]\n", argv[0]);
