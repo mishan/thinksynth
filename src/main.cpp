@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.106 2003/11/05 02:48:41 joshk Exp $ */
+/* $Id: main.cpp,v 1.107 2003/11/05 02:54:15 joshk Exp $ */
 
 #include "config.h"
 
@@ -27,21 +27,13 @@
 
 string plugin_path;
 
-/* the argv0 argument is a hack; we want the print_syntax function to print
-   the name of the program executed, but we want it to remain modular, so we
-   must pass argv[0] from the main function and hope that we do not need to
-   call this function from other places */
-static void print_syntax(char *argv0)
-{
- 	printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov"
-	 		", Aaron Lehmann and Joshua Kwan\n");
-	/* TODO: insert some helpful text here */
-	printf("Usage: %s [options] dsp-file\n", argv0);
-	
-	printf("-h: display this help screen\n");
-	printf("-p PATH: modify the plugin search path\n");
-	printf("-m MOD: change the mod that will be used\n");
-}
+const char syntax[] = \
+PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
+"Aaron Lehmann and Joshua Kwan\n"
+"Usage: %s [options] dsp-file\n"
+"-h\t\tdisplay this help screen\n"
+"-p [path]\tmodify the plugin search path\n"
+"-m [mod]\tchange the mod that will be used\n";
 
 int main (int argc, char *argv[])
 {
@@ -74,7 +66,7 @@ int main (int argc, char *argv[])
 			}
 			case 'h':
 			{
-				print_syntax(argv[0]);
+				printf(syntax, argv[0]);
 				exit(0);
 				break;
 			}
@@ -108,7 +100,7 @@ int main (int argc, char *argv[])
 			{
 				if (optind != argc) {
 //					printf ("error: unrecognized parameter\n");
-					print_syntax(argv[0]);
+					printf(syntax, argv[0]);
 					exit(1);
 				}
 				break;
