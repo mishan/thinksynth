@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.24 2003/10/17 08:16:20 aaronl Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.25 2004/01/25 10:06:36 misha Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -109,6 +109,8 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 	ofmt.samples = oss_samples;
 
 	ofmt.bits = oss_format; /* XXX: this is bad, change this */
+
+	fcntl(fd, F_SETFL, O_NONBLOCK);
 }
 
 int thOSSAudio::Write (float *inbuf, int len)
@@ -164,7 +166,6 @@ void thOSSAudio::Play(thAudio *audioPtr)
 	SetFormat(afmt);
 */
 /*
-	fcntl(fd, F_SETFL, O_NONBLOCK);
 	ioctl(fd, SNDCTL_DSP_SYNC, 0);
 */
 /*

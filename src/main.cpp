@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.108 2004/01/25 09:35:11 ink Exp $ */
+/* $Id: main.cpp,v 1.109 2004/01/25 10:06:36 misha Exp $ */
 
 #include "config.h"
 
@@ -179,7 +179,7 @@ int main (int argc, char *argv[])
 	printf ("Writing to '%s'\n", outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
-		if (poll (pfds, seq_nfds, 0) > 0) {
+		if (poll (pfds, seq_nfds, 100) > 0) {
 			processmidi(&Synth, seq_handle);
 		}
 
