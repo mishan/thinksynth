@@ -242,6 +242,24 @@ WORD ASSIGN fstr
 {
 //	XXX - MORE FIXING
 //	modify_fstring(&targs, $1.str, $3.str);
+
+	char *node, *arg, *p;
+	int argsize, nodesize;
+	
+	/* Make $3.str ("node/arg" format) into the above vars */
+	p = strchr($3.str, '/');
+	p++;
+	
+	argsize = strlen(p);
+	nodesize = strlen($3.str)-argsize-1;
+	
+	node = new char[nodesize];
+	memcpy(node, $3.str, nodesize);
+	
+	arg = new char[argsize];
+	memcpy(arg, p, argsize);
+	
+	parsenode->SetArg($1.str, node, arg);
 }
 ;
 
@@ -278,3 +296,13 @@ DOLLAR WORD
 }
 ;
 %%
+
+
+
+
+
+
+
+
+
+
