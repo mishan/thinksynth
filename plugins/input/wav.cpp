@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.2 2003/09/14 20:51:24 misha Exp $ */
+/* $Id: wav.cpp,v 1.3 2003/09/14 20:53:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +45,7 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	thArg *out_arg = mod->GetArg(node, "out");
-	signed short *buf = new signed short[windowlen];
+	signed short buf[windowlen];
 	float *out = out_arg->allocate(windowlen);
 	unsigned int i;
 
