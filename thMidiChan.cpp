@@ -27,14 +27,14 @@ thMidiChan::~thMidiChan ()
 
 void thMidiChan::AddNote (float note, float velocity)
 {
-	thMidiNote *midinote = new thMidiNote(note, velocity);
+	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
 
 	notes->Add(midinote);
 }
 
 void thMidiChan::DelNote (thMidiNote *midinote)
 {
-	thNode *node;
+	thListNode *node;
 
 	for(node = notes->GetHead(); node; node = node->prev) {
 		if(node->data == midinote) {

@@ -21,7 +21,7 @@ thArg::thArg ()
 	argNum = 0;
 }
 
-~thArg::thArg()
+thArg::~thArg()
 {
 	if(argName) {
 		delete argName;
@@ -32,7 +32,7 @@ thArg::thArg ()
 	}
 }
 
-void SetArg(char *name, float *value, int num)
+void thArg::SetArg(char *name, float *value, int num)
 {
 	if(argName) {
 		delete argName;
@@ -47,4 +47,9 @@ void SetArg(char *name, float *value, int num)
 	memcpy(argValues, value, num*sizeof(float));
 
 	argNum = num;
+}
+
+const float *thArg::GetArg (void)
+{
+	return argValues;
 }
