@@ -1,0 +1,24 @@
+CXX=@CXX@
+CXXFLAGS=@CXXFLAGS@
+prefix=@prefix@
+libdir=@libdir@
+
+LDFLAGS = -ggdb -lm
+
+all: ${PLUGIN_NAME}.so
+
+${PLUGIN_NAME}.so: ${PLUGIN_NAME}.cpp
+	$(CXX) $(LDFLAGS) $(CXXFLAGS) -I../../src -DSKIPCONFIG -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $< -lc
+
+clean:
+	rm -f ${PLUGIN_NAME}.so
+
+distclean: clean
+	rm -f Makefile
+
+install:
+	mkdir -p $(DESTDIR)$(libdir)
+	cp -f ${PLUGIN_NAME}.so $(DESTDIR)$(libdir)
+
+uninstall:
+	rm -f $(DESTDIR)$(libdir)${PLUGIN_NAME}.so

@@ -70,12 +70,16 @@ AC_ARG_ENABLE(debug,
 AC_HELP_STRING([--disable-debug],[print debug messages to stdout (default on)]),
 
 dnl Debug is disabled:
-[CXXFLAGS="$CXXFLAGS -O2"],
+[
+	CXXFLAGS="$CXXFLAGS -O2"
+	debug=no
+],
 
 dnl Debug is enabled:
 [
 	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
 	CXXFLAGS="$CXXFLAGS -g"
+	debug=yes
 ])
 
 AC_ARG_ENABLE(,,,)
@@ -104,9 +108,10 @@ dnl plugins/filt/Makefile
 dnl plugins/math/Makefile
 dnl plugins/misc/Makefile
 dnl plugins/mixer/Makefile
-dnl plugins/osc/Makefile
 
-AC_OUTPUT([Makefile src/Makefile plugins/Makefile])
+AC_SUBST_DIR(libdir)
+
+AC_OUTPUT([Makefile src/Makefile plugins/Makefile plugins/plugin-common.inc])
 
 echo
 echo $PACKAGE $VERSION
@@ -116,4 +121,6 @@ echo "debug ...................:" $debug
 echo
 echo The binary will be installed in $prefix/bin
 echo Data will be installed in       $prefix/share/$PACKAGE
+echo Plugins will be installed in    $libdir/$PACKAGE
+echo
 echo Now run \'make\' to build $PACKAGE
