@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.25 2004/08/17 02:03:04 joshk Exp $
+# $Id: build.mk.in,v 1.26 2004/09/09 01:22:09 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -34,7 +34,7 @@ endif
 -include .*.dt
 endif
 
-dist:: distclean
+distrib:: distclean
 
 %@PLUGIN_SUFFIX@: %.cpp
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS) $(LDFLAGS)

@@ -1,5 +1,5 @@
-thinksynth (0.0.cvs20040906-1) unstable; urgency=low
+thinksynth (0.0.cvs20040908-1) experimental; urgency=low
 
   * Initial Release.
 
- -- Joshua Kwan <joshk@triplehelix.org>  Mon,  6 Sep 2004 00:48:49 -0700
+ -- Joshua Kwan <joshk@triplehelix.org>  Wed,  8 Sep 2004 17:37:51 -0700

@@ -13,4 +13,4 @@ uninstall:
 distclean:
 	rm -f thinkrc Makefile
 
-dist: distclean
+distrib: distclean
