@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.12 2004/04/01 09:27:38 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.13 2004/04/01 09:34:48 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -154,6 +154,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	drawArea.signal_key_press_event().connect(
 		SigC::slot(*this, &KeyboardWindow::keyEvent));
 
+	drawArea.signal_key_release_event().connect(
+		SigC::slot(*this, &KeyboardWindow::keyEvent));
+
 	drawKeyboard (5);
 }
 
@@ -221,7 +224,7 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 					active_keys[notenum] = 1;
 				} else {	/* note-off */
 					synth->DelNote((int)chanVal->get_value()-1, notenum);
-					active_keys[notenum] = 1;
+					active_keys[notenum] = 0;
 				}
 			}
 			break;
