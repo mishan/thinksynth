@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.3 2004/02/22 03:26:49 ink Exp $ */
+/* $Id: alsa.cpp,v 1.4 2004/02/22 03:31:06 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,6 +49,11 @@ int module_init (thPlugin *plugin)
 	snd_pcm_hw_params_any(cap_handle, hw_params);
 	snd_pcm_hw_params_set_access(cap_handle, hw_params,
 								SND_PCM_ACCESS_RW_INTERLEAVED);
+
+
+	unsigned int rate = TH_SAMPLE;
+	snd_pcm_hw_params_set_rate_near(cap_handle, hw_params, &rate, NULL);
+	printf("input::alsa: set rate to %d\n", rate);
 	snd_pcm_hw_params(cap_handle, hw_params);
 
 	printf("ALSA Input plugin loading\n");
