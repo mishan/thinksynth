@@ -1,2 +1,2 @@
-PLUGIN_NAMES=test
+PLUGIN_NAMES=test.so
 include ../plugin-common.inc

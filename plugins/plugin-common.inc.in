@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.11 2003/04/25 23:25:53 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.12 2003/04/26 03:54:13 aaronl Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -8,26 +8,23 @@ plugin_path=@plugin_path@
 
 LDFLAGS = -lm -lc
 
-all:
-	for i in $(PLUGIN_NAMES); do \
-		make -S $$i.so THIS_PLUGIN=$$i ;\
-	done
-	
-${THIS_PLUGIN}.so: ${THIS_PLUGIN}.cpp
-	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -pedantic -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $<
+all: $(PLUGIN_NAMES)
+
+%.so: %.cpp
+	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -pedantic -shared -Wl,-soname,$@ -o $@ $<
 
 distclean clean:
 	for i in $(PLUGIN_NAMES); do \
-		if [ -f "$$i.so" ]; then rm -f $$i.so; fi\
+		if [ -f "$$i" ]; then rm -f $$i; fi\
 	done
 
 install:
 	mkdir -p $(DESTDIR)$(plugin_path)
 	for i in $(PLUGIN_NAMES); do \
-		cp -f $$i.so $(DESTDIR)$(plugin_path)
+		cp -f $$i $(DESTDIR)$(plugin_path)
 	done
 
 uninstall:
 	for i in $(PLUGIN_NAMES); do \
-		rm -f $(DESTDIR)$(plugin_path)/$$i.so; \
+		rm -f $(DESTDIR)$(plugin_path)/$$i; \
 	done

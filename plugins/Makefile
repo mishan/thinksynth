@@ -1,25 +1,12 @@
 # Change this for every new plugin
 PLUGIN_DIRS = osc test
 
-all:
-	for i in $(PLUGIN_DIRS); do \
-		$(MAKE) -C $$i || exit 1; \
-	done
+all clean install uninstall: $(PLUGIN_DIRS)
 
-clean:
-	for i in $(PLUGIN_DIRS); do \
-		$(MAKE) -C $$i clean; \
-	done
+$(PLUGIN_DIRS):
+	$(MAKE) -C $@ $(MAKECMDGOALS)
 
-distclean: clean
+distclean: $(PLUGIN_DIRS)
 	rm -f plugin-common.inc
 
-install:
-	for i in $(PLUGIN_DIRS); do \
-		$(MAKE) -C $$i install; \
-	done
-
-uninstall:
-	for i in $(PLUGIN_DIRS); do \
-		$(MAKE) -C $$i uninstall; \
-	done
+.PHONY: clean distclean install uninstall $(PLUGIN_DIRS)
