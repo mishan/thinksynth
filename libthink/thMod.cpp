@@ -142,6 +142,8 @@ thMod *thMod::Copy (void)
   thMod *newmod = new thMod(modname);
   thNode *newnode = new thNode(ionode->GetName(), ionode->GetPlugin());
 
+  newnode->CopyArgs((thList *)ionode->GetArgList());
+
   newmod->NewNode(newnode);
   newmod->SetIONode((char *)newnode->GetName());
   /* XXX  COPY IONODE ARGS AND STUFF */
@@ -160,6 +162,7 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
     for(listnode = ((thList* )parentnode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
       data = (thNode *)listnode->data;
       newnode = new thNode((char *)data->GetName(), data->GetPlugin());
+      newnode->CopyArgs((thList *)data->GetArgList());
       /* XXX  COPY ARGS AND STUFF */
       mod->NewNode(newnode);
       CopyHelper(mod, data);
