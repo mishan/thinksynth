@@ -250,7 +250,7 @@ bool PatchSelWindow::LoadPatch (void)
 
 void PatchSelWindow::BrowsePatch (void)
 {
-	Gtk::FileSelection fileSel("thinksynth - Load Patch");
+	Gtk::FileSelection fileSel ("thinksynth - Load Patch");
 
 	if (prevDir)
 		fileSel.set_filename(prevDir);
@@ -268,9 +268,11 @@ void PatchSelWindow::BrowsePatch (void)
 
 		fileEntry.set_text(fileSel.get_filename());
 
-		if(LoadPatch())
+		if (LoadPatch())
 		{
 			char *file = strdup(fileSel.get_filename().c_str());
+			string **vals = NULL;
+			gthPrefs *prefs = gthPrefs::instance();
 
 			if (prevDir)
 				free (prevDir);
@@ -278,11 +280,10 @@ void PatchSelWindow::BrowsePatch (void)
 			prevDir = g_strdup_printf("%s/", dirname(file));
 			free (file);
 
-			string **vals = new string *[2];
+			vals = new string *[2];
 			vals[0] = new string(prevDir);
 			vals[1] = NULL;
 
-			gthPrefs *prefs = gthPrefs::instance();
 			prefs->Set("patchdir", vals);
 		}
 	}
@@ -305,12 +306,12 @@ void PatchSelWindow::SavePatch (void)
 		
 		if(fileSel.run() == Gtk::RESPONSE_OK)
 		{
-			char *file = strdup(fileSel.get_filename().c_str());
 			gthPatchManager::PatchFile *patch = NULL;
-			const char *b = NULL;
-			gthPrefs *prefs = NULL;
-			string **vals = NULL;
+			gthPrefs *prefs = gthPrefs::instance();
+			char *file = fileSel.get_filename().c_str();
 			int chan = (*iter)[patchViewCols.chanNum]-1;
+			const char *b = NULL;
+			string **vals = NULL;
 
 			/* cull metadata */
 			patch = patchManager->getPatch(chan);
@@ -321,27 +322,23 @@ void PatchSelWindow::SavePatch (void)
 			patch->info["title"] = patchTitle.get_text();
 			patch->info["comments"] = patchComments.get_buffer()->get_text();
 			
-			patchManager->savePatch(fileSel.get_filename(), chan);
+			patchManager->savePatch(file, chan);
 
 			/* update prefs file "prevDir" info */
-			fileEntry.set_text(fileSel.get_filename());
+			fileEntry.set_text(file);
 
-			b = basename(file);
-			
 			/* update patch window with new name */
-			(*iter)[patchViewCols.dspName] = b;
+			(*iter)[patchViewCols.dspName] = strdup(basename(file));
 
 			if (prevDir)
 				free (prevDir);
 
 			prevDir = g_strdup_printf("%s/", dirname(file));
-			free (file);
 
 			vals = new string *[2];
 			vals[0] = new string(prevDir);
 			vals[1] = NULL;
 		
-			prefs = gthPrefs::instance();
 			prefs->Set("patchdir", vals);
 		}
 	}

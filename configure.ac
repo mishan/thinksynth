@@ -15,13 +15,13 @@ AC_PROG_CC
 AC_PROG_CXXCPP
 
 dnl Update this when:
-dnl 	- Functions or symbols in the library have been /removed/ or have 
+dnl - Functions or symbols in the library have been /removed/ or have 
 dnl	  had their type changed
 dnl	- Function /arguments/ have changed
 dnl	- Function /behaviors/ have changed such that users need to make
 dnl	  revisions to the calls to have them work the way they did before
 dnl	  (bad)
-lib_major=3
+lib_major=4
 
 dnl Update this when:
 dnl	- The new library needs new supporting libraries, but nothing else
@@ -30,7 +30,7 @@ dnl	  and will run with a new libthink, but major, non-deterministic
 dnl	  breakage will occur. Or vice-versa.
 dnl	- The library was misbuilt on all supported architectures and
 dnl	  was released that way.
-lib_minor=1
+lib_minor=0
 lib_revision="${lib_major}.${lib_minor}"
 
 AC_SUBST(lib_revision)
