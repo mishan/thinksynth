@@ -8,7 +8,7 @@ Build-Depends: debhelper (>= 4), libgtkmm-2.4-dev, libjack0.80.0-dev | libjack-d
 
 Package: thinksynth
 Architecture: any
-Depends: ${shlibs:Depends}, thinksynth-plugins
+Depends: ${shlibs:Depends}, thinksynth-data
 Recommends: jackd
 Suggests: jack-rack, qjackctl
 Description: a full-featured synthesizer and keyboard for JACK/ALSA
@@ -16,18 +16,18 @@ Description: a full-featured synthesizer and keyboard for JACK/ALSA
  other music hardware/software. It can also work standalone using an ALSA
  output backend.
  .
- This is the GUI binary.
+ This package contains the GUI binary and the binary plugins required for
+ synthesis.
 
-Package: thinksynth-plugins
-Architecture: any
-Depends: ${shlibs:Depends}
+Package: thinksynth-data
+Architecture: all
 Recommends: thinksynth
-Description: C++ plugins and DSP files for Thinksynth
+Description: DSP instrument files for Thinksynth
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
  other music hardware/software. It can also work standalone using an ALSA
  output backend.
  .
- This package contains all the C plugins and DSP 'instruments' for thinksynth.
+ This package contains all the stock DSP 'instruments' for thinksynth.
 
 Package: libthink3
 Section: libs

@@ -32,7 +32,7 @@ install:
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp/
 	dh_install --sourcedir=debian/tmp
 	# Useless without libiw
-	rm debian/thinksynth-plugins/usr/lib/thinksynth/plugins/misc/wlan.so
+	rm debian/thinksynth/usr/lib/thinksynth/plugins/misc/wlan.so
 
 binary-indep:
 # Ye olde no-op.
