@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.67 2003/05/11 04:53:16 misha Exp $ */
+/* $Id: thMod.cpp,v 1.68 2003/05/11 05:35:24 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -244,8 +244,12 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 	thNode *node;
 
 	if(argtree) {
-		data = ((thArg *)argtree->GetData())->GetArg();
 		BuildSynthTreeHelper2(argtree->GetLeft(), currentnode);
+
+		data = ((thArg *)argtree->GetData())->GetArg();
+		if(!data) {
+			fprintf(stderr, "thMod::BuildSynthTreeHelper2: data points to NULL\n");
+		}
 
 		if(data && data->argType == ARG_POINTER) {
 			node = FindNode(data->argPointNode);
@@ -260,9 +264,6 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 			if(node->GetRecalc() == false) {  /* Don't do the same node over and over */
 				BuildSynthTreeHelper(currentnode, data->argPointNode);
 			}
-		}
-		else {
-			fprintf(stderr, "thMod::BuildSynthTreeHelper2: data is NULL\n");
 		}
 
 		BuildSynthTreeHelper2(argtree->GetRight(), currentnode);
