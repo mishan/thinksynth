@@ -1,13 +1,10 @@
 name "test";
 
 node ionode {
-	out0 = mixer->out;
-	channels = 1;
+	out0 = wav->out;
+	out1 = wav->out;
+	channels = 2;
 	play = 1;
-};
-
-node mixer mixer::mul {
-	in0 = wav->out;
 };
 
 node wav input::wav {
