@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.15 2003/04/25 21:22:52 joshk Exp $ */
+/* $Id: thWav.cpp,v 1.16 2003/04/27 04:27:08 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -176,7 +176,7 @@ int thWav::Read (void *data, int len)
 	return r;
 }
 
-void thWav::ReadHeader (void)
+void thWav::ReadHeader (void) const
 	throw(thWavException)
 {
 	char magic[5];
@@ -215,7 +215,7 @@ void thWav::ReadHeader (void)
 	}
 }
 
-int thWav::FindChunk (const char *label)
+int thWav::FindChunk (const char *label) const
 {
  	char magic[5];
 	long len;

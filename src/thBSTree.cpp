@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.19 2003/04/27 04:25:58 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.20 2003/04/27 04:27:08 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -186,7 +186,7 @@ bool thBSTree::_Remove(void *id, bool freemem)
 	return true;
 }
 
-thBSTree *thBSTree::Find(void *id)
+thBSTree *thBSTree::Find(void *id) 
 {
 	thBSTree *node = NULL;
 
@@ -208,7 +208,7 @@ thBSTree *thBSTree::Find(void *id)
 	return NULL;
 }
 
-void *thBSTree::GetData (void *id)
+void *thBSTree::GetData (void *id) 
 {
 	thBSTree *node = Find(id);
 

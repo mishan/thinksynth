@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.5 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thWav.h,v 1.6 2003/04/27 04:27:08 joshk Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -61,7 +61,7 @@ public:
  	int Write(void *data, int len);
 	int Read(void *data, int len);
 
-	const thAudioFmt *GetFormat (void);
+	thAudioFmt *GetFormat (void);
 	thWavType GetType (void) { return type; };
 
 	void SetFormat(const thAudioFmt *wfmt);
@@ -76,8 +76,8 @@ private:
 	long avgbytes;
 
 	void WriteRiff (void);
-	int FindChunk (const char *label);
-	void ReadHeader (void)
+	int FindChunk (const char *label) const;
+	void ReadHeader (void) const
 		throw(thWavException);
 };
 

@@ -1,7 +1,7 @@
-/* $Id: thEndian.h,v 1.3 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thEndian.h,v 1.4 2003/04/27 04:27:08 joshk Exp $ */
 
-#ifndef HAVE_ENDIAN_H
-#define HAVE_ENDIAN_H
+#ifndef TH_ENDIAN_H
+#define TH_ENDIAN_H
 
 #include <unistd.h>
 
@@ -212,4 +212,4 @@ inline int befwrite16(FILE *stream, short c)
 	return r;
 }
 
-#endif /* HAVE_ENDIAN_H */
+#endif /* TH_ENDIAN_H */
