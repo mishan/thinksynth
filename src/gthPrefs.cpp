@@ -58,6 +58,7 @@ void gthPrefs::Load (void)
 {
 	FILE *prefsFile;
 	char buffer[256];
+	int channel = 0;
 
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
@@ -118,6 +119,7 @@ void gthPrefs::Load (void)
 			else
 			{
 				prefs[key] = values;
+				
 			}
 		}
 

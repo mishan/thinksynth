@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.11 2004/04/09 07:29:40 misha Exp $ */
+/* $Id: PatchSelWindow.h,v 1.12 2004/08/07 18:54:49 misha Exp $ */
 
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
@@ -21,8 +21,11 @@ public:
 class PatchSelWindow : public Gtk::Window
 {
 public:
-	PatchSelWindow (thSynth *synth);
+	PatchSelWindow (thSynth *);
 	~PatchSelWindow (void);
+
+	/* signals */
+	
 
 protected:
 	bool LoadPatch (void);
@@ -30,7 +33,7 @@ protected:
 	void BrowsePatch (void);
 	void CursorChanged (void);
 
-	void patchSelected (GdkEventButton *b);
+	void patchSelected (GdkEventButton *);
 	void fileEntryActivate (void);
 
 	Gtk::VBox vbox;
@@ -48,6 +51,7 @@ protected:
 	Gtk::TreeView patchView;
 	Glib::RefPtr<Gtk::ListStore> patchModel;
 	PatchSelColumns patchViewCols;
+
 private:
 	thSynth *synth;
 	char *prevDir;

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.16 2004/08/02 21:41:00 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.17 2004/08/07 18:54:49 misha Exp $ */
 
 #include "config.h"
 
@@ -22,13 +22,14 @@
 
 extern Glib::Mutex *synthMutex;
 
-MainSynthWindow::MainSynthWindow (thSynth *synth)
-	: patchSel (synth)
+MainSynthWindow::MainSynthWindow (thSynth *_synth)
 {
 	set_title("thinksynth");
 	set_default_size(520, 360);
 
-	realSynth = synth;
+	synth = _synth;
+
+	patchSel = new PatchSelWindow(synth);
 
 	/* File */
 	{
@@ -82,67 +83,9 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
 	vbox.pack_start(notebook, Gtk::PACK_SHRINK);
 
-//	menuBar.accelerate(keyboardWin);
-	menuBar.accelerate(patchSel);
+	menuBar.accelerate(*patchSel);
 
-	/* populate notebook */
-	int chans = realSynth->GetChannelCount();
-	std::map<int, string> *patchList = realSynth->GetPatchlist();
-	for (std::map<int, string>::iterator i = patchList->begin();
-		 i != patchList->end(); i++)
-	{
-		string tabName = i->second;
-
-		if (tabName.length() == 0)
-			continue;
-
-		std::map<string, thArg *> args = realSynth->GetChanArgs(i->first);
-
-		Gtk::Table *table = new Gtk::Table(args.size(), 3);
-
-		tabName = basename(tabName.c_str());
-		int row = 0;
-
-		/* populate each tab */
-		for (std::map<string, thArg *>::iterator j = args.begin();
-			 j != args.end(); j++)
-		{
-			string argName = j->first;
-			thArg *arg = j->second;
-
-			if (arg == NULL)
-				continue;
-
-			if (arg->argWidget != thArg::HIDE)
-			{
-				Gtk::Label *label = new Gtk::Label(argName);
-
-				Gtk::HScale *slider = new Gtk::HScale(arg->argMin,
-													  arg->argMax, .0001);
-
-				slider->set_draw_value(false);
-
-				Gtk::SpinButton *spinbutton = new Gtk::SpinButton(
-					*(slider->get_adjustment()), .0001, 4);
-
-				slider->signal_value_changed().connect(
-					SigC::bind<Gtk::HScale *, thArg *>(
-						SigC::slot(*this,&MainSynthWindow::sliderChanged),
-						slider, arg));
-				slider->set_value(arg->argValues[0]);
-
-				table->attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
-							  Gtk::SHRINK);
-				table->attach(*slider, 1, 2, row, row+1, Gtk::EXPAND|Gtk::FILL,
-							  Gtk::EXPAND|Gtk::FILL);
-				table->attach(*spinbutton, 2, 3, row, row+1,
-							  Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
-				row++;
-			}
-		}
-
-		notebook.append_page(*table, tabName);
-	}
+	populate();
 
 	show_all_children();
 }
@@ -152,16 +95,9 @@ MainSynthWindow::~MainSynthWindow (void)
 	menuQuit();
 }
 
-void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
-{
-	arg->argValues[0] = slider->get_value();
-}
-
 void MainSynthWindow::menuKeyboard (void)
 {
-//	keyboardWin.show_all_children();
-//	keyboardWin.show();
-	KeyboardWindow *kbwin = new KeyboardWindow (realSynth);
+	KeyboardWindow *kbwin = new KeyboardWindow (synth);
 	menuBar.accelerate(*kbwin);
 	kbwin->show_all_children();
 	kbwin->show();
@@ -169,8 +105,8 @@ void MainSynthWindow::menuKeyboard (void)
 
 void MainSynthWindow::menuPatchSel (void)
 {
-	patchSel.show_all_children();
-	patchSel.show();
+	patchSel->show_all_children();
+	patchSel->show();
 }
 
 void MainSynthWindow::menuQuit (void)
@@ -184,4 +120,86 @@ void MainSynthWindow::menuAbout (void)
 							   Gtk::BUTTONS_OK, true, true);
 
 	dialog.run();
+}
+
+void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
+{
+	arg->argValues[0] = slider->get_value();
+}
+
+void MainSynthWindow::populate (void)
+{
+	/* populate notebook */
+	std::map<int, string> *patchList = synth->GetPatchlist();
+
+	for (std::map<int, string>::iterator i = patchList->begin();
+		 i != patchList->end(); i++)
+	{
+		string tabName = i->second;
+
+		if (tabName.length() == 0)
+			continue;
+
+		tabName = basename(tabName.c_str());
+
+		std::map<string, thArg *> args = synth->GetChanArgs(i->first);
+		Gtk::Table *table = manage(new Gtk::Table(args.size(), 3));
+		int row = 0;
+
+		/* populate each tab */
+		for (std::map<string, thArg *>::iterator j = args.begin();
+			 j != args.end(); j++)
+		{
+			string argName = j->first;
+			thArg *arg = j->second;
+
+			if (arg == NULL)
+				continue;
+
+			switch (arg->argWidget)
+			{
+				case thArg::HIDE:
+					break;
+				case thArg::SLIDER:
+				{
+					Gtk::Label *label = manage(new Gtk::Label(argName));
+					
+					Gtk::HScale *slider = manage(new Gtk::HScale(arg->argMin,
+																 arg->argMax,
+																 .0001));
+					Gtk::Adjustment *argAdjust = slider->get_adjustment();
+				
+					slider->set_draw_value(false);
+
+					slider->signal_value_changed().connect(
+						SigC::bind<Gtk::HScale *, thArg *>(
+							SigC::slot(*this, &MainSynthWindow::sliderChanged),
+							slider, arg));
+
+					slider->set_value(arg->argValues[0]);
+
+					Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
+														   *argAdjust, .0001,
+														   4));
+
+					table->attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
+								  Gtk::SHRINK);
+					table->attach(*slider, 1, 2, row, row+1,
+								  Gtk::EXPAND|Gtk::FILL,
+								  Gtk::EXPAND|Gtk::FILL);
+					table->attach(*valEntry, 2, 3, row, row+1,
+								  Gtk::SHRINK|Gtk::FILL,
+								  Gtk::SHRINK|Gtk::FILL);
+					row++;
+
+					break;				
+				}
+				default:
+					break;
+			}
+		}
+
+		notebook.append_page(*table, tabName);
+	}
+
 }

@@ -1,20 +1,25 @@
-/* $Id: MainSynthWindow.h,v 1.6 2004/08/01 11:05:18 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.7 2004/08/07 18:54:49 misha Exp $ */
 
 #ifndef MAIN_SYNTH_WINDOW_H
 #define MAIN_SYNTH_WINDOW_H
 
+using namespace std;
+
 class MainSynthWindow : public Gtk::Window
 {
 public:
-	MainSynthWindow (thSynth *synth);
+	MainSynthWindow (thSynth *);
 	~MainSynthWindow (void);
 
 protected:
-	void sliderChanged (Gtk::HScale *, thArg *);
 	void menuKeyboard (void);
 	void menuPatchSel (void);
 	void menuQuit (void);
 	void menuAbout (void);
+
+	void sliderChanged (Gtk::HScale *, thArg *);
+
+	void populate (void);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;
@@ -22,10 +27,10 @@ protected:
 	Gtk::Menu menuHelp;
 	Gtk::Notebook notebook;
 
-	PatchSelWindow patchSel;
+	PatchSelWindow *patchSel;
 //	KeyboardWindow keyboardWin;
 private:
-	thSynth *realSynth;
+	thSynth *synth;
 };
 
 #endif /* MAIN_SYNTH_WINDOW_H */
