@@ -7,6 +7,8 @@
 #define PLUGPREFIX "plugins/"
 #define PLUGPOSTFIX ".so"
 
+#define NUM_SIGNALS 128
+
 class thPlugin {
 public:
 	thPlugin(const char *name, int id, bool state);
