@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.98 2003/09/15 23:29:12 misha Exp $ */
+/* $Id: main.cpp,v 1.99 2003/09/16 00:34:23 misha Exp $ */
 
 #include "config.h"
 
@@ -49,7 +49,7 @@ int main (int argc, char *argv[])
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
 	string outputfname("test.wav");
-	signed short *outputbuffer;
+//	signed short *outputbuffer;
 	int buflen;
 	float *synthbuffer;
 	int notetoplay = 69;  /* XXX Remove when sequencing is external */
@@ -180,6 +180,6 @@ int main (int argc, char *argv[])
 	//Synth.Process();
 
 	//	Synth.PrintChan(0);
-	free(outputbuffer);
+//	free(outputbuffer);
 	free(filename);
 }
