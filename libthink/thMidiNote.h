@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.h,v 1.11 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: thMidiNote.h,v 1.12 2003/04/29 01:10:25 ink Exp $ */
 
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
@@ -14,6 +14,8 @@ class thMidiNote {
 
 		/* returns a pointer to a list of values */
 		thArgValue *GetArg(const char *name);
+
+		thMod *GetMod(void) { return modnode; }
 
 		void Process (int length);
 
