@@ -106,6 +106,7 @@ AC_SUBST(LIBS)
 
 AC_OUTPUT([Makefile
 src/Makefile
+plugins/Makefile
 ])
 
 
