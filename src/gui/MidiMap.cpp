@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.4 2004/11/09 05:15:05 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.5 2004/11/09 05:55:03 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -131,12 +131,16 @@ void MidiMap::fillDestArgCombo (int chan)
 	for (std::map<string, thArg *>::iterator i = argList.begin();
 		 i != argList.end(); i++)
 	{
-		item = Gtk::manage(new Gtk::ComboDropDownItem);
-		namelabel = Gtk::manage(new Gtk::Label(i->first));
-		item->add(*namelabel);
-		item->signal_button_press_event().connect(sigc::bind<thArg *>(sigc::mem_fun(*this,&MidiMap::onDestArgComboChanged), i->second));
-		item->show_all();
-		destArgComboStrings.push_back(*item);		
+		if(i->second && i->second->getWidgetType() == thArg::SLIDER) {
+			item = Gtk::manage(new Gtk::ComboDropDownItem);
+			namelabel = Gtk::manage(new Gtk::Label(
+								(i->second->getLabel().length() > 0) ?
+								i->second->getLabel() : i->second->getName()));
+			item->add(*namelabel);
+			item->signal_button_press_event().connect(sigc::bind<thArg *>(sigc::mem_fun(*this,&MidiMap::onDestArgComboChanged), i->second));
+			item->show_all();
+			destArgComboStrings.push_back(*item);		
+		}
 	}
 }
 
