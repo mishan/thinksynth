@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.15 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.16 2003/04/25 08:37:27 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -88,6 +88,7 @@ int thPlugin::ModuleLoad (void)
 		goto loaderr;
 	}
 
+	/* Retrieve plugin's module_init (hopefully it exists!) */
 	module_init = (int (*)(int, thPlugin *))dlsym (plugHandle, "module_init");
 
 	if (module_init == NULL) {
@@ -96,14 +97,17 @@ int thPlugin::ModuleLoad (void)
 		goto loaderr;
 	}
 
+	/* Now that we have *something* for sure call it and see
+	 * whether it screws up. */
 	if (module_init (MODULE_IFACE_VER, this) != 0) {
-		fprintf (stderr, "thPlugin::ModuleLoad: Interface version missing\n");
+		fprintf (stderr, "thPlugin::ModuleLoad: plugin initialization exited with an error\n");
 	
 		goto loaderr;
 	}
 
 	plugCallback = (void (*)(void *, void *, unsigned int))dlsym(plugHandle, "module_callback");
 	
+	/* Ensure that plugin's callback exists */
 	if(plugCallback == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_callback' symbol\n");
 
