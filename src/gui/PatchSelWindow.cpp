@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
+
 #include <gtkmm.h>
 #include <gtkmm/messagedialog.h>
 
@@ -99,7 +101,7 @@ void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
 	if ((loaded = synth->LoadMod(chanEntry->get_text().c_str(), *channum,
 		(float)chanAmp->get_value())) == NULL)
 	{
-	  gchar* quux = g_strdup_printf("Couldn't load %s", chanEntry->get_text().c_str());
+	  gchar* quux = g_strdup_printf("Couldn't load %s: %s", chanEntry->get_text().c_str(), strerror(errno));
 	  Gtk::MessageDialog baleeted (quux, Gtk::MESSAGE_ERROR);
 
 	  baleeted.run();
