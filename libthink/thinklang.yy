@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.40 2003/05/04 08:09:35 joshk Exp $ */
+/* $Id: thinklang.yy,v 1.41 2003/05/07 16:36:05 misha Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -43,6 +43,8 @@ extern "C" int yywrap(void)
 	return 1;
 }
 %}
+
+%name thinklang
 
 %token NODE IO NAME
 %token WORD 
