@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.13 2003/05/24 08:02:27 aaronl Exp $ */
+/* $Id: static.cpp,v 1.14 2003/05/25 03:17:19 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +58,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_sample = (thArgValue *)mod->GetArg(node, "sample");
 
 	for(i=0; i < (int)windowlen; i++) {
-		if(++last > (*in_sample)[i]) {
+		if(++position > (*in_sample)[i]) {
 			out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
 			position = 0;
 			last = out[i];
