@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.27 2004/03/27 03:28:52 misha Exp $
+# $Id: Makefile.in,v 1.28 2004/03/27 04:00:58 joshk Exp $
 
 BINARY = thinksynth monotest
 
@@ -17,11 +17,14 @@ MAINOBJS = main.o ui.o $(WIDGETOBJS)
 MONOMAINOBJS = monotest.o
 WIDGETOBJS = MainSynthWindow.o PatchSelWindow.o
 
-thinksynth: $(MAINOBJS)
+thinksynth: $(MAINOBJS) ../libthink/libthink.so.3
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS)  -lthink -L.
 
-monotest: $(MONOMAINOBJS)
+monotest: $(MONOMAINOBJS) ../libthink/libthink.so.3
 	$(CXX) $(CXXFLAGS) -o $@ $(MONOMAINOBJS) $(LDFLAGS) -lthink -L.
+
+../libthink/libthink.so.3:
+	$(MAKE) -C ../libthink
 
 clean::
 	rm -f thinksynth
