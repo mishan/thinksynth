@@ -371,15 +371,8 @@ int main (int argc, char *argv[])
 		}
 		else
 		{
-			fprintf(stderr, "Sorry, only %s drivers are supported currently "
-					"for output.\n", 
-#ifdef HAVE_JACK
-					"JACK/"
-#endif /* HAVE_JACK */
-#ifdef HAVE_ALSA
-					"ALSA");
-#endif /* HAVE_ALSA */
-);
+			fprintf(stderr, "Sorry, only JACK/ALSA drivers are supported "
+					"currently for output.\n");
 		}
 
 	}
