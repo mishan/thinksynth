@@ -1,6 +1,8 @@
 #ifndef THF_PREFS_H
 #define THF_PREFS_H
 
+#define PREFS_FILE ".thinkrc"
+
 class thfPrefs
 {
 public:

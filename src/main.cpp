@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.185 2004/05/26 06:00:24 misha Exp $ */
+/* $Id: main.cpp,v 1.186 2004/05/26 06:24:09 misha Exp $ */
 
 #include "config.h"
 
@@ -21,11 +21,10 @@
 #include "thfALSAMidi.h"
 #include "thfJackAudio.h"
 
-#include "thfPrefs.h"
-
 #include "ui.h"
 #include "signal.h"
-#include "prefs.h"
+
+#include "thfPrefs.h"
 
 /* XXX: globals */
 thSynth *Synth = NULL;

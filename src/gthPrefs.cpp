@@ -6,7 +6,6 @@
 
 #include "think.h"
 
-#include "prefs.h"
 #include "thfPrefs.h"
 
 #if 0
