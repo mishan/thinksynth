@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.5 2004/09/06 07:00:02 joshk Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.6 2004/09/06 07:16:33 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -78,9 +78,7 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 
 gthALSAAudio::~gthALSAAudio ()
 {
-	fprintf(stderr, "closing play handle\n");
 	snd_pcm_close(play_handle);
-        fprintf(stderr, "closed play handle\n");
 
 	if (outbuf)
 	{
@@ -262,7 +260,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 		 * after a USR1 */
 		else if (w == -EBADFD)
 		{
-			debug("lost ALSA playback handle, exiting\n");
+			debug("lost ALSA playback handle, exiting");
 			exit(0);
 		}
 		else
