@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.21 2003/04/27 05:11:25 joshk Exp $ */
+/* $Id: thSynth.h,v 1.22 2003/04/27 07:52:03 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -15,7 +15,7 @@ public:
 	void ListMods(void);
 	void BuildSynthTree(const char *modname);
 	thPluginManager *GetPluginManager (void);
-	void AddChannel(char *channame, char *modname);
+	void AddChannel(char *channame, char *modname, float amp);
 	thMidiNote *AddNote(char *channame, float note, float velocity);
 	void Process(const char *modname);
 

@@ -1,11 +1,11 @@
-/* $Id: thMidiChan.h,v 1.10 2003/04/27 02:31:43 misha Exp $ */
+/* $Id: thMidiChan.h,v 1.11 2003/04/27 07:52:03 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
 
 class thMidiChan {
 	public:
-		thMidiChan (thMod *mod);
+		thMidiChan (thMod *mod, float amp);
 		~thMidiChan();
 
 		thMidiNote *AddNote(float note, float velocity);

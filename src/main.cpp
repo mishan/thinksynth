@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.38 2003/04/27 07:11:36 misha Exp $ */
+/* $Id: main.cpp,v 1.39 2003/04/27 07:52:03 ink Exp $ */
 
 #include "config.h"
 
@@ -77,7 +77,7 @@ syntax:
   
 	((thMod *)Synth.FindMod("test"))->BuildSynthTree();
 
-	Synth.AddChannel(strdup("chan1"), "test");
+	Synth.AddChannel(strdup("chan1"), "test", 80.0);
 	Synth.AddNote("chan1", 20, 100);
 
 	newmod = ((thMod *)Synth.FindMod("test"))->Copy();

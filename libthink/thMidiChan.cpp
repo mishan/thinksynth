@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.15 2003/04/27 02:31:43 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.16 2003/04/27 07:52:03 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -18,11 +18,14 @@
 #include "thArg.h"
 #include "thMidiChan.h"
 
-thMidiChan::thMidiChan (thMod *mod)
+thMidiChan::thMidiChan (thMod *mod, float amp)
 {
+	float *allocatedamp = (float *)malloc(sizeof(float));
 	modnode = mod;
 	args = new thBSTree(StringCompare);
 	notes = new thBSTree(IntCompare);
+	allocatedamp[0] = amp;
+	args->Insert((void *)strdup("amp"), (void *)allocatedamp);
 }
 
 thMidiChan::~thMidiChan ()
