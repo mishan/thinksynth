@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.23 2003/04/29 02:03:59 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.24 2003/04/29 04:53:01 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -9,6 +9,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/types.h>
+#include <libgen.h>
 #include <dlfcn.h>
 
 #include "thPlugin.h"
@@ -76,7 +77,7 @@ void thPlugin::SetDesc (const char *desc)
 int thPlugin::ModuleLoad (void)
 {
 	int (*module_init) (thPlugin *plugin);
-	short* plug_apiversion;
+	unsigned char* plug_apiversion;
 	
 	plugHandle = dlopen(plugPath, RTLD_NOW);
 	
@@ -101,7 +102,7 @@ int thPlugin::ModuleLoad (void)
 	}
 
 	/* Verify that the API version of the plugin matches our version. */
-	plug_apiversion = (short*)dlsym(plugHandle, "apiversion");
+	plug_apiversion = (unsigned char*)dlsym(plugHandle, "apiversion");
 
 	if (plug_apiversion == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: API version symbol missing\n");
@@ -109,7 +110,7 @@ int thPlugin::ModuleLoad (void)
 	}
 
 	if (*plug_apiversion != MODULE_IFACE_VER) {
-		fprintf(stderr, "thPlugin::ModuleLoad: API version mismatch\n");
+		fprintf(stderr, "thPlugin::ModuleLoad: version mismatch: thinksynth compiled with API v%d, %s compiled with v%d\n", MODULE_IFACE_VER, basename(plugPath), (short)(*plug_apiversion));
 		goto loaderr;
 	}
 	
