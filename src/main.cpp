@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.113 2004/01/25 22:55:23 misha Exp $ */
+/* $Id: main.cpp,v 1.114 2004/01/26 00:09:42 ink Exp $ */
 
 #include "config.h"
 
@@ -58,7 +58,6 @@ int main (int argc, char *argv[])
 	int seq_nfds, nfds;
 	struct pollfd *pfds;
 	snd_pcm_t *phandle;
-
 
 	plugin_path = PLUGIN_PATH;
 
@@ -235,12 +234,17 @@ snd_seq_t *open_seq() {
 int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
 {
 	snd_seq_event_t *ev;
+	float *pbuf = new float[1];  // Parameter buffer
 	
 	do {
         snd_seq_event_input(seq_handle, &ev);
         switch (ev->type) {
 		case SND_SEQ_EVENT_NOTEON:
 			Synth->AddNote(string("chan1"), ev->data.note.note, ev->data.note.velocity);
+			break;
+		case SND_SEQ_EVENT_NOTEOFF:
+			*pbuf = 0;
+			Synth->SetNoteArg(string("chan1"), ev->data.note.note, "trigger", pbuf, 1);  /* XXX make this part better */
 			break;
 		}
 		snd_seq_free_event(ev);

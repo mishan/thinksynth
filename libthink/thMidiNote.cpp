@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.28 2004/01/25 23:59:33 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.29 2004/01/26 00:09:42 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -16,15 +16,16 @@
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 	: modnode(*mod)
 {
-	float *notep = new float[1], *velocityp = new float[1];
+	float *notep = new float[1], *velocityp = new float[1], *triggerp = new float[1];
 
 	modnode.BuildSynthTree();
 	thNode *ionode = modnode.GetIONode();
 
-	*notep = note, *velocityp = velocity;
+	*notep = note, *velocityp = velocity, *triggerp = 1;
 
 	ionode->SetArg("note", notep, 1);
 	ionode->SetArg("velocity", velocityp, 1);
+	ionode->SetArg("trigger", triggerp, 1);
 
 	noteid = (int)note;
 }
