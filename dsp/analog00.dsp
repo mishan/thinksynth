@@ -7,22 +7,19 @@ node ionode {
 	play = amp_env->play;
 
 	wave = 2;
-	pw = 0.2;
-	subwave = 2;
-	subpw = 0.3;
-	sublevel = 0.2;
+	pw = 0.1;
 
 	cutmin = 40;
 	cutmax = 3000;
 	res = 0.9;
 
-	amp_a = 4000;
-	amp_d = 30000;
+	amp_a = 1000;
+	amp_d = 10000;
 	amp_s = 130;
 	amp_r = 20000;
 
-	filt_a = 10000;
-	filt_d = 20000;
+	filt_a = 5000;
+	filt_d = 10000;
 	filt_s = 100;
 	filt_r = 20000;
 
@@ -33,13 +30,8 @@ node freq misc::midi2freq {
 	note = ionode->note;
 };
 
-node subfreq math::div {
-	in0 = freq->out_band;
-	in1 = 2;
-};
-
 node mixer mixer::mul {
-	in0 = filt->out;
+	in0 = filt2->out;
 	in1 = amp_env->out;
 };
 
@@ -68,7 +60,13 @@ node cutmap env::map {
 };
 
 node filt filt::res2pole {
-	in = mixer2->out;
+	in = osc1->out;
+	cutoff = cutmap->out;
+	res = ionode->res;
+};
+
+node filt2 filt::res2pole {
+	in = filt->out;
 	cutoff = cutmap->out;
 	res = ionode->res;
 };
@@ -77,18 +75,6 @@ node osc1 osc::simple {
 	freq = freq->out;
 	waveform = ionode->wave;
 	pw = ionode->pw;
-};
-
-node osc2 osc::simple {
-	freq = subfreq->out;
-	waveform = ionode->subwave;
-	pw = ionode->subpw;
-};
-
-node mixer2 mixer::fade {
-	in0 = osc1->out;
-	in1 = osc2->out;
-	fade = ionode->sublevel;
 };
 
 io ionode;
