@@ -1,5 +1,5 @@
-# $Id: Makefile,v 1.8 2003/05/09 17:47:19 misha Exp $
+# $Id: Makefile,v 1.9 2003/05/10 06:40:46 ink Exp $
 
-PLUGIN_NAMES = static.so simple.so
+PLUGIN_NAMES = static.so simple.so softsqr.so
 all: $(PLUGIN_NAMES)
 include ../plugin-common.mk
