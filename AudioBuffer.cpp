@@ -45,6 +45,8 @@ void AudioBuffer::buf_read(int *udata, int len)
 	}
 
 	read += len;
+	woffset -= len;
+	read = read % size;
 }
 
 #ifdef TEST
