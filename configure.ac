@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.74 2004/06/21 02:43:58 joshk Exp $
+dnl $Id: configure.ac,v 1.75 2004/06/21 04:50:10 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -132,7 +132,7 @@ dnl Debug is enabled:
 [
 	if test "$enableval" != no; then 
 		AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-		CXXFLAGS="$CXXFLAGS -ggdb -W -Wno-unused-parameter"
+		CXXFLAGS="$CXXFLAGS -g3 -W -Wno-unused-parameter"
 		debug=yes
 	else
 		CXXFLAGS="$CXXFLAGS -O2"
