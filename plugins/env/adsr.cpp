@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.9 2003/05/09 03:05:34 aaronl Exp $ */
+/* $Id: adsr.cpp,v 1.10 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,13 +49,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int position, phase;
 	unsigned int i;
 
-	in_a = (thArgValue *)mod->GetArg(node->GetName(), "a");
-	in_d = (thArgValue *)mod->GetArg(node->GetName(), "d");
-	in_s = (thArgValue *)mod->GetArg(node->GetName(), "s");
-	in_r = (thArgValue *)mod->GetArg(node->GetName(), "r");
-	in_trigger = (thArgValue *)mod->GetArg(node->GetName(), "trigger");
+	in_a = (thArgValue *)mod->GetArg(node, "a");
+	in_d = (thArgValue *)mod->GetArg(node, "d");
+	in_s = (thArgValue *)mod->GetArg(node, "s");
+	in_r = (thArgValue *)mod->GetArg(node, "r");
+	in_trigger = (thArgValue *)mod->GetArg(node, "trigger");
 
-	in_position = (thArgValue *)mod->GetArg(node->GetName(), "position");
+	in_position = (thArgValue *)mod->GetArg(node, "position");
 	position = (int)(*in_position)[0];
 	phase = (int)(*in_position)[1];
 

@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.69 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thMod.cpp,v 1.70 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include "config.h"
 
@@ -32,18 +32,23 @@ thNode *thMod::FindNode (const char *name)
 }
 
 const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
-  /* Follow pointers and return a thArgValue of a float string */
 {
 	thNode *node = (thNode *)modnodes->GetData((void *)nodename);
+	if (!node)
+	{
+		printf("WARNING!!  Trying to get args from nonexistant node %s\n", nodename);
+		return NULL;
+	}
+	return GetArg(node, argname);
+}
+
+const thArgValue *thMod::GetArg (thNode *node, const char *argname)
+  /* Follow pointers and return a thArgValue of a float string */
+{
 	const thArgValue *args;
 	float *tmp;
 
-	if (node) {
-		args = node->GetArg(argname);
-	}
-	else {
-		printf("WARNING!!  Trying to get args from nonexistant node %s\n", nodename);
-	}
+	args = node->GetArg(argname);
 
 	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
@@ -65,7 +70,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 			}
 		}
 		else {
-			printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", nodename,  args->argPointNode);
+			printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", node->GetName(),  args->argPointNode);
 		}
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 

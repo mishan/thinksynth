@@ -1,4 +1,4 @@
-/* $Id: add.cpp,v 1.2 2003/05/02 23:18:33 joshk Exp $ */
+/* $Id: add.cpp,v 1.3 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,8 +43,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArgValue *in_0, *in_1;
 	unsigned int i;
 
-	in_0 = (thArgValue *)mod->GetArg(node->GetName(), "in0");
-	in_1 = (thArgValue *)mod->GetArg(node->GetName(), "in1");
+	in_0 = (thArgValue *)mod->GetArg(node, "in0");
+	in_1 = (thArgValue *)mod->GetArg(node, "in1");
 
 	for(i=0;i<windowlen;i++) {
 		out[i] = ((*in_0)[i]+(*in_1)[i])/2;

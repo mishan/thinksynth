@@ -1,7 +1,9 @@
-/* $Id: thMod.h,v 1.28 2003/05/03 22:40:59 ink Exp $ */
+/* $Id: thMod.h,v 1.29 2003/05/11 08:06:24 aaronl Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
+
+class thNode;
 
 class thMod {
 public:
@@ -10,6 +12,7 @@ public:
 	
 	thNode *FindNode(const char *name);
 	const thArgValue *GetArg (const char *nodename, const char *argname);
+	const thArgValue *GetArg (thNode *node, const char *argname);
 	
 	void NewNode(thNode *node);
 	void SetIONode(const char *name);
@@ -32,12 +35,12 @@ public:
 private:
 	void ProcessHelper (unsigned int windowlen, thNode *node);
 	void SetActiveNodesHelper(thNode *node);
-	
+
 	void CopyHelper (thMod *mod, thNode *parentnode);
-	
+
 	int BuildSynthTreeHelper(thNode *parent, char *nodename);
 	void BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode);
-	
+
 	void ListNodes(thBSTree *node);
 
 	thBSTree *modnodes;

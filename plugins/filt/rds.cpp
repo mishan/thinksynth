@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.3 2003/05/08 23:30:59 aaronl Exp $ */
+/* $Id: rds.cpp,v 1.4 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,11 +52,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float prevdiff, rdiff;
 	float fact, rfact;
 
-	in_arg = (thArgValue *)mod->GetArg(node->GetName(), "in");
-	in_cutoff = (thArgValue *)mod->GetArg(node->GetName(), "cutoff");
-	in_res = (thArgValue *)mod->GetArg(node->GetName(), "res");
-	in_last = (thArgValue *)mod->GetArg(node->GetName(), "last");
-	in_prevdiff = (thArgValue *)mod->GetArg(node->GetName(), "prevdiff");
+	in_arg = (thArgValue *)mod->GetArg(node, "in");
+	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
+	in_res = (thArgValue *)mod->GetArg(node, "res");
+	in_last = (thArgValue *)mod->GetArg(node, "last");
+	in_prevdiff = (thArgValue *)mod->GetArg(node, "prevdiff");
 
 	prevdiff = (*in_prevdiff)[0];
 	last = (*in_last)[0];

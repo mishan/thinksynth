@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.44 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thMidiChan.cpp,v 1.45 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include "config.h"
 
@@ -36,7 +36,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 	args->Insert((void *)strdup("amp"), (void *)argstruct);
 
-	chanarg = modnode->GetArg(modnode->GetIONode()->GetName(), "channels");
+	chanarg = modnode->GetArg(modnode->GetIONode(), "channels");
 	channels = (int)chanarg->argValues[0];
 
 	output = new float[channels*windowlen];
@@ -86,7 +86,6 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 	thMidiNote *data;
 	thArgValue *arg, *amp, *play;
 	thMod *mod;
-	char *argname;
 	int i, j;
 	int delnote = 0;
 
@@ -94,23 +93,20 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 		return;
 	}
 
-	argname = new char[outputnamelen+1]; /* XXX do we NEED to allocate this each time? */
+	char *argname = (char*)alloca(outputnamelen+1);
 
 	ProcessHelper(note->GetLeft());
 
 	data = (thMidiNote *)note->GetData();
 	if(data) { /* XXX We should not have to do this! */
-		const char *ionodename = NULL;
-
 		data->Process(windowlength);
 		mod = data->GetMod();
-		ionodename = mod->GetIONode()->GetName();
 		amp = (thArgValue *)args->GetData((void *)"amp");
-		play = (thArgValue *)mod->GetArg(ionodename, (const char*)"play");
+		play = (thArgValue *)mod->GetArg(mod->GetIONode(), (const char*)"play");
 	  
 		for(i=0;i<channels;i++) {
 			sprintf(argname, "%s%i", OUTPUTPREFIX, i);
-			arg = (thArgValue *)mod->GetArg(ionodename, (const char*)argname);
+			arg = (thArgValue *)mod->GetArg(mod->GetIONode(), (const char*)argname);
 			for(j=0;j<windowlength;j++) {
 				output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 				if(play && (*play)[i] == 0) {
@@ -124,8 +120,6 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 			DelNote(data->GetID());
 		}
 	}
-
-	delete[] argname;
 
 	ProcessHelper(note->GetRight());
 }

@@ -1,4 +1,4 @@
-/* $Id: softsqr2.cpp,v 1.4 2003/05/11 06:12:52 ink Exp $ */
+/* $Id: softsqr2.cpp,v 1.5 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,10 +50,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int position, phase;
 	thArgValue *in_freq, *in_pw, *in_sw, *in_position;
 
-	in_freq = (thArgValue *)mod->GetArg(node->GetName(), "freq");
-	in_pw = (thArgValue *)mod->GetArg(node->GetName(), "pw"); // Pulse Width
-	in_sw = (thArgValue *)mod->GetArg(node->GetName(), "sw"); // Sine Width
-	in_position = (thArgValue *)mod->GetArg(node->GetName(), "position");
+	in_freq = (thArgValue *)mod->GetArg(node, "freq");
+	in_pw = (thArgValue *)mod->GetArg(node, "pw"); // Pulse Width
+	in_sw = (thArgValue *)mod->GetArg(node, "sw"); // Sine Width
+	in_position = (thArgValue *)mod->GetArg(node, "position");
 
 	position = (int)(*in_position)[0]; // Where in the phase we are
 	phase = (int)(*in_position)[1]; // Which phase are we in

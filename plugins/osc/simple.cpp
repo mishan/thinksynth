@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.16 2003/05/11 07:37:19 ink Exp $ */
+/* $Id: simple.cpp,v 1.17 2003/05/11 08:06:24 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -49,10 +49,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int position;
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
-	in_freq = (thArgValue *)mod->GetArg(node->GetName(), "freq");
-	in_pw = (thArgValue *)mod->GetArg(node->GetName(), "pw");
-	in_waveform = (thArgValue *)mod->GetArg(node->GetName(), "waveform");
-	in_last = (thArgValue *)mod->GetArg(node->GetName(), "last");
+	in_freq = (thArgValue *)mod->GetArg(node, "freq");
+	in_pw = (thArgValue *)mod->GetArg(node, "pw");
+	in_waveform = (thArgValue *)mod->GetArg(node, "waveform");
+	in_last = (thArgValue *)mod->GetArg(node, "last");
 
 	position = (int)in_last->argValues[0];
 
