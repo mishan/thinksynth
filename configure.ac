@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.86 2004/09/05 00:21:48 misha Exp $
+dnl $Id: configure.ac,v 1.87 2004/09/05 00:31:52 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -61,7 +61,7 @@ AC_CXX_MT_BROKEN
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
-CXXFLAGS="-Wall -ffast-math -I/usr/lib/sigc++-1.2/include -I/usr/include/sigc++-1.2"
+CXXFLAGS="-Wall -ffast-math"
 
 AC_CHECK_HEADERS(dlfcn.h)
 
@@ -234,6 +234,19 @@ have_jack=0
 
 fi
 
+AC_MSG_CHECKING([for SigC++])
+
+if pkg-config --cflags sigc++-1.2 >/dev/null 2>&1; then
+	SIGC_CFLAGS=`pkg-config --cflags sigc++-1.2`
+	SIGC_LIBS=`pkg-config --libs sigc++-1.2`
+	AC_MSG_RESULT(yes)
+else
+	AC_MSG_RESULT(no)
+	AC_MSG_ERROR([You need SigC++ to build libthink. Try libsigc++1.2-dev in Debian.])
+fi
+
+AC_SUBST(SIGC_CFLAGS)
+AC_SUBST(SIGC_LIBS)
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
 AC_SUBST(ALSA_LIBS)

@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.4 2004/06/19 00:22:09 joshk Exp $
+# $Id: Makefile.in,v 1.5 2004/09/05 00:31:52 joshk Exp $
 
 libdir=@libdir@
 prefix=@prefix@
@@ -13,7 +13,8 @@ include ../build.mk
 
 PICFLAGS = -fPIC
 INCLUDES = -I..
-LDFLAGS += @LIBS@
+CXXFLAGS += @SIGC_CFLAGS@
+LDFLAGS += @LIBS@ @SIGC_LIBS@
 
 LIBOBJS = \
 	@NSMODULE_DL_CPP@ \
