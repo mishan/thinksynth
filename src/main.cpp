@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.150 2004/04/04 10:41:40 misha Exp $ */
+/* $Id: main.cpp,v 1.151 2004/04/06 04:07:36 misha Exp $ */
 
 #include "config.h"
 
@@ -34,12 +34,19 @@
 #include "ui.h"
 #include "signal.h"
 
-sigNoteOn m_sigNoteOn;
+/* XXX: globals */
+Gtk::Main *gtkMain = NULL;
+
+sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
 
 void cleanup (int signum)
 {
 	printf("received SIGTERM!\n\n exiting...\n");
+
+	if (gtkMain)
+		delete gtkMain;
+
 	exit (0);
 }
 
@@ -160,36 +167,26 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 	return 0;
 }
 
-
-void eventNoteOn (int chan, float note, float veloc)
-{
-	printf("got a note on\n");
-}
-
 int main (int argc, char *argv[])
 {
-	string dspname = "test";   /* XXX: for debugging ONLY */
-	string outputfname = "";
+	string outputfname;
 	string inputfname;         /* filename of .dsp file to use */
 	string driver = "alsa";
-	int notetoplay = 69;       /* XXX: Remove when sequencing is external */
 	int samplerate = TH_SAMPLE;
-	int processwindows = 100;  /* how long does sample play */
-	int havearg;
 	float *synthbuffer = NULL;
+	int havearg = -1;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
-
 	snd_seq_t *seq_handle;    /* for ALSA midi */
 	int seq_nfds, nfds;
 	struct pollfd *pfds;
 	snd_pcm_t *phandle;
 
+	/* init Glib/Gtk stuff */
 	Glib::thread_init();
+	gtkMain = new Gtk::Main (argc, argv);
 
 	signal(SIGTERM, (sighandler_t)cleanup);
-
-//	m_sigNoteOn.connect(SigC::slot(eventNoteOn));
 
 	plugin_path = PLUGIN_PATH;
 
@@ -229,21 +226,6 @@ int main (int argc, char *argv[])
 				
 				break;
 			}
-			case 'm':
-			{
-				dspname = optarg;
-				break;
-			}
-			case 'n':  /* XXX: TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
-			{
-				notetoplay = atoi(optarg);
-				break;
-			}
-			case 'l':  /* number of windows to process */
-			{
-				processwindows = atoi(optarg);
-				break;
-			}
 			default:
 			{
 				if (optind != argc)
@@ -266,6 +248,7 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
+	/* XXX: write a config file */
 	Synth.LoadMod("dsp/piano0.dsp", 1, (float)14.0);
 	Synth.LoadMod("dsp/organ0.dsp", 2, (float)12.0);
 	Synth.LoadMod("dsp/sqrtest.dsp", 3, (float)2.0);
@@ -277,11 +260,8 @@ int main (int argc, char *argv[])
 	/* drums */
 	Synth.LoadMod("dsp/sd0.dsp", 9, (float)11.0);
 
-//	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
-	
-	Gtk::Main kit(argc, argv);
-	Glib::Thread *const ui = Glib::Thread::create(
-		SigC::slot(&ui_thread), true);
+	Glib::Thread *const ui = Glib::Thread::create(SigC::slot(&ui_thread),
+												  true);
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
@@ -409,6 +389,7 @@ int main (int argc, char *argv[])
 	}
 
 	delete outputstream;
+	delete gtkMain;
 
 	return 0;
 }
