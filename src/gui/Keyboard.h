@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.9 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: Keyboard.h,v 1.10 2004/04/07 00:40:17 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -55,6 +55,7 @@ private:
 
 	/* lower-level widget stuff */
 	Glib::Mutex drawMutex;
+	Glib::Dispatcher dispatchRedraw;
 
 	GdkWindow *drawable;
 	GdkGC *kbgc;

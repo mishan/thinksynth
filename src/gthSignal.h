@@ -1,4 +1,4 @@
-/* $Id: gthSignal.h,v 1.3 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: gthSignal.h,v 1.4 2004/04/07 00:40:17 misha Exp $ */
 
 #ifndef SIGNAL_H
 #define SIGNAL_H
@@ -13,7 +13,7 @@ typedef SigC::Signal0<int> sigMidiEvent;
 extern sigNoteOn  m_sigNoteOn;
 extern sigNoteOff m_sigNoteOff;
 
-extern sigReadyWrite m_sigReadyWrite;
-extern sigMidiEvent m_sigMidiEvent;
+//extern sigReadyWrite m_sigReadyWrite;
+//extern sigMidiEvent m_sigMidiEvent;
 
 #endif /* SIGNAL_H */

@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.11 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.12 2004/04/07 00:40:17 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -122,6 +122,9 @@ Keyboard::Keyboard (void)
 		prv_active_keys[i] = -2;
 		active_keys[i] = 0;
 	}
+
+	dispatchRedraw.connect(
+		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 3));
 }
 
 Keyboard::~Keyboard (void)
@@ -148,13 +151,17 @@ void Keyboard::SetTranspose (int argtranspose)
 	m_signal_transpose_changed.emit(transpose);
 }
 
+
+/* XXX: use Glib::Dispatcher for inter-thread communications, not plain
+   SigC++ */
 void Keyboard::SetNote (int note, bool state)
 {
 	/* XXX */
 
 	active_keys[note] = state ? 1 : 0;
 	prv_active_keys[note] = -1;
-	drawKeyboard(2);
+
+	dispatchRedraw();
 }
 
 int Keyboard::GetChannel (void)
