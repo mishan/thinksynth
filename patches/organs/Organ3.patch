@@ -4,7 +4,7 @@
 # Sat Nov 13 05:12:34 2004
 
 
-dsp /usr/local/share/thinksynth/args/organ0.dsp
+dsp organ0.dsp
 
 a 44.100002
 d 132.300003

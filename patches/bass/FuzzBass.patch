@@ -4,7 +4,7 @@
 # Sat Nov 13 04:20:32 2004
 
 
-dsp args/ts1.dsp
+dsp ts1.dsp
 
 a 220.500015
 blim 1.000000

@@ -4,7 +4,7 @@
 # Sat Nov 13 04:28:56 2004
 
 
-dsp args/amb01.dsp
+dsp amb01.dsp
 
 a 30.870001
 centerdetune -0.081571
