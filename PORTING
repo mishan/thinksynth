@@ -3,11 +3,11 @@ thinksynth port status
 
 OS			Build?		Function?
 --			------		---------
-Linux (native)		yes		yes
+GNU/Linux		yes		yes
 
 FreeBSD			yes		yes
 
-Windows (Cygwin)	no		no
+Cygwin			no		no
 | joshk is waiting on a new binutils that supports dynamic linking from
 | .exes (like the way it works in other unices.)
 
@@ -21,4 +21,4 @@ HP-UX			???		???
 
 Update this file as ports continue to progress.
 
-$Id: PORTING,v 1.3 2003/05/06 20:30:24 misha Exp $
+$Id: PORTING,v 1.4 2003/05/07 17:55:43 aaronl Exp $
