@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.171 2004/05/04 08:08:42 misha Exp $ */
+/* $Id: main.cpp,v 1.172 2004/05/05 03:16:42 misha Exp $ */
 
 #include "config.h"
 
@@ -108,8 +108,8 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 //	mainMutex->unlock();
 
 	/* XXX: we should be using emit() but this fucks up */
-	process->emit();
-//	process_synth ();
+//	process->emit();
+	process_synth ();
 }
 
 int playback_callback (jack_nframes_t nframes, void *arg)
@@ -222,6 +222,12 @@ int main (int argc, char *argv[])
 
 	mainContext = Glib::MainContext::create ();
 
+	mainMutex = new Glib::Mutex;
+	exitCond = new Glib::Cond;
+
+ 	process = new Glib::Dispatcher(mainContext);
+	process->connect(SigC::slot(process_synth));
+
 	signal(SIGTERM, (sighandler_t)cleanup);
 
 	plugin_path = PLUGIN_PATH;
@@ -270,13 +276,7 @@ int main (int argc, char *argv[])
 
 	read_prefs (&Synth);
 
-	mainMutex = new Glib::Mutex;
-	exitCond = new Glib::Cond;
-
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
- 
-	process = new Glib::Dispatcher(mainContext);
-	process->connect(SigC::slot(process_synth));
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */

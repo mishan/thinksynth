@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.81 2004/05/04 08:08:42 misha Exp $ */
+/* $Id: thMod.cpp,v 1.82 2004/05/05 03:16:42 misha Exp $ */
 
 #include "config.h"
 
@@ -218,11 +218,6 @@ void thMod::SetActiveNodes(void)
 		 i != activelist.end(); ++i)
 	{
 		thNode *data = *i;
-		if (!data)
-		{
-			debug("NULL data!");
-			continue;
-		}
 		if(data->GetRecalc() == false)
 		{
 			data->SetRecalc(true);

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.87 2004/05/04 08:08:42 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.88 2004/05/05 03:16:42 misha Exp $ */
 
 #include "config.h"
 
@@ -19,9 +19,6 @@ thSynth::thSynth (void)
 
 	/* XXX: these should all be arguments and we should have corresponding
 	   accessor/mutator methods for these arguments */
-
-	/* XXX: whoever commented this class: you found reason to comment on the
-	   obvious thSamples line but could offer no elucidation for this?? */
 	thWindowlen = TH_WINDOW_LENGTH;
 
 	thChans = 2;  /* mono / stereo / etc */
@@ -35,23 +32,6 @@ thSynth::thSynth (void)
 
 	channelcount = CHANNELCHUNK;
 	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan*));
-}
-
-thSynth::thSynth(thSynth *copySynth)
-{
-	synthMutex = new pthread_mutex_t;
-	pthread_mutex_init(synthMutex, NULL);
-
-	thWindowlen = copySynth->GetWindowLen();
-	thChans     = copySynth->GetChans();
-	thSamples   = copySynth->GetSamples();
-	
-	thOutput = new float[thChans*thWindowlen];
-
-	channelcount = CHANNELCHUNK;
-	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
-
-	/* XXX: unfinished */
 }
 
 thSynth::~thSynth (void)

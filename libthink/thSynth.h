@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.43 2004/05/04 04:05:59 misha Exp $ */
+/* $Id: thSynth.h,v 1.44 2004/05/05 03:16:42 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -9,9 +9,6 @@ class thMidiChan;
 class thSynth {
 public:
 	thSynth (void);
-	
-	/* XXX: copy constructor is not finished */
-	thSynth (thSynth *copySynth);
 	~thSynth (void);
 
 	thMod* LoadMod(const string &filename);
