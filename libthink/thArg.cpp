@@ -12,6 +12,23 @@ thArg::thArg(const char *name, const float *value, const int num)
 	memcpy(argValues, value, num*sizeof(float));
 
 	argNum = num;
+
+	argPointNode = NULL;
+	argPointName = NULL;
+
+	argType = ARG_VALUE;
+}
+
+thArg::thArg(const char *name, const char *node, const char *value)
+{
+	argName = strdup(name);
+	argPointNode = strdup(node);
+	argPointName = strdup(value);
+
+	argValues = NULL;
+	argNum = 0;
+
+	argType = ARG_POINTER;
 }
 
 thArg::thArg () /* the equivalent of creating a thArg(NULL, NULL, 0) */
@@ -48,6 +65,28 @@ void thArg::SetArg(const char *name, const float *value, const int num)
 	memcpy(argValues, value, num*sizeof(float));
 
 	argNum = num;
+	argType = ARG_VALUE;
+}
+
+void thArg::SetArg(const char *name, const char *node, const char *value)
+{
+	if(argName) {
+		delete argName;
+	}
+
+	if(argPointNode) {
+		delete argPointNode;
+	}
+
+	if(argPointName) {
+		delete argPointName;
+	}
+
+	argName = strdup(name);
+	argPointNode = strdup(node);
+	argPointName = strdup(value);
+
+	argType = ARG_POINTER;
 }
 
 const char *thArg::GetArgName (void)

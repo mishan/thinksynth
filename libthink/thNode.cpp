@@ -41,8 +41,15 @@ void thNode::SetArg (char *name, float *value, int num)
 	}
 }
 
-void thNode::SetArg (char *name, char *node, char * value)
+void thNode::SetArg (char *name, char *node, char *value)
 {
+	thArg *arg = (thArg *)args->Find(name);
+	if(!arg) {
+		arg = new thArg(name, node, value);
+		args->Insert(name, arg);
+	} else {
+		arg->SetArg(name, node, value);
+	}	
 }
 
 thArgValue *thNode::GetArg (char *name)
