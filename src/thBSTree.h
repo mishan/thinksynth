@@ -1,5 +1,5 @@
-#ifndef TH_BTREE_H
-#define TH_BTREE_H 1
+#ifndef TH_BSTREE_H
+#define TH_BSTREE_H 1
 
 struct thBNode {
 	char *name;
@@ -8,10 +8,10 @@ struct thBNode {
 	thBNode *left, *right;
 };
 
-class thBTree {
+class thBSTree {
 public:
-	thBTree (void);
-	~thBTree (void);
+	thBSTree (void);
+	~thBSTree (void);
 
 	void Insert (char *name, void *data);
 	void Remove (char *name);
@@ -30,4 +30,4 @@ private:
 	void DestroyTree (thBNode *root);
 };
 
-#endif /* TH_BTREE_H */
+#endif /* TH_BSTREE_H */

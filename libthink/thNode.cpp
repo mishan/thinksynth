@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "thBTree.h"
+#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thArg.h"
 #include "thNode.h"
@@ -11,7 +11,7 @@ thNode::thNode (char *name, thPlugin *thplug)
 {
 	nodename = strdup(name);
 	plugin = thplug;
-	args = new thBTree;
+	args = new thBSTree;
 }
 
 thNode::~thNode ()

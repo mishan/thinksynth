@@ -4,7 +4,7 @@ thinksynth_SOURCES = \
 	main.cpp \
 	thArg.cpp \
 	thAudioBuffer.cpp \
-	thBTree.cpp \
+	thBSTree.cpp \
 	thList.cpp \
 	thMidiChan.cpp \
 	thMidiNote.cpp \

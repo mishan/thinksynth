@@ -3,7 +3,7 @@
 #include <string.h>
 
 #include "thList.h"
-#include "thBTree.h"
+#include "thBSTree.h"
 #include "thArg.h"
 #include "thPlugin.h"
 #include "thNode.h"
@@ -12,7 +12,7 @@
 
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
-	args = new thBTree;
+	args = new thBSTree;
 
 	SetArg("note", &note, 1);
 	SetArg("velocity", &velocity, 1);
@@ -20,7 +20,7 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 
 thMidiNote::thMidiNote (thMod *mod)
 {
-	args = new thBTree;
+	args = new thBSTree;
 }
 
 thMidiNote::~thMidiNote ()
