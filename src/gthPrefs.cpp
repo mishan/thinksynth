@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.20 2004/11/26 03:39:10 joshk Exp $ */
+/* $Id: gthPrefs.cpp,v 1.21 2004/11/26 05:13:46 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -71,6 +71,8 @@ void gthPrefs::Load (void)
 	FILE *prefsFile;
 	char buffer[256];
 
+	debug("loading preferences");
+
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
 		fprintf(stderr, "could not open %s: %s\n", prefsPath.c_str(),
@@ -132,8 +134,19 @@ void gthPrefs::Load (void)
 				/* XXX: handle specific cases here for now */
 				if (key == "channel" && values[0] && values[1])
 				{
+					int chan = atoi(values[0]->c_str());
 					gthPatchManager *patchMgr = gthPatchManager::instance();
-					patchMgr->loadPatch(*values[1], atoi(values[0]->c_str()));
+					patchMgr->loadPatch(*values[1], chan);
+
+					/* Amplitude setting */
+					if (values[2] != NULL)
+					{
+						thSynth *s = thSynth::instance();
+						float *f = new float (atof(values[2]->c_str()));
+						thArg *arg = new thArg(string("amp"), f, 1);
+
+						s->SetChanArg(chan, arg);
+					}
 				}	
 				else
 				{
@@ -187,6 +200,7 @@ void gthPrefs::Save (void)
 	/* save channel mappings */
 	{
 		int chans = patchMgr->numPatches();
+		thSynth *synth = thSynth::instance();
 
 		for(int i = 0; i < chans; i++)
 		{
@@ -201,7 +215,8 @@ void gthPrefs::Save (void)
 			   channel */
 			if (file.length() > 0)
 			{
- 				fprintf(prefsFile, "channel %d,%s\n", i, file.c_str());
+ 				fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
+					(int)(synth->GetChanArg(i, "amp")->values_[0]));
 			} 
 		}
 	}
