@@ -1,28 +1,32 @@
 name "test";
 
 node ionode {
-	out0 = sat->out;
-	out1 = sat->out;
+	out0 = delay->out;
+	out1 = delay2->out;
 	channels = 2;
 	play = wav->play;
 
-	flfo = 5;
+	flfo = 0.0314;
 	cutmin = 0.3;
-	cutmax = 0.8;
-	res = 0.5;
-	fwave = 3;
+	cutmax = 0.9;
+	res = 0.2;
+	fwave = 5;
 
-	dlfo = 0.0232;
+	dlfo = 0.05;
 	dlen = 44100;
 	delaymin = 1000;
-	delaymax = 1300;
+	delaymax = 1700;
 
-	slfo = 0.1;
-	satmin = 2;
-	satmax = 3;
+	dlfo2 = 0.0502;
+	delaymin2 = 1700;
+	delaymax2 = 1000;
 
-	dfeed = 0.2;
-	ddry = 0.75;
+	slfo = 0.151;
+	satmin = 1;
+	satmax = 2;
+
+	dfeed = 0.25;
+	ddry = 0.25;
 };
 
 node wav input::wav {
@@ -39,10 +43,6 @@ node satmap env::map {
 	inmax = th_max;
 	outmin = ionode->satmin;
 	outmax = ionode->satmax;
-};
-
-node dlfo osc::simple {
-	freq = ionode->dlfo;
 };
 
 node flfo osc::simple {
@@ -71,21 +71,41 @@ node delaymap env::map {
 };
 
 node delay delay::echo {
-	in = wav->out;
+	in = filt->out;
 	size = ionode->dlen;
 	delay = delaymap->out;
 	feedback = ionode->dfeed;
 	dry = ionode->ddry;
 };
 
-node filt filt::ink {
+node dlfo2 osc::simple {
+	freq = ionode->dlfo2;
+};
+
+node delaymap2 env::map {
+	in = dlfo2->out;
+	inmin = th_min;
+	inmax = th_max;
+	outmin = ionode->delaymin2;
+	outmax = ionode->delaymax2;
+};
+
+node delay2 delay::echo {
+	in = filt->out;
+	size = ionode->dlen;
+	delay = delaymap2->out;
+	feedback = ionode->dfeed;
+	dry = ionode->ddry;
+};
+
+node filt filt::res1pole {
 	in = sat->out;
 	cutoff = filtermap->out;
 	res = ionode->res;
 };
 
 node sat dist::inksat {
-	in = delay->out;
+	in = wav->out;
 	factor = satmap->out;
 };
 
