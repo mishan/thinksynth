@@ -47,10 +47,9 @@ thMidiControllerConnection::~thMidiControllerConnection (void)
 void thMidiControllerConnection::setParam (unsigned int value)
 {
 	float realvalue;
-/*	float *buffer = arg_->Allocate(1);
-	buffer[0] = (value/(float)MIDIVALMAX) * (max_ - min_) + min_; */
-	realvalue = value/(float)MIDIVALMAX;
-	if(scale_ == EXPONENTIAL)
-		realvalue = 1 - log(10 - (value * 9)); /* give it a nice curve */
+
+	realvalue = (float)value/MIDIVALMAX;
+	if(scale_ == EXPONENTIAL) /* give it a nice curve */
+		realvalue = 1 - logf(M_E - (realvalue * (M_E - 1)));
 	arg_->SetValue(realvalue * (max_ - min_) + min_);
 }
