@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.61 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: thSynth.h,v 1.62 2004/11/30 06:43:47 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -73,7 +73,7 @@ public:
 
 	float *getChanBuffer (int chan);
 
-	long GetSamples(void) { return thSamples; }
+	long GetSamples(void) const { return thSamples; }
 	void setSamples(long samples) { thSamples = samples; }
 
 	int GetChannelCount (void) const { return channelcount; }
