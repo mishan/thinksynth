@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.12 2004/11/29 20:51:27 joshk Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.13 2004/11/30 06:44:34 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -79,6 +79,8 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 gthALSAAudio::~gthALSAAudio ()
 {
 	snd_pcm_close(play_handle);
+
+	play_handle = NULL;
 
 	if (outbuf)
 	{
@@ -186,6 +188,10 @@ int gthALSAAudio::Write (float *inbuf, int len)
 	int chans = ofmt.channels;
 	int bufferoffset = 0;
 
+	/* USR1 */
+	if (!play_handle)
+		return 0;
+
 	/* malloc an appropriate buffer it would be *bad* if the length of the 
 	   buffer passed in were to increase so don't do that (brandon) */
 	if (!outbuf)
@@ -260,8 +266,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 		 * after a USR1 */
 		else if (w == -EBADFD)
 		{
-			debug("lost ALSA playback handle, exiting");
-			exit(0);
+			debug("lost ALSA playback handle?");
 		}
 		else
 		{
