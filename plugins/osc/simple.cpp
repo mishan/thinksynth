@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.20 2003/05/17 16:01:22 ink Exp $ */
+/* $Id: simple.cpp,v 1.21 2003/05/18 00:41:11 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,7 +48,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float halfwave, ratio;
 	float position, wavelength;
 	float pw; /* Make pw cooler! */
-	thArgValue *in_freq, *in_pw, *in_waveform;
+	float fmamt;
+	thArgValue *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt;
 	thArgValue *out_arg;
 	thArgValue *inout_last;
 
@@ -62,10 +63,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_freq = (thArgValue *)mod->GetArg(node, "freq");
 	in_pw = (thArgValue *)mod->GetArg(node, "pw");
 	in_waveform = (thArgValue *)mod->GetArg(node, "waveform");
+	in_fm = (thArgValue *)mod->GetArg(node, "fm"); /* FM Input */
+	in_fmamt = (thArgValue *)mod->GetArg(node, "fmamt"); /* Modulation amount */
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
 		position++;
+
+		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
+		if(fmamt) {
+			wavelength += (wavelength * fmamt) * ((*in_fm)[i] / TH_MAX);
+		}
 		while(position > wavelength) {
 			position -= wavelength;
 		}
