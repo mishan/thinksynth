@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.57 2004/07/29 06:24:35 ink Exp $ */
+/* $Id: thNode.cpp,v 1.58 2004/08/01 09:57:40 misha Exp $ */
 
 #include "config.h"
 
@@ -114,18 +114,18 @@ void thNode::CopyArgs (const map<string, thArg*> &newargs)
 	for (map<string,thArg*>::const_iterator i = (newargs).begin(); i != (newargs).end(); i++)
 	{
 		data = i->second;
-		if(data->argType == ARG_VALUE) {
+		if(data->argType == thArg::ARG_VALUE) {
 			newvalues = new float[data->argNum];
 			memcpy(newvalues, data->argValues, data->argNum*sizeof(float));
 			newarg = new thArg(data->argName, newvalues, data->argNum);
 		}
-		else if(data->argType == ARG_POINTER) {
+		else if(data->argType == thArg::ARG_POINTER) {
 			newarg = new thArg(data->argName, data->argPointNode,
 							   data->argPointName);
 			newarg->argPointNodeID = data->argPointNodeID;
 			newarg->argPointArgID = data->argPointArgID;
 		}
-		else if(data->argType == ARG_CHANNEL) {
+		else if(data->argType == thArg::ARG_CHANNEL) {
 			newarg = new thArg(data->argName, data->argPointName);
 			newarg->argPointArg = data->argPointArg;
 		}

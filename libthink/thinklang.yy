@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.58 2004/07/23 20:18:54 ink Exp $ */
+/* $Id: thinklang.yy,v 1.59 2004/08/01 09:57:40 misha Exp $ */
 
 %{
 #include "config.h"
@@ -235,7 +235,7 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
 	}
 	else if(strcmp($4.str, "widget") == 0)
 	{
-		chanarg->SetArgWidget((int)$6.floatval);
+		chanarg->SetArgWidget((thArg::WidgetType)$6.floatval);
 	}
 	else
 		printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);

@@ -1,19 +1,22 @@
-/* $Id: thArg.h,v 1.38 2004/07/29 06:24:35 ink Exp $ */
+/* $Id: thArg.h,v 1.39 2004/08/01 09:57:40 misha Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
 
-enum thArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
-/* immidiate value, pointer to another node, pointer to a channel arg, or
-   pointer to a note arg. */
 
 class thArg {
-	public:
+public:
 	thArg(const string &name, float *value, const int num);
 	thArg(const string &name, const string &node, const string &value);
 	thArg(const string &name, const string &chanarg);
-	thArg();
-	~thArg();
+	thArg(void);
+	~thArg(void);
+
+	enum thArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
+	/* immidiate value, pointer to another node, pointer to a channel arg, or
+	   pointer to a note arg. */
+
+	enum WidgetType { HIDE = 0, SLIDER };
 	
 	void SetArg(const string &name, float *value, const int num);
 	void SetAllocatedArg(const string &name, float *value, const int num);
@@ -29,13 +32,13 @@ class thArg {
 	const string &GetArgUnits (void) const { return argUnits; };
 	float GetArgMin (void) { return argMin; };
 	float GetArgMax (void) { return argMax; };
-	int GetArgWidget (void) { return argWidget; };
+	WidgetType GetArgWidget (void) { return argWidget; };
 
 	void SetArgLabel (const string &label) { argLabel = label; };
 	void SetArgUnits (const string &units) { argUnits = units; };
 	void SetArgMin (float min) { argMin = min; };
 	void SetArgMax (float max) { argMax = max; };
-	void SetArgWidget (int widget) { argWidget = widget; };
+	void SetArgWidget (WidgetType widget) { argWidget = widget; };
 
 	float *Allocate (unsigned int elements);
 
@@ -52,12 +55,13 @@ class thArg {
 						   note args */
 	thArgType argType; /* is this arg a value or a pointer? */
 
-/* Okay, a bit more info about the data */
+	/* Okay, a bit more info about the data */
 	float argMin, argMax;  /* for knobs and stuff, I'm sure it will be useful
 							  elsewhere, too */
-	int argWidget;  /* XXX We must #define widget types, like slider, knob,
-					   input box, etc etc etc...  This is optional, and will
-					   only really be used by io node args */
+	WidgetType argWidget;  /* XXX We must #define widget types, like slider,
+							   knob, input box, etc etc etc...  This is
+							   optional, and will only really be used by io
+							   node args */
 	/* if argWidget is 0, the parameter is not to be displayed in the UI */
 	string argLabel;  /* This will be displayed in the UI */
 	string argUnits;  /* This will be displayed too...  ms, Hz, sec etc... */

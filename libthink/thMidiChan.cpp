@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.74 2004/07/29 06:24:35 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.75 2004/08/01 09:57:40 misha Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -310,7 +310,7 @@ void thMidiChan::AssignChanArgPointers (thMod *mod)
 		{
 			curarg = j->second;
 
-			if(curarg->argType == ARG_CHANNEL)
+			if(curarg->argType == thArg::ARG_CHANNEL)
 			{
 				curarg->argPointArg = args[curarg->argPointName];
 			}

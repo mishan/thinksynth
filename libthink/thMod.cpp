@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.86 2004/07/29 06:24:35 ink Exp $ */
+/* $Id: thMod.cpp,v 1.87 2004/08/01 09:57:40 misha Exp $ */
 
 #include "config.h"
 
@@ -102,7 +102,7 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 		args = node->SetArg(argname, tmp, 1);
 	}
 	
-	while (args && (args->argType == ARG_POINTER) && node) { 
+	while (args && (args->argType == thArg::ARG_POINTER) && node) { 
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
 //		if (i != modnodes.end()) {
@@ -126,7 +126,7 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 		  }*/
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
-	if (args->argType == ARG_CHANNEL)
+	if (args->argType == thArg::ARG_CHANNEL)
 	{
 		args = args->argPointArg;
 	}
@@ -141,12 +141,12 @@ thArg *thMod::GetArg (thNode *node, int argindex)
 	
 	args = node->GetArg(argindex);
 
-	if (args->argType == ARG_CHANNEL)
+	if (args->argType == thArg::ARG_CHANNEL)
 	{
 		args = args->argPointArg;
 	}
 
-	while (args && (args->argType == ARG_POINTER) && node) { 
+	while (args && (args->argType == thArg::ARG_POINTER) && node) { 
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
 //		if (i != modnodes.end()) {
@@ -386,7 +386,7 @@ void thMod::SetPointers (void)
 			}
 
 			/* if the thArg is a pointer, set argPointNodeID to the node's ID */
-			if(curarg && curarg->argType == ARG_POINTER)
+			if(curarg && curarg->argType == thArg::ARG_POINTER)
 			{
 				node = FindNode(curarg->argPointNode);
 				
@@ -482,7 +482,7 @@ void thMod::BuildSynthTreeHelper2(const map<string, thArg*> &argtree, thNode *cu
 			fprintf(stderr, "thMod::BuildSynthTreeHelper2: data points to NULL\n");
 		}
 
-		if(data && data->argType == ARG_POINTER)
+		if(data && data->argType == thArg::ARG_POINTER)
 		{
 			node = nodeindex[data->argPointNodeID];
 

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.9 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.10 2004/08/01 09:57:40 misha Exp $ */
 
 #include "config.h"
 
@@ -18,6 +18,7 @@
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
+#include "ArgSlider.h"
 
 extern Glib::Mutex *synthMutex;
 
@@ -25,7 +26,7 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 	: patchSel (synth)
 {
 	set_title("thinksynth");
-	set_default_size(320, 240);
+	set_default_size(520, 360);
 
 	realSynth = synth;
 
@@ -76,10 +77,47 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 
 	add(vbox);
 
+	notebook.set_scrollable();
+
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
+	vbox.pack_start(notebook, Gtk::PACK_SHRINK);
 
 //	menuBar.accelerate(keyboardWin);
 	menuBar.accelerate(patchSel);
+
+	/* populate notebook */
+	int chans = realSynth->GetChannelCount();
+	std::map<int, string> *patchList = realSynth->GetPatchlist();
+	for (int i = 0; i < chans; i++)
+	{
+		std::map<string, thArg *> args = realSynth->GetChanArgs(i);
+		Gtk::Table *table = new Gtk::Table(args.size(), 2);
+		string tabName = (*patchList)[i];
+		tabName = basename(tabName.c_str());
+		int row = 0;
+
+		/* populate each tab */
+		for (std::map<string, thArg *>::iterator j = args.begin();
+			 j != args.end(); j++)
+		{
+			string argName = j->first;
+			thArg *arg = j->second;
+
+			if (arg->argWidget != thArg::HIDE)
+			{
+				Gtk::Label *label = new Gtk::Label(argName);
+				ArgSlider *slider = new ArgSlider(arg);
+
+
+				table->attach(*label, 0, 1, row, row+1);
+				table->attach(*slider, 1, 2, row, row+1, Gtk::EXPAND|Gtk::FILL,
+							  Gtk::EXPAND|Gtk::FILL);
+				row++;
+			}
+		}
+
+		notebook.prepend_page(*table, tabName);
+	}
 
 	show_all_children();
 }
