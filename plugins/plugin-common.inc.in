@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.18 2003/04/27 20:02:08 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.19 2003/04/27 20:13:19 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -9,7 +9,7 @@ plugin_path=@plugin_path@
 PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
 USE_SONAME=@USE_SONAME@
 
-all: $(PLUGIN_NAMES:%:%@SHARED_SUFFIX@)
+all: $(PLUGIN_NAMES:%=%@SHARED_SUFFIX@)
 
 %@SHARED_SUFFIX@: %.cpp
 ifeq ($(USE_SONAME),yes)
