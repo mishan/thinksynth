@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.99 2003/09/16 00:34:23 misha Exp $ */
+/* $Id: main.cpp,v 1.100 2003/09/16 00:51:17 ink Exp $ */
 
 #include "config.h"
 
@@ -163,6 +163,23 @@ int main (int argc, char *argv[])
 	printf ("Writing %s\n",(char *)outputfname.c_str());
 	// for each window
 	for(i = 0; i < processwindows; i++) {
+
+	  /* XXX DEBUGGING STUFF XXX */
+
+	  if(i == 10) { Synth.AddNote(string("chan1"), notetoplay+4, TH_MAX); }
+	  if(i == 20) { Synth.AddNote(string("chan1"), notetoplay+7, TH_MAX); }
+	  if(i == 30) { Synth.AddNote(string("chan1"), notetoplay+4, TH_MAX); }
+	  if(i == 40) { Synth.AddNote(string("chan1"), notetoplay, TH_MAX); }
+	  if(i == 50) { Synth.AddNote(string("chan1"), notetoplay+3, TH_MAX); }
+	  if(i == 60) { Synth.AddNote(string("chan1"), notetoplay+7, TH_MAX); }
+	  if(i == 70) { Synth.AddNote(string("chan1"), notetoplay+3, TH_MAX); }
+	  if(i == 80) { Synth.AddNote(string("chan1"), notetoplay, TH_MAX); }
+	  if(i == 90) { Synth.AddNote(string("chan1"), notetoplay+3, TH_MAX); }
+	  if(i == 100) { Synth.AddNote(string("chan1"), notetoplay+8, TH_MAX); }
+	  if(i == 110) { Synth.AddNote(string("chan1"), notetoplay+3, TH_MAX); }
+	  if(i == 120) { Synth.AddNote(string("chan1"), notetoplay, TH_MAX); }
+
+
 		Synth.Process();
 		// changed on 9/15/03 by brandon lewis
 		// all thAudio classes will work with floating point buffers

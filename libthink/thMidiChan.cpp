@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.50 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.51 2003/09/16 00:51:17 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -86,6 +86,7 @@ void thMidiChan::Process (void)
 		mod = data->GetMod();
 		amp = args["amp"];
 		play = mod->GetArg("play");
+		delnote = 0;
 
 		for(i=0;i<channels;i++) {
 			argname = OUTPUTPREFIX;
@@ -95,7 +96,7 @@ void thMidiChan::Process (void)
 				index = i+(j*channels);
 				output[index] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 				if(play && (*play)[j] == 0) {
-					delnote = 1;
+				  delnote = 1;
 				}
 				/* output += channel output * (amplitude/amplitude maximum) */
 				if(output[index] > TH_MAX) {  /* clipping! */
