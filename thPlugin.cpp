@@ -57,18 +57,18 @@ void thPlugin::SetDesc (const char *desc)
 	plugDesc = strdup(desc);
 }
 
-int thPlugin::ModuleLoad (void)
+int thPlugin::ModuleLoad (char *filename)
 {
 	int (*module_init) (int version, thPlugin *plugin);
 
-	plugHandle = dlopen(plugName, RTLD_NOW);
+	plugHandle = dlopen(filename, RTLD_NOW);
 
 	if(plugHandle == NULL) {
 #ifdef HAVE_DLERROR
 		fprintf(stderr, "thPlugin::ModuleLoad: %s\n", (char *)dlerror());
 #else
 		fprintf(stderr, "thPlugin::ModuleLoad: %s%s\n", 
-				"Could not load plugin: ", plugName);
+				"Could not load plugin: ", filename);
 #endif /* HAVE_DLERROR */
 		return 1;
 	}

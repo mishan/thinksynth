@@ -21,7 +21,7 @@ private:
 	void *plugHandle;
 	char *plugDesc;
 
-	int ModuleLoad (void);
+	int ModuleLoad (char *filename);
 };
 
 #endif /* TH_PLUGIN_H */
