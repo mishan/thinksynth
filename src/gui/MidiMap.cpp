@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.11 2004/11/09 09:24:38 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.12 2004/11/09 09:37:40 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,6 +32,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 	set_title("MIDI Controller Routing");
 
 	mainVBox_ = manage(new Gtk::VBox);
+	inputVBox_ = manage(new Gtk::VBox);
 	newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
 	destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
 	detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
@@ -75,9 +76,9 @@ MidiMap::MidiMap (thSynth *argsynth)
 	add(*mainVBox_);
 
 	newConnectionHBox_->pack_start(*channelLbl_, Gtk::PACK_EXPAND_WIDGET);
-	newConnectionHBox_->pack_start(*channelSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox_->pack_start(*channelSpinBtn_, Gtk::PACK_SHRINK);
 	newConnectionHBox_->pack_start(*controllerLbl_, Gtk::PACK_EXPAND_WIDGET);
-	newConnectionHBox_->pack_start(*controllerSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox_->pack_start(*controllerSpinBtn_, Gtk::PACK_SHRINK);
 	newConnectionFrame_->add(*newConnectionHBox_);
 
 	destinationHBox_->pack_start(*destChanCombo_, Gtk::PACK_EXPAND_WIDGET);
@@ -88,9 +89,9 @@ MidiMap::MidiMap (thSynth *argsynth)
 	srcDestHBox_->pack_start(*destinationFrame_, Gtk::PACK_EXPAND_WIDGET);
 
 	detailsHBox_->pack_start(*minLbl_, Gtk::PACK_EXPAND_WIDGET);
-	detailsHBox_->pack_start(*minSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	detailsHBox_->pack_start(*minSpinBtn_, Gtk::PACK_SHRINK);
 	detailsHBox_->pack_start(*maxLbl_, Gtk::PACK_EXPAND_WIDGET);
-	detailsHBox_->pack_start(*maxSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	detailsHBox_->pack_start(*maxSpinBtn_, Gtk::PACK_SHRINK);
 	detailsFrame_->add(*detailsHBox_);
 
 	connectScroll_.add(connectView_);
@@ -111,9 +112,11 @@ MidiMap::MidiMap (thSynth *argsynth)
 	connectView_.append_column("Instrument", connectViewCols_.instrument);
 	connectView_.append_column("Parameter", connectViewCols_.argName);
 
-	mainVBox_->pack_start(*srcDestHBox_, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox_->pack_start(*detailsFrame_, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
+	inputVBox_->pack_start(*srcDestHBox_, Gtk::PACK_EXPAND_WIDGET);
+	inputVBox_->pack_start(*detailsFrame_, Gtk::PACK_EXPAND_WIDGET);
+	inputVBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
+
+	mainVBox_->pack_start(*inputVBox_, Gtk::PACK_SHRINK);
 	mainVBox_->pack_start(*connectFrame_, Gtk::PACK_EXPAND_WIDGET);
 
 	show_all_children();

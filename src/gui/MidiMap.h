@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.9 2004/11/09 09:24:38 ink Exp $ */
+/* $Id: MidiMap.h,v 1.10 2004/11/09 09:37:40 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -66,6 +66,7 @@ protected:
 	Gtk::Adjustment *maxAdj_;
 
 	Gtk::VBox *mainVBox_;
+	Gtk::VBox *inputVBox_;
 	Gtk::HBox *srcDestHBox_;
 	Gtk::HBox *newConnectionHBox_;
 	Gtk::Frame *newConnectionFrame_;
