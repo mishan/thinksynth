@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.56 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.57 2004/04/18 06:58:55 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -59,7 +59,8 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 /*	if(i == notes.end()) {  
 these lines stopped new notes while old ones were still finishing.
 maybe we should keep track of these better */
-		midinote = new thMidiNote(modnode, note, velocity);
+/* XXXXXXXXXXXXXXXXXXX: THIS IS BAD   WE MUST REMAP ALLLLL MIDI VALUS AT THE SAME TIME (but we only really have this one right now) */
+		midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
 		notes[id] = midinote;
 /*	}
 	else midinote = i->second; */
