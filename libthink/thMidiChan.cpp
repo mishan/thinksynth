@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.60 2004/05/04 05:18:38 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.61 2004/05/04 05:42:12 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -125,7 +125,7 @@ void thMidiChan::Process (void)
 			}
 		}
 		
-		if(play && (*play)[j] == 0) {
+		if(play && (*play)[windowlength - 1] == 0) {
 			delete data;
 			notes.erase(iter);
 		}
@@ -153,7 +153,7 @@ void thMidiChan::Process (void)
 			}
 		}
 		
-		if(play && (*play)[j] == 0) {
+		if(play && (*play)[windowlength - 1] == 0) {
 			printf("Erasing!\n");
 			decaying.erase(diter);
 			delete data;
