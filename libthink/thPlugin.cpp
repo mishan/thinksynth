@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.32 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.33 2003/05/12 02:19:30 misha Exp $ */
 
 #include "config.h"
 
@@ -26,6 +26,8 @@ thPlugin::thPlugin (const char *path)
 	plugPath = strdup(path);
 	plugDesc = NULL;
 	plugState = thNotLoaded;
+
+	plugCallback = NULL;
 
 	if(ModuleLoad() == 1) { /* fail = return (1) */
 		fprintf(stderr, "Couldn't load plugin %s\n", basename((char*)path));
@@ -58,7 +60,9 @@ thPlugin::~thPlugin ()
 
 void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	plugCallback(node, mod, windowlen);
+	if(plugCallback) {
+		plugCallback(node, mod, windowlen);
+	}
 }
 
 void thPlugin::SetDesc (const char *desc)

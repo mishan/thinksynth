@@ -1,11 +1,12 @@
 name "test";
 
-node ionode test::test {
+node ionode {
 	out0 = mixer->out;
 	out1 = mixer->out;
     channels = 2;
     play = env->play;
-	};
+};
+
 node freq misc::midi2freq {
 	note = ionode->note;
 	};

@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.70 2003/05/11 08:06:24 aaronl Exp $ */
+/* $Id: thMod.cpp,v 1.71 2003/05/12 02:19:30 misha Exp $ */
 
 #include "config.h"
 
@@ -107,6 +107,7 @@ void thMod::Process (unsigned int windowlen)
 {
 	thListNode *listnode;
 	thNode *data;
+	thPlugin *plug = NULL;
 
 	ionode->SetRecalc(false);
 
@@ -117,8 +118,9 @@ void thMod::Process (unsigned int windowlen)
 		}
 	}
 
-	/* FIRE! */
-	ionode->GetPlugin()->Fire(ionode, this, windowlen);
+	if((plug = ionode->GetPlugin())) {
+		plug->Fire(ionode, this, windowlen);
+	}
 }
 
 void thMod::ProcessHelper(unsigned windowlen, thNode *node)
