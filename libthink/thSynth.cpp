@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.57 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.58 2003/05/11 09:05:29 aaronl Exp $ */
 
 #include "config.h"
 
@@ -52,7 +52,9 @@ void thSynth::LoadMod(const char *filename)
 	parsenode = new thNode("newnode", NULL);
 	
 	yyparse();
-	
+
+	fclose(yyin);
+
 	delete parsenode;
 
 	parsemod->BuildSynthTree();

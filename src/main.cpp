@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.82 2003/05/11 01:52:03 ink Exp $ */
+/* $Id: main.cpp,v 1.83 2003/05/11 09:05:29 aaronl Exp $ */
 
 #include "config.h"
 
@@ -172,4 +172,5 @@ syntax:
 
 	free(filename);
 	free(dspname);
+	free(plugin_path);
 }

@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.37 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.38 2003/05/11 09:05:29 aaronl Exp $ */
 
 #include "config.h"
 
@@ -25,6 +25,7 @@ thPluginManager::thPluginManager ()
 thPluginManager::~thPluginManager ()
 {
 	UnloadPlugins();
+	delete plugins;
 }
 
 /* Caller must free!!! */
