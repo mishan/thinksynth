@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.41 2003/04/27 04:31:06 joshk Exp $ */
+/* $Id: thMod.cpp,v 1.42 2003/04/27 04:32:13 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -245,10 +245,14 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 	thArgValue *data = (thArgValue *)((thArg *)argtree->GetData())->GetArg();
 	thNode *node;
 
+	BuildSynthTreeHelper2(argtree->GetLeft(), currentnode);
+
 	if(data->argType == ARG_POINTER) {
 		node = FindNode(data->argPointNode);
 		if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
 			BuildSynthTreeHelper(currentnode, data->argPointNode);
 		}
 	}
+
+	BuildSynthTreeHelper2(argtree->GetRight(), currentnode);
 }
