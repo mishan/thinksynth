@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.10 2003/04/25 23:05:29 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.11 2003/04/25 23:25:53 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -10,7 +10,7 @@ LDFLAGS = -lm -lc
 
 all:
 	for i in $(PLUGIN_NAMES); do \
-		make $$i.so THIS_PLUGIN=$$i ;\
+		make -S $$i.so THIS_PLUGIN=$$i ;\
 	done
 	
 ${THIS_PLUGIN}.so: ${THIS_PLUGIN}.cpp

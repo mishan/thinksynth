@@ -1,2 +1,2 @@
-PLUGIN_NAME=test
+PLUGIN_NAMES=test
 include ../plugin-common.inc
