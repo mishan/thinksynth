@@ -8,18 +8,18 @@ node ionode {
 
 	notemin = 10;
 	notemax = 60;
-	toned = 3500;
+	toned = 4500;
 	tonemid = 100;
-	ampd = 4000;
+	ampd = 6000;
 	ampmid = 200;
-	release = 10000;
+	release = 3000;
 
 	cutoff = 0.25;
 	res = 0.95;
 	shaper = 2;
 
 	toneadd = 4; # How much to add for each osc (in halfsteps)
-	dmul = 0.8; # How much shorter than the last
+	dmul = 0.5; # How much shorter than the last
 
 	fade1 = 0.4; # Osc 1 and 2
 	fade2 = 0.4; # Osc 3 and 4
@@ -66,7 +66,7 @@ node tonerelease math::add {  # tone envelope should be longer than amp
 };
 
 node dmul1 math::mul {
-	in0 = ionode->release;
+	in0 = ionode->ampd;
 	in1 = ionode->dmul;
 };
 
