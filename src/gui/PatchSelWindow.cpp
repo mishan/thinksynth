@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.46 2004/11/26 01:14:15 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.47 2004/11/26 03:05:14 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -269,13 +269,18 @@ void PatchSelWindow::SavePatch (void)
 
 		if(fileSel.run() == Gtk::RESPONSE_OK)
 		{
+			char *file = strdup(fileSel.get_filename().c_str());
+			gthPrefs *prefs = NULL;
+			string **vals = NULL;
+			
 			patchManager->savePatch(fileSel.get_filename(),
 									(*iter)[patchViewCols.chanNum]-1);
 
 			/* update prefs file "prevDir" info */
 			fileEntry.set_text(fileSel.get_filename());
 
-			char *file = strdup(fileSel.get_filename().c_str());
+			/* update patch window with new name */
+			(*iter)[patchViewCols.dspName] = basename(file);
 
 			if (prevDir)
 				free (prevDir);
@@ -283,11 +288,11 @@ void PatchSelWindow::SavePatch (void)
 			prevDir = g_strdup_printf("%s/", dirname(file));
 			free (file);
 
-			string **vals = new string *[2];
+			vals = new string *[2];
 			vals[0] = new string(prevDir);
 			vals[1] = NULL;
 		
-			gthPrefs *prefs = gthPrefs::instance();
+			prefs = gthPrefs::instance();
 			prefs->Set("patchdir", vals);
 		}
 	}
