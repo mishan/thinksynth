@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thAudioBuffer.h,v 1.5 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef HAVE_TH_AUDIOBUFFER_H
 #define HAVE_TH_AUDIOBUFFER_H 1

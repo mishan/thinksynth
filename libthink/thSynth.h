@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thSynth.h,v 1.18 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H

@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thMod.h,v 1.22 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1

@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thMidiChan.cpp,v 1.12 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"

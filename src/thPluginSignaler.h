@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thPluginSignaler.h,v 1.4 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_PLUGIN_SIGNALER_H
 #define TH_PLUGIN_SIGNALER_H 1

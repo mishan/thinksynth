@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thNode.cpp,v 1.34 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"

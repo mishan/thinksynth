@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thAudio.h,v 1.4 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_AUDIO_H
 #define TH_AUDIO_H 1

@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: think.h,v 1.5 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef THINK_H
 #define THINK_H

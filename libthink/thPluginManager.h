@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thPluginManager.h,v 1.7 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1

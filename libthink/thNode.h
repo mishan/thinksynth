@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thNode.h,v 1.26 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1

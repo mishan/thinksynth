@@ -1,4 +1,4 @@
-/* $Id */
+/* $Id: thArg.h,v 1.12 2003/04/25 07:18:42 joshk Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
