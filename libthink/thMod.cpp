@@ -1,8 +1,6 @@
-/* $Id: thMod.cpp,v 1.68 2003/05/11 05:35:24 ink Exp $ */
+/* $Id: thMod.cpp,v 1.69 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

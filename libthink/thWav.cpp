@@ -1,8 +1,6 @@
-/* $Id: thWav.cpp,v 1.32 2003/05/11 04:58:44 aaronl Exp $ */
+/* $Id: thWav.cpp,v 1.33 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <unistd.h>

@@ -1,8 +1,6 @@
-/* $Id: thAudioBuffer.cpp,v 1.9 2003/04/25 08:17:53 misha Exp $ */
+/* $Id: thAudioBuffer.cpp,v 1.10 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

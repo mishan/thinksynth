@@ -1,8 +1,6 @@
-/* $Id: thNode.cpp,v 1.48 2003/05/04 01:23:10 ink Exp $ */
+/* $Id: thNode.cpp,v 1.49 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

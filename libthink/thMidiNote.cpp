@@ -1,8 +1,6 @@
-/* $Id: thMidiNote.cpp,v 1.23 2003/05/08 00:53:33 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.24 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

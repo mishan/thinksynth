@@ -1,8 +1,6 @@
-/* $Id: thBSTree.cpp,v 1.30 2003/05/11 06:00:59 aaronl Exp $ */
+/* $Id: thBSTree.cpp,v 1.31 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

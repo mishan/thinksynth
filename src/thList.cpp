@@ -1,8 +1,6 @@
-/* $Id: thList.cpp,v 1.11 2003/04/26 04:42:06 misha Exp $ */
+/* $Id: thList.cpp,v 1.12 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

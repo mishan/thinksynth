@@ -1,8 +1,6 @@
-/* $Id: thPlugin.cpp,v 1.31 2003/05/06 08:41:46 aaronl Exp $ */
+/* $Id: thPlugin.cpp,v 1.32 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

@@ -1,8 +1,6 @@
-/* $Id: thMidiChan.cpp,v 1.43 2003/05/11 04:56:05 joshk Exp $ */
+/* $Id: thMidiChan.cpp,v 1.44 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <stdlib.h>

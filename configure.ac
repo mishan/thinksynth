@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.44 2003/05/11 04:49:28 joshk Exp $
+dnl $Id: configure.ac,v 1.45 2003/05/11 06:23:46 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -53,7 +53,7 @@ if test "_$sedpath" = _; then
 	AC_MSG_ERROR("Cannot find sed: I need it\!")
 fi
 
-CXXFLAGS="-Wall -pedantic -ffast-math -DHAVE_CONFIG_H"
+CXXFLAGS="-Wall -pedantic -ffast-math"
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
@@ -134,7 +134,7 @@ AC_HELP_STRING([--disable-debug],[print debug messages to stdout (default on)]),
 
 dnl Debug is disabled:
 [
-	CXXFLAGS="$CXXFLAGS -O2 -funroll-loops"
+	CXXFLAGS="$CXXFLAGS -O2"
 	debug=no
 ],
 

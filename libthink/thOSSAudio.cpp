@@ -1,8 +1,6 @@
-/* $Id: thOSSAudio.cpp,v 1.16 2003/04/25 21:22:52 joshk Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.17 2003/05/11 06:23:46 joshk Exp $ */
 
-#ifdef HAVE_CONFIG_H
 #include "config.h"
-#endif
 
 #include <stdio.h>
 #include <string.h>
