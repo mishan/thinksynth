@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.86 2004/05/04 04:33:49 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.87 2004/05/04 08:08:42 misha Exp $ */
 
 #include "config.h"
 
@@ -340,7 +340,7 @@ int thSynth::DelNote (int channum, float note)
 	*pbuf = 0;
 
 	pthread_mutex_lock(synthMutex);
-
+	
 	chan->SetNoteArg ((int)note, "trigger", pbuf, 1);
 
 	pthread_mutex_unlock(synthMutex);

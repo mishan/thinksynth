@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.170 2004/05/04 04:33:49 misha Exp $ */
+/* $Id: main.cpp,v 1.171 2004/05/04 08:08:42 misha Exp $ */
 
 #include "config.h"
 
@@ -75,11 +75,10 @@ void process_synth (void)
 	Synth.Process();
 //	mainMutex->unlock();
 
-	float *synthbuf = Synth.GetOutput();
+#if 0
+	float *synthbuffer = Synth.GetOutput();
 	int l = Synth.GetWindowLen();
 
-
-#if 0
 	for (int i = 0; i < l; i++)
 	{
 		if (!synthbuffer[i])
@@ -109,8 +108,8 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 //	mainMutex->unlock();
 
 	/* XXX: we should be using emit() but this fucks up */
-//	process->emit();
-	process_synth ();
+	process->emit();
+//	process_synth ();
 }
 
 int playback_callback (jack_nframes_t nframes, void *arg)
@@ -340,10 +339,9 @@ int main (int argc, char *argv[])
 	}
 #endif 
 
-	Glib::TimeVal t(0, 500);
-
-	while (!exitCond->timed_wait(*mainMutex, t))
+	while (1)
 	{
+//		debug("iterating");
 		mainContext->iteration (true); /* blocking */
 	}
 

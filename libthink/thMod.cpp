@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.80 2004/04/10 02:51:39 aaronl Exp $ */
+/* $Id: thMod.cpp,v 1.81 2004/05/04 08:08:42 misha Exp $ */
 
 #include "config.h"
 
@@ -211,11 +211,20 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 	node->GetPlugin()->Fire(node, this, windowlen);
 }
 
-void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active plugins */
+/* reset the recalc flag for nodes with active plugins */
+void thMod::SetActiveNodes(void)
 {
-	for(list<thNode*>::const_iterator i = activelist.begin(); i != activelist.end(); i++) {
+	for (list<thNode*>::const_iterator i = activelist.begin();
+		 i != activelist.end(); ++i)
+	{
 		thNode *data = *i;
-		if(data->GetRecalc() == false) {
+		if (!data)
+		{
+			debug("NULL data!");
+			continue;
+		}
+		if(data->GetRecalc() == false)
+		{
 			data->SetRecalc(true);
 			SetActiveNodesHelper(data);
 		}

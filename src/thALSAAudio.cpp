@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.12 2004/05/04 04:05:59 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.13 2004/05/04 08:08:42 misha Exp $ */
 
 #include "config.h"
 
@@ -288,15 +288,15 @@ bool thALSAAudio::pollAudioEvent (Glib::IOCondition)
 
 void thALSAAudio::main (void)
 {
-	Glib::RefPtr<Glib::MainContext> lomainContext = Glib::MainContext::create();
+	Glib::RefPtr<Glib::MainContext> loMain = Glib::MainContext::create();
 	
-	lomainContext->signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
-									   pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH);
-	
+	loMain->signal_io().connect(SigC::slot(*this,
+										   &thALSAAudio::pollAudioEvent),
+									   pfds[0].fd, Glib::IO_OUT,
+								Glib::PRIORITY_HIGH);
 
 	while (1)
 	{
-
 #if 0
 		if (poll(pfds, nfds, 5000) > 0)
 		{
@@ -309,7 +309,8 @@ void thALSAAudio::main (void)
 			}
 		}
 #endif
-
-		lomainContext->iteration (true);
+		
+//		debug("iterating");
+		loMain->iteration (true);
 	}
 }
