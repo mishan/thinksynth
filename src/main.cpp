@@ -292,7 +292,8 @@ int main (int argc, char *argv[])
 			case 'p':
 			{
 				if (optarg[strlen(optarg)-1] != '/') {
-					plugin_path = optarg + '/';
+					plugin_path = optarg;
+					plugin_path += '/';
 				}
 				else {
 					plugin_path = optarg;
