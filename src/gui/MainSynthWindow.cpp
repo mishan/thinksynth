@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.54 2004/11/26 01:15:11 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.55 2004/11/26 05:15:17 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -523,10 +523,15 @@ void MainSynthWindow::populate (void)
 
 void MainSynthWindow::onPatchesChanged (void)
 {
+	int pagenum = notebook.get_current_page();
+
 	notebook.hide_all();
 	notebook.pages().clear();
 	populate();
-	notebook.show_all();	
+	notebook.show_all();
+
+	if (pagenum != -1)
+		notebook.set_current_page(pagenum);
 }
 
 void MainSynthWindow::onPatchLoadError (const char* failure)
@@ -626,6 +631,7 @@ void MainSynthWindow::onBrowseButton (void)
 			notebook.pages().clear();
 			populate();
 			notebook.show_all();
+			notebook.set_current_page(pagenum);
 		}
 		else
 		{
