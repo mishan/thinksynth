@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Applies an impulse response";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,15 +36,15 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_IMPULSE] = plugin->RegArg("impulse");
-	args[IN_MIX] = plugin->RegArg("mix");
-	args[INOUT_BUFFER] = plugin->RegArg("buffer");
-	args[INOUT_BUFPOS] = plugin->RegArg("bufpos");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_IMPULSE] = plugin->regArg("impulse");
+	args[IN_MIX] = plugin->regArg("mix");
+	args[INOUT_BUFFER] = plugin->regArg("buffer");
+	args[INOUT_BUFPOS] = plugin->regArg("bufpos");
+	args[OUT_ARG] = plugin->regArg("out");
 	return 0;
 }
 
@@ -61,18 +61,18 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float impulse, mix;
 	unsigned int impulse_len;
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_impulse = mod->GetArg(node, args[IN_IMPULSE]);
-	in_mix = mod->GetArg(node, args[IN_MIX]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_impulse = mod->getArg(node, args[IN_IMPULSE]);
+	in_mix = mod->getArg(node, args[IN_MIX]);
 
 	impulse_len = in_impulse->getLen();
 
-	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
-	inout_bufpos = mod->GetArg(node, args[INOUT_BUFPOS]);
+	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
 	buffer = inout_buffer->Allocate(impulse_len);
 	bufpos = inout_bufpos->Allocate(1);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {

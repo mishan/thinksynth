@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.48 2004/08/17 02:03:04 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -87,7 +87,7 @@ int thPluginManager::LoadPlugin (const string &name)
 
 	plugin = new thPlugin (path);
 
-	if (plugin->GetState() == thNotLoaded) {	/* something messed up */
+	if (plugin->getState() == thPlugin::NOTLOADED) { /* something messed up */
 		delete plugin;
 		return 1;
 	}

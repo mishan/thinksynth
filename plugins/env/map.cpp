@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.13 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,7 +27,7 @@ enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
 int args[OUT_ARG + 1];
 
 char		*desc = "Maps a stream to a new value range";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -35,15 +35,15 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_INMIN] = plugin->RegArg("inmin");
-	args[IN_INMAX] = plugin->RegArg("inmax");
-	args[IN_OUTMIN] = plugin->RegArg("outmin");
-	args[IN_OUTMAX] = plugin->RegArg("outmax");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_INMIN] = plugin->regArg("inmin");
+	args[IN_INMAX] = plugin->regArg("inmax");
+	args[IN_OUTMIN] = plugin->regArg("outmin");
+	args[IN_OUTMAX] = plugin->regArg("outmax");
+	args[IN_ARG] = plugin->regArg("in");
+	args[OUT_ARG] = plugin->regArg("out");
 
 	return 0;
 }
@@ -60,14 +60,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float percent;
 	float val_imin, val_imax, val_omin, val_omax;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_min = mod->GetArg(node, args[IN_INMIN]);
-	in_max = mod->GetArg(node, args[IN_INMAX]);
-	out_min = mod->GetArg(node, args[IN_OUTMIN]);
-	out_max = mod->GetArg(node, args[IN_OUTMAX]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_min = mod->getArg(node, args[IN_INMIN]);
+	in_max = mod->getArg(node, args[IN_INMAX]);
+	out_min = mod->getArg(node, args[IN_OUTMIN]);
+	out_max = mod->getArg(node, args[IN_OUTMAX]);
 
 	in_arg->GetBuffer(buf_in, windowlen);
 	in_min->GetBuffer(buf_inmin, windowlen);

@@ -1,4 +1,4 @@
-/* $Id: fade.cpp,v 1.13 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,7 +27,7 @@ enum {IN_0, IN_1, IN_FADE, OUT};
 int args[OUT+1];
 
 char		*desc = "Fades between two streams";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -35,13 +35,13 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_0] = plugin->RegArg("in0");
-	args[IN_1] = plugin->RegArg("in1");
-	args[IN_FADE] = plugin->RegArg("fade");
-	args[OUT] = plugin->RegArg("out");
+	args[IN_0] = plugin->regArg("in0");
+	args[IN_1] = plugin->regArg("in1");
+	args[IN_FADE] = plugin->regArg("fade");
+	args[OUT] = plugin->regArg("out");
 
 	return 0;
 }
@@ -56,15 +56,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float val_fade;
 
-	in_0 = mod->GetArg(node, args[IN_0]);
-	in_1 = mod->GetArg(node, args[IN_1]);
-	in_fade = mod->GetArg(node, args[IN_FADE]);
+	in_0 = mod->getArg(node, args[IN_0]);
+	in_1 = mod->getArg(node, args[IN_1]);
+	in_fade = mod->getArg(node, args[IN_FADE]);
 
 	in_0->GetBuffer(buf_in0, windowlen);
 	in_1->GetBuffer(buf_in1, windowlen);
 	in_fade->GetBuffer(buf_fade, windowlen);
 
-	out_arg = mod->GetArg(node, args[OUT]);
+	out_arg = mod->getArg(node, args[OUT]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {

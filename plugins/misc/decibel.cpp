@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Converts dB to an amplitude value. Arg should be <= 0.";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,11 +37,11 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[DB] = plugin->RegArg("db");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[DB] = plugin->regArg("db");
+	args[OUT_ARG] = plugin->regArg("out");
 	return 0;
 }
 
@@ -53,9 +53,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	unsigned int i, argnum;
 
-	db = mod->GetArg(node, args[DB]);
+	db = mod->getArg(node, args[DB]);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	argnum = (unsigned int)db->getLen();
 	out = out_arg->Allocate(argnum);
 

@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Converts a frequency to wavelength in samples";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,11 +37,11 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[OUT_ARG] = plugin->regArg("out");
 	return 0;
 }
 
@@ -53,9 +53,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	unsigned int i, argnum;
 
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
+	in_freq = mod->getArg(node, args[IN_FREQ]);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	argnum = (unsigned int) in_freq->getLen();
 	out = out_arg->Allocate(argnum);
 

@@ -1,4 +1,4 @@
-/* $Id: midi2range.cpp,v 1.4 2004/10/01 08:52:26 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,7 +30,7 @@ enum {IN_ARG, OUT_ARG};
 int args[OUT_ARG + 1];
 
 char		*desc = "Maps a midi controller value from 0 to TH_MAX";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,11 +38,11 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_ARG] = plugin->regArg("in");
+	args[OUT_ARG] = plugin->regArg("out");
 
 	return 0;
 }
@@ -55,13 +55,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	unsigned int i, argnum;
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	argnum = (unsigned int) in_arg->getLen();
 	out = out_arg->Allocate(argnum);
 
-	for(i=0;i<argnum;i++) {
+	for(i = 0; i < argnum; i++)
+	{
 		out[i] = (*in_arg)[i] * CONSTANT;
 	}
 

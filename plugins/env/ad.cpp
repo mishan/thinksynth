@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "ADSR Envelope Generator";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,16 +37,17 @@ int args[IN_RESET + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_OUT] = plugin->RegArg("out");
-	args[OUT_PLAY] = plugin->RegArg("play");
-	args[INOUT_POSITION] = plugin->RegArg("position");
-	args[IN_A] = plugin->RegArg("a");
-	args[IN_D] = plugin->RegArg("d");
-	args[IN_P] = plugin->RegArg("p");
-	args[IN_RESET] = plugin->RegArg("reset");
+	args[OUT_OUT] = plugin->regArg("out");
+	args[OUT_PLAY] = plugin->regArg("play");
+	args[INOUT_POSITION] = plugin->regArg("position");
+	args[IN_A] = plugin->regArg("a");
+	args[IN_D] = plugin->regArg("d");
+	args[IN_P] = plugin->regArg("p");
+	args[IN_RESET] = plugin->regArg("reset");
+
 	return 0;
 }
 
@@ -66,9 +67,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	int phase;
 	unsigned int i;
  
-	out_out = mod->GetArg(node, args[OUT_OUT]);
-	out_play = mod->GetArg(node, args[OUT_PLAY]);
-	inout_position = mod->GetArg(node, args[INOUT_POSITION]);
+	out_out = mod->getArg(node, args[OUT_OUT]);
+	out_play = mod->getArg(node, args[OUT_PLAY]);
+	inout_position = mod->getArg(node, args[INOUT_POSITION]);
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
@@ -77,10 +78,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_out->Allocate(windowlen);
 	play = out_play->Allocate(windowlen);
 
-	in_a = mod->GetArg(node, args[IN_A]);
-	in_d = mod->GetArg(node, args[IN_D]);
-	in_p = mod->GetArg(node, args[IN_P]);
-	in_reset = mod->GetArg(node, args[IN_RESET]);
+	in_a = mod->getArg(node, args[IN_A]);
+	in_d = mod->getArg(node, args[IN_D]);
+	in_p = mod->getArg(node, args[IN_P]);
+	in_reset = mod->getArg(node, args[IN_RESET]);
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;

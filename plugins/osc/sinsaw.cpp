@@ -26,7 +26,7 @@
 #include "think.h"
 
 char		*desc = "Sin-Saw oscillator";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 enum { OUT_ARG, IN_FREQ, IN_FACTOR, INOUT_LAST };
 
@@ -40,13 +40,13 @@ void module_cleanup (struct module *mod)
  * instance. */
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_FACTOR] = plugin->RegArg("factor");
-	args[INOUT_LAST] = plugin->RegArg("last");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_FACTOR] = plugin->regArg("factor");
+	args[INOUT_LAST] = plugin->regArg("last");
 
 	return 0;
 }
@@ -63,15 +63,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	out_last = inout_last->Allocate(1);
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
-	in_factor = mod->GetArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
+	in_freq = mod->getArg(node, args[IN_FREQ]);
+	in_factor = mod->getArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = samples * (1.0/(*in_freq)[i]);

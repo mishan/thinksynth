@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Produces Random Signal";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,12 +38,12 @@ int args[IN_SAMPLE + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_SAMPLE] = plugin->RegArg("sample");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_SAMPLE] = plugin->regArg("sample");
 	return 0;
 }
 
@@ -58,14 +58,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg* out_arg;
 	thArg* inout_last;  /* So sample can be consistant over windows */
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	last = (*inout_last)[1];
 	out_last = inout_last->Allocate(1);
 	out = out_arg->Allocate(windowlen);
 
-	in_sample = mod->GetArg(node, args[IN_SAMPLE]);
+	in_sample = mod->getArg(node, args[IN_SAMPLE]);
 
 	for(i=0; i < (int)windowlen; i++) {
 		if(++position > (*in_sample)[i]) {

@@ -28,7 +28,7 @@
 #define SQR(x) ((x)*(x))
 
 char		*desc = "Multiple Parabola Waves";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -42,20 +42,21 @@ int args[IN_AMPADD + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_WAVES] = plugin->RegArg("waves");
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[OUT_SYNC] = plugin->RegArg("sync");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[INOUT_FREQ] = plugin->RegArg("freqbuffer");
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_AMP] = plugin->RegArg("amp");
-	args[IN_PITCHMUL] = plugin->RegArg("pitchmul");
-	args[IN_PITCHADD] = plugin->RegArg("pitchadd");
-	args[IN_AMPMUL] = plugin->RegArg("ampmul");
-	args[IN_AMPADD] = plugin->RegArg("ampadd");
+	args[IN_WAVES] = plugin->regArg("waves");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[OUT_SYNC] = plugin->regArg("sync");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[INOUT_FREQ] = plugin->regArg("freqbuffer");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_AMP] = plugin->regArg("amp");
+	args[IN_PITCHMUL] = plugin->regArg("pitchmul");
+	args[IN_PITCHADD] = plugin->regArg("pitchadd");
+	args[IN_AMPMUL] = plugin->regArg("ampmul");
+	args[IN_AMPADD] = plugin->regArg("ampadd");
+
 	return 0;
 }
 
@@ -74,29 +75,29 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg, *out_sync;
 	thArg *inout_last, *inout_freq;
 	
-	in_waves = mod->GetArg(node, args[IN_WAVES]);
+	in_waves = mod->getArg(node, args[IN_WAVES]);
 	waves = (int)(*in_waves)[0];
 	
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	out_sync = mod->GetArg(node, args[OUT_SYNC]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	out_sync = mod->getArg(node, args[OUT_SYNC]);
 	/* Output a 1 when the wave begins its cycle */
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	out_last = inout_last->Allocate(waves);
 
-	inout_freq = mod->GetArg(node, args[INOUT_FREQ]);
+	inout_freq = mod->getArg(node, args[INOUT_FREQ]);
 	out_freq = inout_freq->Allocate(waves);
 
 	sync = out_sync->Allocate(windowlen);
 
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
-	in_amp = mod->GetArg(node, args[IN_AMP]);
-	in_pitchmul = mod->GetArg(node, args[IN_PITCHMUL]);
-	in_pitchadd = mod->GetArg(node, args[IN_PITCHADD]);
-	in_ampmul = mod->GetArg(node, args[IN_AMPMUL]);
-	in_ampadd = mod->GetArg(node, args[IN_AMPADD]);
+	in_freq = mod->getArg(node, args[IN_FREQ]);
+	in_amp = mod->getArg(node, args[IN_AMP]);
+	in_pitchmul = mod->getArg(node, args[IN_PITCHMUL]);
+	in_pitchadd = mod->getArg(node, args[IN_PITCHADD]);
+	in_ampmul = mod->getArg(node, args[IN_AMPMUL]);
+	in_ampadd = mod->getArg(node, args[IN_AMPADD]);
 
 	for(i = 0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];

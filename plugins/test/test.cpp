@@ -1,4 +1,4 @@
-/* $Id: test.cpp,v 1.17 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Test Plugin";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {

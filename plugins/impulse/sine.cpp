@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Generates a sine impulse";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,13 +37,13 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_LEN] = plugin->RegArg("len");
-	args[IN_MAX] = plugin->RegArg("max");
-	args[IN_PERCENT] = plugin->RegArg("percent");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_LEN] = plugin->regArg("len");
+	args[IN_MAX] = plugin->regArg("max");
+	args[IN_PERCENT] = plugin->regArg("percent");
+	args[OUT_ARG] = plugin->regArg("out");
 	return 0;
 }
 
@@ -56,15 +56,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float max, percent, parabolalen, offset, half;
 	unsigned int i, len;
 
-	in_len = mod->GetArg(node, args[IN_LEN]);
-	in_max = mod->GetArg(node, args[IN_MAX]);
-	in_percent = mod->GetArg(node, args[IN_PERCENT]);
+	in_len = mod->getArg(node, args[IN_LEN]);
+	in_max = mod->getArg(node, args[IN_MAX]);
+	in_percent = mod->getArg(node, args[IN_PERCENT]);
 	len = (int)(*in_len)[0];
 	max = (*in_max)[0];
 	percent = (*in_percent)[0];
 	half = len/2;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(len);
 
 	if(percent == 0) {

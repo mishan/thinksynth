@@ -51,36 +51,36 @@ extern "C" { extern char *basename PARAMS ((const char *)); }
 
 thPlugin::thPlugin (const string &path)
 {
-	plugPath = path;
-	plugState = thNotLoaded;
+	plugPath_ = path;
+	plugState_ = NOTLOADED;
 
-	plugCallback = NULL;
+	plugCallback_ = NULL;
 
-	args = (string **)calloc(ARGCHUNK, sizeof(string *));
-	argcounter = 0;
-	argsize = ARGCHUNK;
+	args_ = (string **)calloc(ARGCHUNK, sizeof(string *));
+	argcounter_ = 0;
+	argsize_ = ARGCHUNK;
 
-	if(ModuleLoad()) { /* fail = return (1) */
+	if(moduleLoad()) { /* fail = return (1) */
 		fprintf(stderr, "Couldn't load plugin %s\n", path.c_str());
 	}
 }
 
 thPlugin::~thPlugin ()
 {
-	ModuleUnload();
+	moduleUnload();
 }
 
-void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen,
+void thPlugin::fire (thNode *node, thMod *mod, unsigned int windowlen,
 					 unsigned int samples)
 {
-	if(plugCallback) {
-		plugCallback(node, mod, windowlen, samples);
+	if(plugCallback_) {
+		plugCallback_(node, mod, windowlen, samples);
 	}
 }
 
-void thPlugin::SetDesc (const string &desc)
+void thPlugin::setDesc (const string &desc)
 {
-	plugDesc = desc;
+	plugDesc_ = desc;
 }
 
 /*	ModuleLoad ()
@@ -88,47 +88,48 @@ void thPlugin::SetDesc (const string &desc)
  * 	precondition: plugPath != NULL
  *
  *	postcondition: plugState has been set to *something*.
- *	if it can't load correctly, set it thNotLoaded so that
+ *	if it can't load correctly, set it NOTLOADED so that
  *	parents et al. can deal with it. 
  */
 
 /* here is how we register args.  plugins can register their arguments and get
    an integer index for fast lookup */
-int thPlugin::RegArg (const string &argname)
+int thPlugin::regArg (const string &argname)
 {
 	string **newargs;
 
-	if (argcounter > argsize)
+	if (argcounter_ > argsize_)
 	{
 		/* make room for more args */
-		newargs = (string **)calloc(argsize + ARGCHUNK, sizeof(string *));
+		newargs = (string **)calloc(argsize_ + ARGCHUNK, sizeof(string *));
 		/* copy args over to new memory */
-		memcpy(newargs, args, argcounter * sizeof(string *));
-		free(args);
+		memcpy(newargs, args_, argcounter_ * sizeof(string *));
+		free(args_);
 
-		args = newargs;
-		argsize += ARGCHUNK;
+		args_ = newargs;
+		argsize_ += ARGCHUNK;
 	}
 
-	args[argcounter] = new string(argname);
-	argcounter++;
+	args_[argcounter_] = new string(argname);
+	argcounter_++;
 
-	return (argcounter-1);
+	return (argcounter_ - 1);
 }
 
-int thPlugin::ModuleLoad (void)
+int thPlugin::moduleLoad (void)
 {
-	int (*module_init) (thPlugin *plugin);
+	ModuleInit module_init;
 	unsigned char* plug_apiversion;
         
-	plugHandle = dlopen(plugPath.c_str(), RTLD_NOW);
+	plugHandle_ = dlopen(plugPath_.c_str(), RTLD_NOW);
 	
-	if(plugHandle == NULL) {
+	if(plugHandle_ == NULL) {
 
 #ifdef HAVE_DLERROR
 		fprintf(stderr, "thPlugin::ModuleLoad: %s\n", dlerror());
 #else
-		fprintf(stderr, "thPlugin::ModuleLoad: Unable to load plugin: %s", plugPath.c_str());
+		fprintf(stderr, "thPlugin::ModuleLoad: Unable to load plugin: %s",
+				plugPath_.c_str());
 #endif /* HAVE_DLERROR */
 
 		goto loaderr;
@@ -136,7 +137,7 @@ int thPlugin::ModuleLoad (void)
 
 	/* Retrieve plugin's module_init (hopefully it exists!) */
 	
-	module_init = (int (*)(thPlugin *))dlsym (plugHandle, "module_init");
+	module_init = (ModuleInit)dlsym (plugHandle_, "module_init");
 
 	if (module_init == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_init' symbol\n");		
@@ -144,7 +145,7 @@ int thPlugin::ModuleLoad (void)
 	}
 
 	/* Verify that the API version of the plugin matches our version. */
-	plug_apiversion = (unsigned char*)dlsym(plugHandle, "apiversion");
+	plug_apiversion = (unsigned char*)dlsym(plugHandle_, "apiversion");
 
 	if (plug_apiversion == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: API version symbol missing\n");
@@ -152,30 +153,34 @@ int thPlugin::ModuleLoad (void)
 	}
 
 	if (*plug_apiversion != MODULE_IFACE_VER) {
-		fprintf(stderr, "thPlugin::ModuleLoad: version mismatch: thinksynth compiled with API v%d, %s compiled with v%d\n", MODULE_IFACE_VER, plugPath.c_str(), (short)(*plug_apiversion));
+		fprintf(stderr, "thPlugin::ModuleLoad: version mismatch: thinksynth compiled with API v%d, %s compiled with v%d\n", MODULE_IFACE_VER,
+				plugPath_.c_str(), (short)(*plug_apiversion));
 		goto loaderr;
 	}
 	
-	/* We're semi sure that nothing bad is going to happen, so let's initialize the plugin. */
+	/* We're semi sure that nothing bad is going to happen, so let's initialize
+	   the plugin. */
 
-	if (module_init (this) != 0) {
+	if (module_init (this) != 0)
+	{
 		fprintf (stderr, "thPlugin::ModuleLoad: plugin initialization exited with an error\n");
 		goto loaderr;
 	}
 
-	/* module_init MUST call SetState on the Plugin (this) that we pass to it - so fail
-	 * if we're still thNotLoaded after our recent invocation of module_init */
+	/* module_init MUST call setState on the Plugin (this) that we pass to it 
+	   - so fail
+	 * if we're still NOTLOADED after our recent invocation of module_init */
 	
-	if (plugState == thNotLoaded) {
+	if (plugState_ == NOTLOADED) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Plugin didn't set state, aborting\n");
 		goto loaderr;
 	}
 	
-	plugCallback = (th_plugin_callback_t)dlsym(plugHandle, "module_callback");
+	plugCallback_ = (Callback)dlsym(plugHandle_,"module_callback");
 	
 	/* Ensure that plugin's callback exists */
 	
-	if(plugCallback == NULL) {
+	if(plugCallback_ == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_callback' symbol\n");
 		goto loaderr;
 	}
@@ -183,20 +188,20 @@ int thPlugin::ModuleLoad (void)
 	return 0;
 
 loaderr:
-	plugState = thNotLoaded;
+	plugState_ = NOTLOADED;
 	return 1;
 }
 
-void thPlugin::ModuleUnload (void)
+void thPlugin::moduleUnload (void)
 {
-	if (plugState == thNotLoaded) { /* don't unload what is not loaded! */
+	if (plugState_ == NOTLOADED) { /* don't unload what is not loaded! */
 		return;
 	}
-	
-	void (*module_cleanup) (thPlugin *plug);
+
+	ModuleCleanup module_cleanup;
 
 	/* Invoke the plugin's module_cleanup ... */
-	module_cleanup = (void (*)(thPlugin *))dlsym (plugHandle, "module_cleanup");
+	module_cleanup = (ModuleCleanup)dlsym (plugHandle_, "module_cleanup");
 	
 	/* ... only if it exists */
 	if (module_cleanup != NULL) {
@@ -204,5 +209,5 @@ void thPlugin::ModuleUnload (void)
 	}
 
 	/* Finally, unload the plugin */
-	dlclose(plugHandle);
+	dlclose(plugHandle_);
 }

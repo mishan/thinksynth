@@ -1,4 +1,4 @@
-/* $Id: window.cpp,v 1.3 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -43,7 +43,7 @@ enum {IN_FREQ, IN_PW, IN_WAVEFORM, IN_RESET, OUT_ARG, OUT_SYNC,
 int args[INOUT_LAST + 1];
 
 char		*desc = "Complex Oscillator";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 const float SQRT2_2 = 2*sqrt(2);
 
@@ -55,19 +55,19 @@ void module_cleanup (struct module *mod)
  * instance. */
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_PW] = plugin->RegArg("pw");
-	args[IN_WAVEFORM] = plugin->RegArg("waveform");
-	args[IN_RESET] = plugin->RegArg("reset");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_PW] = plugin->regArg("pw");
+	args[IN_WAVEFORM] = plugin->regArg("waveform");
+	args[IN_RESET] = plugin->regArg("reset");
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[OUT_SYNC] = plugin->RegArg("sync");
-	args[OUT_SYNC2] = plugin->RegArg("sync2");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[OUT_SYNC] = plugin->regArg("sync");
+	args[OUT_SYNC2] = plugin->regArg("sync2");
 
-	args[INOUT_LAST] = plugin->RegArg("last");
+	args[INOUT_LAST] = plugin->regArg("last");
 
 	return 0;
 }
@@ -86,21 +86,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg, *out_sync, *out_sync2;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	out_sync = mod->GetArg(node, args[OUT_SYNC]); /* Output a 1 when the wave begins 
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	out_sync = mod->getArg(node, args[OUT_SYNC]); /* Output a 1 when the wave begins 
 											 its cycle */
-	out_sync2 = mod->GetArg(node, args[OUT_SYNC2]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_sync2 = mod->getArg(node, args[OUT_SYNC2]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	out_last = inout_last->Allocate(2);
 	sync = out_sync->Allocate(windowlen);
 	sync2 = out_sync2->Allocate(windowlen);
 	out = out_arg->Allocate(windowlen);
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
-	in_pw = mod->GetArg(node, args[IN_PW]);
-	in_waveform = mod->GetArg(node, args[IN_WAVEFORM]);
+	in_freq = mod->getArg(node, args[IN_FREQ]);
+	in_pw = mod->getArg(node, args[IN_PW]);
+	in_waveform = mod->getArg(node, args[IN_WAVEFORM]);
 
-	in_reset = mod->GetArg(node, args[IN_RESET]); /* Reset position to 0 when this 
+	in_reset = mod->getArg(node, args[IN_RESET]); /* Reset position to 0 when this 
 											  goes to 1 */
 
 	halfway = (int)(*inout_last)[1];

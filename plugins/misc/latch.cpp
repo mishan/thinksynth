@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Sample and hold";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,13 +36,13 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_LATCH] = plugin->RegArg("latch");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_LATCH] = plugin->regArg("latch");
+	args[OUT_ARG] = plugin->regArg("out");
 	return 0;
 }
 
@@ -55,17 +55,18 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float sample;
 
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	sample = (*inout_last)[0];
 	out_last = inout_last->Allocate(1);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_latch = mod->GetArg(node, args[IN_LATCH]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_latch = mod->getArg(node, args[IN_LATCH]);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++)
+	{
 		if((*in_latch)[i] > 0) {
 			sample = (*in_arg)[i];
 		}

@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Resonator filter";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,14 +37,14 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_FB] = plugin->RegArg("fb");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_FB] = plugin->regArg("fb");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[OUT_ARG] = plugin->regArg("out");
 	return 0;
 }
 
@@ -56,18 +56,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_last;
 	unsigned int i;
-	int index;
 	float *last;
 	float in, omega, a0, freq, fb;
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
-	in_fb = mod->GetArg(node, args[IN_FB]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_freq = mod->getArg(node, args[IN_FREQ]);
+	in_fb = mod->getArg(node, args[IN_FB]);
 
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	last = inout_last->Allocate(3);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {

@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.27 2004/08/16 09:34:48 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,15 +20,15 @@
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
 
+class thMod;
+class thNode;
+
 #define MODULE_IFACE_VER 4
 
 /* We don't want this to exist unless we're using a plugin. */
-
 #ifdef PLUGIN_BUILD
 unsigned char apiversion = MODULE_IFACE_VER;
-class thNode;
 class thPlugin;
-class thMod;
 
 /* Provide the prototypes */
 extern "C" {
@@ -39,49 +39,46 @@ extern "C" {
 }
 #endif
 
-enum thPluginState { thActive, thPassive, thNotLoaded };
-
-class thNode;
-class thMod;
-
-typedef int (*th_plugin_callback_t)(thNode *, thMod *, unsigned int,
-									unsigned int);
-
 class thPlugin {
 public:
 	thPlugin (const string &path);
 	~thPlugin ();
+
+	enum State { ACTIVE, PASSIVE, NOTLOADED };
+	typedef int (*Callback)(thNode *, thMod *, unsigned int, unsigned int);
+	typedef int (*ModuleInit)(thPlugin *);
+	typedef void (*ModuleCleanup)(thPlugin *);
 	
-	string GetPath (void) const { return plugPath; };
-	string GetDesc (void) const { return plugDesc; };
-	thPluginState GetState (void) const { return plugState; };
+	string getPath (void) const { return plugPath_; };
+	string getDesc (void) const { return plugDesc_; };
+	State getState (void) const { return plugState_; };
 	
-	void MakePath (void);
+	void makePath (void);
 	
-	void SetDesc(const string &desc);
-	void SetState(thPluginState state) { plugState = state; };
+	void setDesc(const string &desc);
+	void setState(State state) { plugState_ = state; };
 	
-	int RegArg (const string &argname);
+	int regArg (const string &argname);
 	
-	int GetArgs (void) const { return argcounter; };
-	string GetArgName (int index) { return *args[index]; };
+	int getArgs (void) const { return argcounter_; };
+	string getArgName (int index) { return *args_[index]; };
 	
-	void Fire (thNode *node, thMod *mod, unsigned int windowlen,
+	void fire (thNode *node, thMod *mod, unsigned int windowlen,
 			   unsigned int samples);
 private:
-	string plugPath;
-	thPluginState plugState;
-	void *plugHandle;
-	string plugDesc;
+	int moduleLoad (void);
+	void moduleUnload (void);
 
-	string **args;
-	int argcounter; /* how many args are registered */
-	int argsize; /* length of the arg storage array */
-	
-	th_plugin_callback_t plugCallback;
+	string plugPath_;
+	State plugState_;
+	void *plugHandle_;
+	string plugDesc_;
 
-	int ModuleLoad (void);
-	void ModuleUnload (void);
+	string **args_;
+	int argcounter_; /* how many args are registered */
+	int argsize_; /* length of the arg storage array */
+
+	Callback plugCallback_;
 };
 
 #endif /* TH_PLUGIN_H */

@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.15 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,7 +30,7 @@ enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, OUT_AOUT, INOUT_LAST};
 int args[INOUT_LAST + 1];
 
 char		*desc = "`INK Filter`  Gravity-based low pass";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,17 +38,17 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_CUTOFF] = plugin->RegArg("cutoff");
-	args[IN_RES] = plugin->RegArg("res");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_CUTOFF] = plugin->regArg("cutoff");
+	args[IN_RES] = plugin->regArg("res");
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[OUT_AOUT] = plugin->RegArg("aout");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[OUT_AOUT] = plugin->regArg("aout");
 
-	args[INOUT_LAST] = plugin->RegArg("last");
+	args[INOUT_LAST] = plugin->regArg("last");
 
 	return 0;
 }
@@ -68,9 +68,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float in, last, diff, accel;
 	float val_arg, val_cutoff, val_res;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	out_accel = mod->GetArg(node, args[OUT_AOUT]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	out_accel = mod->getArg(node, args[OUT_AOUT]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	accel = (*inout_last)[1];
@@ -79,9 +79,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_arg->Allocate(windowlen);
 	aout = out_accel->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
-	in_res = mod->GetArg(node, args[IN_RES]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+	in_res = mod->getArg(node, args[IN_RES]);
 	
 	in_arg->GetBuffer(buf_in, windowlen);
 	in_cutoff->GetBuffer(buf_cut, windowlen);

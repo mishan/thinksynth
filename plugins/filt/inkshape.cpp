@@ -27,7 +27,7 @@
 #define SQR(x) (x*x)
 
 char		*desc = "`INK Filter`  Gravity-based low pass";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -39,16 +39,17 @@ int args[IN_SHAPER + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[OUT_ACCEL] = plugin->RegArg("aout");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_CUTOFF] = plugin->RegArg("cutoff");
-	args[IN_RES] = plugin->RegArg("res");
-	args[IN_SHAPER] = plugin->RegArg("shaper");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[OUT_ACCEL] = plugin->regArg("aout");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_CUTOFF] = plugin->regArg("cutoff");
+	args[IN_RES] = plugin->regArg("res");
+	args[IN_SHAPER] = plugin->regArg("shaper");
+
 	return 0;
 }
 
@@ -65,9 +66,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float in, last, diff, accel;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	out_accel = mod->GetArg(node, args[OUT_ACCEL]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	out_accel = mod->getArg(node, args[OUT_ACCEL]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	accel = (*inout_last)[1];
@@ -76,10 +77,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_arg->Allocate(windowlen);
 	aout = out_accel->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
-	in_res = mod->GetArg(node, args[IN_RES]);
-	in_shaper = mod->GetArg(node, args[IN_SHAPER]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+	in_res = mod->getArg(node, args[IN_RES]);
+	in_shaper = mod->getArg(node, args[IN_SHAPER]);
 
 	for(i=0;i<windowlen;i++) {
 		in = (*in_arg)[i];

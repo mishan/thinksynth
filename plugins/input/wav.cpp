@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.11 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,7 +27,7 @@
 //#include "thWav.h"
 
 char		*desc = "Wav Input (BROKEN)";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 //static thWav *thwav = NULL;
 
 void module_cleanup (struct module *mod)
@@ -37,8 +37,8 @@ void module_cleanup (struct module *mod)
 int module_init (thPlugin *plugin)
 {
 //	thwav = new_thWav("testwav.wav");
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 	
 	return 0;
 }

@@ -24,8 +24,8 @@
 
 #include "think.h"
 
-char		*desc = "Follows the pitch of the input";
-thPluginState	mystate = thActive;
+char *desc = "Follows the pitch of the input";
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,13 +37,14 @@ int args[IN_FALLOFF + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_FALLOFF] = plugin->RegArg("falloff");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_FALLOFF] = plugin->regArg("falloff");
+
 	return 0;
 }
 
@@ -59,8 +60,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float freq;
 	int sign, wavelength;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	freq = (*inout_last)[1];
@@ -70,8 +71,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_falloff = mod->GetArg(node, args[IN_FALLOFF]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_falloff = mod->getArg(node, args[IN_FALLOFF]);
 
 
 	for(i = 0; i < windowlen; i++)

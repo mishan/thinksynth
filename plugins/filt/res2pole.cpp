@@ -30,29 +30,31 @@
 #include "think.h"
 
 char		*desc = "Resonant 2-pole Chamberlin filter";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
 }
 
-enum { OUT_LOW,OUT_HIGH,OUT_BAND,OUT_NOTCH,INOUT_DELAY,IN_ARG,IN_CUTOFF,IN_RES };
+enum { OUT_LOW, OUT_HIGH, OUT_BAND, OUT_NOTCH, INOUT_DELAY, IN_ARG, IN_CUTOFF,
+	   IN_RES };
 
 int args[IN_RES + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_LOW] = plugin->RegArg("out");
-	args[OUT_HIGH] = plugin->RegArg("out_high");
-	args[OUT_BAND] = plugin->RegArg("out_band");
-	args[OUT_NOTCH] = plugin->RegArg("out_notch");
-	args[INOUT_DELAY] = plugin->RegArg("delay");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_CUTOFF] = plugin->RegArg("cutoff");
-	args[IN_RES] = plugin->RegArg("res");
+	args[OUT_LOW] = plugin->regArg("out");
+	args[OUT_HIGH] = plugin->regArg("out_high");
+	args[OUT_BAND] = plugin->regArg("out_band");
+	args[OUT_NOTCH] = plugin->regArg("out_notch");
+	args[INOUT_DELAY] = plugin->regArg("delay");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_CUTOFF] = plugin->regArg("cutoff");
+	args[IN_RES] = plugin->regArg("res");
+
 	return 0;
 }
 
@@ -66,21 +68,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float f, q;
 	unsigned int i;
 
-	out_low = mod->GetArg(node, args[OUT_LOW]);
-	out_high = mod->GetArg(node, args[OUT_HIGH]);
-	out_band = mod->GetArg(node, args[OUT_BAND]);
-	out_notch = mod->GetArg(node, args[OUT_NOTCH]);
+	out_low = mod->getArg(node, args[OUT_LOW]);
+	out_high = mod->getArg(node, args[OUT_HIGH]);
+	out_band = mod->getArg(node, args[OUT_BAND]);
+	out_notch = mod->getArg(node, args[OUT_NOTCH]);
 	out = out_low->Allocate(windowlen);
 	highout = out_high->Allocate(windowlen);
 	bandout = out_band->Allocate(windowlen);
 	notchout = out_notch->Allocate(windowlen);
 
-	inout_delay = mod->GetArg(node, args[INOUT_DELAY]);
+	inout_delay = mod->getArg(node, args[INOUT_DELAY]);
 	delay = inout_delay->Allocate(2);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
-	in_res = mod->GetArg(node, args[IN_RES]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+	in_res = mod->getArg(node, args[IN_RES]);
 
 	for(i=0;i<windowlen;i++) {
 		f = 2*sin(M_PI * (*in_cutoff)[i] / samples);

@@ -50,13 +50,11 @@ public:
 
 	void listMods(void);
 	thPluginManager *getPluginManager (void) { return pluginmanager_; };
-//	void addChannel(int channum, const string &modname, float amp);
 
 	thMidiNote *addNote(int channum, float note, float velocity);
 	int delNote (int channum, float note);
 	void clearAll (void);
 
-//	int setNoteArg (int channum, int note, char *name, float *value, int len);
 	void process(void);
 	void printChan(int chan);
 	void removeChan (int channum);

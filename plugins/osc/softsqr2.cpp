@@ -26,7 +26,7 @@
 #include "think.h"
 
 char		*desc = "Square wave with sine-like transitions, proportional to the frequency";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_PW, IN_SW};
 
@@ -40,14 +40,14 @@ void module_cleanup (struct module *mod)
  * instance. */
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_PW] = plugin->RegArg("pw");
-	args[IN_SW] = plugin->RegArg("sw");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_PW] = plugin->regArg("pw");
+	args[IN_SW] = plugin->regArg("sw");
 	
 	return 0;
 }
@@ -66,16 +66,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	phase = (int)(*inout_last)[1];
 	out_last = inout_last->Allocate(2);
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
-	in_pw = mod->GetArg(node, args[IN_PW]); // Pulse Width
-	in_sw = mod->GetArg(node, args[IN_SW]); // Sine Width
+	in_freq = mod->getArg(node, args[IN_FREQ]);
+	in_pw = mod->getArg(node, args[IN_PW]); // Pulse Width
+	in_sw = mod->getArg(node, args[IN_SW]); // Sine Width
 
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 

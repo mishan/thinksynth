@@ -26,7 +26,7 @@
 #define SQR(a) (a*a)
 
 char		*desc = "Cheap IIR-ish Filter";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,13 +38,13 @@ int args[IN_FACTOR + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[INOUT_BUFFER] = plugin->RegArg("buffer");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_FACTOR] = plugin->RegArg("factor");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[INOUT_BUFFER] = plugin->regArg("buffer");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_FACTOR] = plugin->regArg("factor");
 	return 0;
 }
 
@@ -60,14 +60,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float factor, buffer;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	buffer = (*inout_buffer)[0];
 	out = out_arg->Allocate(windowlen);
 	out_buf = inout_buffer->Allocate(1);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_factor = mod->GetArg(node, args[IN_FACTOR]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_factor = mod->getArg(node, args[IN_FACTOR]);
 
 	for(i=0;i<windowlen;i++) {
 	  factor = SQR(SQR((*in_factor)[i]));

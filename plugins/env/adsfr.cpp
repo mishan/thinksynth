@@ -1,4 +1,4 @@
-/* $Id: adsfr.cpp,v 1.11 2004/11/11 08:43:53 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,7 +28,7 @@ enum {IN_A, IN_D, IN_S, IN_F, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLA
 int args[INOUT_POSITION + 1];
 
 char		*desc = "ADSR Envelope Generator";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 
 static inline float SQR (float x)
@@ -43,22 +43,22 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_A] = plugin->RegArg("a");
-	args[IN_D] = plugin->RegArg("d");
-	args[IN_S] = plugin->RegArg("s");
-	args[IN_F] = plugin->RegArg("f");
-	args[IN_R] = plugin->RegArg("r");
-	args[IN_P] = plugin->RegArg("p");
-	args[IN_TRIGGER] = plugin->RegArg("trigger");
-	args[IN_RESET] = plugin->RegArg("reset");
+	args[IN_A] = plugin->regArg("a");
+	args[IN_D] = plugin->regArg("d");
+	args[IN_S] = plugin->regArg("s");
+	args[IN_F] = plugin->regArg("f");
+	args[IN_R] = plugin->regArg("r");
+	args[IN_P] = plugin->regArg("p");
+	args[IN_TRIGGER] = plugin->regArg("trigger");
+	args[IN_RESET] = plugin->regArg("reset");
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[OUT_PLAY] = plugin->RegArg("play");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[OUT_PLAY] = plugin->regArg("play");
 
-	args[INOUT_POSITION] = plugin->RegArg("position");
+	args[INOUT_POSITION] = plugin->regArg("position");
 
 	return 0;
 }
@@ -74,7 +74,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float *out, *play;
 
 	float *out_pos;
-	float temp, temp2;  /* each (*in_a)[] thing uses a modulus and all that */
+	float temp;  /* each (*in_a)[] thing uses a modulus and all that */
 	float falloff;
 	float peak;
 	float position;
@@ -82,9 +82,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float val_a, val_d, val_s, val_f, val_r, val_p, val_trigger, val_reset;
  
-	out_out = mod->GetArg(node, args[OUT_ARG]);
-	out_play = mod->GetArg(node, args[OUT_PLAY]);
-	inout_position = mod->GetArg(node, args[INOUT_POSITION]);
+	out_out = mod->getArg(node, args[OUT_ARG]);
+	out_play = mod->getArg(node, args[OUT_PLAY]);
+	inout_position = mod->getArg(node, args[INOUT_POSITION]);
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
@@ -92,14 +92,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	out = out_out->Allocate(windowlen);
 	play = out_play->Allocate(windowlen);
-	in_a = mod->GetArg(node, args[IN_A]); /* Attack */
-	in_d = mod->GetArg(node, args[IN_D]); /* Decay */
-	in_s = mod->GetArg(node, args[IN_S]); /* Sustain */
-	in_f = mod->GetArg(node, args[IN_F]); /* Falloff */
-	in_r = mod->GetArg(node, args[IN_R]); /* Release */
-	in_p = mod->GetArg(node, args[IN_P]); /* Peak */
-	in_trigger = mod->GetArg(node, args[IN_TRIGGER]); /* Note Trigger */
-	in_reset = mod->GetArg(node, args[IN_RESET]); /* Reset to A phase */
+	in_a = mod->getArg(node, args[IN_A]); /* Attack */
+	in_d = mod->getArg(node, args[IN_D]); /* Decay */
+	in_s = mod->getArg(node, args[IN_S]); /* Sustain */
+	in_f = mod->getArg(node, args[IN_F]); /* Falloff */
+	in_r = mod->getArg(node, args[IN_R]); /* Release */
+	in_p = mod->getArg(node, args[IN_P]); /* Peak */
+	in_trigger = mod->getArg(node, args[IN_TRIGGER]); /* Note Trigger */
+	in_reset = mod->getArg(node, args[IN_RESET]); /* Reset to A phase */
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;

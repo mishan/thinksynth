@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Amplifies and clips the stream";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,13 +36,14 @@ int args[IN_LOWCLIP + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_CLIP] = plugin->RegArg("clip");
-	args[IN_LOWCLIP] = plugin->RegArg("lowclip");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_CLIP] = plugin->regArg("clip");
+	args[IN_LOWCLIP] = plugin->regArg("lowclip");
+
 	return 0;
 }
 
@@ -55,14 +56,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float in, clip, lowclip;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_clip = mod->GetArg(node, args[IN_CLIP]);
-	in_lowclip = mod->GetArg(node, args[IN_LOWCLIP]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_clip = mod->getArg(node, args[IN_CLIP]);
+	in_lowclip = mod->getArg(node, args[IN_LOWCLIP]);
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++)
+{
 		in = (*in_arg)[i];
 		clip = (*in_clip)[i] * TH_MAX;
 		lowclip = (*in_lowclip)[i] * TH_MAX;
@@ -81,8 +83,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 		else if (in < lowclip) {
 			in = lowclip;
 		}
+
 		/* Map the clipped data to the data range */
-		out[i] = (((in-lowclip)/(clip-lowclip))*TH_RANGE)+TH_MIN;
+		out[i] = (((in-lowclip)/(clip-lowclip))*TH_RANGE) + TH_MIN;
 	}
 
 /*	node->SetArg("out", out, windowlen); */

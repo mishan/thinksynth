@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.17 2004/10/01 08:52:26 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,7 +30,7 @@ int args[OUT_ARG + 1];
 #define SQR(x) ((x)*(x))
 
 char		*desc = "Converts a midi note value to it's respective frequency";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,11 +38,11 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_NOTE] = plugin->RegArg("note");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_NOTE] = plugin->regArg("note");
+	args[OUT_ARG] = plugin->regArg("out");
 
 	return 0;
 }
@@ -56,14 +56,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	unsigned int i, argnum;
 
-	in_note = mod->GetArg(node, args[IN_NOTE]);
+	in_note = mod->getArg(node, args[IN_NOTE]);
 	in_note->GetBuffer(buf_in, windowlen);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	argnum = (unsigned int) in_note->getLen();
 	out = out_arg->Allocate(argnum);
 
-	for(i=0;i<argnum;i++) {
+	for(i = 0; i < argnum; i++)
+	{
 		out[i] = 440*pow(2,(buf_in[i]-69)/12);
 	}
 

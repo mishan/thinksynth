@@ -45,7 +45,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 	args[string("amp")] = new thArg(string("amp"), allocatedamp, 1);
 
-	chanarg = modnode->GetArg("channels");
+	chanarg = modnode->getArg("channels");
 	channels = (int)chanarg->values_[0];
 
 	output = new float[channels*windowlen];
@@ -158,9 +158,10 @@ int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
 void thMidiChan::CopyChanArgs (thMod *mod)
 {
 	thArg *data, *newdata;
-	map<string, thArg*> sourceargs = mod->GetChanArgs();
+	thMod::ArgMap sourceargs = mod->getChanArgs();
 
-	for (map<string,thArg*>::const_iterator i = sourceargs.begin(); i != sourceargs.end(); i++)
+	for (thMod::ArgMap::const_iterator i = sourceargs.begin();
+		 i != sourceargs.end(); i++)
 	{
 		data = i->second;
 
@@ -235,8 +236,8 @@ void thMidiChan::Process (void)
 		
 		mod = data->GetMod();
 		amp = args["amp"];
-		play = mod->GetArg("play");
-		trigger = mod->GetArg("trigger");
+		play = mod->getArg("play");
+		trigger = mod->getArg("trigger");
 		if ((*trigger)[0] == 2 && sustain < 0x40)
 			trigger->SetValue(0);
 		
@@ -244,7 +245,7 @@ void thMidiChan::Process (void)
 		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
-			arg = mod->GetArg(argname);
+			arg = mod->getArg(argname);
 			arg->GetBuffer(buf_mix, windowlength);
 			amp->GetBuffer(buf_amp, windowlength);
 			for(j = 0; j < windowlength; j++)
@@ -277,15 +278,15 @@ void thMidiChan::Process (void)
 		data->Process(windowlength);
 		mod = data->GetMod();
 		amp = args["amp"];
-		play = mod->GetArg("play");
-		trigger = mod->GetArg("trigger");
+		play = mod->getArg("play");
+		trigger = mod->getArg("trigger");
 		if ((*trigger)[0] == 2 && sustain < 0x40)
 			trigger->SetValue(0);
 		
 		for(i=0;i<channels;i++) {
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
-			arg = mod->GetArg(argname);
+			arg = mod->getArg(argname);
 			arg->GetBuffer(buf_mix, windowlength);
 			amp->GetBuffer(buf_amp, windowlength);
 			for(j=0;j<windowlength;j++) {
@@ -329,16 +330,16 @@ void thMidiChan::AssignChanArgPointers (thMod *mod)
 {
 	thNode *curnode;
 	thArg *curarg;
-	map<string, thNode*> sourcenodes = mod->GetNodeList();
-	map<string, thArg*> sourceargs;
+	thMod::NodeMap sourcenodes = mod->getNodeList();
+	thMod::ArgMap sourceargs;
 
-	for (map<string, thNode*>::const_iterator i = sourcenodes.begin();
+	for (thMod::NodeMap::const_iterator i = sourcenodes.begin();
 		 i != sourcenodes.end(); i++)
 	{
 		curnode = i->second;
 		sourceargs = curnode->GetArgTree();
 
-		for (map<string, thArg*>::const_iterator j = sourceargs.begin();
+		for (thMod::ArgMap::const_iterator j = sourceargs.begin();
 		 j != sourceargs.end(); j++)
 		{
 			curarg = j->second;

@@ -1,4 +1,4 @@
-/* $Id: bandosc.cpp,v 1.7 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,24 +29,24 @@ enum {IN_FREQ, IN_BAND, IN_PW, OUT_ARG, INOUT_LAST};
 int args[INOUT_LAST + 1];
 
 char		*desc = "Band-pass oscillator";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
 }
 
-/* ModuleLoad() invokes this function with a pointer to the plugin
+/* thPlugin::moduleLoad() invokes this function with a pointer to the plugin
  * instance. */
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 	
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_BAND] = plugin->RegArg("band");
-	args[IN_PW] = plugin->RegArg("pw");
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_BAND] = plugin->regArg("band");
+	args[IN_PW] = plugin->regArg("pw");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[INOUT_LAST] = plugin->regArg("last");
 
 	return 0;
 }
@@ -64,21 +64,22 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	phase = (int)(*inout_last)[1]; /* Which phase we are in */
 	out_last = inout_last->Allocate(2);
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, args[IN_FREQ]);
-	in_band = mod->GetArg(node, args[IN_BAND]); // Band Freq
-	in_pw = mod->GetArg(node, args[IN_PW]); // Pulse Width
+	in_freq = mod->getArg(node, args[IN_FREQ]);
+	in_band = mod->getArg(node, args[IN_BAND]); // Band Freq
+	in_pw = mod->getArg(node, args[IN_PW]); // Pulse Width
 
 	/*  0 = top sine, 1 = first 0, 2 = bottom sine, 3 = second 0  */
 
-	for(i=0; i < (int)windowlen; i++) {
+	for(i = 0; i < (int)windowlen; i++)
+	{
 		wavelength = samples * (1.0/(*in_freq)[i]);
 		sinewavelength = samples * (1.0/(*in_band)[i]);
 		

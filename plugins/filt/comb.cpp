@@ -1,4 +1,4 @@
-/* $Id: comb.cpp,v 1.5 2004/10/01 08:52:25 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Comb Filter";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 enum {IN_ARG, IN_FREQ, IN_FEEDBACK, IN_SIZE, OUT_ARG, INOUT_BUFFER,
 	  INOUT_BUFPOS};
@@ -36,18 +36,18 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_FREQ] = plugin->RegArg("freq");
-	args[IN_FEEDBACK] = plugin->RegArg("feedback");
-	args[IN_SIZE] = plugin->RegArg("size");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_FREQ] = plugin->regArg("freq");
+	args[IN_FEEDBACK] = plugin->regArg("feedback");
+	args[IN_SIZE] = plugin->regArg("size");
 
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_ARG] = plugin->regArg("out");
 
-	args[INOUT_BUFFER] = plugin->RegArg("buffer");
-	args[INOUT_BUFPOS] = plugin->RegArg("bufpos");
+	args[INOUT_BUFFER] = plugin->regArg("buffer");
+	args[INOUT_BUFPOS] = plugin->regArg("bufpos");
 
 	return 0;
 }
@@ -65,16 +65,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float buf_in[windowlen], buf_size[windowlen], buf_freq[windowlen],
 		buf_feedback[windowlen];
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_size = mod->GetArg(node, args[IN_SIZE]); /* Buffer size */
-	in_freq = mod->GetArg(node, args[IN_FREQ]); /* Delay length spacing */
-	in_feedback = mod->GetArg(node, args[IN_FEEDBACK]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_size = mod->getArg(node, args[IN_SIZE]); /* Buffer size */
+	in_freq = mod->getArg(node, args[IN_FREQ]); /* Delay length spacing */
+	in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
 
-	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
-	inout_bufpos = mod->GetArg(node, args[INOUT_BUFPOS]);
+	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
 	bufpos = inout_bufpos->Allocate(1);
 
 

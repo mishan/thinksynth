@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.12 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,7 +26,7 @@
 #include "think.h"
 
 char		*desc = "ALSA Input";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 snd_pcm_t *cap_handle = NULL;
 
@@ -58,8 +58,8 @@ int module_init (thPlugin *plugin)
 	printf("input::alsa: set rate to %d\n", rate);
 	snd_pcm_hw_params(cap_handle, hw_params);
 
- 	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+ 	plugin->setDesc (desc);
+	plugin->setState (mystate);
 	
 	return 0;
 }
@@ -68,8 +68,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 					 unsigned int samples)
 {
 	int channels = 2;
-	thArg *out_arg = mod->GetArg(node, "out");
-	thArg *out_play = mod->GetArg(node, "play");
+	thArg *out_arg = mod->getArg(node, "out");
+	thArg *out_play = mod->getArg(node, "play");
 	signed short buf[windowlen * channels];
 	float *out = out_arg->Allocate(windowlen);
 	float *play = out_play->Allocate(windowlen);

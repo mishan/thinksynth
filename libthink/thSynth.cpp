@@ -160,10 +160,10 @@ thMod * thSynth::loadMod (const string &filename)
 
 	delete parsenode;
 
-	parsemod->BuildArgMap(); /* build the index of args */
-	parsemod->SetPointers();
-	parsemod->BuildSynthTree();
-	modlist_[parsemod->GetName()] = parsemod;
+	parsemod->buildArgMap(); /* build the index of args */
+	parsemod->setPointers();
+	parsemod->buildSynthTree();
+	modlist_[parsemod->getName()] = parsemod;
 
 	pthread_mutex_unlock(synthMutex_);
 
@@ -188,10 +188,10 @@ thMod * thSynth::loadMod (FILE *input)
 
 	delete parsenode;
 
-	parsemod->BuildArgMap(); /* build the index of args */
-	parsemod->SetPointers();
-	parsemod->BuildSynthTree();
-	modlist_[parsemod->GetName()] = parsemod;
+	parsemod->buildArgMap(); /* build the index of args */
+	parsemod->setPointers();
+	parsemod->buildSynthTree();
+	modlist_[parsemod->getName()] = parsemod;
 
 	pthread_mutex_unlock(synthMutex_);
 
@@ -313,7 +313,7 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 
 	delete parsenode;
 
-	if (parsemod->GetIONode() == NULL)
+	if (parsemod->getIONode() == NULL)
 	{
 		fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
 			filename.c_str());
@@ -321,10 +321,10 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 		return NULL;
 	}
 	
-	parsemod->BuildArgMap(); /* build the index of args */
-	parsemod->SetPointers();
-	parsemod->BuildSynthTree();
-	modlist_[parsemod->GetName()] = parsemod;
+	parsemod->buildArgMap(); /* build the index of args */
+	parsemod->setPointers();
+	parsemod->buildSynthTree();
+	modlist_[parsemod->getName()] = parsemod;
 
 	thMidiChan **newchans;
 	int newchancount = midiChannelCnt_;
@@ -373,43 +373,6 @@ void thSynth::listMods (void)
 		printf("%s\n", im->first.c_str());
 	}
 }
-
-#if 0
-void thSynth::AddChannel (int channum, const string &modname, float amp)
-{
-	thMidiChan **newchans;
-	int newchancount = midiChannelCnt_;
-
-	pthread_mutex_lock(synthMutex_);
-
-	if (channum > midiChannelCnt_)
-	{
-		while(channum > newchancount) {
-			newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
-			/* add one more chunk to the channel pointer array */
-		}
-		newchans = (thMidiChan **)calloc(newchancount, sizeof(thMidiChan*));
-
-        /* copy pointers over */
-		memcpy(newchans, midiChannels_, midiChannelCnt_ * sizeof(thMidiChan*));
-		free(midiChannels_);
-		midiChannelCnt_ = newchancount;
-		midiChannels_ = newchans;
-	}
-
-	if(midiChannels_[channum] != NULL)
-	{
-		delete midiChannels_[channum];
-	}
-
-	midiChannels_[channum] = new thMidiChan(findMod(modname), amp, windowlen_);
-//	channels[channum]->CopyChanArgs(channels[channum]->GetMod());
-
-	pthread_mutex_unlock(synthMutex_);
-
-	m_sigChanChanged_(modname, channum, amp);
-}
-#endif
 
 thMidiNote *thSynth::addNote (int channum, float note,
 							  float velocity)
@@ -473,36 +436,6 @@ void thSynth::clearAll (void)
 	while (*c)
 		(*c++)->ClearAll();
 }
-
-#if 0
-int thSynth::setNoteArg (int channum, int note, char *name,
-						 float *value, int len)
-{
-	if((channum < 0) || (channum > midiChannelCnt_))
-	{
-		debug("thSynth::SetNoteArg: no such channel %i", channum);
-
-		return 1;
-	}
-
-	thMidiChan *chan = midiChannels_[channum];
-
-	if(!chan)
-	{
-		debug("thSynth::SetNoteArg: no such channel %d", channum);
-
-		return 1;
-	}
-
-	pthread_mutex_lock(synthMutex_);
-	
-	chan->SetNoteArg (note, name, value, len);
-
-	pthread_mutex_unlock(synthMutex_);
-
-	return 0;
-}
-#endif
 
 void thSynth::process (void)
 {

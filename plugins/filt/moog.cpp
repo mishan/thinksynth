@@ -27,7 +27,7 @@
 #include "think.h"
 
 char		*desc = "Moog Filter";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -39,13 +39,13 @@ int args[IN_RES + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[INOUT_BUFFER] = plugin->RegArg("buffer");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_CUTOFF] = plugin->RegArg("cutoff");
-	args[IN_RES] = plugin->RegArg("res");
+	args[INOUT_BUFFER] = plugin->regArg("buffer");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_CUTOFF] = plugin->regArg("cutoff");
+	args[IN_RES] = plugin->regArg("res");
 	return 0;
 }
 
@@ -60,11 +60,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float t1, t2;
 	unsigned int i;
 
-	float *out_low = (mod->GetArg(node, "out_low"))->Allocate(windowlen);
-	float *out_high = (mod->GetArg(node, "out_high"))->Allocate(windowlen);
-	float *out_band = (mod->GetArg(node, "out_bandpass"))->Allocate(windowlen);
+	float *out_low = (mod->getArg(node, "out_low"))->Allocate(windowlen);
+	float *out_high = (mod->getArg(node, "out_high"))->Allocate(windowlen);
+	float *out_band = (mod->getArg(node, "out_bandpass"))->Allocate(windowlen);
 
-	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
+	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	b0 = (*inout_buffer)[0];
 	b1 = (*inout_buffer)[1];
 	b2 = (*inout_buffer)[2];
@@ -72,9 +72,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	b4 = (*inout_buffer)[4];
 	buffer = inout_buffer->Allocate(5);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
-	in_res = mod->GetArg(node, args[IN_RES]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+	in_res = mod->getArg(node, args[IN_RES]);
 
 	for(i = 0; i < windowlen; i++) {
 		float frequency = (*in_cutoff)[i];
@@ -106,5 +106,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	buffer[2] = b2;
 	buffer[3] = b3;
 	buffer[4] = b4;
+
 	return 0;
 }

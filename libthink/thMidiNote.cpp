@@ -28,12 +28,15 @@
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 	: modnode(*mod)
 {
-	float *notep = new float[1], *velocityp = new float[1], *triggerp = new float[1];
+	float *notep = new float[1], *velocityp = new float[1],
+		*triggerp = new float[1];
 
-	modnode.BuildSynthTree();
-	thNode *ionode = modnode.GetIONode();
+	modnode.buildSynthTree();
+	thNode *ionode = modnode.getIONode();
 
-	*notep = note, *velocityp = velocity, *triggerp = 1;
+	*notep = note;
+	*velocityp = velocity;
+	*triggerp = 1;
 
 	ionode->SetArg("note", notep, 1);
 	ionode->SetArg("velocity", velocityp, 1);
@@ -45,8 +48,8 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 thMidiNote::thMidiNote (thMod *mod)
 	: modnode (*mod)
 {
-	modnode.BuildSynthTree();
-	thNode *ionode = modnode.GetIONode();
+	modnode.buildSynthTree();
+	thNode *ionode = modnode.getIONode();
 
 	ionode->SetArg("note", 0, 1);  /* set these to 0, it may matter when */
 	ionode->SetArg("velocity", 0, 1); /* the args are indexed as well */
@@ -59,13 +62,13 @@ thMidiNote::~thMidiNote ()
 
 void thMidiNote::Process (int length)
 {
-	modnode.SetActiveNodes();
-	modnode.Process(length);
+	modnode.setActiveNodes();
+	modnode.process(length);
 }
 
 void thMidiNote::SetArg (char *name, float *value, int len)
 {
-	thNode *ionode = modnode.GetIONode();
+	thNode *ionode = modnode.getIONode();
 	ionode->SetArg(name, value, len);
 }
 

@@ -201,7 +201,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 	delete[] $3.str;
 
 	parsenode->SetName($2.str);
-	parsemod->NewNode(parsenode);
+	parsemod->newNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
 
 	free($2.str);
@@ -211,7 +211,7 @@ NODE WORD LCBRACK assignments RCBRACK
 {
 	parsenode->SetName($2.str);
 	parsenode->SetPlugin(NULL);
-	parsemod->NewNode(parsenode);
+	parsemod->newNode(parsenode);
 	parsenode = new thNode("newnode", NULL);
 
 	free($2.str);
@@ -223,14 +223,14 @@ ATSIGN WORD ASSIGN expression
 {
 	float *copy = new float[1];
 	*copy = $4.floatval;
-	parsemod->SetChanArg(new thArg($2.str, copy, 1));
+	parsemod->setChanArg(new thArg($2.str, copy, 1));
 }
 |
 ATSIGN WORD PERIOD WORD ASSIGN expression
 {
 	thArg *chanarg;
 
-	chanarg = parsemod->GetChanArg($2.str);
+	chanarg = parsemod->getChanArg($2.str);
 
 	if(strcmp($4.str, "min") == 0)
 	{
@@ -252,7 +252,7 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 {
 	thArg *chanarg;
 
-	chanarg = parsemod->GetChanArg($2.str);
+	chanarg = parsemod->getChanArg($2.str);
 
 	if(strcmp($4.str, "label") == 0)
 	{
@@ -269,7 +269,7 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 ionode:
 IO WORD
 {
-	parsemod->SetIONode($2.str);
+	parsemod->setIONode($2.str);
 }
 ;
 
@@ -279,7 +279,7 @@ AUTHOR STRING
 	thArg *autharg = new thArg("author", NULL, 0);
 	autharg->setComment($2.str);
 
-	parsemod->SetChanArg(autharg);
+	parsemod->setChanArg(autharg);
 }
 ;
 
@@ -289,7 +289,7 @@ NAME STRING
 	thArg *namearg = new thArg("name", NULL, 0);
 	namearg->setComment($2.str);
 
-	parsemod->SetChanArg(namearg);
+	parsemod->setChanArg(namearg);
 }
 ;
 
@@ -299,7 +299,7 @@ DESC STRING
 	thArg *descarg = new thArg("desc", NULL, 0);
 	descarg->setComment($2.str);
 
-	parsemod->SetChanArg(descarg);
+	parsemod->setChanArg(descarg);
 };
 
 assignments:

@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Prints 'in'";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,10 +36,11 @@ int args[IN_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_ARG] = plugin->regArg("in");
+
 	return 0;
 }
 
@@ -50,12 +51,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	const char *nodename = node->GetName().c_str();
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
 
 	printf("Printing Node %s:\n", nodename); 
-	for(i=0;i<windowlen;i++) {
+
+	for(i = 0; i < windowlen; i++)
+	{
 		printf("%f \t", (*in_arg)[i]);
 	}
+
 	printf("\n");
 
 	return 0;

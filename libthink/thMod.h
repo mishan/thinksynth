@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.40 2004/08/16 09:34:48 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,78 +26,79 @@ class thSynth;
 
 class thMod {
 public:
-	thMod(const string &name, thSynth *argsynth);
+	thMod(const string &name, thSynth *synth);
 	thMod(const thMod &oldmod);  /* Copy constructor */
 	~thMod();
 
-	thNode *FindNode(string name) const
+	typedef map<string, thNode*> NodeMap;
+	typedef list<thNode *> NodeList;
+	typedef map<string, thArg *> ArgMap;
+
+	thNode *findNode(string name) const
 	{
-		const map<string,thNode*>::const_iterator i = modnodes.find(name);
-		if (i != modnodes.end()) return i->second;
-		return 0;
-	};
-	thArg *GetArg (const string &nodename, const string &argname);
-	thArg *GetArg (thNode *node, const string &argname);
-	thArg *GetArg (thNode *node, int index);
-	thArg *GetArg (const string &argname) { return GetArg(ionode, argname); }
+		const NodeMap::const_iterator i = modnodes_.find(name);
+		if (i != modnodes_.end()) return i->second;
+		return NULL;
+	}
 
-	void NewNode(thNode *node);
-	void NewNode(thNode *node, int id);
-	void SetIONode(const string &name);
-	void PrintIONode(void);
-	thNode *GetIONode(void) const { return ionode; }
+	thArg *getArg (const string &nodename, const string &argname);
+	thArg *getArg (thNode *node, const string &argname);
+	thArg *getArg (thNode *node, int index);
+	thArg *getArg (const string &argname) { return getArg(ionode_, argname); }
 
-	string GetName(void) const { return modname; }
-	void SetName(const string &name) { modname = name; }
+	void newNode(thNode *node);
+	void newNode(thNode *node, int id);
+	void setIONode(const string &name);
+	void printIONode(void);
+	thNode *getIONode(void) const { return ionode_; }
 
-	string GetDesc(void) const { return moddesc; }
-	void SetDesc(const string &desc) { moddesc = desc; }
+	string getName(void) const { return modname_; }
+	void setName(const string &name) { modname_ = name; }
 
-	int GetNodeCount (void) const { return nodecount; }
+	string getDesc(void) const { return moddesc_; }
+	void setDesc(const string &desc) { moddesc_ = desc; }
 
-	thArg *GetChanArg (string argName) { return chanargs[argName]; }
-	void SetChanArg (thArg *arg);
+	int getNodeCount (void) const { return nodecount_; }
 
-	map<string,thNode*> GetNodeList (void) { return modnodes; }
+	thArg *getChanArg (string argName) { return chanargs_[argName]; }
+	void setChanArg (thArg *arg);
 
-	map<string, thArg*> GetChanArgs (void) { return chanargs; } 
+	NodeMap getNodeList (void) { return modnodes_; }
 
-	void Process (unsigned int windowlen);
+	ArgMap getChanArgs (void) { return chanargs_; } 
 
-	void SetActiveNodes(void);
-
-	void BuildArgMap (void);
-
-	void SetPointers (void);
-
-	void BuildNodeIndex (void);
-
-	void BuildSynthTree (void);
-
-	void ListNodes(void);
-
+	void process (unsigned int windowlen);
+	void setActiveNodes(void);
+	void buildArgMap (void);
+	void setPointers (void);
+	void buildNodeIndex (void);
+	void buildSynthTree (void);
+	void listNodes(void);
 protected:
-	thSynth *synth;
+	thSynth *getSynth (void) const { return synth_; }
 private:
-	void ProcessHelper (unsigned int windowlen, thNode *node);
-	void SetActiveNodesHelper(thNode *node);
+	void processHelper (unsigned int windowlen, thNode *node);
+	void setActiveNodesHelper(thNode *node);
 
-	void CopyHelper (thNode *parentnode);
+	void copyHelper (thNode *parentnode);
 
-	int BuildSynthTreeHelper(thNode *parent, int nodeid);
-	void BuildSynthTreeHelper2(const map <string, thArg*> &argtree, thNode *currentnode);
+	int buildSynthTreeHelper(thNode *parent, int nodeid);
+	void buildSynthTreeHelper2(const ArgMap &argtree,
+							   thNode *currentnode);
 
-	map<string,thNode*> modnodes;
-	list<thNode*> activelist;
-	thNode *ionode;
+	thSynth *synth_;
 
-	map<string,thArg*> chanargs;  /* midi chan args */
+	NodeMap modnodes_;
+	NodeList activelist_;
+	thNode *ionode_;
 
-	string modname, moddesc;
+	ArgMap chanargs_;    /* midi chan args */
 
-	int nodecount;  /* counter of thNodes in the thMod, used as the id
-					   for the node index */
-	thNode **nodeindex;  /* index of all the nodes */
+	string modname_, moddesc_;
+
+	int nodecount_;      /* counter of thNodes in the thMod, used as the id
+							for the node index */
+	thNode **nodeindex_; /* index of all the nodes */
 };
 
 #endif /* TH_MOD_H */

@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Generates a square wave impulse";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,14 +37,15 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_LEN] = plugin->RegArg("len");
-	args[IN_WIDTH] = plugin->RegArg("width");
-	args[IN_PW] = plugin->RegArg("pw");
-	args[IN_NUM] = plugin->RegArg("num");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_LEN] = plugin->regArg("len");
+	args[IN_WIDTH] = plugin->regArg("width");
+	args[IN_PW] = plugin->regArg("pw");
+	args[IN_NUM] = plugin->regArg("num");
+	args[OUT_ARG] = plugin->regArg("out");
+
 	return 0;
 }
 
@@ -57,10 +58,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float i, pw, num, amp, width, pwidth;
 	unsigned int j, len;
 
-	in_len = mod->GetArg(node, args[IN_LEN]);
-	in_width = mod->GetArg(node, args[IN_WIDTH]);
-	in_pw = mod->GetArg(node, args[IN_PW]);
-	in_num = mod->GetArg(node, args[IN_NUM]);
+	in_len = mod->getArg(node, args[IN_LEN]);
+	in_width = mod->getArg(node, args[IN_WIDTH]);
+	in_pw = mod->getArg(node, args[IN_PW]);
+	in_num = mod->getArg(node, args[IN_NUM]);
+
 	len = (int)(*in_len)[0];
 	num = (*in_num)[0];
 	width = len/num;
@@ -71,15 +73,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	}
 	amp = 1/(pwidth*num);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(len);
-	for(i = 0; (i+width) < len; i += width) {
-		for(j = 0; j < width; j++) {
-			if(j <= pwidth) {
-				out[(int)i+j] = amp;
-			} else {
-				out[(int)i+j] = 0;
-			}
+
+	for(i = 0; (i+width) < len; i += width)
+	{
+		for(j = 0; j < width; j++)
+		{
+			out[(int)i+j] = (j <= pwidth) ? amp : 0;
 		}
 	}
 	

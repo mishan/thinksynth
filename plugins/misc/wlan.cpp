@@ -1,4 +1,4 @@
-/* $Id: wlan.cpp,v 1.5 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -34,7 +34,7 @@ enum {OUT_ARG};
 int args[OUT_ARG + 1];
 
 char		*desc = "Passes on a wireless interface's signal level";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -43,10 +43,10 @@ void module_cleanup (struct module *mod)
 int module_init (thPlugin *plugin)
 {
 #ifdef HAVE_IWLIB_H
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_ARG] = plugin->regArg("out");
 
 	return 0;
 #else
@@ -77,7 +77,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 		return 1;
 	}
 
- 	out_arg = mod->GetArg(node, args[OUT_ARG]);
+ 	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(1);
 	out[0] = is.qual.qual;
 

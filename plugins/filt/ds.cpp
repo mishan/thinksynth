@@ -27,7 +27,7 @@
 #define SQR(a) ((a)*(a))
 
 char		*desc = "Difference Scaling Filter";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -39,14 +39,15 @@ int args[IN_CUTOFF + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[OUT_HIGH] = plugin->RegArg("out_high");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[OUT_HIGH] = plugin->regArg("out_high");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_CUTOFF] = plugin->regArg("cutoff");
+
 	return 0;
 }
 
@@ -63,9 +64,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float last, diff;
 	float fact;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	out_high = mod->GetArg(node, args[OUT_HIGH]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	out_high = mod->getArg(node, args[OUT_HIGH]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	out_last = inout_last->Allocate(1);
@@ -73,8 +74,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_arg->Allocate(windowlen);
 	highout = out_high->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
 
 	for(i=0;i<windowlen;i++) {
 	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));

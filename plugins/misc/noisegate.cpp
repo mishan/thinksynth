@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Zeros the output if the input goes below a certain level";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,14 +37,14 @@ int args[IN_CUTOFF + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->RegArg("out");
-	args[INOUT_LAST] = plugin->RegArg("last");
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_FALLOFF] = plugin->RegArg("falloff");
-	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[OUT_ARG] = plugin->regArg("out");
+	args[INOUT_LAST] = plugin->regArg("last");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_FALLOFF] = plugin->regArg("falloff");
+	args[IN_CUTOFF] = plugin->regArg("cutoff");
 	return 0;
 }
 
@@ -58,8 +58,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float last, in, absolute, falloff;
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
-	inout_last = mod->GetArg(node, args[INOUT_LAST]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
+	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 
@@ -67,9 +67,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_falloff = mod->GetArg(node, args[IN_FALLOFF]);
-	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_falloff = mod->getArg(node, args[IN_FALLOFF]);
+	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
 
 	for(i = 0; i < windowlen; i++)
 	{

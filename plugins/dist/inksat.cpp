@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Applies x^(1/y) saturation";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,12 +37,13 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_FACTOR] = plugin->RegArg("factor");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_FACTOR] = plugin->regArg("factor");
+	args[OUT_ARG] = plugin->regArg("out");
+
 	return 0;
 }
 
@@ -56,14 +57,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	signed int sign;
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_factor = mod->GetArg(node, args[IN_FACTOR]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_factor = mod->getArg(node, args[IN_FACTOR]);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++)
+	{
 		factor = (*in_factor)[i];
+	
 		if((*in_arg)[i] >= 0) {
 		  sign = 1;
 		} else {

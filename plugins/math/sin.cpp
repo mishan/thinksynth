@@ -1,4 +1,4 @@
-/* $Id: sin.cpp,v 1.5 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,7 +25,7 @@
 #include "think.h"
 
 char		*desc = "Sine Calculation";
-thPluginState	mystate = thPassive;
+thPlugin::State	mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -33,8 +33,8 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
 	return 0;
 }
@@ -48,14 +48,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float amp, wavelength;
 
-	in_index = mod->GetArg(node, "index");
-	in_wavelength = mod->GetArg(node, "wavelength");
-	in_amp = mod->GetArg(node, "amp");
+	in_index = mod->getArg(node, "index");
+	in_wavelength = mod->getArg(node, "wavelength");
+	in_amp = mod->getArg(node, "amp");
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->getArg(node, "out");
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++)
+	for(i = 0; i < windowlen; i++)
 	{
 		amp = (*in_amp)[i];
 		wavelength = (*in_wavelength)[i];

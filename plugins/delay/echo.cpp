@@ -24,7 +24,7 @@
 #include "think.h"
 
 char		*desc = "Echo (echo echo echo)";
-thPluginState	mystate = thActive;
+thPlugin::State	mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,17 +36,18 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
+	plugin->setDesc (desc);
+	plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->RegArg("in");
-	args[IN_SIZE] = plugin->RegArg("size");
-	args[IN_DELAY] = plugin->RegArg("delay");
-	args[IN_FEEDBACK] = plugin->RegArg("feedback");
-	args[IN_DRY] = plugin->RegArg("dry");
-	args[INOUT_BUFFER] = plugin->RegArg("buffer");
-	args[INOUT_BUFPOS] = plugin->RegArg("bufpos");
-	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_ARG] = plugin->regArg("in");
+	args[IN_SIZE] = plugin->regArg("size");
+	args[IN_DELAY] = plugin->regArg("delay");
+	args[IN_FEEDBACK] = plugin->regArg("feedback");
+	args[IN_DRY] = plugin->regArg("dry");
+	args[INOUT_BUFFER] = plugin->regArg("buffer");
+	args[INOUT_BUFPOS] = plugin->regArg("bufpos");
+	args[OUT_ARG] = plugin->regArg("out");
+
 	return 0;
 }
 
@@ -62,18 +63,18 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	int index;
 	float delay, feedback, dry, in;
 
-	in_arg = mod->GetArg(node, args[IN_ARG]);
-	in_size = mod->GetArg(node, args[IN_SIZE]);
-	in_delay = mod->GetArg(node, args[IN_DELAY]);
-	in_feedback = mod->GetArg(node, args[IN_FEEDBACK]);
+	in_arg = mod->getArg(node, args[IN_ARG]);
+	in_size = mod->getArg(node, args[IN_SIZE]);
+	in_delay = mod->getArg(node, args[IN_DELAY]);
+	in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
 	/* How much of the origional signal is passed */
-	in_dry = mod->GetArg(node, args[IN_DRY]);
+	in_dry = mod->getArg(node, args[IN_DRY]);
 
-	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
-	inout_bufpos = mod->GetArg(node, args[INOUT_BUFPOS]);
+	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
 	bufpos = inout_bufpos->Allocate(1);
 
-	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_arg = mod->getArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {
