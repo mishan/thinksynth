@@ -1,8 +1,0 @@
-configure
-config.*
-autom4te.cache
-aclocal.m4
-build.mk
-*.wav
-*core
-build-stamp

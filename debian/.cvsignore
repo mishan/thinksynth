@@ -1,8 +1,0 @@
-tmp
-libthink3
-libthink3-dev
-thinksynth
-thinksynth-data
-*.substvars
-files
-*.debhelper
