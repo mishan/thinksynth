@@ -4,7 +4,7 @@ CC=g++
 
 SRCS=main.cpp thOSSAudio.cpp endian.cpp thAudioBuffer.cpp Exception.cpp \
 	thWav.cpp thList.cpp thNode.cpp thMod.cpp thMidiChan.cpp thMidiNote.cpp \
-	thPlugin.cpp thPluginSignaler.cpp
+	thPlugin.cpp thPluginSignaler.cpp thPluginManager.cpp
 OBJS=$(SRCS:.cpp=.o)
 
 LIBS=

@@ -3,15 +3,9 @@
 
 #define MODULE_IFACE_VER 3
 
-/* XXX */
-#define PLUGPREFIX "plugins/"
-#define PLUGPOSTFIX ".so"
-
-#define NUM_SIGNALS 128
-
 class thPlugin {
 public:
-	thPlugin(const char *name, int id, bool state);
+	thPlugin(const char *name, int id, bool state, void *handle);
 	~thPlugin ();
 
 	const char *GetName (void);

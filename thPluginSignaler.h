@@ -1,6 +1,9 @@
 #ifndef TH_PLUGIN_SIGNALER_H
 #define TH_PLUGIN_SIGNALER_H 1
 
+/* XXX */
+#define NUM_SIGNALS 128
+
 struct thPluginSignal {
 	int sigNum;
 	int (*callback) (void *, void *, void *, void *, void *, char);
