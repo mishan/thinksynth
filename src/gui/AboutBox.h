@@ -1,4 +1,4 @@
-/* $Id: AboutBox.h,v 1.1 2004/09/16 07:25:39 misha Exp $ */
+/* $Id: AboutBox.h,v 1.2 2004/09/16 07:37:13 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -40,6 +40,8 @@ public:
 	~AboutBox (void);
 
 protected:
+	void onCloseButton (void);
+
 	Gtk::Fixed          *fixed;
 	Gtk::Fixed          *fixed1;
 	Gtk::Button         *btnClose;

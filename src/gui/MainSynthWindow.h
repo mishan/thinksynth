@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.12 2004/09/15 08:31:38 joshk Exp $ */
+/* $Id: MainSynthWindow.h,v 1.13 2004/09/16 07:37:13 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,6 +22,7 @@
 
 class gthAudio;
 class gthPrefs;
+class AboutBox;
 
 using namespace std;
 
@@ -48,6 +49,8 @@ protected:
 	void channelChanged (string filename, int chan, float amp);
 	void channelDeleted (int chan);
 
+	void onAboutBoxHide (void);
+
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;
 	Gtk::Menu menuFile;
@@ -61,6 +64,7 @@ private:
 	thSynth *synth;
 	gthAudio *audio;
 	gthPrefs *prefs;
+	AboutBox *aboutBox;
 
 	void toggleConnects(void);
 };

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.31 2004/09/16 07:25:39 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.32 2004/09/16 07:37:13 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -97,6 +97,8 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	synth->signal_channel_deleted().connect(
 		SigC::slot(*this, &MainSynthWindow::channelDeleted));
+
+	aboutBox = NULL;
 }
 
 MainSynthWindow::~MainSynthWindow (void)
@@ -257,12 +259,19 @@ void MainSynthWindow::menuQuit (void)
 
 void MainSynthWindow::menuAbout (void)
 {
-/*	Gtk::MessageDialog dialog (PACKAGE_STRING, Gtk::MESSAGE_INFO,
-							   Gtk::BUTTONS_OK, true, true);
+	if (aboutBox)
+		return;
 
-							   dialog.run(); */
-	AboutBox *box = new AboutBox;
-	box->show();
+	aboutBox = new AboutBox;
+	aboutBox->show();
+	aboutBox->signal_hide().connect(
+		SigC::slot(*this, &MainSynthWindow::onAboutBoxHide));
+}
+
+void MainSynthWindow::onAboutBoxHide (void)
+{
+	delete aboutBox;
+	aboutBox = NULL;
 }
 
 void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)

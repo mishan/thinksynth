@@ -1,4 +1,4 @@
-/* $Id: AboutBox.cpp,v 1.1 2004/09/16 07:25:39 misha Exp $ */
+/* $Id: AboutBox.cpp,v 1.2 2004/09/16 07:37:13 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,7 +50,9 @@ AboutBox::AboutBox (void)
 	add(*fixed);
 
 	btnClose = manage(new Gtk::Button("Close"));
-	fixed->put(*btnClose, 384, 393);
+	btnClose->signal_clicked().connect(SigC::slot(*this,
+												  &AboutBox::onCloseButton));
+	fixed->put(*btnClose, 384, 403);
 	btnClose->set_size_request(88, 36);
 	GTK_WIDGET_SET_FLAGS(btnClose->gobj(), GTK_CAN_DEFAULT);
 	btnClose->grab_focus();
@@ -98,4 +100,9 @@ AboutBox::AboutBox (void)
 
 AboutBox::~AboutBox (void)
 {
+}
+
+void AboutBox::onCloseButton (void)
+{
+	hide ();
 }
