@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.27 2003/05/01 05:36:43 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.28 2003/05/01 14:23:36 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -12,7 +12,11 @@
 #include <libgen.h>
 #else /* libiberty */
 #include <ansidecl.h>
+#ifdef PARAMS
 extern "C" { extern char *basename PARAMS ((const char *)); }
+#else
+#error Blah, all our efforts to find a working basename have failed!
+#endif
 #endif
 
 #include <dlfcn.h>
