@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.18 2003/04/27 03:42:17 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.19 2003/04/27 04:25:58 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -114,7 +114,9 @@ bool thBSTree::_Remove(void *id, bool freemem)
 		return (bsRight && bsRight->_Remove(id, true));
 	}
 
-	free(bsId);
+	if(freemem) {
+		free(bsId);
+	}
 
 	bsId = NULL;
 	bsData = NULL;
