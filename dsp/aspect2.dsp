@@ -1,4 +1,4 @@
-# $Id: aspect2.dsp,v 1.2 2004/05/25 20:55:12 ink Exp $
+# $Id: aspect2.dsp,v 1.3 2004/05/25 20:58:53 ink Exp $
 # Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
 # 5-20-2004
@@ -35,7 +35,7 @@ node ionode {
 	fmax = 48;
 
 # filter res
-	res = 4.0;
+	res = 2.0;
 
 # amp envelope
 	a = 0 ms;
@@ -59,7 +59,7 @@ node ionode {
 	or = 300 ms;
 
 # filter envelope
-	fa = 0 ms;
+	fa = 1 ms;
 	fd = 1000 ms;
 	fs = 90%;
 	ff = 20000 ms;
