@@ -1,4 +1,4 @@
-/* $Id: clip.cpp,v 1.1 2003/05/13 00:32:57 ink Exp $ */
+/* $Id: clip.cpp,v 1.2 2003/05/13 04:31:05 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,27 +40,35 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out = new float[windowlen];
-	thArgValue *in_arg, *in_clip;
+	thArgValue *in_arg, *in_clip, *in_lowclip;
 	unsigned int i;
-	float in, clip;
+	float in, clip, lowclip;
 
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_clip = (thArgValue *)mod->GetArg(node, "clip");
+	in_lowclip = (thArgValue *)mod->GetArg(node, "lowclip");
 
 	for(i=0;i<windowlen;i++) {
 		in = (*in_arg)[i];
 		clip = (*in_clip)[i] * TH_MAX;
-		if(clip < 1) {
-		clip = 1;
+		lowclip = (*in_lowclip)[i] * TH_MAX;
+
+		if(clip < 1) {  /* Clip needs to be at least one */
+			clip = 1;
 		}
-		if(in > clip) {
+		if(lowclip < 1) {  /* Same for the bottom side */
+			lowclip = clip;
+		}
+		lowclip *= -1;
+
+		if(in > clip) {  /* Apply the clipping */
 			in = clip;
 		}
-		else if (in < clip*-1) {
-			in = clip*-1;
+		else if (in < lowclip) {
+			in = lowclip;
 		}
-		out[i] = in*(TH_MAX/clip);
-		//printf("DIST: %f \t%f \t%f\n", in, clip, out[i]);
+		/* Map the clipped data to the data range */
+		out[i] = (((in-lowclip)/(clip-lowclip))*TH_RANGE)+TH_MIN;
 	}
 
 	node->SetArg("out", out, windowlen);
