@@ -42,6 +42,9 @@ public:
 
 	map<unsigned int, thMidiControllerConnection *>
 	*getConnectionList (void) { return &connectionList_; }
+	thMidiControllerConnection *getConnection
+	(unsigned char channel, unsigned int param)
+		{ return connections_[channel][param]; }
 
 private:
 	thMidiControllerConnection *connections_[16][128];

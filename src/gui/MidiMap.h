@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.11 2004/11/09 12:23:09 ink Exp $ */
+/* $Id: MidiMap.h,v 1.12 2004/11/10 02:09:19 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -94,12 +94,15 @@ protected:
 
 private:
 	void fillDestChanCombo (void);
+	void setDestChanCombo (void);
 	void fillDestArgCombo (int chan);
+	void setDestArgCombo (int chan);
 	void populateConnections (void);
 
 	thSynth *synth_;
 	int selectedChan_;
 	int selectedController_;
+	int selectedDestChan_;
 	string selectedInstrument_;
 	float selectedMin_;
 	float selectedMax_;

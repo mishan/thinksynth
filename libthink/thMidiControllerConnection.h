@@ -27,16 +27,20 @@
 class thMidiControllerConnection {
 public:
 	thMidiControllerConnection (thArg *arg, float min, float max, int chan, 
-								int controller, string instrument,
+								int controller, int dchan, string instrument,
 								string argName);
 	~thMidiControllerConnection (void);
 
 	void setMin (float min) { min_ = min; }
 	void setMax (float max) { max_ = max; }
+	float getMin (void) { return min_; }
+	float getMax (void) { return max_; }
 	int getChan (void) { return chan_; }
 	int getController (void) { return controller_; }
+	int getDestChan (void) { return destchan_; }
 	string getInstrument (void) { return instrument_; }
 	string getArgName (void) { return argName_; }
+	thArg *getArg (void) { return arg_; }
 	/* XXX: put linear/exponential here too */
 
 	void setParam (unsigned int value);
@@ -44,6 +48,7 @@ public:
 private:
 	thArg *arg_;
 	int chan_, controller_;
+	int destchan_;
 	string instrument_, argName_;
 	float min_, max_;
 	enum scale { LINEAR = 0, EXPONENTIAL };

@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.58 2004/11/09 12:23:08 ink Exp $ */
+/* $Id: thSynth.h,v 1.59 2004/11/10 02:09:19 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -85,6 +85,9 @@ public:
 	map<unsigned int, thMidiControllerConnection *> *getMidiConnectionList
 	(void)
 		{ return controllerHandler_->getConnectionList(); }
+	thMidiControllerConnection *getMidiControllerConnection
+	(unsigned char channel, unsigned int param)
+		{ return controllerHandler_->getConnection(channel, param); }
 
 	inline thMidiChan * GetChannel (int chan) const
 	{
