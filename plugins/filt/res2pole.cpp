@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.9 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: res2pole.cpp,v 1.10 2004/10/24 20:57:42 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -16,7 +16,7 @@
  * Public License along with this program; if not, write to the
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
-/* Written by Leif Ames <ink@bespni.org>
+/* Written by Leif Ames <ink@bespin.org>
    Algorithm taken from musicdsp.org
    References : Hal Chamberlin, "Musical Applications of Microprocessors,"
    2nd Ed, Hayden Book Company 1985. pp 490-492
