@@ -6,13 +6,13 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	waveform = 1;
+	waveform = 5;
+	pw = 0.2;
 
-	percent = 1;
-	ilen = 64;
-	cutoff = 0.7;
-	firmix = 0.2;
-	pw = 0.1;
+	ilen = 128;
+	fnum = 10;
+	width = 1;
+	firmix = 0.4;
 };
 
 node freq misc::midi2freq {
@@ -24,9 +24,10 @@ node mixer mixer::mul {
 	in1 = env->out;
 };
 
-node firenv impulse::blackman {
+node firenv impulse::square {
 	len = ionode->ilen;
-	cutoff = ionode->cutoff;
+	num = ionode->fnum;
+	width = ionode->width;
 };
 
 node osc osc::simple {
