@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.14 2004/03/27 04:12:18 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.15 2004/03/27 07:28:47 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -25,9 +25,9 @@
 extern Glib::Mutex *synthMutex;
 
 PatchSelWindow::PatchSelWindow (thSynth *synth)
+	: dspAmp (0, MIDIVALMAX, .5), setButton("Load Patch")
 {
-//		set_default_size(320, 240);
-	set_default_size(400, 0);
+		set_default_size(500, 400);
 
 	realSynth = synth;
 	mySynth = NULL;
@@ -36,8 +36,14 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	set_title("thinksynth - Patch Selector");
 	
 	add(vbox);
+
+	patchScroll.add(patchView);
+	patchScroll.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
 	
-	vbox.pack_start(patchTable, Gtk::PACK_SHRINK);
+	patchView.signal_button_press_event().connect_notify(
+		SigC::slot(*this, &PatchSelWindow::patchSelected));
+
+	vbox.pack_start(patchScroll);
 
 	synthMutex->lock();
 		
@@ -46,49 +52,44 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 
 	synthMutex->unlock();
 
+	patchModel = Gtk::ListStore::create (patchViewCols);
+	patchView.set_model(patchModel);
+
 	for(int i = 0; i < channelcount; i++)
 	{
-		char label[11];
-
-		sprintf(label, "Channel %d", i+1);
-		Gtk::Label *chanLabel = new Gtk::Label(label);
+		Gtk::TreeModel::Row row = *(patchModel->append());
 		string filename = (*patchlist)[i];
-		Gtk::Entry *chanEntry = new Gtk::Entry;
-		chanEntry->set_text(filename);
-
-		int *channum = new int;
-		*channum = i;
-
-		Gtk::HScale *chanAmp = new Gtk::HScale(0, MIDIVALMAX, .5);
-		chanAmp->set_data("channel", channum);
-		chanAmp->signal_value_changed().connect(
-			SigC::bind<Gtk::HScale *, thSynth *>
-			(SigC::slot(*this, &PatchSelWindow::SetChannelAmp),
-			 chanAmp, realSynth));
-
 		thArg *amp = realSynth->GetChanArg(i, "amp");
+
+		row[patchViewCols.chanNum] = i + 1;
+		row[patchViewCols.dspName] = filename;
+
 		if (amp)
 		{
-			chanAmp->set_value(amp->argValues[0]);
+			row[patchViewCols.amp] = amp->argValues[0];
 		}
 		else
 		{
-			chanAmp->set_sensitive(false);
+			row[patchViewCols.amp] = 0;
 		}
-
-		patchTable.attach(*chanLabel, 0, 1, i, i+1, Gtk::FILL, Gtk::SHRINK);
-		patchTable.attach(*chanEntry, 1, 2, i, i+1, Gtk::FILL, Gtk::SHRINK);
-		patchTable.attach(*chanAmp, 2, 3, i, i+1, Gtk::FILL|Gtk::EXPAND,
-						  Gtk::FILL);
-
-
-		chanEntry->set_data("channel", channum);
-		chanEntry->set_data("amp", chanAmp);
-		chanEntry->signal_activate().connect(
-			SigC::bind<Gtk::Entry *, thSynth *>
-			(SigC::slot(*this, &PatchSelWindow::LoadPatch), 
-			 chanEntry, realSynth));
 	}
+
+	patchView.append_column("Channel", patchViewCols.chanNum);
+	patchView.append_column("Filename", patchViewCols.dspName);
+	patchView.append_column("Amplitude", patchViewCols.amp);
+	
+	dspAmp.signal_value_changed().connect(
+		SigC::slot(*this, &PatchSelWindow::SetChannelAmp));
+
+	setButton.signal_clicked().connect(
+		SigC::slot(*this, &PatchSelWindow::LoadPatch));
+
+
+	vbox.pack_start(controlHbox, Gtk::PACK_SHRINK);
+
+	controlHbox.pack_start(fileEntry);
+	controlHbox.pack_start(dspAmp);
+	controlHbox.pack_start(setButton, Gtk::PACK_SHRINK);
 }
 
 PatchSelWindow::~PatchSelWindow (void)
@@ -96,49 +97,116 @@ PatchSelWindow::~PatchSelWindow (void)
 	hide ();
 }
 
-void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
+void PatchSelWindow::LoadPatch (void)
 {
-	int *channum = (int *)chanEntry->get_data("channel");
-	Gtk::HScale *chanAmp = (Gtk::HScale *)chanEntry->get_data("amp");
-	thMod* loaded = NULL;
-
-	if (chanEntry->get_text().empty())
+	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
+		patchView.get_selection();
+	if(refSelection)
 	{
-		return;
+		Gtk::TreeModel::iterator iter;
+		iter = refSelection->get_selected();
+
+		if(iter)
+		{
+			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
+			thMod *loaded = NULL;
+
+			synthMutex->lock();
+
+			if ((loaded = realSynth->LoadMod(fileEntry.get_text().c_str(), 
+											 chanNum, (float)dspAmp.get_value()
+					 )) == NULL)
+			{
+				char *error = g_strdup_printf("Couldn't load %s: %s",
+											  fileEntry.get_text().c_str(),
+											  strerror(errno));
+				Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
+
+				errorDialog.run();
+				g_free(error);
+				dspAmp.set_sensitive(false);
+			}
+			else
+			{
+				(*iter)[patchViewCols.dspName] = fileEntry.get_text();
+
+				dspAmp.set_sensitive(true);
+			}
+
+			synthMutex->unlock();
+		} 
 	}
 
-	synthMutex->lock();
-
-	if ((loaded = synth->LoadMod(chanEntry->get_text().c_str(), *channum,
-		(float)chanAmp->get_value())) == NULL)
-	{
-		char *error = g_strdup_printf("Couldn't load %s: %s",
-									chanEntry->get_text().c_str(),
-									strerror(errno));
-		Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
-
-		errorDialog.run();
-		g_free(error);
-		chanAmp->set_sensitive(false);
-	}
-	else
-	{
-		chanAmp->set_sensitive(true);
-	}
-	
-	synthMutex->unlock();
 }
 
-void PatchSelWindow::SetChannelAmp (Gtk::HScale *scale, thSynth *synth)
+void PatchSelWindow::SetChannelAmp (void)
 {
-	int *channum = (int *)scale->get_data("channel");
-	float *val = new float;
-	*val = (float)scale->get_value();
-	thArg *arg = new thArg("amp", val, 1);
+	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
+		patchView.get_selection();
+	if(refSelection)
+	{
+		Gtk::TreeModel::iterator iter;
+		iter = refSelection->get_selected();
 
-	synthMutex->lock();
+		if(iter)
+		{
+			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
+			float *val = new float;
+			*val = (float)dspAmp.get_value();
+			thArg *arg = new thArg("amp", val, 1);
 
-	synth->SetChanArg(*channum, arg);
+			(*iter)[patchViewCols.amp] = *val;
 
-	synthMutex->unlock();
+			synthMutex->lock();
+
+			realSynth->SetChanArg(chanNum, arg);
+
+			synthMutex->unlock();
+		} 
+	}
+
+}
+
+void PatchSelWindow::patchSelected (GdkEventButton *b)
+{
+	if (b && ((b->type == GDK_BUTTON_PRESS) && (b->button == 1)))
+	{
+		Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
+			patchView.get_selection();
+		if(refSelection)
+		{
+			Gtk::TreeModel::iterator iter;
+			Gtk::TreeModel::Path path;
+			Gtk::TreeViewColumn *col;
+			int cell_x, cell_y; 
+
+			patchView.get_path_at_pos((int)b->x, (int)b->y, path, col, 
+									  cell_x, cell_y);
+				
+			refSelection->select(path);
+
+			iter = refSelection->get_selected();
+
+			if(iter)
+			{
+				Glib::ustring filename = (*iter)[patchViewCols.dspName];
+				float amp = (*iter)[patchViewCols.amp];
+
+				fileEntry.set_text(filename);
+				dspAmp.set_value((double)amp);
+
+				/* if no DSP is loaded, then don't touch the amplitude */
+				if (filename == "")
+				{
+					dspAmp.set_sensitive(false);
+				}
+				else
+				{
+					dspAmp.set_sensitive(true);
+				}
+
+			}
+
+		}
+	}
 }
