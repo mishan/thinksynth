@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.7 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: res2pole.cpp,v 1.8 2004/05/26 00:14:04 misha Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org
@@ -30,7 +30,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	float *out, *highout, *bandout, *notchout, *delay;
 	thArg *in_arg, *in_cutoff, *in_res;
@@ -56,7 +57,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_res = mod->GetArg(node, "res");
 
 	for(i=0;i<windowlen;i++) {
-		f = 2*sin(M_PI * (*in_cutoff)[i] / TH_SAMPLE);
+		f = 2*sin(M_PI * (*in_cutoff)[i] / samples);
 		q = 1/((*in_res)[i]*2);
 
 		out[i] = delay[1] + f * delay[0];  /* Low Pass */

@@ -1,4 +1,4 @@
-/* $Id: multisined.cpp,v 1.4 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: multisined.cpp,v 1.5 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,7 +29,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	int i, j;
 	float *out;
@@ -68,7 +69,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_ampadd = mod->GetArg(node, "ampadd");
 
 	for(i = 0; i < (int)windowlen; i++) {
-		//wavelength = TH_SAMPLE/(*in_freq)[i];
+		//wavelength = samples/(*in_freq)[i];
 		freq = (*in_freq)[i];
 		amp_max = (*in_amp)[i];
 		if(amp_max == 0) {
@@ -82,7 +83,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		ampmul = (*in_ampmul)[i];
 		ampadd = (*in_ampadd)[i];
 
-		wavelength = TH_SAMPLE / freq;
+		wavelength = samples / freq;
 		out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
 		if(++(out_last[0]) > wavelength)
 			out_last[0] = 0;
@@ -90,7 +91,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		for(j = 1; j < waves; j++)
 		{
 			wfreq = freq + sin(j * (detunefreq / (2 * M_PI))) * detuneamt * freq;
-			wavelength = TH_SAMPLE / wfreq;
+			wavelength = samples / wfreq;
 			out[i] += ((out_last[j] / wavelength) - .5) * 2 * (amp_max * (pow(ampmul, j) + (ampadd * j)));
 //			out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * (pow(ampmul, j) + (ampadd * j)));
 			if(++(out_last[j]) > wavelength)

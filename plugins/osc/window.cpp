@@ -1,4 +1,4 @@
-/* $Id: window.cpp,v 1.1 2004/04/23 06:48:11 ink Exp $ */
+/* $Id: window.cpp,v 1.2 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,7 +57,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	int i, halfway;
 	float *out;
@@ -92,7 +93,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	for(i=0; i < (int)windowlen; i++) {
 		freq = (*in_freq)[i];
 
-		wavelength = TH_SAMPLE/freq;
+		wavelength = samples/freq;
 
 		if(position > wavelength || (*in_reset)[i] == 1) {
 			position -= wavelength;

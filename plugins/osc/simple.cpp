@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.50 2004/05/08 21:27:27 ink Exp $ */
+/* $Id: simple.cpp,v 1.51 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +60,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	int i;
 	float *out;
@@ -116,7 +117,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		amp_min = -amp_max;
 		amp_range = amp_max-amp_min;
 
-		wavelength = TH_SAMPLE/freq;
+		wavelength = samples/freq;
 
 		mul = buf_mul[i];
 		if(mul) {

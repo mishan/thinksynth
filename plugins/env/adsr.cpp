@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.24 2004/05/05 06:16:03 ink Exp $ */
+/* $Id: adsr.cpp,v 1.25 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	thArg *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger, *in_reset;  /* User args */
 	thArg *inout_position;  /* [0] = position in stage, [1] = current stage */

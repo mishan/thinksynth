@@ -1,4 +1,4 @@
-/* $Id: resonator.cpp,v 1.3 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: resonator.cpp,v 1.4 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +25,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	float *out;
 	thArg *in_arg, *in_freq, *in_fb;
@@ -51,7 +52,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		freq = (*in_freq)[i];
 		fb = (*in_fb)[i];
 
-		omega = M_PI * freq / TH_SAMPLE;
+		omega = M_PI * freq / samples;
 		a0 = -(1.0 - omega) / (1.0 + omega);
 
 		in -= (last[0] * fb);

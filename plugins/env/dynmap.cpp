@@ -1,4 +1,4 @@
-/* $Id: dynmap.cpp,v 1.1 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: dynmap.cpp,v 1.2 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,7 +34,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	float *out;
 	thArg *in_arg, *in_min, *in_max, *out_min, *out_max;

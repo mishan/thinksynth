@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.83 2004/05/12 09:09:16 misha Exp $ */
+/* $Id: thMod.cpp,v 1.84 2004/05/26 00:14:04 misha Exp $ */
 
 #include "config.h"
 
@@ -8,11 +8,13 @@
 
 #include "think.h"
 
-thMod::thMod (const string &name)
+thMod::thMod (const string &name, thSynth *argsynth)
 {
 	ionode = NULL;
 	modname = name;
 	nodecount = 0;
+
+	synth = argsynth;
 }
 
 thMod::thMod (const thMod &oldmod)
@@ -31,6 +33,8 @@ thMod::thMod (const thMod &oldmod)
 	ionode = newnode;
 
 	CopyHelper(oldionode);
+
+	synth = oldmod.synth;
 }
 
 thMod::~thMod ()
@@ -191,11 +195,11 @@ void thMod::Process (unsigned int windowlen)
 	}
 
 	if((plug = ionode->GetPlugin())) {
-		plug->Fire(ionode, this, windowlen);
+		plug->Fire(ionode, this, windowlen, synth->GetSamples());
 	}
 }
 
-void thMod::ProcessHelper(unsigned windowlen, thNode *node)
+void thMod::ProcessHelper(unsigned int windowlen, thNode *node)
 {
 	list<thNode*> children = node->GetChildren();
 
@@ -208,7 +212,7 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 	}
 
 	/* FIRE! */
-	node->GetPlugin()->Fire(node, this, windowlen);
+	node->GetPlugin()->Fire(node, this, windowlen, synth->GetSamples());
 }
 
 /* reset the recalc flag for nodes with active plugins */

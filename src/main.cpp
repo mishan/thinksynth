@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.181 2004/05/25 04:42:47 misha Exp $ */
+/* $Id: main.cpp,v 1.182 2004/05/26 00:14:04 misha Exp $ */
 
 #include "config.h"
 
@@ -53,9 +53,10 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "Usage: %s [options] dsp-file\n"
 "-h\t\t\tdisplay this help screen\n"
 "-p [path]\t\tmodify the plugin search path\n"
-"-m [mod]\t\tchange the mod that will be used\n"
 "-d [alsa|oss|wav]\tchange output driver\n"
 "  -o [file|device]\tchange output dest\n"
+"-r [sample rate]\tset the sample rate\n"
+"-l [window length]\tset the window length\n";
 ;
 
 void cleanup (int signum)
@@ -192,6 +193,7 @@ int main (int argc, char *argv[])
 	int havearg = -1;
 	thfALSAMidi *midi = NULL;
 	thfAudio *aout = NULL;
+	int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
 
 	/* seed the random number generator */
 	srand(time(NULL));
@@ -199,9 +201,20 @@ int main (int argc, char *argv[])
 	/* init Glib/Gtk args */
 	gtkMain = new Gtk::Main (argc, argv);
 
-	while ((havearg = getopt (argc, argv, "hp:o:d:")) != -1) {
+	while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1)
+	{
 		switch (havearg)
 		{
+			case 'r':
+			{
+				samples = atoi(optarg);
+				break;
+			}
+			case 'l':
+			{
+				windowlen = atoi(optarg);
+				break;
+			}
 			case 'd':
 			{
 				driver = optarg;
@@ -242,7 +255,7 @@ int main (int argc, char *argv[])
 	}
 
 	/* XXX: create global Synth object */
-	Synth = new thSynth(plugin_path);
+	Synth = new thSynth(plugin_path, windowlen, samples);
 
 	/* Glib/Gtk signal/thread handling init */
 	Glib::thread_init();

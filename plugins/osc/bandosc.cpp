@@ -1,4 +1,4 @@
-/* $Id: bandosc.cpp,v 1.5 2004/04/09 04:59:47 ink Exp $ */
+/* $Id: bandosc.cpp,v 1.6 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,7 +36,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	int i;
 	float *out;
@@ -63,8 +64,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	/*  0 = top sine, 1 = first 0, 2 = bottom sine, 3 = second 0  */
 
 	for(i=0; i < (int)windowlen; i++) {
-		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
-		sinewavelength = TH_SAMPLE * (1.0/(*in_band)[i]);
+		wavelength = samples * (1.0/(*in_freq)[i]);
+		sinewavelength = samples * (1.0/(*in_band)[i]);
 		
 		if(sinewavelength > wavelength) {
 			sinewavelength = wavelength; /* otherwise the pitch bends when band is low */

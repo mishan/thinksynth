@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.9 2004/05/21 06:43:47 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.10 2004/05/26 00:14:04 misha Exp $ */
 
 #include "config.h"
 
@@ -16,7 +16,7 @@
 
 void jack_shutdown (void *arg)
 {
-	thfJackAudio *jout = (thfJackAudio *)arg;
+//	thfJackAudio *jout = (thfJackAudio *)arg;
 
 	debug("shutting down");
 
@@ -48,9 +48,13 @@ thfJackAudio::thfJackAudio (thSynth *argsynth)
 										  0);
 	}
 
-	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
+//	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
 
-	debug("sample rate is %d\n", jack_get_sample_rate(jack_handle));
+	debug("JACK sample rate is %d", jack_get_sample_rate(jack_handle));
+	debug("JACK buffer size is %d", jack_get_buffer_size(jack_handle));
+
+	debug("thinksynth sample rate is %li", argsynth->GetSamples());
+	debug("thinksynth buffer size is %d", argsynth->GetWindowLen());
 
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
 }
@@ -81,8 +85,13 @@ thfJackAudio::thfJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 	}
 
 //	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
+//	jack_set_buffer_size(jack_handle, argsynth->GetWindowLen());
 
-	debug("sample rate is %d\n", jack_get_sample_rate(jack_handle));
+	debug("JACK sample rate is %d", jack_get_sample_rate(jack_handle));
+	debug("JACK buffer size is %d", jack_get_buffer_size(jack_handle));
+
+	debug("thinksynth sample rate is %li", argsynth->GetSamples());
+	debug("thinksynth buffer size is %d", argsynth->GetWindowLen());
 
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
 

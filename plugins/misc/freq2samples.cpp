@@ -1,4 +1,4 @@
-/* $Id: freq2samples.cpp,v 1.4 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: freq2samples.cpp,v 1.5 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +25,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	float *out;
 	thArg *in_freq;
@@ -39,7 +40,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
-	  out[i] = (1/(*in_freq)[i])*TH_SAMPLE;
+	  out[i] = (1/(*in_freq)[i])*samples;
 	}
 
 /*	node->SetArg("out", out, windowlen); */

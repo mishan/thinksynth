@@ -1,4 +1,4 @@
-/* $Id: wlan.cpp,v 1.3 2004/05/25 03:54:04 misha Exp $ */
+/* $Id: wlan.cpp,v 1.4 2004/05/26 00:14:04 misha Exp $ */
 
 #include "config.h"
 
@@ -42,7 +42,8 @@ int module_init (thPlugin *plugin)
 #endif /* HAVE_IWLIB_H */
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 #ifdef HAVE_IWLIB_H
 	float *out;

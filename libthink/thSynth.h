@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.47 2004/05/25 03:54:04 misha Exp $ */
+/* $Id: thSynth.h,v 1.48 2004/05/26 00:14:04 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -8,7 +8,8 @@ class thMidiChan;
 
 class thSynth {
 public:
-	thSynth (const string &plugin_path);
+	thSynth (int windowlen, int samples);
+	thSynth (const string &plugin_path, int windowlen, int samples);
 	~thSynth (void);
 
 	thMod* LoadMod(const string &filename);

@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.39 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thPlugin.cpp,v 1.40 2004/05/26 00:14:04 misha Exp $ */
 
 #include "config.h"
 
@@ -69,10 +69,11 @@ thPlugin::~thPlugin ()
 	ModuleUnload();
 }
 
-void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
+void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	if(plugCallback) {
-		plugCallback(node, mod, windowlen);
+		plugCallback(node, mod, windowlen, samples);
 	}
 }
 
@@ -169,7 +170,7 @@ int thPlugin::ModuleLoad (void)
 		goto loaderr;
 	}
 	
-	plugCallback = (void (*)(thNode *, thMod *, unsigned int))dlsym(plugHandle, "module_callback");
+	plugCallback = (th_plugin_callback_t)dlsym(plugHandle, "module_callback");
 	
 	/* Ensure that plugin's callback exists */
 	

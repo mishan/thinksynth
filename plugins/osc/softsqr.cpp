@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.19 2004/05/08 18:52:50 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.20 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +38,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	unsigned int i;
 
@@ -76,8 +77,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		val_pw = buf_pw[i];
 		val_sw = buf_sfreq[i];
 
-		wavelength = TH_SAMPLE * (1.0/val_freq);
-		sinewavelength = TH_SAMPLE * (1.0/val_sw);
+		wavelength = samples * (1.0/val_freq);
+		sinewavelength = samples * (1.0/val_sw);
 		
 		if(sinewavelength > wavelength) {
 			sinewavelength = wavelength; /* otherwise the pitch bends when 

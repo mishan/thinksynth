@@ -1,4 +1,4 @@
-/* $Id: echo.cpp,v 1.7 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: echo.cpp,v 1.8 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,7 +24,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	float *out;
 	float *buffer, *bufpos;
@@ -39,7 +40,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_size = mod->GetArg(node, "size"); /* Buffer size */
 	in_delay = mod->GetArg(node, "delay"); /* Delay length */
 	in_feedback = mod->GetArg(node, "feedback");
-	in_dry = mod->GetArg(node, "dry"); /* How much of the origional signal is passed */
+	/* How much of the origional signal is passed */
+	in_dry = mod->GetArg(node, "dry"); 
 
 	inout_buffer = mod->GetArg(node, "buffer");
 	inout_bufpos = mod->GetArg(node, "bufpos");

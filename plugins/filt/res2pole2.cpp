@@ -1,4 +1,4 @@
-/* $Id: res2pole2.cpp,v 1.1 2004/05/20 20:16:53 ink Exp $ */
+/* $Id: res2pole2.cpp,v 1.2 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,7 +38,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	float *out;
 	float *out_last;
@@ -75,7 +76,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(streamofs = 0; streamofs < windowlen; streamofs++)
 	{
-		w = 2.0*M_PI*buf_cut[streamofs]/TH_SAMPLE; // Pole angle
+		w = 2.0*M_PI*buf_cut[streamofs]/samples; // Pole angle
 		q = 1.0-w/(2.0*(buf_res[streamofs]+0.5/(1.0+w))+w-2.0); // Pole magnitude
 		r = q*q;
 		c = r+1.0-2.0*cos(w)*q;

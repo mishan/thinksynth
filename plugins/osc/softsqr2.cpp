@@ -1,4 +1,4 @@
-/* $Id: softsqr2.cpp,v 1.11 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: softsqr2.cpp,v 1.12 2004/05/26 00:14:04 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +27,8 @@ int module_init (thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
+					 unsigned int samples)
 {
 	int i;
 	float *out;
@@ -54,7 +55,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 
 	for(i=0; i < (int)windowlen; i++) {
-		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
+		wavelength = samples * (1.0/(*in_freq)[i]);
 		
 		sinewidth = wavelength * (*in_sw)[i];
 		maxsqrwidth = (wavelength - (2*sinewidth)) * (*in_pw)[i];

@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.37 2004/05/11 19:46:11 misha Exp $
+# $Id: Makefile.in,v 1.38 2004/05/26 00:14:04 misha Exp $
 
 BINARY = thinksynth
 
@@ -12,7 +12,7 @@ include ../build.mk
 
 PICFLAGS =
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@
-LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink -ljack
+LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ @ASOUND_LIBS@ -L../libthink -lthink -ljack
 
 # objects not compiled anymore:
 # thOSSAudio.o thWav.o

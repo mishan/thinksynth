@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.94 2004/05/25 04:42:47 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.95 2004/05/26 00:14:04 misha Exp $ */
 
 #include "config.h"
 
@@ -12,19 +12,44 @@
 
 #include "think.h"
 
-thSynth::thSynth (const string &plugin_path)
+thSynth::thSynth (int windowlen, int samples)
 {
 	synthMutex = new pthread_mutex_t;
 	pthread_mutex_init(synthMutex, NULL);
 
 	/* XXX: these should all be arguments and we should have corresponding
 	   accessor/mutator methods for these arguments */
-	thWindowlen = TH_WINDOW_LENGTH;
+	thWindowlen = windowlen;
 
 	thChans = 2;  /* mono / stereo / etc */
 
 	/* intialize default sample rate */
-	thSamples = TH_SAMPLE;
+	thSamples = samples;
+
+	/* We should make a function to allocate this, so we can easily change
+	   thChans and thWindowlen */
+	thOutput = new float[thChans*thWindowlen];
+
+	channelcount = CHANNELCHUNK;
+	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
+
+	/* default path */
+	pluginmanager = new thPluginManager(PLUGIN_PATH);
+}
+
+thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
+{
+	synthMutex = new pthread_mutex_t;
+	pthread_mutex_init(synthMutex, NULL);
+
+	/* XXX: these should all be arguments and we should have corresponding
+	   accessor/mutator methods for these arguments */
+	thWindowlen = windowlen;
+
+	thChans = 2;  /* mono / stereo / etc */
+
+	/* intialize default sample rate */
+	thSamples = samples;
 
 	/* We should make a function to allocate this, so we can easily change
 	   thChans and thWindowlen */
@@ -78,7 +103,7 @@ thMod * thSynth::LoadMod (const string &filename)
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
-	parsemod = new thMod("newmod");
+	parsemod = new thMod("newmod", this);
 	parsenode = new thNode("newnode", NULL);
 
 	YYPARSE(this);
@@ -108,7 +133,7 @@ thMod * thSynth::LoadMod (FILE *input)
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
 	/* these are used by the parser */
-	parsemod = new thMod("newmod");
+	parsemod = new thMod("newmod", this);
 	parsenode = new thNode("newnode", NULL);
 
 	YYPARSE(this);
@@ -194,7 +219,7 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
 	/* these are used by the parser */
-	parsemod = new thMod("newmod");
+	parsemod = new thMod("newmod", this);
 	parsenode = new thNode("newnode", NULL);
 
 	YYPARSE(this);

@@ -1,13 +1,15 @@
-/* $Id: thMod.h,v 1.35 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thMod.h,v 1.36 2004/05/26 00:14:04 misha Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
 
 #include "thNode.h"
 
+class thSynth;
+
 class thMod {
 public:
-	thMod(const string &name);
+	thMod(const string &name, thSynth *argsynth);
 	thMod(const thMod &oldmod);  /* Copy constructor */
 	~thMod();
 
@@ -50,6 +52,8 @@ public:
 
 	void ListNodes(void);
 
+protected:
+	thSynth *synth;
 private:
 	void ProcessHelper (unsigned int windowlen, thNode *node);
 	void SetActiveNodesHelper(thNode *node);

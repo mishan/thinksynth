@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.69 2004/05/11 19:46:10 misha Exp $
+dnl $Id: configure.ac,v 1.70 2004/05/26 00:14:04 misha Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -205,11 +205,12 @@ fi
 
 AC_CHECK_LIB(asound, snd_pcm_hw_params_any,
 [
-  AC_CHECK_HEADER(alsa/asoundlib.h, LIBS="$LIBS -lasound",
+  AC_CHECK_HEADER(alsa/asoundlib.h, ASOUND_LIBS="-lasound",
    [AC_MSG_ERROR([You need the libasound2-dev headers to compile this package.])])], [AC_MSG_ERROR([You need libasound2-dev to compile this package.])])
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
+AC_SUBST(ASOUND_LIBS)
 
 dnl Flatten out all of the paths.
 AC_SUBST_DIR(libdir)
