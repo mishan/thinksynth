@@ -1,9 +1,9 @@
-dnl $Id: configure.ac,v 1.31 2003/05/01 15:58:08 joshk Exp $
+dnl $Id: configure.ac,v 1.32 2003/05/01 22:14:49 joshk Exp $
 
 AC_INIT
 
 dnl Don't let ancient Autoconfs touch this
-AC_PREREQ(2.5)
+AC_PREREQ(2.57)
 
 AC_PREFIX_DEFAULT([/usr/local])
 
@@ -200,7 +200,8 @@ fi
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
 
-AC_OUTPUT([Makefile src/Makefile plugins/plugin-common.inc dsp/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile plugins/plugin-common.inc dsp/Makefile])
+AC_OUTPUT
 
 echo
 echo $PACKAGE $VERSION
