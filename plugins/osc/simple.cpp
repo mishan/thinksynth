@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.15 2003/04/29 02:03:59 joshk Exp $ */
+/* $Id: simple.cpp,v 1.16 2003/05/11 07:37:19 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,7 +81,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 		break;
 	  case 3:    /* TRIANGLE WAVE */
-		break;
+		  if(position < halfwave) {
+			  out[i] = TH_RANGE*(position/halfwave)+TH_MIN;
+		  } else {
+			  out[i] = (-1*TH_RANGE)*((position-halfwave)/halfwave)+TH_MAX;
+		  }
+		  break;
 	  case 4:    /* HALF-CIRCLE WAVE */
 		if(position<halfwave) {
 		  out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
