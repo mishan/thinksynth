@@ -1,10 +1,13 @@
-/* $Id: fade.cpp,v 1.8 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: fade.cpp,v 1.9 2004/04/08 13:44:05 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "think.h"
+
+enum {IN_0, IN_1, IN_FADE, OUT};
+int args[OUT+1];
 
 char		*desc = "Fades between two streams";
 thPluginState	mystate = thPassive;
@@ -21,6 +24,11 @@ int module_init (thPlugin *plugin)
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_0] = plugin->RegArg("in0");
+	args[IN_1] = plugin->RegArg("in1");
+	args[IN_FADE] = plugin->RegArg("fade");
+	args[OUT] = plugin->RegArg("out");
+
 	return 0;
 }
 
@@ -31,11 +39,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *out_arg;
 	unsigned int i;
 
-	in_0 = mod->GetArg(node, "in0");
-	in_1 = mod->GetArg(node, "in1");
-	in_fade = mod->GetArg(node, "fade");
+	in_0 = mod->GetArg(node, args[IN_0]);
+	in_1 = mod->GetArg(node, args[IN_1]);
+	in_fade = mod->GetArg(node, args[IN_FADE]);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
