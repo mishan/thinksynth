@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.36 2003/04/25 22:22:20 ink Exp $ */
+/* $Id: thMod.cpp,v 1.37 2003/04/26 01:50:09 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -42,15 +42,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 		args = node->GetArg(argname);
 	}
 
-	while ((args->argType == ARG_POINTER) && node && args) { 
-		/* Recurse through the list of pointers until we get a real value. */
-		node = (thNode *)modnodes.GetData(args->argPointNode);
-		if (node) {
-			args = node->GetArg(args->argPointName);
-		}
-	}   /* Maybe also add some kind of infinite-loop checking thing? */
-
-	/* If the arg doesnt exist, make it a 0 */
+/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
 	  newfloat = (float *)malloc(sizeof(float));  /* Should change the init
 							 float newfloat[1]; */
@@ -58,6 +50,14 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 	  args = ((thArg *)node->SetArg(argname, newfloat, 1))->GetArg();
 	  free(newfloat);
 	}
+
+	while ((args->argType == ARG_POINTER) && node && args) { 
+		/* Recurse through the list of pointers until we get a real value. */
+		node = (thNode *)modnodes.GetData(args->argPointNode);
+		if (node) {
+			args = node->GetArg(args->argPointName);
+		}
+	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
 	return args;
 }

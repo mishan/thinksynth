@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.33 2003/04/25 07:40:51 joshk Exp $ */
+/* $Id: main.cpp,v 1.34 2003/04/26 01:50:09 ink Exp $ */
 
 #include "config.h"
 
@@ -72,14 +72,12 @@ syntax:
 
 	Synth.LoadMod(filename);
 	Synth.ListMods();
-	((thMod *)Synth.FindMod("static"))->BuildSynthTree();
-	/* ((thMod *)Synth->FindMod("test"))->Process(); */
   
-	((thMod *)Synth.FindMod("static"))->BuildSynthTree();
-	Synth.AddChannel("chan1", "static");
+	((thMod *)Synth.FindMod("test"))->BuildSynthTree();
+	Synth.AddChannel("chan1", "test");
 	Synth.AddNote("chan1", 20, 100);
 
-	newmod = ((thMod *)Synth.FindMod("static"))->Copy();
+	newmod = ((thMod *)Synth.FindMod("test"))->Copy();
 	newmod->BuildSynthTree();
 	newmod->Process(newmod, 1024);
 
