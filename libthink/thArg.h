@@ -23,14 +23,14 @@ public:
 	void SetArg(const char *name, const float *value, const int num);
 	void SetArg(const char *name, const char *node, const char *value);
 
-	const char *GetArgName (void) { return argValue->argName; };
+	const char *GetArgName (void) { return argValue.argName; };
 	const thArgValue *GetArg(void);
 private:
 	/* 	char *argName;
 	float *argValues;
 	int argNum, argType;
 	char *argPointNode, *argPointName;*/
-	thArgValue *argValue;
+	thArgValue argValue;
 };
 
 #endif /* TH_ARG_H */

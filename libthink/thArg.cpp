@@ -10,92 +10,83 @@
 
 thArg::thArg(const char *name, const float *value, const int num)
 {
-  argValue = new thArgValue;
-	argValue->argName = strdup(name);
+	argValue.argName = strdup(name);
 
-	argValue->argValues = new float[num];
-	memcpy(argValue->argValues, value, num*sizeof(float));
+	argValue.argValues = new float[num];
+	memcpy(argValue.argValues, value, num*sizeof(float));
 
-	argValue->argNum = num;
+	argValue.argNum = num;
 
-	argValue->argPointNode = NULL;
-	argValue->argPointName = NULL;
+	argValue.argPointNode = NULL;
+	argValue.argPointName = NULL;
 
-	argValue->argType = ARG_VALUE;
+	argValue.argType = ARG_VALUE;
 }
 
 thArg::thArg(const char *name, const char *node, const char *value)
 {
-  argValue = new thArgValue;
-	argValue->argName = strdup(name);
-	argValue->argPointNode = strdup(node);
-	argValue->argPointName = strdup(value);
+	argValue.argName = strdup(name);
+	argValue.argPointNode = strdup(node);
+	argValue.argPointName = strdup(value);
 
-	argValue->argValues = NULL;
-	argValue->argNum = 0;
+	argValue.argValues = NULL;
+	argValue.argNum = 0;
 
-	argValue->argType = ARG_POINTER;
+	argValue.argType = ARG_POINTER;
 }
 
 thArg::thArg () /* the equivalent of creating a thArg(NULL, NULL, 0) */
 {
-	argValue = new thArgValue;
 }
 
 thArg::~thArg()
 {
-	if(argValue) {
-		delete argValue;
-	}
 }
 
 void thArg::SetArg(const char *name, const float *value, const int num)
 {
-	if(argValue->argName) {
-		delete argValue->argName;
+	if(argValue.argName) {
+		delete argValue.argName;
 	}
 
-	if(argValue->argValues) {
-		delete argValue->argValues;
+	if(argValue.argValues) {
+		delete argValue.argValues;
 	}
 
-	argValue->argName = strdup(name);
+	argValue.argName = strdup(name);
 	
-	argValue->argValues = new float[num];
-	memcpy(argValue->argValues, value, num*sizeof(float));
+	argValue.argValues = new float[num];
+	memcpy(argValue.argValues, value, num*sizeof(float));
 
-	argValue->argNum = num;
-	argValue->argType = ARG_VALUE;
+	argValue.argNum = num;
+	argValue.argType = ARG_VALUE;
 }
 
 void thArg::SetArg(const char *name, const char *node, const char *value)
 {
-	if(argValue->argName) {
-		delete argValue->argName;
+	if(argValue.argName) {
+		delete argValue.argName;
 	}
 
-	if(argValue->argPointNode) {
-		delete argValue->argPointNode;
+	if(argValue.argPointNode) {
+		delete argValue.argPointNode;
 	}
 
-	if(argValue->argPointName) {
-		delete argValue->argPointName;
+	if(argValue.argPointName) {
+		delete argValue.argPointName;
 	}
 
-	argValue->argName = strdup(name);
-	argValue->argPointNode = strdup(node);
-	argValue->argPointName = strdup(value);
+	argValue.argName = strdup(name);
+	argValue.argPointNode = strdup(node);
+	argValue.argPointName = strdup(value);
 
-	argValue->argType = ARG_POINTER;
+	argValue.argType = ARG_POINTER;
 }
 
 const thArgValue *thArg::GetArg (void)
 {
   //	thArgValue *value;
 
-	if(!argValue) {
-		return NULL;
-	}
 	/*
 	value = new thArgValue;
 
@@ -107,5 +98,5 @@ const thArgValue *thArg::GetArg (void)
 	value->argPointName = argPointName;
 	*/
 
-	return argValue;
+	return &argValue;
 }
