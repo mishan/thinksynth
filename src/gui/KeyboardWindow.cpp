@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.6 2004/04/01 07:46:26 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.7 2004/04/01 08:38:45 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -82,6 +82,8 @@ static int	key_sizes[4][7] =
 	}
 };
 
+#define set_note_off(channel,notenum) { float *pbuf = new float[1]; *pbuf = 0; synth->SetNoteArg(channel, notenum, "trigger", pbuf, 1); }
+
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	: ctrlFrame ("Keyboard Control"), chanLbl("Channel")
 {
@@ -101,11 +103,10 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	shift_on = 0;
 	alt_on = 0;
 
-//	set_default_size(img_width, img_height);
-	set_title("thinksynth - Keyboard");
-
 	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
 	img_width = key_sizes[cur_size][2] * 75;
+
+	set_title("thinksynth - Keyboard");
 
 	drawArea.set_size_request(img_width, img_height);
 	drawArea.add_events(Gdk::ALL_EVENTS_MASK);
@@ -115,7 +116,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	vbox.pack_start(drawArea);
 	ctrlFrame.add(ctrlTable);
 
-	chanVal = new Gtk::Adjustment(0, 0, synth->GetChannelCount());
+	chanVal = new Gtk::Adjustment(0, 0, synth->GetChannelCount()-1);
 	chanBtn = new Gtk::SpinButton(*chanVal);
 
 	ctrlTable.attach(chanLbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
@@ -125,7 +126,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	gtk_widget_realize(GTK_WIDGET(drawArea.gobj()));	
 
 	drawable = ((GtkWidget *)drawArea.gobj())->window;
-	GTK_WIDGET_SET_FLAGS((GtkWidget *)drawArea.gobj(), GTK_CAN_FOCUS);
+	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(drawArea.gobj()), GTK_CAN_FOCUS);
 
 	kbgc = gdk_gc_new (drawable);
 	gdk_gc_set_function (kbgc, GDK_COPY);
@@ -158,51 +159,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 KeyboardWindow::~KeyboardWindow (void)
 {
 	hide ();
+
+//  gdk_key_repeat_enable ()
 }
-
-/* convert key value to note number		*/
-/* return value is -1 if key value is not valid	*/
-
-int	KeyboardWindow::keyval_to_notnum (int key)
-{
-	char	*c;
-	int	m, n, o;
-	
-	if ((key <= 0) || (key >= 256)) return -1;
-
-	/* upper case -> lower case */
-	if ((key >= 'A') && (key <= 'Z')) {
-		key -= 'A'; key += 'a';
-	}
-	/* convert SHIFT characters */
-	c = strchr (key_conv_in, key);
-	if (c != NULL) key = key_conv_out[c - key_conv_in];
-	/* find character in tables */
-	c = strchr (keylist_1, key);
-	if (c == NULL) {
-		c = strchr (keylist_2, key);
-		if (c == NULL) return -1;	/* not found */
-		n = (int) (c - keylist_2);
-	} else {
-		n = 14 + (int) (c - keylist_1);
-	}
-	n += 13;
-	/* key offset */
-	n += (key_ofs << 1);
-	m = n % 14;
-	o = n / 14;	/* octave */
-	/* check for invalid keys (E# and B#) */
-	if ((m == 5) || (m == 13)) return -1;
-	/* correct for missing black keys and transpose */
-	if (m > 4) m--;
-	n = 48 + transpose + 12 * o + m;
-	if ((n < 0) || (n > 127)) n = -1;
-
-	return n;
-}
-
-
-#define set_note_off(channel,notenum) { float *pbuf = new float[1]; *pbuf = 0; synth->SetNoteArg(channel, notenum, "trigger", pbuf, 1); }
 
 bool KeyboardWindow::keyEvent (GdkEventKey *k)
 {
@@ -415,7 +374,47 @@ void KeyboardWindow::drawKeyboard (int mode)
 		k = (k == 11 ? 0 : k + 1);
 	} while (++i < 128);
 
+}
 
+/* convert key value to note number		*/
+/* return value is -1 if key value is not valid	*/
+
+int	KeyboardWindow::keyval_to_notnum (int key)
+{
+	char	*c;
+	int	m, n, o;
+	
+	if ((key <= 0) || (key >= 256)) return -1;
+
+	/* upper case -> lower case */
+	if ((key >= 'A') && (key <= 'Z')) {
+		key -= 'A'; key += 'a';
+	}
+	/* convert SHIFT characters */
+	c = strchr (key_conv_in, key);
+	if (c != NULL) key = key_conv_out[c - key_conv_in];
+	/* find character in tables */
+	c = strchr (keylist_1, key);
+	if (c == NULL) {
+		c = strchr (keylist_2, key);
+		if (c == NULL) return -1;	/* not found */
+		n = (int) (c - keylist_2);
+	} else {
+		n = 14 + (int) (c - keylist_1);
+	}
+	n += 13;
+	/* key offset */
+	n += (key_ofs << 1);
+	m = n % 14;
+	o = n / 14;	/* octave */
+	/* check for invalid keys (E# and B#) */
+	if ((m == 5) || (m == 13)) return -1;
+	/* correct for missing black keys and transpose */
+	if (m > 4) m--;
+	n = 48 + transpose + 12 * o + m;
+	if ((n < 0) || (n > 127)) n = -1;
+
+	return n;
 }
 
 /* get mouse pointer coordinates, and convert to key number */
