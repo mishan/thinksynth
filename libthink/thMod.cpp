@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.79 2004/04/09 08:32:32 ink Exp $ */
+/* $Id: thMod.cpp,v 1.80 2004/04/10 02:51:39 aaronl Exp $ */
 
 #include "config.h"
 
@@ -395,7 +395,7 @@ void thMod::BuildNodeIndex (void)
 	thNode *curnode;
 
 //	nodeindex = (thNode **)calloc(nodecount, sizeof(thNode*));
-	nodeindex = new (thNode*)[nodecount];
+	nodeindex = new thNode*[nodecount];
 	/* for every node in the thMod */
 	for (map<string, thNode*>::const_iterator i = modnodes.begin();
 		 i != modnodes.end(); i++)
