@@ -1,7 +1,7 @@
-/* $Id: thAudioBuffer.h,v 1.6 2003/04/26 00:19:23 joshk Exp $ */
+/* $Id: thAudioBuffer.h,v 1.7 2003/04/27 05:23:09 joshk Exp $ */
 
-#ifndef HAVE_TH_AUDIOBUFFER_H
-#define HAVE_TH_AUDIOBUFFER_H 1
+#ifndef TH_AUDIOBUFFER_H
+#define TH_AUDIOBUFFER_H 1
 
 #define BUFFER_EMPTY_PERCENT 0.6
 
@@ -28,4 +28,4 @@ private:
 	thAudio *audioPtr;
 };
 
-#endif /* HAVE_TH_AUDIOBUFFER_H */
+#endif /* TH_AUDIOBUFFER_H */
