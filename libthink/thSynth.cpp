@@ -77,21 +77,28 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
 {
   thListNode *listnode;
   thArgValue *data;
-  thNode *node = mod->FindNode(nodename);
+  thNode *currentnode = mod->FindNode(nodename);
+  thNode *node;
 
-  if(node->GetRecalc() == true) {
+  if(currentnode->GetRecalc() == true) {
     return(1);  /* This node has already been processed */
   }
-  node->SetRecalc(true);  /* This node has now been marked as processed */
+  currentnode->SetRecalc(true);  /* This node has now been marked as processed */
 
-  for(listnode = ((thList *)node->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
+  parent->AddChild(currentnode);
+  currentnode->AddParent(parent);
+  printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
+
+  for(listnode = ((thList *)currentnode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+    printf("Processing: %s  Type : %i\n", data->argName, data->argType);
     if(data->argType == ARG_POINTER) {
       node = mod->FindNode(data->argPointNode);
-      parent->AddChild(node);
-      node->AddParent(parent);
+      /*parent->AddChild(node);
+      printf("Added Child %s to %s\n", node->GetName(), parent->GetName());
+      node->AddParent(parent);*/
       if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
-	BuildSynthTreeHelper(mod, node, data->argPointNode);
+	BuildSynthTreeHelper(mod, currentnode, data->argPointNode);
       }
     }
   }
