@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.41 2003/04/27 10:17:12 aaronl Exp $ */
+/* $Id: main.cpp,v 1.42 2003/04/27 10:20:02 aaronl Exp $ */
 
 #include "config.h"
 
@@ -69,7 +69,7 @@ syntax:
 		goto syntax;
 	}
 	else {
-		filename = strdup (argv[optind]);
+		filename = argv[optind];
 	}
 
 	Synth.LoadMod(filename);
