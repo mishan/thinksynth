@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.12 2004/08/01 11:05:18 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.13 2004/08/01 11:13:54 misha Exp $ */
 
 #include "config.h"
 
@@ -110,14 +110,19 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 			string argName = j->first;
 			thArg *arg = j->second;
 
+			if (arg == NULL)
+				continue;
+
 			if (arg->argWidget != thArg::HIDE)
 			{
 				Gtk::Label *label = new Gtk::Label(argName);
-//				ArgSlider *slider = new ArgSlider(arg);
+
 				Gtk::HScale *slider = new Gtk::HScale(arg->argMin, arg->argMax, .01);
 
 				slider->signal_value_changed().connect(
-					SigC::bind<Gtk::HScale *, thArg *>(SigC::slot(*this, &MainSynthWindow::sliderChanged), slider, arg));
+					SigC::bind<Gtk::HScale *, thArg *>(
+						SigC::slot(*this,&MainSynthWindow::sliderChanged), slider,
+						arg));
 				slider->set_value(arg->argValues[0]);
 
 				table->attach(*label, 0, 1, row, row+1);
