@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.26 2003/05/22 08:50:45 ink Exp $ */
+/* $Id: simple.cpp,v 1.27 2003/05/23 02:32:08 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,19 +44,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
 	float *out;
-	float *out_last;
+	float *out_last, *sync;
 	float halfwave, ratio;
 	float position, wavelength;
 	float pw; /* Make pw cooler! */
 	float fmamt;
-	thArgValue *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt;
-	thArgValue *out_arg;
+	thArgValue *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset;
+	thArgValue *out_arg, *out_sync;
 	thArgValue *inout_last;
 
 	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_sync = (thArgValue *)mod->GetArg(node, "sync"); /* Output a 1 when the wave begins its cycle */
 	inout_last = (thArgValue *)mod->GetArg(node, "last");
 	position = (*inout_last)[0];
 	out_last = inout_last->allocate(1);
+	sync = out_sync->allocate(windowlen);
 
 	out = out_arg->allocate(windowlen);
 
@@ -65,6 +67,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_waveform = (thArgValue *)mod->GetArg(node, "waveform");
 	in_fm = (thArgValue *)mod->GetArg(node, "fm"); /* FM Input */
 	in_fmamt = (thArgValue *)mod->GetArg(node, "fmamt"); /* Modulation amount */
+	in_reset = (thArgValue *)mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = TH_SAMPLE/(*in_freq)[i];
@@ -74,8 +77,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		if(fmamt) {
 			wavelength += (wavelength * fmamt) * ((*in_fm)[i] / TH_MAX);
 		}
-		if(position > wavelength) {
+		if(position > wavelength || (*in_reset)[i] == 1) {
 			position = 0;
+			sync[i] = 1;
+		} else {
+			sync[i] = 0;
 		}
 
 		pw = (*in_pw)[i];  /* Pulse Width */
