@@ -1,4 +1,4 @@
-# $Id: aspect.dsp,v 1.3 2004/05/21 03:40:05 ink Exp $
+# $Id: aspect.dsp,v 1.4 2004/05/21 03:48:13 ink Exp $
 # Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
 # 5-20-2004
@@ -17,20 +17,20 @@ node ionode {
 # min and max of frequency for the band limited osc
 	sfreqlo1 = 1000;
 	sfreqhi1 = 4000;
-	sfreqlo2 = 2000;
+	sfreqlo2 = 3000;
 	sfreqhi2 = 9000;
 
 # pulse width
 	pw1 = 0.45;
-	pw2 = 0.18;
+	pw2 = 0.22;
 
 # osc mixing and pitch offset (for osc2)
 	oscmul = 2.0004;
-	oscfade = 0.2;
+	oscfade = 0.35;
 
 # filter minimum and maximum
 	fmin = 200;
-	fmax = 6000;
+	fmax = 5000;
 
 # filter res
 	res = 2.0;
@@ -38,29 +38,29 @@ node ionode {
 # amp envelope
 	a = 20 ms;
 	d = 400 ms;
-	s = 0.5;	# 1 = full, 0 = off
-	f = 20000 ms;
+	s = 0.3;	# 1 = full, 0 = off
+	f = 15000 ms;
 	r = 400 ms;
 
 # amp envelope2
 	a2 = 2 ms;
 	d2 = 200 ms;
-	s2 = 0.4;	# 1 = full, 0 = off
-	f2 = 10000 ms;
+	s2 = 0.5;	# 1 = full, 0 = off
+	f2 = 6000 ms;
 	r2 = 400 ms;
 
 # overall amp envelope
 	oa = 0 ms;
 	od = 0 ms;
 	os = 100%;
-	of = 30000 ms;
+	of = 20000 ms;
 	or = 400 ms;
 
 # filter envelope
 	fa = 20 ms;
 	fd = 1000 ms;
 	fs = 30%;
-	ff = 30000 ms;
+	ff = 20000 ms;
 	fr = 400 ms;
 };
 
