@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.33 2003/05/07 03:11:57 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.34 2003/05/07 15:59:43 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -23,14 +23,20 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 {
 	float *allocatedamp = new float[1];
 	thArg *argstruct = new thArg("amp", allocatedamp, 1);
+	const thArgValue *chanarg = NULL;
+
 	modnode = mod;
-	args = new thBSTree(StringCompare);
-	notes = new thBSTree(IntCompare);
 	windowlength = windowlen;
 	allocatedamp[0] = amp;
+
+	args = new thBSTree(StringCompare);
+	notes = new thBSTree(IntCompare);
+
 	args->Insert((void *)strdup("amp"), (void *)argstruct);
 
-	channels = (int)((thArgValue *)mod->GetArg(((thNode *)modnode->GetIONode())->GetName(), "channels"))->argValues[0];
+	chanarg = modnode->GetArg(modnode->GetIONode()->GetName(), "channels");
+	channels = (int)chanarg->argValues[0];
+
 	output = new float[channels*windowlen];
 	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
 }
