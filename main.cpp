@@ -3,17 +3,16 @@
 #include <stdlib.h>
 
 #include "Exception.h"
-#include "Audio.h"
+#include "thAudio.h"
 #include "AudioBuffer.h"
 #include "thWav.h"
-#include "OSSAudio.h"
+#include "thOSSAudio.h"
 
 int main (int argc, char *argv[])
 {
 	thWav *wav;
-	thWavFormat wfmt;
-	OSSAudio *audio;
-	AudioFormat afmt;
+	thOSSAudio *audio;
+	const thAudioFmt *afmt;
 	AudioBuffer *buffer;
 
 	if(argc < 2) {
@@ -25,18 +24,13 @@ int main (int argc, char *argv[])
 		exit(1);
 	}
 	
-	wfmt = wav->GetFormat();
+	afmt = wav->GetFormat();
 	
-	afmt.channels = wfmt.channels;
-	afmt.samples = wfmt.samples;
-	afmt.bits = wfmt.bits;
-	
-	if(!(audio = new_OSSAudio(NULL, &afmt))) {
+	if(!(audio = new_thOSSAudio(NULL, afmt))) {
 		exit(1);
 	}
 	
-	buffer = new AudioBuffer(BUF_SIZE, (Audio *)wav);
-	audio->Play(buffer);
+	audio->Play((thAudio *)wav);
 
 	/*
 
@@ -63,5 +57,6 @@ int main (int argc, char *argv[])
 	
 	delete wav;
 	delete audio;
-	delete buffer;
+
+//	delete buffer;
 }

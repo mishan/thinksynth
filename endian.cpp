@@ -22,7 +22,7 @@ int lefread32(FILE *stream, long *c)
 {
 	int r;
 
-	r = fread(stream, c, 4);
+	r = fread(c, 4, 1, stream);
 	le32(*c, *c);
 
 	return r;
@@ -42,7 +42,7 @@ int lefread16(FILE *stream, short *c)
 {
 	int r;
 
-	r = fread(stream, c, 2);
+	r = fread(c, 2, 1, stream);
 	le16(*c, *c);
 
 	return r;
@@ -63,7 +63,7 @@ int lefwrite32(FILE *stream, long c)
 	int r;
 
 	le32(c, c);
-	r = fwrite(stream, &c, 4);
+	r = fwrite(&c, 4, 1, stream);
 
 	return r;
 }
@@ -83,7 +83,7 @@ int lefwrite16(FILE *stream, short c)
 	int r;
 
 	le16(c, c);
-	r = fwrite(stream, &c, 2);
+	r = fwrite(&c, 2, 1, stream);
 
 	return r;
 }
@@ -105,7 +105,7 @@ int befread32(FILE *stream, long *c)
 {
 	int r;
 
-	r = fread(stream, c, 4);
+	r = fread(c, 4, 1, stream);
 	be32(*c, *c);
 
 	return r;
@@ -125,7 +125,7 @@ int befread16(FILE *stream, short *c)
 {
 	int r;
 
-	r = fread(stream, c, 2);
+	r = fread(c, 2, 1, stream);
 	be16(*c, *c);
 
 	return r;
@@ -146,7 +146,7 @@ int befwrite32(FILE *stream, long c)
 	int r;
 
 	be32(c, c);
-	r = fwrite(stream, &c, 4);
+	r = fwrite(&c, 4, 1, stream);
 
 	return r;
 }
@@ -166,7 +166,7 @@ int befwrite16(FILE *stream, short c)
 	int r;
 
 	be16(c, c);
-	r = fwrite(stream, &c, 2);
+	r = fwrite(&c, 2, 1, stream);
 
 	return r;
 }

@@ -10,13 +10,13 @@
 #include <errno.h>
 
 #include "Exception.h"
-#include "Audio.h"
+#include "thAudio.h"
 #include "AudioBuffer.h"
-#include "OSSAudio.h"
+#include "thOSSAudio.h"
 
 /* null is a placeholder; to have wav output plugins and audio output plugins
    we must maintain the same number of arguments for interopability */
-OSSAudio::OSSAudio(char *null, AudioFormat *afmt)
+thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	throw(thIOException)
 {
 	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate
@@ -24,16 +24,16 @@ OSSAudio::OSSAudio(char *null, AudioFormat *afmt)
 											channels, so we must decrement the 
 											channel count */
 
+	memcpy(&fmt, afmt, sizeof(thAudioFmt));
+
 	switch(afmt->bits) {
 	case 8:
-		afmt->format = AFMT_U8;
+		fmt.format = AFMT_U8;
 		break;
 	case 16:
-		afmt->format = AFMT_S16_NE;
+		fmt.format = AFMT_S16_NE;
 		break;
 	}
-
-	memcpy(&fmt, afmt, sizeof(AudioFormat));
 
 	if((fd = open("/dev/dsp", O_WRONLY)) < 0) {
 		throw errno;
@@ -52,19 +52,19 @@ OSSAudio::OSSAudio(char *null, AudioFormat *afmt)
 	}	
 }
 
-OSSAudio::~OSSAudio()
+thOSSAudio::~thOSSAudio()
 {
 	close(fd);
 }
 
-void OSSAudio::SetFormat (AudioFormat *afmt)
+void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 {
 	int oss_channels = fmt.channels-1; /* OSS uses the value of 0 to indicate 
 										   1 channel, and 1 to indicate 2 
 										   channels, so we must decrement the 
 										   channel count */
 
-	memcpy(&fmt, afmt, sizeof(AudioFormat));
+	memcpy(&fmt, afmt, sizeof(thAudioFmt));
 
 	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
@@ -79,31 +79,56 @@ void OSSAudio::SetFormat (AudioFormat *afmt)
 	}
 }
 
-AudioFormat OSSAudio::GetFormat (void)
+const thAudioFmt *thOSSAudio::GetFormat (void)
 {
-	return fmt;
+	return &fmt;
 }
 
-void OSSAudio::Write (void *buf, int len)
+void thOSSAudio::Write (void *buf, int len)
 {
 	ioctl(fd, SNDCTL_DSP_SYNC, 0);
 	write(fd, buf, len);
 	ioctl(fd, SNDCTL_DSP_SYNC, 1);
 }
 
-int OSSAudio::Read(void *buf, int len)
+int thOSSAudio::Read(void *buf, int len)
 {
 	return read(fd, buf, len);
 }
 
-void OSSAudio::Play(AudioBuffer *buffer)
+void thOSSAudio::Play(thAudio *audioPtr)
 {
-	unsigned char buf[BUF_SIZE];
-	int buf_refill = (int)(buffer->get_size()*BUF_REFILL_PERCENT);
+//	thAudioFmt afmt = audioPtr->GetFormat();
+	int buf_size = fmt.samples;
 
-	printf("%i\n", buffer->get_size());
+	switch(fmt.bits) {
+	case 8:
+	{
+		unsigned char buf[buf_size];
 
-	while(buffer->buf_read(buf, buf_refill) > 0) {
-		Write(buf, buf_refill);
+		printf("playing 8-bit audio\n");
+
+		while(audioPtr->Read(buf, buf_size) > 0) {
+			Write(buf, buf_size);
+		}
 	}
+	break;
+	case 16:
+	{
+		signed short buf[buf_size];
+
+		printf("playing 16-bit audio\n");
+
+		while(audioPtr->Read(buf, buf_size) > 0) {
+			Write(buf, buf_size*2);
+		}
+	}
+	break;
+	}
+
+
+/*	int buf_refill = (int)(buffer->get_size()*BUF_REFILL_PERCENT); */
+
+//	printf("%i\n", buffer->get_size());
+
 }

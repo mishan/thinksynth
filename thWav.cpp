@@ -12,9 +12,9 @@
 
 #include "endian.h"
 #include "Exception.h"
-#include "Audio.h"
+#include "thAudio.h"
 #include "AudioBuffer.h"
-#include "OSSAudio.h"
+#include "thOSSAudio.h"
 #include "thWav.h"
 
 thWav::thWav(char *name)
@@ -35,10 +35,12 @@ thWav::thWav(char *name)
 		throw e;
 	}
 
-	setbuf(file, buf);
+
+	buf = new char[fmt.samples*2];
+	setvbuf(file, buf, _IOFBF, fmt.samples*2);
 }
 
-thWav::thWav(char *name, thWavFormat *wfmt)
+thWav::thWav(char *name, const thAudioFmt *wfmt)
 	throw(thIOException)
 {
 	filename = strdup(name);
@@ -49,14 +51,14 @@ thWav::thWav(char *name, thWavFormat *wfmt)
 	}
 
 	/* average bytes per sec */
-	wfmt->avgbytes = wfmt->samples * wfmt->channels * (wfmt->bits/8);
-
-	wfmt->blockalign = wfmt->channels * (wfmt->bits/8);
+	avgbytes = wfmt->samples * wfmt->channels * (wfmt->bits/8);
 	
-	/* XXX: support other formats */
-	wfmt->format = PCM;
+	blockalign = wfmt->channels * (wfmt->bits/8);
+	
+	memcpy(&fmt, wfmt, sizeof(thAudioFmt));
 
-	memcpy(&fmt, wfmt, sizeof(thWavFormat));
+	/* XXX: support other formats */
+	fmt.format = PCM;
 }
 
 thWav::~thWav (void)
@@ -72,9 +74,13 @@ thWav::~thWav (void)
 		
 		lseek(fd, 40, SEEK_SET);
 		lewrite32(fd, data_len);
+
+		close(fd);
 	}
-	
-	close(fd);
+	else {
+		fclose(file);
+	}
+
 }
 
 int thWav::Write (void *data, int len)
@@ -119,6 +125,7 @@ void thWav::WriteRiff (void)
  	long fmt_len = FMT_LEN; /* this is the standard length of the fmt header,
 							   it is the header minus the eight bytes for the 
 							   "fmt " string and the header length */
+	
 
 	write(fd, RIFF_HDR, 4);
  	lewrite32(fd, file_len);
@@ -128,8 +135,8 @@ void thWav::WriteRiff (void)
 	lewrite16(fd, fmt.format);
 	lewrite16(fd, fmt.channels);
 	lewrite32(fd, fmt.samples);
-	lewrite32(fd, fmt.avgbytes);
-	lewrite16(fd, fmt.blockalign);
+	lewrite32(fd, avgbytes);
+	lewrite16(fd, blockalign);
 	lewrite16(fd, fmt.bits);
 }
 
@@ -144,10 +151,10 @@ int thWav::Read (void *data, int len)
 	
 	switch(fmt.bits) {
 	case 8:
-		r = fread(file, data, len);
+		r = fread(data, sizeof(unsigned char), len, file);
 		break;
 	case 16:
-		r = fread(file, data, len*2);
+		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
 		for(int i = 0; i < len; i++) {
 			le16(data[i], data[i]);
@@ -173,7 +180,7 @@ void thWav::ReadHeader (void)
 		throw NORIFFHDR;
 	}
 
-	fread(file, magic, 4);
+	fread(magic, 4, 1, file);
 	if(strncmp(WAVE_HDR, magic, 4)) {
 		throw NOWAVHDR;
 
@@ -190,12 +197,12 @@ void thWav::ReadHeader (void)
 	}
 
 	/* read the fmt header into our struct */
-	lefread16(fd, &fmt.format);
-	lefread16(fd, &fmt.channels);
-	lefread32(fd, &fmt.samples);
-	lefread32(fd, &fmt.avgbytes);
-	lefread16(fd, &fmt.blockalign);
-	lefread16(fd, &fmt.bits);
+	lefread16(file, &fmt.format);
+	lefread16(file, &fmt.channels);
+	lefread32(file, &fmt.samples);
+	lefread32(file, &avgbytes);
+	lefread16(file, &blockalign);
+	lefread16(file, &fmt.bits);
 
 	if(!(fmt.len = FindChunk(DATA_HDR))) {
 		throw NODATA;
@@ -208,7 +215,7 @@ int thWav::FindChunk (const char *label)
 	long len;
 
 	for (;;) {
-		if(!(fread(file, magic, 4))) {
+		if(!(fread(magic, 1, 4, file))) {
 			return 0;
 		}
 		lefread32(file, &len);
@@ -222,9 +229,9 @@ int thWav::FindChunk (const char *label)
 	return len;
 }
 
-thWavFormat thWav::GetFormat (void)
+const thAudioFmt *thWav::GetFormat (void)
 {
-	return fmt;
+	return &fmt;
 }
 
 thWavType thWav::GetType (void)
@@ -232,11 +239,11 @@ thWavType thWav::GetType (void)
 	return type;
 }
 
-void thWav::SetFormat (thWavFormat *wfmt)
+void thWav::SetFormat (const thAudioFmt *wfmt)
 {
 	if(type == READING) {
 		return;
 	}
 
-	memcpy(&fmt, wfmt, sizeof(thWavFormat));
+	memcpy(&fmt, wfmt, sizeof(thAudioFmt));
 }

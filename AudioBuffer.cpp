@@ -1,10 +1,10 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "Audio.h"
+#include "thAudio.h"
 #include "AudioBuffer.h"
 
-AudioBuffer::AudioBuffer(int len, Audio *audio)
+AudioBuffer::AudioBuffer(int len, thAudio *audio)
 {
 	size = len;
 	data = new unsigned char[size];

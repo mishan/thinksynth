@@ -11,16 +11,6 @@
 /* formats */
 #define PCM 1
 
-struct thWavFormat {
-	long samples;
-	long avgbytes;
-	long len;
-
-	short blockalign;
-	short bits;
-	short format;
-	short channels;
-};
 
 enum thWavException { NORIFFHDR, NOWAVHDR, NOFMTHDR, BADFMTHDR, NODATA };
 
@@ -52,7 +42,7 @@ inline char *thWavError(thWavException e)
 	return NULL;
 }
 
-class thWav: public Audio
+class thWav: public thAudio
 {
 public:
 	/* constructor for reading files */
@@ -60,7 +50,7 @@ public:
 		throw(thIOException, thWavException);
 
 	/* constructor for writing files */
-	thWav(char *name, thWavFormat *fmt)
+	thWav(char *name, const thAudioFmt *fmt)
 		throw(thIOException);
 
 	/* our deconstructor, should close fd */
@@ -69,17 +59,20 @@ public:
  	int Write(void *data, int len);
 	int Read(void *data, int len);
 
-	thWavFormat GetFormat (void);
+	const thAudioFmt *GetFormat (void);
 	thWavType GetType (void);
 
-	void SetFormat(thWavFormat *wfmt);
+	void SetFormat(const thAudioFmt *wfmt);
 private:
 	char *filename; /* path to the file */
 	int fd;
 	FILE *file;
 	thWavType type;
-	thWavFormat fmt;
-	char buf[BUFSIZ];
+	thAudioFmt fmt;
+	char *buf; /* for setbuf() */
+
+	short blockalign; /* wav-specific info */
+	long avgbytes;
 
 	void WriteRiff (void);
 	int FindChunk (const char *label);
@@ -104,7 +97,7 @@ inline thWav *new_thWav(char *name)
 	return NULL;
 }
 
-inline thWav *new_thWav(char *name, thWavFormat *wfmt)
+inline thWav *new_thWav(char *name, thAudioFmt *wfmt)
 {
 	try {
 		thWav *wav = new thWav(name, wfmt);

@@ -6,7 +6,7 @@
 class AudioBuffer 
 {
 public:
-	AudioBuffer(int len, Audio *audio);
+	AudioBuffer(int len, thAudio *audio);
 	~AudioBuffer(void);
 
 	bool is_room(int len); /* checks if there are len elements available in the
@@ -20,7 +20,7 @@ private:
 	int woffset; /* how far the writing is ahead of the reading */
 	int size; /* the length of the buffer */
 //	int (*read_fn)(void *data, int len);
-	Audio *audioPtr;
+	thAudio *audioPtr;
 };
 
 #endif /* HAVE_BUFFER_H */
