@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.97 2003/09/15 23:17:06 brandon Exp $ */
+/* $Id: main.cpp,v 1.98 2003/09/15 23:29:12 misha Exp $ */
 
 #include "config.h"
 
@@ -27,6 +27,18 @@
 
 string plugin_path;
 
+void print_syntax(char *argv0)
+{
+	printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov"
+			", Aaron Lehmann and Joshua Kwan\n");
+	/* TODO: insert some helpful text here */
+	printf("Usage: %s [options] dsp-file\n", argv0);
+	
+	printf("-h: display this help screen\n");
+	printf("-p PATH: modify the plugin search path\n");
+	printf("-m MOD: change the mod that will be used\n");
+}
+
 int main (int argc, char *argv[])
 {
 	int havearg;
@@ -48,9 +60,7 @@ int main (int argc, char *argv[])
 	if (argc < 2) /* Not enough parameters */
 	{
 		printf ("error: not enough parameters\n");
-syntax:
-		printf("Usage: %s [options] dsp-file\n", argv[0]);
-		printf("Try %s -h for help\n", argv[0]);
+		print_syntax(argv[0]);
 		exit(1);
 	}
 	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:")) != -1) {
@@ -63,15 +73,8 @@ syntax:
 		  samplerate = atoi(optarg);
 		  break;
 		case 'h':
-			printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
-			/* TODO: insert some helpful text here */
-			printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
-
-			printf("-h: display this help screen\n");
-			printf("-p PATH: modify the plugin search path\n");
-			printf("-m MOD: change the mod that will be used\n");
+			print_syntax(argv[0]);
 			exit(0);
-
 			break;
 
 		case 'p':
@@ -101,14 +104,17 @@ syntax:
 		default:
 			if (optind != argc) {
 				printf ("error: unrecognized parameter\n");
-				goto syntax;
+				print_syntax(argv[1]);
+				exit(1);
 			}
 		}
 	}
 
 	if (optind == argc) {
+		/* XXX: so what??? read from stdin! */
 		printf ("error: no input file\n");
-		goto syntax;
+ 		print_syntax(argv[1]);
+		exit(1);
 	}
 	else {
 		filename = strdup(argv[optind]);
