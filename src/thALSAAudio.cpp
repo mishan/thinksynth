@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.7 2004/04/16 08:18:01 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.8 2004/04/16 08:34:00 misha Exp $ */
 
 #include "config.h"
 
@@ -243,7 +243,7 @@ bool thALSAAudio::ProcessEvents (void)
 {
 	bool r = false;
 
-	if (poll (pfds, nfds, 0) > 0)
+	if (poll (pfds, nfds, 50) > 0)
 	{
 		int j;
 
