@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.48 2003/11/04 06:13:27 misha Exp $ */
+/* $Id: thinklang.yy,v 1.49 2004/03/26 08:50:07 joshk Exp $ */
 
 %{
 #include "think.h"
@@ -40,7 +40,7 @@ extern "C" int yywrap(void)
 }
 %}
 
-%token NODE IO NAME
+%token NODE IO NAME DESC
 %token WORD 
 %token FLOAT NUMBER
 %token ENDSTATE ASSIGN LCBRACK RCBRACK
@@ -69,6 +69,8 @@ nodes nodes
 ionode
 |
 nameset
+|
+descset
 |
 expression
 {
@@ -209,6 +211,14 @@ NAME STRING
 	printf("DSP Name: %s\n", parsemod->GetName().c_str());
 }
 ;
+
+descset:
+DESC STRING
+{
+	parsemod->SetDesc($2.str);
+	free($2.str);
+	printf("DSP Description: %s\n", parsemod->GetDesc().c_str());
+};
 
 assignments:
 |

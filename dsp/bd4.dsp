@@ -1,5 +1,5 @@
-# $Id: bd4.dsp,v 1.4 2004/02/09 10:50:28 misha Exp $
-name "test";
+# $Id: bd4.dsp,v 1.5 2004/03/26 08:50:07 joshk Exp $
+name "bd4";
 
 node ionode {
 	out0 = filt->out;

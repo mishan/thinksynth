@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.33 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thMod.h,v 1.34 2004/03/26 08:50:07 joshk Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -30,6 +30,9 @@ public:
 	string GetName(void) const { return modname; }
 	void SetName(const string &name) { modname = name; }
 
+	string GetDesc(void) const { return moddesc; }
+	void SetDesc(const string &desc) { moddesc = desc; }
+
 	int GetNodeCount (void) const { return nodecount; }
 
 	void Process (unsigned int windowlen);
@@ -57,7 +60,7 @@ private:
 	list<thNode*> activelist;
 	thNode *ionode;
 
-	string modname;
+	string modname, moddesc;
 
 	int nodecount;  /* counter of thNodes in the thMod, used as the id
 					   for the node index */
