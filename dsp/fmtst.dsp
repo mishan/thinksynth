@@ -8,16 +8,16 @@ node ionode {
 
 
 	filtmax = 0.9;
-	filtmin = 0.01;
+	filtmin = 0.0;
 
-	waveform = 0;
-	fmmul1 = 1;
-	fmamt = 0.2;
-	fmwave = 2;
+	waveform = 5;
+	fmmul1 = 2;
+	fmamt = 0.3;
+	fmwave = 5;
 
 	fmmul2 = 1;
-	fmamt2 = 0.3;
-	fmwave2 = 1;
+	fmamt2 = 0.4;
+	fmwave2 = 5;
 
 	res = 0.7;
 };
