@@ -129,6 +129,22 @@ thBNode *thBTree::Find(char *name)
 	return FindHelper(bRoot, name);
 }
 
+void thBTree::PrintTree (void)
+{
+	PrintHelper(bRoot);
+}
+
+void thBTree::PrintHelper (thBNode *root)
+{
+	if(!root) {
+		return;
+	}
+
+ 	PrintHelper (root->left);
+	printf("%s\n", root->name);
+	PrintHelper (root->right);
+}
+
 void thBTree::RemoveHelper(thBNode *root, thBNode *node)
 {
 	if(!root) {

@@ -16,9 +16,12 @@ public:
 	void Insert(char *name, void *data);
 	void Remove(thBNode *bnode);
 	thBNode *Find(char *name);
+
+	void PrintTree (void);
 private:
 	thBNode *bRoot;
 
+	void PrintHelper(thBNode *root);
 	void InsertHelper(thBNode *root, thBNode *node);
 	thBNode *FindHelper(thBNode *root, char *name);
 	thBNode *GetParent(thBNode *root, thBNode *node);
