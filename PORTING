@@ -4,22 +4,14 @@ thinksynth port status
 OS			Build?		Function?
 --			------		---------
 GNU/Linux		yes		yes
+	- ALSA:		yes		yes
+	- JACK:		yes		yes
 
-FreeBSD			yes		yes
-
-Cygwin			no		no
-| joshk is waiting on a new binutils that supports dynamic linking from
-| .exes (like the way it works in other unices.)
+FreeBSD			???		???
+	- JACK:		???		???
 
 Darwin			???		???
 
-IRIX			???		???
-| waiting on mdl to install soundcard dev headers for sys/soundcard.h
-
-Solaris			???		???
-
-HP-UX			???		???
-
 Update this file as ports continue to progress.
 
-$Id: PORTING,v 1.5 2003/05/08 04:52:37 joshk Exp $
+$Id: PORTING,v 1.6 2004/09/06 07:44:46 joshk Exp $
