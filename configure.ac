@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.53 2003/05/29 05:48:53 joshk Exp $
+dnl $Id: configure.ac,v 1.54 2003/06/08 21:56:04 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -29,7 +29,7 @@ fi
 
 AC_PROG_LEX
 
-if test `expr "$LEX" : .*missing 2>/dev/null` -ne 0; then 
+if test "$LEX" = ":"; then 
 	AC_MSG_ERROR([A lex implementation is required to build this program.])
 fi
 
