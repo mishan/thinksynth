@@ -87,6 +87,17 @@ CXXFLAGS="-Wall -ffast-math"
 
 AC_CHECK_HEADERS([dlfcn.h libgen.h])
 
+AC_CHECK_TYPE([sighandler_t],,
+[
+	AC_CHECK_TYPE([sig_t],
+	[
+		AC_DEFINE(USE_SIG_T, 1, [Define if sig_t should be used instead of sighandler_t.])
+	],
+	[
+		AC_DEFINE(GUESS_SIG_T, 1, [Define if sighandler_t should be typedef'd manually])
+	], [#include <signal.h>])
+], [#include <signal.h>])
+
 AC_CHECK_LIB(iw, iw_get_stats,
 [
 	AC_CHECK_HEADER([iwlib.h],
@@ -107,11 +118,11 @@ case "$ac_cv_host" in
 	;;
 	*apple-darwin*)
 		system="Darwin/OS X"
-	        CXXFLAGS="$CXXFLAGS -no-cpp-precomp -fno-common -flat_namespace -undefined suppress"
-	        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
+		CXXFLAGS="$CXXFLAGS -no-cpp-precomp -fno-common -flat_namespace -undefined suppress"
+		AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
 		AC_SUBST(NSMODULE_DL_O, nsmodule_dl.o)
 	;;
-        *)
+	*)
 		if which uname >/dev/null 2>&1; then
 			system=`uname -s`
 		else
@@ -136,7 +147,7 @@ else
 	SHARED_SUFFIX=".dylib"
 	PLUGIN_SUFFIX=".bundle"
 	PLUGIN_LDFLAGS="-bundle -lm"
-	LIB_LDFLAGS="-dylib"
+	LIB_LDFLAGS="-dynamiclib"
 fi
 
 AC_SUBST(SHARED_SUFFIX)
@@ -195,6 +206,9 @@ AC_CHECK_FUNC(basename,,
 ])
 
 AC_SUBST(BASENAME_O)
+
+# /usr/local is very common
+export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"
 
 PKG_CHECK_MODULES(GTHREAD, gthread-2.0)
 PKG_CHECK_MODULES(GTKMM, gtkmm-2.4)

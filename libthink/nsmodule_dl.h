@@ -14,7 +14,7 @@
 #  define RTLD_NOW RTLD_LAZY
 #endif
 
-char *dlerror(void);
+const char *dlerror(void);
 void *dlopen(char *filename, int unused);
 int dlclose(void *myModule);
 void *dlsym(void *myModule, char *mySymbolName);

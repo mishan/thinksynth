@@ -1,23 +1,26 @@
 # $Id$
 
-libdir=@libdir@
-includedir=@includedir@
-prefix=@prefix@
+libdir =@libdir@
+includedir = @includedir@
+prefix = @prefix@
 
-all: libthink.so libthink.a 
+so := @SHARED_SUFFIX@
+
+all: libthink$(so) libthink.a 
 
 include ../build.mk
 
-soname = @lib_revision@
+soname := @lib_revision@
 
-PICFLAGS = -fPIC
-INCLUDES = -I..
+PICFLAGS := -fPIC
+INCLUDES := -I..
 CXXFLAGS += @SIGC_CFLAGS@
 LDFLAGS += @LIBS@ @SIGC_LIBS@
+LIB_LDFLAGS := @LIB_LDFLAGS@
 
 LIBOBJS = \
-	@NSMODULE_DL_CPP@ \
-	@BASENAME_CPP@ \
+	@NSMODULE_DL_O@ \
+	@BASENAME_O@ \
 	thinklang.o \
 	thinklex.o \
 	thArg.o \
@@ -32,11 +35,11 @@ LIBOBJS = \
 	thSynth.o \
 	thUtil.o
 
-libthink.so: libthink.so.$(soname)
-	ln -sf libthink.so.$(soname) libthink.so
+libthink$(so): libthink$(so).$(soname)
+	ln -sf libthink$(so).$(soname) libthink$(so)
 
-libthink.so.$(soname): $(LIBOBJS)
-	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -Wl,-soname,$@ -o $@ $(LIBOBJS)
+libthink$(so).$(soname): $(LIBOBJS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) $(LIB_LDFLAGS) -o $@ $(LIBOBJS)
 
 libthink.a: $(LIBOBJS)
 	ar crsv $@ $(LIBOBJS)
@@ -47,16 +50,16 @@ thinklex.cpp: thinklex.ll thinklang.o
 thinklang.hpp:
 
 clean::
-	rm -f libthink.so.$(soname) libthink.so libthink.a 
+	rm -f libthink.so.$(soname) libthink$(so) libthink.a 
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
 
 install:
 	mkdir -p $(DESTDIR)$(libdir)
-	cp -f libthink.so.$(soname) $(DESTDIR)$(libdir)
+	cp -f libthink$(so).$(soname) $(DESTDIR)$(libdir)
 	cp -f libthink.a $(DESTDIR)$(libdir)
-	ln -sf libthink.so.$(soname) $(DESTDIR)$(libdir)/libthink.so
+	ln -sf libthink$(so).$(soname) $(DESTDIR)$(libdir)/libthink$(so)
 	mkdir -p $(DESTDIR)$(includedir)/libthink
 	for header in $(wildcard *.h); do \
 		install -m 644 $$header $(DESTDIR)$(includedir)/libthink/; \
@@ -68,5 +71,5 @@ ifeq (,$(DESTDIR))
 endif
 
 uninstall:
-	rm -f $(DESTDIR)$(libdir)/libthink.so.$(soname) $(DESTDIR)$(libdir)/libthink.so $(DESTDIR)$(libdir)/libthink.a
+	rm -f $(DESTDIR)$(libdir)/libthink$(so).$(soname) $(DESTDIR)$(libdir)/libthink$(so) $(DESTDIR)$(libdir)/libthink.a
 	rm -rf $(DESTDIR)$(includedir)/libthink

@@ -4,6 +4,8 @@
 ** jmallett's dl*(3) shims for NSModule(3) systems.
 */
 #include <mach-o/dyld.h>
+#include <stdlib.h>
+#include <stdio.h>
 
 #ifndef HAVE_DLOPEN
 
@@ -33,21 +35,20 @@ static const char *myErrorTable[] =
 
 void undefinedErrorHandler(const char *symbolName)
 {
-  sendto_realops_flags(UMODE_ALL, L_ALL, "Undefined symbol: %s", symbolName);
-  ilog(L_WARN, "Undefined symbol: %s", symbolName);
+  fprintf(stderr, "Undefined symbol: %s", symbolName);
   return;
 }
 
-NSModule multipleErrorHandler(NSSymbol s, NSModule old, NSModule new)
+NSModule multipleErrorHandler(NSSymbol s, NSModule old, NSModule newmod)
 {
   /* XXX
   ** This results in substantial leaking of memory... Should free one
   ** module, maybe?
   */
   fprintf(stderr, "%s: Symbol `%s' found in `%s' and `%s'",
-                       __FILE__, NSNameOfSymbol(s), NSNameOfModule(old), NSNameOfModule(new));
+                       __FILE__, NSNameOfSymbol(s), NSNameOfModule(old), NSNameOfModule(newmod));
   
-  return(new);
+  return(newmod);
 }
 
 void linkEditErrorHandler(NSLinkEditErrors errorClass, int errnum,
@@ -58,7 +59,7 @@ void linkEditErrorHandler(NSLinkEditErrors errorClass, int errnum,
   return;
 }
 
-char *dlerror(void)
+const char *dlerror(void)
 {
   return(myDlError == NSObjectFileImageSuccess ? NULL : myErrorTable[myDlError % 7]);
 }

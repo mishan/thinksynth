@@ -19,6 +19,10 @@
 
 #include "config.h"
 
+#ifdef HAVE_LIBGEN_H
+#include <libgen.h>
+#endif
+
 #include <gtkmm.h>
 #include <stdio.h>
 

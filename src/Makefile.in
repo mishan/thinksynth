@@ -7,6 +7,7 @@ prefix=@prefix@
 
 all: thinksynth
 
+so := @SHARED_SUFFIX@
 soname = @lib_revision@
 
 include ../build.mk
@@ -16,13 +17,13 @@ LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink @JACK_LIBS@ 
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
 MAINOBJS = main.o @GTH_ALSA@ @GTH_JACK_AUDIO@ gthPrefs.o gthPatchfile.o
 
-thinksynth: ../libthink/libthink.so.$(soname) gui/gth.a $(MAINOBJS)
+thinksynth: ../libthink/libthink$(so).$(soname) gui/gth.a $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) gui/gth.a
 
 gui/gth.a: 
 	$(MAKE) -C gui gth.a
 
-../libthink/libthink.so.$(soname):
+../libthink/libthink$(so).$(soname):
 	$(MAKE) -C ../libthink
 
 clean::
@@ -40,4 +41,4 @@ install:
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/thinksynth
 
-.PHONY: gui/gth.a ../libthink/libthink.so.$(soname)
+.PHONY: gui/gth.a ../libthink/libthink$(so).$(soname)

@@ -19,12 +19,15 @@
 
 #include "config.h"
 
+#ifdef HAVE_LIBGEN_H
+#include <libgen.h>
+#endif
+
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <libgen.h>
 
 #include <gtkmm.h>
 

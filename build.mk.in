@@ -8,6 +8,7 @@ PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
 LIB_LDFLAGS=@LIB_LDFLAGS@
 USING_GNU_CXX=@USING_GNU_CXX@
 CXX_MT_BROKEN=@CXX_MT_BROKEN@
+DEP_FLAGS=@DEP_FLAGS@
 
 %.cpp: %.yy
 	@YACC@ -d -o $@ $<
@@ -19,10 +20,10 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 	@LEX@ -o $@ $<
 
 %.o: %.cpp
-	$(CXX) $(PICFLAGS) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
+	$(CXX) $(PICFLAGS) $(CXXFLAGS) $(DEP_FLAGS) $(INCLUDES) -c -o $@ $<
 
 %@SHARED_SUFFIX@: %.cpp
-	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -Wl,-soname,$@ -o $@ $< $(LIB_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) $(DEP_FLAGS) $(INCLUDES) $(LIB_LDFLAGS) -o $@ $< $(LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(CXX_MT_BROKEN),yes)
@@ -36,7 +37,7 @@ endif
 distrib:: distclean
 
 %@PLUGIN_SUFFIX@: %.cpp
-	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -o $@ $< $(PLUGIN_LDFLAGS) $(LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(CXX_MT_BROKEN),yes)

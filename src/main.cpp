@@ -26,6 +26,14 @@
 #include <time.h>
 #include <signal.h>
 
+#ifdef USE_SIG_T
+typedef sig_t sighandler_t;
+#else
+# ifdef GUESS_SIG_T
+typedef void (*sighandler_t)(int);
+# endif
+#endif
+
 #include <gtkmm.h>
 
 #ifdef HAVE_ALSA
