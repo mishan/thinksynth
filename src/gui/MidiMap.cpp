@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.22 2004/12/19 21:05:20 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.23 2004/12/20 04:03:09 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -518,8 +518,7 @@ void MidiMap::onDelButton (void)
 
 void MidiMap::onPatchChanged (void)
 {
-/* XXX: WHAT IF THIS HAD A CONNECTION?!  FIX! */
-
+	populateConnections();
 	setDestChanCombo();
 	setDestArgCombo(selectedDestChan_);
 }

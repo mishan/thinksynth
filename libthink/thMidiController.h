@@ -39,6 +39,7 @@ public:
 
 	void newConnection (unsigned char channel, unsigned int param,
 						thMidiControllerConnection *connection);
+	void clearByDestChan (unsigned int chan);
 
 	map<unsigned int, thMidiControllerConnection *>
 	*getConnectionList (void) { return &connectionList_; }

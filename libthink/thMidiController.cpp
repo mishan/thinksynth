@@ -1,4 +1,4 @@
-/* $Id: thMidiController.cpp,v 1.4 2004/11/10 21:25:52 ink Exp $ */
+/* $Id: thMidiController.cpp,v 1.5 2004/12/20 04:03:09 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -64,5 +64,24 @@ void thMidiController::newConnection (unsigned char channel,
 	{
 		connections_[channel][param] = connection;
 		connectionList_[channel * 128 + param] = connection;
+	}
+}
+
+void thMidiController::clearByDestChan (unsigned int chan)
+{
+	thMidiControllerConnection *connection;
+	map<unsigned int, thMidiControllerConnection*>::iterator i =
+		connectionList_.begin();
+
+	while (i != connectionList_.end())	
+	{
+		map<unsigned int, thMidiControllerConnection*>::iterator j = i;
+		connection = i->second;
+		++i;
+		if((unsigned int)connection->getDestChan() == chan)
+		{
+			connections_[connection->getChan()][connection->getController()]=0;
+			connectionList_.erase(j);
+		}
 	}
 }

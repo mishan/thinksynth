@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.111 2004/11/26 05:38:51 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.112 2004/12/20 04:03:09 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -115,6 +115,7 @@ void thSynth::removeChan (int channum)
 
 		channels[channum] = NULL;
 		patchlist[channum] = "";
+		controllerHandler_->clearByDestChan(channum);
 		m_sigChanDeleted(channum);
 	}
 }
@@ -352,6 +353,9 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	channels[channum] = new thMidiChan(parsemod, amp, thWindowlen);
 
 	patchlist[channum] = filename;
+
+	/* make sure there are no midi controllers set up for this channel */
+	controllerHandler_->clearByDestChan(channum);
 
 	pthread_mutex_unlock(synthMutex);
 
