@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.57 2004/04/18 06:58:55 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.58 2004/05/04 04:11:21 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -56,14 +56,13 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	thMidiNote *midinote;
 	int id = (int)note;
 	map<int, thMidiNote*>::const_iterator i = notes.find(id);
-/*	if(i == notes.end()) {  
-these lines stopped new notes while old ones were still finishing.
-maybe we should keep track of these better */
-/* XXXXXXXXXXXXXXXXXXX: THIS IS BAD   WE MUST REMAP ALLLLL MIDI VALUS AT THE SAME TIME (but we only really have this one right now) */
-		midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
-		notes[id] = midinote;
-/*	}
-	else midinote = i->second; */
+	if(i == notes.end()) {  
+//		delete(i->second);
+		decaying.push_front(i->second);
+	}
+	midinote = new thMidiNote(modnode, note, velocity);
+	notes[id] = midinote;
+
 	return midinote;
 }
 
@@ -104,7 +103,6 @@ void thMidiChan::Process (void)
 	thArg *arg, *amp, *play;
 	thMod *mod;
 	int i, j, index;
-	int delnote = 0;
 
 	string argname;
 
@@ -130,6 +128,35 @@ void thMidiChan::Process (void)
 		if(play && (*play)[j] == 0) {
 			delete data;
 			notes.erase(iter);
+		}
+	}
+
+/* Now, the [almost] exact same thing for the list of decaying notes */
+
+	for (list<thMidiNote*>::iterator iter = decaying.begin(); iter != decaying.end(); ++iter)
+	{
+		printf("Dup! %i\n", iter);
+		data = *iter;
+		dirty = 1;
+		data->Process(windowlength);
+		mod = data->GetMod();
+		amp = args["amp"];
+		play = mod->GetArg("play");
+		
+		for(i=0;i<channels;i++) {
+			argname = OUTPUTPREFIX;
+			argname += (char)(i+'0');
+			arg = mod->GetArg(argname);
+			for(j=0;j<windowlength;j++) {
+				index = i+(j*channels);
+				output[index] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+			}
+		}
+		
+		if(play && (*play)[j] == 0) {
+			printf("Erasing!\n");
+			decaying.erase(iter);
+			delete data;
 		}
 	}
 }
