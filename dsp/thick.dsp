@@ -1,17 +1,17 @@
-# $Id: thick.dsp,v 1.2 2004/02/09 10:50:28 misha Exp $
+# $Id: thick.dsp,v 1.3 2004/04/09 00:00:33 ink Exp $
 name "test";
 
 node ionode {
 	channels = 2;
-	out0 = filt->out;
-	out1 = filt->out;
-	play = 1;
+	out0 = mixer->out;
+	out1 = mixer->out;
+	play = env->play;
 
-	cutoff = 0.7;
-	res = 0.2;
+	cutoff = 0.4;
+	res = 0.85;
 
 	dlfo1 = 0.016;
-	dlfo2 = 0.0383;
+	dlfo2 = 0.083;
 	dwave = 3;
 
 	dlen = 1000;
@@ -21,26 +21,49 @@ node ionode {
 	dlo2 = 100;
 	dlo2 = 120;
 
-	dfeed1 = 0;
-	dfeed2 = 0;
-	ddry1 = 0.9;
-	ddry2 = 0.9;
+	dfeed1 = 0.3;
+	dfeed2 = 0.4;
+	ddry1 = 0.7;
+	ddry2 = 0.6;
+
+	a = 200;
+	d = 1000;
+	s = 0.8;
+	r = 2000;
+
+	wave = 2;
+	modwave = 5;
+	modmul = 0.5;
 };
 
 node freq misc::midi2freq {
 	note = ionode->note;
 };
 
+node suscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->s;
+};
+
+node env env::adsr {
+	a = ionode->a;
+	d = ionode->d;
+	s = suscalc->out;
+	r = ionode->r;
+	p = ionode->velocity;
+	trigger = ionode->trigger;
+};
+
 node osc osc::simple {
 	freq = freq->out;
-	waveform = 5;
+	waveform = ionode->wave;
 	reset = modosc->sync;
 };
 
 node modosc osc::simple {
 	freq = freq->out;
-	waveform = 2;
-	mul = 2;	# Octave down
+	waveform = ionode->modwave;
+	mul = ionode->modmul;
 };
 
 node modmap env::map {
@@ -102,6 +125,11 @@ node delay2 delay::echo {
 	delay = dmap2->out;
 	feedback = ionode->dfeed2;
 	dry = ionode->ddry2;
+};
+
+node mixer mixer::mul {
+	in0 = filt->out;
+	in1 = env->out;
 };
 
 io ionode;
