@@ -16,7 +16,7 @@ node ionode {
 	r = 12000;
 
 	sfreqlo = 0;
-	sfreqhi = 3000;
+	sfreqhi = 2400;
 
 	osc2detune = 0.1;
 };
