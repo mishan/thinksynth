@@ -1,4 +1,4 @@
-# $Id: analog03.dsp,v 1.1 2004/02/19 10:37:30 ink Exp $
+# $Id: analog03.dsp,v 1.2 2004/02/19 11:12:21 ink Exp $
 name "test";
 
 node ionode {
@@ -15,8 +15,8 @@ node ionode {
 	res = velcalc->out;
 
 	hcutmin = 0;
-	hcutmax = 500;
-	hres = 0.5;
+	hcutmax = 5000;
+	hres = 0.2;
 
 	velcalcmin = 0.08;
 	velcalcmax = 0.95;
@@ -24,8 +24,8 @@ node ionode {
 	velcalc2max = 1;
 
 	amp_a = 0;
-	amp_d = 1000;
-	amp_s = 100;
+	amp_d = 3000;
+	amp_s = 70;
 	amp_r = 8000;
 
 	filt_a = 2000;
@@ -33,12 +33,12 @@ node ionode {
 	filt_s = 40;
 	filt_r = 100000;
 
-	h_filt_a = 8000;  # for the high pass filter
-	h_filt_d = 50000;
-	h_filt_s = 40;
+	h_filt_a = 100000;  # for the high pass filter
+	h_filt_d = 200000;
+	h_filt_s = 50;
 	h_filt_r = 50000;
 
-	hpmix = 0.5;  # how much of the high-passed signal is mixed in before
+	hpmix = 0.25;  # how much of the high-passed signal is mixed in before
 	              # the low-pass
 	osc2mul = 0.5;
 	oscfade = 0.5;
