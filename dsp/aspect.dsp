@@ -1,7 +1,7 @@
-# $Id: aspect.dsp,v 1.2 2004/05/21 03:38:05 ink Exp $
-# Piano-like synth
+# $Id: aspect.dsp,v 1.3 2004/05/21 03:40:05 ink Exp $
+# Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
-# 5-4-2004
+# 5-20-2004
 
 name "test";
 
