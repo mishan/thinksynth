@@ -16,6 +16,7 @@ thHeap::~thHeap (void)
 	delete heapData;
 }
 
+/* insert node with priority pri into the heap */
 void thHeap::Add (int pri, void *data)
 {
 	thHeapNode node;
@@ -35,22 +36,23 @@ void thHeap::Add (int pri, void *data)
 	heapSize++;
 }
 
+/* takes the root of the tree, removes it from the heap, and returns it */
 void *thHeap::Pop (void)
 {
-	thHeapNode *tmp;
+	void *data;
 
 	if(!heapSize) {
 		fprintf(stderr, "thHeap::Pop: Heap is empty\n");
 		return 0;
 	}
 
-	tmp = &heapData[0];
+	data = heapData[0].data;
 
 	heapData[0] = heapData[heapSize - 1];
 	heapSize--;
 	shiftDown(0);
 
-	return tmp->data;
+	return data;
 }
 
 /* readjusts items in the subtree of node, so that we still have a proper
