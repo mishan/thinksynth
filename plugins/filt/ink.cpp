@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.12 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: ink.cpp,v 1.13 2004/05/08 19:39:40 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +48,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *in_arg, *in_cutoff, *in_res;
 	thArg *out_arg, *out_accel;
 	thArg *inout_last;
+	float buf_in[windowlen], buf_cut[windowlen], buf_res[windowlen];
 	unsigned int i;
 	float in, last, diff, accel;
 	float val_arg, val_cutoff, val_res;
@@ -67,10 +68,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
 	in_res = mod->GetArg(node, args[IN_RES]);
 	
+	in_arg->GetBuffer(buf_in, windowlen);
+	in_cutoff->GetBuffer(buf_cut, windowlen);
+	in_res->GetBuffer(buf_res, windowlen);
+
 	for(i = 0; i < windowlen; i++) {
-		val_arg = (*in_arg)[i];
-		val_cutoff = (*in_cutoff)[i];
-		val_res = (*in_res)[i];
+		val_arg = buf_in[i];
+		val_cutoff = buf_cut[i];
+		val_res = buf_res[i];
 
 		in = val_arg;
 		diff = in - last;
