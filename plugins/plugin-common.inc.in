@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.20 2003/04/29 02:56:54 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.21 2003/04/29 05:55:05 joshk Exp $
 # -*- Makefile -*- vim:syntax=make
 
 CXX=@CXX@
@@ -23,12 +23,12 @@ distclean clean:
 	rm -f *@SHARED_SUFFIX@ *.o
 
 install:
-	mkdir -p $(DESTDIR)$(plugin_path)
+	mkdir -p $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`)
 	for i in $(PLUGIN_NAMES); do \
-		cp -f $$i@SHARED_SUFFIX@ $(DESTDIR)$(plugin_path); \
+		cp -f $$i@SHARED_SUFFIX@ $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`); \
 	done
 
 uninstall:
 	for i in $(PLUGIN_NAMES); do \
-		rm -f $(DESTDIR)$(plugin_path)/$$i@SHARED_SUFFIX@; \
+		rm -f $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`)/$$i@SHARED_SUFFIX@; \
 	done
