@@ -8,6 +8,8 @@ public:
 	void ListMods(void);
 	void BuildSynthTree(const char *modname);
 	const thPluginManager *GetPluginManager(void);
+	void AddChannel(char *channame, char *modname);
+	void AddNote(char *channame, float note, float velocity);
 	void Process(const char *modname);
 
 private:
@@ -15,6 +17,8 @@ private:
 
 	thBSTree modlist;
 	thPluginManager pluginmanager;
+	thList chanlist;
+	thBSTree channels;
 
 	unsigned int windowlen;
 };

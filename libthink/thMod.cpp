@@ -156,15 +156,69 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 {
   thNode *data, *newnode;
   thListNode *listnode;
+  thList *arglist;
 
   if(parentnode->GetChildren()) {
     for(listnode = ((thList* )parentnode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
       data = (thNode *)listnode->data;
-      newnode = new thNode((char *)data->GetName(), data->GetPlugin());
-      newnode->CopyArgs((thList *)data->GetArgList());
+      if(!mod->FindNode((char *)data->GetName())) {
+	newnode = new thNode((char *)data->GetName(), data->GetPlugin());
 
-      mod->NewNode(newnode);
-      CopyHelper(mod, data);
+	arglist = (thList *)data->GetArgList();
+	if(arglist) {
+	newnode->CopyArgs(arglist);
+	}
+
+	mod->NewNode(newnode);
+	CopyHelper(mod, data);
+      }
     }
   }
+}
+
+void thMod::BuildSynthTree (void)
+{
+  thListNode *listnode;
+  thArgValue *data;
+
+  ionode->SetRecalc(true);  /* We dont want to recalc the root if something
+			       points here */
+  if(ionode->GetArgList()) {
+    for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
+      data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+      if(data->argType == ARG_POINTER) {
+	BuildSynthTreeHelper(ionode, data->argPointNode);
+      }
+    }
+  }
+}
+
+int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
+{
+  thListNode *listnode;
+  thArgValue *data;
+  thNode *currentnode = FindNode(nodename);
+  thNode *node;
+
+  if(currentnode->GetRecalc() == true) {
+    return(1);  /* This node has already been processed */
+  }
+  currentnode->SetRecalc(true);  /* This node has now been marked as processed */
+
+  parent->AddChild(currentnode);
+  currentnode->AddParent(parent);
+  printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
+
+  if(currentnode->GetArgList()) {
+    for(listnode = ((thList *)currentnode->GetArgList())->GetHead(); listnode ; listnode = listnode->prev) {
+      data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+      if(data->argType == ARG_POINTER) {
+	node = FindNode(data->argPointNode);
+	if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
+	  BuildSynthTreeHelper(currentnode, data->argPointNode);
+	}
+      }
+    }
+  }
+  return(0);
 }

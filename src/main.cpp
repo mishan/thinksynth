@@ -37,14 +37,15 @@ int main (int argc, char *argv[])
   Synth.ListMods();
   //((thMod *)Synth->FindMod("test"))->PrintIONode();
   //printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
-  Synth.BuildSynthTree("static");
+  ((thMod *)Synth.FindMod("static"))->BuildSynthTree();
   //	((thMod *)Synth->FindMod("test"))->Process();
   
-  Synth.Process("static");
+  // Synth.Process("static");
 
   newmod = ((thMod *)Synth.FindMod("static"))->Copy();
+  newmod->BuildSynthTree();
   newmod->Process(newmod, 1024);
 
   //  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]);
-  printf("  = %f\n", ((thArgValue *)newmod->GetArg("static", "out"))->argValues[0]);
+  printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out"))->argValues[0]);
 }

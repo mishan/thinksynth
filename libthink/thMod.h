@@ -21,6 +21,9 @@ public:
 
 	thMod *Copy (void);
 
+	void BuildSynthTree (void);
+	int BuildSynthTreeHelper(thNode *parent, char *nodename);
+
 private:
 	void ProcessHelper (thMod *mod, unsigned int windowlen, thNode *node);
 	void SetActiveNodesHelper(thNode *node);
