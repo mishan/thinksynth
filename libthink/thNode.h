@@ -16,6 +16,9 @@ public:
 
 	const thList *GetArgList (void);
 
+	bool GetRecalc(void);
+	void SetRecalc(bool state);
+
 	void Process (void);
 private:
 	thBSTree *args;

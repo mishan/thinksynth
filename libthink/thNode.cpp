@@ -81,6 +81,16 @@ const thList *thNode::GetArgList (void)
   return args->GetList();
 }
 
+bool thNode::GetRecalc(void)
+{
+  return recalc;
+}
+
+void thNode::SetRecalc(bool state)
+{
+  recalc = state;
+}
+
 void thNode::Process (void)
 {
 }

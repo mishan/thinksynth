@@ -65,8 +65,29 @@ void thSynth::BuildSynthTree(char *modname)
   for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
     printf("-=- %s %i\n", data->argName, data->argType);
+    if(data->argType == ARG_POINTER) {
+      printf("=-= %s %s\n", data->argPointNode, data->argPointName);
+      BuildSynthTreeHelper(mod, data->argPointNode);
+    }
   }
 }
+
+void thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
+{
+  thListNode *listnode;
+  thArgValue *data;
+
+  for(listnode = ((thList *)((thNode *)mod->FindNode(nodename))->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
+    data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+    printf("--- %s %i\n", data->argName, data->argType);
+    if(data->argType == ARG_POINTER && ((thNode *)listnode->data)->GetRecalc() == false) {
+      ((thNode *)listnode->data)->SetRecalc(true);
+      printf("=-- %s %s\n", data->argPointNode, data->argPointName);
+      BuildSynthTreeHelper(mod, data->argPointNode);
+    }
+  }
+}
+    
       
       
 
