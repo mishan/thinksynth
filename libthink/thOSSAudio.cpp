@@ -14,15 +14,22 @@
 #include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 
+
+/* XXX XXX XXX */
+/* XXX: DO NOT PASS ioctl() shorts that are part of a structure as it will
+   treat the pointer as a 32-bit integer and overwrite the next 16-bits of the
+   next element of the structure. THIS IS BAD. */
+
+
 /* null is a placeholder; to have wav output plugins and audio output plugins
    we must maintain the same number of arguments for interopability */
 thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	throw(thIOException)
 {
-	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate
-											1 channel, and 1 to indicate 2 
-											channels, so we must decrement the 
-											channel count */
+	int oss_channels = afmt->channels; /* OSS uses the value of 0 to indicate
+										  1 channel, and 1 to indicate 2 
+										  channels, so we must decrement the 
+										  channel count */
 	int format = afmt->format;
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
@@ -44,7 +51,7 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 		fprintf(stderr, "setfmt: /dev/dsp: %s\n", strerror(errno));
 	}
 
-	if(ioctl(fd, SNDCTL_DSP_STEREO, &oss_channels) == -1) {
+	if(ioctl(fd, SNDCTL_DSP_CHANNELS, &oss_channels) == -1) {
 		fprintf(stderr, "setchannels: /dev/dsp: %s\n", strerror(errno));
 	}
 
@@ -58,20 +65,13 @@ thOSSAudio::~thOSSAudio()
 	close(fd);
 }
 
-/* XXX XXX XXX */
-/* XXX: DO NOT PASS ioctl() shorts that are part of a structure as it will
-   treat the pointer as a 32-bit integer and overwrite the next 16-bits of the
-   next element of the structure. THIS IS BAD. */
-
 void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 {
-	int oss_channels = afmt->channels; /* OSS uses the value of 0 to indicate 											1 channel, and 1 to indicate 2 
-											channels, so we must decrement the 
-											channel count */
+	int oss_channels = afmt->channels; /* OSS uses the value of 0 to indicate
+										  1 channel, and 1 to indicate 2 
+										  channels, so we must decrement the 
+										  channel count */
 	int format = afmt->format;
-	
-	
-	printf("setting %d channels\n", oss_channels);
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
 
@@ -89,10 +89,6 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 	if(ioctl(fd, SNDCTL_DSP_SETFMT, &format) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
 	}
-
-/*	if(ioctl(fd, SNDCTL_DSP_STEREO, &oss_channels) == -1) {
-		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
-		}*/
 
 	if(ioctl(fd, SNDCTL_DSP_CHANNELS, &oss_channels) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
@@ -136,7 +132,7 @@ void thOSSAudio::Play(thAudio *audioPtr)
 	switch(fmt.bits) {
 	case 8:
 	{
-		unsigned char buf[buf_size];
+		unsigned char *buf = new unsigned char[buf_size];
 
 		printf("playing 8-bit audio\n");
 
@@ -144,11 +140,13 @@ void thOSSAudio::Play(thAudio *audioPtr)
 			printf("writing %d bytes\n", r);
 			Write(buf, r);
 		}
+		
+		delete buf;
 	}
 	break;
 	case 16:
 	{
-		signed short buf[buf_size];
+		signed short *buf = new signed short[buf_size];
 
 		printf("playing 16-bit audio\n");
 
@@ -156,6 +154,8 @@ void thOSSAudio::Play(thAudio *audioPtr)
 			printf("writing %d bytes\n", r*2);
 			Write(buf, r*2);
 		}
+
+		delete buf;
 	}
 	break;
 	default:
