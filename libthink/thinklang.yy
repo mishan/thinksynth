@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.27 2003/04/27 23:00:03 ink Exp $ */
+/* $Id: thinklang.yy,v 1.28 2003/04/27 23:06:17 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -266,13 +266,13 @@ WORD ASSIGN fstr
 plugname:
 WORD MODSEP WORD
 {
-	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 |
 WORD MODSEP plugname
 {
-	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 	free($3.str);
 }
@@ -281,7 +281,7 @@ WORD MODSEP plugname
 nodearg:
 WORD INTO numpoint
 {
-	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 ;
@@ -289,7 +289,7 @@ WORD INTO numpoint
 fstr:		/* a node name and an fstring */
 WORD INTO WORD
 {
-	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 ;
