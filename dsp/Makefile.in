@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.6 2004/03/26 08:29:17 joshk Exp $
+# $Id: Makefile.in,v 1.7 2004/03/26 08:29:27 joshk Exp $
 
 prefix=@prefix@
 datadir=@datadir@
@@ -10,7 +10,6 @@ include ../build.mk
 
 # Dummy target
 all:
-	@true
 
 distclean::
 	rm -f Makefile
