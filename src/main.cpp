@@ -322,8 +322,11 @@ int main (int argc, char *argv[])
 	{
 		midi = new gthALSAMidi("thinksynth");
 
-		midi->signal_midi_event().connect(
-			SigC::bind<thSynth *>(SigC::slot(&processmidi), Synth));
+		if (midi->seq_opened())
+		{
+			midi->signal_midi_event().connect(
+				SigC::bind<thSynth *>(SigC::slot(&processmidi), Synth));
+		}
 
 		printf ("Trying the '%s' driver\n", driver.c_str());
 

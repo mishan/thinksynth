@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.13 2004/09/18 05:59:55 joshk Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.14 2004/09/19 04:44:25 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,10 +35,7 @@ gthALSAMidi::gthALSAMidi (const char *argname)
 {
 	name = argname;
 	device = ALSA_DEFAULT_MIDI_DEVICE;
-
-	if(!open_seq ())
-		throw errno;
-
+	_seq_opened = open_seq();
 }
 
 gthALSAMidi::~gthALSAMidi (void)
@@ -80,7 +77,7 @@ bool gthALSAMidi::open_seq (void)
 {
 	int port_id;
 
-    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
+    if (snd_seq_open(&seq_handle, device.c_str(), SND_SEQ_OPEN_DUPLEX, 0) < 0)
 	{
         fprintf(stderr, "Error opening ALSA sequencer.\n");
 		return false;

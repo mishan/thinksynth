@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.h,v 1.5 2004/08/25 07:36:42 aaronl Exp $ */
+/* $Id: gthALSAMidi.h,v 1.6 2004/09/19 04:44:25 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,10 +35,13 @@ public:
 
 	bool ProcessEvents (void);
 	bool pollMidiEvent (Glib::IOCondition);
+	inline bool seq_opened(void) const { return _seq_opened; }
+
 protected:
 	string name, device;
 
 	bool open_seq (void);
+	bool _seq_opened;
 
 	snd_seq_t *seq_handle;
 	int seq_nfds;
