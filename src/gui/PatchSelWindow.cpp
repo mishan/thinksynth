@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.45 2004/11/25 05:52:40 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.46 2004/11/26 01:14:15 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -113,12 +113,12 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 		}
 		else
 		{
-			prevDir = strdup(DSP_PATH);
+			prevDir = strdup(DSP_PATH "/patches");
 		}
 	}
 	else
 	{
-		prevDir = strdup(DSP_PATH);
+		prevDir = strdup(DSP_PATH "/patches");
 	}
 
 	gthPatchManager *patchMgr = gthPatchManager::instance();
@@ -202,15 +202,7 @@ bool PatchSelWindow::LoadPatch (void)
 			}
 			else
 			{
-				char *error = g_strdup_printf("Couldn't load %s: %s",
-											  fileEntry.get_text().c_str(),
-											  strerror(errno));
-				Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
-
-				errorDialog.run();
-				g_free(error);
-				dspAmp.set_sensitive(false);
-
+				/* error message handled in sighandler */
 				return false;
 			}
 
