@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.175 2004/05/09 01:04:38 misha Exp $ */
+/* $Id: main.cpp,v 1.176 2004/05/11 02:16:31 misha Exp $ */
 
 #include "config.h"
 
@@ -116,15 +116,14 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
-	jack_port_t **ports = (jack_port_t **)arg;
+	thfJackAudio *jack = (thfJackAudio *)arg;
 	int l = Synth.GetWindowLen();
+	int chans = Synth.GetChans();
 
-	for(int i = 0; ports[i]; i++)
+	for(int i = 0; i < chans; i++)
 	{
 		float *synthbuffer = Synth.GetChanBuffer(i);
-
-		jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
-			jack_port_get_buffer(ports[i], nframes);
+		void *buf = jack->GetOutBuf(i, nframes);
 
 		memcpy(buf, synthbuffer, l * sizeof(float));
 	}
@@ -284,6 +283,9 @@ int main (int argc, char *argv[])
 
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
+	/* create a window first */
+	Synth.Process();
+
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
 	try
@@ -310,18 +312,7 @@ int main (int argc, char *argv[])
 		}
  		else if (driver == "jack")
 		{
-			aout = new thfJackAudio(&Synth);
-
-			jack_client_t *jack_handle = ((thfJackAudio *)aout)->jack_handle;
-
-			jack_port_t **ports = new jack_port_t *[Synth.GetChans() + 1];
-			/* XXX */
-			ports[0] = ((thfJackAudio *)aout)->out_1;
-			ports[1] = ((thfJackAudio *)aout)->out_2;
-			ports[2] = NULL;
-
-			jack_set_process_callback(jack_handle, playback_callback, ports);
-			jack_activate(jack_handle);
+			aout = new thfJackAudio(&Synth, playback_callback);
 		}
 		else
 		{
@@ -339,8 +330,6 @@ int main (int argc, char *argv[])
 	{
 		printf ("Writing to '%s'\n", outputfname.c_str());
 	}
-
-	Synth.Process();
 
 #if 0
 	while (1)
