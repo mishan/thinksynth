@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.9 2003/05/30 00:55:41 aaronl Exp $
+# $Id: Makefile.in,v 1.10 2003/06/03 03:57:16 aaronl Exp $
 
 BINARY = thinksynth
 
@@ -25,7 +25,6 @@ OBJS = \
 	thOSSAudio.o \
 	thPlugin.o \
 	thPluginManager.o \
-	thPluginSignaler.o \
 	thSynth.o \
 	thWav.o
 
