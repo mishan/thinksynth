@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.6 2003/05/03 07:54:20 aaronl Exp $
+# $Id: Makefile.in,v 1.7 2003/05/03 08:06:18 joshk Exp $
 
 bindir=@bindir@
 prefix=@prefix@
@@ -34,7 +34,7 @@ thinksynth: $(OBJS)
 	$(CXX) -rdynamic -o $@ $(OBJS) $(LDFLAGS)
 
 thinklex.cpp: thinklex.ll thinklang.o
-	flex -o $@ thinklex.ll
+	flex -o$@ thinklex.ll
 
 thinklang.hpp:
 
