@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.4 2004/02/22 03:31:06 misha Exp $ */
+/* $Id: alsa.cpp,v 1.5 2004/02/22 03:35:58 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +74,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *play = out_play->Allocate(windowlen);
 	unsigned int i;
 
-	snd_pcm_readi(cap_handle, buf, windowlen);
+	if(snd_pcm_readi(cap_handle, buf, windowlen) < windowlen)
+	{
+		fprintf(stderr, "input::alsa: buffer underrun\n");
+		snd_pcm_prepare(cap_handle);
+	}
 
 	for(i = 0; i < windowlen; i++) {
 		out[i] = (((float)buf[i * channels]) / 32767) * TH_MAX;
