@@ -1,4 +1,4 @@
-# $Id: analog00.dsp,v 1.8 2004/02/09 10:50:28 misha Exp $
+# $Id: analog00.dsp,v 1.9 2004/04/22 09:20:09 ink Exp $
 name "test";
 
 node ionode {
@@ -19,12 +19,12 @@ node ionode {
 
 	amp_a = 10000;
 	amp_d = 10000;
-	amp_s = 130;
+	amp_s = 95%;
 	amp_r = 20000;
 
 	filt_a = 5000;
 	filt_d = 6000;
-	filt_s = 100;
+	filt_s = 90%;
 	filt_r = 1000000;
 };
 
