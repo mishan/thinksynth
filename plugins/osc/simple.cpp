@@ -48,20 +48,20 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	float *out = new float[windowlen];
 	float *last[1];
 	float wavelength, position;
-	thArg *in_freq, *in_pw, *in_waveform, *in_last;
+	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
-	in_freq = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "freq");
-	in_pw = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "pw");
-	in_waveform = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "waveform");
-	in_last = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "last");
+	in_freq = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "freq"));
+	in_pw = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "pw"));
+	in_waveform = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "waveform"));
+	in_last = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "last"));
 
 	for(i=0; i < (int)windowlen; i++) {
-	  wavelength = TH_SAMPLE * (1.0/in_freq->GetValue(i));
+	  wavelength = TH_SAMPLE * (1.0/in_freq->argValues[i]);
 	  if(++position > wavelength) {
 	    position = 0;
 	  }
 
-	  switch((int)in_waveform->GetValue(i)) {
+	  switch((int)in_waveform->argValues[i]) {
 	    /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri */
 	  case 0:
 	    out[i] = TH_RANGE*sin((position/wavelength)*360*DEGRAD)+TH_MIN;
@@ -76,8 +76,8 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	}
 
 	((thNode*)node)->SetArg("out", out, windowlen);
-	last[0] = position;
-	((thNode*)node)->SetArg("last", last, 1);
+	*last[0] = position;
+	((thNode*)node)->SetArg("last", (float*)last, 1);
 
 	return 0;
 }

@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.13 2003/04/25 22:22:20 ink Exp $ */
+/* $Id: thArg.h,v 1.14 2003/04/26 00:00:58 joshk Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -25,7 +25,7 @@ public:
 	void SetArg(const char *name, float *value, const int num);
 	void SetArg(const char *name, const char *node, const char *value);
 
-	const char *GetArgName (void) { return argValue.argName; };
+	char *GetArgName (void) const { return argValue.argName; };
 	const thArgValue *GetArg(void) { return &argValue; };
 
 	float GetValue(int position);
