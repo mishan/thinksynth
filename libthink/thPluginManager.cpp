@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.34 2003/05/03 18:36:57 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.35 2003/05/04 08:09:35 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -42,15 +42,18 @@ char *thPluginManager::GetPath (char *name)
 	/* Check for existence in the expected place */
 	
 	if (stat (path, dummy) == -1) { /* File existeth not */
+#ifdef USE_DEBUG
 		fprintf (stderr, "thPluginManager: %s: %s\n", path, strerror(errno));
-		
+#endif
 		delete[] path;
 		path = new char[strlen("plugins/") + strlen(name) + 
 					strlen(SHARED_SUFFIX) + 1];
 		
 		sprintf (path, "plugins/%s%s", name, SHARED_SUFFIX);
 		if(stat(path, dummy) == -1) {
+#ifdef USE_DEBUG
 			fprintf(stderr, "thPluginManager: %s: %s\n", path, strerror(errno));
+#endif
 			delete path;
 			return NULL;
 		}
