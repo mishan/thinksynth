@@ -34,9 +34,9 @@ thArg::~thArg()
 
 void thArg::SetArg(char *name, float *value, int num)
 {
-	if(argName) {
-		delete argName;
-	}
+//	if(argName) {
+//		delete argName;
+//	}
 	if(argValues) {
 		delete argValues;
 	}

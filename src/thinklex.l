@@ -6,7 +6,7 @@
 #include <string.h>
 
 #include "yygrammar.h"
-//#include "parser.h"
+#include "parser.h"
 
 int linenum = 1;
 
