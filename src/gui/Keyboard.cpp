@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.8 2004/04/04 08:24:40 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.9 2004/04/04 10:41:40 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -148,6 +148,12 @@ void Keyboard::SetTranspose (int argtranspose)
 	m_signal_transpose_changed.emit(transpose);
 }
 
+void Keyboard::SetNote (int note, bool state)
+{
+	active_keys[note] = state ? 1 : 0;
+	drawKeyboard (5);
+}
+
 /* signal accessor methods */
 type_signal_note_on Keyboard::signal_note_on (void)
 {
@@ -223,8 +229,9 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 	grab_focus ();
 
 	if (mouse_notnum >= 0) {	/* already active */
-		m_signal_note_off.emit(channel, mouse_notnum);
+		m_signal_note_off(channel, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
+		drawKeyboard (1);
 	}
 		
 	/* get note number */
@@ -242,12 +249,11 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 			break;
 	}
 
+	m_signal_note_on(channel, mouse_notnum, veloc);
 	active_keys[mouse_notnum] = 1;
-	m_signal_note_on.emit(channel, mouse_notnum, veloc);
+	drawKeyboard(1);
 
 	mouse_veloc = veloc;	/* save velocity */
-
-	drawKeyboard(1);
 
 	return true;
 }
@@ -256,12 +262,12 @@ bool Keyboard::on_button_release_event (GdkEventButton *b)
 {
 	/* turn off if active */
 	if (mouse_notnum >= 0) {
-		m_signal_note_off.emit(channel, mouse_notnum);
+		m_signal_note_off(channel, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
+		drawKeyboard(1);
 	}
-	mouse_notnum = -1;
 
-	drawKeyboard(1);
+	mouse_notnum = -1;
 
 	return true;
 }
@@ -320,15 +326,16 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
 				} else {
 					veloc = veloc3;
 				}
-				m_signal_note_on.emit(channel, notenum, veloc);
+				m_signal_note_on(channel, notenum, veloc);
+
 				active_keys[notenum] = 1;
+
+				drawKeyboard (1);
 			}
 			break;
 		}
 
 	}
-
-	drawKeyboard(1);
 	
 	return true;
 }
@@ -378,15 +385,14 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
 			/* other keys */
 			notenum = keyval_to_notnum (keynum);
 			if (notenum >= 0) {	/* note event */
-				m_signal_note_off.emit(channel, notenum);
+				m_signal_note_off(channel, notenum);
 				active_keys[notenum] = 0;
+				drawKeyboard (1);
 			}
 			break;
 		}
 
 	}
-
-	drawKeyboard(1);
 	
 	return true;
 }
@@ -405,6 +411,8 @@ void Keyboard::drawKeyboard (int mode)
 {	
 	int		i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
 	unsigned int	c;
+
+	drawMutex.lock ();
 
 	s0 = key_sizes[cur_size][0];	/* black key height		*/
 	s1 = key_sizes[cur_size][1];	/* total height - b. key height	*/
@@ -514,6 +522,7 @@ void Keyboard::drawKeyboard (int mode)
 		drawKeyboardFocus();
 	}
 
+	drawMutex.unlock ();
 }
 
 /* convert key value to note number		*/

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.21 2004/04/04 08:24:40 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.22 2004/04/04 10:41:40 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -21,7 +21,7 @@
 
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
-
+#include "signal.h"
 
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	: ctrlFrame ("Keyboard Control"), 
@@ -71,6 +71,10 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(chanBtn->gobj()), GTK_CAN_FOCUS);
 	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(transBtn->gobj()), GTK_CAN_FOCUS);
+
+	m_sigNoteOn.connect(SigC::slot(*this, &KeyboardWindow::synthEventNoteOn));
+	m_sigNoteOff.connect(
+		SigC::slot(*this, &KeyboardWindow::synthEventNoteOff));
 }
 
 KeyboardWindow::~KeyboardWindow (void)
@@ -87,6 +91,18 @@ void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
 void KeyboardWindow::eventNoteOff (int chan, int note)
 {
 	synth->DelNote(chan, note);
+}
+
+void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
+{
+//	keyboard.signal_note_on().emit(chan, (int)note, veloc);
+	keyboard.SetNote((int)note, true);
+}
+
+void KeyboardWindow::synthEventNoteOff (int chan, float note)
+{
+//	keyboard.signal_note_off().emit(chan, (int)note);
+	keyboard.SetNote((int)note, false);
 }
 
 void KeyboardWindow::eventChannelChanged (int chan)

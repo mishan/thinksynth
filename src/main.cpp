@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.149 2004/04/01 06:56:21 misha Exp $ */
+/* $Id: main.cpp,v 1.150 2004/04/04 10:41:40 misha Exp $ */
 
 #include "config.h"
 
@@ -32,6 +32,10 @@
 #include "parser.h"
 
 #include "ui.h"
+#include "signal.h"
+
+sigNoteOn m_sigNoteOn;
+sigNoteOff m_sigNoteOff;
 
 void cleanup (int signum)
 {
@@ -92,6 +96,9 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
+				m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
+							ev->data.note.velocity);
+
 				if(ev->data.note.velocity == 0)
 				{
 					*pbuf = 0;
@@ -107,6 +114,8 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 			}
 			case SND_SEQ_EVENT_NOTEOFF:
 			{
+				m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
+
 				/* XXX make this part better */
 				*pbuf = 0;
 				Synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
@@ -152,6 +161,11 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 }
 
 
+void eventNoteOn (int chan, float note, float veloc)
+{
+	printf("got a note on\n");
+}
+
 int main (int argc, char *argv[])
 {
 	string dspname = "test";   /* XXX: for debugging ONLY */
@@ -174,6 +188,8 @@ int main (int argc, char *argv[])
 	Glib::thread_init();
 
 	signal(SIGTERM, (sighandler_t)cleanup);
+
+//	m_sigNoteOn.connect(SigC::slot(eventNoteOn));
 
 	plugin_path = PLUGIN_PATH;
 

@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.6 2004/04/04 08:24:40 misha Exp $ */
+/* $Id: Keyboard.h,v 1.7 2004/04/04 10:41:40 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -17,11 +17,13 @@ public:
 
 	void SetChannel   (int argchan);
 	void SetTranspose (int argtranspose);
+	void SetNote (int note, bool state);
 
 	type_signal_note_on           signal_note_on  (void);
 	type_signal_note_off          signal_note_off (void);
 	type_signal_channel_changed   signal_channel_changed (void);
 	type_signal_transpose_changed signal_transpose_changed (void);
+
 protected:
 	void drawKeyboard (int mode);
 	void drawKeyboardFocus (void);
@@ -44,6 +46,8 @@ private:
 	type_signal_note_off          m_signal_note_off;
 	type_signal_channel_changed   m_signal_channel_changed;
 	type_signal_transpose_changed m_signal_transpose_changed;
+
+	Glib::Mutex drawMutex;
 
 	/* lower-level widget stuff */
 	GdkWindow *drawable;
