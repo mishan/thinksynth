@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.68 2004/05/20 21:33:30 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.69 2004/05/21 00:04:25 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -114,8 +114,8 @@ void thMidiChan::Process (void)
 
 	string argname;
 
-	for (map<int, thMidiNote*>::iterator iter = notes.begin();
-		 iter != notes.end(); ++iter)
+	map<int, thMidiNote*>::iterator iter = notes.begin();
+	while(iter != notes.end())
 	{
 		data = iter->second;
 
@@ -127,21 +127,27 @@ void thMidiChan::Process (void)
 		amp = args["amp"];
 		play = mod->GetArg("play");
 		
-		for(i = 0; i < channels; i++) {
+		for(i = 0; i < channels; i++)
+		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
 			arg = mod->GetArg(argname);
 			arg->GetBuffer(buf_mix, windowlength);
 			amp->GetBuffer(buf_amp, windowlength);
-			for(j = 0; j < windowlength; j++) {
+			for(j = 0; j < windowlength; j++)
+			{
 				index = i+(j*channels);
 				output[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
 			}
 		}
+
+		map<int, thMidiNote*>::iterator olditer = iter++;  /* a copy of the
+													old iterator to erase */
 		
-		if(play && (*play)[windowlength - 1] == 0) {
+		if(play && (*play)[windowlength - 1] == 0)
+		{
 			delete data;
-			notes.erase(iter);
+			notes.erase(olditer);
 		}
 	}
 
