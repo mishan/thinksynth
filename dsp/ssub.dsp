@@ -6,14 +6,16 @@ node ionode {
     channels = 2;
     play = 1;
 
-	lfo1 = 0.82;
-	lfo2 = 0.3;
-	factorlo = 10;
-	factorhi = 20;
+	lfo1 = 0.082;
+	lfo2 = 0.03;
+	sfactorlo = 2;
+	sfactorhi = 4;
+	bfactorlo = 20;
+	bfactorhi = 30;
 
-	cutoff = 0.2;
-	res = 0.5;
-	shaper = 0.8;
+	cutoff = 0.4;
+	res = 0.3;
+	shaper = 0.3;
 };
 
 node freq misc::midi2freq {
@@ -32,24 +34,24 @@ node factormap1 env::map {
 	in = factorlfo1->out;
 	inmin = th_min;
 	inmax = th_max;
-	outmin = ionode->factorlo;
-	outmax = ionode->factorhi;
+	outmin = ionode->sfactorlo;
+	outmax = ionode->sfactorhi;
 };
 
 node factormap2 env::map {
 	in = factorlfo2->out;
 	inmin = th_min;
 	inmax = th_max;
-	outmin = ionode->factorlo;
-	outmax = ionode->factorhi;
+	outmin = ionode->bfactorlo;
+	outmax = ionode->bfactorhi;
 };
 
-node osc1 osc::buzzer {
+node osc1 osc::sinsaw {
 	freq = freq->out;
 	factor = factormap1->out;
 };
 
-node osc2 osc::sinsaw {
+node osc2 osc::buzzer {
 	freq = freq->out;
 	factor = factormap2->out;
 };
