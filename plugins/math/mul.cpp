@@ -1,4 +1,4 @@
-/* $Id: mul.cpp,v 1.4 2003/05/24 08:49:35 ink Exp $ */
+/* $Id: mul.cpp,v 1.5 2003/05/24 09:17:29 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,20 +42,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	thArgValue *in_0, *in_1;
 	thArgValue *out_arg;
-	unsigned int i, largest;
+	unsigned int i;
 
 	in_0 = (thArgValue *)mod->GetArg(node, "in0");
 	in_1 = (thArgValue *)mod->GetArg(node, "in1");
 
-	largest = in_0->argNum;
-	if((unsigned int)in_1->argNum > largest) {
-		largest = in_1->argNum;
-	}
-
 	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	out = out_arg->allocate(largest);
+	out = out_arg->allocate(windowlen);
 
-	for(i=0;i<largest;i++) {
+	for(i=0;i<windowlen;i++) {
 		out[i] = (*in_0)[i]*(*in_1)[i];
 	}
 
