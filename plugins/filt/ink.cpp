@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.1 2003/05/15 09:51:26 ink Exp $ */
+/* $Id: ink.cpp,v 1.2 2003/05/16 04:42:07 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +15,8 @@
 #include "thNode.h"
 #include "thMod.h"
 #include "thSynth.h"
+
+#define SQR(x) (x*x)
 
 char		*desc = "`INK Filter`  Gravity-based low pass";
 thPluginState	mystate = thActive;
@@ -44,39 +46,29 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out_accel = new float[windowlen];
 	float *out_last = new float[1];
 	float *out_last_accel = new float[1];
-	thArgValue *in_arg, *in_factor, *in_grav, *in_frict, *in_limit, *in_accel, *in_last;
+	thArgValue *in_arg, *in_cutoff, *in_res, *in_limit, *in_accel, *in_last;
 	unsigned int i;
 	float diff, accel;
 
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_factor = (thArgValue *)mod->GetArg(node, "factor");
-	in_grav = (thArgValue *)mod->GetArg(node, "grav");
-	in_frict = (thArgValue *)mod->GetArg(node, "frict");
-	in_limit = (thArgValue *)mod->GetArg(node, "limit");
+	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
+	in_res = (thArgValue *)mod->GetArg(node, "res");
 	in_accel = (thArgValue *)mod->GetArg(node, "accel");
 	in_last = (thArgValue *)mod->GetArg(node, "last");
 
 	accel = (*in_accel)[0];
 	*out_last = (*in_last)[0];
-	//printf("-- %f\n", accel);
+
 	for(i=0;i<windowlen;i++) {
 		diff = (*in_arg)[i] - *out_last;
-		if(fabs(*out_last) > (*in_limit)[i]) { accel -= accel/6; }
-		accel += diff/((*in_factor)[i]+1);
-	
-		if(accel > 0) { accel -= (*in_frict)[i]; }
-		if(accel < 0) { accel += (*in_frict)[i]; }
-	
-		if(*out_last < 0) { accel += (*in_grav)[i]; }
-		if(*out_last > 0) { accel -= (*in_grav)[i]; }
-	
+
+		accel += diff*SQR((*in_cutoff)[i]);
+		accel *= 1-(1-SQR((*in_res)[i]));
+		
 		*out_last += accel;
 
 		out_accel[i] = accel;
 
-		if(*out_last > TH_MAX) { accel -= fabs(accel)/2; }
-		if(*out_last < TH_MIN) { accel += fabs(accel)/2; }
-		//printf("%f  %f  %f\n", diff, *out_last, accel);
 		out[i] = *out_last;
 	}
 
