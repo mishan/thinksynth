@@ -1,9 +1,13 @@
 name "test";
 
 node ionode test::test {
-	out0 = mixer->out;
-	channels = 1;
-	play = env->play;
+        out0 = mixer->out;
+        channels = 1;
+        play = env->play;
+	test = 73;
+        };
+node freq misc::midi2freq {
+	note = ionode->note;
 	};
 node mixer mixer::mul {
 	in0 = osc->out;
@@ -17,7 +21,7 @@ node env env::adsr {
 	trigger = 1;
 	};
 node osc osc::simple {
-	freq = 440;
+	freq = freq->out;
 	waveform = 4;
 	};
 

@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.1 2003/05/03 02:47:57 ink Exp $ */
+/* $Id: midi2freq.cpp,v 1.2 2003/05/03 09:31:06 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,10 +44,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArgValue *in_note;
 	unsigned int i;
 
-	in_note = (thArgValue *)mod->GetArg(node->GetName(), "in0");
-
+	in_note = (thArgValue *)mod->GetArg(node->GetName(), "note");
+	printf("-==- %s %i  %s->%s\n", in_note->argName, in_note->argNum, in_note->argPointNode, in_note->argPointName);
 	for(i=0;i<windowlen;i++) {
 	  out[i] = 440*pow(2,((*in_note)[i]-69)/12);
+	  printf("In: %f, Out: %f\n", (*in_note)[i], out[i]);
 	}
 
 	node->SetArg("out", out, windowlen);

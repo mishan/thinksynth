@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.60 2003/05/03 06:56:00 aaronl Exp $ */
+/* $Id: main.cpp,v 1.61 2003/05/03 09:31:06 ink Exp $ */
 
 #include "config.h"
 
@@ -98,7 +98,7 @@ syntax:
 	((thMod *)Synth.FindMod(dspname))->BuildSynthTree();
 
 	Synth.AddChannel(strdup("chan1"), dspname, 80.0);
-	Synth.AddNote("chan1", 20, 100);
+	Synth.AddNote("chan1", 69, 100);
 	Synth.Process();
 	//Synth.Process();
 

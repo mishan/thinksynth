@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.21 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.22 2003/05/03 09:31:06 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -20,30 +20,32 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
 	float *notep = new float, *velocityp = new float;
 
-	args = new thBSTree(StringCompare);
+	//	args = new thBSTree(StringCompare);
 
 	modnode = mod->Copy();
 	modnode->BuildSynthTree();
+	ionode = modnode->GetIONode();
+
 	*notep = note, *velocityp = velocity;
 
-	SetArg("note", notep, 1);
-	SetArg("velocity", velocityp, 1);
-
-
+	ionode->SetArg("note", notep, 1);
+	ionode->SetArg("velocity", velocityp, 1);
 }
 
 thMidiNote::thMidiNote (thMod *mod)
 {
-	args = new thBSTree(StringCompare);
+  //	args = new thBSTree(StringCompare);
 
 	modnode = mod->Copy();
+	modnode->BuildSynthTree();
+	ionode = modnode->GetIONode();
 }
 
 thMidiNote::~thMidiNote ()
 {
-	delete args;
+  //	delete args;
 }
-
+/*
 void thMidiNote::SetArg (const char *name, float *value, int num)
 {
 	thArg *arg = (thArg *)args->GetData((void *)name);
@@ -61,7 +63,7 @@ thArgValue *thMidiNote::GetArg (const char *name)
 	thArg *arg = (thArg *)args->GetData((void *)name);
 	return (thArgValue *)arg->GetArg();
 }
-
+*/
 void thMidiNote::Process (int length)
 {
   modnode->SetActiveNodes();

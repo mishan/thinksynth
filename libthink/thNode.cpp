@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.44 2003/04/29 03:42:57 ink Exp $ */
+/* $Id: thNode.cpp,v 1.45 2003/05/03 09:31:07 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -52,7 +52,7 @@ thArg *thNode::SetArg (const char *name, float *value, int num)
 thArg *thNode::SetArg (const char *name, const char *node, const char *value)
 {
 	thArg *arg = (thArg *)args->GetData((void *)name);
-	
+
 	if(arg) {
 		arg->SetArg(name, node, value);
 	}
@@ -90,6 +90,7 @@ void thNode::CopyArgs (thBSTree *newargs)
 {
 	thArg *newarg;
 	thArgValue *data;
+	float *newvalues;
 
 	if(!newargs) {
 		return;
@@ -99,11 +100,16 @@ void thNode::CopyArgs (thBSTree *newargs)
 
 	data = (thArgValue *)((thArg *)newargs->GetData())->GetArg();
 	if(data->argType == ARG_VALUE) {
-		newarg = new thArg(data->argName, data->argValues, data->argNum);
+	  newvalues = new float[data->argNum];
+	  memcpy(newvalues, data->argValues, data->argNum*sizeof(float));
+	  printf("CopyArgs: %s: %f %f\n", data->argName, data->argValues[0], newvalues[0]);
+		newarg = new thArg(data->argName, newvalues, data->argNum);
 	}
 	else if(data->argType == ARG_POINTER) {
-		newarg = new thArg(data->argName, data->argPointNode, 
+	  printf("CopyArgs: Copying Pointer: %s: %s->%s\n", data->argName, data->argPointNode, data->argPointName);
+		newarg = new thArg(data->argName, data->argPointNode,
 						   data->argPointName);
+
 	}
 
 	args->Insert(data->argName, newarg);

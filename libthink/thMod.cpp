@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.54 2003/05/03 00:24:14 ink Exp $ */
+/* $Id: thMod.cpp,v 1.55 2003/05/03 09:31:06 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -99,7 +99,7 @@ void thMod::Process (unsigned int windowlen)
 
 	ionode->SetRecalc(false);
 
-	for(listnode = ((thList *)ionode->GetChildren())->GetHead(); listnode; listnode = listnode->next) {
+	for(listnode = ((thList *)ionode->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == true) {
 			ProcessHelper(windowlen, data);
@@ -119,7 +119,7 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 
 	node->SetRecalc(false);
   
-	for(listnode = ((thList *)node->GetChildren())->GetHead(); listnode; listnode = listnode->next) {
+	for(listnode = ((thList *)node->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == true) {
 			ProcessHelper(windowlen, data);
@@ -137,7 +137,7 @@ void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active 
 	thListNode *listnode;
 	thNode *data;
 
-	for(listnode = activelist.GetHead(); listnode; listnode = listnode->next) {
+	for(listnode = activelist.GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
@@ -151,7 +151,7 @@ void thMod::SetActiveNodesHelper(thNode *node)
 	thListNode *listnode;
 	thNode *data;
 
-	for(listnode = ((thList *)node->GetParents())->GetHead(); listnode; listnode = listnode->next) {
+	for(listnode = ((thList *)node->GetParents())->GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
@@ -182,7 +182,7 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 	thBSTree *argtree;
 
 	if(parentnode->GetChildren()) {
-		for(listnode = ((thList* )parentnode->GetChildren())->GetHead(); listnode; listnode = listnode->next) {
+		for(listnode = ((thList* )parentnode->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
 			data = (thNode *)listnode->data;
 			if(!mod->FindNode((char *)data->GetName())) {
 				newnode = new thNode((char *)data->GetName(), data->GetPlugin());

@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.32 2003/05/03 02:08:02 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.33 2003/05/03 09:31:07 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -113,7 +113,7 @@ void thPluginManager::UnloadPlugins (void)
 	   by freeing each plugin it will unload each */
 /*	thListNode *node;
 
-	for(node = plugins->GetHead(); node; node = node->prev) {
+	for(node = plugins->GetTail(); node; node = node->prev) {
 		thPlugin *plugin = (thPlugin *)node->data;
 
 		delete plugin;

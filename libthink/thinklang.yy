@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.29 2003/05/03 06:56:01 aaronl Exp $ */
+/* $Id: thinklang.yy,v 1.30 2003/05/03 09:31:07 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -207,32 +207,6 @@ WORD ASSIGN expression
 	parsenode->SetArg($1.str, copy, 1);
 }
 |
-WORD ASSIGN nodearg
-{
-//	XXX - MORE FIXING
-//	modify_point(&targs, $1.str, $3.str);
-
-	char *node, *arg, *p;
-	int argsize, nodesize;
-	
-	/* Make $3.str ("node/arg" format) into the above vars */
-	p = strchr($3.str, '/');
-	p++;
-	
-	argsize = strlen(p);
-	nodesize = strlen($3.str)-argsize-1;
-	
-	node = new char[nodesize];
-	memcpy(node, $3.str, nodesize);
-	
-	free($3.str);
-
-	arg = new char[argsize];
-	memcpy(arg, p, argsize);
-	
-	parsenode->SetArg($1.str, node, arg);
-}
-|
 WORD ASSIGN WORD
 {
 //	XXX - MORE FIXING
@@ -256,10 +230,14 @@ WORD ASSIGN fstr
 
 	free($3.str);
 
-	arg = new char[argsize];
+	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
-
+	arg[argsize] = 0;
+printf("PARSER: %s:  %s->%s (%i)(%i)\n", $1.str, node, arg, nodesize, argsize);
 	parsenode->SetArg($1.str, node, arg);
+
+	delete node;
+	delete arg;
 }
 ;
 
@@ -278,26 +256,11 @@ WORD MODSEP plugname
 }
 ;
 
-nodearg:
-WORD INTO numpoint
-{
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
-	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-}
-;
-
 fstr:		/* a node name and an fstring */
 WORD INTO WORD
 {
 	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-}
-;
-
-numpoint:	/* pointer to a number which is not a string of floats */
-DOLLAR WORD
-{
-	$$.str = $2.str;
 }
 ;
 %%
