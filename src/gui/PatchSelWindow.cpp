@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.51 2004/11/28 03:07:18 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.52 2004/11/28 03:18:03 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -176,8 +176,10 @@ bool PatchSelWindow::LoadPatch (void)
  			if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
 			{
 				/* focus the new channel */
-				Gtk::TreeModel::Path p(g_strdup_printf("%d", chanNum));
+				char* cstr = g_strdup_printf("%d", chanNum);
+				Gtk::TreeModel::Path p(cstr);
 				patchView.set_cursor(p);
+				free(cstr);
 				return true;
 			}
 			else
@@ -429,8 +431,10 @@ void PatchSelWindow::populate (void)
 
 	if (selectedChan != -1)
 	{
-		Gtk::TreeModel::Path p(g_strdup_printf("%d", selectedChan));
+		char *cstr = g_strdup_printf("%d", selectedChan);
+		Gtk::TreeModel::Path p(cstr);
 		patchView.set_cursor(p);
+		free(cstr);
 	}
 }
 
