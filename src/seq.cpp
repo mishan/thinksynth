@@ -1,4 +1,4 @@
-/* $Id: seq.cpp,v 1.4 2003/11/04 09:23:37 misha Exp $ */
+/* $Id: seq.cpp,v 1.5 2003/11/04 09:34:41 misha Exp $ */
 
 #include "config.h"
 
@@ -98,7 +98,7 @@ int main (int argc, char *argv[])
 	//////// for the sequencer /////////
 	FILE *seqfile;
 	char buffer[BUFLEN], command[BUFLEN];
-	int frame;
+	int frame = -1;
 
 	plugin_path = PLUGIN_PATH;
 
@@ -223,19 +223,16 @@ int main (int argc, char *argv[])
 	printf ("Writing to '%s'\n",(char *)outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
-		if(frame > i) {
-			goto loopend;
-		}
-		else {
-			parse(command, &Synth);
-		}
-
-		while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i)) {
-			parse(command, &Synth);
-			frame = -1;
+		if(frame <= i) {
+			if(frame >= 0) {
+				parse(command, &Synth);
+			}
+			while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i)) {
+				parse(command, &Synth);
+				frame = -1;
+			}
 		}
 
-	  loopend:
 		Synth.Process();
 
 		/* output the current window */
