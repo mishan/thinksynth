@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.38 2003/05/08 03:56:24 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.39 2003/05/09 00:09:36 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -51,11 +51,15 @@ thMidiChan::~thMidiChan (void)
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
-	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
+	thMidiNote *midinote;
 	int *id = new int[1];
 
 	id[0] = (int)note;
-	notes->Insert(id, midinote);
+	midinote = (thMidiNote *)notes->GetData(id);
+	if(!midinote) {
+		midinote = new thMidiNote(modnode, note, velocity);
+		notes->Insert(id, midinote);
+	}
 	return midinote;
 }
 
