@@ -26,7 +26,7 @@ OBJS = \
 	thWav.o
 
 thinksynth: $(OBJS)
-	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+	$(CXX) -rdynamic -o $@ $(OBJS) $(LDFLAGS)
 
 thinklex.cpp: thinklex.ll thinklang.o
 	flex -o $@ thinklex.ll
