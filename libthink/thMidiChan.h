@@ -1,11 +1,11 @@
-/* $Id: thMidiChan.h,v 1.11 2003/04/27 07:52:03 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.12 2003/04/28 22:32:48 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
 
 class thMidiChan {
 	public:
-		thMidiChan (thMod *mod, float amp);
+		thMidiChan (thMod *mod, float amp, int windowlen);
 		~thMidiChan();
 
 		thMidiNote *AddNote(float note, float velocity);
@@ -13,9 +13,16 @@ class thMidiChan {
 
 		void SetArg(thArg *arg);
 
+		void Process (void);
+
 	private:
+		int GetLen(int);
+
 		thMod *modnode;
-		thBSTree *args, *notes; 
+		thBSTree *args, *notes;
+		int channels;
+		float *output;
+		int outputnamelen;
 };
 
 #endif /* TH_MIDICHAN_H */

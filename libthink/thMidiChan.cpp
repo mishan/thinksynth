@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.19 2003/04/28 21:02:36 joshk Exp $ */
+/* $Id: thMidiChan.cpp,v 1.20 2003/04/28 22:32:48 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -7,6 +7,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "think.h"
 
 #include "thList.h"
 #include "thBSTree.h"
@@ -17,7 +19,7 @@
 #include "thMidiNote.h"
 #include "thMidiChan.h"
 
-thMidiChan::thMidiChan (thMod *mod, float amp)
+thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 {
 	float *allocatedamp = (float *)malloc(sizeof(float));
 	modnode = mod;
@@ -25,6 +27,10 @@ thMidiChan::thMidiChan (thMod *mod, float amp)
 	notes = new thBSTree(IntCompare);
 	allocatedamp[0] = amp;
 	args->Insert((void *)strdup("amp"), (void *)allocatedamp);
+
+	channels = (int)((thArgValue *)mod->GetArg(((thNode *)modnode->GetIONode())->GetName(), "channels"))->argValues[0];
+	output = new float[channels][windowlen];
+	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
 }
 
 thMidiChan::~thMidiChan ()
@@ -32,6 +38,7 @@ thMidiChan::~thMidiChan ()
 	delete modnode;
 	delete args;
 	delete notes;
+	delete output;
 }
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
@@ -50,4 +57,20 @@ void thMidiChan::DelNote (int note)
 
 	delete (thMidiNote *)node->GetData();
 	notes->Remove(&note);
+}
+
+void thMidiChan::Process (void)
+{
+}
+
+int thMidiChan::GetLen (int num)
+{
+  int retval = 1;
+
+  while(num >= 10) {
+	num /= 10;
+	retval++;
+  }
+
+  return retval;
 }

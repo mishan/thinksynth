@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.40 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.41 2003/04/28 22:32:48 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -87,7 +87,7 @@ thPluginManager *thSynth::GetPluginManager(void)
 
 void thSynth::AddChannel(char *channame, char *modname, float amp)
 {
-	thMidiChan *newchan = new thMidiChan(FindMod(modname), amp);
+	thMidiChan *newchan = new thMidiChan(FindMod(modname), amp, windowlen);
 	channels->Insert((void *)channame, (void *)newchan);
 }
 

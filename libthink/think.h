@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.8 2003/04/27 06:49:02 misha Exp $ */
+/* $Id: think.h,v 1.9 2003/04/28 22:32:48 ink Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -10,6 +10,9 @@
 #define TH_MAX 256
 #define TH_MIN -256
 #define TH_RANGE (TH_MAX-TH_MIN)
+
+/* Language interface stuff... */
+#define OUTPUTPREFIX "out"
 
 /* Handy debug function */
 #ifdef USE_DEBUG
