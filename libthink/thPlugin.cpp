@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.30 2003/05/04 08:09:35 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.31 2003/05/06 08:41:46 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -30,7 +30,7 @@ thPlugin::thPlugin (const char *path)
 	plugState = thNotLoaded;
 
 	if(ModuleLoad() == 1) { /* fail = return (1) */
-		fprintf(stderr, "Couldn't load plugin %s\n", basename(path));
+		fprintf(stderr, "Couldn't load plugin %s\n", basename((char*)path));
 	}
 
 #ifdef USE_DEBUG
