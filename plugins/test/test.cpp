@@ -1,4 +1,4 @@
-/* $Id: test.cpp,v 1.6 2003/04/27 06:07:30 ink Exp $ */
+/* $Id: test.cpp,v 1.7 2003/04/27 06:09:11 misha Exp $ */
 
 #define USE_PLUGIN
 
@@ -19,7 +19,7 @@ char		*desc = "Test Plugin";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (int version, thPlugin *plugin);
-extern "C" int	module_callback (void *node, void *mod, unsigned int windowlen);
+extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
 extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
