@@ -11,15 +11,17 @@ node ionode {
 	toned = 2500;
 	tonemid = 50;
 	tonerelease = 10000;
-	ampd = 7000;
-	ampmid = 120;
-	release = 5000;
+	ampd = 5000;
+	ampmid = 80;
+	release = 2000;
 
-	tonemul = 1.03; # How much higher than the last
-	dmul = 0.8; # How much shorter than the last
+	tonemul = 1.3; # How much higher than the last
+	dmul = 0.6; # How much shorter than the last
 	fade1 = 0.3; # Osc 1 and 2
 	fade2 = 0.3; # Osc 3 and 4
 	fade3 = 0.3; # Fade 1 and 2
+
+	waveform = 5;
 };
 
 node mixer1 mixer::mul {
@@ -71,7 +73,7 @@ node tenv env::adsr {
 };
 
 node aenv1 env::adsr {
-        a = 5;
+        a = 0;
         d = ionode->ampd;
         s = ionode->ampmid;
         r = ionode->release;
@@ -79,7 +81,7 @@ node aenv1 env::adsr {
 };
 
 node aenv2 env::adsr {
-        a = 5;
+        a = 0;
         d = dmul1->out;
         s = ionode->ampmid;
         r = ionode->release;
@@ -87,7 +89,7 @@ node aenv2 env::adsr {
 };
 
 node aenv3 env::adsr {
-        a = 5;
+        a = 0;
         d = dmul2->out;
         s = ionode->ampmid;
         r = ionode->release;
@@ -127,28 +129,22 @@ node pitchcalc3 math::mul {
 
 node osc1 osc::simple {
 	freq = map1->out;
-	waveform = 0;
+	waveform = ionode->waveform;
 };
 
 node osc2 osc::simple {
-	freq = map1->out;
-	waveform = 0;
-	fm = pitchcalc1->out;
-	fmamt = 1;
+	freq = pitchcalc1->out;
+	waveform = ionode->waveform;
 };
 
 node osc3 osc::simple {
-	freq = map1->out;
-	waveform = 0;
-	fm = pitchcalc2->out;
-	fmamt = 1;
+	freq = pitchcalc2->out;
+	waveform = ionode->waveform;
 };
 
 node osc4 osc::simple {
-	freq = map1->out;
-	waveform = 0;
-	fm = pitchcalc3->out;
-	fmamt = 1;
+	freq = pitchcalc3->out;
+	waveform = ionode->waveform;
 };
 
 node fade1 mixer::fade {
