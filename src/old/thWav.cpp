@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.2 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thWav.cpp,v 1.3 2004/04/15 09:38:42 misha Exp $ */
 
 #include "config.h"
 
@@ -274,4 +274,9 @@ void thWav::SetFormat (const thAudioFmt *wfmt)
 int thWav::CheckEOF (void)
 {
 	return feof(file);
+}
+
+bool thWav::ProcessEvents (void)
+{
+	return false;
 }

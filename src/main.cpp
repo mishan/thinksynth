@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.161 2004/04/15 07:41:17 misha Exp $ */
+/* $Id: main.cpp,v 1.162 2004/04/15 09:38:42 misha Exp $ */
 
 #include "config.h"
 
@@ -29,6 +29,7 @@
 
 /* XXX: globals */
 static Glib::Thread *ui = NULL;
+static Glib::Dispatcher *process = NULL;
 
 Gtk::Main *gtkMain = NULL;
 
@@ -75,19 +76,30 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 	float *synthbuffer = Synth.GetOutput();
 	int l = Synth.GetWindowLen();
 
-	jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)jack_port_get_buffer(output_port, nframes);
+	jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
+		jack_port_get_buffer(output_port, nframes);
 
-	Synth.Process();
+	memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
 
-//	memcpy(buf, synthbuffer, l * sizeof(float));
-	for(int i = 0; i < l; i++)
-	{
-		buf[i] = synthbuffer[i];
-		if (buf[i])
-			printf("%f\n", buf[i]);
-	}
+	process->emit();
 
 	return 0;
+}
+
+void process_synth (void)
+{
+	Synth.Process();
+
+	float *synthbuf = Synth.GetOutput();
+	int l = Synth.GetWindowLen();
+
+	for (int i = 0; i < l; i++)
+	{
+		if (synthbuf[i] < TH_MIN)
+			synthbuf[i] = TH_MIN;
+		if (synthbuf[i] > TH_MAX)
+			synthbuf[i] = TH_MAX;
+	}
 }
 
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
@@ -166,11 +178,11 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 int main (int argc, char *argv[])
 {
 	string outputfname;
-	string driver = "jack";
+	string driver = "alsa";
 	int havearg = -1;
 //	thALSAAudio *aout = NULL;
 	thfALSAMidi *midi = NULL;
-	thfJackAudio *aout = NULL;
+	thAudio *aout = NULL;
 
 	/* seed the random number generator */
 	srand(time(NULL));
@@ -227,6 +239,11 @@ int main (int argc, char *argv[])
 
 	read_prefs (&Synth);
 
+
+	process = new Glib::Dispatcher;
+	process->connect(SigC::slot(process_synth));
+
+
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
 	/* all thAudio classes will work with floating point buffers converting to
@@ -239,25 +256,35 @@ int main (int argc, char *argv[])
 			SigC::bind<thSynth *>(SigC::slot(&processmidi), &Synth));
 
 		printf ("Using the '%s' driver\n", driver.c_str());
- 		if (driver == "jack")
+
+		if (driver == "alsa")
 		{
-			aout = new thfJackAudio(&Synth);
+			if (outputfname.length() > 0)
+				aout = new thALSAAudio(&Synth, outputfname.c_str());
+			else
+				aout = new thALSAAudio(&Synth);
 
 			/* connect our audio out event handler and bind a synth to this
 			   instance */
-/*			aout->signal_ready_write().connect(
+			((thALSAAudio *)aout)->signal_ready_write().connect(
 				SigC::bind<thAudio *, thSynth *>(SigC::slot(&audio_readywrite),
-												 aout, &Synth)); */
+												 aout, &Synth)); 
+		}
+ 		else if (driver == "jack")
+		{
+			aout = new thfJackAudio(&Synth);
 
-			jack_client_t *jack_handle = aout->jack_handle;
-			jack_port_t *output_port = aout->output_port;
+
+			jack_client_t *jack_handle = ((thfJackAudio *)aout)->jack_handle;
+			jack_port_t *output_port = ((thfJackAudio *)aout)->output_port;
 
 			jack_set_process_callback(jack_handle, playback_callback,
 									  output_port);
+			jack_activate(jack_handle);
 		}
 		else
 		{
-			fprintf(stderr,"sorry only JACK driver is supported currently fr output.\n");
+			fprintf(stderr,"sorry only JACK/ALSA drivers are supported currently for output.\n");
 		}
 
 	}
@@ -276,19 +303,15 @@ int main (int argc, char *argv[])
 
 	Synth.Process();
 
-	if(jack_activate(aout->jack_handle))
-	{
-		fprintf(stderr, "cannot activate jack client");
-		exit (1);
-	}
 
 	while (1)
 	{
 		midi->ProcessEvents();
-//		if (midi->ProcessEvents())
-//		{
-//			Synth.Process();
-//		}
+
+		if (aout->ProcessEvents())
+		{
+			Synth.Process();
+		}
 	}
 
 	delete aout;

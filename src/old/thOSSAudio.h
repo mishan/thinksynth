@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.h,v 1.1 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: thOSSAudio.h,v 1.2 2004/04/15 09:38:42 misha Exp $ */
 
 #ifndef TH_OSSAUDIO_H
 #define TH_OSSAUDIO_H
@@ -29,6 +29,8 @@ public:
 	int Read (void *, int len);
 	const thAudioFmt *GetFormat (void) { return &ofmt; };
 	void SetFormat (const thAudioFmt *fmt);
+
+	bool ProcessEvents (void);
 private:
 	int fd;
 	thAudioFmt ofmt;

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.5 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.6 2004/04/15 09:38:42 misha Exp $ */
 
 #include "config.h"
 
@@ -26,19 +26,14 @@ thALSAAudio::thALSAAudio (thSynth *argsynth)
 		throw errno;
 	}
 
-	open_seq();
-	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
 	nfds = snd_pcm_poll_descriptors_count (play_handle);
-	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * 
-								   (seq_nfds + nfds));
-	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
-	snd_pcm_poll_descriptors (play_handle, pfds+seq_nfds, nfds);
+	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
+	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
 	SetFormat(argsynth);
 
 	outbuf = NULL;
 }
-
 
 thALSAAudio::thALSAAudio (thSynth *argsynth, const char *device)
 	throw (thIOException)
@@ -49,13 +44,9 @@ thALSAAudio::thALSAAudio (thSynth *argsynth, const char *device)
 		throw errno;
 	}
 
-	open_seq();
-	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
 	nfds = snd_pcm_poll_descriptors_count (play_handle);
-	pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * 
-								   (seq_nfds + nfds));
-	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
-	snd_pcm_poll_descriptors (play_handle, pfds+seq_nfds, nfds);
+	pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * nfds);
+	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
 	SetFormat(argsynth);
 
@@ -246,27 +237,15 @@ sigReadyWrite_t thALSAAudio::signal_ready_write (void)
 	return m_sigReadyWrite;
 }
 
-sigMidiEvent_t thALSAAudio::signal_midi_event (void)
-{
-	return m_sigMidiEvent;
-}
-
 bool thALSAAudio::ProcessEvents (void)
 {
 	bool r = false;
 
-	if (poll (pfds, seq_nfds + nfds, 1000) > 0)
+	if (poll (pfds, nfds, 1000) > 0)
 	{
 		int j;
 
-		for (j = 0; j < seq_nfds; j++)
-		{
-			if(pfds[j].revents > 0)
-			{
-				m_sigMidiEvent.emit(seq_handle);
-			}
-		}
-		for(j = seq_nfds; j < seq_nfds + nfds; j++)
+		for(j = 0; j < nfds; j++)
 		{
 			if (pfds[j].revents > 0)
 			{
@@ -277,25 +256,4 @@ bool thALSAAudio::ProcessEvents (void)
 	}
 
 	return r;
-}
-
-bool thALSAAudio::open_seq (void)
-{
-    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
-	{
-        fprintf(stderr, "Error opening ALSA sequencer.\n");
-		return false;
-    }
-
-	snd_seq_set_client_name(seq_handle, "thinksynth");
-	
-    if (snd_seq_create_simple_port(seq_handle, "thinksynth",
-        SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
-        SND_SEQ_PORT_TYPE_APPLICATION) < 0)
-	{
-        fprintf(stderr, "Error creating sequencer port.\n");
-		return false;
-    }
-
-	return true;
 }

@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.1 2004/04/15 07:41:17 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.2 2004/04/15 09:38:42 misha Exp $ */
 
 #include "config.h"
 
@@ -23,9 +23,14 @@ thfJackAudio::thfJackAudio (thSynth *argsynth)
 		throw errno;
 	}
 
-	output_port = jack_port_register(jack_handle, "Out",
-									 JACK_DEFAULT_AUDIO_TYPE, JackPortIsOutput,
-									 0);
+	if((output_port = jack_port_register(jack_handle, "Out",
+									JACK_DEFAULT_AUDIO_TYPE, 
+									JackPortIsOutput|JackPortIsTerminal, 0))
+	   == NULL)
+	{
+		throw errno;
+	}
+
 	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
 
 	debug("sample rate is %d\n", jack_get_sample_rate(jack_handle));
@@ -56,4 +61,9 @@ void thfJackAudio::SetFormat (thSynth *argsynth)
 
 void thfJackAudio::SetFormat (const thAudioFmt *afmt)
 {
+}
+
+bool thfJackAudio::ProcessEvents (void)
+{
+	return false;
 }

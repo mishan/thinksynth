@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.2 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.3 2004/04/15 09:38:42 misha Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -222,4 +222,9 @@ void thOSSAudio::Play(thAudio *audioPtr)
 		}
 	}
 */
+}
+
+bool thOSSAudio::ProcessEvents (void)
+{
+	return false;
 }

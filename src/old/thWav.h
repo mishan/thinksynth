@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.1 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: thWav.h,v 1.2 2004/04/15 09:38:42 misha Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -69,6 +69,8 @@ public:
 	int CheckEOF (void);
 
 	virtual void SetFormat(const thAudioFmt *wfmt);
+
+	bool ProcessEvents (void);
 private:
 	char *filename; /* path to the file */
 	int fd;

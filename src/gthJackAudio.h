@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.1 2004/04/15 07:41:17 misha Exp $ */
+/* $Id: gthJackAudio.h,v 1.2 2004/04/15 09:38:43 misha Exp $ */
 
 #ifndef THF_JACKAUDIO_H
 #define THF_JACKAUDIO_H
@@ -17,6 +17,8 @@ public:
 	const thAudioFmt *GetFormat (void) { return &ofmt; };
 	void SetFormat (thSynth *argsynth);
 	void SetFormat (const thAudioFmt *afmt);
+
+	bool ProcessEvents (void);
 
 	jack_client_t *jack_handle;
 	jack_port_t *output_port;
