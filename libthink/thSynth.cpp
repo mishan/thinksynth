@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.91 2004/05/11 10:21:00 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.92 2004/05/11 10:35:56 misha Exp $ */
 
 #include "config.h"
 
@@ -362,14 +362,12 @@ void thSynth::Process (void)
 	int mixchannels, notechannels;
 	thMidiChan *chan;
 	float *chanoutput;
-	int bufferoffset = 0;
-	int i;
 
 	pthread_mutex_lock(synthMutex);
 
 	memset(thOutput, 0, thChans * thWindowlen * sizeof(float));
 
-	for (i = 0; i < channelcount; i++)
+	for (int i = 0; i < channelcount; i++)
 	{
 		chan = channels[i];
 
@@ -378,19 +376,21 @@ void thSynth::Process (void)
 			notechannels = chan->GetChannels();
 			mixchannels = notechannels;
 			
-			if (mixchannels >= thChans) {
-				mixchannels = thChans - 1;
+			if (mixchannels > thChans) {
+				mixchannels = thChans;
 			}
 			
 			chan->Process();
 			chanoutput = chan->GetOutput();
+
+			int bufferoffset = 0;
 			
-			for (int i = 0; i < mixchannels; i++)
+			for (int j = 0; j < mixchannels; j++)
 			{
-				for (int j = 0; j < thWindowlen; j++)
+				for (int k = 0; k < thWindowlen; k++)
 				{
-					thOutput[bufferoffset + j] +=
-						chanoutput[i + (j*mixchannels)];
+					thOutput[bufferoffset + k] +=
+						chanoutput[j + (k*mixchannels)];
 				}
 
 				bufferoffset += thWindowlen;
