@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.87 2004/09/05 00:31:52 joshk Exp $
+dnl $Id: configure.ac,v 1.88 2004/09/05 03:19:26 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -87,7 +87,7 @@ case "$ac_cv_host" in
 	;;
 	*apple-darwin*)
 		system="Darwin/OS X"
-	        CXXFLAGS="$CXXFLAGS -no-cpp-precomp"
+	        CXXFLAGS="$CXXFLAGS -no-cpp-precomp -fno-common -flat_namespace -undefined suppress"
 	        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
 		AC_SUBST(NSMODULE_DL_CPP, nsmodule_dl.cpp)
 	;;
@@ -96,6 +96,9 @@ case "$ac_cv_host" in
 			system=`uname -s`
 		else
 			system="unknown"
+		fi
+		if "$ac_cv_c_compiler_gnu" = yes; then
+			CXXFLAGS="$CXXFLAGS -fPIC -DPIC"
 		fi
 	;;
 esac
