@@ -1,0 +1,7 @@
+thinksynth
+Makefile
+thinklex.c
+thinklang.h
+thinklang.c
+Makefile.in
+.deps
