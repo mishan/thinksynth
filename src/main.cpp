@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.101 2003/10/16 21:04:03 misha Exp $ */
+/* $Id: main.cpp,v 1.102 2003/10/17 02:14:49 misha Exp $ */
 
 #include "config.h"
 
@@ -59,61 +59,61 @@ int main (int argc, char *argv[])
 	plugin_path = PLUGIN_PATH;
 
 	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:")) != -1) {
-		switch (havearg) {
-		case 'o':
+		switch (havearg)
 		{
-			outputfname = optarg;
-			break;
-		}
-		case 's':
-		{
-		  printf("changing sample rate\n");
-		  samplerate = atoi(optarg);
-		  break;
-		}
-		case 'h':
-		{
-			print_syntax(argv[0]);
-			exit(0);
-			break;
-		}
-		case 'p':
-		{
-			if (optarg[strlen(optarg)-1] != '/') {
-				plugin_path = optarg;
-				plugin_path += '/';
+			case 'o':
+			{
+				outputfname = optarg;
+				break;
 			}
-			else {
-				plugin_path = optarg;
+			case 's':
+			{
+				printf("changing sample rate\n");
+				samplerate = atoi(optarg);
+				break;
 			}
-
-			break;
-		}
-		case 'm':
-		{
-			dspname = optarg;
-			break;
-		}
-		case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
-		{
-			notetoplay = (int)atof(optarg);
-			break;
-		}
-		case 'l':  /* number of windows to process */
-		{
-			processwindows = atoi(optarg);
-			break;
-		}
-		default:
-		{
-			if (optind != argc) {
-//				printf ("error: unrecognized parameter\n");
+			case 'h':
+			{
 				print_syntax(argv[0]);
-				exit(1);
+				exit(0);
+				break;
 			}
-			break;
-		}
-
+			case 'p':
+			{
+				if (optarg[strlen(optarg)-1] != '/') {
+					plugin_path = optarg;
+					plugin_path += '/';
+				}
+				else {
+					plugin_path = optarg;
+				}
+				
+				break;
+			}
+			case 'm':
+			{
+				dspname = optarg;
+				break;
+			}
+			case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
+			{
+				notetoplay = (int)atof(optarg);
+				break;
+			}
+			case 'l':  /* number of windows to process */
+			{
+				processwindows = atoi(optarg);
+				break;
+			}
+			default:
+			{
+				if (optind != argc) {
+//				printf ("error: unrecognized parameter\n");
+					print_syntax(argv[0]);
+					exit(1);
+				}
+				break;
+			}
 		}
 	}
 
