@@ -16,7 +16,6 @@
 
 thPluginManager::thPluginManager ()
 {
-	plugins = new thBSTree;
 }
 
 thPluginManager::~thPluginManager ()
@@ -48,7 +47,7 @@ int thPluginManager::LoadPlugin (char *name)
 	path = GetPath(name);
 
 	plugin = new thPlugin (path, id, state);
-	plugins->Insert(name, plugin);
+	plugins.Insert(name, plugin);
 
 	/* XXX */
 	return 0;
@@ -57,7 +56,7 @@ int thPluginManager::LoadPlugin (char *name)
 
 void thPluginManager::UnloadPlugin(char *name)
 {
-	thPlugin *plugin = (thPlugin *)plugins->GetData(name);
+	thPlugin *plugin = (thPlugin *)plugins.GetData(name);
 
 	if(!plugin) {
 		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
@@ -65,14 +64,14 @@ void thPluginManager::UnloadPlugin(char *name)
 		return;
 	}
 
-	plugins->Remove(name);
+	plugins.Remove(name);
 
 	delete plugin;
 }
 
 thPlugin *thPluginManager::GetPlugin (char *name)
 {
-	thPlugin *plugin = (thPlugin *)plugins->GetData(name);
+	thPlugin *plugin = (thPlugin *)plugins.GetData(name);
 	
 	return plugin;
 }
@@ -88,12 +87,4 @@ void thPluginManager::UnloadPlugins (void)
 
 		delete plugin;
 		} */
-
-	delete plugins;
 }
-
-
-
-
-
-

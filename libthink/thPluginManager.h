@@ -12,13 +12,13 @@ public:
 
 	int LoadPlugin(char *name);
 	void UnloadPlugin(char *name);
-	
+
 	thPlugin *GetPlugin (char *name);
 private:
-	thBSTree *plugins;
+	thBSTree plugins;
 
 	void UnloadPlugins (void);
-	
+
 	char *GetPath (char *name);
 };
 
