@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.78 2004/03/30 05:08:27 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.79 2004/04/01 09:27:38 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -268,16 +268,23 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 thMidiNote *thSynth::AddNote (int channum, float note,
 							  float velocity)
 {
-	thMidiChan *chan = channels[channum];
-
-	if (!chan || channum > channelcount)
+	if((channum < 0) || (channum > channelcount))
 	{
 		debug("thSynth::AddNote: no such channel %i", channum);
 
 		return NULL;
 	}
 
-	pthread_mutex_lock(synthMutex);
+	thMidiChan *chan = channels[channum];
+
+	if (!chan)
+	{
+		debug("thSynth::AddNote: no such channel %d", channum);
+		
+		return NULL;
+	}
+
+ 	pthread_mutex_lock(synthMutex);
 
 	thMidiNote *newnote = chan->AddNote(note, velocity);
 
@@ -286,14 +293,43 @@ thMidiNote *thSynth::AddNote (int channum, float note,
 	return newnote;
 }
 
+int thSynth::DelNote (int channum, float note)
+{
+	if((channum < 0) || (channum > channelcount))
+		return 1;
+
+	thMidiChan *chan = channels[channum];
+
+	if(!chan)
+		return 1;
+
+	float *pbuf = new float;
+	*pbuf = 0;
+
+	pthread_mutex_lock(synthMutex);
+
+	chan->SetNoteArg ( note, "trigger", pbuf, 1);
+
+	pthread_mutex_unlock(synthMutex);
+
+	return 0;
+}
+
 int thSynth::SetNoteArg (int channum, int note, char *name,
 						 float *value, int len)
 {
-	thMidiChan *chan = channels[channum];
-
-	if (!chan || channum > channelcount)
+	if((channum < 0) || (channum > channelcount))
 	{
 		debug("thSynth::SetNoteArg: no such channel %i", channum);
+
+		return 1;
+	}
+
+	thMidiChan *chan = channels[channum];
+
+	if(!chan)
+	{
+		debug("thSynth::SetNoteArg: no such channel %d", channum);
 
 		return 1;
 	}

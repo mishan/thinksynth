@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.11 2004/04/01 09:00:00 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.12 2004/04/01 09:27:38 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -81,8 +81,6 @@ static int	key_sizes[4][7] =
 		9		/* white key width 3 (E, B)		*/
 	}
 };
-
-#define set_note_off(channel,notenum) { float *pbuf = new float[1]; *pbuf = 0; synth->SetNoteArg(channel, notenum, "trigger", pbuf, 1); }
 
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	: ctrlFrame ("Keyboard Control"), chanLbl("Channel")
@@ -222,7 +220,7 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 					synth->AddNote((int)chanVal->get_value()-1, notenum, veloc);
 					active_keys[notenum] = 1;
 				} else {	/* note-off */
-					set_note_off((int)chanVal->get_value()-1, notenum);
+					synth->DelNote((int)chanVal->get_value()-1, notenum);
 					active_keys[notenum] = 1;
 				}
 			}
@@ -240,7 +238,7 @@ bool KeyboardWindow::unclickEvent (GdkEventButton *b)
 {
 	/* turn off if active */
 	if (mouse_notnum >= 0) {
-		set_note_off((int)chanVal->get_value()-1, mouse_notnum);
+		synth->DelNote((int)chanVal->get_value()-1, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
 	}
 	mouse_notnum = -1;
@@ -257,7 +255,7 @@ bool KeyboardWindow::clickEvent (GdkEventButton *b)
 	drawArea.grab_focus ();
 
 	if (mouse_notnum >= 0) {	/* already active */
-		set_note_off((int)chanVal->get_value()-1, mouse_notnum);
+		synth->DelNote((int)chanVal->get_value()-1, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
 	}
 		
