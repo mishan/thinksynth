@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.36 2004/09/16 23:17:16 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.37 2004/09/17 04:24:44 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -241,7 +241,7 @@ void MainSynthWindow::menuJackAuto (void)
 void MainSynthWindow::menuKeyboard (void)
 {
 	KeyboardWindow *kbwin = new KeyboardWindow (synth);
-	menuBar.accelerate(*kbwin);
+	/* menuBar.accelerate(*kbwin); */
 	kbwin->show_all_children();
 	kbwin->show();
 	kbwin->signal_hide().connect(
