@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.74 2004/03/26 08:11:29 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.75 2004/03/26 08:25:48 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -114,7 +114,31 @@ void thSynth::SetChanArg (int channum, thArg *arg)
 	}
 
 	thMidiChan *chan = channels[channum];
+	
+	if (!chan)
+	{
+		return;
+	}
+
 	chan->SetArg(arg);
+}
+
+thArg *thSynth::GetChanArg (int channum, const string &argname)
+{
+	if((channum < 0) || (channum >= channelcount))
+	{
+		return NULL;
+	}
+
+	thMidiChan *chan = channels[channum];
+
+	if(!chan)
+	{
+		return NULL;
+	}
+
+	return chan->GetArg(argname);
+
 }
 
 void thSynth::LoadMod (const string &filename, int channum, float amp)

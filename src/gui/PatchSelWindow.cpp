@@ -22,7 +22,7 @@ extern Glib::Mutex *synthMutex;
 PatchSelWindow::PatchSelWindow (thSynth *synth)
 {
 //		set_default_size(320, 240);
-	set_default_size(600, 0);
+	set_default_size(400, 0);
 
 	realSynth = synth;
 	mySynth = NULL;
@@ -61,13 +61,19 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 		chanAmp->set_data("channel", channum);
 		chanAmp->signal_value_changed().connect(
 			SigC::bind<Gtk::HScale *, thSynth *> (SigC::slot(*this, &PatchSelWindow::SetChannelAmp), chanAmp, realSynth));
+		thArg *amp = realSynth->GetChanArg(i, "amp");
+		if (amp)
+		{
+			chanAmp->set_value(amp->argValues[0]);
+		}
 
-		patchTable.attach(*chanLabel, 0, 1, i, i+1);
-		patchTable.attach(*chanEntry, 1, 2, i, i+1);
-		patchTable.attach(*chanAmp, 2, 3, i, i+1);
+		patchTable.attach(*chanLabel, 0, 1, i, i+1, Gtk::FILL, Gtk::SHRINK);
+		patchTable.attach(*chanEntry, 1, 2, i, i+1, Gtk::FILL, Gtk::SHRINK);
+		patchTable.attach(*chanAmp, 2, 3, i, i+1, Gtk::FILL|Gtk::EXPAND, Gtk::FILL);
 
 
 		chanEntry->set_data("channel", channum);
+		chanEntry->set_data("amp", chanAmp);
 		chanEntry->signal_activate().connect(
 			SigC::bind<Gtk::Entry *, thSynth *> (SigC::slot(*this, &PatchSelWindow::LoadPatch), chanEntry, realSynth) );
 	}
@@ -78,10 +84,11 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
 {
 	int *channum = (int *)chanEntry->get_data("channel");
+	Gtk::HScale *chanAmp = (Gtk::HScale *)chanEntry->get_data("amp");
 
 	synthMutex->lock();
 
-	synth->LoadMod(chanEntry->get_text().c_str(), *channum, (float)12.0);
+	synth->LoadMod(chanEntry->get_text().c_str(), *channum, (float)chanAmp->get_value());
 
 	synthMutex->unlock();
 }
