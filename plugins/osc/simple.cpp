@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.44 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: simple.cpp,v 1.45 2004/04/08 23:19:08 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,9 +15,13 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define SQR(x) ((x)*(x))
+static inline float SQR (float x)
+{
+	return x*x;
+}
 
-enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL, OUT_ARG, OUT_SYNC, INOUT_LAST};
+enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL,
+	OUT_ARG, OUT_SYNC, INOUT_LAST};
 
 int args[INOUT_LAST + 1];
 
@@ -150,11 +154,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				out[i] = amp_range*ratio+amp_min;
 				break;
 			case 2:    /* SQUARE WAVE */
-				if(ratio < 0.5) {
-					out[i] = amp_min;
-				} else {
-					out[i] = amp_max;
-				}
+				// out[i] = amp_max if ratio > 0.5
+				// else out[i] = -amp_max
+				float adjusted = ratio - 0.5;
+				out[i] = (*((int *)&amp_max)) |
+						 ((*((int *)&adjusted))&0x80000000);
 				break;
 			case 3:    /* TRIANGLE WAVE */
 				ratio *= 2;
