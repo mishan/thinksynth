@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.77 2004/06/30 04:40:18 joshk Exp $
+dnl $Id: configure.ac,v 1.78 2004/08/15 23:44:14 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -72,71 +72,50 @@ AC_CHECK_HEADERS(dlfcn.h)
 
 AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])],[LIBS="$LIBS -liberty"])
 
-AC_CHECK_HEADER([iwlib.h], [AC_DEFINE(HAVE_IWLIB_H, 1, [Define if iwlib.h is present.])], [LIBS="$LIBS"])
+AC_CHECK_HEADER([iwlib.h], [AC_DEFINE(HAVE_IWLIB_H, 1, [Define if iwlib.h is present.])], [LIBS="$LIBS -liw"])
 
-AC_PATH_PROG(unamepath, uname)
-if test -z "$unamepath"; then
-	system="unknown"
+case "$ac_cv_host" in
+	*-freebsd*)
+		system=FreeBSD
+		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
+		CXXFLAGS="$CXXFLAGS -Wno-long-long"
+	;;
+	*apple-darwin*)
+		system="Darwin/OS X"
+	        CXXFLAGS="$CXXFLAGS -no-cpp-precomp"
+	        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
+		AC_SUBST(NSMODULE_DL_CPP, nsmodule_dl.cpp)
+	;;
+        *)
+		if which uname >/dev/null 2>&1; then
+			system=`uname -s`
+		else
+			system="unknown"
+		fi
+	;;
+esac
+
+if test "$ac_cv_host" != Darwin; then
+	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
+	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
+	SHARED_SUFFIX=".so"
 else
-	AC_MSG_CHECKING(system type)
-	system=`$unamepath -s`
-	AC_MSG_RESULT($system)
-	case "$system" in
-		FreeBSD)
-			AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
-			CXXFLAGS="$CXXFLAGS -Wno-long-long"
-		;;
-		Darwin)
-		        CXXFLAGS="$CXXFLAGS -traditional-cpp"
-		        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
-                        AC_SUBST(NSMODULE_DL_CPP, nsmodule_dl.cpp)
-		;;
-		CYGWIN*)
-			AC_DEFINE([USING_CYGWIN], 1, [Define if using Cygwin/Win32])
-			SHARED_SUFFIX=".dll"
-			
-			dnl XXX this is a crude hack that bloats plugins
-			PLUGIN_LDFLAGS="../../src/th*.o -lfl"
-		;;
-	esac
-
-	AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
-	AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
-
-	dnl Cygwin's g++ port doesn't support this, just kill some warnings
-	if test `expr $system : CYGWIN` -eq 0; then
-		USE_SONAME=yes
-		PLUGIN_LDFLAGS="-lm"
-		SHARED_SUFFIX=".so"
-	fi
+	SHARED_SUFFIX=".lib"
 fi
-
-AC_SUBST(USE_SONAME)
-AC_SUBST(PLUGIN_LDFLAGS)
 
 AC_SUBST(SHARED_SUFFIX)
 AC_DEFINE_UNQUOTED([SHARED_SUFFIX], "$SHARED_SUFFIX", [Suffix of shared libraries on this platform.])
 
 AC_ARG_ENABLE(debug,
 AC_HELP_STRING([--enable-debug],[print debug messages to stdout (default on)]),
+[debug="$enableval"], [debug=no])
 
-dnl Debug is disabled:
-[
+if test "$debug" = no; then
 	CXXFLAGS="$CXXFLAGS -O2"
-	debug=no
-],
-
-dnl Debug is enabled:
-[
-	if test "$enableval" != no; then 
-		AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-		CXXFLAGS="$CXXFLAGS -g3 -W -Wno-unused-parameter"
-		debug=yes
-	else
-		CXXFLAGS="$CXXFLAGS -O2"
-		debug=no
-	fi
-])
+else
+	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
+	CXXFLAGS="$CXXFLAGS -g3 -W -Wno-unused-parameter"
+fi
 
 AC_ARG_ENABLE(efence,
 	[AC_HELP_STRING([--enable-efence],[Enable ElectricFence in the build])],
@@ -160,10 +139,6 @@ AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installe
 dnl Construction of plugin-common.inc
 
 if test "$ac_cv_cxx_compiler_gnu" = yes; then
-	if test "$USE_SONAME" = yes; then
-		AC_SUBST(SONAME_FLAGS, ["-Wl,-soname,\$@"])
-	fi
-
 	AC_SUBST(USING_GNU_CXX, yes)
 	if test "$CXX_MT_BROKEN" = yes; then
 		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt"])
@@ -291,3 +266,5 @@ echo DSPs will be installed in       $datadir/$PACKAGE_NAME
 echo Plugins will be installed in    $plugin_path
 echo
 echo "Now run 'make' to build $PACKAGE_NAME"
+
+# vim:noet:ai:ts=8
