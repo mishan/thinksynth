@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.55 2003/04/30 04:08:53 misha Exp $ */
+/* $Id: main.cpp,v 1.56 2003/04/30 04:10:33 misha Exp $ */
 
 #include "config.h"
 
@@ -27,9 +27,10 @@ int main (int argc, char *argv[])
 	int havearg;
 	char *filename;
 	char dspname[] = "test"; /* XXX for debugging */
-	unsigned int plugin_len = strlen(plugin_path);
+	unsigned int plugin_len;
 
 	plugin_path = strdup(PLUGIN_PATH);
+	plugin_len = strlen(plugin_path);
 
 	/* int i; XXX temporary hack to see more than 1 element of output */
 
