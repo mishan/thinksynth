@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.7 2003/09/12 09:08:10 ink Exp $
+# $Id: Makefile,v 1.8 2003/11/30 14:03:28 ink Exp $
 
-PLUGIN_NAMES = adsr ad map
+PLUGIN_NAMES = adsr ad follower map
 include ../plugin-common.mk
