@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.71 2004/06/30 00:16:08 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.72 2004/07/18 22:26:53 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -112,6 +112,31 @@ int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
 		return 1;
 	}
 	return 0;
+}
+
+void thMidiChan::CopyChanArgs (thMod *mod)
+{
+	thArg *data, *newdata;
+	float *newvalues;
+
+	(mod->GetChanArgs()).clear();
+
+	for (map<string,thArg*>::const_iterator i = (mod->GetChanArgs()).begin(); i != (mod->GetChanArgs()).end(); i++)
+	{
+		data = i->second;
+
+		newvalues = (float *)malloc(data->argNum * sizeof(float));
+
+		memcpy(newvalues, data->argValues, data->argNum * sizeof(float));
+		newdata = new thArg(data->GetArgName(), newvalues, data->argNum);
+		newdata->SetArgLabel(data->GetArgLabel());
+		newdata->SetArgUnits(data->GetArgUnits());
+		newdata->SetArgMin(data->GetArgMin());
+		newdata->SetArgMax(data->GetArgMax());
+		newdata->SetArgWidget(data->GetArgWidget());
+
+		args[i->first] = newdata;
+	}
 }
 
 void thMidiChan::Process (void)

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.96 2004/06/15 06:15:28 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.97 2004/07/18 22:26:53 ink Exp $ */
 
 #include "config.h"
 
@@ -302,6 +302,7 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 	}
 
 	channels[channum] = new thMidiChan(FindMod(modname), amp, thWindowlen);
+	channels[channum]->CopyChanArgs(channels[channum]->GetMod());
 
 	pthread_mutex_unlock(synthMutex);
 }

@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.25 2004/06/30 00:16:08 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.26 2004/07/18 22:26:53 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -23,6 +23,8 @@ public:
 	int GetChannels (void) const { return channels; }
 
 	thMod *GetMod (void) { return modnode; }
+
+	void CopyChanArgs (thMod *mod);
 	
 private:
 	int GetLen(int);
