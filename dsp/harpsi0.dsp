@@ -16,7 +16,7 @@ node ionode {
 	pw1 = 0.1;
 	pw2 = 0.2;
 	pw3 = 0.3;
-	freq2mul = 1.01;
+	freq2mul = 0.5;
 	freq3mul = 1.99;
 
 	mix1 = 0.4;	# osc 1 and osc2
@@ -25,7 +25,7 @@ node ionode {
 	a = 0;
 	d = 3000;
 	s = 0.4;
-	r = 10000;
+	r = 7000;
 };
 
 node freq misc::midi2freq {
