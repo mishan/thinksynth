@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.14 2003/04/26 02:32:10 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.15 2003/04/26 02:42:32 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -10,15 +10,26 @@
 
 #include "thBSTree.h"
 
-thBSTree::thBSTree (void)
+thBSTree::thBSTree (int (*fn)(void *, void *))
 {
 	bsLeft = NULL;
 	bsRight = NULL;
+	bsCompare = fn;
+}
+
+thBSTree::thBSTree (int (*fn)(void *, void *), void *id, void *data)
+{
+	bsLeft = NULL;
+	bsRight = NULL;
+	bsCompare = fn;
+
+	bsId = id;
+	bsData = data;
 }
 
 thBSTree::~thBSTree (void)
 {
-	DestroyTree(bRoot);
+	/* XXX: we need to free shit here */
 }
 
 void thBSTree::Insert(thBSTree *tree)

@@ -1,12 +1,12 @@
-/* $Id: thBSTree.h,v 1.10 2003/04/26 02:32:10 misha Exp $ */
+/* $Id: thBSTree.h,v 1.11 2003/04/26 02:42:32 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
 
 class thBSTree {
 public:
-	thBSTree (int (*fn)(void *, void*));
-	thBSTree (int (*fn)(void *, void*), void *id, void *data);
+	thBSTree (int (*fn)(void *, void *));
+	thBSTree (int (*fn)(void *, void *), void *id, void *data);
 	~thBSTree (void);
 
 	void Insert (void *id, void *data);
