@@ -1,12 +1,10 @@
 Thinksynth MIDI support
 -----------------------
 
-Thinksynth has support for acting as an ALSA MIDI output sequencer. At this
-point, though, you have to configure each channel's instruments manually
-(we have not put together a General MIDI set of DSPs.) However, it is quite
-easy to try out, if not slightly buggy.
+Thinksynth is an ALSA MIDI sequencer client.  Thinksynth can be controlled
+by externel MIDI sequencers or devices.
 
-You can either use Rosegarden or the simple 'pmidi' to play a MIDI through
+You can either use Rosegarden or the simple 'pmidi' to play a MIDI file through
 Thinksynth.
 
 1. Install the pmidi package somehow. The source is available at
