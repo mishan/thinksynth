@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.17 2003/06/24 21:14:04 ink Exp $ */
+/* $Id: adsr.cpp,v 1.18 2003/06/24 21:22:57 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,7 +113,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 			out[i] = temp;
 
-			if((*in_trigger)[i] == 0) {
+			if((*in_trigger)[i] <= 0) {
 				phase = 3;   /* D ended, time to fade out the note */
 				/* position should already be 0 from the D section */
 			}
@@ -131,7 +131,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				out[i] = ((temp-(position++))/temp)*temp2;
 			}
 
-			if((*in_trigger)[i] == 1) { // We have been retriggered
+			if((*in_trigger)[i] > 0) { // We have been retriggered
 				position = 0;
 				phase = 0;
 			}
@@ -140,7 +140,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			play[i] = 0;
 			out[i] = 0;
 
-			 if((*in_trigger)[i] == 1) { // We have been retriggered
+			 if((*in_trigger)[i] > 0) { // We have been retriggered
                                 position = 0;
                                 phase = 0;
                         }
