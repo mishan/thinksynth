@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.32 2003/05/11 08:49:43 aaronl Exp $ */
+/* $Id: thBSTree.cpp,v 1.33 2003/05/23 23:19:19 aaronl Exp $ */
 
 #include "config.h"
 
@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "thBSTree.h"
+#include "think.h"
 
 thBSTree::thBSTree (int (*fn)(void *, void *))
 {
@@ -75,28 +76,30 @@ void thBSTree::Insert(void *id, void *data)
 		bsData = data;
 	}
 
-	switch(bsCompare(id, bsId)) {
-	case -1:
+	int meh = bsCompare(id, bsId);
+	if (meh < 0)
+	{
 		if(bsLeft) {
 			bsLeft->Insert(id, data);
 		}
 		else {
 			bsLeft = new thBSTree(bsCompare, id, data);
 		}
-		break;
-	case 0:
+	}
+	else if (!meh)
+	{
 		/* if the bsIds are equal, just update the data ptr */
 		bsData = data;
 		return;
-		break;
-	case 1:
+	}
+	else
+	{
 		if(bsRight) {
 			bsRight->Insert(id, data);
 		}
 		else {
 			bsRight = new thBSTree(bsCompare, id, data);
 		}
-		break;
 	}
 }
 
@@ -133,11 +136,11 @@ bool thBSTree::_Remove(void *id, bool freemem)
 	if(bsLeft && bsRight) {
 		thBSTree *newchild;
 
-		switch(bsCompare(bsLeft->GetId(), bsRight->GetId())) {
-		case 0:
+		int meh = bsCompare(bsLeft->GetId(), bsRight->GetId());
+		if (unlikely(!meh))
 			fprintf(stderr, "thBSTree::Remove: Duplicate node should not exist.. Corrupt tree?\n");
-			break;
-		case 1:
+		else if (meh > 0)
+		{
 			bsId = bsLeft->GetId();
 			bsData = bsLeft->GetData();
 
@@ -151,8 +154,9 @@ bool thBSTree::_Remove(void *id, bool freemem)
 			bsRight = NULL;
 
 			Insert(newchild);
-			break;
-		case -1:
+		}
+		else
+		{
 			bsId = bsRight->GetId();
 			bsData = bsRight->GetData();
 
@@ -166,7 +170,6 @@ bool thBSTree::_Remove(void *id, bool freemem)
 			bsLeft = NULL;
 
 			Insert(newchild);
-			break;
 		}
 	}
 	else {

@@ -1,7 +1,9 @@
-/* $Id: thBSTree.h,v 1.22 2003/05/06 18:08:09 misha Exp $ */
+/* $Id: thBSTree.h,v 1.23 2003/05/23 23:19:19 aaronl Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
+
+#include <string.h>
 
 class thBSTree {
 public:
@@ -59,39 +61,7 @@ private:
 inline int StringCompare (void *_str1, void *_str2) {
 	char *str1 = (char *)_str1, *str2 = (char *)_str2;
 
-	/* error */
-	if(!str1 || !str2) {
-		return -2;
-	}
-	
-	while(*str1 && *str2) {
-		if(*str1 < *str2) {
-			/* str1 is less than str2 */
-			return -1;
-		}
-		else if(*str1 > *str2) {
-			/* str1 is greater than str2 */
-			return 1;
-		}
-		
-		str1++; str2++;
-	}
-	
-	/* these strings might be equal up to a point, but one might be longer,
-	   so we must handle this case */
-	int len1, len2;
-	
-	if((len1 = strlen(str1)) == (len2 = strlen(str2))) {
-		/* str1 == str2 */
-		return 0;
-	}
-	else if (len1 < len2) {
-		/* str1 < str2 */
-		return -1;
-	}
-	
-	/* str1 > str2 */
-	return 1;
+	return strcmp(str1, str2);
 }
 /* inline integer comparison function, very straightforward */
 inline int IntCompare(void *_int1, void *_int2) {
@@ -105,9 +75,8 @@ inline int IntCompare(void *_int1, void *_int2) {
 	}
 
 	/* else if(int1 > int2) */
-	return -1;
+	return 1;
 }
-
 
 
 #endif /* TH_BSTREE_H */

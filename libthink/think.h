@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.11 2003/05/03 03:50:55 joshk Exp $ */
+/* $Id: think.h,v 1.12 2003/05/23 23:19:19 aaronl Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -28,5 +28,18 @@
 #endif /* USE_DEBUG */
 
 #endif /* above code is majorly owned */
+
+#define likely(x)   __builtin_expect((x),1)
+#define unlikely(x) __builtin_expect((x),0)
+
+#ifndef __GNUC__
+#define __builtin_expect(x, expected_value) (x)
+#endif
+
+#ifdef __GNUC__
+#if __GNUC__ < 3
+#define __builtin_expect(x, expected_value) (x)
+#endif
+#endif
 
 #endif /* THINK_H */
