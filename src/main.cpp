@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.63 2003/05/03 23:05:52 ink Exp $ */
+/* $Id: main.cpp,v 1.64 2003/05/06 05:57:50 ink Exp $ */
 
 #include "config.h"
 
@@ -18,6 +18,10 @@
 #include "thMod.h"
 #include "thSynth.h"
 
+#include "thException.h"
+#include "thAudio.h"
+#include "thWav.h"
+
 #include "parser.h"
 
 char* plugin_path;
@@ -28,6 +32,13 @@ int main (int argc, char *argv[])
 	char *filename;
 	char *dspname = strdup("test"); /* XXX for debugging */
 	unsigned int plugin_len;
+
+	int i, j;
+	thAudioFmt audiofmt;
+	thWav *outputwav;
+	signed short *outputbuffer;
+	float *mixedbuffer;
+	thException e;
 
 	plugin_path = strdup(PLUGIN_PATH);
 	plugin_len = strlen(plugin_path);
@@ -94,10 +105,33 @@ syntax:
 
 	Synth.AddChannel(strdup("chan1"), dspname, 80.0);
 	Synth.AddNote("chan1", 69, 100);
-	Synth.Process();
+
+	audiofmt.channels = Synth.GetChans();
+	audiofmt.bits = 16;
+	audiofmt.samples = TH_SAMPLE;
+
+	try {
+	  outputwav = new thWav("test.wav", &audiofmt);
+	}
+	catch (e) {
+	}
+
+	outputbuffer = (signed short *)alloca(Synth.GetWindowLen() * Synth.GetChans() * sizeof(signed short));
+
+	mixedbuffer = Synth.GetOutput();
+	for(i=0; i<100; i++) {  /* For testing... */
+	  Synth.Process();
+	  for(j=0; j < Synth.GetWindowLen() * Synth.GetChans(); j++) {
+		outputbuffer[j] = (((signed short)mixedbuffer[j])/TH_MAX)*32767;
+	  }
+	  outputwav->Write(outputbuffer, Synth.GetWindowLen() * Synth.GetChans());
+	}
+
+	delete outputwav;
+
 	//Synth.Process();
 
-	Synth.PrintChan(0);
+	//	Synth.PrintChan(0);
 
 	free(filename);
 }
