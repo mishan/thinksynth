@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.19 2003/04/25 21:22:52 joshk Exp $
+dnl $Id: configure.ac,v 1.20 2003/04/26 20:04:24 joshk Exp $
 
 AC_INIT
 
@@ -104,7 +104,6 @@ dnl Debug is enabled:
 [
 	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
 	CXXFLAGS="$CXXFLAGS -g -ggdb"
-	
 	debug=yes
 ])
 
@@ -121,29 +120,11 @@ AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installe
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
 
-dnl ENV_SOURCES=`find plugins/env/ -iname \"*.c\"`
-dnl FILT_SOURCES=`find plugins/filt/ -iname \"*.c\"`
-dnl MATH_SOURCES=`find plugins/math/ -iname \"*.c\"`
-dnl MISC_SOURCES=`find plugins/misc/ -iname \"*.c\"`
-dnl MIXER_SOURCES=`find plugins/mixer/ -iname \"*.c\"`
-dnl OSC_SOURCES=`find plugins/osc/ -iname \"*.c\"`
-
-dnl AC_SUBST(ENV_SOURCES)
-dnl AC_SUBST(FILT_SOURCES)
-dnl AC_SUBST(MATH_SOURCES)
-dnl AC_SUBST(MISC_SOURCES)
-dnl AC_SUBST(MIXER_SOURCES)
-dnl AC_SUBST(OSC_SOURCES)
-
-dnl plugins/env/Makefile
-dnl plugins/filt/Makefile
-dnl plugins/math/Makefile
-dnl plugins/misc/Makefile
-dnl plugins/mixer/Makefile
-
+dnl How chomo!
 AC_SUBST_DIR(libdir)
+AC_SUBST_DIR(datadir)
+AC_SUBST_DIR(bindir)
 
-dnl XXX let's change this later
 plugin_path=${libdir}/${PACKAGE}/plugins/
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
@@ -156,8 +137,8 @@ echo
 echo "compiling for system ....:" $system
 echo "debug ...................:" $debug
 echo
-echo The binary will be installed in $prefix/bin
-echo Data will be installed in       $prefix/share/$PACKAGE
+echo The binary will be installed in $bindir
+echo Data will be installed in       $datadir/$PACKAGE
 echo Plugins will be installed in    $plugin_path
 echo
-echo Now run \'make\' to build $PACKAGE
+echo "Now run 'make' to build $PACKAGE"
