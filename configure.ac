@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.92 2004/09/05 10:39:13 joshk Exp $
+dnl $Id: configure.ac,v 1.93 2004/09/06 07:39:55 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -282,6 +282,13 @@ dnl Someone may have been a smartass and configure with
 dnl ./configure --with-dsp-path=${prefix}/bar, so flatten that too
 
 AC_SUBST_DIR(dsp_path)
+
+AC_ARG_WITH(default-output,
+	[AC_HELP_STRING([--with-default-output], [Choose either 'jack', 'wav', or 'alsa' (default jack)])],
+	[default_output=$withval],
+	[default_output="jack"])
+
+AC_DEFINE_UNQUOTED([DEFAULT_OUTPUT], "$default_output", [Default output device for thinksynth.])
 
 thinkrc=$sysconfdir/thinkrc
 AC_SUBST_DIR(thinkrc)

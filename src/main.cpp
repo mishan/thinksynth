@@ -215,7 +215,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 int main (int argc, char *argv[])
 {
 	string outputfname;
-	string driver = "jack";
+	string driver = DEFAULT_OUTPUT;
 	int havearg = -1;
 	gthALSAMidi *midi = NULL;
 	int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
