@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.53 2003/05/06 18:51:16 aaronl Exp $ */
+/* $Id: thSynth.cpp,v 1.54 2003/05/07 02:28:58 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -22,7 +22,7 @@
 
 #include "parser.h"
 
-thSynth::thSynth()
+thSynth::thSynth (void)
 {
 	thWindowlen = 1024;
 	thChans = 2;  /* mono / stereo / etc */
@@ -36,11 +36,10 @@ thSynth::thSynth()
 												   thWindowlen */
 }
 
-thSynth::~thSynth()
+thSynth::~thSynth (void)
 {
 	delete modlist;
 	delete channels;
-	delete thOutput;
 }
 
 void thSynth::LoadMod(const char *filename)

@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.28 2003/05/06 18:17:15 misha Exp $ */
+/* $Id: thSynth.h,v 1.29 2003/05/07 02:28:58 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -7,8 +7,8 @@ class thMidiNote;
 
 class thSynth {
 public:
-	thSynth();
-	~thSynth();
+	thSynth (void);
+	~thSynth (void);
 
 	void LoadMod(const char *name);
 	thMod *FindMod(const char *modname);
