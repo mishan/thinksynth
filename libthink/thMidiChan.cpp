@@ -119,11 +119,17 @@ void thMidiChan::DelNote (int note)
 void thMidiChan::ClearAll (void)
 {
 	map<int, thMidiNote*>::iterator i;
+	list<thMidiNote*>::iterator j;
 
 	for (i = notes.begin(); i != notes.end(); i++)
 	{
 		delete i->second;
 		notes.erase(i);
+	}
+	for (j = decaying.begin(); j != decaying.end(); j++)
+	{
+		delete *j;
+		j = decaying.erase(j);
 	}
 }
 
