@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.69 2003/05/06 08:26:44 ink Exp $ */
+/* $Id: main.cpp,v 1.70 2003/05/06 09:04:39 ink Exp $ */
 
 #include "config.h"
 
@@ -121,7 +121,7 @@ syntax:
 	mixedbuffer = Synth.GetOutput();
 	for(i=0; i<100; i++) {  /* For testing... */
 
-	  if(i==20) {
+	  	  if(i==20) {
 		Synth.AddNote("chan1", 42, 100);
 	  }
 	  if(i==40) {
@@ -136,7 +136,7 @@ syntax:
 		Synth.AddNote("chan1", 50, 100);
 		Synth.AddNote("chan1", 52, 100);
 		Synth.AddNote("chan1", 55, 100);
-	  }
+		}
 
 	  Synth.Process();
 	  for(j=0; j < Synth.GetWindowLen() * Synth.GetChans(); j++) {
