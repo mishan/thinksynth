@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.32 2003/04/27 03:24:57 misha Exp $ */
+/* $Id: thNode.h,v 1.33 2003/04/27 03:40:45 ink Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -17,6 +17,7 @@ public:
 	thArg *SetArg (const char *name, float *value, int num);
 	thArg *SetArg (const char *name, const char *node, const char *value);
 	
+	inline thBSTree *GetArgTree (void) { return args; }
 	const thArgValue *GetArg (const char *name);
 	void PrintArgs (void);
 	

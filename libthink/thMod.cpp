@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.38 2003/04/27 02:33:05 misha Exp $ */
+/* $Id: thMod.cpp,v 1.39 2003/04/27 03:40:45 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -30,13 +30,13 @@ thMod::~thMod ()
 
 thNode *thMod::FindNode (const char *name)
 {
-	return (thNode *)modnodes.GetData(name);
+	return (thNode *)modnodes->GetData((void *)name);
 }
 
 const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
   /* Follow pointers and return a thArgValue of a float string */
 {
-	thNode *node = (thNode *)modnodes.GetData(nodename);
+	thNode *node = (thNode *)modnodes->GetData((void *)nodename);
 	const thArgValue *args;
 	float *newfloat;
 
@@ -55,7 +55,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 	while ((args->argType == ARG_POINTER) && node && args) { 
 		/* Recurse through the list of pointers until we get a real value. */
-		node = (thNode *)modnodes.GetData(args->argPointNode);
+		node = (thNode *)modnodes->GetData((void *)args->argPointNode);
 		if (node) {
 			args = node->GetArg(args->argPointName);
 		}
@@ -66,7 +66,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 void thMod::NewNode (thNode *node)
 {
-	modnodes.Insert((char *)node->GetName(), node);
+	modnodes->Insert((char *)node->GetName(), node);
 }
 
 /* We own this string. The caller may not free it. */
@@ -78,7 +78,7 @@ void thMod::SetName (char *name)
 
 void thMod::SetIONode (const char *name)
 {
-	ionode = (thNode *)modnodes.GetData(name);
+	ionode = (thNode *)modnodes->GetData((void *)name);
 }
 
 void thMod::PrintIONode (void)
@@ -158,7 +158,7 @@ thMod *thMod::Copy (void)
 	thMod *newmod = new thMod(modname);
 	thNode *newnode = new thNode(ionode->GetName(), ionode->GetPlugin());
 
-	newnode->CopyArgs((thList *)ionode->GetArgList());
+	newnode->CopyArgs(ionode->GetArgTree());
 
 	newmod->NewNode(newnode);
 	newmod->SetIONode((char *)newnode->GetName());
