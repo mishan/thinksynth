@@ -68,12 +68,12 @@ void thSynth::BuildSynthTree(char *modname)
   for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
     if(data->argType == ARG_POINTER) {
-      BuildSynthTreeHelper(mod, data->argPointNode);
+      BuildSynthTreeHelper(mod, ionode, data->argPointNode);
     }
   }
 }
 
-int thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
+int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
 {
   thListNode *listnode;
   thArgValue *data;
@@ -88,8 +88,10 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
     if(data->argType == ARG_POINTER) {
       node = mod->FindNode(data->argPointNode);
+      parent->AddChild(node);
+      node->AddParent(parent);
       if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
-	BuildSynthTreeHelper(mod, data->argPointNode);
+	BuildSynthTreeHelper(mod, node, data->argPointNode);
       }
     }
   }

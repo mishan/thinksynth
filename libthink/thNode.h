@@ -19,6 +19,9 @@ public:
 	bool GetRecalc(void);
 	void SetRecalc(bool state);
 
+	void AddChild(thNode *node);
+	void AddParent(thNode *node);
+
 	void Process (void);
 private:
 	thBSTree *args;

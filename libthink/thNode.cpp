@@ -17,6 +17,8 @@ thNode::thNode (char *name, thPlugin *thplug)
 	nodename = strdup(name);
 	plugin = thplug;
 	args = new thBSTree;
+	parents = new thList;
+	children = new thList;
 	recalc = false;
 }
 
