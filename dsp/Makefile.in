@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.9 2004/08/07 08:36:10 joshk Exp $
+# $Id: Makefile.in,v 1.10 2004/09/05 06:53:11 joshk Exp $
 
 prefix=@prefix@
 datadir=@datadir@
@@ -18,12 +18,12 @@ distclean::
 clean::
 
 install:
-	install -d $(DESTDIR)/$(datadir)/thinksynth
-	cp -uf *.dsp $(DESTDIR)/$(datadir)/thinksynth
-	install -d $(DETSDIR)/$(datadir)/thinksynth/args
-	cp -uf args/*.dsp $(DESTDIR)/$(datadir)/thinksynth/args
+	install -d $(DESTDIR)$(datadir)/thinksynth
+	cp -uf *.dsp $(DESTDIR)$(datadir)/thinksynth
+	install -d $(DESTDIR)$(datadir)/thinksynth/args
+	cp -uf args/*.dsp $(DESTDIR)$(datadir)/thinksynth/args
 
 uninstall:
-	cd $(DESTDIR)/$(datadir)/thinksynth && rm -f $(dsp_files) $(args_dsp_files)
-	-rmdir $(DESTDIR)/$(datadir)/thinksynth/args
-	-rmdir $(DESTDIR)/$(datadir)/thinksynth
+	cd $(DESTDIR)$(datadir)/thinksynth && rm -f $(dsp_files) $(args_dsp_files)
+	-rmdir $(DESTDIR)$(datadir)/thinksynth/args
+	-rmdir $(DESTDIR)$(datadir)/thinksynth

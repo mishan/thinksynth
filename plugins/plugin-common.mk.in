@@ -14,13 +14,13 @@ CXXFLAGS += -DPLUGIN_BUILD @SIGC_CFLAGS@
 LDFLAGS += @SIGC_LIBS@
 
 install:
-	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
+	mkdir -p $(DESTDIR)$(plugin_path)/$(notdir $(CURDIR))
 	for plugin in $(PLUGIN_NAMES); do \
-	  cp -f $$plugin $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR)); \
+	  cp -f $$plugin $(DESTDIR)$(plugin_path)/$(notdir $(CURDIR)); \
 	done
 
 uninstall:
 	for plugin in $(PLUGIN_NAMES); do \
-	  rm -f $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))/$$plugin; \
+	  rm -f $(DESTDIR)$(plugin_path)/$(notdir $(CURDIR))/$$plugin; \
 	done
-	-rmdir $(GNU_RMDIR_OPTION) $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
+	-rmdir $(GNU_RMDIR_OPTION) $(DESTDIR)$(plugin_path)/$(notdir $(CURDIR))

@@ -1,10 +1,11 @@
-# $Id: Makefile.in,v 1.5 2004/09/05 00:31:52 joshk Exp $
+# $Id: Makefile.in,v 1.6 2004/09/05 06:53:11 joshk Exp $
 
 libdir=@libdir@
+includedir=@includedir@
 prefix=@prefix@
 
 # XXX
-all: .bstamp libthink.so
+all: .bstamp libthink.so libthink.a
 
 .bstamp:
 	@touch $@
@@ -30,7 +31,6 @@ LIBOBJS = \
 	thPluginManager.o \
 	thSynth.o
 
-
 libthink.so: libthink.so.3
 	ln -sf libthink.so.3 libthink.so
 	@rm -f .bstamp
@@ -55,7 +55,13 @@ distclean::
 install:
 	mkdir -p $(DESTDIR)$(libdir)
 	cp -f libthink.so.3 $(DESTDIR)$(libdir)
+	cp -f libthink.a $(DESTDIR)$(libdir)
 	ln -sf libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
+	mkdir -p $(DESTDIR)$(includedir)/libthink
+	for header in $(wildcard *.h); do \
+		install -m 644 $$header $(DESTDIR)$(includedir)/libthink/; \
+	done
 
 uninstall:
-	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
+	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so $(DESTDIR)$(libdir)/libthink.a
+	rm -rf $(DESTDIR)$(includedir)/libthink

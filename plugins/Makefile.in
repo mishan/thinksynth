@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.3 2004/01/02 05:35:32 ink Exp $
+# $Id: Makefile.in,v 1.4 2004/09/05 06:53:11 joshk Exp $
 
 GNU_RMDIR_OPTION = @GNU_RMDIR_OPTION@
 plugin_path = @plugin_path@
@@ -10,7 +10,7 @@ PLUGIN_DIRS = osc mixer math logic input env misc filt delay impulse dist analys
 all clean install uninstall: $(PLUGIN_DIRS)
 
 uninstall:
-	-rmdir $(GNU_RMDIR_OPTION) $(DESTDIR)/$(plugin_path)
+	-rmdir $(GNU_RMDIR_OPTION) $(DESTDIR)$(plugin_path)
 
 $(PLUGIN_DIRS):
 	$(MAKE) -C $@ $(MAKECMDGOALS)
