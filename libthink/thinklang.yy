@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.55 2004/05/25 03:54:04 misha Exp $ */
+/* $Id: thinklang.yy,v 1.56 2004/05/25 04:42:47 misha Exp $ */
 
 %{
 #include "config.h"
@@ -11,15 +11,17 @@
 
 thMod *parsemod = NULL;
 thNode *parsenode = NULL;
-extern thSynth *Synth;
+static thSynth *parseSynth;
 
 // XXX - REIMPLEMENT GLOBAL STUFFS
 extern int linenum;
 
 int yyparse (void);
 
-int YYPARSE (void)
+int YYPARSE (thSynth *argsynth)
 {
+	parseSynth = argsynth;
+
 	linenum = 1;
 
 	return yyparse();
@@ -167,7 +169,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 
 	printf("Checking if plugin %s is loaded...\n", $3.str);
 #endif
-	thPluginManager *plugMgr = Synth->GetPluginManager();
+	thPluginManager *plugMgr = parseSynth->GetPluginManager();
 
 	if(!plugMgr->GetPlugin($3.str)) {
 		if (plugMgr->LoadPlugin($3.str) == 1) { /* FAILED */

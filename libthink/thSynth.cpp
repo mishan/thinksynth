@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.93 2004/05/25 03:54:04 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.94 2004/05/25 04:42:47 misha Exp $ */
 
 #include "config.h"
 
@@ -81,7 +81,7 @@ thMod * thSynth::LoadMod (const string &filename)
 	parsemod = new thMod("newmod");
 	parsenode = new thNode("newnode", NULL);
 
-	YYPARSE();
+	YYPARSE(this);
 
 	fclose(yyin);
 
@@ -111,7 +111,7 @@ thMod * thSynth::LoadMod (FILE *input)
 	parsemod = new thMod("newmod");
 	parsenode = new thNode("newnode", NULL);
 
-	YYPARSE();
+	YYPARSE(this);
 
 	delete parsenode;
 
@@ -197,7 +197,7 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	parsemod = new thMod("newmod");
 	parsenode = new thNode("newnode", NULL);
 
-	YYPARSE();
+	YYPARSE(this);
 
 	delete parsenode;
 
@@ -209,9 +209,10 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	thMidiChan **newchans;
 	int newchancount = channelcount;
 
-	if (channum > channelcount)
+	if (channum >= channelcount)
 	{
-		while(channum > newchancount) {
+		while(channum >= newchancount)
+		{
 			newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
 			/* add one more chunk to the channel pointer array */
 		}

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.31 2004/05/12 09:09:16 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.32 2004/05/25 04:42:47 misha Exp $ */
 
 #include "config.h"
 
@@ -51,6 +51,8 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchModel = Gtk::ListStore::create (patchViewCols);
 	patchView.set_model(patchModel);
 
+	debug("channelcount: %d", channelcount);
+
 	for(int i = 0; i < channelcount; i++)
 	{
 		Gtk::TreeModel::Row row = *(patchModel->append());
@@ -72,15 +74,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 		row[patchViewCols.chanNum] = i + 1;
 		row[patchViewCols.dspName] = filename;
-
-		if (amp)
-		{
-			row[patchViewCols.amp] = (*amp)[0];
-		}
-		else
-		{
-			row[patchViewCols.amp] = 0;
-		}
+		row[patchViewCols.amp] = amp ? (*amp)[0] : 0;
 	}
 
 	patchView.append_column("Channel", patchViewCols.chanNum);

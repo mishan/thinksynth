@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.180 2004/05/25 03:54:04 misha Exp $ */
+/* $Id: main.cpp,v 1.181 2004/05/25 04:42:47 misha Exp $ */
 
 #include "config.h"
 
@@ -196,19 +196,8 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
-	/* init Glib/Gtk stuff */
-	Glib::thread_init();
+	/* init Glib/Gtk args */
 	gtkMain = new Gtk::Main (argc, argv);
-
-	mainContext = Glib::MainContext::create ();
-
-	mainMutex = new Glib::Mutex;
-	exitCond = new Glib::Cond;
-
- 	process = new Glib::Dispatcher(mainContext);
-	process->connect(SigC::slot(process_synth));
-
-	signal(SIGTERM, (sighandler_t)cleanup);
 
 	while ((havearg = getopt (argc, argv, "hp:o:d:")) != -1) {
 		switch (havearg)
@@ -252,10 +241,24 @@ int main (int argc, char *argv[])
 		}
 	}
 
+	/* XXX: create global Synth object */
 	Synth = new thSynth(plugin_path);
+
+	/* Glib/Gtk signal/thread handling init */
+	Glib::thread_init();
+	mainContext = Glib::MainContext::create ();
+
+	mainMutex = new Glib::Mutex;
+	exitCond = new Glib::Cond;
+
+ 	process = new Glib::Dispatcher(mainContext);
+	process->connect(SigC::slot(process_synth));
+
+	signal(SIGTERM, (sighandler_t)cleanup);
 
 	read_prefs (Synth);
 
+	/* create UI thread */
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
 	/* create a window first */
