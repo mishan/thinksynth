@@ -1,10 +1,13 @@
-/* $Id: map.cpp,v 1.8 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: map.cpp,v 1.9 2004/04/09 04:15:09 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "think.h"
+
+enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
+int args[OUT_ARG + 1];
 
 char		*desc = "Maps a stream to a new value range";
 thPluginState	mystate = thPassive;
@@ -21,6 +24,13 @@ int module_init (thPlugin *plugin)
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_INMIN] = plugin->RegArg("inmin");
+	args[IN_INMAX] = plugin->RegArg("inmax");
+	args[IN_OUTMIN] = plugin->RegArg("outmin");
+	args[IN_OUTMAX] = plugin->RegArg("outmax");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[OUT_ARG] = plugin->RegArg("out");
+
 	return 0;
 }
 
@@ -32,14 +42,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	unsigned int i;
 	float percent;
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_min = mod->GetArg(node, "inmin");
-	in_max = mod->GetArg(node, "inmax");
-	out_min = mod->GetArg(node, "outmin");
-	out_max = mod->GetArg(node, "outmax");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_min = mod->GetArg(node, args[IN_INMIN]);
+	in_max = mod->GetArg(node, args[IN_INMAX]);
+	out_min = mod->GetArg(node, args[IN_OUTMIN]);
+	out_max = mod->GetArg(node, args[IN_OUTMAX]);
 
 	for(i = 0; i < windowlen; i++) {
 	  percent = ((*in_arg)[i]-(*in_min)[i])/((*in_max)[i]-(*in_min)[i]);

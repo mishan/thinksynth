@@ -1,10 +1,13 @@
-/* $Id: adsr.cpp,v 1.22 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: adsr.cpp,v 1.23 2004/04/09 04:15:09 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "think.h"
+
+enum {IN_A, IN_D, IN_S, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
+int args[INOUT_POSITION + 1];
 
 char		*desc = "ADSR Envelope Generator";
 thPluginState	mystate = thActive;
@@ -20,6 +23,19 @@ int module_init (thPlugin *plugin)
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
+
+	args[IN_A] = plugin->RegArg("a");
+	args[IN_D] = plugin->RegArg("d");
+	args[IN_S] = plugin->RegArg("s");
+	args[IN_R] = plugin->RegArg("r");
+	args[IN_P] = plugin->RegArg("p");
+	args[IN_TRIGGER] = plugin->RegArg("trigger");
+	args[IN_RESET] = plugin->RegArg("reset");
+
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_PLAY] = plugin->RegArg("play");
+
+	args[INOUT_POSITION] = plugin->RegArg("position");
 
 	return 0;
 }
@@ -39,9 +55,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int phase;
 	unsigned int i;
  
-	out_out = mod->GetArg(node, "out");
-	out_play = mod->GetArg(node, "play");
-	inout_position = mod->GetArg(node, "position");
+	out_out = mod->GetArg(node, args[OUT_ARG]);
+	out_play = mod->GetArg(node, args[OUT_PLAY]);
+	inout_position = mod->GetArg(node, args[INOUT_POSITION]);
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
@@ -50,13 +66,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out = out_out->Allocate(windowlen);
 	play = out_play->Allocate(windowlen);
 
-	in_a = mod->GetArg(node, "a"); /* Attack */
-	in_d = mod->GetArg(node, "d"); /* Decay */
-	in_s = mod->GetArg(node, "s"); /* Sustain */
-	in_r = mod->GetArg(node, "r"); /* Release */
-	in_p = mod->GetArg(node, "p"); /* Peak */
-	in_trigger = mod->GetArg(node, "trigger"); /* Note Trigger */
-	in_reset = mod->GetArg(node, "reset"); /* Reset to A phase */
+	in_a = mod->GetArg(node, args[IN_A]); /* Attack */
+	in_d = mod->GetArg(node, args[IN_D]); /* Decay */
+	in_s = mod->GetArg(node, args[IN_S]); /* Sustain */
+	in_r = mod->GetArg(node, args[IN_R]); /* Release */
+	in_p = mod->GetArg(node, args[IN_P]); /* Peak */
+	in_trigger = mod->GetArg(node, args[IN_TRIGGER]); /* Note Trigger */
+	in_reset = mod->GetArg(node, args[IN_RESET]); /* Reset to A phase */
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;
