@@ -3,25 +3,26 @@
 
 #define MODULE_IFACE_VER 3
 
+enum thPluginState { thActive, thPassive, thNotLoaded, thLoaded };
+
 class thPlugin {
 public:
-	thPlugin(const char *path, int id, bool state);
+	thPlugin(const char *path);
 	~thPlugin ();
 
 	const char *GetPath (void) { return plugPath; };
 	const char *GetDesc (void) { return plugDesc; };
-	bool GetState (void);
+	thPluginState GetState (void) { return plugState; };
 
 	void MakePath (void);
 
 	void SetDesc(const char *desc);
-	void SetState(bool state);
+	void SetState(thPluginState state) { plugState = state; };
 
 	int Fire (void *node, void *mod, unsigned int windowlen);
 private:
 	char *plugPath;
-	int plugId;
-	bool plugState;
+	thPluginState plugState;
 	void *plugHandle;
 	char *plugDesc;
 

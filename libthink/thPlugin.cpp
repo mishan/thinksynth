@@ -11,15 +11,13 @@
 
 #include "thPlugin.h"
 
-thPlugin::thPlugin (const char *path, int id, bool state)
+thPlugin::thPlugin (const char *path)
 {
 	plugPath = strdup(path);
-	plugId = id;
-	plugState = state;
 
 	plugDesc = NULL;
 
-	if(ModuleLoad()) {
+	if(ModuleLoad() == 1) { /* fail = return (1) */
 		fprintf(stderr, "thPlugin::thPlugin: Failed to load plugin\n");
 	}
 }
@@ -48,6 +46,11 @@ void thPlugin::SetDesc (const char *desc)
 	plugDesc = strdup(desc);
 }
 
+/*	ModuleLoad ()
+ * 	precondition: plugPath != NULL
+ *	postcondition: plugState has been set to *something*
+ */
+
 int thPlugin::ModuleLoad (void)
 {
 	int (*module_init) (int version, thPlugin *plugin);
@@ -63,6 +66,7 @@ int thPlugin::ModuleLoad (void)
 				"Could not load plugin: ", plugPath);
 #endif /* HAVE_DLERROR */
 
+		plugState = thNotLoaded;
 		return 1;
 	}
 
@@ -70,28 +74,37 @@ int thPlugin::ModuleLoad (void)
 
 	if (module_init == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_init' symbol\n");
-		goto err;
+		plugState = thNotLoaded;
+		return 1;
 	}
 
 	if (module_init (MODULE_IFACE_VER, this) != 0) {
-		goto err;
+		fprintf (stderr, "thPlugin::ModuleLoad: Interface version missing\n");
+		plugState = thNotLoaded;
+		return 1;
 	}
 
 	plugCallback = (void (*)(void *, void *, unsigned int))dlsym(plugHandle, "module_callback");
 	
 	if(plugCallback == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_callback' symbol\n");
-		goto err;
+		plugState = thNotLoaded;
+		return 1;
 	}
 
-	return 0;
+	/* XXX */
+	plugState = thLoaded;
 
-  err:
-	return 1;
+	return 0;
 }
 
 void thPlugin::ModuleUnload (void)
 {
+	if (plugState == thNotLoaded) { /* don't unload what is not
+					   loaded! */
+		return;
+	}
+	
 	void (*module_cleanup) (thPlugin *plug);
 
 	module_cleanup = (void (*)(thPlugin *))dlsym (plugHandle, 

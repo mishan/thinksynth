@@ -46,21 +46,22 @@ char *thPluginManager::GetPath (char *name)
 	return path;
 }
 
+// TODO: Return values.. should we care about them? consider making void?
 int thPluginManager::LoadPlugin (char *name)
 {
 	thPlugin *plugin;
 	char *path;
 
-	/* XXX */
-	int id = 0;
-	bool state = true;
-	/* XXX */
-
-
 	path = GetPath(name);
 
-	plugin = new thPlugin (path, id, state);
+	plugin = new thPlugin (path);
 	delete path;
+
+	if (plugin->GetState() == thNotLoaded) {	/* something messed up */
+		delete plugin;
+		return 1;
+	}
+	
 	plugins.Insert(name, plugin);
 
 	/* XXX */
