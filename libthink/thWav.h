@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.6 2003/04/27 04:27:08 joshk Exp $ */
+/* $Id: thWav.h,v 1.7 2003/04/27 04:43:46 misha Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -77,7 +77,7 @@ private:
 
 	void WriteRiff (void);
 	int FindChunk (const char *label) const;
-	void ReadHeader (void) const
+	void ReadHeader (void)
 		throw(thWavException);
 };
 
