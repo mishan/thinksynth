@@ -1,4 +1,4 @@
-/* $Id: resgrav.cpp,v 1.6 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -33,11 +33,21 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,OUT_ACCEL,INOUT_LAST,IN_ARG,IN_CUTOFF,IN_RES };
+
+int args[IN_RES + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_ACCEL] = plugin->RegArg("aout");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[IN_RES] = plugin->RegArg("res");
 	return 0;
 }
 
@@ -53,9 +63,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float in, last, accel;
 
-	out_arg = mod->GetArg(node, "out");
-	out_accel = mod->GetArg(node, "aout");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_accel = mod->GetArg(node, args[OUT_ACCEL]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	accel = (*inout_last)[1];
@@ -64,9 +74,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_arg->Allocate(windowlen);
 	aout = out_accel->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_cutoff = mod->GetArg(node, "cutoff");
-	in_res = mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_res = mod->GetArg(node, args[IN_RES]);
 
 	for(i=0;i<windowlen;i++) {
 		in = (*in_arg)[i];
@@ -91,4 +101,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

@@ -1,4 +1,4 @@
-/* $Id: dshape.cpp,v 1.5 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -33,11 +33,22 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,OUT_HIGH,INOUT_LAST,IN_ARG,IN_CUTOFF,IN_RES,IN_FACTOR };
+
+int args[IN_FACTOR + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_HIGH] = plugin->RegArg("out_high");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[IN_RES] = plugin->RegArg("res");
+	args[IN_FACTOR] = plugin->RegArg("factor");
 	return 0;
 }
 
@@ -55,9 +66,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float prevdiff, rdiff;
 	float fact, rfact;
 
-	out_arg = mod->GetArg(node, "out");
-	out_high = mod->GetArg(node, "out_high");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_high = mod->GetArg(node, args[OUT_HIGH]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	prevdiff = (*inout_last)[1];
@@ -66,10 +77,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_arg->Allocate(windowlen);
 	highout = out_high->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_cutoff = mod->GetArg(node, "cutoff");
-	in_res = mod->GetArg(node, "res");
-	in_factor = mod->GetArg(node, "factor");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_res = mod->GetArg(node, args[IN_RES]);
+	in_factor = mod->GetArg(node, args[IN_FACTOR]);
 
 	for(i=0;i<windowlen;i++) {
 	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));
@@ -96,4 +107,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

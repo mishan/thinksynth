@@ -1,4 +1,4 @@
-/* $Id: allpass.cpp,v 1.5 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,19 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_ARG,IN_FREQ,INOUT_LAST,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_FREQ] = plugin->RegArg("freq");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -51,13 +59,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float *last;
 	float in, omega, a0, freq;
 
-	in_arg = mod->GetArg(node, "in");
-	in_freq = mod->GetArg(node, "freq");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_freq = mod->GetArg(node, args[IN_FREQ]);
 	/* IIR delay buffer for in and out */
-	inout_last = mod->GetArg(node, "last");
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 	last = inout_last->Allocate(2);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {
@@ -82,4 +90,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

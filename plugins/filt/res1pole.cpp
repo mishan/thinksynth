@@ -1,4 +1,4 @@
-/* $Id: res1pole.cpp,v 1.7 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,11 +32,20 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,INOUT_BUFFER,IN_ARG,IN_CUTOFF,IN_RES };
+
+int args[IN_RES + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[INOUT_BUFFER] = plugin->RegArg("buffer");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[IN_RES] = plugin->RegArg("res");
 	return 0;
 }
 
@@ -51,17 +60,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float fb, f, q;  /* feedback, cutoff, resonance */
 	unsigned int i;
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	inout_buffer = mod->GetArg(node, "buffer");
+	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
 	buf0 = (*inout_buffer)[0];
 	buf1 = (*inout_buffer)[1];
 	buffer = inout_buffer->Allocate(2);
 
-	in_arg = mod->GetArg(node, "in");
-	in_cutoff = mod->GetArg(node, "cutoff");
-	in_res = mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_res = mod->GetArg(node, args[IN_RES]);
 
 	for(i=0;i<windowlen;i++) {
 		f = (*in_cutoff)[i];
@@ -77,4 +86,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	buffer[1] = buf1;
 	return 0;
 }
-

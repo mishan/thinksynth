@@ -1,4 +1,4 @@
-/* $Id: ds.cpp,v 1.7 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -33,11 +33,20 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,OUT_HIGH,INOUT_LAST,IN_ARG,IN_CUTOFF };
+
+int args[IN_CUTOFF + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_HIGH] = plugin->RegArg("out_high");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CUTOFF] = plugin->RegArg("cutoff");
 	return 0;
 }
 
@@ -54,9 +63,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float last, diff;
 	float fact;
 
-	out_arg = mod->GetArg(node, "out");
-	out_high = mod->GetArg(node, "out_high");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_high = mod->GetArg(node, args[OUT_HIGH]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	out_last = inout_last->Allocate(1);
@@ -64,8 +73,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_arg->Allocate(windowlen);
 	highout = out_high->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_cutoff = mod->GetArg(node, "cutoff");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
 
 	for(i=0;i<windowlen;i++) {
 	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));

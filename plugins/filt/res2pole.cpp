@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.10 2004/10/24 20:57:42 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,11 +36,23 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_LOW,OUT_HIGH,OUT_BAND,OUT_NOTCH,INOUT_DELAY,IN_ARG,IN_CUTOFF,IN_RES };
+
+int args[IN_RES + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_LOW] = plugin->RegArg("out");
+	args[OUT_HIGH] = plugin->RegArg("out_high");
+	args[OUT_BAND] = plugin->RegArg("out_band");
+	args[OUT_NOTCH] = plugin->RegArg("out_notch");
+	args[INOUT_DELAY] = plugin->RegArg("delay");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CUTOFF] = plugin->RegArg("cutoff");
+	args[IN_RES] = plugin->RegArg("res");
 	return 0;
 }
 
@@ -54,21 +66,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float f, q;
 	unsigned int i;
 
-	out_low = mod->GetArg(node, "out");
-	out_high = mod->GetArg(node, "out_high");
-	out_band = mod->GetArg(node, "out_band");
-	out_notch = mod->GetArg(node, "out_notch");
+	out_low = mod->GetArg(node, args[OUT_LOW]);
+	out_high = mod->GetArg(node, args[OUT_HIGH]);
+	out_band = mod->GetArg(node, args[OUT_BAND]);
+	out_notch = mod->GetArg(node, args[OUT_NOTCH]);
 	out = out_low->Allocate(windowlen);
 	highout = out_high->Allocate(windowlen);
 	bandout = out_band->Allocate(windowlen);
 	notchout = out_notch->Allocate(windowlen);
 
-	inout_delay = mod->GetArg(node, "delay");
+	inout_delay = mod->GetArg(node, args[INOUT_DELAY]);
 	delay = inout_delay->Allocate(2);
 
-	in_arg = mod->GetArg(node, "in");
-	in_cutoff = mod->GetArg(node, "cutoff");
-	in_res = mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
+	in_res = mod->GetArg(node, args[IN_RES]);
 
 	for(i=0;i<windowlen;i++) {
 		f = 2*sin(M_PI * (*in_cutoff)[i] / samples);
@@ -85,4 +97,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

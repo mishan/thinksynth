@@ -1,4 +1,4 @@
-/* $Id: divbuf.cpp,v 1.8 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,11 +32,19 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,INOUT_BUFFER,IN_ARG,IN_FACTOR };
+
+int args[IN_FACTOR + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[INOUT_BUFFER] = plugin->RegArg("buffer");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_FACTOR] = plugin->RegArg("factor");
 	return 0;
 }
 
@@ -52,14 +60,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float factor, buffer;
 
-	out_arg = mod->GetArg(node, "out");
-	inout_buffer = mod->GetArg(node, "buffer");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
 	buffer = (*inout_buffer)[0];
 	out = out_arg->Allocate(windowlen);
 	out_buf = inout_buffer->Allocate(1);
 
-	in_arg = mod->GetArg(node, "in");
-	in_factor = mod->GetArg(node, "factor");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_factor = mod->GetArg(node, args[IN_FACTOR]);
 
 	for(i=0;i<windowlen;i++) {
 	  factor = SQR(SQR((*in_factor)[i]));
@@ -76,4 +84,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-
