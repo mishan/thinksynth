@@ -135,6 +135,7 @@ void process_synth (void)
 	Synth->process();
 }
 
+#ifdef HAVE_ALSA
 /* ALSA callback */
 void audio_readywrite (gthAudio *audio, thSynth *synth)
 {
@@ -145,6 +146,7 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 
 	process_synth ();
 }
+#endif
 
 #ifdef HAVE_JACK
 /* JACK callback */
@@ -395,6 +397,7 @@ int main (int argc, char *argv[])
 
 		fprintf(stderr, "Falling back to dummy audio device\n");
 
+		delete aout;
 		aout = new gthDummyAudio(Synth);
 	}
 

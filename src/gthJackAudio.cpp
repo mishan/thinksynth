@@ -31,10 +31,6 @@
 #include "gthAudio.h"
 #include "gthJackAudio.h"
 
-/* XXX */
-#include "gthPrefs.h"
-extern gthPrefs *prefs;
-
 void jack_shutdown (void *arg)
 {
 	gthJackAudio *jout = (gthJackAudio *)arg;

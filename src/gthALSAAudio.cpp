@@ -80,14 +80,14 @@ gthALSAAudio::gthALSAAudio (thSynth *synth, const char *device)
 
 gthALSAAudio::~gthALSAAudio ()
 {
-	snd_pcm_close(play_handle_);
-
-	play_handle_ = NULL;
+	if (play_handle_ != NULL)
+	{
+		snd_pcm_close(play_handle_);
+		play_handle_ = NULL;
+	}
 
 	if (outbuf_)
-	{
 		free (outbuf_);
-	}
 
 	free (pfds_);
 }
