@@ -26,11 +26,12 @@ thMidiChan::~thMidiChan ()
 	/* delete mod; ? */
 }
 
-void thMidiChan::AddNote (float note, float velocity)
+thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
 
 	notes.Add(midinote);
+	return midinote;
 }
 
 void thMidiChan::DelNote (thMidiNote *midinote)

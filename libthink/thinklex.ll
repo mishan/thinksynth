@@ -15,6 +15,8 @@
 #include "thMod.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
+#include "thMidiNote.h"
+#include "thMidiChan.h"
 #include "thSynth.h"
 
 #include "yygrammar.h"

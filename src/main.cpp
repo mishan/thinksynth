@@ -14,6 +14,9 @@
 #include "thNode.h"
 #include "thMod.h"
 
+#include "thMidiNote.h"
+#include "thMidiChan.h"
+
 #include "thException.h"
 #include "thAudio.h"
 #include "thAudioBuffer.h"
@@ -35,12 +38,13 @@ int main (int argc, char *argv[])
   
   Synth.LoadMod(argv[1]);
   Synth.ListMods();
-  //((thMod *)Synth->FindMod("test"))->PrintIONode();
-  //printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
   ((thMod *)Synth.FindMod("static"))->BuildSynthTree();
   //	((thMod *)Synth->FindMod("test"))->Process();
   
-  // Synth.Process("static");
+
+  ((thMod *)Synth.FindMod("static"))->BuildSynthTree();
+  Synth.AddChannel("chan1", "static");
+  Synth.AddNote("chan1", 20, 100);
 
   newmod = ((thMod *)Synth.FindMod("static"))->Copy();
   newmod->BuildSynthTree();

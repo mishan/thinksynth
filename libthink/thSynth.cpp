@@ -13,6 +13,8 @@
 #include "thPluginManager.h"
 #include "thNode.h"
 #include "thMod.h"
+#include "thMidiNote.h"
+#include "thMidiChan.h"
 #include "thSynth.h"
 
 #include "parser.h"
@@ -108,6 +110,19 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
 const thPluginManager *thSynth::GetPluginManager(void)
 {
   return &pluginmanager;
+}
+
+void thSynth::AddChannel(char *channame, char *modname)
+{
+  thMidiChan *newchan = new thMidiChan(FindMod(modname));
+  channels.Insert(channame, newchan);
+  chanlist.Add(newchan);
+}
+
+thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
+{
+  thMidiNote *newnote = (thMidiNote *)((thMidiChan *)channels.GetData(channame))->AddNote(note, velocity);
+  return newnote;
 }
 
 void thSynth::Process(const char *modname)

@@ -6,7 +6,7 @@ public:
 	thMidiChan (thMod *mod);
 	~thMidiChan();
 
-	void AddNote(float note, float velocity);
+	thMidiNote *AddNote(float note, float velocity);
 	void DelNote(thMidiNote *midinote);
 
 	void SetArg(thArg *arg);

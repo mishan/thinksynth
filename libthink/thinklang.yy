@@ -8,14 +8,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-/*
-#include "thnodes.h"
-#include "mods.h"
-#include "itree.h"
-#include "thplug.h"
-#include "main.h"
-*/
-
 #include "thArg.h"
 #include "thList.h"
 #include "thBSTree.h"
@@ -24,6 +16,8 @@
 #include "thMod.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
+#include "thMidiNote.h"
+#include "thMidiChan.h"
 #include "thSynth.h"
 
 #include "yygrammar.h"

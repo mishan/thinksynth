@@ -9,7 +9,7 @@ public:
 	void BuildSynthTree(const char *modname);
 	const thPluginManager *GetPluginManager(void);
 	void AddChannel(char *channame, char *modname);
-	void AddNote(char *channame, float note, float velocity);
+	thMidiNote *AddNote(char *channame, float note, float velocity);
 	void Process(const char *modname);
 
 private:
