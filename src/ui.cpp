@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.1 2004/03/24 09:58:32 misha Exp $ */
+/* $Id: ui.cpp,v 1.2 2004/03/24 10:01:06 misha Exp $ */
 
 #include "config.h"
 
@@ -18,6 +18,8 @@ public:
 	inline PatchSelWindow (void)
 	{
 //		set_default_size(320, 240);
+
+		set_title("thinksynth - Patch Selector");
 
 		add(vbox);
 
