@@ -1,4 +1,4 @@
-# $Id: organ0.dsp,v 1.10 2004/12/07 02:38:57 ink Exp $
+# $Id$
 # Organ Synth
 # Leif Ames <ink@bespin.org>
 # 6-29-2003
@@ -9,45 +9,55 @@ description "Simple additive organ";
 
 
 	@vmin = 0.3;
+	@vmin.label = "Velocity Minimum";
 	@vmin.widget = 1;
 	@vmin.min = 0;
 	@vmin.max = 1;
 	@vmax = 0.7;
+	@vmax.label = "Velocity Maximum";
 	@vmax.widget = 1;
 	@vmax.min = 0;
 	@vmax.max = 1;
 
 	@waveform = 5;
+	@waveform.label = "Waveform";
 	@waveform.widget = 1;
 	@waveform.min = 0;
 	@waveform.max = 5.5;
 
 	@a = 1ms;
+	@a.label = "Attack";
 	@a.widget = 1;
 	@a.min = 0;
 	@a.max = 1000ms;
 	@d = 3ms;
+	@d.label = "Decay";
 	@d.widget = 1;
 	@d.min = 0;
 	@d.max = 1000ms;
 	@s = 0.5;
+	@s.label = "Sustain";
 	@s.widget = 1;
 	@s.min = 0;
 	@s.max = 1;
 	@r = 5ms;
+	@r.label = "Release";
 	@r.widget = 1;
 	@r.min = 0;
 	@r.max = 1000ms;
 
 	@mul1 = 2;
+	@mul1.label = "Drawbar 2 Pitch";
 	@mul1.widget = 1;
 	@mul1.min = 0;
 	@mul1.max = 16;
 	@mul2 = 4;
+	@mul2.label = "Drawbar 3 Pitch";
 	@mul2.widget = 1;
 	@mul2.min = 0;
 	@mul2.max = 16;
 	@mul3 = 8;
+	@mul3.label = "Drawbar 4 Pitch";
 	@mul3.widget = 1;
 	@mul3.min = 0;
 	@mul3.max = 16;
