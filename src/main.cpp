@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.111 2004/01/25 11:51:51 misha Exp $ */
+/* $Id: main.cpp,v 1.112 2004/01/25 12:54:06 misha Exp $ */
 
 #include "config.h"
 
@@ -131,10 +131,7 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
-
-
-
-	Synth.AddChannel(string("chan1"), dspname, 30.0);
+	Synth.AddChannel(string("chan1"), dspname, 15.0);
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to

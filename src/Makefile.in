@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.18 2003/12/21 05:57:48 joshk Exp $
+# $Id: Makefile.in,v 1.19 2004/01/25 12:54:06 misha Exp $
 
 BINARY = thinksynth
 
@@ -24,6 +24,7 @@ LIBOBJS = \
 	thMidiNote.o \
 	thMod.o \
 	thNode.o \
+	thALSAAudio.o \
 	thOSSAudio.o \
 	thPlugin.o \
 	thPluginManager.o \
