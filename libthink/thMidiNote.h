@@ -15,7 +15,7 @@ public:
 
 	void Process (void);
 private:
-	thBSTree *args;
+	thBSTree args;
 	thMod *modnode;
 };
 
