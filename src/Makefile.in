@@ -1,0 +1,35 @@
+alk: thinksynth
+
+include ../build.mk
+
+INCLUDES = -I..
+LDFLAGS += @LIBS@
+
+OBJS = \
+	thinklang.o \
+	thinklex.o \
+	main.o \
+	thArg.o \
+	thAudioBuffer.o \
+	thBSTree.o \
+	thHeap.o \
+	thList.o \
+	thMidiChan.o \
+	thMidiNote.o \
+	thMod.o \
+	thNode.o \
+	thOSSAudio.o \
+	thPlugin.o \
+	thPluginManager.o \
+	thPluginSignaler.o \
+	thSynth.o \
+	thWav.o
+
+thinksynth: $(OBJS)
+	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+
+thinklex.cpp: thinklex.ll thinklang.o
+	flex -o $@ thinklex.ll
+
+distclean::
+	rm -f thinklang.cpp thinklex.cpp thinklang.hpp

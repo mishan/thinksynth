@@ -12,6 +12,13 @@ $(shell mkdir .deps)
 endif
 endif
 
+%.o: %.yy
+	bison -o $(<:%.yy=%.cpp) -d -y $<
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $(<:%.yy=%.cpp)
+
+%.cpp: %.ll
+	flex -o $@ $<
+
 %.o: %.cpp
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
 
@@ -27,7 +34,8 @@ endif
 -include .deps/*.dt
 endif
 
-distclean::
+distclean:: clean
+
 clean::
 	rm -rf .deps *@SHARED_SUFFIX@ *.o
 

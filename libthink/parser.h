@@ -1,9 +1,9 @@
-/* $Id: parser.h,v 1.6 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: parser.h,v 1.7 2003/05/03 07:24:40 aaronl Exp $ */
 
 #ifndef PARSER_H
 #define PARSER_H
 
-#include "thinklang.h"
+#include "thinklang.hpp"
 
 extern int yylex ();
 extern int yyparse(void);
