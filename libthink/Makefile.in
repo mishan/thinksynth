@@ -1,11 +1,11 @@
-# $Id: Makefile.in,v 1.8 2004/09/19 19:41:36 joshk Exp $
+# $Id: Makefile.in,v 1.9 2004/10/01 08:28:11 joshk Exp $
 
 libdir=@libdir@
 includedir=@includedir@
 prefix=@prefix@
 
 # XXX
-all: .bstamp libthink.so libthink.a
+all: libthink.so libthink.a .bstamp
 
 .bstamp:
 	@touch $@
