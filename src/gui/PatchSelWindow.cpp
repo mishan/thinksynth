@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.38 2004/09/08 08:26:14 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.39 2004/09/09 00:51:32 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -172,6 +172,8 @@ void PatchSelWindow::UnloadDSP (void)
 			/* Zero everything */
 			(*iter)[patchViewCols.dspName] = "";
 			(*iter)[patchViewCols.amp] = 0;
+			dspAmp.set_value(0);
+			fileEntry.set_text("");
 
 			/* disable the button */
 			unloadButton.set_sensitive(false);
