@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.30 2003/04/30 03:36:06 joshk Exp $
+dnl $Id: configure.ac,v 1.31 2003/05/01 15:58:08 joshk Exp $
 
 AC_INIT
 
@@ -68,6 +68,8 @@ CXXFLAGS="-Wall -pedantic -ffast-math"
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
 AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing dlfcn.h, we need this for dlopen.])])
+
+AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])],[LIBS="$LIBS -liberty"])
 
 dnl Linux has libdl
 AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"],
