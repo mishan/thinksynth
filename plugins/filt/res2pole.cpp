@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.1 2003/05/20 19:16:16 ink Exp $ */
+/* $Id: res2pole.cpp,v 1.2 2003/05/21 23:24:53 ink Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org
@@ -45,10 +45,10 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out, *highout, *bandout, *notchout, *last;
+	float *out, *highout, *bandout, *notchout, *delay;
 	thArgValue *in_arg, *in_cutoff, *in_res;
 	thArgValue *out_low, *out_high, *out_band, *out_notch;
-	thArgValue *inout_last;
+	thArgValue *inout_delay;
 	float f, q;
 	unsigned int i;
 
@@ -61,8 +61,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	bandout = out_band->allocate(windowlen);
 	notchout = out_notch->allocate(windowlen);
 
-	inout_last = (thArgValue *)mod->GetArg(node, "last");
-	last = inout_last->allocate(4);
+	inout_delay = (thArgValue *)mod->GetArg(node, "delay");
+	delay = inout_delay->allocate(2);
 
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
@@ -70,17 +70,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i=0;i<windowlen;i++) {
 		f = 2*sin(M_PI * (*in_cutoff)[i] / TH_SAMPLE);
-		q = (*in_res)[i];
+		q = 1/((*in_res)[i]*2);
 
-		last[0] += f * last[2];  /* Low Pass */
-		last[1] = q * (*in_arg)[i] - last[0] - q * last[2]; /* High Pass */
-		last[2] += f * last[1];
-		last[3] = last[0] + last[1];
+		out[i] = delay[1] + f * delay[0];  /* Low Pass */
+		highout[i] = (*in_arg)[i] - out[i] - q * delay[0]; /* High Pass */
+		bandout[i] = f * highout[i] + delay[0];
+		notchout[i] = highout[i] + out[i];
 	
-		out[i] = last[0];
-		highout[i] = last[1];
-		bandout[i] = last[2];
-		notchout[i] = last[3];
+		delay[0] = bandout[i];
+		delay[1] = out[i];
 	}
 
 	return 0;

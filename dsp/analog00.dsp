@@ -12,9 +12,9 @@ node ionode {
 	subpw = 0.3;
 	sublevel = 0.2;
 
-	cutmin = 0.05;
-	cutmax = 0.95;
-	res = 0.92;
+	cutmin = 40;
+	cutmax = 3000;
+	res = 0.9;
 
 	amp_a = 4000;
 	amp_d = 30000;
@@ -67,7 +67,7 @@ node cutmap env::map {
 	outmax = ionode->cutmax;
 };
 
-node filt filt::res1pole {
+node filt filt::res2pole {
 	in = mixer2->out;
 	cutoff = cutmap->out;
 	res = ionode->res;
