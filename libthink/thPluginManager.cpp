@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.21 2003/04/27 06:49:02 misha Exp $ */
+/* $Id: thPluginManager.cpp,v 1.22 2003/04/27 09:37:48 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -74,7 +74,7 @@ int thPluginManager::LoadPlugin (char *name)
 	path = GetPath(name);
 
 	plugin = new thPlugin (path);
-	delete path;
+	delete[] path;
 
 	if (plugin->GetState() == thNotLoaded) {	/* something messed up */
 		delete plugin;
