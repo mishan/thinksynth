@@ -1,5 +1,5 @@
 thinksynth
-thinklex.cpp
-thinklang.hpp
-thinklang.cpp
+thinklex.cc
+thinklang.h
+thinklang.cc
 .deps
