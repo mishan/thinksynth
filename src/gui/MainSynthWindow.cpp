@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.21 2004/09/05 00:21:48 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.22 2004/09/05 00:51:03 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -135,7 +135,7 @@ void MainSynthWindow::menuPatchSel (void)
 
 void MainSynthWindow::menuQuit (void)
 {
-	kill (0, SIGTERM);
+	kill (0, SIGUSR1);
 }
 
 void MainSynthWindow::menuAbout (void)
@@ -163,8 +163,6 @@ void MainSynthWindow::populate (void)
 
 		if (tabName.length() == 0)
 			continue;
-
-		printf("populating %s\n", tabName.c_str());
 
 		tabName = basename(tabName.c_str());
 

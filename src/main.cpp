@@ -53,7 +53,7 @@ static Glib::Dispatcher *process = NULL;
 Glib::RefPtr<Glib::MainContext> mainContext;
 
 Glib::Mutex *mainMutex = NULL;
-Glib::Cond *exitCond  = NULL;
+//Glib::Cond *exitCond  = NULL;
 
 Gtk::Main *gtkMain = NULL;
 
@@ -76,15 +76,15 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 
 void cleanup (int signum)
 {
-	printf("received SIGTERM! exiting...\n\n");
-
-//	save_prefs(Synth);
-	prefs->Save();
-
-	/* XXX */
-	exitCond->signal();
-
-	exit (0);
+	switch (signum)
+	{
+		case SIGUSR1:
+			printf("thinksynth shutting down..\n");
+			prefs->Save();
+			signal(SIGUSR1, SIG_IGN);
+			exit (0);
+			break;
+	}
 }
 
 void process_synth (void)
@@ -283,12 +283,12 @@ int main (int argc, char *argv[])
 	mainContext = Glib::MainContext::create ();
 
 	mainMutex = new Glib::Mutex;
-	exitCond = new Glib::Cond;
+//	exitCond = new Glib::Cond;
 
  	process = new Glib::Dispatcher(mainContext);
 	process->connect(SigC::slot(process_synth));
 
-	signal(SIGTERM, (sighandler_t)cleanup);
+	signal(SIGUSR1, (sighandler_t)cleanup);
 
 //	read_prefs (Synth);
 	prefs->Load();

@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.12 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.13 2004/09/05 00:51:03 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -38,7 +38,7 @@ void jack_shutdown (void *arg)
 	debug("shutting down");
 
 	/* kill ourselves */
-	kill (0, SIGTERM);
+//	kill (0, SIGTERM);
 }
 
 gthJackAudio::gthJackAudio (thSynth *argsynth)
@@ -67,11 +67,12 @@ gthJackAudio::gthJackAudio (thSynth *argsynth)
 
 //	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
 
-	debug("JACK sample rate is %d", jack_get_sample_rate(jack_handle));
-	debug("JACK buffer size is %d", jack_get_buffer_size(jack_handle));
+	printf("JACK sample rate is %d\n", jack_get_sample_rate(jack_handle));
+	printf("JACK buffer size is %d\n", jack_get_buffer_size(jack_handle));
+	printf("JACK is %s\n", jack_is_realtime(jack_handle) ? "realtime" : "not realtime");
 
-	debug("thinksynth sample rate is %li", argsynth->GetSamples());
-	debug("thinksynth buffer size is %d", argsynth->GetWindowLen());
+	printf("thinksynth sample rate is %li\n", argsynth->GetSamples());
+	printf("thinksynth buffer size is %d\n", argsynth->GetWindowLen());
 
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
 }
@@ -104,11 +105,12 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 //	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
 //	jack_set_buffer_size(jack_handle, argsynth->GetWindowLen());
 
-	debug("JACK sample rate is %d", jack_get_sample_rate(jack_handle));
-	debug("JACK buffer size is %d", jack_get_buffer_size(jack_handle));
+	printf("JACK sample rate is %d\n", jack_get_sample_rate(jack_handle));
+	printf("JACK buffer size is %d\n", jack_get_buffer_size(jack_handle));
+	printf("JACK is %s\n", jack_is_realtime(jack_handle) ? "realtime" : "not realtime");
 
-	debug("thinksynth sample rate is %li", argsynth->GetSamples());
-	debug("thinksynth buffer size is %d", argsynth->GetWindowLen());
+	printf("thinksynth sample rate is %li\n", argsynth->GetSamples());
+	printf("thinksynth buffer size is %d\n", argsynth->GetWindowLen());
 
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
 
