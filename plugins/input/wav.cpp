@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.1 2003/09/14 09:27:18 misha Exp $ */
+/* $Id: wav.cpp,v 1.2 2003/09/14 20:51:24 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,16 +45,15 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	thArg *out_arg = mod->GetArg(node, "out");
-	/* XXX: only supports 8bit */
-	signed short buf[windowlen];
+	signed short *buf = new signed short[windowlen];
 	float *out = out_arg->allocate(windowlen);
 	unsigned int i;
 
 	thwav->Read(buf, windowlen);
 
 	for(i = 0; i < windowlen; i++) {
-		printf("buf[i] is %d or in float, %f\n", buf[i], (float)buf[i]);
-		out[i] = (float)buf[i];
+		out[i] = (((float)buf[i])/32767)*TH_MAX;
+		printf("writing %f\n", out[i]);
 	}
 
 	return 0;

@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.32 2003/09/09 07:28:46 ink Exp $ */
+/* $Id: simple.cpp,v 1.33 2003/09/14 20:51:24 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,6 +73,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_fmamt = mod->GetArg(node, "fmamt"); /* Modulation amount */
 	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
 	in_mul = mod->GetArg(node, "mul");  /* Multiply the wavelength by this */
+
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];
 		freq = (*in_freq)[i];
