@@ -1,4 +1,4 @@
-/* $Id: mul.cpp,v 1.4 2003/05/03 10:50:26 ink Exp $ */
+/* $Id: mul.cpp,v 1.5 2003/05/03 23:51:17 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +48,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i=0;i<windowlen;i++) {
 		out[i] = (*in_0)[i]*((*in_1)[i]/TH_MAX);
+		//	printf("MUL: %f * %f = %f\n", (*in_0)[i], (*in_1)[i], out[i]);
 	}
 
 	node->SetArg("out", out, windowlen);

@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.27 2003/04/29 19:14:34 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.28 2003/05/03 23:51:17 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -22,7 +22,7 @@
 thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 {
   int i;
-	float *allocatedamp = (float *)malloc(sizeof(float));
+	float *allocatedamp = new float[1];
 	thArg *argstruct = new thArg("amp", allocatedamp, 1);
 	modnode = mod;
 	args = new thBSTree(StringCompare);
@@ -50,9 +50,9 @@ thMidiChan::~thMidiChan ()
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
-	int *id = (int *)malloc(sizeof(int));
+	int *id = new int[1];
 
-	*id = (int)note;
+	id[0] = (int)note;
 	notes->Insert(id, midinote);
 	return midinote;
 }

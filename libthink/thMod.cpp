@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.59 2003/05/03 22:40:59 ink Exp $ */
+/* $Id: thMod.cpp,v 1.60 2003/05/03 23:51:17 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -38,7 +38,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 {
 	thNode *node = (thNode *)modnodes->GetData((void *)nodename);
 	const thArgValue *args;
-	float *tmp = new float[1];
+	float *tmp;
 
 	if (node) {
 		args = node->GetArg(argname);
@@ -46,6 +46,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
+	  tmp = new float[1];
 	  tmp[0] = 0;
 	  args = ((thArg *)node->SetArg(argname, tmp, 1))->GetArg();
 	}
@@ -57,6 +58,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 			args = node->GetArg(args->argPointName);
 			/* If the arg doesnt exist, make it a 0 */
 			if(args == NULL) {
+			  tmp = new float[1];
 			  tmp[0] = 0;
 			  args = ((thArg *)node->SetArg(argname, tmp, 1))->GetArg();
 			}
