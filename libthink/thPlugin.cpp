@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.21 2003/04/27 09:56:36 aaronl Exp $ */
+/* $Id: thPlugin.cpp,v 1.22 2003/04/27 10:17:12 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -12,11 +12,10 @@
 #include <dlfcn.h>
 
 #include "thPlugin.h"
-#include "thUtils.h"
 
 thPlugin::thPlugin (const char *path)
 {
-	plugPath = thstrdup(path);
+	plugPath = strdup(path);
 	plugDesc = NULL;
 
 	if(ModuleLoad() == 1) { /* fail = return (1) */
@@ -61,7 +60,7 @@ void thPlugin::SetDesc (const char *desc)
 		free(plugDesc);
 	}
 	
-	plugDesc = thstrdup(desc);
+	plugDesc = strdup(desc);
 }
 
 /*	

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.38 2003/04/27 09:56:36 aaronl Exp $ */
+/* $Id: thSynth.cpp,v 1.39 2003/04/27 10:17:12 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -18,7 +18,6 @@
 #include "thMod.h"
 #include "thMidiNote.h"
 #include "thMidiChan.h"
-#include "thUtils.h"
 #include "thSynth.h"
 
 #include "parser.h"
@@ -55,7 +54,7 @@ void thSynth::LoadMod(const char *filename)
 	
 	delete parsenode;
 	
-	modlist->Insert((void *)thstrdup(parsemod->GetName()), (void *)parsemod);
+	modlist->Insert((void *)strdup(parsemod->GetName()), (void *)parsemod);
 }
 
 thMod *thSynth::FindMod(const char *modname)

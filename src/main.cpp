@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.40 2003/04/27 09:56:36 aaronl Exp $ */
+/* $Id: main.cpp,v 1.41 2003/04/27 10:17:12 aaronl Exp $ */
 
 #include "config.h"
 
@@ -25,8 +25,6 @@
 #include "thAudioBuffer.h"
 #include "thWav.h"
 #include "thOSSAudio.h"
-
-#include "thUtils.h"
 
 #include "thSynth.h"
 
@@ -71,7 +69,7 @@ syntax:
 		goto syntax;
 	}
 	else {
-		filename = thstrdup (argv[optind]);
+		filename = strdup (argv[optind]);
 	}
 
 	Synth.LoadMod(filename);
@@ -79,7 +77,7 @@ syntax:
   
 	((thMod *)Synth.FindMod("test"))->BuildSynthTree();
 
-	Synth.AddChannel(thstrdup("chan1"), "test", 80.0);
+	Synth.AddChannel(strdup("chan1"), "test", 80.0);
 	Synth.AddNote("chan1", 20, 100);
 
 	newmod = ((thMod *)Synth.FindMod("test"))->Copy();

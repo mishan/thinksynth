@@ -20,7 +20,6 @@
 #include "thMidiNote.h"
 #include "thMidiChan.h"
 #include "thSynth.h"
-#include "thUtils.h"
 
 #include "yygrammar.h"
 #include "parser.h"
@@ -50,7 +49,7 @@ name						return NAME;
 \{                            return LCBRACK;
 \}                            return RCBRACK;
 
-[a-zA-Z][a-zA-Z0-9]*           yylval.str = thstrdup(yytext); return WORD;
+[a-zA-Z][a-zA-Z0-9]*           yylval.str = strdup(yytext); return WORD;
 
 ->                             return INTO;
 ::				return MODSEP;
@@ -65,6 +64,6 @@ name						return NAME;
 
 \$				return DOLLAR;
 
-\".*\"						   yylval.str = new char[strlen(yytext)-1];memcpy(yylval.str, &yytext[1], strlen(yytext)-2);yylval.str[strlen(yytext)-2]=0;return STRING;
+\".*\"						   yylval.str = (char *)malloc(strlen(yytext)-1);memcpy(yylval.str, &yytext[1], strlen(yytext)-2);yylval.str[strlen(yytext)-2]=0;return STRING;
 
 %%
