@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.1 2004/10/28 01:21:47 ink Exp $ */
+/* $Id: MidiMap.h,v 1.2 2004/11/09 00:23:45 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,10 +28,8 @@ public:
 
 protected:
 	void onCloseButton (void);
-
-	Gtk::Fixed          *fixed;
-	Gtk::Button         *btnClose;
-	Gtk::Notebook       *notebook;
+	Gtk::VBox *main_vbox;
+	Gtk::Button *close_btn;
 };
 
 #endif /* ABOUT_BOX_H */

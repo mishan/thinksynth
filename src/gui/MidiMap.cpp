@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.1 2004/10/28 01:21:47 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.2 2004/11/09 00:23:45 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,25 +26,15 @@
 
 MidiMap::MidiMap (thSynth *argsynth)
 {
-	set_size_request (360, 260);
 	set_title("MIDI Controller Routing");
 
-	realize();
+	main_vbox = manage(new Gtk::VBox);
+	close_btn = manage(new Gtk::Button("Close Window"));
+	close_btn->signal_clicked().connect(sigc::mem_fun(*this, &MidiMap::onCloseButton));
 
-	fixed = manage(new Gtk::Fixed);
-	add(*fixed);
+	add(*main_vbox);
+	main_vbox->pack_start(*close_btn, Gtk::PACK_EXPAND_WIDGET);
 
-	btnClose = manage(new Gtk::Button("Close"));
-	btnClose->signal_clicked().connect(sigc::mem_fun(*this, &MidiMap::onCloseButton));
-	fixed->put(*btnClose, 5, 5);
-	btnClose->set_size_request(88, 36);
-	btnClose->set_flags(Gtk::CAN_DEFAULT);
-	btnClose->grab_focus();
-	btnClose->grab_default();
-
-	notebook = manage(new Gtk::Notebook);
-	fixed->put(*notebook, 8, 8);
-	notebook->set_size_request(300, 200);
 
 	show_all_children();
 }
@@ -55,5 +45,5 @@ MidiMap::~MidiMap (void)
 
 void MidiMap::onCloseButton (void)
 {
-	hide ();
+	hide();
 }
