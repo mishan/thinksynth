@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.21 2003/04/30 15:20:07 misha Exp $ */
+/* $Id: thBSTree.h,v 1.22 2003/05/06 18:08:09 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -22,19 +22,19 @@ public:
 	void PrintTree (void);
 	void PrintTree (thBSTree *node);
 
-	inline void *GetData (void) { /* get data from this node */
+	inline void *GetData (void) const { /* get data from this node */
 		return bsData;
 	}
 
-	inline void *GetId (void) { /* get this node's id */
+	inline void *GetId (void) const { /* get this node's id */
 		return bsId;
 	}
 
-	inline thBSTree *GetLeft (void) {
+	inline thBSTree *GetLeft (void) const {
 		return bsLeft;
 	}
  
-	inline thBSTree *GetRight (void) {
+	inline thBSTree *GetRight (void) const {
 		return bsRight;
 	}
 

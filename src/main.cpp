@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.73 2003/05/06 17:38:00 ink Exp $ */
+/* $Id: main.cpp,v 1.74 2003/05/06 18:08:09 misha Exp $ */
 
 #include "config.h"
 
@@ -37,6 +37,7 @@ int main (int argc, char *argv[])
 	thAudioFmt audiofmt;
 	thWav *outputwav = NULL;
 	signed short *outputbuffer;
+	int buflen;
 	float *mixedbuffer;
 
 	plugin_path = strdup(PLUGIN_PATH);
@@ -115,33 +116,35 @@ syntax:
 	catch (thWavException e) {
 	}
 
-	outputbuffer = (signed short *)alloca(Synth.GetWindowLen() * Synth.GetChans() * sizeof(signed short));
+	buflen = Synth.GetWindowLen() * Synth.GetChans();
+	outputbuffer = (signed short *)alloca(buflen * sizeof(signed short));
 
 	mixedbuffer = Synth.GetOutput();
-	for(i=0; i<100; i++) {  /* For testing... */
+	for(i = 0; i < 100; i++) {  /* For testing... */
+		if(i==20) {
+			Synth.AddNote("chan1", 35, 100);
+		}
+		else if(i==30) {
+			Synth.AddNote("chan1", 40, 100);
+		}
+		else if(i==50) {
+			Synth.AddNote("chan1", 40, 100);
+			//Synth.AddNote("chan1", 45, 100);
+			//Synth.AddNote("chan1", 49, 100);
+		}
+		else if(i==80) {
+			Synth.AddNote("chan1", 38, 100);
+			//Synth.AddNote("chan1", 44, 100);
+			//Synth.AddNote("chan1", 47, 100);
+		}
+		
 
-	  	  if(i==20) {
-		Synth.AddNote("chan1", 35, 100);
-	  }
-	  if(i==30) {
-		Synth.AddNote("chan1", 40, 100);
-	  }
-	  if(i==50) {
-		Synth.AddNote("chan1", 40, 100);
-		//Synth.AddNote("chan1", 45, 100);
-		//Synth.AddNote("chan1", 49, 100);
-	  }
-	  if(i==80) {
-		Synth.AddNote("chan1", 38, 100);
-		//Synth.AddNote("chan1", 44, 100);
-		//Synth.AddNote("chan1", 47, 100);
-	  }
-
-	  Synth.Process();
-	  for(j=0; j < Synth.GetWindowLen() * Synth.GetChans(); j++) {
-		outputbuffer[j] = (signed short)(((float)mixedbuffer[j]/TH_MAX)*32767);
-	  }
-	  outputwav->Write(outputbuffer, Synth.GetWindowLen() * Synth.GetChans());
+		Synth.Process();
+		for(j=0; j < buflen; j++) {
+			outputbuffer[j] = (signed short)(((float)mixedbuffer[j]/TH_MAX)
+											 *32767);
+		}
+		outputwav->Write(outputbuffer, buflen);
 	}
 
 	delete outputwav;
