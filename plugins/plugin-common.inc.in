@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.22 2003/05/03 01:08:13 aaronl Exp $
+# $Id: plugin-common.inc.in,v 1.23 2003/05/03 01:49:21 joshk Exp $
 # -*- Makefile -*- vim:syntax=make
 
 CXX=@CXX@
@@ -9,32 +9,34 @@ plugin_path=@plugin_path@
 
 PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
 USE_SONAME=@USE_SONAME@
+USING_GNU_CXX=@USING_GNU_CXX@
 
-MAGIC_DEPS := $(shell if [ ! -d .deps ]; then mkdir .deps > /dev/null 2>&1 || :; fi)
+ifeq ($(USING_GNU_CXX),yes)
+ifeq ($(wildcard .deps),)
+$(shell mkdir .deps)
+endif
+endif
 
 all: $(PLUGIN_NAMES:%=%@SHARED_SUFFIX@)
 
 %@SHARED_SUFFIX@: %.cpp
-ifeq ($(USE_SONAME),yes)
-	$(CXX) $(CXXFLAGS) -Wp,-MMD,.deps/$<.dt,-MT$@ $(INCLUDES) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS)
-else
-	$(CXX) $(CXXFLAGS) -Wp,-MMD,.deps/$<.dt,-MT$@ $(INCLUDES) -DPLUGIN_BUILD -shared -o $@ $< $(PLUGIN_LDFLAGS)
-endif
-	@@sed '/^[:\\ ]*$$/d;' <.deps/$<.dt>.deps/$<.d && rm -f .deps/$<.dt
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -DPLUGIN_BUILD -shared @SONAME_FLAGS@ -o $@ $< $(PLUGIN_LDFLAGS)
 
+ifeq ($(USING_GNU_CXX),yes)
 -include .deps/*.d
+endif
 
 distclean clean:
 	rm -f *@SHARED_SUFFIX@ *.o
 	rm -rf .deps
 
 install:
-	mkdir -p $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`)
+	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
 	for i in $(PLUGIN_NAMES); do \
-		cp -f $$i@SHARED_SUFFIX@ $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`); \
+		cp -f $$i@SHARED_SUFFIX@ $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR)); \
 	done
 
 uninstall:
 	for i in $(PLUGIN_NAMES); do \
-		rm -f $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`)/$$i@SHARED_SUFFIX@; \
+		rm -f $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))/$$i@SHARED_SUFFIX@; \
 	done

@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.33 2003/05/02 00:38:39 joshk Exp $
+dnl $Id: configure.ac,v 1.34 2003/05/03 01:49:21 joshk Exp $
 
 AC_INIT
 
@@ -173,6 +173,17 @@ AC_ARG_ENABLE(efence,
 AC_ARG_ENABLE(,,,)
 
 AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installed])
+
+dnl Construction of plugin-common.inc
+
+if test "$ac_cv_cxx_compiler_gnu" = yes; then
+	if test "$USE_SONAME" = yes; then
+		AC_SUBST(SONAME_FLAGS, ["-Wl,-soname,\$@"])
+	fi
+
+	AC_SUBST(USING_GNU_CXX, yes)
+	AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.deps/\$<.dt,-MT\$@"])
+fi
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
