@@ -6,16 +6,16 @@ node ionode {
 	channels = 2;
 	play = env->play;
 
-	waveform = 0;
-	fmmul = 4;
+	waveform = 4;
+	fmmul = 2;
 	fmamt = 0.1;
-	fmwave = 0;
+	fmwave = 4;
 
-	fmmul2 = 4;
+	fmmul2 = 8;
 	fmamt2 = 0.8;
-	fmwave2 = 0;
+	fmwave2 = 4;
 
-	res = 0.7;
+	res = 0.9;
 };
 
 node freq misc::midi2freq {
@@ -28,10 +28,10 @@ node mixer mixer::mul {
 };
 
 node env env::adsr {
-	a = 10000;
+	a = 20000;
 	d = 60000;
 	s = 100;
-	r = 10000;
+	r = 60000;
 	trigger = 0;
 };
 

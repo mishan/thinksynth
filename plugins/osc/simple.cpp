@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.22 2003/05/18 01:20:48 ink Exp $ */
+/* $Id: simple.cpp,v 1.23 2003/05/18 03:57:39 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,7 +75,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			wavelength += (wavelength * fmamt) * ((*in_fm)[i] / TH_MAX);
 		}
 		while(position >= wavelength) {
-			position -= wavelength;
+			position = 0;
 		}
 		
 		ratio = position/wavelength;
