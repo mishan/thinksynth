@@ -259,7 +259,7 @@ WORD ASSIGN fstr
 	
 	arg = new char[argsize];
 	memcpy(arg, p, argsize);
-	
+printf("%s %s\n", node, arg);	
 	parsenode->SetArg($1.str, node, arg);
 }
 ;

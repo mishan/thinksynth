@@ -18,6 +18,7 @@ public:
 	thBSNode *Find (char *name);
 
 	void PrintTree (void);
+	void *GetData ( char *name );
 private:
 	thBSNode *bRoot;
 

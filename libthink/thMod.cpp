@@ -28,18 +28,25 @@ thNode *thMod::FindNode (char *name)
 }
 
 thArgValue *thMod::GetArg (char *nodename, char *argname)
+
   /* Follow pointers and return a thArgValue of a float string */
 {
-  thNode *node = (thNode *)((thBSNode *)modnodes->Find(nodename))->data;
+  thNode *node = (thNode *)modnodes->GetData(nodename);
   thArgValue *args;
 
   if (node) { args = node->GetArg(argname); }
+  printf("=-= %s %i  %p  %s\n", args->argName, args->argType, args, args->argPointNode);
+  printf("--==-- %p\n", args);
+ node->PrintArgs();
+ printf("---\n");
+ modnodes->PrintTree();
   while (args->argType == ARG_POINTER && node && args) {     /* Recurse through the 
                                      list of pointers until we get a real value. */
-    node = (thNode *)((thBSNode *)modnodes->Find(args->argPointNode));
-    if (node) { args = node->GetArg(argname); }
+    printf("%s\n", args->argName);
+    node = (thNode *)modnodes->GetData(args->argPointNode);
+    if (node) { args = node->GetArg(args->argPointName); }
   }  /* Maybe also add some kind of infinite-loop checking thing? */
-
+printf("-=- %s %i\n", args->argName, args->argType);
   return args;
 }
 
@@ -50,6 +57,10 @@ void thMod::NewNode (thNode *node)
 
 void thMod::SetIONode(char *name) {
   ionode = (thNode *)((thBSNode *)modnodes->Find(name))->data;
+}
+
+thNode *thMod::GetIONode(void) {
+  return ionode;
 }
 
 void thMod::PrintIONode(void) {

@@ -26,10 +26,11 @@ public:
 	const char *GetArgName (void);
 	const thArgValue *GetArg(void);
 private:
- 	char *argName;
+	/* 	char *argName;
 	float *argValues;
 	int argNum, argType;
-	char *argPointNode, *argPointName;
+	char *argPointNode, *argPointName;*/
+	thArgValue *argValue;
 };
 
 #endif /* TH_ARG_H */

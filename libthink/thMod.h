@@ -10,6 +10,7 @@ public:
 	thArgValue *GetArg (char *nodename, char *argname);
 	void NewNode(thNode *node);
 	void SetIONode(char *name);
+	thNode *GetIONode(void);
 	void PrintIONode(void);
 
 	void Process (void);

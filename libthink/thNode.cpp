@@ -44,18 +44,18 @@ void thNode::SetArg (char *name, float *value, int num)
 void thNode::SetArg (char *name, char *node, char *value)
 {
   thArg *arg = (thArg *)args->Find(name);
-  if(!arg) {
+  if(arg) {
+    arg->SetArg(name, node, value);
+  } else {
     arg = new thArg(name, node, value);
     args->Insert(name, arg);
-  } else {
-    arg->SetArg(name, node, value);
-  }	
+  }
 }
 
 thArgValue *thNode::GetArg (char *name)
 {
-  thArg *arg = (thArg *)args->Find(name);
-  return (thArgValue *)arg->GetArg();
+  thArg *arg = (thArg *)args->GetData(name);
+  return arg->GetArg();
 }
 
 void thNode::PrintArgs(void) {
@@ -65,6 +65,14 @@ void thNode::PrintArgs(void) {
 void thNode::Process (void)
 {
 }
+
+
+
+
+
+
+
+
 
 
 

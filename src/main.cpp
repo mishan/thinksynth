@@ -25,4 +25,5 @@ int main (int argc, char *argv[])
 
 	yyparse();
 	parsemod->PrintIONode();
+	parsemod->GetArg("test1", "point");
 }
