@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.10 2003/06/03 03:57:16 aaronl Exp $
+# $Id: Makefile.in,v 1.11 2003/06/04 01:31:22 aaronl Exp $
 
 BINARY = thinksynth
 
@@ -37,7 +37,7 @@ thinklex.cpp: thinklex.ll thinklang.o
 thinklang.hpp:
 
 distclean::
-	rm -f thinklang.cpp thinklex.cpp thinklang.hpp
+	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
 
 install:
 	mkdir -p $(DESTDIR)$(bindir)
