@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.16 2004/11/10 21:25:52 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.17 2004/11/11 01:07:44 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,19 +29,20 @@ MidiMap::MidiMap (thSynth *argsynth)
 {
 	synth_ = argsynth;
 
-	set_title("MIDI Controller Routing");
+	set_title("thinksynth - MIDI Controller Routing");
 
 	mainVBox_ = manage(new Gtk::VBox);
-	inputVBox_ = manage(new Gtk::VBox);
+	inputVBox_ = manage(new Gtk::VBox(false, 0));
+	inputVBox_->set_size_request(700, 140);
 	newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
 	destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
 	detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
 	connectFrame_ = manage(new Gtk::Frame("Connections"));
-	srcDestHBox_ = manage(new Gtk::HBox);
-	newConnectionHBox_ = manage(new Gtk::HBox);
-	destinationHBox_ = manage(new Gtk::HBox);
-	detailsHBox_ = manage(new Gtk::HBox);
-	buttonsHBox_ = manage(new Gtk::HBox);
+	srcDestHBox_ = manage(new Gtk::HBox(true, 3));
+	newConnectionHBox_ = manage(new Gtk::HBox(false, 0));
+	destinationHBox_ = manage(new Gtk::HBox(true, 4));
+	detailsHBox_ = manage(new Gtk::HBox(true, 0));
+	buttonsHBox_ = manage(new Gtk::HBox(true, 0));
 
 	channelLbl_ = manage(new Gtk::Label("Midi Channel"));
 	channelAdj_ = manage(new Gtk::Adjustment(1, 1, 16));
@@ -63,6 +64,11 @@ MidiMap::MidiMap (thSynth *argsynth)
 	maxSpinBtn_ = manage(new Gtk::SpinButton(*maxAdj_, .1, 4));
 	maxSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
 												*this,&MidiMap::onMaxChanged));
+
+	expLbl_ = manage(new Gtk::Label("Exponential"));
+	expCheckBtn_ = manage(new Gtk::CheckButton);
+	expCheckBtn_->signal_toggled().connect(sigc::mem_fun(
+												*this,&MidiMap::onExpToggled));
 
 	addBtn_ = manage(new Gtk::Button("Add/Modify  Connection"));
 	addBtn_->signal_clicked().connect(sigc::mem_fun(*this,
@@ -98,6 +104,8 @@ MidiMap::MidiMap (thSynth *argsynth)
 	detailsHBox_->pack_start(*minSpinBtn_, Gtk::PACK_SHRINK);
 	detailsHBox_->pack_start(*maxLbl_, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox_->pack_start(*maxSpinBtn_, Gtk::PACK_SHRINK);
+	detailsHBox_->pack_start(*expLbl_, Gtk::PACK_EXPAND_WIDGET);
+	detailsHBox_->pack_start(*expCheckBtn_, Gtk::PACK_SHRINK);
 	detailsFrame_->add(*detailsHBox_);
 
 	connectScroll_.add(connectView_);
@@ -139,6 +147,7 @@ void MidiMap::set_sensitive (bool sensitive)
 	addBtn_->set_sensitive(sensitive);
 	minSpinBtn_->set_sensitive(sensitive);
 	maxSpinBtn_->set_sensitive(sensitive);
+	expCheckBtn_->set_sensitive(sensitive);
 }
 
 void MidiMap::fillDestChanCombo (void)
@@ -377,6 +386,11 @@ void MidiMap::onMaxChanged (void)
 	selectedMax_ = maxSpinBtn_->get_value();
 }
 
+void MidiMap::onExpToggled (void)
+{
+	selectedExp_ = expCheckBtn_->get_active();
+}
+
 void MidiMap::onConnectionSelected (GdkEventButton *b)
 {
 	if(b && b->type == GDK_BUTTON_PRESS)
@@ -423,6 +437,7 @@ void MidiMap::onConnectionMoved (void)
 			selectedArg_ = selectedConnection->getArg();
 			selectedDestChan_ = selectedConnection->getDestChan();
 			selectedInstrument_ = selectedConnection->getInstrument();
+			selectedExp_ = selectedConnection->getScale();
 			setDestChanCombo();
 			setDestArgCombo(selectedDestChan_);
 			selectedMin_ = selectedConnection->getMin();
@@ -433,6 +448,7 @@ void MidiMap::onConnectionMoved (void)
 								   selectedArg_->getMax());
 			minSpinBtn_->set_value(selectedMin_);
 			maxSpinBtn_->set_value(selectedMax_);
+			expCheckBtn_->set_active(selectedExp_);
 		}
 	}
 }
@@ -448,7 +464,7 @@ void MidiMap::onAddButton (void)
 	if(connection)
 		delete connection;
 
-	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedChan_, selectedController_, selectedDestChan_, selectedInstrument_, selectedArg_->getLabel()));
+	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedExp_, selectedChan_, selectedController_, selectedDestChan_, selectedInstrument_, selectedArg_->getLabel()));
 	populateConnections();
 }
 

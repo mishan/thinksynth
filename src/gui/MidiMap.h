@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.13 2004/11/10 21:25:52 ink Exp $ */
+/* $Id: MidiMap.h,v 1.14 2004/11/11 01:07:44 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -58,6 +58,7 @@ protected:
 		{ return onDestArgComboChanged(NULL, arg); }
 	void onMinChanged (void);
 	void onMaxChanged (void);
+	void onExpToggled (void);
 	void onConnectionSelected (GdkEventButton *b);
 	void onConnectionMoved (void);
 
@@ -86,6 +87,8 @@ protected:
 	Gtk::SpinButton *minSpinBtn_;
 	Gtk::Label *maxLbl_;
 	Gtk::SpinButton *maxSpinBtn_;
+	Gtk::Label *expLbl_;
+	Gtk::CheckButton *expCheckBtn_;
 	Gtk::Button *addBtn_;
 	Gtk::Button *delBtn_;
 
@@ -109,6 +112,7 @@ private:
 	string selectedInstrument_;
 	float selectedMin_;
 	float selectedMax_;
+	int selectedExp_;
 	thArg *selectedArg_;
 };
 

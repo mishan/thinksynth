@@ -20,21 +20,25 @@
 #ifndef TH_MIDICONTROLLERCONNECTION_H
 #define TH_MIDICONTROLLERCONNECTION_H 1
 
+enum scale { LINEAR = 0, EXPONENTIAL };
+
 /* This is the class that holds the actual data needed to set parameter values
    via midi controllers.  This includes minimum and maximum setting values,
    exponential/linear curve mapping and a pointer to the thArg being set. */
 
 class thMidiControllerConnection {
 public:
-	thMidiControllerConnection (thArg *arg, float min, float max, int chan, 
-								int controller, int dchan, string instrument,
-								string argName);
+	thMidiControllerConnection (thArg *arg, float min, float max, int scale,
+								int chan, int controller, int dchan,
+								string instrument, string argName);
 	~thMidiControllerConnection (void);
 
 	void setMin (float min) { min_ = min; }
 	void setMax (float max) { max_ = max; }
 	float getMin (void) { return min_; }
 	float getMax (void) { return max_; }
+	void setScale (int scale) { scale_ = scale; }
+	int getScale (void) { return scale_; }
 	int getChan (void) { return chan_; }
 	int getController (void) { return controller_; }
 	int getDestChan (void) { return destchan_; }
@@ -51,7 +55,6 @@ private:
 	int destchan_;
 	string instrument_, argName_;
 	float min_, max_;
-	enum scale { LINEAR = 0, EXPONENTIAL };
 	int scale_;
 };
 
