@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.44 2004/10/01 09:20:29 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.45 2004/10/01 18:35:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -347,9 +347,13 @@ void MainSynthWindow::populate (void)
 			continue;
 		}
 		
+		Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
 		Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
 		Gtk::Frame *info_frame = manage(new Gtk::Frame);
 		Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
+
+		tab_view->add(*tab_vbox);
+		tab_view->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
 
 		info_frame->set_label("DSP Information");
 		info_frame->add(*info_table);
@@ -434,7 +438,7 @@ void MainSynthWindow::populate (void)
 			}
 		}
 
-		notebook.append_page(*tab_vbox, tabName);
+		notebook.append_page(*tab_view, tabName);
 	}
 
 }
