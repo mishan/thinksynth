@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.19 2003/04/27 09:44:51 ink Exp $ */
+/* $Id: thArg.h,v 1.20 2003/05/11 07:53:02 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -13,7 +13,13 @@ struct thArgValue {
 	char *argPointNode; /* name of the node a pointer points to */
 	char *argPointName; /* name of the argument a pointer points to */
 	int argType; /* is this arg a value or a pointer? */
-	float& operator[] (int i) { return argValues[i%argNum]; }
+	float& operator[] (int i) {
+		if(argNum == 1) {
+			return argValues[0];
+		} else {
+			return argValues[i%argNum];
+		}
+	}
 };
 
 class thArg {
