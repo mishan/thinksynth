@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.8 2004/08/07 08:33:06 joshk Exp $
+# $Id: Makefile.in,v 1.9 2004/08/07 08:36:10 joshk Exp $
 
 prefix=@prefix@
 datadir=@datadir@
@@ -24,7 +24,6 @@ install:
 	cp -uf args/*.dsp $(DESTDIR)/$(datadir)/thinksynth/args
 
 uninstall:
-	cd $(DESTDIR)/$(datadir)/thinksynth && rm -f $(dsp_files)
-	cd $(DESTDIR)/$(datadir)/thinksynth/args && rm -f $(args_dsp_files)
+	cd $(DESTDIR)/$(datadir)/thinksynth && rm -f $(dsp_files) $(args_dsp_files)
 	-rmdir $(DESTDIR)/$(datadir)/thinksynth/args
 	-rmdir $(DESTDIR)/$(datadir)/thinksynth
