@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.21 2003/09/15 23:17:06 brandon Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.22 2003/09/15 23:49:17 brandon Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -162,9 +162,7 @@ int thOSSAudio::Write (float *inbuf, int len)
 		exit(0);
 	}
 	unsigned char *buff = (unsigned char *)outbuf;
-	for ( i=0; i < len; i+=samplelen*1024){
-		w+=write(fd,&buff[i],samplelen*1024);
-	}
+	w = write(fd,buff,len*bytes);
 	return w;
 }
 
