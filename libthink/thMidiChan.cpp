@@ -118,12 +118,15 @@ void thMidiChan::DelNote (int note)
 
 void thMidiChan::ClearAll (void)
 {
-	for (map<int, thMidiNote*>::iterator i = notes.begin(); i != notes.end(); i++)
+	map<int, thMidiNote*>::iterator i;
+	list<thMidiNote*>::iterator j;
+
+	for (i = notes.begin(); i != notes.end(); i++)
 	{
 		delete i->second;
 		notes.erase(i);
 	}
-	for (list<thMidiNote*>::iterator j = decaying.begin(); j != decaying.end(); j++)
+	for (j = decaying.begin(); j != decaying.end(); j++)
 	{
 		delete *j;
 		j = decaying.erase(j);
@@ -132,7 +135,7 @@ void thMidiChan::ClearAll (void)
 
 thMidiNote *thMidiChan::GetNote (int note)
 {
-	map<int, thMidiNote*>::const_iterator i = notes.find(note);
+	map<int, thMidiNote*>::iterator i = notes.find(note);
 
 	if(i != notes.end()) {
 		return i->second;
@@ -169,6 +172,13 @@ void thMidiChan::CopyChanArgs (thMod *mod)
 
 void thMidiChan::Process (void)
 {
+	if (dirty) 
+	{
+		memset (output, 0, windowlength*channels*sizeof(float));
+	}
+	dirty = false;
+
+
 	thMidiNote *data;
 	thArg *arg, *amp, *play, *trigger;
 	thMod *mod;
@@ -179,12 +189,6 @@ void thMidiChan::Process (void)
 	string argname;
 
 	int sustain = (int)(*argSustain_)[0];
-
-	if (dirty) 
-	{
-		memset (output, 0, windowlength*channels*sizeof(float));
-		dirty = false;
-	}
 
 /* Before any processing, we shall do a polyphony test. */
 	if(notecount + notecount_decay > polymax && polymax > 0) /* we have too
@@ -218,7 +222,8 @@ void thMidiChan::Process (void)
 	notecount = 0;
 	notecount_decay = 0;
 
-	for (map<int, thMidiNote*>::iterator iter = notes.begin(); iter != notes.end(); iter++)
+	map<int, thMidiNote*>::iterator iter;
+	for (iter = notes.begin(); iter != notes.end(); iter++)
 	{
 		notecount++;
 
@@ -258,8 +263,9 @@ void thMidiChan::Process (void)
 	}
 
 /* Now, the [almost] exact same thing for the list of decaying notes */
-	for (list<thMidiNote*>::iterator diter = decaying.begin(); 
-			diter != decaying.end(); diter++)
+
+	list<thMidiNote*>::iterator diter = decaying.begin();
+	while(diter != decaying.end())
 	{
 		notecount_decay++;
 		data = *diter;
@@ -285,9 +291,13 @@ void thMidiChan::Process (void)
 		}
 		
 		if(play && (*play)[windowlength - 1] == 0) {
-			decaying.erase(diter);
+			diter = decaying.erase(diter);
 			delete data;
 			notecount_decay--;  /* more polyphony stuff */
+		}
+		else
+		{
+			diter++;
 		}
 	}
 }

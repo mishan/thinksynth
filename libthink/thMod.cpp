@@ -110,11 +110,10 @@ thArg *thMod::GetArg (thNode *node, const string &argname)
 	string argpointname;
 
 
-	
+	args = node->GetArg(argname);
 
 	/* If the arg doesnt exist, make it a 0 */
-	if ((args = node->GetArg(argname)) == NULL)
-	{
+	if(args == NULL) {
 		tmp = new float[1];
 		tmp[0] = 0;
 		args = node->SetArg(argname, tmp, 1);
