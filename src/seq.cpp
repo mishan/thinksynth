@@ -1,4 +1,4 @@
-/* $Id: seq.cpp,v 1.2 2003/11/04 07:25:59 ink Exp $ */
+/* $Id: seq.cpp,v 1.3 2003/11/04 09:17:29 misha Exp $ */
 
 #include "config.h"
 
@@ -58,29 +58,28 @@ int parse (char *command, thSynth *Synth)
 /////// dsp/channel loading functions ////////
 		case 100:
 			buffer = strtok(NULL, " ");
-			(*Synth).LoadMod(string(buffer));
+			Synth->LoadMod(string(buffer));
 			break;
 		case 101:
 			chan = strtok(NULL, " ");
 			dspname = strtok(NULL, " ");
 			level = atof(strtok(NULL, " "));
-			(*Synth).AddChannel(string(chan), string(dspname), level);
+			Synth->AddChannel(string(chan), string(dspname), level);
 			break;
-
 /////// note functions ////////
 		case 1:
 			chan = strtok(NULL, " ");
 			note = atof(strtok(NULL, " "));
 			level = atof(strtok(NULL, " "));
-			(*Synth).AddNote(string(chan), note, level);
+			Synth->AddNote(string(chan), note, level);
 			break;
-
 		default:
 			buffer = strtok(NULL, " ");
 			printf("--- %i - %s\n", number, buffer);
 			break;
 	}
-	return(0);
+
+	return 0;
 }
 
 int main (int argc, char *argv[])
@@ -213,8 +212,8 @@ int main (int argc, char *argv[])
 	{
 		printf("Could not open file %s\n", inputfname.c_str());
 	}
-	fgets(buffer, sizeof(buffer), seqfile);
-	sscanf(buffer, "%d %[^\n]", &frame, command);
+/*	fgets(buffer, sizeof(buffer), seqfile);
+	sscanf(buffer, "%d %[^\n]", &frame, command);  */
 
 	/* grab address of buffer from synth object */
 	synthbuffer = Synth.GetOutput();
@@ -224,20 +223,19 @@ int main (int argc, char *argv[])
 	printf ("Writing to '%s'\n",(char *)outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
-
-		while(frame <= i && frame >= 0)
-		{
-			parse(command, &Synth);
-
-			if(fgets(buffer, sizeof(buffer), seqfile))
-			{
-				sscanf(buffer, "%d %[^\n]", &frame, command);
-			}
-			else
-			{
-				frame = -1;
+		if(frame > 0) {
+			if(frame <= i) {
+				do {
+					parse(command, &Synth);
+				} while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i));
 			}
 		}
+		else {
+			while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i)) {
+				parse(command, &Synth);
+			}
+		}
+
 
 		Synth.Process();
 
