@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.98 2004/07/29 06:24:35 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.99 2004/08/07 09:58:03 ink Exp $ */
 
 #include "config.h"
 
@@ -186,6 +186,32 @@ thArg *thSynth::GetChanArg (int channum, const string &argname)
 	}
 
 	return chan->GetArg(argname);
+}
+
+int thSynth::SetChanArgData (int channum, const string &argname, float *data, int len)
+{
+	float *buffer;
+	thArg *argp;  /* pointer to the arg we search the chan for...  no need to
+					 search more than once! */
+
+	if((channum < 0) || (channum >= channelcount))
+	{
+		return -1;
+	}
+
+	thMidiChan *chan = channels[channum];
+
+	if(!chan)
+	{
+		return -1;
+	}
+
+	argp = chan->GetArg(argname);
+	buffer = argp->Allocate(len);
+	memcpy(buffer, data, len * sizeof(float));
+	argp->argNum = len;
+
+	return 1;
 }
 
 thMod * thSynth::LoadMod (const string &filename, int channum, float amp)

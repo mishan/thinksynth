@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.50 2004/08/01 10:54:26 misha Exp $ */
+/* $Id: thSynth.h,v 1.51 2004/08/07 09:58:03 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -56,6 +56,9 @@ public:
 
 	thArg *GetChanArg (int channum, const string &argname);
 	void SetChanArg (int channum, thArg *arg);
+	int SetChanArgData (int channum, const string &argname, float *data,
+						 int len);
+
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 
