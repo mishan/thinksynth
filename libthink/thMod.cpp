@@ -57,6 +57,19 @@ void thMod::NewNode (thNode *node)
 	modnodes->Insert((char *)node->GetName(), node);
 }
 
+const char *thMod::GetName (void)
+{
+	return(modname);
+}
+
+void thMod::SetName (char *name)
+{
+	if(modname) {
+		delete modname;
+	}
+	modname = strdup(name);
+}
+
 void thMod::SetIONode (char *name)
 {
 	ionode = (thNode *)((thBSNode *)modnodes->Find(name))->data;

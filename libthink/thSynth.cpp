@@ -21,21 +21,24 @@
 
 thSynth::thSynth()
 {
+	thBSTree *modlist = new thBSTree();
 }
 
 thSynth::~thSynth()
 {
+	delete modlist;
 }
 
 void thSynth::LoadMod(char *filename)
 {
-  yyin = fopen(filename, "r");
-
-  parsemod = new thMod("newmod");     /* these are used by the parser */
-  parsenode = new thNode("newnode", NULL);
-  
-  yyparse();
-  //	parsemod->PrintIONode();
-  printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValues);
-  delete parsenode;
+	yyin = fopen(filename, "r");
+	
+	parsemod = new thMod("newmod");     /* these are used by the parser */
+	parsenode = new thNode("newnode", NULL);
+	
+	yyparse();
+	
+	delete parsenode;
+	
+	modlist->Insert(parsemod->GetName(), parsemod);
 }
