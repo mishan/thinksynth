@@ -1,4 +1,4 @@
-/* $Id: AboutBox.h,v 1.4 2004/09/17 01:39:27 misha Exp $ */
+/* $Id: AboutBox.h,v 1.5 2004/09/17 04:28:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,21 +20,6 @@
 #ifndef ABOUT_BOX_H
 #define ABOUT_BOX_H
 
-#define CREDITS_TEXT "\
-       Main Programming: Leif M. Ames \n\
-                         <ink@bespin.org>\n\
-                         Misha Nasledov \n\
-                         <misha@nasledov.com>\n\
-                         Joshua Kwan\n\
-                         <joshk@triplehelix.org>\n\
-                         Aaron Lehmann\n\
-                         <aaronl@vitelus.com>\n\n\
-"
-
-
-/* FONTS */
-#define CREDITS_FONT       "monospace 9"
-
 class AboutBox : public Gtk::Window
 {
 public:
@@ -45,16 +30,19 @@ protected:
 	void onCloseButton (void);
 
 	Gtk::Fixed          *fixed;
-	Gtk::Fixed          *fixed1;
 	Gtk::Button         *btnClose;
 	Gtk::Notebook       *notebook;
 	Gtk::Frame          *frame;
-	Gtk::Label          *lblTitle;
-	Gtk::Label          *lblCopyright;
-	Gtk::ScrolledWindow *scrolledWindow;
-	Gtk::TextView       *txtCredits;
 	Gtk::Image          *logo;
-	Gtk::Adjustment     *adj;
+	Gtk::VBox           *vbmaster;
+	Gtk::VBox           *vbleft;
+	Gtk::VBox           *vbright;
+	Gtk::VBox           *spacer;
+	Gtk::HBox           *hcredits;
+	Gtk::Label          *txtVersion;
+	Gtk::Label          *txtCopyright;
+	Gtk::Label          *txtMetaphonic;
+	
 	Glib::RefPtr<Gtk::TextBuffer>     txtBuf;
 	Glib::RefPtr<Gdk::Pixmap>         pixmap;
 	Glib::RefPtr<Gdk::Bitmap>         mask;
