@@ -1,4 +1,4 @@
-/* $Id: AboutBox.cpp,v 1.2 2004/09/16 07:37:13 misha Exp $ */
+/* $Id: AboutBox.cpp,v 1.3 2004/09/16 09:17:31 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -86,6 +86,7 @@ AboutBox::AboutBox (void)
 	scrolledWindow->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
 
 	txtCredits = manage(new Gtk::TextView);
+	txtCredits->set_editable(false);
 	scrolledWindow->add(*txtCredits);
 	txtBuf = txtCredits->get_buffer();
 	Glib::RefPtr<Gtk::TextBuffer::Tag> fontTag = txtBuf->create_tag("font");
