@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.29 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: simple.cpp,v 1.30 2003/06/07 18:27:40 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +46,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	float *out_last, *sync;
 	float halfwave, ratio;
-	float position, wavelength;
+	float position, wavelength, freq;
 	float pw; /* Make pw cooler! */
 	float fmamt;
 	thArg *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset;
@@ -70,13 +70,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
 
 	for(i=0; i < (int)windowlen; i++) {
-		wavelength = TH_SAMPLE/(*in_freq)[i];
+		//wavelength = TH_SAMPLE/(*in_freq)[i];
+		freq = (*in_freq)[i];
 		position++;
 
 		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
 		if(fmamt) {
-			wavelength += (wavelength * fmamt) * ((*in_fm)[i] / TH_MAX);
+			freq += (freq * fmamt) * ((*in_fm)[i] / TH_MAX);
 		}
+
+		wavelength = TH_SAMPLE/freq;
+
 		if(position > wavelength || (*in_reset)[i] == 1) {
 			position = 0;
 			sync[i] = 1;
