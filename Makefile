@@ -2,8 +2,9 @@ PROGRAM=think++
 
 CC=g++
 
-SRCS=main.cpp thOSSAudio.cpp endian.cpp AudioBuffer.cpp Exception.cpp thWav.cpp \
-	thList.cpp thNode.cpp thMod.cpp thMidiChan.cpp thMidiNote.cpp thPlugin.cpp
+SRCS=main.cpp thOSSAudio.cpp endian.cpp AudioBuffer.cpp Exception.cpp \
+	thWav.cpp thList.cpp thNode.cpp thMod.cpp thMidiChan.cpp thMidiNote.cpp \
+	thPlugin.cpp thPluginSignaler.cpp
 OBJS=$(SRCS:.cpp=.o)
 
 LIBS=

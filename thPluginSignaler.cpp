@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "thList.h"
 #include "thPlugin.h"
 #include "thPluginSignaler.h"
 
@@ -23,13 +24,13 @@ thPluginSignaler::~thPluginSignaler ()
 	}
 }
 
-int HookSignal (thPluginSignal *signal)
+int thPluginSignaler::HookSignal (thPluginSignal *signal)
 {
 	if(!signal || !signal->callback)
 		return 1;
 
 	if((signal->sigNum >= 0) && (signal->sigNum < NUM_SIGNALS)) {
-		sigroots[signal->sigNum]->Add(signal);
+		plugSignals[signal->sigNum]->Add(signal);
 	}
 	else {
 		return 1;
