@@ -6,35 +6,40 @@ node ionode {
 	channels = 2;
 	play = input1->play;
 
-	f1 = 250;
-	f2 = 400;
-	f3 = 550;
-	f4 = 700;
-	f5 = 900;
-	f6 = 1200;
-	f7 = 1500;
-	f8 = 2500;
+	f1 = 300;
+	f2 = 450;
+	f3 = 600;
+	f4 = 850;
+	f5 = 1000;
+	f6 = 1400;
+	f7 = 2000;
+	f8 = 2400;
 
 	res = 8;
 
 	fampmin = 0;
 	fampmax = 0.3;
-	falloff = 2.8;
+	falloff = 2.4;
+};
+
+node freq misc::midi2freq {
+	note = ionode->note;
 };
 
 node input1 input::wav {
 };
 
 node input2 osc::simple {
-	freq = 150;
+	freq = freq->out;
 	waveform = 1;
 	fm = inputfm->out;
-	fmamt = 4;
+	fmamt = 6;
 };
 
 node inputfm osc::simple {
-	freq = 100;
+	freq = freq->out;
 	waveform = 0;
+	mul = 3;
 };
 
 node filt1 filt::res2pole {
