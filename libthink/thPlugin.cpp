@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.26 2003/04/29 08:38:46 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.27 2003/05/01 05:36:43 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -7,7 +7,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef HAVE_LIBGEN_H
 #include <libgen.h>
+#else /* libiberty */
+#include <ansidecl.h>
+extern "C" { extern char *basename PARAMS ((const char *)); }
+#endif
+
 #include <dlfcn.h>
 
 #include "thPlugin.h"
