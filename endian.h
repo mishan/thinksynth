@@ -46,9 +46,19 @@ extern int leread16(int fd, short *c);
 extern int lewrite32(int fd, long c);
 extern int lewrite16(int fd, short c);
 
+extern int lefread32(FILE *stream, long *c);
+extern int lefread16(FILE *stream, short *c);
+extern int lefwrite32(FILE *stream, long c);
+extern int lefwrite16(FILE *stream, short c);
+
 extern int beread32(int fd, long *c);
 extern int beread16(int fd, short *c);
 extern int bewrite32(int fd, long c);
 extern int bewrite16(int fd, short c);
+
+extern int befread32(FILE *stream, long *c);
+extern int befread16(FILE *stream, short *c);
+extern int befwrite32(FILE *stream, long c);
+extern int befwrite16(FILE *stream, short c);
 
 #endif /* HAVE_ENDIAN_H */

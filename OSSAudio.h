@@ -8,7 +8,8 @@
 #define DEFAULT_CHANNELS 2
 #define DEFAULT_SAMPLES 4096
 
-#define BUF_SIZE 16384
+#define BUF_SIZE 65536
+#define BUF_REFILL_PERCENT 0.5
 
 struct AudioFormat {
 	int format;
@@ -21,16 +22,17 @@ class OSSAudio: public Audio
 {
 public:
 	OSSAudio(char *null, AudioFormat *fmt)
-		throw(IOException);
+		throw(thIOException);
 
 	virtual ~OSSAudio();
 
-	void play(AudioBuffer *buffer);
-	void write_audio(void *stream, int len);
-	int read_audio(void *data, int len);
-	int Read(void *data, int len);
-	void set_format(AudioFormat *fmt);
-	AudioFormat get_format(void);
+	void Play (AudioBuffer *buffer);
+	void Write (void *stream, int len);
+	int Read (void *data, int len);
+
+	AudioFormat GetFormat (void);
+
+	void SetFormat (AudioFormat *fmt);
 private:
 	int fd;
 	AudioFormat fmt;
@@ -43,7 +45,7 @@ inline OSSAudio *new_OSSAudio(char *null, AudioFormat *afmt)
 
 		return audio;
 	}
-	catch (IOException e) {
+	catch (thIOException e) {
 		fprintf(stderr, "OSSAudio::OSSAudio: %s\n", strerror(e));	
 	}
 

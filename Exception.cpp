@@ -6,25 +6,25 @@
 
 #include "Exception.h"
 
-Exception::Exception(void)
+thException::thException(void)
 {
 	message = NULL;
 }
 
-Exception::Exception(const char *msg)
+thException::thException(const char *msg)
 {
 	printf("construcor called with %s\n", msg);
 	message = strdup(msg);
 }
 
-Exception::~Exception (void)
+thException::~thException (void)
 {
 	if(message) {
 		delete message;
 	}
 }
 
-const char *Exception::string (void)
+const char *thException::string (void)
 {
 	return message;
 }

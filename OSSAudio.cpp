@@ -17,7 +17,7 @@
 /* null is a placeholder; to have wav output plugins and audio output plugins
    we must maintain the same number of arguments for interopability */
 OSSAudio::OSSAudio(char *null, AudioFormat *afmt)
-	throw(IOException)
+	throw(thIOException)
 {
 	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate
 											1 channel, and 1 to indicate 2 
@@ -35,7 +35,7 @@ OSSAudio::OSSAudio(char *null, AudioFormat *afmt)
 
 	memcpy(&fmt, afmt, sizeof(AudioFormat));
 
-	if((fd = open("/dev/dsp", O_RDWR)) < 0) {
+	if((fd = open("/dev/dsp", O_WRONLY)) < 0) {
 		throw errno;
 	}
 
@@ -57,7 +57,7 @@ OSSAudio::~OSSAudio()
 	close(fd);
 }
 
-void OSSAudio::set_format(AudioFormat *afmt)
+void OSSAudio::SetFormat (AudioFormat *afmt)
 {
 	int oss_channels = fmt.channels-1; /* OSS uses the value of 0 to indicate 
 										   1 channel, and 1 to indicate 2 
@@ -79,33 +79,31 @@ void OSSAudio::set_format(AudioFormat *afmt)
 	}
 }
 
-AudioFormat OSSAudio::get_format (void)
+AudioFormat OSSAudio::GetFormat (void)
 {
 	return fmt;
 }
 
-void OSSAudio::write_audio (void *buf, int len)
+void OSSAudio::Write (void *buf, int len)
 {
 	ioctl(fd, SNDCTL_DSP_SYNC, 0);
 	write(fd, buf, len);
 	ioctl(fd, SNDCTL_DSP_SYNC, 1);
 }
 
-int OSSAudio::read_audio(void *buf, int len)
+int OSSAudio::Read(void *buf, int len)
 {
 	return read(fd, buf, len);
 }
 
-int OSSAudio::Read(void *buf, int len)
-{
-	return read_audio(buf, len);
-}
-
-void OSSAudio::play(AudioBuffer *buffer)
+void OSSAudio::Play(AudioBuffer *buffer)
 {
 	unsigned char buf[BUF_SIZE];
+	int buf_refill = (int)(buffer->get_size()*BUF_REFILL_PERCENT);
 
-	while(buffer->buf_read(buf, BUF_SIZE) >= 0) {
-		write_audio(buf, BUF_SIZE);
+	printf("%i\n", buffer->get_size());
+
+	while(buffer->buf_read(buf, buf_refill) > 0) {
+		Write(buf, buf_refill);
 	}
 }

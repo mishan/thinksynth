@@ -1,15 +1,15 @@
 #ifndef HAVE_EXCEPTION_H
 #define HAVE_EXCEPTION_H 1
 
-typedef int IOException;
+typedef int thIOException;
 
-class Exception
+class thException
 {
 public:
-	Exception(void);
-	Exception(const char *msg);
+	thException(void);
+	thException(const char *msg);
 
-	~Exception();
+	~thException();
 
 	const char *string(void);
 private:

@@ -1,6 +1,8 @@
 #ifndef HAVE_BUFFER_H
 #define HAVE_BUFFER_H 1
 
+#define BUFFER_EMPTY_PERCENT 0.6
+
 class AudioBuffer 
 {
 public:
@@ -11,6 +13,7 @@ public:
 							  buffer */
 	void buf_write(unsigned char *udata, int len);
 	int buf_read(unsigned char *udata, int len);
+	int get_size(void);
 private:
 	unsigned char *data;
 	int read; /* how far the buffer has been read */

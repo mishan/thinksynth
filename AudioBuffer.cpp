@@ -4,8 +4,6 @@
 #include "Audio.h"
 #include "AudioBuffer.h"
 
-#define NEED_MORE_BUFFER 4096
-
 AudioBuffer::AudioBuffer(int len, Audio *audio)
 {
 	size = len;
@@ -42,12 +40,18 @@ void AudioBuffer::buf_write(unsigned char *udata, int len)
 
 int AudioBuffer::buf_read(unsigned char *udata, int len)
 {
-	int i;
+	int i, bufempty = (int)(size*BUFFER_EMPTY_PERCENT);
+	printf("=-= %i %i =-=\n", woffset, len);
+	while(woffset <= bufempty) {
+		//printf("-= %i %i %i =-\n", woffset, size, bufempty);
+		unsigned char buf[bufempty];
 
-	if(woffset < NEED_MORE_BUFFER) {
-		if((audioPtr->Read(&data[read], NEED_MORE_BUFFER-woffset) < 0)) {
+		if((audioPtr->Read(buf, bufempty) <= 0)) {
+			printf("--- EOF ---\n");
 			return -1;
 		}
+
+		buf_write(buf, bufempty);
 	}
 
 	for(i = 0; i < len; i++) {
@@ -59,6 +63,11 @@ int AudioBuffer::buf_read(unsigned char *udata, int len)
 	read %= size;
 	
 	return len;
+}
+
+int AudioBuffer::get_size(void)
+{
+	return size;
 }
 
 #ifdef TEST

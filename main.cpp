@@ -5,13 +5,13 @@
 #include "Exception.h"
 #include "Audio.h"
 #include "AudioBuffer.h"
-#include "Wav.h"
+#include "thWav.h"
 #include "OSSAudio.h"
 
 int main (int argc, char *argv[])
 {
-	Wav *wav;
-	WavFormat wfmt;
+	thWav *wav;
+	thWavFormat wfmt;
 	OSSAudio *audio;
 	AudioFormat afmt;
 	AudioBuffer *buffer;
@@ -21,11 +21,11 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
-	if(!(wav = new_Wav(argv[1]))) {
+	if(!(wav = new_thWav(argv[1]))) {
 		exit(1);
 	}
 	
-	wfmt = wav->get_format();
+	wfmt = wav->GetFormat();
 	
 	afmt.channels = wfmt.channels;
 	afmt.samples = wfmt.samples;
@@ -36,7 +36,7 @@ int main (int argc, char *argv[])
 	}
 	
 	buffer = new AudioBuffer(BUF_SIZE, (Audio *)wav);
-	audio->play(buffer);
+	audio->Play(buffer);
 
 	/*
 
