@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.14 2003/05/17 16:08:26 ink Exp $ */
+/* $Id: adsr.cpp,v 1.15 2003/05/19 01:04:56 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,9 +69,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_r = (thArgValue *)mod->GetArg(node, "r"); /* Release */
 	in_p = (thArgValue *)mod->GetArg(node, "p"); /* Peak */
 	in_trigger = (thArgValue *)mod->GetArg(node, "trigger"); /* Note Trigger */
-
-	position = (int)(*inout_position)[0];
-	phase = (int)(*inout_position)[1];
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;

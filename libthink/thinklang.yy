@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.44 2003/05/12 02:19:30 misha Exp $ */
+/* $Id: thinklang.yy,v 1.45 2003/05/19 01:04:56 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -170,7 +170,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 		}
 	parsenode->SetPlugin(((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str));
 
-	free($3.str);
+	delete[] $3.str;
 
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
