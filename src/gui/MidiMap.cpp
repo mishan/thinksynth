@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.2 2004/11/09 00:23:45 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.3 2004/11/09 04:07:40 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,20 +20,52 @@
 #include "config.h"
 
 #include <gtkmm.h>
+#include <stdio.h>
 
 #include "think.h"
 #include "MidiMap.h"
 
 MidiMap::MidiMap (thSynth *argsynth)
 {
+	synth = argsynth;
+
 	set_title("MIDI Controller Routing");
 
-	main_vbox = manage(new Gtk::VBox);
-	close_btn = manage(new Gtk::Button("Close Window"));
-	close_btn->signal_clicked().connect(sigc::mem_fun(*this, &MidiMap::onCloseButton));
+	mainVBox = manage(new Gtk::VBox);
+	newConnectionHBox = manage(new Gtk::HBox);
+	destinationHBox = manage(new Gtk::HBox);
 
-	add(*main_vbox);
-	main_vbox->pack_start(*close_btn, Gtk::PACK_EXPAND_WIDGET);
+	channelLbl = manage(new Gtk::Label("Channel"));
+	channelAdj = manage(new Gtk::Adjustment(1, 1, 16));
+	channelSpinBtn = manage(new Gtk::SpinButton(*channelAdj, 1, 0));
+	channelSpinBtn->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onChannelChanged));
+
+	controllerLbl = manage(new Gtk::Label("Controller"));
+	controllerAdj = manage(new Gtk::Adjustment(1, 1, 128));
+	controllerSpinBtn = manage(new Gtk::SpinButton(*controllerAdj, 1, 0));
+	controllerSpinBtn->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onControllerChanged));
+
+	destChanCombo = manage(new Gtk::Combo);
+	fillDestChanCombo();
+//	destChanCombo->set_value_in_list();
+//	destChanCombo->get_entry()->signal_changed().connect(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged));
+
+	closeBtn = manage(new Gtk::Button("Close Window"));
+	closeBtn->signal_clicked().connect(sigc::mem_fun(*this,
+													 &MidiMap::onCloseButton));
+
+	add(*mainVBox);
+
+	newConnectionHBox->pack_start(*channelLbl, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox->pack_start(*channelSpinBtn, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox->pack_start(*controllerLbl, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox->pack_start(*controllerSpinBtn, Gtk::PACK_EXPAND_WIDGET);
+
+	destinationHBox->pack_start(*destChanCombo, Gtk::PACK_EXPAND_WIDGET);
+
+	mainVBox->pack_start(*newConnectionHBox, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox->pack_start(*destinationHBox, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox->pack_start(*closeBtn, Gtk::PACK_EXPAND_WIDGET);
 
 
 	show_all_children();
@@ -43,7 +75,47 @@ MidiMap::~MidiMap (void)
 {
 }
 
+
+void MidiMap::fillDestChanCombo (void)
+{
+	Gtk::ComboDropDownItem *item;
+	Gtk::Label *namelabel;
+	std::map<int, string> *patchList = synth->GetPatchlist();
+	Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
+		destChanCombo->get_list()->children();
+
+	destChanComboStrings.clear();
+
+	for (std::map<int, string>::iterator i = patchList->begin();
+		 i != patchList->end(); i++)
+	{
+		item = Gtk::manage(new Gtk::ComboDropDownItem);
+		namelabel = Gtk::manage(new Gtk::Label(g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
+		item->add(*namelabel);
+		item->signal_button_press_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first));
+		item->show_all();
+		destChanComboStrings.push_back(*item);		
+	}
+}
+
+
 void MidiMap::onCloseButton (void)
 {
 	hide();
+}
+
+void MidiMap::onChannelChanged (void)
+{
+	selectedChan = (int)channelSpinBtn->get_value();
+}
+
+void MidiMap::onControllerChanged (void)
+{
+	selectedController = (int)controllerSpinBtn->get_value() - 1;
+}
+
+bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
+{
+	selectedDestChan = chan;
+	return true;
 }

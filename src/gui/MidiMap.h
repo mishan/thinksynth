@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.2 2004/11/09 00:23:45 ink Exp $ */
+/* $Id: MidiMap.h,v 1.3 2004/11/09 04:07:40 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,8 +28,30 @@ public:
 
 protected:
 	void onCloseButton (void);
-	Gtk::VBox *main_vbox;
-	Gtk::Button *close_btn;
+	void onChannelChanged (void);
+	void onControllerChanged (void);
+	bool onDestChanComboChanged (GdkEventButton* b, int chan);
+
+	Gtk::Adjustment *channelAdj;
+	Gtk::Adjustment *controllerAdj;
+
+	Gtk::VBox *mainVBox;
+	Gtk::HBox *newConnectionHBox;
+	Gtk::HBox *destinationHBox;
+	Gtk::Label *channelLbl;
+	Gtk::SpinButton *channelSpinBtn;
+	Gtk::Label *controllerLbl;
+	Gtk::SpinButton *controllerSpinBtn;
+	Gtk::Combo *destChanCombo;
+	Gtk::Button *closeBtn;
+
+private:
+	void fillDestChanCombo (void);
+
+	thSynth *synth;
+	int selectedChan;
+	int selectedController;
+	int selectedDestChan;
 };
 
 #endif /* ABOUT_BOX_H */
