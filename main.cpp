@@ -1,8 +1,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
-#include "wav.h"
-#include "oss.h"
+#include "Wav.h"
+#include "OSSAudio.h"
 
 int main (int argc, char *argv[])
 {

@@ -10,7 +10,7 @@
 #include <string.h>
 #include <endian.h>
 #include "endian.h"
-#include "wav.h"
+#include "Wav.h"
 
 Wav::Wav()
 {

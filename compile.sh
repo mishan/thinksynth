@@ -1,2 +1,2 @@
 #!/bin/sh
-g++ main.cpp oss.cpp wav.cpp endian.cpp buffer.cpp -g -Wall -o oss_wavplay
+g++ main.cpp OSSAudio.cpp Wav.cpp endian.cpp AudioBuffer.cpp -g -Wall -o oss_wavplay

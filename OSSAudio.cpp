@@ -8,8 +8,8 @@
 #include <fcntl.h>
 #include <sys/soundcard.h>
 #include <errno.h>
-
-#include "oss.h"
+#include "AudioBuffer.h"
+#include "OSSAudio.h"
 
 /* null is a placeholder; to have wav output plugins and audio output plugins
    we must maintain the same number of arguments for interopability */
