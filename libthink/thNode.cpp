@@ -78,20 +78,20 @@ void thNode::SetPlugin (thPlugin *plug)
 
 void thNode::CopyArgs (thList *newargs)
 {
-  thListNode *listnode;
-  thArg *newarg;
-  thArgValue *data;
+	thListNode *listnode;
+	thArg *newarg;
+	thArgValue *data;
 
-  for(listnode = newargs->GetHead(); listnode; listnode = listnode->prev) {
-    data = (thArgValue *)((thArg *)listnode->data)->GetArg();
-    if(data->argType == ARG_VALUE) {
-      newarg = new thArg(data->argName, data->argValues, data->argNum);
-    }
-    else if(data->argType == ARG_POINTER) {
-      newarg = new thArg(data->argName, data->argPointNode, data->argPointName);
-    }
-    args.Insert(data->argName, newarg);
-  }
+	for(listnode = newargs->GetHead(); listnode; listnode = listnode->prev) {
+		data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+		if(data->argType == ARG_VALUE) {
+			newarg = new thArg(data->argName, data->argValues, data->argNum);
+		}
+		else if(data->argType == ARG_POINTER) {
+			newarg = new thArg(data->argName, data->argPointNode, data->argPointName);
+		}
+		args.Insert(data->argName, newarg);
+	}
 }
 
 void thNode::Process (void)

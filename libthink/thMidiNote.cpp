@@ -16,11 +16,11 @@
 
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
-  modnode = mod->Copy();
-  float *notep=new float, *velocityp=new float;
-  *notep = note, *velocityp = velocity;
-  SetArg("note", notep, 1);
-  SetArg("velocity", velocityp, 1);
+	modnode = mod->Copy();
+	float *notep=new float, *velocityp=new float;
+	*notep = note, *velocityp = velocity;
+	SetArg("note", notep, 1);
+	SetArg("velocity", velocityp, 1);
 }
 
 thMidiNote::thMidiNote (thMod *mod)
