@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.30 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thArg.h,v 1.31 2004/04/09 20:05:25 aaronl Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -22,7 +22,7 @@ class thArg {
 	void SetIndex (int i) { argIndex = i; };
 	int GetIndex (void) { return argIndex; };
 
-	string GetArgName (void) const { return argName; };
+	const string &GetArgName (void) const { return argName; };
 
 	float *Allocate (unsigned int elements);
 	string argName; /* argument's name */
