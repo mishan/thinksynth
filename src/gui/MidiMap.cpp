@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.20 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: MidiMap.cpp,v 1.21 2004/12/18 02:46:28 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,6 +28,8 @@
 
 MidiMap::MidiMap (thSynth *argsynth)
 {
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+
 	synth_ = argsynth;
 
 	set_title("thinksynth - MIDI Controller Routing");
@@ -141,10 +143,9 @@ MidiMap::MidiMap (thSynth *argsynth)
 
 	show_all_children();
 
-	synth_->signal_channel_changed().connect(
-		sigc::mem_fun(*this, &MidiMap::onSynthChannelChanged));
-	synth_->signal_channel_deleted().connect(
-		sigc::mem_fun(*this, &MidiMap::onSynthChannelDeleted));
+	patchMgr->signal_patches_changed().connect(
+		sigc::mem_fun(*this, &MidiMap::onPatchChanged));
+
 }
 
 MidiMap::~MidiMap (void)
@@ -281,10 +282,6 @@ void MidiMap::fillDestArgCombo (int chan)
 			set_sensitive(false);
 		}
 	}
-	else
-	{
-		set_sensitive(false);
-	}
 }
 
 void MidiMap::setDestArgCombo (int chan)
@@ -333,6 +330,10 @@ void MidiMap::setDestArgCombo (int chan)
 			}
 		}
 		set_sensitive(true);
+	}
+	else
+	{
+		set_sensitive(false);
 	}
 }
 
@@ -494,16 +495,19 @@ void MidiMap::onDelButton (void)
 	}
 }
 
-void MidiMap::onSynthChannelChanged (string filename, int chan, float amp)
+void MidiMap::onPatchChanged (void)
 {
-/* XXX: WHAT IF THIS HAD A CONNECTION?!  FIX! */
-	setDestChanCombo();
-	setDestArgCombo(selectedChan_);
-}
+	gthPatchManager *patchMgr = gthPatchManager::instance();
 
-void MidiMap::onSynthChannelDeleted (int chan)
-{
 /* XXX: WHAT IF THIS HAD A CONNECTION?!  FIX! */
-	setDestChanCombo();
-	setDestArgCombo(selectedChan_);
+	if (patchMgr->isLoaded(selectedChan_))
+	{
+		setDestChanCombo();
+		setDestArgCombo(selectedChan_);
+	}
+	else
+	{
+		fillDestChanCombo();
+		set_sensitive(false);
+	}
 }
