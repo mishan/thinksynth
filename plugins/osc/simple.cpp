@@ -45,7 +45,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int i;
 	float *out = new float[windowlen];
 	float *last = new float[1];
-	float wavelength;
+	float wavelength, halfwave, ratio;
 	int position;
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
@@ -62,14 +62,32 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	    position = 0;
 	  }
 
+	  ratio = position/wavelength;
+	  halfwave = wavelength/2;
+
 	  switch((int)(*in_waveform)[0]) { /* MAKE THIS i not 0, once GetValue is reimplemented */
 	    /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri */
-	  case 0:
-		  out[i] = TH_MAX*sin((position/wavelength)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+	  case 0:    /* SINE WAVE */
+		  out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 	    break;
-	  case 1:
-	    out[i] = TH_RANGE*(position/wavelength)+TH_MIN;
+	  case 1:    /* SAWTOOTH WAVE */
+	    out[i] = TH_RANGE*(ratio)+TH_MIN;
 	    break;
+	  case 2:    /* SQUARE WAVE */
+		if(ratio < 0.5) {
+		  out[i] = TH_MIN;
+		} else {
+		  out[i] = TH_MAX;
+		}
+		break;
+	  case 3:    /* TRIANGLE WAVE */
+		break;
+	  case 4:
+		if(ratio < 0.5) {
+		  out[i] = 2*sqrt(2)*sqrt((halfwave-(2*position))*position/(halfwave*halfwave));
+		} else {
+		  out[i] = -2*sqrt(2)*sqrt((halfwave-(2*(position-halfwave)))*(position-halfwave)/(halfwave*halfwave));
+		}
 	    /* XXX  Add the rest of these  =] */
 	  }
 	}

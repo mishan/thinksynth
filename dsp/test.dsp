@@ -5,7 +5,7 @@ node ionode test::test {
 	};
 node osc osc::simple {
 	freq = 440;
-	waveform = 0;
+	waveform = 4;
 	};
 
 io ionode;
