@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.10 2003/04/29 02:03:59 joshk Exp $ */
+/* $Id: static.cpp,v 1.11 2003/05/11 08:57:36 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,12 +46,28 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
 	float *out = new float[windowlen];
+	float *last = new float[2];
+	thArgValue *in_sample;  /* How often to change the random number */
+	thArgValue *in_last;  /* So sample can be consistant over windows */
+
+	in_sample = (thArgValue *)mod->GetArg(node, "sample");
+	in_last = (thArgValue *)mod->GetArg(node, "last");
+
+	last[0] = (*in_last)[0];
+	last[1] = (*in_last)[1];
 
 	for(i=0; i < (int)windowlen; i++) {
-		out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
+		if(++last[0] > (*in_sample)[i]) {
+			out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
+			last[0] = 0;
+			last[1] = out[i];
+		} else {
+			out[i] = last[1];
+		}
 	}
 
 	node->SetArg("out", out, windowlen);
+	node->SetArg("last", last, 2);
 
 	return 0;
 }

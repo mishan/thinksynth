@@ -1,9 +1,24 @@
-name "static";
+name "test";
 
 node ionode test::test {
-	out = static->out;
-};
+	out0 = static->out;
+	out1 = static->out;
+	channels = 2;
+	play = 1;
+	};
+node lfo osc::simple {
+	freq = 0.5;
+	waveform = 0;
+	};
+node map env::map {
+	in = lfo->out;
+	inmin = -256;
+	inmax = 256;
+	outmin = 0;
+	outmax = 100;
+	};
 node static osc::static {
-};
+	sample = map->out;
+	};
 
 io ionode;
