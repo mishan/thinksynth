@@ -45,7 +45,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int i;
 	float *out = new float[windowlen];
 	float *last = new float[1];
-	float wavelength, halfwave, ratio;
+	float wavelength, halfwave, ratio, virtpos;
 	int position;
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
@@ -83,11 +83,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	  case 3:    /* TRIANGLE WAVE */
 		break;
 	  case 4:
-		if(ratio < 0.5) {
-		  out[i] = 2*sqrt(2)*sqrt((halfwave-(2*position))*position/(halfwave*halfwave));
-		} else {
-		  out[i] = -2*sqrt(2)*sqrt((halfwave-(2*(position-halfwave)))*(position-halfwave)/(halfwave*halfwave));
-		}
+		virtpos = ratio > 0.5 ? position - halfwave : position;
+		out[i] = 2*sqrt(2)*sqrt((wavelength-(2*virtpos))*virtpos/(wavelength*wavelength));
+		if (ratio >= 0.5) out[i] = -out[i];
 	    /* XXX  Add the rest of these  =] */
 	  }
 	}
