@@ -6,16 +6,16 @@ node ionode {
 	channels = 2;
 	play = env->play;
 
-	waveform = 4;
-
 	fmmul = 4;
 	fmamt = 0.1;
 	fmwave = 0;
 
-	pwmul = 0.25;
+	pwmul = 4;
 	pwwave = 0;
+	pwmin = 0.2;
+	pwmax = 0.4;
 
-	res = 0.8;
+	res = 0.6;
 };
 
 node freq misc::midi2freq {
@@ -28,10 +28,10 @@ node mixer mixer::mul {
 };
 
 node env env::adsr {
-	a = 1000;
-	d = 60000;
+	a = 2000;
+	d = 10000;
 	s = 100;
-	r = 60000;
+	r = 20000;
 	trigger = 0;
 };
 
@@ -73,8 +73,8 @@ node pwmap env::map {
 	in = osc2->out;
 	inmin = th_min;
 	inmax = th_max;
-	outmin = 0.1;
-	outmax = 0.5;
+	outmin = ionode->pwmin;
+	outmax = ionode->pwmax;
 };
 
 node osc3 osc::simple {
