@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.18 2003/04/30 03:20:34 joshk Exp $ */
+/* $Id: thPlugin.h,v 1.19 2003/04/30 03:34:33 joshk Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -11,7 +11,7 @@
 unsigned char apiversion = MODULE_IFACE_VER;
 #endif
 
-extern char plugin_path[];
+extern char* plugin_path;
 
 enum thPluginState { thActive, thPassive, thNotLoaded };
 

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.52 2003/04/30 03:20:34 joshk Exp $ */
+/* $Id: main.cpp,v 1.53 2003/04/30 03:34:33 joshk Exp $ */
 
 #include "config.h"
 
@@ -20,13 +20,15 @@
 
 #include "parser.h"
 
-char plugin_path[] = PLUGIN_PATH;
+char* plugin_path;
 
 int main (int argc, char *argv[])
 {
 	int havearg;
 	char *filename;
 	char dspname[] = "test"; /* XXX for debugging */
+	plugin_path = strdup(PLUGIN_PATH);
+	unsigned int plugin_len = strlen(plugin_path);
 
 	/* int i; XXX temporary hack to see more than 1 element of output */
 
@@ -49,6 +51,11 @@ syntax:
 				break;
 
 			case 'p':
+				if (optarg[strlen(optarg)-1] != '/') {
+					plugin_path = (char*)(realloc(plugin_path, (plugin_len+1) * sizeof(char*)));
+					strcat(plugin_path, "/");
+				}
+
 				strcpy(plugin_path, optarg);
 				break;
 
