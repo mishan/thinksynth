@@ -15,7 +15,10 @@ clean::
 
 install:
 	mkdir -p $(DESTDIR)$(patch_path)
-	tar -cf - `find -name '*.patch'` | tar -C $(DESTDIR)$(patch_path) -xf -
+	for patch in $(shell find . -name '*.patch'); do \
+		mkdir -p $(DESTDIR)$(patch_path)/`dirname "$$patch"`; \
+		install -m 0644 $$patch $(DESTDIR)$(patch_path)/$$patch; \
+	done
 
 uninstall:
 	rm -rf $(DESTDIR)$(patch_path)

@@ -17,7 +17,7 @@ Installing JACK
 * Debian packages can be found in the sarge or sid (testing or unstable)
   distribution as 'jackd'.
 
-* FreeBSD has the 'audio/jack' port.
+* FreeBSD has the 'audio/jack' port. (pkg_add -r jackit)
 
 * Gentoo has the media-sound / jack ebuild.
 

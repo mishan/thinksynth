@@ -67,7 +67,7 @@ install:
 # DESTDIR installs are probably for packaging, otherwise you're probably
 # doing things correctly
 ifeq (,$(DESTDIR))
-	$(LDCONFIG) -n $(libdir)
+	$(LDCONFIG) $(libdir)
 endif
 
 uninstall:

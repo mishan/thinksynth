@@ -1,6 +1,8 @@
 Thinksynth MIDI support
 -----------------------
 
+NOTE: This is currently Linux only.
+
 Thinksynth is an ALSA MIDI sequencer client.  Thinksynth can be controlled
 by external MIDI sequencers or devices.
 

@@ -15,7 +15,11 @@ clean::
 
 install:
 	mkdir -p $(DESTDIR)$(dsp_path)
-	tar -cf - `find -name '*.dsp'` | tar -C $(DESTDIR)$(dsp_path) -xf -
+	for dsp in $(shell find . -name '*.dsp'); do \
+		mkdir -p $(DESTDIR)$(dsp_path)/`dirname "$$dsp"`; \
+		install -m 0644 $$dsp $(DESTDIR)$(dsp_path)/$$dsp; \
+	done
+
 
 uninstall:
 	rm -rf $(DESTDIR)$(dsp_path)

@@ -8,7 +8,7 @@ GNU/Linux
 	- JACK:		yes		yes
 
 FreeBSD	
-	- JACK:		???		???
+	- JACK:		yes		yes
 
 Darwin
 	- JACK:		yes		???

@@ -107,7 +107,16 @@ AC_CHECK_LIB(iw, iw_get_stats,
 	])
 ])
 
+LDCONFIG=":"
+
 case "$ac_cv_host" in
+	*-linux*)
+		system=Linux
+		if test "$ac_cv_c_compiler_gnu" = yes; then
+			CXXFLAGS="$CXXFLAGS -fPIC -DPIC"
+		fi
+		LDCONFIG="/sbin/ldconfig -n"
+	;;
 	*-freebsd*)
 		system=FreeBSD
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
@@ -115,12 +124,14 @@ case "$ac_cv_host" in
 		if test "$ac_cv_c_compiler_gnu" = yes; then
 			CXXFLAGS="$CXXFLAGS -fPIC -DPIC"
 		fi
+		LDCONFIG="/sbin/ldconfig -R"
 	;;
 	*apple-darwin*)
 		system="Darwin/OS X"
 		CXXFLAGS="$CXXFLAGS -no-cpp-precomp -fno-common -flat_namespace -undefined suppress"
 		AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
 		AC_SUBST(NSMODULE_DL_O, nsmodule_dl.o)
+		LDCONFIG=":"
 	;;
 	*)
 		if which uname >/dev/null 2>&1; then
@@ -134,9 +145,9 @@ case "$ac_cv_host" in
 	;;
 esac
 
-AC_LINKER_DYNAMIC
+AC_SUBST(LDCONFIG)
 
-AC_PATH_PROGS([LDCONFIG], ldconfig, [": ldconfig"], [$PATH:/sbin:/usr/sbin:/usr/local/sbin])
+AC_LINKER_DYNAMIC
 
 if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])

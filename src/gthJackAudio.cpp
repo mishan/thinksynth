@@ -134,22 +134,57 @@ int gthJackAudio::tryConnect (bool connect)
 		return 0;
 	}
 
-	/* Now try to connect */
-	if (jack_port_by_name(jack_handle_, "alsa_pcm:playback_1") != NULL)
-		output = "alsa_pcm";
-	else if (jack_port_by_name(jack_handle_, "oss:playback_1") != NULL)
-		output = "oss";
+	const char** ports = jack_get_ports(jack_handle_, NULL, NULL, 0);
+	const char** ptr;
+	bool portaudio = false;
+
+	for (ptr = ports; *ptr != NULL; ptr++)
+	{
+		if (!strncmp(*ptr, "alsa_pcm", 8))
+		{
+			output = "alsa_pcm";
+			break;
+		}
+		else if (!strncmp(*ptr, "oss", 3))
+		{
+			output = "oss";
+			break;
+		}
+		else if (!strncmp(*ptr, "portaudio", 9))
+		{
+			/* Look for the : */
+			char* ptr2 = strdup(*ptr);
+			char* tmp = ptr2;
+			
+			while(*tmp++ && *tmp != ':');
+			while(*tmp++ && *tmp != ':');
+
+			*tmp = '\0';
+
+			output = ptr2;
+			portaudio = true;
+
+			break;
+		}
+	}
 
 	if (output != "")
 	{
-		size_t jacklen = output.size() + 12; /* ???:playback_N + NUL */
+		size_t jacklen;
+
+		if (portaudio)
+			jacklen = output.size() + 11; /* ???:playbackN + NUL */
+		else
+			jacklen = output.size() + 12; /* ???:playback_N + NUL */
+			
 #define thlen 17 /* thinksynth:out_N + NUL */
 		char *out = new char[jacklen], *ths = new char[thlen];
 		int i;
 
 		for (i = 1; i <= synth_->audioChannelCount(); i++)
 		{
-			snprintf(out, jacklen, "%s:playback_%d", output.c_str(), i);
+			snprintf(out, jacklen, "%s:playback%s%d", output.c_str(),
+				portaudio ? "" : "_", i);
 			snprintf(ths, thlen, "thinksynth:out_%d", i);
 			if (connect)
 			{
