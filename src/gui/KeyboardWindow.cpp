@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.13 2004/04/01 09:34:48 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.14 2004/04/01 09:54:12 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -83,12 +83,11 @@ static int	key_sizes[4][7] =
 };
 
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
-	: ctrlFrame ("Keyboard Control"), chanLbl("Channel")
+	: ctrlFrame ("Keyboard Control"), chanLbl("Channel"), transLbl("Transpose")
 {
 	synth = argsynth;
 
 	/* keyboard parameters */
-	transpose = 0;
 	key_ofs = 0;
 	veloc0 = 32;
 	veloc1 = 64;
@@ -117,8 +116,14 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	chanVal = new Gtk::Adjustment(1, 1, synth->GetChannelCount());
 	chanBtn = new Gtk::SpinButton(*chanVal);
 
-	ctrlTable.attach(chanLbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
-	ctrlTable.attach(*chanBtn, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+	transVal = new Gtk::Adjustment(0, -72, 72);
+	transBtn = new Gtk::SpinButton(*transVal);
+
+	ctrlTable.attach(chanLbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	ctrlTable.attach(*chanBtn, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+
+	ctrlTable.attach(transLbl, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	ctrlTable.attach(*transBtn, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 
 	realize();
 	gtk_widget_realize(GTK_WIDGET(drawArea.gobj()));	
@@ -387,7 +392,6 @@ void KeyboardWindow::drawKeyboard (int mode)
 
 /* convert key value to note number		*/
 /* return value is -1 if key value is not valid	*/
-
 int	KeyboardWindow::keyval_to_notnum (int key)
 {
 	char	*c;
@@ -420,7 +424,7 @@ int	KeyboardWindow::keyval_to_notnum (int key)
 	if ((m == 5) || (m == 13)) return -1;
 	/* correct for missing black keys and transpose */
 	if (m > 4) m--;
-	n = 48 + transpose + 12 * o + m;
+	n = 48 + (int)transVal->get_value() + 12 * o + m;
 	if ((n < 0) || (n > 127)) n = -1;
 
 	return n;
@@ -620,136 +624,5 @@ void	fkeys_func (int key)
 /*	1: some keys should be redrawn			*/
 /*	2: close window and exit			*/
 /*	4: redraw entire window				*/
-
-int	get_events (void)
-{	int	rval;
-	int	keynum, press, release, notenum, veloc;
-
-	rval = 0;
-
-	while ((event = gdk_event_get ()) != NULL) {
-		if ((event->type == GDK_DELETE)		/* close window */
-		    || (event->type == GDK_DESTROY)) {
-			rval |= 2; continue;
-		}
-		if ((event->type == GDK_KEY_PRESS)	/* key press or    */
-		    || (event->type == GDK_KEY_RELEASE)) {	/* release */
-			keynum = event->key.keyval;
-			/* key state */
-			press = (event->type == GDK_KEY_PRESS ? 1 : 0);
-			release = 1 - press;
-			switch (keynum) {
-			case GDK_Control_L:		/* Control */
-			case GDK_Control_R:
-				ctrl_on = press; break;
-			case GDK_Shift_L:		/* Shift */
-			case GDK_Shift_R:
-				shift_on = press; break;
-			case GDK_Alt_L:			/* Alt */
-			case GDK_Alt_R:
-			case GDK_Meta_L:
-			case GDK_Meta_R:
-				alt_on = press; break;
-			case GDK_F1:			/* function keys */
-			case GDK_F2:
-			case GDK_F3:
-			case GDK_F4:
-			case GDK_F5:
-			case GDK_F6:
-			case GDK_F7:
-			case GDK_F8:
-			case GDK_F9:
-			case GDK_F10:
-			case GDK_F11:
-			case GDK_F12:
-			case GDK_Left:
-			case GDK_Right:
-			case GDK_Up:
-			case GDK_Down:
-				if (press) fkeys_func (keynum);
-				rval |= 1;
-				break;
-			default:			/* other keys */
-				notenum = keyval_to_notnum (keynum);
-				if (notenum >= 0) {	/* note event */
-					if (press) {	/* note-on */
-						if (alt_on) {	/* velocity */
-							veloc = veloc0;
-						} else if (ctrl_on) {
-							veloc = veloc1;
-						} else if (shift_on) {
-							veloc = veloc2;
-						} else {
-							veloc = veloc3;
-						}
-//						send_note_on (notenum, veloc);
-						active_keys[notenum] = 1;
-						rval |= 1;
-					} else {	/* note-off */
-//						send_note_off (notenum);
-						active_keys[notenum] = 1;
-						rval |= 1;
-					}
-				}
-			}
-		} else if ((event->type == GDK_BUTTON_PRESS)	/* mouse */
-			   || (event->type == GDK_2BUTTON_PRESS)
-			   || (event->type == GDK_3BUTTON_PRESS)) {
-			if (mouse_notnum >= 0) {	/* already active */
-//				send_note_off (mouse_notnum);
-				active_keys[mouse_notnum] = 0;
-				rval |= 1;
-			}
-			/* get note number */
-			mouse_notnum = get_coord ();
-			if (mouse_notnum < 0) continue;
-			/* velocity */
-			switch (event->button.button) {
-			case 1:	veloc = veloc3; break;
-			case 2:	veloc = veloc2; break;
-			case 3:	veloc = veloc1; break;
-			default:
-				veloc = veloc0;
-			}
-			active_keys[mouse_notnum] = 1;
-//			send_note_on (mouse_notnum, veloc);
-			rval |= 1;
-			mouse_veloc = veloc;	/* save velocity */
-		} else if (event->type == GDK_BUTTON_RELEASE) {
-			/* turn off if active */
-			if (mouse_notnum >= 0) {
-//				send_note_off (mouse_notnum);
-				active_keys[mouse_notnum] = 0;
-				rval |= 1;
-			}
-			mouse_notnum = -1;
-		} else {				/* other events */
-			/* check for active mouse note */
-			if (mouse_notnum >= 0) {
-				notenum = get_coord ();
-				if (notenum != mouse_notnum) {
-//					send_note_off (mouse_notnum);
-					active_keys[mouse_notnum] = 0;
-					/* turn on new note */
-					if (notenum >= 0) {
-//						send_note_on (notenum,
-//							      mouse_veloc);
-						active_keys[notenum] = 1;
-					}
-					rval |= 1;
-					mouse_notnum = notenum;
-				}
-			}
-			/* update window if necessary */
-			if ((event->type == GDK_CONFIGURE)
-			    || (event->type == GDK_EXPOSE)
-			    || (event->type == GDK_MAP)) {
-				rval |= 4;
-			}
-		}
-	}
-
-	return rval;
-}
 
 #endif

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.6 2004/04/01 08:55:02 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.7 2004/04/01 09:54:12 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -25,6 +25,10 @@ protected:
 	Gtk::SpinButton *chanBtn;
 	Gtk::Adjustment *chanVal;
 
+	Gtk::Label transLbl;
+	Gtk::SpinButton *transBtn;
+	Gtk::Adjustment *transVal;
+
 	thSynth *synth;
 private:
 	GdkWindow *drawable;
@@ -39,7 +43,6 @@ private:
 	int alt_on;
 
 	int mouse_notnum;
-	int transpose;
 	int key_ofs;
 	int veloc0;
 	int veloc1;
