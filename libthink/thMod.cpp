@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.61 2003/05/04 01:43:04 ink Exp $ */
+/* $Id: thMod.cpp,v 1.62 2003/05/06 22:38:20 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -243,6 +243,10 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 
 		if(data->argType == ARG_POINTER) {
 			node = FindNode(data->argPointNode);
+
+			if(!node) {
+			  printf("CRITICAL: Node %s not found!!\n", data->argPointNode);
+			}
 
 			currentnode->AddChild(node);
 			node->AddParent(currentnode);
