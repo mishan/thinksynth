@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.143 2004/03/26 06:25:46 misha Exp $ */
+/* $Id: main.cpp,v 1.144 2004/03/26 06:26:42 misha Exp $ */
 
 #include "config.h"
 
@@ -33,8 +33,6 @@
 #include "ui.h"
 
 Glib::Mutex *synthMutex = NULL;
-/* XXX: we should not have a single synth ptr */
-thSynth *glblSynth;
 
 /* XXX: remove ALSA/OSS-specific code from libthink */
 
@@ -259,7 +257,6 @@ int main (int argc, char *argv[])
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 	
 	synthMutex = new Glib::Mutex;
-	glblSynth = &Synth;
 	Glib::Thread *const ui = Glib::Thread::create(
 		SigC::slot(&ui_thread), true);
 
