@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.107 2003/11/05 02:54:15 joshk Exp $ */
+/* $Id: main.cpp,v 1.108 2004/01/25 09:35:11 ink Exp $ */
 
 #include "config.h"
 
@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+
+#include <alsa/asoundlib.h>
 
 #include "think.h"
 
@@ -35,6 +37,9 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-p [path]\tmodify the plugin search path\n"
 "-m [mod]\tchange the mod that will be used\n";
 
+snd_seq_t *open_seq();
+int processmidi(thSynth *synth, snd_seq_t *seq_handle);
+
 int main (int argc, char *argv[])
 {
 	string dspname = "test";   /* XXX: for debugging ONLY */
@@ -47,6 +52,11 @@ int main (int argc, char *argv[])
 	float *synthbuffer = NULL;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
+
+	snd_seq_t *seq_handle;    /* for ALSA midi */
+	int seq_nfds;
+	struct pollfd *pfds;
+
 
 	plugin_path = PLUGIN_PATH;
 
@@ -120,8 +130,17 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
+
+	/*************************** MIDI STUFF **************************/
+	seq_handle = open_seq();
+	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
+	pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * seq_nfds);
+	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
+	
+
+
 	Synth.AddChannel(string("chan1"), dspname, 30.0);
-	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
+//	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
@@ -160,6 +179,10 @@ int main (int argc, char *argv[])
 	printf ("Writing to '%s'\n", outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
+		if (poll (pfds, seq_nfds, 0) > 0) {
+			processmidi(&Synth, seq_handle);
+		}
+
 		Synth.Process();
 
 		/* output the current window */
@@ -169,4 +192,38 @@ int main (int argc, char *argv[])
 	delete outputstream;
 
 	return 0;
+}
+
+snd_seq_t *open_seq() {
+
+    snd_seq_t *seq_handle;
+    
+    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0) {
+        fprintf(stderr, "Error opening ALSA sequencer.\n");
+        exit(1);
+    }
+    snd_seq_set_client_name(seq_handle, "thinksynth");
+    if (snd_seq_create_simple_port(seq_handle, "thinksynth",
+        SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
+        SND_SEQ_PORT_TYPE_APPLICATION) < 0) {
+        fprintf(stderr, "Error creating sequencer port.\n");
+        exit(1);
+    }
+    return(seq_handle);
+}
+
+int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
+{
+	snd_seq_event_t *ev;
+	
+	do {
+        snd_seq_event_input(seq_handle, &ev);
+        switch (ev->type) {
+		case SND_SEQ_EVENT_NOTEON:
+			Synth->AddNote(string("chan1"), ev->data.note.note, ev->data.note.velocity);
+			break;
+		}
+		snd_seq_free_event(ev);
+    } while (snd_seq_event_input_pending(seq_handle, 0) > 0);
+    return (0);
 }
