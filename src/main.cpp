@@ -56,7 +56,6 @@
 
 /* XXX: globals */
 thSynth *Synth = NULL;
-gthPrefs *prefs = NULL;
 gthAudio *aout = NULL;
 
 #ifdef HAVE_ALSA
@@ -65,8 +64,8 @@ static gthALSAMidi *midi = NULL;
 
 Glib::RefPtr<Glib::MainContext> mainContext;
 
-Glib::Mutex *mainMutex = NULL;
-//Glib::Cond *exitCond  = NULL;
+Glib::Dispatcher *process = NULL;
+
 
 Gtk::Main *gtkMain = NULL;
 
@@ -90,6 +89,8 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 
 void cleanup (int signum)
 {
+	gthPrefs *prefs = gthPrefs::instance();
+
 	signal(signum, SIG_IGN);
 	switch (signum)
 	{
@@ -126,9 +127,7 @@ void cleanup (int signum)
 
 void process_synth (void)
 {
-//	mainMutex->lock();
 	Synth->Process();
-//	mainMutex->unlock();
 }
 
 /* ALSA callback */
@@ -137,13 +136,11 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 	int l = synth->GetWindowLen();
 	float *synthbuffer = synth->GetOutput();
 
-//	mainMutex->lock();
 	audio->Write(synthbuffer, l);
-//	mainMutex->unlock();
 
 	/* XXX: we should be using emit() but this fucks up */
-//	process->emit();
-	process_synth ();
+	process->emit();
+//	process_synth ();
 }
 
 #ifdef HAVE_JACK
@@ -155,7 +152,6 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
-//	mainMutex->lock();
 	for(int i = 0; i < chans; i++)
 	{
 		float *synthbuffer = Synth->getChanBuffer(i);
@@ -163,12 +159,11 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 		memcpy(buf, synthbuffer, l * sizeof(float));
 	}
-//	mainMutex->unlock();
-	
+
 	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
-//	process->emit();
-	process_synth ();
+	process->emit();
+//	process_synth ();
 
 	return 0;
 }
@@ -233,7 +228,9 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			case SND_SEQ_EVENT_CONTROLLER:
 			{
 //				debug("CONTROLLER  %d\n", ev->data.control.value);
-				synth->handleMidiController(ev->data.control.channel, ev->data.control.param, ev->data.control.value);
+				synth->handleMidiController(ev->data.control.channel,
+											ev->data.control.param,
+											ev->data.control.value);
 				
 				break;
 			}
@@ -326,15 +323,13 @@ int main (int argc, char *argv[])
 
 	/* XXX: create global Synth object */
 	Synth = new thSynth(plugin_path, windowlen, samples);
-	prefs = gthPrefs::instance();
+	gthPrefs *prefs = gthPrefs::instance();
 
-	mainMutex = new Glib::Mutex;
-//	exitCond = new Glib::Cond;
+	process = new Glib::Dispatcher;
+	process->connect(sigc::ptr_fun(&process_synth));
 
 	signal(SIGUSR1, (sighandler_t)cleanup);
 	signal(SIGINT, (sighandler_t)cleanup);
-
-//	gthPatchfile test("test.patch", Synth, 0);
 
 	/* create a window first */
 	Synth->Process();

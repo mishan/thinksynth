@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.22 2004/11/26 06:23:56 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -71,12 +71,12 @@ protected:
 	Gtk::Notebook notebook;
 
 	PatchSelWindow *patchSel;
+	AboutBox *aboutBox;
+	MidiMap *midiMap;
 private:
 	thSynth *synth;
 	gthAudio *audio;
 	gthPrefs *prefs;
-	AboutBox *aboutBox;
-	MidiMap *midiMap;
 	char *prevDir;
 
 	void toggleConnects(void);
