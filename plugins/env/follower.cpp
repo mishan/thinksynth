@@ -1,4 +1,4 @@
-/* $Id: follower.cpp,v 1.1 2003/11/30 14:03:28 ink Exp $ */
+/* $Id: follower.cpp,v 1.2 2003/11/30 14:45:49 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,7 +43,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *out_arg;
 	thArg *inout_last;
 	unsigned int i;
-	float last, absolute;
+	float last, absolute, falloff;
 
 	out_arg = mod->GetArg(node, "out");
 	inout_last = mod->GetArg(node, "last");
@@ -61,14 +61,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	for(i = 0; i < windowlen; i++)
 	{
 		absolute = fabs((*in_arg)[i]);
+		falloff = pow(0.1, (*in_falloff)[i]);
 
 		if(absolute >= last)
 		{
-			last = absolute;
+			last += absolute * falloff;
 		}
 		else
 		{
-			last -= (*in_falloff)[i];
+			last -= last * falloff;
 		}
 
 		out[i] = last;

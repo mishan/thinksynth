@@ -6,15 +6,11 @@ node ionode {
 	channels = 2;
 	play = wav->play;
 
-	flfo = 0.2;
-	cutmin = 100;
-	cutmax = 2000;
+	cutmin = 80;
+	cutmax = 4000;
 	res = 4;
-	fwave = 0;
 
-	dlfo = 0.1;
 	dlen = 20000;
-	dwave = 3;
 	delaymin = 000;
 	delaymax = 2000; # must correlate this to input frequency!  gargh!
 
@@ -25,19 +21,9 @@ node ionode {
 node wav input::wav {
 };
 
-node dlfo osc::simple {
-	freq = ionode->dlfo;
-	waveform = ionode->dwave;
-};
-
-node flfo osc::simple {
-	freq = ionode->flfo;
-	waveform = ionode->fwave;
-};
-
 node follower env::follower {
 	in = wav->out;
-	falloff = 0.05;
+	falloff = 3.2;
 };
 
 node filtermap env::map {
@@ -46,10 +32,6 @@ node filtermap env::map {
 	inmax = th_max;
 	outmin = ionode->cutmin;
 	outmax = ionode->cutmax;
-};
-
-node dlfo osc::simple {
-	freq = ionode->dlfo;
 };
 
 node delaymap env::map {
