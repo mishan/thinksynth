@@ -98,4 +98,18 @@ inline Wav *new_Wav(char *name)
 	return NULL;
 }
 
+inline Wav *new_Wav(char *name, WavFormat *wfmt)
+{
+	try {
+		Wav *wav = new Wav(name, wfmt);
+
+		return wav;
+	}
+	catch (IOException e) {
+		fprintf(stderr, "Wav::Wav: %s: %s\n", name, strerror(e));	
+	}
+
+	return NULL;
+}
+
 #endif /* HAVE_WAV_H */
