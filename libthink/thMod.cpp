@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.40 2003/04/27 04:28:16 ink Exp $ */
+/* $Id: thMod.cpp,v 1.41 2003/04/27 04:31:06 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -240,7 +240,7 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	return(0);
 }
 
-void BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
+void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 {
 	thArgValue *data = (thArgValue *)((thArg *)argtree->GetData())->GetArg();
 	thNode *node;
