@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.33 2004/05/08 11:35:28 ink Exp $ */
+/* $Id: thArg.h,v 1.34 2004/07/01 04:34:04 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -22,8 +22,21 @@ class thArg {
 	void GetBuffer(float *buffer, unsigned int size);
 
 	const string &GetArgName (void) const { return argName; };
+	const string &GetArgLabel (void) const { return argLabel; };
+	const string &GetArgUnits (void) const { return argUnits; };
+	float GetArgMin (void) { return argMin; };
+	float GetArgMax (void) { return argMax; };
+	int GetArgWidget (void) { return argWidget; };
+
+	void SetArgLabel (const string &label) { argLabel = label; };
+	void SetArgUnits (const string &units) { argUnits = units; };
+	void SetArgMin (float min) { argMin = min; };
+	void SetArgMax (float max) { argMax = max; };
+	void SetArgWidget (int widget) { argWidget = widget; };
 
 	float *Allocate (unsigned int elements);
+
+
 	string argName; /* argument's name */
 	int argIndex; /* where in the arg index this arg is located */
 	float *argValues; /* a pointer to an array of values */
@@ -33,6 +46,23 @@ class thArg {
 	int argPointNodeID; /* index of the node to which the pointer points */
 	int argPointArgID;  /* index of the arg to which the pointer points */
 	int argType; /* is this arg a value or a pointer? */
+
+/* Okay, a bit more info about the data */
+	float argMin, argMax;  /* for knobs and stuff, I'm sure it will be useful
+							  elsewhere, too */
+	int argWidget;  /* XXX We must #define widget types, like slider, knob,
+					   input box, etc etc etc...  This is optional, and will
+					   only really be used by io node args */
+	string argLabel;  /* This will be displayed in the UI */
+	string argUnits;  /* This will be displayed too...  ms, Hz, sec etc... */
+
+	/* In the near future we have to also implement some way of limiting the
+	   values...  like only ints, or only certain fractions (some things will
+	   probably use this, I suggest some kind of array of acceptable values,
+	   with some way of specifying ints only...)  But just default to all
+	   floats between argMin and argMax. */
+	/* We will probably also want more things here later, but this was all I
+	   could think of NEEDING right now. */
 
 	float operator[] (unsigned int i) const {
 		if(!argNum) {
