@@ -1,4 +1,4 @@
-/* $Id: seq.cpp,v 1.3 2003/11/04 09:17:29 misha Exp $ */
+/* $Id: seq.cpp,v 1.4 2003/11/04 09:23:37 misha Exp $ */
 
 #include "config.h"
 
@@ -223,20 +223,19 @@ int main (int argc, char *argv[])
 	printf ("Writing to '%s'\n",(char *)outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
-		if(frame > 0) {
-			if(frame <= i) {
-				do {
-					parse(command, &Synth);
-				} while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i));
-			}
+		if(frame > i) {
+			goto loopend;
 		}
 		else {
-			while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i)) {
-				parse(command, &Synth);
-			}
+			parse(command, &Synth);
 		}
 
+		while(fscanf(seqfile, "%d %[^\n]", &frame, command) && (frame <= i)) {
+			parse(command, &Synth);
+			frame = -1;
+		}
 
+	  loopend:
 		Synth.Process();
 
 		/* output the current window */
