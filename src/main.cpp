@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.85 2003/05/17 14:13:27 ink Exp $ */
+/* $Id: main.cpp,v 1.86 2003/05/17 17:41:00 ink Exp $ */
 
 #include "config.h"
 
@@ -55,7 +55,7 @@ syntax:
 		exit(1);
 	}
 	
-	while ((havearg = getopt (argc, argv, "hp:mn:l:")) != -1) {
+	while ((havearg = getopt (argc, argv, "hp:m:n:l:")) != -1) {
 		switch (havearg) {
 		case 'h':
 			printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
@@ -84,7 +84,7 @@ syntax:
 				
 		case 'm':
 			free(dspname);
-			dspname = strdup (optarg);			
+			dspname = strdup (optarg);	
 			break;
 			
 		case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
