@@ -94,19 +94,23 @@ void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
 	thMod* loaded = NULL;
 
 	if (chanEntry->get_text().empty())
-	  return;
-	
+	{
+		return;
+	}
+
 	synthMutex->lock();
 
 	if ((loaded = synth->LoadMod(chanEntry->get_text().c_str(), *channum,
 		(float)chanAmp->get_value())) == NULL)
 	{
-	  gchar* quux = g_strdup_printf("Couldn't load %s: %s", chanEntry->get_text().c_str(), strerror(errno));
-	  Gtk::MessageDialog baleeted (quux, Gtk::MESSAGE_ERROR);
+		char *error = g_strdup_printf("Couldn't load %s: %s",
+									chanEntry->get_text().c_str(),
+									strerror(errno));
+		Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
 
-	  baleeted.run();
-	  chanEntry->set_text("");
-	  g_free(quux);
+		errorDialog.run();
+		chanEntry->set_text("");
+		g_free(error);
 	}
 	
 	synthMutex->unlock();
