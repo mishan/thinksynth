@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.16 2004/03/27 09:33:38 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.17 2004/03/27 10:00:25 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -8,6 +8,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include <gtk/gtk.h>
 #include <gtkmm.h>
 #include <gtkmm/messagedialog.h>
 
@@ -156,7 +157,7 @@ void PatchSelWindow::LoadPatch (void)
 
 void PatchSelWindow::BrowsePatch (void)
 {
-	Gtk::FileSelection fileSel;
+	Gtk::FileSelection fileSel("thinksynth - Load Patch");
 
 	fileSel.run();
 

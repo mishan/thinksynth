@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.7 2004/03/27 09:33:38 misha Exp $ */
+/* $Id: PatchSelWindow.h,v 1.8 2004/03/27 10:00:25 misha Exp $ */
 
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
@@ -48,6 +48,8 @@ protected:
 	PatchSelColumns patchViewCols;
 private:
 	thSynth *realSynth, *mySynth;
+
+	string prevDir;
 };
 
 #endif /* PATCHSEL_WINDOW_H */
