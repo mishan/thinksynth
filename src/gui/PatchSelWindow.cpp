@@ -45,9 +45,6 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	{
 		char label[11];
 
-//		thMidiChan *chan = synth->GetChannel(i);
-//		thMod *mod = chan->GetMod();
-
 		sprintf(label, "Channel %d", i+1);
 		Gtk::Label *chanLabel = new Gtk::Label(label);
 		string filename = (*patchlist)[i];
@@ -57,7 +54,7 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 		int *channum = new int;
 		*channum = i;
 
-		Gtk::HScale *chanAmp = new Gtk::HScale(0, 20, .5);
+		Gtk::HScale *chanAmp = new Gtk::HScale(0, MIDIVALMAX, .5);
 		chanAmp->set_data("channel", channum);
 		chanAmp->signal_value_changed().connect(
 			SigC::bind<Gtk::HScale *, thSynth *> (SigC::slot(*this, &PatchSelWindow::SetChannelAmp), chanAmp, realSynth));
