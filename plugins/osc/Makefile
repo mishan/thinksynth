@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.6 2003/04/27 20:57:58 joshk Exp $
+# $Id: Makefile,v 1.7 2003/05/03 06:56:00 aaronl Exp $
 
-PLUGIN_NAMES=static simple
-include ../plugin-common.inc
+all: static.so simple.so
+include ../plugin-common.mk

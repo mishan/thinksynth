@@ -1,0 +1,19 @@
+include ../../build.mk
+
+INCLUDES = -I../../src -I../..
+
+plugin_path=@plugin_path@
+
+SO_LDFLAGS=@PLUGIN_LDFLAGS@
+CXXFLAGS+=-DPLUGIN_BUILD
+
+install:
+	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
+	for i in $(PLUGIN_NAMES); do \
+		cp -f $$i@SHARED_SUFFIX@ $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR)); \
+	done
+
+uninstall:
+	for i in $(PLUGIN_NAMES); do \
+		rm -f $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))/$$i@SHARED_SUFFIX@; \
+	done

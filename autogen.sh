@@ -2,13 +2,6 @@
 
 PKG=thinksynth
 
-(automake --version) < /dev/null > /dev/null 2>&1 || {
-	echo;
-	echo "You must have automake installed to compile $PKG";
-	echo;
-	exit;
-}
-
 (autoconf --version) < /dev/null > /dev/null 2>&1 || {
 	echo;
 	echo "You must have autoconf installed to compile $PKG";
@@ -27,8 +20,6 @@ fi
 
 aclocal $ACLOCAL_FLAGS || exit;
 autoheader || exit;
-automake --add-missing --copy;
 autoconf || exit;
-automake || exit;
 if [ "$1" != "--no-configure" ]; then ./configure $@; fi
 

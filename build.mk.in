@@ -1,0 +1,34 @@
+CXX=@CXX@
+CXXFLAGS=@CXXFLAGS@
+
+LDFLAGS=@LDFLAGS@
+USE_SONAME=@USE_SONAME@
+USING_GNU_CXX=@USING_GNU_CXX@
+CXX_MT_BROKEN=@CXX_MT_BROKEN@
+
+ifeq ($(USING_GNU_CXX),yes)
+ifeq ($(wildcard .deps),)
+$(shell mkdir .deps)
+endif
+endif
+
+%.o: %.cpp
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
+
+%@SHARED_SUFFIX@: %.cpp
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS)
+
+ifeq ($(USING_GNU_CXX),yes)
+ifeq ($(CXX_MT_BROKEN),yes)
+	sed 's/\.o:/.@SHARED_SUFFIX@:/g' .deps/$<.dt > .deps/$<.dtx
+	mv .deps/$<.dtx .deps/$<.dt
+endif
+
+-include .deps/*.dt
+endif
+
+distclean::
+clean::
+	rm -rf .deps *@SHARED_SUFFIX@ *.o
+
+.PHONY: distclean clean

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.59 2003/05/02 19:48:24 ink Exp $ */
+/* $Id: main.cpp,v 1.60 2003/05/03 06:56:00 aaronl Exp $ */
 
 #include "config.h"
 
@@ -46,7 +46,7 @@ syntax:
 	while ((havearg = getopt (argc, argv, "hp:m:")) != -1) {
 		switch (havearg) {
 			case 'h':
-				printf (PACKAGE " " VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
+				printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
 				/* TODO: insert some helpful text here */
 				printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
 

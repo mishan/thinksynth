@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.1 2003/05/02 00:31:34 joshk Exp $
+# $Id: Makefile,v 1.2 2003/05/03 06:56:00 aaronl Exp $
 
-PLUGIN_NAMES=adsr
-include ../plugin-common.inc
+all: adsr.so
+include ../plugin-common.mk

@@ -1,20 +1,14 @@
-dnl $Id: configure.ac,v 1.36 2003/05/03 04:58:31 joshk Exp $
+dnl $Id: configure.ac,v 1.37 2003/05/03 06:56:00 aaronl Exp $
 
-AC_INIT
+AC_INIT([thinksynth],[0.1])
+AC_CONFIG_HEADERS([config.h])
 
 dnl Don't let ancient Autoconfs touch this
 AC_PREREQ(2.50)
 
-AC_PREFIX_DEFAULT([/usr/local])
-
-AM_CONFIG_HEADER(config.h)
-AM_MAINTAINER_MODE
+prefix="/usr/local"
 
 AC_CANONICAL_TARGET
-
-PACKAGE="thinksynth"
-VERSION="0.1"
-AM_INIT_AUTOMAKE("$PACKAGE", "$VERSION")
 
 AC_PROG_CXX([$CXX g++ c++])
 AC_PROG_CC([$CC gcc cc egcs])
@@ -25,13 +19,8 @@ AC_LANG(C++)
 LEX_LANG=CXX
 YACC_LANG=CXX
 
-AM_PROG_LEX
-
-if test `expr "$LEX" : .*missing 2>/dev/null` -ne 0; then 
-	AC_MSG_ERROR([A lex implementation is required to build this program.])
-fi
-
 AC_PROG_YACC
+
 
 dnl XXX this is a hack until autoconf gets fixed
 if test "$YACC" = "yacc"; then
@@ -48,6 +37,12 @@ dnl The autoconf macro doesn't realize that it NEEDS -d to produce
 dnl the appropriate headers, so add this stupid hack.
 
 YACC="$YACC -d"
+AC_PROG_LEX
+
+if test `expr "$LEX" : .*missing 2>/dev/null` -ne 0; then 
+	AC_MSG_ERROR([A lex implementation is required to build this program.])
+fi
+
 
 AC_ISC_POSIX
 AC_HEADER_STDC
@@ -65,7 +60,7 @@ if test "_$sedpath" = _; then
 	AC_MSG_ERROR("Cannot find sed: I need it\!")
 fi
 
-CXXFLAGS="-Wall -pedantic -ffast-math"
+CXXFLAGS="-Wall -pedantic -ffast-math -DHAVE_CONFIG_H"
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
@@ -217,7 +212,7 @@ fi
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
 
-AC_CONFIG_FILES([Makefile src/Makefile plugins/plugin-common.inc dsp/Makefile])
+AC_CONFIG_FILES([src/Makefile plugins/plugin-common.mk dsp/Makefile build.mk])
 AC_OUTPUT
 
 echo

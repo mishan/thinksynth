@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.28 2003/04/27 23:06:17 ink Exp $ */
+/* $Id: thinklang.yy,v 1.29 2003/05/03 06:56:01 aaronl Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -38,7 +38,7 @@ void yyerror (const char *str)
 	fprintf(stderr, "line %d: error: %s\n", linenum, str);
 }
 
-int yywrap(void)
+extern "C" int yywrap(void)
 {
 	return 1;
 }
