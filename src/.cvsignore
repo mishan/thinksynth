@@ -3,4 +3,5 @@ thinklex.cpp
 thinklang.cpp
 thinklang.h
 Makefile
+libthink.so*
 .*.dt
