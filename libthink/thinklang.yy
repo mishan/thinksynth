@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.26 2003/04/27 06:05:42 joshk Exp $ */
+/* $Id: thinklang.yy,v 1.27 2003/04/27 23:00:03 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -158,17 +158,6 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 {
 	printf("node %s defined using plugin %s\n", $2.str, $3.str);
 
-/*
-	XXX  --  FIX THIS SHIT
-*/
-
-/*	if(plug_isloaded(plist, $3.str) == 0) {
-		loadplug(&plist, $3.str);
-	}
-	add_thnode(parsemod,$2.str,&targs,$3.str);*/
-//	args_deinit(&targs);
-//	targs=NULL;
-
 	printf("Checking if plugin %s is loaded...\n", $3.str);
 	if(!((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str))
 		{
@@ -179,6 +168,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 			}
 		}
 	parsenode->SetPlugin(((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str));
+	free($3.str);
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
@@ -235,6 +225,8 @@ WORD ASSIGN nodearg
 	node = new char[nodesize];
 	memcpy(node, $3.str, nodesize);
 	
+	free($3.str);
+
 	arg = new char[argsize];
 	memcpy(arg, p, argsize);
 	
@@ -249,9 +241,6 @@ WORD ASSIGN WORD
 |
 WORD ASSIGN fstr
 {
-//	XXX - MORE FIXING
-//	modify_fstring(&targs, $1.str, $3.str);
-
 	char *node, *arg, *p;
 	int argsize, nodesize;
 	
@@ -264,7 +253,9 @@ WORD ASSIGN fstr
 	
 	node = new char[nodesize];
 	memcpy(node, $3.str, nodesize);
-	
+
+	free($3.str);
+
 	arg = new char[argsize];
 	memcpy(arg, p, argsize);
 
@@ -275,18 +266,22 @@ WORD ASSIGN fstr
 plugname:
 WORD MODSEP WORD
 {
+	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 |
 WORD MODSEP plugname
 {
+	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
+	free($3.str);
 }
 ;
 
 nodearg:
 WORD INTO numpoint
 {
+	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 ;
@@ -294,6 +289,7 @@ WORD INTO numpoint
 fstr:		/* a node name and an fstring */
 WORD INTO WORD
 {
+	$$.str = malloc(strlen($1.str) + strlen($3.str) + 1);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 ;
