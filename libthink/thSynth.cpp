@@ -104,22 +104,3 @@ const thPluginManager *thSynth::GetPluginManager(void)
 {
   return &pluginmanager;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

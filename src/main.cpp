@@ -49,7 +49,3 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 	Synth->BuildSynthTree("test");
 	((thMod *)Synth->FindMod("test"))->Process();
 }
-
-
-
-

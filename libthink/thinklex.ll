@@ -63,16 +63,3 @@ name						return NAME;
 \".*\"						   yylval.str = (char *)malloc(strlen(yytext)-1);memcpy(yylval.str, &yytext[1], strlen(yytext)-2);yylval.str[strlen(yytext)-2]=0;return STRING;
 
 %%
-
-
-
-
-
-
-
-
-
-
-
-
-
