@@ -1,10 +1,10 @@
-# $Id: Makefile,v 1.27 2004/11/13 22:54:52 joshk Exp $
+# $Id$
 
 SUBDIRS = src plugins patches dsp etc docs #libthink is pulled in by dependency
 ALL_SUBDIRS = libthink $(SUBDIRS)
 NAME = thinksynth
 VERSION = devel
-exclusions = CVS .cvsignore .\#* debian
+exclusions = .svn .\#* debian
 
 all: config.status $(SUBDIRS)
 
