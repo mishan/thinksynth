@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.22 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thMod.h,v 1.23 2003/04/26 00:21:03 joshk Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -10,12 +10,14 @@ public:
 
 	thNode *FindNode(const char *name);
 	const thArgValue *GetArg (const char *nodename, const char *argname);
+
 	void NewNode(thNode *node);
-	const char *GetName(void) { return modname; };
-	void SetName(char *name);
 	void SetIONode(const char *name);
-	thNode *GetIONode(void) { return ionode; };
 	void PrintIONode(void);
+	thNode *GetIONode(void) const { return ionode; };
+
+	char *GetName(void) const { return modname; };
+	void SetName(char *name);
 
 	void Process (thMod *mod, unsigned int windowlen);
 
