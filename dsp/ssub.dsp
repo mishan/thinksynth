@@ -1,15 +1,19 @@
 name "test";
 
 node ionode {
-	out0 = div->out;
-	out1 = div->out;
+	out0 = filter->out;
+	out1 = filter->out;
     channels = 2;
     play = 1;
 
-	lfo1 = 1.2;
-	lfo2 = 2;
+	lfo1 = 0.82;
+	lfo2 = 0.3;
 	factorlo = 10;
-	factorhi = 40;
+	factorhi = 20;
+
+	cutoff = 0.2;
+	res = 0.5;
+	shaper = 0.8;
 };
 
 node freq misc::midi2freq {
@@ -40,7 +44,7 @@ node factormap2 env::map {
 	outmax = ionode->factorhi;
 };
 
-node osc1 osc::sinsaw {
+node osc1 osc::buzzer {
 	freq = freq->out;
 	factor = factormap1->out;
 };
@@ -58,6 +62,13 @@ node sub math::sub {
 node div math::div {
 	in0 = sub->out;
 	in1 = 2;
+};
+
+node filter filt::inkshape {
+	in = div->out;
+	cutoff = ionode->cutoff;
+	res = ionode->res;
+	shaper = ionode->shaper;
 };
 
 io ionode;
