@@ -10,8 +10,8 @@ node ionode {
 	fmax = 240;
 	toned = 2500;
 	tonemid = 50;
-	ampd = 4000;
-	ampmid = 140;
+	ampd = 5000;
+	ampmid = 70;
 	release = 5000;
 };
 
