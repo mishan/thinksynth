@@ -1,4 +1,4 @@
-/* $Id: AboutBox.cpp,v 1.7 2004/09/17 04:56:16 joshk Exp $ */
+/* $Id: AboutBox.cpp,v 1.8 2004/09/17 06:11:07 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -100,7 +100,7 @@ AboutBox::AboutBox (void)
 		Gtk::Label *label_author = manage(new Gtk::Label(
 			  g_strdup_printf("<b>%s</b>", *a),
 			  Gtk::ALIGN_RIGHT));
-		Gtk::Label *label_email = manage(new Gtk::Label(*e));
+		Gtk::Label *label_email = manage(new Gtk::Label(*e, Gtk::ALIGN_LEFT));
 
 		label_author->set_use_markup(true);
 		vbleft->pack_start(*label_author);
