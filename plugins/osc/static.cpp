@@ -37,16 +37,14 @@ int module_init (int version, thPlugin *plugin)
 int module_callback (void *node, void *mod, unsigned int windowlen)
 {
   int i;
-  float *out = malloc(windowlen*sizeof(float));
+  float *out = new float[windowlen];
 
   for(i=0;i<(int)windowlen;i++) {
     out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
   }
 
-  ((thNode *)node)->SetArg("out", (float *)out, windowlen);
+  ((thNode *)node)->SetArg("out", out, windowlen);
 
-  free(out);
+  delete out;
   return 0;
 }
-
-
