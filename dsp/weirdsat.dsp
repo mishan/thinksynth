@@ -2,26 +2,26 @@ name "test";
 
 node ionode {
 	channels = 2;
-	out0 = dfade->out;
-	out1 = dfade->out;
+	out0 = dfadel->out;
+	out1 = dfader->out;
 	play = 1;
 
 	saturation = 3;
-	dlen = 2000;		# delay length
-	dlfo1 = 0.33;		# the first delay
-	dlfo2 = 0.84;		# the second
-	dflfo = 0.55;		# how fast to pan between delays
-	dwave = 3;			# waveform for the delay panning lfo
+	dlen = 800;			# delay length
+	dlfo1 = 1.25;		# the first delay
+	dlfo2 = 1.47;		# the second
+	dflfo = 0.23;		# how fast to pan between delays
+	dwave = 5;			# waveform for the delay panning lfo
 	dpw = 0.3;			# pw for delay panning lfo
 
 	flfo = 11;			# filter lfo
-	fpw = 0.4;			# filter pw
-	fwave = 5;			# filter lfo waveform
+	fpw = 0.2;			# filter pw
+	fwave = 0;			# filter lfo waveform
 	filtlo = 0.1;		# lower filter boundry
 	filthi = 1;			# upper filter boundry
-	res = 0.8;			# filter res
+	res = 0.6;			# filter res
 
-	octfade1 = 0.3;		# mix between main osc and superoscs
+	octfade1 = 0.5;		# mix between main osc and superoscs
 	octfade2 = 0.4;		# mix between 1st octave up and 2nd
 
 
@@ -93,12 +93,20 @@ node dmap2 env::map {
 	outmax = ionode->dlen;
 };
 
-node dfmap env::map {
-	in = dlfo1->out;
+node dfmapl env::map {
+	in = dflfo->out;
 	inmin = th_min;
 	inmax = th_max;
 	outmin = 0;
 	outmax = 1;
+};
+
+node dfmapr env::map {
+	in = dflfo->out;
+	inmin = th_min;
+	inmax = th_max;
+	outmin = 1;
+	outmax = 0;
 };
 
 node octfade1 mixer::fade {
@@ -140,10 +148,16 @@ node delay2 delay::echo {
 	dry = 0;
 };
 
-node dfade mixer::fade {
+node dfadel mixer::fade {
 	in0 = delay1->out;
 	in1 = delay2->out;
-	fade = dfmap->out;
+	fade = dfmapl->out;
+};
+
+node dfader mixer::fade {
+	in0 = delay1->out;
+	in1 = delay2->out;
+	fade = dfmapr->out;
 };
 
 io ionode;
