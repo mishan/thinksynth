@@ -17,8 +17,6 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define DEGRAD 0.017453
-
 char		*desc = "Basic Oscillator";
 thPluginState	mystate = thActive;
 
@@ -47,24 +45,27 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	int i;
 	float *out = new float[windowlen];
 	float *last[1];
-	float wavelength, position;
+	float wavelength;
+	int position;
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
-	in_freq = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "freq"));
-	in_pw = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "pw"));
-	in_waveform = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "waveform"));
-	in_last = ((thArgValue*)((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "last"));
+	in_freq = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "freq");
+	in_pw = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "pw");
+	in_waveform = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "waveform");
+	in_last = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "last");
+
+	position = (int)in_last->argValues[0];
 
 	for(i=0; i < (int)windowlen; i++) {
-	  wavelength = TH_SAMPLE * (1.0/in_freq->argValues[i]);
+	  wavelength = TH_SAMPLE * (1.0/in_freq->argValues[i%in_freq->argNum]);
 	  if(++position > wavelength) {
 	    position = 0;
 	  }
 
-	  switch((int)in_waveform->argValues[i]) {
+	  switch((int)in_waveform->argValues[0]) { /* MAKE THIS i not 0, once GetValue is reimplemented */
 	    /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri */
 	  case 0:
-	    out[i] = TH_RANGE*sin((position/wavelength)*360*DEGRAD)+TH_MIN;
+		  out[i] = TH_MAX*sin((position/wavelength)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 	    /* 360*DEGRAD = whack, make this better */
 	    break;
 	  case 1:
@@ -72,11 +73,10 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	    break;
 	    /* XXX  Add the rest of these  =] */
 	  }
-	  out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
 	}
 
 	((thNode*)node)->SetArg("out", out, windowlen);
-	*last[0] = position;
+	*last[0] = (float)position;
 	((thNode*)node)->SetArg("last", (float*)last, 1);
 
 	return 0;

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.34 2003/04/26 01:50:09 ink Exp $ */
+/* $Id: main.cpp,v 1.35 2003/04/26 02:55:12 ink Exp $ */
 
 #include "config.h"
 
@@ -35,6 +35,8 @@ int main (int argc, char *argv[])
 	thMod *newmod;
 	int havearg;
 	char *filename;
+
+	int i; /* XXX temporary hack to see more than 1 element of output */
 
 	if (argc < 2) /* Not enough parameters */
 	{
@@ -82,5 +84,7 @@ syntax:
 	newmod->Process(newmod, 1024);
 
 	/*  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]); */
-	printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out"))->argValues[0]);
+	for(i=0;i<1024;i++) { /* XXX temporary hack to view more than 1 element of data */
+		printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out"))->argValues[i]);
+	}
 }
