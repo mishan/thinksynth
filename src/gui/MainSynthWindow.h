@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.13 2004/09/16 07:37:13 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.14 2004/09/16 09:14:15 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,6 +50,7 @@ protected:
 	void channelDeleted (int chan);
 
 	void onAboutBoxHide (void);
+	void onKeyboardHide (KeyboardWindow *kbwin);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;

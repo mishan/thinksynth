@@ -37,10 +37,7 @@
 #include "gthALSAAudio.h"
 #include "gthALSAMidi.h"
 #include "gthJackAudio.h"
-
-#include "ui.h"
 #include "gthSignal.h"
-
 #include "gthPrefs.h"
 
 #include "gui/Keyboard.h"
@@ -74,8 +71,8 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "Usage: %s [options]\n"
 "-h\t\t\tdisplay this help screen\n"
 "-p [path]\t\tmodify the plugin search path\n"
-"-d [alsa|oss|wav]\tchange output driver\n"
-/* "  -o [file|device]\tchange output dest\n" */
+"-d [jack|alsa]\tchange output driver\n"
+"  -o [file|device]\tchange output dest\n"
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
 ;
@@ -234,7 +231,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 
 int main (int argc, char *argv[])
 {
-/*	string outputfname; */
+	string outputfname;
 	string driver = DEFAULT_OUTPUT;
 	int havearg = -1;
 	int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
@@ -246,8 +243,7 @@ int main (int argc, char *argv[])
 	/* init Glib/Gtk args */
 	Gtk::Main mymain(argc, argv);
 
-/*	while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1) */
-	while ((havearg = getopt (argc, argv, "hp:d:r:l:")) != -1)
+	while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1)
 	{
 		switch (havearg)
 		{
@@ -266,13 +262,11 @@ int main (int argc, char *argv[])
 				driver = optarg;
 				break;
 			}
-/*
 			case 'o':
 			{
 				outputfname = optarg;
 				break;
 			}
-*/
 			case 'h':
 			{
 				printf(syntax, argv[0]);
@@ -306,15 +300,16 @@ int main (int argc, char *argv[])
 	Synth = new thSynth(plugin_path, windowlen, samples);
 	prefs = new gthPrefs(Synth);
 
-
 	mainMutex = new Glib::Mutex;
 //	exitCond = new Glib::Cond;
-
 
 	signal(SIGUSR1, (sighandler_t)cleanup);
 	signal(SIGINT, (sighandler_t)cleanup);
 
 	prefs->Load();
+
+	/* create a window first */
+	Synth->Process();
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
@@ -329,11 +324,10 @@ int main (int argc, char *argv[])
 
 		if (driver == "alsa")
 		{ 
-/*
+
 			if (outputfname.length() > 0)
 				aout = new gthALSAAudio(Synth, outputfname.c_str());
 			else
-*/
 				aout = new gthALSAAudio(Synth);
 
 			/* connect our audio out event handler and bind a synth to this
@@ -360,18 +354,6 @@ int main (int argc, char *argv[])
 			fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
 		return 1;
 	}
-
-	
-
-	/* create a window first */
-	Synth->Process();
-
-/*
-	if (outputfname.length() > 0)
-	{
-		printf ("Writing to '%s'\n", outputfname.c_str());
-	}
-*/
 
 	MainSynthWindow synthWindow(Synth, prefs, aout);
 

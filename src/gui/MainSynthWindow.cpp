@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.33 2004/09/16 07:59:06 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.34 2004/09/16 09:14:15 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -244,6 +244,9 @@ void MainSynthWindow::menuKeyboard (void)
 	menuBar.accelerate(*kbwin);
 	kbwin->show_all_children();
 	kbwin->show();
+	kbwin->signal_hide().connect(
+		SigC::bind<KeyboardWindow *>(
+			SigC::slot(*this, &MainSynthWindow::onKeyboardHide), kbwin));
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -266,12 +269,6 @@ void MainSynthWindow::menuAbout (void)
 	aboutBox->show();
 	aboutBox->signal_hide().connect(
 		SigC::slot(*this, &MainSynthWindow::onAboutBoxHide));
-}
-
-void MainSynthWindow::onAboutBoxHide (void)
-{
-	delete aboutBox;
-	aboutBox = NULL;
 }
 
 void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
@@ -385,4 +382,15 @@ void MainSynthWindow::channelDeleted (int chan)
 	notebook.pages().clear();
 	populate();
 	notebook.show_all();
+}
+
+void MainSynthWindow::onAboutBoxHide (void)
+{
+	delete aboutBox;
+	aboutBox = NULL;
+}
+
+void MainSynthWindow::onKeyboardHide (KeyboardWindow *kbwin)
+{
+	delete kbwin;
 }
