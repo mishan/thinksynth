@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.4 2004/08/25 07:36:42 aaronl Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.5 2004/09/06 07:00:02 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -78,7 +78,9 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 
 gthALSAAudio::~gthALSAAudio ()
 {
+	fprintf(stderr, "closing play handle\n");
 	snd_pcm_close(play_handle);
+        fprintf(stderr, "closed play handle\n");
 
 	if (outbuf)
 	{
@@ -255,9 +257,17 @@ int gthALSAAudio::Write (float *inbuf, int len)
 
 			fprintf(stderr, "<< AUDIO UNSUSPENDED >>");
 		}
+		/* play handle got removed from under us, 99% of the time
+		 * this means that a different thread nuked the handle
+		 * after a USR1 */
+		else if (w == -EBADFD)
+		{
+			debug("lost ALSA playback handle, exiting\n");
+			exit(0);
+		}
 		else
 		{
-			fprintf(stderr, "<< UNKNOWN AUDIO WRITE ERROR >>\n");
+			fprintf(stderr, "<< UNKNOWN AUDIO WRITE ERROR: %s >>\n", snd_strerror(w));
 		}
 	}
 
