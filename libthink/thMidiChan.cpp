@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.58 2004/05/04 04:11:21 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.59 2004/05/04 05:15:07 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -56,7 +56,7 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	thMidiNote *midinote;
 	int id = (int)note;
 	map<int, thMidiNote*>::const_iterator i = notes.find(id);
-	if(i == notes.end()) {  
+	if(i != notes.end()) {  
 //		delete(i->second);
 		decaying.push_front(i->second);
 	}
@@ -133,10 +133,11 @@ void thMidiChan::Process (void)
 
 /* Now, the [almost] exact same thing for the list of decaying notes */
 
-	for (list<thMidiNote*>::iterator iter = decaying.begin(); iter != decaying.end(); ++iter)
+	list<thMidiNote*>::iterator diter = decaying.begin();
+	while(diter != decaying.end())
 	{
-		printf("Dup! %i\n", iter);
-		data = *iter;
+		printf("Dup!\n");
+		data = *diter;
 		dirty = 1;
 		data->Process(windowlength);
 		mod = data->GetMod();
@@ -155,9 +156,11 @@ void thMidiChan::Process (void)
 		
 		if(play && (*play)[j] == 0) {
 			printf("Erasing!\n");
-			decaying.erase(iter);
+			decaying.erase(diter);
 			delete data;
 		}
+		
+		++diter;
 	}
 }
 
