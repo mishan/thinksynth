@@ -1,0 +1,166 @@
+# $Id: organ1.dsp,v 1.1 2004/04/07 10:11:51 ink Exp $
+# Synth Organ
+# Leif Ames <ink@bespin.org>
+# 4/7/2004
+
+name "test";
+
+node ionode {
+	channels = 2;
+	out0 = envmixer->out;
+	out1 = envmixer->out;
+	play = env->play;
+
+	vmin = 0.01;
+	vmax = 1;
+
+	fade = vmap->out;
+	waveform = 5;
+
+	band1 = 2;
+	band2 = 4;
+	band3 = 8;
+	band4 = 16;
+
+	a = 200;
+	d = 800;
+	s = 0.5;
+	r = 4000;
+
+	fa = 0;
+	fd = 2000;
+	fs = 0.8;
+	fr = 4000;
+
+	cutmin = 0;
+	cutmax = 0.25;
+	res = 0.2;
+};
+
+node suscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->s;
+};
+
+node env env::adsr {
+	a = ionode->a;
+	d = ionode->d;
+	s = suscalc->out;
+	r = ionode->r;
+	p = ionode->velocity;
+	trigger = ionode->trigger;
+};
+
+node vmap env::map {
+	in = ionode->velocity;
+	inmin = 0;
+	inmax = th_max;
+	outmin = ionode->vmin;
+	outmax = ionode->vmax;
+};
+
+node freq misc::midi2freq {
+	note = ionode->note;
+};
+
+node bandcalc1 math::mul {
+	in0 = freq->out;
+	in1 = ionode->band1;
+};
+
+node bandcalc2 math::mul {
+	in0 = freq->out;
+	in1 = ionode->band2;
+};
+
+node bandcalc3 math::mul {
+	in0 = freq->out;
+	in1 = ionode->band3;
+};
+
+node bandcalc4 math::mul {
+	in0 = freq->out;
+	in1 = ionode->band4;
+};
+
+node osc1 osc::softsqr {
+	freq = freq->out;
+	sfreq = bandcalc1->out;
+	waveform = ionode->waveform;
+};
+
+node osc2 osc::softsqr {
+        freq = freq->out;
+	sfreq = bandcalc2->out;
+        waveform = ionode->waveform;
+	mul = 2;
+#	reset = osc1->sync;
+};
+
+node osc3 osc::softsqr {
+        freq = freq->out;
+		sfreq = bandcalc3->out;
+        waveform = ionode->waveform;
+        mul = 4;
+#        reset = osc2->sync;
+};
+
+node osc4 osc::softsqr {
+        freq = freq->out;
+		sfreq = bandcalc4->out;
+        waveform = ionode->waveform;
+        mul = 8;
+ #       reset = osc3->sync;
+};
+
+node submix1 mixer::fade {
+	in0 = osc1->out;
+	in1 = osc2->out;
+	fade = ionode->fade;
+};
+
+node submix2 mixer::fade {
+	in0 = osc3->out;
+	in1 = osc4->out;
+	fade = ionode->fade;
+};
+
+node mixer mixer::fade {
+	in0 = submix1->out;
+	in1 = submix2->out;
+	fade = ionode->fade;
+};
+
+node filtsuscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->fs;
+};
+
+node filtenv env::adsr {
+	a = ionode->fa;
+	d = ionode->fd;
+	s = filtsuscalc->out;
+	r = ionode->fr;
+	trigger = ionode->trigger;
+};
+
+node filtmap env::map {
+	in = filtenv->out;
+	inmin = 0;
+	inmax = th_max;
+	outmin = ionode->cutmin;
+	outmax = ionode->cutmax;
+};
+
+node filt filt::moog {
+	in = mixer->out;
+	cutoff = filtmap->out;
+	res = ionode->res;
+};
+
+node envmixer mixer::mul {
+	in0 = filt->out_low;
+	in1 = env->out;
+};
+
+io ionode;
