@@ -4,7 +4,6 @@ DSP_DIST_FILES=$(shell find -name '*.dsp')
 
 # Dummy target
 all:
-	echo Making $@ in dsp
 
 distclean:
 	rm -f Makefile
