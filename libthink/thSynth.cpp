@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.89 2004/05/08 21:44:24 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.90 2004/05/08 22:27:10 ink Exp $ */
 
 #include "config.h"
 
@@ -387,11 +387,11 @@ void thSynth::Process (void)
 			
 			for (int i = 0; i < mixchannels; i++)
 			{
-				bufferoffset += thWindowlen;
 				for (int j = 0 ;j < thWindowlen; j++)
 				{
-					thOutput[bufferoffset + 1] += chanoutput[i + (j*notechannels)];
+					thOutput[bufferoffset + j] += chanoutput[i + (j*mixchannels)];
 				}
+				bufferoffset += thWindowlen;
 			}
 		}
 	}
