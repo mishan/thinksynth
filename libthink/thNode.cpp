@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.54 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thNode.cpp,v 1.55 2004/05/09 01:04:38 misha Exp $ */
 
 #include "config.h"
 
@@ -64,7 +64,7 @@ int thNode::AddArgToIndex (thArg *arg)
 {
 	thArg **newindex;
 
-	if(argcounter > argsize)
+	if(argcounter >= argsize)
 	{
 		newindex = (thArg **)calloc(argsize + ARGCHUNK, sizeof(thArg *));
 

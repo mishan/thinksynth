@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.174 2004/05/08 22:49:50 misha Exp $ */
+/* $Id: main.cpp,v 1.175 2004/05/09 01:04:38 misha Exp $ */
 
 #include "config.h"
 
@@ -126,7 +126,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 		jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
 			jack_port_get_buffer(ports[i], nframes);
 
-		memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
+		memcpy(buf, synthbuffer, l * sizeof(float));
 	}
 	
 	/* XXX: we should be using emit() but this fucks up */
@@ -320,8 +320,7 @@ int main (int argc, char *argv[])
 			ports[1] = ((thfJackAudio *)aout)->out_2;
 			ports[2] = NULL;
 
-			jack_set_process_callback(jack_handle, playback_callback,
-									  ports);
+			jack_set_process_callback(jack_handle, playback_callback, ports);
 			jack_activate(jack_handle);
 		}
 		else
