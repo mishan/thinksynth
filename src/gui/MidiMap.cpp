@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.7 2004/11/09 07:20:43 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.8 2004/11/09 07:22:29 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -39,7 +39,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 	destinationHBox = manage(new Gtk::HBox);
 	detailsHBox = manage(new Gtk::HBox);
 
-	channelLbl = manage(new Gtk::Label("Channel"));
+	channelLbl = manage(new Gtk::Label("Midi Channel"));
 	channelAdj = manage(new Gtk::Adjustment(1, 1, 16));
 	channelSpinBtn = manage(new Gtk::SpinButton(*channelAdj, 1, 0));
 	channelSpinBtn->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onChannelChanged));
