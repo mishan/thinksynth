@@ -104,3 +104,12 @@ const thPluginManager *thSynth::GetPluginManager(void)
 {
   return &pluginmanager;
 }
+
+void thSynth::Process(char *modname)
+{
+  thMod *mod = FindMod(modname);
+  mod->Process(mod);
+}
+
+
+

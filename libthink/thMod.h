@@ -15,12 +15,12 @@ public:
 	thNode *GetIONode(void) { return ionode; };
 	void PrintIONode(void);
 
-	void Process (void);
+	void Process (thMod *mod);
 
 	void SetActiveNodes(void);
 
 private:
-	void ProcessHelper (thNode *node);
+	void ProcessHelper (thMod *mod, thNode *node);
 	void SetActiveNodesHelper(thNode *node);
 
 	thBSTree modnodes;

@@ -8,6 +8,7 @@ public:
 	void ListMods(void);
 	void BuildSynthTree(char *modname);
 	const thPluginManager *GetPluginManager(void);
+	void Process(char *modname);
 
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);

@@ -26,6 +26,7 @@ public:
 	thList *GetParents() { return &parents; };
 
 	void SetPlugin (thPlugin *plug);
+	thPlugin *GetPlugin() { return plugin; };
 
 	void Process (void);
 private:
