@@ -1,0 +1,5 @@
+?package(thinksynth):needs="x11" \
+	command="/usr/games/nethack-gnome" \
+	hints="JACK,ALSA,Synthesizer" \
+	section="Apps/Sound" \
+	title="Thinksynth"

@@ -46,6 +46,7 @@ binary-arch: build install
 	dh_installdeb
 	dh_strip
 	dh_shlibdeps -ldebian/libthink3/usr/lib
+	dh_installmenu
 	dh_md5sums
 	dh_gencontrol
 	dh_builddeb
