@@ -13,6 +13,8 @@ node ionode {
 	sfreqlo = 0;
 	sfreqhi = 2500;
 
+	res = 0.6;
+
 	osc2detune = 0.1;
 
 	a = 0;
@@ -68,19 +70,19 @@ node map2 env::map {
 node filt filt::ink {
 	in = mixer2->out;
 	cutoff = map1->out;
-	res = 0.4;
+	res = ionode->res;
 };
 
 node osc osc::softsqr {
 	freq = freq->out;
 	sfreq = map2->out;
-	pw = 0.3;
+	pw = 0.25;
 };
 
 node osc2 osc::softsqr {
 	freq = detune->out;
 	sfreq = map2->out;
-	pw = 0.55;
+	pw = 0.65;
 };
 
 node mixer2 mixer::add {
