@@ -80,17 +80,27 @@ void cleanup (int signum)
 	switch (signum)
 	{
 		case SIGINT:
+			signal(SIGINT, SIG_IGN);
 		  	printf("caught interrupt!\n");
+			if (aout)
+			{
+				printf("closing audio devices...\n");
+				delete aout;
+			}
 
+			exit (0);
+			break;
 		case SIGUSR1:
+			signal(SIGUSR1, SIG_IGN);
+
 			printf("thinksynth shutting down..\n");
+			printf("saving preferences\n");
 			prefs->Save();
 			if (aout)
 			{
 				printf("closing audio devices...\n");
 				delete aout;
 			}
-			signal(SIGUSR1, SIG_IGN);
 			exit (0);
 			break;
 	}
@@ -98,9 +108,9 @@ void cleanup (int signum)
 
 void process_synth (void)
 {
-	mainMutex->lock();
+//	mainMutex->lock();
 	Synth->Process();
-	mainMutex->unlock();
+//	mainMutex->unlock();
 }
 
 /* ALSA callback */
@@ -125,7 +135,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
-	mainMutex->lock();
+//	mainMutex->lock();
 	for(int i = 0; i < chans; i++)
 	{
 		float *synthbuffer = Synth->GetChanBuffer(i);
@@ -133,7 +143,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 		memcpy(buf, synthbuffer, l * sizeof(float));
 	}
-	mainMutex->unlock();
+//	mainMutex->unlock();
 	
 	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
