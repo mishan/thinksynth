@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.18 2004/04/14 00:15:29 misha Exp $ */
+/* $Id: softsqr.cpp,v 1.19 2004/05/08 18:52:50 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,6 +41,9 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	unsigned int i;
+
+	float buf_freq[windowlen], buf_sfreq[windowlen], buf_pw[windowlen];
+
 	float *out;
 	float *out_last;
 	float wavelength, sinewavelength, ratio;
@@ -63,11 +66,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_sw = mod->GetArg(node, args[IN_SFREQ]); // Sine Freq
 	in_pw = mod->GetArg(node, args[IN_PW]); // Pulse Width
 
+	in_freq->GetBuffer(buf_freq, windowlen);
+	in_pw->GetBuffer(buf_pw, windowlen);
+	in_sw->GetBuffer(buf_sfreq, windowlen);
+
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 	for(i = 0; i < windowlen; i++) {
-		val_freq = (*in_freq)[i];
-		val_pw = (*in_pw)[i];
-		val_sw = (*in_sw)[i];
+		val_freq = buf_freq[i];
+		val_pw = buf_pw[i];
+		val_sw = buf_sfreq[i];
 
 		wavelength = TH_SAMPLE * (1.0/val_freq);
 		sinewavelength = TH_SAMPLE * (1.0/val_sw);

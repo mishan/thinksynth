@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.41 2004/05/08 11:35:28 ink Exp $ */
+/* $Id: thArg.cpp,v 1.42 2004/05/08 18:52:50 ink Exp $ */
 
 #include "config.h"
 
@@ -97,7 +97,7 @@ void thArg::GetBuffer(float *buffer, unsigned int size)
 		for(i = 0; i < size; i++)
 		{
 			buffer[i] = argValues[j];
-			if(++j > argNum)
+			if(++j >= argNum)
 			{
 				j = 0;
 			}
