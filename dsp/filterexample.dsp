@@ -6,8 +6,8 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	cutlfo = 1;
-	reslfo = 0.03;
+	cutlfo = 0.10;
+	reslfo = 0.15;
 
 	mincut = 0.01;
 	maxcut = 0.99;
