@@ -1,4 +1,4 @@
-# $Id: bd8.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id: bd8.dsp,v 1.2 2004/12/07 09:14:35 ink Exp $
 name "test";
 
 node ionode {
@@ -7,31 +7,31 @@ node ionode {
 	channels = 2;
 	play = aenv1->play;
 
-	fmin = 22;
-	fmax = 200;
+	fmin = 20;
+	fmax = 170;
 	bandmin = 0;
-	bandmax = 220;
-	toned = 3000;
-	tonemid = 40;
+	bandmax = 200;
+	toned = 2000;
+	tonemid = 0.25;
 	ampd = 5000;
-	ampmid = 180;
-	release = 10000;
+	ampmid = 0.9;
+	release = 12000;
 
-	cutoff = 0.3;
-	res = 0.7;
-	shaper = 2;
+	cutoff = 0.1;
+	res = 0.92;
+	shaper = 10;
 
-	pw = 0.5;
+	pw = 0.1;
 
 	tonemul = 1.15; # How much higher than the last
 	tonemuladd = 0.015; # Linear addition to the multiplication variable
 	dmul = 0.8; # How much shorter than the last
 
-	fade1 = 0.4; # Osc 1 and 2
-	fade2 = 0.4; # Osc 3 and 4
-	fade3 = 0.4; # Osc 4 and 6
-	fade4 = 0.4; # Fader 2 and 3
-	fade5 = 0.33; # Fader 1 and 4
+	fade1 = 0.35; # Osc 1 and 2
+	fade2 = 0.35; # Osc 3 and 4
+	fade3 = 0.35; # Osc 4 and 6
+	fade4 = 0.35; # Fader 2 and 3
+	fade5 = 0.35; # Fader 1 and 4
 };
 
 node mixer1 mixer::mul {
