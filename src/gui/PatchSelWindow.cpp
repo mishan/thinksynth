@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.47 2004/11/26 03:05:14 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.48 2004/11/26 05:14:39 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -67,11 +67,11 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchModel = Gtk::ListStore::create (patchViewCols);
 	patchView.set_model(patchModel);
 
-	populate ();
-
 	patchView.append_column("Channel", patchViewCols.chanNum);
 	patchView.append_column("Filename", patchViewCols.dspName);
 	patchView.append_column("Amplitude", patchViewCols.amp);
+
+	signal_realize().connect(sigc::mem_fun(*this, &PatchSelWindow::populate));
 
 	dspAmp.signal_value_changed().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
