@@ -5,18 +5,20 @@
 name "test";
 
 node ionode {
-    out0 = mixer->out;
+	out0 = mixer->out;
 	out1 = mixer->out;
-    channels = 2;
-    play = snareenv->play;
+	channels = 2;
+	play = snareenv->play;
 
 	tonelen = 2000;
 	tonehi = 280;
 	tonelow = 250;
-	snarelen = 4000;
+	snarelen = 2000;
+	snares = 80;
+	snarer = 3000;
 	snaresample = 0;
-	snare = 0.7;
-	filter = 0.5;
+	snare = 0.8;
+	filter = 0.8;
 };
 
 node mixer mixer::fade {
@@ -46,8 +48,8 @@ node toneenv env::adsr {
 node snareenv env::adsr {
 	a = 0;
 	d = ionode->snarelen;
-	s = 0;
-	r = 0;
+	s = ionode->snares;
+	r = ionode->snarer;
 	trigger = 0;
 };
 
