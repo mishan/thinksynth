@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.18 2004/09/16 10:32:25 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.19 2004/09/18 00:13:29 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -88,9 +88,10 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 	jack_activate(jack_handle);
 }
 
-bool gthJackAudio::tryConnect (bool connect)
+int gthJackAudio::tryConnect (bool connect)
 {
-	static int connected = 0;
+	static bool connected = false;
+	int error = 0;
 	string output;
 
 	if (!jack_handle)
@@ -106,46 +107,45 @@ bool gthJackAudio::tryConnect (bool connect)
 	}
 
 	/* Now try to connect */
-	if (jack_port_by_name(jack_handle, "alsa_pcm:playback_1"))
+	if (jack_port_by_name(jack_handle, "alsa_pcm:playback_1") != NULL)
 		output = "alsa_pcm";
 	else if (jack_port_by_name(jack_handle, "oss:playback_1") != NULL)
 		output = "oss";
 
 	if (output != "")
 	{
-		int error = 0;
+#define MAX_CHANS 2
 		size_t jacklen = output.size() + 12; /* ???:playback_N + NUL */
 #define thlen 17 /* thinksynth:out_N + NUL */
-		char *out = (char*)malloc(jacklen), *ths = (char*)malloc(thlen);
+		char *out = new char[jacklen], *ths = new char[thlen];
 		int i;
 
-		for (i = 1; i <= 2; i++)
+		for (i = 1; i <= MAX_CHANS; i++)
 		{
 			snprintf(out, jacklen, "%s:playback_%d", output.c_str(), i);
 			snprintf(ths, thlen, "thinksynth:out_%d", i);
 			if (connect)
 			{
-				if (jack_connect(jack_handle, ths, out) != 0)
+				if ((error = jack_connect(jack_handle, ths, out)) != 0)
 				{
 					fprintf(stderr, "warning: Could not connect JACK %s -> %s\n",
 						ths, out);
-					error = 1;
 				}
 			}
 			else
 			{
-				if (jack_disconnect(jack_handle, ths, out) != 0)
+				if ((error = jack_disconnect(jack_handle, ths, out)) != 0)
 				{
 					fprintf(stderr, "warning: Could not disconnect from JACK %s -> %s\n",
 						ths, out);
-					error = 1;
 				}
 			}
 		}
-		free (out);
-		free (ths);
 
-		if (!error)
+		delete out;
+		delete ths;
+
+		if (error == 0)
 		{
 			printf(connect ? "JACK connection made to '%s'\n" : "JACK disconnected from '%s'\n", output.c_str());
 			connected = connect;
@@ -153,9 +153,11 @@ bool gthJackAudio::tryConnect (bool connect)
 	}
 	else
 	{
+		error = INT_MAX;
 		fprintf(stderr, "warning: no suitable JACK playback targets found\n");
 	}
-	return connected;
+
+	return error;
 }
 
 void gthJackAudio::registerPorts (void)

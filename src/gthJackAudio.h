@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.10 2004/09/16 10:32:25 misha Exp $ */
+/* $Id: gthJackAudio.h,v 1.11 2004/09/18 00:13:29 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -44,7 +44,7 @@ public:
 
 	bool ProcessEvents (void);
 
-	bool tryConnect (bool connect = true);
+	int tryConnect (bool connect = true);
 
 	int getSampleRate (void);
 	int getBufferSize (void);

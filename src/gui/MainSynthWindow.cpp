@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.37 2004/09/17 04:24:44 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.38 2004/09/18 00:13:29 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -53,6 +53,24 @@ void MainSynthWindow::toggleConnects (void)
 	dis->set_sensitive(c);
 }
 
+static void connectDialog (int error)
+{
+	if (error == INT_MAX) /* better value available? */
+	{
+		Gtk::MessageDialog errorDialog (
+			"Could not find a playback target for JACK\n"
+			"(alsa_pcm or oss.)", Gtk::MESSAGE_ERROR);
+		errorDialog.run();
+	}
+	else
+	{
+		Gtk::MessageDialog errorDialog (g_strdup_printf(
+			"Could not connect to JACK (errno = %d)", error),
+		 	Gtk::MESSAGE_ERROR);
+		errorDialog.run();
+	}
+}
+
 MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)
 {
 	string ** vals;
@@ -76,8 +94,11 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 		vals = prefs->Get("autoconnect");
 		if (vals && *vals[0] == "true")
 		{
-			if (((gthJackAudio*)audio)->tryConnect())
+			int error;
+			if ((error = ((gthJackAudio*)audio)->tryConnect()) == 0)
 				toggleConnects();
+			else
+				connectDialog (error);
 		}
 	}
 	
@@ -208,8 +229,11 @@ void MainSynthWindow::menuJackTry (void)
 
 	if (jaudio)
 	{
-		if (jaudio->tryConnect())
+		int error;
+		if ((error = jaudio->tryConnect()) == 0)
 			toggleConnects();
+		else
+			connectDialog(error);
 	}
 }
 
