@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.44 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.45 2004/11/25 05:52:40 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -19,6 +19,7 @@
 
 #include "config.h"
 
+#include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -161,6 +162,16 @@ void PatchSelWindow::UnloadDSP (void)
 			/* the subsequent signal emitted by patchMgr ought to cause
 			   this object to repopulate itself */
  			patchMgr->unloadPatch((*iter)[patchViewCols.chanNum]-1);
+
+			/* After deletion, nothing will be highlighted, so disable
+			 * things */
+			fileEntry.set_text("");
+			fileEntry.set_sensitive(false);
+			browseButton.set_sensitive(false);
+			unloadButton.set_sensitive(false);
+			saveButton.set_sensitive(false);
+			dspAmp.set_value(0);
+			dspAmp.set_sensitive(false);
 		}
 	}
 }
@@ -184,6 +195,9 @@ bool PatchSelWindow::LoadPatch (void)
 			   PatchSelWindow to correct its own contents */
  			if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
 			{
+				/* focus the new channel */
+				Gtk::TreeModel::Path p(g_strdup_printf("%d", chanNum));
+				patchView.set_cursor(p);
 				return true;
 			}
 			else
@@ -191,7 +205,7 @@ bool PatchSelWindow::LoadPatch (void)
 				char *error = g_strdup_printf("Couldn't load %s: %s",
 											  fileEntry.get_text().c_str(),
 											  strerror(errno));
-				Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
+				Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
 
 				errorDialog.run();
 				g_free(error);
@@ -215,6 +229,15 @@ void PatchSelWindow::BrowsePatch (void)
 
 	if(fileSel.run() == Gtk::RESPONSE_OK)
 	{
+		struct stat st;
+		stat(fileSel.get_filename().c_str(), &st);
+
+		if (!S_ISLNK(st.st_mode) && !S_ISREG(st.st_mode))
+		{
+			fprintf(stderr,"error box...\n");
+			return;
+		}
+
 		fileEntry.set_text(fileSel.get_filename());
 
 		if(LoadPatch())

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.52 2004/11/25 02:28:45 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.53 2004/11/25 05:52:40 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -81,7 +81,7 @@ static void connectDialog (int error)
 			break;
 	}
 
-	Gtk::MessageDialog errorDialog (msg.c_str(), Gtk::MESSAGE_ERROR);
+	Gtk::MessageDialog errorDialog (msg.c_str(), false, Gtk::MESSAGE_ERROR);
 	errorDialog.run();
 }
 
@@ -550,10 +550,17 @@ void MainSynthWindow::onDspEntryActivate (void)
 	string dspfile = dspEntry.get_text();
 	int pagenum = notebook.get_current_page();
 
-	
 	if (patchMgr->newPatch(dspfile, pagenum) == false)
 	{
-		printf("ERROR! Could not load DSP... [Pop-up a dialog]\n");
+		char *error = g_strdup_printf("Couldn't load DSP %s; syntax error, or does not exist",
+			dspfile.c_str());
+		
+		Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
+		
+		errorDialog.run();
+
+		free(error);
+
 		return;
 	}
 
@@ -601,7 +608,14 @@ void MainSynthWindow::onBrowseButton (void)
 		}
 		else
 		{
-			printf("ERROR! Could not load DSP... [Pop-up a dialog]\n");
+			char *error = g_strdup_printf("Couldn't load DSP %s; syntax error, or does not exist",
+				fileSel.get_filename().c_str());
+		
+			Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
+		
+			errorDialog.run();
+
+			free(error);
 		}
 	}
 }
