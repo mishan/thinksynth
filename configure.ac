@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.72 2004/06/19 00:17:57 joshk Exp $
+dnl $Id: configure.ac,v 1.73 2004/06/19 00:22:09 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -205,10 +205,27 @@ else
   AC_SUBST(GTKMM_LIBS,  [`pkg-config gtkmm-2.0 --libs`])
 fi
 
-AC_CHECK_LIB(asound, snd_pcm_hw_params_any,
-[
-  AC_CHECK_HEADER(alsa/asoundlib.h, ASOUND_LIBS="-lasound",
-   [AC_MSG_ERROR([You need the libasound2-dev headers to compile this package.])])], [AC_MSG_ERROR([You need libasound2-dev to compile this package.])])
+AC_MSG_CHECKING([for JACK])
+
+if ! pkg-config --cflags jack >/dev/null 2>&1; then
+  AC_MSG_RESULT([not found])
+  AC_MSG_ERROR([You need the JACK development files to build this software. Try libjack0.80.0-dev in Debian.])
+else
+  AC_MSG_RESULT([found])
+  AC_SUBST(JACK_CFLAGS, [`pkg-config --cflags jack`])
+  AC_SUBST(JACK_LIBS, [`pkg-config --libs jack`])
+fi
+
+AC_MSG_CHECKING([for ALSA])
+
+if ! pkg-config --cflags alsa >/dev/null 2>&1; then
+  AC_MSG_RESULT([not found])
+  AC_MSG_ERROR([You need the ALSA asound development files to build this software. Try libasound2-dev in Debian.])
+else
+  AC_MSG_RESULT([found])
+  AC_SUBST(ALSA_CFLAGS, [`pkg-config --cflags alsa`])
+  AC_SUBST(ALSA_LIBS, [`pkg-config --libs alsa`])
+fi
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)

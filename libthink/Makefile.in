@@ -1,9 +1,13 @@
-# $Id: Makefile.in,v 1.3 2004/04/06 19:03:55 misha Exp $
+# $Id: Makefile.in,v 1.4 2004/06/19 00:22:09 joshk Exp $
 
 libdir=@libdir@
 prefix=@prefix@
 
-all: libthink.so
+# XXX
+all: .bstamp libthink.so
+
+.bstamp:
+	@touch $@
 
 include ../build.mk
 
@@ -28,6 +32,7 @@ LIBOBJS = \
 
 libthink.so: libthink.so.3
 	ln -sf libthink.so.3 libthink.so
+	@rm -f .bstamp
 
 libthink.so.3: $(LIBOBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -Wl,-soname,$@ -o $@ $(LIBOBJS)
@@ -41,7 +46,7 @@ thinklex.cpp: thinklex.ll thinklang.o
 thinklang.hpp:
 
 clean::
-	rm -f libthink.so.3
+	rm -f libthink.so.3 .bstamp
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
