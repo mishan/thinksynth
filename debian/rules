@@ -2,7 +2,7 @@
 # debian/rules for thinksynth
 
 config.status: configure
-	sh configure --prefix=/usr --sysconfdir=/etc
+	sh configure --prefix=/usr --sysconfdir=/etc --with-default-output=alsa
 
 build: build-stamp
 build-stamp: config.status
@@ -25,8 +25,6 @@ install:
 	mkdir -p debian/tmp
 	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp/
 	dh_install --sourcedir=debian/tmp
-#	mv $(D)/usr/bin/thinksynth $(D)/usr/lib/thinksynth/thinksynth-bin
-#	install -m 755 bin/thinksynth.sh $(D)/usr/bin/thinksynth
 
 binary-indep:
 # Ye olde no-op.
@@ -48,4 +46,4 @@ binary-arch: build install
 
 binary: binary-arch
 
-.PHONY: binary binary-arch binary-indep install build
+.PHONY: binary binary-arch binary-indep install build clean
