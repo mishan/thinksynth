@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.30 2003/04/26 04:22:15 ink Exp $ */
+/* $Id: thNode.h,v 1.31 2003/04/27 03:19:49 misha Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -33,7 +33,7 @@ class thNode {
 		void Process (void);
 
 	private:
-		thBSTree args;
+		thBSTree *args;
 		thList parents, children;
 		thPlugin *plugin;
 	

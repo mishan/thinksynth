@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.35 2003/04/25 22:22:20 ink Exp $ */
+/* $Id: thNode.cpp,v 1.36 2003/04/27 03:19:49 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -80,22 +80,30 @@ void thNode::SetPlugin (thPlugin *plug)
 	plugin = plug;
 }
 
-void thNode::CopyArgs (thList *newargs)
+void thNode::CopyArgs (thBSTree *newargs)
 {
-	thListNode *listnode;
 	thArg *newarg;
 	thArgValue *data;
 
-	for(listnode = newargs->GetHead(); listnode; listnode = listnode->prev) {
-		data = (thArgValue *)((thArg *)listnode->data)->GetArg();
-		if(data->argType == ARG_VALUE) {
-			newarg = new thArg(data->argName, data->argValues, data->argNum);
-		}
-		else if(data->argType == ARG_POINTER) {
-			newarg = new thArg(data->argName, data->argPointNode, data->argPointName);
-		}
-		args.Insert(data->argName, newarg);
+	if(!newargs) {
+		return;
 	}
+
+	CopyArgs(newargs->GetLeft());
+
+	data = (thArgValue *)((thArg *)newargs->GetData())->GetArg();
+	if(data->argType == ARG_VALUE) {
+		newarg = new thArg(data->argName, data->argValues, data->argNum);
+	}
+	else if(data->argType == ARG_POINTER) {
+		newarg = new thArg(data->argName, data->argPointNode, 
+						   data->argPointName);
+	}
+
+	args->Insert(data->argName, newarg);
+
+
+	CopyArgs(newargs->GetRight());
 }
 
 void thNode::Process (void)
