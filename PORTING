@@ -3,14 +3,15 @@ thinksynth port status
 
 OS			Build?		Function?
 --			------		---------
-GNU/Linux		yes		yes
+GNU/Linux
 	- ALSA:		yes		yes
 	- JACK:		yes		yes
 
-FreeBSD			???		???
+FreeBSD	
 	- JACK:		???		???
 
-Darwin			???		???
+Darwin
+	- JACK:		no		no
 
 Update this file as ports continue to progress.
 

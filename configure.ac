@@ -50,6 +50,8 @@ else
   AC_MSG_RESULT(no)
 fi
 
+rm -rf .conftest
+
 AC_SUBST(GNU_RMDIR_OPTION)
 
 AC_LANG(C++)
@@ -123,9 +125,6 @@ esac
 
 AC_LINKER_DYNAMIC
 
-rm -f .conftest/x
-rmdir .conftest
-
 if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
 	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
@@ -197,11 +196,8 @@ AC_CHECK_FUNC(basename,,
 
 AC_SUBST(BASENAME_CPP)
 
-PKG_CHECK_MODULES(GTHREAD, gthread-2.0)
-
-if test "$system" != "Darwin/OS X"; then
-
 PKG_CHECK_MODULES(GTKMM, gtkmm-2.4)
+PKG_CHECK_MODULES(SIGC, sigc++-2.0)
 
 PKG_CHECK_MODULES(JACK, jack,
 [
@@ -210,6 +206,8 @@ PKG_CHECK_MODULES(JACK, jack,
 	GTH_JACK_AUDIO=gthJackAudio.o
 	
 ], have_jack=0)
+
+if test "$system" != "Darwin/OS X"; then
 
 PKG_CHECK_MODULES(ALSA, alsa, 
 [
@@ -221,14 +219,11 @@ PKG_CHECK_MODULES(ALSA, alsa,
 else
 
 have_alsa=0
-have_jack=0
 
 fi
 
 AC_SUBST(GTH_ALSA)
 AC_SUBST(GTH_JACK_AUDIO)
-
-PKG_CHECK_MODULES(SIGC, sigc++-2.0)
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)

@@ -13,7 +13,7 @@ AC_DEFUN([AC_SUBST_DIR], [
 AC_DEFUN([AC_CXX_MT_BROKEN], [
 	AC_MSG_CHECKING([if using -MT breaks $CXX])
 	echo 'int test_func (void) {}' > conftest.cpp
-	$CXX -Wp,-MMD,.confdep,-MTconftest.so -shared conftest.cpp -o conftest.so
+	$CXX -Wp,-MMD,.confdep,-MTconftest.so -c conftest.cpp -o conftest.so
 
 	if test -f conftest.so && nm conftest.so | grep -q test_func; then
 		CXX_MT_BROKEN=no

@@ -14,3 +14,10 @@ TODO before the Thinksynth alpha
 * remove or fix (argify) obsolete DSPs
 - better descriptions in debian/control
 - make a spec file for RH based distros?
+
+OS X port
+---------
+- PortAudio backend (which in turn fits into CoreAudio for OS X, and moreover
+  magically saves us from having to code more audio backends for other operating
+  systems - including Windows.)
+- Installation instructions. Getting it set up was a real bitch.
