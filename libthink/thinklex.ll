@@ -56,6 +56,8 @@ io				return IO;
 
 \$				return DOLLAR;
 
+\".*\"						   return STRING;
+
 %%
 
 

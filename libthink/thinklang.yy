@@ -52,6 +52,7 @@ int yywrap(void)
 %token MODSEP
 %token ADD SUB MUL DIV MOD CPAREN OPAREN NIL
 %token DOLLAR
+%token STRING
 
 %%
 
