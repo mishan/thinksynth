@@ -1,4 +1,4 @@
-/* $Id: ds.cpp,v 1.1 2003/06/11 04:47:40 ink Exp $ */
+/* $Id: ds.cpp,v 1.2 2003/06/11 05:27:20 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,7 +71,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		  diff = TH_RANGE * (diff > 0 ? 1 : -1);
 	  }
 
-	  highout[i] = diff;
+	  highout[i] = diff/2;
 	  diff *= fact;
 	  last += diff;
 

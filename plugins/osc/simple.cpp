@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.30 2003/06/07 18:27:40 ink Exp $ */
+/* $Id: simple.cpp,v 1.31 2003/06/11 05:27:20 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,10 +46,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	float *out_last, *sync;
 	float halfwave, ratio;
-	float position, wavelength, freq;
+	float position;
+	double wavelength, freq;
+	float mul;
 	float pw; /* Make pw cooler! */
 	float fmamt;
-	thArg *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset;
+	thArg *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset, *in_mul;
 	thArg *out_arg, *out_sync;
 	thArg *inout_last;
 
@@ -68,7 +70,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_fm = mod->GetArg(node, "fm"); /* FM Input */
 	in_fmamt = mod->GetArg(node, "fmamt"); /* Modulation amount */
 	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
-
+	in_mul = mod->GetArg(node, "mul");  /* Multiply the wavelength by this */
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];
 		freq = (*in_freq)[i];
@@ -80,6 +82,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 
 		wavelength = TH_SAMPLE/freq;
+
+		mul = (*in_mul)[i];
+		if(mul) {
+			wavelength *= mul;  /* floats are inpresice, if you do freq/2 you
+								   get the beating effect.  grr */
+		}
 
 		if(position > wavelength || (*in_reset)[i] == 1) {
 			position = 0;

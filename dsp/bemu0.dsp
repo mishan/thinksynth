@@ -14,11 +14,6 @@ node freq misc::midi2freq {
 	note = ionode->note;
 };
 
-node moddiv math::div {
-	in0 = freq->out;
-	in1 = 2;
-};
-
 node osc osc::simple {
 	freq = freq->out;
 	waveform = 1;
@@ -26,8 +21,9 @@ node osc osc::simple {
 };
 
 node modosc osc::simple {
-	freq = moddiv->out;
+	freq = freq->out;
 	waveform = 2;
+	mul = 2;	# Octave down
 };
 
 node modmap env::map {
