@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.23 2004/03/26 08:11:29 misha Exp $ */
+/* $Id: thMidiChan.h,v 1.24 2004/05/04 04:12:26 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -31,6 +31,7 @@ private:
 	thMod *modnode;
 	map<string, thArg*> args;
 	map<int, thMidiNote*> notes;
+	list<thMidiNote*> decaying;  /* linked list for decaying notes */
 	int channels, windowlength;
 	float *output;
 	int outputnamelen;
