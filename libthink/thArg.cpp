@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.50 2004/11/09 00:48:17 ink Exp $ */
+/* $Id: thArg.cpp,v 1.51 2004/11/09 00:55:40 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -18,6 +18,8 @@
  */
 
 #include "config.h"
+
+#include <string.h>
 
 #include "think.h"
 
@@ -189,4 +191,10 @@ void thArg::SetValue(float value)
 {
 	Allocate(1);
 	values_[0] = value;
+}
+
+void thArg::SetValues(float *values, int len)
+{
+	Allocate(len);
+	memcpy(values_, values, len);
 }

@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.42 2004/11/09 00:48:17 ink Exp $ */
+/* $Id: thArg.h,v 1.43 2004/11/09 00:55:40 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,6 +41,7 @@ public:
 	void SetArg(const string &name, const string &chanarg);
 
 	void SetValue(float value); /* set a single float value */
+	void SetValues(float *values, int len); /* set a longer arg */
 
 	void SetIndex (int i) { index_ = i; };
 	int GetIndex (void) { return index_; };
