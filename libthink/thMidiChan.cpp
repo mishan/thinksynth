@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.48 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.49 2003/06/01 18:47:48 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -73,7 +73,7 @@ void thMidiChan::Process (void)
 	thMidiNote *data;
 	thArg *arg, *amp, *play;
 	thMod *mod;
-	int i, j;
+	int i, j, index;
 	int delnote = 0;
 
 	string argname;
@@ -92,14 +92,21 @@ void thMidiChan::Process (void)
 			argname += (char)(i+'0');
 			arg = mod->GetArg(argname);
 			for(j=0;j<windowlength;j++) {
-				output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+				index = i+(j*channels);
+				output[index] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 				if(play && (*play)[j] == 0) {
 					delnote = 1;
 				}
 				/* output += channel output * (amplitude/amplitude maximum) */
+				if(output[index] > TH_MAX) {  /* clipping! */
+					output[index] = TH_MAX;
+				}
+				else if(output[index] < TH_MIN) {
+					output[index] = TH_MIN;
+				}
 			}
 		}
-
+		
 		if(delnote == 1) {
 			delete data;
 			notes.erase(iter);

@@ -1,26 +1,28 @@
 name "test";
 
 node ionode {
-	out0 = filt->out_low;
-	out1 = filt->out_low;
+	out0 = filt->out;
+	out1 = filt->out;
 	channels = 2;
 	play = 1;
 
-	cutlfo = .025;
-	reslfo = 0;
+	cutlfo = 1;
+	reslfo = 0.1;
 
-	mincut = 0.25;
-	maxcut = 0.75;
-	minres = 0.50;
-	maxres = 0.99;
+	mincut = 0;
+	maxcut = 1;
+	minres = 0;
+	maxres = 0.95;
 
-	pitch = 80;
+	pitch = 55;
 	waveform = 1;
+	pw = 0.4;
 };
 
 node cutlfo osc::simple {  # Tri-wave LFO for cutoff
 	freq = ionode->cutlfo;
-	waveform = 3;
+	waveform = 0;
+	pw = 0.5;
 };
 
 node reslfo osc::simple {  # Tri-wave LFO for resonance
@@ -47,9 +49,10 @@ node resmap env::map {  # Map the resonance LFO to proper values
 node osc osc::simple {  # The oscillator
 	freq = ionode->pitch;
 	waveform = ionode->waveform;
+	pw = ionode->pw;
 };
 
-node filt filt::moog {  # Do the actual filtering
+node filt filt::ink {  # Do the actual filtering
 	in = osc->out;
 	cutoff = cutmap->out;
 	res = resmap->out;

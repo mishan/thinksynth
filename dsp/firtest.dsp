@@ -6,12 +6,12 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	waveform = 5;
+	waveform = 1;
 	pw = 0.2;
 
-	ilen = 128;
+	ilen = 64;
 	fnum = 10;
-	width = 1;
+	width = 10;
 	firmix = 0.4;
 };
 

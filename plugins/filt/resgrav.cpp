@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.5 2003/06/01 18:47:48 ink Exp $ */
+/* $Id: resgrav.cpp,v 1.1 2003/06/01 18:47:48 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +14,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define SQR(x) (x*x)
+#define SQR(x) ((x)*(x))
 
 char		*desc = "`INK Filter`  Gravity-based low pass";
 thPluginState	mystate = thActive;
@@ -43,12 +43,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	float *aout;
 	float *out_last;
-//	float *out_last_accel = new float[1];
 	thArg *in_arg, *in_cutoff, *in_res;
 	thArg *out_arg, *out_accel;
 	thArg *inout_last;
 	unsigned int i;
-	float in, last, diff, accel;
+	float in, last, accel;
 
 	out_arg = mod->GetArg(node, "out");
 	out_accel = mod->GetArg(node, "aout");
@@ -67,16 +66,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i=0;i<windowlen;i++) {
 		in = (*in_arg)[i];
-		diff = in - last;
-		//printf("diff: %f \tperc: %f \tlast: %f \t%f\n\nres: %f \tcut: %f\n\n", diff, diff/TH_RANGE, last, accel, (*in_res)[i], (*in_cutoff)[i]);
-		accel += (diff*(1-SQR((diff/TH_RANGE)*0.98)))*SQR((*in_cutoff)[i]); /* My special blend of herbs and spices */
-		accel *= (*in_res)[i];
-		
-		if(abs((int)accel) > TH_RANGE) {
-			accel = 0;
-			last = 0;
+		if(last > in) {
+			accel -= (*in_cutoff)[i];
+		}
+		else if (last < in) {
+			accel += (*in_cutoff)[i];
 		}
 
+		accel *= 1+(-1*SQR((*in_res)[i]-1));
+//		printf("%f \t%f\n", (*in_res)[i], 1+(-1*SQR((*in_res)[i]-1)));
 		last += accel;
 
 		aout[i] = accel;
