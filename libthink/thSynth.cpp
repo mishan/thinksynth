@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.107 2004/10/01 08:52:25 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.108 2004/10/21 22:47:13 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -53,6 +53,8 @@ thSynth::thSynth (int windowlen, int samples)
 
 	/* default path */
 	pluginmanager = new thPluginManager(PLUGIN_PATH);
+
+	controllerHandler_ = new thMidiController();
 }
 
 thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
@@ -77,6 +79,8 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
 
 	pluginmanager = new thPluginManager(plugin_path);
+
+	controllerHandler_ = new thMidiController();
 }
 
 thSynth::~thSynth (void)
@@ -244,6 +248,19 @@ int thSynth::SetChanArgData (int channum, const string &argname, float *data, in
 	argp->len_ = len;
 
 	return 1;
+}
+
+void thSynth::handleMidiController (unsigned char channel, unsigned int param,
+									unsigned int value)
+{
+	controllerHandler_->handleMidi(channel, param, value);
+}
+
+void thSynth::newMidiControllerConnection (unsigned char channel,
+										unsigned int param,
+										thMidiControllerConnection *connection)
+{
+	controllerHandler_->newConnection(channel, param, connection);
 }
 
 thMod * thSynth::LoadMod (const string &filename, int channum, float amp)

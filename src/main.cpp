@@ -229,6 +229,8 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			case SND_SEQ_EVENT_CONTROLLER:
 			{
 //				debug("CONTROLLER  %d\n", ev->data.control.value);
+				synth->handleMidiController(ev->data.control.channel, ev->data.control.param, ev->data.control.value);
+				
 				break;
 			}
 			default:
@@ -325,6 +327,9 @@ int main (int argc, char *argv[])
 	prefs->Load();
 
 	gthPatchfile test("test.patch", Synth, 0);
+
+	/* create a test midi controller connection */
+	//Synth->newMidiControllerConnection(0, 0, new thMidiControllerConnection(Synth->GetChanArg(0, string("fmax")), 0, 8));
 
 	/* create a window first */
 	Synth->Process();

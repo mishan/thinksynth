@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.56 2004/09/16 10:32:24 misha Exp $ */
+/* $Id: thSynth.h,v 1.57 2004/10/21 22:47:13 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -77,6 +77,12 @@ public:
 	int SetChanArgData (int channum, const string &argname, float *data,
 						 int len);
 
+	void handleMidiController (unsigned char channel, unsigned int param,
+							   unsigned int value);
+	void newMidiControllerConnection (unsigned char channel,
+									  unsigned int param,
+									  thMidiControllerConnection *connection);
+
 	inline thMidiChan * GetChannel (int chan) const
 	{
 		if (chan < channelcount)
@@ -108,6 +114,8 @@ private:
 	int thChans;  /* Number of channels (mono/stereo/etc) */
 	int thWindowlen;
 	long thSamples; /* the number of samples per second*/
+
+	thMidiController *controllerHandler_;
 
 	pthread_mutex_t *synthMutex;
 };
