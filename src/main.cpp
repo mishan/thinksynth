@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.44 2003/04/27 22:10:33 joshk Exp $ */
+/* $Id: main.cpp,v 1.45 2003/04/27 23:39:12 joshk Exp $ */
 
 #include "config.h"
 
@@ -35,7 +35,7 @@ int main (int argc, char *argv[])
 	thMod *newmod;
 	int havearg;
 	char *filename;
-	char *dspname = "test"; /* XXX for debugging */
+	char *dspname = strdup("test"); /* XXX for debugging */
 
 	int i; /* XXX temporary hack to see more than 1 element of output */
 

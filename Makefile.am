@@ -1,8 +1,8 @@
-# $Id: Makefile.am,v 1.5 2003/04/27 00:02:50 joshk Exp $
+# $Id: Makefile.am,v 1.6 2003/04/27 23:39:12 joshk Exp $
 
 SUBDIRS = src plugins dsp
 
 distclean-local:
-	rm -rf autom4te.cache
+	rm -rf autom4te.cache config.h.in~
 	rm -f src/thinklex.cc src/thinklang.h src/thinklang.cc
 
