@@ -1,10 +1,9 @@
-/* $Id: thArg.h,v 1.34 2004/07/01 04:34:04 ink Exp $ */
+/* $Id: thArg.h,v 1.35 2004/07/11 22:44:36 misha Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
 
-#define ARG_VALUE 0
-#define ARG_POINTER 1
+enum thArgType { ARG_VALUE = 0, ARG_POINTER };
 
 class thArg {
 	public:
@@ -45,7 +44,7 @@ class thArg {
 	string argPointName; /* name of the argument a pointer points to */
 	int argPointNodeID; /* index of the node to which the pointer points */
 	int argPointArgID;  /* index of the arg to which the pointer points */
-	int argType; /* is this arg a value or a pointer? */
+	thArgType argType; /* is this arg a value or a pointer? */
 
 /* Okay, a bit more info about the data */
 	float argMin, argMax;  /* for knobs and stuff, I'm sure it will be useful

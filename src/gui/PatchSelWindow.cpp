@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.34 2004/06/30 03:47:45 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.35 2004/07/11 22:44:36 misha Exp $ */
 
 #include "config.h"
 
@@ -221,7 +221,7 @@ void PatchSelWindow::SetChannelAmp (void)
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			float *val = new float;
 			*val = (float)dspAmp.get_value();
-			thArg *arg = new thArg("amp", val, 1);
+			thArg *arg = new thArg(string("amp"), val, 1);
 
 			(*iter)[patchViewCols.amp] = *val;
 
