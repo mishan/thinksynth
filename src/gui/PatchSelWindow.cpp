@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.32 2004/05/25 04:42:47 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.33 2004/05/26 11:16:27 misha Exp $ */
 
 #include "config.h"
 
@@ -14,16 +14,18 @@
 
 #include "PatchSelWindow.h"
 
+#include "thfPrefs.h"
+
+extern thfPrefs *prefs;
+
 #define DSP_PATH PREFIX "/share/thinksynth/"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
  	: dspAmp (0, MIDIVALMAX, 1),
-//	  setButton("Load Patch"), 
 	  browseButton("Browse"),
 	  ampLabel("Amplitude"),
 	  fileLabel("Filename")
 {
-	prevDir = strdup(DSP_PATH);
 	synth = argsynth;
 
 	set_default_size(475, 400);
@@ -50,8 +52,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 	patchModel = Gtk::ListStore::create (patchViewCols);
 	patchView.set_model(patchModel);
-
-	debug("channelcount: %d", channelcount);
 
 	for(int i = 0; i < channelcount; i++)
 	{
@@ -100,7 +100,24 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 						Gtk::FILL|Gtk::EXPAND, 0, 5);
 	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
 						0);
-//	controlTable.attach(setButton, 0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+
+	if (prefs)
+	{
+		string **vals = prefs->Get("dspdir");
+
+		if (vals)
+		{
+			prevDir = strdup(vals[0]->c_str());
+		}
+		else
+		{
+			prevDir = strdup(DSP_PATH);
+		}
+	}
+	else
+	{
+		prevDir = strdup(DSP_PATH);
+	}
 }
 
 PatchSelWindow::~PatchSelWindow (void)
@@ -173,7 +190,13 @@ void PatchSelWindow::BrowsePatch (void)
 				free (prevDir);
 
 			prevDir = g_strdup_printf("%s/", dirname(file));
-			free (file);		
+			free (file);
+
+			string **vals = new string *[2];
+			vals[0] = new string(prevDir);
+			vals[1] = NULL;
+
+			prefs->Set("dspdir", vals);
 		}
 	}
 }
@@ -249,7 +272,6 @@ void PatchSelWindow::CursorChanged (void)
 			   selected */
 			browseButton.set_sensitive(true);
 			fileEntry.set_sensitive(true);
-//			setButton.set_sensitive(true);
 
 			fileEntry.set_text(filename);
 			dspAmp.set_value((double)amp);

@@ -181,3 +181,13 @@ void thfPrefs::Save (void)
 
 	fclose(prefsFile);
 }
+
+string **thfPrefs::Get (const string &key)
+{
+	return prefs[key];
+}
+
+void thfPrefs::Set (const string &key, string **vals)
+{
+	prefs[key] = vals;
+}
