@@ -8,17 +8,25 @@
 #include "thMod.h"
 #include "thMidiNote.h"
 
-thMidiNote::thMidiNote ()
+thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
-	/* create any objects */
+	args = new thList;
+
+	SetArg("note", &note, 1);
+	SetArg("velocity", &velocity, 1);
+}
+
+thMidiNote::thMidiNote (thMod *mod)
+{
+	args = new thList;
 }
 
 thMidiNote::~thMidiNote ()
 {
-	/* free all data */
+	delete args;
 }
 
-void thMidiNote::SetArg (char *name, float *value)
+void thMidiNote::SetArg (char *name, float *value, int num)
 {
 }
 
