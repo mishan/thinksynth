@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.26 2003/04/29 08:33:53 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.27 2003/04/29 08:35:09 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -60,7 +60,6 @@ char *thPluginManager::GetPath (char *name)
 	return path;
 }
 
-/* TODO: Return values.. should we care about them? consider making void? */
 int thPluginManager::LoadPlugin (char *name)
 {
 	thPlugin *plugin;
