@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.15 2003/04/25 19:53:54 joshk Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.16 2003/04/25 21:22:52 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -17,6 +17,7 @@
 #  define AFMT_S16_NE AFMT_S16_BE
 # else
 #  define AFMT_S16_NE AFMT_S16_LE
+# endif
 #endif
 
 #include <errno.h>

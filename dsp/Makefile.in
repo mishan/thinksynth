@@ -1,0 +1,15 @@
+prefix=@prefix@
+datadir=@datadir@
+DSP_DIST_FILES=$(shell find -name '*.dsp')
+
+# Dummy target
+all clean distclean mostlyclean:
+	echo Making $@ in dsp
+
+install:
+	install -d $(DESTDIR)/$(datadir)/thinksynth
+	cp -uf *.dsp $(DESTDIR)/$(datadir)/thinksynth
+
+uninstall:
+	cd $(DESTDIR)/$(datadir)/thinksynth && rm -f $(DSP_DIST_FILES)
+	-rmdir $(DESTDIR)/$(datadir)/thinksynth

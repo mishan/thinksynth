@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.14 2003/04/25 19:53:54 joshk Exp $ */
+/* $Id: thWav.cpp,v 1.15 2003/04/25 21:22:52 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -13,10 +13,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef USING_FREEBSD
-#include <machine/endian.h>
+#ifdef USING_FREEBSD	/* FreeBSD has endian.h elsewhere */
+# include <machine/endian.h>
 #else
-#include <endian.h>
+# include <endian.h>	/* Linux and a lot of other things */
 #endif
 
 #include "thEndian.h"

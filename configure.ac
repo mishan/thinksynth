@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.18 2003/04/25 20:05:18 joshk Exp $
+dnl $Id: configure.ac,v 1.19 2003/04/25 21:22:52 joshk Exp $
 
 AC_INIT
 
@@ -47,16 +47,21 @@ fi
 
 CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
 
-AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. Is your C includes install complete?])])
+AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
 AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing dlfcn.h, we need this for dlopen.])])
 
+dnl Linux has libdl
 AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"],
+
+dnl Others may have it in libc_r
 [AC_CHECK_LIB(c_r, dlopen,
 [
 	LIBS="$LIBS -lc_r"
 	lcr_for_dl=yes
 ],
+
+dnl We need at least one of these
 [AC_MSG_ERROR([No dlopen implementation found on your system. Sorry.])])])
 
 dnl Be smart this time round
@@ -79,7 +84,6 @@ else
 	if test "$system" = "FreeBSD"; then
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
 		CXXFLAGS="$CXXFLAGS -Wno-long-long"
-		bsd_system=yes
 	fi
 	if test "$system" = "Darwin"; then
 	        CXXFLAGS="$CXXFLAGS -traditional-cpp"
@@ -144,7 +148,7 @@ plugin_path=${libdir}/${PACKAGE}/plugins/
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
 
-AC_OUTPUT([Makefile src/Makefile plugins/plugin-common.inc])
+AC_OUTPUT([Makefile src/Makefile plugins/plugin-common.inc dsp/Makefile])
 
 echo
 echo $PACKAGE $VERSION
