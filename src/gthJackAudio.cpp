@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.16 2004/09/15 08:31:38 joshk Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.17 2004/09/16 07:59:06 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -71,7 +71,7 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
   	synth = argsynth;
 
 	if ((jack_handle = jack_client_new("thinksynth")) == NULL)
-	{
+	{	
 		throw errno;
 	}
 

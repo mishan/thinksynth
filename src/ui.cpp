@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.15 2004/09/15 07:40:09 joshk Exp $ */
+/* $Id: ui.cpp,v 1.16 2004/09/16 07:59:06 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -40,11 +40,7 @@
 extern thSynth *Synth;
 extern gthPrefs *prefs;
 extern gthAudio *aout;
-extern Gtk::Main *gtkMain;
 
 void ui_thread (void)
 {
-	MainSynthWindow synthWindow(Synth, prefs, aout);
-
-	gtkMain->run(synthWindow);
 }

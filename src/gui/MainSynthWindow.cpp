@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.32 2004/09/16 07:37:13 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.33 2004/09/16 07:59:06 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -254,7 +254,7 @@ void MainSynthWindow::menuPatchSel (void)
 
 void MainSynthWindow::menuQuit (void)
 {
-	kill (0, SIGUSR1);
+    hide();
 }
 
 void MainSynthWindow::menuAbout (void)

@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.11 2004/09/09 03:17:14 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.12 2004/09/16 07:59:06 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -103,10 +103,9 @@ bool gthALSAMidi::open_seq (void)
 	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
 
 	/* XXX: is this portable??? */
-	mainContext->signal_io().connect(SigC::slot(*this,
-												&gthALSAMidi::pollMidiEvent),
-									 pfds[0].fd, Glib::IO_IN|Glib::IO_PRI,
-									 Glib::PRIORITY_HIGH);
+	Glib::signal_io().connect(SigC::slot(*this,
+										 &gthALSAMidi::pollMidiEvent),
+							  pfds[0].fd, Glib::IO_IN, Glib::PRIORITY_HIGH);
 	/* XXX */
 //	snd_seq_set_input_buffer_size(seq_handle, 50000);
 

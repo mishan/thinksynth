@@ -43,15 +43,17 @@
 
 #include "gthPrefs.h"
 
+#include "gui/Keyboard.h"
+#include "gui/KeyboardWindow.h"
+#include "gui/PatchSelWindow.h"
+#include "gui/MainSynthWindow.h"
+
 /* XXX: globals */
 thSynth *Synth = NULL;
 gthPrefs *prefs = NULL;
 gthAudio *aout = NULL;
 
 static gthALSAMidi *midi = NULL;
-
-static Glib::Thread *ui = NULL;
-static Glib::Dispatcher *process = NULL;
 
 
 Glib::RefPtr<Glib::MainContext> mainContext;
@@ -162,7 +164,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
 
-	while (snd_seq_event_input(seq_handle, &ev))
+	if (snd_seq_event_input(seq_handle, &ev))
 	{
 		switch (ev->type)
 		{
@@ -226,7 +228,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 		
 		snd_seq_free_event(ev);
 	}
-	
+
 	return 0;
 }
 
@@ -240,8 +242,9 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
+	Glib::thread_init();
 	/* init Glib/Gtk args */
-	gtkMain = new Gtk::Main (argc, argv);
+	Gtk::Main mymain(argc, argv);
 
 /*	while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1) */
 	while ((havearg = getopt (argc, argv, "hp:d:r:l:")) != -1)
@@ -303,15 +306,10 @@ int main (int argc, char *argv[])
 	Synth = new thSynth(plugin_path, windowlen, samples);
 	prefs = new gthPrefs(Synth);
 
-	/* Glib/Gtk signal/thread handling init */
-	Glib::thread_init();
-	mainContext = Glib::MainContext::create ();
 
 	mainMutex = new Glib::Mutex;
 //	exitCond = new Glib::Cond;
 
- 	process = new Glib::Dispatcher(mainContext);
-	process->connect(SigC::slot(process_synth));
 
 	signal(SIGUSR1, (sighandler_t)cleanup);
 	signal(SIGINT, (sighandler_t)cleanup);
@@ -363,8 +361,7 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
-	/* create UI thread */
-	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
+	
 
 	/* create a window first */
 	Synth->Process();
@@ -376,10 +373,9 @@ int main (int argc, char *argv[])
 	}
 */
 
-	while (1)
-	{
-		mainContext->iteration (true); /* blocking */
-	}
+	MainSynthWindow synthWindow(Synth, prefs, aout);
+
+	mymain.run( synthWindow );
 
 	delete aout;
 	delete midi;
