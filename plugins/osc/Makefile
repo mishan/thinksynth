@@ -1,2 +1,2 @@
-PLUGIN_NAME=static
+PLUGIN_NAMES=static simple
 include ../plugin-common.inc

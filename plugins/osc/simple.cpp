@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -49,10 +50,10 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	float wavelength, position;
 	thArg *in_freq, *in_pw, *in_waveform, *in_last;
 
-	in_freq = mod->GetArg(node->GetName(), "freq");
-	in_pw = mod->GetArg(node->GetName(), "pw");
-	in_waveform = mod->GetArg(node->GetName(), "waveform");
-	in_last = mod->GetArg(node->GetName(), "last");
+	in_freq = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "freq");
+	in_pw = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "pw");
+	in_waveform = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "waveform");
+	in_last = ((thMod*)mod)->GetArg(((thNode*)node)->GetName(), "last");
 
 	for(i=0; i < (int)windowlen; i++) {
 	  wavelength = TH_SAMPLE * (1.0/in_freq->GetValue(i));
@@ -74,9 +75,9 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	  out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
 	}
 
-	node->SetArg("out", out, windowlen);
+	((thNode*)node)->SetArg("out", out, windowlen);
 	last[0] = position;
-	node->SetArg("last", last, 1);
+	((thNode*)node)->SetArg("last", last, 1);
 
 	return 0;
 }

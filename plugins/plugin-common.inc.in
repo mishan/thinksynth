@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.9 2003/04/25 07:25:22 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.10 2003/04/25 23:05:29 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -8,17 +8,26 @@ plugin_path=@plugin_path@
 
 LDFLAGS = -lm -lc
 
-all: ${PLUGIN_NAME}.so
-
-${PLUGIN_NAME}.so: ${PLUGIN_NAME}.cpp
+all:
+	for i in $(PLUGIN_NAMES); do \
+		make $$i.so THIS_PLUGIN=$$i ;\
+	done
+	
+${THIS_PLUGIN}.so: ${THIS_PLUGIN}.cpp
 	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -pedantic -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $<
 
 distclean clean:
-	rm -f ${PLUGIN_NAME}.so
+	for i in $(PLUGIN_NAMES); do \
+		if [ -f "$$i.so" ]; then rm -f $$i.so; fi\
+	done
 
 install:
 	mkdir -p $(DESTDIR)$(plugin_path)
-	cp -f ${PLUGIN_NAME}.so $(DESTDIR)$(plugin_path)
+	for i in $(PLUGIN_NAMES); do \
+		cp -f $$i.so $(DESTDIR)$(plugin_path)
+	done
 
 uninstall:
-	rm -f $(DESTDIR)$(plugin_path)/${PLUGIN_NAME}.so
+	for i in $(PLUGIN_NAMES); do \
+		rm -f $(DESTDIR)$(plugin_path)/$$i.so; \
+	done
