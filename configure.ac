@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.16 2003/04/25 07:25:22 joshk Exp $
+dnl $Id: configure.ac,v 1.17 2003/04/25 19:37:06 joshk Exp $
 
 AC_INIT
 
@@ -48,9 +48,23 @@ fi
 CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. Is your C includes install complete?])])
-AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing libdl includes. Is your C includes install copmlete?])])
-AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"], [AC_MSG_ERROR([You need libdl to compile and use this program!])])
-AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
+
+AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing dlfcn.h, we need this for dlopen.])])
+
+AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"],
+[AC_CHECK_LIB(c_r, dlopen,
+[
+	LIBS="$LIBS -lc_r"
+	lcr_for_dl=yes
+],
+[AC_MSG_ERROR([No dlopen implementation found on your system. Sorry.])])])
+
+dnl Be smart this time round
+if test "$lcr_for_dl" = yes; then
+	AC_CHECK_LIB(c_r, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
+else
+	AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
+fi
 
 AC_PATH_PROG(unamepath, uname)
 if test "_$unamepath" = _; then
@@ -64,6 +78,7 @@ else
 	fi
 	if test "$system" = "FreeBSD"; then
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
+		bsd_system=yes
 	fi
 	if test "$system" = "Darwin"; then
 	        CXXFLAGS="$CXXFLAGS -traditional-cpp"
