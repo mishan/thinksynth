@@ -36,7 +36,14 @@ thBTree::~thBTree (void)
 
 void thBTree::Insert(char *name, void *data)
 {
-	thBNode *node = new thBNode;
+	thBNode *node;
+
+	if(Find(name)) {
+		fprintf(stderr, "thBTree::Insert: Duplicate node '%s'\n", name);
+		return;
+	}
+
+	node = new thBNode;
 
 	node->name = strdup(name);
 	node->data = data;
@@ -55,8 +62,10 @@ void thBTree::Insert(char *name, void *data)
 void thBTree::InsertHelper(thBNode *root, thBNode *node)
 {
 	switch(StringCompare(node->name, root->name)) {
-	case -1:
 	case 0:
+		fprintf(stderr, "thBTree::InsertHelper: Duplicate node should not exist\n");
+		break;
+	case -1:
 		if(root->left) {
 			InsertHelper(root->left, node);
 		}
@@ -94,10 +103,12 @@ void thBTree::Remove(char *name)
 
 	delete node->name;
 	delete node;
-	
+
 	if(left && right) {
 		switch(StringCompare(left->name, right->name)) {
 		case 0:
+			fprintf(stderr, "thBTree::InsertHelper: Duplicate node should not exist\n");
+			break;
 		case 1:
 			newroot = left;
 			newchild = right;
@@ -179,6 +190,8 @@ void thBTree::RemoveHelper(thBNode *root, thBNode *node)
 			}
 			break;
 			case 0:
+				fprintf(stderr, "thBTree::InsertHelper: Duplicate node should not exist\n");
+				break;
 			case 1:
 				RemoveHelper(root->right, node);
 				break;
@@ -186,6 +199,8 @@ void thBTree::RemoveHelper(thBNode *root, thBNode *node)
 		}
 		break;
 	case 0:
+		fprintf(stderr, "thBTree::InsertHelper: Duplicate node should not exist\n");
+		break;
 	case 1:
 		if(!root->left) {
 			root->left = node;
