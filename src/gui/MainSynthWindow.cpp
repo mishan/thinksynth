@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.35 2004/09/16 09:36:40 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.36 2004/09/16 23:17:16 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -159,9 +159,7 @@ void MainSynthWindow::populateMenu (void)
 	
 		vals = prefs->Get("autoconnect");
 		sel = !!(vals && *vals[0] == "true");
-		debug("set to %s; about to set_active -> %d", vals[0]->c_str(), (int)sel);
 		elem->set_active(sel);
-		debug("done");
 	}
 	
 	/* Help */
