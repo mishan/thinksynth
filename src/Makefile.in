@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.38 2004/05/26 00:14:04 misha Exp $
+# $Id: Makefile.in,v 1.39 2004/05/26 06:00:24 misha Exp $
 
 BINARY = thinksynth
 
@@ -17,7 +17,7 @@ LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ @ASOUND_LIBS@ -L../libthink -lthin
 # objects not compiled anymore:
 # thOSSAudio.o thWav.o
 
-MAINOBJS = main.o ui.o prefs.o $(WIDGETOBJS) thfALSAAudio.o thfALSAMidi.o thfJackAudio.o
+MAINOBJS = main.o ui.o $(WIDGETOBJS) thfALSAAudio.o thfALSAMidi.o thfJackAudio.o thfPrefs.o
 MONOMAINOBJS = monotest.o thALSAAudio.o thWav.o
 WIDGETOBJS = MainSynthWindow.o PatchSelWindow.o Keyboard.o KeyboardWindow.o
 

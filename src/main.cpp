@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.184 2004/05/26 03:22:12 misha Exp $ */
+/* $Id: main.cpp,v 1.185 2004/05/26 06:00:24 misha Exp $ */
 
 #include "config.h"
 
@@ -21,12 +21,15 @@
 #include "thfALSAMidi.h"
 #include "thfJackAudio.h"
 
+#include "thfPrefs.h"
+
 #include "ui.h"
 #include "signal.h"
 #include "prefs.h"
 
 /* XXX: globals */
 thSynth *Synth = NULL;
+thfPrefs *prefs = NULL;
 
 static Glib::Thread *ui = NULL;
 static Glib::Dispatcher *process = NULL;
@@ -59,7 +62,8 @@ void cleanup (int signum)
 {
 	printf("received SIGTERM! exiting...\n\n");
 
-	save_prefs(Synth);
+//	save_prefs(Synth);
+	prefs->Save();
 
 	/* XXX */
 	exitCond->signal();
@@ -252,6 +256,7 @@ int main (int argc, char *argv[])
 
 	/* XXX: create global Synth object */
 	Synth = new thSynth(plugin_path, windowlen, samples);
+	prefs = new thfPrefs(Synth);
 
 	/* Glib/Gtk signal/thread handling init */
 	Glib::thread_init();
@@ -265,7 +270,8 @@ int main (int argc, char *argv[])
 
 	signal(SIGTERM, (sighandler_t)cleanup);
 
-	read_prefs (Synth);
+//	read_prefs (Synth);
+	prefs->Load();
 
 	/* create UI thread */
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
@@ -331,7 +337,8 @@ int main (int argc, char *argv[])
 	delete aout;
 	delete midi;
 
-	save_prefs (Synth);
+	prefs->Save();
+//	save_prefs (Synth);
 
 	return 0;
 }
