@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.23 2003/05/24 08:57:56 aaronl Exp $ */
+/* $Id: thArg.h,v 1.24 2003/05/24 09:16:44 aaronl Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -23,13 +23,11 @@ public:
 	float& operator[] (int i) const {
 		if(argNum == 1) {
 			return argValues[0];
-		} else {
-			if(i < argNum) {
-				return argValues[i];
-			} else {
-				return argValues[i%argNum];
-			}
 		}
+		if(i < argNum) {
+			return argValues[i];
+		}
+		return argValues[i%argNum];
 	}
 };
 
