@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.99 2004/09/19 08:43:38 joshk Exp $
+dnl $Id: configure.ac,v 1.100 2004/09/19 19:41:36 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -13,6 +13,27 @@ AC_PROG_CXX
 AC_PROG_CC
 
 AC_PROG_CXXCPP
+
+dnl Update this when:
+dnl 	- Functions or symbols in the library have been /removed/ or have 
+dnl	  had their type changed
+dnl	- Function /arguments/ have changed
+dnl	- Function /behaviors/ have changed such that users need to make
+dnl	  revisions to the calls to have them work the way they did before
+dnl	  (bad)
+lib_revision=3
+
+dnl Update this when:
+dnl	- The new library needs new supporting libraries, but nothing else
+dnl	  in the API has changed. For example, old GUI depends on old SigC,
+dnl	  and will run with a new libthink, but major, non-deterministic
+dnl	  breakage will occur. Or vice-versa.
+dnl	- The library was misbuilt on all supported architectures and
+dnl	  was released that way.
+lib_minor=1
+lib_revision="${lib_major}.${lib_minor}"
+
+AC_SUBST(lib_revision)
 
 dnl Test for a GNU rmdir which supports --ignore-fail-on-non-empty
 

@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.49 2004/09/18 05:30:34 joshk Exp $
+# $Id: Makefile.in,v 1.50 2004/09/19 19:41:36 joshk Exp $
 
 BINARY = thinksynth
 
@@ -6,6 +6,8 @@ bindir=@bindir@
 prefix=@prefix@
 
 all: thinksynth
+
+soname = @lib_revision@
 
 include ../build.mk
 
@@ -15,13 +17,13 @@ INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
 WIDGETSRCS = gui/AboutBox.cpp gui/MainSynthWindow.cpp gui/PatchSelWindow.cpp gui/Keyboard.cpp gui/KeyboardWindow.cpp
 MAINOBJS = main.o gthALSAAudio.o gthALSAMidi.o @GTH_JACK_AUDIO@ gthPrefs.o
 
-thinksynth: ../libthink/libthink.so.3 gui/gth.a $(MAINOBJS)
+thinksynth: ../libthink/libthink.so.$(soname) gui/gth.a $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) gui/gth.a
 
 gui/gth.a: $(WIDGETSRCS)
 	$(MAKE) -C gui gth.a
 
-../libthink/libthink.so.3:
+../libthink/libthink.so.$(soname):
 # XXX
 ifeq (,$(wildcard ../libthink/.bstamp))
 	$(MAKE) -C ../libthink

@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.7 2004/09/05 07:17:16 joshk Exp $
+# $Id: Makefile.in,v 1.8 2004/09/19 19:41:36 joshk Exp $
 
 libdir=@libdir@
 includedir=@includedir@
@@ -11,6 +11,8 @@ all: .bstamp libthink.so libthink.a
 	@touch $@
 
 include ../build.mk
+
+soname = @lib_revision@
 
 PICFLAGS = -fPIC
 INCLUDES = -I..
@@ -31,11 +33,11 @@ LIBOBJS = \
 	thPluginManager.o \
 	thSynth.o
 
-libthink.so: libthink.so.3
-	ln -sf libthink.so.3 libthink.so
+libthink.so: libthink.so.$(soname)
+	ln -sf libthink.so.$(soname) libthink.so
 	@rm -f .bstamp
 
-libthink.so.3: $(LIBOBJS)
+libthink.so.$(soname): $(LIBOBJS)
 	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -Wl,-soname,$@ -o $@ $(LIBOBJS)
 
 libthink.a: $(LIBOBJS)
@@ -47,21 +49,21 @@ thinklex.cpp: thinklex.ll thinklang.o
 thinklang.hpp:
 
 clean::
-	rm -f libthink.so.3 libthink.so libthink.a .bstamp
+	rm -f libthink.so.$(soname) libthink.so libthink.a .bstamp
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
 
 install:
 	mkdir -p $(DESTDIR)$(libdir)
-	cp -f libthink.so.3 $(DESTDIR)$(libdir)
+	cp -f libthink.so.$(soname) $(DESTDIR)$(libdir)
 	cp -f libthink.a $(DESTDIR)$(libdir)
-	ln -sf libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
+	ln -sf libthink.so.$(soname) $(DESTDIR)$(libdir)/libthink.so
 	mkdir -p $(DESTDIR)$(includedir)/libthink
 	for header in $(wildcard *.h); do \
 		install -m 644 $$header $(DESTDIR)$(includedir)/libthink/; \
 	done
 
 uninstall:
-	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so $(DESTDIR)$(libdir)/libthink.a
+	rm -f $(DESTDIR)$(libdir)/libthink.so.$(soname) $(DESTDIR)$(libdir)/libthink.so $(DESTDIR)$(libdir)/libthink.a
 	rm -rf $(DESTDIR)$(includedir)/libthink
