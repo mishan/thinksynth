@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.63 2004/05/04 07:46:41 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.64 2004/05/04 21:21:04 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -62,7 +62,8 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 		notes.erase(i);
 		*/
 	}
-	midinote = new thMidiNote(modnode, note, velocity);
+/* XXXXXXXXXXXXXXXXXXX: THIS IS BAD   WE MUST REMAP ALLLLL MIDI VALUS AT THE SAME TIME (but we only really have this one right now) */
+	midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
 	notes[id] = midinote;
 
 	return midinote;
