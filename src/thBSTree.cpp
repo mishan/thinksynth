@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.13 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thBSTree.cpp,v 1.14 2003/04/26 02:32:10 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -8,12 +8,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "thList.h"
 #include "thBSTree.h"
 
 thBSTree::thBSTree (void)
 {
-	bRoot = NULL;
+	bsLeft = NULL;
+	bsRight = NULL;
 }
 
 thBSTree::~thBSTree (void)
@@ -21,315 +21,184 @@ thBSTree::~thBSTree (void)
 	DestroyTree(bRoot);
 }
 
-void thBSTree::Insert(const char *name, void *data)
+void thBSTree::Insert(thBSTree *tree)
+{
+	if(!tree) {
+		fprintf(stderr, "thBSTree::Insert: Cannot insert NULL tree\n");
+		return;
+	}
+
+	if(tree->IsEmpty()) {
+		fprintf(stderr, "thBSTree::Insert: Cannot insert empty tree\n");
+		return;
+	}
+
+	Insert(tree->GetId(), tree->GetData());
+
+	if(tree->GetRight()) {
+		Insert(tree->GetRight());
+	}
+	if(tree->GetLeft()) {
+		Insert(tree->GetLeft());
+	}
+}
+
+void thBSTree::Insert(void *id, void *data)
 {
 	thBSNode *node;
 
-	if(!name) {
-		fprintf(stderr, "thBSTree::Insert: Cannot insert node with NULL name\n");
+	if(!id) {
+		fprintf(stderr, "thBSTree::Insert: Cannot insert node with NULL id\n");
 		return;
 	}
 
- 	if(Find(name)) {
-		fprintf(stderr, "thBSTree::Insert: Duplicate node '%s'\n", name);
-	 	return;
-	}
-
-	node = new thBSNode;
- 
-	node->name = strdup(name);
-	node->data = data;
-
-	node->left = NULL;
-	node->right = NULL;
-
-	if(!bRoot) {
-		bRoot = node;
+	if(!data) {
+		fprintf(stderr, "thBSTree::Insert: Cannot insert node with NULL data\n");
 		return;
 	}
 
- 	/* find a place to put this node in */
- 	InsertHelper(bRoot, node);
-}
+	if(IsEmpty()) {
+		bsId = id;
+		bsData = data;
+	}
 
-void thBSTree::InsertHelper(thBSNode *root, thBSNode *node)
-{
-	switch(StringCompare(node->name, root->name)) {
-		/* node is equal to current node, cannot have duplicate nodes */
-	case 0:
-		fprintf(stderr, "thBSTree::InsertHelper: Duplicate node should not exist\n");
-		break;
-		/* node is less than current node */
+	switch(bsCompare(data, bsData)) {
 	case -1:
-		if(root->left) {
-			InsertHelper(root->left, node);
+		if(bsLeft) {
+			bsLeft->Insert(id, data);
 		}
 		else {
-			root->left = node;
+			bsLeft = new thBSTree(bsCompare, id, data);
 		}
 		break;
-		/* node is greater than current node */
+	case 0:
+		bsData = data;
+		return;
+		break;
 	case 1:
-		if(root->right) {
-			InsertHelper(root->right, node);
+		if(bsRight) {
+			bsRight->Insert(id, data);
 		}
 		else {
-			root->right = node;
+			bsRight = new thBSTree(bsCompare, id, data);
 		}
 		break;
 	}
 }
 
-void thBSTree::Remove(const char *name)
+bool thBSTree::Remove(void *id)
 {
-	thBSNode *node = Find(name);
-	thBSNode *parent; /* can be NULL */
-	thBSNode *left, *right; /* can also be NULL */
-	thBSNode *newroot, *newchild; /* both of these are also potentially NULL */
-
-	if(!node) {
-		fprintf(stderr, "thBSTree::Remove: No such node '%s'\n", name);
-		return;
+	/* this node isn't it, tell the children to remove this id,
+	   but avoid calling extra children */
+	if(bsCompare(id, bsId) != 0) {
+		if(bsLeft) {
+			if(!bsLeft->Remove(id) && bsRight) {
+				return bsRight->Remove(id);
+			}
+			return true;
+		}
+		return (bsRight && bsRight->Remove(id));
 	}
 
-	parent = GetParent(bRoot, node);
+	/* XXX: can't free this here, because it would cause issues ... */
+	/*	free(bsId); */
 
-	left = node->left;
-	right = node->right;
+	bsId = NULL;
+	bsData = NULL;
 
-	delete node->name;
-	delete node;
+	if(bsLeft && bsRight) {
+		thBSTree *newchild;
 
-	if(left && right) {
-		switch(StringCompare(left->name, right->name)) {
+		switch(StringCompare(bsLeft->name, bsRight->name)) {
 		case 0:
-			fprintf(stderr, "thBSTree::InsertHelper: Duplicate node should not exist\n");
+			fprintf(stderr, "thBSTree::Remove: Duplicate node should not exist.. Corrupt tree?\n");
 			break;
 		case 1:
-			newroot = left;
-			newchild = right;
+			bsId = bsLeft->GetId();
+			bsData = bsLeft->GetData();
+
+			bsLeft->Remove(bsId);
+			if(bsLeft->IsEmpty()) { /* empty leaf node */
+				delete bsLeft;
+				bsLeft = NULL;
+			}
+
+			newchild = bsRight;
+			bsRight = NULL;
+
+			Insert(newchild);
 			break;
 		case -1:
-			newroot = right;
-			newchild = left;
+			bsId = bsRight->GetId();
+			bsData = bsRight->GetData();
+
+			bsRight->Remove(bsId);
+			if(bsRight->IsEmpty()) { /* empty leaf node */
+				delete bsRight;
+				bsRight = NULL;
+			}
+
+			newchild = bsLeft;
+			bsLeft = NULL;
+
+			Insert(newchild);
 			break;
 		}
 	}
 	else {
-		newroot = left ? left : right;
-		newchild = NULL;
+		if(bsLeft) {
+			bsId = bsLeft->GetId();
+			bsData = bsLeft->GetData();
+
+			bsLeft->Remove(bsId);
+			if(bsLeft->IsEmpty()) { /* empty leaf node */
+				delete bsLeft;
+				bsLeft = NULL;
+			}
+		}
+		else if(bsRight) {
+			bsId = bsRight->GetId();
+			bsData = bsRight->GetData();
+
+			bsRight->Remove(bsId);
+			if(bsRight->IsEmpty()) { /* empty leaf node */
+				delete bsRight;
+				bsRight = NULL;
+			}
+		}
 	}
 
-	if(parent) {
-		if(parent->left == node) {
-			parent->left = newroot;
-		}
-		else { /* parent->right == node */
-			parent->right = newroot;
-		}
-	}
-	else {
-		/* if this node doesn't have a parent, that means it's the root. Make
-		   newroot the new bRoot */
- 		bRoot = newroot;
-	}
-
-	/* if we have a left-over node, we must rebuild the whole tree downwards,
-	   this is what the RemoveHelper method accomplishes */
-	if(newchild) {
-		RemoveHelper(newroot, newchild);	
-	}
+	return true;
 }
 
-thBSNode *thBSTree::Find(const char *name)
+thBSTree *thBSTree::Find(void *id)
 {
-	if(!bRoot) {
+	thBSTree *node = NULL;
+
+	if(!IsEmpty() && (bsCompare(bsId, id) == 0)) {
+		return this;
+	}
+
+	if(IsLeaf()) {
 		return NULL;
 	}
 
-	return FindHelper(bRoot, name);
-}
-
-void thBSTree::PrintTree (void)
-{
-	PrintHelper(bRoot);
-}
-
-void thBSTree::PrintHelper (thBSNode *root)
-{
-	if(!root) {
-		return;
+	if(bsLeft && (node = bsLeft->Find(id))) {
+		return node;
 	}
-
- 	PrintHelper (root->left);
-	printf("%s\n", root->name);
-	PrintHelper (root->right);
-}
-
-thList *thBSTree::GetList (void)
-{
-	thList *tlist;
-
-	if(!bRoot) {
-		return NULL;
-	}
-	
-	tlist = new thList;
-	
-	GetListHelper(bRoot, tlist);
-
-	return tlist;
-}
-
-void thBSTree::GetListHelper(thBSNode *root, thList *tlist)
-{
-	if(!root) {
-		return;
-	}
-
-	tlist->Add(root->data);
-
-	GetListHelper(root->left, tlist);
-	GetListHelper(root->right, tlist);
-}
-
-void thBSTree::RemoveHelper(thBSNode *root, thBSNode *node)
-{
-	if(!root) {
-		fprintf(stderr, "thBSTree::RemoveHelper: root is NULL\n");
-		return;
-	}
-
-	switch(StringCompare(root->name, node->name)) {
-	case -1:
-		if(!root->right) {
-			root->right = node;
-		}
-		else {
-			switch(StringCompare(root->right->name, node->name)) {
-			case -1:
-			{
-				thBSNode *right = root->right;
-				root->right = node;
-				node = right;
-
-				RemoveHelper(root->right, node);
-			}
-			break;
-			case 0:
-				fprintf(stderr, "thBSTree::InsertHelper: Duplicate node should not exist\n");
-				break;
-			case 1:
-				RemoveHelper(root->right, node);
-				break;
-			}
-		}
-		break;
-	case 0:
-		fprintf(stderr, "thBSTree::InsertHelper: Duplicate node should not exist\n");
-		break;
-	case 1:
-		if(!root->left) {
-			root->left = node;
-		}
-		else {
-			switch(StringCompare(root->left->name, node->name)) {
-			case -1:
-			{
-				thBSNode *left = root->left;
-				root->left = node;
-				node = left;
-				
-				RemoveHelper(root->left, node);
-			}
-			break;
-			case 0:
-				fprintf(stderr, "thBSTree::InsertHelper: Duplicate node should not exist\n");
-				break;
-			case 1:
-				RemoveHelper(root->left, node);
-				break;
-			}
-		}
-		break;
-	}
-}
-
-thBSNode *thBSTree::GetParent(thBSNode *root, thBSNode *node)
-{
-	thBSNode *parent;
-
-	if(!root) {
-		return NULL;
-	}
-
-	if((root->left == node) || (root->right == node)) {
-		return root;
-	}
-
-	if((parent = GetParent(root->left, node))) {
-		return parent;
-	}
-
-	else if((parent = GetParent(root->right, node))) {
-		return parent;
+	else if(bsRight) {
+		return bsRight->Find(id);
 	}
 
 	return NULL;
 }
 
-thBSNode *thBSTree::FindHelper(thBSNode *root, const char *name)
+void *thBSTree::GetData (void *id)
 {
-	if(!name) {
-		return NULL;
-	}
-
-	if(root->name && (!strcmp(root->name, name))) {
-		return root;
-	}
-
-	switch(StringCompare(name, root->name)) {
-	case -1:
-	case 0:
-		if(root->left) {
-			return FindHelper(root->left, name);
-		}
-		else {
-			return NULL;
-		}
-		break;
-	case 1:
-		if(root->right) {
-			return FindHelper(root->right, name);
-		}
-		else {
-			return NULL;
-		}
-		break;
-	}
-
-	return NULL;
-}
-
-void thBSTree::DestroyTree (thBSNode *root)
-{
-	if(!root) {
-		return;
-	}
-
-	DestroyTree(root->left);
-	DestroyTree(root->right);
-
-	delete root->name;
-	delete root;
-}
-
-void *thBSTree::GetData (const char *name)
-{
-	thBSNode *node = Find(name);
+	thBSTree *node = Find(id);
 
 	if(node) {
-		return node->data;
+		return node->GetData();
 	}
 
 	return NULL;
