@@ -11,8 +11,8 @@ Architecture: any
 Depends: ${shlibs:Depends}
 Recommends: jackd
 Suggests: jack-rack, qjackctl
-Description: a full-featured synthesizer and keyboard for JACK/ALSA
- thinksynth is a customizable synthesizer that uses JACK for interfacing with
+Description: full-featured synthesizer and keyboard for JACK/ALSA
+ Thinksynth is a customizable synthesizer that uses JACK for interfacing with
  other music hardware/software. It can also work standalone using an ALSA
  output backend, which it is configured by default to do for ease of
  immediate use.
@@ -25,8 +25,8 @@ Section: libs
 Architecture: any
 Depends: ${shlibs:Depends}
 Suggests: libthink3-dev
-Description: the Thinksynth shared library
- thinksynth is a customizable synthesizer that uses JACK for interfacing with
+Description: shared library for Thinksynth
+ Thinksynth is a customizable synthesizer that uses JACK for interfacing with
  other music hardware/software. It can also work standalone using an ALSA
  output backend.
  .
@@ -38,8 +38,8 @@ Section: libdevel
 Architecture: any
 Depends: libthink3 (= ${Source-Version})
 Provides: libthink-dev
-Description: the Thinksynth shared library (development files)
- thinksynth is a customizable synthesizer that uses JACK for interfacing with
+Description: shared library for Thinksynth (development files)
+ Thinksynth is a customizable synthesizer that uses JACK for interfacing with
  other music hardware/software. It can also work standalone using an ALSA
  output backend.
  .
