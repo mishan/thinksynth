@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.2 2004/03/27 07:34:52 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.3 2004/04/01 05:02:30 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -23,6 +23,7 @@
 #include "thSynth.h"
 
 #include "PatchSelWindow.h"
+#include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
 
 extern Glib::Mutex *synthMutex;
@@ -38,6 +39,11 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 	/* File */
 	{
 		Gtk::Menu::MenuList &menulist = menuFile.items();
+
+		menulist.push_back(
+			Gtk::Menu_Helpers::MenuElem("_Keyboard",
+										Gtk::Menu::AccelKey("<ctrl>k"),
+										SigC::slot(&create_keyboard_window)));
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Patch Selector",
