@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.67 2004/05/12 09:09:16 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.68 2004/05/20 21:33:30 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -109,6 +109,8 @@ void thMidiChan::Process (void)
 	thArg *arg, *amp, *play;
 	thMod *mod;
 	int i, j, index;
+	float buf_mix[windowlength];
+	float buf_amp[windowlength];
 
 	string argname;
 
@@ -116,21 +118,24 @@ void thMidiChan::Process (void)
 		 iter != notes.end(); ++iter)
 	{
 		data = iter->second;
+
 		dirty = true;
-
+		
 		data->Process(windowlength);
-
+		
 		mod = data->GetMod();
 		amp = args["amp"];
 		play = mod->GetArg("play");
-
+		
 		for(i = 0; i < channels; i++) {
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
 			arg = mod->GetArg(argname);
+			arg->GetBuffer(buf_mix, windowlength);
+			amp->GetBuffer(buf_amp, windowlength);
 			for(j = 0; j < windowlength; j++) {
 				index = i+(j*channels);
-				output[index] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+				output[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
 			}
 		}
 		
@@ -156,9 +161,11 @@ void thMidiChan::Process (void)
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
 			arg = mod->GetArg(argname);
+			arg->GetBuffer(buf_mix, windowlength);
+			amp->GetBuffer(buf_amp, windowlength);
 			for(j=0;j<windowlength;j++) {
 				index = i+(j*channels);
-				output[index] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+				output[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
 			}
 		}
 		
