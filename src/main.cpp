@@ -39,5 +39,7 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 	thSynth *Synth = new thSynth;
 	Synth->LoadMod(argv[1]);
 	Synth->ListMods();
+	((thMod *)Synth->FindMod("test"))->PrintIONode();
+	printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
 }
 

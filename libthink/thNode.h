@@ -17,6 +17,7 @@ public:
 	void Process (void);
 private:
 	thBSTree *args;
+	thList *parents, *children;
 	thPlugin *plugin;
 
 	char *nodename;

@@ -4,6 +4,7 @@ public:
 	~thSynth();
 
 	void LoadMod(char *name);
+	thMod *FindMod(char *modname);
 	void ListMods(void);
 
 private:
