@@ -1,4 +1,4 @@
-# $Id: sqrtest.dsp,v 1.10 2004/02/09 10:50:28 misha Exp $
+# $Id: sqrtest.dsp,v 1.11 2004/04/22 08:26:59 ink Exp $
 name "test";
 
 node ionode {
@@ -40,7 +40,7 @@ node mixer mixer::mul {
 node env env::adsr {
 	a = 0;
 	d = 7000;
-	s = 110;
+	s = th_max * 0.4;
 	r = 5000;
 	trigger = ionode->trigger;
 };
