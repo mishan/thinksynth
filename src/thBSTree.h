@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.13 2003/04/26 04:44:02 misha Exp $ */
+/* $Id: thBSTree.h,v 1.14 2003/04/27 02:31:43 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -51,7 +51,9 @@ private:
 };
 
 /* inline string comparison function */
-inline int StringCompare(const char *str1, const char *str2) {
+inline int StringCompare(void *_str1, void *_str2) {
+	char *str1 = (char *)_str1, *str2 = (char *)_str2;
+
 	/* error */
 	if(!str1 || !str2) {
 		return -2;
@@ -86,6 +88,21 @@ inline int StringCompare(const char *str1, const char *str2) {
 	/* str1 > str2 */
 	return 1;
 }
+/* inline integer comparison function */
+inline int IntCompare(void *_int1, void *_int2) {
+	int int1 = *((int *)_int1), int2 = *((int *)_int2);
+
+	if(int1 < int2) {
+		return -1;
+	}
+	else if(int1 == int2) {
+		return 0;
+	}
+
+	/* else if(int1 > int2) */
+	return -1;
+}
+
 
 
 #endif /* TH_BSTREE_H */

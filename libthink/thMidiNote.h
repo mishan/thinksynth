@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.h,v 1.8 2003/04/26 00:37:17 joshk Exp $ */
+/* $Id: thMidiNote.h,v 1.9 2003/04/27 02:31:43 misha Exp $ */
 
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
@@ -18,7 +18,7 @@ class thMidiNote {
 		void Process (void);
 
 	private:
-		thBSTree args;
+		thBSTree *args;
 		thMod *modnode;
 };
 

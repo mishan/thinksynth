@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.15 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thMidiNote.cpp,v 1.16 2003/04/27 02:31:43 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -25,6 +25,8 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 
 	SetArg("note", notep, 1);
 	SetArg("velocity", velocityp, 1);
+
+	args = new thBSTree(StringCompare);
 }
 
 thMidiNote::thMidiNote (thMod *mod)
@@ -38,10 +40,10 @@ thMidiNote::~thMidiNote ()
 
 void thMidiNote::SetArg (const char *name, float *value, int num)
 {
-	thArg *arg = (thArg *)args.GetData(name);
+	thArg *arg = (thArg *)args->GetData((void *)name);
 	if(!arg) {
 		arg = new thArg(name, value, num);
-		args.Insert(name, arg);
+		args->Insert((void *)name, (void *)arg);
 	} else {
 		arg->SetArg(name, value, num);
 	}
@@ -49,7 +51,7 @@ void thMidiNote::SetArg (const char *name, float *value, int num)
 
 thArgValue *thMidiNote::GetArg (const char *name)
 {
-	thArg *arg = (thArg *)args.GetData(name);
+	thArg *arg = (thArg *)args->GetData((void *)name);
 	return (thArgValue *)arg->GetArg();
 }
 

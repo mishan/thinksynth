@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.9 2003/04/26 23:08:25 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.10 2003/04/27 02:31:43 misha Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -15,7 +15,7 @@ class thMidiChan {
 
 	private:
 		thMod *modnode;
-		thBSTree args, notes; 
+		thBSTree *args, *notes; 
 };
 
 #endif /* TH_MIDICHAN_H */
