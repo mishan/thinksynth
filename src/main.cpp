@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.165 2004/04/18 00:33:43 misha Exp $ */
+/* $Id: main.cpp,v 1.166 2004/04/18 00:47:43 misha Exp $ */
 
 #include "config.h"
 
@@ -31,6 +31,9 @@
 static Glib::Thread *ui = NULL;
 static Glib::Dispatcher *process = NULL;
 
+Glib::Mutex *mainMutex = NULL;
+Glib::Cond *exitCond  = NULL;
+
 Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
@@ -57,9 +60,10 @@ void cleanup (int signum)
 {
 	printf("received SIGTERM! exiting...\n\n");
 
-	save_prefs(&Synth);
+/*	save_prefs(&Synth);
 
-	exit (0);
+exit (0); */
+	exitCond->signal();
 }
 
 void process_synth (void)
@@ -247,6 +251,9 @@ int main (int argc, char *argv[])
 
 	read_prefs (&Synth);
 
+	mainMutex = new Glib::Mutex;
+	exitCond = new Glib::Cond;
+
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
 	process = new Glib::Dispatcher;
@@ -306,15 +313,16 @@ int main (int argc, char *argv[])
 
 	Synth.Process();
 
-	while (1)
+/*	while (1)
 	{
-		/* oh no, nothing to do! */
 		sleep (100);
-	}
+		} */
+
+	exitCond->wait(*mainMutex);
 
 	delete aout;
 	delete midi;
-	delete gtkMain;
+//	delete gtkMain;
 
 	save_prefs (&Synth);
 
