@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.39 2003/04/27 04:35:25 misha Exp $ */
+/* $Id: thNode.cpp,v 1.40 2003/04/27 04:40:29 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -20,12 +20,13 @@ thNode::thNode (const char *name, thPlugin *thplug)
 	plugin = thplug;
 	nodename = strdup(name);
 	recalc = false;
+	args = new thBSTree(StringCompare);
 }
 
 thNode::~thNode (void)
 {
 	free(nodename);
-	/* free anything else */
+	delete args;
 }
 
 /* We own this string. The caller may not free it. */

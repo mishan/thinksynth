@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.19 2003/04/27 04:27:08 joshk Exp $ */
+/* $Id: thSynth.h,v 1.20 2003/04/27 04:40:29 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -21,11 +21,13 @@ public:
 
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
+	
+	void ListMods(thBSTree *node);
 
-	thBSTree modlist;
+	thBSTree *modlist;
 	thPluginManager pluginmanager;
 	thList chanlist;
-	thBSTree channels;
+	thBSTree *channels;
 
 	unsigned int windowlen;
 };

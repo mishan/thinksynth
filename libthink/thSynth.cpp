@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.33 2003/04/27 04:27:08 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.34 2003/04/27 04:40:29 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -29,10 +29,15 @@ thMod *parsemod;
 thSynth::thSynth()
 {
 	windowlen = 1024;
+
+	modlist = new thBSTree(StringCompare);
+	channels = new thBSTree(StringCompare);
 }
 
 thSynth::~thSynth()
 {
+	delete modlist;
+	delete channels;
 }
 
 void thSynth::LoadMod(const char *filename)
@@ -49,22 +54,33 @@ void thSynth::LoadMod(const char *filename)
 	
 	delete parsenode;
 	
-	modlist.Insert(parsemod->GetName(), parsemod);
+	modlist->Insert((void *)parsemod->GetName(), (void *)parsemod);
 }
 
 thMod *thSynth::FindMod(const char *modname)
 {
-	return (thMod *)modlist.GetData(modname);
+	return (thMod *)modlist->GetData((void *)modname);
 }
 
 /* Make these voids return something and add error checking everywhere! */
 
 void thSynth::ListMods(void)
 {
-	modlist.PrintTree();
+	ListMods(modlist);
 }
 
-const thPluginManager *thSynth::GetPluginManager(void) const
+void thSynth::ListMods(thBSTree *node)
+{
+	if(!node) {
+		return;
+	}
+
+	ListMods(node->GetLeft());
+	printf("%s\n", (char *)node->GetId());
+	ListMods(node->GetRight());
+}
+
+thPluginManager *thSynth::GetPluginManager(void) const
 {
 	return &pluginmanager;
 }
@@ -72,12 +88,12 @@ const thPluginManager *thSynth::GetPluginManager(void) const
 void thSynth::AddChannel(char *channame, char *modname)
 {
 	thMidiChan *newchan = new thMidiChan(FindMod(modname));
-	channels.Insert(channame, newchan);
+	channels->Insert((void *)channame, (void *)newchan);
 }
 
 thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 {
-	thMidiNote *newnote = (thMidiNote *)((thMidiChan *)channels.GetData(channame))->AddNote(note, velocity);
+	thMidiNote *newnote = (thMidiNote *)((thMidiChan *)channels->GetData((void *)channame))->AddNote(note, velocity);
 	return newnote;
 }
 
