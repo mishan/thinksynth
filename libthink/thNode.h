@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.40 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thNode.h,v 1.41 2004/07/23 20:18:54 ink Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -14,6 +14,7 @@ public:
 
 	thArg *SetArg (const string &name, float *value, int num);
 	thArg *SetArg (const string &name, const string &node, const string &value);
+	thArg *SetArg (const string &name, const string &chanarg);
 
 	int AddArgToIndex (thArg *arg);
 

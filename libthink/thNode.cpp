@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.55 2004/05/09 01:04:38 misha Exp $ */
+/* $Id: thNode.cpp,v 1.56 2004/07/23 20:18:54 ink Exp $ */
 
 #include "config.h"
 
@@ -58,6 +58,24 @@ thArg *thNode::SetArg (const string &name, const string &node, const string &val
 	}
 
 	return arg;
+}
+
+thArg *thNode::SetArg (const string &name, const string &chanarg)
+{
+    map<string, thArg*>::const_iterator i = args.find(name);
+    thArg *arg;
+
+    if(i != args.end() && i->second /* XXX we should not have to do this */) {
+        arg = i->second;
+        arg->SetArg(name, chanarg);
+    }
+    else {
+        arg = new thArg(name, chanarg);
+        args[name] = arg;
+        arg->SetIndex(AddArgToIndex(arg));
+    }
+     
+    return arg;
 }
 
 int thNode::AddArgToIndex (thArg *arg)

@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.44 2004/05/12 09:09:16 misha Exp $ */
+/* $Id: thArg.cpp,v 1.45 2004/07/23 20:18:54 ink Exp $ */
 
 #include "config.h"
 
@@ -27,6 +27,18 @@ thArg::thArg(const string &name, const string &node, const string &value)
 	argType = ARG_POINTER;
 	argPointNodeID = -1;   /* so we know it has not been set yet */
 	argPointArgID = -1;   /* so we know it has not been set yet */
+}
+
+thArg::thArg(const string &name, const string &chanarg)
+{
+    argName = name;
+    argPointName = chanarg;
+    argValues = NULL;
+    argNum = 0;
+
+    argType = ARG_CHANNEL;
+    argPointNodeID = -1;   /* so we know it has not been set yet */
+    argPointArgID = -1;   /* so we know it has not been set yet */
 }
 
 /* the equivalent of creating a thArg(NULL, NULL, 0) */
@@ -88,6 +100,14 @@ void thArg::SetArg(const string &name, const string &node, const string &value)
 	argPointName = value;
 	
 	argType = ARG_POINTER;
+}
+
+void thArg::SetArg(const string &name, const string &chanarg)
+{
+    argName = name;
+    argPointName = chanarg;
+
+    argType = ARG_CHANNEL;
 }
 
 void thArg::GetBuffer(float *buffer, unsigned int size)

@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.57 2004/07/18 21:22:50 ink Exp $ */
+/* $Id: thinklang.yy,v 1.58 2004/07/23 20:18:54 ink Exp $ */
 
 %{
 #include "config.h"
@@ -330,6 +330,19 @@ WORD ASSIGN fstr
 	delete[] arg;
 	delete[] $3.str;
 	free($1.str);
+}
+|
+WORD ASSIGN ATSIGN WORD
+{
+	char *chanarg;
+	int chanarglen;
+
+	chanarglen = strlen($4.str);
+	chanarg = new char[chanarglen + 1];		/* +1 for the terminating '\0' */
+	memcpy(chanarg, $4.str, chanarglen + 1);
+
+    parsenode->SetArg($1.str, chanarg)->SetIndex(-1); /* XXX: This is sorta
+                                        hackish, make it not index it here */
 }
 ;
 

@@ -1,20 +1,24 @@
-/* $Id: thArg.h,v 1.36 2004/07/18 21:22:50 ink Exp $ */
+/* $Id: thArg.h,v 1.37 2004/07/23 20:18:54 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
 
-enum thArgType { ARG_VALUE = 0, ARG_POINTER };
+enum thArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
+/* immidiate value, pointer to another node, pointer to a channel arg, or
+   pointer to a note arg. */
 
 class thArg {
 	public:
 	thArg(const string &name, float *value, const int num);
 	thArg(const string &name, const string &node, const string &value);
+	thArg(const string &name, const string &chanarg);
 	thArg();
 	~thArg();
 	
 	void SetArg(const string &name, float *value, const int num);
 	void SetAllocatedArg(const string &name, float *value, const int num);
 	void SetArg(const string &name, const string &node, const string &value);
+	void SetArg(const string &name, const string &chanarg);
 
 	void SetIndex (int i) { argIndex = i; };
 	int GetIndex (void) { return argIndex; };
