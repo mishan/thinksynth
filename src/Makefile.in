@@ -1,4 +1,4 @@
-alk: thinksynth
+all: thinksynth
 
 include ../build.mk
 
