@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.24 2003/04/27 08:52:45 joshk Exp $
+dnl $Id: configure.ac,v 1.25 2003/04/27 19:16:38 joshk Exp $
 
 AC_INIT
 
@@ -113,16 +113,24 @@ else
 		;;
 		CYGWIN*)
 			AC_DEFINE([USING_CYGWIN], 1, [Define if using Cygwin/Win32])
-			PLUGIN_FLAGS="-MD -MP -MF '.depend'"
-			AC_SUBST(PLUGIN_FLAGS)
+			SHARED_SUFFIX=".dll"
 		;;
 	esac
 	
 	dnl Cygwin's g++ port doesn't support this, just kill some warnings
 	if test `expr $system : CYGWIN` -eq 0; then
 		CXXFLAGS="$CXXFLAGS -rdynamic"
+		USE_SONAME=yes
+		PLUGIN_LDFLAGS="-lm -lc"
+		SHARED_SUFFIX=".so"
 	fi
 fi
+
+AC_SUBST(USE_SONAME)
+AC_SUBST(PLUGIN_LDFLAGS)
+
+AC_SUBST(SHARED_SUFFIX)
+AC_DEFINE([SHARED_SUFFIX], "$SHARED_SUFFIX", [Suffix of shared libraries on this platform.])
 
 AC_ARG_ENABLE(debug,
 AC_HELP_STRING([--disable-debug],[print debug messages to stdout (default on)]),
