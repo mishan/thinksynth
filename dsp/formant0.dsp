@@ -9,19 +9,24 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	f1 = 270;
-	f2 = 2290;
+	f1 = 300;
+	f2 = 1950;
 	f3 = 3010;
 
-	fade1 = 0.4;
-	fade2 = 0.4;
+	fade1 = 0.3;
+	fade2 = 0.5;
 
-	wave = 4;
-	wave2 = 4;
-	fmmul = 1;
-	fmamt = 0.2;
+	wave = 2;
+	pw = 0.4 ;
+	detune1 = 1.2;
+	detune2 = -0.8;
+	detune3 = 2.1;
 
-	res = 0.3;
+	oscfade1 = 0.4;
+	oscfade2 = 0.4;
+	oscfade3 = 0.3;
+
+	res = 5;
 
 };
 
@@ -29,18 +34,23 @@ node freq misc::midi2freq {
 	note = ionode->note;
 };
 
-node fmfreq math::mul {
+node detune1 math::add {
 	in0 = freq->out;
-	in1 = ionode->fmmul;
+	in1 = ionode->detune1;
 };
 
-node subfreq math::div {
+node detune2 math::add {
 	in0 = freq->out;
-	in1 = 2;
+	in1 = ionode->detune2;
+};
+
+node detune3 math::add {
+	in0 = freq->out;
+	in1 = ionode->detune3;
 };
 
 node mixer mixer::fade {
-	in0 = filt1->out;
+	in0 = filt1->out_band;
 	in1 = mixer2->out;
 	fade = ionode->fade1;
 };
@@ -52,33 +62,63 @@ node mixer2 mixer::fade {
 };
 
 node filt1 filt::res2pole {
-	in = osc2->out;
+	in = oscmix3->out;
 	cutoff = ionode->f1;
 	res = ionode->res;
 };
 
 node filt2 filt::res2pole {
-	in = osc2->out;
+	in = oscmix3->out;
 	cutoff = ionode->f2;
 	res = ionode->res;
 };
 
 node filt3 filt::res2pole {
-	in = osc2->out;
+	in = oscmix3->out;
 	cutoff = ionode->f3;
 	res = ionode->res;
 };
 
+node oscmix1 mixer::fade {
+	in0 = osc1->out;
+	in1 = osc2->out;
+	fade = ionode->oscfade1;
+};
+
+node oscmix2 mixer::fade {
+	in0 = osc3->out;
+	in1 = osc4->out;
+	fade = ionode->oscfade2;
+};
+
+node oscmix3 mixer::fade {
+	in0 = oscmix1->out;
+	in1 = oscmix2->out;
+	fade = ionode->oscfade3;
+};
+
 node osc1 osc::simple {
-	freq = fmfreq->out;
-	waveform = ionode->wave2;
+	freq = freq->out;
+	waveform = ionode->wave;
+	pw = ionode->pw;
 };
 
 node osc2 osc::simple {
-	freq = freq->out;
+	freq = detune1->out;
 	waveform = ionode->wave;
-	fm = osc1->out;
-	fmamt = ionode->fmamt;
+	pw = ionode->pw;
+};
+
+node osc3 osc::simple {
+	freq = detune2->out;
+	waveform = ionode->wave;
+	pw = ionode->pw;
+};
+
+node osc4 osc::simple {
+	freq = detune3->out;
+	waveform = ionode->wave;
+	pw = ionode->pw;
 };
 
 io ionode;
