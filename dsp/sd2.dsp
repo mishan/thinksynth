@@ -1,4 +1,4 @@
-# $Id: sd2.dsp,v 1.2 2004/02/09 10:50:28 misha Exp $
+# $Id: sd2.dsp,v 1.3 2004/04/22 09:06:52 ink Exp $
 name "test";
 
 node ionode {
@@ -7,20 +7,20 @@ node ionode {
 	out1 = mixer->out;
 	play = adsr->play;
 
-	freq = 700;
-	freqmul1 = 1.02;
-	freqmul2 = 1.03;
-	depth1 = 0.1;
-	depth2 = 0.25;
-	depth3 = 0.3;
+	freq = 400;
+	freqmul1 = 1.1;
+	freqmul2 = 2;
+	depth1 = 0.8;
+	depth2 = 0.45;
+	depth3 = 0.6;
 
-	attack = 2000;
-	decay = 4000;
-	midp = 20;
+	attack = 20 ms;
+	decay = 60 ms;
+	midp = 20%;
 
-	cutmin = 1000;
-	cutmax = 0;
-	res = 2;
+	cutmin = 0;
+	cutmax = 1000;
+	res = 0.8;
 
 	waveform = 2;
 };

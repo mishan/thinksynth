@@ -1,4 +1,4 @@
-# $Id: sd1.dsp,v 1.3 2004/02/09 10:50:28 misha Exp $
+# $Id: sd1.dsp,v 1.4 2004/04/22 09:10:07 ink Exp $
 name "test";
 
 node ionode {
@@ -9,16 +9,16 @@ node ionode {
 
 	tonemix = 0.1;
 
-	snare_len_d = 2000;
-	snare_len_s = 40;
-	snare_len_r = 3000;
+	snare_len_d = 15 ms;
+	snare_len_s = 20%;
+	snare_len_r = 80 ms;
 	snare_freqhi = 1000;
 	snare_freqlo = 800;
 	snare_filtq = 0.5;
 
-	tone_len_d = 1000;
-	tone_len_s = 100;
-	tone_len_r = 2000;
+	tone_len_d = 10 ms;
+	tone_len_s = 90%;
+	tone_len_r = 30 ms;
 	tone_freqhi = 330;
 	tone_freqlo = 220;
 };
