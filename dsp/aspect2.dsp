@@ -1,4 +1,4 @@
-# $Id: aspect2.dsp,v 1.1 2004/05/25 20:44:21 ink Exp $
+# $Id: aspect2.dsp,v 1.2 2004/05/25 20:55:12 ink Exp $
 # Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
 # 5-20-2004
@@ -22,11 +22,12 @@ node ionode {
 	waveform = 3;
 
 # pulse width
-	pw1 = 0.35;
+	pw1 = 0.25;
 	pw2 = 0.05;
 
 # osc mixing and pitch offset (for osc2)
-	oscmul = 0.500;
+	oscmul1 = 2;
+	oscmul2 = 1.0002;
 	oscfade = 0.3;
 
 # filter minimum and maximum (notes above pitch played)
@@ -117,9 +118,9 @@ node fenv env::adsfr {
 	trigger = ionode->trigger;
 };
 
-node freqmul math::mul {
+node freqmul1 math::mul {
 	in0 = freq->out;
-	in1 = ionode->oscmul;
+	in1 = ionode->oscmul1;
 };
 
 node map1 env::map {  # filter map
@@ -162,15 +163,16 @@ node filt filt::res2pole2 {
 };
 
 node osc1 osc::softsqr {
-	freq = freq->out;
+	freq = freqmul1->out;
 	sfreq = sqrmap1->out;
 	pw = ionode->pw1;
 };
 
 node osc2 osc::simple {
-	freq = freqmul->out;
+	freq = freq->out;
 	pw = ionode->pw2;
 	waveform = ionode->waveform;
+	mul = ionode->oscmul2;
 };
 
 node mixer1 mixer::mul {
