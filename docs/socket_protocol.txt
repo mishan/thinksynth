@@ -1,0 +1,28 @@
+Thinksynth TCP Socket Interface Protocol
+Rev 0.1
+Leif Ames <ink@bespin.org> 5-24-2003
+
+
+Commands will be issued to thinkd in the form of a small packet.  The Packet is
+in two main sections.  First will be a null-terminated string
+containing the command name.  The second portion is a series of
+arguments, each with first the argument name, number of elements, and a string
+of floats.  If the number of elements is set to 0, the data will be a
+null-terminated char string.  Each command will be terminated by "\n".
+
+First an example of the structure:
+
+A command with two strings of floats as args, and one with a float and
+an ascii string:
+
+<Command>(null)<Arg Name>(null)(Number of Elements)(data 0) ... (data n)<Arg
+Name>(null)(Number of Elements)(data 0) ...(data n)<Newline>
+<Command>(null)<Arg Name>(null)(Number of Elements)(data 0) ... (data
+n)<Arg Name>(null)(0)<Data String>(null)<Newline>
+
+With things in <> as ascii strings and things in () raw numbers.
+
+Here is an example of a line to make a new channel with a channel
+name, path name to the dsp file, and amplitude:
+
+NewChan(null)name(null)(0)myNewChan(null)pathname(null)(0)./dsp/test.dsp(null)amp(null)(1)(30)
