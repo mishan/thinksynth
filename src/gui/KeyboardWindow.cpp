@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.2 2004/04/01 06:51:35 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.3 2004/04/01 07:11:27 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -87,6 +87,7 @@ static int	key_sizes[4][7] =
 };
 
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
+	: ctrlFrame ("Keyboard Control"), chanLbl("Channel")
 {
 	synth = argsynth;
 
@@ -101,7 +102,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	mouse_veloc = 127;
 	cur_size = 1;
 
-	set_default_size(img_width, img_height);
+//	set_default_size(img_width, img_height);
 	set_title("thinksynth - Keyboard");
 
 	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
@@ -110,7 +111,16 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	drawArea.set_size_request(img_width, img_height);
 	drawArea.add_events(Gdk::ALL_EVENTS_MASK);
 
-	add(drawArea);
+	add(vbox);
+	vbox.pack_start(ctrlFrame, Gtk::PACK_SHRINK, 5);
+	vbox.pack_start(drawArea);
+	ctrlFrame.add(ctrlTable);
+
+	chanVal = new Gtk::Adjustment(0, 0, synth->GetChannelCount());
+	chanBtn = new Gtk::SpinButton(*chanVal);
+
+	ctrlTable.attach(chanLbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
+	ctrlTable.attach(*chanBtn, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
 
 	realize();
 	gtk_widget_realize(GTK_WIDGET(drawArea.gobj()));	
@@ -152,16 +162,12 @@ KeyboardWindow::~KeyboardWindow (void)
 
 bool KeyboardWindow::clickEvent (GdkEventButton *b)
 {	
-	int	rval = 0;
 	int	veloc;
 
 	if(b->type == GDK_BUTTON_PRESS) {
 		if (mouse_notnum >= 0) {	/* already active */
-
-					set_note_off(0, mouse_notnum);
-
+			set_note_off((int)chanVal->get_value(), mouse_notnum);
 			active_keys[mouse_notnum] = 0;
-			rval |= 1;
 		}
 		
 		/* get note number */
@@ -180,10 +186,8 @@ bool KeyboardWindow::clickEvent (GdkEventButton *b)
 		}
 
 		active_keys[mouse_notnum] = 1;
-//			send_note_on (mouse_notnum, veloc);
-		synth->AddNote(0, mouse_notnum, veloc);
+		synth->AddNote((int)chanVal->get_value(), mouse_notnum, veloc);
 		
-		rval |= 1;
 		mouse_veloc = veloc;	/* save velocity */
 	}
 
@@ -191,9 +195,7 @@ bool KeyboardWindow::clickEvent (GdkEventButton *b)
 	{
 		/* turn off if active */
 		if (mouse_notnum >= 0) {
-			//		send_note_off (mouse_notnum);
-					set_note_off(0, mouse_notnum);
-			rval |= 1;
+			set_note_off((int)chanVal->get_value(), mouse_notnum);
 		}
 		mouse_notnum = -1;
 	}

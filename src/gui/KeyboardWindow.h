@@ -13,7 +13,16 @@ protected:
 	void drawKeyboard (int mode);
 
 	Gtk::DrawingArea drawArea;
+	Gtk::VBox vbox;
+	Gtk::Frame ctrlFrame;
+	Gtk::Table ctrlTable;
 
+	Gtk::Label chanLbl;
+	Gtk::SpinButton *chanBtn;
+	Gtk::Adjustment *chanVal;
+
+	thSynth *synth;
+private:
 	GdkWindow *drawable;
 	GdkGC		*kbgc;
 
@@ -32,13 +41,7 @@ protected:
 
 	int cur_size;
 
-	thSynth *synth;
-private:
 	int get_coord ();
 };
-
-/* XXX */
-extern void create_keyboard_window (void);
-extern void draw_keyboard (int mode);
 
 #endif /* KEYBOARD_WINDOW_H */
