@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.8 2003/05/06 19:39:36 aaronl Exp $ */
+/* $Id: thWav.h,v 1.9 2003/05/07 07:39:45 aaronl Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -74,7 +74,7 @@ private:
 	thAudioFmt fmt;
 
 	short blockalign; /* wav-specific info */
-	long avgbytes;
+	int avgbytes;
 
 	void WriteRiff (void);
 	int FindChunk (const char *label) const;

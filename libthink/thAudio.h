@@ -1,4 +1,4 @@
-/* $Id: thAudio.h,v 1.4 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thAudio.h,v 1.5 2003/05/07 07:39:45 aaronl Exp $ */
 
 #ifndef TH_AUDIO_H
 #define TH_AUDIO_H 1
@@ -8,8 +8,8 @@ struct thAudioFmt {
 	short channels;
 	short bits;
 	
-	long samples;
-	long len;
+	int samples;
+	int len;
 };
 
 class thAudio

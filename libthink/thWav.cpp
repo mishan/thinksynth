@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.22 2003/05/06 19:39:36 aaronl Exp $ */
+/* $Id: thWav.cpp,v 1.23 2003/05/07 07:39:45 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -69,7 +69,7 @@ thWav::~thWav (void)
 	if(type == WRITING) { /* if we're writing, we must write the header before 
 							 we close */
 		/* get our current position in the file, which is the data length */
-		long data_len = lseek(fd, 0, SEEK_CUR) - 44;
+		int data_len = lseek(fd, 0, SEEK_CUR) - 44;
 		
 		lseek(fd, 0, SEEK_SET);
 		
@@ -211,7 +211,7 @@ void thWav::ReadHeader (void)
 int thWav::FindChunk (const char *label) const
 {
  	char magic[5];
-	long len;
+	int len;
 
 	for (;;) {
 		if(!(fread(magic, 1, 4, file))) {

@@ -1,4 +1,4 @@
-/* $Id: thEndian.h,v 1.4 2003/04/27 04:27:08 joshk Exp $ */
+/* $Id: thEndian.h,v 1.5 2003/05/07 07:39:45 aaronl Exp $ */
 
 #ifndef TH_ENDIAN_H
 #define TH_ENDIAN_H
@@ -49,7 +49,7 @@
    byte-ordering; everything outside these wrappers should be stored in
    host-endian format */
 
-inline int leread32(int fd, long *c)
+inline int leread32(int fd, int *c)
 {
 	int r;
 
@@ -59,7 +59,7 @@ inline int leread32(int fd, long *c)
 	return r;
 }
 
-inline int lefread32(FILE *stream, long *c)
+inline int lefread32(FILE *stream, int *c)
 {
 	int r;
 
@@ -89,7 +89,7 @@ inline int lefread16(FILE *stream, short *c)
 	return r;
 }
 
-inline int lewrite32(int fd, long c)
+inline int lewrite32(int fd, int c)
 {
 	int r;
 
@@ -99,7 +99,7 @@ inline int lewrite32(int fd, long c)
 	return r;
 }
 
-inline int lefwrite32(FILE *stream, long c)
+inline int lefwrite32(FILE *stream, int c)
 {
 	int r;
 
@@ -132,7 +132,7 @@ inline int lefwrite16(FILE *stream, short c)
 /* read() and write() wrappers for maintaing data in big-endian 
    byte-ordering */
 
-inline int beread32(int fd, long *c)
+inline int beread32(int fd, int *c)
 {
 	int r;
 
@@ -142,7 +142,7 @@ inline int beread32(int fd, long *c)
 	return r;
 }
 
-inline int befread32(FILE *stream, long *c)
+inline int befread32(FILE *stream, int *c)
 {
 	int r;
 
@@ -172,7 +172,7 @@ inline int befread16(FILE *stream, short *c)
 	return r;
 }
 
-inline int bewrite32(int fd, long c)
+inline int bewrite32(int fd, int c)
 {
 	int r;
 
@@ -182,7 +182,7 @@ inline int bewrite32(int fd, long c)
 	return r;
 }
 
-inline int befwrite32(FILE *stream, long c)
+inline int befwrite32(FILE *stream, int c)
 {
 	int r;
 
