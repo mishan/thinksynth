@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.9 2003/05/03 17:53:25 joshk Exp $
+# $Id: build.mk.in,v 1.10 2003/05/03 17:54:40 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -16,7 +16,7 @@ endif
 
 %.o: %.yy
 	@YACC@ -o $(<:%.yy=%.cpp) $<
-	if -f $(<:%.yy=%.hpp); then mv $(<:%.yy=%.hpp) $(<:%.yy=%.h); fi
+	if [ -f $(<:%.yy=%.hpp) ]; then mv $(<:%.yy=%.hpp) $(<:%.yy=%.h); fi
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $(<:%.yy=%.cpp)
 
 %.cpp: %.ll
