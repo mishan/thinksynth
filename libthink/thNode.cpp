@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.36 2003/04/27 03:19:49 misha Exp $ */
+/* $Id: thNode.cpp,v 1.37 2003/04/27 03:24:57 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -37,11 +37,11 @@ void thNode::SetName(char *name)
 
 thArg *thNode::SetArg (const char *name, float *value, int num)
 {
-	thArg *arg = (thArg *)args.GetData(name);
+	thArg *arg = (thArg *)args->GetData((void *)name);
 
 	if(!arg) {
 		arg = new thArg(name, value, num);
-		args.Insert(name, arg);
+		args->Insert((void *)name, arg);
 	}
 	else {
 		arg->SetArg(name, value, num);
@@ -51,14 +51,14 @@ thArg *thNode::SetArg (const char *name, float *value, int num)
 
 thArg *thNode::SetArg (const char *name, const char *node, const char *value)
 {
-	thArg *arg = (thArg *)args.GetData(name);
+	thArg *arg = (thArg *)args->GetData((void *)name);
 	
 	if(arg) {
 		arg->SetArg(name, node, value);
 	}
 	else {
 		arg = new thArg(name, node, value);
-		args.Insert(name, arg);
+		args->Insert((void *)name, arg);
 	}
 	return arg;
 }
@@ -72,12 +72,7 @@ const thArgValue *thNode::GetArg (const char *name)
 
 void thNode::PrintArgs (void)
 {
-	args.PrintTree();
-}
-
-void thNode::SetPlugin (thPlugin *plug)
-{
-	plugin = plug;
+	args->PrintTree();
 }
 
 void thNode::CopyArgs (thBSTree *newargs)
