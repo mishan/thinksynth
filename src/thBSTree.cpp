@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.24 2003/04/27 09:20:05 aaronl Exp $ */
+/* $Id: thBSTree.cpp,v 1.25 2003/04/27 09:29:39 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -12,7 +12,11 @@
 
 thBSTree::thBSTree (int (*fn)(void *, void *))
 {
-	thBSTree(fn, NULL, NULL);
+	bsLeft = NULL;
+	bsRight = NULL;
+	bsId = NULL;
+	bsData = NULL;
+	bsCompare = fn;
 }
 
 thBSTree::thBSTree (int (*fn)(void *, void *), void *id, void *data)
