@@ -10,6 +10,7 @@
 #include <dlfcn.h>
 
 #include "thList.h"
+#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginSignaler.h"
 #include "thPluginManager.h"
@@ -17,12 +18,13 @@
 thPluginManager::thPluginManager ()
 {
 	signaler = new thPluginSignaler;
-	plugins = new thList;
+	plugins = new thBSTree;
 }
 
 thPluginManager::~thPluginManager ()
 {
 	delete signaler;
+
 	UnloadPlugins();
 }
 
@@ -79,7 +81,7 @@ int thPluginManager::LoadPlugin (char *name)
 		goto err;
 	}
 
-	plugins->Add(plugin);
+	plugins->Insert(name, plugin);
 
 	return 0;
 
@@ -91,42 +93,37 @@ int thPluginManager::LoadPlugin (char *name)
 
 void thPluginManager::UnloadPlugin(char *name)
 {
-	thListNode *node;
+	thPlugin *plugin = (thPlugin *)plugins->GetData(name);
 
-	for(node = plugins->GetHead(); node; node = node->prev) {
-		thPlugin *plugin = (thPlugin *)node->data;
-
-		if(!strcmp(plugin->GetName(), name)) {
-			plugins->Remove(node);
-			delete plugin;
-		}
+	if(!plugin) {
+		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
+				name);
+		return;
 	}
+
+	plugins->Remove(name);
+
+	delete plugin;
 }
 
 thPlugin *thPluginManager::GetPlugin (char *name)
 {
-	thListNode *node;
-
-	for(node = plugins->GetHead(); node; node = node->prev) {
-		thPlugin *plugin = (thPlugin *)node->data;
-
-		if(!strcmp(plugin->GetName(), name)) {
-			return plugin;
-		}
-	}
-
-	return NULL;
+	thPlugin *plugin = (thPlugin *)plugins->GetData(name);
+	
+	return plugin;
 }
 
 void thPluginManager::UnloadPlugins (void)
 {
-	thListNode *node;
+	/* XXX: modify thBSTree to take an option to delete data;
+	   by freeing each plugin it will unload each */
+/*	thListNode *node;
 
 	for(node = plugins->GetHead(); node; node = node->prev) {
 		thPlugin *plugin = (thPlugin *)node->data;
 
 		delete plugin;
-	}
+		} */
 
 	delete plugins;
 }
