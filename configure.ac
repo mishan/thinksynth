@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.96 2004/09/10 17:54:38 joshk Exp $
+dnl $Id: configure.ac,v 1.97 2004/09/11 22:52:09 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -83,6 +83,9 @@ case "$ac_cv_host" in
 		system=FreeBSD
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
 		CXXFLAGS="$CXXFLAGS -Wno-long-long"
+		if test "$ac_cv_c_compiler_gnu" = yes; then
+			CXXFLAGS="$CXXFLAGS -fPIC -DPIC"
+		fi
 	;;
 	*apple-darwin*)
 		system="Darwin/OS X"
