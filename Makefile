@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.17 2004/03/26 08:16:48 joshk Exp $
+# $Id: Makefile,v 1.18 2004/04/04 03:12:14 joshk Exp $
 
 SUBDIRS = libthink src plugins dsp
 NAME = thinksynth
@@ -20,7 +20,7 @@ dodistclean:
 	rm -rf autom4te.cache
 
 dist: config.status $(SUBDIRS) dodistclean
-	rm -rf $(NAME)-$(VERSION)
+	rm -rf ../$(NAME)-$(VERSION)
 	(cd .. && ln -sf $(CURDIR) $(NAME)-$(VERSION))
 	(cd .. && tar $(addprefix --exclude ,$(exclusions)) -chzf $(NAME)-$(VERSION).tar.gz $(NAME)-$(VERSION))
 	rm -f ../$(NAME)-$(VERSION)
