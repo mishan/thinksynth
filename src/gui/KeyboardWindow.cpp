@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.10 2004/04/01 08:58:18 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.11 2004/04/01 09:00:00 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -98,7 +98,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	veloc3 = 127;
 	mouse_notnum = -1;
 	mouse_veloc = 127;
-	cur_size = 1;
+	cur_size = 2;
 	ctrl_on = 0;
 	shift_on = 0;
 	alt_on = 0;
