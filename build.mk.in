@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.19 2003/09/02 04:45:35 joshk Exp $
+# $Id: build.mk.in,v 1.20 2003/12/21 21:38:20 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -10,7 +10,13 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 
 %.cpp: %.yy
 	@YACC@ -d -o $@ $<
-	if [ -f $(<:%.yy=%.hpp) ]; then mv $(<:%.yy=%.hpp) $(<:%.yy=%.h); fi
+ifeq ($(wildcard $(<:%.yy=%.hpp)),)
+	mv $(<:%.yy=%.hpp) $(<:%.yy=%.h)
+else
+ifeq ($(wildcard $(<:%.yy=%.cpp.h)),)
+	mv $(<:$.yy=$.cpp.h) $(<:%.yy=%.h)
+endif
+endif
 
 %.cpp: %.ll
 	@LEX@ -o $@ $<
