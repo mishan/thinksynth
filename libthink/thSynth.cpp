@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.46 2003/05/03 22:40:59 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.47 2003/05/04 00:14:00 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -108,12 +108,10 @@ thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 
 void thSynth::Process()
 {
-  int i, j;
+  int i;
 
   for(i=0;i<chans;i++) {
-	for(j=0;j<windowlen;j++) {
-	  output[i][j] = 0;  /* I should use memset here too */
-	}
+	memset(output[i], 0, windowlen*sizeof(float));
   }
 
   ProcessHelper(channels);
