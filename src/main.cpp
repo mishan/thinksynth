@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.124 2004/02/01 09:07:23 misha Exp $ */
+/* $Id: main.cpp,v 1.125 2004/02/01 09:23:31 misha Exp $ */
 
 #include "config.h"
 
@@ -44,8 +44,9 @@ int processmidi(thSynth *synth, snd_seq_t *seq_handle);
 int main (int argc, char *argv[])
 {
 	string dspname = "test";   /* XXX: for debugging ONLY */
-	string outputfname = "test.wav";
+	string outputfname = "";
 	string inputfname;         /* filename of .dsp file to use */
+	string driver = "alsa";
 	int notetoplay = 69;       /* XXX: Remove when sequencing is external */
 	int samplerate = TH_SAMPLE;
 	int processwindows = 100;  /* how long does sample play */
@@ -61,9 +62,14 @@ int main (int argc, char *argv[])
 
 	plugin_path = PLUGIN_PATH;
 
-	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:")) != -1) {
+	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:d:")) != -1) {
 		switch (havearg)
 		{
+			case 'd':
+			{
+				driver = optarg;
+				break;
+			}
 			case 'o':
 			{
 				outputfname = optarg;
@@ -139,9 +145,9 @@ int main (int argc, char *argv[])
 
 	Synth.LoadMod("dsp/dfb.dsp");
 	Synth.AddChannel(string("chan4"), "test", 12.0);
-	Synth.LoadMod("dsb/harpsi0.dsp");
+	Synth.LoadMod("dsp/harpsi0.dsp");
 	Synth.AddChannel(string("chan5"), "test", 12.0);
-	Synth.LoadMod("dsb/harpsi1.dsp");
+	Synth.LoadMod("dsp/harpsi1.dsp");
 	Synth.AddChannel(string("chan5"), "test", 12.0);
 	
 
@@ -160,25 +166,49 @@ int main (int argc, char *argv[])
 		audiofmt.bits = 16;
 		audiofmt.samples = samplerate;
 
-		if (outputfname == "/dev/dsp") {
-			outputstream = new thOSSAudio(NULL, &audiofmt);
-		}
-		else if (outputfname == "hw:0" || outputfname == "file") {
+		if (driver == "alsa")
+		{
 			audiofmt.period = Synth.GetWindowLen();
 
-			outputstream = new thALSAAudio(outputfname.c_str(), &audiofmt);
+			if (outputfname.length() > 0)
+			{
+				outputstream = new thALSAAudio(outputfname.c_str(), &audiofmt);
+			}
+			else
+			{
+				outputstream = new thALSAAudio(&audiofmt);
+			}
 
 			phandle = ((thALSAAudio *)outputstream)->play_handle;
 
 			seq_handle = open_seq();
 			seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
 			nfds = snd_pcm_poll_descriptors_count (phandle);
-			pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * (seq_nfds + nfds));
+			pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * 
+										   (seq_nfds + nfds));
 			snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
 			snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
+
 		}
-		else {
-			outputstream = new thWav((char *)outputfname.c_str(), &audiofmt);
+		else if (driver == "oss")
+		{
+			fprintf(stderr, "%s:%d: sorry, OSS is broken for now\n", __FILE__,
+					__LINE__);
+			exit (1);
+			outputstream = new thOSSAudio(NULL, &audiofmt);
+		}
+		else
+		{
+			if (outputfname.length() > 0)
+			{
+				outputstream = new thWav((char *)outputfname.c_str(),
+										 &audiofmt);
+			}
+			else
+			{
+				outputstream = new thWav("test.wav", &audiofmt);
+
+			}
 		}
 	}
 
@@ -196,7 +226,11 @@ int main (int argc, char *argv[])
 	/* grab address of buffer from synth object */
 	synthbuffer = Synth.GetOutput();
 
-	printf ("Writing to '%s'\n", outputfname.c_str());
+	printf ("Using the '%s' driver\n", driver.c_str());
+	if (outputfname.length() > 0)
+	{
+		printf ("Writing to '%s'\n", outputfname.c_str());
+	}
 
 	while (1) {
 //	for (i = 0; i < processwindows; i++) {

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.13 2004/01/31 13:50:17 ink Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.14 2004/02/01 09:23:31 misha Exp $ */
 
 #include "config.h"
 
@@ -10,6 +10,21 @@
 #include "thEndian.h"
 
 #include "think.h"
+
+thALSAAudio::thALSAAudio (const thAudioFmt *afmt)
+	throw (thIOException)
+{
+	if (snd_pcm_open (&play_handle, ALSA_DEFAULT_DEVICE,
+					  SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+		fprintf(stderr, "thALSAAUdio::SetFormat: %s\n", strerror(errno));
+		return;
+	}
+
+	SetFormat(afmt);
+
+	outbuf = NULL;
+}
+
 
 thALSAAudio::thALSAAudio (const char *device, const thAudioFmt *afmt)
 	throw (thIOException)

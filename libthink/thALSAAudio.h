@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.h,v 1.2 2004/01/29 12:11:03 ink Exp $ */
+/* $Id: thALSAAudio.h,v 1.3 2004/02/01 09:23:31 misha Exp $ */
 
 #ifndef TH_ALSAAUDIO_H
 #define TH_ALSAAUDIO_H
@@ -8,10 +8,13 @@
 
 //#define ALSA_BUFSIZE 512
 
+#define ALSA_DEFAULT_DEVICE "hw:0"
+
 class thALSAAudio : public thAudio
 {
 public:
-
+	thALSAAudio (const thAudioFmt *afmt)
+		throw(thIOException);
 	thALSAAudio (const char *device, const thAudioFmt *afmt)
 		throw(thIOException);
 
