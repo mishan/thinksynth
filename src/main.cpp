@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.176 2004/05/11 02:16:31 misha Exp $ */
+/* $Id: main.cpp,v 1.177 2004/05/11 05:46:36 misha Exp $ */
 
 #include "config.h"
 
@@ -139,7 +139,6 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
-	float *pbuf = new float[1];  // Parameter buffer
 
 	do
 	{
@@ -149,19 +148,21 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
-				m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
-							ev->data.note.velocity);
-
-				if(ev->data.note.velocity == 0)
+				if ((unsigned int)ev->data.note.velocity)
 				{
-					*pbuf = 0;
-					synth->SetNoteArg(ev->data.note.channel,
-									  ev->data.note.note, "trigger", pbuf, 1);
-				}
-				else
-				{	
+					m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
+								ev->data.note.velocity);
+
 					synth->AddNote(ev->data.note.channel, ev->data.note.note,
 								   ev->data.note.velocity);
+				}
+				/* a zero velocity can denote note off */
+				else 
+				{
+					m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
+
+					synth->DelNote(ev->data.note.channel, ev->data.note.note);
+					break;
 				}
 				break;
 			}
