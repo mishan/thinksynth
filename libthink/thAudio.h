@@ -1,4 +1,4 @@
-/* $Id: thAudio.h,v 1.7 2003/11/04 06:59:11 misha Exp $ */
+/* $Id: thAudio.h,v 1.8 2004/01/25 11:31:02 misha Exp $ */
 
 #ifndef TH_AUDIO_H
 #define TH_AUDIO_H 1
@@ -10,6 +10,7 @@ struct thAudioFmt {
 
 	int samples;
 	int len;
+	int period;
 };
 
 class thAudio

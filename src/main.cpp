@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.109 2004/01/25 10:06:36 misha Exp $ */
+/* $Id: main.cpp,v 1.110 2004/01/25 11:31:02 misha Exp $ */
 
 #include "config.h"
 
@@ -22,6 +22,7 @@
 #include "thException.h"
 #include "thAudio.h"
 #include "thWav.h"
+#include "thALSAAudio.h"
 #include "thOSSAudio.h"
 #include "thEndian.h"
 
@@ -54,7 +55,7 @@ int main (int argc, char *argv[])
 	thAudio *outputstream = NULL;
 
 	snd_seq_t *seq_handle;    /* for ALSA midi */
-	int seq_nfds;
+	int seq_nfds, nfds;
 	struct pollfd *pfds;
 
 
@@ -131,35 +132,44 @@ int main (int argc, char *argv[])
 	srand(time(NULL));
 
 
-	/*************************** MIDI STUFF **************************/
-	seq_handle = open_seq();
-	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
-	pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * seq_nfds);
-	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
-	
 
 
 	Synth.AddChannel(string("chan1"), dspname, 30.0);
-//	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
+	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
 	try {
 		/* XXX: note that this is actually bad since there are potentially
 		   other /dev/dsp devices */
+		audiofmt.channels = Synth.GetChans();
+		audiofmt.bits = 16;
+		audiofmt.samples = samplerate;
+
 		if (outputfname == "/dev/dsp") {
-			audiofmt.channels = Synth.GetChans();
-			audiofmt.bits = 16;
-			audiofmt.samples = samplerate;
 			outputstream = new thOSSAudio(NULL, &audiofmt);
 		}
+		else if (outputfname == "hw:0") {
+			snd_pcm_t *phandle;
+
+			audiofmt.period = Synth.GetWindowLen();
+
+			outputstream = new thALSAAudio(NULL, &audiofmt);
+
+			phandle = ((thALSAAudio *)outputstream)->play_handle;
+
+			seq_handle = open_seq();
+			seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
+			nfds = snd_pcm_poll_descriptors_count (phandle);
+			pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * (seq_nfds + nfds));
+			snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
+			snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
+		}
 		else {
-			audiofmt.channels = Synth.GetChans();
-			audiofmt.bits = 16;
-			audiofmt.samples = samplerate;
 			outputstream = new thWav((char *)outputfname.c_str(), &audiofmt);
 		}
 	}
+
 	/* XXX: handle these exceptions and consolidate them to one exception
 	   datatype */
 	catch (thIOException e) {
@@ -178,15 +188,34 @@ int main (int argc, char *argv[])
 
 	printf ("Writing to '%s'\n", outputfname.c_str());
 
-	for (i = 0; i < processwindows; i++) {
-		if (poll (pfds, seq_nfds, 100) > 0) {
-			processmidi(&Synth, seq_handle);
+	while (1) {
+//	for (i = 0; i < processwindows; i++) {
+		if (poll (pfds, seq_nfds + nfds, 1000) > 0) {
+			int j;
+
+			for (j = 0; j < seq_nfds; j++)
+			{
+				if(pfds[j].revents > 0)
+				{
+					printf("got a midi event\n");
+					processmidi(&Synth, seq_handle);
+				}
+			}
+			for(j = seq_nfds; j < seq_nfds + nfds; j++)
+			{
+				if (pfds[j].revents > 0)
+				{
+//					printf("got a pcm event\n");
+					Synth.Process();
+					outputstream->Write(synthbuffer, buflen);
+				}
+			}
 		}
 
-		Synth.Process();
+//		Synth.Process();
 
 		/* output the current window */
-		outputstream->Write(synthbuffer, buflen);
+//		outputstream->Write(synthbuffer, buflen);
 	}
 
 	delete outputstream;
