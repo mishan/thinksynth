@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.5 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: map.cpp,v 1.6 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +44,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float percent;
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	in_arg = mod->GetArg(node, "in");
 	in_min = mod->GetArg(node, "inmin");
@@ -52,7 +52,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_min = mod->GetArg(node, "outmin");
 	out_max = mod->GetArg(node, "outmax");
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++) {
 	  percent = ((*in_arg)[i]-(*in_min)[i])/((*in_max)[i]-(*in_min)[i]);
 	  out[i] = (percent*((*out_max)[i]-(*out_min)[i]))+(*out_min)[i];
 	}

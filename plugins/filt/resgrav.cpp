@@ -1,4 +1,4 @@
-/* $Id: resgrav.cpp,v 1.1 2003/06/01 18:47:48 ink Exp $ */
+/* $Id: resgrav.cpp,v 1.2 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,10 +55,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	last = (*inout_last)[0];
 	accel = (*inout_last)[1];
-	out_last = inout_last->allocate(2);
+	out_last = inout_last->Allocate(2);
 
-	out = out_arg->allocate(windowlen);
-	aout = out_accel->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
+	aout = out_accel->Allocate(windowlen);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");

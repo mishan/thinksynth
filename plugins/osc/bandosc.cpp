@@ -1,4 +1,4 @@
-/* $Id: bandosc.cpp,v 1.1 2003/06/17 01:00:43 ink Exp $ */
+/* $Id: bandosc.cpp,v 1.2 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,8 +55,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	phase = (int)(*inout_last)[1]; /* Which phase we are in */
-	out_last = inout_last->allocate(2);
-	out = out_arg->allocate(windowlen);
+	out_last = inout_last->Allocate(2);
+	out = out_arg->Allocate(windowlen);
 
 	in_freq = mod->GetArg(node, "freq");
 	in_band = mod->GetArg(node, "band"); // Band Freq

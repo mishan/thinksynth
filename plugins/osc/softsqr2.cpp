@@ -1,4 +1,4 @@
-/* $Id: softsqr2.cpp,v 1.7 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: softsqr2.cpp,v 1.8 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,8 +55,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	inout_last = mod->GetArg(node, "last");
 	position = (*inout_last)[0];
 	phase = (int)(*inout_last)[1];
-	out_last = inout_last->allocate(2);
-	out = out_arg->allocate(windowlen);
+	out_last = inout_last->Allocate(2);
+	out = out_arg->Allocate(windowlen);
 
 	in_freq = mod->GetArg(node, "freq");
 	in_pw = mod->GetArg(node, "pw"); // Pulse Width

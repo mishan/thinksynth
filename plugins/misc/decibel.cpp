@@ -1,4 +1,4 @@
-/* $Id: decibel.cpp,v 1.3 2003/06/01 05:50:55 aaronl Exp $ */
+/* $Id: decibel.cpp,v 1.4 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	out_arg = mod->GetArg(node, "out");
 	argnum = (unsigned int)db->argNum;
-	out = out_arg->allocate(argnum);
+	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
 		out[i] = exp((*db)[i]*.11512925f); // thx vorbis

@@ -1,4 +1,4 @@
-/* $Id: square.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: square.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +60,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	amp = 1/(pwidth*num);
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(len);
+	out = out_arg->Allocate(len);
 	for(i = 0; (i+width) < len; i += width) {
 		for(j = 0; j < width; j++) {
 			if(j <= pwidth) {

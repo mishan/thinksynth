@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.8 2003/06/04 21:13:52 ink Exp $ */
+/* $Id: rds.cpp,v 1.9 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,10 +57,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	last = (*inout_last)[0];
 	prevdiff = (*inout_last)[1];
-	out_last = inout_last->allocate(2);
+	out_last = inout_last->Allocate(2);
 
-	out = out_arg->allocate(windowlen);
-	highout = out_high->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
+	highout = out_high->Allocate(windowlen);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");

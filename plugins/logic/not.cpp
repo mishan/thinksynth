@@ -1,4 +1,4 @@
-/* $Id: not.cpp,v 1.1 2003/06/24 21:39:01 ink Exp $ */
+/* $Id: not.cpp,v 1.2 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +45,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in = mod->GetArg(node, "in");
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
 		if((*in)[i] > 0) {

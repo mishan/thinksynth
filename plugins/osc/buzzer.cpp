@@ -1,4 +1,4 @@
-/* $Id: buzzer.cpp,v 1.1 2003/09/12 11:28:56 ink Exp $ */
+/* $Id: buzzer.cpp,v 1.2 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,8 +53,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	inout_last = mod->GetArg(node, "last");
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
-	out_last = inout_last->allocate(1);
-	out = out_arg->allocate(windowlen);
+	out_last = inout_last->Allocate(1);
+	out = out_arg->Allocate(windowlen);
 
 	in_freq = mod->GetArg(node, "freq");
 	in_factor = mod->GetArg(node, "factor"); // (1-abs(x^factor))*x

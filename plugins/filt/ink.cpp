@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.7 2003/06/01 20:21:47 ink Exp $ */
+/* $Id: ink.cpp,v 1.8 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -56,23 +56,24 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	last = (*inout_last)[0];
 	accel = (*inout_last)[1];
-	out_last = inout_last->allocate(2);
+	out_last = inout_last->Allocate(2);
 
-	out = out_arg->allocate(windowlen);
-	aout = out_accel->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
+	aout = out_accel->Allocate(windowlen);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");
 	in_res = mod->GetArg(node, "res");
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++) {
 		in = (*in_arg)[i];
 		diff = in - last;
 		//printf("diff: %f \tperc: %f \tlast: %f \t%f\n\nres: %f \tcut: %f\n\n", diff, diff/TH_RANGE, last, accel, (*in_res)[i], (*in_cutoff)[i]);
 		if(fabs(diff) > TH_RANGE) { /* damn unstable filters */
 			diff = TH_RANGE * (diff > 0 ? 1 : -1);
 		}
-		diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and spices */
+		diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and 
+											   spices */
 		accel += diff*SQR((*in_cutoff)[i]);
 		accel *= (*in_res)[i];
 		

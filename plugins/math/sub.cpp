@@ -1,4 +1,4 @@
-/* $Id: sub.cpp,v 1.5 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: sub.cpp,v 1.6 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +46,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_1 = mod->GetArg(node, "in1");
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
 		out[i] = (*in_0)[i]-(*in_1)[i];

@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.33 2003/09/14 20:51:24 misha Exp $ */
+/* $Id: simple.cpp,v 1.34 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,10 +60,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_sync = mod->GetArg(node, "sync"); /* Output a 1 when the wave begins its cycle */
 	inout_last = mod->GetArg(node, "last");
 	position = (*inout_last)[0];
-	out_last = inout_last->allocate(1);
-	sync = out_sync->allocate(windowlen);
+	out_last = inout_last->Allocate(1);
+	sync = out_sync->Allocate(windowlen);
 
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	in_freq = mod->GetArg(node, "freq");
 	in_amp = mod->GetArg(node, "amp");

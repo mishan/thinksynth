@@ -1,4 +1,4 @@
-/* $Id: sine.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: sine.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,7 +54,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	half = len/2;
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(len);
+	out = out_arg->Allocate(len);
 
 	if(percent == 0) {
 		percent = 1;

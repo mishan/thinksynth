@@ -1,4 +1,4 @@
-/* $Id: divbuf.cpp,v 1.3 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: divbuf.cpp,v 1.4 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,8 +51,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_arg = mod->GetArg(node, "out");
 	inout_buffer = mod->GetArg(node, "buffer");
 	buffer = (*inout_buffer)[0];
-	out = out_arg->allocate(windowlen);
-	out_buf = inout_buffer->allocate(1);
+	out = out_arg->Allocate(windowlen);
+	out_buf = inout_buffer->Allocate(1);
 
 	in_arg = mod->GetArg(node, "in");
 	in_factor = mod->GetArg(node, "factor");

@@ -1,4 +1,4 @@
-/* $Id: ad.cpp,v 1.1 2003/09/12 09:08:10 ink Exp $ */
+/* $Id: ad.cpp,v 1.2 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,10 +57,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
-	out_pos = inout_position->allocate(2);
+	out_pos = inout_position->Allocate(2);
 
-	out = out_out->allocate(windowlen);
-	play = out_play->allocate(windowlen);
+	out = out_out->Allocate(windowlen);
+	play = out_play->Allocate(windowlen);
 
 	in_a = mod->GetArg(node, "a"); /* Attack */
 	in_d = mod->GetArg(node, "d"); /* Decay */

@@ -1,4 +1,4 @@
-/* $Id: clip.cpp,v 1.4 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: clip.cpp,v 1.5 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +44,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float in, clip, lowclip;
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	in_arg = mod->GetArg(node, "in");
 	in_clip = mod->GetArg(node, "clip");

@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.4 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: res2pole.cpp,v 1.5 2003/09/16 01:02:28 misha Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org
@@ -54,13 +54,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_high = mod->GetArg(node, "out_high");
 	out_band = mod->GetArg(node, "out_band");
 	out_notch = mod->GetArg(node, "out_notch");
-	out = out_low->allocate(windowlen);
-	highout = out_high->allocate(windowlen);
-	bandout = out_band->allocate(windowlen);
-	notchout = out_notch->allocate(windowlen);
+	out = out_low->Allocate(windowlen);
+	highout = out_high->Allocate(windowlen);
+	bandout = out_band->Allocate(windowlen);
+	notchout = out_notch->Allocate(windowlen);
 
 	inout_delay = mod->GetArg(node, "delay");
-	delay = inout_delay->allocate(2);
+	delay = inout_delay->Allocate(2);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");

@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.8 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: fir.cpp,v 1.9 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,11 +52,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	inout_buffer = mod->GetArg(node, "buffer");
 	inout_bufpos = mod->GetArg(node, "bufpos");
-	buffer = inout_buffer->allocate(in_impulse->argNum);
-	bufpos = inout_bufpos->allocate(1);
+	buffer = inout_buffer->Allocate(in_impulse->argNum);
+	bufpos = inout_bufpos->Allocate(1);
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
 		out[i] = 0;

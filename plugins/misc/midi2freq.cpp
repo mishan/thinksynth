@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.8 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: midi2freq.cpp,v 1.9 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	out_arg = mod->GetArg(node, "out");
 	argnum = (unsigned int) in_note->argNum;
-	out = out_arg->allocate(argnum);
+	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
 	  out[i] = 440*pow(2,((*in_note)[i]-69)/12);

@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.15 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: static.cpp,v 1.16 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,8 +50,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	inout_last = mod->GetArg(node, "last");
 	position = (*inout_last)[0];
 	last = (*inout_last)[1];
-	out_last = inout_last->allocate(1);
-	out = out_arg->allocate(windowlen);
+	out_last = inout_last->Allocate(1);
+	out = out_arg->Allocate(windowlen);
 
 	in_sample = mod->GetArg(node, "sample");
 

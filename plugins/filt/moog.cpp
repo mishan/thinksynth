@@ -1,4 +1,4 @@
-/* $Id: moog.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: moog.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
 
 // Moog 24 dB/oct resonant lowpass VCF
 // References: CSound source code, Stilson/Smith CCRMA paper.
@@ -49,9 +49,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float t1, t2;
 	unsigned int i;
 
-	float *out_low = (mod->GetArg(node, "out_low"))->allocate(windowlen);
-	float *out_high = (mod->GetArg(node, "out_high"))->allocate(windowlen);
-	float *out_band = (mod->GetArg(node, "out_bandpass"))->allocate(windowlen);
+	float *out_low = (mod->GetArg(node, "out_low"))->Allocate(windowlen);
+	float *out_high = (mod->GetArg(node, "out_high"))->Allocate(windowlen);
+	float *out_band = (mod->GetArg(node, "out_bandpass"))->Allocate(windowlen);
 
 	inout_buffer = mod->GetArg(node, "buffer");
 	b0 = (*inout_buffer)[0];
@@ -59,13 +59,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	b2 = (*inout_buffer)[2];
 	b3 = (*inout_buffer)[3];
 	b4 = (*inout_buffer)[4];
-	buffer = inout_buffer->allocate(5);
+	buffer = inout_buffer->Allocate(5);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");
 	in_res = mod->GetArg(node, "res");
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++) {
 		float frequency = (*in_cutoff)[i];
 		float res = (*in_res)[i];
 		float in = (*in_arg)[i] / TH_MAX;

@@ -1,4 +1,4 @@
-/* $Id: freq2samples.cpp,v 1.1 2003/09/12 12:48:38 ink Exp $ */
+/* $Id: freq2samples.cpp,v 1.2 2003/09/16 01:02:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	out_arg = mod->GetArg(node, "out");
 	argnum = (unsigned int) in_freq->argNum;
-	out = out_arg->allocate(argnum);
+	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
 	  out[i] = (1/(*in_freq)[i])*TH_SAMPLE;

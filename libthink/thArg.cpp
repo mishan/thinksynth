@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.33 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: thArg.cpp,v 1.34 2003/09/16 01:02:29 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -41,7 +41,7 @@ thArg::~thArg(void)
 }
 
 
-float *thArg::allocate (int elements)
+float *thArg::Allocate (int elements)
 {
 	if(argNum != elements) {
 		delete[] argValues;
@@ -59,7 +59,7 @@ void thArg::SetArg(const string &name, float *value, const int num)
 {
 	float *values;
 
-	values = allocate(num);
+	values = Allocate(num);
 
 	argName = name;
 	

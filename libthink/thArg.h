@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.26 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thArg.h,v 1.27 2003/09/16 01:02:29 misha Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -22,7 +22,7 @@ class thArg {
 	string GetArgName (void) const { return argName; };
 
 	float GetValue (int position) const { return (argType != ARG_POINTER); };
-	float *allocate (int elements);
+	float *Allocate (int elements);
 	string argName; /* argument's name */
 	float *argValues; /* a pointer to an array of values */
 	int argNum; /* number of elements in argValues */

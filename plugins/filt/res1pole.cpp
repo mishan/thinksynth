@@ -1,4 +1,4 @@
-/* $Id: res1pole.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: res1pole.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -49,12 +49,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	unsigned int i;
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	inout_buffer = mod->GetArg(node, "buffer");
 	buf0 = (*inout_buffer)[0];
 	buf1 = (*inout_buffer)[1];
-	buffer = inout_buffer->allocate(2);
+	buffer = inout_buffer->Allocate(2);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");

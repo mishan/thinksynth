@@ -1,4 +1,4 @@
-/* $Id: saturate.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: saturate.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,7 +48,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_factor = mod->GetArg(node, "factor");
 
 	out_arg = mod->GetArg(node, "out");
-	out = out_arg->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
 		factor = (*in_factor)[i];

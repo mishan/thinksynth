@@ -1,4 +1,4 @@
-/* $Id: ds.cpp,v 1.2 2003/06/11 05:27:20 ink Exp $ */
+/* $Id: ds.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,10 +55,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	inout_last = mod->GetArg(node, "last");
 
 	last = (*inout_last)[0];
-	out_last = inout_last->allocate(1);
+	out_last = inout_last->Allocate(1);
 
-	out = out_arg->allocate(windowlen);
-	highout = out_high->allocate(windowlen);
+	out = out_arg->Allocate(windowlen);
+	highout = out_high->Allocate(windowlen);
 
 	in_arg = mod->GetArg(node, "in");
 	in_cutoff = mod->GetArg(node, "cutoff");
