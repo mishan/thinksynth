@@ -22,15 +22,6 @@ thAudioBuffer::~thAudioBuffer(void)
 	delete data;
 }
 
-bool thAudioBuffer::is_room(int len)
-{
-	if(woffset + len > size) {
-		return false;
-	}
-
-	return true;
-}
-
 void thAudioBuffer::buf_write(unsigned char *udata, int len)
 {
 	int i;
@@ -70,11 +61,6 @@ int thAudioBuffer::buf_read(unsigned char *udata, int len)
 	read %= size;
 	
 	return len;
-}
-
-int thAudioBuffer::get_size(void)
-{
-	return size;
 }
 
 #ifdef TEST

@@ -23,7 +23,7 @@ public:
 	int Write (void *stream, int len);
 	int Read (void *data, int len);
 
-	const thAudioFmt *GetFormat (void);
+	const thAudioFmt *GetFormat (void) { return &fmt; };
 
 	void SetFormat (const thAudioFmt *fmt);
 private:

@@ -9,11 +9,13 @@ public:
 	thAudioBuffer(int len, thAudio *audio);
 	~thAudioBuffer(void);
 
-	bool is_room(int len); /* checks if there are len elements available in the
-							  buffer */
+	bool is_room(int len) { return (woffset + len > size); }; /* checks if there are len elements available in the
+							  	buffer */
+	int get_size(void) { return (size); };
+
 	void buf_write(unsigned char *udata, int len);
 	int buf_read(unsigned char *udata, int len);
-	int get_size(void);
+
 private:
 	unsigned char *data;
 	int read; /* how far the buffer has been read */

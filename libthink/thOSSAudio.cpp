@@ -101,11 +101,6 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 	}
 }
 
-const thAudioFmt *thOSSAudio::GetFormat (void)
-{
-	return &fmt;
-}
-
 int thOSSAudio::Write (void *buf, int len)
 {
 	write(fd, buf, len);
