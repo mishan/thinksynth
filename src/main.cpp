@@ -24,4 +24,5 @@ int main (int argc, char *argv[])
 	parsenode = new thNode("newnode", NULL);
 
 	yyparse();
+	parsemod->PrintIONode();
 }

@@ -43,7 +43,7 @@ int yywrap(void)
 }
 %}
 
-%token NODE STATUS
+%token NODE IO
 %token WORD 
 %token FLOAT NUMBER
 %token ENDSTATE ASSIGN LCBRACK RCBRACK
@@ -68,7 +68,7 @@ nodes nodes
 	YYERROR;
 }
 |
-status
+ionode
 |
 expression
 {
@@ -185,10 +185,11 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 }
 ;
 
-status:
-STATUS WORD
+ionode:
+IO WORD
 {
-	printf("Status node defined as %s\n", $2.str);
+	printf("IO node defined as %s\n", $2.str);
+	parsemod->SetIONode($2.str);
 //	XXX - - FIX THIS TOO
 //	parsemod->statusnode = node_find(parsemod->nodelist, $2.str);
 }

@@ -9,55 +9,65 @@
 
 thNode::thNode (char *name, thPlugin *thplug)
 {
-	nodename = strdup(name);
-	plugin = thplug;
-	args = new thBSTree;
+  nodename = strdup(name);
+  plugin = thplug;
+  args = new thBSTree;
 }
 
 thNode::~thNode ()
 {
-	free(nodename);
-	delete args;
- 	/* free anything else */
+  free(nodename);
+  delete args;
+  /* free anything else */
 }
 
 void thNode::SetName(char *name) {
-	free(nodename);
-	nodename = name;
+  free(nodename);
+  nodename = name;
 }
 
 char *thNode::GetName() {
-	return nodename;
+  return nodename;
 }
 
 void thNode::SetArg (char *name, float *value, int num)
 {
-	thArg *arg = (thArg *)args->Find(name);
-	if(!arg) {
-		arg = new thArg(name, value, num);
-		args->Insert(name, arg);
-	} else {
-		arg->SetArg(name, value, num);
-	}
+  thArg *arg = (thArg *)args->Find(name);
+  if(!arg) {
+    arg = new thArg(name, value, num);
+    args->Insert(name, arg);
+  } else {
+    arg->SetArg(name, value, num);
+  }
 }
 
 void thNode::SetArg (char *name, char *node, char *value)
 {
-	thArg *arg = (thArg *)args->Find(name);
-	if(!arg) {
-		arg = new thArg(name, node, value);
-		args->Insert(name, arg);
-	} else {
-		arg->SetArg(name, node, value);
-	}	
+  thArg *arg = (thArg *)args->Find(name);
+  if(!arg) {
+    arg = new thArg(name, node, value);
+    args->Insert(name, arg);
+  } else {
+    arg->SetArg(name, node, value);
+  }	
 }
 
 thArgValue *thNode::GetArg (char *name)
 {
-	thArg *arg = (thArg *)args->Find(name);
-	return (thArgValue *)arg->GetArg();
+  thArg *arg = (thArg *)args->Find(name);
+  return (thArgValue *)arg->GetArg();
+}
+
+void thNode::PrintArgs(void) {
+  args->PrintTree();
 }
 
 void thNode::Process (void)
 {
 }
+
+
+
+
+
+

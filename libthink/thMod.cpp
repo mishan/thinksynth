@@ -11,10 +11,11 @@
 
 thMod::thMod (char *name)
 {
-	modname = strdup(name);
-	modnodes = new thBSTree;
-
-	/* create any other objects */
+  modname = strdup(name);
+  modnodes = new thBSTree;
+  ionode = NULL;
+  
+  /* create any other objects */
 }
 
 thMod::~thMod ()
@@ -23,14 +24,30 @@ thMod::~thMod ()
 
 thNode *thMod::FindNode (char *name)
 {
-	return NULL;
+  return (thNode *)((thBSNode *)modnodes->Find(name))->data;
 }
 
 void thMod::NewNode (thNode *node)
 {
-	modnodes->Insert(node->GetName(), node);
+  modnodes->Insert(node->GetName(), node);
+}
+
+void thMod::SetIONode(char *name) {
+  ionode = (thNode *)((thBSNode *)modnodes->Find(name))->data;
+}
+
+void thMod::PrintIONode(void) {
+  ionode->PrintArgs();
 }
 
 void thMod::Process (void)
 {
 }
+
+
+
+
+
+
+
+

@@ -7,12 +7,14 @@ public:
 	~thMod();
 
 	thNode *FindNode(char *name); 
-	void NewNode(thNode *node); 
+	void NewNode(thNode *node);
+	void SetIONode(char *name);
+	void PrintIONode(void);
 
 	void Process (void);
 private:
 	thBSTree *modnodes, *actlist;
-	thNode *comnode;
+	thNode *ionode;
 
 	char *modname;
 };

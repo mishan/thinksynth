@@ -33,7 +33,7 @@ int linenum = 1;
 
 nil                            return NIL;
 node                         return NODE;
-status				return STATUS;
+io				return IO;
 
 \{                            return LCBRACK;
 \}                            return RCBRACK;
@@ -54,3 +54,16 @@ status				return STATUS;
 \$				return DOLLAR;
 
 %%
+
+
+
+
+
+
+
+
+
+
+
+
+

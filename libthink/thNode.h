@@ -12,6 +12,7 @@ public:
 	void SetArg(char *name, char *node, char *value);
 	
 	thArgValue *GetArg(char *name);
+	void PrintArgs(void);
 
 	void Process (void);
 private:
