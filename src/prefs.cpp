@@ -1,4 +1,4 @@
-/* $Id: prefs.cpp,v 1.1 2004/04/08 22:45:16 misha Exp $ */
+/* $Id: prefs.cpp,v 1.2 2004/04/08 23:18:35 misha Exp $ */
 
 #include "config.h"
 
@@ -27,6 +27,8 @@ void save_prefs (thSynth *synth)
 		free(path);
 		return;
 	}
+
+	debug("writing to '%s'", path);
 
 	fprintf(prefsFile, "# %s configuration file\n", PACKAGE_STRING);
 	fprintf(prefsFile, "# lines starting with '#' are comments\n\n");
