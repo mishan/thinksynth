@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.71 2004/05/26 08:10:48 joshk Exp $
+dnl $Id: configure.ac,v 1.72 2004/06/19 00:17:57 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -102,7 +102,7 @@ else
 		;;
 	esac
 
-	if [ "$system" != Darwin ]; then
+	if test "$system" != Darwin; then
 		AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
 		AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 	fi
