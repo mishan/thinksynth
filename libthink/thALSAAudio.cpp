@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.15 2004/02/01 09:51:03 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.16 2004/02/13 08:27:58 misha Exp $ */
 
 #include "config.h"
 
@@ -98,32 +98,37 @@ int thALSAAudio::Read (void *outbuf, int len)
 
 int thALSAAudio::Write (float *inbuf, int len)
 {
-	int i ,w = 0;
+	int i, w = 0;
 	int chans = ofmt.channels;
-	int bytes = ofmt.bits / 8;
-//	int samplelen = bytes*chans;
 
-		/* malloc an appropriate buffer it would be *bad* if the length of the 
+	/* malloc an appropriate buffer it would be *bad* if the length of the 
 	   buffer passed in were to increase so don't do that (brandon) */
-	if (!outbuf){
-		outbuf = malloc(len*bytes*chans);
-		if (!outbuf){
-			fprintf(stderr,"thALSAAudio::Write -- could not allocate buffer\n");
+	if (!outbuf)
+	{
+		outbuf = malloc(len*(ofmt.bits/8)*chans);
+		if (!outbuf)
+		{
+			fprintf(stderr,"thALSAAudio::Write: could not allocate buffer\n");
 			exit(1);
 		}
 	}
-	if (bytes == 2)
+
+	switch (ofmt.bits)
 	{
-		signed short *buf = (signed short*)outbuf;
-		/* convert to specified format */
-		for (i = 0; i < len * chans; i++){ 
-			le16(buf[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
+		case 16:
+		{
+			signed short *buf = (signed short*)outbuf;
+			/* convert to specified format */
+			for (i = 0; i < len * chans; i++){ 
+				le16(buf[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
+			}
 		}
-	}
-	else
-	{
-		fprintf(stderr,"\tthOSSAudio::Write() error: %d-bit audio unsupported!\n",ofmt.bits);
-		exit(1);
+		default:
+		{
+			fprintf(stderr, "thOSSAudio::Write(): %d-bit audio unsupported!\n",
+					ofmt.bits);
+			exit(1);
+		}
 	}
 
 	/* XXX: WTF? */

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.139 2004/02/10 04:36:39 misha Exp $ */
+/* $Id: main.cpp,v 1.140 2004/02/13 08:27:58 misha Exp $ */
 
 #include "config.h"
 
@@ -78,6 +78,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 	{
         snd_seq_event_input(seq_handle, &ev);
 		sprintf(channelname, "chan%i", ev->data.note.channel);
+
         switch (ev->type)
 		{
 			case SND_SEQ_EVENT_NOTEON:
