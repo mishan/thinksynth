@@ -43,6 +43,7 @@ thMidiControllerConnection::~thMidiControllerConnection (void)
 
 void thMidiControllerConnection::setParam (unsigned int value)
 {
-	float *buffer = arg_->Allocate(1);
-	buffer[0] = (value/(float)MIDIVALMAX) * (max_ - min_) + min_;
+/*	float *buffer = arg_->Allocate(1);
+	buffer[0] = (value/(float)MIDIVALMAX) * (max_ - min_) + min_; */
+	arg_->SetValue(value);
 }
