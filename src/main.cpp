@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.154 2004/04/07 04:09:29 misha Exp $ */
+/* $Id: main.cpp,v 1.155 2004/04/07 04:10:29 misha Exp $ */
 
 #include "config.h"
 
@@ -39,9 +39,6 @@ Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
-
-sigReadyWrite m_sigReadyWrite;
-sigMidiEvent m_sigMidiEvent;
 
 void cleanup (int signum)
 {
