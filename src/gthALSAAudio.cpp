@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.11 2004/11/26 10:14:01 joshk Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.12 2004/11/29 20:51:27 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -185,11 +185,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 	int w = 0;
 	int chans = ofmt.channels;
 	int bufferoffset = 0;
-	static bool seen_ebadfd = false;
 
-	if (seen_ebadfd) /* No-op - we're about to exit anyway */
-		return 0;
-	
 	/* malloc an appropriate buffer it would be *bad* if the length of the 
 	   buffer passed in were to increase so don't do that (brandon) */
 	if (!outbuf)
@@ -265,7 +261,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 		else if (w == -EBADFD)
 		{
 			debug("lost ALSA playback handle, exiting");
-			seen_ebadfd = true;
+			exit(0);
 		}
 		else
 		{

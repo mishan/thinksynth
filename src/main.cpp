@@ -398,9 +398,6 @@ int main (int argc, char *argv[])
 
 	mymain.run( synthWindow );
 
-	printf("closing audio devices...\n");
-	delete aout;
-
 #ifdef HAVE_ALSA
 	delete midi;
 #endif /* HAVE_ALSA */
@@ -410,6 +407,10 @@ int main (int argc, char *argv[])
 
 	delete prefs;
 
+	printf("closing audio devices...\n");
+	delete aout;
+
+	/* Will not be reached if using 'alsa' driver */
 #if 0
 	printf("deleting synth\n");
 	delete Synth;
