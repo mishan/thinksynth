@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.17 2003/04/27 02:33:05 misha Exp $ */
+/* $Id: thMidiNote.cpp,v 1.18 2003/04/27 07:00:34 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -20,19 +20,22 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
 	float *notep = new float, *velocityp = new float;
 
+	args = new thBSTree(StringCompare);
+
 	modnode = mod->Copy();
 	*notep = note, *velocityp = velocity;
 
 	SetArg("note", notep, 1);
 	SetArg("velocity", velocityp, 1);
 
-	args = new thBSTree(StringCompare);
+
 }
 
 thMidiNote::thMidiNote (thMod *mod)
 {
-	modnode = mod->Copy();
 	args = new thBSTree(StringCompare);
+
+	modnode = mod->Copy();
 }
 
 thMidiNote::~thMidiNote ()
@@ -43,6 +46,7 @@ thMidiNote::~thMidiNote ()
 void thMidiNote::SetArg (const char *name, float *value, int num)
 {
 	thArg *arg = (thArg *)args->GetData((void *)name);
+
 	if(!arg) {
 		arg = new thArg(name, value, num);
 		args->Insert((void *)name, (void *)arg);

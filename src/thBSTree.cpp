@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.21 2003/04/27 04:29:49 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.22 2003/04/27 07:00:34 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -29,7 +29,7 @@ thBSTree::thBSTree (int (*fn)(void *, void *), void *id, void *data)
 
 thBSTree::~thBSTree (void)
 {
-	free(bsId);
+	ree(bsId);
 }
 
 void thBSTree::Insert(thBSTree *tree)
