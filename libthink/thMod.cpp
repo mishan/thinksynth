@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.74 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thMod.cpp,v 1.75 2004/01/31 11:16:58 misha Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -207,12 +207,15 @@ int thMod::BuildSynthTreeHelper(thNode *parent, const string &nodename)
 		return(1);  /* This node has already been processed */
 	}
 
-	currentnode->SetRecalc(true);  /* This node has now been marked as processed */
+	/* This node has now been marked as processed */
+	currentnode->SetRecalc(true); 
 
 	if(currentnode->GetPlugin()->GetState() == thActive) {
 	  activelist.push_back(currentnode);
 	}
+
 	BuildSynthTreeHelper2(currentnode->GetArgTree(), currentnode);
+
 	return 0;
 }
 
@@ -221,24 +224,31 @@ void thMod::BuildSynthTreeHelper2(const map<string, thArg*> &argtree, thNode *cu
 	const thArg *data;
 	thNode *node;
 
-	for (map<string, thArg*>::const_iterator i = argtree.begin(); i != argtree.end(); i++)
+	for (map<string, thArg*>::const_iterator i = argtree.begin();
+		 i != argtree.end(); i++)
 	{
 		data = i->second;
-		if(!data) {
+		if(!data)
+		{
 			fprintf(stderr, "thMod::BuildSynthTreeHelper2: data points to NULL\n");
 		}
 
-		if(data && data->argType == ARG_POINTER) {
+		if(data && data->argType == ARG_POINTER)
+		{
 			node = FindNode(data->argPointNode);
 
-			if(!node) {
-				printf("CRITICAL: Node %s not found!!\n", data->argPointNode.c_str());
+			if(!node)
+			{
+				printf("CRITICAL: Node %s not found!!\n",
+					   data->argPointNode.c_str());
 			}
 
 			currentnode->AddChild(node);
 			node->AddParent(currentnode);
 
-			if(node->GetRecalc() == false) {  /* Don't do the same node over and over */
+			/* Don't do the same node over and over */
+			if(node->GetRecalc() == false)
+			{
 				BuildSynthTreeHelper(currentnode, data->argPointNode);
 			}
 		}
@@ -247,6 +257,9 @@ void thMod::BuildSynthTreeHelper2(const map<string, thArg*> &argtree, thNode *cu
 
 void thMod::ListNodes(void)
 {
-	for(map<string,thNode*>::const_iterator i = modnodes.begin(); i != modnodes.end(); i++)
+	for(map<string,thNode*>::const_iterator i = modnodes.begin();
+		i != modnodes.end(); i++)
+	{
 		printf("%s:  %s\n", modname.c_str(), i->second->GetName().c_str());
+	}
 }
