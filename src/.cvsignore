@@ -1,5 +1,6 @@
 thinksynth
-thinklex.cc
-thinklang.h
-thinklang.cc
+thinklex.cpp
+thinklang.cpp
+thinklang.hpp
 .deps
+Makefile
