@@ -15,8 +15,8 @@ node mixer mixer::mul {
 	in1 = env->out;
 	};
 node env env::adsr {
-	a = 1000;
-	d = 3000;
+	a = 2000;
+	d = 4000;
 	s = 40;
 	r = 20000;
 	trigger = 0;

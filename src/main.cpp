@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.68 2003/05/06 08:08:05 ink Exp $ */
+/* $Id: main.cpp,v 1.69 2003/05/06 08:26:44 ink Exp $ */
 
 #include "config.h"
 
@@ -103,7 +103,7 @@ syntax:
 
 	Synth.LoadMod(filename);
 
-	Synth.AddChannel(strdup("chan1"), dspname, 50.0);
+	Synth.AddChannel(strdup("chan1"), dspname, 40.0);
 	Synth.AddNote("chan1", 40, 100);
 
 	audiofmt.channels = Synth.GetChans();
