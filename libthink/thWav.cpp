@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.28 2003/05/10 06:52:31 joshk Exp $ */
+/* $Id: thWav.cpp,v 1.29 2003/05/10 07:21:59 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -144,12 +144,16 @@ int thWav::Read (void *data, int len)
 		r = fread(data, sizeof(unsigned char), len, file);
 		break;
 	case 16:
+	{
+		int i;
+
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
-		for(int i = 0; i < r; i++) {
-			le16(data[i], data[i]);
+		for(i = 0; i < r; i++) {
+			le16(((signed short *)data)[i], ((signed short *)data)[i]);
 		}
 #endif
+	}
 		break;
 	default:
 		fprintf(stderr, "thWav::Read: %s: unsupported value for bits per "
