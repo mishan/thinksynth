@@ -28,7 +28,9 @@
 
 #include <gtkmm.h>
 
+#ifdef HAVE_ALSA
 #include <alsa/asoundlib.h>
+#endif /* HAVE_ALSA */
 
 #include "think.h"
 #include "gthAudio.h"
@@ -373,7 +375,7 @@ int main (int argc, char *argv[])
 			return 1;
 #endif /* HAVE_JACK */
 		}
-		else
+		else if (driver != "none")
 		{
 			fprintf(stderr, "Sorry, only JACK/ALSA drivers are supported "
 					"currently for output.\n");
