@@ -213,9 +213,22 @@ WORD ASSIGN nodearg
 //	XXX - MORE FIXING
 //	modify_point(&targs, $1.str, $3.str);
 
-	char *node, *arg;
+	char *node, *arg, *p;
+	int argsize, nodesize;
 	
-	/* XXX Make $3.str ("node/arg" format) into the above vars */
+	/* Make $3.str ("node/arg" format) into the above vars */
+	p = strchr($3.str, '/');
+	p++;
+	
+	argsize = strlen(p);
+	nodesize = strlen($3.str)-argsize-1;
+	
+	node = new char[nodesize];
+	memcpy(node, $3.str, nodesize);
+	
+	arg = new char[argsize];
+	memcpy(arg, p, argsize);
+	
 
 	parsenode->SetArg($1.str, node, arg);
 }
