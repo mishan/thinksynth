@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.39 2004/09/09 00:51:32 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.40 2004/09/09 07:09:32 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -217,6 +217,7 @@ bool PatchSelWindow::LoadPatch (void)
 				(*iter)[patchViewCols.dspName] = fileEntry.get_text();
 
 				dspAmp.set_sensitive(true);
+				unloadButton.set_sensitive(true);
 
 				return true;
 			}
