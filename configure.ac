@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.101 2004/09/19 20:37:59 joshk Exp $
+dnl $Id: configure.ac,v 1.102 2004/09/22 13:59:23 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -211,13 +211,12 @@ PKG_CHECK_MODULES(JACK, jack,
 	
 ], have_jack=0)
 
-AC_SUBST(GTH_JACK_AUDIO)
-
 PKG_CHECK_MODULES(ALSA, alsa, 
 [
 	have_alsa=1
 	AC_DEFINE(HAVE_ALSA, 1, [Define if ALSA is available.])
-])
+	GTH_ALSA="gthALSAAudio.o gthALSAMidi.o"
+], have_alsa=0)
 
 else
 
@@ -225,6 +224,9 @@ have_alsa=0
 have_jack=0
 
 fi
+
+AC_SUBST(GTH_ALSA)
+AC_SUBST(GTH_JACK_AUDIO)
 
 PKG_CHECK_MODULES(SIGC, sigc++-2.0)
 
@@ -256,7 +258,7 @@ AC_ARG_WITH(dsp-path,
 	[dsp_path=$withval],
 	[dsp_path=${datadir}/${PACKAGE_NAME}/])
 
-dnl Someone may have been a smartass and configure with
+dnl Someone may have been a smartass and configured with
 dnl ./configure --with-dsp-path=${prefix}/bar, so flatten that too
 
 AC_SUBST_DIR(dsp_path)
