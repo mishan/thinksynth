@@ -7,6 +7,8 @@ public:
 	PatchSelWindow (thSynth *synth);
 
 protected:
+	void LoadPatch (Gtk::Entry *chanEntry, thSynth *synth);
+
 	Gtk::VBox vbox;
 
 	Gtk::Table patchTable;	

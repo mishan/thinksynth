@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.145 2004/03/26 06:29:35 misha Exp $ */
+/* $Id: main.cpp,v 1.146 2004/03/26 07:44:24 misha Exp $ */
 
 #include "config.h"
 
@@ -354,15 +354,22 @@ int main (int argc, char *argv[])
 			{
 				if(pfds[j].revents > 0)
 				{
+					synthMutex->lock();
 					processmidi(&Synth, seq_handle);
+					synthMutex->unlock();
 				}
 			}
 			for(j = seq_nfds; j < seq_nfds + nfds; j++)
 			{
 				if (pfds[j].revents > 0)
 				{
+					synthMutex->lock();
+
 					int l = Synth.GetWindowLen();
 					Synth.Process();
+					
+					synthMutex->unlock();
+
 					if(outputstream->Write(synthbuffer, l) < l)
 					{
 						fprintf(stderr, "<< BUFFER UNDERRUN >> Restarting ALSA output\n");

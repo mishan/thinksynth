@@ -56,7 +56,24 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 
 		patchTable.attach(*chanLabel, 0, 1, i, i+1);
 		patchTable.attach(*chanEntry, 1, 2, i, i+1);
+
+		int *channum = new int;
+		*channum = i;
+		chanEntry->set_data("channel", channum);
+		chanEntry->signal_activate().connect(
+			SigC::bind<Gtk::Entry *, thSynth *> (SigC::slot(*this, &PatchSelWindow::LoadPatch), chanEntry, realSynth) );
 	}
 
 	show_all_children();
+}
+
+void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
+{
+	int *channum = (int *)chanEntry->get_data("channel");
+
+	synthMutex->lock();
+
+	synth->LoadMod(chanEntry->get_text().c_str(), *channum, (float)12.0);
+
+	synthMutex->unlock();
 }
