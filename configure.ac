@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.90 2004/09/05 06:53:11 joshk Exp $
+dnl $Id: configure.ac,v 1.91 2004/09/05 10:10:14 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -18,6 +18,7 @@ dnl Test for a GNU rmdir which supports --ignore-fail-on-non-empty
 
 AC_MSG_CHECKING([if rmdir supports --ignore-fail-on-non-empty])
 
+rm -rf .conftest
 mkdir .conftest
 touch .conftest/x
 
@@ -272,7 +273,24 @@ if test `expr $plugin_path : .*/$` -eq 0; then
 	plugin_path=$plugin_path/
 fi
 
+AC_ARG_WITH(dsp-path,
+	[AC_HELP_STRING([--with-dsp-path], [Define a path to install DSPs into.])],
+	[dsp_path=$withval],
+	[dsp_path=${datadir}/${PACKAGE_NAME}/])
+
+dnl Someone may have been a smartass and configure with
+dnl ./configure --with-dsp-path=${prefix}/bar, so flatten that too
+
+AC_SUBST_DIR(dsp_path)
+
+dnl sources need this
+if test `expr $dsp_path : .*/$` -eq 0; then
+	dsp_path=$dsp_path/
+fi
+
+AC_DEFINE_UNQUOTED([DSP_PATH], "$dsp_path", [Path to DSPs.])
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
+AC_SUBST(dsp_path)
 AC_SUBST(plugin_path)
 
 AC_CONFIG_FILES([libthink/Makefile src/Makefile src/gui/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile build.mk])
