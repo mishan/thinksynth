@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.65 2004/03/26 07:55:01 joshk Exp $
+dnl $Id: configure.ac,v 1.66 2004/03/26 08:24:50 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -23,7 +23,7 @@ AC_MSG_CHECKING([if rmdir supports --ignore-fail-on-non-empty])
 mkdir .conftest
 touch .conftest/x
 
-if rmdir --ignore-fail-on-non-empty .conftest; then
+if rmdir --ignore-fail-on-non-empty .conftest >/dev/null 2>&1; then
   GNU_RMDIR_OPTION="--ignore-fail-on-non-empty"
   AC_MSG_RESULT(yes)
 else
