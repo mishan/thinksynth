@@ -1,4 +1,5 @@
-# $Id: Makefile,v 1.8 2003/05/03 07:24:40 aaronl Exp $
+# $Id: Makefile,v 1.9 2003/05/09 17:47:19 misha Exp $
 
-all: test.so
+PLUGIN_NAMES = test.so
+all: $(PLUGIN_NAMES)
 include ../plugin-common.mk

@@ -1,4 +1,5 @@
-# $Id: Makefile,v 1.1 2003/05/06 09:04:39 ink Exp $
+# $Id: Makefile,v 1.2 2003/05/09 17:47:19 misha Exp $
 
-all: rds.so
+PLUGIN_NAMES = rds.so
+all: $(PLUGIN_NAMES)
 include ../plugin-common.mk
