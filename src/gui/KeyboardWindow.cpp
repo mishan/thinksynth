@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.9 2004/04/01 08:55:02 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.10 2004/04/01 08:58:18 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -116,7 +116,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	vbox.pack_start(drawArea);
 	ctrlFrame.add(ctrlTable);
 
-	chanVal = new Gtk::Adjustment(0, 0, synth->GetChannelCount()-1);
+	chanVal = new Gtk::Adjustment(1, 1, synth->GetChannelCount());
 	chanBtn = new Gtk::SpinButton(*chanVal);
 
 	ctrlTable.attach(chanLbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
@@ -219,10 +219,10 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 					} else {
 						veloc = veloc3;
 					}
-					synth->AddNote((int)chanVal->get_value(), notenum, veloc);
+					synth->AddNote((int)chanVal->get_value()-1, notenum, veloc);
 					active_keys[notenum] = 1;
 				} else {	/* note-off */
-					set_note_off((int)chanVal->get_value(), notenum);
+					set_note_off((int)chanVal->get_value()-1, notenum);
 					active_keys[notenum] = 1;
 				}
 			}
@@ -240,7 +240,7 @@ bool KeyboardWindow::unclickEvent (GdkEventButton *b)
 {
 	/* turn off if active */
 	if (mouse_notnum >= 0) {
-		set_note_off((int)chanVal->get_value(), mouse_notnum);
+		set_note_off((int)chanVal->get_value()-1, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
 	}
 	mouse_notnum = -1;
@@ -257,7 +257,7 @@ bool KeyboardWindow::clickEvent (GdkEventButton *b)
 	drawArea.grab_focus ();
 
 	if (mouse_notnum >= 0) {	/* already active */
-		set_note_off((int)chanVal->get_value(), mouse_notnum);
+		set_note_off((int)chanVal->get_value()-1, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
 	}
 		
@@ -277,7 +277,7 @@ bool KeyboardWindow::clickEvent (GdkEventButton *b)
 	}
 
 	active_keys[mouse_notnum] = 1;
-	synth->AddNote((int)chanVal->get_value(), mouse_notnum, veloc);
+	synth->AddNote((int)chanVal->get_value()-1, mouse_notnum, veloc);
 
 	mouse_veloc = veloc;	/* save velocity */
 
