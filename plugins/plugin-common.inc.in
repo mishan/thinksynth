@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.24 2003/05/03 03:53:49 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.25 2003/05/03 04:44:54 aaronl Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -25,7 +25,7 @@ all: $(PLUGIN_NAMES:%=%@SHARED_SUFFIX@)
 ifeq ($(USING_GNU_CXX),yes)
 
 ifeq ($(CXX_MT_BROKEN),yes)
-	sed 's/.o:/.so:/g' .deps/$<.dt > .deps/$<.dtx
+	sed 's/\.o:/.so:/g' .deps/$<.dt > .deps/$<.dtx
 	mv .deps/$<.dtx .deps/$<.dt
 endif
 
