@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.14 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: ui.cpp,v 1.15 2004/09/15 07:40:09 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,17 +29,22 @@
 
 #include "think.h"
 
+#include "gthAudio.h"
+#include "gthPrefs.h"
+
 #include "gui/Keyboard.h"
 #include "gui/KeyboardWindow.h"
 #include "gui/PatchSelWindow.h"
 #include "gui/MainSynthWindow.h"
 
 extern thSynth *Synth;
+extern gthPrefs *prefs;
+extern gthAudio *aout;
 extern Gtk::Main *gtkMain;
 
 void ui_thread (void)
 {
-	MainSynthWindow synthWindow(Synth);
+	MainSynthWindow synthWindow(Synth, prefs, aout);
 
 	gtkMain->run(synthWindow);
 }

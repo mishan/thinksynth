@@ -46,8 +46,8 @@
 /* XXX: globals */
 thSynth *Synth = NULL;
 gthPrefs *prefs = NULL;
+gthAudio *aout = NULL;
 
-static gthAudio *aout = NULL;
 static gthALSAMidi *midi = NULL;
 
 static Glib::Thread *ui = NULL;
@@ -318,12 +318,6 @@ int main (int argc, char *argv[])
 
 	prefs->Load();
 
-	/* create UI thread */
-	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
-
-	/* create a window first */
-	Synth->Process();
-
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
 	try
@@ -368,6 +362,12 @@ int main (int argc, char *argv[])
 			fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
 		exit (1);
 	}
+
+	/* create UI thread */
+	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
+
+	/* create a window first */
+	Synth->Process();
 
 /*
 	if (outputfname.length() > 0)
