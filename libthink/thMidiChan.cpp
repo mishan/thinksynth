@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.45 2003/05/11 08:06:24 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.46 2003/05/24 00:23:52 aaronl Exp $ */
 
 #include "config.h"
 
@@ -102,14 +102,14 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 		data->Process(windowlength);
 		mod = data->GetMod();
 		amp = (thArgValue *)args->GetData((void *)"amp");
-		play = (thArgValue *)mod->GetArg(mod->GetIONode(), (const char*)"play");
+		play = (thArgValue *)mod->GetArg(mod->GetIONode(), "play");
 	  
 		for(i=0;i<channels;i++) {
 			sprintf(argname, "%s%i", OUTPUTPREFIX, i);
-			arg = (thArgValue *)mod->GetArg(mod->GetIONode(), (const char*)argname);
+			arg = (thArgValue *)mod->GetArg(mod->GetIONode(), argname);
 			for(j=0;j<windowlength;j++) {
 				output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
-				if(play && (*play)[i] == 0) {
+				if(play && (*play)[j] == 0) {
 					delnote = 1;
 				}
 				/* output += channel output * (amplitude/amplitude maximum) */
