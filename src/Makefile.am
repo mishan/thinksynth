@@ -16,7 +16,6 @@ thinksynth_SOURCES = \
 	thOSSAudio.cpp \
 	thPlugin.cpp \
 	thPluginManager.cpp \
-	thPluginSignaler.cpp \
 	thSynth.cpp \
 	thWav.cpp
 

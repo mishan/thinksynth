@@ -15,7 +15,6 @@ public:
 	
 	thPlugin *GetPlugin (char *name);
 private:
-	thPluginSignaler *signaler;
 	thBSTree *plugins;
 
 	void UnloadPlugins (void);

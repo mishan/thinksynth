@@ -5,10 +5,10 @@
 
 class thPlugin {
 public:
-	thPlugin(const char *name, int id, bool state, void *handle);
+	thPlugin(const char *path, int id, bool state);
 	~thPlugin ();
 
-	const char *GetName (void);
+	const char *GetPath (void);
 	const char *GetDesc (void);
 	bool GetState (void);
 
@@ -17,14 +17,15 @@ public:
 	void SetDesc(const char *desc);
 	void SetState(bool state);
 
-	int Fire (void);
+	int Fire (void *node, void *mod);
 private:
-	char *plugName;
+	char *plugPath;
 	int plugId;
 	bool plugState;
 	void *plugHandle;
 	char *plugDesc;
-	char *plugPath;
+
+	void (*plugCallback)(void *, void *);
 
 	int ModuleLoad (void);
 	void ModuleUnload (void);

@@ -12,19 +12,15 @@
 #include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
-#include "thPluginSignaler.h"
 #include "thPluginManager.h"
 
 thPluginManager::thPluginManager ()
 {
-	signaler = new thPluginSignaler;
 	plugins = new thBSTree;
 }
 
 thPluginManager::~thPluginManager ()
 {
-	delete signaler;
-
 	UnloadPlugins();
 }
 
@@ -40,8 +36,6 @@ char *thPluginManager::GetPath (char *name)
 
 int thPluginManager::LoadPlugin (char *name)
 {
-	int (*module_init) (int version, thPlugin *plugin);
-	void *handle;
 	thPlugin *plugin;
 	char *path;
 
@@ -52,42 +46,11 @@ int thPluginManager::LoadPlugin (char *name)
 
 
 	path = GetPath(name);
-	handle = dlopen(path, RTLD_NOW);
-	
-	if(handle == NULL) {
-#ifdef HAVE_DLERROR
-		fprintf(stderr, "thPluginManager::LoadPlugin: %s\n", 
-				(char *)dlerror());
-#else
-		fprintf(stderr, "thPluginManager::LoadPlugin: %s%s\n", 
-				"Could not load plugin: ", path);
-#endif /* HAVE_DLERROR */
 
-		delete path;
-		return 1;
-	}
+	plugin = new thPlugin (path, id, state);
 
-	delete path;
-
-	plugin = new thPlugin(name, id, state, handle);
-
-	module_init = (int (*)(int, thPlugin *))dlsym (handle, "module_init");
-
-	if (module_init == NULL) {
-		goto err;
-	}
-
-	if (module_init (MODULE_IFACE_VER, plugin) != 0) {
-		goto err;
-	}
-
-	plugins->Insert(name, plugin);
-
+	/* XXX */
 	return 0;
-
-  err:
-	delete plugin;
-	return 1;
 }
 
 
