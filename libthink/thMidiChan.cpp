@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.31 2003/05/07 00:00:09 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.32 2003/05/07 03:09:43 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -65,11 +65,7 @@ void thMidiChan::Process (void)
 {
   int i, j;
 
-  for(i=0;i<channels;i++) {
-	for(j=0;j<windowlength;j++) {
-	  output[i+(j*channels)] = 0;   /* I should do memset here... */
-	}
-  }
+  memset (output, 0, windowlength*channels*sizeof(float));
 
   ProcessHelper(notes);
 }
