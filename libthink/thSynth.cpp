@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.66 2004/02/01 09:30:09 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.67 2004/02/01 09:57:31 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -127,7 +127,7 @@ int thSynth::SetNoteArg (const string &channame, int note, char *name,
 	{
 		debug("thSynth::SetNoteArg: no such channel %s\n", channame.c_str());
 
-		return NULL;
+		return 1;
 	}
 	
 	chan->SetNoteArg (note, name, value, len);
@@ -146,6 +146,13 @@ void thSynth::Process (void)
 	for (map<string, thMidiChan*>::const_iterator im = channels.begin();
 		 im != channels.end(); ++im) {
 		chan = im->second;
+
+		if (!chan)
+		{
+			debug("thSynth::Process: no such channel '%s'\n",
+				  im->first.c_str());
+			continue;
+		}
 
 		notechannels = chan->GetChannels();
 		mixchannels = notechannels;
