@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.132 2004/02/09 10:50:28 misha Exp $ */
+/* $Id: main.cpp,v 1.133 2004/02/10 01:30:49 misha Exp $ */
 
 #include "config.h"
 
@@ -109,6 +109,16 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 				printf("PITCH BEND:  %i\n", ev->data.control.value);
 				break;
 			}
+			case SND_SEQ_EVENT_PGMCHANGE:
+			{
+				printf("PGM CHANGE  %d\n", ev->data.control.value);
+				break;
+			}
+			default:
+			{
+				printf("got unknown event 0x%x\n", ev->type);
+				break;
+			}
 		}
 		snd_seq_free_event(ev);
     } while (snd_seq_event_input_pending(seq_handle, 0) > 0);
@@ -207,7 +217,6 @@ int main (int argc, char *argv[])
 		inputfname = argv[optind];
 
 		Synth.LoadMod(inputfname);
-
 		/* the first channel is the one passed on the command line */
 		Synth.AddChannel(string("chan0"), dspname, 12.0);
 	}
@@ -281,7 +290,7 @@ int main (int argc, char *argv[])
 			exit (1);
 			outputstream = new thOSSAudio(NULL, &audiofmt);
 		}
-		else
+		else /* wav */
 		{
 			if (outputfname.length() > 0)
 			{
