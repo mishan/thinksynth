@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.12 2004/09/05 10:39:13 joshk Exp $ */
+/* $Id: gthPrefs.cpp,v 1.13 2004/09/08 20:59:23 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -83,7 +83,12 @@ void gthPrefs::Load (void)
 		fprintf(stderr, "could not open %s: %s\n", prefsPath.c_str(),
 			strerror(errno));
 	  	if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
+		{
+			/* just give up */
+			fprintf(stderr, "could not open " DEFAULT_THINKRC ": %s\n",
+				strerror(errno));
 			return;
+		}
 		else
 			printf("opened default configuration " DEFAULT_THINKRC "\n");
 	}
