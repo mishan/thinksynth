@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.19 2004/09/18 00:13:29 joshk Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.20 2004/09/18 02:16:47 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -37,14 +37,18 @@ extern gthPrefs *prefs;
 
 void jack_shutdown (void *arg)
 {
-//	gthJackAudio *jout = (gthJackAudio *)arg;
-	debug("shutting down");
+	gthJackAudio *jout = (gthJackAudio *)arg;
+	debug("JACK server went away, thread shutting down");
+	/* Invalidate */
+	jout->jack_handle = NULL;
+	jout->tryConnect(false);
 }
 
 gthJackAudio::gthJackAudio (thSynth *argsynth)
 	throw (thIOException)
 {
 	synth = argsynth;
+	jcallback = NULL;
 
 	if ((jack_handle = jack_client_new("thinksynth")) == NULL)
 	{
@@ -67,6 +71,7 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 	throw (thIOException)
 {
   	synth = argsynth;
+	jcallback = callback;
 
 	if ((jack_handle = jack_client_new("thinksynth")) == NULL)
 	{	
@@ -96,14 +101,33 @@ int gthJackAudio::tryConnect (bool connect)
 
 	if (!jack_handle)
 	{
-		debug("Called with a NULL jack_handle!");
-		return false;
+		/* JACK died while we were connected; this is OK. Pretend
+		 * we actually tried to disconnect */
+		if (!connect)
+		{
+			connected = false;
+			return 0;
+		}
+	
+		/* try to allocate a new one */
+		if ((jack_handle = jack_client_new("thinksynth")) == NULL)
+			return ERR_HANDLE_NULL;
+
+		registerPorts();
+		jack_on_shutdown (jack_handle, jack_shutdown, this);
+		puts("JACK revived; setting synth params");
+		synth->setSamples(jack_get_sample_rate(jack_handle));
+		synth->Process();
+		
+		if (jcallback != NULL)
+			jack_set_process_callback(jack_handle, jcallback, this);
+		jack_activate(jack_handle);
 	}
 	
 	if (connected && connect)
 	{
 		debug("already connected...");
-		return true;
+		return 0;
 	}
 
 	/* Now try to connect */
@@ -153,7 +177,7 @@ int gthJackAudio::tryConnect (bool connect)
 	}
 	else
 	{
-		error = INT_MAX;
+		error = ERR_NO_PLAYBACK;
 		fprintf(stderr, "warning: no suitable JACK playback targets found\n");
 	}
 

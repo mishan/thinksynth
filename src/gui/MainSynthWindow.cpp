@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.38 2004/09/18 00:13:29 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.39 2004/09/18 02:16:47 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -55,20 +55,25 @@ void MainSynthWindow::toggleConnects (void)
 
 static void connectDialog (int error)
 {
-	if (error == INT_MAX) /* better value available? */
+	string msg;
+	
+	switch (error)
 	{
-		Gtk::MessageDialog errorDialog (
-			"Could not find a playback target for JACK\n"
-			"(alsa_pcm or oss.)", Gtk::MESSAGE_ERROR);
-		errorDialog.run();
+		case gthJackAudio::ERR_NO_PLAYBACK:
+			msg = "Could not find a playback target for JACK\n"
+					"(alsa_pcm or oss.)";
+			break;
+		case gthJackAudio::ERR_HANDLE_NULL:
+			msg = "Can't connect to the JACK server because it no\n"
+			  		"longer seems to be running.";
+			break;
+		default:
+			msg = "Could not (dis)connect JACK, errno = " + error;
+			break;
 	}
-	else
-	{
-		Gtk::MessageDialog errorDialog (g_strdup_printf(
-			"Could not connect to JACK (errno = %d)", error),
-		 	Gtk::MESSAGE_ERROR);
-		errorDialog.run();
-	}
+
+	Gtk::MessageDialog errorDialog (msg.c_str(), Gtk::MESSAGE_ERROR);
+	errorDialog.run();
 }
 
 MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)

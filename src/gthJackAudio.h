@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.11 2004/09/18 00:13:29 joshk Exp $ */
+/* $Id: gthJackAudio.h,v 1.12 2004/09/18 02:16:47 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,10 +50,16 @@ public:
 	int getBufferSize (void);
 
 	jack_client_t *jack_handle;
+
+	/* Error codes */
+	enum { ERR_HANDLE_NULL = 256, ERR_NO_PLAYBACK };
+
 protected:
 	int chans;
 	jack_port_t **out_ports;
 	thSynth *synth;
+	int (*jcallback)(jack_nframes_t, void*);
+
 private:
 	gthAudioFmt ofmt, ifmt;
 	void registerPorts (void);
