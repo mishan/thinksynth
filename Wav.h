@@ -81,4 +81,21 @@ private:
 		throw(WavException);
 };
 
+inline Wav *new_Wav(char *name)
+{
+	try {
+		Wav *wav = new Wav(name);
+
+		return wav;
+	}
+	catch (IOException e) {
+		fprintf(stderr, "Wav::Wav: %s: %s\n", name, strerror(e));	
+	}
+	catch (WavException e) {
+		fprintf(stderr, "%s\n", WavError(e));
+	}
+
+	return NULL;
+}
+
 #endif /* HAVE_WAV_H */

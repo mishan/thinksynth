@@ -1,7 +1,7 @@
 #ifndef HAVE_EXCEPTION_H
 #define HAVE_EXCEPTION_H 1
 
-enum IOException { NOSUCHFILE };
+typedef int IOException;
 
 class Exception
 {

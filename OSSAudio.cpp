@@ -8,40 +8,34 @@
 #include <fcntl.h>
 #include <sys/soundcard.h>
 #include <errno.h>
+
+#include "Exception.h"
 #include "AudioBuffer.h"
 #include "OSSAudio.h"
 
 /* null is a placeholder; to have wav output plugins and audio output plugins
    we must maintain the same number of arguments for interopability */
-OSSAudio::OSSAudio(char *null, AudioFormat *fmt)
+OSSAudio::OSSAudio(char *null, AudioFormat *afmt)
+	throw(IOException)
 {
-	switch(fmt->bits) {
+	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate
+											1 channel, and 1 to indicate 2 
+											channels, so we must decrement the 
+											channel count */
+
+	switch(afmt->bits) {
 	case 8:
-		fmt->format = AFMT_U8;
+		afmt->format = AFMT_U8;
 		break;
 	case 16:
-		fmt->format = AFMT_S16_NE;
+		afmt->format = AFMT_S16_NE;
 		break;
 	}
 
-	memcpy(&this->fmt, fmt, sizeof(AudioFormat));
-}
-
-OSSAudio::~OSSAudio()
-{
-	close_audio();
-}
-
-int OSSAudio::open_audio(void)
-{
-	int oss_channels = fmt.channels-1; /* OSS uses the value of 0 to indicate 
-										  1 channel, and 1 to indicate 2 
-										  channels, so we must decrement the 
-										  channel count */
+	memcpy(&fmt, afmt, sizeof(AudioFormat));
 
 	if((fd = open("/dev/dsp", O_RDWR)) < 0) {
-		fprintf(stderr, "OSSAudio::OSSAudio: /dev/dsp: %s\n", strerror(errno));
-		return -1;
+		throw errno;
 	}
 
 	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
@@ -54,21 +48,24 @@ int OSSAudio::open_audio(void)
 
 	if(ioctl(fd, SNDCTL_DSP_SPEED, &fmt.samples) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
-	}
-
-	return 0;
+	}	
 }
 
-void OSSAudio::set_format(AudioFormat *fmt)
+OSSAudio::~OSSAudio()
 {
-	int oss_channels = fmt->channels-1; /* OSS uses the value of 0 to indicate 
+	close(fd);
+}
+
+void OSSAudio::set_format(AudioFormat *afmt)
+{
+	int oss_channels = fmt.channels-1; /* OSS uses the value of 0 to indicate 
 										   1 channel, and 1 to indicate 2 
 										   channels, so we must decrement the 
 										   channel count */
 
-	memcpy(&this->fmt, fmt, sizeof(AudioFormat));
+	memcpy(&fmt, afmt, sizeof(AudioFormat));
 
-	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt->format) == -1) {
+	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
 	}
 
@@ -76,7 +73,7 @@ void OSSAudio::set_format(AudioFormat *fmt)
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
 	}
 
-	if(ioctl(fd, SNDCTL_DSP_SPEED, &fmt->samples) == -1) {
+	if(ioctl(fd, SNDCTL_DSP_SPEED, &fmt.samples) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
 	}
 }
@@ -84,13 +81,6 @@ void OSSAudio::set_format(AudioFormat *fmt)
 AudioFormat OSSAudio::get_format (void)
 {
 	return fmt;
-}
-
-void OSSAudio::close_audio(void)
-{
-	close(fd);
-	
-	fd = -1;
 }
 
 void OSSAudio::write_audio (void *buf, int len)

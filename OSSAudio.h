@@ -20,20 +20,31 @@ struct AudioFormat {
 class OSSAudio
 {
 public:
-	OSSAudio(char *null, AudioFormat *fmt);
+	OSSAudio(char *null, AudioFormat *fmt)
+		throw(IOException);
 
 	~OSSAudio();
 
-	int open_audio(void);
 	void write_audio(void *stream, int len);
 	void set_format(AudioFormat *fmt);
 	AudioFormat get_format(void);
 private:
 	int fd;
 	AudioFormat fmt;
-
-	void close_audio(void);
 };
 
+inline OSSAudio *new_OSSAudio(char *null, AudioFormat *afmt)
+{
+	try {
+		OSSAudio *audio = new OSSAudio(null, afmt);
+
+		return audio;
+	}
+	catch (IOException e) {
+		fprintf(stderr, "OSSAudio::OSSAudio: %s\n", strerror(e));	
+	}
+
+	return NULL;
+}
 
 #endif /* HAVE_AUDIO_H */

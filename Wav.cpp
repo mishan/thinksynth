@@ -22,8 +22,8 @@ Wav::Wav(char *name)
  	type = 0; /* reading */
 
 	if((fd = open(filename, O_RDONLY)) < 0) {
-		throw NOSUCHFILE;
-	}	
+		throw errno;
+	}
 
 	try {
 		read_header();

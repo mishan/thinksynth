@@ -6,30 +6,6 @@
 #include "Wav.h"
 #include "OSSAudio.h"
 
-Wav *create_wav(char *name)
-{
-	try {
-		Wav *wav = new Wav(name);
-
-		return wav;
-	}
-	catch (IOException e) {
-		switch(e) {
-		case NOSUCHFILE:
-			fprintf(stderr, "Wav::Wav: no such file/directory: %s\n", name);
-			break;
-		default:
-			fprintf(stderr, "create_wav: unhandled exception %d\n", (int)e);
-			break;
-		}
-	}
-	catch (WavException e) {
-		fprintf(stderr, "%s\n", WavError(e));
-	}
-
-	return NULL;
-}
-
 int main (int argc, char *argv[])
 {
 	Wav *wav;
@@ -43,7 +19,7 @@ int main (int argc, char *argv[])
 		return 1;
 	}
 
-	if(!(wav = create_wav(argv[1]))) {
+	if(!(wav = new_Wav(argv[1]))) {
 		exit(1);
 	}
 	
@@ -53,10 +29,10 @@ int main (int argc, char *argv[])
 	afmt.samples = wfmt.samples;
 	afmt.bits = wfmt.bits;
 	
-	audio = new OSSAudio(NULL, &afmt);
-	
-	audio->open_audio();
-	
+	if(!(audio = new_OSSAudio(NULL, &afmt))) {
+		exit(1);
+	}
+		
 	switch(wfmt.bits) {
 	case 8:
 	{
