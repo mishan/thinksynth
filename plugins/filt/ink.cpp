@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.5 2003/06/01 18:47:48 ink Exp $ */
+/* $Id: ink.cpp,v 1.6 2003/06/01 19:34:32 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,7 +69,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		in = (*in_arg)[i];
 		diff = in - last;
 		//printf("diff: %f \tperc: %f \tlast: %f \t%f\n\nres: %f \tcut: %f\n\n", diff, diff/TH_RANGE, last, accel, (*in_res)[i], (*in_cutoff)[i]);
-		accel += (diff*(1-SQR((diff/TH_RANGE)*0.98)))*SQR((*in_cutoff)[i]); /* My special blend of herbs and spices */
+		diff *= 1-SQR((diff/(TH_RANGE+1)));
+		accel += diff*SQR((*in_cutoff)[i]); /* My special blend of herbs and spices */
 		accel *= (*in_res)[i];
 		
 		if(abs((int)accel) > TH_RANGE) {
