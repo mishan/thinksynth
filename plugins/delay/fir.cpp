@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.2 2003/05/23 23:14:19 ink Exp $ */
+/* $Id: fir.cpp,v 1.3 2003/05/23 23:44:39 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,7 +72,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				index += in_impulse->argNum;
 			}
 			out[i] += (*in_impulse)[j] * buffer[index];
-//			printf("i: %i\tj: %i index: %i buf: %f \timp: %f, out: %f\n", i, j, index, buffer[index], (*in_impulse)[j], out[i]);
 		}
 
 		(*bufpos)++;
