@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.57 2004/11/26 06:23:56 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.58 2004/11/29 01:50:10 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -619,7 +619,7 @@ void MainSynthWindow::onBrowseButton (void)
 {
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	int pagenum = notebook.get_current_page();
-	Gtk::FileSelection fileSel("thinksynth - Load Patch");
+	Gtk::FileSelection fileSel("thinksynth - Load DSP");
 
 	if (prevDir)
 		fileSel.set_filename(prevDir);
