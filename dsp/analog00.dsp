@@ -34,7 +34,7 @@ node freq misc::midi2freq {
 };
 
 node subfreq math::div {
-	in0 = freq->out;
+	in0 = freq->out_band;
 	in1 = 2;
 };
 

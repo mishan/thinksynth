@@ -1,8 +1,8 @@
-/* $Id: res2pole.cpp,v 1.2 2003/05/21 23:24:53 ink Exp $ */
+/* $Id: res2pole.cpp,v 1.3 2003/05/22 00:05:04 ink Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org
-   References : Effect Deisgn Part 1, Jon Dattorro, J. Audio Eng. Soc., Vol 45, No. 9, 1997 September
+   References : Hal Chamberlin, "Musical Applications of Microprocessors," 2nd Ed, Hayden Book Company 1985. pp 490-492
 */
 
 #include <stdio.h>
