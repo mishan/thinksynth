@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.31 2003/05/11 04:54:24 misha Exp $ */
+/* $Id: thWav.cpp,v 1.32 2003/05/11 04:58:44 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -69,14 +69,12 @@ thWav::~thWav (void)
 	if(type == WRITING) { /* if we're writing, we must write the header before 
 							 we close */
 		/* get our current position in the file, which is the data length */
-		fmt.len = lseek(fd, 0, SEEK_CUR) - 44;
-
-		lseek(fd, 0, SEEK_SET);
+		fmt.len = lseek(fd, 0, SEEK_CUR);
 
 		WriteRiff();
 
 		lseek(fd, 40, SEEK_SET);
-		lewrite32(fd, fmt.len - 8);
+		lewrite32(fd, fmt.len - 44);
 
 		close(fd);
 	}
@@ -109,8 +107,11 @@ int thWav::Write (void *data, int len)
 	return r;
 }
 
+/* Alters file seekage */
 void thWav::WriteRiff (void)
 {
+	lseek(fd, 0, SEEK_SET);
+
 	int fmt_len = FMT_LEN; /* this is the standard length of the fmt header,
 							   it is the header minus the eight bytes for the 
 							   "fmt " string and the header length */
