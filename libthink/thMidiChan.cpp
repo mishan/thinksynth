@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.34 2003/05/07 15:59:43 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.35 2003/05/07 16:07:17 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -76,44 +76,49 @@ void thMidiChan::Process (void)
 
 void thMidiChan::ProcessHelper (thBSTree *note)
 {
-  thMidiNote *data;
-  thArgValue *arg, *amp, *play, *noteval;
-  thMod *mod;
-  char *argname = new char[outputnamelen];
-  int i, j;
-  int delnote = 0;
+	thMidiNote *data;
+	thArgValue *arg, *amp, *play, *noteval;
+	thMod *mod;
+	char *argname = new char[outputnamelen];
+	int i, j;
+	int delnote = 0;
 
-  if(note) {
+	if(!note) {
+		return;
+	}
+
 	ProcessHelper(note->GetLeft());
 
 	data = (thMidiNote *)note->GetData();
 	if(data) { /* XXX We should not have to do this! */
-	  data->Process(windowlength);
-	  mod = data->GetMod();
-	  const char* ionodename = mod->GetIONode()->GetName();
-	  amp = (thArgValue *)args->GetData((void *)"amp");
-	  play = (thArgValue *)mod->GetArg(ionodename, (const char*)"play");
+		const char *ionodename = NULL;
+
+		data->Process(windowlength);
+		mod = data->GetMod();
+		ionodename = mod->GetIONode()->GetName();
+		amp = (thArgValue *)args->GetData((void *)"amp");
+		play = (thArgValue *)mod->GetArg(ionodename, (const char*)"play");
 	  
-	  for(i=0;i<channels;i++) {
-		sprintf(argname, "%s%i", OUTPUTPREFIX, i);
-		arg = (thArgValue *)mod->GetArg(ionodename, (const char*)argname);
-		for(j=0;j<windowlength;j++) {
-		  output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
-		  if((*play)[i] == 0) {
-			delnote = 1;
-		  }
-		  /* output += channel output * (amplitude/amplitude maximum) */
+		for(i=0;i<channels;i++) {
+			sprintf(argname, "%s%i", OUTPUTPREFIX, i);
+			arg = (thArgValue *)mod->GetArg(ionodename, (const char*)argname);
+			for(j=0;j<windowlength;j++) {
+				output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+				if((*play)[i] == 0) {
+					delnote = 1;
+				}
+				/* output += channel output * (amplitude/amplitude maximum) */
+			}
 		}
-	  }
 	  
-	  if(delnote == 1) {
-		noteval = (thArgValue *)mod->GetArg(ionodename, (const char*)"note");
-		DelNote((int)(*noteval)[0]);
-	  }
+		if(delnote == 1) {
+			noteval = (thArgValue *)mod->GetArg(ionodename, 
+												(const char*)"note");
+			DelNote((int)(*noteval)[0]);
+		}
 	}
 
 	ProcessHelper(note->GetRight());
-  }
 }
 
 static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
