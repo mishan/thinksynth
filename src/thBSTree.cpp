@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.15 2003/04/26 02:42:32 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.16 2003/04/26 02:53:48 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -120,7 +120,7 @@ bool thBSTree::Remove(void *id)
 	if(bsLeft && bsRight) {
 		thBSTree *newchild;
 
-		switch(StringCompare(bsLeft->name, bsRight->name)) {
+		switch(bsCompare(bsLeft->GetId(), bsRight->GetId())) {
 		case 0:
 			fprintf(stderr, "thBSTree::Remove: Duplicate node should not exist.. Corrupt tree?\n");
 			break;
