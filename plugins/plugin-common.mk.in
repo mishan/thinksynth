@@ -10,7 +10,8 @@ INCLUDES = -I../../libthink -I../..
 
 plugin_path=@plugin_path@
 
-CXXFLAGS += -DPLUGIN_BUILD
+CXXFLAGS += -DPLUGIN_BUILD @SIGC_CFLAGS@
+LDFLAGS += @SIGC_LIBS@
 
 install:
 	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
