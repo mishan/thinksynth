@@ -7,19 +7,19 @@ node ionode {
 	play = env->play;
 
 
-	filtmax = 0.7;
+	filtmax = 0.9;
 	filtmin = 0.01;
 
-	waveform = 0;
+	waveform = 1;
 	fmmul1 = 0.5;
-	fmamt = 0.5;
+	fmamt = 0.1;
 	fmwave = 0;
 
 	fmmul2 = 1;
-	fmamt2 = 0.15;
+	fmamt2 = 0.2;
 	fmwave2 = 0;
 
-	res = 0.7;
+	res = 0.6;
 };
 
 node freq misc::midi2freq {

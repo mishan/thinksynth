@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.36 2003/10/24 02:50:44 ink Exp $ */
+/* $Id: simple.cpp,v 1.37 2003/10/24 03:09:59 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,7 +97,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 
 		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
-		fmpos = (int)(position + ((*in_fm)[i] / TH_MAX) * wavelength * fmamt) % (int)wavelength;
+		fmpos = (int)((position - ((1-fmamt)*wavelength)) + ((*in_fm)[i] / TH_MAX) * wavelength * fmamt) % (int)wavelength;
 
 		if(position > wavelength || (*in_reset)[i] == 1) {
 			position = 0;
