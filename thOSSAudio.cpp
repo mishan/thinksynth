@@ -96,11 +96,13 @@ const thAudioFmt *thOSSAudio::GetFormat (void)
 	return &fmt;
 }
 
-void thOSSAudio::Write (void *buf, int len)
+int thOSSAudio::Write (void *buf, int len)
 {
 	ioctl(fd, SNDCTL_DSP_SYNC, 0);
 	write(fd, buf, len);
 	ioctl(fd, SNDCTL_DSP_SYNC, 1);
+
+	return 0;
 }
 
 int thOSSAudio::Read(void *buf, int len)

@@ -14,7 +14,11 @@ class thAudio
 {
 public:
 	virtual int Read(void *data, int len) = 0;
+	virtual int Write(void *data, int len) = 0;
+
 	virtual const thAudioFmt *GetFormat(void) = 0;
+
+	virtual void SetFormat (const thAudioFmt *fmt) = 0;
 private:
 };
 

@@ -20,7 +20,7 @@ public:
 	virtual ~thOSSAudio();
 
 	void Play (thAudio *audioPtr);
-	void Write (void *stream, int len);
+	int Write (void *stream, int len);
 	int Read (void *data, int len);
 
 	const thAudioFmt *GetFormat (void);
