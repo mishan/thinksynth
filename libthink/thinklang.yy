@@ -44,7 +44,7 @@ int yywrap(void)
 }
 %}
 
-%token NODE IO
+%token NODE IO NAME
 %token WORD 
 %token FLOAT NUMBER
 %token ENDSTATE ASSIGN LCBRACK RCBRACK
@@ -178,6 +178,13 @@ IO WORD
 {
 	printf("IO node defined as %s\n", $2.str);
 	parsemod->SetIONode($2.str);
+}
+;
+
+nameset:
+NAME WORD
+{
+	printf("DSP Name: %s\n", $2.str);
 }
 ;
 

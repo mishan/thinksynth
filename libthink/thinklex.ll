@@ -37,6 +37,7 @@ int linenum = 1;
 nil                            return NIL;
 node                         return NODE;
 io				return IO;
+name						return NAME;
 
 \{                            return LCBRACK;
 \}                            return RCBRACK;
