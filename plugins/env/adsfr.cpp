@@ -1,4 +1,4 @@
-/* $Id: adsfr.cpp,v 1.6 2004/05/05 05:37:15 ink Exp $ */
+/* $Id: adsfr.cpp,v 1.7 2004/05/21 03:35:58 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,6 +122,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		switch (phase) {  /* Which phase of the ADSR are we in? */
 		case 0:   /* Attack */
 			play[i] = 1;  /* Dont kill this note yet! */
+			if (val_a < 1)
+				val_a = 1;
 			out[i] = SQR((position++)/val_a)*peak;
 			if(position >= val_a) {
 				phase = 1;   /* A ended, go to D */
@@ -131,6 +133,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		case 1:
 			play[i] = 1;
 
+			if (val_d < 1)
+				val_d = 1;
 			out[i] = val_s+SQR(((val_d-(position++))/val_d)*(peak-val_s));
 			if(position >= val_d) {
 				phase = 2;   /* D ended, go to S */
