@@ -91,12 +91,8 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
 
   for(listnode = ((thList *)currentnode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
-    printf("Processing: %s  Type : %i\n", data->argName, data->argType);
     if(data->argType == ARG_POINTER) {
       node = mod->FindNode(data->argPointNode);
-      /*parent->AddChild(node);
-      printf("Added Child %s to %s\n", node->GetName(), parent->GetName());
-      node->AddParent(parent);*/
       if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
 	BuildSynthTreeHelper(mod, currentnode, data->argPointNode);
       }

@@ -94,7 +94,6 @@ void thMod::Process (void)
 
   for(listnode = ((thList *)ionode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
     data = (thNode *)listnode->data;
-    printf("-0O %s\n", data->GetName());
     if(data->GetRecalc() == true) {
       ProcessHelper(data);
     }
@@ -111,7 +110,6 @@ void thMod::ProcessHelper(thNode *node) {
   
   for(listnode = ((thList *)node->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
     data = (thNode *)listnode->data;
-    printf("-0 %s\n", data->GetName());
     if(data->GetRecalc() == true) {
       ProcessHelper(data);
     }

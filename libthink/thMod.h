@@ -16,9 +16,10 @@ public:
 	void PrintIONode(void);
 
 	void Process (void);
-	void ProcessHelper (thNode *node);
 
 private:
+	void ProcessHelper (thNode *node);
+
 	thBSTree *modnodes, *actlist;
 	thNode *ionode;
 
