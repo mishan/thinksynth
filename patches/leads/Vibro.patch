@@ -4,7 +4,7 @@
 # Mon Dec  6 19:14:26 2004
 
 
-dsp /usr/local/share/thinksynth/dsp/mfm01.dsp
+dsp mfm01.dsp
 
 a 558.227905
 d 1860.759644
