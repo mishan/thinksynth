@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.61 2004/01/25 12:54:06 misha Exp $
+dnl $Id: configure.ac,v 1.62 2004/01/25 21:38:59 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -67,7 +67,6 @@ AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
 CXXFLAGS="-Wall -ffast-math"
-LIBS="-lasound" # XXX
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
@@ -172,6 +171,14 @@ if test "$ac_cv_cxx_compiler_gnu" = yes; then
 		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt,-MT\$@"])
 	fi
 fi
+
+AC_CHECK_LIB(asound, snd_pcm_hw_params_any,
+[
+  AC_CHECK_HEADER(alsa/asoundlib.h, LIBS="$LIBS -lasound")
+#  [
+#    AC_SUBST(ALSA_AUDIO_CPP, [thALSAAudio.o])
+#  ])
+])
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
