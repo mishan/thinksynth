@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.70 2004/05/26 00:14:04 misha Exp $
+dnl $Id: configure.ac,v 1.71 2004/05/26 08:10:48 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -76,9 +76,6 @@ AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is p
 
 AC_CHECK_HEADER([iwlib.h], [AC_DEFINE(HAVE_IWLIB_H, 1, [Define if iwlib.h is present.])], [LIBS="$LIBS"])
 
-AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
-AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
-
 AC_PATH_PROG(unamepath, uname)
 if test -z "$unamepath"; then
 	system="unknown"
@@ -104,7 +101,12 @@ else
 			PLUGIN_LDFLAGS="../../src/th*.o -lfl"
 		;;
 	esac
-	
+
+	if [ "$system" != Darwin ]; then
+		AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
+		AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
+	fi
+
 	dnl Cygwin's g++ port doesn't support this, just kill some warnings
 	if test `expr $system : CYGWIN` -eq 0; then
 		USE_SONAME=yes
