@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.31 2003/06/11 05:27:20 ink Exp $ */
+/* $Id: simple.cpp,v 1.32 2003/09/09 07:28:46 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,10 +48,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float halfwave, ratio;
 	float position;
 	double wavelength, freq;
+	float amp_max, amp_min, amp_range;
 	float mul;
 	float pw; /* Make pw cooler! */
 	float fmamt;
-	thArg *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset, *in_mul;
+	thArg *in_freq, *in_amp, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset, *in_mul;
 	thArg *out_arg, *out_sync;
 	thArg *inout_last;
 
@@ -65,6 +66,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out = out_arg->allocate(windowlen);
 
 	in_freq = mod->GetArg(node, "freq");
+	in_amp = mod->GetArg(node, "amp");
 	in_pw = mod->GetArg(node, "pw");
 	in_waveform = mod->GetArg(node, "waveform");
 	in_fm = mod->GetArg(node, "fm"); /* FM Input */
@@ -74,6 +76,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];
 		freq = (*in_freq)[i];
+		amp_max = (*in_amp)[i];
+		if(amp_max == 0) {
+		  amp_max = TH_MAX;
+		}
+		amp_min = -amp_max;
+		amp_range = amp_max-amp_min;
+
 		position++;
 
 		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
@@ -111,38 +120,38 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		switch((int)(*in_waveform)[i]) {
 			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle, 5 = parabola */
 			case 0:    /* SINE WAVE */
-				out[i] = TH_MAX*sin(ratio*2*M_PI); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+				out[i] = amp_max*sin(ratio*2*M_PI); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 				break;
 			case 1:    /* SAWTOOTH WAVE */
-				out[i] = TH_RANGE*ratio+TH_MIN;
+				out[i] = amp_range*ratio+amp_min;
 				break;
 			case 2:    /* SQUARE WAVE */
 				if(ratio < 0.5) {
-					out[i] = TH_MIN;
+					out[i] = amp_min;
 				} else {
-					out[i] = TH_MAX;
+					out[i] = amp_max;
 				}
 				break;
 			case 3:    /* TRIANGLE WAVE */
 				ratio *= 2;
 				if(ratio < 1) {
-					out[i] = TH_RANGE*ratio+TH_MIN;
+					out[i] = amp_range*ratio+amp_min;
 				} else {
-					out[i] = (-TH_RANGE)*(ratio-1)+TH_MAX;
+					out[i] = (-amp_range)*(ratio-1)+amp_max;
 				}
 				break;
 			case 4:    /* HALF-CIRCLE WAVE */
 				if(ratio < 0.5) {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
+					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*amp_max;
 				} else {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*TH_MIN;
+					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*amp_min;
 				}
 				break;
 			case 5:    /* PARABOLA WAVE */
 				if(ratio < 0.5) {
-					out[i] = TH_MAX*(1-SQR(ratio*4-1));
+					out[i] = amp_max*(1-SQR(ratio*4-1));
 				} else {
-					out[i] = TH_MAX*(SQR((ratio-0.5)*4-1)-1)       ;
+					out[i] = amp_max*(SQR((ratio-0.5)*4-1)-1)       ;
 				}	
 		}
 	}
