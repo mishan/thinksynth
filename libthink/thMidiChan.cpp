@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.65 2004/05/04 21:24:56 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.66 2004/05/11 10:21:00 misha Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -98,8 +98,13 @@ int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
 
 void thMidiChan::Process (void)
 {
-	if (dirty) memset (output, 0, windowlength*channels*sizeof(float));
-	dirty = 0;
+	if (dirty) 
+	{
+		memset (output, 0, windowlength*channels*sizeof(float));
+	}
+	dirty = false;
+
+
 	thMidiNote *data;
 	thArg *arg, *amp, *play;
 	thMod *mod;
@@ -107,20 +112,23 @@ void thMidiChan::Process (void)
 
 	string argname;
 
-	for (map<int, thMidiNote*>::iterator iter = notes.begin(); iter != notes.end(); ++iter)
+	for (map<int, thMidiNote*>::iterator iter = notes.begin();
+		 iter != notes.end(); ++iter)
 	{
 		data = iter->second;
-		dirty = 1;
+		dirty = true;
+
 		data->Process(windowlength);
+
 		mod = data->GetMod();
 		amp = args["amp"];
 		play = mod->GetArg("play");
 
-		for(i=0;i<channels;i++) {
+		for(i = 0; i < channels; i++) {
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
 			arg = mod->GetArg(argname);
-			for(j=0;j<windowlength;j++) {
+			for(j = 0; j < windowlength; j++) {
 				index = i+(j*channels);
 				output[index] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 			}

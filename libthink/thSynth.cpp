@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.90 2004/05/08 22:27:10 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.91 2004/05/11 10:21:00 misha Exp $ */
 
 #include "config.h"
 
@@ -31,7 +31,7 @@ thSynth::thSynth (void)
 	thOutput = new float[thChans*thWindowlen];
 
 	channelcount = CHANNELCHUNK;
-	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan*));
+	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
 }
 
 thSynth::~thSynth (void)
@@ -378,8 +378,8 @@ void thSynth::Process (void)
 			notechannels = chan->GetChannels();
 			mixchannels = notechannels;
 			
-			if (mixchannels > thChans) {
-				mixchannels = thChans;
+			if (mixchannels >= thChans) {
+				mixchannels = thChans - 1;
 			}
 			
 			chan->Process();
@@ -387,10 +387,12 @@ void thSynth::Process (void)
 			
 			for (int i = 0; i < mixchannels; i++)
 			{
-				for (int j = 0 ;j < thWindowlen; j++)
+				for (int j = 0; j < thWindowlen; j++)
 				{
-					thOutput[bufferoffset + j] += chanoutput[i + (j*mixchannels)];
+					thOutput[bufferoffset + j] +=
+						chanoutput[i + (j*mixchannels)];
 				}
+
 				bufferoffset += thWindowlen;
 			}
 		}
