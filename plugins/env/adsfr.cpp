@@ -1,4 +1,4 @@
-/* $Id: adsfr.cpp,v 1.10 2004/10/22 04:31:03 ink Exp $ */
+/* $Id: adsfr.cpp,v 1.11 2004/11/11 08:43:53 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,6 +20,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -150,7 +151,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 			if (val_d < 1)
 				val_d = 1;
-			out[i] = val_s+(((val_d-(position++))/val_d)*(peak-val_s));
+			out[i] = val_s + ((log(M_E - (M_E - 1) * ((position++)/val_d))) *
+								(peak - val_s));
 			if(position >= val_d) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
@@ -158,7 +160,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 			break;
 		case 2:
 			falloff = val_f;
-			temp = val_s * ((falloff - position++) / falloff);
+			temp = (1 - log(1 + (M_E - 1) *
+							((position++) / falloff))) * val_s;
 			if(temp == 0 || position > falloff) {  /* If there is no D section,
 													  make it end */
 				out[i] = 0;
@@ -184,7 +187,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 			}
 			else {
 				play[i] = 1;
-				out[i] = SQR(((position++)-val_r)/val_r)*val_s;
+				out[i] = (1 - log(1 + (M_E - 1) *
+								  ((position++)/val_r))) * val_s;
 			}
 
 			if(val_trigger > 0) { // We have been retriggered
