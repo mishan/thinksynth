@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.h,v 1.7 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thPluginManager.h,v 1.8 2003/04/27 04:36:29 misha Exp $ */
 
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1
@@ -15,7 +15,7 @@ public:
 
 	thPlugin *GetPlugin (char *name);
 private:
-	thBSTree plugins;
+	thBSTree *plugins;
 
 	void UnloadPlugins (void);
 

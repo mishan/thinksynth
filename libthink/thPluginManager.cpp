@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.17 2003/04/25 19:09:58 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.18 2003/04/27 04:36:29 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -24,6 +24,7 @@
 
 thPluginManager::thPluginManager ()
 {
+	plugins = new thBSTree(StringCompare);
 }
 
 thPluginManager::~thPluginManager ()
@@ -70,7 +71,7 @@ int thPluginManager::LoadPlugin (char *name)
 		return 1;
 	}
 	
-	plugins.Insert(name, plugin);
+	plugins->Insert((void *)name, (void *)plugin);
 
 	return 0;
 }
@@ -78,21 +79,21 @@ int thPluginManager::LoadPlugin (char *name)
 
 void thPluginManager::UnloadPlugin(char *name)
 {
-	thPlugin *plugin = (thPlugin *)plugins.GetData(name);
+	thPlugin *plugin = (thPlugin *)plugins->GetData((void *)name);
 
 	if(!plugin) {
 		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n", name);
 		return;
 	}
 
-	plugins.Remove(name);
+	plugins->Remove((void *)name);
 
 	delete plugin;
 }
 
 thPlugin *thPluginManager::GetPlugin (char *name)
 {
-	thPlugin *plugin = (thPlugin *)plugins.GetData(name);
+	thPlugin *plugin = (thPlugin *)plugins->GetData((void *)name);
 	
 	return plugin;
 }
