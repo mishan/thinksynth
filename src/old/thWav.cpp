@@ -32,7 +32,7 @@ thWav::thWav(char *name)
 	filename = strdup(name);
 	type = READING;
 
-	if(!(file = fopen(filename, "r"))) {
+	if (!(file = fopen(filename, "r"))) {
 		throw (thIOException) errno;
 	}
 
@@ -48,7 +48,7 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 	filename = strdup(name);
 	type = WRITING;
 
-	if((fd = open(name, O_CREAT|O_WRONLY|O_TRUNC, 0660)) < 0) {
+	if ((fd = open(name, O_CREAT|O_WRONLY|O_TRUNC, 0660)) < 0) {
 		throw (thIOException)errno;
 	}
 
@@ -70,7 +70,7 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 thWav::~thWav (void)
 {
 	/* if we're writing, we must write the header before we close */
-	if(type == WRITING) {
+	if (type == WRITING) {
 		WriteRiff();
 		close(fd);
 	}
@@ -92,7 +92,7 @@ int thWav::Write (float *inbuf, int len)
 {
 	int r = -1, i;
 
-	if(type == READING) {
+	if (type == READING) {
 		/* XXX: throw an exception */
 		return -1;
 	}
@@ -166,7 +166,7 @@ int thWav::Read (void *data, int len)
 {
 	int r = -1;
 
-	if(type == WRITING) {
+	if (type == WRITING) {
 		/* XXX: throw an exception */
 		return -1;
 	}
@@ -179,7 +179,7 @@ int thWav::Read (void *data, int len)
 	{
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
-		for(int i = 0; i < r; i++) {
+		for (int i = 0; i < r; i++) {
 			le16(((signed short *)data)[i], ((signed short *)data)[i]);
 		}
 #endif
@@ -200,23 +200,23 @@ void thWav::ReadHeader (void)
 	char magic[5];
 	long len;
 
-	if(!(len = FindChunk(RIFF_HDR))) {
+	if (!(len = FindChunk(RIFF_HDR))) {
 		throw NORIFFHDR;
 	}
 
 	fread(magic, 4, 1, file);
-	if(strncmp(WAVE_HDR, magic, 4)) {
+	if (strncmp(WAVE_HDR, magic, 4)) {
 		throw NOWAVHDR;
 
 	}
 
-	if(!(len = FindChunk(FMT_HDR))) {
+	if (!(len = FindChunk(FMT_HDR))) {
 		throw NOFMTHDR;
 	}
 
 	/* the fmt header must be of length 16 as we require all the information
 	   it contains */
- 	if(len < 16) {
+ 	if (len < 16) {
 		throw BADFMTHDR;
 	}
 
@@ -228,7 +228,7 @@ void thWav::ReadHeader (void)
 	lefread16(file, &blockalign);
 	lefread16(file, &fmt.bits);
 
-	if(!(fmt.len = FindChunk(DATA_HDR))) {
+	if (!(fmt.len = FindChunk(DATA_HDR))) {
 		throw NODATA;
 	}
 }
@@ -239,11 +239,11 @@ int thWav::FindChunk (const char *label) const
 	int len;
 
 	for (;;) {
-		if(!(fread(magic, 1, 4, file))) {
+		if (!(fread(magic, 1, 4, file))) {
 			return 0;
 		}
 		lefread32(file, &len);
-		if(!strncmp(label, magic, 4)) {
+		if (!strncmp(label, magic, 4)) {
 			break;
 		}
 
@@ -264,7 +264,7 @@ thAudioFmt *thWav::GetFormat (void)
 
 void thWav::SetFormat (const thAudioFmt *wfmt)
 {
-	if(type == READING) {
+	if (type == READING) {
 		return;
 	}
 

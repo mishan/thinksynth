@@ -23,69 +23,61 @@
 class thNode {
 public:
 	thNode (const string &name, thPlugin *thplug);
+	thNode (const thNode &copyNode);
 	~thNode (void);
 
-	void SetName (const string &name) { nodename = name; };
+	void setName (const string &name) { nodeName_ = name; };
+	string name (void) const { return nodeName_; }
 
-	string GetName (void) const { return nodename; }
-	
 	thArg *setArg (const string &name, float value);
 	thArg *setArg (const string &name, const float *value, int len);
-	thArg *setArg (const string &name, const string &node, const string &value);
+	thArg *setArg (const string &name, const string &node,
+				   const string &value);
 	thArg *setArg (const string &name, const string &chanarg);
 
-	int AddArgToIndex (thArg *arg);
+	int addArgToIndex (thArg *arg);
 
-	void SetArgCount (int argcnt) { argcounter = argcnt; };
+	void setArgCount (int argcnt) { argCount_ = argcnt; };
+	int argCount (void) const { return argCount_; };
 
-	int GetArgCount (void) { return argcounter; };
+	thArgMap args (void) const { return args_; }
 
-	map<string,thArg*> GetArgTree (void) const { return args; }
-	
-	thArg *GetArg (const string &name) { return args[name]; };
+	thArg *getArg (const string &name) { return args_[name]; };
+	thArg *getArg (int index) { return argindex_[index]; };
 
-	thArg *GetArg (int index) { return argindex[index]; };
+	void printArgs (void);
 
-	void PrintArgs (void);
+	void setId (int newid) { id_ = newid; }
+	int id (void) const { return id_; }
 
-	void SetID (int newid) { id = newid; }
+	bool recalc (void) const { return recalc_; }
+	void setRecalc (bool state) { recalc_ = state; }
 
-	int GetID (void) const { return id; }
+	void addChild(thNode *node) { children_.push_back(node); }
+	void addParent(thNode *node) { parents_.push_back(node); }
 
-	bool GetRecalc(void) const { return recalc; }
+	thNodeList children (void) const { return children_; }
+	thNodeList parents(void) const { return parents_; }
 
-	void SetRecalc(bool state) { recalc = state; }
+	void setPlugin (thPlugin *plug) { plugin_ = plug; }
+	thPlugin *plugin (void) const { return plugin_; }
 
-	void AddChild(thNode *node) { children.push_back(node); }
-
-	void AddParent(thNode *node) { parents.push_back(node); }
-
-	list<thNode*> GetChildren (void) const { return children; }
-
-	list<thNode*> GetParents(void) const { return parents; }
-
-	void SetPlugin (thPlugin *plug) { plugin = plug; }
-
-	thPlugin *GetPlugin() const { return plugin; }
-
-	void CopyArgs (const map<string,thArg*> &args);
-
-	void Process (void);
-
+	void copyArgs (const thArgMap &args);
+	void process (void);
 private:
-	map<string, thArg*> args;
+	thArgMap args_;
 
-	thArg **argindex;
-	int argcounter;
-	int argsize;
+	thArg **argindex_;
+	int argCount_;
+	int argsize_;
 
-	list<thNode*> parents, children;
-	thPlugin *plugin;
-	
-	string nodename;
-	bool recalc;
+	thNodeList parents_, children_;
+	thPlugin *plugin_;
 
-	int id;  /* id used as an index for thArg pointers */
+	string nodeName_;
+	bool recalc_;
+
+	int id_;  /* id used as an index for thArg pointers */
 };
 
 #endif /* TH_NODE_H */

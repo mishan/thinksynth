@@ -1,6 +1,6 @@
 /* $Id $ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -20,8 +20,6 @@
 #ifndef TH_MIDICONTROLLERCONNECTION_H
 #define TH_MIDICONTROLLERCONNECTION_H 1
 
-enum scale { LINEAR = 0, EXPONENTIAL };
-
 /* This is the class that holds the actual data needed to set parameter values
    via midi controllers.  This includes minimum and maximum setting values,
    exponential/linear curve mapping and a pointer to the thArg being set. */
@@ -33,21 +31,25 @@ public:
 								string argName);
 	~thMidiControllerConnection (void);
 
+
+	enum { LINEAR = 0, EXPONENTIAL };
+
 	void setMin (float min) { min_ = min; }
 	void setMax (float max) { max_ = max; }
-	float getMin (void) { return min_; }
-	float getMax (void) { return max_; }
+	float min (void) { return min_; }
+	float max (void) { return max_; }
+
 	void setScale (int scale) { scale_ = scale; }
-	int getScale (void) { return scale_; }
-	int getChan (void) { return chan_; }
-	int getController (void) { return controller_; }
-	int getDestChan (void) { return destchan_; }
-	string getArgName (void) { return argName_; }
-	thArg *getArg (void) { return arg_; }
+	int scale (void) { return scale_; }
+
+	int chan (void) { return chan_; }
+	int controller (void) { return controller_; }
+	int destChan (void) { return destchan_; }
+	string argName (void) { return argName_; }
+	thArg *arg (void) { return arg_; }
 	/* XXX: put linear/exponential here too */
 
 	void setParam (unsigned int value);
-	
 private:
 	thArg *arg_;
 	int chan_, controller_;

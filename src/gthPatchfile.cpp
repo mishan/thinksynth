@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -162,7 +162,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 	thSynth *synth = thSynth::instance();
 	PatchFileArgs arglist;
 
-	if((prefsFile = fopen(filename.c_str(), "r")) == NULL)
+	if ((prefsFile = fopen(filename.c_str(), "r")) == NULL)
 	{
 		return false;
 	}
@@ -222,14 +222,14 @@ bool gthPatchManager::parse (const string &filename, int chan)
 			else
 			{
 			
-			for(comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
+			for (comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
 			{
 				len++;
 			}
 
 			string **values = new string *[len+1];
 
-			for(int i = 0; i < len; i++)
+			for (int i = 0; i < len; i++)
 			{
 				char *comPtr = strchr(argPtr, ',');
 				if (comPtr)
@@ -317,7 +317,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 	if (patches_[chan] == NULL)
 		return false;
 
-	if((prefsFile = fopen(filename.c_str(), "w")) == NULL)
+	if ((prefsFile = fopen(filename.c_str(), "w")) == NULL)
 		return false;
 
 	printf("Saving %s\n", filename.c_str());
@@ -345,7 +345,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 	for (thArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{
-		if(j->second->widgetType() != j->second->HIDE)
+		if (j->second->widgetType() != j->second->HIDE)
 			fprintf(prefsFile, "%s %f\n", j->first.c_str(), (*j->second)[0]);
 	}
 

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -134,11 +134,11 @@ thArg::~thArg(void)
 
 float *thArg::allocate (unsigned int elements)
 {
-	if(values_ == NULL) {
+	if (values_ == NULL) {
 		values_ = new float[elements];
 		len_ = elements;
 	}
-	else if(len_ != elements) {
+	else if (len_ != elements) {
 		delete[] values_;
 		values_ = new float[elements];
 		len_ = elements;
@@ -189,13 +189,13 @@ void thArg::getBuffer (float *buffer, unsigned int size)
 {
 	unsigned int i, j;	
 
-	if(type_ == ARG_VALUE)
+	if (type_ == ARG_VALUE)
     {
 		j = 0; /* depth into the arg float array (for the loop) */
-		for(i = 0; i < size; i++)
+		for (i = 0; i < size; i++)
 		{
 			buffer[i] = values_[j];
-			if(++j >= len_)
+			if (++j >= len_)
 			{
 				j = 0;
 			}

@@ -1,6 +1,6 @@
-/* $Id $ */
+/* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -48,7 +48,7 @@ void thMidiControllerConnection::setParam (unsigned int value)
 
 	realvalue = (float)value/MIDIVALMAX;
 
-	if(scale_ == EXPONENTIAL) /* give it a nice curve */
+	if (scale_ == EXPONENTIAL) /* give it a nice curve */
 		realvalue = 1 - logf(M_E - (realvalue * (M_E - 1)));
 
 	arg_->setValue(realvalue * (max_ - min_) + min_);

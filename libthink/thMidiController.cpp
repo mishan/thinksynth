@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -41,7 +41,7 @@ void thMidiController::handleMidi (unsigned char channel, unsigned int param,
 {
 	thMidiControllerConnection *connectionptr = connections_[channel][param];
 
-	if(connectionptr)
+	if (connectionptr)
 	{
 		connectionptr->setParam(value);
 
@@ -55,7 +55,7 @@ void thMidiController::newConnection (unsigned char channel,
 	/* XXX: Do a NULL-check, and if there is something here, tack it on
 	   the linked list */
 
-	if(connection == NULL)
+	if (connection == NULL)
 	{
 		connections_[channel][param] = 0;
 		connectionMap_.erase(channel * 128 + param);
@@ -73,14 +73,17 @@ void thMidiController::clearByDestChan (unsigned int chan)
 	map<unsigned int, thMidiControllerConnection*>::iterator i =
 		connectionMap_.begin();
 
-	while (i != connectionMap_.end())	
+	while (i != connectionMap_.end())
 	{
 		map<unsigned int, thMidiControllerConnection*>::iterator j = i;
-		connection = i->second;
-		++i;
-		if((unsigned int)connection->getDestChan() == chan)
+		connection = (i++)->second;
+
+		if ((unsigned int)connection->destChan() == chan)
 		{
-			connections_[connection->getChan()][connection->getController()]=0;
+			int chan = connection->chan(),
+				controller = connection->controller();
+
+			connections_[chan][controller] = NULL;
 			connectionMap_.erase(j);
 		}
 	}

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -226,7 +226,7 @@ int Keyboard::GetTranspose (void)
 
 bool Keyboard::GetNote (int note)
 {
-	if((note < 0) || (note > 127))
+	if ((note < 0) || (note > 127))
 	   return false;
 
 	return active_keys_[note] ? true : false;

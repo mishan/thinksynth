@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -25,31 +25,45 @@
 
 #include "think.h"
 
-thNode::thNode (const string &name, thPlugin *thplug)	
+thNode::thNode (const string &name, thPlugin *thplug)
 {
-	plugin = thplug;
-	nodename = name;
-	recalc = false;
+	plugin_ = thplug;
+	nodeName_ = name;
+	recalc_ = false;
 
-	argindex = (thArg **)calloc(ARGCHUNK, sizeof(thArg *));
-	argcounter = 0;
-	argsize = ARGCHUNK;
+	argindex_ = (thArg **)calloc(ARGCHUNK, sizeof(thArg *));
+	argCount_ = 0;
+	argsize_ = ARGCHUNK;
+}
+
+thNode::thNode (const thNode &copyNode)
+{
+	recalc_ = false;
+	argsize_ = ARGCHUNK;
+	argindex_ = (thArg **)calloc(ARGCHUNK, sizeof(thArg *));
+
+	nodeName_ = copyNode.name();
+	plugin_ = copyNode.plugin();
+	id_ = copyNode.id();
+	argCount_ = copyNode.argCount();
+
+	copyArgs(copyNode.args());
 }
 
 thNode::~thNode (void)
 {
-	DestroyMap(args);
+	DestroyMap(args_);
 }
 
 thArg *thNode::setArg (const string &name, float value)
 {
-	thArgMap::const_iterator i = args.find(name);
+	thArgMap::const_iterator i = args_.find(name);
 	thArg *arg;
 
-	if(i == args.end() || !i->second /* XXX shouldnt be necessary */) {
+	if (i == args_.end() || !i->second /* XXX shouldnt be necessary */) {
 		arg = new thArg(name, value);
-		args[name] = arg;
-		arg->setIndex(AddArgToIndex(arg));
+		args_[name] = arg;
+		arg->setIndex(addArgToIndex(arg));
 	}
 	else {
 		arg = i->second;
@@ -61,13 +75,13 @@ thArg *thNode::setArg (const string &name, float value)
 
 thArg *thNode::setArg (const string &name, const float *value, int len)
 {
-	thArgMap::const_iterator i = args.find(name);
+	thArgMap::const_iterator i = args_.find(name);
 	thArg *arg;
 
-	if(i == args.end() || !i->second /* XXX shouldnt be necessary */) {
+	if (i == args_.end() || !i->second /* XXX shouldnt be necessary */) {
 		arg = new thArg(name, value, len);
-		args[name] = arg;
-		arg->setIndex(AddArgToIndex(arg));
+		args_[name] = arg;
+		arg->setIndex(addArgToIndex(arg));
 	}
 	else {
 		arg = i->second;
@@ -80,17 +94,17 @@ thArg *thNode::setArg (const string &name, const float *value, int len)
 thArg *thNode::setArg (const string &name, const string &node,
 					   const string &value)
 {
-	thArgMap::const_iterator i = args.find(name);
+	thArgMap::const_iterator i = args_.find(name);
 	thArg *arg;
 
-	if(i != args.end() && i->second /* XXX we should not have to do this */) {
+	if (i != args_.end() && i->second/* XXX we should not have to do this */) {
 		arg = i->second;
 		arg->setArg(name, node, value);
 	}
 	else {
 		arg = new thArg(name, node, value);
-		args[name] = arg;
-		arg->setIndex(AddArgToIndex(arg));
+		args_[name] = arg;
+		arg->setIndex(addArgToIndex(arg));
 	}
 
 	return arg;
@@ -98,55 +112,54 @@ thArg *thNode::setArg (const string &name, const string &node,
 
 thArg *thNode::setArg (const string &name, const string &chanarg)
 {
-    thArgMap::const_iterator i = args.find(name);
+    thArgMap::const_iterator i = args_.find(name);
     thArg *arg;
 
-    if(i != args.end() && i->second /* XXX we should not have to do this */) {
-        arg = i->second;
-        arg->setArg(name, chanarg);
+    if (i != args_.end() && i->second/* XXX we should not have to do this */) {
+		arg = i->second;
+		arg->setArg(name, chanarg);
     }
     else {
-        arg = new thArg(name, chanarg);
-        args[name] = arg;
-        arg->setIndex(AddArgToIndex(arg));
+		arg = new thArg(name, chanarg);
+		args_[name] = arg;
+		arg->setIndex(addArgToIndex(arg));
     }
-     
+
     return arg;
 }
 
-int thNode::AddArgToIndex (thArg *arg)
+int thNode::addArgToIndex (thArg *arg)
 {
 	thArg **newindex;
 
-	if(argcounter >= argsize)
+	if (argCount_ >= argsize_)
 	{
-		newindex = (thArg **)calloc(argsize + ARGCHUNK, sizeof(thArg *));
+		newindex = (thArg **)calloc(argsize_ + ARGCHUNK, sizeof(thArg *));
 
-		memcpy(newindex, argindex, argcounter * sizeof(thArg*));
-		free(argindex);
-		argindex = newindex;
-		argsize += ARGCHUNK;
+		memcpy(newindex, argindex_, argCount_ * sizeof(thArg*));
+		free(argindex_);
+		argindex_ = newindex;
+		argsize_ += ARGCHUNK;
 	}
 
-	argindex[argcounter] = arg;
-	argcounter++;
+	argindex_[argCount_++] = arg;
 
-	return (argcounter - 1);
+	return (argCount_ - 1);
 }
 
-void thNode::PrintArgs (void)
+void thNode::printArgs (void)
 {
-	for (thArgMap::const_iterator i = args.begin(); i != args.end(); i++)
+	for (thArgMap::const_iterator i = args_.begin(); i != args_.end(); i++)
 		printf("%s\n", i->first.c_str());
 }
 
-void thNode::CopyArgs (const thArgMap &newargs)
+void thNode::copyArgs (const thArgMap &newargs)
 {
 	thArg *newarg;
 	thArg *data;
 	thArg **newindex;
 
-	for (thArgMap::const_iterator i = (newargs).begin(); i != (newargs).end(); i++)
+	for (thArgMap::const_iterator i = newargs.begin(); i != newargs.end(); i++)
 	{
 		data = i->second;
 
@@ -155,22 +168,22 @@ void thNode::CopyArgs (const thArgMap &newargs)
 
 		newarg = new thArg(data);
 
-		args[data->name()] = newarg;
+		args_[data->name()] = newarg;
 
 		newarg->setIndex(data->index());
-		while(newarg->index() > argsize)
+		while (newarg->index() > argsize_)
 		{
-			newindex = (thArg **)calloc(argsize + ARGCHUNK, sizeof(thArg *));
-			
-			memcpy(newindex, argindex, argsize * sizeof(thArg*));
-			free(argindex);
-			argindex = newindex;
-			argsize += ARGCHUNK;
+			newindex = (thArg **)calloc(argsize_ + ARGCHUNK, sizeof(thArg *));
+
+			memcpy(newindex, argindex_, argsize_ * sizeof(thArg*));
+			free(argindex_);
+			argindex_ = newindex;
+			argsize_ += ARGCHUNK;
 		}
-		argindex[newarg->index()] = newarg;
+		argindex_[newarg->index()] = newarg;
 	}
 }
 
-void thNode::Process (void)
+void thNode::process (void)
 {
 }

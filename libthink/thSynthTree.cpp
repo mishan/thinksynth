@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -37,16 +37,13 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
 thSynthTree::thSynthTree (const thSynthTree &oldtree)
 {
 	thNode *oldionode = oldtree.IONode();
-	thNode *newnode = new thNode(oldionode->GetName(), oldionode->GetPlugin());
+	thNode *newnode = new thNode(*oldionode);
 
 	ionode_ = NULL;
 	nodecount_ = oldtree.nodeCount();
 	name_ = oldtree.name();
 
-	newnode->SetArgCount(oldionode->GetArgCount());
-	newnode->CopyArgs(oldionode->GetArgTree());
-
-	newNode(newnode, oldionode->GetID());
+	newNode(newnode, false);
 	ionode_ = newnode;
 
 	copyHelper(oldionode);
@@ -66,28 +63,20 @@ thSynthTree::~thSynthTree ()
 void thSynthTree::copyHelper (thNode *parentnode)
 {
 	thNode *data, *newnode;
-	NodeList children = parentnode->GetChildren();
-	thArgMap argtree;
+	thNodeList children = parentnode->children();
 
-	if(children.empty() == false)
+	if (children.empty() == false)
 	{
-		for(NodeList::const_iterator i = children.begin();
-			i != children.end(); i++)
+		for (thNodeList::const_iterator i = children.begin();
+			 i != children.end(); i++)
 		{
 			data = *i;
 
-			if(findNode(data->GetName()) == NULL)
+			if (findNode(data->name()) == NULL)
 			{
-				newnode = new thNode(data->GetName(), data->GetPlugin());
-				newNode(newnode, data->GetID());
+				newnode = new thNode(*data);
+				newNode(newnode, false);
 				copyHelper(data);
-
-				argtree = data->GetArgTree();
-
-				newnode->SetArgCount(data->GetArgCount());
-
-				if(argtree.empty() == false)
-					newnode->CopyArgs(argtree);
 			}
 		}
 	}
@@ -113,28 +102,28 @@ thArg *thSynthTree::getArg (thNode *node, const string &argname)
 	thArg *args;
 	string argpointname;
 
-	args = node->GetArg(argname);
+	args = node->getArg(argname);
 
 	/* If the arg doesnt exist, make it a 0 */
-	if(args == NULL)
+	if (args == NULL)
 	{
 		args = node->setArg(argname, 0);
 	}
-	
+
 	while (args && (args->type() == thArg::ARG_POINTER) && node)
 	{
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
 //		if (i != modnodes.end()) {
 //			node = i->second;
-		
+
 		node = nodeindex_[args->nodePtrId()];
 		//printf("Arg Point: %s (%i)\n", args->argPointName.c_str(), args->argPointArgID);
 		//args = node->GetArg(args->argPointName);
 		argpointname = args->argPtrName(); /* the arg this arg points to */
-		args = node->GetArg(args->argPtrId());
+		args = node->getArg(args->argPtrId());
 		/* If the arg doesnt exist, make it a 0 */
-		if(args == NULL)
+		if (args == NULL)
 		{
 			args = node->setArg(argpointname, 0);
 			//args->SetIndex(node->AddArgToIndex(args));
@@ -157,8 +146,8 @@ thArg *thSynthTree::getArg (thNode *node, int argindex)
   /* Follow pointers and return a thArg of a float string */
 {
 	thArg *args;
-	
-	args = node->GetArg(argindex);
+
+	args = node->getArg(argindex);
 
 	if (args->type() == thArg::ARG_CHANNEL)
 	{
@@ -166,11 +155,11 @@ thArg *thSynthTree::getArg (thNode *node, int argindex)
 	}
 
 	while (args && (args->type() == thArg::ARG_POINTER) && node)
-	{ 
+	{
 		node = nodeindex_[args->nodePtrId()];
-		args = node->GetArg(args->argPtrId());
-		
-		if(args == NULL)
+		args = node->getArg(args->argPtrId());
+
+		if (args == NULL)
 		{
 			printf("ERROR!  INDEXED NODE POINTS TO NOWHERE!\n");
 		}
@@ -179,17 +168,12 @@ thArg *thSynthTree::getArg (thNode *node, int argindex)
 	return args;
 }
 
-void thSynthTree::newNode (thNode *node)
+void thSynthTree::newNode (thNode *node, bool set_id)
 {
-	node->SetID(nodecount_);
-	nodes_[node->GetName()] = node;
-	nodecount_++;
-}
+	if (set_id)
+		node->setId(nodecount_++);
 
-void thSynthTree::newNode (thNode *node, int id)
-{
-	node->SetID(id);
-	nodes_[node->GetName()] = node;
+	nodes_[node->name()] = node;
 }
 
 void thSynthTree::setIONode (const string &name)
@@ -207,7 +191,7 @@ void thSynthTree::setIONode (const string &name)
 
 void thSynthTree::printIONode (void)
 {
-	ionode_->PrintArgs();
+	ionode_->printArgs();
 }
 
 void thSynthTree::setChanArg (thArg *arg)
@@ -225,50 +209,50 @@ void thSynthTree::setChanArg (thArg *arg)
 void thSynthTree::process (unsigned int windowlen)
 {
 	thPlugin *plug = NULL;
-	NodeList children = ionode_->GetChildren();
+	thNodeList children = ionode_->children();
 
-	ionode_->SetRecalc(false);
+	ionode_->setRecalc(false);
 
-	for(NodeList::const_iterator i = children.begin(); i != children.end();i++)
+	for (thNodeList::const_iterator i = children.begin(); i != children.end();i++)
 	{
-		if((*i)->GetRecalc() == true) {
+		if ((*i)->recalc() == true) {
 			processHelper(windowlen, *i);
 		}
 	}
 
-	if((plug = ionode_->GetPlugin())) {
+	if ((plug = ionode_->plugin())) {
 		plug->fire(ionode_, this, windowlen, synth_->getSampleRate());
 	}
 }
 
-void thSynthTree::processHelper(unsigned int windowlen, thNode *node)
+void thSynthTree::processHelper (unsigned int windowlen, thNode *node)
 {
-	NodeList children = node->GetChildren();
+	thNodeList children = node->children();
 
-	node->SetRecalc(false);
-  
-	for(NodeList::const_iterator i = children.begin(); i != children.end();i++)
+	node->setRecalc(false);
+
+	for (thNodeList::const_iterator i = children.begin(); i != children.end();i++)
 	{
-		if((*i)->GetRecalc() == true) {
+		if ((*i)->recalc() == true) {
 			processHelper(windowlen, *i);
 		}
 	}
 
 	/* FIRE! */
-	node->GetPlugin()->fire(node, this, windowlen, synth_->getSampleRate());
+	node->plugin()->fire(node, this, windowlen, synth_->getSampleRate());
 }
 
 /* reset the recalc flag for nodes with active plugins */
 void thSynthTree::setActiveNodes(void)
 {
-	for (NodeList::const_iterator i = activelist_.begin();
+	for (thNodeList::const_iterator i = activelist_.begin();
 		 i != activelist_.end(); ++i)
 	{
 		thNode *data = *i;
 
-		if(data->GetRecalc() == false)
+		if (data->recalc() == false)
 		{
-			data->SetRecalc(true);
+			data->setRecalc(true);
 			setActiveNodesHelper(data);
 		}
 	}
@@ -276,16 +260,16 @@ void thSynthTree::setActiveNodes(void)
 
 void thSynthTree::setActiveNodesHelper(thNode *node)
 {
-	NodeList parents = node->GetParents();
+	thNodeList parents = node->parents();
 	thNode *data;
 
-	for(NodeList::const_iterator i = parents.begin(); i != parents.end(); i++)
+	for (thNodeList::const_iterator i = parents.begin(); i != parents.end(); i++)
 	{
 		data = *i;
-	
-		if(data->GetRecalc() == false)
+
+		if (data->recalc() == false)
 		{
-			data->SetRecalc(true);
+			data->setRecalc(true);
 			setActiveNodesHelper(data);
 		}
 	}
@@ -303,13 +287,13 @@ void thSynthTree::buildArgMap (void)
 	int k;
 
 	thArgMap argiterator;
-	
+
 	/* for every node in the thSynthTree */
 	for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
 	{
 		curnode = i->second;
 
-		if(!curnode)
+		if (!curnode)
 		{
 			fprintf(stderr, "thSynthTree::BuildArgMap: curnode points to NULL\n");
 		}
@@ -317,42 +301,42 @@ void thSynthTree::buildArgMap (void)
 /* XXXXXXXXXXXXXX: RIGHT NOW the parser indexes the nodes as it reads them, it
 should not do this.  Until that is fixed (won't take long) we set the counter
 to 0 here and set the index of each node to -1 when it is first created. */
-		curnode->SetArgCount(0);
+		curnode->setArgCount(0);
 
 		/* first, set up the args that the plugin registered */
-		plugin = curnode->GetPlugin(); /* get the node's plugin */
-		if(plugin != NULL) /* don't do this for nodes with no plugin */
+		plugin = curnode->plugin(); /* get the node's plugin */
+		if (plugin != NULL) /* don't do this for nodes with no plugin */
 		{
-			registeredargs = plugin->getArgs();
+			registeredargs = plugin->argCount();
 
-			if(registeredargs == 0)
+			if (registeredargs == 0)
 			{
 				printf("WARNING: Node %s has registered 0 args.  It is probably doing things the old, slow way.  (%s)\n",
-					   curnode->GetName().c_str(),
-					   curnode->GetPlugin()->getPath().c_str());
+					   curnode->name().c_str(),
+					   curnode->plugin()->path().c_str());
 			}
 			else
 			{
 				for (k = 0; k < registeredargs; k++)
 				{
-					curarg = curnode->GetArg(plugin->getArgName(k));
+					curarg = curnode->getArg(plugin->getArgName(k));
 					/* if the arg does not exist, set it to 0 */
-					if(curarg == NULL)
+					if (curarg == NULL)
 					{
 						curarg = curnode->setArg(plugin->getArgName(k), 0);
 					}
 					else
 					{
-						index = curnode->AddArgToIndex(curarg);
+						index = curnode->addArgToIndex(curarg);
 						curarg->setIndex(index);
 					}
 
 				}
 			}
 		}
-	
-		argiterator = curnode->GetArgTree();
-		
+
+		argiterator = curnode->args();
+
 		/* We don't need any of this because now the index is assigned via SetArg */
 		/* for each thArg inside each thNode inside the thSynthTree */
 		for (thArgMap::const_iterator j = argiterator.begin();
@@ -360,17 +344,17 @@ to 0 here and set the index of each node to -1 when it is first created. */
 		{
 			curarg = j->second;
 
-			if(curarg == NULL)
+			if (curarg == NULL)
 			{
 				fprintf(stderr, "thSynthTree::BuildArgMap: curarg points to NULL\n");
 			}
 			else
 			{
-				if(curarg->index() < 0) /* has not been indexed yet */
+				if (curarg->index() < 0) /* has not been indexed yet */
 				{
 					/* add the node to the index */
-					index = curnode->AddArgToIndex(curarg);
-					curarg->setIndex(index);	
+					index = curnode->addArgToIndex(curarg);
+					curarg->setIndex(index);
 				}
 			}
 		}
@@ -385,18 +369,18 @@ void thSynthTree::setPointers (void)
 	thArg *curarg;
 
 	thArgMap argiterator;
-	
+
 	/* for every node in the thSynthTree */
 	for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
 	{
 		curnode = i->second;
-		if(!curnode)
+		if (!curnode)
 		{
 			fprintf(stderr,
 					"thSynthTree::setPointers: curnode points to NULL\n");
 		}
 
-		argiterator = curnode->GetArgTree();
+		argiterator = curnode->args();
 
 		/* for each thArg inside each thNode inside the thSynthTree */
 		for (thArgMap::const_iterator j = argiterator.begin();
@@ -404,17 +388,17 @@ void thSynthTree::setPointers (void)
 		{
 			curarg = j->second;
 
-			if(curarg == NULL)
+			if (curarg == NULL)
 			{
 				fprintf(stderr, "thSynthTree::setPointers: curarg points to NULL\n");
 			}
 
 			/* if the thArg is a pointer, set argPointNodeID to the node's ID */
-			if(curarg && curarg->type() == thArg::ARG_POINTER)
+			if (curarg && curarg->type() == thArg::ARG_POINTER)
 			{
 				node = findNode(curarg->nodePtrName());
-				
-				if(node == NULL)
+
+				if (node == NULL)
 				{
 					printf("setPointers: Node %s not found!!\n",
 						   curarg->nodePtrName().c_str());
@@ -423,17 +407,17 @@ void thSynthTree::setPointers (void)
 				{
 					string argPtrName = curarg->argPtrName();
 
-					arg = node->GetArg(argPtrName);
-					
+					arg = node->getArg(argPtrName);
+
 					/* if the arg does not exist, set it to 0 */
-					if(arg == NULL)
+					if (arg == NULL)
 					{
 						arg = node->setArg(argPtrName, 0);
 
-						node->GetArgTree()[arg->name()] = arg;
-					} 
+						node->args()[arg->name()] = arg;
+					}
 
-					curarg->setNodePtrId(node->GetID());
+					curarg->setNodePtrId(node->id());
 					curarg->setArgPtrId(arg->index());
 				}
 			}
@@ -453,14 +437,14 @@ void thSynthTree::buildNodeIndex (void)
 	{
 		curnode = i->second;
 
-		if(curnode == NULL)
+		if (curnode == NULL)
 		{
 			fprintf(stderr,
 					"thSynthTree::setPointers: curnode points to NULL\n");
 		}
 
 		/* set the index to point to the thNode */
-		nodeindex_[curnode->GetID()] = curnode;
+		nodeindex_[curnode->id()] = curnode;
 	}
 }
 
@@ -469,25 +453,25 @@ void thSynthTree::buildSynthTree (void)
 	buildNodeIndex();  /* set up the index of thNodes */
 
 	/* We don't want to recalc the root if something points here */
-	ionode_->SetRecalc(true);
+	ionode_->setRecalc(true);
 
-	buildSynthTreeHelper2(ionode_->GetArgTree(), ionode_);
+	buildSynthTreeHelper2(ionode_->args(), ionode_);
 }
 
 int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
 {
 	thNode *currentnode = nodeindex_[nodeid];
 
-	if(currentnode->GetRecalc() == true)
+	if (currentnode->recalc() == true)
 		return(1);  /* This node has already been processed */
 
 	/* This node has now been marked as processed */
-	currentnode->SetRecalc(true); 
+	currentnode->setRecalc(true);
 
-	if(currentnode->GetPlugin()->getState() == thPlugin::ACTIVE)
+	if (currentnode->plugin()->state() == thPlugin::ACTIVE)
 		activelist_.push_back(currentnode);
 
-	buildSynthTreeHelper2(currentnode->GetArgTree(), currentnode);
+	buildSynthTreeHelper2(currentnode->args(), currentnode);
 
 	return 0;
 }
@@ -502,26 +486,26 @@ void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
 	{
 		data = i->second;
 
-		if(data == NULL)
+		if (data == NULL)
 		{
 			fprintf(stderr, "thSynthTree::buildSynthTreeHelper2: data points to NULL\n");
 		}
 
-		if(data && data->type() == thArg::ARG_POINTER)
+		if (data && data->type() == thArg::ARG_POINTER)
 		{
 			node = nodeindex_[data->nodePtrId()];
 
-			if(node == NULL)
+			if (node == NULL)
 			{
 				printf("CRITICAL: Node %s not found!!\n",
 					   data->nodePtrName().c_str());
 			}
 
-			currentnode->AddChild(node);
-			node->AddParent(currentnode);
+			currentnode->addChild(node);
+			node->addParent(currentnode);
 
 			/* Don't do the same node over and over */
-			if(node->GetRecalc() == false)
+			if (node->recalc() == false)
 			{
 				buildSynthTreeHelper(currentnode, data->nodePtrId());
 			}
@@ -531,9 +515,9 @@ void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
 
 void thSynthTree::listNodes(void)
 {
-	for(NodeMap::const_iterator i = nodes_.begin();
+	for (NodeMap::const_iterator i = nodes_.begin();
 		i != nodes_.end(); i++)
 	{
-		printf("%s:  %s\n", name_.c_str(), i->second->GetName().c_str());
+		printf("%s:  %s\n", name_.c_str(), i->second->name().c_str());
 	}
 }

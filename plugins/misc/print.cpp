@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -49,7 +49,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 {
 	thArg *in_arg;
 	unsigned int i;
-	const char *nodename = node->GetName().c_str();
+	const char *nodename = node->name().c_str();
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 

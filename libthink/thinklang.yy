@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -189,29 +189,29 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 {
 	thPluginManager *plugMgr = parseSynth->getPluginManager();
 
-	if(!plugMgr->GetPlugin($3.str)) {
-		if (plugMgr->LoadPlugin($3.str) == 1) { /* FAILED */
+	if (!plugMgr->getPlugin($3.str)) {
+		if (plugMgr->loadPlugin($3.str) == 1) { /* FAILED */
 			printf ("Error loading required %s, aborting.\n", $3.str);
 			exit(1);
 		}
 	}
 
-	parsenode->SetPlugin(plugMgr->GetPlugin($3.str));
+	parsenode->setPlugin(plugMgr->getPlugin($3.str));
+	parsenode->setName($2.str);
 
-	delete[] $3.str;
-
-	parsenode->SetName($2.str);
-	parsetree->newNode(parsenode);
+	parsetree->newNode(parsenode, true);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
 
 	free($2.str);
+	free($3.str);
 }
 |
 NODE WORD LCBRACK assignments RCBRACK
 {
-	parsenode->SetName($2.str);
-	parsenode->SetPlugin(NULL);
-	parsetree->newNode(parsenode);
+	parsenode->setName($2.str);
+	parsenode->setPlugin(NULL);
+
+	parsetree->newNode(parsenode, true);
 	parsenode = new thNode("newnode", NULL);
 
 	free($2.str);
@@ -230,15 +230,15 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
 
 	chanarg = parsetree->getChanArg($2.str);
 
-	if(strcmp($4.str, "min") == 0)
+	if (strcmp($4.str, "min") == 0)
 	{
 		chanarg->setMin($6.floatval);
 	}
-	else if(strcmp($4.str, "max") == 0)
+	else if (strcmp($4.str, "max") == 0)
 	{
 		chanarg->setMax($6.floatval);
 	}
-	else if(strcmp($4.str, "widget") == 0)
+	else if (strcmp($4.str, "widget") == 0)
 	{
 		chanarg->setWidgetType((thArg::WidgetType)$6.floatval);
 	}
@@ -252,11 +252,11 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
 
 	chanarg = parsetree->getChanArg($2.str);
 
-	if(strcmp($4.str, "label") == 0)
+	if (strcmp($4.str, "label") == 0)
 	{
 		chanarg->setLabel($6.str);
 	}
-	else if(strcmp($4.str, "units") == 0)
+	else if (strcmp($4.str, "units") == 0)
 	{
 		chanarg->setUnits($6.str);
 	}

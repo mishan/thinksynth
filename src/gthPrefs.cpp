@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -38,7 +38,7 @@ static void remove_string(char *line, int index, int numchars)
      * at the position index. */
     unsigned int i;
     
-    for(i = index; i + numchars < strlen(line); i++)
+    for (i = index; i + numchars < strlen(line); i++)
         line[i] = line[i + numchars];
     line[i] = '\0';
 }
@@ -73,7 +73,7 @@ void gthPrefs::Load (void)
 
 	debug("loading preferences");
 
-	if((prefsFile = fopen(prefsPath_.c_str(), "r")) == NULL)
+	if ((prefsFile = fopen(prefsPath_.c_str(), "r")) == NULL)
 	{
 		fprintf(stderr, "could not open %s: %s\n", prefsPath_.c_str(),
 			strerror(errno));
@@ -109,14 +109,14 @@ void gthPrefs::Load (void)
 			int len = 1;
 			char *comCnt;
 
-			for(comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
+			for (comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
 			{
 				len++;
 			}
 
 			string **values = new string *[len+1];
 
-			for(int i = 0; i < len; i++)
+			for (int i = 0; i < len; i++)
 			{
 				char *comPtr = strchr(argPtr, ',');
 				if (comPtr)
@@ -181,7 +181,7 @@ void gthPrefs::Save (void)
 		
 		fprintf(prefsFile, "%s ", key.c_str());
 
-		for(int j = 0; values[j]; j++)
+		for (int j = 0; values[j]; j++)
 		{
 			fprintf(prefsFile, "%s", values[j]->c_str());
 
@@ -197,7 +197,7 @@ void gthPrefs::Save (void)
 		int chans = patchMgr->numPatches();
 		thSynth *synth = thSynth::instance();
 
-		for(int i = 0; i < chans; i++)
+		for (int i = 0; i < chans; i++)
 		{
 			gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 

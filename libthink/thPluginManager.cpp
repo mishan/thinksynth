@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -42,21 +42,21 @@
 
 thPluginManager::thPluginManager (const string &path)
 {
-	plugin_path = path;
+	plugin_path_ = path;
 }
 
 thPluginManager::~thPluginManager ()
 {
-	UnloadPlugins();
+	unloadPlugins();
 }
 
-const string thPluginManager::GetPath (const string &name)
+const string thPluginManager::getPath (const string &name)
 {
 	string path;
 	struct stat dummy;
 
 	/* Use the default path first */
-	path = plugin_path + name + PLUGIN_SUFFIX;
+	path = plugin_path_ + name + PLUGIN_SUFFIX;
 
 	/* Check for existence in the expected place */
 	if (stat (path.c_str(), &dummy) == -1) { /* File existeth not */
@@ -64,7 +64,7 @@ const string thPluginManager::GetPath (const string &name)
 		fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
 		path = "plugins/" + name + PLUGIN_SUFFIX;
-		if(stat(path.c_str(), &dummy) == -1) {
+		if (stat(path.c_str(), &dummy) == -1) {
 #ifdef USE_DEBUG
 			fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
@@ -75,10 +75,10 @@ const string thPluginManager::GetPath (const string &name)
 	return path;
 }
 
-int thPluginManager::LoadPlugin (const string &name)
+int thPluginManager::loadPlugin (const string &name)
 {
 	thPlugin *plugin;
-	const string path = GetPath(name);
+	const string path = getPath(name);
 
 	if (path.empty()) { /* Not found at all */
 		fprintf (stderr, "Could not find the plugin anywhere!\n");
@@ -87,22 +87,22 @@ int thPluginManager::LoadPlugin (const string &name)
 
 	plugin = new thPlugin (path);
 
-	if (plugin->getState() == thPlugin::NOTLOADED) { /* something messed up */
+	if (plugin->state() == thPlugin::NOTLOADED) { /* something messed up */
 		delete plugin;
 		return 1;
 	}
 	
-	plugins[name] = plugin;
+	plugins_[name] = plugin;
 
 	return 0;
 }
 
 
-void thPluginManager::UnloadPlugin(const string &name)
+void thPluginManager::unloadPlugin(const string &name)
 {
-	map<string, thPlugin*>::iterator i = plugins.find(name);
+	PluginMap::iterator i = plugins_.find(name);
 
-	if(i == plugins.end()) {
+	if (i == plugins_.end()) {
 		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
 				name.c_str());
 		return;
@@ -110,12 +110,12 @@ void thPluginManager::UnloadPlugin(const string &name)
 
 	thPlugin *plugin = i->second;
 
-	plugins.erase(i);
+	plugins_.erase(i);
 
 	delete plugin;
 }
 
-void thPluginManager::UnloadPlugins (void)
+void thPluginManager::unloadPlugins (void)
 {
-	DestroyMap(plugins);
+	DestroyMap(plugins_);
 }

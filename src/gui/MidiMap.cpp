@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -196,7 +196,7 @@ void MidiMap::fillDestChanCombo (void)
 		item->show_all();
 		destChanComboStrings.push_back(*item);
 
-		if(first == 0)
+		if (first == 0)
 		{
 			first = 1;
 			selectedDestChan_ = i;
@@ -275,7 +275,7 @@ void MidiMap::fillDestArgCombo (int chan)
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
 		destArgCombo_->get_list()->children();
 
-	if(synth_->getChannel(chan))
+	if (synth_->getChannel(chan))
 	{
 		gthPatchManager *patchMgr = gthPatchManager::instance();
 		thArgMap argList = patchMgr->getChannelArgs(chan);
@@ -284,7 +284,7 @@ void MidiMap::fillDestArgCombo (int chan)
 		for (thArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
-			if(i->second && i->second->widgetType() != thArg::HIDE) 
+			if (i->second && i->second->widgetType() != thArg::HIDE) 
 			{
 				item = Gtk::manage(new Gtk::ComboDropDownItem);
 				namelabel = Gtk::manage(new Gtk::Label(
@@ -304,7 +304,7 @@ void MidiMap::fillDestArgCombo (int chan)
 
 				destArgComboStrings.push_back(*item);
 
-				if(visibleArgs == 0)
+				if (visibleArgs == 0)
 				{
 					visibleArgs = 1;
 					selectedArg_ = i->second;
@@ -343,7 +343,7 @@ void MidiMap::setDestArgCombo (int chan)
 
 		destArgComboStrings.clear();
 
-		if(selectedArg_)
+		if (selectedArg_)
 		{
 			item = Gtk::manage(new Gtk::ComboDropDownItem);
 			namelabel = Gtk::manage(new Gtk::Label(selectedArg_->label()));
@@ -361,7 +361,7 @@ void MidiMap::setDestArgCombo (int chan)
 		for (thArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
-			if(i->second && i->second->widgetType() != thArg::HIDE) {
+			if (i->second && i->second->widgetType() != thArg::HIDE) {
 				item = Gtk::manage(new Gtk::ComboDropDownItem);
 				namelabel = Gtk::manage(new Gtk::Label(
 								(i->second->label().length() > 0) ?
@@ -404,16 +404,16 @@ void MidiMap::populateConnections (void)
 		Gtk::TreeModel::Row row = *(connectModel_->append());
 		connection = i->second;
 		instrument = basename(patchMgr->getPatch(
-								 connection->getDestChan())->filename.c_str());
+								 connection->destChan())->filename.c_str());
 		if (instrument.length() == 0)
 		{
 			instrument = string("Untitled");
 		}
-		row[connectViewCols_.midiChan] = connection->getChan() + 1;
-		row[connectViewCols_.midiController] = connection->getController();
+		row[connectViewCols_.midiChan] = connection->chan() + 1;
+		row[connectViewCols_.midiController] = connection->controller();
 		row[connectViewCols_.instrument] = g_strdup_printf("%i: %s",
-							connection->getDestChan() + 1, instrument.c_str());
-		row[connectViewCols_.argName] = connection->getArgName();
+							connection->destChan() + 1, instrument.c_str());
+		row[connectViewCols_.argName] = connection->argName();
 	}
 }
 
@@ -465,12 +465,12 @@ void MidiMap::onExpToggled (void)
 
 void MidiMap::onConnectionSelected (GdkEventButton *b)
 {
-	if(b && b->type == GDK_BUTTON_PRESS)
+	if (b && b->type == GDK_BUTTON_PRESS)
 	{
 		Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 			connectView_.get_selection();
 		
-		if(refSelection)
+		if (refSelection)
 		{
 			Gtk::TreeModel::iterator iter;
 			Gtk::TreeModel::Path path;
@@ -490,12 +490,12 @@ void MidiMap::onConnectionMoved (void)
 		connectView_.get_selection();
 	thMidiControllerConnection *selectedConnection;
 
-	if(refSelection)
+	if (refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
 		iter = refSelection->get_selected();
 		
-		if(iter)
+		if (iter)
 		{
 			selectedChan_ = (*iter)[connectViewCols_.midiChan] - 1;
 			selectedController_ = (*iter)[connectViewCols_.midiController];
@@ -505,13 +505,13 @@ void MidiMap::onConnectionMoved (void)
 				(unsigned char)selectedChan_,
 				(unsigned int)selectedController_);
 
-			selectedArg_ = selectedConnection->getArg();
-			selectedDestChan_ = selectedConnection->getDestChan();
-			selectedExp_ = selectedConnection->getScale();
+			selectedArg_ = selectedConnection->arg();
+			selectedDestChan_ = selectedConnection->destChan();
+			selectedExp_ = selectedConnection->scale();
 			setDestChanCombo();
 			setDestArgCombo(selectedDestChan_);
-			selectedMin_ = selectedConnection->getMin();
-			selectedMax_ = selectedConnection->getMax();
+			selectedMin_ = selectedConnection->min();
+			selectedMax_ = selectedConnection->max();
 			minSpinBtn_->set_range(selectedArg_->min(),
 								   selectedArg_->max());
 			maxSpinBtn_->set_range(selectedArg_->min(),
@@ -531,7 +531,7 @@ void MidiMap::onAddButton (void)
 		(unsigned char)selectedChan_,
 		(unsigned int)selectedController_);
 
-	if(connection)
+	if (connection)
 		delete connection;
 
 	synth_->newMidiControllerConnection((unsigned char)selectedChan_,
@@ -551,7 +551,7 @@ void MidiMap::onDelButton (void)
 	thMidiControllerConnection *connection =
 	synth_->getMidiControllerConnection(selectedChan_, selectedController_);
 
-	if(connection)
+	if (connection)
 	{
 		delete connection;
 

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -116,7 +116,6 @@ void thSynth::removeChan (int channum)
 		midiChannels_[channum] = NULL;
 		patchlist_[channum] = "";
 		controllerHandler_->clearByDestChan(channum);
-		m_sigChanDeleted_(channum);
 	}
 }
 
@@ -200,7 +199,7 @@ thSynthTree * thSynth::loadTree (FILE *input)
 
 void thSynth::setChanArg (int channum, thArg *arg)
 {
-	if((channum < 0) || (channum >= midiChannelCnt_))
+	if ((channum < 0) || (channum >= midiChannelCnt_))
 	{
 		return;
 	}
@@ -221,14 +220,14 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
 thArg *thSynth::getChanArg (int channum, const string &argname)
 {
-	if((channum < 0) || (channum >= midiChannelCnt_))
+	if ((channum < 0) || (channum >= midiChannelCnt_))
 	{
 		return NULL;
 	}
 
 	thMidiChan *chan = midiChannels_[channum];
 
-	if(!chan)
+	if (!chan)
 	{
 		return NULL;
 	}
@@ -305,7 +304,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
 	if (channum >= midiChannelCnt_)
 	{
-		while(channum >= newchancount)
+		while (channum >= newchancount)
 		{
 			newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
 			/* add one more chunk to the channel pointer array */
@@ -319,7 +318,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 		midiChannels_ = newchans;
 	}
 
-	if(midiChannels_[channum] != NULL)
+	if (midiChannels_[channum] != NULL)
 	{
 		delete midiChannels_[channum];
 	}
@@ -332,8 +331,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 	controllerHandler_->clearByDestChan(channum);
 
 	pthread_mutex_unlock(synthMutex_);
-
-	m_sigChanChanged_(filename, channum, amp);
 
 	return parsetree;
 }
@@ -350,7 +347,7 @@ void thSynth::listTrees (void)
 thMidiNote *thSynth::addNote (int channum, float note,
 							  float velocity)
 {
-	if((channum < 0) || (channum > midiChannelCnt_))
+	if ((channum < 0) || (channum > midiChannelCnt_))
 	{
 		debug("thSynth::addNote: no such channel %d", channum);
 
@@ -377,12 +374,12 @@ thMidiNote *thSynth::addNote (int channum, float note,
 
 int thSynth::delNote (int channum, float note)
 {
-	if((channum < 0) || (channum > midiChannelCnt_))
+	if ((channum < 0) || (channum > midiChannelCnt_))
 		return 1;
 
 	thMidiChan *chan = midiChannels_[channum];
 
-	if(!chan)
+	if (!chan)
 		return 1;
 
 	int sustain = (int)(*(chan->sustainPedal()))[0];
@@ -412,7 +409,7 @@ void thSynth::process (void)
 	thMidiChan *chan;
 	float *chanoutput;
 
-	pthread_mutex_lock(synthMutex_);
+//	pthread_mutex_lock(synthMutex_);
 
 	memset(output_, 0, channels_ * windowlen_ * sizeof(float));
 
@@ -451,7 +448,7 @@ void thSynth::process (void)
 		}
 	}
 
-	pthread_mutex_unlock(synthMutex_);
+//	pthread_mutex_unlock(synthMutex_);
 }
 
 void thSynth::printChan(int chan)
@@ -464,14 +461,11 @@ void thSynth::printChan(int chan)
 
 float *thSynth::getOutput (void) const
 {
-	/* try locking the mutex (and block) to make sure it's not processing */
-	pthread_mutex_lock(synthMutex_);
+//	pthread_mutex_lock(synthMutex_);
 
-//	float *output = new float[thChans*thWindowlen];
-//	memcpy(output, output_, thChans*thWindowlen*sizeof(float));
 	float *output = output_;
 
-	pthread_mutex_unlock(synthMutex_);
+//	pthread_mutex_unlock(synthMutex_);
 
 	return output;
 }
@@ -483,6 +477,7 @@ float *thSynth::getChanBuffer (int chan)
 
 void thSynth::setWindowlen (int windowlen)
 {
+	/* XXX: fixme */
 #if 0
 	pthread_mutex_lock(synthMutex_);
 	windowlen_ = windowlen;

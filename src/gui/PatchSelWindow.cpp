@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -255,7 +255,7 @@ void PatchSelWindow::BrowsePatch (void)
 	if (prevDir)
 		fileSel.set_filename(prevDir);
 
-	if(fileSel.run() == Gtk::RESPONSE_OK)
+	if (fileSel.run() == Gtk::RESPONSE_OK)
 	{
 		struct stat st;
 		stat(fileSel.get_filename().c_str(), &st);
@@ -304,7 +304,7 @@ void PatchSelWindow::SavePatch (void)
 		if (prevDir)
 			fileSel.set_filename(prevDir);
 		
-		if(fileSel.run() == Gtk::RESPONSE_OK)
+		if (fileSel.run() == Gtk::RESPONSE_OK)
 		{
 			gthPatchManager::PatchFile *patch = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
@@ -353,12 +353,12 @@ void PatchSelWindow::SetChannelAmp (void)
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
 
-	if(refSelection)
+	if (refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
 		iter = refSelection->get_selected();
 
-		if(iter)
+		if (iter)
 		{
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			thArg *arg = new thArg("amp", dspAmp.get_value());
@@ -372,12 +372,12 @@ void PatchSelWindow::SetChannelAmp (void)
 
 void PatchSelWindow::patchSelected (GdkEventButton *b)
 {
-	if(b && b->type == GDK_BUTTON_PRESS)
+	if (b && b->type == GDK_BUTTON_PRESS)
 	{
 		Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 			patchView.get_selection();
 
-		if(refSelection)
+		if (refSelection)
 		{
 			Gtk::TreeModel::iterator iter;
 			Gtk::TreeModel::Path path;
@@ -403,7 +403,7 @@ void PatchSelWindow::CursorChanged (void)
 	if (currchan > 0)
 		oldpatch = patchMgr->getPatch(currchan);
 
-	if(refSelection)
+	if (refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
 		iter = refSelection->get_selected();
@@ -418,7 +418,7 @@ void PatchSelWindow::CursorChanged (void)
 			oldpatch->info["comments"] = patchComments.get_buffer()->get_text();
 		}
 
-		if(iter)
+		if (iter)
 		{
 			Glib::ustring filename = (*iter)[patchViewCols.dspName];
 			float amp = (*iter)[patchViewCols.amp];
@@ -478,7 +478,7 @@ void PatchSelWindow::populate (void)
 	
 	patchModel->clear();
 
-	for(int i = 0; i < chancount; i++)
+	for (int i = 0; i < chancount; i++)
 	{
 		Gtk::TreeModel::Row row = *(patchModel->append());
 		gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);

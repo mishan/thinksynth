@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -31,7 +31,6 @@ public:
 	~thSynthTree();
 
 	typedef map<string, thNode*> NodeMap;
-	typedef list<thNode *> NodeList;
 
 	thNode *findNode(string name) const
 	{
@@ -45,17 +44,16 @@ public:
 	thArg *getArg (thNode *node, int index);
 	thArg *getArg (const string &argname) { return getArg(ionode_, argname); }
 
-	void newNode(thNode *node);
-	void newNode(thNode *node, int id);
+	void newNode(thNode *node, bool set_id);
 
 	void setIONode(const string &name);
 	void printIONode(void);
 	thNode *IONode(void) const { return ionode_; }
 
-	string name(void) const { return name_; }
+	const string &name(void) const { return name_; }
 	void setName(const string &name) { name_ = name; }
 
-	string desc(void) const { return desc_; }
+	const string &desc(void) const { return desc_; }
 	void setDesc(const string &desc) { desc_ = desc; }
 
 	int nodeCount (void) const { return nodecount_; }
@@ -85,7 +83,7 @@ private:
 
 	thSynth *synth_;
 	NodeMap nodes_;
-	NodeList activelist_;
+	thNodeList activelist_;
 	thNode *ionode_;
 	thArgMap chanargs_;    /* midi chan args */
 	string name_, desc_;

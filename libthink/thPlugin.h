@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -45,23 +45,26 @@ public:
 	~thPlugin ();
 
 	enum State { ACTIVE, PASSIVE, NOTLOADED };
-	typedef int (*Callback)(thNode *, thSynthTree *, unsigned int, unsigned int);
+
+	typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
 	typedef int (*ModuleInit)(thPlugin *);
 	typedef void (*ModuleCleanup)(thPlugin *);
 	
-	string getPath (void) const { return plugPath_; };
-	string getDesc (void) const { return plugDesc_; };
-	State getState (void) const { return plugState_; };
+	const string &path (void) const { return path_; };
+	const string &desc (void) const { return desc_; };
+	State state (void) const { return state_; };
 	
-	void makePath (void);
-	
-	void setDesc(const string &desc);
-	void setState(State state) { plugState_ = state; };
+	void setDesc(const string &desc) { desc_ = desc; }
+	void setState(State state) { state_ = state; };
 	
 	int regArg (const string &argname);
 	
-	int getArgs (void) const { return argcounter_; };
-	string getArgName (int index) { return *args_[index]; };
+	int argCount (void) const { return argcounter_; };
+	string getArgName (int index) { 
+		if (index >= 0 && index < argcounter_)
+			return *args_[index]; 
+		return "";
+	}
 	
 	void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
 			   unsigned int samples);
@@ -69,16 +72,16 @@ private:
 	int moduleLoad (void);
 	void moduleUnload (void);
 
-	string plugPath_;
-	State plugState_;
-	void *plugHandle_;
-	string plugDesc_;
+	string path_;
+	string desc_;
+	State state_;
+	void *handle_;
 
 	string **args_;
 	int argcounter_; /* how many args are registered */
 	int argsize_; /* length of the arg storage array */
 
-	Callback plugCallback_;
+	Callback callback_;
 };
 
 #endif /* TH_PLUGIN_H */

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -215,7 +215,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 			/* convert to specified format */
 			for (int i = 0; i < chans; i++)
 			{
-				for(int j = 0; j < len; j++)
+				for (int j = 0; j < len; j++)
 				{
 					le16(buf[j * chans + i], 
 						 (signed short)(((float)inbuf[bufferoffset + j]/TH_MAX)*32767));
@@ -247,7 +247,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 	if (w < 0)
 	{
 		/* under-run */
-		if(w == -EPIPE)
+		if (w == -EPIPE)
 		{
 			fprintf(stderr, "<< BUFFER UNDERRUN >> snd_pcm_prepare()\n");
 			snd_pcm_prepare(play_handle_);
@@ -256,7 +256,7 @@ int gthALSAAudio::Write (float *inbuf, int len)
 		{
 			fprintf(stderr, "<< AUDIO SUSPENDED >>");
 
-			while((w = snd_pcm_resume (play_handle_)) == -EAGAIN)
+			while ((w = snd_pcm_resume (play_handle_)) == -EAGAIN)
 			{
 				sleep (1);
 			}
@@ -301,7 +301,7 @@ bool gthALSAAudio::ProcessEvents (void)
 	{
 		int j;
 
-		for(j = 0; j < nfds_; j++)
+		for (j = 0; j < nfds_; j++)
 		{
 			if (pfds_[j].revents > 0)
 			{

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -20,13 +20,8 @@
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
 
-#include <sigc++/sigc++.h>
-
 class thMidiNote;
 class thMidiChan;
-
-typedef SigC::Signal3<void, string, int, float> type_signal_chan_changed;
-typedef SigC::Signal1<void, int> type_signal_chan_deleted;
 
 class thSynth {
 public:
@@ -87,7 +82,7 @@ public:
 									  thMidiControllerConnection *connection);
 
 	thMidiController::ConnectionMap *getMidiConnectionMap (void) { 
-		return controllerHandler_->getConnectionMap();
+		return controllerHandler_->connectionMap();
 	}
 
 	thMidiControllerConnection *getMidiControllerConnection
@@ -103,18 +98,7 @@ public:
 			return NULL;
 	}
 
-	type_signal_chan_changed signal_channel_changed (void) {
-		return m_sigChanChanged_;
-	}
-
-	type_signal_chan_deleted signal_channel_deleted (void) {
-		return m_sigChanDeleted_;
-	}
-
 private:
-	type_signal_chan_changed m_sigChanChanged_;
-	type_signal_chan_deleted m_sigChanDeleted_;
-
 	map<string, thSynthTree*> treelist_;
 	map<int, string> patchlist_;
 	thPluginManager *pluginmanager_;

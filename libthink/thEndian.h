@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -50,16 +50,16 @@
  * Constructs such as le32(x,x) are permitted. */
 #define le32(dest, x) do { int __feh=x; \
                            if (LITTLE_ENDIAN_Q) dest = x; \
-                           else dest = bswap32(__feh); } while(0)
+                           else dest = bswap32(__feh); } while (0)
 #define le16(dest, x) do { short __feh=x; \
                            if (LITTLE_ENDIAN_Q)  dest = x; \
-                           else dest = bswap16(__feh);  } while(0)
+                           else dest = bswap16(__feh);  } while (0)
 #define be32(dest, x) do { int __feh=x; \
                            if (!LITTLE_ENDIAN_Q) dest = x; \
-                           else dest = bswap32(__feh); } while(0)
+                           else dest = bswap32(__feh); } while (0)
 #define be16(dest, x) do { short __feh=x; \
                            if (!LITTLE_ENDIAN_Q) dest = x; \
-                           else dest = bswap16(__feh); } while(0)
+                           else dest = bswap16(__feh); } while (0)
 
 
 /* read() and write() wrappers for maintaing data in little-endian 

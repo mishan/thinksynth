@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -25,18 +25,17 @@ public:
 	thPluginManager(const string &path);
 	~thPluginManager();
 
-	int LoadPlugin(const string &name);
-	void UnloadPlugin(const string &name);
+	int loadPlugin(const string &name);
+	void unloadPlugin(const string &name);
 
-	thPlugin *GetPlugin (const string &name) { return plugins[name]; };
+	thPlugin *getPlugin (const string &name) { return plugins_[name]; };
 private:
-	map <string, thPlugin*> plugins;
+	typedef map<string, thPlugin*> PluginMap;
+	PluginMap plugins_;
+	string plugin_path_;
 
-	void UnloadPlugins (void);
-
-	const string GetPath (const string &name);
-
-	string plugin_path;
+	void unloadPlugins (void);
+	const string getPath (const string &name);
 };
 
 #endif /* TH_PLUGIN_MANAGER_H */

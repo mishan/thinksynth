@@ -176,7 +176,7 @@ void thOSSAudio::Play(thAudio *audioPtr)
 
 		printf("playing 8-bit audio\n");
 
-		while((r = audioPtr->Read(buf, buf_size)) > 0) {
+		while ((r = audioPtr->Read(buf, buf_size)) > 0) {
 			printf("writing %d bytes\n", r);
 			Write(buf, r);
 		}
@@ -190,7 +190,7 @@ void thOSSAudio::Play(thAudio *audioPtr)
 
 		printf("playing 16-bit audio\n");
 
-		while((r = audioPtr->Read(buf, buf_size)) > 0) {
+		while ((r = audioPtr->Read(buf, buf_size)) > 0) {
 			printf("writing %d bytes\n", r*2);
 			Write(buf, r*2);
 		}
@@ -214,10 +214,10 @@ void thOSSAudio::Play(thAudio *audioPtr)
 	FD_ZERO(&wfds);
 	FD_SET(fd, &wfds);
 
-	while(1) {
+	while (1) {
 		select(fd+1, NULL, &wfds, NULL, NULL);
 
-		if(FD_ISSET(fd, &wfds)) {
+		if (FD_ISSET(fd, &wfds)) {
 			break;
 		}
 	}

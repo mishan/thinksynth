@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -28,13 +28,13 @@ typedef SigC::Signal1<void, thArg *> type_signal_arg_changed;
 
 class thArg {
 public:
-	thArg(const string &name, float value);
-	thArg(const string &name, const float *value, int num);
-	thArg(const string &name, const string &node, const string &value);
-	thArg(const string &name, const string &chanarg);
-	thArg(const thArg *copyArg);
-	thArg(void);
-	~thArg(void);
+	thArg  (const string &name, float value);
+	thArg  (const string &name, const float *value, int num);
+	thArg  (const string &name, const string &node, const string &value);
+	thArg  (const string &name, const string &chanarg);
+	thArg  (const thArg *copyArg);
+	thArg  (void);
+	~thArg (void);
 
 	enum ArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
 	/* immidiate value, pointer to another node, pointer to a channel arg, or
@@ -103,16 +103,16 @@ public:
 	   could think of NEEDING right now. */
 	float operator[] (unsigned int i) const {
 		/* empty */
-		if(len_ == 0) 
+		if (len_ == 0) 
 		{
 			return 0;
 		}
 		
-		else if(len_ == 1)
+		else if (len_ == 1)
 		{
 			return values_[0];
 		}
-		else if(i < len_) {
+		else if (i < len_) {
 			return values_[i];
 		}
 

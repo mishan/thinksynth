@@ -84,8 +84,8 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
-				if(ev->data.note.velocity == 0) {
-					if(*mononote && ev->data.note.note == *targetpitch) {
+				if (ev->data.note.velocity == 0) {
+					if (*mononote && ev->data.note.note == *targetpitch) {
 						*pbuf = 0;
 						*notevelocity = 0;
 						(*mononote)->SetArg("trigger", pbuf, 1);
@@ -94,7 +94,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 				}
 				else
 				{
-					if(*notevelocity == 0) {
+					if (*notevelocity == 0) {
 						*notevelocity = (float)ev->data.note.velocity;
 						*notepitch = (float)ev->data.note.note;
 						*targetpitch = *notepitch;
@@ -112,7 +112,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 			}
 			case SND_SEQ_EVENT_NOTEOFF:
 			{
-				if(*mononote && ev->data.note.note == *targetpitch) {
+				if (*mononote && ev->data.note.note == *targetpitch) {
 					*pbuf = 0;
 					*notevelocity = 0;
 					(*mononote)->SetArg("trigger", pbuf, 1);
@@ -353,7 +353,7 @@ int main (int argc, char *argv[])
 	{
 
 		/* monophonic stuff */
-		if(mononote && monovelocity) {
+		if (mononote && monovelocity) {
 			mononote->SetArg("note", &notepitch, 1);
 			startpitch = notepitch;
 			notepitch += (targetpitch - notepitch) * monoglide;
@@ -362,7 +362,7 @@ int main (int argc, char *argv[])
 
 			windowlen = Synth.GetWindowLen();
 			notebuffer = notearg->Allocate(windowlen);
-			for(i = 0; i < windowlen; i++) /* ramp the note from one window to
+			for (i = 0; i < windowlen; i++) /* ramp the note from one window to
 											  the next, not discrete steps */
 			{
 				notebuffer[i] = startpitch + (i / windowlen) * (notepitch - startpitch);
@@ -376,9 +376,9 @@ int main (int argc, char *argv[])
 			noteon = 0;
 			for (j = 0; j < seq_nfds; j++)
 			{
-				if(pfds[j].revents > 0)
+				if (pfds[j].revents > 0)
 				{
-					if(noteon == 0) {
+					if (noteon == 0) {
 						noteon = processmidi(&Synth, seq_handle, &notepitch, &targetpitch, &monovelocity, &mononote);
 					}
 				}
@@ -387,7 +387,7 @@ int main (int argc, char *argv[])
 			monoglide = (monovelocity / MIDIVALMAX)* (monoglidemax - monoglidemin) + monoglidemin;
 
 			/* monophonic stuff */
-			if(mononote && monovelocity) {
+			if (mononote && monovelocity) {
 				mononote->SetArg("note", &notepitch, 1);
 				startpitch = notepitch;
 				notepitch += (targetpitch - notepitch) * monoglide;
@@ -396,20 +396,20 @@ int main (int argc, char *argv[])
 				
 				windowlen = Synth.GetWindowLen();
 				notebuffer = notearg->Allocate(windowlen);
-				for(i = 0; i < windowlen; i++) /* ramp the note from one window to
+				for (i = 0; i < windowlen; i++) /* ramp the note from one window to
 												  the next, not discrete steps */
 				{
 					notebuffer[i] = startpitch + (i / windowlen) * (notepitch - startpitch);
 				}
 			}
 			
-			for(j = seq_nfds; j < seq_nfds + nfds; j++)
+			for (j = seq_nfds; j < seq_nfds + nfds; j++)
 			{
 				if (pfds[j].revents > 0)
 				{
 					int l = Synth.GetWindowLen();
 					Synth.Process();
-					if(outputstream->Write(synthbuffer, l) < l)
+					if (outputstream->Write(synthbuffer, l) < l)
 					{
 						fprintf(stderr, "<< BUFFER UNDERRUN >> Restarting ALSA output\n");
 						snd_pcm_prepare(phandle);

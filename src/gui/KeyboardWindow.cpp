@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -148,7 +148,7 @@ void KeyboardWindow::eventTransposeChanged (int trans)
    multi-threaded precautions must be taken here .. */
 void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
 {
-	if(chan != keyboard_->GetChannel())
+	if (chan != keyboard_->GetChannel())
  		return;
 
  	kbMutex_.lock();
@@ -158,7 +158,7 @@ void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
 
 void KeyboardWindow::synthEventNoteOff (int chan, float note)
 {
-	if(chan != keyboard_->GetChannel())
+	if (chan != keyboard_->GetChannel())
 		return;
 
 	kbMutex_.lock();

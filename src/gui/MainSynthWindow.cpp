@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -642,11 +642,11 @@ void MainSynthWindow::onBrowseButton (void)
 	if (prevDir_)
 		fileSel.set_filename(prevDir_);
 
-	if(fileSel.run() == Gtk::RESPONSE_OK)
+	if (fileSel.run() == Gtk::RESPONSE_OK)
 	{
 		dspEntry_.set_text(fileSel.get_filename());
 
-		if(patchMgr->newPatch(fileSel.get_filename(), pagenum))
+		if (patchMgr->newPatch(fileSel.get_filename(), pagenum))
 		{
 			char *file = strdup(fileSel.get_filename().c_str());
 

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -30,7 +30,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
 {
 	const thArg *chanarg = NULL;
 
-	if(!mod) {
+	if (!mod) {
 		fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
 	}
 
@@ -84,7 +84,7 @@ thMidiNote *thMidiChan::addNote (float note, float velocity)
 	thMidiNote *midinote;
 	int id = (int)note;
 	NoteMap::iterator i = notes_.find(id);
-	if(i != notes_.end()) {
+	if (i != notes_.end()) {
 		/* Make sure to turn off the old note, or it will hang! */
 		i->second->setArg("trigger", 0);
 
@@ -132,7 +132,7 @@ thMidiNote *thMidiChan::getNote (int note)
 {
 	NoteMap::iterator i = notes_.find(note);
 
-	if(i != notes_.end()) {
+	if (i != notes_.end()) {
 		return i->second;
 	}
 
@@ -143,7 +143,7 @@ int thMidiChan::setNoteArg (int note, const string &name, float value)
 {
 	NoteMap::iterator i = notes_.find(note);
 
-	if(i != notes_.end()) {
+	if (i != notes_.end()) {
 		i->second->setArg(name, value);
 		return 1;
 	}
@@ -156,7 +156,7 @@ int thMidiChan::setNoteArg (int note, const string &name, const float *value,
 {
 	NoteMap::iterator i = notes_.find(note);
 
-	if(i != notes_.end()) {
+	if (i != notes_.end()) {
 		i->second->setArg(name, value, len);
 		return 1;
 	}
@@ -201,16 +201,16 @@ void thMidiChan::process (void)
 	int sustain = (int)(*argSustain_)[0];
 
 	/* Before any processing, we shall do a polyphony test. */
-	if(notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 
+	if (notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 
 	{
 		/* we have too many notes, and polyphony > 0 */
 
-		if(notecount_decay_ > 0) /* there are some notes not being held down */
+		if (notecount_decay_ > 0) /* there are some notes not being held down */
 		{
 			NoteList::iterator iter = decaying_.begin();
 
 			/* more to do */
-			while(iter != decaying_.end() && notecount_decay_ > 0 &&
+			while (iter != decaying_.end() && notecount_decay_ > 0 &&
 				  notecount_ + notecount_decay_ > polymax_)
 			{
 				delete *iter;
@@ -218,10 +218,10 @@ void thMidiChan::process (void)
 				notecount_decay_--;
 			}
 		}
-		if(notecount_ > polymax_) /* too many notes held down */
+		if (notecount_ > polymax_) /* too many notes held down */
 		{
 			NoteList::iterator iter = noteorder_.begin();
-			while(iter != noteorder_.end() && notecount_ > polymax_)
+			while (iter != noteorder_.end() && notecount_ > polymax_)
 			{
 				notes_.erase((*iter)->id());
 				delete *iter;
@@ -236,7 +236,7 @@ void thMidiChan::process (void)
 	notecount_decay_ = 0;
 
 	NoteMap::iterator iter = notes_.begin();
-	while(iter != notes_.end())
+	while (iter != notes_.end())
 	{
 		notecount_++;
 
@@ -254,7 +254,7 @@ void thMidiChan::process (void)
 		if ((*trigger)[0] == 2 && sustain < 0x40)
 			trigger->setValue(0);
 		
-		for(i = 0; i < channels_; i++)
+		for (i = 0; i < channels_; i++)
 		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
@@ -263,7 +263,7 @@ void thMidiChan::process (void)
 			amp->getBuffer(buf_amp, windowlength_);
 
 			index = i;
-			for(j = 0; j < windowlength_; j++)
+			for (j = 0; j < windowlength_; j++)
 			{
 				output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
 				index += channels_;
@@ -273,7 +273,7 @@ void thMidiChan::process (void)
 		NoteMap::iterator olditer = iter++;  /* a copy of the
 												old iterator to erase */
 		
-		if(play && (*play)[windowlength_ - 1] == 0)
+		if (play && (*play)[windowlength_ - 1] == 0)
 		{
 			noteorder_.remove(data);
 			delete data;
@@ -285,7 +285,7 @@ void thMidiChan::process (void)
 	/* Now, the [almost] exact same thing for the list of decaying notes */
 	NoteList::iterator diter = decaying_.begin();
 
-	while(diter != decaying_.end())
+	while (diter != decaying_.end())
 	{
 		notecount_decay_++;
 		data = *diter;
@@ -299,7 +299,7 @@ void thMidiChan::process (void)
 		if ((*trigger)[0] == 2 && sustain < 0x40)
 			trigger->setValue(0);
 		
-		for(i = 0; i < channels_; i++)
+		for (i = 0; i < channels_; i++)
 		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
@@ -308,14 +308,14 @@ void thMidiChan::process (void)
 			amp->getBuffer(buf_amp, windowlength_);
 
 			index = i;
-			for(j = 0; j < windowlength_; j++)
+			for (j = 0; j < windowlength_; j++)
 			{
 				output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
 				index += channels_;
 			}
 		}
 		
-		if(play && (*play)[windowlength_ - 1] == 0)
+		if (play && (*play)[windowlength_ - 1] == 0)
 		{
 			diter = decaying_.erase(diter);
 			delete data;
@@ -339,14 +339,14 @@ void thMidiChan::assignChanArgPointers (thSynthTree *tree)
 		 i != sourcenodes.end(); i++)
 	{
 		curnode = i->second;
-		sourceargs = curnode->GetArgTree();
+		sourceargs = curnode->args();
 
 		for (thArgMap::const_iterator j = sourceargs.begin();
 		 j != sourceargs.end(); j++)
 		{
 			curarg = j->second;
 
-			if(curarg->type() == thArg::ARG_CHANNEL)
+			if (curarg->type() == thArg::ARG_CHANNEL)
 			{
 				curarg->setArgPtr(args_[curarg->argPtrName()]);
 			}

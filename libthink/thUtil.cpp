@@ -31,8 +31,8 @@ int thUtil::getNumLength (int num)
 	num = abs(num);
 	int i;
 
-	for(i = 0; i < RangeSize; i++) {
-		if(num < RangeArray[i]) {
+	for (i = 0; i < RangeSize; i++) {
+		if (num < RangeArray[i]) {
 			return i+1;
 		}
 	}

@@ -1,6 +1,6 @@
 /* $Id$ */
 /*
- * Copyright (C) 2004 Metaphonic Labs
+ * Copyright (C) 2004-2005 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -43,7 +43,7 @@ public:
 						thMidiControllerConnection *connection);
 	void clearByDestChan (unsigned int chan);
 
-	ConnectionMap *getConnectionMap (void) { return &connectionMap_; }
+	ConnectionMap *connectionMap (void) { return &connectionMap_; }
 
 	thMidiControllerConnection *getConnection (unsigned char channel, 
 											   unsigned int param)
