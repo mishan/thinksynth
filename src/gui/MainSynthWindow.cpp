@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.56 2004/11/26 05:22:12 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.57 2004/11/26 06:23:56 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -101,6 +101,9 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	patchSel = new PatchSelWindow(synth);
 	midiMap = NULL;
 	
+	patchSel->signal_patch_name_changed().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::onPatchNameChanged));
+
 	vals = prefs->Get("dspdir");
 
 	if (vals != NULL)
@@ -529,6 +532,12 @@ void MainSynthWindow::jackCheck (void)
 }
 #endif
 
+void MainSynthWindow::onPatchNameChanged (int chan, const char* name)
+{
+	notebook.set_tab_label_text(*(notebook.get_nth_page(chan)),
+		g_strdup_printf("%d: %s", chan + 1, name));
+}
+
 void MainSynthWindow::onPatchesChanged (void)
 {
 	int pagenum = notebook.get_current_page();
@@ -602,6 +611,8 @@ void MainSynthWindow::onDspEntryActivate (void)
 	notebook.pages().clear();
 	populate();
 	notebook.show_all();
+
+	notebook.set_current_page(pagenum);
 }
 
 void MainSynthWindow::onBrowseButton (void)

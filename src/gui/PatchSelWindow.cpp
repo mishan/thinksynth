@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.48 2004/11/26 05:14:39 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.49 2004/11/26 06:23:56 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -270,6 +270,7 @@ void PatchSelWindow::SavePatch (void)
 		if(fileSel.run() == Gtk::RESPONSE_OK)
 		{
 			char *file = strdup(fileSel.get_filename().c_str());
+			const char *b = NULL;
 			gthPrefs *prefs = NULL;
 			string **vals = NULL;
 			
@@ -279,8 +280,12 @@ void PatchSelWindow::SavePatch (void)
 			/* update prefs file "prevDir" info */
 			fileEntry.set_text(fileSel.get_filename());
 
+			b = basename(file);
+			
 			/* update patch window with new name */
-			(*iter)[patchViewCols.dspName] = basename(file);
+			(*iter)[patchViewCols.dspName] = b;
+
+			m_signal_patch_name_changed((*iter)[patchViewCols.chanNum]-1, b);
 
 			if (prevDir)
 				free (prevDir);
