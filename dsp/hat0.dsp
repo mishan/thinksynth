@@ -1,4 +1,4 @@
-# $Id: hat0.dsp,v 1.6 2004/12/07 04:04:36 ink Exp $
+# $Id: hat0.dsp,v 1.7 2004/12/07 04:34:23 ink Exp $
 name "Hat 0";
 author "Leif Ames";
 description "Electronic Hihat";
@@ -68,10 +68,15 @@ node ionode {
 	waveform = 2;
 };
 
+node vcurve math::mul {		# velocity curve
+	in0 = ionode->velocity;
+	in1 = ionode->velocity;
+};
+
 node decay mixer::fade {
 	in0 = @clen;
 	in1 = @olen;
-	fade = ionode->velocity;
+	fade = vcurve->out;
 };
 
 node adsr env::adsr {
