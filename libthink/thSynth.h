@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.39 2004/03/26 08:25:48 misha Exp $ */
+/* $Id: thSynth.h,v 1.40 2004/03/26 09:28:35 joshk Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -14,9 +14,9 @@ public:
 	thSynth (thSynth *copySynth);
 	~thSynth (void);
 
-	void LoadMod(const string &filename);
-	void LoadMod(const string &filename, int channum, float amp);
-	void LoadMod(FILE *input);
+	thMod* LoadMod(const string &filename);
+	thMod* LoadMod(const string &filename, int channum, float amp);
+	thMod* LoadMod(FILE *input);
 	thMod *FindMod(const string &name) { return modlist[name]; };
 	void ListMods(void);
 	void BuildSynthTree(const string &modname);

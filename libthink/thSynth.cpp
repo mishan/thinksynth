@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.75 2004/03/26 08:25:48 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.76 2004/03/26 09:28:35 joshk Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -63,12 +63,12 @@ thSynth::~thSynth (void)
 	free(channels);
 }
 
-void thSynth::LoadMod (const string &filename)
+thMod * thSynth::LoadMod (const string &filename)
 {
 	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
 		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
 				 strerror(errno));
-		exit(1);
+		return NULL;
 	}
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
@@ -86,10 +86,15 @@ void thSynth::LoadMod (const string &filename)
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
+
+	return parsemod;
 }
 
-void thSynth::LoadMod (FILE *input)
+thMod * thSynth::LoadMod (FILE *input)
 {
+	if (!input)
+	  return NULL;
+	
 	yyin = input;
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
@@ -104,6 +109,8 @@ void thSynth::LoadMod (FILE *input)
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
+
+	return parsemod;
 }
 
 void thSynth::SetChanArg (int channum, thArg *arg)
@@ -141,12 +148,12 @@ thArg *thSynth::GetChanArg (int channum, const string &argname)
 
 }
 
-void thSynth::LoadMod (const string &filename, int channum, float amp)
+thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 {
 	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
 		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
 				 strerror(errno));
-		exit(1);
+		return NULL;
 	}
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
@@ -186,8 +193,14 @@ void thSynth::LoadMod (const string &filename, int channum, float amp)
 	}
 
 	channels[channum] = new thMidiChan(parsemod, amp, thWindowlen);
-
+/* Shouldn't be used until most DSPs have valid descriptions. */
+#if 0
+	patchlist[channum] = parsemod->GetDesc();
+#else
 	patchlist[channum] = filename;
+#endif
+
+	return parsemod;
 }
 
 

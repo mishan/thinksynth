@@ -5,6 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <gtkmm.h>
+#include <gtkmm/messagedialog.h>
 
 #include "thArg.h"
 #include "thPlugin.h"
@@ -49,7 +50,7 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 		Gtk::Label *chanLabel = new Gtk::Label(label);
 		string filename = (*patchlist)[i];
 		Gtk::Entry *chanEntry = new Gtk::Entry;
-		chanEntry->set_text(Glib::ustring (filename.c_str()));
+		chanEntry->set_text(filename);
 
 		int *channum = new int;
 		*channum = i;
@@ -88,12 +89,24 @@ void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
 {
 	int *channum = (int *)chanEntry->get_data("channel");
 	Gtk::HScale *chanAmp = (Gtk::HScale *)chanEntry->get_data("amp");
+	thMod* loaded = NULL;
 
+	if (chanEntry->get_text().empty())
+	  return;
+	
 	synthMutex->lock();
 
-	synth->LoadMod(chanEntry->get_text().c_str(), *channum,
-				   (float)chanAmp->get_value());
+	if ((loaded = synth->LoadMod(chanEntry->get_text().c_str(), *channum,
+		(float)chanAmp->get_value())) == NULL)
+	{
+	  gchar* quux = g_strdup_printf("Couldn't load %s", chanEntry->get_text().c_str());
+	  Gtk::MessageDialog baleeted (quux, Gtk::MESSAGE_ERROR);
 
+	  baleeted.run();
+	  chanEntry->set_text("");
+	  g_free(quux);
+	}
+	
 	synthMutex->unlock();
 }
 
