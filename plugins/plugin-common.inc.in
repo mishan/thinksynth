@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.21 2003/04/29 05:55:05 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.22 2003/05/03 01:08:13 aaronl Exp $
 # -*- Makefile -*- vim:syntax=make
 
 CXX=@CXX@
@@ -10,17 +10,23 @@ plugin_path=@plugin_path@
 PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
 USE_SONAME=@USE_SONAME@
 
+MAGIC_DEPS := $(shell if [ ! -d .deps ]; then mkdir .deps > /dev/null 2>&1 || :; fi)
+
 all: $(PLUGIN_NAMES:%=%@SHARED_SUFFIX@)
 
 %@SHARED_SUFFIX@: %.cpp
 ifeq ($(USE_SONAME),yes)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS)
+	$(CXX) $(CXXFLAGS) -Wp,-MMD,.deps/$<.dt,-MT$@ $(INCLUDES) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS)
 else
-	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -o $@ $< $(PLUGIN_LDFLAGS)
+	$(CXX) $(CXXFLAGS) -Wp,-MMD,.deps/$<.dt,-MT$@ $(INCLUDES) -DPLUGIN_BUILD -shared -o $@ $< $(PLUGIN_LDFLAGS)
 endif
+	@@sed '/^[:\\ ]*$$/d;' <.deps/$<.dt>.deps/$<.d && rm -f .deps/$<.dt
+
+-include .deps/*.d
 
 distclean clean:
 	rm -f *@SHARED_SUFFIX@ *.o
+	rm -rf .deps
 
 install:
 	mkdir -p $(DESTDIR)/$(plugin_path)/$(shell basename `pwd`)
