@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.105 2003/11/04 06:59:11 misha Exp $ */
+/* $Id: main.cpp,v 1.106 2003/11/05 02:48:41 joshk Exp $ */
 
 #include "config.h"
 
@@ -46,13 +46,13 @@ static void print_syntax(char *argv0)
 int main (int argc, char *argv[])
 {
 	string dspname = "test";   /* XXX: for debugging ONLY */
-	string outputfname("test.wav");
+	string outputfname = "test.wav";
 	string inputfname;         /* filename of .dsp file to use */
 	int notetoplay = 69;       /* XXX: Remove when sequencing is external */
 	int samplerate = TH_SAMPLE;
 	int processwindows = 100;  /* how long does sample play */
 	int buflen, havearg, i;
-	float *synthbuffer;
+	float *synthbuffer = NULL;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
 
@@ -81,8 +81,7 @@ int main (int argc, char *argv[])
 			case 'p':
 			{
 				if (optarg[strlen(optarg)-1] != '/') {
-					plugin_path = optarg;
-					plugin_path += '/';
+					plugin_path = optarg + '/';
 				}
 				else {
 					plugin_path = optarg;
@@ -97,7 +96,7 @@ int main (int argc, char *argv[])
 			}
 			case 'n':  /* XXX: TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
 			{
-				notetoplay = (int)atof(optarg);
+				notetoplay = atoi(optarg);
 				break;
 			}
 			case 'l':  /* number of windows to process */
@@ -166,7 +165,7 @@ int main (int argc, char *argv[])
 
 	buflen = Synth.GetChans()*Synth.GetWindowLen();
 
-	printf ("Writing to '%s'\n",(char *)outputfname.c_str());
+	printf ("Writing to '%s'\n", outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
 		Synth.Process();
