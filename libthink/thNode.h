@@ -6,6 +6,7 @@ public:
 	thNode(char *name, thPlugin *thplug);
 	~thNode();
 
+	void SetName(char *name);
 	void SetArg(char *name, float *value, int num);
 	void SetArg(char *name, char *node, char *value);
 	

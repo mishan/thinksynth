@@ -21,6 +21,11 @@ thNode::~thNode ()
  	/* free anything else */
 }
 
+void thNode::SetName(char *name) {
+	free(nodename);
+	nodename = name;
+};
+
 void thNode::SetArg (char *name, float *value, int num)
 {
 	thArg *arg = (thArg *)args->Find(name);
