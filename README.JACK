@@ -1,4 +1,4 @@
-$Id: README.JACK,v 1.1 2004/09/07 04:53:21 joshk Exp $
+$Id: README.JACK,v 1.2 2004/09/10 17:54:38 joshk Exp $
 
 A quick guide to getting JACK to work with Thinksynth
 -----------------------------------------------------
@@ -46,7 +46,9 @@ should do it, then
 
 should start getting audio through from Thinksynth to the OSS output.
 If you don't have a jack_connect program try qjackctl, which is very
-self-intuitive.
+self-intuitive: all you have to do is hit Connect, and connect 'thinksynth'
+to 'oss' or 'alsa_pcm'. (If you have 'alsa_pcm' and doing this results in no
+sound, see below for why.)
 
 If you use ALSA:
 

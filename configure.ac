@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.95 2004/09/10 05:31:31 joshk Exp $
+dnl $Id: configure.ac,v 1.96 2004/09/10 17:54:38 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -49,7 +49,7 @@ if test "$LEX" = ":"; then
 	AC_MSG_ERROR([A lex implementation is required to build this program.])
 fi
 
-AC_ISC_POSIX
+AC_CHECK_LIB(cposix, strerror, [LIBS="$LIBS -lcposix"])
 AC_HEADER_STDC
 AC_C_CONST
 AC_C_INLINE
