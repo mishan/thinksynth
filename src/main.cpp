@@ -341,7 +341,7 @@ int main (int argc, char *argv[])
 	catch (thIOException e)
 	{
 		fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
-		fprintf(stderr, "Perhaps you should start jackd? Try jackd -d oss.\n");
+		fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
 		exit (1);
 	}
 
