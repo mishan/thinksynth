@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.4 2003/05/02 04:59:20 ink Exp $ */
+/* $Id: adsr.cpp,v 1.5 2003/05/02 19:48:24 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,14 +78,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 			play[i] = 1;
 
-			out[i] = ((temp-(position++))/temp)*(TH_MAX-temp2);
+			out[i] = temp2+(((temp-(position++))/temp)*(TH_MAX-temp2));
 			if(position >= temp) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
 			}
 			break;
 		case 2:
-			if((*in_s)[i]  == 0) {  /* If there is no D section, make it end */
+		  temp = (*in_s)[i];
+			if(temp == 0) {  /* If there is no D section, make it end */
 				play[i] = 0;
 			} else {
 				play[i] = 1;
@@ -120,8 +121,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_pos[1] = phase;
 	node->SetArg("position", out_pos, 2);
 	node->SetArg("out", out, windowlen);
+	node->SetArg("play", play, windowlen);
 
 	return 0;
 }
-
-

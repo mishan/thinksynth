@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.44 2003/04/30 03:19:54 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.45 2003/05/02 19:48:24 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -142,5 +142,14 @@ void thSynth::ProcessHelper(thBSTree *chan)
 	}
 
 	ProcessHelper(chan->GetRight());
+  }
+}
+
+void thSynth::PrintChan(int chan)
+{
+  int i;
+
+  for(i=0;i<windowlen;i++) {
+	printf("-=- %f\n", output[chan][i]);
   }
 }

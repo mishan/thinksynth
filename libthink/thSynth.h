@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.24 2003/04/29 02:20:42 ink Exp $ */
+/* $Id: thSynth.h,v 1.25 2003/05/02 19:48:24 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -18,6 +18,7 @@ public:
 	void AddChannel(char *channame, char *modname, float amp);
 	thMidiNote *AddNote(char *channame, float note, float velocity);
 	void Process(void);
+	void PrintChan(int chan);
 
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
