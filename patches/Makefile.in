@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.2 2004/11/15 19:40:47 misha Exp $
+# $Id: Makefile.in,v 1.3 2004/11/17 21:19:07 joshk Exp $
 
 prefix=@prefix@
 datadir=@datadir@
@@ -24,4 +24,4 @@ install:
 	done
 
 uninstall:
-	cd $(DESTDIR)$(datadir)/thinksynth/patches && rm -rf $(dsp_dirs)
+	cd $(DESTDIR)$(datadir)/thinksynth/patches && rm -rf $(patch_dirs)
