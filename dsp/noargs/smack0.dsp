@@ -1,4 +1,4 @@
-# $Id: smack0.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id: smack0.dsp,v 1.2 2004/12/07 08:41:47 ink Exp $
 name "test";
 
 node ionode {
@@ -10,17 +10,17 @@ node ionode {
 	freq = 900;
 	freqmul1 = 3.14;
 	freqmul2 = 4.62;
-	depth1 = 0.1;
-	depth2 = 0.25;
-	depth3 = 0.3;
+	depth1 = 0.8;
+	depth2 = 0.6;
+	depth3 = 0.9;
 
 	attack = 2000;
 	decay = 4000;
-	midp = 30;
+	midp = 0.2;
 
-	cutmin = 1700;
-	cutmax = 400;
-	res = 2;
+	cutmin = 1600;
+	cutmax = 800;
+	res = 1.7;
 
 	waveform = 2;
 };
