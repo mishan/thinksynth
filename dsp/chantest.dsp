@@ -1,8 +1,10 @@
-# $Id: chantest.dsp,v 1.1 2004/08/01 09:33:02 ink Exp $
+# $Id: chantest.dsp,v 1.2 2004/08/01 09:36:27 ink Exp $
 name "test";
 
 @cutoff = 0.5;
-@res = 0.3;
+@res = 0.4;
+@cutoff.widget = 1;
+@res.widget = 1;
 
 node ionode {
 	channels = 2;
