@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.11 2004/09/05 10:24:33 joshk Exp $ */
+/* $Id: gthPrefs.cpp,v 1.12 2004/09/05 10:39:13 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -80,8 +80,12 @@ void gthPrefs::Load (void)
 
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
-		synth->LoadMod(DSP_PATH "rpiano0.dsp", 0, 20);
-		return;
+		fprintf(stderr, "could not open %s: %s\n", prefsPath.c_str(),
+			strerror(errno));
+	  	if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
+			return;
+		else
+			printf("opened default configuration " DEFAULT_THINKRC "\n");
 	}
 
 	while (!feof(prefsFile))

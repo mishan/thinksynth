@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.91 2004/09/05 10:10:14 joshk Exp $
+dnl $Id: configure.ac,v 1.92 2004/09/05 10:39:13 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -283,6 +283,11 @@ dnl ./configure --with-dsp-path=${prefix}/bar, so flatten that too
 
 AC_SUBST_DIR(dsp_path)
 
+thinkrc=$sysconfdir/thinkrc
+AC_SUBST_DIR(thinkrc)
+
+AC_DEFINE_UNQUOTED([DEFAULT_THINKRC], "$thinkrc", [Path to default configuration file.])
+
 dnl sources need this
 if test `expr $dsp_path : .*/$` -eq 0; then
 	dsp_path=$dsp_path/
@@ -293,7 +298,7 @@ AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(dsp_path)
 AC_SUBST(plugin_path)
 
-AC_CONFIG_FILES([libthink/Makefile src/Makefile src/gui/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile build.mk])
+AC_CONFIG_FILES([libthink/Makefile src/Makefile src/gui/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile etc/thinkrc etc/Makefile build.mk])
 AC_OUTPUT
 
 echo
