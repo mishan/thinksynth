@@ -2,7 +2,7 @@
 # Leif Ames <ink@bespin.org>
 # 6-29-2003
 
-name "test";
+name "organ0";
 
 node ionode {
 	channels = 2;
@@ -11,7 +11,7 @@ node ionode {
 	play = 1;
 
 	fade = 0.4;
-	waveform = 5;
+	waveform = 0;
 };
 
 node freq misc::midi2freq {
@@ -26,21 +26,21 @@ node osc1 osc::simple {
 node osc2 osc::simple {
         freq = freq->out;
         waveform = ionode->waveform;
-	mul = 0.5;
+	mul = 2;
 #	reset = osc1->sync;
 };
 
 node osc3 osc::simple {
         freq = freq->out;
         waveform = ionode->waveform;
-        mul = 0.25;
+        mul = 4;
 #        reset = osc2->sync;
 };
 
 node osc4 osc::simple {
         freq = freq->out;
         waveform = ionode->waveform;
-        mul = 0.125;
+        mul = 8;
  #       reset = osc3->sync;
 };
 
