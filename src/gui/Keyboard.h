@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.14 2004/09/19 02:53:28 joshk Exp $ */
+/* $Id: Keyboard.h,v 1.15 2004/11/26 01:12:42 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -21,10 +21,10 @@
 #define KEYBOARD_H
 
 /* this widget's custom signals */
-typedef SigC::Signal3<void, int, int, float> type_signal_note_on;
-typedef SigC::Signal2<void, int, int>        type_signal_note_off;
-typedef SigC::Signal1<void, int>             type_signal_channel_changed;
-typedef SigC::Signal1<void, int>             type_signal_transpose_changed;
+typedef sigc::signal<void, int, int, float> type_signal_note_on;
+typedef sigc::signal<void, int, int>        type_signal_note_off;
+typedef sigc::signal<void, int>             type_signal_channel_changed;
+typedef sigc::signal<void, int>             type_signal_transpose_changed;
 
 class Keyboard : public Gtk::DrawingArea
 {
