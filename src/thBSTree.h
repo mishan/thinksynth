@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.11 2003/04/26 02:42:32 misha Exp $ */
+/* $Id: thBSTree.h,v 1.12 2003/04/26 04:26:28 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -16,12 +16,23 @@ public:
 	void Remove (thBSTree *node);
 
 	void *GetData (void *id); /* get data from a specific node id */
-	void *GetData (void);     /* get data from this node */
 
-	void *GetId (void);       /* get this node's id */
+	inline void *GetData (void) { /* get data from this node */
+		return bsData;
+	}
 
-	thBSTree *Find (void *id);
-private:
+	inline void *GetId (void) { /* get this node's id */
+		return bsId;
+	}
+
+	inline void *GetLeft (void) {
+		return bsLeft;
+	}
+
+	inline void *GetRight (void) {
+		return bsRight;
+	}
+
 	inline bool IsEmpty (void) {
 		return !bsId;
 	}
@@ -30,6 +41,9 @@ private:
 		return !bsLeft && !bsRight;
 	}
 
+
+	thBSTree *Find (void *id);
+private:
 	thBSTree *bsLeft, *bsRight;
 	void *bsId, *bsData;
 

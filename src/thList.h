@@ -1,27 +1,26 @@
-/* $Id: thList.h,v 1.6 2003/04/26 00:37:17 joshk Exp $ */
+/* $Id: thList.h,v 1.7 2003/04/26 04:26:28 misha Exp $ */
 
 #ifndef TH_LIST_H
 #define TH_LIST_H 1
 
-struct thListNode {
-	void *data;
-	thListNode *next, *prev;
-};
-
 class thList {
 public:
 	thList();
+	thList(void *data, thList *next);
+	thList(thList *prev, void *data);
 	~thList();
 
-	void Add(void *data);
-	void Remove(thListNode *node);
+	thList *Append(void *data);
+	thList *Prepend(void *data);
 
-	thListNode *GetNth(int n);
-	thListNode *GetTail(void) const { return tail; };
-	thListNode *GetHead(void) const { return head; };
+	thList *GetNext (void);
+	thList *GetPrev (void);
 
+	void Remove(thList *node);
+	void Remove(void *data);
 private:
-	thListNode *head, *tail;
+	void *lData;
+	thList *lNext, *lPrev;
 };
 
 #endif /* TH_LIST_H */
