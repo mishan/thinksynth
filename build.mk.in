@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.17 2003/05/28 06:23:31 joshk Exp $
+# $Id: build.mk.in,v 1.18 2003/06/15 00:33:18 aaronl Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -23,8 +23,8 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(CXX_MT_BROKEN),yes)
-	sed 's/\.o:/.@SHARED_SUFFIX@:/g' .$<.dt > .$<.dtx
-	mv .$<.dtx .$<.dt
+	@sed 's/\.o:/.@SHARED_SUFFIX@:/g' .$<.dt > .$<.dtx
+	@mv .$<.dtx .$<.dt
 endif
 
 -include .*.dt
