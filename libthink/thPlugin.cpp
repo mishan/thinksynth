@@ -42,9 +42,9 @@ const char *thPlugin::GetDesc (void)
 	return plugDesc;
 }
 
-int thPlugin::Fire (void *node, void *mod)
+int thPlugin::Fire (void *node, void *mod, unsigned int windowlen)
 {
-	plugCallback(node, mod);
+	plugCallback(node, mod, windowlen);
 
 	return 0;
 }
@@ -87,8 +87,7 @@ int thPlugin::ModuleLoad (void)
 		goto err;
 	}
 
-	plugCallback = (void (*)(void *, void *))dlsym(plugHandle, 
-												   "module_callback");
+	plugCallback = (void (*)(void *, void *, unsigned int))dlsym(plugHandle, "module_callback");
 	
 	if(plugCallback == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_callback' symbol\n");

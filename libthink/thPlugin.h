@@ -17,7 +17,7 @@ public:
 	void SetDesc(const char *desc);
 	void SetState(bool state);
 
-	int Fire (void *node, void *mod);
+	int Fire (void *node, void *mod, unsigned int windowlen);
 private:
 	char *plugPath;
 	int plugId;

@@ -48,7 +48,7 @@ int thPluginManager::LoadPlugin (char *name)
 	path = GetPath(name);
 
 	plugin = new thPlugin (path, id, state);
-
+	plugins->Insert(name, plugin);
 	/* XXX */
 	return 0;
 }
@@ -90,3 +90,9 @@ void thPluginManager::UnloadPlugins (void)
 
 	delete plugins;
 }
+
+
+
+
+
+
