@@ -3,7 +3,7 @@ PLUGIN_DIRS = osc test
 
 all:
 	for i in $(PLUGIN_DIRS); do \
-		$(MAKE) -C $$i; \
+		$(MAKE) -C $$i || exit 1; \
 	done
 
 clean:
