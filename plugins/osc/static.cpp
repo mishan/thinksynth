@@ -1,9 +1,8 @@
-/* $Id: static.cpp,v 1.12 2003/05/17 16:01:22 ink Exp $ */
+/* $Id: static.cpp,v 1.13 2003/05/24 08:02:27 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <time.h>
 
 #include "think.h"
 
@@ -36,9 +35,6 @@ int module_init (thPlugin *plugin)
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
-	/* Seed the RNG */
-	srand(time(NULL));
-	
 	return 0;
 }
 

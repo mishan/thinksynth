@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.87 2003/05/24 00:40:30 ink Exp $ */
+/* $Id: main.cpp,v 1.88 2003/05/24 08:02:27 aaronl Exp $ */
 
 #include "config.h"
 
@@ -6,6 +6,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "think.h"
 
@@ -111,7 +112,10 @@ syntax:
 	else {
 		filename = strdup(argv[optind]);
 	}
-	
+
+	/* Seed the RNG */
+	srand(time(NULL));
+
 	Synth.LoadMod(filename);
 	
 	Synth.AddChannel(strdup("chan1"), dspname, 100.0);
