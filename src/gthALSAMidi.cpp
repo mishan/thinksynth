@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.10 2004/08/25 07:36:42 aaronl Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.11 2004/09/09 03:17:14 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -107,10 +107,6 @@ bool gthALSAMidi::open_seq (void)
 												&gthALSAMidi::pollMidiEvent),
 									 pfds[0].fd, Glib::IO_IN|Glib::IO_PRI,
 									 Glib::PRIORITY_HIGH);
-
-	printf("current MIDI size: %d\n",
-		   snd_seq_get_input_buffer_size(seq_handle));
-
 	/* XXX */
 //	snd_seq_set_input_buffer_size(seq_handle, 50000);
 
