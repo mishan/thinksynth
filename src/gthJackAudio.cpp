@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.20 2004/09/18 02:16:47 joshk Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.21 2004/09/25 20:28:10 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -166,8 +166,8 @@ int gthJackAudio::tryConnect (bool connect)
 			}
 		}
 
-		delete out;
-		delete ths;
+		delete[] out;
+		delete[] ths;
 
 		if (error == 0)
 		{
