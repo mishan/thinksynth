@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.42 2004/08/16 09:34:48 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -63,22 +63,6 @@ thPlugin::thPlugin (const string &path)
 	if(ModuleLoad()) { /* fail = return (1) */
 		fprintf(stderr, "Couldn't load plugin %s\n", path.c_str());
 	}
-
-#ifdef USE_DEBUG
-	printf ("Plugin: %s\nDescription: %s\nState: ", plugPath.c_str(), plugDesc.c_str());
-
-	switch (plugState) {
-		case thNotLoaded:
-			printf ("thNotLoaded (!)\n");
-			break;
-		case thActive:
-			printf ("thActive\n");
-			break;
-		case thPassive:
-			printf ("thPassive\n");
-			break;
-	}
-#endif			  
 }
 
 thPlugin::~thPlugin ()
