@@ -5,12 +5,13 @@
 #include "thBTree.h"
 #include "thPlugin.h"
 #include "thNode.h"
+#include "thArg.h"
 
 thNode::thNode (char *name, thPlugin *thplug)
 {
 	nodename = strdup(name);
 	plugin = thplug;
-	args = NULL;
+	args = new thBTree;
 }
 
 thNode::~thNode ()
@@ -20,8 +21,15 @@ thNode::~thNode ()
  	/* free anything else */
 }
 
-void thNode::SetArg (char *name, float *value)
+void thNode::SetArg (char *name, float *value, int len)
 {
+	thArg *arg = (thArg *)args->Find(name);
+	if(!arg) {
+		arg = new thArg(name, value, len);
+		args->Insert(name, arg);
+	} else {
+		arg->SetArg(name, value, len);
+	}
 }
 
 void thNode::SetArg (char *name, char *node, char * value)

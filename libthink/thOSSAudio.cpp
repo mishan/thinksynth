@@ -28,7 +28,7 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 
 	switch(afmt->bits) {
 	case 8:
-		fmt.format = AFMT_U8;
+		fmt.format = AFMT_S8;
 		break;
 	case 16:
 		fmt.format = AFMT_S16_NE;
@@ -40,15 +40,15 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	}
 
 	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
-		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
+		fprintf(stderr, "setfmt: /dev/dsp: %s\n", strerror(errno));
 	}
 
 	if(ioctl(fd, SNDCTL_DSP_STEREO, &oss_channels) == -1) {
-		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
+		fprintf(stderr, "setchannels: /dev/dsp: %s\n", strerror(errno));
 	}
 
 	if(ioctl(fd, SNDCTL_DSP_SPEED, &fmt.samples) == -1) {
-		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
+		fprintf(stderr, "setspeed: /dev/dsp: %s\n", strerror(errno));
 	}	
 }
 
