@@ -1,4 +1,4 @@
-/* $Id: comb.cpp,v 1.1 2004/07/30 07:23:17 ink Exp $ */
+/* $Id: comb.cpp,v 1.2 2004/07/30 07:29:19 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_buffer, *inout_bufpos;
 	unsigned int i;
-	float index;
 	float period;
 	float buf_in[windowlen], buf_size[windowlen], buf_freq[windowlen],
 		buf_feedback[windowlen];
@@ -70,27 +69,22 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_feedback->GetBuffer(buf_feedback, windowlen);
 	in_size->GetBuffer(buf_size, windowlen);
 
-	unsigned int mySize = (int)buf_size[0];
-	buffer = inout_buffer->Allocate(mySize);
+	buffer = inout_buffer->Allocate((int)buf_size[0]);
 
 	for(i = 0; i < windowlen; i++) {
 		period = TH_SAMPLE / buf_freq[i];
-		//printf("%f - %f\n", out[i], *bufpos);
 
 		if(*bufpos > inout_buffer->argNum) {
-			myBufpos = 0;
+			*bufpos = 0;
 		}
 		if(*bufpos > period) {
 			*bufpos -= period;
 		}
 
-		//out[i] = buf_in[i] + buffer[*bufpos];
 		buffer[(int)*bufpos] = buf_feedback[i] * buffer[(int)*bufpos] + buf_in[i];
 		out[i] = buffer[(int)*bufpos];
 
-		//out[i] = buffer[myBufpos];
 		++(*bufpos);
-		//*bufpos = (float)myBufpos;
 	}
 
 	return 0;
