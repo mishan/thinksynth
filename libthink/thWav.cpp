@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.13 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thWav.cpp,v 1.14 2003/04/25 19:53:54 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -12,7 +12,13 @@
 #include <errno.h>
 #include <stdlib.h>
 #include <string.h>
+
+#ifdef USING_FREEBSD
+#include <machine/endian.h>
+#else
 #include <endian.h>
+#endif
+
 #include "thEndian.h"
 #include "thException.h"
 #include "thAudio.h"

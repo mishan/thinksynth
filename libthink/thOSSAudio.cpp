@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.14 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.15 2003/04/25 19:53:54 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -11,6 +11,14 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/soundcard.h>
+
+#ifndef AFMT_S16_NE	/* Portability (FreeBSD 4.7) */
+# ifdef WORDS_BIGENDIAN
+#  define AFMT_S16_NE AFMT_S16_BE
+# else
+#  define AFMT_S16_NE AFMT_S16_LE
+#endif
+
 #include <errno.h>
 
 #include "thException.h"
