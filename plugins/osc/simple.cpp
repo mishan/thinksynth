@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.24 2003/05/19 00:39:05 ink Exp $ */
+/* $Id: simple.cpp,v 1.25 2003/05/19 05:49:48 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,7 +85,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 		halfwave = wavelength * pw;
 		if(position < halfwave) {
-			ratio = (position/halfwave)/2;
+			ratio = position/(2*halfwave);
 		} else {
 			ratio = (((position-halfwave)/(wavelength-halfwave))/2)+0.5;
 		}
@@ -93,10 +93,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		switch((int)(*in_waveform)[i]) {
 			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle */
 		case 0:    /* SINE WAVE */
-			out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*2*M_PI); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 1:    /* SAWTOOTH WAVE */
-			out[i] = TH_RANGE*(ratio)+TH_MIN;
+			out[i] = TH_RANGE*ratio+TH_MIN;
 			break;
 		case 2:    /* SQUARE WAVE */
 			if(ratio < 0.5) {
@@ -106,10 +106,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			}
 			break;
 		case 3:    /* TRIANGLE WAVE */
-			if(ratio < 0.5) {
-				out[i] = TH_RANGE*(ratio*2)+TH_MIN;
+			ratio *= 2;
+			if(ratio < 1) {
+				out[i] = TH_RANGE*ratio+TH_MIN;
 			} else {
-				out[i] = (-1*TH_RANGE)*((ratio-0.5)*2)+TH_MAX;
+				out[i] = (-TH_RANGE)*(ratio-1)+TH_MAX;
 			}
 			break;
 		case 4:    /* HALF-CIRCLE WAVE */
@@ -120,7 +121,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			}
 		}
 	}
-	
+
 	out_last[0] = position;
 /*	node->SetArg("out", out, windowlen);
 	last[0] = position;
