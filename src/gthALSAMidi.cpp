@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.17 2004/11/26 03:39:10 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,42 +30,43 @@
 
 #include "gthALSAMidi.h"
 
-gthALSAMidi::gthALSAMidi (const char *argname)
+gthALSAMidi::gthALSAMidi (const char *name)
 	throw (thIOException)
 {
-	name = argname;
-	device = ALSA_DEFAULT_MIDI_DEVICE;
-	_seq_opened = open_seq();
+	name_ = name;
+	device_ = ALSA_DEFAULT_MIDI_DEVICE;
+	seq_opened_ = open_seq();
 
-	pfds = NULL;
+	pfds_ = NULL;
 }
 
 gthALSAMidi::~gthALSAMidi (void)
 {
-	snd_seq_close(seq_handle);
+	snd_seq_close(seq_handle_);
 
-	if (pfds)
-		free(pfds);
+	if (pfds_)
+		free(pfds_);
 }
 
 sigMidiEvent_t gthALSAMidi::signal_midi_event (void)
 {
-	return m_sigMidiEvent;
+	return m_sigMidiEvent_;
 }
 
 bool gthALSAMidi::open_seq (void)
 {
 	int port_id;
 
-    if (snd_seq_open(&seq_handle, device.c_str(), SND_SEQ_OPEN_DUPLEX, 0) < 0)
+    if (snd_seq_open(&seq_handle_, device_.c_str(),
+					 SND_SEQ_OPEN_DUPLEX, 0) < 0)
 	{
         fprintf(stderr, "Error opening ALSA sequencer.\n");
 		return false;
     }
 
-	snd_seq_set_client_name(seq_handle, name.c_str());
+	snd_seq_set_client_name(seq_handle_, name_.c_str());
 	
-    if ((port_id = snd_seq_create_simple_port(seq_handle, name.c_str(),
+    if ((port_id = snd_seq_create_simple_port(seq_handle_, name_.c_str(),
 						SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
 						SND_SEQ_PORT_TYPE_APPLICATION)) < 0)
 	{
@@ -75,17 +76,17 @@ bool gthALSAMidi::open_seq (void)
 	else
 	{
 		printf("Opened sequencer port for ALSA on %d:%d\n",
-			snd_seq_client_id(seq_handle), port_id);
+			snd_seq_client_id(seq_handle_), port_id);
 	}
 
-	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
-	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * seq_nfds);
-	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
+	seq_nfds_ = snd_seq_poll_descriptors_count(seq_handle_, POLLIN);
+	pfds_ = (struct pollfd *)malloc(sizeof(struct pollfd) * seq_nfds_);
+	snd_seq_poll_descriptors(seq_handle_, pfds_, seq_nfds_, POLLIN);
 
 	/* XXX: is this portable??? */
 	Glib::signal_io().connect(sigc::mem_fun(*this,
 										 &gthALSAMidi::pollMidiEvent),
-							  pfds[0].fd, Glib::IO_IN, Glib::PRIORITY_HIGH);
+							  pfds_[0].fd, Glib::IO_IN, Glib::PRIORITY_HIGH);
 	/* XXX */
 //	snd_seq_set_input_buffer_size(seq_handle, 50000);
 
@@ -98,7 +99,7 @@ bool gthALSAMidi::open_seq (void)
 
 bool gthALSAMidi::pollMidiEvent (Glib::IOCondition cond)
 {
-	m_sigMidiEvent(seq_handle);
+	m_sigMidiEvent_(seq_handle_);
 
 	return true;
 }

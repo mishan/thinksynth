@@ -62,7 +62,6 @@ gthAudio *aout = NULL;
 static gthALSAMidi *midi = NULL;
 #endif /* HAVE_ALSA */
 
-//Glib::Dispatcher *process = NULL;
 Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
@@ -134,8 +133,6 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 
 	audio->Write(synthbuffer, l);
 
-	/* XXX: we should be using emit() but this fucks up */
-//	process->emit();
 	process_synth ();
 }
 
@@ -156,9 +153,8 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 		memcpy(buf, synthbuffer, l * sizeof(float));
 	}
 
-	/* XXX: we should be using emit() but this fucks up */
-	/* call the main thread to generate a new window */
-//	process->emit();
+	/* generate a new window; must make sure that everything herein is RT-safe.
+	   this means no mutex locks or memory allocations */
 	process_synth ();
 
 	return 0;
@@ -223,7 +219,6 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			}
 			case SND_SEQ_EVENT_CONTROLLER:
 			{
-//				debug("CONTROLLER  %d\n", ev->data.control.value);
 				synth->handleMidiController(ev->data.control.channel,
 											ev->data.control.param,
 											ev->data.control.value);
@@ -320,9 +315,6 @@ int main (int argc, char *argv[])
 	/* XXX: create global Synth object */
 	Synth = new thSynth(plugin_path, windowlen, samples);
 	gthPrefs *prefs = gthPrefs::instance();
-
-//	process = new Glib::Dispatcher;
-//	process->connect(sigc::ptr_fun(&process_synth));
 
 	signal(SIGUSR1, (sighandler_t)cleanup);
 	signal(SIGINT, (sighandler_t)cleanup);

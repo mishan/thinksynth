@@ -1,4 +1,4 @@
-/* $Id: AboutBox.h,v 1.6 2004/09/17 04:56:16 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,24 +29,24 @@ public:
 protected:
 	void onCloseButton (void);
 
-	Gtk::Fixed          *fixed;
-	Gtk::Button         *btnClose;
-	Gtk::Notebook       *notebook;
-	Gtk::Frame          *frame;
-	Gtk::Image          *logo;
-	Gtk::VBox           *vbmaster;
-	Gtk::VBox           *vbleft;
-	Gtk::VBox           *vbright;
-	Gtk::VBox           *spacer;
-	Gtk::HBox           *hcredits;
-	Gtk::HBox           *framebox;
-	Gtk::Label          *txtVersion;
-	Gtk::Label          *txtCopyright;
-	Gtk::Label          *txtMetaphonic;
+	Gtk::Fixed          *fixed_;
+	Gtk::Button         *btnClose_;
+	Gtk::Notebook       *notebook_;
+	Gtk::Frame          *frame_;
+	Gtk::Image          *logo_;
+	Gtk::VBox           *vbmaster_;
+	Gtk::VBox           *vbleft_;
+	Gtk::VBox           *vbright_;
+	Gtk::VBox           *spacer_;
+	Gtk::HBox           *hcredits_;
+	Gtk::HBox           *framebox_;
+	Gtk::Label          *txtVersion_;
+	Gtk::Label          *txtCopyright_;
+	Gtk::Label          *txtMetaphonic_;
 	
-	Glib::RefPtr<Gtk::TextBuffer>     txtBuf;
-	Glib::RefPtr<Gdk::Pixmap>         pixmap;
-	Glib::RefPtr<Gdk::Bitmap>         mask;
+	Glib::RefPtr<Gtk::TextBuffer>     txtBuf_;
+	Glib::RefPtr<Gdk::Pixmap>         pixmap_;
+	Glib::RefPtr<Gdk::Bitmap>         mask_;
 };
 
 #endif /* ABOUT_BOX_H */

@@ -108,48 +108,43 @@ static int key_sizes[5][7] =
 
 Keyboard::Keyboard (void)
 {
-	channel = 0;
-	transpose = 0;
+	channel_ = 0;
+	transpose_ = 0;
 	
 	/* keyboard parameters */
-	key_ofs = 0;
-	veloc0 = 32;
-	veloc1 = 64;
-	veloc2 = 96;
-	veloc3 = 127;
-	mouse_notnum = -1;
-	mouse_veloc = 127;
-	cur_size = 4; /* keyboard widget size parameter */
+	veloc0_ = 32;
+	veloc1_ = 64;
+	veloc2_ = 96;
+	veloc3_ = 127;
+	mouse_notnum_ = -1;
+	mouse_veloc_ = 127;
+	cur_size_ = 4; /* keyboard widget size parameter */
 
-	ctrl_on  = false;
-	shift_on = false;
-	alt_on   = false;
+	img_height_ = key_sizes[cur_size_][0] + key_sizes[cur_size_][1];
+	img_width_  = key_sizes[cur_size_][2] * 75;
 
-	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
-	img_width  = key_sizes[cur_size][2] * 75;
-
-	set_size_request(img_width, img_height);
+	set_size_request(img_width_, img_height_);
 	/* allow widget to receive mouse/keypress events */
 	add_events(Gdk::ALL_EVENTS_MASK);
 
 	/* allow the widget to grab focus and process keypress events */
 	set_flags(Gtk::CAN_FOCUS);
 
-	focus_box = false;
+	focus_box_ = false;
 
 	/* init internal widget stuff to NULL for now; will be set up in
 	   on_realize () */
-	drawable = NULL;
-	kbgc = NULL;
+	drawable_ = NULL;
+	kbgc_ = NULL;
 
 	/* clear previous key state */
 	for (int i = 0; i < 128; i++)
 	{
-		prv_active_keys[i] = -2;
-		active_keys[i] = 0;
+		prv_active_keys_[i] = -2;
+		active_keys_[i] = 0;
 	}
 
-	dispatchRedraw.connect(
+	dispatchRedraw_.connect(
 		sigc::bind<int>(sigc::mem_fun(*this, &Keyboard::drawKeyboard), 0));
 }
 
@@ -158,12 +153,12 @@ void Keyboard::resetKeys (void)
 	/* clear previous key state */
 	for (int i = 0; i < 128; i++)
 	{
-		prv_active_keys[i] = -2;
+		prv_active_keys_[i] = -2;
 		
-		if (active_keys[i] == 1)
-			m_signal_note_off(channel, i);
+		if (active_keys_[i] == 1)
+			m_signal_note_off_(channel_, i);
 		
-		active_keys[i] = 0;
+		active_keys_[i] = 0;
 	}
 
 	drawKeyboard(1);
@@ -173,60 +168,60 @@ Keyboard::~Keyboard (void)
 {
 }
 
-void Keyboard::SetChannel (int argchan)
+void Keyboard::SetChannel (int channel)
 {
 	/* reset keyboard state */
-	mouse_notnum = -1;
+	mouse_notnum_ = -1;
 	for (int i = 0; i < 128; i++)
 	{
 		/* turn off notes from previous channel */
-		if (active_keys[i])
+		if (active_keys_[i])
 		{
-			m_signal_note_off(channel, i);
+			m_signal_note_off_(channel_, i);
 		}
-		active_keys[i] = 0;
-		prv_active_keys[i] = -1;
+		active_keys_[i] = 0;
+		prv_active_keys_[i] = -1;
 	}
 
-	channel = argchan;
+	channel_ = channel;
 
-	m_signal_channel_changed.emit(channel);
+	m_signal_channel_changed_(channel_);
 
 	drawKeyboard (1);
 }
 
-void Keyboard::SetTranspose (int argtranspose)
+void Keyboard::SetTranspose (int transpose)
 {
-	if (argtranspose < -72)
-		argtranspose = -72;
+	if (transpose < -72)
+		transpose = -72;
 
-	if (argtranspose > 72)
-		argtranspose = 72;
+	if (transpose > 72)
+		transpose = 72;
 
-	transpose = argtranspose;
+	transpose_ = transpose;
 
 	/* transpose has been changed internally; emit the changed signal so
 	   widgets which interface with us will be able to update their transpose
 	   display, if any */
-	m_signal_transpose_changed.emit(transpose);
+	m_signal_transpose_changed_(transpose_);
 }
 
 void Keyboard::SetNote (int note, bool state)
 {
-	active_keys[note] = state ? 1 : 0;
-	prv_active_keys[note] = -1;
+	active_keys_[note] = state ? 1 : 0;
+	prv_active_keys_[note] = -1;
 
-	dispatchRedraw();
+	dispatchRedraw_();
 }
 
 int Keyboard::GetChannel (void)
 {
-	return channel;
+	return channel_;
 }
 
 int Keyboard::GetTranspose (void)
 {
-	return transpose;
+	return transpose_;
 }
 
 bool Keyboard::GetNote (int note)
@@ -234,33 +229,33 @@ bool Keyboard::GetNote (int note)
 	if((note < 0) || (note > 127))
 	   return false;
 
-	return active_keys[note] ? true : false;
+	return active_keys_[note] ? true : false;
 }
 
 /* signal accessor methods */
 type_signal_note_on Keyboard::signal_note_on (void)
 {
-	return m_signal_note_on;
+	return m_signal_note_on_;
 }
 
 type_signal_note_clear Keyboard::signal_note_clear (void)
 {
-	return m_signal_note_clear;
+	return m_signal_note_clear_;
 }
 
 type_signal_note_off Keyboard::signal_note_off (void)
 {
-	return m_signal_note_off;
+	return m_signal_note_off_;
 }
 
 type_signal_channel_changed Keyboard::signal_channel_changed (void)
 {
-	return m_signal_channel_changed;
+	return m_signal_channel_changed_;
 }
 
 type_signal_transpose_changed Keyboard::signal_transpose_changed (void)
 {
-	return m_signal_transpose_changed;
+	return m_signal_transpose_changed_;
 }
 
 /* overridden signal handlers */
@@ -270,24 +265,24 @@ void Keyboard::on_realize (void)
 	   then we will do our own stuff */
 	Gtk::DrawingArea::on_realize ();
 
-	drawable = ((GtkWidget *)gobj())->window;
+	drawable_ = ((GtkWidget *)gobj())->window;
 
-	kbgc = gdk_gc_new (drawable);
-	gdk_gc_set_function (kbgc, GDK_COPY);
-	gdk_gc_set_fill (kbgc, GDK_SOLID);
-	gdk_rgb_gc_set_foreground (kbgc, 0x00000000);
-	gdk_rgb_gc_set_background (kbgc, 0x00FFFFFF);
+	kbgc_ = gdk_gc_new (drawable_);
+	gdk_gc_set_function (kbgc_, GDK_COPY);
+	gdk_gc_set_fill (kbgc_, GDK_SOLID);
+	gdk_rgb_gc_set_foreground (kbgc_, 0x00000000);
+	gdk_rgb_gc_set_background (kbgc_, 0x00FFFFFF);
 }
 
 bool Keyboard::on_expose_event (GdkEventExpose *e)
 {
- 	if (drawable == NULL)
+ 	if (drawable_ == NULL)
 		realize ();
 
 	/* redraw widget */
 	drawKeyboard (3);
 
-	if (focus_box)
+	if (focus_box_)
 		drawKeyboardFocus();
 
 	return true;
@@ -295,7 +290,7 @@ bool Keyboard::on_expose_event (GdkEventExpose *e)
 
 bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 {
-	focus_box = true;
+	focus_box_ = true;
 
 	/* just draw the focus box */
 	drawKeyboardFocus();
@@ -305,7 +300,7 @@ bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 
 bool Keyboard::on_focus_out_event (GdkEventFocus *f)
 {
-	focus_box = false;
+	focus_box_ = false;
 
 	/* redraw widget */
 	drawKeyboard(5);
@@ -320,32 +315,32 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 	/* we want to steal focus on mouse-click */
 //	grab_focus ();
 
-	if (mouse_notnum >= 0) {	/* already active */
-		m_signal_note_off(channel, mouse_notnum);
-		active_keys[mouse_notnum] = 0;
+	if (mouse_notnum_ >= 0) {	/* already active */
+		m_signal_note_off_(channel_, mouse_notnum_);
+		active_keys_[mouse_notnum_] = 0;
 	}
 		
 	/* get note number */
-	mouse_notnum = get_coord ();
+	mouse_notnum_ = get_coord ();
 		
-	if (mouse_notnum < 0) return false;
+	if (mouse_notnum_ < 0) return false;
 		
 	switch (b->button) 
 	{
-		case 1:	veloc = veloc3; break;
-		case 2:	veloc = veloc2; break;
-		case 3:	veloc = veloc1; break;
+		case 1:	veloc = veloc3_; break;
+		case 2:	veloc = veloc2_; break;
+		case 3:	veloc = veloc1_; break;
 		default:
-			veloc = veloc0;
+			veloc = veloc0_;
 			break;
 	}
 
-	m_signal_note_on(channel, mouse_notnum, veloc);
-	active_keys[mouse_notnum] = 1;
+	m_signal_note_on_(channel_, mouse_notnum_, veloc);
+	active_keys_[mouse_notnum_] = 1;
 
 	drawKeyboard(0);
 
-	mouse_veloc = veloc;	/* save velocity */
+	mouse_veloc_ = veloc;	/* save velocity */
 
 	return true;
 }
@@ -353,141 +348,69 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 bool Keyboard::on_button_release_event (GdkEventButton *b)
 {
 	/* turn off if active */
-	if (mouse_notnum >= 0) {
-		m_signal_note_off(channel, mouse_notnum);
-		active_keys[mouse_notnum] = 0;
+	if (mouse_notnum_ >= 0) {
+		m_signal_note_off_(channel_, mouse_notnum_);
+		active_keys_[mouse_notnum_] = 0;
 		drawKeyboard(0);
 	}
 
-	mouse_notnum = -1;
+	mouse_notnum_ = -1;
 
 	return true;
 }
 
 bool Keyboard::on_key_press_event (GdkEventKey *k)
 {
-	switch (k->keyval)
-	{
-		case GDK_Control_L:
-		case GDK_Control_R:
-			ctrl_on = true;
-			break;
-		case GDK_Shift_L:		/* Shift */
-		case GDK_Shift_R:
-			shift_on = true;
-			break;
-		case GDK_Alt_L:			/* Alt */
-		case GDK_Alt_R:
-		case GDK_Meta_L:
-		case GDK_Meta_R:
-			alt_on = true;
-			break;
-		case GDK_F1:			/* function keys */
-		case GDK_F2:
-		case GDK_F3:
-		case GDK_F4:
-		case GDK_F5:
-		case GDK_F6:
-		case GDK_F7:
-		case GDK_F8:
-		case GDK_F9:
-		case GDK_F10:
-		case GDK_F11:
-		case GDK_F12:
-		case GDK_Left:
-		case GDK_Right:
-		case GDK_Up:
-		case GDK_Down:
-			fkeys_func(k->keyval);
-			break;
-		default:
+	/* other keys */
+	int notenum = keyval_to_notnum (k->keyval);
+
+	if (notenum >= 0) {	/* note event */
+		if (active_keys_[notenum])
 		{
-			/* other keys */
-			int notenum = keyval_to_notnum (k->keyval);
-			if (notenum >= 0) {	/* note event */
-				int veloc = 0;
-
-				if (active_keys[notenum])
-				{
-					break;
-				}
-
-				if (alt_on) {	/* velocity */
-					veloc = veloc0;
-				} else if (ctrl_on) {
-					veloc = veloc1;
-				} else if (shift_on) {
-					veloc = veloc2;
-				} else {
-					veloc = veloc3;
-				}
-				m_signal_note_on(channel, notenum, veloc);
-
-				active_keys[notenum] = 1;
-
-				drawKeyboard (0);
-			}
-			break;
+			return true;
 		}
 
+		m_signal_note_on_(channel_, notenum, veloc3_);
+		
+		active_keys_[notenum] = 1;
+		
+		drawKeyboard (0);
 	}
-	
+
 	return true;
 }
 
 bool Keyboard::on_key_release_event (GdkEventKey *k)
 {
-	switch (k->keyval)
-	{
-		case GDK_Control_L:
-		case GDK_Control_R:
-			ctrl_on = false;
-			break;
-		case GDK_Shift_L:		/* Shift */
-		case GDK_Shift_R:
-			shift_on = false;
-			break;
-		case GDK_Alt_L:			/* Alt */
-		case GDK_Alt_R:
-		case GDK_Meta_L:
-		case GDK_Meta_R:
-			alt_on = false;
-			break;
-		default:
-		{
-			/* other keys */
-			int notenum = keyval_to_notnum (k->keyval);
-			if (notenum >= 0) {	/* note event */
-				m_signal_note_off(channel, notenum);
-				active_keys[notenum] = 0;
-				drawKeyboard (0);
-			}
-			break;
-		}
-
+	/* other keys */
+	int notenum = keyval_to_notnum (k->keyval);
+	if (notenum >= 0) {	/* note event */
+		m_signal_note_off_(channel_, notenum);
+		active_keys_[notenum] = 0;
+		drawKeyboard (0);
 	}
-	
+
 	return true;
 }
 
 bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 {
-	if (mouse_notnum == -1)
+	if (mouse_notnum_ == -1)
 		return true;
 
 	int notenum = get_coord();
 
 	/* play only valid notes and only play a note once while the mouse is being
 	   moved over it */
- 	if ((notenum >= 0) && (notenum != mouse_notnum))
+ 	if ((notenum >= 0) && (notenum != mouse_notnum_))
 	{
-	 	active_keys[mouse_notnum] = 0;
-		m_signal_note_off(channel, mouse_notnum);
+	 	active_keys_[mouse_notnum_] = 0;
+		m_signal_note_off_(channel_, mouse_notnum_);
 
-		active_keys[notenum] = 1;
-		m_signal_note_on(channel, notenum, mouse_veloc);
+		active_keys_[notenum] = 1;
+		m_signal_note_on_(channel_, notenum, mouse_veloc_);
 
-		mouse_notnum = notenum;
+		mouse_notnum_ = notenum;
 
 		drawKeyboard(1);
 	}
@@ -499,10 +422,10 @@ void Keyboard::drawKeyboardFocus (void)
 {
 	Glib::RefPtr<Gtk::Style> style = get_style();
 	Glib::RefPtr<Gdk::Window> wind = get_window();
- 	Gdk::Rectangle focus_rect(0, 0, img_width, img_height);
+ 	Gdk::Rectangle focus_rect(0, 0, img_width_, img_height_);
 
 	style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, *this,
-					   "", 0, 0, img_width, img_height);
+					   "", 0, 0, img_width_, img_height_);
 }
 
 void Keyboard::drawKeyboard (int mode)
@@ -510,32 +433,32 @@ void Keyboard::drawKeyboard (int mode)
 	int i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
 	unsigned int c;
 
-	if (drawable == NULL)
+	if (drawable_ == NULL)
 		return;
 
-	drawMutex.lock();
+	drawMutex_.lock();
 
-	s0 = key_sizes[cur_size][0];	/* black key height		*/
-	s1 = key_sizes[cur_size][1];	/* total height - b. key height	*/
-	s2 = key_sizes[cur_size][2];	/* white key total width	*/
-	s3 = key_sizes[cur_size][3];	/* black key width		*/
-	s4 = key_sizes[cur_size][4];	/* white key width 1 (C, F)	*/
-	s5 = key_sizes[cur_size][5];	/* white key width 2 (D, G, A)	*/
-	s6 = key_sizes[cur_size][6];	/* white key width 3 (E, B)	*/
+	s0 = key_sizes[cur_size_][0];	/* black key height		*/
+	s1 = key_sizes[cur_size_][1];	/* total height - b. key height	*/
+	s2 = key_sizes[cur_size_][2];	/* white key total width	*/
+	s3 = key_sizes[cur_size_][3];	/* black key width		*/
+	s4 = key_sizes[cur_size_][4];	/* white key width 1 (C, F)	*/
+	s5 = key_sizes[cur_size_][5];	/* white key width 2 (D, G, A)	*/
+	s6 = key_sizes[cur_size_][6];	/* white key width 3 (E, B)	*/
 
 	/* if entire widget should be redrawn */
 	if (mode & 2)
 	{
 		/* key borders */
-		gdk_rgb_gc_set_foreground (kbgc, color0);
-		gdk_draw_line (drawable, kbgc, 0, img_height - 1,
-					    img_width - 1, img_height - 1);
+		gdk_rgb_gc_set_foreground (kbgc_, color0);
+		gdk_draw_line (drawable_, kbgc_, 0, img_height_ - 1,
+					    img_width_ - 1, img_height_ - 1);
 		i = 128;
 		l = -1;
 		do 
 		{
 			l += s2;
-			gdk_draw_line (drawable, kbgc, l, 0, l, img_height - 2);
+			gdk_draw_line (drawable_, kbgc_, l, 0, l, img_height_ - 2);
 		} while (--i);
 	}
 
@@ -547,10 +470,10 @@ void Keyboard::drawKeyboard (int mode)
 	do
 	{
 		/* update only if state changed or redraw window was reqd */
-		if (z || (active_keys[i] != prv_active_keys[i]))
+		if (z || (active_keys_[i] != prv_active_keys_[i]))
 		{
 			/* save new state */
-			prv_active_keys[i] = active_keys[i];
+			prv_active_keys_[i] = active_keys_[i];
 
 			if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
 			{
@@ -559,58 +482,59 @@ void Keyboard::drawKeyboard (int mode)
 				{
 					/* middle C */
 					c = (unsigned int)
-					    (active_keys[i] ? color6 : color3);
+					    (active_keys_[i] ? color6 : color3);
 				}
 				else
 				{
 					c = (unsigned int)
-					    (active_keys[i] ? color4 : color1);
+					    (active_keys_[i] ? color4 : color1);
 				}
 
 				/* set color */
-				gdk_rgb_gc_set_foreground (kbgc, c);
+				gdk_rgb_gc_set_foreground (kbgc_, c);
 				if ((k == 0) || (k == 5)) {
 					/* C, F */
-					gdk_draw_rectangle (drawable, kbgc, 1,
+					gdk_draw_rectangle (drawable_, kbgc_, 1,
 							    l, 0, s4, s0);
 				} 
 				else if ((k == 4) || (k == 11) || (i == 127))
 				{
 					/* E, B */
-					gdk_draw_rectangle (drawable, kbgc, 1,
+					gdk_draw_rectangle (drawable_, kbgc_, 1,
 							    l + s2 - s6 - 1, 0,
 							    s6, s0);
 				}
 				else
 				{
 					/* D, G, A */
-					gdk_draw_rectangle (drawable, kbgc, 1,
+					gdk_draw_rectangle (drawable_, kbgc_, 1,
 							    l + s2 - s6 - 1, 0,
 							    s5, s0);
 				}
-				gdk_draw_rectangle (drawable, kbgc, 1,
+				gdk_draw_rectangle (drawable_, kbgc_, 1,
 						    l, s0, s2 - 1, s1 - 1);
 			}
 			else
 			{
 				/* black keys */
 				c = (unsigned int)
-				    (active_keys[i] ? color5 : color2);
+				    (active_keys_[i] ? color5 : color2);
 				/* set color */
-				gdk_rgb_gc_set_foreground (kbgc, c);
-				if (active_keys[i])
+				gdk_rgb_gc_set_foreground (kbgc_, c);
+				if (active_keys_[i])
 				{
 					/* redraw the key's backdrop */
 					if (mode & 2)
 					{
-						gdk_draw_rectangle (drawable, kbgc, 1, j, 0, s3, s0);
+						gdk_draw_rectangle (drawable_, kbgc_, 1, j, 0, s3, s0);
 					}
 
-					gdk_draw_rectangle (drawable, kbgc, 1, j+1, 1, s3-2, s0-2);
+					gdk_draw_rectangle (drawable_, kbgc_, 1, j+1, 1, s3-2,
+										s0-2);
 				}
 				else
 				{
-					gdk_draw_rectangle (drawable, kbgc, 1, j, 0, s3, s0);
+					gdk_draw_rectangle (drawable_, kbgc_, 1, j, 0, s3, s0);
 				}
 
 			}
@@ -636,12 +560,12 @@ void Keyboard::drawKeyboard (int mode)
 
 	} while (++i < 128);
 
-	if (focus_box)
+	if (focus_box_)
 	{
 		drawKeyboardFocus ();
 	} 
 
-	drawMutex.unlock();
+	drawMutex_.unlock();
 
 }
 
@@ -681,8 +605,6 @@ int	Keyboard::keyval_to_notnum (int key)
 	}
 
 	n += 13;
-	/* key offset */
-	n += (key_ofs << 1);
 	m = n % 14;
 	o = n / 14;	/* octave */
 
@@ -694,7 +616,7 @@ int	Keyboard::keyval_to_notnum (int key)
 	if (m > 4)
 		m--;
 
-	n = 48 + transpose + 12 * o + m;
+	n = 48 + transpose_ + 12 * o + m;
 
 	if ((n < 0) || (n > 127))
 		n = -1;
@@ -710,42 +632,42 @@ int	Keyboard::get_coord (void)
 	GdkModifierType	mask;
 
 	mask = GDK_MODIFIER_MASK;
-	gdk_window_get_pointer (drawable, &x, &y, &mask);
+	gdk_window_get_pointer (drawable_, &x, &y, &mask);
 
 	/* check for valid coordinates */
-	if ((x < 0) || (x >= img_width) || (y < 0) || (y >= img_height))
+	if ((x < 0) || (x >= img_width_) || (y < 0) || (y >= img_height_))
 		return -1;
 
 	/* calculate key number */
-	n = (x / key_sizes[cur_size][2]) << 1;
+	n = (x / key_sizes[cur_size_][2]) << 1;
 	m = n % 14;
 	o = 12 * (n / 14) + m;
 
-	if (y < key_sizes[cur_size][0])
+	if (y < key_sizes[cur_size_][0])
 	{
 		/* black keys */
-		y = x - ((n >> 1) * key_sizes[cur_size][2]);
+		y = x - ((n >> 1) * key_sizes[cur_size_][2]);
 
 		switch (m)
 		{
 			case 0:			/* C */
 			case 6:			/* F */
-				if (y >= key_sizes[cur_size][4])
+				if (y >= key_sizes[cur_size_][4])
 					o++;
 				break;
 			case 4:			/* E */
 			case 12:		/* B */
-				if (y < (key_sizes[cur_size][2]
-						 - key_sizes[cur_size][6] - 1))
+				if (y < (key_sizes[cur_size_][2]
+						 - key_sizes[cur_size_][6] - 1))
 					o--;
 				break;
 			default:		/* D, G, A */
-				if (y >= key_sizes[cur_size][4])
+				if (y >= key_sizes[cur_size_][4])
 				{
 					o++;
 				} 
-				else if (y < (key_sizes[cur_size][2]
-							  - key_sizes[cur_size][6] - 1))
+				else if (y < (key_sizes[cur_size_][2]
+							  - key_sizes[cur_size_][6] - 1))
 				{
 					o--;
 				}
@@ -760,142 +682,5 @@ int	Keyboard::get_coord (void)
 		o = 127;
 
 	return (int) o;
-}
-
-
-void Keyboard::adjust_transpose (int n)
-{
-	transpose += n;
-	if (transpose < -72) transpose = -72;
-	if (transpose > 72) transpose = 72;
-	fprintf (stderr, "transpose: %d\n", transpose);
-}
-#if 0
-/* add n to base key with range checking and print new value */
-void	adjust_key_ofs (int n)
-{
-	key_ofs += n;
-	if (key_ofs < 0) key_ofs = 0;
-	if (key_ofs > 6) key_ofs = 6;
-	fprintf (stderr, "base key: %c\n", base_keys[key_ofs]);
-}
-#endif
-
-/* add n to velocity m with range checking and print new value	*/
-/* m is 4 for off velocity					*/
-void Keyboard::adjust_velocity (int m, int n)
-{
-	int	*veloc;
-
-	/* XXX: make this do stuff */
-	return;
-
-	switch (m)
-	{
-		case 0: 
-			veloc = &veloc0; break;
-		case 1: 
-			veloc = &veloc1; break;
-		case 2: 
-			veloc = &veloc2; break;
-		case 3:
-			veloc = &veloc3; break;
-		default:
-			*veloc = 64; /* XXX: off_vel */
-			break;
-	}
-	*veloc += n;
-
-	if (*veloc < 1) *veloc = 1;
-	if (*veloc > 127) *veloc = 127;
-
-	if (m == 4) {
-		fprintf (stderr, "note-off velocity: ");
-	}
-	else {
-		fprintf (stderr, "velocity %d: ", m);
-	}
-
-	fprintf (stderr, "%d\n", *veloc);
-}
-
-/* function keys */
-void Keyboard::fkeys_func (int key)
-{
-	if (alt_on) {
-		switch (key) {
-			/* velocity 0 */
-			case GDK_Down:	adjust_velocity (0, -8); return;
-			case GDK_Left:	adjust_velocity (0, -1); return;
-			case GDK_Right:	adjust_velocity (0,  1); return;
-			case GDK_Up:	adjust_velocity (0,  8); return;
-		}
-	} else if (ctrl_on) {
-		switch (key) {
-			/* velocity 1 */
-			case GDK_Down:	adjust_velocity (1, -8); return;
-			case GDK_Left:	adjust_velocity (1, -1); return;
-			case GDK_Right:	adjust_velocity (1,  1); return;
-			case GDK_Up:	adjust_velocity (1,  8); return;
-		}
-	} else if (shift_on) {
-		switch (key) {
-			/* note-off velocity */
-			case GDK_F1: adjust_velocity (4, -8); return;
-			case GDK_F2: adjust_velocity (4, -1); return;
-			case GDK_F3: adjust_velocity (4,  1); return;
-			case GDK_F4: adjust_velocity (4,  8); return;
-			/* channel number */
-			case GDK_F9:  SetChannel (channel-1); return;
-			case GDK_F10: SetChannel (channel-1); return;
-			case GDK_F11: SetChannel (channel+1); return;
-			case GDK_F12: SetChannel (channel+1); return;
-			/* velocity 2 */
-			case GDK_Down:	adjust_velocity (2, -8); return;
-			case GDK_Left:	adjust_velocity (2, -1); return;
-			case GDK_Right:	adjust_velocity (2,  1); return;
-			case GDK_Up:	adjust_velocity (2,  8); return;
-		}
-	}
-	else {
-		switch (key) {
-			/* transpose */
-			case GDK_F1:  SetTranspose(transpose-12); return;
-			case GDK_F2:  SetTranspose(transpose-1); return;
-			case GDK_F3:  SetTranspose(transpose+1); return;
-			case GDK_F4:  SetTranspose(transpose+12); return;
-			/* velocity 3 */
-			case GDK_Down:	adjust_velocity (3, -8); return;
-			case GDK_Left:	adjust_velocity (3, -1); return;
-			case GDK_Right:	adjust_velocity (3,  1); return;
-			case GDK_Up:	adjust_velocity (3,  8); return;
-		}
-	}
-
-#if 0
-	switch (key) {
-	case GDK_F5:				/* print current settings */
-		fprintf (stderr, "==== current settings: ====\n");
-//		fprintf (stderr, "MIDI channel: %d\n", channel);
-//		fprintf (stderr, "MIDI program: %d\n", midi_program);
-		fprintf (stderr, "transpose: %d\n", transpose);
-		fprintf (stderr, "base key: %c\n", base_keys[key_ofs]);
-		fprintf (stderr, "velocity 0: %d\n", veloc0);
-		fprintf (stderr, "velocity 1: %d\n", veloc1);
-		fprintf (stderr, "velocity 2: %d\n", veloc2);
-		fprintf (stderr, "velocity 3: %d\n", veloc3);
-		fprintf (stderr, "note-off velocity: %d\n", off_vel);
-		break;
-	case GDK_F6:				/* all notes off */
-		fprintf (stderr, "All notes off\n");
-//		all_notes_off ();
-		break;
-	case GDK_F7:				/* base key - 1 */
-		adjust_key_ofs (-1);
-		break;
-	case GDK_F8:				/* base key + 1 */
-		adjust_key_ofs (1);
-	}
-#endif
 }
 

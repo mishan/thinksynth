@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.h,v 1.8 2004/09/30 09:18:58 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,26 +27,26 @@ typedef sigc::signal1<int, snd_seq_t *> sigMidiEvent_t;
 class gthALSAMidi
 {
 public:
-	gthALSAMidi (const char *argname)
+	gthALSAMidi (const char *name)
 		throw(thIOException);
 	~gthALSAMidi (void);
 
 	sigMidiEvent_t signal_midi_event (void);
 
 	bool pollMidiEvent (Glib::IOCondition);
-	inline bool seq_opened(void) const { return _seq_opened; }
+	inline bool seq_opened(void) const { return seq_opened_; }
 
 protected:
-	string name, device;
+	string name_, device_;
 
 	bool open_seq (void);
-	bool _seq_opened;
+	bool seq_opened_;
 
-	snd_seq_t *seq_handle;
-	int seq_nfds;
-	struct pollfd *pfds;
+	snd_seq_t *seq_handle_;
+	int seq_nfds_;
+	struct pollfd *pfds_;
 
-	sigMidiEvent_t m_sigMidiEvent;
+	sigMidiEvent_t m_sigMidiEvent_;
 };
 
 #endif /* GTH_ALSAMIDI_H */

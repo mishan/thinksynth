@@ -23,7 +23,7 @@
 class KeyboardWindow : public Gtk::Window
 {
 public:
-	KeyboardWindow (thSynth *argsynth);
+	KeyboardWindow (thSynth *synth);
 	~KeyboardWindow (void);
 
 protected:
@@ -42,26 +42,26 @@ protected:
 
 	virtual bool on_scroll_event (GdkEventScroll *s);
 
-	thSynth *synth;
+	thSynth *synth_;
 private:
-	Glib::Mutex kbMutex;
+	Glib::Mutex kbMutex_;
 
-	Keyboard keyboard;
+	Keyboard *keyboard_;
 
 	/* widgets */
-	Gtk::VBox vbox;
-	Gtk::Frame ctrlFrame;
-	Gtk::Table ctrlTable;
+	Gtk::VBox vbox_;
+	Gtk::Frame *ctrlFrame_;
+	Gtk::Table *ctrlTable_;
 
-	Gtk::Label chanLbl;
-	Gtk::SpinButton *chanBtn;
-	Gtk::Adjustment *chanVal;
+	Gtk::Label *chanLbl_;
+	Gtk::SpinButton *chanBtn_;
+	Gtk::Adjustment *chanVal_;
 
-	Gtk::Label transLbl;
-	Gtk::SpinButton *transBtn;
-	Gtk::Adjustment *transVal;
+	Gtk::Label *transLbl_;
+	Gtk::SpinButton *transBtn_;
+	Gtk::Adjustment *transVal_;
 
-	Gtk::Button resetBtn;
+	Gtk::Button *resetBtn_;
 };
 
 #endif /* KEYBOARD_WINDOW_H */

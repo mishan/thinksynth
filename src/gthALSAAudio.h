@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.h,v 1.7 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -33,37 +33,37 @@ typedef sigc::signal0<void> sigReadyWrite_t;
 class gthALSAAudio : public gthAudio
 {
 public:
-	gthALSAAudio (thSynth *argsynth)
+	gthALSAAudio (thSynth *synth)
 		throw(thIOException);
-	gthALSAAudio (thSynth *argsynth, const char *device)
+	gthALSAAudio (thSynth *synth, const char *device)
 		throw(thIOException);
 
 	virtual ~gthALSAAudio ();
 
 	int Write (float *, int len);
 	int Read (void *, int len);
-	const gthAudioFmt *GetFormat (void) { return &ofmt; };
-	void SetFormat (thSynth *argsynth);
+	const gthAudioFmt *GetFormat (void) { return &ofmt_; };
+	void SetFormat (thSynth *synth);
 	void SetFormat (const gthAudioFmt *afmt);
 
 	sigReadyWrite_t signal_ready_write (void);
 
 	bool ProcessEvents (void);
 
-	snd_pcm_t *play_handle;
-	int nfds;
-	struct pollfd *pfds;
+	snd_pcm_t *play_handle_;
+	int nfds_;
+	struct pollfd *pfds_;
 
 	bool pollAudioEvent (Glib::IOCondition);
 protected:
-	thSynth *synth;
-	sigReadyWrite_t m_sigReadyWrite;
+	thSynth *synth_;
+	sigReadyWrite_t m_sigReadyWrite_;
 
 	void main (void);
 private:
-	Glib::Thread *thread;
-	gthAudioFmt ofmt, ifmt;
-	void *outbuf;
+	Glib::Thread *thread_;
+	gthAudioFmt ofmt_, ifmt_;
+	void *outbuf_;
 };
 
 #endif /* GTH_ALSAAUDIO_H */

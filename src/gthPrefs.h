@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.h,v 1.5 2004/11/13 22:17:48 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -42,8 +42,8 @@ public:
 	void Load (void);
 	void Save (void);
 private:
-	map <string, string**> prefs;
-	string prefsPath;
+	map <string, string**> prefs_;
+	string prefsPath_;
 
 	static gthPrefs *instance_;
 };

@@ -32,70 +32,73 @@
 #include "KeyboardWindow.h"
 #include "gthSignal.h"
 
-KeyboardWindow::KeyboardWindow (thSynth *argsynth)
-	: ctrlFrame ("Keyboard Control"), 
-	  chanLbl("Channel"),
-	  transLbl("Transpose"),
-	  resetBtn("Reset")
+KeyboardWindow::KeyboardWindow (thSynth *synth)
 {
-	synth = argsynth;
+	synth_ = synth;
 
 	set_title("thinksynth - Keyboard");
 
-	add(vbox);
+	add(vbox_);
 
-	vbox.pack_start(ctrlFrame, Gtk::PACK_SHRINK, 5);
-	vbox.pack_start(keyboard);
+	ctrlTable_ = manage(new Gtk::Table);
+	keyboard_ = manage(new Keyboard);
+	ctrlFrame_ = manage(new Gtk::Frame("Keyboard Control"));
+	chanLbl_ = manage(new Gtk::Label("Channel"));
+	transLbl_ = manage(new Gtk::Label("Transpose"));
+	resetBtn_ = manage(new Gtk::Button("Reset"));
 
-	ctrlFrame.add(ctrlTable);
+	vbox_.pack_start(*ctrlFrame_, Gtk::PACK_SHRINK, 5);
+	vbox_.pack_start(*keyboard_);
 
-	chanVal = new Gtk::Adjustment(1, 1, synth->GetChannelCount());
-	chanBtn = new Gtk::SpinButton(*chanVal);
+	ctrlFrame_->add(*ctrlTable_);
 
-	transVal = new Gtk::Adjustment(0, -72, 72);
-	transBtn = new Gtk::SpinButton(*transVal);
+	chanVal_ = manage(new Gtk::Adjustment(1, 1, synth_->GetChannelCount()));
+	chanBtn_ = manage(new Gtk::SpinButton(*chanVal_));
 
-	ctrlTable.attach(chanLbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
-	ctrlTable.attach(*chanBtn, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	transVal_ = manage(new Gtk::Adjustment(0, -72, 72));
+	transBtn_ = manage(new Gtk::SpinButton(*transVal_));
 
-	ctrlTable.attach(transLbl, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
-	ctrlTable.attach(*transBtn, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	ctrlTable_->attach(*chanLbl_, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	ctrlTable_->attach(*chanBtn_, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 
-	ctrlTable.attach(resetBtn, 4, 5, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	ctrlTable_->attach(*transLbl_, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+	ctrlTable_->attach(*transBtn_, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 
-	chanVal->signal_value_changed().connect(
+	ctrlTable_->attach(*resetBtn_, 4, 5, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+
+	chanVal_->signal_value_changed().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::changeChannel));
 
-	transVal->signal_value_changed().connect(
+	transVal_->signal_value_changed().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::changeTranspose));
 
-	keyboard.signal_note_on().connect(
+	keyboard_->signal_note_on().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::eventNoteOn));
 
-	keyboard.signal_note_off().connect(
+	keyboard_->signal_note_off().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::eventNoteOff));
 
-	keyboard.signal_channel_changed().connect(
+	keyboard_->signal_channel_changed().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::eventChannelChanged));
 
-	keyboard.signal_transpose_changed().connect(
+	keyboard_->signal_transpose_changed().connect(
 		sigc::mem_fun(*this, &KeyboardWindow::eventTransposeChanged));
 
-	chanBtn->unset_flags(Gtk::CAN_FOCUS);
-	transBtn->unset_flags(Gtk::CAN_FOCUS);
-	resetBtn.unset_flags(Gtk::CAN_FOCUS);
+	chanBtn_->unset_flags(Gtk::CAN_FOCUS);
+	transBtn_->unset_flags(Gtk::CAN_FOCUS);
+	resetBtn_->unset_flags(Gtk::CAN_FOCUS);
+
+	resetBtn_->signal_clicked().connect(
+		sigc::mem_fun(*this, &KeyboardWindow::keyboardReset));
 
 	m_sigNoteOn.connect(sigc::mem_fun(*this,
-								   &KeyboardWindow::synthEventNoteOn));
+									  &KeyboardWindow::synthEventNoteOn));
 
 	m_sigNoteOff.connect(
 		sigc::mem_fun(*this, &KeyboardWindow::synthEventNoteOff));
 
 	m_sigNoteClear.connect(
 		sigc::mem_fun(*this, &KeyboardWindow::keyboardResetKeys));
-
-	resetBtn.signal_clicked().connect(
-		sigc::mem_fun(*this, &KeyboardWindow::keyboardReset));
 
 /*  This has the undesired effect of also cutting off MIDI notes!
 	signal_focus_out_event().connect(
@@ -104,90 +107,90 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 void KeyboardWindow::keyboardReset (void)
 {
-	synth->ClearAll();
+	synth_->ClearAll();
 	/* keyboardResetKeys is called somewhere along the way */
 }
 
 void KeyboardWindow::keyboardResetKeys (void)
 {
-	keyboard.resetKeys();
+	keyboard_->resetKeys();
 }
 
 KeyboardWindow::~KeyboardWindow (void)
 {
 	/* free dynamically-allocated widgets */
-	delete chanVal;
-	delete transVal;
+	delete chanVal_;
+	delete transVal_;
 }
 
 /* these are Keyboard widget-originated events */
 void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
 {
-	synth->AddNote(chan, note, veloc);
+	synth_->AddNote(chan, note, veloc);
 }
 
 void KeyboardWindow::eventNoteOff (int chan, int note)
 {
-	synth->DelNote(chan, note);
+	synth_->DelNote(chan, note);
 }
 
 void KeyboardWindow::eventChannelChanged (int chan)
 {
-	chanVal->set_value(chan+1);
+	chanVal_->set_value(chan+1);
 }
 
 void KeyboardWindow::eventTransposeChanged (int trans)
 {
-	transVal->set_value(trans);
+	transVal_->set_value(trans);
 }
 
 /* these are synthesizer engine thread-originated events, so the appropriate
    multi-threaded precautions must be taken here .. */
 void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
 {
-	if(chan != keyboard.GetChannel())
+	if(chan != keyboard_->GetChannel())
  		return;
 
- 	kbMutex.lock();
-	keyboard.SetNote((int)note, true);
-	kbMutex.unlock();
+ 	kbMutex_.lock();
+	keyboard_->SetNote((int)note, true);
+	kbMutex_.unlock();
 }
 
 void KeyboardWindow::synthEventNoteOff (int chan, float note)
 {
-	if(chan != keyboard.GetChannel())
+	if(chan != keyboard_->GetChannel())
 		return;
 
-	kbMutex.lock();
-	keyboard.SetNote((int)note, false);
-	kbMutex.unlock();
+	kbMutex_.lock();
+	keyboard_->SetNote((int)note, false);
+	kbMutex_.unlock();
 }
 
 void KeyboardWindow::changeChannel (void)
 {
-	kbMutex.lock();
+	kbMutex_.lock();
 	/* the keyboard widget takes the real channel value */
-	keyboard.SetChannel((int)chanVal->get_value()-1);
-	kbMutex.unlock();
+	keyboard_->SetChannel((int)chanVal_->get_value()-1);
+	kbMutex_.unlock();
 }
 
 void KeyboardWindow::changeTranspose (void)
 {
-	kbMutex.lock();
-	keyboard.SetTranspose((int)transVal->get_value());
-	kbMutex.unlock();
+	kbMutex_.lock();
+	keyboard_->SetTranspose((int)transVal_->get_value());
+	kbMutex_.unlock();
 }
 
 bool KeyboardWindow::on_scroll_event (GdkEventScroll *s)
 {
-	float channel = chanVal->get_value();
+	float channel = chanVal_->get_value();
 
 	channel += (s->direction == GDK_SCROLL_UP ? 1 : -1);
 
-	if ((channel < 1) || (channel > synth->GetChannelCount()))
+	if ((channel < 1) || (channel > synth_->GetChannelCount()))
 		return true;
 
-	chanVal->set_value(channel);
+	chanVal_->set_value(channel);
 
 	return true;
 }

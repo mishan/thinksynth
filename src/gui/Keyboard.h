@@ -66,48 +66,39 @@ protected:
 	virtual bool on_key_release_event    (GdkEventKey    *k);
 	virtual bool on_motion_notify_event  (GdkEventMotion *e);
 
-	thSynth *synth;
-	int channel;
-	int transpose;
+	int channel_;
+	int transpose_;
 private:
-	type_signal_note_clear        m_signal_note_clear;
-	type_signal_note_on           m_signal_note_on;
-	type_signal_note_off          m_signal_note_off;
-	type_signal_channel_changed   m_signal_channel_changed;
-	type_signal_transpose_changed m_signal_transpose_changed;
-
-	/* lower-level widget stuff */
-	Glib::Mutex drawMutex;
-	Glib::Dispatcher dispatchRedraw;
-
-	GdkWindow *drawable;
-	GdkGC *kbgc;
-	bool focus_box;
-
-	/* keyboard stuff */
-	int img_width, img_height;
-	int prv_active_keys[128];
-	int active_keys[128];
-	
-	bool ctrl_on;
-	bool shift_on;
-	bool alt_on;
-
-	int mouse_notnum;
-	int key_ofs;
-	int veloc0;
-	int veloc1;
-	int veloc2;
-	int veloc3;
-	int mouse_veloc;
-
-	int cur_size;
-
 	int get_coord ();
 	int keyval_to_notnum (int key);
-	void adjust_transpose (int n);
-	void adjust_velocity (int m, int n);
-	void fkeys_func (int key);
+
+	type_signal_note_clear        m_signal_note_clear_;
+	type_signal_note_on           m_signal_note_on_;
+	type_signal_note_off          m_signal_note_off_;
+	type_signal_channel_changed   m_signal_channel_changed_;
+	type_signal_transpose_changed m_signal_transpose_changed_;
+
+	/* lower-level widget stuff */
+	Glib::Mutex drawMutex_;
+	Glib::Dispatcher dispatchRedraw_;
+
+	GdkWindow *drawable_;
+	GdkGC *kbgc_;
+	bool focus_box_;
+
+	/* keyboard stuff */
+	int img_width_, img_height_;
+	int prv_active_keys_[128];
+	int active_keys_[128];
+
+	int mouse_notnum_;
+	int veloc0_;
+	int veloc1_;
+	int veloc2_;
+	int veloc3_;
+	int mouse_veloc_;
+
+	int cur_size_;
 };
 
 #endif /* KEYBOARD_H */

@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.22 2004/11/27 05:44:38 joshk Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -46,7 +46,7 @@ static void remove_string(char *line, int index, int numchars)
 
 gthPrefs::gthPrefs (void)
 {
-	prefsPath = string(getenv("HOME")) + string("/") + PREFS_FILE;
+	prefsPath_ = string(getenv("HOME")) + string("/") + PREFS_FILE;
 
 	if (instance_ == NULL)
 		instance_ = this;
@@ -54,7 +54,7 @@ gthPrefs::gthPrefs (void)
 
 gthPrefs::gthPrefs (const string &path)
 {
-	prefsPath = path;
+	prefsPath_ = path;
 
 	if (instance_ == NULL)
 		instance_ = this;
@@ -73,9 +73,9 @@ void gthPrefs::Load (void)
 
 	debug("loading preferences");
 
-	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
+	if((prefsFile = fopen(prefsPath_.c_str(), "r")) == NULL)
 	{
-		fprintf(stderr, "could not open %s: %s\n", prefsPath.c_str(),
+		fprintf(stderr, "could not open %s: %s\n", prefsPath_.c_str(),
 			strerror(errno));
 	  	if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
 		{
@@ -148,7 +148,7 @@ void gthPrefs::Load (void)
 			}	
 			else
 			{
-				prefs[key] = values;
+				prefs_[key] = values;
 			}
 		}
 	}
@@ -159,20 +159,20 @@ void gthPrefs::Save (void)
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	FILE *prefsFile;
 
-	if ((prefsFile = fopen(prefsPath.c_str(), "w")) == NULL)
+	if ((prefsFile = fopen(prefsPath_.c_str(), "w")) == NULL)
 	{
-		fprintf(stderr, "%s: %s\n", prefsPath.c_str(), strerror(errno));
+		fprintf(stderr, "%s: %s\n", prefsPath_.c_str(), strerror(errno));
 		return;
 	}
 
-	debug("writing to '%s'", prefsPath.c_str());
+	debug("writing to '%s'", prefsPath_.c_str());
 
 	fprintf(prefsFile, "# %s configuration file\n", PACKAGE_STRING);
 	fprintf(prefsFile, "# lines beginning with '#' are comments\n\n");
-
+	
 	/* save variables here */
-	for (map<string, string**>::const_iterator i = prefs.begin();
-		 i != prefs.end(); i++)
+	for (map<string, string**>::const_iterator i = prefs_.begin();
+		 i != prefs_.end(); i++)
 	{
 		string key = i->first;
 		string **values = i->second;
@@ -222,10 +222,10 @@ void gthPrefs::Save (void)
 
 string **gthPrefs::Get (const string &key)
 {
-	return prefs[key];
+	return prefs_[key];
 }
 
 void gthPrefs::Set (const string &key, string **vals)
 {
-	prefs[key] = vals;
+	prefs_[key] = vals;
 }
