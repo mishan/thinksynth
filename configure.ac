@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.28 2003/04/28 21:09:26 joshk Exp $
+dnl $Id: configure.ac,v 1.29 2003/04/30 02:28:38 joshk Exp $
 
 AC_INIT
 
@@ -18,8 +18,10 @@ AM_INIT_AUTOMAKE("$PACKAGE", "$VERSION")
 
 AC_PROG_CXX([$CXX g++ c++])
 AC_PROG_CC([$CC gcc cc egcs])
+
 AC_PROG_CXXCPP
 
+AC_LANG(C++)
 LEX_LANG=CXX
 YACC_LANG=CXX
 
@@ -114,6 +116,8 @@ else
 		CYGWIN*)
 			AC_DEFINE([USING_CYGWIN], 1, [Define if using Cygwin/Win32])
 			SHARED_SUFFIX=".dll"
+			
+			dnl XXX this is a crude hack that bloats plugins
 			PLUGIN_LDFLAGS="../../src/th*.o -lfl"
 		;;
 	esac
@@ -138,7 +142,7 @@ AC_HELP_STRING([--disable-debug],[print debug messages to stdout (default on)]),
 
 dnl Debug is disabled:
 [
-	CXXFLAGS="$CXXFLAGS -O2"
+	CXXFLAGS="$CXXFLAGS -O2 -funroll-loops"
 	debug=no
 ],
 
@@ -152,10 +156,17 @@ dnl Debug is enabled:
 AC_ARG_ENABLE(efence,
 	[AC_HELP_STRING([--enable-efence],[Enable ElectricFence in the build])],
 	[AC_CHECK_LIB(efence, malloc,
-		[LIBS="$LIBS -lefence"
-		efence=yes],
-		[AC_MSG_WARN([--enable-efence specified but could not link to it - disabling])
-		efence=no])])
+		dnl we found efence
+		[
+			LIBS="$LIBS -lefence"
+			efence=yes
+		],
+		dnl no efence available :/
+		[
+			AC_MSG_WARN([--enable-efence specified but could not link to it - disabling])
+			efence=no
+		])
+	])
 	
 AC_ARG_ENABLE(,,,)
 
@@ -164,12 +175,26 @@ AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installe
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
 
-dnl How chomo!
+dnl Flatten out all of the paths.
 AC_SUBST_DIR(libdir)
 AC_SUBST_DIR(datadir)
 AC_SUBST_DIR(bindir)
 
-plugin_path=${libdir}/${PACKAGE}/plugins/
+AC_ARG_WITH(plugin-path,
+	[AC_HELP_STRING([--with-plugin-path], [Define a path to install plugins into.])],
+	[plugin_path=$withval],
+	[plugin_path=${libdir}/${PACKAGE}/plugins/])
+
+dnl Someone may have been a smartass and configure with
+dnl ./configure --with-plugin-path=${prefix}/bar, so flatten that too
+
+AC_SUBST_DIR(plugin_path)
+
+dnl sources need this
+if test `expr $plugin_path : .*/$` -eq 0; then
+	plugin_path=$plugin_path/
+fi
+
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
 
