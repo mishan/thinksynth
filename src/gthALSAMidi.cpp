@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.5 2004/05/05 06:20:53 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.6 2004/05/05 06:27:48 misha Exp $ */
 
 #include "config.h"
 
@@ -89,7 +89,7 @@ bool thfALSAMidi::open_seq (void)
 	mainContext->signal_io().connect(SigC::slot(*this,
 												&thfALSAMidi::pollMidiEvent),
 									 pfds[0].fd, Glib::IO_IN,
-									 Glib::PRIORITY_DEFAULT);
+									 Glib::PRIORITY_HIGH);
 
 	return true;
 }
