@@ -28,7 +28,7 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 
 	switch(afmt->bits) {
 	case 8:
-		fmt.format = AFMT_S8;
+		fmt.format = AFMT_U8;
 		break;
 	case 16:
 		fmt.format = AFMT_S16_NE;
@@ -98,9 +98,7 @@ const thAudioFmt *thOSSAudio::GetFormat (void)
 
 int thOSSAudio::Write (void *buf, int len)
 {
-	ioctl(fd, SNDCTL_DSP_SYNC, 0);
 	write(fd, buf, len);
-	ioctl(fd, SNDCTL_DSP_SYNC, 1);
 
 	return 0;
 }
@@ -118,7 +116,9 @@ void thOSSAudio::Play(thAudio *audioPtr)
 
 	SetFormat(afmt);
 
-	fcntl(fd, F_SETFL, O_NONBLOCK);
+//	fcntl(fd, F_SETFL, O_NONBLOCK);
+	ioctl(fd, SNDCTL_DSP_SYNC, 0);
+
 
 	printf("playing with bufsiz of %d\n", buf_size);
 
@@ -149,7 +149,10 @@ void thOSSAudio::Play(thAudio *audioPtr)
 	break;
 	}
 
-	fcntl(fd, F_SETFL, 0);
+	ioctl(fd, SNDCTL_DSP_SYNC, 1);
+
+
+//	fcntl(fd, F_SETFL, 0);
 
 	fd_set wfds;
 
