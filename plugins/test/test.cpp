@@ -18,8 +18,9 @@
 char	*name = "test";
 char	*desc = "Test Plugin";
 
-int	module_init (int version, thPlugin *plugin);
-int	module_callback (void *node, void *mod, unsigned int windowlen);
+extern "C" int	module_init (int version, thPlugin *plugin);
+extern "C" int	module_callback (void *node, void *mod, unsigned int windowlen);
+extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
