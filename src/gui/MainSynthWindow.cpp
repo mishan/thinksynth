@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.6 2004/04/02 00:38:41 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.7 2004/04/02 11:33:11 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -23,6 +23,7 @@
 #include "thSynth.h"
 
 #include "PatchSelWindow.h"
+#include "Keyboard.h"
 #include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
 

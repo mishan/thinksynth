@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.8 2004/04/01 06:56:21 misha Exp $ */
+/* $Id: ui.cpp,v 1.9 2004/04/02 11:33:11 misha Exp $ */
 
 #include "config.h"
 
@@ -21,6 +21,7 @@
 #include "thMidiChan.h"
 #include "thSynth.h"
 
+#include "Keyboard.h"
 #include "KeyboardWindow.h"
 #include "PatchSelWindow.h"
 #include "MainSynthWindow.h"
