@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.22 2003/04/27 09:37:48 aaronl Exp $ */
+/* $Id: thPluginManager.cpp,v 1.23 2003/04/27 19:59:18 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -37,11 +37,11 @@ thPluginManager::~thPluginManager ()
 char *thPluginManager::GetPath (char *name)
 {
 	char *path = new char[strlen(name) + strlen(PLUGIN_PATH) + 
-						  strlen(PLUGPOSTFIX) + 1];
+						  strlen(SHARED_SUFFIX) + 1];
 	int fd;
 
 	/* Use the default path first */
-	sprintf(path, "%s%s%s", PLUGIN_PATH, name, PLUGPOSTFIX);
+	sprintf(path, "%s%s%s", PLUGIN_PATH, name, SHARED_SUFFIX);
 	
 	/* Check for existence in the expected place */
 	fd = open (path, O_RDONLY);
@@ -51,8 +51,8 @@ char *thPluginManager::GetPath (char *name)
 		
 		delete path;
 		path = new char[strlen("plugins/") + strlen(name) + 
-						strlen(PLUGPOSTFIX) + 1];
-		sprintf (path, "plugins/%s%s", name, PLUGPOSTFIX);
+						strlen(SHARED_SUFFIX) + 1];
+		sprintf (path, "plugins/%s%s", name, SHARED_SUFFIX);
 		if((fd = open(path, O_RDONLY)) < 0) {
 			fprintf(stderr, "thPluginManager::GetPath: %s not found\n", path);
 			delete path;
