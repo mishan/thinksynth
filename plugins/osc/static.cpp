@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.8 2003/04/27 06:07:30 ink Exp $ */
+/* $Id: static.cpp,v 1.9 2003/04/27 06:14:54 misha Exp $ */
 
 #define USE_PLUGIN
 
@@ -22,7 +22,7 @@ char		*desc = "Produces Random Signal";
 thPluginState	mystate = thActive;
 
 extern "C" int	module_init (int version, thPlugin *plugin);
-extern "C" int	module_callback (void *node, void *mod, unsigned int windowlen);
+extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
 extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
