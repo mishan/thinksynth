@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.47 2004/10/28 01:21:47 ink Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.48 2004/11/10 07:10:13 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -97,12 +97,12 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	prefs = _prefs;
 
 	patchSel = new PatchSelWindow(synth);
-	midiMap = new MidiMap(synth);
+	midiMap = NULL;
 
 	populateMenu();
 
 	menuBar.accelerate(*patchSel);
-	menuBar.accelerate(*midiMap);
+//	menuBar.accelerate(*midiMap); /* this is created on-demand */
 
 #ifdef HAVE_JACK
 	/* Not the best place to do it but we need to call toggleConnects */
@@ -313,6 +313,8 @@ void MainSynthWindow::menuPatchSel (void)
 
 void MainSynthWindow::menuMidiMap (void)
 {
+	if(!midiMap)
+		midiMap = new MidiMap(synth);
 	midiMap->show_all_children();
 	midiMap->show();
 }
