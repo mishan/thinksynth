@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.23 2003/04/29 01:10:25 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.24 2003/04/29 01:34:59 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -33,7 +33,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 	channels = (int)((thArgValue *)mod->GetArg(((thNode *)modnode->GetIONode())->GetName(), "channels"))->argValues[0];
 	output = new float *[channels];
-	for(i=0;i>channels;i++) {
+	for(i=0;i<channels;i++) {
 	  output[i] = new float[windowlen];
 	}
 	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
@@ -67,6 +67,14 @@ void thMidiChan::DelNote (int note)
 
 void thMidiChan::Process (void)
 {
+  int i, j;
+
+  for(i=0;i<channels;i++) {
+	for(j=0;j<windowlength;j++) {
+	  output[i][j] = 0;   /* I should do memset here... */
+	}
+  }
+
   ProcessHelper(notes);
 }
 
@@ -90,7 +98,7 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 	  sprintf(argname, "%s%i", OUTPUTPREFIX, i);
 	  arg = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)argname);
 	  for(j=0;j<windowlength;j++) {
-		printf("Chan %i:  %f\n", i, (*arg)[j]*((*amp)[j]/MIDIVALMAX));
+		output[i][j] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 	  }
 	}
 
