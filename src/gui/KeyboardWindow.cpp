@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.4 2004/04/01 07:23:27 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.5 2004/04/01 07:44:49 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -23,7 +23,6 @@
 
 #include "KeyboardWindow.h"
 
-#if 0
 /* conversion table for SHIFT chars */
 static char	key_conv_in[] =  "~!@#$%^&*()_+|{}:\"<>?";
 static char	key_conv_out[] = "`1234567890-=\\[];\',./";
@@ -32,7 +31,6 @@ static char	keylist_1[] = "1q2w3e4r5t6y7u8i9o0p-[=]\\";
 static char	keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
 /* base keys */
 static char	base_keys[] = "CDEFGAB";
-#endif
 
 static unsigned int	color0 = 0x00000000;	/* key border			*/
 static unsigned int	color1 = 0x00FFFFFF;	/* white key			*/
@@ -101,6 +99,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	mouse_notnum = -1;
 	mouse_veloc = 127;
 	cur_size = 1;
+	ctrl_on = 0;
+	shift_on = 0;
+	alt_on = 0;
 
 //	set_default_size(img_width, img_height);
 	set_title("thinksynth - Keyboard");
@@ -126,6 +127,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	gtk_widget_realize(GTK_WIDGET(drawArea.gobj()));	
 
 	drawable = ((GtkWidget *)drawArea.gobj())->window;
+	GTK_WIDGET_SET_FLAGS((GtkWidget *)drawArea.gobj(), GTK_CAN_FOCUS);
 
 	kbgc = gdk_gc_new (drawable);
 	gdk_gc_set_function (kbgc, GDK_COPY);
@@ -149,6 +151,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	drawArea.signal_button_press_event().connect(
 		SigC::slot(*this, &KeyboardWindow::clickEvent));
 
+	drawArea.signal_key_press_event().connect(
+		SigC::slot(*this, &KeyboardWindow::keyEvent));
+
 	drawKeyboard (5);
 }
 
@@ -157,8 +162,119 @@ KeyboardWindow::~KeyboardWindow (void)
 	hide ();
 }
 
+/* convert key value to note number		*/
+/* return value is -1 if key value is not valid	*/
+
+int	KeyboardWindow::keyval_to_notnum (int key)
+{
+	char	*c;
+	int	m, n, o;
+	
+	if ((key <= 0) || (key >= 256)) return -1;
+
+	/* upper case -> lower case */
+	if ((key >= 'A') && (key <= 'Z')) {
+		key -= 'A'; key += 'a';
+	}
+	/* convert SHIFT characters */
+	c = strchr (key_conv_in, key);
+	if (c != NULL) key = key_conv_out[c - key_conv_in];
+	/* find character in tables */
+	c = strchr (keylist_1, key);
+	if (c == NULL) {
+		c = strchr (keylist_2, key);
+		if (c == NULL) return -1;	/* not found */
+		n = (int) (c - keylist_2);
+	} else {
+		n = 14 + (int) (c - keylist_1);
+	}
+	n += 13;
+	/* key offset */
+	n += (key_ofs << 1);
+	m = n % 14;
+	o = n / 14;	/* octave */
+	/* check for invalid keys (E# and B#) */
+	if ((m == 5) || (m == 13)) return -1;
+	/* correct for missing black keys and transpose */
+	if (m > 4) m--;
+	n = 48 + transpose + 12 * o + m;
+	if ((n < 0) || (n > 127)) n = -1;
+
+	return n;
+}
+
+
 #define set_note_off(channel,notenum) { float *pbuf = new float[1]; *pbuf = 0; synth->SetNoteArg(channel, notenum, "trigger", pbuf, 1); }
 
+bool KeyboardWindow::keyEvent (GdkEventKey *k)
+{
+	int keynum, press, release, notenum, veloc;
+
+	keynum = k->keyval;
+	press = (k->type == GDK_KEY_PRESS ? 1 : 0);
+	release = 1 - press;
+
+	switch (keynum)
+	{
+		case GDK_Control_L:
+		case GDK_Control_R:
+			ctrl_on = press; break;
+		case GDK_Shift_L:		/* Shift */
+		case GDK_Shift_R:
+			shift_on = press; break;
+		case GDK_Alt_L:			/* Alt */
+		case GDK_Alt_R:
+		case GDK_Meta_L:
+		case GDK_Meta_R:
+			alt_on = press; break;
+		case GDK_F1:			/* function keys */
+		case GDK_F2:
+		case GDK_F3:
+		case GDK_F4:
+		case GDK_F5:
+		case GDK_F6:
+		case GDK_F7:
+		case GDK_F8:
+		case GDK_F9:
+		case GDK_F10:
+		case GDK_F11:
+		case GDK_F12:
+		case GDK_Left:
+		case GDK_Right:
+		case GDK_Up:
+		case GDK_Down:
+			break;
+		default:
+		{
+			/* other keys */
+			notenum = keyval_to_notnum (keynum);
+			if (notenum >= 0) {	/* note event */
+				if (press) {	/* note-on */
+					if (alt_on) {	/* velocity */
+						veloc = veloc0;
+					} else if (ctrl_on) {
+						veloc = veloc1;
+					} else if (shift_on) {
+						veloc = veloc2;
+					} else {
+						veloc = veloc3;
+					}
+					synth->AddNote((int)chanVal->get_value(), notenum, veloc);
+					active_keys[notenum] = 1;
+				} else {	/* note-off */
+					set_note_off((int)chanVal->get_value(), notenum);
+					active_keys[notenum] = 1;
+				}
+			}
+			break;
+		}
+
+	}
+
+	drawKeyboard(1);
+	
+	return true;
+}
 
 bool KeyboardWindow::clickEvent (GdkEventButton *b)
 {	

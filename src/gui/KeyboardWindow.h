@@ -9,6 +9,7 @@ public:
 
 protected:
 	bool clickEvent (GdkEventButton *b);
+	bool keyEvent (GdkEventKey *k);
 	bool exposeEvent (GdkEventExpose *e);
 	void drawKeyboard (int mode);
 
@@ -30,6 +31,10 @@ private:
 	int prv_active_keys[128];
 	int active_keys[128];
 	
+	int ctrl_on;
+	int shift_on;
+	int alt_on;
+
 	int mouse_notnum;
 	int transpose;
 	int key_ofs;
@@ -42,6 +47,7 @@ private:
 	int cur_size;
 
 	int get_coord ();
+	int keyval_to_notnum (int key);
 };
 
 #endif /* KEYBOARD_WINDOW_H */
