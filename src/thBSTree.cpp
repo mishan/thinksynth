@@ -4,26 +4,6 @@
 
 #include "thBSTree.h"
 
-static inline int StringCompare(char *str1, char *str2)
-{
-	if(!str1 || !str2) {
-		return -2;
-	}
-
-	while(*str1 && *str2) {
-		if(*str1 < *str2) {
-			return -1;
-		}
-		else if(*str1 > *str2) {
-			return 1;
-		}
-
-		str1++; str2++;
-	}
-
-	return 0;
-}
-
 thBSTree::thBSTree (void)
 {
 	bRoot = NULL;
