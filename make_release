@@ -1,6 +1,6 @@
 #!/bin/bash
 
-NAME=think++
+NAME=thinksynth
 
 if [ -z $1 ]; then
 	echo "$0: must specify a version"
