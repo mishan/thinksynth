@@ -11,8 +11,12 @@ node ionode {
 	depth1 = 0.1;
 	depth2 = 0.25;
 
+	open = 1;	# Sets envelope length  0 = closed, 1 = open
+				# In between = in between
+
 	attack = 2000;
-	decay = 5000;
+	olen = 6000;
+	clen = 2000;
 	midp = 40;
 
 	cutmin = 0.4;
@@ -21,11 +25,17 @@ node ionode {
 	waveform = 2;
 };
 
+node decay mixer::fade {
+	in0 = ionode->clen;
+	in1 = ionode->olen;
+	fade = ionode->open;
+};
+
 node adsr env::adsr {
 	a = 0;
 	d = ionode->attack;
 	s = ionode->midp;
-	r = ionode->decay;
+	r = decay->out;
 	trigger = 0;
 };
 
