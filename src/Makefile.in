@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.15 2003/11/05 02:37:31 joshk Exp $
+# $Id: Makefile.in,v 1.16 2003/11/05 02:39:13 joshk Exp $
 
 BINARY = thinksynth
 
@@ -68,4 +68,5 @@ install:
 
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/thinksynth
+	rm -f $(DESTDIR)$(bindir)/thinkseq
 	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
