@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.54 2004/10/01 09:16:21 joshk Exp $
+# $Id: Makefile.in,v 1.55 2004/11/09 00:13:20 ink Exp $
 
 BINARY = thinksynth
 
@@ -14,7 +14,7 @@ include ../build.mk
 PICFLAGS =
 LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
-WIDGETSRCS = gui/AboutBox.cpp gui/ArgTable.cpp gui/MainSynthWindow.cpp gui/PatchSelWindow.cpp gui/Keyboard.cpp gui/KeyboardWindow.cpp
+WIDGETSRCS = gui/AboutBox.cpp gui/ArgTable.cpp gui/MainSynthWindow.cpp gui/MidiMap.cpp gui/PatchSelWindow.cpp gui/Keyboard.cpp gui/KeyboardWindow.cpp
 MAINOBJS = main.o @GTH_ALSA@ @GTH_JACK_AUDIO@ gthPrefs.o gthPatchfile.o
 
 thinksynth: ../libthink/libthink.so.$(soname) gui/gth.a $(MAINOBJS)
