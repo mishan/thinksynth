@@ -311,7 +311,7 @@ void MainSynthWindow::menuJackAuto (void)
 void MainSynthWindow::menuKeyboard (void)
 {
 	KeyboardWindow *kbwin = new KeyboardWindow (thSynth::instance());
-	/* menuBar.accelerate(*kbwin); */
+	menuBar_.accelerate(*kbwin);
 	kbwin->show_all_children();
 	kbwin->show();
 	kbwin->signal_hide().connect(
@@ -573,11 +573,13 @@ void MainSynthWindow::onAboutBoxHide (void)
 void MainSynthWindow::onPatchSelHide (void)
 {
 	delete patchSel_;
+	patchSel_ = NULL;
 }
 
 void MainSynthWindow::onMidiMapHide (void)
 {
 	delete midiMap_;
+	midiMap_ = NULL;
 }
 
 void MainSynthWindow::onKeyboardHide (KeyboardWindow *kbwin)
