@@ -1,9 +1,11 @@
-# $Id: aspect2.dsp,v 1.1 2004/09/15 01:23:10 ink Exp $
+# $Id: aspect2.dsp,v 1.2 2004/10/01 10:05:32 ink Exp $
 # Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
 # 5-20-2004
 
-name "test";
+name "Aspect 2";
+author "Leif Ames";
+description "2 oscs and lots of envelopes";
 
 
 # min and max of frequency for the band limited osc

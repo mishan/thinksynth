@@ -1,5 +1,8 @@
-# $Id: anasync.dsp,v 1.1 2004/09/30 08:40:24 ink Exp $
-name "test";
+# $Id: anasync.dsp,v 1.2 2004/10/01 10:05:32 ink Exp $
+
+name "AnaSync";
+author "Leif Ames";
+description "Uses hard sync to add extra resonant formant";
 
 	@a = 4 ms;
 	@a.widget = 1;

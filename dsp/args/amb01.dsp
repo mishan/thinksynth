@@ -1,7 +1,7 @@
-# $Id: amb01.dsp,v 1.2 2004/10/01 09:14:29 misha Exp $
-name "test";
-description "crappy thinksynth dsp";
-author "some lazy bum named leif";
+# $Id: amb01.dsp,v 1.3 2004/10/01 10:05:32 ink Exp $
+name "AMB 01";
+author "Leif Ames";
+description "4 oscs in a stereo mix";
 
 	@a = 0.7 ms;
 	@a.widget = 1;

@@ -1,9 +1,11 @@
-# $Id: rpiano0.dsp,v 1.2 2004/08/17 09:25:00 ink Exp $
+# $Id: rpiano0.dsp,v 1.3 2004/10/01 10:05:32 ink Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
 
-name "test";
+name "Resonant Piano";
+author "Leif Ames";
+description "Band-limited waveforms and some filtering";
 
 
 	@sfreqlo = 1600;
@@ -28,7 +30,7 @@ name "test";
 	@pw2.max = 1;
 	@pw2.label = "Pulse Width 2";
 
-	@res = 5;
+	@res = 1.5;
 	@res.widget = 1;
 	@res.min = 0;
 	@res.max = 15;

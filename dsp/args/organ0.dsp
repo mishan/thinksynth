@@ -1,9 +1,11 @@
-# $Id: organ0.dsp,v 1.1 2004/08/02 09:57:25 ink Exp $
+# $Id: organ0.dsp,v 1.2 2004/10/01 10:05:32 ink Exp $
 # Organ Synth
 # Leif Ames <ink@bespin.org>
 # 6-29-2003
 
-name "test";
+name "Organ 0";
+author "Leif Ames";
+description "Simple additive organ";
 
 
 	@vmin = 0.3;
