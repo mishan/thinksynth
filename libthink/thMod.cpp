@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.37 2003/04/26 01:50:09 ink Exp $ */
+/* $Id: thMod.cpp,v 1.38 2003/04/27 02:33:05 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -19,11 +19,13 @@ thMod::thMod (const char *name)
 {
 	ionode = NULL;
 	modname = strdup(name);
+	modnodes = new thBSTree(StringCompare);
 }
 
 thMod::~thMod ()
 {
 	free(modname);
+	delete modnodes;
 }
 
 thNode *thMod::FindNode (const char *name)

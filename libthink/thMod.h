@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.24 2003/04/26 00:37:17 joshk Exp $ */
+/* $Id: thMod.h,v 1.25 2003/04/27 02:33:05 misha Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -34,7 +34,7 @@ class thMod {
 
 		void CopyHelper (thMod *mod, thNode *parentnode);
 
-		thBSTree modnodes;
+		thBSTree *modnodes;
 		thList *activelist;
 		thNode *ionode;
 
