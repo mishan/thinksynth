@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.43 2004/10/01 09:14:29 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.44 2004/10/01 09:20:29 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -354,6 +354,9 @@ void MainSynthWindow::populate (void)
 		info_frame->set_label("DSP Information");
 		info_frame->add(*info_table);
 
+		info_table->set_col_spacings(5);
+		info_table->set_row_spacings(5);
+
 		thArg *dspName = args["name"];
 
 		if (dspName)
@@ -361,7 +364,7 @@ void MainSynthWindow::populate (void)
 			Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
 			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->getComment()));
 
-			lname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+			lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
 			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
 
 			info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::FILL, Gtk::FILL);
@@ -375,7 +378,7 @@ void MainSynthWindow::populate (void)
 			Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
 			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->getComment()));
 
-			lname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+			lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
 			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
 		
 			info_table->attach(*lname_lbl, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
@@ -389,7 +392,7 @@ void MainSynthWindow::populate (void)
 			Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
 			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->getComment()));
 
-			lname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+			lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
 			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
 
 		
