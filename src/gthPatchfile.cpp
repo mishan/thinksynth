@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.2 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.3 2004/09/24 00:38:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,18 +22,25 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-#include "gthPatchfile.h"
+#include "think.h"
 
-gthPatchfile::gthPatchfile (thSynth *synth)
+#include "gthPatchfile.h"
+#include "gui-util.h"
+
+gthPatchfile::gthPatchfile (const char *filename, thSynth *synth, int chan)
 {
-	synth_ = synth;
+	synth_    = synth;
+	chanNum_  = chan;
+	midiChan_ = NULL;
+
+	parse(filename);
 }
 
 gthPatchfile::~gthPatchfile (void)
 {
 }
 
-bool gthPatchfile::parse (char *filename)
+bool gthPatchfile::parse (const char *filename)
 {
 	FILE *prefsFile;
 	char buffer[256];
@@ -85,19 +92,22 @@ bool gthPatchfile::parse (char *filename)
 			}
 
 			values[len] = NULL;
+			args_[key] = values;
 
 			/* XXX: handle specific cases here for now */
-			if (key == "channel" && values[0] && values[1])
+			if (key == "dsp" && values[0])
 			{
-				synth->LoadMod(values[1]->c_str(),
-							   atoi(values[0]->c_str()),
-							   values[2] ? atof(values[2]->c_str()) : 0 );
+				printf("associating with dsp %s\n", values[0]->c_str());
 			}
-			else
+			else if (values[0])
 			{
-				prefs[key] = values;
+				printf ("arg %s %f\n", key.c_str(), strtof(values[0]->c_str(),
+														   NULL));
 			}
+
 		}
 
 	}
+
+	return true;
 }

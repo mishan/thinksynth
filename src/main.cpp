@@ -45,6 +45,7 @@
 
 #include "gthSignal.h"
 #include "gthPrefs.h"
+#include "gthPatchfile.h"
 
 #include "gui/Keyboard.h"
 #include "gui/KeyboardWindow.h"
@@ -322,6 +323,8 @@ int main (int argc, char *argv[])
 	signal(SIGINT, (sighandler_t)cleanup);
 
 	prefs->Load();
+
+	gthPatchfile test("test.patch", Synth, 0);
 
 	/* create a window first */
 	Synth->Process();

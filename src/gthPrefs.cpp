@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.13 2004/09/08 20:59:23 joshk Exp $ */
+/* $Id: gthPrefs.cpp,v 1.14 2004/09/24 00:38:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,6 +26,7 @@
 #include "think.h"
 
 #include "gthPrefs.h"
+#include "gui-util.h"
 
 #if 0
 static void remove_string(char *line, int index, int numchars)
@@ -39,23 +40,6 @@ static void remove_string(char *line, int index, int numchars)
     line[i] = '\0';
 }
 #endif
-
-static void trim_leadspc (char *line)
-{
-    /* delete the leading white spaces from the string 'line' */
-    char *line_strt;
-    char *ptr1, *ptr2;
-    
-    /* find the first non-space and point to it with 'line_strt' */
-    for (line_strt = line; *line_strt != '\0'; line_strt++)
-	if (*line_strt != ' ' && *line_strt != '\t')
-	    break;
-    
-    /* copy the string beginning at 'line_strt' into 'line' */
-    for (ptr1 = line, ptr2 = line_strt; *ptr2 != '\0'; ptr1++, ptr2++)
-	*ptr1 = *ptr2;
-    *ptr1 = '\0';
-}
 
 gthPrefs::gthPrefs (thSynth *argsynth)
 {

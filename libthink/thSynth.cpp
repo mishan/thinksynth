@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.104 2004/09/16 10:32:24 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.105 2004/09/24 00:38:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -93,6 +93,10 @@ void thSynth::removeChan (int channum)
 {
 	if (((channum >= 0) && (channum < channelcount)) && channels[channum])
 	{
+/*		thMidiChan *chan = channels[channum];
+		if (chan)
+		delete chan; */
+
 		channels[channum] = NULL;
 		patchlist[channum] = "";
 		m_sigChanDeleted(channum);

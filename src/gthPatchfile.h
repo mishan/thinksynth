@@ -22,12 +22,17 @@
 
 class gthPatchfile 
 {
-	gthPatchfile (thSynth *synth);
+public:
+	gthPatchfile (const char *filename, thSynth *synth, int chan);
 	~gthPatchfile (void);
 
-	bool parse (char *filename);
 private:
+	bool parse (const char *filename);
+
 	thSynth *synth_;
+	map <string, string**> args_;
+	thMidiChan *midiChan_;
+	int chanNum_;
 };
 
 #endif /* GTH_PATCHFILE_H */
