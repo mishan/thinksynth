@@ -308,9 +308,8 @@ void PatchSelWindow::SavePatch (void)
 		{
 			gthPatchManager::PatchFile *patch = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
-			char *file = fileSel.get_filename().c_str();
+			char *file = (char*)fileSel.get_filename().c_str();
 			int chan = (*iter)[patchViewCols.chanNum]-1;
-			const char *b = NULL;
 			string **vals = NULL;
 
 			/* cull metadata */

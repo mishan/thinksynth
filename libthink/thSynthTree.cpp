@@ -25,23 +25,23 @@
 
 #include "think.h"
 
-thMod::thMod (const string &name, thSynth *synth)
+thSynthTree::thSynthTree (const string &name, thSynth *synth)
 {
 	ionode_ = NULL;
-	modname_ = name;
+	name_ = name;
 	nodecount_ = 0;
 
 	synth_ = synth;
 }
 
-thMod::thMod (const thMod &oldmod)
+thSynthTree::thSynthTree (const thSynthTree &oldtree)
 {
-	thNode *oldionode = oldmod.getIONode();
+	thNode *oldionode = oldtree.IONode();
 	thNode *newnode = new thNode(oldionode->GetName(), oldionode->GetPlugin());
 
 	ionode_ = NULL;
-	nodecount_ = oldmod.getNodeCount();
-	modname_ = oldmod.getName();
+	nodecount_ = oldtree.nodeCount();
+	name_ = oldtree.name();
 
 	newnode->SetArgCount(oldionode->GetArgCount());
 	newnode->CopyArgs(oldionode->GetArgTree());
@@ -51,23 +51,23 @@ thMod::thMod (const thMod &oldmod)
 
 	copyHelper(oldionode);
 
-	synth_ = oldmod.getSynth();
+	synth_ = oldtree.synth();
 }
 
-thMod::~thMod ()
+thSynthTree::~thSynthTree ()
 {
 	if (nodeindex_) {
 		delete [] nodeindex_;
 	}
 
-	DestroyMap(modnodes_);
+	DestroyMap(nodes_);
 }
 
-void thMod::copyHelper (thNode *parentnode)
+void thSynthTree::copyHelper (thNode *parentnode)
 {
 	thNode *data, *newnode;
 	NodeList children = parentnode->GetChildren();
-	ArgMap argtree;
+	thArgMap argtree;
 
 	if(children.empty() == false)
 	{
@@ -93,24 +93,24 @@ void thMod::copyHelper (thNode *parentnode)
 	}
 }
 
-thArg *thMod::getArg (const string &nodename, const string &argname)
+thArg *thSynthTree::getArg (const string &nodename, const string &argname)
 {
-	NodeMap::const_iterator i = modnodes_.find(modname_);
+	NodeMap::const_iterator i = nodes_.find(name_);
 
-	if (i == modnodes_.end())
+	if (i == nodes_.end())
 	{
 		printf("WARNING!!  Trying to get args from nonexistant node %s\n",
 			   nodename.c_str());
 		return NULL;
 	}
+
 	return getArg(i->second, argname);
 }
 
 /* Follow pointers and return a thArg of a float string */
-thArg *thMod::getArg (thNode *node, const string &argname)
+thArg *thSynthTree::getArg (thNode *node, const string &argname)
 {
 	thArg *args;
-	float *tmp;
 	string argpointname;
 
 	args = node->GetArg(argname);
@@ -118,9 +118,7 @@ thArg *thMod::getArg (thNode *node, const string &argname)
 	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL)
 	{
-		tmp = new float[1];
-		tmp[0] = 0;
-		args = node->SetArg(argname, tmp, 1);
+		args = node->setArg(argname, 0);
 	}
 	
 	while (args && (args->type() == thArg::ARG_POINTER) && node)
@@ -138,9 +136,7 @@ thArg *thMod::getArg (thNode *node, const string &argname)
 		/* If the arg doesnt exist, make it a 0 */
 		if(args == NULL)
 		{
-			tmp = new float[1];
-			tmp[0] = 0;
-			args = node->SetArg(argpointname, tmp, 1);
+			args = node->setArg(argpointname, 0);
 			//args->SetIndex(node->AddArgToIndex(args));
 		}
 		/*}
@@ -157,7 +153,7 @@ thArg *thMod::getArg (thNode *node, const string &argname)
 	return args;
 }
 
-thArg *thMod::getArg (thNode *node, int argindex)
+thArg *thSynthTree::getArg (thNode *node, int argindex)
   /* Follow pointers and return a thArg of a float string */
 {
 	thArg *args;
@@ -171,10 +167,6 @@ thArg *thMod::getArg (thNode *node, int argindex)
 
 	while (args && (args->type() == thArg::ARG_POINTER) && node)
 	{ 
-		/* Recurse through the list of pointers until we get a real value. */
-//		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
-//		if (i != modnodes.end()) {
-//			node = i->second;		
 		node = nodeindex_[args->nodePtrId()];
 		args = node->GetArg(args->argPtrId());
 		
@@ -187,38 +179,38 @@ thArg *thMod::getArg (thNode *node, int argindex)
 	return args;
 }
 
-void thMod::newNode (thNode *node)
+void thSynthTree::newNode (thNode *node)
 {
 	node->SetID(nodecount_);
-	modnodes_[node->GetName()] = node;
+	nodes_[node->GetName()] = node;
 	nodecount_++;
 }
 
-void thMod::newNode (thNode *node, int id)
+void thSynthTree::newNode (thNode *node, int id)
 {
 	node->SetID(id);
-	modnodes_[node->GetName()] = node;
+	nodes_[node->GetName()] = node;
 }
 
-void thMod::setIONode (const string &name)
+void thSynthTree::setIONode (const string &name)
 {
-	NodeMap::const_iterator i = modnodes_.find (name);
+	NodeMap::const_iterator i = nodes_.find (name);
 
-	if (i == modnodes_.end())
+	if (i == nodes_.end())
 	{
-		printf ("thMod::setIONode: ionode is NULL\n");
+		printf ("thSynthTree::setIONode: ionode is NULL\n");
 		return;
 	}
 
 	ionode_ = i->second;
 }
 
-void thMod::printIONode (void)
+void thSynthTree::printIONode (void)
 {
 	ionode_->PrintArgs();
 }
 
-void thMod::setChanArg (thArg *arg)
+void thSynthTree::setChanArg (thArg *arg)
 {
 	thArg *oldArg = chanargs_[arg->name()];
 
@@ -230,7 +222,7 @@ void thMod::setChanArg (thArg *arg)
 	chanargs_[arg->name()] = arg;
 }
 
-void thMod::process (unsigned int windowlen)
+void thSynthTree::process (unsigned int windowlen)
 {
 	thPlugin *plug = NULL;
 	NodeList children = ionode_->GetChildren();
@@ -249,7 +241,7 @@ void thMod::process (unsigned int windowlen)
 	}
 }
 
-void thMod::processHelper(unsigned int windowlen, thNode *node)
+void thSynthTree::processHelper(unsigned int windowlen, thNode *node)
 {
 	NodeList children = node->GetChildren();
 
@@ -267,9 +259,9 @@ void thMod::processHelper(unsigned int windowlen, thNode *node)
 }
 
 /* reset the recalc flag for nodes with active plugins */
-void thMod::setActiveNodes(void)
+void thSynthTree::setActiveNodes(void)
 {
-	for (list<thNode*>::const_iterator i = activelist_.begin();
+	for (NodeList::const_iterator i = activelist_.begin();
 		 i != activelist_.end(); ++i)
 	{
 		thNode *data = *i;
@@ -282,7 +274,7 @@ void thMod::setActiveNodes(void)
 	}
 }
 
-void thMod::setActiveNodesHelper(thNode *node)
+void thSynthTree::setActiveNodesHelper(thNode *node)
 {
 	NodeList parents = node->GetParents();
 	thNode *data;
@@ -299,29 +291,27 @@ void thMod::setActiveNodesHelper(thNode *node)
 	}
 }
 
-void thMod::buildArgMap (void)
+void thSynthTree::buildArgMap (void)
 {
 	thNode *curnode;  /* current node and arg in the loops */
 	thArg *curarg;
 	thPlugin *plugin;
 
-	float *tmp;
 	int index;
 	int registeredargs = 0;
 
 	int k;
 
-	ArgMap argiterator;
+	thArgMap argiterator;
 	
-	/* for every node in the thMod */
-	for (NodeMap::const_iterator i = modnodes_.begin();
-		 i != modnodes_.end(); i++)
+	/* for every node in the thSynthTree */
+	for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
 	{
 		curnode = i->second;
 
 		if(!curnode)
 		{
-			fprintf(stderr, "thMod::BuildArgMap: curnode points to NULL\n");
+			fprintf(stderr, "thSynthTree::BuildArgMap: curnode points to NULL\n");
 		}
 
 /* XXXXXXXXXXXXXX: RIGHT NOW the parser indexes the nodes as it reads them, it
@@ -349,10 +339,7 @@ to 0 here and set the index of each node to -1 when it is first created. */
 					/* if the arg does not exist, set it to 0 */
 					if(curarg == NULL)
 					{
-						tmp = new float[1];
-						tmp[0] = 0;
-						curarg = curnode->SetArg(plugin->getArgName(k),
-												 tmp, 1);
+						curarg = curnode->setArg(plugin->getArgName(k), 0);
 					}
 					else
 					{
@@ -367,15 +354,15 @@ to 0 here and set the index of each node to -1 when it is first created. */
 		argiterator = curnode->GetArgTree();
 		
 		/* We don't need any of this because now the index is assigned via SetArg */
-		/* for each thArg inside each thNode inside the thMod */
-		for (ArgMap::const_iterator j = argiterator.begin();
+		/* for each thArg inside each thNode inside the thSynthTree */
+		for (thArgMap::const_iterator j = argiterator.begin();
 			 j != argiterator.end(); j++)
 		{
 			curarg = j->second;
 
 			if(curarg == NULL)
 			{
-				fprintf(stderr, "thMod::BuildArgMap: curarg points to NULL\n");
+				fprintf(stderr, "thSynthTree::BuildArgMap: curarg points to NULL\n");
 			}
 			else
 			{
@@ -390,37 +377,36 @@ to 0 here and set the index of each node to -1 when it is first created. */
 	}
 }
 
-void thMod::setPointers (void)
+void thSynthTree::setPointers (void)
 {
 	thNode *node;     /* for referencing nodes that curnode points to */
 	thNode *curnode;  /* current node and arg in the loops */
 	thArg *arg;
 	thArg *curarg;
-	float *tmp;
 
-	ArgMap argiterator;
+	thArgMap argiterator;
 	
-	/* for every node in the thMod */
-	for (NodeMap::const_iterator i = modnodes_.begin();
-		 i != modnodes_.end(); i++)
+	/* for every node in the thSynthTree */
+	for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
 	{
 		curnode = i->second;
 		if(!curnode)
 		{
-			fprintf(stderr, "thMod::setPointers: curnode points to NULL\n");
+			fprintf(stderr,
+					"thSynthTree::setPointers: curnode points to NULL\n");
 		}
 
 		argiterator = curnode->GetArgTree();
 
-		/* for each thArg inside each thNode inside the thMod */
-		for (ArgMap::const_iterator j = argiterator.begin();
+		/* for each thArg inside each thNode inside the thSynthTree */
+		for (thArgMap::const_iterator j = argiterator.begin();
 			 j != argiterator.end(); j++)
 		{
 			curarg = j->second;
 
 			if(curarg == NULL)
 			{
-				fprintf(stderr, "thMod::setPointers: curarg points to NULL\n");
+				fprintf(stderr, "thSynthTree::setPointers: curarg points to NULL\n");
 			}
 
 			/* if the thArg is a pointer, set argPointNodeID to the node's ID */
@@ -442,9 +428,7 @@ void thMod::setPointers (void)
 					/* if the arg does not exist, set it to 0 */
 					if(arg == NULL)
 					{
-						tmp = new float[1];
-						tmp[0] = 0;
-						arg = node->SetArg(argPtrName, tmp, 1);
+						arg = node->setArg(argPtrName, 0);
 
 						node->GetArgTree()[arg->name()] = arg;
 					} 
@@ -457,22 +441,22 @@ void thMod::setPointers (void)
 	}
 }
 
-void thMod::buildNodeIndex (void)
+void thSynthTree::buildNodeIndex (void)
 {
 	thNode *curnode;
 
 //	nodeindex = (thNode **)calloc(nodecount, sizeof(thNode*));
 	nodeindex_ = new thNode*[nodecount_];
 
-	/* for every node in the thMod */
-	for (NodeMap::const_iterator i = modnodes_.begin();
-		 i != modnodes_.end(); i++)
+	/* for every node in the thSynthTree */
+	for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
 	{
 		curnode = i->second;
 
 		if(curnode == NULL)
 		{
-			fprintf(stderr, "thMod::setPointers: curnode points to NULL\n");
+			fprintf(stderr,
+					"thSynthTree::setPointers: curnode points to NULL\n");
 		}
 
 		/* set the index to point to the thNode */
@@ -480,7 +464,7 @@ void thMod::buildNodeIndex (void)
 	}
 }
 
-void thMod::buildSynthTree (void)
+void thSynthTree::buildSynthTree (void)
 {
 	buildNodeIndex();  /* set up the index of thNodes */
 
@@ -490,7 +474,7 @@ void thMod::buildSynthTree (void)
 	buildSynthTreeHelper2(ionode_->GetArgTree(), ionode_);
 }
 
-int thMod::buildSynthTreeHelper(thNode *parent, int nodeid)
+int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
 {
 	thNode *currentnode = nodeindex_[nodeid];
 
@@ -508,18 +492,19 @@ int thMod::buildSynthTreeHelper(thNode *parent, int nodeid)
 	return 0;
 }
 
-void thMod::buildSynthTreeHelper2(const ArgMap &argtree, thNode *currentnode)
+void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
+										thNode *currentnode)
 {
 	const thArg *data;
 	thNode *node;
 
-	for (ArgMap::const_iterator i = argtree.begin(); i != argtree.end(); i++)
+	for (thArgMap::const_iterator i = argtree.begin(); i != argtree.end(); i++)
 	{
 		data = i->second;
 
 		if(data == NULL)
 		{
-			fprintf(stderr, "thMod::buildSynthTreeHelper2: data points to NULL\n");
+			fprintf(stderr, "thSynthTree::buildSynthTreeHelper2: data points to NULL\n");
 		}
 
 		if(data && data->type() == thArg::ARG_POINTER)
@@ -544,11 +529,11 @@ void thMod::buildSynthTreeHelper2(const ArgMap &argtree, thNode *currentnode)
 	}
 }
 
-void thMod::listNodes(void)
+void thSynthTree::listNodes(void)
 {
-	for(NodeMap::const_iterator i = modnodes_.begin();
-		i != modnodes_.end(); i++)
+	for(NodeMap::const_iterator i = nodes_.begin();
+		i != nodes_.end(); i++)
 	{
-		printf("%s:  %s\n", modname_.c_str(), i->second->GetName().c_str());
+		printf("%s:  %s\n", name_.c_str(), i->second->GetName().c_str());
 	}
 }

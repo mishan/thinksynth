@@ -17,27 +17,26 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef TH_MOD_H
-#define TH_MOD_H 1
+#ifndef TH_SYNTH_TREE_H
+#define TH_SYNTH_TREE_H 1
 
 #include "thNode.h"
 
 class thSynth;
 
-class thMod {
+class thSynthTree {
 public:
-	thMod(const string &name, thSynth *synth);
-	thMod(const thMod &oldmod);  /* Copy constructor */
-	~thMod();
+	thSynthTree(const string &name, thSynth *synth);
+	thSynthTree(const thSynthTree &oldtree);  /* Copy constructor */
+	~thSynthTree();
 
 	typedef map<string, thNode*> NodeMap;
 	typedef list<thNode *> NodeList;
-	typedef map<string, thArg *> ArgMap;
 
 	thNode *findNode(string name) const
 	{
-		const NodeMap::const_iterator i = modnodes_.find(name);
-		if (i != modnodes_.end()) return i->second;
+		const NodeMap::const_iterator i = nodes_.find(name);
+		if (i != nodes_.end()) return i->second;
 		return NULL;
 	}
 
@@ -48,24 +47,24 @@ public:
 
 	void newNode(thNode *node);
 	void newNode(thNode *node, int id);
+
 	void setIONode(const string &name);
 	void printIONode(void);
-	thNode *getIONode(void) const { return ionode_; }
+	thNode *IONode(void) const { return ionode_; }
 
-	string getName(void) const { return modname_; }
-	void setName(const string &name) { modname_ = name; }
+	string name(void) const { return name_; }
+	void setName(const string &name) { name_ = name; }
 
-	string getDesc(void) const { return moddesc_; }
-	void setDesc(const string &desc) { moddesc_ = desc; }
+	string desc(void) const { return desc_; }
+	void setDesc(const string &desc) { desc_ = desc; }
 
-	int getNodeCount (void) const { return nodecount_; }
+	int nodeCount (void) const { return nodecount_; }
 
+	thArgMap chanArgs (void) { return chanargs_; } 
 	thArg *getChanArg (string argName) { return chanargs_[argName]; }
 	void setChanArg (thArg *arg);
 
-	NodeMap getNodeList (void) { return modnodes_; }
-
-	ArgMap getChanArgs (void) { return chanargs_; } 
+	NodeMap nodes (void) { return nodes_; }
 
 	void process (unsigned int windowlen);
 	void setActiveNodes(void);
@@ -75,30 +74,24 @@ public:
 	void buildSynthTree (void);
 	void listNodes(void);
 protected:
-	thSynth *getSynth (void) const { return synth_; }
+	thSynth *synth (void) const { return synth_; }
 private:
 	void processHelper (unsigned int windowlen, thNode *node);
-	void setActiveNodesHelper(thNode *node);
-
+	void setActiveNodesHelper (thNode *node);
 	void copyHelper (thNode *parentnode);
-
-	int buildSynthTreeHelper(thNode *parent, int nodeid);
-	void buildSynthTreeHelper2(const ArgMap &argtree,
-							   thNode *currentnode);
+	int buildSynthTreeHelper (thNode *parent, int nodeid);
+	void buildSynthTreeHelper2 (const thArgMap &argtree,
+								thNode *currentnode);
 
 	thSynth *synth_;
-
-	NodeMap modnodes_;
+	NodeMap nodes_;
 	NodeList activelist_;
 	thNode *ionode_;
-
-	ArgMap chanargs_;    /* midi chan args */
-
-	string modname_, moddesc_;
-
-	int nodecount_;      /* counter of thNodes in the thMod, used as the id
-							for the node index */
+	thArgMap chanargs_;    /* midi chan args */
+	string name_, desc_;
+	int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 
+							id for the node index */
 	thNode **nodeindex_; /* index of all the nodes */
 };
 
-#endif /* TH_MOD_H */
+#endif /* TH_SYNTH_TREE_H */
