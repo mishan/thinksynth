@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.6 2003/05/11 05:11:23 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.7 2003/05/11 06:12:52 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -75,7 +75,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				position = 0;
 				phase++;
 			}
-			out[i] = TH_RANGE*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 1:    /* Maximum square */
 			if(position++>maxsqrwidth) {
@@ -91,7 +91,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				position = 0;
 				phase++;
 			}
-			out[i] = TH_RANGE*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 3:    /* Minimum square */
 			if(position++>minsqrwidth) {
