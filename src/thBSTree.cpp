@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.31 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thBSTree.cpp,v 1.32 2003/05/11 08:49:43 aaronl Exp $ */
 
 #include "config.h"
 
@@ -30,6 +30,10 @@ thBSTree::thBSTree (int (*fn)(void *, void *), void *id, void *data)
 thBSTree::~thBSTree (void)
 {
 	free(bsId);
+	if (bsLeft)
+		delete bsLeft;
+	if (bsRight);
+		delete bsRight;
 }
 
 void thBSTree::Insert(thBSTree *tree)
