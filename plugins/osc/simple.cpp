@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.19 2003/05/17 14:13:27 ink Exp $ */
+/* $Id: simple.cpp,v 1.20 2003/05/17 16:01:22 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,26 +36,32 @@ int module_init (thPlugin *plugin)
 	printf("Simple Oscillator plugin loaded\n");
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
-	
+
 	return 0;
 }
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
-	float *out = new float[windowlen];
-	float *last = new float[1];
+	float *out;
+	float *out_last;
 	float halfwave, ratio;
 	float position, wavelength;
 	float pw; /* Make pw cooler! */
-	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
+	thArgValue *in_freq, *in_pw, *in_waveform;
+	thArgValue *out_arg;
+	thArgValue *inout_last;
+
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	position = (*inout_last)[0];
+	out_last = inout_last->allocate(1);
+
+	out = out_arg->allocate(windowlen);
 
 	in_freq = (thArgValue *)mod->GetArg(node, "freq");
 	in_pw = (thArgValue *)mod->GetArg(node, "pw");
 	in_waveform = (thArgValue *)mod->GetArg(node, "waveform");
-	in_last = (thArgValue *)mod->GetArg(node, "last");
-
-	position = in_last->argValues[0];
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
@@ -102,9 +108,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 	}
 	
-	node->SetArg("out", out, windowlen);
+	out_last[0] = position;
+/*	node->SetArg("out", out, windowlen);
 	last[0] = position;
 	node->SetArg("last", (float*)last, 1);
-	
+*/	
 	return 0;
 }

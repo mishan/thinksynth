@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.4 2003/05/11 08:06:24 aaronl Exp $ */
+/* $Id: rds.cpp,v 1.5 2003/05/17 16:01:22 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,25 +41,31 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out = new float[windowlen];
-	float *highout = new float[windowlen];
-	float *out_last = new float[1];
-	float *out_prevdiff = new float[1];
+	float *out;
+	float *highout;
+	float *out_last;
 	thArgValue *in_arg, *in_cutoff, *in_res;
-	thArgValue *in_last, *in_prevdiff;
+	thArgValue *out_arg, *out_high;
+	thArgValue *inout_last;
 	unsigned int i;
 	float last, diff;
 	float prevdiff, rdiff;
 	float fact, rfact;
 
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_high = (thArgValue *)mod->GetArg(node, "highout");
+	inout_last = (thArgValue *)mod->GetArg(node, "last");
+
+	last = (*inout_last)[0];
+	prevdiff = (*inout_last)[1];
+	out_last = inout_last->allocate(2);
+
+	out = out_arg->allocate(windowlen);
+	highout = out_high->allocate(windowlen);
+
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
 	in_res = (thArgValue *)mod->GetArg(node, "res");
-	in_last = (thArgValue *)mod->GetArg(node, "last");
-	in_prevdiff = (thArgValue *)mod->GetArg(node, "prevdiff");
-
-	prevdiff = (*in_prevdiff)[0];
-	last = (*in_last)[0];
 
 	for(i=0;i<windowlen;i++) {
 	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));
@@ -78,13 +84,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	}
 
 	out_last[0] = last;
-	out_prevdiff[0] = prevdiff;
+	out_last[1] = prevdiff;
 
-	node->SetArg("out", out, windowlen);
+/*	node->SetArg("out", out, windowlen);
 	node->SetArg("highout", highout, windowlen);
 	node->SetArg("last", out_last, 1);
 	node->SetArg("prevdiff", out_prevdiff, 1);
-
+*/
 	return 0;
 }
 

@@ -1,4 +1,4 @@
-/* $Id: print.cpp,v 1.1 2003/05/17 12:45:01 ink Exp $ */
+/* $Id: print.cpp,v 1.2 2003/05/17 16:01:22 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,7 +47,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	printf("Printing Node %s:\n", nodename); 
 	for(i=0;i<windowlen;i++) {
-		printf("%f \t", nodename, (*in_arg)[i]);
+		printf("%f \t", (*in_arg)[i]);
 	}
 	printf("\n");
 

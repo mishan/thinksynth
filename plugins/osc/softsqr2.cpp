@@ -1,4 +1,4 @@
-/* $Id: softsqr2.cpp,v 1.5 2003/05/11 08:06:24 aaronl Exp $ */
+/* $Id: softsqr2.cpp,v 1.6 2003/05/17 16:01:22 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -43,20 +43,27 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
-	float *out = new float[windowlen];
-	float *last = new float[2];
+	float *out;
+	float *out_last;
 	float wavelength, ratio;
 	float sinewidth, minsqrwidth, maxsqrwidth;
-	int position, phase;
-	thArgValue *in_freq, *in_pw, *in_sw, *in_position;
+	float position;
+	int phase;
+	thArgValue *in_freq, *in_pw, *in_sw;
+	thArgValue *out_arg;
+	thArgValue *inout_last;
+
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	position = (*inout_last)[0];
+	phase = (int)(*inout_last)[1];
+	out_last = inout_last->allocate(2);
+	out = out_arg->allocate(windowlen);
 
 	in_freq = (thArgValue *)mod->GetArg(node, "freq");
 	in_pw = (thArgValue *)mod->GetArg(node, "pw"); // Pulse Width
 	in_sw = (thArgValue *)mod->GetArg(node, "sw"); // Sine Width
-	in_position = (thArgValue *)mod->GetArg(node, "position");
 
-	position = (int)(*in_position)[0]; // Where in the phase we are
-	phase = (int)(*in_position)[1]; // Which phase are we in
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 
 	for(i=0; i < (int)windowlen; i++) {
@@ -101,10 +108,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 	}
 	
-	node->SetArg("out", out, windowlen);
-	last[0] = (float)position;
-	last[1] = (float)phase;
-	node->SetArg("position", (float*)last, 2);
+/*	node->SetArg("out", out, windowlen); */
+	out_last[0] = position;
+	out_last[1] = (float)phase;
+/*	node->SetArg("position", (float*)last, 2); */
 	
 	return 0;
 }

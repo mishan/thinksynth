@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.11 2003/05/11 08:57:36 ink Exp $ */
+/* $Id: static.cpp,v 1.12 2003/05/17 16:01:22 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,29 +45,36 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
-	float *out = new float[windowlen];
-	float *last = new float[2];
+	float *out;
+	float *out_last;
+	float position, last;
 	thArgValue *in_sample;  /* How often to change the random number */
-	thArgValue *in_last;  /* So sample can be consistant over windows */
+	thArgValue *out_arg;
+	thArgValue *inout_last;  /* So sample can be consistant over windows */
+
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	position = (*inout_last)[0];
+	last = (*inout_last)[1];
+	out_last = inout_last->allocate(1);
+	out = out_arg->allocate(windowlen);
 
 	in_sample = (thArgValue *)mod->GetArg(node, "sample");
-	in_last = (thArgValue *)mod->GetArg(node, "last");
-
-	last[0] = (*in_last)[0];
-	last[1] = (*in_last)[1];
 
 	for(i=0; i < (int)windowlen; i++) {
-		if(++last[0] > (*in_sample)[i]) {
+		if(++last > (*in_sample)[i]) {
 			out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
-			last[0] = 0;
-			last[1] = out[i];
+			position = 0;
+			last = out[i];
 		} else {
-			out[i] = last[1];
+			out[i] = last;
 		}
 	}
 
-	node->SetArg("out", out, windowlen);
+	out_last[0] = position;
+	out_last[1] = last;
+/*	node->SetArg("out", out, windowlen);
 	node->SetArg("last", last, 2);
-
+*/
 	return 0;
 }
