@@ -29,19 +29,19 @@ node map1 env::map {
 	in = env->out;
 	inmin = 0;
 	inmax = 256;
-	outmin = 1;
-	outmax = 0;
+	outmin = 0;
+	outmax = 1;
 };
 
 node filt filt::rds {
 	in = mixer2->out;
-	cutoff = map1->out;
-	res = 0.9;
+	cutoff = 0.5;
+	res = map1->out;
 };
 
 node osc osc::simple {
 	freq = freq->out;
-	waveform = 2;
+	waveform = 1;
 };
 
 node osc2 osc::simple {
