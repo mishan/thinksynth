@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.15 2003/04/27 19:15:15 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.16 2003/04/27 19:46:43 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -16,7 +16,7 @@ all:
 	done
 
 %$(SHARED_SUFFIX): %.cpp
-ifeq ($(USE_SONAME),"yes")
+ifeq ($(USE_SONAME),yes)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS)
 else
 	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -o $@ $< $(PLUGIN_LDFLAGS)
