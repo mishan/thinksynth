@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.64 2003/05/06 05:57:50 ink Exp $ */
+/* $Id: main.cpp,v 1.65 2003/05/06 06:06:50 ink Exp $ */
 
 #include "config.h"
 
@@ -38,7 +38,7 @@ int main (int argc, char *argv[])
 	thWav *outputwav;
 	signed short *outputbuffer;
 	float *mixedbuffer;
-	thException e;
+	thWavException e;
 
 	plugin_path = strdup(PLUGIN_PATH);
 	plugin_len = strlen(plugin_path);
@@ -113,7 +113,7 @@ syntax:
 	try {
 	  outputwav = new thWav("test.wav", &audiofmt);
 	}
-	catch (e) {
+	catch (thWavException e) {
 	}
 
 	outputbuffer = (signed short *)alloca(Synth.GetWindowLen() * Synth.GetChans() * sizeof(signed short));
