@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.14 2004/09/05 10:09:28 joshk Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.15 2004/09/15 07:38:31 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,6 +31,10 @@
 #include "gthAudio.h"
 #include "gthJackAudio.h"
 
+/* XXX */
+#include "gthPrefs.h"
+extern gthPrefs *prefs;
+
 void jack_shutdown (void *arg)
 {
 //	gthJackAudio *jout = (gthJackAudio *)arg;
@@ -51,28 +55,11 @@ gthJackAudio::gthJackAudio (thSynth *argsynth)
 		throw errno;
 	}
 
-	chans = argsynth->GetChans();
-	out_ports = new jack_port_t *[chans];
-
-	for (int i = 0; i < chans; i++)
-	{
-		char pstr[8];
-		sprintf(pstr, "out_%d", i+1);
-
-		out_ports[i] = jack_port_register(jack_handle, pstr,
-										  JACK_DEFAULT_AUDIO_TYPE, 
-										  JackPortIsOutput|JackPortIsTerminal,
-										  0);
-	}
+	registerPorts();
 
 //	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
 
-	printf("JACK sample rate is %d\n", jack_get_sample_rate(jack_handle));
-	printf("JACK buffer size is %d\n", jack_get_buffer_size(jack_handle));
-	printf("JACK is %s\n", jack_is_realtime(jack_handle) ? "realtime" : "not realtime");
-
-	printf("thinksynth sample rate is %li\n", argsynth->GetSamples());
-	printf("thinksynth buffer size is %d\n", argsynth->GetWindowLen());
+	getStats();
 
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
 }
@@ -81,14 +68,100 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 															   void *))
 	throw (thIOException)
 {
-		synth = argsynth;
+	string **vals;
+  	synth = argsynth;
 
 	if ((jack_handle = jack_client_new("thinksynth")) == NULL)
 	{
 		throw errno;
 	}
 
-	chans = argsynth->GetChans();
+	registerPorts();
+	
+//	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
+//	jack_set_buffer_size(jack_handle, argsynth->GetWindowLen());
+
+	getStats();
+
+	jack_on_shutdown (jack_handle, jack_shutdown, this);
+
+	jack_set_process_callback(jack_handle, callback, this);
+	jack_activate(jack_handle);
+	
+	if ((vals = prefs->Get("autoconnect")) != NULL)
+	{
+		if (*vals[0] == "true")
+			tryConnect ();
+	}
+}
+
+void gthJackAudio::tryConnect (void)
+{
+	static int connected = 0;
+	string output;
+
+	if (!jack_handle)
+	{
+		debug("Called with a NULL jack_handle!");
+		return;
+	}
+	
+	if (connected)
+	{
+		debug("already connected...");
+		return;
+	}
+
+	/* Now try to connect */
+	if (jack_port_by_name(jack_handle, "alsa_pcm:playback_1"))
+		output = "alsa_pcm";
+	else if (jack_port_by_name(jack_handle, "oss:playback_1") != NULL)
+		output = "oss";
+
+	if (output != "")
+	{
+		int error = 0;
+		size_t jacklen = output.size() + 12; /* ???:playback_N + NUL */
+#define thlen 17 /* thinksynth:out_N + NUL */
+		char *out = (char*)malloc(jacklen), *ths = (char*)malloc(thlen);
+		int i;
+
+		for (i = 1; i <= 2; i++)
+		{
+			snprintf(out, jacklen, "%s:playback_%d", output.c_str(), i);
+			snprintf(ths, thlen, "thinksynth:out_%d", i);
+			if (jack_connect(jack_handle, ths, out) != 0)
+			{
+				fprintf(stderr, "warning: Could not connect JACK %s -> %s\n",
+					ths, out);
+				error = 1;
+			}
+		}
+		free (out);
+		free (ths);
+
+		if (!error)
+		{
+			printf("JACK connection made to '%s'\n", output.c_str());
+			connected = 1;
+		}
+	}
+	else
+	{
+		fprintf(stderr, "warning: no suitable JACK playback targets found\n");
+	}
+	return;
+}
+
+void gthJackAudio::registerPorts (void)
+{
+	if (!jack_handle)
+	{
+		debug("Called with a NULL jack_handle!");
+		return;
+	}
+	
+	chans = synth->GetChans();
 	out_ports = new jack_port_t *[chans];
 
 	for (int i = 0; i < chans; i++)
@@ -101,21 +174,22 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 										  JackPortIsOutput|JackPortIsTerminal,
 										  0);
 	}
+}
 
-//	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
-//	jack_set_buffer_size(jack_handle, argsynth->GetWindowLen());
+void gthJackAudio::getStats (void)
+{
+	if (!jack_handle)
+	{
+		debug("Called with a NULL jack_handle!");
+		return;
+	}
 
-	printf("JACK sample rate is %d\n", jack_get_sample_rate(jack_handle));
+  	printf("JACK sample rate is %d\n", jack_get_sample_rate(jack_handle));
 	printf("JACK buffer size is %d\n", jack_get_buffer_size(jack_handle));
-	printf("JACK is %s\n", jack_is_realtime(jack_handle) ? "realtime" : "not realtime");
+	printf("JACK is %srealtime\n", jack_is_realtime(jack_handle) ? "" : "not ");
 
-	printf("thinksynth sample rate is %li\n", argsynth->GetSamples());
-	printf("thinksynth buffer size is %d\n", argsynth->GetWindowLen());
-
-	jack_on_shutdown (jack_handle, jack_shutdown, this);
-
-	jack_set_process_callback(jack_handle, callback, this);
-	jack_activate(jack_handle);
+	printf("thinksynth sample rate is %li\n", synth->GetSamples());
+	printf("thinksynth buffer size is %d\n", synth->GetWindowLen());
 }
 
 gthJackAudio::~gthJackAudio (void)

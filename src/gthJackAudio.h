@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.7 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthJackAudio.h,v 1.8 2004/09/15 07:38:31 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -19,6 +19,9 @@
 
 #ifndef GTH_JACKAUDIO_H
 #define GTH_JACKAUDIO_H
+
+#include <jack/jack.h>
+#include "gthAudio.h"
 
 class gthJackAudio : public gthAudio
 {
@@ -41,6 +44,8 @@ public:
 
 	bool ProcessEvents (void);
 
+	void tryConnect (void);
+
 	jack_client_t *jack_handle;
 protected:
 	int chans;
@@ -48,6 +53,8 @@ protected:
 	thSynth *synth;
 private:
 	gthAudioFmt ofmt, ifmt;
+	void registerPorts (void);
+	void getStats (void);
 };
 
 #endif /* GTH_JACKAUDIO_H */
