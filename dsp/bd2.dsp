@@ -9,9 +9,9 @@ node ionode {
 	len_d = 5000;
 	len_s = 80;
 	len_r = 2000;
-	freqhi = 120;
-	freqlo = 40;
-	filtq = 0.95;
+	freqhi = 0.03;
+	freqlo = 0;
+	filtq = 0.9;
 };
 
 node mixer mixer::mul {
@@ -35,7 +35,7 @@ node freqmap env::map {
 	outmax = ionode->freqhi;
 };
 
-node filt filt::res2pole {
+node filt filt::res1pole {
 	in = osc->out;
 	cutoff = freqmap->out;
 	res = ionode->filtq;
