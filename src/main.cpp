@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.135 2004/02/10 01:57:24 misha Exp $ */
+/* $Id: main.cpp,v 1.136 2004/02/10 01:58:41 misha Exp $ */
 
 #include "config.h"
 
@@ -109,14 +109,16 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 				printf("PITCH BEND:  %i\n", ev->data.control.value);
 				break;
 			}
+/*
 			case SND_SEQ_EVENT_PGMCHANGE:
 			{
 				printf("PGM CHANGE  %d\n", ev->data.control.value);
 				break;
 			}
+*/
 			default:
 			{
-				debug("got unknown event 0x%02x\n", ev->type);
+				debug("got unknown event 0x%02x", ev->type);
 				break;
 			}
 		}
