@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.70 2004/06/15 06:15:28 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.71 2004/06/30 00:16:08 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -30,6 +30,11 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 	output = new float[channels*windowlen];
 	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
+
+	polymax = 10;    /* XXX We need to be able to set this somehow */
+
+	notecount = 0;
+	notecount_decay = 0;
 }
 
 thMidiChan::~thMidiChan (void)
@@ -67,7 +72,12 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 
 		decaying.push_front(i->second);
 		notes.erase(i);
+		notecount_decay++; /* we are keeping track of polyphony this way until
+							  the advanced cool method is implemented */
+		/* no need to dec notecounter since the new note replaces this one */
 	}
+	notecount++; /* see notecount_decay++ comment */
+
 /* XXXXXXXXXXXXXXXXXXX: THIS IS BAD   WE MUST REMAP ALLLLL MIDI VALUS AT THE SAME TIME (but we only really have this one right now) */
 	midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
 	notes[id] = midinote;
@@ -122,9 +132,48 @@ void thMidiChan::Process (void)
 
 	string argname;
 
+
+/* Before any processing, we shall do a polyphony test. */
+	if(notecount + notecount_decay > polymax && polymax > 0) /* we have too
+											many notes, and polyphony > 0 */
+	{
+		if(notecount_decay > 0) /* there are some notes not being held down */
+		{
+			list<thMidiNote*>::iterator iter = decaying.begin();
+			while(iter != decaying.end() && notecount_decay > 0 &&
+				  notecount + notecount_decay > polymax) /* more to do */
+			{
+				data = *iter;
+				iter = decaying.erase(iter);
+				delete data;
+				notecount_decay--;
+			}
+		}
+		if(notecount > polymax) /* too many notes held down */
+		{
+			map<int, thMidiNote*>::iterator iter = notes.begin();
+			while(iter != notes.end() && notecount > polymax)
+			{
+				map<int, thMidiNote*>::iterator olditer = iter;  /* a copy of
+												the old iterator to erase */
+				iter++;
+				data = olditer->second;
+				notes.erase(olditer);
+				delete data;
+				notecount--;
+			}	
+		}
+	}
+
+	/* re-count the notes as we process, just to be sure nothing screws up */
+	notecount = 0;
+	notecount_decay = 0;
+
 	map<int, thMidiNote*>::iterator iter = notes.begin();
 	while(iter != notes.end())
 	{
+		notecount++;
+
 		data = iter->second;
 
 		dirty = true;
@@ -156,6 +205,7 @@ void thMidiChan::Process (void)
 		{
 			delete data;
 			notes.erase(olditer);
+			notecount--;  /* polyphony stuff */
 		}
 	}
 
@@ -164,6 +214,7 @@ void thMidiChan::Process (void)
 	list<thMidiNote*>::iterator diter = decaying.begin();
 	while(diter != decaying.end())
 	{
+		notecount_decay++;
 		data = *diter;
 		dirty = 1;
 		data->Process(windowlength);
@@ -186,6 +237,7 @@ void thMidiChan::Process (void)
 		if(play && (*play)[windowlength - 1] == 0) {
 			diter = decaying.erase(diter);
 			delete data;
+			notecount_decay--;  /* more polyphony stuff */
 		}
 		else
 		{

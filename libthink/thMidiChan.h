@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.24 2004/05/04 04:12:26 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.25 2004/06/30 00:16:08 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -35,6 +35,9 @@ private:
 	int channels, windowlength;
 	float *output;
 	int outputnamelen;
+	int polymax;  /* maximum polyphony */
+	int notecount, notecount_decay;  /* keeping track of polyphony this way
+										for now */
 };
 
 #endif /* TH_MIDICHAN_H */
