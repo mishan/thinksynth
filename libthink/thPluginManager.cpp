@@ -7,7 +7,9 @@
 #include <string.h>
 #include <ctype.h>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <dlfcn.h>
+#include <fcntl.h>
 
 #include "thList.h"
 #include "thBSTree.h"
@@ -28,9 +30,19 @@ char *thPluginManager::GetPath (char *name)
 {
 	char *path = new char[strlen(name) + strlen(PLUGIN_PATH) + 
 						  strlen(PLUGPOSTFIX) + 1];
-	
-	sprintf(path, "%s%s%s", PLUGIN_PATH, name, PLUGPOSTFIX);
+	int fd;
 
+	/* Use the default path first */
+	sprintf(path, "%s%s%s", PLUGIN_PATH, name, PLUGPOSTFIX);
+	
+	/* Check for existence in the expected place */
+	fd = open (path, O_RDONLY);
+
+	if (fd == -1) { /* File existeth not */
+		fprintf (stderr, "Warning: %s not found, looking in plugins/\n", path);
+		sprintf (path, "plugins/%s%s", name, PLUGPOSTFIX);
+	}	
+		
 	return path;
 }
 
