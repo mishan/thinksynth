@@ -1,13 +1,11 @@
-dnl $Id: configure.ac,v 1.27 2003/04/28 02:32:50 joshk Exp $
+dnl $Id: configure.ac,v 1.28 2003/04/28 21:09:26 joshk Exp $
 
 AC_INIT
 
 dnl Don't let ancient Autoconfs touch this
 AC_PREREQ(2.5)
 
-if test "$prefix" = "NONE"; then
-	prefix=/usr/local
-fi
+AC_PREFIX_DEFAULT([/usr/local])
 
 AM_CONFIG_HEADER(config.h)
 AM_MAINTAINER_MODE
