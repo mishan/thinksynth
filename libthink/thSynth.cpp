@@ -65,10 +65,12 @@ void thSynth::BuildSynthTree(char *modname)
   ionode->SetRecalc(true);  /* We dont want to recalc the root if something
 			       points here */
 
-  for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
-    data = (thArgValue *)((thArg *)listnode->data)->GetArg();
-    if(data->argType == ARG_POINTER) {
-      BuildSynthTreeHelper(mod, ionode, data->argPointNode);
+  if(ionode->GetArgList()) {
+    for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
+      data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+      if(data->argType == ARG_POINTER) {
+	BuildSynthTreeHelper(mod, ionode, data->argPointNode);
+      }
     }
   }
 }
@@ -89,12 +91,14 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
   currentnode->AddParent(parent);
   printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
 
-  for(listnode = ((thList *)currentnode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
-    data = (thArgValue *)((thArg *)listnode->data)->GetArg();
-    if(data->argType == ARG_POINTER) {
-      node = mod->FindNode(data->argPointNode);
-      if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
-	BuildSynthTreeHelper(mod, currentnode, data->argPointNode);
+  if(currentnode->GetArgList()) {
+    for(listnode = ((thList *)currentnode->GetArgList())->GetHead(); listnode ; listnode = listnode->prev) {
+      data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+      if(data->argType == ARG_POINTER) {
+	node = mod->FindNode(data->argPointNode);
+	if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
+	  BuildSynthTreeHelper(mod, currentnode, data->argPointNode);
+	}
       }
     }
   }

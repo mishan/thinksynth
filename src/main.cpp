@@ -44,9 +44,9 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 
 	Synth->LoadMod(argv[1]);
 	Synth->ListMods();
-	((thMod *)Synth->FindMod("test"))->PrintIONode();
+	//((thMod *)Synth->FindMod("test"))->PrintIONode();
 	//printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
-	Synth->BuildSynthTree("test");
+	Synth->BuildSynthTree("static");
 	//	((thMod *)Synth->FindMod("test"))->Process();
-	Synth->Process("test");
+	Synth->Process("static");
 }
