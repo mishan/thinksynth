@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.21 2004/04/26 06:34:10 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.22 2004/05/06 08:46:41 misha Exp $ */
 
 #include "config.h"
 
@@ -26,11 +26,12 @@ static char	keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
 static unsigned int	color0 = 0x00000000;	/* key border			    */
 static unsigned int	color1 = 0x00FFFFFF;	/* white key			    */
 static unsigned int	color2 = 0x00000000;	/* black key			    */
-static unsigned int	color3 = 0x00C0FFFF;	/* A (440 Hz) key		    */
-static unsigned int color4 = 0x00B0B0B0;    /* white key / active       */
-static unsigned int	color5 = 0x00909090;	/* black key / active		*/
-/* 00707070 */
-static unsigned int	color6 = 0x0090D0D0;	/* A (440 Hz) key / active	*/
+static unsigned int	color3 = 0x00C0FFFF;	/* middle C key		    */
+static unsigned int color4 = 0x005050FF;    /* white key / active       */
+static unsigned int	color5 = 0x005050FF;	/* black key / active		*/
+/* 00707070 */ /* 00909090 */
+static unsigned int	color6 = 0x005050FF;	/* middle C key / active	*/
+/* 0090D0D0 */
 
 static int key_sizes[4][7] =
 {
