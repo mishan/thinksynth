@@ -1,11 +1,11 @@
-# $Id: Makefile.in,v 1.22 2004/02/05 07:07:46 misha Exp $
+# $Id: Makefile.in,v 1.23 2004/02/20 08:00:56 ink Exp $
 
-BINARY = thinksynth
+BINARY = thinksynth monotest
 
 bindir=@bindir@
 prefix=@prefix@
 
-all: thinksynth
+all: thinksynth monotest
 
 include ../build.mk
 
@@ -14,12 +14,17 @@ INCLUDES = -I.. -I../libthink
 LDFLAGS += @LIBS@ -L../libthink -lthink
 
 MAINOBJS = main.o
+MONOMAINOBJS = monotest.o
 
 thinksynth: $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) -lthink -L.
 
+monotest: $(MONOMAINOBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(MONOMAINOBJS) $(LDFLAGS) -lthink -L.
+
 clean::
 	rm -f thinksynth
+	rm -f monotest
 
 distclean::
 	rm -f Makefile
