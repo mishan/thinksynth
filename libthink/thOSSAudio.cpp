@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.18 2003/09/08 20:31:21 misha Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.19 2003/09/08 21:49:03 misha Exp $ */
 
 #include "config.h"
 
@@ -37,11 +37,10 @@
 thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	throw(thIOException)
 {
-	int oss_channels = afmt->channels; /* OSS uses the value of 0 to indicate
-					  1 channel, and 1 to indicate 2 
-					  channels, so we must decrement the 
-					  channel count */
-	int format;
+	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate
+											1 channel, and 1 to indicate 2 
+											channels, so we must decrement the 
+											channel count */
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
 
@@ -78,11 +77,10 @@ thOSSAudio::~thOSSAudio()
 
 void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 {
-	int oss_channels = afmt->channels; /* OSS uses the value of 0 to indicate
-										  1 channel, and 1 to indicate 2 
-										  channels, so we must decrement the 
-										  channel count */
-	int format = afmt->format;
+	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate
+											1 channel, and 1 to indicate 2 
+											channels, so we must decrement the 
+											channel count */
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
 
@@ -97,7 +95,7 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 		break;
 	}
 
-	if(ioctl(fd, SNDCTL_DSP_SETFMT, &format) == -1) {
+	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
 	}
 
