@@ -397,7 +397,6 @@ int main (int argc, char *argv[])
 
 		fprintf(stderr, "Falling back to dummy audio device\n");
 
-		delete aout;
 		aout = new gthDummyAudio(Synth);
 	}
 
