@@ -16,9 +16,17 @@
 #include "main.h"
 */
 
+#include "thArg.h"
+#include "thBSTree.h"
+#include "thPlugin.h"
+#include "thNode.h"
+#include "thMod.h"
+
 #include "yygrammar.h"
 #include "parser.h"
 
+thMod *parsemod;
+thNode *parsenode;
 
 // XX - REIMPLEMENT GLOBAL STUFFS
 //modnode *parsemod = NULL;
@@ -170,6 +178,10 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 	add_thnode(parsemod,$2.str,&targs,$3.str);*/
 //	args_deinit(&targs);
 //	targs=NULL;
+
+	parsenode->SetName($2.str);
+	parsemod->NewNode(parsenode);
+	parsenode = new thNode(NULL, NULL);		/* add name, plugin */
 }
 ;
 

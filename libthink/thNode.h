@@ -7,6 +7,7 @@ public:
 	~thNode();
 
 	void SetName(char *name);
+	char *GetName();
 	void SetArg(char *name, float *value, int num);
 	void SetArg(char *name, char *node, char *value);
 	

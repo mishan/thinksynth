@@ -4,6 +4,12 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "thArg.h"
+#include "thBSTree.h"
+#include "thPlugin.h"
+#include "thNode.h"
+#include "thMod.h"
+
 #include "thException.h"
 #include "thAudio.h"
 #include "thAudioBuffer.h"
@@ -14,5 +20,8 @@
 
 int main (int argc, char *argv[])
 {
+	parsemod = new thMod(NULL);     /* these are used by the parser */
+	parsenode = new thNode(NULL, NULL);
+
 	yyparse();
 }

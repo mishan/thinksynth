@@ -24,7 +24,11 @@ thNode::~thNode ()
 void thNode::SetName(char *name) {
 	free(nodename);
 	nodename = name;
-};
+}
+
+char *thNode::GetName() {
+	return nodename;
+}
 
 void thNode::SetArg (char *name, float *value, int num)
 {

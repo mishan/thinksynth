@@ -11,7 +11,7 @@ public:
 
 	void Process (void);
 private:
-	thBSTree *nodes, *actlist;
+	thBSTree *modnodes, *actlist;
 	thNode *comnode;
 
 	char *modname;

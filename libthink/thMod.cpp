@@ -12,7 +12,7 @@
 thMod::thMod (char *name)
 {
 	modname = strdup(name);
-	nodes = new thBSTree;
+	modnodes = new thBSTree;
 
 	/* create any other objects */
 }
@@ -28,6 +28,7 @@ thNode *thMod::FindNode (char *name)
 
 void thMod::NewNode (thNode *node)
 {
+	modnodes->Insert(node->GetName(), node);
 }
 
 void thMod::Process (void)

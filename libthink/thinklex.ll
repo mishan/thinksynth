@@ -5,6 +5,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "thArg.h"
+#include "thBSTree.h"
+#include "thPlugin.h"
+#include "thNode.h"
+#include "thMod.h"
+
 #include "yygrammar.h"
 #include "parser.h"
 
