@@ -48,7 +48,7 @@ CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. Is your C includes install complete?])])
 AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing libdl includes. Is your C includes install copmlete?])])
 AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"], [AC_MSG_ERROR([You need libdl to compile and use this program!])])
-AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR)],)
+AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
 
 AC_PATH_PROG(unamepath, uname)
 if test "_$unamepath" = _; then
