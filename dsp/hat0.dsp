@@ -15,12 +15,10 @@ node ionode {
 	decay = 5000;
 	midp = 40;
 
-	cutmin = 0;
-	cutmax = 1;
-	res = 0.7;
+	cutmin = 0.4;
+	cutmax = 0.7;
 
 	waveform = 2;
-#temp = print->foo;
 };
 
 node adsr env::adsr {
@@ -38,10 +36,6 @@ node static osc::static {
 node freqmul math::mul {
 	in0 = ionode->freq;
 	in1 = ionode->freqmul;
-};
-
-node print misc::print {
-	in = mixer->out;
 };
 
 node osc1 osc::simple {
@@ -71,10 +65,9 @@ node filtmap env::map {
 	outmax = ionode->cutmax;
 };
 
-node filter filt::rds {
+node filter filt::ds {
 	in = ringmod->out;
 	cutoff = filtmap->out;
-	res = ionode->res;
 };
 
 node mixer mixer::mul {
