@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.168 2004/04/18 10:04:22 misha Exp $ */
+/* $Id: main.cpp,v 1.169 2004/05/04 04:05:59 misha Exp $ */
 
 #include "config.h"
 
@@ -30,6 +30,8 @@
 /* XXX: globals */
 static Glib::Thread *ui = NULL;
 static Glib::Dispatcher *process = NULL;
+
+Glib::RefPtr<Glib::MainContext> mainContext;
 
 Glib::Mutex *mainMutex = NULL;
 Glib::Cond *exitCond  = NULL;
@@ -68,7 +70,10 @@ exit (0); */
 
 void process_synth (void)
 {
+
+//	mainMutex->lock();
 	Synth.Process();
+//	mainMutex->unlock();
 
 	float *synthbuf = Synth.GetOutput();
 	int l = Synth.GetWindowLen();
@@ -91,8 +96,11 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 	int l = synth->GetWindowLen();
 	float *synthbuffer = synth->GetOutput();
 
+//	mainMutex->lock();
 	audio->Write(synthbuffer, l);
+//	mainMutex->unlock();
 
+	/* XXX: we should be using emit() but this fucks up */
 //	process->emit();
 	process_synth ();
 }
@@ -203,6 +211,8 @@ int main (int argc, char *argv[])
 	Glib::thread_init();
 	gtkMain = new Gtk::Main (argc, argv);
 
+	mainContext = Glib::MainContext::create ();
+
 	signal(SIGTERM, (sighandler_t)cleanup);
 
 	plugin_path = PLUGIN_PATH;
@@ -256,7 +266,7 @@ int main (int argc, char *argv[])
 
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
  
-	process = new Glib::Dispatcher;
+	process = new Glib::Dispatcher(mainContext);
 	process->connect(SigC::slot(process_synth));
 
 	/* all thAudio classes will work with floating point buffers converting to
@@ -313,12 +323,23 @@ int main (int argc, char *argv[])
 
 	Synth.Process();
 
-/*	while (1)
+#if 0
+	while (1)
 	{
 		sleep (100);
-		} */
+	}
+#endif 
 
-	exitCond->wait(*mainMutex);
+	Glib::TimeVal t(0, 500);
+
+	while (!exitCond->timed_wait(*mainMutex, t))
+	{
+		mainContext->iteration (true); /* blocking */
+	}
+
+	printf("break!\n");
+
+//	exitCond->wait(*mainMutex);
 
 	delete aout;
 	delete midi;
@@ -328,3 +349,4 @@ int main (int argc, char *argv[])
 
 	return 0;
 }
+

@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.42 2004/04/01 09:27:38 misha Exp $ */
+/* $Id: thSynth.h,v 1.43 2004/05/04 04:05:59 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -33,7 +33,8 @@ public:
 
 	int GetChans(void) const { return thChans; }
 	int GetWindowLen(void) const { return thWindowlen; }
-	float *GetOutput(void) const { return thOutput; }
+//	float *GetOutput(void) const { return thOutput; }
+	float *GetOutput (void) const;
 
 	/* note that as of 9/15/03 these don't do anything. corresponding changes
 	   elsewhere in the implementation must be made (thSamples is intialized to

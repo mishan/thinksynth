@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.84 2004/04/22 08:47:20 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.85 2004/05/04 04:05:58 misha Exp $ */
 
 #include "config.h"
 
@@ -423,4 +423,12 @@ void thSynth::PrintChan(int chan)
 	{
 		printf("-=- %f\n", thOutput[(i*thChans)+chan]);
 	}
+}
+
+float *thSynth::GetOutput (void) const
+{
+	/* try locking the mutex (and block) to make sure it's not processing */
+	pthread_mutex_trylock(synthMutex);
+
+	return thOutput;
 }

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.11 2004/04/18 09:51:28 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.12 2004/05/04 04:05:59 misha Exp $ */
 
 #include "config.h"
 
@@ -13,6 +13,8 @@
 
 #include "thAudio.h"
 #include "thALSAAudio.h"
+
+extern Glib::RefPtr<Glib::MainContext> mainContext;
 
 thALSAAudio::thALSAAudio (thSynth *argsynth)
 	throw (thIOException)
@@ -30,12 +32,15 @@ thALSAAudio::thALSAAudio (thSynth *argsynth)
 	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
 	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
-	Glib::signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
-							  pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH);
+/*	mainContext->signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
+	pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH); */
 	
 	SetFormat(argsynth);
 
 	outbuf = NULL;
+
+	thread = Glib::Thread::create(SigC::slot(*this, &thALSAAudio::main), false);
+//	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
 thALSAAudio::thALSAAudio (thSynth *argsynth, const char *device)
@@ -51,12 +56,15 @@ thALSAAudio::thALSAAudio (thSynth *argsynth, const char *device)
 	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
 	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
-	Glib::signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
-							  pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH);
+/*	mainContext->signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
+	pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH); */
 
 	SetFormat(argsynth);
 
 	outbuf = NULL;
+
+	thread = Glib::Thread::create(SigC::slot(*this, &thALSAAudio::main), false);
+//	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
 thALSAAudio::~thALSAAudio ()
@@ -276,4 +284,32 @@ bool thALSAAudio::pollAudioEvent (Glib::IOCondition)
 	m_sigReadyWrite();
 
 	return true;
+}
+
+void thALSAAudio::main (void)
+{
+	Glib::RefPtr<Glib::MainContext> lomainContext = Glib::MainContext::create();
+	
+	lomainContext->signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
+									   pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH);
+	
+
+	while (1)
+	{
+
+#if 0
+		if (poll(pfds, nfds, 5000) > 0)
+		{
+			for (int j = 0; j < nfds; j++)
+			{
+				if (pfds[j].revents > 0)
+				{
+					m_sigReadyWrite.emit();
+				}
+			}
+		}
+#endif
+
+		lomainContext->iteration (true);
+	}
 }

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.h,v 1.4 2004/04/17 23:01:34 misha Exp $ */
+/* $Id: thALSAAudio.h,v 1.5 2004/05/04 04:05:59 misha Exp $ */
 
 #ifndef TH_ALSAAUDIO_H
 #define TH_ALSAAUDIO_H
@@ -43,7 +43,10 @@ public:
 protected:
 	thSynth *synth;
 	sigReadyWrite_t m_sigReadyWrite;
+
+	void main (void);
 private:
+	Glib::Thread *thread;
 	thAudioFmt ofmt, ifmt;
 	void *outbuf;
 };
