@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.25 2003/05/03 04:44:54 aaronl Exp $
+# $Id: plugin-common.inc.in,v 1.26 2003/05/03 04:49:23 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -29,7 +29,7 @@ ifeq ($(CXX_MT_BROKEN),yes)
 	mv .deps/$<.dtx .deps/$<.dt
 endif
 
--include .deps/*.d
+-include .deps/*.dt
 endif
 
 distclean clean:
