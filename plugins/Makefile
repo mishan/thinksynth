@@ -1,3 +1,5 @@
+# $Id: Makefile,v 1.10 2003/04/27 20:57:58 joshk Exp $
+
 # Change this for every new plugin
 PLUGIN_DIRS = osc test
 
