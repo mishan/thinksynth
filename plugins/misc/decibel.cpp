@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.7 2003/05/24 08:44:58 aaronl Exp $ */
+/* $Id: decibel.cpp,v 1.1 2003/05/24 08:44:58 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,7 +16,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-char		*desc = "Converts a midi note value to it's respective frequency";
+char		*desc = "Converts dB to an amplitude value. Arg should be <= 0.";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -25,12 +25,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Midi2Freq plugin unloading\n");
+	printf("Decibel plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Midi2Freq plugin loaded\n");
+	printf("Decibel plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -41,18 +41,18 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_note;
+	thArgValue *db;
 	thArgValue *out_arg;
 	unsigned int i, argnum;
 
-	in_note = (thArgValue *)mod->GetArg(node, "note");
+	db = (thArgValue *)mod->GetArg(node, "db");
 
 	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	argnum = (unsigned int) in_note->argNum;
+	argnum = (unsigned int)db->argNum;
 	out = out_arg->allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
-	  out[i] = 440*pow(2,((*in_note)[i]-69)/12);
+		out[i] = pow(10,(*db)[i]*.05);
 	}
 
 /*	node->SetArg("out", out, windowlen); */
