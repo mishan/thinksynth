@@ -9,7 +9,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <endian.h>
-
 #include "thEndian.h"
 #include "thException.h"
 #include "thAudio.h"
@@ -159,7 +158,14 @@ int thWav::Read (void *data, int len)
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
 		for(int i = 0; i < r; i++) {
-			le16(data[i], data[i]);
+			/* XXX */
+			signed short _data;
+
+			memcpy(&_data, &((signed short *)data)[i], sizeof(signed short));
+
+			le16(_data, _data);
+
+			memcpy(&((signed short *)data)[i], &_data, sizeof(signed short));
 		}
 #endif
 		break;
