@@ -1,11 +1,11 @@
 name "test";
 
 node ionode test::test {
-        out0 = mixer->out;
+    out0 = mixer->out;
 	out1 = mixer->out;
-        channels = 2;
-        play = env->play;
-        };
+    channels = 2;
+    play = env->play;
+    };
 node mixer mixer::mul {
 	in0 = filt->out;
 	in1 = env->out;
@@ -20,17 +20,17 @@ node env env::adsr {
 node map1 env::map {
 	in = env->out;
 	inmin = 0;
-	inmax = 256;
+	inmax = th_max;
 	outmin = 25;
 	outmax = 100;
 	};
 node map2 env::map {
-        in = env->out;
-        inmin = 0;
-        inmax = 256;
-        outmin = 0;
-        outmax = 1;
-        };
+    in = env->out;
+    inmin = 0;
+    inmax = th_max;
+    outmin = 0;
+    outmax = 1;
+    };
 node filt filt::rds {
 	in = osc->out;
 	cutoff = 0.4;

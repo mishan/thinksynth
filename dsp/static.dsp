@@ -12,8 +12,8 @@ node lfo osc::simple {
 	};
 node map env::map {
 	in = lfo->out;
-	inmin = -256;
-	inmax = 256;
+	inmin = th_min;
+	inmax = th_max;
 	outmin = 0;
 	outmax = 100;
 	};

@@ -7,6 +7,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "think.h"
+
 #include "thArg.h"
 #include "thList.h"
 #include "thBSTree.h"
@@ -34,6 +36,12 @@ int linenum = 1;
 
 
 [0-9]+(\.([0-9]+)?)?          yylval.floatval = atof(yytext); return NUMBER;
+
+th_max							yylval.floatval = TH_MAX; return NUMBER;
+th_min							yylval.floatval = TH_MIN; return NUMBER;
+th_range						yylval.floatval = TH_RANGE; return NUMBER;
+th_midimax						yylval.floatval = MIDIVALMAX; return NUMBER;
+th_sample						yylval.floatval = TH_SAMPLE; return NUMBER;
 
 \;                           return ENDSTATE;
 
