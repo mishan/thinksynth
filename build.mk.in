@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.13 2003/05/11 04:55:58 joshk Exp $
+# $Id: build.mk.in,v 1.14 2003/05/11 05:03:19 aaronl Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -15,12 +15,13 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 %.cpp: %.ll
 	@LEX@ -o $@ $<
 
-%.o: %.cpp
+.deps:
 	@mkdir -p .deps
+
+%.o: %.cpp .deps
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
 
-%@SHARED_SUFFIX@: %.cpp
-	@mkdir -p .deps
+%@SHARED_SUFFIX@: %.cpp .deps
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
