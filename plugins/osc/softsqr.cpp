@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.1 2003/05/10 06:40:46 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.2 2003/05/10 06:47:20 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,7 +48,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float wavelength, ratio;
 	float sinewidth, minsqrwidth, maxsqrwidth;
 	int position, phase;
-	thArgValue *in_freq, *in_pw, *in_se, *in_position;
+	thArgValue *in_freq, *in_pw, *in_sw, *in_position;
 
 	in_freq = (thArgValue *)mod->GetArg(node->GetName(), "freq");
 	in_pw = (thArgValue *)mod->GetArg(node->GetName(), "pw"); // Pulse Width
