@@ -1,4 +1,4 @@
-/* $Id: AboutBox.h,v 1.3 2004/09/16 09:36:40 misha Exp $ */
+/* $Id: AboutBox.h,v 1.4 2004/09/17 01:39:27 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -53,11 +53,11 @@ protected:
 	Gtk::Label          *lblCopyright;
 	Gtk::ScrolledWindow *scrolledWindow;
 	Gtk::TextView       *txtCredits;
-	Glib::RefPtr<Gtk::TextBuffer> txtBuf;
 	Gtk::Image          *logo;
-	Gdk::Pixmap         *pixmap;
-	Gdk::Bitmap         *mask;
 	Gtk::Adjustment     *adj;
+	Glib::RefPtr<Gtk::TextBuffer>     txtBuf;
+	Glib::RefPtr<Gdk::Pixmap>         pixmap;
+	Glib::RefPtr<Gdk::Bitmap>         mask;
 };
 
 #endif /* ABOUT_BOX_H */
