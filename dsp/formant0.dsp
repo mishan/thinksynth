@@ -9,9 +9,9 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	f1 = 300;
-	f2 = 1950;
-	f3 = 3010;
+	f1 = 700;
+	f2 = 1200;
+	f3 = 2600;
 
 	fade1 = 0.3;
 	fade2 = 0.5;
