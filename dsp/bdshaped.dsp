@@ -1,7 +1,7 @@
-# $Id: bdshaped.dsp,v 1.1 2004/12/08 01:40:04 ink Exp $
+# $Id: bdshaped.dsp,v 1.2 2004/12/17 22:48:25 ink Exp $
 name "BD-10";
 author "Leif Ames";
-description "Multiwave Kick Bass";
+description "Simple Kick Drum";
 
 	@d = 50 ms;
 	@d.widget = 1;
