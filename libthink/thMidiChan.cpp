@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.32 2003/05/07 03:09:43 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.33 2003/05/07 03:11:57 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -63,8 +63,6 @@ void thMidiChan::DelNote (int note)
 
 void thMidiChan::Process (void)
 {
-  int i, j;
-
   memset (output, 0, windowlength*channels*sizeof(float));
 
   ProcessHelper(notes);
@@ -117,9 +115,9 @@ static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
 
 static int RangeSize = sizeof(RangeArray)/sizeof(int);
 
-int thMidiChan::GetLen (int _num)
+int thMidiChan::GetLen (int num)
 {
-	int num = abs(_num);
+	num = abs(num);
 	int i;
 
 	for(i = 0; i < RangeSize; i++) {
