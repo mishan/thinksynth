@@ -76,6 +76,11 @@ void thNode::PrintArgs (void)
 	args->PrintTree();
 }
 
+const thList *thNode::GetArgList (void)
+{
+  return args->GetList();
+}
+
 void thNode::Process (void)
 {
 }

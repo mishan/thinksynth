@@ -14,6 +14,8 @@ public:
 	const thArgValue *GetArg (char *name);
 	void PrintArgs (void);
 
+	const thList *GetArgList (void);
+
 	void Process (void);
 private:
 	thBSTree *args;

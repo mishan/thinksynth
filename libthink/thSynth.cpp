@@ -48,7 +48,43 @@ thMod *thSynth::FindMod(char *modname)
   return (thMod *)modlist->GetData(modname);
 }
 
+/* Make these voids return something and add error checking everywhere! */
+
 void thSynth::ListMods(void)
 {
   modlist->PrintTree();
 }
+
+void thSynth::BuildSynthTree(char *modname)
+{
+  thMod *mod = FindMod(modname);
+  thListNode *listnode;
+  thArg *data;
+  thNode *ionode = mod->GetIONode();
+
+  for(listnode = ((thList *)ionode->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
+    data = (thArg *)listnode->data;
+    printf("-=- %s\n", data->GetArgName());
+  }
+}
+      
+      
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
