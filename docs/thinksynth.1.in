@@ -6,8 +6,8 @@ thinksynth \- ALSA/JACK based MIDI synthesizer
 [\fI\-d OUTPUT\fR] [\fI\-p PATH\fR] [\fI\-r RATE\fR] [\fI\-l WINDOW\fR]
 .SH DESCRIPTION
 .PP
-.\" Foo Bar Baz - someone who knows alot more about internals FILL THIS IN
-Cows go `moo.'
+thinksynth is a modular synthesizer that utilizes either JACK or ALSA for
+audio output and ALSA for MIDI.
 .SH OPTIONS
 .TP
 \fB\-d\fR OUTPUT
@@ -23,8 +23,7 @@ This modifies the sample rate of the output; the default may vary depending on
 which audio output module is used
 .TP
 \fB\-l\fR WINDOW
-.\" XXX - wtf is this, i don't know
-Modifies the window length for audio output.
+This modifies the window length, which is currently synonymous with audio buffer size, for audio output. Please note that at the time of writing of this manpage, thinksynth will not automatically match up the buffer size with JACK, so you must specify the correct buffer size on the command line.
 .SH AUTHORS
 .TP
 \fBMetaphonic Labs\fR is...
