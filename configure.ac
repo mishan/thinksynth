@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.50 2003/05/28 06:20:12 joshk Exp $
+dnl $Id: configure.ac,v 1.51 2003/05/28 06:23:31 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -27,10 +27,6 @@ if test `expr "$YACC" : bison.*` -eq 0; then
 	AC_MSG_ERROR([Bison is required to build this program. $YACC just doesn't cut it.])
 fi
 
-dnl The autoconf macro doesn't realize that it NEEDS -d to produce
-dnl the appropriate headers, so add this stupid hack.
-
-YACC="$YACC -d"
 AC_PROG_LEX
 
 if test `expr "$LEX" : .*missing 2>/dev/null` -ne 0; then 
