@@ -1,4 +1,4 @@
-# $Id: analog01.dsp,v 1.3 2004/04/22 09:20:09 ink Exp $
+# $Id: analog01.dsp,v 1.4 2004/05/04 07:37:16 ink Exp $
 name "test";
 
 node ionode {
@@ -15,7 +15,7 @@ node ionode {
 	res = 0.8;
 
 	amp_a = 10000;
-	amp_d = 100000;
+	amp_d = 5000;
 	amp_s = 90%;
 	amp_r = 20000;
 
@@ -23,8 +23,6 @@ node ionode {
 	filt_d = 60000;
 	filt_s = 85%;
 	filt_r = 20000;
-
-	trigger = 0;
 };
 
 node freq misc::midi2freq {
