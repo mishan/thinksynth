@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.51 2004/11/09 00:55:40 ink Exp $ */
+/* $Id: thArg.cpp,v 1.52 2004/11/11 03:20:12 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -189,7 +189,7 @@ void thArg::GetBuffer(float *buffer, unsigned int size)
 
 void thArg::SetValue(float value)
 {
-	Allocate(1);
+	values_ = Allocate(1);
 	values_[0] = value;
 }
 
