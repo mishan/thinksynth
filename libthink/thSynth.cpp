@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.71 2004/03/21 06:51:27 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.72 2004/03/24 06:23:24 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -120,6 +120,11 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 		free(channels);
 		channelcount = newchancount;
 		channels = newchans;
+	}
+
+	if(channels[channum] != NULL)
+	{
+		delete channels[channum];
 	}
 
 	channels[channum] = new thMidiChan(FindMod(modname), amp, thWindowlen);
