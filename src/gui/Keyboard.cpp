@@ -150,7 +150,7 @@ type_signal_note_off Keyboard::signal_note_off (void)
 	return m_signal_note_off;
 }
 
-/* overloaded signal handlers */
+/* overridden signal handlers */
 void Keyboard::on_realize (void)
 {
 	/* call the base class on_realize() method, then do our own stuff */

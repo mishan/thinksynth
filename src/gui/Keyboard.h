@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.2 2004/04/03 02:18:43 misha Exp $ */
+/* $Id: Keyboard.h,v 1.3 2004/04/03 02:20:56 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -22,7 +22,7 @@ protected:
 	void drawKeyboard (int mode);
 	void drawKeyboardFocus (void);
 
-	/* overloaded signal handlers */
+	/* overridden signal handlers */
 	virtual void on_realize              (void);
 	virtual bool on_expose_event         (GdkEventExpose *e);
  	virtual bool on_focus_in_event       (GdkEventFocus  *f);
