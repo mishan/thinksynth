@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.125 2004/02/01 09:23:31 misha Exp $ */
+/* $Id: main.cpp,v 1.126 2004/02/01 09:46:08 misha Exp $ */
 
 #include "config.h"
 
@@ -300,24 +300,38 @@ int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
         snd_seq_event_input(seq_handle, &ev);
 		sprintf(channelname, "chan%i", ev->data.note.channel);
         switch (ev->type) {
-		case SND_SEQ_EVENT_NOTEON:
-			Synth->AddNote(string(channelname), ev->data.note.note, ev->data.note.velocity);
-			break;
-		case SND_SEQ_EVENT_NOTEOFF:
-			*pbuf = 0;
-			Synth->SetNoteArg(string(channelname), ev->data.note.note, "trigger", pbuf, 1);  /* XXX make this part better */
-			break;
-		case SND_SEQ_EVENT_TEMPO:
-			printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
-			break;
-		case SND_SEQ_EVENT_TICK:
-			printf("TICK CHANGE:  %i\n", ev->data.control.value);
-			break;
-		case SND_SEQ_EVENT_PITCHBEND:
-			printf("PITCH BEND:  %i\n", ev->data.control.value);
-			break;
+			case SND_SEQ_EVENT_NOTEON:
+			{
+				Synth->AddNote(string(channelname), ev->data.note.note,
+							   ev->data.note.velocity);
+				break;
+			}
+			case SND_SEQ_EVENT_NOTEOFF:
+			{
+				/* XXX make this part better */
+				*pbuf = 0;
+				Synth->SetNoteArg(string(channelname), ev->data.note.note,
+								  "trigger", pbuf, 1);
+				break;
+			}
+			case SND_SEQ_EVENT_TEMPO:
+			{
+				printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
+				break;
+			}
+			case SND_SEQ_EVENT_TICK:
+			{
+				printf("TICK CHANGE:  %i\n", ev->data.control.value);
+				break;
+			}
+			case SND_SEQ_EVENT_PITCHBEND:
+			{
+				printf("PITCH BEND:  %i\n", ev->data.control.value);
+				break;
+			}
 		}
 		snd_seq_free_event(ev);
     } while (snd_seq_event_input_pending(seq_handle, 0) > 0);
-    return (0);
+
+	return 0;
 }
