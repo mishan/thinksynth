@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.52 2004/04/22 08:43:34 ink Exp $ */
+/* $Id: thinklang.yy,v 1.53 2004/04/22 08:47:20 misha Exp $ */
 
 %{
 #include "config.h"
@@ -16,6 +16,17 @@ thSynth Synth;
 // XXX - REIMPLEMENT GLOBAL STUFFS
 // modnode *parsemod = NULL;
 // static linked_list *targs = NULL;
+
+extern int linenum;
+
+int yyparse (void);
+
+int YYPARSE (void)
+{
+	linenum = 1;
+
+	return yyparse();
+}
 
 void yyerror (const char *str)
 {

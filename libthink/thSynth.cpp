@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.83 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.84 2004/04/22 08:47:20 misha Exp $ */
 
 #include "config.h"
 
@@ -99,7 +99,7 @@ thMod * thSynth::LoadMod (const string &filename)
 	parsemod = new thMod("newmod");
 	parsenode = new thNode("newnode", NULL);
 
-	yyparse();
+	YYPARSE();
 
 	fclose(yyin);
 
@@ -129,7 +129,7 @@ thMod * thSynth::LoadMod (FILE *input)
 	parsemod = new thMod("newmod");
 	parsenode = new thNode("newnode", NULL);
 
-	yyparse();
+	YYPARSE();
 
 	delete parsenode;
 
@@ -215,7 +215,7 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	parsemod = new thMod("newmod");
 	parsenode = new thNode("newnode", NULL);
 
-	yyparse();
+	YYPARSE();
 
 	delete parsenode;
 
