@@ -1,3 +1,5 @@
+/* $Id: main.cpp,v 1.31 2003/04/25 07:12:56 joshk Exp $ */
+
 #include "config.h"
 
 #include <stdio.h>
