@@ -1,4 +1,4 @@
-/* $Id: wlan.cpp,v 1.1 2004/05/11 19:58:28 misha Exp $ */
+/* $Id: wlan.cpp,v 1.2 2004/05/11 20:36:54 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +15,7 @@ enum {OUT_ARG};
 int args[OUT_ARG + 1];
 
 char		*desc = "Passes on a wireless interface's signal level";
-thPluginState	mystate = thPassive;
+thPluginState	mystate = thActive;
 
 void module_cleanup (struct module *mod)
 {
