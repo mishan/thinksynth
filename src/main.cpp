@@ -1,6 +1,5 @@
-/* $Id: main.cpp,v 1.94 2003/09/02 04:45:35 joshk Exp $ */
+/* $Id: main.cpp,v 1.95 2003/09/14 09:27:18 misha Exp $ */
 
-#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -9,6 +8,7 @@
 #include <unistd.h>
 #include <time.h>
 
+#include "think.h"
 
 #include "thArg.h"
 #include "thPlugin.h"
