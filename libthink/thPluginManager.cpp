@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.28 2003/04/29 08:38:46 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.29 2003/04/30 03:20:34 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -29,12 +29,12 @@ thPluginManager::~thPluginManager ()
 /* Caller must free!!! */
 char *thPluginManager::GetPath (char *name)
 {
-	char *path = new char[strlen(name) + strlen(PLUGIN_PATH) + 
+	char *path = new char[strlen(name) + strlen(plugin_path) + 
 						  strlen(SHARED_SUFFIX) + 1];
 	struct stat *dummy = (struct stat*)malloc (sizeof(struct stat));
 	
 	/* Use the default path first */
-	sprintf(path, "%s%s%s", PLUGIN_PATH, name, SHARED_SUFFIX);
+	sprintf(path, "%s%s%s", plugin_path, name, SHARED_SUFFIX);
 	
 	/* Check for existence in the expected place */
 	

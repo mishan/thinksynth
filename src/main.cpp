@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.51 2003/04/29 02:20:42 ink Exp $ */
+/* $Id: main.cpp,v 1.52 2003/04/30 03:20:34 joshk Exp $ */
 
 #include "config.h"
 
@@ -20,6 +20,8 @@
 
 #include "parser.h"
 
+char plugin_path[] = PLUGIN_PATH;
+
 int main (int argc, char *argv[])
 {
 	int havearg;
@@ -36,7 +38,7 @@ syntax:
 		exit(1);
 	}
   
-	while ((havearg = getopt (argc, argv, "hm:")) != -1) {
+	while ((havearg = getopt (argc, argv, "hp:m:")) != -1) {
 		switch (havearg) {
 			case 'h':
 				printf (PACKAGE " " VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
@@ -45,7 +47,11 @@ syntax:
 				exit(0);
 
 				break;
-				
+
+			case 'p':
+				strcpy(plugin_path, optarg);
+				break;
+
 			case 'm':
 				strcpy(dspname, optarg);
 				break;
