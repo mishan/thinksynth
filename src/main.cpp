@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.148 2004/03/29 23:54:30 misha Exp $ */
+/* $Id: main.cpp,v 1.149 2004/04/01 06:56:21 misha Exp $ */
 
 #include "config.h"
 
@@ -263,6 +263,7 @@ int main (int argc, char *argv[])
 
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 	
+	Gtk::Main kit(argc, argv);
 	Glib::Thread *const ui = Glib::Thread::create(
 		SigC::slot(&ui_thread), true);
 

@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.7 2004/04/01 06:51:35 misha Exp $ */
+/* $Id: ui.cpp,v 1.8 2004/04/01 06:56:21 misha Exp $ */
 
 #include "config.h"
 
@@ -29,8 +29,6 @@ extern thSynth Synth;
 
 void ui_thread (void)
 {
-	Gtk::Main kit(NULL, NULL);
-
 	MainSynthWindow synthWindow(&Synth);
 
 	Gtk::Main::run(synthWindow);
