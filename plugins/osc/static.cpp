@@ -16,7 +16,8 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-char	*desc = "Produces Random Signal";
+char		*desc = "Produces Random Signal";
+thPluginState	mystate = thActive;
 
 extern "C" int	module_init (int version, thPlugin *plugin);
 extern "C" int	module_callback (void *node, void *mod, unsigned int windowlen);
@@ -24,26 +25,28 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-  printf("Static module unloading\n");
+	printf("Static module unloading\n");
 }
 
 int module_init (int version, thPlugin *plugin)
 {
-  printf("Static plugin loaded\n");
-  srand(time(NULL));
-  return 0;
+	printf("Static plugin loaded\n");
+	plugin->SetDesc (desc);
+	plugin->SetState (mystate);
+	srand(time(NULL));
+	return 0;
 }
 
 int module_callback (void *node, void *mod, unsigned int windowlen)
 {
-  int i;
-  float *out = new float[windowlen];
+	int i;
+	float *out = new float[windowlen];
 
-  for(i=0;i<(int)windowlen;i++) {
-    out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
-  }
+	for(i=0; i < (int)windowlen; i++) {
+		out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
+	}
 
-  ((thNode *)node)->SetArg("out", out, windowlen);
+	((thNode *)node)->SetArg("out", out, windowlen);
 
-  return 0;
+	return 0;
 }

@@ -3,7 +3,7 @@
 
 #define MODULE_IFACE_VER 3
 
-enum thPluginState { thActive, thPassive, thNotLoaded, thLoaded };
+enum thPluginState { thActive, thPassive, thNotLoaded };
 
 class thPlugin {
 public:

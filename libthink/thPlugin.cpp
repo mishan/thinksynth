@@ -20,6 +20,23 @@ thPlugin::thPlugin (const char *path)
 	if(ModuleLoad() == 1) { /* fail = return (1) */
 		fprintf(stderr, "thPlugin::thPlugin: Failed to load plugin\n");
 	}
+
+#ifdef USE_DEBUG
+	printf ("Created plugin; state is ");
+	
+	switch (plugState)
+	{
+		case thNotLoaded:
+			printf ("thActive\n");
+			break;
+		case thActive:
+			printf ("thActive\n");
+			break;
+		case thPassive:
+			printf ("thPassive\n");
+			break;
+	}
+#endif			  
 }
 
 thPlugin::~thPlugin ()
@@ -91,9 +108,6 @@ int thPlugin::ModuleLoad (void)
 		plugState = thNotLoaded;
 		return 1;
 	}
-
-	/* XXX */
-	plugState = thLoaded;
 
 	return 0;
 }

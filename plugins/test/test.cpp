@@ -13,10 +13,8 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-// XXX   #include "thnodes.h"
-
-char	*name = "test";
-char	*desc = "Test Plugin";
+char		*desc = "Test Plugin";
+thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (int version, thPlugin *plugin);
 extern "C" int	module_callback (void *node, void *mod, unsigned int windowlen);
@@ -24,18 +22,22 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-  printf("Sample module unloading\n");
+	printf("Sample module unloading\n");
 }
 
 int module_init (int version, thPlugin *plugin)
 {
-  printf("test plugin loaded\n");
-  return 0;
+	printf("test plugin loaded\n");
+	
+	plugin->SetDesc (desc);
+	plugin->SetState (mystate);
+	
+	return 0;
 }
 
 int module_callback (void *node, void *mod, unsigned int windowlen)
 {
-  printf("TEST!!\n");
-  return 0;
+	printf("TEST!!\n");
+	return 0;
 }
 
