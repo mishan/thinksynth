@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.17 2004/11/15 10:16:10 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.18 2004/11/15 10:41:54 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -70,7 +70,6 @@ void gthPrefs::Load (void)
 {
 	FILE *prefsFile;
 	char buffer[256];
-	thSynth *synth = thSynth::instance();
 
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
@@ -132,13 +131,8 @@ void gthPrefs::Load (void)
 			/* XXX: handle specific cases here for now */
 			if (key == "channel" && values[0] && values[1])
 			{
-				printf("loading DSP\n");
 				gthPatchManager *patchMgr = gthPatchManager::instance();
 				patchMgr->loadPatch(*values[1], atoi(values[0]->c_str()));
-/*				synth->LoadMod(values[1]->c_str(),
-							   atoi(values[0]->c_str()),
-							   values[2] ? atof(values[2]->c_str()) : 0 ); */
-//				printf("WARNING! Not loading DSP..\n");
 			}
 			else
 			{
@@ -152,7 +146,6 @@ void gthPrefs::Load (void)
 
 void gthPrefs::Save (void)
 {
-	thSynth *synth = thSynth::instance();
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	FILE *prefsFile;
 
@@ -176,7 +169,7 @@ void gthPrefs::Save (void)
 		
 		if (values == NULL)
 			continue;
-
+		
 		fprintf(prefsFile, "%s ", key.c_str());
 
 		for(int j = 0; values[j]; j++)
@@ -192,8 +185,7 @@ void gthPrefs::Save (void)
 
 	/* save channel mappings */
 	{
-		int chans = synth->GetChannelCount();
-		std::map<int, string> *patchlist = synth->GetPatchlist();
+		int chans = patchMgr->numPatches();
 
 		for(int i = 0; i < chans; i++)
 		{
