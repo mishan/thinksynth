@@ -208,11 +208,15 @@ void thMidiChan::Process (void)
 		}
 		if(notecount > polymax) /* too many notes held down */
 		{
-			map<int, thMidiNote*>::iterator iter;
-			for (iter = notes.begin(); iter != notes.end() && notecount > polymax; iter++)
+			map<int, thMidiNote*>::iterator iter = notes.begin();
+			while(iter != notes.end() && notecount > polymax)
 			{
-				delete iter->second;
-				notes.erase(iter);
+				map<int, thMidiNote*>::iterator olditer = iter;  /* a copy of
+												the old iterator to erase */
+				iter++;
+				data = olditer->second;
+				notes.erase(olditer);
+				delete data;
 				notecount--;
 			}	
 		}
@@ -222,8 +226,8 @@ void thMidiChan::Process (void)
 	notecount = 0;
 	notecount_decay = 0;
 
-	map<int, thMidiNote*>::iterator iter;
-	for (iter = notes.begin(); iter != notes.end(); iter++)
+	map<int, thMidiNote*>::iterator iter = notes.begin();
+	while(iter != notes.end())
 	{
 		notecount++;
 
@@ -254,10 +258,13 @@ void thMidiChan::Process (void)
 			}
 		}
 
+		map<int, thMidiNote*>::iterator olditer = iter++;  /* a copy of the
+													old iterator to erase */
+		
 		if(play && (*play)[windowlength - 1] == 0)
 		{
 			delete data;
-			notes.erase(iter);
+			notes.erase(olditer);
 			notecount--;  /* polyphony stuff */
 		}
 	}
