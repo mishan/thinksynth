@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.126 2004/02/01 09:46:08 misha Exp $ */
+/* $Id: main.cpp,v 1.127 2004/02/01 09:51:03 misha Exp $ */
 
 #include "config.h"
 
@@ -250,14 +250,24 @@ int main (int argc, char *argv[])
 				{
 					int l = Synth.GetWindowLen();
 					Synth.Process();
-					if(outputstream->Write(synthbuffer, l) < l) {
-						fprintf(stderr, "<< BUFFER UNDERRUN >>   Restarting ALSA output\n");
+					if(outputstream->Write(synthbuffer, l) < l)
+					{
+						fprintf(stderr, "<< BUFFER UNDERRUN >> Restarting ALSA output\n");
 						snd_pcm_prepare(phandle);
 
 						/* this part is experimental */
-						snd_pcm_close(phandle);
 						delete outputstream;
-						outputstream = new thALSAAudio(outputfname.c_str(), &audiofmt);
+
+						if (outputfname.length() > 0)
+						{
+							outputstream = new thALSAAudio(outputfname.c_str(),
+														   &audiofmt);
+						}
+						else
+						{
+							outputstream = new thALSAAudio(&audiofmt);
+						}
+
 						phandle = ((thALSAAudio *)outputstream)->play_handle;
 						//nfds = snd_pcm_poll_descriptors_count (phandle);
 						//snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
@@ -276,18 +286,23 @@ snd_seq_t *open_seq() {
 
     snd_seq_t *seq_handle;
     
-    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0) {
+    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
+	{
         fprintf(stderr, "Error opening ALSA sequencer.\n");
         exit(1);
     }
-    snd_seq_set_client_name(seq_handle, "thinksynth");
+
+	snd_seq_set_client_name(seq_handle, "thinksynth");
+	
     if (snd_seq_create_simple_port(seq_handle, "thinksynth",
         SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
-        SND_SEQ_PORT_TYPE_APPLICATION) < 0) {
+        SND_SEQ_PORT_TYPE_APPLICATION) < 0)
+	{
         fprintf(stderr, "Error creating sequencer port.\n");
         exit(1);
     }
-    return(seq_handle);
+
+    return seq_handle;
 }
 
 int processmidi(thSynth *Synth, snd_seq_t *seq_handle)

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.14 2004/02/01 09:23:31 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.15 2004/02/01 09:51:03 misha Exp $ */
 
 #include "config.h"
 
@@ -41,6 +41,8 @@ thALSAAudio::thALSAAudio (const char *device, const thAudioFmt *afmt)
 
 thALSAAudio::~thALSAAudio ()
 {
+	snd_pcm_close(play_handle);
+
 	if (outbuf)
 	{
 		free (outbuf);
