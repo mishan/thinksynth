@@ -46,7 +46,7 @@ binary-arch: build install
 	dh_fixperms
 	dh_installdeb
 	dh_strip
-	dh_shlibdeps -ldebian/libthink3/usr/lib
+	dh_shlibdeps -ldebian/libthink4/usr/lib
 	dh_md5sums
 	dh_gencontrol
 	dh_builddeb

@@ -20,23 +20,23 @@ Description: full-featured synthesizer and keyboard for JACK/ALSA
  This package contains the GUI binary, the stock set of binary plugins, and
  DSP instruments required for basic synthesis.
 
-Package: libthink3
+Package: libthink4
 Section: libs
 Architecture: any
 Depends: ${shlibs:Depends}
-Suggests: libthink3-dev
+Suggests: libthink4-dev
 Description: shared library for Thinksynth
  Thinksynth is a customizable synthesizer that uses JACK for interfacing with
  other music hardware/software. It can also work standalone using an ALSA
  output backend.
  .
  This library is used by the Thinksynth GUI and plugins. If you want to build
- your own plugins, consider installing libthink3-dev.
+ your own plugins, consider installing libthink4-dev.
 
-Package: libthink3-dev
+Package: libthink4-dev
 Section: libdevel
 Architecture: any
-Depends: libthink3 (= ${Source-Version})
+Depends: libthink4 (= ${Source-Version})
 Provides: libthink-dev
 Description: shared library for Thinksynth (development files)
  Thinksynth is a customizable synthesizer that uses JACK for interfacing with
