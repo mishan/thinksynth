@@ -73,7 +73,7 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-h\t\t\tdisplay this help screen\n"
 "-p [path]\t\tmodify the plugin search path\n"
 "-d [alsa|oss|wav]\tchange output driver\n"
-"  -o [file|device]\tchange output dest\n"
+/* "  -o [file|device]\tchange output dest\n" */
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
 ;
@@ -232,7 +232,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 
 int main (int argc, char *argv[])
 {
-	string outputfname;
+/*	string outputfname; */
 	string driver = DEFAULT_OUTPUT;
 	int havearg = -1;
 	int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
@@ -243,7 +243,8 @@ int main (int argc, char *argv[])
 	/* init Glib/Gtk args */
 	gtkMain = new Gtk::Main (argc, argv);
 
-	while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1)
+/*	while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1) */
+	while ((havearg = getopt (argc, argv, "hp:d:r:l:")) != -1)
 	{
 		switch (havearg)
 		{
@@ -262,11 +263,13 @@ int main (int argc, char *argv[])
 				driver = optarg;
 				break;
 			}
+/*
 			case 'o':
 			{
 				outputfname = optarg;
 				break;
 			}
+*/
 			case 'h':
 			{
 				printf(syntax, argv[0]);
@@ -330,13 +333,15 @@ int main (int argc, char *argv[])
 		midi->signal_midi_event().connect(
 			SigC::bind<thSynth *>(SigC::slot(&processmidi), Synth));
 
-		printf ("Using the '%s' driver\n", driver.c_str());
+		printf ("Trying the '%s' driver\n", driver.c_str());
 
 		if (driver == "alsa")
 		{ 
+/*
 			if (outputfname.length() > 0)
 				aout = new gthALSAAudio(Synth, outputfname.c_str());
 			else
+*/
 				aout = new gthALSAAudio(Synth);
 
 			/* connect our audio out event handler and bind a synth to this
@@ -364,10 +369,12 @@ int main (int argc, char *argv[])
 		exit (1);
 	}
 
+/*
 	if (outputfname.length() > 0)
 	{
 		printf ("Writing to '%s'\n", outputfname.c_str());
 	}
+*/
 
 	while (1)
 	{

@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.h,v 1.4 2004/08/25 07:36:42 aaronl Exp $ */
+/* $Id: gthALSAAudio.h,v 1.5 2004/09/09 07:08:48 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,8 +35,8 @@ class gthALSAAudio : public gthAudio, public SigC::Object
 public:
 	gthALSAAudio (thSynth *argsynth)
 		throw(thIOException);
-	gthALSAAudio (thSynth *argsynth, const char *device)
-		throw(thIOException);
+/*	gthALSAAudio (thSynth *argsynth, const char *device)
+		throw(thIOException); */
 
 	virtual ~gthALSAAudio ();
 

@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.6 2004/09/06 07:16:33 joshk Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.7 2004/09/09 07:08:48 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -55,6 +55,7 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth)
 //	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
+#if 0
 gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 	throw (thIOException)
 {
@@ -75,6 +76,7 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 	thread = Glib::Thread::create(SigC::slot(*this, &gthALSAAudio::main), false);
 //	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
+#endif
 
 gthALSAAudio::~gthALSAAudio ()
 {
