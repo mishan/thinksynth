@@ -328,9 +328,6 @@ int main (int argc, char *argv[])
 
 	gthPatchfile test("test.patch", Synth, 0);
 
-	/* create a test midi controller connection */
-	//Synth->newMidiControllerConnection(0, 0, new thMidiControllerConnection(Synth->GetChanArg(0, string("fmax")), 0, 8));
-
 	/* create a window first */
 	Synth->Process();
 

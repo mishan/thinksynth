@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.12 2004/11/09 09:37:40 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.13 2004/11/09 12:23:09 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -136,6 +136,7 @@ void MidiMap::set_sensitive (bool sensitive)
 
 void MidiMap::fillDestChanCombo (void)
 {
+	int first = 0;
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
 	std::map<int, string> *patchList = synth_->GetPatchlist();
@@ -150,10 +151,16 @@ void MidiMap::fillDestChanCombo (void)
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
 		namelabel = Gtk::manage(new Gtk::Label(g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
 		item->add(*namelabel);
-		item->signal_button_press_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first));
-		item->signal_focus_in_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first));
+		item->signal_button_press_event().connect(sigc::bind<int, string>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first, g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
+		item->signal_focus_in_event().connect(sigc::bind<int, string>(sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first, g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
 		item->show_all();
-		destChanComboStrings.push_back(*item);		
+		destChanComboStrings.push_back(*item);
+
+		if(first == 0)
+		{
+			first = 1;
+			selectedInstrument_ = g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()));
+		}
 	}
 }
 
@@ -217,7 +224,25 @@ void MidiMap::fillDestArgCombo (int chan)
 
 void MidiMap::populateConnections (void)
 {
+	thMidiControllerConnection *connection;
+	
+	connectModel_->clear();
+
+	std::map<unsigned int, thMidiControllerConnection *> *connectionList =
+		synth_->getMidiConnectionList();
+	
+	for (std::map<unsigned int, thMidiControllerConnection *>::iterator i =
+			 connectionList->begin(); i != connectionList->end(); i++)
+	{
+		Gtk::TreeModel::Row row = *(connectModel_->append());
+		connection = i->second;
+		row[connectViewCols_.midiChan] = connection->getChan() + 1;
+		row[connectViewCols_.midiController] = connection->getController() + 1;
+		row[connectViewCols_.instrument] = connection->getInstrument();
+		row[connectViewCols_.argName] = connection->getArgName();
+	}
 }
+
 
 void MidiMap::onChannelChanged (void)
 {
@@ -229,9 +254,11 @@ void MidiMap::onControllerChanged (void)
 	selectedController_ = (int)controllerSpinBtn_->get_value() - 1;
 }
 
-bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
+bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan,
+									  string instrument)
 {
 	fillDestArgCombo(chan);
+	selectedInstrument_ = instrument;
 	return true;
 }
 
@@ -267,5 +294,6 @@ void MidiMap::onConnectionMoved (void)
 
 void MidiMap::onAddButton (void)
 {
-	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_));
+	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedChan_, selectedController_, selectedInstrument_, selectedArg_->getLabel()));
+	populateConnections();
 }

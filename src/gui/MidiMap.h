@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.10 2004/11/09 09:37:40 ink Exp $ */
+/* $Id: MidiMap.h,v 1.11 2004/11/09 12:23:09 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -49,10 +49,10 @@ protected:
 	void onAddButton (void);
 	void onChannelChanged (void);
 	void onControllerChanged (void);
-	bool onDestChanComboChanged (GdkEventButton* b, int chan);
+	bool onDestChanComboChanged (GdkEventButton* b, int chan, string instrument);
 	bool onDestArgComboChanged (GdkEventButton* b, thArg *arg);
-	bool onDestChanComboFocus (GdkEventFocus* f, int chan)
-		{ return onDestChanComboChanged(NULL, chan); }
+	bool onDestChanComboFocus (GdkEventFocus* f, int chan, string instrument)
+		{ return onDestChanComboChanged(NULL, chan, instrument); }
 	bool onDestArgComboFocus (GdkEventFocus* f, thArg *arg)
 		{ return onDestArgComboChanged(NULL, arg); }
 	void onMinChanged (void);
@@ -100,6 +100,7 @@ private:
 	thSynth *synth_;
 	int selectedChan_;
 	int selectedController_;
+	string selectedInstrument_;
 	float selectedMin_;
 	float selectedMax_;
 	thArg *selectedArg_;

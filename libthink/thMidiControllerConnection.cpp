@@ -20,11 +20,18 @@
 #include "think.h"
 
 thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
-														float max)
+														float max, int chan,
+														int controller,
+														string instrument,
+														string argName)
 {
 	arg_ = arg;
 	min_ = min;
 	max_ = max;
+	chan_ = chan;
+	controller_ = controller;
+	instrument_ = instrument;
+	argName_ = argName;
 //	scale_ = LINEAR;
 }
 

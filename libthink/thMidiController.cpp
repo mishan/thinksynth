@@ -1,4 +1,4 @@
-/* $Id: thMidiController.cpp,v 1.2 2004/11/09 09:24:38 ink Exp $ */
+/* $Id: thMidiController.cpp,v 1.3 2004/11/09 12:23:08 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,6 +20,7 @@
 /* See thMidiController.h for a blurb on what this class is all about */
 
 #include <string.h>
+#include <stdio.h>
 
 #include "think.h"
 
@@ -27,6 +28,7 @@ thMidiController::thMidiController (void)
 {
 	/* zero the pointer list */
 	memset(connections_, 0, 16 * 128 * sizeof(thMidiControllerConnection*));
+	connectionList_.clear();
 }
 
 thMidiController::~thMidiController (void)
