@@ -90,7 +90,7 @@ void thMod::Process (thMod *mod, unsigned int windowlen)
   }
   printf("thMod::Process  %s\n", ionode->GetName());
   /* FIRE! */
-  ((thPlugin *)data->GetPlugin())->Fire(data, mod, windowlen);
+  ((thPlugin *)ionode->GetPlugin())->Fire(ionode, mod, windowlen);
 }
 
 void thMod::ProcessHelper(thMod *mod, unsigned windowlen, thNode *node) {
@@ -107,7 +107,7 @@ void thMod::ProcessHelper(thMod *mod, unsigned windowlen, thNode *node) {
   }
   printf("thMod::ProcessHelper  %s\n", node->GetName());
   /* FIRE! */
-  ((thPlugin *)data->GetPlugin())->Fire(data, mod, windowlen);
+  ((thPlugin *)node->GetPlugin())->Fire(node, mod, windowlen);
 }
 
 void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active plugins */
