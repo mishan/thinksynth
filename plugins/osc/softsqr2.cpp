@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.4 2003/05/10 22:57:42 ink Exp $ */
+/* $Id: softsqr2.cpp,v 1.1 2003/05/10 22:57:42 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +17,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-char		*desc = "Square wave with sine-like transitions";
+char		*desc = "Square wave with sine-like transitions, proportional to the frequency";
 thPluginState	mystate = thActive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -45,14 +45,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int i;
 	float *out = new float[windowlen];
 	float *last = new float[2];
-	float wavelength, sinewavelength, ratio;
+	float wavelength, ratio;
 	float sinewidth, minsqrwidth, maxsqrwidth;
 	int position, phase;
 	thArgValue *in_freq, *in_pw, *in_sw, *in_position;
 
 	in_freq = (thArgValue *)mod->GetArg(node->GetName(), "freq");
 	in_pw = (thArgValue *)mod->GetArg(node->GetName(), "pw"); // Pulse Width
-	in_sw = (thArgValue *)mod->GetArg(node->GetName(), "sfreq"); // Sine Freq
+	in_sw = (thArgValue *)mod->GetArg(node->GetName(), "sw"); // Sine Width
 	in_position = (thArgValue *)mod->GetArg(node->GetName(), "position");
 
 	position = (int)in_position->argValues[0]; // Where in the phase we are
@@ -61,12 +61,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
-		sinewavelength = TH_SAMPLE * (1.0/(*in_sw)[i]);
 		
-		sinewidth = sinewavelength/2;
-		maxsqrwidth = (wavelength - sinewavelength) * (*in_pw)[i];
-		minsqrwidth = (wavelength - sinewavelength) * (1-(*in_pw)[i]);
-		//printf("SoftSQR  Freq: %f \tSineWidth %f\n", (*in_sw)[i], sinewidth);
+		sinewidth = wavelength * (*in_sw)[i];
+		maxsqrwidth = (wavelength - (2*sinewidth)) * (*in_pw)[i];
+		minsqrwidth = (wavelength - (2*sinewidth)) * (1-(*in_pw)[i]);
 		switch(phase) {
 		case 0:    /* Sine segment from low to high */
 			ratio = position++/sinewidth;
