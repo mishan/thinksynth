@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.24 2004/09/08 21:26:59 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.25 2004/09/09 07:10:16 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -170,6 +170,17 @@ void MainSynthWindow::populate (void)
 		tabName = basename(tabName.c_str());
 
 		std::map<string, thArg *> args = synth->GetChanArgs(i->first);
+		
+		
+		/* only 'amp' */
+		if (args.size() == 1)
+		{
+			Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
+			sorry->set_justify(Gtk::JUSTIFY_CENTER);
+			notebook.append_page(*sorry, tabName);
+			continue;
+		}
+		
 		Gtk::Table *table = manage(new Gtk::Table(args.size(), 3));
 		int row = 0;
 
