@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.2 2004/03/27 07:34:52 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.3 2004/04/01 06:51:35 misha Exp $ */
 
 #ifndef MAIN_SYNTH_WINDOW_H
 #define MAIN_SYNTH_WINDOW_H
@@ -10,6 +10,7 @@ public:
 	~MainSynthWindow (void);
 
 protected:
+	void menuKeyboard (void);
 	void menuPatchSel (void);
 	void menuQuit (void);
 	void menuAbout (void);
@@ -20,6 +21,7 @@ protected:
 	Gtk::Menu menuHelp;
 
 	PatchSelWindow patchSel;
+	KeyboardWindow keyboardWin;
 private:
 	thSynth *realSynth;
 };

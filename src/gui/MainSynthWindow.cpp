@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.3 2004/04/01 05:02:30 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.4 2004/04/01 06:51:35 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -29,7 +29,7 @@
 extern Glib::Mutex *synthMutex;
 
 MainSynthWindow::MainSynthWindow (thSynth *synth)
-	: patchSel (synth)
+	: patchSel (synth), keyboardWin (synth)
 {
 	set_title("thinksynth");
 	set_default_size(320, 240);
@@ -43,7 +43,7 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Keyboard",
 										Gtk::Menu::AccelKey("<ctrl>k"),
-										SigC::slot(&create_keyboard_window)));
+										SigC::slot(*this, &MainSynthWindow::menuKeyboard)));
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Patch Selector",
@@ -91,6 +91,12 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 MainSynthWindow::~MainSynthWindow (void)
 {
 	menuQuit();
+}
+
+void MainSynthWindow::menuKeyboard (void)
+{
+	keyboardWin.show_all_children();
+	keyboardWin.show();
 }
 
 void MainSynthWindow::menuPatchSel (void)

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.1 2004/04/01 05:02:30 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.2 2004/04/01 06:51:35 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -23,39 +23,26 @@
 
 #include "KeyboardWindow.h"
 
-
-GdkEvent	*event;
-int		active_keys[128];	/* key state array	*/
-int		transpose = 0;		/* transpose value	*/
-int		key_ofs = 0;		/* base key (0 to 6)	*/
-int		shift_on = 0, ctrl_on = 0, alt_on = 0;
-
-int		veloc0 = 32;		/* velocities */
-int		veloc1 = 64;
-int		veloc2 = 96;
-int		veloc3 = 127;
-
-int		mouse_notnum = -1;	/* key activated by mouse	*/
-int		mouse_veloc = 127;	/* velocity for mouse note	*/
-
+#if 0
 /* conversion table for SHIFT chars */
-char	key_conv_in[] =  "~!@#$%^&*()_+|{}:\"<>?";
-char	key_conv_out[] = "`1234567890-=\\[];\',./";
+static char	key_conv_in[] =  "~!@#$%^&*()_+|{}:\"<>?";
+static char	key_conv_out[] = "`1234567890-=\\[];\',./";
 /* list of keys */
-char	keylist_1[] = "1q2w3e4r5t6y7u8i9o0p-[=]\\";
-char	keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
+static char	keylist_1[] = "1q2w3e4r5t6y7u8i9o0p-[=]\\";
+static char	keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
 /* base keys */
-char	base_keys[] = "CDEFGAB";
+static char	base_keys[] = "CDEFGAB";
+#endif
 
-unsigned int	color0 = 0x00000000;	/* key border			*/
-unsigned int	color1 = 0x00FFFFFF;	/* white key			*/
-unsigned int	color2 = 0x00000000;	/* black key			*/
-unsigned int	color3 = 0x00C0FFFF;	/* A (440 Hz) key		*/
-unsigned int	color4 = 0x00D0D0D0;	/* white key / active		*/
-unsigned int	color5 = 0x00707070;	/* black key / active		*/
-unsigned int	color6 = 0x0090D0D0;	/* A (440 Hz) key / active	*/
+static unsigned int	color0 = 0x00000000;	/* key border			*/
+static unsigned int	color1 = 0x00FFFFFF;	/* white key			*/
+static unsigned int	color2 = 0x00000000;	/* black key			*/
+static unsigned int	color3 = 0x00C0FFFF;	/* A (440 Hz) key		*/
+static unsigned int	color4 = 0x00D0D0D0;	/* white key / active		*/
+static unsigned int	color5 = 0x00707070;	/* black key / active		*/
+static unsigned int	color6 = 0x0090D0D0;	/* A (440 Hz) key / active	*/
 
-int	key_sizes[4][7] =
+static int	key_sizes[4][7] =
 {
 	/* keyboard size 0: 450x45 pixels */
 	{
@@ -99,92 +86,130 @@ int	key_sizes[4][7] =
 	}
 };
 
-int		cur_size = 1;		/* current size			*/
-
-int		img_width;		/* width in pixels		*/
-int		img_height;		/* height in pixels		*/
-
-GdkVisual	*visual;
-GdkGC		*gc1;
-GdkWindow	*window;
-GtkWidget   *windowWidget;
-
-GdkWindowAttr	attr;
-char            win_title[14] = "MIDI keyboard";
-
-int		prv_active_keys[128];	/* previous key state		*/
-
-/* calculate image width and height from current size */
-void	get_size (void)
+KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 {
+	synth = argsynth;
+
+	/* keyboard parameters */
+	transpose = 0;
+	key_ofs = 0;
+	veloc0 = 32;
+	veloc1 = 64;
+	veloc2 = 96;
+	veloc3 = 127;
+	mouse_notnum = -1;
+	mouse_veloc = 127;
+	cur_size = 1;
+
+	set_default_size(img_width, img_height);
+	set_title("thinksynth - Keyboard");
+
 	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
 	img_width = key_sizes[cur_size][2] * 75;
-}
 
-void	draw_keyboard (int mode);
+	drawArea.set_size_request(img_width, img_height);
+	drawArea.add_events(Gdk::ALL_EVENTS_MASK);
 
+	add(drawArea);
 
-/* open window */
+	realize();
+	gtk_widget_realize(GTK_WIDGET(drawArea.gobj()));	
 
-GtkWidget *drawWidget;
+	drawable = ((GtkWidget *)drawArea.gobj())->window;
 
-void expose_event (GtkWidget *w, gpointer d)
-{
-	draw_keyboard (5);
-}
-
-void	create_keyboard_window (void)
-{
-	int	i;
-
-	gdk_rgb_init ();
-	/* calculate image size */
-	get_size ();
-	/* initialize window */
-	windowWidget = gtk_window_new(GTK_WINDOW_TOPLEVEL);
-	gtk_window_set_title(GTK_WINDOW(windowWidget), "thinksynth - Keyboard");
-	gtk_widget_realize(windowWidget);
-	drawWidget = gtk_drawing_area_new ();
-	gtk_widget_set_usize(windowWidget, img_width, img_height);
-	gtk_widget_set_size_request(drawWidget, img_width, img_height);
-	g_signal_connect (G_OBJECT(drawWidget), "expose_event",
-					  G_CALLBACK (expose_event), NULL);
-	gtk_container_add(GTK_CONTAINER(windowWidget), drawWidget);
-	gtk_widget_realize(drawWidget);
-	window = drawWidget->window;
-
-	gc1 = gdk_gc_new (window);
-	gdk_gc_set_function (gc1, GDK_COPY);
-	gdk_gc_set_fill (gc1, GDK_SOLID);
-	gdk_rgb_gc_set_foreground (gc1, 0x00000000);
-	gdk_rgb_gc_set_background (gc1, 0x00FFFFFF);
+	kbgc = gdk_gc_new (drawable);
+	gdk_gc_set_function (kbgc, GDK_COPY);
+	gdk_gc_set_fill (kbgc, GDK_SOLID);
+	gdk_rgb_gc_set_foreground (kbgc, 0x00000000);
+	gdk_rgb_gc_set_background (kbgc, 0x00FFFFFF);
 
 	/* disable key repeat */
 //	gdk_key_repeat_disable ();
 
 	/* clear previous key state */
-	for (i = 0; i < 128; i++)
+	for (int i = 0; i < 128; i++)
 	{
 		prv_active_keys[i] = -2;
+		active_keys[i] = 0;
 	}
 
-	draw_keyboard (5);
-	
-	gtk_widget_show_all(windowWidget);
+	drawArea.signal_expose_event().connect(
+		SigC::slot(*this, &KeyboardWindow::exposeEvent));
+
+	drawArea.signal_button_press_event().connect(
+		SigC::slot(*this, &KeyboardWindow::clickEvent));
+
+	drawKeyboard (5);
 }
 
-/* close window */
-
-void	close_window (void)
+KeyboardWindow::~KeyboardWindow (void)
 {
-	/* enable key repeat again */
-//	gdk_key_repeat_restore ();
+	hide ();
 }
 
-/* draw keyboard based on current key state */
+#define set_note_off(channel,notenum) { float *pbuf = new float[1]; *pbuf = 0; synth->SetNoteArg(channel, notenum, "trigger", pbuf, 1); }
 
-void	draw_keyboard (int mode)
+
+bool KeyboardWindow::clickEvent (GdkEventButton *b)
+{	
+	int	rval = 0;
+	int	veloc;
+
+	if(b->type == GDK_BUTTON_PRESS) {
+		if (mouse_notnum >= 0) {	/* already active */
+
+					set_note_off(0, mouse_notnum);
+
+			active_keys[mouse_notnum] = 0;
+			rval |= 1;
+		}
+		
+		/* get note number */
+		mouse_notnum = get_coord ();
+		
+		if (mouse_notnum < 0) return false;
+		
+		switch (b->button) 
+		{
+			case 1:	veloc = veloc3; break;
+			case 2:	veloc = veloc2; break;
+			case 3:	veloc = veloc1; break;
+			default:
+				veloc = veloc0;
+				break;
+		}
+
+		active_keys[mouse_notnum] = 1;
+//			send_note_on (mouse_notnum, veloc);
+		synth->AddNote(0, mouse_notnum, veloc);
+		
+		rval |= 1;
+		mouse_veloc = veloc;	/* save velocity */
+	}
+
+	else if (b->type == GDK_BUTTON_RELEASE)
+	{
+		/* turn off if active */
+		if (mouse_notnum >= 0) {
+			//		send_note_off (mouse_notnum);
+					set_note_off(0, mouse_notnum);
+			rval |= 1;
+		}
+		mouse_notnum = -1;
+	}
+
+	return true;
+}
+
+bool KeyboardWindow::exposeEvent (GdkEventExpose *e)
 {
+	drawKeyboard (5);
+
+	return true;
+}
+
+void KeyboardWindow::drawKeyboard (int mode)
+{	
 	int		i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
 	unsigned int	c;
 
@@ -200,13 +225,13 @@ void	draw_keyboard (int mode)
 	z = mode & 4;
 	if (z) {
 		/* key borders */
-		gdk_rgb_gc_set_foreground (gc1, color0);
-		gdk_draw_line (window, gc1, 0, img_height - 1,
+		gdk_rgb_gc_set_foreground (kbgc, color0);
+		gdk_draw_line (drawable, kbgc, 0, img_height - 1,
 					    img_width - 1, img_height - 1);
 		i = 128; l = -1;
 		do {
 			l += s2;
-			gdk_draw_line (window, gc1, l, 0, l, img_height - 2);
+			gdk_draw_line (drawable, kbgc, l, 0, l, img_height - 2);
 		} while (--i);
 	}
 	j = s4;				/* black key x pos */
@@ -228,32 +253,32 @@ void	draw_keyboard (int mode)
 					    (active_keys[i] ? color4 : color1);
 				}
 				/* set color */
-				gdk_rgb_gc_set_foreground (gc1, c);
+				gdk_rgb_gc_set_foreground (kbgc, c);
 				if ((k == 0) || (k == 5)) {
 					/* C, F */
-					gdk_draw_rectangle (window, gc1, 1,
+					gdk_draw_rectangle (drawable, kbgc, 1,
 							    l, 0, s4, s0);
 				} else if ((k == 4) || (k == 11)
 					   || (i == 127)) {
 					/* E, B */
-					gdk_draw_rectangle (window, gc1, 1,
+					gdk_draw_rectangle (drawable, kbgc, 1,
 							    l + s2 - s6 - 1, 0,
 							    s6, s0);
 				} else {
 					/* D, G, A */
-					gdk_draw_rectangle (window, gc1, 1,
+					gdk_draw_rectangle (drawable, kbgc, 1,
 							    l + s2 - s6 - 1, 0,
 							    s5, s0);
 				}
-				gdk_draw_rectangle (window, gc1, 1,
+				gdk_draw_rectangle (drawable, kbgc, 1,
 						    l, s0, s2 - 1, s1 - 1);
 			} else {
 				/* black keys */
 				c = (unsigned int)
 				    (active_keys[i] ? color5 : color2);
 				/* set color */
-				gdk_rgb_gc_set_foreground (gc1, c);
-				gdk_draw_rectangle (window, gc1, 1,
+				gdk_rgb_gc_set_foreground (kbgc, c);
+				gdk_draw_rectangle (drawable, kbgc, 1,
 						    j, 0, s3, s0);
 			}
 		}
@@ -271,18 +296,19 @@ void	draw_keyboard (int mode)
 		}
 		k = (k == 11 ? 0 : k + 1);
 	} while (++i < 128);
+
+
 }
 
 /* get mouse pointer coordinates, and convert to key number */
 /* return -1 if pointer is not in keyboard area */
-
-int	get_coord (void)
+int	KeyboardWindow::get_coord (void)
 {
 	gint		x, y, m, n, o;
 	GdkModifierType	mask;
 
 	mask = GDK_MODIFIER_MASK;
-	gdk_window_get_pointer (window, &x, &y, &mask);
+	gdk_window_get_pointer (drawable, &x, &y, &mask);
 	/* check for valid coordinates */
 	if ((x < 0) || (x >= img_width) || (y < 0) || (y >= img_height))
 		return -1;
@@ -313,8 +339,22 @@ int	get_coord (void)
 	}
 	if (m > 4) o--;		/* correct for missing E# */
 	if (o > 127) o = 127;
+
 	return (int) o;
 }
+
+
+#if 0
+
+/* close window */
+
+void	close_window (void)
+{
+	/* enable key repeat again */
+//	gdk_key_repeat_restore ();
+}
+
+
 
 void	adjust_transpose (int n)
 {
@@ -506,11 +546,11 @@ int	keyval_to_notnum (int key)
 /*	4: redraw entire window				*/
 
 int	get_events (void)
-{
-	int	rval;
+{	int	rval;
 	int	keynum, press, release, notenum, veloc;
 
 	rval = 0;
+
 	while ((event = gdk_event_get ()) != NULL) {
 		if ((event->type == GDK_DELETE)		/* close window */
 		    || (event->type == GDK_DESTROY)) {
@@ -567,9 +607,11 @@ int	get_events (void)
 							veloc = veloc3;
 						}
 //						send_note_on (notenum, veloc);
+						active_keys[notenum] = 1;
 						rval |= 1;
 					} else {	/* note-off */
 //						send_note_off (notenum);
+						active_keys[notenum] = 1;
 						rval |= 1;
 					}
 				}
@@ -579,6 +621,7 @@ int	get_events (void)
 			   || (event->type == GDK_3BUTTON_PRESS)) {
 			if (mouse_notnum >= 0) {	/* already active */
 //				send_note_off (mouse_notnum);
+				active_keys[mouse_notnum] = 0;
 				rval |= 1;
 			}
 			/* get note number */
@@ -592,6 +635,7 @@ int	get_events (void)
 			default:
 				veloc = veloc0;
 			}
+			active_keys[mouse_notnum] = 1;
 //			send_note_on (mouse_notnum, veloc);
 			rval |= 1;
 			mouse_veloc = veloc;	/* save velocity */
@@ -599,6 +643,7 @@ int	get_events (void)
 			/* turn off if active */
 			if (mouse_notnum >= 0) {
 //				send_note_off (mouse_notnum);
+				active_keys[mouse_notnum] = 0;
 				rval |= 1;
 			}
 			mouse_notnum = -1;
@@ -608,10 +653,12 @@ int	get_events (void)
 				notenum = get_coord ();
 				if (notenum != mouse_notnum) {
 //					send_note_off (mouse_notnum);
+					active_keys[mouse_notnum] = 0;
 					/* turn on new note */
 					if (notenum >= 0) {
 //						send_note_on (notenum,
 //							      mouse_veloc);
+						active_keys[notenum] = 1;
 					}
 					rval |= 1;
 					mouse_notnum = notenum;
@@ -629,3 +676,4 @@ int	get_events (void)
 	return rval;
 }
 
+#endif
