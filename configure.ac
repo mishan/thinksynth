@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.83 2004/08/17 02:03:04 joshk Exp $
+dnl $Id: configure.ac,v 1.84 2004/08/17 02:04:32 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -31,11 +31,6 @@ else
 fi
 
 AC_SUBST(GNU_RMDIR_OPTION)
-
-AC_LINKER_DYNAMIC
-
-rm -f .conftest/x
-rmdir .conftest
 
 AC_LANG(C++)
 
@@ -94,6 +89,11 @@ case "$ac_cv_host" in
 		fi
 	;;
 esac
+
+AC_LINKER_DYNAMIC
+
+rm -f .conftest/x
+rmdir .conftest
 
 if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
