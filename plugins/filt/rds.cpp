@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.6 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: rds.cpp,v 1.7 2003/06/02 04:56:04 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,7 +13,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define SQR(a) (a*a)
+#define SQR(a) ((a)*(a))
 
 char		*desc = "Resonant Difference Scaling Filter";
 thPluginState	mystate = thActive;
@@ -51,7 +51,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float fact, rfact;
 
 	out_arg = mod->GetArg(node, "out");
-	out_high = mod->GetArg(node, "highout");
+	out_high = mod->GetArg(node, "out_high");
 	inout_last = mod->GetArg(node, "last");
 
 	last = (*inout_last)[0];
@@ -70,6 +70,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	  rfact = 1-(SQR((*in_res)[i]));
 
 	  diff = (*in_arg)[i] - last;
+	  diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and spices */
 
 	  highout[i] = diff;
 	  rdiff = diff - prevdiff;
@@ -84,11 +85,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_last[0] = last;
 	out_last[1] = prevdiff;
 
-/*	node->SetArg("out", out, windowlen);
-	node->SetArg("highout", highout, windowlen);
-	node->SetArg("last", out_last, 1);
-	node->SetArg("prevdiff", out_prevdiff, 1);
-*/
 	return 0;
 }
 

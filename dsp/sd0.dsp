@@ -17,7 +17,7 @@ node ionode {
 	snaresample = 0;
 	snare = 0.7;
 	filter = 0.5;
-	res = 0.6;
+	res = 0.8;
 };
 
 node mixer mixer::fade {
@@ -27,7 +27,7 @@ node mixer mixer::fade {
 };
 
 node snaremix mixer::mul {
-	in0 = filt->highout;
+	in0 = filt->out_high;
 	in1 = snareenv->out;
 };
 
@@ -73,7 +73,7 @@ node dist dist::clip {
 
 node osc osc::simple {
 	freq = pitch->out;
-	waveform = 4;
+	waveform = 5;
 };
 
 node static osc::static {
