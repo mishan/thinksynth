@@ -28,21 +28,21 @@ node map1 env::map {
 	in = env->out;
 	inmin = 0;
 	inmax = 256;
-	outmin = 0.1;
-	outmax = 0.5;
+	outmin = 0;
+	outmax = 1;
 };
 
 node map2 env::map {
 	in = env->out;
 	inmin = -256;
 	inmax = 256;
-	outmin = 200;
+	outmin = 500;
 	outmax = 2000;
 };
 
 node filt filt::rds {
 	in = osc->out;
-	cutoff = 0.3;
+	cutoff = 0.5;
 	res = map1->out;
 };
 
