@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.42 2003/04/27 04:32:13 ink Exp $ */
+/* $Id: thMod.cpp,v 1.43 2003/04/27 05:49:21 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -226,8 +226,10 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
 
 	argtree = currentnode->GetArgTree();
-
-	BuildSynthTreeHelper2(argtree, currentnode);
+	if(argtree) {
+		printf("Calling BuildSynthTreeHelper2, arg pointer = %d\n", argtree);
+		BuildSynthTreeHelper2(argtree, currentnode);
+	}
 /*	if(argtree) {
 		data = (thArgValue *)((thArg *)argtree->data)->GetArg();
 		if(data->argType == ARG_POINTER) {
@@ -242,17 +244,20 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 
 void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 {
-	thArgValue *data = (thArgValue *)((thArg *)argtree->GetData())->GetArg();
+	thArgValue *data;
 	thNode *node;
 
-	BuildSynthTreeHelper2(argtree->GetLeft(), currentnode);
+	if(argtree) {
+		data = (thArgValue *)((thArg *)argtree->GetData())->GetArg();
+		BuildSynthTreeHelper2(argtree->GetLeft(), currentnode);
 
-	if(data->argType == ARG_POINTER) {
-		node = FindNode(data->argPointNode);
-		if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
-			BuildSynthTreeHelper(currentnode, data->argPointNode);
+		if(data->argType == ARG_POINTER) {
+			node = FindNode(data->argPointNode);
+			if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
+				BuildSynthTreeHelper(currentnode, data->argPointNode);
+			}
 		}
-	}
 
-	BuildSynthTreeHelper2(argtree->GetRight(), currentnode);
+		BuildSynthTreeHelper2(argtree->GetRight(), currentnode);
+	}
 }

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.35 2003/04/26 02:55:12 ink Exp $ */
+/* $Id: main.cpp,v 1.36 2003/04/27 05:49:21 ink Exp $ */
 
 #include "config.h"
 
@@ -49,7 +49,7 @@ syntax:
 	while ((havearg = getopt (argc, argv, "h")) != -1) {
 		switch (havearg) {
 			case 'h':
-				printf (PACKAGE " " VERSION " by Misha Nasledov, Leif M. Ames, Aaron Lehmann and Joshua Kwan\n");
+				printf (PACKAGE " " VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
 				/* TODO: insert some helpful text here */
 				printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
 				exit(0);
@@ -76,9 +76,9 @@ syntax:
 	Synth.ListMods();
   
 	((thMod *)Synth.FindMod("test"))->BuildSynthTree();
-	Synth.AddChannel("chan1", "test");
+	/*Synth.AddChannel("chan1", "test");
 	Synth.AddNote("chan1", 20, 100);
-
+	*/
 	newmod = ((thMod *)Synth.FindMod("test"))->Copy();
 	newmod->BuildSynthTree();
 	newmod->Process(newmod, 1024);
