@@ -112,8 +112,7 @@ int thPlugin::ModuleLoad (void)
 
 void thPlugin::ModuleUnload (void)
 {
-	if (plugState == thNotLoaded) { /* don't unload what is not
-					   loaded! */
+	if (plugState == thNotLoaded) { /* don't unload what is not loaded! */
 		return;
 	}
 	
