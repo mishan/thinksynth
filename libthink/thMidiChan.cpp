@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.35 2003/05/07 16:07:17 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.36 2003/05/07 16:10:37 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -41,7 +41,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
 }
 
-thMidiChan::~thMidiChan ()
+thMidiChan::~thMidiChan (void)
 {
 	delete modnode;
 	delete args;
@@ -64,14 +64,15 @@ void thMidiChan::DelNote (int note)
 	thBSTree *node = notes->Find(&note);
 
 	delete (thMidiNote *)node->GetData();
+
 	notes->Remove(&note);
 }
 
 void thMidiChan::Process (void)
 {
-  memset (output, 0, windowlength*channels*sizeof(float));
+	memset (output, 0, windowlength*channels*sizeof(float));
 
-  ProcessHelper(notes);
+	ProcessHelper(notes);
 }
 
 void thMidiChan::ProcessHelper (thBSTree *note)
