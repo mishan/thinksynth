@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.1 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.2 2004/04/06 20:47:34 misha Exp $ */
 
 #include "config.h"
 
@@ -146,8 +146,37 @@ int thALSAAudio::Write (float *inbuf, int len)
 	/* XXX: WTF? */
 	unsigned char *buff = (unsigned char *)outbuf;
 
-//	w = write(fd, buff, len*bytes);
 	w = snd_pcm_writei (play_handle, buff, len);
+
+	if (w < 0)
+	{
+		/* under-run */
+		if(w == -EPIPE)
+		{
+			debug("<< BUFFER UNDERRUN >> snd_pcm_prepare()");
+			snd_pcm_prepare(play_handle);
+		}
+		else if (w == -ESTRPIPE)
+		{
+			debug("<< AUDIO SUSPENDED >>");
+
+			while((w = snd_pcm_resume (play_handle)) == -EAGAIN)
+			{
+				sleep (1);
+			}
+			
+			if (w < 0)
+			{
+				w = snd_pcm_prepare(play_handle);
+			}
+
+			debug("<< AUDIO UNSUSPENDED >>");
+		}
+		else
+		{
+			debug("<< UNKNOWN AUDIO WRITE ERROR >>\n");
+		}
+	}
 
 	return w;
 }

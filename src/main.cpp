@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.152 2004/04/06 19:03:55 misha Exp $ */
+/* $Id: main.cpp,v 1.153 2004/04/06 20:47:34 misha Exp $ */
 
 #include "config.h"
 
@@ -57,33 +57,11 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 {
 	int l = synth->GetWindowLen();
 	float *synthbuffer = synth->GetOutput();
+	int r;
 
 	synth->Process();
 
-	if(audio->Write(synthbuffer, l) < l)
-	{
-		fprintf(stderr, "<< BUFFER OVERRUN >> snd_pcm_prepare()\n");
-		snd_pcm_prepare(((thALSAAudio *)audio)->play_handle);
-
-		/* XXX: this part won't work here anyway ... write a
-		   thALSAAudio::reinit() ??? */
-#if 0
-		/* this part is experimental */
-		delete outputstream;
-
-		if (outputfname.length() > 0)
-		{
-			outputstream = new thALSAAudio(outputfname.c_str(),
-										   &audiofmt);
-		}
-		else
-		{
-			outputstream = new thALSAAudio(&audiofmt);
-		}
-#endif
-
-//		phandle = ((thALSAAudio *)outputstream)->play_handle;
-	}
+	audio->Write(synthbuffer, l);
 }
 
 /* XXX: rewrite main event routine; pass Audio object a set of signal objects
