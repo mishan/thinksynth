@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.9 2004/11/26 03:51:38 joshk Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.10 2004/11/27 05:44:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -167,9 +167,8 @@ bool gthPatchManager::parse (const string &filename, int chan)
 	patches_[chan] = new PatchFile;
 	patches_[chan]->filename = filename;
 
-	while (!feof(prefsFile))
+	while (fgets(buffer, 256, prefsFile) != NULL)
 	{
-		fgets(buffer, 256, prefsFile);
 		trim_leadspc(buffer);
 		buffer[strlen(buffer)-1] = '\0';
 
