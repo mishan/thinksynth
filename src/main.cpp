@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.116 2004/01/31 10:08:18 ink Exp $ */
+/* $Id: main.cpp,v 1.117 2004/01/31 11:48:34 ink Exp $ */
 
 #include "config.h"
 
@@ -132,6 +132,13 @@ int main (int argc, char *argv[])
 	srand(time(NULL));
 
 	Synth.AddChannel(string("chan1"), dspname, 7.0);
+	Synth.LoadMod("dsp/mfm01.dsp");
+	Synth.AddChannel(string("chan2"), "test", 4.0);
+	Synth.LoadMod("dsp/analog01.dsp");
+	Synth.AddChannel(string("chan3"), "test", 7.0);
+	Synth.LoadMod("dsp/sqrtest.dsp");
+	Synth.AddChannel(string("chan4"), "test", 7.0);
+
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to
@@ -235,16 +242,18 @@ int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
 {
 	snd_seq_event_t *ev;
 	float *pbuf = new float[1];  // Parameter buffer
+	char channelname[10];  /* XXX: FOR HARDCODED CHANNELS  remove this later */
 	
 	do {
         snd_seq_event_input(seq_handle, &ev);
+		sprintf(channelname, "chan%i", ev->data.note.channel);
         switch (ev->type) {
 		case SND_SEQ_EVENT_NOTEON:
-			Synth->AddNote(string("chan1"), ev->data.note.note, ev->data.note.velocity);
+			Synth->AddNote(string(channelname), ev->data.note.note, ev->data.note.velocity);
 			break;
 		case SND_SEQ_EVENT_NOTEOFF:
 			*pbuf = 0;
-			Synth->SetNoteArg(string("chan1"), ev->data.note.note, "trigger", pbuf, 1);  /* XXX make this part better */
+			Synth->SetNoteArg(string(channelname), ev->data.note.note, "trigger", pbuf, 1);  /* XXX make this part better */
 			break;
 		case SND_SEQ_EVENT_TEMPO:
 			printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
