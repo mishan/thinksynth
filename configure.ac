@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.93 2004/09/06 07:39:55 joshk Exp $
+dnl $Id: configure.ac,v 1.94 2004/09/06 07:40:42 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -325,6 +325,8 @@ if test "$have_jack" -eq 1; then
 else
   echo disabled
 fi
+
+echo    "default output device ...: $default_output"
 
 echo -n "debug ...................: $debug "
 
