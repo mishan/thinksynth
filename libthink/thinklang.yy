@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.47 2003/11/04 00:52:49 misha Exp $ */
+/* $Id: thinklang.yy,v 1.48 2003/11/04 06:13:27 misha Exp $ */
 
 %{
 #include "think.h"
@@ -152,19 +152,22 @@ NIL
 nodes:
 NODE WORD plugname LCBRACK assignments RCBRACK
 {
+
 #ifdef USE_DEBUG
 	printf("node %s defined using plugin %s\n", $2.str, $3.str);
 
 	printf("Checking if plugin %s is loaded...\n", $3.str);
 #endif
-	if(!((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str))
-		{
-			if (((thPluginManager *)Synth.GetPluginManager())->LoadPlugin($3.str) == 1) { /* FAILED */
-				printf ("Error loading required %s, aborting.\n", $3.str);
-				exit(1);
-			}
+	thPluginManager *plugMgr = Synth.GetPluginManager();
+
+	if(!plugMgr->GetPlugin($3.str)) {
+		if (plugMgr->LoadPlugin($3.str) == 1) { /* FAILED */
+			printf ("Error loading required %s, aborting.\n", $3.str);
+			exit(1);
 		}
-	parsenode->SetPlugin(((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str));
+	}
+
+	parsenode->SetPlugin(plugMgr->GetPlugin($3.str));
 
 	delete[] $3.str;
 

@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.33 2003/10/16 21:04:46 misha Exp $ */
+/* $Id: thSynth.h,v 1.34 2003/11/04 06:13:27 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -16,7 +16,7 @@ public:
 	thMod *FindMod(const string &name) { return modlist[name]; };
 	void ListMods(void);
 	void BuildSynthTree(const string &modname);
-	const thPluginManager *GetPluginManager (void) const { return &pluginmanager; };
+	thPluginManager *GetPluginManager (void) { return &pluginmanager; };
 	void AddChannel(const string &channame, const string &modname, float amp);
 	thMidiNote *AddNote(const string &channame, float note, float velocity);
 	void Process(void);
@@ -42,7 +42,6 @@ private:
 	float *thOutput;
 	int thChans;  /* Number of channels (mono/stereo/etc) */
 	int thWindowlen;
-	/* this private data member added on 9/15/03 */
 	long thSamples; /* the number of samples per second*/
 };
 

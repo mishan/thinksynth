@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.103 2003/11/04 00:52:49 misha Exp $ */
+/* $Id: main.cpp,v 1.104 2003/11/04 06:13:27 misha Exp $ */
 
 #include "config.h"
 
@@ -55,7 +55,6 @@ int main (int argc, char *argv[])
 	float *synthbuffer;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
-//	list<int> notestoplay;
 
 	plugin_path = PLUGIN_PATH;
 
@@ -109,7 +108,7 @@ int main (int argc, char *argv[])
 			default:
 			{
 				if (optind != argc) {
-//				printf ("error: unrecognized parameter\n");
+//					printf ("error: unrecognized parameter\n");
 					print_syntax(argv[0]);
 					exit(1);
 				}
@@ -162,7 +161,9 @@ int main (int argc, char *argv[])
 
 	/* grab address of buffer from synth object */
 	synthbuffer = Synth.GetOutput();
+
 	buflen = Synth.GetChans()*Synth.GetWindowLen();
+
 	printf ("Writing to '%s'\n",(char *)outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
