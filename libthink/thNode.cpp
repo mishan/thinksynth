@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.51 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thNode.cpp,v 1.52 2004/02/18 23:41:16 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -78,6 +78,7 @@ void thNode::CopyArgs (const map<string, thArg*> &newargs)
 		else if(data->argType == ARG_POINTER) {
 			newarg = new thArg(data->argName, data->argPointNode,
 							   data->argPointName);
+			newarg->argPointNodeID = data->argPointNodeID;
 		}
 		else continue;
 		args[data->argName] = newarg;

@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.32 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thMod.h,v 1.33 2004/02/18 23:41:16 ink Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -19,19 +19,26 @@ public:
 	};
 	thArg *GetArg (const string &nodename, const string &argname);
 	thArg *GetArg (thNode *node, const string &argname);
-	thArg *GetArg (const string &argname) { return GetArg(ionode, argname); };
+	thArg *GetArg (const string &argname) { return GetArg(ionode, argname); }
 
 	void NewNode(thNode *node);
+	void NewNode(thNode *node, int id);
 	void SetIONode(const string &name);
 	void PrintIONode(void);
-	thNode *GetIONode(void) const { return ionode; };
+	thNode *GetIONode(void) const { return ionode; }
 
-	string GetName(void) const { return modname; };
-	void SetName(const string &name) { modname = name; };
+	string GetName(void) const { return modname; }
+	void SetName(const string &name) { modname = name; }
+
+	int GetNodeCount (void) const { return nodecount; }
 
 	void Process (unsigned int windowlen);
 
 	void SetActiveNodes(void);
+
+	void SetPointers (void);
+
+	void BuildNodeIndex (void);
 
 	void BuildSynthTree (void);
 
@@ -43,7 +50,7 @@ private:
 
 	void CopyHelper (thNode *parentnode);
 
-	int BuildSynthTreeHelper(thNode *parent, const string &nodename);
+	int BuildSynthTreeHelper(thNode *parent, int nodeid);
 	void BuildSynthTreeHelper2(const map <string, thArg*> &argtree, thNode *currentnode);
 
 	map<string,thNode*> modnodes;
@@ -51,6 +58,10 @@ private:
 	thNode *ionode;
 
 	string modname;
+
+	int nodecount;  /* counter of thNodes in the thMod, used as the id
+					   for the node index */
+	thNode **nodeindex;  /* index of all the nodes */
 };
 
 #endif /* TH_MOD_H */

@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.28 2003/09/16 23:51:14 misha Exp $ */
+/* $Id: thArg.h,v 1.29 2004/02/18 23:41:16 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -27,6 +27,7 @@ class thArg {
 	unsigned int argNum; /* number of elements in argValues */
 	string argPointNode; /* name of the node a pointer points to */
 	string argPointName; /* name of the argument a pointer points to */
+	int argPointNodeID; /* index of the node to which the pointer points */
 	int argType; /* is this arg a value or a pointer? */
 	float operator[] (unsigned int i) const {
 		if(!argNum) {

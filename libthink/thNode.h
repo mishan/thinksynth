@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.38 2003/09/16 23:51:14 misha Exp $ */
+/* $Id: thNode.h,v 1.39 2004/02/18 23:41:16 ink Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -19,6 +19,10 @@ public:
 	
 	thArg *GetArg (const string &name) { return args[name]; };
 	void PrintArgs (void);
+
+	void SetID (int newid) { id = newid; }
+
+	int GetID (void) const { return id; }
 
 	bool GetRecalc(void) const { return recalc; }
 
@@ -47,6 +51,8 @@ private:
 	
 	string nodename;
 	bool recalc;
+
+	int id;  /* id used as an index for thArg pointers */
 };
 
 #endif /* TH_NODE_H */

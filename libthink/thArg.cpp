@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.37 2004/01/28 12:04:46 ink Exp $ */
+/* $Id: thArg.cpp,v 1.38 2004/02/18 23:41:16 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -14,6 +14,7 @@ thArg::thArg(const string &name, float *value, const int num)
 	argValues = value;
 	argNum = num;
 	argType = ARG_VALUE;
+	argPointNodeID = -1;   /* so we know it has not been set yet */
 }
 
 thArg::thArg(const string &name, const string &node, const string &value)
@@ -25,6 +26,7 @@ thArg::thArg(const string &name, const string &node, const string &value)
 	argNum = 0;
 
 	argType = ARG_POINTER;
+	argPointNodeID = -1;   /* so we know it has not been set yet */
 }
 
 thArg::thArg (void) /* the equivalent of creating a thArg(NULL, NULL, 0) */

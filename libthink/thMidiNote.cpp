@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.29 2004/01/26 00:09:42 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.30 2004/02/18 23:41:16 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -34,6 +34,11 @@ thMidiNote::thMidiNote (thMod *mod)
 	: modnode (*mod)
 {
 	modnode.BuildSynthTree();
+	thNode *ionode = modnode.GetIONode();
+
+	ionode->SetArg("note", 0, 1);  /* set these to 0, it may matter when */
+	ionode->SetArg("velocity", 0, 1); /* the args are indexed as well */
+	ionode->SetArg("trigger", 0, 1);
 }
 
 thMidiNote::~thMidiNote ()

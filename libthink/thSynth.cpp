@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.69 2004/02/10 01:58:41 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.70 2004/02/18 23:41:16 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -65,6 +65,8 @@ void thSynth::LoadMod (const string &filename)
 
 	delete parsenode;
 
+	printf("IO NODE ID: %i\n\n", parsemod->GetIONode()->GetID());
+	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
 }
@@ -82,6 +84,7 @@ void thSynth::LoadMod (FILE *input)
 
 	delete parsenode;
 
+	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
 }
