@@ -111,8 +111,8 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 	
 	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
-	process->emit();
-//	process_synth ();
+//	process->emit();
+	process_synth ();
 
 	return 0;
 }
