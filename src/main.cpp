@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.32 2003/04/25 07:37:18 joshk Exp $ */
+/* $Id: main.cpp,v 1.33 2003/04/25 07:40:51 joshk Exp $ */
 
 #include "config.h"
 
@@ -49,7 +49,9 @@ syntax:
 			case 'h':
 				printf (PACKAGE " " VERSION " by Misha Nasledov, Leif M. Ames, Aaron Lehmann and Joshua Kwan\n");
 				/* TODO: insert some helpful text here */
-				goto syntax;
+				printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
+				exit(0);
+
 				break;
 
 			default:
