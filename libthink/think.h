@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.16 2003/11/05 03:04:01 joshk Exp $ */
+/* $Id: think.h,v 1.17 2003/11/12 23:31:02 misha Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -25,15 +25,11 @@ using namespace std;
 
 /* Handy debug function */
 
-#if 0
-
 #ifdef USE_DEBUG
-#define debug(...) printf("%s:%d: ", __FILE__, __LINE__);printf(...);printf("\n");
+#define debug(...) printf("%s:%d: ", __FILE__, __LINE__);printf(__VA_ARGS__);printf("\n");
 #else
 #define debug(...) ;
 #endif /* USE_DEBUG */
-
-#endif /* above code is majorly owned */
 
 #define likely(x)   __builtin_expect((x),1)
 #define unlikely(x) __builtin_expect((x),0)
