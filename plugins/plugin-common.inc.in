@@ -1,5 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.23 2003/05/03 01:49:21 joshk Exp $
-# -*- Makefile -*- vim:syntax=make
+# $Id: plugin-common.inc.in,v 1.24 2003/05/03 03:53:49 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -10,6 +9,7 @@ plugin_path=@plugin_path@
 PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
 USE_SONAME=@USE_SONAME@
 USING_GNU_CXX=@USING_GNU_CXX@
+CXX_MT_BROKEN=@CXX_MT_BROKEN@
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(wildcard .deps),)
@@ -23,6 +23,12 @@ all: $(PLUGIN_NAMES:%=%@SHARED_SUFFIX@)
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -DPLUGIN_BUILD -shared @SONAME_FLAGS@ -o $@ $< $(PLUGIN_LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
+
+ifeq ($(CXX_MT_BROKEN),yes)
+	sed 's/.o:/.so:/g' .deps/$<.dt > .deps/$<.dtx
+	mv .deps/$<.dtx .deps/$<.dt
+endif
+
 -include .deps/*.d
 endif
 

@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.34 2003/05/03 01:49:21 joshk Exp $
+dnl $Id: configure.ac,v 1.35 2003/05/03 03:53:49 joshk Exp $
 
 AC_INIT
 
@@ -54,6 +54,8 @@ AC_HEADER_STDC
 AC_C_CONST
 AC_C_INLINE
 AC_C_BIGENDIAN
+
+AC_CXX_MT_BROKEN
 
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
@@ -182,7 +184,11 @@ if test "$ac_cv_cxx_compiler_gnu" = yes; then
 	fi
 
 	AC_SUBST(USING_GNU_CXX, yes)
-	AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.deps/\$<.dt,-MT\$@"])
+	if test "$CXX_MT_BROKEN" = yes; then
+		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.deps/\$<.dt"])
+	else
+		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.deps/\$<.dt,-MT\$@"])
+	fi
 fi
 
 AC_SUBST(CXXFLAGS)
