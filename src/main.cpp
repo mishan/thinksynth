@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.47 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: main.cpp,v 1.48 2003/04/28 22:47:19 ink Exp $ */
 
 #include "config.h"
 
@@ -91,7 +91,7 @@ syntax:
 
 	/*  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]); */
 	for(i=0;i<1024;i++) { /* XXX temporary hack to view more than 1 element of data */
-		printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out"))->argValues[i]);
+		printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out0"))->argValues[i]);
 	}
 
 	free(filename);

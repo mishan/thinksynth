@@ -1,7 +1,8 @@
 name "test";
 
 node ionode test::test {
-	out = osc->out;
+	out0 = osc->out;
+	channels = 1;
 	};
 node osc osc::simple {
 	freq = 440;

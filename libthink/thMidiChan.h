@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.12 2003/04/28 22:32:48 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.13 2003/04/28 22:47:19 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -21,7 +21,7 @@ class thMidiChan {
 		thMod *modnode;
 		thBSTree *args, *notes;
 		int channels;
-		float *output;
+		float **output;
 		int outputnamelen;
 };
 
