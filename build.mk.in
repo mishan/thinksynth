@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.22 2004/06/21 04:16:49 joshk Exp $
+# $Id: build.mk.in,v 1.23 2004/06/30 03:33:42 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -21,7 +21,7 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 	$(CXX) $(PICFLAGS) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
 
 %@SHARED_SUFFIX@: %.cpp
-	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS)
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS) $(LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(CXX_MT_BROKEN),yes)

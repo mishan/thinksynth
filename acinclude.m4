@@ -1,4 +1,4 @@
-dnl $Id: acinclude.m4,v 1.4 2003/12/21 22:18:10 joshk Exp $
+dnl $Id: acinclude.m4,v 1.5 2004/06/30 03:33:42 joshk Exp $
 
 AC_DEFUN([AC_SUBST_DIR], [
 	ifelse($2,,,$1="[$]$2")
@@ -31,7 +31,7 @@ AC_DEFUN([AC_LINKER_DYNAMIC], [
         hold_LDFLAGS=$LDFLAGS
         AC_MSG_CHECKING(how to run the linker dynamically)
 
-        for opt in -rdynamic -Wl,-export-dynamic -Wl,-B,dynamic; do
+        for opt in -Wl,-export-dynamic -rdynamic -Wl,-B,dynamic; do
           LDFLAGS="${hold_LDFLAGS} ${opt}"
           AC_LINK_IFELSE(AC_LANG_PROGRAM([],[int i;]), found=yes, found=no)
           if test "$found" = yes; then

@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.75 2004/06/21 04:50:10 joshk Exp $
+dnl $Id: configure.ac,v 1.76 2004/06/30 03:33:42 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -100,10 +100,8 @@ else
 		;;
 	esac
 
-	if test "$system" != Darwin; then
-		AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
-		AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
-	fi
+	AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
+	AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 
 	dnl Cygwin's g++ port doesn't support this, just kill some warnings
 	if test `expr $system : CYGWIN` -eq 0; then
@@ -233,7 +231,7 @@ AC_DEFINE_UNQUOTED(HAVE_ALSA, $have_alsa, [Define to 1 if ALSA files are availab
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
-AC_SUBST(ASOUND_LIBS)
+AC_SUBST(ALSA_LIBS)
 
 dnl Flatten out all of the paths.
 AC_SUBST_DIR(libdir)

@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.40 2004/06/19 00:22:09 joshk Exp $
+# $Id: Makefile.in,v 1.41 2004/06/30 03:33:42 joshk Exp $
 
 BINARY = thinksynth
 
@@ -11,7 +11,7 @@ all: thinksynth
 include ../build.mk
 
 PICFLAGS =
-LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ @ASOUND_LIBS -L../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
+LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
 
 # objects not compiled anymore:
