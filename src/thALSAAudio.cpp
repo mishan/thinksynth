@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.13 2004/05/04 08:08:42 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.14 2004/05/08 22:27:43 ink Exp $ */
 
 #include "config.h"
 
@@ -175,6 +175,7 @@ int thALSAAudio::Write (float *inbuf, int len)
 {
 	int w = 0;
 	int chans = ofmt.channels;
+	int bufferoffset = 0;
 
 	/* malloc an appropriate buffer it would be *bad* if the length of the 
 	   buffer passed in were to increase so don't do that (brandon) */
@@ -192,11 +193,16 @@ int thALSAAudio::Write (float *inbuf, int len)
 	{
 		case 16:
 		{
+			/* XXX: WTF?!  LEARN TO CAST! someone fix this */
 			signed short *buf = (signed short*)outbuf;
 			/* convert to specified format */
-			for (int i = 0; i < len * chans; i++)
-			{ 
-				le16(buf[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
+			for (int i = 0; i < chans; i++)
+			{
+				for(int j = 0; j < len; j++)
+				{
+					le16(buf[j * chans + i], (signed short)(((float)inbuf[bufferoffset + j]/TH_MAX)*32767));
+				}
+				bufferoffset += len;
 			}
 			
 			break;
@@ -212,9 +218,9 @@ int thALSAAudio::Write (float *inbuf, int len)
 	}
 
 	/* XXX: WTF? */
-	unsigned char *buff = (unsigned char *)outbuf;
+	// unsigned char *buff = (unsigned char *)outbuf; STOP SMOKING CRACK
 
-	w = snd_pcm_writei (play_handle, buff, len);
+	w = snd_pcm_writei (play_handle, (unsigned char*)outbuf, len);
 
 	if (w < 0)
 	{
