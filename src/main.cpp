@@ -363,7 +363,7 @@ int main (int argc, char *argv[])
 				sigc::bind<gthAudio *,thSynth *>(sigc::ptr_fun(&audio_readywrite),
 												 aout, Synth)); 
 #else
-			fprintf(stderr, "Sorry, ALSA is not supported in tuis build.\n");
+			fprintf(stderr, "Sorry, ALSA is not supported in this build.\n");
 #endif /* HAVE_ALSA */
 		}
  		else if (driver == "jack")
