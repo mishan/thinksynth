@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.51 2003/05/28 06:23:31 joshk Exp $
+dnl $Id: configure.ac,v 1.52 2003/05/28 06:25:31 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -44,11 +44,6 @@ AC_CXX_MT_BROKEN
 
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
-
-AC_PATH_PROG(sedpath, sed)
-if test "_$sedpath" = _; then
-	AC_MSG_ERROR("Cannot find sed: I need it\!")
-fi
 
 CXXFLAGS="-Wall -pedantic -ffast-math"
 
