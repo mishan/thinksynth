@@ -1,3 +1,5 @@
+all: $(PLUGIN_NAMES)
+
 include ../../build.mk
 
 INCLUDES = -I../../src -I../..
