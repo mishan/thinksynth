@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.26 2003/04/27 19:59:18 joshk Exp $
+dnl $Id: configure.ac,v 1.27 2003/04/28 02:32:50 joshk Exp $
 
 AC_INIT
 
@@ -79,8 +79,10 @@ dnl Others may have it in libc_r
 	lcr_for_dl=yes
 ],
 
+dnl Poor cygwin users...
 	[AC_CHECK_LIB(cygwin, dlopen,
 		[LIBS="$LIBS -lcygwin"],
+
 dnl We need at least one of these
 [AC_MSG_ERROR([No dlopen implementation found on your system. Sorry.])])])])
 
@@ -152,8 +154,10 @@ dnl Debug is enabled:
 AC_ARG_ENABLE(efence,
 	[AC_HELP_STRING([--enable-efence],[Enable ElectricFence in the build])],
 	[AC_CHECK_LIB(efence, malloc,
-		[LIBS="$LIBS -lefence"],
-		[AC_MSG_WARN([--enable-efence specified but could not link to it - disabling])])])
+		[LIBS="$LIBS -lefence"
+		efence=yes],
+		[AC_MSG_WARN([--enable-efence specified but could not link to it - disabling])
+		efence=no])])
 	
 AC_ARG_ENABLE(,,,)
 
@@ -177,7 +181,14 @@ echo
 echo $PACKAGE $VERSION
 echo
 echo "compiling for system ....:" $system
-echo "debug ...................:" $debug
+echo -n "debug ...................: $debug "
+
+if test "$efence" = yes; then
+	echo "(ElectricFence enabled)"
+else
+	echo
+fi
+
 echo
 echo The binary will be installed in $bindir
 echo Data will be installed in       $datadir/$PACKAGE
