@@ -24,14 +24,14 @@ static inline int StringCompare(char *str1, char *str2)
 	return 0;
 }
 
-thBTree::thBTree()
+thBTree::thBTree (void)
 {
 	bRoot = NULL;
 }
 
-thBTree::~thBTree()
+thBTree::~thBTree (void)
 {
-	DestroyTree();
+	DestroyTree(bRoot);
 }
 
 void thBTree::Insert(char *name, void *data)
@@ -88,6 +88,7 @@ void thBTree::Remove(thBNode *node)
 	right = node->left;
 	
 	if(parent->left == node) {
+		delete node->name;
 		delete node;
 
 		switch(StringCompare(left->name, right->name)) {
@@ -104,6 +105,7 @@ void thBTree::Remove(thBNode *node)
 
 	}
 	else { /* parent->right == node */
+		delete node->name;
 		delete node;
 
 		switch(StringCompare(left->name, right->name)) {
@@ -249,6 +251,15 @@ thBNode *thBTree::FindHelper(thBNode *root, char *name)
 	return NULL;
 }
 
-void thBTree::DestroyTree()
+void thBTree::DestroyTree (thBNode *root)
 {
+	if(!root) {
+		return;
+	}
+
+	DestroyTree(root->left);
+	DestroyTree(root->right);
+
+	delete root->name;
+	delete root;
 }

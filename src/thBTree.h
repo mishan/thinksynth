@@ -10,24 +10,24 @@ struct thBNode {
 
 class thBTree {
 public:
-	thBTree();
-	~thBTree();
+	thBTree (void);
+	~thBTree (void);
 
-	void Insert(char *name, void *data);
-	void Remove(thBNode *bnode);
-	thBNode *Find(char *name);
+	void Insert (char *name, void *data);
+	void Remove (thBNode *bnode);
+	thBNode *Find (char *name);
 
 	void PrintTree (void);
 private:
 	thBNode *bRoot;
 
-	void PrintHelper(thBNode *root);
-	void InsertHelper(thBNode *root, thBNode *node);
-	thBNode *FindHelper(thBNode *root, char *name);
-	thBNode *GetParent(thBNode *root, thBNode *node);
-	void RemoveHelper(thBNode *root, thBNode *node);
+	void PrintHelper (thBNode *root);
+	void InsertHelper (thBNode *root, thBNode *node);
+	thBNode *FindHelper (thBNode *root, char *name);
+	thBNode *GetParent (thBNode *root, thBNode *node);
+	void RemoveHelper (thBNode *root, thBNode *node);
 	
-	void DestroyTree(void);
+	void DestroyTree (thBNode *root);
 };
 
 #endif /* TH_BTREE_H */
