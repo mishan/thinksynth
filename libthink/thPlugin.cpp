@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.25 2003/04/29 05:55:20 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.26 2003/04/29 08:38:46 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -7,8 +7,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
-#include <sys/types.h>
 #include <libgen.h>
 #include <dlfcn.h>
 
