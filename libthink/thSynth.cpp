@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.85 2004/05/04 04:05:58 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.86 2004/05/04 04:33:49 misha Exp $ */
 
 #include "config.h"
 
@@ -428,7 +428,13 @@ void thSynth::PrintChan(int chan)
 float *thSynth::GetOutput (void) const
 {
 	/* try locking the mutex (and block) to make sure it's not processing */
-	pthread_mutex_trylock(synthMutex);
+	pthread_mutex_lock(synthMutex);
 
-	return thOutput;
+//	float *output = new float[thChans*thWindowlen];
+//	memcpy(output, thOutput, thChans*thWindowlen*sizeof(float));
+	float *output = thOutput;
+
+	pthread_mutex_unlock(synthMutex);
+
+	return output;
 }

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.169 2004/05/04 04:05:59 misha Exp $ */
+/* $Id: main.cpp,v 1.170 2004/05/04 04:33:49 misha Exp $ */
 
 #include "config.h"
 
@@ -78,17 +78,25 @@ void process_synth (void)
 	float *synthbuf = Synth.GetOutput();
 	int l = Synth.GetWindowLen();
 
-/*	for (int i = 0; i < l; i++)
-	{
-		if (synthbuf[i] < TH_MIN)
-			synthbuf[i] = TH_MIN;
-		if (synthbuf[i] > TH_MAX)
-			synthbuf[i] = TH_MAX;
 
-		if (synthbuf[i])
-			printf("%f\t", synthbuf[i]);
+#if 0
+	for (int i = 0; i < l; i++)
+	{
+		if (!synthbuffer[i])
+			continue;
+
+		synthbuffer[i] *= 10;
+
+		if (synthbuffer[i] < TH_MIN)
+			synthbuffer[i] = TH_MIN;
+		if (synthbuffer[i] > TH_MAX)
+			synthbuffer[i] = TH_MAX;
+
+		printf("%f\t", synthbuffer[i]);
 	}
-*/
+#endif 
+
+
 }
 
 void audio_readywrite (thAudio *audio, thSynth *synth)
@@ -116,8 +124,10 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 	memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
 
+	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
-	process->emit();
+//	process->emit();
+	process_synth ();
 
 	return 0;
 }
