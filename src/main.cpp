@@ -127,7 +127,7 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 /* JACK callback */
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
-	gthJackAudio *jack = (gthJackAudio *)arg;
+	gthJackAudio *jack = static_cast<GthJackAudio *>(arg);
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
@@ -333,7 +333,8 @@ int main (int argc, char *argv[])
 
 			/* connect our audio out event handler and bind a synth to this
 			   instance */
-			((gthALSAAudio *)aout)->signal_ready_write().connect(
+			gthALSAAudio *aptr = static_cast<gthALSAAudio *>(aout);
+			aptr->signal_ready_write().connect(
 				SigC::bind<gthAudio *,thSynth *>(SigC::slot(&audio_readywrite),
 												 aout, Synth)); 
 		}
@@ -350,7 +351,8 @@ int main (int argc, char *argv[])
 	catch (thIOException e)
 	{
 		fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
-		fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
+		if (driver == "jack")
+			fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
 		exit (1);
 	}
 
@@ -363,8 +365,6 @@ int main (int argc, char *argv[])
 	{
 		mainContext->iteration (true); /* blocking */
 	}
-
-	printf("break!\n");
 
 	delete aout;
 	delete midi;
