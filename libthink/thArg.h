@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.20 2003/05/11 07:53:02 ink Exp $ */
+/* $Id: thArg.h,v 1.21 2003/05/11 07:56:44 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -17,7 +17,11 @@ struct thArgValue {
 		if(argNum == 1) {
 			return argValues[0];
 		} else {
-			return argValues[i%argNum];
+			if(i < argNum) {
+				return argValues[i];
+			} else {
+				return argValues[i%argNum];
+			}
 		}
 	}
 };
