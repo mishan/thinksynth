@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.10 2003/04/29 01:10:25 ink Exp $ */
+/* $Id: think.h,v 1.11 2003/05/03 03:50:55 joshk Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -18,10 +18,15 @@
 #define OUTPUTPREFIX "out"
 
 /* Handy debug function */
+
+#if 0
+
 #ifdef USE_DEBUG
 #define debug(...) printf("%s:%d: ", __FILE__, __LINE__);printf(...);printf("\n");
 #else
 #define debug(...) ;
 #endif /* USE_DEBUG */
+
+#endif /* above code is majorly owned */
 
 #endif /* THINK_H */
