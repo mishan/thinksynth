@@ -1,21 +1,27 @@
 %{
+/*
 #include "config.h"
 #include "structs.h"
+*/
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+/*
 #include "thnodes.h"
 #include "mods.h"
 #include "itree.h"
 #include "yygrammar.h"
 #include "thplug.h"
 #include "main.h"
+*/
 #include "parser.h"
 
-modnode *parsemod = NULL;
-static linked_list *targs = NULL;
+
+// XX - REIMPLEMENT GLOBAL STUFFS
+//modnode *parsemod = NULL;
+//static linked_list *targs = NULL;
 
 void yyerror (const char *str)
 {
@@ -153,12 +159,16 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 {
 	printf("node %s defined using plugin %s\n", $2.str, $3.str);
 
-	if(plug_isloaded(plist, $3.str) == 0) {
+/*
+	XXX  --  FIX THIS SHIT
+*/
+
+/*	if(plug_isloaded(plist, $3.str) == 0) {
 		loadplug(&plist, $3.str);
 	}
-	add_thnode(parsemod,$2.str,&targs,$3.str);
+	add_thnode(parsemod,$2.str,&targs,$3.str);*/
 //	args_deinit(&targs);
-	targs=NULL;
+//	targs=NULL;
 }
 ;
 
@@ -166,7 +176,8 @@ status:
 STATUS WORD
 {
 	printf("Status node defined as %s\n", $2.str);
-	parsemod->statusnode = node_find(parsemod->nodelist, $2.str);
+//	XXX - - FIX THIS TOO
+//	parsemod->statusnode = node_find(parsemod->nodelist, $2.str);
 }
 ;
 
@@ -178,22 +189,26 @@ assignments assignment ENDSTATE
 assignment:
 WORD ASSIGN expression
 {
-	modify_num(&targs, (char *)$1.str, $3.floatval);
+//	XXX - MORE FIXING
+//	modify_num(&targs, (char *)$1.str, $3.floatval);
 }
 |
 WORD ASSIGN nodearg
 {
-	modify_point(&targs, $1.str, $3.str);
+//	XXX - MORE FIXING
+//	modify_point(&targs, $1.str, $3.str);
 }
 |
 WORD ASSIGN WORD
 {
-	modify_str(&targs, $1.str, $3.str);
+//	XXX - MORE FIXING
+//	modify_str(&targs, $1.str, $3.str);
 }
 |
 WORD ASSIGN fstr
 {
-	modify_fstring(&targs, $1.str, $3.str);
+//	XXX - MORE FIXING
+//	modify_fstring(&targs, $1.str, $3.str);
 }
 ;
 
