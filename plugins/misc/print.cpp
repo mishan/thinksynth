@@ -1,4 +1,4 @@
-/* $Id: mul.cpp,v 1.2 2003/05/17 12:45:01 ink Exp $ */
+/* $Id: print.cpp,v 1.1 2003/05/17 12:45:01 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +15,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-char		*desc = "Multiplies two streams";
+char		*desc = "Prints 'in'";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -24,12 +24,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Multiplication plugin unloading\n");
+	printf("Printer plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Multiplication plugin loaded\n");
+	printf("Printer plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -39,18 +39,18 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out = new float[windowlen];
-	thArgValue *in_0, *in_1;
+	thArgValue *in_arg;
 	unsigned int i;
+	char *nodename = node->GetName();
 
-	in_0 = (thArgValue *)mod->GetArg(node, "in0");
-	in_1 = (thArgValue *)mod->GetArg(node, "in1");
+	in_arg = (thArgValue *)mod->GetArg(node, "in");
 
+	printf("Printing Node %s:\n", nodename); 
 	for(i=0;i<windowlen;i++) {
-		out[i] = (*in_0)[i]*(*in_1)[i];
+		printf("%f \t", nodename, (*in_arg)[i]);
 	}
+	printf("\n");
 
-	node->SetArg("out", out, windowlen);
 	return 0;
 }
 
