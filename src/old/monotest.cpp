@@ -1,4 +1,4 @@
-/* $Id: monotest.cpp,v 1.4 2004/02/23 03:54:15 ink Exp $ */
+/* $Id: monotest.cpp,v 1.5 2004/03/21 06:55:14 ink Exp $ */
 
 #include "config.h"
 
@@ -73,12 +73,10 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 {
 	snd_seq_event_t *ev;
 	float *pbuf = new float[1];  // Parameter buffer
-	char channelname[10];  /* XXX: FOR HARDCODED CHANNELS  remove this later */
 	
 	do
 	{
         snd_seq_event_input(seq_handle, &ev);
-		sprintf(channelname, "chan%i", ev->data.note.channel);
 
         switch (ev->type)
 		{
@@ -98,7 +96,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 						*notevelocity = (float)ev->data.note.velocity;
 						*notepitch = (float)ev->data.note.note;
 						*targetpitch = *notepitch;
-						*mononote = Synth->AddNote(string(channelname),
+						*mononote = Synth->AddNote(ev->data.note.channel,
 												  *notepitch, *notevelocity);
 					}
 					else
@@ -265,7 +263,7 @@ int main (int argc, char *argv[])
 
 		Synth.LoadMod(inputfname);
 		/* the first channel is the one passed on the command line */
-		Synth.AddChannel(string("chan0"), dspname, 12.0);
+		Synth.AddChannel(0, dspname, 12.0);
 	}
 
 	/* seed the random number generator */
