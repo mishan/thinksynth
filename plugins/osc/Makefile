@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.16 2003/09/22 08:18:22 ink Exp $
+# $Id: Makefile,v 1.17 2003/12/24 05:53:00 ink Exp $
 
-PLUGIN_NAMES = static simple sinsaw buzzer softsqr softsqr2 bandosc shapeo
+PLUGIN_NAMES = static simple sinsaw buzzer softsqr softsqr2 bandosc shapeo multiwave
 include ../plugin-common.mk
