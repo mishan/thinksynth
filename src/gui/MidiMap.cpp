@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.5 2004/11/09 05:55:03 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.6 2004/11/09 07:09:38 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -46,12 +46,6 @@ MidiMap::MidiMap (thSynth *argsynth)
 	controllerSpinBtn = manage(new Gtk::SpinButton(*controllerAdj, 1, 0));
 	controllerSpinBtn->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onControllerChanged));
 
-	destChanCombo = manage(new Gtk::Combo);
-	fillDestChanCombo();
-
-	destArgCombo = manage(new Gtk::Combo);
-	fillDestArgCombo(0);
-
 	minLbl = manage(new Gtk::Label("Minimum"));
 	minAdj = manage(new Gtk::Adjustment(0, 0, 0));
 	minSpinBtn = manage(new Gtk::SpinButton(*minAdj, .1, 4));
@@ -66,6 +60,12 @@ MidiMap::MidiMap (thSynth *argsynth)
 	addBtn = manage(new Gtk::Button("Add Connection"));
 	addBtn->signal_clicked().connect(sigc::mem_fun(*this,
 												   &MidiMap::onAddButton));
+
+	destChanCombo = manage(new Gtk::Combo);
+	fillDestChanCombo();
+
+	destArgCombo = manage(new Gtk::Combo);
+	fillDestArgCombo(0);
 
 	add(*mainVBox);
 
@@ -95,6 +95,13 @@ MidiMap::~MidiMap (void)
 {
 }
 
+void MidiMap::set_sensitive (bool sensitive)
+{
+	destArgCombo->set_sensitive(sensitive);
+	addBtn->set_sensitive(sensitive);
+	minSpinBtn->set_sensitive(sensitive);
+	maxSpinBtn->set_sensitive(sensitive);
+}
 
 void MidiMap::fillDestChanCombo (void)
 {
@@ -120,27 +127,56 @@ void MidiMap::fillDestChanCombo (void)
 
 void MidiMap::fillDestArgCombo (int chan)
 {
+	int visibleArgs = 0;
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
-	std::map<string, thArg *> argList = synth->GetChanArgs(chan);
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
 		destArgCombo->get_list()->children();
-
-	destArgComboStrings.clear();
-
-	for (std::map<string, thArg *>::iterator i = argList.begin();
-		 i != argList.end(); i++)
+	if(synth->GetChannel(chan))
 	{
-		if(i->second && i->second->getWidgetType() == thArg::SLIDER) {
-			item = Gtk::manage(new Gtk::ComboDropDownItem);
-			namelabel = Gtk::manage(new Gtk::Label(
+		std::map<string, thArg *> argList = synth->GetChanArgs(chan);
+		destArgComboStrings.clear();
+		
+		for (std::map<string, thArg *>::iterator i = argList.begin();
+			 i != argList.end(); i++)
+		{
+			if(i->second && i->second->getWidgetType() == thArg::SLIDER) {
+				item = Gtk::manage(new Gtk::ComboDropDownItem);
+				namelabel = Gtk::manage(new Gtk::Label(
 								(i->second->getLabel().length() > 0) ?
 								i->second->getLabel() : i->second->getName()));
-			item->add(*namelabel);
-			item->signal_button_press_event().connect(sigc::bind<thArg *>(sigc::mem_fun(*this,&MidiMap::onDestArgComboChanged), i->second));
-			item->show_all();
-			destArgComboStrings.push_back(*item);		
+				item->add(*namelabel);
+				item->signal_button_press_event().connect(
+					sigc::bind<thArg *>(sigc::mem_fun(*this,
+							  &MidiMap::onDestArgComboChanged), i->second));
+				item->show_all();
+				destArgComboStrings.push_back(*item);
+				if(!visibleArgs)
+				{
+					visibleArgs = 1;
+					selectedArg = i->second;
+				}
+			}
 		}
+
+		if (visibleArgs)
+		{
+			set_sensitive(true);
+			selectedMin = selectedArg->getMin();
+			selectedMax = selectedArg->getMax();
+			minSpinBtn->set_range(selectedMin, selectedMax);
+			maxSpinBtn->set_range(selectedMin, selectedMax);
+			minSpinBtn->set_value(selectedMin);
+			maxSpinBtn->set_value(selectedMax);
+		}
+		else
+		{
+			set_sensitive(false);
+		}
+	}
+	else
+	{
+		set_sensitive(false);
 	}
 }
 

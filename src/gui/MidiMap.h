@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.4 2004/11/09 05:15:05 ink Exp $ */
+/* $Id: MidiMap.h,v 1.5 2004/11/09 07:09:38 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,6 +25,8 @@ class MidiMap : public Gtk::Window
 public:
 	MidiMap (thSynth *);
 	~MidiMap (void);
+
+	void set_sensitive (bool sensitive);
 
 protected:
 	void onAddButton (void);
