@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.48 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: simple.cpp,v 1.49 2004/04/14 00:15:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +27,8 @@ int args[INOUT_LAST + 1];
 
 char		*desc = "Complex Oscillator";
 thPluginState	mystate = thActive;
+
+const float SQRT2_2 = 2*sqrt(2);
 
 void module_cleanup (struct module *mod)
 {
@@ -139,7 +141,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		if(fmpos < halfwave) {
 			ratio = fmpos/(2*halfwave);
 		} else {
-			ratio = ((fmpos - halfwave) / (wavelength - halfwave)) / 2 + 0.5;
+			ratio = 0.5*((fmpos - halfwave) / (wavelength - halfwave)) + 0.5;
 		}
 
 		switch((int)(*in_waveform)[i]) {
@@ -173,10 +175,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				break;
 			case 4:    /* HALF-CIRCLE WAVE */
 				if(ratio < 0.5) {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/
-											(wavelength*wavelength))*amp_max;
+					out[i] = SQRT2_2*sqrt((wavelength-(2*position))*position/
+										  SQR(wavelength))*amp_max;
 				} else {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*amp_min;
+					out[i] = SQRT2_2*sqrt((wavelength-(2*(position-halfwave)))
+										  *(position-halfwave)/SQR(wavelength))
+						*amp_min;
 				}
 				break;
 			case 5:    /* PARABOLA WAVE */

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.159 2004/04/08 23:15:41 misha Exp $ */
+/* $Id: main.cpp,v 1.160 2004/04/14 00:15:29 misha Exp $ */
 
 #include "config.h"
 
@@ -25,6 +25,8 @@
 #include "prefs.h"
 
 /* XXX: globals */
+static Glib::Thread *ui = NULL;
+
 Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
@@ -47,11 +49,9 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "  -o [file|device]\tchange output dest\n"
 ;
 
-Glib::Thread *ui = NULL;
-
 void cleanup (int signum)
 {
-	printf("received SIGTERM!\n\n exiting...\n");
+	printf("received SIGTERM! exiting...\n\n");
 
 	save_prefs(&Synth);
 
@@ -70,7 +70,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
 	float *pbuf = new float[1];  // Parameter buffer
-	
+
 	do
 	{
         snd_seq_event_input(seq_handle, &ev);
@@ -117,7 +117,6 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 				printf("PITCH BEND:  %i\n", ev->data.control.value);
 				break;
 			}
-
 			case SND_SEQ_EVENT_PGMCHANGE:
 			{
 				printf("PGM CHANGE  %d\n", ev->data.control.value);

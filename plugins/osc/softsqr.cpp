@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.17 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: softsqr.cpp,v 1.18 2004/04/14 00:15:29 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -89,7 +89,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		switch(phase) {
 		case 0:    /* Sine segment from low to high */
 			ratio = (position++)/sinewidth;
-			ratio = (ratio / 2) + 0.75; /* We need the right part of the sine
+			ratio = (ratio * .5) + 0.75; /* We need the right part of the sine
 										   wave */
 
 			if(position >= sinewidth) { // End when its over
@@ -109,7 +109,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			break;
 		case 2:    /* Sine segment from high to low */
 			ratio = (position++)/sinewidth;
-			ratio = (ratio / 2) + 0.25; /* We need the right part of the sine
+			ratio = (ratio * .5) + 0.25; /* We need the right part of the sine
 										   wave */
 
 			if(position >= sinewidth) {
