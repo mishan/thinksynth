@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.27 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: thMod.h,v 1.28 2003/05/03 22:40:59 ink Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -27,6 +27,8 @@ public:
 	
 	void BuildSynthTree (void);
 
+	void ListNodes(void);
+
 private:
 	void ProcessHelper (unsigned int windowlen, thNode *node);
 	void SetActiveNodesHelper(thNode *node);
@@ -36,6 +38,8 @@ private:
 	int BuildSynthTreeHelper(thNode *parent, char *nodename);
 	void BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode);
 	
+	void ListNodes(thBSTree *node);
+
 	thBSTree *modnodes;
 	thList activelist;
 	thNode *ionode;

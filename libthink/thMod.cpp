@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.58 2003/05/03 10:41:58 ink Exp $ */
+/* $Id: thMod.cpp,v 1.59 2003/05/03 22:40:59 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -68,6 +68,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 void thMod::NewNode (thNode *node)
 {
+  printf("NEWNODE: %s\n", node->GetName());
 	modnodes->Insert(strdup(node->GetName()), node);
 }
 
@@ -180,8 +181,10 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 	if(parentnode->GetChildren()) {
 		for(listnode = ((thList* )parentnode->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
 			data = (thNode *)listnode->data;
-			if(!mod->FindNode((char *)data->GetName())) {
-				newnode = new thNode((char *)data->GetName(), data->GetPlugin());
+			if(!mod->FindNode(data->GetName())) {
+				newnode = new thNode(data->GetName(), data->GetPlugin());
+				mod->NewNode(newnode);
+				CopyHelper(mod, data);
 
 				argtree = data->GetArgTree();
 
@@ -189,8 +192,8 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 					newnode->CopyArgs(argtree);
 				}
 
-				mod->NewNode(newnode);
-				CopyHelper(mod, data);
+				//				mod->NewNode(newnode);
+				//CopyHelper(mod, data);
 			}
 		}
 	}
@@ -239,7 +242,8 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 
 		if(data->argType == ARG_POINTER) {
 			node = FindNode(data->argPointNode);
-
+			printf("BUILDSYNTHTREE: Looking for note %s, found %s\n", data->argPointNode, node->GetName());
+			printf("BUILDSYNTHTREE: Adding %s to %s\n", data->argPointNode, currentnode->GetName());
 			currentnode->AddChild(node);
 			node->AddParent(currentnode);
 
@@ -250,4 +254,20 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 
 		BuildSynthTreeHelper2(argtree->GetRight(), currentnode);
 	}
+}
+
+void thMod::ListNodes(void)
+{
+  ListNodes(modnodes);
+}
+
+void thMod::ListNodes(thBSTree *node)
+{
+  if(node) {
+	ListNodes(node->GetLeft());
+
+	printf("%s:  %s\n", modname, ((thNode *)node->GetData())->GetName());
+
+	ListNodes(node->GetRight());
+  }
 }

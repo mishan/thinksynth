@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.46 2003/05/03 10:41:58 ink Exp $ */
+/* $Id: thNode.cpp,v 1.47 2003/05/03 22:40:59 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -32,7 +32,7 @@ thNode::~thNode (void)
 void thNode::SetName(char *name)
 {
 	free(nodename);
-	nodename = name;
+	nodename = strdup(name);
 }
 
 thArg *thNode::SetArg (const char *name, float *value, int num)
