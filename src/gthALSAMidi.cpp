@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.16 2004/09/30 09:18:58 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.17 2004/11/26 03:39:10 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,11 +36,16 @@ gthALSAMidi::gthALSAMidi (const char *argname)
 	name = argname;
 	device = ALSA_DEFAULT_MIDI_DEVICE;
 	_seq_opened = open_seq();
+
+	pfds = NULL;
 }
 
 gthALSAMidi::~gthALSAMidi (void)
 {
 	snd_seq_close(seq_handle);
+
+	if (pfds)
+		free(pfds);
 }
 
 sigMidiEvent_t gthALSAMidi::signal_midi_event (void)

@@ -100,6 +100,7 @@ void cleanup (int signum)
 			{
 				printf("saving preferences\n");
 				prefs->Save();
+				delete prefs;
 			}
 			
 			if (aout)
@@ -404,6 +405,8 @@ int main (int argc, char *argv[])
 	
 	printf("saving preferences\n");
 	prefs->Save();
+
+	delete prefs;
 
 #if 0
 	printf("deleting synth\n");

@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.19 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.20 2004/11/26 03:39:10 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -88,56 +88,57 @@ void gthPrefs::Load (void)
 
 	while (!feof(prefsFile))
 	{
-		fgets(buffer, 256, prefsFile);
-		trim_leadspc(buffer);
-		buffer[strlen(buffer)-1] = '\0';
-
-		if (buffer[0] == '\n' || buffer[0] == '#')
-			continue;
-
-		char *argPtr = strchr(buffer, ' ');
-		if (argPtr == NULL)
-			continue;
-
-		*argPtr++ = '\0';
-		string key = buffer;
-
-		trim_leadspc(argPtr);
-		if (*argPtr)
+		if (fgets(buffer, 256, prefsFile) != NULL)
 		{
-			int len = 1;
-			char *comCnt;
+			trim_leadspc(buffer);
+			buffer[strlen(buffer)-1] = '\0';
 
-			for(comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
+			if (buffer[0] == '\n' || buffer[0] == '#')
+				continue;
+
+			char *argPtr = strchr(buffer, ' ');
+			if (argPtr == NULL)
+				continue;
+
+			*argPtr++ = '\0';
+			string key = buffer;
+
+			trim_leadspc(argPtr);
+			if (*argPtr)
 			{
-				len++;
-			}
+				int len = 1;
+				char *comCnt;
 
-			string **values = new string *[len+1];
+				for(comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
+				{
+					len++;
+				}
 
-			for(int i = 0; i < len; i++)
-			{
-				char *comPtr = strchr(argPtr, ',');
-				if (comPtr)
-					*comPtr = '\0';
+				string **values = new string *[len+1];
 
-				values[i] = new string(argPtr);
+				for(int i = 0; i < len; i++)
+				{
+					char *comPtr = strchr(argPtr, ',');
+					if (comPtr)
+						*comPtr = '\0';
 
-				argPtr = comPtr+1;
-			}
+					values[i] = new string(argPtr);
 
-			values[len] = NULL;
+					argPtr = comPtr+1;
+				}
 
-			/* XXX: handle specific cases here for now */
-			if (key == "channel" && values[0] && values[1])
-			{
-				gthPatchManager *patchMgr = gthPatchManager::instance();
-				patchMgr->loadPatch(*values[1], atoi(values[0]->c_str()));
-			}
-			else
-			{
-				prefs[key] = values;
-				
+				values[len] = NULL;
+
+				/* XXX: handle specific cases here for now */
+				if (key == "channel" && values[0] && values[1])
+				{
+					gthPatchManager *patchMgr = gthPatchManager::instance();
+					patchMgr->loadPatch(*values[1], atoi(values[0]->c_str()));
+				}	
+				else
+				{
+					prefs[key] = values;
+				}
 			}
 		}
 
