@@ -6,7 +6,7 @@ node ionode {
 	channels = 2;
 	play = wav->play;
 
-	flfo = 11;
+	flfo = 5;
 	cutmin = 0.3;
 	cutmax = 0.8;
 	res = 0.5;
@@ -18,7 +18,7 @@ node ionode {
 	delaymax = 1300;
 
 	slfo = 0.1;
-	satmin = 1;
+	satmin = 2;
 	satmax = 3;
 
 	dfeed = 0.2;
