@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.32 2003/05/03 18:36:57 joshk Exp $ */
+/* $Id: thinklang.yy,v 1.33 2003/05/03 18:53:58 misha Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -244,13 +244,13 @@ WORD ASSIGN fstr
 plugname:
 WORD MODSEP WORD
 {
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 2);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 |
 WORD MODSEP plugname
 {
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 2);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 	free($3.str);
 }
@@ -259,7 +259,7 @@ WORD MODSEP plugname
 fstr:		/* a node name and an fstring */
 WORD INTO WORD
 {
-	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 1);
+	$$.str = (char *)malloc(strlen($1.str) + strlen($3.str) + 2);
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 }
 ;
