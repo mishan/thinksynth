@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.18 2003/06/24 21:22:57 ink Exp $ */
+/* $Id: adsr.cpp,v 1.19 2003/06/24 22:40:41 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -37,7 +37,7 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	thArg *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger;  /* User args */
+	thArg *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger, *in_reset;  /* User args */
 	thArg *inout_position;  /* [0] = position in stage, [1] = current stage */
 	thArg *out_out, *out_play;
 
@@ -67,6 +67,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_r = mod->GetArg(node, "r"); /* Release */
 	in_p = mod->GetArg(node, "p"); /* Peak */
 	in_trigger = mod->GetArg(node, "trigger"); /* Note Trigger */
+	in_reset = mod->GetArg(node, "reset"); /* Reset to A phase */
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;
@@ -78,6 +79,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		} else {
 			peak = (*in_p)[i];
 		}
+
+		if((*in_reset)[i] > 0) {
+                        position = 0;
+			if((*in_a)[i] == 0) {
+				phase = 1;
+			} else {
+                        	phase = 0;
+			}
+                }
 		switch (phase) {  /* Which phase of the ADSR are we in? */
 		case 0:   /* Attack */
 			temp = (*in_a)[i];
