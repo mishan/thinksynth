@@ -114,7 +114,7 @@ dnl plugins/mixer/Makefile
 AC_SUBST_DIR(libdir)
 
 dnl XXX let's change this later
-plugin_path=${libdir}/${PACKAGE}/plugins
+plugin_path=${libdir}/${PACKAGE}/plugins/
 
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 
