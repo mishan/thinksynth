@@ -25,7 +25,6 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <signal.h>
-#include <libgen.h>
 
 #include <gtkmm.h>
 #include <gtkmm/messagedialog.h>
@@ -159,8 +158,6 @@ MainSynthWindow::~MainSynthWindow (void)
 
 void MainSynthWindow::populateMenu (void)
 {
-	gthPrefs *prefs = gthPrefs::instance();
-
 	/* File */
 	{
 		Gtk::Menu::MenuList &menulist = menuFile_.items();
@@ -192,6 +189,7 @@ void MainSynthWindow::populateMenu (void)
 	/* JACK */
 	if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
 	{
+		gthPrefs *prefs = gthPrefs::instance();
 		Gtk::Menu::MenuList &menulist = menuJack_.items();
 		Gtk::CheckMenuItem *elem;
 		sigc::slot0<void> autoslot =
@@ -506,7 +504,7 @@ void MainSynthWindow::populate (void)
 
 			/* display channel # */
 			tabName = g_strdup_printf("%d: %s", i + 1,
-									  basename((char *)tabName.c_str()));
+									  thUtil::basename((char*)tabName.c_str()));
 		}
 		else
 		{
@@ -648,13 +646,13 @@ void MainSynthWindow::onBrowseButton (void)
 
 		if (patchMgr->newPatch(fileSel.get_filename(), pagenum))
 		{
-			char *file = strdup(fileSel.get_filename().c_str());
+			char *dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
 
 			if (prevDir_)
 				free (prevDir_);
 
-			prevDir_ = g_strdup_printf("%s/", dirname(file));
-			free (file);
+			prevDir_ = g_strdup_printf("%s/", dn);
+			free (dn);
 
 			string **vals = new string *[2];
 			vals[0] = new string(prevDir_);

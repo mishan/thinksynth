@@ -99,5 +99,6 @@ typedef list<thNode *> thNodeList;
 #include "thMidiControllerConnection.h"
 #include "thMidiController.h"
 #include "thSynth.h"
+#include "thUtil.h"
 
 #endif /* THINK_H */

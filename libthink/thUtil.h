@@ -26,6 +26,8 @@ public:
 	~thUtil (void) { }
 
 	static int getNumLength (int num);
+	static char* basename (char* path);
+	static char* dirname (char* path);
 };
 
 #endif /* TH_UTIL_H */

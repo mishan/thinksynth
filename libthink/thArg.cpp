@@ -27,7 +27,8 @@
 thArg::thArg(const string &name, float value)
 {
 	name_ = name;
-	values_ = new float(value);
+	values_ = new float[1];
+	values_[0] = value;
 	len_ = 1;
 
 	type_ = ARG_VALUE;

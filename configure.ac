@@ -85,7 +85,7 @@ AC_TYPE_SIZE_T
 
 CXXFLAGS="-Wall -ffast-math"
 
-AC_CHECK_HEADERS([dlfcn.h libgen.h])
+AC_CHECK_HEADERS([dlfcn.h])
 
 AC_CHECK_TYPE([sighandler_t],,
 [
@@ -198,14 +198,6 @@ if test "$ac_cv_cxx_compiler_gnu" = yes; then
 		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt,-MT\$@"])
 	fi
 fi
-
-AC_CHECK_FUNC(basename,,
-[
-  BASENAME_O=basename.o
-  AC_DEFINE(USE_EXTERNAL_BASENAME, 1, [Define if a usable basename(3) is available.])
-])
-
-AC_SUBST(BASENAME_O)
 
 # /usr/local is very common
 export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:$PKG_CONFIG_PATH"

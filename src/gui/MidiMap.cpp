@@ -19,10 +19,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_LIBGEN_H
-#include <libgen.h>
-#endif
-
 #include <gtkmm.h>
 #include <stdio.h>
 
@@ -186,7 +182,7 @@ void MidiMap::fillDestChanCombo (void)
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
 		namelabel = Gtk::manage(
 			new Gtk::Label(g_strdup_printf("%d: %s", i + 1,
-										   basename(patch->dspFile.c_str()))));
+										   thUtil::basename((char*)patch->dspFile.c_str()))));
 
 		item->add(*namelabel);
 		item->signal_button_press_event().connect(
@@ -227,7 +223,7 @@ void MidiMap::setDestChanCombo (void)
 
 		/* maybe we should use filename, not dspFile */
 		selectedInstrument = g_strdup_printf("%i: %s", selectedDestChan_ + 1,
-											 basename(patch->dspFile.c_str()));
+											 thUtil::basename((char*)patch->dspFile.c_str()));
 
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
 		namelabel = Gtk::manage(new Gtk::Label(selectedInstrument));
@@ -253,7 +249,7 @@ void MidiMap::setDestChanCombo (void)
 		namelabel = Gtk::manage(
 			new Gtk::Label(
 				g_strdup_printf("%d: %s", i + 1,
-								basename(patch->dspFile.c_str()))));
+								thUtil::basename((char*)patch->dspFile.c_str()))));
 
 		item->add(*namelabel);
 		item->signal_button_press_event().connect(
@@ -407,7 +403,7 @@ void MidiMap::populateConnections (void)
 	{
 		Gtk::TreeModel::Row row = *(connectModel_->append());
 		connection = i->second;
-		instrument = basename(patchMgr->getPatch(
+		instrument = thUtil::basename((char*)patchMgr->getPatch(
 								 connection->destChan())->filename.c_str());
 		if (instrument.length() == 0)
 		{

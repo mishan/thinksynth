@@ -23,28 +23,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#ifdef USE_EXTERNAL_BASENAME
-# include "basename.h"
-# define basename(p) support_basename(p)
-#else
-# ifdef HAVE_LIBGEN_H
-#  include <libgen.h>
-# else /* libiberty */
-#  include <ansidecl.h>
-#  ifdef PARAMS
-extern "C" { extern char *basename PARAMS ((const char *)); }
-#  endif
-# endif
-#endif
-
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
 #else
-//# ifdef USING_DARWIN
-//#  include "nsmodule_dl.h"
-//# else
+# ifdef USING_DARWIN
+#  include "nsmodule_dl.h"
+# else
 #  error Need a dl implementation!
-//# endif
+# endif
 #endif
 
 #include "think.h"

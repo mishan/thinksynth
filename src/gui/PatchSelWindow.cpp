@@ -19,10 +19,6 @@
 
 #include "config.h"
 
-#ifdef HAVE_LIBGEN_H
-#include <libgen.h>
-#endif
-
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -273,15 +269,15 @@ void PatchSelWindow::BrowsePatch (void)
 
 		if (LoadPatch())
 		{
-			char *file = strdup(fileSel.get_filename().c_str());
+			char *dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
 			string **vals = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
 
 			if (prevDir)
 				free (prevDir);
 
-			prevDir = g_strdup_printf("%s/", dirname(file));
-			free (file);
+			prevDir = g_strdup_printf("%s/", dn);
+			free (dn);
 
 			vals = new string *[2];
 			vals[0] = new string(prevDir);
@@ -312,6 +308,7 @@ void PatchSelWindow::SavePatch (void)
 			gthPatchManager::PatchFile *patch = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
 			char *file = (char*)fileSel.get_filename().c_str();
+			char *dn = thUtil::dirname(file);
 			int chan = (*iter)[patchViewCols.chanNum]-1;
 			string **vals = NULL;
 
@@ -330,12 +327,14 @@ void PatchSelWindow::SavePatch (void)
 			fileEntry.set_text(file);
 
 			/* update patch window with new name */
-			(*iter)[patchViewCols.dspName] = strdup(basename(file));
+			(*iter)[patchViewCols.dspName] = strdup(thUtil::basename(file));
 
 			if (prevDir)
 				free (prevDir);
 
-			prevDir = g_strdup_printf("%s/", dirname(file));
+			prevDir = g_strdup_printf("%s/", dn);
+
+			free(dn);
 
 			vals = new string *[2];
 			vals[0] = new string(prevDir);

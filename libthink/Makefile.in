@@ -20,7 +20,6 @@ LIB_LDFLAGS := @LIB_LDFLAGS@
 
 LIBOBJS = \
 	@NSMODULE_DL_O@ \
-	@BASENAME_O@ \
 	thinklang.o \
 	thinklex.o \
 	thArg.o \
