@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.21 2003/05/18 00:41:11 ink Exp $ */
+/* $Id: simple.cpp,v 1.22 2003/05/18 01:20:48 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,7 +74,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		if(fmamt) {
 			wavelength += (wavelength * fmamt) * ((*in_fm)[i] / TH_MAX);
 		}
-		while(position > wavelength) {
+		while(position >= wavelength) {
 			position -= wavelength;
 		}
 		

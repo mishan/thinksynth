@@ -7,15 +7,15 @@ node ionode {
 	play = env->play;
 
 	waveform = 0;
-	fmmul = 2;
-	fmamt = 0.2;
+	fmmul = 4;
+	fmamt = 0.1;
 	fmwave = 0;
 
 	fmmul2 = 4;
 	fmamt2 = 0.8;
 	fmwave2 = 0;
 
-	res = 0.6;
+	res = 0.7;
 };
 
 node freq misc::midi2freq {
@@ -44,7 +44,7 @@ node map1 env::map {
 };
 
 node filt filt::ink {
-	in = osc2->out;
+	in = osc3->out;
 	cutoff = map1->out;
 	res = ionode->res;
 };
