@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.16 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.17 2004/09/19 02:53:28 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -37,6 +37,7 @@ protected:
 
 	void changeChannel (void);
 	void changeTranspose (void);
+	void keyboardReset (void);
 
 	virtual bool on_scroll_event (GdkEventScroll *s);
 
@@ -58,6 +59,8 @@ private:
 	Gtk::Label transLbl;
 	Gtk::SpinButton *transBtn;
 	Gtk::Adjustment *transVal;
+
+	Gtk::Button resetBtn;
 };
 
 #endif /* KEYBOARD_WINDOW_H */

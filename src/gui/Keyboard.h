@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.13 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: Keyboard.h,v 1.14 2004/09/19 02:53:28 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -37,6 +37,8 @@ public:
 	void SetTranspose (int argtranspose);
 	void SetNote      (int note, bool state);
 	
+	void resetKeys (void);
+	
 	/* parameter accessor methods */
  	int  GetChannel   (void);
 	int  GetTranspose (void);
@@ -50,7 +52,7 @@ public:
 protected:
 	void drawKeyboard (int mode);
  	void drawKeyboardFocus (void);
-
+	
 	/* overridden signal handlers */
 	virtual void on_realize              (void);
 	virtual bool on_expose_event         (GdkEventExpose *e);

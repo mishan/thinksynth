@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.31 2004/09/18 02:01:43 joshk Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.32 2004/09/19 02:53:28 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,7 +35,8 @@
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	: ctrlFrame ("Keyboard Control"), 
 	  chanLbl("Channel"),
-	  transLbl("Transpose")
+	  transLbl("Transpose"),
+	  resetBtn("Reset")
 {
 	synth = argsynth;
 
@@ -60,6 +61,8 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	ctrlTable.attach(transLbl, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 	ctrlTable.attach(*transBtn, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 
+	ctrlTable.attach(resetBtn, 4, 5, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+
 	chanVal->signal_value_changed().connect(
 		SigC::slot(*this, &KeyboardWindow::changeChannel));
 
@@ -80,12 +83,25 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 	chanBtn->unset_flags(Gtk::CAN_FOCUS);
 	transBtn->unset_flags(Gtk::CAN_FOCUS);
+	resetBtn.unset_flags(Gtk::CAN_FOCUS);
 
 	m_sigNoteOn.connect(SigC::slot(*this,
 								   &KeyboardWindow::synthEventNoteOn));
 
 	m_sigNoteOff.connect(
 		SigC::slot(*this, &KeyboardWindow::synthEventNoteOff));
+
+	resetBtn.signal_clicked().connect(
+		SigC::slot(*this, &KeyboardWindow::keyboardReset));
+
+/*  This has the undesired effect of also cutting off MIDI notes!
+	signal_focus_out_event().connect(
+		SigC::slot(*this, &KeyboardWindow::keyboardReset)); */
+}
+
+void KeyboardWindow::keyboardReset (void)
+{
+	keyboard.resetKeys();
 }
 
 KeyboardWindow::~KeyboardWindow (void)

@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.28 2004/09/18 02:01:43 joshk Exp $ */
+/* $Id: Keyboard.cpp,v 1.29 2004/09/19 02:53:28 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -153,7 +153,22 @@ Keyboard::Keyboard (void)
 		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 0));
 }
 
+void Keyboard::resetKeys (void)
+{
+	/* clear previous key state */
+	for (int i = 0; i < 128; i++)
+	{
+		prv_active_keys[i] = -2;
+		
+		if (active_keys[i] == 1)
+			m_signal_note_off(channel, i);
+		
+		active_keys[i] = 0;
+	}
 
+	drawKeyboard(1);
+}
+  
 Keyboard::~Keyboard (void)
 {
 }
