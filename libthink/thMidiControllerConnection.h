@@ -30,7 +30,7 @@ class thMidiControllerConnection {
 public:
 	thMidiControllerConnection (thArg *arg, float min, float max, int scale,
 								int chan, int controller, int dchan,
-								string instrument, string argName);
+								string argName);
 	~thMidiControllerConnection (void);
 
 	void setMin (float min) { min_ = min; }
@@ -42,7 +42,6 @@ public:
 	int getChan (void) { return chan_; }
 	int getController (void) { return controller_; }
 	int getDestChan (void) { return destchan_; }
-	string getInstrument (void) { return instrument_; }
 	string getArgName (void) { return argName_; }
 	thArg *getArg (void) { return arg_; }
 	/* XXX: put linear/exponential here too */
@@ -53,7 +52,7 @@ private:
 	thArg *arg_;
 	int chan_, controller_;
 	int destchan_;
-	string instrument_, argName_;
+	string argName_;
 	float min_, max_;
 	int scale_;
 };

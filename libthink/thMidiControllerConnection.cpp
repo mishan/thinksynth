@@ -26,7 +26,6 @@ thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
 														int chan,
 														int controller,
 														int dchan,
-														string instrument,
 														string argName)
 {
 	arg_ = arg;
@@ -35,7 +34,6 @@ thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
 	chan_ = chan;
 	controller_ = controller;
 	destchan_ = dchan;
-	instrument_ = string(instrument);
 	argName_ = argName;
 	scale_ = scale;
 }

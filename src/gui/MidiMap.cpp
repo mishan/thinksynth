@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.21 2004/12/18 02:46:28 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.22 2004/12/19 21:05:20 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -90,7 +90,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 	fillDestChanCombo();
 
 	destArgCombo_ = manage(new Gtk::Combo);
-	fillDestArgCombo(0);
+	fillDestArgCombo(selectedDestChan_);
 
 	add(*mainVBox_);
 
@@ -145,7 +145,6 @@ MidiMap::MidiMap (thSynth *argsynth)
 
 	patchMgr->signal_patches_changed().connect(
 		sigc::mem_fun(*this, &MidiMap::onPatchChanged));
-
 }
 
 MidiMap::~MidiMap (void)
@@ -178,54 +177,67 @@ void MidiMap::fillDestChanCombo (void)
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
 		namelabel = Gtk::manage(new Gtk::Label(g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
 		item->add(*namelabel);
-		item->signal_button_press_event().connect(sigc::bind<int, string>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first, g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
-		item->signal_focus_in_event().connect(sigc::bind<int, string>(sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first, g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
+		item->signal_button_press_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first));
+		item->signal_focus_in_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first));
 		item->show_all();
 		destChanComboStrings.push_back(*item);
 
 		if(first == 0)
 		{
 			first = 1;
-			selectedInstrument_ = g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()));
+			selectedDestChan_ = i->first;
 		}
 	}
 }
 
 void MidiMap::setDestChanCombo (void)
 {
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
 	std::map<int, string> *patchList = synth_->GetPatchlist();
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
 		destChanCombo_->get_list()->children();
 
+	string selectedInstrument;
+
 	destChanComboStrings.clear();
 
-	item = Gtk::manage(new Gtk::ComboDropDownItem);
-	namelabel = Gtk::manage(new Gtk::Label(selectedInstrument_));
-	item->add(*namelabel);
-	item->signal_button_press_event().connect(
-		sigc::bind<int, string>(sigc::mem_fun(*this,
-					&MidiMap::onDestChanComboChanged), selectedChan_,
-								selectedInstrument_));
-	item->signal_focus_in_event().connect(
-		sigc::bind<int, string>(sigc::mem_fun(*this,
-					&MidiMap::onDestChanComboFocus), selectedChan_,
-								selectedInstrument_));
-	item->show_all();
-	destChanComboStrings.push_front(*item);
+	if (patchMgr->isLoaded(selectedDestChan_))
+	{
+		selectedInstrument = g_strdup_printf("%i: %s", selectedDestChan_ + 1, basename(patchMgr->getPatch(selectedDestChan_)->dspFile.c_str())); /* maybe we should use filename, not dspFile */
 
+		item = Gtk::manage(new Gtk::ComboDropDownItem);
+		namelabel = Gtk::manage(new Gtk::Label(selectedInstrument));
+		item->add(*namelabel);
+		item->signal_button_press_event().connect(
+			sigc::bind<int>(sigc::mem_fun(*this,
+						&MidiMap::onDestChanComboChanged), selectedDestChan_));
+		item->signal_focus_in_event().connect(
+			sigc::bind<int>(sigc::mem_fun(*this,
+						&MidiMap::onDestChanComboFocus), selectedDestChan_));
+		item->show_all();
+		destChanComboStrings.push_front(*item);
+	}
 
 	for (std::map<int, string>::iterator i = patchList->begin();
 		 i != patchList->end(); i++)
 	{
-		item = Gtk::manage(new Gtk::ComboDropDownItem);
-		namelabel = Gtk::manage(new Gtk::Label(g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
-		item->add(*namelabel);
-		item->signal_button_press_event().connect(sigc::bind<int, string>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first, g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
-		item->signal_focus_in_event().connect(sigc::bind<int, string>(sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first, g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
-		item->show_all();
-		destChanComboStrings.push_back(*item);
+		if (patchMgr->isLoaded(i->first))
+		{
+			item = Gtk::manage(new Gtk::ComboDropDownItem);
+			namelabel = Gtk::manage(new Gtk::Label(g_strdup_printf("%d: %s",
+								i->first + 1, basename(i->second.c_str()))));
+			item->add(*namelabel);
+			item->signal_button_press_event().connect(
+				sigc::bind<int>(sigc::mem_fun(
+				*this,&MidiMap::onDestChanComboChanged), i->first));
+			item->signal_focus_in_event().connect(sigc::bind<int>(
+			sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first));
+			item->show_all();
+			destChanComboStrings.push_back(*item);
+		}
 	}
 }
 
@@ -298,18 +310,21 @@ void MidiMap::setDestArgCombo (int chan)
 
 		destArgComboStrings.clear();
 
-		item = Gtk::manage(new Gtk::ComboDropDownItem);
-		namelabel = Gtk::manage(new Gtk::Label(selectedArg_->getLabel()));
-		item->add(*namelabel);
-		item->signal_button_press_event().connect(
-			sigc::bind<thArg *>(sigc::mem_fun(*this,
-								&MidiMap::onDestArgComboChanged), selectedArg_));
-		item->signal_focus_in_event().connect(
-			sigc::bind<thArg *>(sigc::mem_fun(*this,
-								&MidiMap::onDestArgComboFocus), selectedArg_));
-		item->show_all();
-		destArgComboStrings.push_front(*item);
-		
+		if(selectedArg_)
+		{
+			item = Gtk::manage(new Gtk::ComboDropDownItem);
+			namelabel = Gtk::manage(new Gtk::Label(selectedArg_->getLabel()));
+			item->add(*namelabel);
+			item->signal_button_press_event().connect(
+				sigc::bind<thArg *>(sigc::mem_fun(*this,
+							&MidiMap::onDestArgComboChanged), selectedArg_));
+			item->signal_focus_in_event().connect(
+				sigc::bind<thArg *>(sigc::mem_fun(*this,
+							&MidiMap::onDestArgComboFocus), selectedArg_));
+			item->show_all();
+			destArgComboStrings.push_front(*item);
+		}
+
 		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
@@ -339,7 +354,9 @@ void MidiMap::setDestArgCombo (int chan)
 
 void MidiMap::populateConnections (void)
 {
+	gthPatchManager *patchMgr = gthPatchManager::instance();
 	thMidiControllerConnection *connection;
+	string instrument;
 	
 	connectModel_->clear();
 
@@ -351,9 +368,16 @@ void MidiMap::populateConnections (void)
 	{
 		Gtk::TreeModel::Row row = *(connectModel_->append());
 		connection = i->second;
+		instrument = basename(patchMgr->getPatch(
+								 connection->getDestChan())->filename.c_str());
+		if (instrument.length() == 0)
+		{
+			instrument = string("Untitled");
+		}
 		row[connectViewCols_.midiChan] = connection->getChan() + 1;
 		row[connectViewCols_.midiController] = connection->getController() + 1;
-		row[connectViewCols_.instrument] = connection->getInstrument();
+		row[connectViewCols_.instrument] = g_strdup_printf("%i: %s",
+							connection->getDestChan() + 1, instrument.c_str());
 		row[connectViewCols_.argName] = connection->getArgName();
 	}
 }
@@ -369,12 +393,10 @@ void MidiMap::onControllerChanged (void)
 	selectedController_ = (int)controllerSpinBtn_->get_value() - 1;
 }
 
-bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan,
-									  string instrument)
+bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
 {
 	fillDestArgCombo(chan);
 	selectedDestChan_ = chan;
-	selectedInstrument_ = instrument;
 	return true;
 }
 
@@ -449,7 +471,6 @@ void MidiMap::onConnectionMoved (void)
 
 			selectedArg_ = selectedConnection->getArg();
 			selectedDestChan_ = selectedConnection->getDestChan();
-			selectedInstrument_ = selectedConnection->getInstrument();
 			selectedExp_ = selectedConnection->getScale();
 			setDestChanCombo();
 			setDestArgCombo(selectedDestChan_);
@@ -477,7 +498,7 @@ void MidiMap::onAddButton (void)
 	if(connection)
 		delete connection;
 
-	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedExp_, selectedChan_, selectedController_, selectedDestChan_, selectedInstrument_, selectedArg_->getLabel()));
+	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedExp_, selectedChan_, selectedController_, selectedDestChan_, selectedArg_->getLabel()));
 	populateConnections();
 }
 
@@ -497,17 +518,8 @@ void MidiMap::onDelButton (void)
 
 void MidiMap::onPatchChanged (void)
 {
-	gthPatchManager *patchMgr = gthPatchManager::instance();
-
 /* XXX: WHAT IF THIS HAD A CONNECTION?!  FIX! */
-	if (patchMgr->isLoaded(selectedChan_))
-	{
-		setDestChanCombo();
-		setDestArgCombo(selectedChan_);
-	}
-	else
-	{
-		fillDestChanCombo();
-		set_sensitive(false);
-	}
+
+	setDestChanCombo();
+	setDestArgCombo(selectedDestChan_);
 }

@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.16 2004/12/18 02:46:28 ink Exp $ */
+/* $Id: MidiMap.h,v 1.17 2004/12/19 21:05:20 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -50,10 +50,10 @@ protected:
 	void onDelButton (void);
 	void onChannelChanged (void);
 	void onControllerChanged (void);
-	bool onDestChanComboChanged (GdkEventButton* b, int chan, string instrument);
+	bool onDestChanComboChanged (GdkEventButton* b, int chan);
 	bool onDestArgComboChanged (GdkEventButton* b, thArg *arg);
-	bool onDestChanComboFocus (GdkEventFocus* f, int chan, string instrument)
-		{ return onDestChanComboChanged(NULL, chan, instrument); }
+	bool onDestChanComboFocus (GdkEventFocus* f, int chan)
+		{ return onDestChanComboChanged(NULL, chan); }
 	bool onDestArgComboFocus (GdkEventFocus* f, thArg *arg)
 		{ return onDestArgComboChanged(NULL, arg); }
 	void onMinChanged (void);
@@ -61,8 +61,6 @@ protected:
 	void onExpToggled (void);
 	void onConnectionSelected (GdkEventButton *b);
 	void onConnectionMoved (void);
-	void onSynthChannelChanged (string filename, int chan, float amp);
-	void onSynthChannelDeleted (int chan);
 	void onPatchChanged (void);
 
 	Gtk::Adjustment *channelAdj_;
@@ -112,7 +110,7 @@ private:
 	int selectedChan_;
 	int selectedController_;
 	int selectedDestChan_;
-	string selectedInstrument_;
+//	string selectedInstrument_;
 	float selectedMin_;
 	float selectedMax_;
 	int selectedExp_;
