@@ -52,6 +52,7 @@ private:
 	string instrument_, argName_;
 	float min_, max_;
 	enum scale { LINEAR = 0, EXPONENTIAL };
+	int scale_;
 };
 
 #endif /* TH_MIDICONTROLLERCONNECTION */

@@ -17,6 +17,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
+#include <math.h>
+
 #include "think.h"
 
 thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
@@ -34,7 +36,7 @@ thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
 	destchan_ = dchan;
 	instrument_ = string(instrument);
 	argName_ = argName;
-//	scale_ = LINEAR;
+	scale_ = LINEAR;
 }
 
 thMidiControllerConnection::~thMidiControllerConnection (void)
@@ -45,5 +47,8 @@ void thMidiControllerConnection::setParam (unsigned int value)
 {
 /*	float *buffer = arg_->Allocate(1);
 	buffer[0] = (value/(float)MIDIVALMAX) * (max_ - min_) + min_; */
-	arg_->SetValue(value);
+	value = value/(float)MIDIVALMAX;
+	if(scale_ == EXPONENTIAL)
+		value = log(value * 9 + 1);
+	arg_->SetValue(value * (max_ - min_) + min_);
 }
