@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.56 2003/09/02 04:45:35 joshk Exp $
+dnl $Id: configure.ac,v 1.57 2003/09/16 00:28:06 misha Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -117,6 +117,13 @@ AC_DEFINE_UNQUOTED([SHARED_SUFFIX], "$SHARED_SUFFIX", [Suffix of shared librarie
 
 AC_ARG_ENABLE(debug,
 AC_HELP_STRING([--enable-debug],[print debug messages to stdout (default on)]),
+
+dnl Debug is disabled:
+[
+	CXXFLAGS="$CXXFLAGS -O2"
+	debug=no
+],
+
 dnl Debug is enabled:
 [
 	if test "$enableval" != no; then 
@@ -127,12 +134,6 @@ dnl Debug is enabled:
 		CXXFLAGS="$CXXFLAGS -O2"
 		debug=no
 	fi
-],
-
-dnl Debug is disabled:
-[
-	CXXFLAGS="$CXXFLAGS -O2"
-	debug=no
 ])
 
 AC_ARG_ENABLE(efence,
