@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.44 2003/04/27 05:59:20 ink Exp $ */
+/* $Id: thMod.cpp,v 1.45 2003/04/27 06:33:36 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -79,6 +79,10 @@ void thMod::SetName (char *name)
 void thMod::SetIONode (const char *name)
 {
 	ionode = (thNode *)modnodes->GetData((void *)name);
+
+	if (ionode == NULL) {
+		printf ("thMod::SetIONOde: warning; ionode is NULL\n");
+	}
 }
 
 void thMod::PrintIONode (void)

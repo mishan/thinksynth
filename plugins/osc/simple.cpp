@@ -44,7 +44,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
 	float *out = new float[windowlen];
-	float last[1];
+	float *last = new float[1];
 	float wavelength;
 	int position;
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
