@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.50 2004/11/27 07:58:24 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.51 2004/11/28 03:07:18 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -371,13 +371,25 @@ void PatchSelWindow::CursorChanged (void)
 
 void PatchSelWindow::populate (void)
 {
-	debug("populating contents");
-
 //	std::map<int, string> *patchlist = synth->GetPatchlist();
 //	int channelcount = synth->GetChannelCount();
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	int chancount = patchMgr->numPatches();
+	int selectedChan = -1;
+	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = patchView.get_selection();
 
+	/* save currently selected channel, if applicable */
+	if (refSelection)
+	{
+		Gtk::TreeModel::iterator iter;
+		iter = refSelection->get_selected();
+
+		if (iter)
+			selectedChan = (*iter)[patchViewCols.chanNum]-1;
+	}
+	
+	debug("populating contents");
+	
 	patchModel->clear();
 
 	for(int i = 0; i < chancount; i++)
@@ -413,6 +425,12 @@ void PatchSelWindow::populate (void)
 		row[patchViewCols.dspName] = filename.length() == 0 ? 
 			"(Untitled)" : filename;
 		row[patchViewCols.amp] = amp ? (*amp)[0] : 0;
+	}
+
+	if (selectedChan != -1)
+	{
+		Gtk::TreeModel::Path p(g_strdup_printf("%d", selectedChan));
+		patchView.set_cursor(p);
 	}
 }
 
