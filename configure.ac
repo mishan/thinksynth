@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.21 2003/04/26 22:34:57 joshk Exp $
+dnl $Id: configure.ac,v 1.22 2003/04/27 00:02:50 joshk Exp $
 
 AC_INIT
 
@@ -25,9 +25,9 @@ AC_PROG_CXXCPP
 LEX_LANG=CXX
 YACC_LANG=CXX
 
-AC_PROG_LEX
+AM_PROG_LEX
 
-if test "$LEX" = ":"; then
+if test "`basename $LEX`" = "missing"; then
 	AC_MSG_ERROR([A lex implementation is required to build this program.])
 fi
 

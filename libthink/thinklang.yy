@@ -1,3 +1,5 @@
+/* $Id: thinklang.yy,v 1.25 2003/04/27 00:02:50 joshk Exp $ */
+
 %{
 #ifdef HAVE_CONFIG_H
 #include "config.h"
