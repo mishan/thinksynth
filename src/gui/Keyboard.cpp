@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.27 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.28 2004/09/18 02:01:43 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -133,7 +133,7 @@ Keyboard::Keyboard (void)
 	add_events(Gdk::ALL_EVENTS_MASK);
 
 	/* allow the widget to grab focus and process keypress events */
-	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(gobj()), GTK_CAN_FOCUS);
+	set_flags(Gtk::CAN_FOCUS);
 
 	focus_box = false;
 

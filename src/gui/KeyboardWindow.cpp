@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.30 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.31 2004/09/18 02:01:43 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -78,8 +78,8 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	keyboard.signal_transpose_changed().connect(
 		SigC::slot(*this, &KeyboardWindow::eventTransposeChanged));
 
-	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(chanBtn->gobj()), GTK_CAN_FOCUS);
-	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(transBtn->gobj()), GTK_CAN_FOCUS);
+	chanBtn->unset_flags(Gtk::CAN_FOCUS);
+	transBtn->unset_flags(Gtk::CAN_FOCUS);
 
 	m_sigNoteOn.connect(SigC::slot(*this,
 								   &KeyboardWindow::synthEventNoteOn));
