@@ -262,10 +262,11 @@ void thMidiChan::process (void)
 			arg->getBuffer(buf_mix, windowlength_);
 			amp->getBuffer(buf_amp, windowlength_);
 
+			index = i;
 			for(j = 0; j < windowlength_; j++)
 			{
-				index = i+(j*channels_);
 				output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
+				index += channels_;
 			}
 		}
 

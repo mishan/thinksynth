@@ -309,7 +309,7 @@ assignment:
 WORD ASSIGN expression
 {
 	/* XXX: This is sorta hackish, make it not index it here */
-	parsenode->setArg($1.str, 1)->setIndex(-1);
+	parsenode->setArg($1.str, $3.floatval)->setIndex(-1);
 
 	free($1.str);
 }

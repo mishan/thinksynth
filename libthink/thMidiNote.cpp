@@ -48,7 +48,7 @@ thMidiNote::thMidiNote (thSynthTree *tree)
 	ionode->setArg("velocity", 0); /* the args are indexed as well */
 	ionode->setArg("trigger", 0);
 
-	noteid_ = -1;
+	noteid_ = 0;
 }
 
 thMidiNote::~thMidiNote ()

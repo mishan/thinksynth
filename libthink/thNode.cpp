@@ -140,13 +140,13 @@ void thNode::PrintArgs (void)
 		printf("%s\n", i->first.c_str());
 }
 
-void thNode::CopyArgs (const map<string, thArg*> &newargs)
+void thNode::CopyArgs (const thArgMap &newargs)
 {
 	thArg *newarg;
 	thArg *data;
 	thArg **newindex;
 
-	for (map<string,thArg*>::const_iterator i = (newargs).begin(); i != (newargs).end(); i++)
+	for (thArgMap::const_iterator i = (newargs).begin(); i != (newargs).end(); i++)
 	{
 		data = i->second;
 

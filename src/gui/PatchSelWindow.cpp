@@ -361,12 +361,9 @@ void PatchSelWindow::SetChannelAmp (void)
 		if(iter)
 		{
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
-			float *val = new float;
+			thArg *arg = new thArg("amp", dspAmp.get_value());
 
-			*val = (float)dspAmp.get_value();
-			thArg *arg = new thArg(string("amp"), val, 1);
-
-			(*iter)[patchViewCols.amp] = *val;
+			(*iter)[patchViewCols.amp] = dspAmp.get_value();
 
 			synth->setChanArg(chanNum, arg);
 		} 

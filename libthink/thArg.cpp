@@ -42,9 +42,9 @@ thArg::thArg(const string &name, float value)
 thArg::thArg(const string &name, const float *value, int len)
 {
 	name_ = name;
-	values_ = new float[len];
-	memcpy(values_, value, len*sizeof(float));
 	len_ = len;
+	values_ = new float[len_];
+	memcpy(values_, value, len_*sizeof(float));
 
 	type_ = ARG_VALUE;
 	nodePtrId_ = -1;   /* so we know it has not been set yet */
@@ -185,7 +185,7 @@ void thArg::setArg(const string &name, const string &chanarg)
     type_ = ARG_CHANNEL;
 }
 
-void thArg::getBuffer(float *buffer, unsigned int size)
+void thArg::getBuffer (float *buffer, unsigned int size)
 {
 	unsigned int i, j;	
 
