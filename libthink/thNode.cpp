@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.38 2003/04/27 03:34:52 misha Exp $ */
+/* $Id: thNode.cpp,v 1.39 2003/04/27 04:35:25 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -72,7 +72,18 @@ const thArgValue *thNode::GetArg (const char *name)
 
 void thNode::PrintArgs (void)
 {
-	args->PrintTree();
+	PrintArgs(args);
+}
+
+void thNode::PrintArgs (thBSTree *node)
+{
+	if(!node) {
+		return;
+	}
+
+	PrintArgs(node->GetLeft());
+	printf("%s\n", (char *)node->GetId());
+	PrintArgs(node->GetRight());
 }
 
 void thNode::CopyArgs (thBSTree *newargs)

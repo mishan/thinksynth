@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.34 2003/04/27 03:57:29 joshk Exp $ */
+/* $Id: thNode.h,v 1.35 2003/04/27 04:35:25 misha Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -64,6 +64,8 @@ private:
 	
 	char *nodename;
 	bool recalc;
+
+	void PrintArgs (thBSTree *node);
 };
 
 #endif /* TH_NODE_H */
