@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.43 2003/04/27 05:49:21 ink Exp $ */
+/* $Id: thMod.cpp,v 1.44 2003/04/27 05:59:20 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -226,10 +226,8 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
 
 	argtree = currentnode->GetArgTree();
-	if(argtree) {
-		printf("Calling BuildSynthTreeHelper2, arg pointer = %d\n", argtree);
-		BuildSynthTreeHelper2(argtree, currentnode);
-	}
+
+	BuildSynthTreeHelper2(argtree, currentnode);
 /*	if(argtree) {
 		data = (thArgValue *)((thArg *)argtree->data)->GetArg();
 		if(data->argType == ARG_POINTER) {

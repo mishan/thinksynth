@@ -40,7 +40,7 @@ int module_init (int version, thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (void *node, void *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
 	float *out = new float[windowlen];
@@ -49,10 +49,10 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	int position;
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
-	in_freq = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "freq");
-	in_pw = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "pw");
-	in_waveform = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "waveform");
-	in_last = (thArgValue *)((thMod *)mod)->GetArg(((thNode *)node)->GetName(), "last");
+	in_freq = (thArgValue *)mod->GetArg(node->GetName(), "freq");
+	in_pw = (thArgValue *)mod->GetArg(node->GetName(), "pw");
+	in_waveform = (thArgValue *)mod->GetArg(node->GetName(), "waveform");
+	in_last = (thArgValue *)mod->GetArg(node->GetName(), "last");
 
 	position = (int)in_last->argValues[0];
 
@@ -66,7 +66,6 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	    /* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri */
 	  case 0:
 		  out[i] = TH_MAX*sin((position/wavelength)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
-	    /* 360*DEGRAD = whack, make this better */
 	    break;
 	  case 1:
 	    out[i] = TH_RANGE*(position/wavelength)+TH_MIN;
@@ -75,9 +74,9 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 	  }
 	}
 
-	((thNode*)node)->SetArg("out", out, windowlen);
+	node->SetArg("out", out, windowlen);
 	*last[0] = (float)position;
-	((thNode*)node)->SetArg("last", (float*)last, 1);
+	node->SetArg("last", (float*)last, 1);
 
 	return 0;
 }
