@@ -1,8 +1,9 @@
-/* $Id: rds.cpp,v 1.7 2003/06/02 04:56:04 ink Exp $ */
+/* $Id: rds.cpp,v 1.8 2003/06/04 21:13:52 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -70,6 +71,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	  rfact = 1-(SQR((*in_res)[i]));
 
 	  diff = (*in_arg)[i] - last;
+	  if(fabs(diff) > TH_RANGE) { /* in case the input is screwy */
+		  diff = TH_RANGE * (diff > 0 ? 1 : -1);
+	  }
 	  diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and spices */
 
 	  highout[i] = diff;
