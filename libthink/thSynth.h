@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.48 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: thSynth.h,v 1.49 2004/07/30 20:17:40 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -30,6 +30,7 @@ public:
 
 
 	int GetChans(void) const { return thChans; }
+	map<string, thArg*> GetChanArgs (int chan) { return channels[chan]->GetArgs(); }
 	int GetWindowLen(void) const { return thWindowlen; }
 //	float *GetOutput(void) const { return thOutput; }
 	float *GetOutput (void) const;

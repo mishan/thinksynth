@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.27 2004/07/29 06:24:35 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.28 2004/07/30 20:17:40 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -16,6 +16,7 @@ public:
 	
 	thArg *GetArg (string argName) { return args[argName]; }
 	void SetArg (thArg *arg);
+	map<string, thArg*> GetArgs (void) { return args; }
 	
 	void Process (void);
 	
