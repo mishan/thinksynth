@@ -1,4 +1,4 @@
-/* $Id: thinklex.ll,v 1.25 2004/09/18 02:16:06 joshk Exp $ */
+/* $Id: thinklex.ll,v 1.26 2004/10/01 08:35:12 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,6 +26,7 @@
 
 #include "yygrammar.h"
 #include "think.h"
+#include "parser.h"
 
 int linenum = 1;
 

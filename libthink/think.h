@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.30 2004/09/18 02:16:06 joshk Exp $ */
+/* $Id: think.h,v 1.31 2004/10/01 08:35:12 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -90,7 +90,5 @@ void DestroyMap (map<T,U> themap)
 #include "thMidiNote.h"
 #include "thMidiChan.h"
 #include "thSynth.h"
-
-#include "parser.h"
 
 #endif /* THINK_H */

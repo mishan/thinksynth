@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.105 2004/09/24 00:38:40 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.106 2004/10/01 08:35:12 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,6 +28,7 @@
 #include <unistd.h>
 
 #include "think.h"
+#include "parser.h"
 
 thSynth::thSynth (int windowlen, int samples)
 {
