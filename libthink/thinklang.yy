@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.35 2003/05/03 19:28:26 ink Exp $ */
+/* $Id: thinklang.yy,v 1.36 2003/05/03 19:54:51 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -222,8 +222,9 @@ WORD ASSIGN fstr
 	argsize = strlen(p);
 	nodesize = strlen($3.str)-argsize-1;
 	
-	node = new char[nodesize];
+	node = new char[nodesize+1];
 	memcpy(node, $3.str, nodesize);
+	node[nodesize] = 0;
 
 	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
