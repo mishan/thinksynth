@@ -4,7 +4,7 @@
 # Sat Nov 13 07:44:38 2004
 
 
-dsp /usr/local/share/thinksynth/args/ts1.dsp
+dsp args/ts1.dsp
 
 a 168.642456
 blim 1.999900

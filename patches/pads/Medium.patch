@@ -4,7 +4,7 @@
 # Sat Nov 13 04:53:52 2004
 
 
-dsp /usr/local/share/thinksynth/args/amb01.dsp
+dsp args/amb01.dsp
 
 a 31756.796875
 centerdetune -0.706568

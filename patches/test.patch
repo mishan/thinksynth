@@ -4,7 +4,7 @@
 # Sat Nov 13 03:46:32 2004
 
 
-dsp /usr/local/share/thinksynth/args/rpiano0.dsp
+dsp args/rpiano0.dsp
 
 a 355.645203
 d 3912.097168
