@@ -234,7 +234,11 @@ int thWav::FindChunk (const char *label)
 
 const thAudioFmt *thWav::GetFormat (void)
 {
-	return &fmt;
+	thAudioFmt *afmt = new thAudioFmt;
+
+	memcpy(afmt, &fmt, sizeof(thAudioFmt));
+
+	return afmt;
 }
 
 thWavType thWav::GetType (void)

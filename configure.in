@@ -35,7 +35,7 @@ if test "_$sedpath" = _; then
 	AC_MSG_ERROR("Cannot find sed: I need it\!")
 fi
 
-CFLAGS="-g -Wall -pedantic -rdynamic -ffast-math"
+CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
 LIBS="$LIBS -ldl"
 
 AC_PATH_PROG(unamepath, uname)
@@ -52,18 +52,20 @@ else
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
 	fi
 	if test "$system" = "Darwin"; then
-        CFLAGS="$CFLAGS -traditional-cpp"
+        CXXFLAGS="$CXXFLAGS -traditional-cpp"
         AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
 	fi
 fi
 
 AC_ARG_ENABLE(debug,
-[  --enable-debug	print debug messages to stdout (default off)],
-	debug=$enableval, debug=no)
+[  --disable-debug	print debug messages to stdout (default on)],
+	debug=$enableval, debug=yes)
 AC_ARG_ENABLE(,,,)
 
-if test "$debug" = no ; then
-	CFLAGS="$CFLAGS -O2"
+if test "$debug" = no; then
+	CXXFLAGS="$CXXFLAGS -O2"
+else
+	CXXFLAGS="$CXXFLAGS -g"
 fi
 
 if test "$prefix" = NONE; then
@@ -76,7 +78,7 @@ fi
 
 AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installed])
 
-AC_SUBST(CFLAGS)
+AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
 
 #ENV_SOURCES=`find plugins/env/ -iname \"*.c\"`
