@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.100 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.101 2004/09/05 00:21:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -304,6 +304,8 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 
 	pthread_mutex_unlock(synthMutex);
 
+	m_sigChanChanged(filename, channum, amp);
+
 	return parsemod;
 }
 
@@ -348,6 +350,8 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 //	channels[channum]->CopyChanArgs(channels[channum]->GetMod());
 
 	pthread_mutex_unlock(synthMutex);
+
+	m_sigChanChanged(modname, channum, amp);
 }
 
 thMidiNote *thSynth::AddNote (int channum, float note,

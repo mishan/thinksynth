@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.8 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.9 2004/09/05 00:21:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,6 +29,7 @@ public:
 	~MainSynthWindow (void);
 
 protected:
+	void populateMenu (void);
 	void menuKeyboard (void);
 	void menuPatchSel (void);
 	void menuQuit (void);
@@ -37,6 +38,8 @@ protected:
 	void sliderChanged (Gtk::HScale *, thArg *);
 
 	void populate (void);
+
+	void channelChanged (string filename, int chan, float amp);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;

@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.85 2004/08/25 07:21:43 joshk Exp $
+dnl $Id: configure.ac,v 1.86 2004/09/05 00:21:48 misha Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -61,7 +61,7 @@ AC_CXX_MT_BROKEN
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
-CXXFLAGS="-Wall -ffast-math"
+CXXFLAGS="-Wall -ffast-math -I/usr/lib/sigc++-1.2/include -I/usr/include/sigc++-1.2"
 
 AC_CHECK_HEADERS(dlfcn.h)
 

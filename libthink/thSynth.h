@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.52 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thSynth.h,v 1.53 2004/09/05 00:21:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,8 +20,12 @@
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
 
+#include <sigc++/sigc++.h>
+
 class thMidiNote;
 class thMidiChan;
+
+typedef SigC::Signal3<void, string, int, float> type_signal_chan_changed;
 
 class thSynth {
 public:
@@ -76,8 +80,14 @@ public:
 	int SetChanArgData (int channum, const string &argname, float *data,
 						 int len);
 
+	type_signal_chan_changed signal_channel_changed (void) {
+		return m_sigChanChanged;
+	}
+
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
+
+	type_signal_chan_changed m_sigChanChanged;
 
 	map<string, thMod*> modlist;
 	map<int, string> patchlist;

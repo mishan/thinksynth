@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.20 2004/09/04 23:03:30 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.21 2004/09/05 00:21:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -48,6 +48,32 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth)
 
 	patchSel = new PatchSelWindow(synth);
 
+	populateMenu();
+
+	menuBar.accelerate(*patchSel);
+
+	add(vbox);
+
+	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
+	vbox.pack_start(notebook, Gtk::PACK_SHRINK);
+
+	notebook.set_scrollable();
+
+	populate();
+
+	show_all_children();
+
+	synth->signal_channel_changed().connect(
+		SigC::slot(*this, &MainSynthWindow::channelChanged));
+}
+
+MainSynthWindow::~MainSynthWindow (void)
+{
+	menuQuit();
+}
+
+void MainSynthWindow::populateMenu (void)
+{
 	/* File */
 	{
 		Gtk::Menu::MenuList &menulist = menuFile.items();
@@ -91,24 +117,6 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth)
 		menulist.push_back(Gtk::Menu_Helpers::MenuElem("_Help",
 													   menuHelp));
 	}
-
-	add(vbox);
-
-	notebook.set_scrollable();
-
-	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
-	vbox.pack_start(notebook, Gtk::PACK_SHRINK);
-
-	menuBar.accelerate(*patchSel);
-
-	populate();
-
-	show_all_children();
-}
-
-MainSynthWindow::~MainSynthWindow (void)
-{
-	menuQuit();
 }
 
 void MainSynthWindow::menuKeyboard (void)
@@ -155,6 +163,8 @@ void MainSynthWindow::populate (void)
 
 		if (tabName.length() == 0)
 			continue;
+
+		printf("populating %s\n", tabName.c_str());
 
 		tabName = basename(tabName.c_str());
 
@@ -220,4 +230,11 @@ void MainSynthWindow::populate (void)
 		notebook.append_page(*table, tabName);
 	}
 
+}
+
+void MainSynthWindow::channelChanged (string filename, int chan, float amp)
+{
+	notebook.pages().clear();
+	populate();
+	notebook.show_all();
 }

@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.7 2004/09/04 23:03:30 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.8 2004/09/05 00:21:48 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -77,7 +77,6 @@ void gthPrefs::Load (void)
 {
 	FILE *prefsFile;
 	char buffer[256];
-	int channel = 0;
 
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
