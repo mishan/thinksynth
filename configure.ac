@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.54 2003/06/08 21:56:04 joshk Exp $
+dnl $Id: configure.ac,v 1.55 2003/08/03 02:48:38 misha Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -44,7 +44,7 @@ AC_CXX_MT_BROKEN
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
-CXXFLAGS="-Wall -pedantic -ffast-math"
+CXXFLAGS="-Wall -ffast-math"
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
