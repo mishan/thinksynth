@@ -22,7 +22,7 @@
 #include "gthJackAudio.h"
 
 #include "ui.h"
-#include "signal.h"
+#include "gthSignal.h"
 
 #include "gthPrefs.h"
 

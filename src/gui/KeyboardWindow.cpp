@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.28 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.29 2004/06/30 04:37:03 misha Exp $ */
 
 #include "config.h"
 
@@ -13,7 +13,7 @@
 
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
-#include "signal.h"
+#include "gthSignal.h"
 
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	: ctrlFrame ("Keyboard Control"), 
