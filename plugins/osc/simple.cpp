@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.35 2003/09/26 07:33:11 misha Exp $ */
+/* $Id: simple.cpp,v 1.36 2003/10/24 02:50:44 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +46,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	float *out_last, *sync;
 	float halfwave, ratio;
-	float position;
+	float position, fmpos;
 	double wavelength, freq;
 	float amp_max, amp_min, amp_range;
 	float mul;
@@ -88,18 +88,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 		position++;
 
-		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
-		if(fmamt) {
-			freq += (freq * fmamt) * ((*in_fm)[i] / TH_MAX);
-		}
-
 		wavelength = TH_SAMPLE/freq;
 
 		mul = (*in_mul)[i];
 		if(mul) {
-			wavelength *= mul;  /* floats are inpresice, if you do freq/2 you
+			wavelength *= 1/mul;  /* floats are inpresice, if you do freq/2 you
 								   get the beating effect.  grr */
 		}
+
+		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
+		fmpos = (int)(position + ((*in_fm)[i] / TH_MAX) * wavelength * fmamt) % (int)wavelength;
 
 		if(position > wavelength || (*in_reset)[i] == 1) {
 			position = 0;
@@ -115,11 +113,11 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 		halfwave = wavelength * pw;
 		if(position < halfwave) {
-			ratio = position/(2*halfwave);
+			ratio = fmpos/(2*halfwave);
 		} else {
-			ratio = (((position-halfwave)/(wavelength-halfwave))/2)+0.5;
+			ratio = (((fmpos-halfwave)/(wavelength-halfwave))/2)+0.5;
 		}
-		
+
 		switch((int)(*in_waveform)[i]) {
 			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle,
 			   5 = parabola */
