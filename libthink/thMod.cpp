@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.62 2003/05/06 22:38:20 ink Exp $ */
+/* $Id: thMod.cpp,v 1.63 2003/05/07 03:19:54 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -101,7 +101,7 @@ void thMod::Process (unsigned int windowlen)
 
 	ionode->SetRecalc(false);
 
-	for(listnode = ((thList *)ionode->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
+	for(listnode = ionode->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == true) {
 			ProcessHelper(windowlen, data);
@@ -109,7 +109,7 @@ void thMod::Process (unsigned int windowlen)
 	}
 
 	/* FIRE! */
-	((thPlugin *)ionode->GetPlugin())->Fire(ionode, this, windowlen);
+	ionode->GetPlugin()->Fire(ionode, this, windowlen);
 }
 
 void thMod::ProcessHelper(unsigned windowlen, thNode *node)
@@ -119,7 +119,7 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 
 	node->SetRecalc(false);
   
-	for(listnode = ((thList *)node->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
+	for(listnode = node->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == true) {
 			ProcessHelper(windowlen, data);
@@ -127,7 +127,7 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 	}
 
 	/* FIRE! */
-	((thPlugin *)node->GetPlugin())->Fire(node, this, windowlen);
+	node->GetPlugin()->Fire(node, this, windowlen);
 }
 
 void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active plugins */
@@ -149,7 +149,7 @@ void thMod::SetActiveNodesHelper(thNode *node)
 	thListNode *listnode;
 	thNode *data;
 
-	for(listnode = ((thList *)node->GetParents())->GetTail(); listnode; listnode = listnode->prev) {
+	for(listnode = node->GetParents()->GetTail(); listnode; listnode = listnode->prev) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
@@ -180,7 +180,7 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 	thBSTree *argtree;
 
 	if(parentnode->GetChildren()) {
-		for(listnode = ((thList* )parentnode->GetChildren())->GetTail(); listnode; listnode = listnode->prev) {
+		for(listnode = parentnode->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
 			data = (thNode *)listnode->data;
 			if(!mod->FindNode(data->GetName())) {
 				newnode = new thNode(data->GetName(), data->GetPlugin());
@@ -222,7 +222,7 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 
 	currentnode->SetRecalc(true);  /* This node has now been marked as processed */
 
-	if(((thPlugin *)currentnode->GetPlugin())->GetState() == thActive) {
+	if(currentnode->GetPlugin()->GetState() == thActive) {
 	  activelist.Add(currentnode);
 	}
 
@@ -234,11 +234,11 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 
 void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 {
-	thArgValue *data;
+	const thArgValue *data;
 	thNode *node;
 
 	if(argtree) {
-		data = (thArgValue *)((thArg *)argtree->GetData())->GetArg();
+		data = ((thArg *)argtree->GetData())->GetArg();
 		BuildSynthTreeHelper2(argtree->GetLeft(), currentnode);
 
 		if(data->argType == ARG_POINTER) {
