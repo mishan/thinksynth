@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.25 2003/04/27 00:02:50 joshk Exp $ */
+/* $Id: thinklang.yy,v 1.26 2003/04/27 06:05:42 joshk Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -172,8 +172,11 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 	printf("Checking if plugin %s is loaded...\n", $3.str);
 	if(!((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str))
 		{
-		printf("Loading %s...\n", $3.str);
-		((thPluginManager *)Synth.GetPluginManager())->LoadPlugin($3.str);
+			printf("Loading %s...\n", $3.str);
+			if (((thPluginManager *)Synth.GetPluginManager())->LoadPlugin($3.str) == 1) { /* FAILED */
+				printf ("Error loading the plugin, aborting.\n");
+				exit(1);
+			}
 		}
 	parsenode->SetPlugin(((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str));
 	parsenode->SetName($2.str);
