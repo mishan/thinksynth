@@ -32,13 +32,16 @@
 
 #include "think.h"
 #include "gthAudio.h"
+
+#ifdef HAVE_ALSA
 #include "gthALSAAudio.h"
 #include "gthALSAMidi.h"
+#endif /* HAVE_ALSA */
 
 #ifdef HAVE_JACK
 #include <jack/jack.h>
 #include "gthJackAudio.h"
-#endif
+#endif /* HAVE_JACK */
 
 #include "gthSignal.h"
 #include "gthPrefs.h"
@@ -53,7 +56,9 @@ thSynth *Synth = NULL;
 gthPrefs *prefs = NULL;
 gthAudio *aout = NULL;
 
+#ifdef HAVE_ALSA
 static gthALSAMidi *midi = NULL;
+#endif /* HAVE_ALSA */
 
 Glib::RefPtr<Glib::MainContext> mainContext;
 
@@ -102,10 +107,12 @@ void cleanup (int signum)
 				delete aout;
 			}
 
+#ifdef HAVE_ALSA
 			if (midi)
 			{
 				delete midi;
 			}
+#endif /* HAVE_ALSA */
 
 			exit (0);
 			break;
@@ -162,6 +169,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 }
 #endif /* HAVE_JACK */
 
+#ifdef HAVE_ALSA
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
@@ -234,6 +242,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 
 	return 0;
 }
+#endif /* HAVE_ALSA */
 
 int main (int argc, char *argv[])
 {
@@ -321,6 +330,7 @@ int main (int argc, char *argv[])
 	   integer internally based on format data */
 	try
 	{
+#ifdef HAVE_ALSA
 		midi = new gthALSAMidi("thinksynth");
 
 		if (midi->seq_opened())
@@ -328,12 +338,13 @@ int main (int argc, char *argv[])
 			midi->signal_midi_event().connect(
 				sigc::bind<thSynth *>(sigc::ptr_fun(&processmidi), Synth));
 		}
+#endif /* HAVE_ALSA */
 
 		printf ("Trying the '%s' driver\n", driver.c_str());
 
 		if (driver == "alsa")
 		{ 
-
+#ifdef HAVE_ALSA
 			if (outputfname.length() > 0)
 				aout = new gthALSAAudio(Synth, outputfname.c_str());
 			else
@@ -345,24 +356,40 @@ int main (int argc, char *argv[])
 			aptr->signal_ready_write().connect(
 				sigc::bind<gthAudio *,thSynth *>(sigc::ptr_fun(&audio_readywrite),
 												 aout, Synth)); 
+#else
+			fprintf(stderr, "Sorry, ALSA is not supported in tuis build.\n");
+#endif /* HAVE_ALSA */
 		}
-#ifdef HAVE_JACK
  		else if (driver == "jack")
 		{
+#ifdef HAVE_JACK
 			aout = new gthJackAudio(Synth, playback_callback);
-		}
+#else
+			fprintf(stderr, "Sorry, JACK is not supported in this build.\n");
+			return 1;
 #endif /* HAVE_JACK */
+		}
 		else
 		{
-			fprintf(stderr, "Sorry, only JACK/ALSA drivers are supported currently for output.\n");
+			fprintf(stderr, "Sorry, only %s drivers are supported currently "
+					"for output.\n", 
+#ifdef HAVE_JACK
+					"JACK/"
+#endif /* HAVE_JACK */
+#ifdef HAVE_ALSA
+					"ALSA");
+#endif /* HAVE_ALSA */
+);
 		}
 
 	}
 	catch (thIOException e)
 	{
 		fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
+
 		if (driver == "jack")
 			fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
+
 		return 1;
 	}
 
@@ -372,7 +399,10 @@ int main (int argc, char *argv[])
 
 	printf("closing audio devices...\n");
 	delete aout;
+
+#ifdef HAVE_ALSA
 	delete midi;
+#endif /* HAVE_ALSA */
 	
 	printf("saving preferences\n");
 	prefs->Save();
