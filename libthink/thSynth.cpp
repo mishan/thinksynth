@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include "thArg.h"
 #include "thList.h"
@@ -33,8 +34,11 @@ thSynth::~thSynth()
 
 void thSynth::LoadMod(const char *filename)
 {
-	yyin = fopen(filename, "r");
-	
+	if ((yyin = fopen(filename, "r")) == NULL) { /* 404 or smth */
+		fprintf (stderr, "couldn't open %s: %s\n", filename, strerror(errno));
+		exit(1);
+	}
+
 	parsemod = new thMod("newmod");     /* these are used by the parser */
 	parsenode = new thNode("newnode", NULL);
 	
