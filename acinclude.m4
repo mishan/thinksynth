@@ -1,4 +1,4 @@
-dnl $Id: acinclude.m4,v 1.5 2004/06/30 03:33:42 joshk Exp $
+dnl $Id: acinclude.m4,v 1.6 2004/08/17 02:03:04 joshk Exp $
 
 AC_DEFUN([AC_SUBST_DIR], [
 	ifelse($2,,,$1="[$]$2")
@@ -31,14 +31,19 @@ AC_DEFUN([AC_LINKER_DYNAMIC], [
         hold_LDFLAGS=$LDFLAGS
         AC_MSG_CHECKING(how to run the linker dynamically)
 
-        for opt in -Wl,-export-dynamic -rdynamic -Wl,-B,dynamic; do
-          LDFLAGS="${hold_LDFLAGS} ${opt}"
-          AC_LINK_IFELSE(AC_LANG_PROGRAM([],[int i;]), found=yes, found=no)
-          if test "$found" = yes; then
-            AC_MSG_RESULT($opt)
-            break
-          fi
-        done
+        if test "$system" = "Darwin/OS X"; then
+          found=yes
+          AC_MSG_RESULT(no flags)
+        else
+          for opt in -Wl,-export-dynamic -rdynamic -Wl,-B,dynamic; do
+            LDFLAGS="${hold_LDFLAGS} ${opt}"
+            AC_LINK_IFELSE(AC_LANG_PROGRAM([],[int i;]), found=yes, found=no)
+            if test "$found" = yes; then
+              AC_MSG_RESULT($opt)
+              break
+            fi
+          done
+        fi  
 
         if test "$found" = no; then
           AC_MSG_RESULT([don't know, ignoring])

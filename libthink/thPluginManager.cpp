@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.47 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thPluginManager.cpp,v 1.48 2004/08/17 02:03:04 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -56,14 +56,14 @@ const string thPluginManager::GetPath (const string &name)
 	struct stat dummy;
 
 	/* Use the default path first */
-	path = plugin_path + name + SHARED_SUFFIX;
+	path = plugin_path + name + PLUGIN_SUFFIX;
 
 	/* Check for existence in the expected place */
 	if (stat (path.c_str(), &dummy) == -1) { /* File existeth not */
 #ifdef USE_DEBUG
 		fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
-		path = "plugins/" + name + SHARED_SUFFIX;
+		path = "plugins/" + name + PLUGIN_SUFFIX;
 		if(stat(path.c_str(), &dummy) == -1) {
 #ifdef USE_DEBUG
 			fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));

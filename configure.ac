@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.82 2004/08/16 02:26:15 joshk Exp $
+dnl $Id: configure.ac,v 1.83 2004/08/17 02:03:04 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -99,12 +99,23 @@ if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
 	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 	SHARED_SUFFIX=".so"
+	PLUGIN_SUFFIX="$SHARED_SUFFIX"
+	LIB_LDFLAGS="-shared"
+	PLUGIN_LDFLAGS="$LIB_LDFLAGS -lm"
 else
 	SHARED_SUFFIX=".dylib"
+	PLUGIN_SUFFIX=".bundle"
+	PLUGIN_LDFLAGS="-bundle -lm"
+	LIB_LDFLAGS="-dylib"
 fi
 
 AC_SUBST(SHARED_SUFFIX)
-AC_DEFINE_UNQUOTED([SHARED_SUFFIX], "$SHARED_SUFFIX", [Suffix of shared libraries on this platform.])
+
+AC_SUBST(PLUGIN_SUFFIX)
+AC_DEFINE_UNQUOTED([PLUGIN_SUFFIX], "$PLUGIN_SUFFIX", [Suffix of shared libraries on this platform.])
+
+AC_SUBST(PLUGIN_LDFLAGS)
+AC_SUBST(LIB_LDFLAGS)
 
 AC_ARG_ENABLE(debug,
 AC_HELP_STRING([--enable-debug],[print debug messages to stdout (default on)]),

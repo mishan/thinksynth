@@ -1,6 +1,6 @@
 GNU_RMDIR_OPTION = @GNU_RMDIR_OPTION@
 
-PLUGIN_NAMES := $(addsuffix @SHARED_SUFFIX@,$(PLUGIN_NAMES))
+PLUGIN_NAMES := $(addsuffix @PLUGIN_SUFFIX@,$(PLUGIN_NAMES))
 
 all: $(PLUGIN_NAMES)
 
@@ -10,8 +10,7 @@ INCLUDES = -I../../libthink -I../..
 
 plugin_path=@plugin_path@
 
-SO_LDFLAGS=@PLUGIN_LDFLAGS@
-CXXFLAGS+=-DPLUGIN_BUILD
+CXXFLAGS += -DPLUGIN_BUILD
 
 install:
 	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))

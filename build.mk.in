@@ -1,9 +1,11 @@
-# $Id: build.mk.in,v 1.24 2004/06/30 04:40:18 joshk Exp $
+# $Id: build.mk.in,v 1.25 2004/08/17 02:03:04 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
 
 LDFLAGS=@LDFLAGS@
+PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
+LIB_LDFLAGS=@LIB_LDFLAGS@
 USE_SONAME=@USE_SONAME@
 USING_GNU_CXX=@USING_GNU_CXX@
 CXX_MT_BROKEN=@CXX_MT_BROKEN@
@@ -21,7 +23,7 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 	$(CXX) $(PICFLAGS) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
 
 %@SHARED_SUFFIX@: %.cpp
-	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS) $(LDFLAGS)
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -Wl,-soname,$@ -o $@ $< $(LIB_LDFLAGS) $(LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(CXX_MT_BROKEN),yes)
@@ -34,9 +36,21 @@ endif
 
 dist:: distclean
 
+%@PLUGIN_SUFFIX@: %.cpp
+	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS) $(LDFLAGS)
+
+ifeq ($(USING_GNU_CXX),yes)
+ifeq ($(CXX_MT_BROKEN),yes)
+	@sed 's/\.o:/.@PLUGIN_SUFFIX@:/g' .$<.dt > .$<.dtx
+	@mv .$<.dtx .$<.dt
+endif
+
+-include .*.dt
+endif
+
 distclean:: clean
 
 clean::
-	rm -rf .*.dt *@SHARED_SUFFIX@ *.a *.o .bstamp $(BINARY)
+	rm -rf .*.dt *@PLUGIN_SUFFIX@ *@SHARED_SUFFIX@ *.a *.o .bstamp $(BINARY)
 
 .PHONY: distclean clean
