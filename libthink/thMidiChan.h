@@ -12,7 +12,7 @@ public:
 	void SetArg(thArg *arg);
 private:
 	thMod *modnode;
-	thList *args, *notes; 
+	thList args, notes; 
 };
 
 #endif /* TH_MIDICHAN_H */
