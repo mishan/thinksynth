@@ -2,7 +2,7 @@
 # debian/rules for thinksynth
 
 config.status: configure
-	sh configure --prefix=/usr --sysconfdir=/etc --with-default-output=alsa
+	sh configure --prefix=/usr --sysconfdir=/etc --mandir=/usr/share/man --with-default-output=alsa
 
 build: build-stamp
 build-stamp: config.status

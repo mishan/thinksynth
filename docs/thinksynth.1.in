@@ -11,26 +11,22 @@ Cows go 'moo.'
 .SH OPTIONS
 .TP
 \fB\-d\fR OUTPUT
-.PP
 This specifies the audio output module to use during your Thinksynth session.
 Currently, 'alsa' and 'jack' are supported. The default output module to use is '@DEFAULT_OUTPUT@'.
 .TP
 \fB\-p\fR PATH
-.PP
 This specifies an alternate path to search in for plugin modules. By default,
 it is '@plugin_path@'.
 .TP
 \fB\-r\fR RATE
-.PP
 This modifies the sample rate of the output; the default may vary depending on
 which audio output module is used
 .TP
 \fB\-l\fR WINDOW
-.PP
 .\" XXX - wtf is this, i don't know
 Modifies the window length for audio output.
-.SH AUTHOR
-Metaphonic Labs is...
+.SH AUTHORS
+\fBMetaphonic Labs\fR is...
 .TP
 Leif Ames <ink@bespin.org>
 .TP
