@@ -25,6 +25,7 @@ public:
 
 	~OSSAudio();
 
+	void play(AudioBuffer *buffer);
 	void write_audio(void *stream, int len);
 	void set_format(AudioFormat *fmt);
 	AudioFormat get_format(void);
