@@ -18,7 +18,7 @@ node ionode {
 	lwave = 1;
 	rwave = 1;
 
-	vmin = 0.02;
+	vmin = 0.06; # .02
 	vmax = 0.9;
 
 	cutoff = vmap->out;

@@ -42,6 +42,7 @@ node toneenv env::adsr {
 	d = ionode->tonelen;
 	s = 0;
 	r = 0;
+	p = ionode->velocity;
 	trigger = 0;
 };
 
@@ -50,6 +51,7 @@ node snareenv env::adsr {
 	d = ionode->snarelen;
 	s = ionode->snares;
 	r = ionode->snarer;
+	p = ionode->velocity;
 	trigger = 0;
 };
 

@@ -1,3 +1,4 @@
+# $Id: piano0.dsp,v 1.8 2004/02/08 03:36:13 misha Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
