@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.23 2004/04/09 04:15:09 ink Exp $ */
+/* $Id: adsr.cpp,v 1.24 2004/05/05 06:16:03 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,6 +8,13 @@
 
 enum {IN_A, IN_D, IN_S, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
 int args[INOUT_POSITION + 1];
+
+
+static inline float SQR (float x)
+{
+	return x*x;
+}
+
 
 char		*desc = "ADSR Envelope Generator";
 thPluginState	mystate = thActive;
@@ -98,7 +105,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			temp = (*in_a)[i];
 
 			play[i] = 1;  /* Dont kill this note yet! */
-			out[i] = ((position++)/temp)*peak;
+			out[i] = SQR((position++)/temp)*peak;
 			if(position >= temp) {
 				phase = 1;   /* A ended, go to D */
 				position = 0;  /* ...and go back to the beginnning of the phase */
@@ -110,7 +117,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 			play[i] = 1;
 
-			out[i] = temp2+(((temp-(position++))/temp)*(peak-temp2));
+			out[i] = temp2+(SQR((temp-(position++))/temp)*(peak-temp2));
 			if(position >= temp) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
@@ -143,7 +150,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				phase = 4;
 			} else {
 				play[i] = 1;
-				out[i] = ((temp-(position++))/temp)*temp2;
+				out[i] = SQR((temp-(position++))/temp)*temp2;
 			}
 
 			if((*in_trigger)[i] > 0) { // We have been retriggered
