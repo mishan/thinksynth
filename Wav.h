@@ -6,6 +6,7 @@
 #define WAVE_HDR "WAVE"
 #define FMT_HDR "fmt "
 #define DATA_HDR "data"
+#define FMT_LEN 16
 
 /* formats */
 #define PCM 1

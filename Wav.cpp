@@ -42,7 +42,15 @@ Wav::Wav(char *name, WavFormat *wfmt)
 	if((fd = open(name, O_CREAT|O_WRONLY, 0660)) < 0) {
 		throw (IOException)errno;
 	}
+
+	/* average bytes per sec */
+	wfmt->avgbytes = wfmt->samples * wfmt->channels * (wfmt->bits/8);
+
+	wfmt->blockalign = wfmt->channels * (wfmt->bits/8);
 	
+	/* XXX: support other formats */
+	wfmt->format = PCM;
+
 	memcpy(&fmt, wfmt, sizeof(WavFormat));
 }
 
@@ -99,27 +107,24 @@ int Wav::write_wav (void *data, int len)
 
 void Wav::write_riff(void)
 {
-	long file_len = fmt.len + 28; /* add the fmt header size and the data header
-								 size to the data length to get the file size,
-								 not including the 4 bytes allocated for the
-								 RIFF header */
- 	long fmt_len = 16; /* this is the standard length of the fmt header,
-						  it is the header minus the eight bytes for the "fmt "
-						  string and the header length */
-  	short format = PCM; /* PCM is assumed */
-	long avgbytes = fmt.samples * fmt.channels * (fmt.bits/8); /* average bytes per sec */
-	short blockalign = fmt.channels * (fmt.bits/8);
+	long file_len = fmt.len + 28; /* add the fmt header size and the data 
+									 header size to the data length to get the 
+									 file size, not including the 4 bytes 
+									 allocated for the RIFF header */
+ 	long fmt_len = FMT_LEN; /* this is the standard length of the fmt header,
+							   it is the header minus the eight bytes for the 
+							   "fmt " string and the header length */
 
 	write(fd, RIFF_HDR, 4);
  	lewrite32(fd, file_len);
 	write(fd, WAVE_HDR, 4);
 	write(fd, FMT_HDR, 4);
 	lewrite32(fd, fmt_len);
-	lewrite16(fd, format);
+	lewrite16(fd, fmt.format);
 	lewrite16(fd, fmt.channels);
 	lewrite32(fd, fmt.samples);
-	lewrite32(fd, avgbytes);
-	lewrite16(fd, blockalign);
+	lewrite32(fd, fmt.avgbytes);
+	lewrite16(fd, fmt.blockalign);
 	lewrite16(fd, fmt.bits);
 }
 
