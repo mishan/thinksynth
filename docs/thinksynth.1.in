@@ -1,4 +1,4 @@
-.TH THINKSYNTH "1" "September 2004" "thinksynth 0.1"
+.TH THINKSYNTH "1" "September 2004" "thinksynth @PACKAGE_VERSION@"
 .SH NAME
 thinksynth \- ALSA/JACK based MIDI synthesizer
 .SH SYNOPSIS
