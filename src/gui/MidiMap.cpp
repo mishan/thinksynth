@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.8 2004/11/09 07:22:29 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.9 2004/11/09 08:07:41 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -126,6 +126,7 @@ void MidiMap::fillDestChanCombo (void)
 		namelabel = Gtk::manage(new Gtk::Label(g_strdup_printf("%d: %s", i->first + 1, basename(i->second.c_str()))));
 		item->add(*namelabel);
 		item->signal_button_press_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i->first));
+		item->signal_focus_in_event().connect(sigc::bind<int>(sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i->first));
 		item->show_all();
 		destChanComboStrings.push_back(*item);		
 	}
@@ -154,7 +155,10 @@ void MidiMap::fillDestArgCombo (int chan)
 				item->add(*namelabel);
 				item->signal_button_press_event().connect(
 					sigc::bind<thArg *>(sigc::mem_fun(*this,
-							  &MidiMap::onDestArgComboChanged), i->second));
+								&MidiMap::onDestArgComboChanged), i->second));
+				item->signal_focus_in_event().connect(
+					sigc::bind<thArg *>(sigc::mem_fun(*this,
+								&MidiMap::onDestArgComboFocus), i->second));
 				item->show_all();
 				destArgComboStrings.push_back(*item);
 				if(!visibleArgs)

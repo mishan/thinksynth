@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.6 2004/11/09 07:20:43 ink Exp $ */
+/* $Id: MidiMap.h,v 1.7 2004/11/09 08:07:41 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -34,6 +34,10 @@ protected:
 	void onControllerChanged (void);
 	bool onDestChanComboChanged (GdkEventButton* b, int chan);
 	bool onDestArgComboChanged (GdkEventButton* b, thArg *arg);
+	bool onDestChanComboFocus (GdkEventFocus* f, int chan)
+		{ return onDestChanComboChanged(NULL, chan); }
+	bool onDestArgComboFocus (GdkEventFocus* f, thArg *arg)
+		{ return onDestArgComboChanged(NULL, arg); }
 	void onMinChanged (void);
 	void onMaxChanged (void);
 
