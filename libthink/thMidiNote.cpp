@@ -16,8 +16,10 @@
 
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
-	SetArg("note", &note, 1);
-	SetArg("velocity", &velocity, 1);
+	float *notep=new float, *velocityp=new float;
+	*notep = note, *velocityp = velocity;
+	SetArg("note", notep, 1);
+	SetArg("velocity", velocityp, 1);
 }
 
 thMidiNote::thMidiNote (thMod *mod)

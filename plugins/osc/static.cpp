@@ -45,6 +45,5 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 
   ((thNode *)node)->SetArg("out", out, windowlen);
 
-  delete[] out;
   return 0;
 }

@@ -33,7 +33,7 @@ void thNode::SetName(char *name)
 	nodename = name;
 }
 
-void thNode::SetArg (const char *name, const float *value, int num)
+void thNode::SetArg (const char *name, float *value, int num)
 {
 	thArg *arg = (thArg *)args.GetData(name);
 

@@ -8,12 +8,14 @@
 
 #include "thArg.h"
 
-thArg::thArg(const char *name, const float *value, const int num)
+/* Ownership of value will transfer to us, but we copy the strings and you need
+   to free those. Same goes for SetArg. */
+
+thArg::thArg(const char *name, float *value, const int num)
 {
 	argValue.argName = strdup(name);
 
-	argValue.argValues = new float[num];
-	memcpy(argValue.argValues, value, num*sizeof(float));
+	argValue.argValues = value;
 
 	argValue.argNum = num;
 
@@ -47,7 +49,7 @@ thArg::~thArg()
 	free (argValue.argPointName);
 }
 
-void thArg::SetArg(const char *name, const float *value, const int num)
+void thArg::SetArg(const char *name, float *value, const int num)
 {
 	if(argValue.argName) {
 		delete argValue.argName;
@@ -59,8 +61,7 @@ void thArg::SetArg(const char *name, const float *value, const int num)
 
 	argValue.argName = strdup(name);
 	
-	argValue.argValues = new float[num];
-	memcpy(argValue.argValues, value, num*sizeof(float));
+	argValue.argValues = value;
 
 	argValue.argNum = num;
 	argValue.argType = ARG_VALUE;

@@ -213,7 +213,9 @@ WORD ASSIGN expression
 //	XXX - MORE FIXING
 //	modify_num(&targs, (char *)$1.str, $3.floatval);
 
-	parsenode->SetArg($1.str, &$3.floatval, 1);
+	float *copy = new float;
+	*copy = $3.floatval;
+	parsenode->SetArg($1.str, copy, 1);
 }
 |
 WORD ASSIGN nodearg

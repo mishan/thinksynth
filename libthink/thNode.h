@@ -8,7 +8,7 @@ public:
 
 	void SetName (char *name);
 	const char *GetName (void) { return nodename; };
-	void SetArg (const char *name, const float *value, int num);
+	void SetArg (const char *name, float *value, int num);
 	void SetArg (const char *name, const char *node, const char *value);
 	
 	const thArgValue *GetArg (const char *name);
