@@ -4,7 +4,7 @@
 # edit this in the patch-selector.
 
 dspdir @dsp_path@
-patchdir @dsp_path@patches/
+patchdir @patch_path@
 channel 0,@dsp_path@patches/leads/SuperRes.patch,20
 channel 1,@dsp_path@patches/bass/FunkMachine.patch,20
 channel 2,@dsp_path@patches/organs/Organ1.patch,20
