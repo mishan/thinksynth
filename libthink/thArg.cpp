@@ -4,7 +4,7 @@
 
 #include "thArg.h"
 
-thArg::thArg(char *name, float *value, int num)
+thArg::thArg(const char *name, const float *value, const int num)
 {
 	argName = strdup(name);
 
@@ -32,7 +32,7 @@ thArg::~thArg()
 	}
 }
 
-void thArg::SetArg(char *name, float *value, int num)
+void thArg::SetArg(const char *name, const float *value, const int num)
 {
 	if(argName) {
 		delete argName;
@@ -48,6 +48,11 @@ void thArg::SetArg(char *name, float *value, int num)
 	memcpy(argValues, value, num*sizeof(float));
 
 	argNum = num;
+}
+
+const char *thArg::GetArgName (void)
+{
+	return argName;
 }
 
 const thArgValue *thArg::GetArg (void)

@@ -17,10 +17,12 @@ public:
 	void Remove(thBNode *bnode);
 	thBNode *Find(char *name);
 private:
-	thBNode *broot;
+	thBNode *bRoot;
 
 	void InsertHelper(thBNode *root, thBNode *node);
 	thBNode *FindHelper(thBNode *root, char *name);
+	thBNode *GetParent(thBNode *root, thBNode *node);
+	void RemoveHelper(thBNode *root, thBNode *node);
 	
 	void DestroyTree(void);
 };
