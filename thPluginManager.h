@@ -6,8 +6,11 @@ public:
 	thPluginManager();
 	~thPluginManager();
 
+	void LoadPlugin(char *name);
+	
 private:
 	thPluginSignaler *signaler;
+	thList *plugins;
 };
 
 #endif /* TH_PLUGIN_MANAGER_H */
