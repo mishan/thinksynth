@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.66 2004/05/11 10:21:00 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.67 2004/05/12 09:09:16 misha Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -43,7 +43,7 @@ void thMidiChan::SetArg (thArg *arg)
 {
 	thArg *oldArg = args[arg->GetArgName()];
 
-	if(oldArg)
+	if (oldArg)
 	{
 		delete oldArg;
 	}

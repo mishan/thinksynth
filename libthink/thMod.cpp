@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.82 2004/05/05 03:16:42 misha Exp $ */
+/* $Id: thMod.cpp,v 1.83 2004/05/12 09:09:16 misha Exp $ */
 
 #include "config.h"
 
@@ -35,8 +35,8 @@ thMod::thMod (const thMod &oldmod)
 
 thMod::~thMod ()
 {
-	if(nodeindex) {
-		delete (nodeindex);
+	if (nodeindex) {
+		delete [] nodeindex;
 	}
 	DestroyMap(modnodes);
 }

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.30 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.31 2004/05/12 09:09:16 misha Exp $ */
 
 #include "config.h"
 
@@ -17,7 +17,7 @@
 #define DSP_PATH PREFIX "/share/thinksynth/"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
- 	: dspAmp (0, MIDIVALMAX, .5),
+ 	: dspAmp (0, MIDIVALMAX, 1),
 //	  setButton("Load Patch"), 
 	  browseButton("Browse"),
 	  ampLabel("Amplitude"),
