@@ -1,29 +1,34 @@
 AC_INIT
+
+dnl Don't let ancient Autoconfs touch this
+AC_PREREQ(2.5)
+
 AM_CONFIG_HEADER(config.h)
 AM_MAINTAINER_MODE
 
 AC_CANONICAL_TARGET
 
+AC_PREFIX_DEFAULT([/usr/local])
+
 PACKAGE="thinksynth"
 VERSION="0.1"
 AM_INIT_AUTOMAKE("$PACKAGE", "$VERSION")
 
-AC_PROG_CXX([g++ c++])
+AC_PROG_CXX([$CXX g++ c++])
+AC_PROG_CC([$CC gcc cc egcs])
 AC_PROG_CXXCPP
 
 LEX_LANG=CXX
 YACC_LANG=CXX
 AM_PROG_LEX
 AC_PROG_YACC
-# grr stupid autoconf macro doesn't fucking realize that it NEEDS -d to produce
-# the appropriate headers, so I added this stupid hack
+
+dnl The autoconf macro doesn't realize that it NEEDS -d to produce
+dnl the appropriate headers, so add this stupid hack.
 YACC="$YACC -d"
 
 AC_ISC_POSIX
 AC_HEADER_STDC
-
-dnl XXX why are we doing this?
-CC=$CXX
 AC_C_CONST
 AC_C_INLINE
 AC_C_BIGENDIAN
@@ -39,7 +44,8 @@ if test "_$sedpath" = _; then
 fi
 
 CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
-LIBS="$LIBS -ldl"
+
+AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"], [AC_MSG_ERROR([You need libdl to compile and use this program!])])
 
 AC_PATH_PROG(unamepath, uname)
 if test "_$unamepath" = _; then
@@ -55,61 +61,52 @@ else
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
 	fi
 	if test "$system" = "Darwin"; then
-        CXXFLAGS="$CXXFLAGS -traditional-cpp"
-        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
+	        CXXFLAGS="$CXXFLAGS -traditional-cpp"
+	        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
 	fi
 fi
 
 AC_ARG_ENABLE(debug,
-[  --disable-debug	print debug messages to stdout (default on)],
-	debug=$enableval, debug=yes)
-AC_ARG_ENABLE(,,,)
+AC_HELP_STRING([--disable-debug],[print debug messages to stdout (default on)]),
 
-if test "$debug" = no; then
-	CXXFLAGS="$CXXFLAGS -O2"
-else
-	CXXFLAGS="$CXXFLAGS -g"
-fi
+dnl Debug is disabled:
+[CXXFLAGS="$CXXFLAGS -O2"],
 
-if test "$prefix" = NONE; then
-   prefix="/usr/local"
-fi
-
-if test "$debug" = yes; then
+dnl Debug is enabled:
+[
 	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-fi
+	CXXFLAGS="$CXXFLAGS -g"
+])
+
+AC_ARG_ENABLE(,,,)
 
 AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installed])
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
 
-#ENV_SOURCES=`find plugins/env/ -iname \"*.c\"`
-#FILT_SOURCES=`find plugins/filt/ -iname \"*.c\"`
-#MATH_SOURCES=`find plugins/math/ -iname \"*.c\"`
-#MISC_SOURCES=`find plugins/misc/ -iname \"*.c\"`
-#MIXER_SOURCES=`find plugins/mixer/ -iname \"*.c\"`
-#OSC_SOURCES=`find plugins/osc/ -iname \"*.c\"`
+dnl ENV_SOURCES=`find plugins/env/ -iname \"*.c\"`
+dnl FILT_SOURCES=`find plugins/filt/ -iname \"*.c\"`
+dnl MATH_SOURCES=`find plugins/math/ -iname \"*.c\"`
+dnl MISC_SOURCES=`find plugins/misc/ -iname \"*.c\"`
+dnl MIXER_SOURCES=`find plugins/mixer/ -iname \"*.c\"`
+dnl OSC_SOURCES=`find plugins/osc/ -iname \"*.c\"`
 
-#AC_SUBST(ENV_SOURCES)
-#AC_SUBST(FILT_SOURCES)
-#AC_SUBST(MATH_SOURCES)
-#AC_SUBST(MISC_SOURCES)
-#AC_SUBST(MIXER_SOURCES)
-#AC_SUBST(OSC_SOURCES)
+dnl AC_SUBST(ENV_SOURCES)
+dnl AC_SUBST(FILT_SOURCES)
+dnl AC_SUBST(MATH_SOURCES)
+dnl AC_SUBST(MISC_SOURCES)
+dnl AC_SUBST(MIXER_SOURCES)
+dnl AC_SUBST(OSC_SOURCES)
 
-#plugins/env/Makefile
-#plugins/filt/Makefile
-#plugins/math/Makefile
-#plugins/misc/Makefile
-#plugins/mixer/Makefile
-#plugins/osc/Makefile
+dnl plugins/env/Makefile
+dnl plugins/filt/Makefile
+dnl plugins/math/Makefile
+dnl plugins/misc/Makefile
+dnl plugins/mixer/Makefile
+dnl plugins/osc/Makefile
 
-AC_OUTPUT([Makefile
-src/Makefile
-plugins/Makefile
-])
-
+AC_OUTPUT([Makefile src/Makefile plugins/Makefile])
 
 echo
 echo $PACKAGE $VERSION
