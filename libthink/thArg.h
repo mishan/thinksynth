@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.14 2003/04/26 00:00:58 joshk Exp $ */
+/* $Id: thArg.h,v 1.15 2003/04/26 00:37:17 joshk Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -16,25 +16,22 @@ struct thArgValue {
 };
 
 class thArg {
-public:
-	thArg(const char *name, float *value, const int num);
-	thArg(const char *name, const char *node, const char *value);
-	thArg();
-	~thArg();
+	public:
+		thArg(const char *name, float *value, const int num);
+		thArg(const char *name, const char *node, const char *value);
+		thArg();
+		~thArg();
 	
-	void SetArg(const char *name, float *value, const int num);
-	void SetArg(const char *name, const char *node, const char *value);
+		void SetArg(const char *name, float *value, const int num);
+		void SetArg(const char *name, const char *node, const char *value);
 
-	char *GetArgName (void) const { return argValue.argName; };
-	const thArgValue *GetArg(void) { return &argValue; };
+		char *GetArgName (void) const { return argValue.argName; };
+		const thArgValue *GetArg(void) { return &argValue; };
 
-	float GetValue(int position);
-private:
-	/* 	char *argName;
-	float *argValues;
-	int argNum, argType;
-	char *argPointNode, *argPointName;*/
-	thArgValue argValue;
+		float GetValue(int position);
+
+	private:
+		thArgValue argValue;
 };
 
 #endif /* TH_ARG_H */

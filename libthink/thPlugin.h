@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.11 2003/04/26 00:19:23 joshk Exp $ */
+/* $Id: thPlugin.h,v 1.12 2003/04/26 00:37:17 joshk Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -8,30 +8,31 @@
 enum thPluginState { thActive, thPassive, thNotLoaded };
 
 class thPlugin {
-public:
-	thPlugin(const char *path);
-	~thPlugin ();
+	public:
+		thPlugin(const char *path);
+		~thPlugin ();
 
-	char *GetPath (void) const { return plugPath; };
-	char *GetDesc (void) const { return plugDesc; };
-	thPluginState GetState (void) const { return plugState; };
+		char *GetPath (void) const { return plugPath; };
+		char *GetDesc (void) const { return plugDesc; };
+		thPluginState GetState (void) const { return plugState; };
 
-	void MakePath (void);
+		void MakePath (void);
 
-	void SetDesc(const char *desc);
-	void SetState(thPluginState state) { plugState = state; };
+		void SetDesc(const char *desc);
+		void SetState(thPluginState state) { plugState = state; };
 
-	int Fire (void *node, void *mod, unsigned int windowlen);
-private:
-	char *plugPath;
-	thPluginState plugState;
-	void *plugHandle;
-	char *plugDesc;
+		int Fire (void *node, void *mod, unsigned int windowlen);
 
-	void (*plugCallback)(void *, void *, unsigned int);
+	private:
+		char *plugPath;
+		thPluginState plugState;
+		void *plugHandle;
+		char *plugDesc;
 
-	int ModuleLoad (void);
-	void ModuleUnload (void);
+		void (*plugCallback)(void *, void *, unsigned int);
+
+		int ModuleLoad (void);
+		void ModuleUnload (void);
 };
 
 #endif /* TH_PLUGIN_H */

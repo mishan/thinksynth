@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.7 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thMidiChan.h,v 1.8 2003/04/26 00:37:17 joshk Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -12,6 +12,7 @@ class thMidiChan {
 		void DelNote(thMidiNote *midinote);
 
 		void SetArg(thArg *arg);
+
 	private:
 		thMod *modnode;
 		thList args, notes; 

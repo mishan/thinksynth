@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.8 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thBSTree.h,v 1.9 2003/04/26 00:37:17 joshk Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -23,6 +23,7 @@ public:
 	
 	/* creates a new thList with pointers to all the data */
 	thList *GetList (void);
+
 private:
 	thBSNode *bRoot;
 

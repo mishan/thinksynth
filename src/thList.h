@@ -1,4 +1,4 @@
-/* $Id: thList.h,v 1.5 2003/04/26 00:19:23 joshk Exp $ */
+/* $Id: thList.h,v 1.6 2003/04/26 00:37:17 joshk Exp $ */
 
 #ifndef TH_LIST_H
 #define TH_LIST_H 1
@@ -19,6 +19,7 @@ public:
 	thListNode *GetNth(int n);
 	thListNode *GetTail(void) const { return tail; };
 	thListNode *GetHead(void) const { return head; };
+
 private:
 	thListNode *head, *tail;
 };
