@@ -4,6 +4,7 @@
 struct thPluginSignal {
 	int sigNum;
 	int (*callback) (void *, void *, void *, void *, void *, char);
+
 	thPlugin *plugin;
 	void *data;
 };
