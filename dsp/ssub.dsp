@@ -8,33 +8,12 @@ node ionode {
 
 	lfo1 = 1.2;
 	lfo2 = 2;
-	factorlo = 1;
-	factorhi = 20;
+	factorlo = 10;
+	factorhi = 40;
 };
 
 node freq misc::midi2freq {
 	note = ionode->note;
-};
-
-node mixer mixer::mul {
-	in0 = filt->out;
-	in1 = env->out;
-};
-
-node env env::adsr {
-	a = 20000;
-	d = 40000;
-	s = 100;
-	r = 100000;
-	trigger = 0;
-};
-
-node map1 env::map {
-	in = env->out;
-	inmin = 0;
-	inmax = th_max;
-	outmin = 0;
-	outmax = 1;
 };
 
 node factorlfo1 osc::simple {
