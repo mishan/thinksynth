@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.13 2003/05/17 14:51:07 ink Exp $ */
+/* $Id: adsr.cpp,v 1.14 2003/05/17 16:08:26 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +58,6 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
-	printf("ADSR: %f %i\n", position, phase);
 	out_pos = inout_position->allocate(2);
 
 	out = out_out->allocate(windowlen);

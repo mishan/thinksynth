@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.31 2003/05/17 14:51:07 ink Exp $ */
+/* $Id: thArg.cpp,v 1.32 2003/05/17 16:08:26 ink Exp $ */
 
 #include "config.h"
 
@@ -24,13 +24,14 @@ thArgValue::~thArgValue (void)
 
 float *thArgValue::allocate (int elements)
 {
-	printf("Reallocate called on %s, %i %i\n", argName, argNum, elements);
 	if(argNum != elements) {
 		delete[] argValues;
 		argValues = new float[elements];
+		argNum = elements;
 	}
 	else if(argValues == NULL) {
 		argValues = new float[elements];
+		argNum = elements;
 	}
 	return argValues;
 }
