@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.182 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: main.cpp,v 1.183 2004/05/26 00:23:23 misha Exp $ */
 
 #include "config.h"
 
@@ -50,7 +50,7 @@ static string plugin_path = PLUGIN_PATH;
 static const char syntax[] = \
 PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "Aaron Lehmann and Joshua Kwan\n"
-"Usage: %s [options] dsp-file\n"
+"Usage: %s [options]\n"
 "-h\t\t\tdisplay this help screen\n"
 "-p [path]\t\tmodify the plugin search path\n"
 "-d [alsa|oss|wav]\tchange output driver\n"
