@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.17 2004/03/27 10:00:25 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.18 2004/03/27 10:13:50 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -95,7 +95,7 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	browseButton.signal_clicked().connect(
 		SigC::slot(*this, &PatchSelWindow::BrowsePatch));
 
-	vbox.pack_start(controlTable, Gtk::PACK_SHRINK);
+	vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
 
 	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
 	controlTable.attach(dspAmp, 1, 2, 0, 1);
@@ -105,7 +105,7 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 						Gtk::FILL|Gtk::EXPAND, 0, 5);
 	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
 						0);
-	controlTable.attach(setButton, 0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK, 0, 5);
+	controlTable.attach(setButton, 0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 }
 
 PatchSelWindow::~PatchSelWindow (void)
