@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.17 2003/04/26 04:44:02 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.18 2003/04/27 03:42:17 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -95,22 +95,26 @@ void thBSTree::Insert(void *id, void *data)
 	}
 }
 
-bool thBSTree::Remove(void *id)
+void thBSTree::Remove(void *id)
+{
+	_Remove(id, true);
+}
+
+bool thBSTree::_Remove(void *id, bool freemem)
 {
 	/* this node isn't it, tell the children to remove this id,
 	   but avoid calling extra children */
 	if(bsCompare(id, bsId) != 0) {
 		if(bsLeft) {
-			if(!bsLeft->Remove(id) && bsRight) {
-				return bsRight->Remove(id);
+			if(!bsLeft->_Remove(id, true) && bsRight) {
+				return bsRight->_Remove(id, true);
 			}
 			return true;
 		}
-		return (bsRight && bsRight->Remove(id));
+		return (bsRight && bsRight->_Remove(id, true));
 	}
 
-	/* XXX: can't free this here, because it would cause issues ... */
-	/*	free(bsId); */
+	free(bsId);
 
 	bsId = NULL;
 	bsData = NULL;
@@ -126,7 +130,7 @@ bool thBSTree::Remove(void *id)
 			bsId = bsLeft->GetId();
 			bsData = bsLeft->GetData();
 
-			bsLeft->Remove(bsId);
+			bsLeft->_Remove(bsId, false);
 			if(bsLeft->IsEmpty()) { /* empty leaf node */
 				delete bsLeft;
 				bsLeft = NULL;
@@ -141,7 +145,7 @@ bool thBSTree::Remove(void *id)
 			bsId = bsRight->GetId();
 			bsData = bsRight->GetData();
 
-			bsRight->Remove(bsId);
+			bsRight->_Remove(bsId, false);
 			if(bsRight->IsEmpty()) { /* empty leaf node */
 				delete bsRight;
 				bsRight = NULL;
@@ -159,7 +163,7 @@ bool thBSTree::Remove(void *id)
 			bsId = bsLeft->GetId();
 			bsData = bsLeft->GetData();
 
-			bsLeft->Remove(bsId);
+			bsLeft->_Remove(bsId, false);
 			if(bsLeft->IsEmpty()) { /* empty leaf node */
 				delete bsLeft;
 				bsLeft = NULL;
@@ -169,7 +173,7 @@ bool thBSTree::Remove(void *id)
 			bsId = bsRight->GetId();
 			bsData = bsRight->GetData();
 
-			bsRight->Remove(bsId);
+			bsRight->_Remove(bsId, false);
 			if(bsRight->IsEmpty()) { /* empty leaf node */
 				delete bsRight;
 				bsRight = NULL;

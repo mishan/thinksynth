@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.14 2003/04/27 02:31:43 misha Exp $ */
+/* $Id: thBSTree.h,v 1.15 2003/04/27 03:42:17 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -12,8 +12,10 @@ public:
 	void Insert (void *id, void *data);
 	void Insert (thBSTree *node);
 
-	bool Remove (void *id);
-	bool Remove (thBSTree *node);
+	void Remove (void *id);
+	bool _Remove (void *id, bool freemem);
+	void Remove (thBSTree *node);
+	bool _Remove (thBSTree *node, bool freemem);
 
 	void *GetData (void *id); /* get data from a specific node id */
 
