@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.32 2003/05/01 22:14:49 joshk Exp $
+dnl $Id: configure.ac,v 1.33 2003/05/02 00:38:39 joshk Exp $
 
 AC_INIT
 
@@ -217,7 +217,7 @@ fi
 
 echo
 echo The binary will be installed in $bindir
-echo Data will be installed in       $datadir/$PACKAGE
+echo DSPs will be installed in       $datadir/$PACKAGE
 echo Plugins will be installed in    $plugin_path
 echo
 echo "Now run 'make' to build $PACKAGE"
