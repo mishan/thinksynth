@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.4 2003/05/10 22:57:42 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.5 2003/05/11 02:04:29 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -55,8 +55,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_sw = (thArgValue *)mod->GetArg(node->GetName(), "sfreq"); // Sine Freq
 	in_position = (thArgValue *)mod->GetArg(node->GetName(), "position");
 
-	position = (int)in_position->argValues[0]; // Where in the phase we are
-	phase = (int)in_position->argValues[1]; // Which phase are we in
+	position = (int)(*in_position)[0]; // Where in the phase we are
+	phase = (int)(*in_position)[1]; // Which phase are we in
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 
 	for(i=0; i < (int)windowlen; i++) {
@@ -75,7 +75,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				position = 0;
 				phase++;
 			}
-			out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 1:    /* Maximum square */
 			if(position++>maxsqrwidth) {
@@ -91,7 +91,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				position = 0;
 				phase++;
 			}
-			out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 3:    /* Minimum square */
 			if(position++>minsqrwidth) {
