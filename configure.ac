@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.78 2004/08/15 23:44:14 joshk Exp $
+dnl $Id: configure.ac,v 1.79 2004/08/15 23:45:36 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -100,7 +100,7 @@ if test "$ac_cv_host" != Darwin; then
 	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 	SHARED_SUFFIX=".so"
 else
-	SHARED_SUFFIX=".lib"
+	SHARED_SUFFIX=".dylib"
 fi
 
 AC_SUBST(SHARED_SUFFIX)
