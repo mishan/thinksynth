@@ -1,7 +1,7 @@
-# $Id: Makefile,v 1.18 2003/05/23 23:44:39 ink Exp $
+# $Id: Makefile,v 1.19 2003/06/24 21:39:01 ink Exp $
 
 # Change this for every new plugin
-PLUGIN_DIRS = osc mixer math env misc filt delay impulse dist test
+PLUGIN_DIRS = osc mixer math logic env misc filt delay impulse dist test
 
 all clean install uninstall: $(PLUGIN_DIRS)
 
