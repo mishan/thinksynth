@@ -2,7 +2,7 @@
 # Leif Ames <ink@bespin.org>
 # 6-29-2003
 
-name "organ0";
+name "test";
 
 node ionode {
 	channels = 2;
@@ -15,6 +15,17 @@ node ionode {
 
 	fade = vmap->out;
 	waveform = 5;
+
+	a = 800;
+	r = 1500;
+};
+
+node env env::adsr {
+	a = ionode->a;
+	d = 0;
+	s = th_max;
+	r = ionode->r;
+	trigger = ionode->trigger;
 };
 
 node vmap env::map {
@@ -71,6 +82,11 @@ node mixer mixer::fade {
 	in0 = submix1->out;
 	in1 = submix2->out;
 	fade = ionode->fade;
+};
+
+node envmixer mixer::mul {
+	in0 = mixer->out;
+	in1 = env->out;
 };
 
 io ionode;
