@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.7 2003/04/25 07:25:22 joshk Exp $ */
+/* $Id: static.cpp,v 1.8 2003/04/27 06:07:30 ink Exp $ */
 
 #define USE_PLUGIN
 
@@ -44,7 +44,7 @@ int module_init (int version, thPlugin *plugin)
 	return 0;
 }
 
-int module_callback (void *node, void *mod, unsigned int windowlen)
+int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	int i;
 	float *out = new float[windowlen];
@@ -53,7 +53,7 @@ int module_callback (void *node, void *mod, unsigned int windowlen)
 		out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
 	}
 
-	((thNode *)node)->SetArg("out", out, windowlen);
+	node->SetArg("out", out, windowlen);
 
 	return 0;
 }
