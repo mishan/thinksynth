@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.109 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.110 2004/11/25 02:28:45 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -312,6 +312,13 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 
 	delete parsenode;
 
+	if (parsemod->GetIONode() == NULL)
+	{
+		fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
+			filename.c_str());
+		return NULL;
+	}
+	
 	parsemod->BuildArgMap(); /* build the index of args */
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();

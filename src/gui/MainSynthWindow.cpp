@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.51 2004/11/19 03:04:51 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.52 2004/11/25 02:28:45 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -90,7 +90,7 @@ static void connectDialog (int error)
 MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)
 {
 	string ** vals;
-	
+
 	set_title("thinksynth");
 	set_default_size(520, 360);
 
@@ -100,6 +100,7 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	patchSel = new PatchSelWindow(synth);
 	midiMap = NULL;
+	prevDir = NULL;
 
 	populateMenu();
 
