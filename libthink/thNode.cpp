@@ -13,11 +13,11 @@
 #include "thPluginManager.h"
 #include "thNode.h"
 
-thNode::thNode (const char *name, thPlugin *thplug)
+thNode::thNode (const char *name, thPlugin *thplug)	
+	:plugin(thplug),
+	nodename(strdup(name)),
+	recalc(false)
 {
-	nodename = strdup(name);
-	plugin = thplug;
-	recalc = false;
 }
 
 thNode::~thNode (void)

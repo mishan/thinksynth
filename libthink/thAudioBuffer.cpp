@@ -9,12 +9,12 @@
 #include "thAudioBuffer.h"
 
 thAudioBuffer::thAudioBuffer(int len, thAudio *audio)
+	:read(0),
+	woffset(0), /* how far writing is ahead of reading */
+	size(len),
+	audioPtr(audio)
 {
-	size = len;
 	data = new unsigned char[size];
-	read = 0;
-	woffset = 0;     /* how far the writing is ahead of the reading */
-	audioPtr = audio;
 }
 
 thAudioBuffer::~thAudioBuffer(void)
@@ -40,7 +40,7 @@ int thAudioBuffer::buf_read(unsigned char *udata, int len)
 
 	printf("=-= %i %i =-=\n", woffset, len);
 	while(woffset <= bufempty) {
-		//printf("-= %i %i %i =-\n", woffset, size, bufempty);
+		/* printf("-= %i %i %i =-\n", woffset, size, bufempty); */
 
 		if((audioPtr->Read(buf, bufempty) <= 0)) {
 			printf("--- EOF ---\n");

@@ -19,13 +19,14 @@
 #include "thSynth.h"
 
 #include "parser.h"
-
-//thNode *parsenode;
-//thMod *parsemod;
+/*
+thNode *parsenode;
+thMod *parsemod;
+*/
 
 thSynth::thSynth()
+	:windowlen(1024)
 {
-  windowlen = 1024;
 }
 
 thSynth::~thSynth()

@@ -39,7 +39,7 @@ int main (int argc, char *argv[])
   Synth.LoadMod(argv[1]);
   Synth.ListMods();
   ((thMod *)Synth.FindMod("static"))->BuildSynthTree();
-  //	((thMod *)Synth->FindMod("test"))->Process();
+  /* ((thMod *)Synth->FindMod("test"))->Process(); */
   
 
   ((thMod *)Synth.FindMod("static"))->BuildSynthTree();
@@ -50,6 +50,6 @@ int main (int argc, char *argv[])
   newmod->BuildSynthTree();
   newmod->Process(newmod, 1024);
 
-  //  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]);
+  /*  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]); */
   printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out"))->argValues[0]);
 }

@@ -120,9 +120,10 @@ void thOSSAudio::Play(thAudio *audioPtr)
 	int r;
 
 	SetFormat(afmt);
-
-//	fcntl(fd, F_SETFL, O_NONBLOCK);
-//	ioctl(fd, SNDCTL_DSP_SYNC, 0);
+/*
+	fcntl(fd, F_SETFL, O_NONBLOCK);
+	ioctl(fd, SNDCTL_DSP_SYNC, 0);
+*/
 
 	printf("playing with bufsiz of %d\n", buf_size);
 
@@ -160,12 +161,13 @@ void thOSSAudio::Play(thAudio *audioPtr)
 		break;
 	}
 
-//	ioctl(fd, SNDCTL_DSP_SYNC, 1);
+/*	
+	ioctl(fd, SNDCTL_DSP_SYNC, 1);
 
 
-//	fcntl(fd, F_SETFL, 0);
+	fcntl(fd, F_SETFL, 0);
 
-/*	fd_set wfds;
+	fd_set wfds;
 
 	FD_ZERO(&wfds);
 	FD_SET(fd, &wfds);
@@ -176,5 +178,6 @@ void thOSSAudio::Play(thAudio *audioPtr)
 		if(FD_ISSET(fd, &wfds)) {
 			break;
 		}
-		}*/
+	}
+*/
 }

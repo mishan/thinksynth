@@ -17,13 +17,13 @@
 #include "thMidiChan.h"
 
 thMidiChan::thMidiChan (thMod *mod)
+	:modnode(mod)
 {
-	modnode = mod;
 }
 
 thMidiChan::~thMidiChan ()
 {
-	/* delete mod; ? */
+	delete modnode;
 }
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)

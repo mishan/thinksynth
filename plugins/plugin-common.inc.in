@@ -4,12 +4,12 @@ INCLUDES = -I../../src -I../..
 
 plugin_path=@plugin_path@
 
-LDFLAGS = -ggdb -lm
+LDFLAGS = -ggdb -lm -lc
 
 all: ${PLUGIN_NAME}.so
 
 ${PLUGIN_NAME}.so: ${PLUGIN_NAME}.cpp
-	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -DSKIPCONFIG -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $< -lc
+	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -DSKIPCONFIG -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $<
 
 distclean clean:
 	rm -f ${PLUGIN_NAME}.so

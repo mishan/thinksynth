@@ -14,11 +14,9 @@
 #include "thMod.h"
 
 thMod::thMod (const char *name)
+	:ionode(NULL),
+	modname(strdup(name))
 {
-	modname = strdup(name);
-	ionode = NULL;
-
-	/* create any other objects */
 }
 
 thMod::~thMod ()

@@ -11,6 +11,10 @@
 #include <dlfcn.h>
 #include <fcntl.h>
 
+#ifdef USE_DEBUG
+#include <errno.h>
+#endif
+
 #include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
@@ -39,14 +43,16 @@ char *thPluginManager::GetPath (char *name)
 	fd = open (path, O_RDONLY);
 
 	if (fd == -1) { /* File existeth not */
-		fprintf (stderr, "Warning: %s not found, looking in plugins/\n", path);
+#ifdef USE_DEBUG
+		fprintf (stderr, "debug: not found, looking in plugins/\n");
+#endif
 		sprintf (path, "plugins/%s%s", name, PLUGPOSTFIX);
 	}	
 		
 	return path;
 }
 
-// TODO: Return values.. should we care about them? consider making void?
+/* TODO: Return values.. should we care about them? consider making void? */
 int thPluginManager::LoadPlugin (char *name)
 {
 	thPlugin *plugin;

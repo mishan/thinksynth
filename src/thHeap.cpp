@@ -9,9 +9,9 @@
 #include "thHeap.h"
 
 thHeap::thHeap (int size)
+	:heapSize(0),
+	maxSize(size)
 {
-	heapSize = 0;
-	maxSize = size;
 	heapData = new thHeapNode[size];
 }
 

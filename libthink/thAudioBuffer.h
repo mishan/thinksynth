@@ -21,7 +21,7 @@ private:
 	int read; /* how far the buffer has been read */
 	int woffset; /* how far the writing is ahead of the reading */
 	int size; /* the length of the buffer */
-//	int (*read_fn)(void *data, int len);
+/*	int (*read_fn)(void *data, int len); */
 	thAudio *audioPtr;
 };
 

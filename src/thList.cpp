@@ -7,9 +7,9 @@
 #include "thList.h"
 
 thList::thList(void)
+	:head(NULL),
+	tail(NULL)
 {
-	head = NULL;
-	tail = NULL;
 }
 
 thList::~thList(void)
