@@ -8,17 +8,18 @@ node ionode {
 	channels = 2;
 	play = 1; #input->play;
 
-	cutoff = 100;
+	cutoff = 80;
 	res = 0.05;
 
 	dlen = 60000;
 	delay1 = 877;
-	delay2 = 624;
+	delay2 = 1124;
+	delay3 = 1343;
 
 	dfeed = 0.05;
-	ddry1 = 0.7;
-	ddry2 = 0.1;
-	delaymix = 0.4;
+	ddry1 = 0.5;
+	ddry2 = 0;
+	delaymix = 0.3;   # reverb amount
 };
 
 node input input::alsa {
@@ -26,7 +27,7 @@ node input input::alsa {
 
 node inmix mixer::fade {
 	in0 = input->out;
-	in1 = delay2->out;
+	in1 = delay3->out;
 	fade = ionode->delaymix;
 };
 
@@ -48,6 +49,14 @@ node delay2 delay::echo {
 	in = filt->out_high;
 	size = ionode->dlen;
 	delay = ionode->delay2;
+	feedback = ionode->dfeed;
+	dry = ionode->ddry2;
+};
+
+node delay3 delay::echo {
+	in = delay2->out;
+	size = ionode->dlen;
+	delay = ionode->delay3;
 	feedback = ionode->dfeed;
 	dry = ionode->ddry2;
 };
