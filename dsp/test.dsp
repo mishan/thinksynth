@@ -2,7 +2,8 @@ name "test";
 
 node ionode test::test {
         out0 = mixer->out;
-        channels = 1;
+	out1 = mixer->out;
+        channels = 2;
         play = env->play;
 	test = freq->foo;
 	moretests = mixer->foo;

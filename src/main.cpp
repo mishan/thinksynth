@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.65 2003/05/06 06:06:50 ink Exp $ */
+/* $Id: main.cpp,v 1.66 2003/05/06 06:20:35 ink Exp $ */
 
 #include "config.h"
 
@@ -122,7 +122,7 @@ syntax:
 	for(i=0; i<100; i++) {  /* For testing... */
 	  Synth.Process();
 	  for(j=0; j < Synth.GetWindowLen() * Synth.GetChans(); j++) {
-		outputbuffer[j] = (((signed short)mixedbuffer[j])/TH_MAX)*32767;
+		outputbuffer[j] = (signed short)(((float)mixedbuffer[j]/TH_MAX)*32767);
 	  }
 	  outputwav->Write(outputbuffer, Synth.GetWindowLen() * Synth.GetChans());
 	}
