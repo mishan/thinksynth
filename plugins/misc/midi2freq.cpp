@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.13 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: midi2freq.cpp,v 1.14 2004/05/08 19:53:09 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,7 +10,7 @@
 enum {IN_NOTE, OUT_ARG};
 int args[OUT_ARG + 1];
 
-#define SQR(x) (x*x)
+#define SQR(x) ((x)*(x))
 
 char		*desc = "Converts a midi note value to it's respective frequency";
 thPluginState	mystate = thPassive;
@@ -37,20 +37,19 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
 	thArg *in_note;
+	float buf_in[windowlen];
 	thArg *out_arg;
 	unsigned int i, argnum;
-	float val_note;
 
 	in_note = mod->GetArg(node, args[IN_NOTE]);
+	in_note->GetBuffer(buf_in, windowlen);
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	argnum = (unsigned int) in_note->argNum;
 	out = out_arg->Allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
-		val_note = (*in_note)[i];
-
-		out[i] = 440*pow(2,(val_note-69)/12);
+		out[i] = 440*pow(2,(buf_in[i]-69)/12);
 	}
 
 /*	node->SetArg("out", out, windowlen); */
