@@ -1,4 +1,4 @@
-/* $Id: mul.cpp,v 1.1 2003/05/02 21:24:20 ink Exp $ */
+/* $Id: mul.cpp,v 1.2 2003/05/02 23:18:33 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,33 +24,33 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Sample module unloading\n");
+	printf("Multiplier plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("test plugin loaded\n");
-	
+	printf("Multiplier plugin loaded\n");
+
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
-	
+
 	return 0;
 }
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-  float *out = new float[windowlen];
-  thArgValue *in_0, *in_1;
-  unsigned int i;
+	float *out = new float[windowlen];
+	thArgValue *in_0, *in_1;
+	unsigned int i;
 
-  in_0 = (thArgValue *)mod->GetArg(node->GetName(), "in0");
-  in_1 = (thArgValue *)mod->GetArg(node->GetName(), "in1");
+	in_0 = (thArgValue *)mod->GetArg(node->GetName(), "in0");
+	in_1 = (thArgValue *)mod->GetArg(node->GetName(), "in1");
 
-  for(i=0;i<windowlen;i++) {
-	out[i] = (*in_0)[i]*((*in_1)[i]/TH_MAX);
-  }
+	for(i=0;i<windowlen;i++) {
+		out[i] = (*in_0)[i]*((*in_1)[i]/TH_MAX);
+	}
 
-  node->SetArg("out", out, windowlen);
-  return 0;
+	node->SetArg("out", out, windowlen);
+	return 0;
 }
 
