@@ -1,21 +1,23 @@
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
+INCLUDES = -I../../src -I../..
+
 prefix=@prefix@
-libdir=@libdir@
+plugin_path=@plugin_path@
 
 LDFLAGS = -ggdb -lm
 
 all: ${PLUGIN_NAME}.so
 
 ${PLUGIN_NAME}.so: ${PLUGIN_NAME}.cpp
-	$(CXX) $(LDFLAGS) $(CXXFLAGS) -I../../src -DPLUGIN_BUILD -DSKIPCONFIG -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $< -lc
+	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -DSKIPCONFIG -shared -Wl,-soname,${PLUGIN_NAME}.so -o $@ $< -lc
 
 distclean clean:
 	rm -f ${PLUGIN_NAME}.so
 
 install:
-	mkdir -p $(DESTDIR)$(libdir)
-	cp -f ${PLUGIN_NAME}.so $(DESTDIR)$(libdir)
+	mkdir -p $(DESTDIR)$(plugin_path)
+	cp -f ${PLUGIN_NAME}.so $(DESTDIR)$(plugin_path)
 
 uninstall:
-	rm -f $(DESTDIR)$(libdir)${PLUGIN_NAME}.so
+	rm -f $(DESTDIR)$(plugin_path)/${PLUGIN_NAME}.so

@@ -12,7 +12,7 @@ clean:
 	done
 
 distclean: clean
-	rm -f plugin-common.inc
+	rm -f plugin-common.inc Makefile
 
 install:
 	for i in $(PLUGIN_DIRS); do \

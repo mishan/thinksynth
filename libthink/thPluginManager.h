@@ -1,8 +1,6 @@
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1
 
-/* XXX */
-#define PLUGPREFIX "plugins/"
 #define PLUGPOSTFIX ".so"
 
 class thPluginManager {

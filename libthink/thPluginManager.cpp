@@ -26,10 +26,10 @@ thPluginManager::~thPluginManager ()
 /* Caller must free!!! */
 char *thPluginManager::GetPath (char *name)
 {
-	char *path = new char[strlen(name) + strlen(PLUGPREFIX) + 
+	char *path = new char[strlen(name) + strlen(PLUGIN_PATH) + 
 						  strlen(PLUGPOSTFIX) + 1];
 	
-	sprintf(path, "%s%s%s", PLUGPREFIX, name, PLUGPOSTFIX);
+	sprintf(path, "%s%s%s", PLUGIN_PATH, name, PLUGPOSTFIX);
 
 	return path;
 }

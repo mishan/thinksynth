@@ -112,6 +112,13 @@ dnl plugins/mixer/Makefile
 
 AC_SUBST_DIR(libdir)
 
+dnl XXX let's change this later
+plugin_path=${libdir}/${PACKAGE}/plugins
+
+AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
+
+AC_SUBST(plugin_path)
+
 AC_OUTPUT([Makefile src/Makefile plugins/plugin-common.inc])
 
 echo
@@ -122,6 +129,6 @@ echo "debug ...................:" $debug
 echo
 echo The binary will be installed in $prefix/bin
 echo Data will be installed in       $prefix/share/$PACKAGE
-echo Plugins will be installed in    $libdir/$PACKAGE
+echo Plugins will be installed in    $plugin_path
 echo
 echo Now run \'make\' to build $PACKAGE
