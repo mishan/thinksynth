@@ -6,7 +6,7 @@ PKG=thinksynth
 	echo;
 	echo "You must have autoconf installed to compile $PKG";
 	echo;
-	exit;
+	exit 1;
 }
 
 
@@ -18,8 +18,8 @@ if test -d /usr/local/share/aclocal ; then
 	ACLOCAL_FLAGS="$ACLOCAL_FLAGS -I /usr/local/share/aclocal"
 fi
 
-aclocal $ACLOCAL_FLAGS || exit;
-autoheader || exit;
-autoconf || exit;
+aclocal $ACLOCAL_FLAGS || exit 1;
+autoheader || exit 1;
+autoconf || exit 1;
 if [ "$1" != "--no-configure" ]; then ./configure $@; fi
 
