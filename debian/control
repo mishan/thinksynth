@@ -10,10 +10,11 @@ Package: thinksynth
 Architecture: any
 Depends: ${shlibs:Depends}
 Recommends: jack-audio-connection-kit, thinksynth-plugins
-Suggests: jack-rack
-Description: a full-featured synthesizer and keyboard for JACK
+Suggests: jack-rack, qjackctl
+Description: a full-featured synthesizer and keyboard for JACK/ALSA
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
- other music hardware/software.
+ other music hardware/software. It can also work standalone using an ALSA
+ output backend.
  .
  This is the GUI binary.
 
@@ -23,7 +24,8 @@ Depends: ${shlibs:Depends}
 Recommends: thinksynth
 Description: C++ plugins and DSP files for Thinksynth
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
- other music hardware/software.
+ other music hardware/software. It can also work standalone using an ALSA
+ output backend.
  .
  This package contains all the C plugins and DSP 'instruments' for thinksynth.
 
@@ -33,7 +35,8 @@ Depends: ${shlibs:Depends}
 Suggests: libthink3-dev
 Description: the Thinksynth shared library
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
- other music hardware/software.
+ other music hardware/software. It can also work standalone using an ALSA
+ output backend.
  .
  This library is used by the Thinksynth GUI and plugins. If you want to build
  your own plugins, consider installing libthink3-dev.
@@ -44,6 +47,7 @@ Depends: libthink3 (= ${Source-Version})
 Provides: libthink-dev
 Description: the Thinksynth shared library (development files)
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
- other music hardware/software.
+ other music hardware/software. It can also work standalone using an ALSA
+ output backend.
  .
  These are the development files which you'll need to build out-of-tree plugins.
