@@ -75,7 +75,7 @@ void thMod::PrintIONode (void)
 	ionode->PrintArgs();
 }
 
-void thMod::Process (thMod *mod)
+void thMod::Process (thMod *mod, unsigned int windowlen)
 {
   thListNode *listnode;
   thNode *data;
@@ -85,14 +85,15 @@ void thMod::Process (thMod *mod)
   for(listnode = ((thList *)ionode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
     data = (thNode *)listnode->data;
     if(data->GetRecalc() == true) {
-      ProcessHelper(mod, data);
+      ProcessHelper(mod, windowlen, data);
     }
   }
   printf("thMod::Process  %s\n", ionode->GetName());
-  /* XXX This is where we will fire the IO Node's plugin */
+  /* FIRE! */
+  ((thPlugin *)data->GetPlugin())->Fire(data, mod, windowlen);
 }
 
-void thMod::ProcessHelper(thMod *mod, thNode *node) {
+void thMod::ProcessHelper(thMod *mod, unsigned windowlen, thNode *node) {
   thListNode *listnode;
   thNode *data;
 
@@ -101,11 +102,12 @@ void thMod::ProcessHelper(thMod *mod, thNode *node) {
   for(listnode = ((thList *)node->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
     data = (thNode *)listnode->data;
     if(data->GetRecalc() == true) {
-      ProcessHelper(mod, data);
+      ProcessHelper(mod, windowlen, data);
     }
   }
   printf("thMod::ProcessHelper  %s\n", node->GetName());
-  /* XXX This is where we will fire the IO Node's plugin */
+  /* FIRE! */
+  ((thPlugin *)data->GetPlugin())->Fire(data, mod, windowlen);
 }
 
 void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active plugins */

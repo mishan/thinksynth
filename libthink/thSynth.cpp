@@ -22,6 +22,7 @@
 
 thSynth::thSynth()
 {
+  windowlen = 1024;
 }
 
 thSynth::~thSynth()
@@ -108,7 +109,7 @@ const thPluginManager *thSynth::GetPluginManager(void)
 void thSynth::Process(char *modname)
 {
   thMod *mod = FindMod(modname);
-  mod->Process(mod);
+  mod->Process(mod, windowlen);
 }
 
 

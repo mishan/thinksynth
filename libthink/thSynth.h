@@ -15,4 +15,6 @@ private:
 
 	thBSTree modlist;
 	thPluginManager pluginmanager;
+
+	unsigned int windowlen;
 };
