@@ -290,8 +290,13 @@ void thBSTree::DestroyTree (thBSNode *root)
 	delete root;
 }
 
-void *thBSTree::GetData ( char *name ) {
-  thBSNode *node = Find(name);
-  if(node) { return node->data; }
-  return NULL;
+void *thBSTree::GetData ( char *name )
+{
+	thBSNode *node = Find(name);
+
+	if(node) {
+		return node->data;
+	}
+
+	return NULL;
 }
