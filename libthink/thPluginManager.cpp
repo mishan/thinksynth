@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.20 2003/04/27 06:43:58 misha Exp $ */
+/* $Id: thPluginManager.cpp,v 1.21 2003/04/27 06:49:02 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -46,15 +46,18 @@ char *thPluginManager::GetPath (char *name)
 	/* Check for existence in the expected place */
 	fd = open (path, O_RDONLY);
 
-	if (fd == -1) { /* File existeth not */
-#ifdef USE_DEBUG
-		fprintf (stderr, "debug: not found, looking in plugins/\n");
-#endif
-		sprintf (path, "plugins/%s%s", name, PLUGPOSTFIX);
-
+	if (fd < 0) { /* File existeth not */
+		fprintf (stderr, "thPluginManager::GetPath: %s not found, looking in plugins/\n", path);
+		
 		delete path;
-
-		return NULL;
+		path = new char[strlen("plugins/") + strlen(name) + 
+						strlen(PLUGPOSTFIX) + 1];
+		sprintf (path, "plugins/%s%s", name, PLUGPOSTFIX);
+		if((fd = open(path, O_RDONLY)) < 0) {
+			fprintf(stderr, "thPluginManager::GetPath: %s not found\n", path);
+			delete path;
+			return NULL;
+		}
 	}
 
 	close(fd);
