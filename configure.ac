@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.43 2003/05/03 08:30:44 joshk Exp $
+dnl $Id: configure.ac,v 1.44 2003/05/11 04:49:28 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -118,7 +118,7 @@ else
 	if test `expr $system : CYGWIN` -eq 0; then
 		CXXFLAGS="$CXXFLAGS -rdynamic"
 		USE_SONAME=yes
-		PLUGIN_LDFLAGS="-lm -lc"
+		PLUGIN_LDFLAGS="-lm"
 		SHARED_SUFFIX=".so"
 	fi
 fi
