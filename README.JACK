@@ -1,4 +1,4 @@
-$Id: README.JACK,v 1.2 2004/09/10 17:54:38 joshk Exp $
+$Id: README.JACK,v 1.3 2004/09/17 09:32:02 joshk Exp $
 
 A quick guide to getting JACK to work with Thinksynth
 -----------------------------------------------------
@@ -38,30 +38,12 @@ If you use OSS:
 
 	$ jackd -d oss
 
-should do it, then
-
-	$ thinksynth &
-	$ jack_connect thinksynth:out_1 oss:playback_1
-	$ jack_connect thinksynth:out_2 oss:playback_2
-
-should start getting audio through from Thinksynth to the OSS output.
-If you don't have a jack_connect program try qjackctl, which is very
-self-intuitive: all you have to do is hit Connect, and connect 'thinksynth'
-to 'oss' or 'alsa_pcm'. (If you have 'alsa_pcm' and doing this results in no
-sound, see below for why.)
-
-If you use ALSA:
+should do it, or if you use ALSA:
 
 	$ jackd -d alsa
 
-will start JACK, then
+will start JACK.
 
-	$ thinksynth &
-	$ jack_connect thinksynth:out_1 alsa_pcm:playback_1
-	$ jack_connect thinksynth:out_2 alsa_pcm:playback_2
-
-should connect Thinksynth to ALSA output. Some weird sound cards will only work
-if you connect thinksynth to playback_3 and playback_4, so if you still hear
-nothing, give that a try first.
-
-All done!
+Then, select the JACK menu in the user interface and select "Connect to JACK."
+If you indeed have a real sound playback device on your system this will work,
+and.. All done!
