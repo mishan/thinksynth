@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.39 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thPluginManager.cpp,v 1.40 2003/06/03 04:09:29 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -27,19 +27,18 @@ thPluginManager::~thPluginManager ()
 const string thPluginManager::GetPath (const string &name)
 {
 	string path;
-	struct stat *dummy = (struct stat*)malloc (sizeof(struct stat));
+	struct stat dummy;
 
 	/* Use the default path first */
 	path = plugin_path + name + SHARED_SUFFIX;
 
 	/* Check for existence in the expected place */
-
-	if (stat (path.c_str(), dummy) == -1) { /* File existeth not */
+	if (stat (path.c_str(), &dummy) == -1) { /* File existeth not */
 #ifdef USE_DEBUG
 		fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
 		path = "plugins/" + name + SHARED_SUFFIX;
-		if(stat(path.c_str(), dummy) == -1) {
+		if(stat(path.c_str(), &dummy) == -1) {
 #ifdef USE_DEBUG
 			fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
@@ -47,7 +46,6 @@ const string thPluginManager::GetPath (const string &name)
 		}
 	}
 
-	free (dummy);
 	return path;
 }
 
