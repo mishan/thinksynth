@@ -18,27 +18,21 @@
 char	*name = "test";
 char	*desc = "Test Plugin";
 
-int	init_plug (int version, thPlugin *plugin);
-int	plugin_func (void *node, void *mod, unsigned int windowlen);
-
-int	module_init (int ver, class thPlugin plugin)
-{
-  /* We should do version checks and stuff here */
-  return 0;
-}
+int	module_init (int version, thPlugin *plugin);
+int	module_callback (void *node, void *mod, unsigned int windowlen);
 
 void module_cleanup (struct module *mod)
 {
   printf("Sample module unloading\n");
 }
 
-int init_plug (int version, thPlugin *plugin)
+int module_init (int version, thPlugin *plugin)
 {
   printf("test plugin loaded\n");
   return 0;
 }
 
-int plugin_func (void *node, void *mod, unsigned int windowlen)
+int module_callback (void *node, void *mod, unsigned int windowlen)
 {
   printf("TEST!!\n");
   return 0;
