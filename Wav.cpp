@@ -22,7 +22,7 @@ Wav::Wav(char *name)
  	type = 0; /* reading */
 
 	if((fd = open(filename, O_RDONLY)) < 0) {
-		throw errno;
+		throw (IOException)errno;
 	}
 
 	try {
@@ -40,7 +40,7 @@ Wav::Wav(char *name, WavFormat *wfmt)
 	type = 1; /* writing */
 
 	if((fd = open(name, O_CREAT|O_WRONLY, 0660)) < 0) {
-		throw Exception(strerror(errno));
+		throw (IOException)errno;
 	}
 	
 	memcpy(&fmt, wfmt, sizeof(WavFormat));
