@@ -1,4 +1,4 @@
-# $Id: anasync.dsp,v 1.1 2004/12/07 02:38:57 ink Exp $
+# $Id$
 
 name "AnaSync";
 author "Leif Ames";
@@ -48,22 +48,32 @@ description "Uses hard sync to add extra resonant formant";
 	@res.min = 0;
 	@res.max = 10;
 	@res.label = "Resonance";
-	@fmin = 2;
-	@fmin.widget = 1;
-	@fmin.min = 0;
-	@fmin.max = 16;
-	@fmin.label = "Cutoff Low";
-	@fmax = 8;
-	@fmax.widget = 1;
-	@fmax.min = 0;
-	@fmax.max = 16;
-	@fmax.label = "Cutoff High";
+	@cutoff = 4;
+	@cutoff.widget = 1;
+	@cutoff.min = 0;
+	@cutoff.max = 16;
+	@cutoff.label = "Cutoff";
+	@famt = 3;
+	@famt.widget = 1;
+	@famt.min = 0;
+	@famt.max = 8;
+	@famt.label = "Filter Envelope";
 
 node ionode {
 	channels = 2;
 	out0 = envmixer->out;
 	out1 = envmixer->out;
 	play = env->play;
+};
+
+node cutcalc math::mul {
+	in0 = freq->out;
+	in1 = @cutoff;
+};
+
+node cutcalc2 math::mul {	# multiply the filter start by famt
+	in0 = cutcalc->out;
+	in1 = @famt;
 };
 
 node suscalc math::mul {
@@ -80,22 +90,12 @@ node env env::adsr {
 	trigger = ionode->trigger;
 };
 
-node fmincalc math::mul {
-	in0 = freq->out;
-	in1 = @fmin;
-};
-
-node fmaxcalc math::mul {
-	in0 = freq->out;
-	in1 = @fmax;
-};
-
 node fmap env::map {
 	in = env->out;
 	inmin = 0;
 	inmax = th_max;
-	outmin = fmincalc->out;
-	outmax = fmaxcalc->out;
+	outmin = cutcalc->out;
+	outmax = cutcalc2->out;
 };
 
 node freq misc::midi2freq {
