@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.38 2003/05/03 06:59:46 aaronl Exp $
+dnl $Id: configure.ac,v 1.39 2003/05/03 07:27:24 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -216,7 +216,7 @@ AC_CONFIG_FILES([src/Makefile plugins/plugin-common.mk dsp/Makefile build.mk])
 AC_OUTPUT
 
 echo
-echo $PACKAGE $VERSION
+echo $PACKAGE_NAME $PACKAGE_VERSION
 echo
 echo "compiling for system ....:" $system
 echo -n "debug ...................: $debug "

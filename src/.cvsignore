@@ -1,7 +1,5 @@
 thinksynth
-Makefile
 thinklex.cc
 thinklang.h
 thinklang.cc
-Makefile.in
 .deps
