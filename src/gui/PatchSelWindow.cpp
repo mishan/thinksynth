@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.15 2004/03/27 07:28:47 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.16 2004/03/27 09:33:38 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -25,7 +25,8 @@
 extern Glib::Mutex *synthMutex;
 
 PatchSelWindow::PatchSelWindow (thSynth *synth)
-	: dspAmp (0, MIDIVALMAX, .5), setButton("Load Patch")
+	: dspAmp (0, MIDIVALMAX, .5), setButton("Load Patch"), 
+	  browseButton("Browse"), ampLabel("Amplitude"), fileLabel("Filename")
 {
 		set_default_size(500, 400);
 
@@ -45,8 +46,14 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 
 	vbox.pack_start(patchScroll);
 
+	/* these widgets are not to be used until a valid row is selected */
+	dspAmp.set_sensitive(false);
+	fileEntry.set_sensitive(false);
+	browseButton.set_sensitive(false);
+	setButton.set_sensitive(false);
+
 	synthMutex->lock();
-		
+
 	std::map<int, string> *patchlist = realSynth->GetPatchlist();
 	int channelcount = realSynth->GetChannelCount();
 
@@ -84,12 +91,20 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	setButton.signal_clicked().connect(
 		SigC::slot(*this, &PatchSelWindow::LoadPatch));
 
+	browseButton.signal_clicked().connect(
+		SigC::slot(*this, &PatchSelWindow::BrowsePatch));
 
-	vbox.pack_start(controlHbox, Gtk::PACK_SHRINK);
+	vbox.pack_start(controlTable, Gtk::PACK_SHRINK);
 
-	controlHbox.pack_start(fileEntry);
-	controlHbox.pack_start(dspAmp);
-	controlHbox.pack_start(setButton, Gtk::PACK_SHRINK);
+	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+	controlTable.attach(dspAmp, 1, 2, 0, 1);
+	controlTable.attach(fileLabel, 0, 1, 1, 2, Gtk::SHRINK,
+						Gtk::SHRINK, 0, 5);
+	controlTable.attach(fileEntry, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND,
+						Gtk::FILL|Gtk::EXPAND, 0, 5);
+	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
+						0);
+	controlTable.attach(setButton, 0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK, 0, 5);
 }
 
 PatchSelWindow::~PatchSelWindow (void)
@@ -139,10 +154,20 @@ void PatchSelWindow::LoadPatch (void)
 
 }
 
+void PatchSelWindow::BrowsePatch (void)
+{
+	Gtk::FileSelection fileSel;
+
+	fileSel.run();
+
+	fileEntry.set_text(fileSel.get_filename());
+}
+
 void PatchSelWindow::SetChannelAmp (void)
 {
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
+
 	if(refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
@@ -191,6 +216,13 @@ void PatchSelWindow::patchSelected (GdkEventButton *b)
 			{
 				Glib::ustring filename = (*iter)[patchViewCols.dspName];
 				float amp = (*iter)[patchViewCols.amp];
+
+
+				/* make these widgets usable now that a valid row is
+				   selected */
+				browseButton.set_sensitive(true);
+				fileEntry.set_sensitive(true);
+				setButton.set_sensitive(true);
 
 				fileEntry.set_text(filename);
 				dspAmp.set_value((double)amp);

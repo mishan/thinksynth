@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.6 2004/03/27 07:28:47 misha Exp $ */
+/* $Id: PatchSelWindow.h,v 1.7 2004/03/27 09:33:38 misha Exp $ */
 
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
@@ -27,15 +27,20 @@ public:
 protected:
 	void LoadPatch (void);
 	void SetChannelAmp (void);
+	void BrowsePatch (void);
 
 	void patchSelected (GdkEventButton *b);
 
 	Gtk::VBox vbox;
-	Gtk::HBox controlHbox;
+	Gtk::Table controlTable;
 
 	Gtk::HScale dspAmp;
-	Gtk::Entry fileEntry;
 	Gtk::Button setButton;
+	Gtk::Button browseButton;
+	Gtk::Label ampLabel;
+
+	Gtk::Label fileLabel;
+	Gtk::Entry fileEntry;
 
 	Gtk::ScrolledWindow patchScroll;
 	Gtk::TreeView patchView;
