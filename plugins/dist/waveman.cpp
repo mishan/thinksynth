@@ -1,4 +1,4 @@
-/* $Id: waveman.cpp,v 1.1 2003/06/06 19:14:01 ink Exp $ */
+/* $Id: waveman.cpp,v 1.2 2003/06/07 06:12:29 ink Exp $ */
 
 /* Algorithm taken from waveman in #musicdsp on efnet */
 
@@ -55,7 +55,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	for(i=0;i<windowlen;i++) {
 		in = (*in_arg)[i] / TH_MAX;
 		gain = (*in_gain)[i];
-		out[i] = ((((in / (gain + fabs(in))) + ((1.5 * in) - ((0.5 * in) * (0.4 * in) * (0.3 * in) * (0.2 * in)))) / 3) / (gain + 1)) * TH_MAX;
+		out[i] = ((((in / (gain + fabs(in))) + ((1.5 * in) - ((0.7 * in) * (0.6 * in) * (0.5 * in) * (0.4 * in) * (0.3 * in) * (0.2 * in) * (0.1 * in)))) / 3.5) / (gain + 1)) * TH_MAX;
 	}
 
 	return 0;
