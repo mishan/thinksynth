@@ -140,7 +140,7 @@ void thMod::SetActiveNodesHelper(thNode *node)
 thMod *thMod::Copy (void)
 {
   thMod *newmod = new thMod(modname);
-  thNode *newnode = new thNode((char *)ionode->GetName(), ionode->GetPlugin());
+  thNode *newnode = new thNode(ionode->GetName(), ionode->GetPlugin());
 
   newmod->NewNode(newnode);
   newmod->SetIONode((char *)newnode->GetName());
