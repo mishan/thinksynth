@@ -128,7 +128,6 @@ void Wav::write_riff(void)
 	lewrite16(fd, fmt.bits);
 }
 
-
 int Wav::read_wav(void *data, int len)
 {
 	int r = -1;
