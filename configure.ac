@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.100 2004/09/19 19:41:36 joshk Exp $
+dnl $Id: configure.ac,v 1.101 2004/09/19 20:37:59 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -21,7 +21,7 @@ dnl	- Function /arguments/ have changed
 dnl	- Function /behaviors/ have changed such that users need to make
 dnl	  revisions to the calls to have them work the way they did before
 dnl	  (bad)
-lib_revision=3
+lib_major=3
 
 dnl Update this when:
 dnl	- The new library needs new supporting libraries, but nothing else
