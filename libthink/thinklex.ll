@@ -45,7 +45,7 @@ name						return NAME;
 \{                            return LCBRACK;
 \}                            return RCBRACK;
 
-[a-zA-Z][a-zA-Z0-9]*           yylval.str = (char*)strdup(yytext); return WORD;
+[a-zA-Z][a-zA-Z0-9]*           yylval.str = strdup(yytext); return WORD;
 
 ->                             return INTO;
 ::				return MODSEP;

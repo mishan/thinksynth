@@ -23,6 +23,7 @@ thPluginManager::~thPluginManager ()
 	UnloadPlugins();
 }
 
+/* Caller must free!!! */
 char *thPluginManager::GetPath (char *name)
 {
 	char *path = new char[strlen(name) + strlen(PLUGPREFIX) + 
@@ -47,6 +48,7 @@ int thPluginManager::LoadPlugin (char *name)
 	path = GetPath(name);
 
 	plugin = new thPlugin (path, id, state);
+	delete path;
 	plugins.Insert(name, plugin);
 
 	/* XXX */
