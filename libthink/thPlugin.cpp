@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.40 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: thPlugin.cpp,v 1.41 2004/06/23 06:53:15 brandon Exp $ */
 
 #include "config.h"
 
@@ -23,11 +23,11 @@ extern "C" { extern char *basename PARAMS ((const char *)); }
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
 #else
-# ifdef USING_DARWIN
-#  include "nsmodule_dl.h"
-# else
+//# ifdef USING_DARWIN
+//#  include "nsmodule_dl.h"
+//# else
 #  error Need a dl implementation!
-# endif
+//# endif
 #endif
 
 #include "think.h"
@@ -119,7 +119,7 @@ int thPlugin::ModuleLoad (void)
 {
 	int (*module_init) (thPlugin *plugin);
 	unsigned char* plug_apiversion;
-	
+        
 	plugHandle = dlopen(plugPath.c_str(), RTLD_NOW);
 	
 	if(plugHandle == NULL) {
@@ -127,7 +127,7 @@ int thPlugin::ModuleLoad (void)
 #ifdef HAVE_DLERROR
 		fprintf(stderr, "thPlugin::ModuleLoad: %s\n", dlerror());
 #else
-		fprintf(stderr, "thPlugin::ModuleLoad: Unable to load plugin: %s", plugPath);
+		fprintf(stderr, "thPlugin::ModuleLoad: Unable to load plugin: %s", plugPath.c_str());
 #endif /* HAVE_DLERROR */
 
 		goto loaderr;
