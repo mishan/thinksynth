@@ -7,14 +7,14 @@ node ionode {
 	channels = 2;
 	out0 = notemix->out;
 	out1 = notemix->out;
-	play = 1;
+	play = env->play;
 
-	env_a = 2000;
-	env_d = 100000;
+	env_a = 1000;
+	env_d = 7000;
 	env_s = 100;
 	env_r = 10000;
 
-	filt_a = 10000;
+	filt_a = 3000;
 	filt_s = 30;
 	cutlo = 500;
 	cuthi = 5000;
