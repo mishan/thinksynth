@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.36 2004/01/25 22:52:41 ink Exp $ */
+/* $Id: thArg.cpp,v 1.37 2004/01/28 12:04:46 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -58,13 +58,11 @@ float *thArg::Allocate (unsigned int elements)
 
 void thArg::SetArg(const string &name, float *value, const int num)
 {
-	//float *values;
-
 	argValues = Allocate(num);
 
-	argName = name;
+	string *argName = new string(name);
 	
-	memcpy(argValues, value, num);
+	memcpy(argValues, value, num * sizeof(float));
 
 	argNum = num;
 	argType = ARG_VALUE;
