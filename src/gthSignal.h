@@ -1,14 +1,10 @@
-/* $Id: gthSignal.h,v 1.4 2004/04/07 00:40:17 misha Exp $ */
+/* $Id: gthSignal.h,v 1.5 2004/04/07 04:09:47 misha Exp $ */
 
 #ifndef SIGNAL_H
 #define SIGNAL_H
 
 typedef SigC::Signal3<void, int, float, float> sigNoteOn;
 typedef SigC::Signal2<void, int, float> sigNoteOff;
-
-/* additional arguments are usually bound to the callbacks of this signal */
-typedef SigC::Signal0<void> sigReadyWrite;
-typedef SigC::Signal0<int> sigMidiEvent;
 
 extern sigNoteOn  m_sigNoteOn;
 extern sigNoteOff m_sigNoteOff;
