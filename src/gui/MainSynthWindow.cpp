@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.29 2004/09/15 08:31:38 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.30 2004/09/15 08:38:06 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -74,7 +74,7 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
 	{
 		vals = prefs->Get("autoconnect");
-		if (*vals[0] == "true")
+		if (vals && *vals[0] == "true")
 		{
 			if (((gthJackAudio*)audio)->tryConnect())
 				toggleConnects();
