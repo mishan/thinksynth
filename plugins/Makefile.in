@@ -1,11 +1,11 @@
-# $Id: Makefile.in,v 1.2 2003/09/14 09:27:18 misha Exp $
+# $Id: Makefile.in,v 1.3 2004/01/02 05:35:32 ink Exp $
 
 GNU_RMDIR_OPTION = @GNU_RMDIR_OPTION@
 plugin_path = @plugin_path@
 prefix = @prefix@
 
 # Change this for every new plugin
-PLUGIN_DIRS = osc mixer math logic input env misc filt delay impulse dist test
+PLUGIN_DIRS = osc mixer math logic input env misc filt delay impulse dist analysis test
 
 all clean install uninstall: $(PLUGIN_DIRS)
 

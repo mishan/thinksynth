@@ -11,19 +11,19 @@ node ionode {
 
 	filtmin = 0.05;
 	filtmax = 1;
-	res = 0.5;
+	res = 0.8;
 
 	gatecut = 6;
     gateroll = 3;
 
-	mul1 = 0.5;
-	mul2 = 0.5;
+	mul1 = 1;
+	mul2 = 1;
 	waveform1 = 1;
 	waveform2 = 2;
-	fmamt = 0.5;
-	fmamt2 = 0.5;
+	fmamt = 0.8;
+	fmamt2 = 0.1;
 
-	tone = 0.5;
+	tone = 0.85;
 };
 
 node wav input::wav {
@@ -59,15 +59,15 @@ node filtmap env::map {
 
 node osc1 osc::simple {
 	freq = pitch->out;
-	waveform = ionode->waveform;
-	fm = osc2->out;
+	waveform = ionode->waveform1;
+	fm = osc1->out;
 	fmamt = ionode->fmamt2;
 	mul = ionode->mul1;
 };
 
 node osc2 osc::simple {
 	freq = pitch->out;
-	waveform = ionode->waveform;
+	waveform = ionode->waveform2;
 	fm = osc1->out;
 	fmamt = ionode->fmamt;
 	mul = ionode->mul2;
