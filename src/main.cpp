@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.127 2004/02/01 09:51:03 misha Exp $ */
+/* $Id: main.cpp,v 1.128 2004/02/01 10:02:04 misha Exp $ */
 
 #include "config.h"
 
@@ -34,9 +34,12 @@ const char syntax[] = \
 PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "Aaron Lehmann and Joshua Kwan\n"
 "Usage: %s [options] dsp-file\n"
-"-h\t\tdisplay this help screen\n"
-"-p [path]\tmodify the plugin search path\n"
-"-m [mod]\tchange the mod that will be used\n";
+"-h\t\t\tdisplay this help screen\n"
+"-p [path]\t\tmodify the plugin search path\n"
+"-m [mod]\t\tchange the mod that will be used\n"
+"-d [alsa|oss|wav]\tchange output driver\n"
+"  -o [file|device]\tchange output dest\n"
+;
 
 snd_seq_t *open_seq();
 int processmidi(thSynth *synth, snd_seq_t *seq_handle);

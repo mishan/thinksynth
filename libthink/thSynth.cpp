@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.67 2004/02/01 09:57:31 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.68 2004/02/01 10:02:04 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -41,6 +41,7 @@ thSynth::thSynth (void)
 thSynth::~thSynth (void)
 {
 	delete [] thOutput;
+
 	DestroyMap(modlist);
 	DestroyMap(channels);
 }
@@ -139,12 +140,13 @@ void thSynth::Process (void)
 {
 	memset(thOutput, 0, thChans * thWindowlen * sizeof(float));
 
-	int i, j, mixchannels, notechannels;
+	int mixchannels, notechannels;
 	thMidiChan *chan;
 	float *chanoutput;
 
 	for (map<string, thMidiChan*>::const_iterator im = channels.begin();
-		 im != channels.end(); ++im) {
+		 im != channels.end(); ++im)
+	{
 		chan = im->second;
 
 		if (!chan)
@@ -164,8 +166,10 @@ void thSynth::Process (void)
 		chan->Process();
 		chanoutput = chan->GetOutput();
 
-		for (i = 0; i < mixchannels; i++) {
-			for (j = 0 ;j < thWindowlen; j++) {
+		for (int i = 0; i < mixchannels; i++)
+		{
+			for (int j = 0 ;j < thWindowlen; j++)
+			{
 				thOutput[i+(j*thChans)] += chanoutput[i+(j*notechannels)];
 			}
 		}
@@ -174,9 +178,8 @@ void thSynth::Process (void)
 
 void thSynth::PrintChan(int chan)
 {
-	int i;
-
-	for (i = 0; i < thWindowlen; i++) {
+	for (int i = 0; i < thWindowlen; i++)
+	{
 		printf("-=- %f\n", thOutput[(i*thChans)+chan]);
 	}
 }
