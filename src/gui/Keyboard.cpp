@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.19 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.20 2004/04/09 07:35:38 misha Exp $ */
 
 #include "config.h"
 
@@ -267,7 +267,7 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 	int	veloc;
 
 	/* we want to steal focus on mouse-click */
-	grab_focus ();
+//	grab_focus ();
 
 	if (mouse_notnum >= 0) {	/* already active */
 		m_signal_note_off(channel, mouse_notnum);
@@ -446,16 +446,12 @@ bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 
 void Keyboard::drawKeyboardFocus (void)
 {
-	drawMutex.lock();
-
 	Glib::RefPtr<Gtk::Style> style = get_style();
 	Glib::RefPtr<Gdk::Window> wind = get_window();
  	Gdk::Rectangle focus_rect(0, 0, img_width, img_height);
 
 	style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, *this,
 					   "", 0, 0, img_width, img_height);
-
-	drawMutex.unlock();
 }
 
 void Keyboard::drawKeyboard (int mode)
@@ -576,11 +572,10 @@ void Keyboard::drawKeyboard (int mode)
 
 	} while (++i < 128);
 
-
-/*	if (focus_box)
+	if (focus_box)
 	{
-		drawKeyboardFocus();
-		} */
+		drawKeyboardFocus ();
+	} 
 
 	drawMutex.unlock();
 
