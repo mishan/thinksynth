@@ -7,23 +7,23 @@ public:
 	~thNode (void);
 
 	void SetName (const char *name);
-	const char *GetName (void);
+	const char *GetName (void) { return nodename; };
 	void SetArg (const char *name, const float *value, int num);
 	void SetArg (const char *name, const char *node, const char *value);
 	
 	const thArgValue *GetArg (char *name);
 	void PrintArgs (void);
 
-	const thList *GetArgList (void);
+	const thList *GetArgList (void) { return args->GetList(); };
 
-	bool GetRecalc(void);
-	void SetRecalc(bool state);
+	bool GetRecalc(void) { return recalc; };
+	void SetRecalc(bool state) { recalc = state; };
 
-	void AddChild(thNode *node);
-	void AddParent(thNode *node);
+	void AddChild(thNode *node) { children->Add(node); };
+	void AddParent(thNode *node) { parents->Add(node); };
 
-	thList *GetChildren();
-	thList *GetParents();
+	thList *GetChildren() { return children; };
+	thList *GetParents() { return parents; };
 
 	void Process (void);
 private:

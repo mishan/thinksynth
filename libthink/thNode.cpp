@@ -24,21 +24,15 @@ thNode::thNode (char *name, thPlugin *thplug)
 
 thNode::~thNode (void)
 {
-	delete nodename;
+	free(nodename);
 	delete args;
 	/* free anything else */
 }
 
 void thNode::SetName(const char *name)
 {
-	delete nodename;
-	
+	free(nodename);
 	nodename = strdup(name);
-}
-
-const char *thNode::GetName (void)
-{
-	return nodename;
 }
 
 void thNode::SetArg (const char *name, const float *value, int num)
@@ -79,55 +73,6 @@ void thNode::PrintArgs (void)
 	args->PrintTree();
 }
 
-const thList *thNode::GetArgList (void)
-{
-  return args->GetList();
-}
-
-bool thNode::GetRecalc(void)
-{
-  return recalc;
-}
-
-void thNode::SetRecalc(bool state)
-{
-  recalc = state;
-}
-
-void thNode::AddChild(thNode *node)
-{
-  children->Add(node);
-}
-
-void thNode::AddParent(thNode *node)
-{
-  parents->Add(node);
-}
-
-thList *thNode::GetChildren(void)
-{
-  return children;
-}
-
-thList *thNode::GetParents(void)
-{
-  return parents;
-}
-
 void thNode::Process (void)
 {
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
