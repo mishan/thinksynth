@@ -55,22 +55,32 @@ char* thUtil::basename(char *path)
 	return (s);
 }
 
-/* dirname - stolen from old Busybox. */
+/* dirname - by Lars Wirzenius. PD? */
 
-char *
-thUtil::dirname (char *path_)
+char* thUtil::dirname (char *path)
 {
-	/* Still make a copy */
-	char *str = strdup(path_) + strlen(path_) - 1, *s = NULL;
-	
-	while (str && *str == '/') {
-		*str-- = '\0';
-	}
-	
-	s = strrchr(str, '/');
+    const char *last_slash;
+    char *ret;
+    size_t len;
+    
+    last_slash = strrchr(path, '/');
 
-	if (s && *s)
-		*s = '\0';
+    if (last_slash == NULL) {
+        ret = (char*)malloc(1);
+        if (ret != NULL)
+            *ret = '\0';
+        return ret;
+    }
 
-	return s;
+    if (last_slash == path)
+        ++last_slash;
+        
+    len = last_slash - path;
+    ret = (char*)malloc(len + 1);
+    if (ret == NULL)
+        return NULL;
+
+    memcpy(ret, path, len);
+    ret[len] = '\0';
+    return ret;
 }

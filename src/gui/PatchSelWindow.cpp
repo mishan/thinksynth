@@ -307,7 +307,7 @@ void PatchSelWindow::SavePatch (void)
 		{
 			gthPatchManager::PatchFile *patch = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
-			char *file = (char*)fileSel.get_filename().c_str();
+			char *file = strdup(fileSel.get_filename().c_str());
 			char *dn = thUtil::dirname(file);
 			int chan = (*iter)[patchViewCols.chanNum]-1;
 			string **vals = NULL;
@@ -335,6 +335,7 @@ void PatchSelWindow::SavePatch (void)
 			prevDir = g_strdup_printf("%s/", dn);
 
 			free(dn);
+			free(file);
 
 			vals = new string *[2];
 			vals[0] = new string(prevDir);
