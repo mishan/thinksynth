@@ -3,12 +3,12 @@ public:
 	thSynth();
 	~thSynth();
 
-	void LoadMod(char *name);
-	thMod *FindMod(char *modname);
+	void LoadMod(const char *name);
+	thMod *FindMod(const char *modname);
 	void ListMods(void);
-	void BuildSynthTree(char *modname);
+	void BuildSynthTree(const char *modname);
 	const thPluginManager *GetPluginManager(void);
-	void Process(char *modname);
+	void Process(const char *modname);
 
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);

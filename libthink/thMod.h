@@ -6,12 +6,12 @@ public:
 	thMod(char *name);
 	~thMod();
 
-	thNode *FindNode(char *name);
-	const thArgValue *GetArg (char *nodename, char *argname);
+	thNode *FindNode(const char *name);
+	const thArgValue *GetArg (const char *nodename, const char *argname);
 	void NewNode(thNode *node);
 	const char *GetName(void) { return modname; };
-	void SetName(char *name);
-	void SetIONode(char *name);
+	void SetName(const char *name);
+	void SetIONode(const char *name);
 	thNode *GetIONode(void) { return ionode; };
 	void PrintIONode(void);
 

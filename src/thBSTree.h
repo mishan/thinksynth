@@ -15,10 +15,9 @@ public:
 
 	void Insert (const char *name, void *data);
 	void Remove (const char *name);
-	thBSNode *Find (const char *name);
 
 	void PrintTree (void);
-	void *GetData (char *name);
+	void *GetData (const char *name);
 	
 	/* creates a new thList with pointers to all the data */
 	thList *GetList (void);
@@ -31,7 +30,8 @@ private:
 	thBSNode *GetParent (thBSNode *root, thBSNode *node);
 	void RemoveHelper (thBSNode *root, thBSNode *node);
 	void GetListHelper (thBSNode *root, thList *tlist);
-	
+	thBSNode *Find (const char *name);
+
 	void DestroyTree (thBSNode *root);
 
 	/* inline string comparison function */

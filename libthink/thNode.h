@@ -11,7 +11,7 @@ public:
 	void SetArg (const char *name, const float *value, int num);
 	void SetArg (const char *name, const char *node, const char *value);
 	
-	const thArgValue *GetArg (char *name);
+	const thArgValue *GetArg (const char *name);
 	void PrintArgs (void);
 
 	const thList *GetArgList (void) { return args.GetList(); };

@@ -322,7 +322,7 @@ void thBSTree::DestroyTree (thBSNode *root)
 	delete root;
 }
 
-void *thBSTree::GetData ( char *name )
+void *thBSTree::GetData (const char *name)
 {
 	thBSNode *node = Find(name);
 

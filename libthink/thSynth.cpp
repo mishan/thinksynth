@@ -29,7 +29,7 @@ thSynth::~thSynth()
 {
 }
 
-void thSynth::LoadMod(char *filename)
+void thSynth::LoadMod(const char *filename)
 {
 	yyin = fopen(filename, "r");
 	
@@ -43,7 +43,7 @@ void thSynth::LoadMod(char *filename)
 	modlist.Insert(parsemod->GetName(), parsemod);
 }
 
-thMod *thSynth::FindMod(char *modname)
+thMod *thSynth::FindMod(const char *modname)
 {
   return (thMod *)modlist.GetData(modname);
 }
@@ -55,7 +55,7 @@ void thSynth::ListMods(void)
   modlist.PrintTree();
 }
 
-void thSynth::BuildSynthTree(char *modname)
+void thSynth::BuildSynthTree(const char *modname)
 {
   thMod *mod = FindMod(modname);
   thListNode *listnode;
@@ -110,11 +110,8 @@ const thPluginManager *thSynth::GetPluginManager(void)
   return &pluginmanager;
 }
 
-void thSynth::Process(char *modname)
+void thSynth::Process(const char *modname)
 {
   thMod *mod = FindMod(modname);
   mod->Process(mod, windowlen);
 }
-
-
-

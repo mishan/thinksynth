@@ -28,9 +28,9 @@ thMidiNote::~thMidiNote ()
 {
 }
 
-void thMidiNote::SetArg (char *name, float *value, int num)
+void thMidiNote::SetArg (const char *name, float *value, int num)
 {
-	thArg *arg = (thArg *)args.Find(name);
+	thArg *arg = (thArg *)args.GetData(name);
 	if(!arg) {
 		arg = new thArg(name, value, num);
 		args.Insert(name, arg);
@@ -39,9 +39,9 @@ void thMidiNote::SetArg (char *name, float *value, int num)
 	}
 }
 
-thArgValue *thMidiNote::GetArg (char *name)
+thArgValue *thMidiNote::GetArg (const char *name)
 {
-	thArg *arg = (thArg *)args.Find(name);
+	thArg *arg = (thArg *)args.GetData(name);
 	return (thArgValue *)arg->GetArg();
 }
 

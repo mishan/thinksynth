@@ -26,12 +26,12 @@ thMod::~thMod ()
 	free(modname);
 }
 
-thNode *thMod::FindNode (char *name)
+thNode *thMod::FindNode (const char *name)
 {
-	return (thNode *)((thBSNode *)modnodes.Find(name))->data;
+	return (thNode *)modnodes.GetData(name);
 }
 
-const thArgValue *thMod::GetArg (char *nodename, char *argname)
+const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
   /* Follow pointers and return a thArgValue of a float string */
 {
 	thNode *node = (thNode *)modnodes.GetData(nodename);
@@ -57,7 +57,7 @@ void thMod::NewNode (thNode *node)
 	modnodes.Insert((char *)node->GetName(), node);
 }
 
-void thMod::SetName (char *name)
+void thMod::SetName (const char *name)
 {
 	if(modname) {
 		delete modname;
@@ -65,9 +65,9 @@ void thMod::SetName (char *name)
 	modname = strdup(name);
 }
 
-void thMod::SetIONode (char *name)
+void thMod::SetIONode (const char *name)
 {
-	ionode = (thNode *)((thBSNode *)modnodes.Find(name))->data;
+	ionode = (thNode *)modnodes.GetData(name);
 }
 
 void thMod::PrintIONode (void)

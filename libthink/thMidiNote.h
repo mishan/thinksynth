@@ -8,10 +8,10 @@ public:
 	~thMidiNote();
 	
 	/* takes the arg name, and a pointer to a list of values */
-	void SetArg (char *name, float *value, int num);
+	void SetArg (const char *name, float *value, int num);
 
 	/* returns a pointer to a list of values */
-	thArgValue *GetArg(char *name);
+	thArgValue *GetArg(const char *name);
 
 	void Process (void);
 private:

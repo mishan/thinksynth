@@ -34,7 +34,7 @@ void thNode::SetName(const char *name)
 
 void thNode::SetArg (const char *name, const float *value, int num)
 {
-	thArg *arg = (thArg *)args.Find(name);
+	thArg *arg = (thArg *)args.GetData(name);
 
 	if(!arg) {
 		arg = new thArg(name, value, num);
@@ -47,7 +47,7 @@ void thNode::SetArg (const char *name, const float *value, int num)
 
 void thNode::SetArg (const char *name, const char *node, const char *value)
 {
-	thArg *arg = (thArg *)args.Find(name);
+	thArg *arg = (thArg *)args.GetData(name);
 	
 	if(arg) {
 		arg->SetArg(name, node, value);
@@ -58,7 +58,7 @@ void thNode::SetArg (const char *name, const char *node, const char *value)
 	}
 }
 
-const thArgValue *thNode::GetArg (char *name)
+const thArgValue *thNode::GetArg (const char *name)
 {
 	thArg *arg = (thArg *)args.GetData(name);
 
@@ -78,5 +78,3 @@ void thNode::SetPlugin (thPlugin *plug)
 void thNode::Process (void)
 {
 }
-
-
