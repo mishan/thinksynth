@@ -5,8 +5,7 @@ OS			Build?		Function?
 --			------		---------
 Linux (native)		yes		yes
 
-FreeBSD			yes		no
-| We're waiting on ink for this one. Probably some thinko somewhere.
+FreeBSD			yes		yes
 
 Windows (Cygwin)	no		no
 | joshk is waiting on a new binutils that supports dynamic linking from
@@ -16,4 +15,4 @@ Darwin			???		???
 
 Update this file as ports continue to progress.
 
-$Id: PORTING,v 1.1 2003/05/03 08:10:58 joshk Exp $
+$Id: PORTING,v 1.2 2003/05/04 01:52:05 joshk Exp $
