@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.24 2003/05/24 09:16:44 aaronl Exp $ */
+/* $Id: thArg.h,v 1.25 2003/05/30 00:55:41 aaronl Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -6,19 +6,28 @@
 #define ARG_VALUE 0
 #define ARG_POINTER 1
 
-class thArgValue {  /* This class is pretty public, but hey, it used to be 
-					   a struct */
-public:
-	thArgValue(void);
-	~thArgValue(void);
 
+
+class thArg {
+	public:
+	thArg(const string &name, float *value, const int num);
+	thArg(const string &name, const string &node, const string &value);
+	thArg();
+	~thArg();
+	
+	void SetArg(const string &name, float *value, const int num);
+	void SetAllocatedArg(const string &name, float *value, const int num);
+	void SetArg(const string &name, const string &node, const string &value);
+
+	string GetArgName (void) const { return argName; };
+
+	float GetValue (int position) const { return (argType != ARG_POINTER); };
 	float *allocate (int elements);
-
-	char *argName; /* argument's name */
+	string argName; /* argument's name */
 	float *argValues; /* a pointer to an array of values */
 	int argNum; /* number of elements in argValues */
-	char *argPointNode; /* name of the node a pointer points to */
-	char *argPointName; /* name of the argument a pointer points to */
+	string argPointNode; /* name of the node a pointer points to */
+	string argPointName; /* name of the argument a pointer points to */
 	int argType; /* is this arg a value or a pointer? */
 	float& operator[] (int i) const {
 		if(argNum == 1) {
@@ -29,25 +38,11 @@ public:
 		}
 		return argValues[i%argNum];
 	}
-};
+	static void DestroyMap (map<string,thArg*> themap)
+	{
+		DESTROYBODY(string, thArg);
+	};
 
-class thArg {
-	public:
-		thArg(const char *name, float *value, const int num);
-		thArg(const char *name, const char *node, const char *value);
-		thArg();
-		~thArg();
-	
-		void SetArg(const char *name, float *value, const int num);
-		void SetArg(const char *name, const char *node, const char *value);
-
-		char *GetArgName (void) const { return argValue.argName; };
-		const thArgValue *GetArg(void) { return &argValue; };
-
-		float GetValue (int position) const { return (argValue.argType != ARG_POINTER); };
-
-	private:
-		thArgValue argValue;
 };
 
 #endif /* TH_ARG_H */

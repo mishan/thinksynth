@@ -1,13 +1,12 @@
-/* $Id: thMidiNote.cpp,v 1.25 2003/05/29 03:11:03 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.26 2003/05/30 00:55:42 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thList.h"
-#include "thBSTree.h"
 #include "thArg.h"
 #include "thPlugin.h"
 #include "thNode.h"
@@ -15,14 +14,14 @@
 #include "thMidiNote.h"
 
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
+	: modnode(*mod)
 {
-	float *notep = new float, *velocityp = new float;
+	float *notep = new float[1], *velocityp = new float[1];
 
 	//	args = new thBSTree(StringCompare);
 
-	modnode = new thMod(mod);
-	modnode->BuildSynthTree();
-	ionode = modnode->GetIONode();
+	modnode.BuildSynthTree();
+	thNode *ionode = modnode.GetIONode();
 
 	*notep = note, *velocityp = velocity;
 
@@ -33,21 +32,18 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 }
 
 thMidiNote::thMidiNote (thMod *mod)
+	: modnode (*mod)
 {
   //	args = new thBSTree(StringCompare);
-
-	modnode = new thMod(mod);
-	modnode->BuildSynthTree();
-	ionode = modnode->GetIONode();
+	modnode.BuildSynthTree();
 }
 
 thMidiNote::~thMidiNote ()
 {
-  	delete modnode;
 }
 
 void thMidiNote::Process (int length)
 {
-  modnode->SetActiveNodes();
-  modnode->Process(length);
+	modnode.SetActiveNodes();
+	modnode.Process(length);
 }

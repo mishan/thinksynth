@@ -1,4 +1,4 @@
-/* $Id: decibel.cpp,v 1.1 2003/05/24 08:44:58 aaronl Exp $ */
+/* $Id: decibel.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,8 +8,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -41,13 +39,13 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *db;
-	thArgValue *out_arg;
+	thArg *db;
+	thArg *out_arg;
 	unsigned int i, argnum;
 
-	db = (thArgValue *)mod->GetArg(node, "db");
+	db = mod->GetArg(node, "db");
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	argnum = (unsigned int)db->argNum;
 	out = out_arg->allocate(argnum);
 

@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.4 2003/05/17 15:27:30 ink Exp $ */
+/* $Id: map.cpp,v 1.5 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -40,19 +38,19 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_arg, *in_min, *in_max, *out_min, *out_max;
-	thArgValue *out_arg;
+	thArg *in_arg, *in_min, *in_max, *out_min, *out_max;
+	thArg *out_arg;
 	unsigned int i;
 	float percent;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(windowlen);
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_min = (thArgValue *)mod->GetArg(node, "inmin");
-	in_max = (thArgValue *)mod->GetArg(node, "inmax");
-	out_min = (thArgValue *)mod->GetArg(node, "outmin");
-	out_max = (thArgValue *)mod->GetArg(node, "outmax");
+	in_arg = mod->GetArg(node, "in");
+	in_min = mod->GetArg(node, "inmin");
+	in_max = mod->GetArg(node, "inmax");
+	out_min = mod->GetArg(node, "outmin");
+	out_max = mod->GetArg(node, "outmax");
 
 	for(i=0;i<windowlen;i++) {
 	  percent = ((*in_arg)[i]-(*in_min)[i])/((*in_max)[i]-(*in_min)[i]);

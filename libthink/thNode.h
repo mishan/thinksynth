@@ -1,71 +1,56 @@
-/* $Id: thNode.h,v 1.35 2003/04/27 04:35:25 misha Exp $ */
+/* $Id: thNode.h,v 1.36 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
 
 class thNode {
 public:
-	thNode (const char *name, thPlugin *thplug);
+	thNode (const string &name, thPlugin *thplug);
 	~thNode (void);
-	
-	void SetName (char *name);
 
-	inline char *GetName (void) const {
-		return nodename; 
-	}
+	void SetName (const string &name) { nodename = name; };
 
-	thArg *SetArg (const char *name, float *value, int num);
-	thArg *SetArg (const char *name, const char *node, const char *value);
-	
-	inline thBSTree *GetArgTree (void) const { return args; }
-	const thArgValue *GetArg (const char *name);
+	 string GetName (void) const { return nodename; }
+
+	thArg *SetArg (const string &name, float *value, int num);
+	thArg *SetArg (const string &name, const string &node, const string &value);
+
+	map<string,thArg*> GetArgTree (void) const { return args; }
+	thArg *GetArg (const string &name) { return args[name]; };
 	void PrintArgs (void);
-	
-	inline bool GetRecalc(void) const {
-		return recalc;
-	}
 
-	inline void SetRecalc(bool state) {
-		recalc = state;
-	}
-	
-	inline void AddChild(thNode *node) {
-		children.Add(node);
-	}
+	bool GetRecalc(void) const { return recalc; }
 
-	inline void AddParent(thNode *node) {
-		parents.Add(node);
-	}
-	
-	inline thList *GetChildren (void) {
-		return &children;
-	}
+	void SetRecalc(bool state) { recalc = state; }
 
-	inline thList *GetParents(void) {
-		return &parents;
-	}
-	
-	inline void SetPlugin (thPlugin *plug) {
-		plugin = plug;
-	}
-	
-	inline thPlugin *GetPlugin() const {
-		return plugin;
-	}
-	
-	void CopyArgs (thBSTree *args);
-	
+	void AddChild(thNode *node) { children.push_back(node); }
+
+	void AddParent(thNode *node) { parents.push_back(node); }
+
+	list<thNode*> GetChildren (void) const { return children; }
+
+	list<thNode*> GetParents(void) const { return parents; }
+
+	void SetPlugin (thPlugin *plug) { plugin = plug; }
+
+	thPlugin *GetPlugin() const { return plugin; }
+
+	void CopyArgs (const map<string,thArg*> &args);
+
 	void Process (void);
-	
+
+	static void DestroyMap (map<string,thNode*> themap)
+	{
+		DESTROYBODY(string,thNode);
+	}
+
 private:
-	thBSTree *args;
-	thList parents, children;
+	map<string, thArg*> args;
+	list<thNode*> parents, children;
 	thPlugin *plugin;
 	
-	char *nodename;
+	string nodename;
 	bool recalc;
-
-	void PrintArgs (thBSTree *node);
 };
 
 #endif /* TH_NODE_H */

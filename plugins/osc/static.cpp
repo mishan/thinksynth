@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.14 2003/05/25 03:17:19 ink Exp $ */
+/* $Id: static.cpp,v 1.15 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -44,18 +42,18 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	float *out_last;
 	float position, last;
-	thArgValue *in_sample;  /* How often to change the random number */
-	thArgValue *out_arg;
-	thArgValue *inout_last;  /* So sample can be consistant over windows */
+	thArg* in_sample;  /* How often to change the random number */
+	thArg* out_arg;
+	thArg* inout_last;  /* So sample can be consistant over windows */
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, "out");
+	inout_last = mod->GetArg(node, "last");
 	position = (*inout_last)[0];
 	last = (*inout_last)[1];
 	out_last = inout_last->allocate(1);
 	out = out_arg->allocate(windowlen);
 
-	in_sample = (thArgValue *)mod->GetArg(node, "sample");
+	in_sample = mod->GetArg(node, "sample");
 
 	for(i=0; i < (int)windowlen; i++) {
 		if(++position > (*in_sample)[i]) {

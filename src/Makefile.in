@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.8 2003/05/11 04:44:17 joshk Exp $
+# $Id: Makefile.in,v 1.9 2003/05/30 00:55:41 aaronl Exp $
 
 BINARY = thinksynth
 
@@ -18,9 +18,6 @@ OBJS = \
 	main.o \
 	thArg.o \
 	thAudioBuffer.o \
-	thBSTree.o \
-	thHeap.o \
-	thList.o \
 	thMidiChan.o \
 	thMidiNote.o \
 	thMod.o \

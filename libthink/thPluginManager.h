@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.h,v 1.9 2003/04/27 19:59:18 joshk Exp $ */
+/* $Id: thPluginManager.h,v 1.10 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1
@@ -8,16 +8,16 @@ public:
 	thPluginManager();
 	~thPluginManager();
 
-	int LoadPlugin(char *name);
-	void UnloadPlugin(char *name);
+	int LoadPlugin(const string &name);
+	void UnloadPlugin(const string &name);
 
-	thPlugin *GetPlugin (char *name);
+	thPlugin *GetPlugin (const string &name) { return plugins[name]; };
 private:
-	thBSTree *plugins;
+	map <string, thPlugin*> plugins;
 
 	void UnloadPlugins (void);
 
-	char *GetPath (char *name);
+	const string GetPath (const string &name);
 };
 
 #endif /* TH_PLUGIN_MANAGER_H */

@@ -1,10 +1,9 @@
-/* $Id: thPlugin.cpp,v 1.33 2003/05/12 02:19:30 misha Exp $ */
+/* $Id: thPlugin.cpp,v 1.34 2003/05/30 00:55:42 aaronl Exp $ */
 
 #include "config.h"
+#include "think.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
 #ifdef HAVE_LIBGEN_H
 #include <libgen.h>
@@ -21,21 +20,20 @@ extern "C" { extern char *basename PARAMS ((const char *)); }
 
 #include "thPlugin.h"
 
-thPlugin::thPlugin (const char *path)
+thPlugin::thPlugin (const string &path)
 {
-	plugPath = strdup(path);
-	plugDesc = NULL;
+	plugPath = path;
 	plugState = thNotLoaded;
 
 	plugCallback = NULL;
 
 	if(ModuleLoad() == 1) { /* fail = return (1) */
-		fprintf(stderr, "Couldn't load plugin %s\n", basename((char*)path));
+		fprintf(stderr, "Couldn't load plugin %s\n", path.c_str());
 	}
 
 #ifdef USE_DEBUG
-	printf ("Plugin: %s\nDescription: %s\nState: ", plugPath, plugDesc);
-	
+	printf ("Plugin: %s\nDescription: %s\nState: ", plugPath.c_str(), plugDesc.c_str());
+
 	switch (plugState) {
 		case thNotLoaded:
 			printf ("thNotLoaded (!)\n");
@@ -53,9 +51,6 @@ thPlugin::thPlugin (const char *path)
 thPlugin::~thPlugin ()
 {
 	ModuleUnload();
-
-	free(plugPath);
-	free(plugDesc);
 }
 
 void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
@@ -65,13 +60,9 @@ void thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
 	}
 }
 
-void thPlugin::SetDesc (const char *desc)
+void thPlugin::SetDesc (const string &desc)
 {
-	if(plugDesc) {
-		free(plugDesc);
-	}
-	
-	plugDesc = strdup(desc);
+	plugDesc = desc;
 }
 
 /*	
@@ -89,7 +80,7 @@ int thPlugin::ModuleLoad (void)
 	int (*module_init) (thPlugin *plugin);
 	unsigned char* plug_apiversion;
 	
-	plugHandle = dlopen(plugPath, RTLD_NOW);
+	plugHandle = dlopen(plugPath.c_str(), RTLD_NOW);
 	
 	if(plugHandle == NULL) {
 
@@ -120,7 +111,7 @@ int thPlugin::ModuleLoad (void)
 	}
 
 	if (*plug_apiversion != MODULE_IFACE_VER) {
-		fprintf(stderr, "thPlugin::ModuleLoad: version mismatch: thinksynth compiled with API v%d, %s compiled with v%d\n", MODULE_IFACE_VER, basename(plugPath), (short)(*plug_apiversion));
+		fprintf(stderr, "thPlugin::ModuleLoad: version mismatch: thinksynth compiled with API v%d, %s compiled with v%d\n", MODULE_IFACE_VER, plugPath.c_str(), (short)(*plug_apiversion));
 		goto loaderr;
 	}
 	

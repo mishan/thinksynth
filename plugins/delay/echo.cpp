@@ -1,4 +1,4 @@
-/* $Id: echo.cpp,v 1.1 2003/05/28 02:13:11 ink Exp $ */
+/* $Id: echo.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -41,24 +39,24 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
 	float *buffer, *bufpos;
-	thArgValue *in_arg, *in_size, *in_delay, *in_feedback, *in_dry;
-	thArgValue *out_arg;
-	thArgValue *inout_buffer, *inout_bufpos;
+	thArg *in_arg, *in_size, *in_delay, *in_feedback, *in_dry;
+	thArg *out_arg;
+	thArg *inout_buffer, *inout_bufpos;
 	unsigned int i;
 	int index;
 	float delay, feedback, dry, in;
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_size = (thArgValue *)mod->GetArg(node, "size"); /* Buffer size */
-	in_delay = (thArgValue *)mod->GetArg(node, "delay"); /* Delay length */
-	in_feedback = (thArgValue *)mod->GetArg(node, "feedback");
-	in_dry = (thArgValue *)mod->GetArg(node, "dry"); /* How much of the origional signal is passed */
+	in_arg = mod->GetArg(node, "in");
+	in_size = mod->GetArg(node, "size"); /* Buffer size */
+	in_delay = mod->GetArg(node, "delay"); /* Delay length */
+	in_feedback = mod->GetArg(node, "feedback");
+	in_dry = mod->GetArg(node, "dry"); /* How much of the origional signal is passed */
 
-	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
-	inout_bufpos = (thArgValue *)mod->GetArg(node, "bufpos");
+	inout_buffer = mod->GetArg(node, "buffer");
+	inout_bufpos = mod->GetArg(node, "bufpos");
 	bufpos = inout_bufpos->allocate(1);
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {

@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.15 2003/05/19 01:04:56 ink Exp $ */
+/* $Id: adsr.cpp,v 1.16 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -39,9 +37,9 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	thArgValue *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger;  /* User args */
-	thArgValue *inout_position;  /* [0] = position in stage, [1] = current stage */
-	thArgValue *out_out, *out_play;
+	thArg *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger;  /* User args */
+	thArg *inout_position;  /* [0] = position in stage, [1] = current stage */
+	thArg *out_out, *out_play;
 
 	float *out, *play;
 
@@ -52,9 +50,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	int phase;
 	unsigned int i;
  
-	out_out = (thArgValue *)mod->GetArg(node, "out");
-	out_play = (thArgValue *)mod->GetArg(node, "play");
-	inout_position = (thArgValue *)mod->GetArg(node, "position");
+	out_out = mod->GetArg(node, "out");
+	out_play = mod->GetArg(node, "play");
+	inout_position = mod->GetArg(node, "position");
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
@@ -63,12 +61,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out = out_out->allocate(windowlen);
 	play = out_play->allocate(windowlen);
 
-	in_a = (thArgValue *)mod->GetArg(node, "a"); /* Attack */
-	in_d = (thArgValue *)mod->GetArg(node, "d"); /* Decay */
-	in_s = (thArgValue *)mod->GetArg(node, "s"); /* Sustain */
-	in_r = (thArgValue *)mod->GetArg(node, "r"); /* Release */
-	in_p = (thArgValue *)mod->GetArg(node, "p"); /* Peak */
-	in_trigger = (thArgValue *)mod->GetArg(node, "trigger"); /* Note Trigger */
+	in_a = mod->GetArg(node, "a"); /* Attack */
+	in_d = mod->GetArg(node, "d"); /* Decay */
+	in_s = mod->GetArg(node, "s"); /* Sustain */
+	in_r = mod->GetArg(node, "r"); /* Release */
+	in_p = mod->GetArg(node, "p"); /* Peak */
+	in_trigger = mod->GetArg(node, "trigger"); /* Note Trigger */
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;

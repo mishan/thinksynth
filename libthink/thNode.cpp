@@ -1,5 +1,6 @@
-/* $Id: thNode.cpp,v 1.49 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thNode.cpp,v 1.50 2003/05/30 00:55:42 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -7,111 +8,80 @@
 #include <string.h>
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thNode.h"
 
-thNode::thNode (const char *name, thPlugin *thplug)	
+thNode::thNode (const string &name, thPlugin *thplug)	
 {
 	plugin = thplug;
-	nodename = strdup(name);
+	nodename = name;
 	recalc = false;
-	args = new thBSTree(StringCompare);
 }
 
 thNode::~thNode (void)
 {
-	free(nodename);
-	delete args;
+	thArg::DestroyMap(args);
 }
 
-/* We own this string. The caller may not free it. */
-void thNode::SetName(char *name)
+thArg *thNode::SetArg (const string &name, float *value, int num)
 {
-	free(nodename);
-	nodename = strdup(name);
-}
+	map<string, thArg*>::const_iterator i = args.find(name);
+	thArg *arg;
 
-thArg *thNode::SetArg (const char *name, float *value, int num)
-{
-	thArg *arg = (thArg *)args->GetData((void *)name);
-
-	if(!arg) {
+	if(i == args.end() || !i->second /* XXX shouldnt be necessary */) {
 		arg = new thArg(name, value, num);
-		args->Insert((void *)strdup(name), arg);
+		args[name] = arg;
 	}
 	else {
+		arg = i->second;
 		arg->SetArg(name, value, num);
 	}
 	return arg;
 }
 
-thArg *thNode::SetArg (const char *name, const char *node, const char *value)
+thArg *thNode::SetArg (const string &name, const string &node, const string &value)
 {
-	thArg *arg = (thArg *)args->GetData((void *)name);
+	map<string, thArg*>::const_iterator i = args.find(name);
+	thArg *arg;
 
-	if(arg) {
+	if(i != args.end() && i->second /* XXX we should not have to do this */) {
+		arg = i->second;
 		arg->SetArg(name, node, value);
 	}
 	else {
 		arg = new thArg(name, node, value);
-		args->Insert((void *)strdup(name), arg);
+		args[name] = arg;
 	}
 	return arg;
 }
 
-const thArgValue *thNode::GetArg (const char *name)
-{
-	thArg *arg = (thArg *)args->GetData((void *)name);
-
-	return arg->GetArg();
-}
-
 void thNode::PrintArgs (void)
 {
-	PrintArgs(args);
+	for (map<string,thArg*>::const_iterator i = args.begin(); i != args.end(); i++)
+		printf("%s\n", i->first.c_str());
 }
 
-void thNode::PrintArgs (thBSTree *node)
-{
-	if(!node) {
-		return;
-	}
-
-	PrintArgs(node->GetLeft());
-	printf("%s\n", (char *)node->GetId());
-	PrintArgs(node->GetRight());
-}
-
-void thNode::CopyArgs (thBSTree *newargs)
+void thNode::CopyArgs (const map<string, thArg*> &newargs)
 {
 	thArg *newarg;
-	thArgValue *data;
+	thArg *data;
 	float *newvalues;
 
-	if(!newargs) {
-		return;
+	for (map<string,thArg*>::const_iterator i = (newargs).begin(); i != (newargs).end(); i++)
+	{
+		data = i->second;
+		if(data->argType == ARG_VALUE) {
+			newvalues = new float[data->argNum];
+			memcpy(newvalues, data->argValues, data->argNum*sizeof(float));
+			newarg = new thArg(data->argName, newvalues, data->argNum);
+		}
+		else if(data->argType == ARG_POINTER) {
+			newarg = new thArg(data->argName, data->argPointNode,
+							   data->argPointName);
+		}
+		else continue;
+		args[data->argName] = newarg;
 	}
-
-	CopyArgs(newargs->GetLeft());
-
-	data = (thArgValue *)((thArg *)newargs->GetData())->GetArg();
-	if(data->argType == ARG_VALUE) {
-	  newvalues = new float[data->argNum];
-	  memcpy(newvalues, data->argValues, data->argNum*sizeof(float));
-		newarg = new thArg(data->argName, newvalues, data->argNum);
-	}
-	else if(data->argType == ARG_POINTER) {
-		newarg = new thArg(data->argName, data->argPointNode,
-						   data->argPointName);
-
-	}
-
-	args->Insert(data->argName, newarg);
-
-
-	CopyArgs(newargs->GetRight());
 }
 
 void thNode::Process (void)

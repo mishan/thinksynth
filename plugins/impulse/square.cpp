@@ -1,4 +1,4 @@
-/* $Id: square.cpp,v 1.1 2003/05/25 21:28:34 ink Exp $ */
+/* $Id: square.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,8 +8,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -42,15 +40,15 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_len, *in_pw, *in_num, *in_width;
-	thArgValue *out_arg;
+	thArg *in_len, *in_pw, *in_num, *in_width;
+	thArg *out_arg;
 	float i, pw, num, amp, width, pwidth;
 	unsigned int j, len;
 
-	in_len = (thArgValue *)mod->GetArg(node, "len"); /* Length of output */
-	in_width = (thArgValue *)mod->GetArg(node, "width"); /* Length of pulse */
-	in_pw = (thArgValue *)mod->GetArg(node, "pw"); /* Width of the pulses (%) if no length given */
-	in_num = (thArgValue *)mod->GetArg(node, "num"); /* Number of pulses */
+	in_len = mod->GetArg(node, "len"); /* Length of output */
+	in_width = mod->GetArg(node, "width"); /* Length of pulse */
+	in_pw = mod->GetArg(node, "pw"); /* Width of the pulses (%) if no length given */
+	in_num = mod->GetArg(node, "num"); /* Number of pulses */
 	len = (int)(*in_len)[0];
 	num = (*in_num)[0];
 	width = len/num;
@@ -61,7 +59,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	}
 	amp = 1/(pwidth*num);
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(len);
 	for(i = 0; (i+width) < len; i += width) {
 		for(j = 0; j < width; j++) {

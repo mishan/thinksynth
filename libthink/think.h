@@ -1,7 +1,13 @@
-/* $Id: think.h,v 1.12 2003/05/23 23:19:19 aaronl Exp $ */
+/* $Id: think.h,v 1.13 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
+
+#include <map>
+#include <string>
+#include <list>
+
+using namespace std;
 
 /* Sampling Rate */
 #define TH_SAMPLE 44100
@@ -41,5 +47,11 @@
 #define __builtin_expect(x, expected_value) (x)
 #endif
 #endif
+
+/* XXX: find a better spot */
+#define DESTROYBODY(type1,type2)											\
+for (map<type1,type2*>::iterator i=themap.begin(); i!=themap.end(); i++)	\
+	delete i->second
+
 
 #endif /* THINK_H */

@@ -1,4 +1,4 @@
-/* $Id: thPluginSignaler.h,v 1.4 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thPluginSignaler.h,v 1.5 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef TH_PLUGIN_SIGNALER_H
 #define TH_PLUGIN_SIGNALER_H 1
@@ -19,13 +19,13 @@ public:
 	thPluginSignaler ();
 	~thPluginSignaler ();
 
-	int HookSignal (thPluginSignal *signal);
-	void UnhookSignal (thPluginSignal *signal);
+	int HookSignal (thPluginSignal &signal);
+	void UnhookSignal (thPluginSignal &signal);
 	
 	int Fire (int sig, void *a, void *b, void *c, void *d, void *e, 
 			  char f);
 private:
-	thList plugSignals[NUM_SIGNALS];
+	list<thPluginSignal> plugSignals[NUM_SIGNALS];
 };
 
 #endif /* TH_PLUGIN_SIGNALER_H */

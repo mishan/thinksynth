@@ -1,12 +1,12 @@
-/* $Id: thPluginSignaler.cpp,v 1.7 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thPluginSignaler.cpp,v 1.8 2003/05/30 00:55:42 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thList.h"
 #include "thPlugin.h"
 #include "thPluginSignaler.h"
 
@@ -18,13 +18,13 @@ thPluginSignaler::~thPluginSignaler ()
 {
 }
 
-int thPluginSignaler::HookSignal (thPluginSignal *signal)
+int thPluginSignaler::HookSignal (thPluginSignal &signal)
 {
-	if(!signal || !signal->callback)
+	if(!signal.callback)
 		return 1;
 
-	if((signal->sigNum >= 0) && (signal->sigNum < NUM_SIGNALS)) {
-		plugSignals[signal->sigNum].Add(signal);
+	if((signal.sigNum >= 0) && (signal.sigNum < NUM_SIGNALS)) {
+		plugSignals[signal.sigNum].push_back(signal);
 	}
 	else {
 		return 1;
@@ -33,33 +33,24 @@ int thPluginSignaler::HookSignal (thPluginSignal *signal)
 	return 0;
 }
 
-void thPluginSignaler::UnhookSignal (thPluginSignal *signal)
+void thPluginSignaler::UnhookSignal (thPluginSignal &signal)
 {
-	thListNode *node;
-	
-	if(!signal) {
-		return;
-	}
-
-	for(node = plugSignals[signal->sigNum].GetHead(); node; 
-		node = node->prev) {
-		if(node->data == signal) {
-			plugSignals[signal->sigNum].Remove(node);
+	for (list<thPluginSignal>::iterator i = plugSignals[signal.sigNum].begin(); i != plugSignals[signal.sigNum].end(); i++)
+		if(memcmp((void*)&*i, (void*)&signal, sizeof(thPluginSignal)) == 0) {
+			plugSignals[signal.sigNum].erase(i);
 		}
-	}
 }
 
 int thPluginSignaler::Fire (int sig, void *a, void *b, void *c, void *d,
 							void *e, char f)
 {
-	thListNode *node;
 	int flag = 0;
 
-	for(node = plugSignals[sig].GetHead(); node; node = node->prev) {
-		thPluginSignal *signal = (thPluginSignal *)node->data;
+	for(list<thPluginSignal>::const_iterator i = plugSignals[sig].begin(); i != plugSignals[sig].end(); i++) {
+		thPluginSignal signal = *i;
 
-		if(signal && signal->callback) {
-			flag = signal->callback (a, b, c, d, e, f);
+		if(signal.callback) {
+			flag = signal.callback (a, b, c, d, e, f);
 		}
 	}
 

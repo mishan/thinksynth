@@ -1,4 +1,4 @@
-/* $Id: midi2freq.cpp,v 1.7 2003/05/24 08:44:58 aaronl Exp $ */
+/* $Id: midi2freq.cpp,v 1.8 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,8 +8,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -41,13 +39,13 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_note;
-	thArgValue *out_arg;
+	thArg *in_note;
+	thArg *out_arg;
 	unsigned int i, argnum;
 
-	in_note = (thArgValue *)mod->GetArg(node, "note");
+	in_note = mod->GetArg(node, "note");
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	argnum = (unsigned int) in_note->argNum;
 	out = out_arg->allocate(argnum);
 

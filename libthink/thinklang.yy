@@ -1,18 +1,14 @@
-/* $Id: thinklang.yy,v 1.45 2003/05/19 01:04:56 ink Exp $ */
+/* $Id: thinklang.yy,v 1.46 2003/05/30 00:55:42 aaronl Exp $ */
 
 %{
-#ifdef HAVE_CONFIG_H
+#include "think.h"
 #include "config.h"
-#endif
-
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"
@@ -207,7 +203,7 @@ NAME STRING
 {
 	parsemod->SetName($2.str);
 	free($2.str);
-	printf("DSP Name: %s\n", parsemod->GetName());
+	printf("DSP Name: %s\n", parsemod->GetName().c_str());
 }
 ;
 
@@ -222,7 +218,7 @@ WORD ASSIGN expression
 //	XXX - MORE FIXING
 //	modify_num(&targs, (char *)$1.str, $3.floatval);
 
-	float *copy = new float;
+	float *copy = new float[1];
 	*copy = $3.floatval;
 	parsenode->SetArg($1.str, copy, 1);
 	free($1.str);

@@ -1,4 +1,4 @@
-/* $Id: res1pole.cpp,v 1.1 2003/05/20 02:30:50 ink Exp $ */
+/* $Id: res1pole.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -10,8 +10,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -43,24 +41,24 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out, *buffer;
-	thArgValue *in_arg, *in_cutoff, *in_res;
-	thArgValue *out_arg;
-	thArgValue *inout_buffer;
+	thArg *in_arg, *in_cutoff, *in_res;
+	thArg *out_arg;
+	thArg *inout_buffer;
 	float buf0, buf1;
 	float fb, f, q;  /* feedback, cutoff, resonance */
 	unsigned int i;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(windowlen);
 
-	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
+	inout_buffer = mod->GetArg(node, "buffer");
 	buf0 = (*inout_buffer)[0];
 	buf1 = (*inout_buffer)[1];
 	buffer = inout_buffer->allocate(2);
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
-	in_res = (thArgValue *)mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, "in");
+	in_cutoff = mod->GetArg(node, "cutoff");
+	in_res = mod->GetArg(node, "res");
 
 	for(i=0;i<windowlen;i++) {
 		f = (*in_cutoff)[i];

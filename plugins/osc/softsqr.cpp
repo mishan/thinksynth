@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.11 2003/05/17 16:01:22 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.12 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,8 +9,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -48,21 +46,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float wavelength, sinewavelength, ratio;
 	float sinewidth, minsqrwidth, maxsqrwidth, position;
 	int phase;
-	thArgValue *in_freq, *in_pw, *in_sw;
-	thArgValue *out_arg;
-	thArgValue *inout_last;
+	thArg *in_freq, *in_pw, *in_sw;
+	thArg *out_arg;
+	thArg *inout_last;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, "out");
+	inout_last = mod->GetArg(node, "last");
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	phase = (int)(*inout_last)[1]; /* Which phase we are in */
 	out_last = inout_last->allocate(2);
 	out = out_arg->allocate(windowlen);
 
-	in_freq = (thArgValue *)mod->GetArg(node, "freq");
-	in_pw = (thArgValue *)mod->GetArg(node, "pw"); // Pulse Width
-	in_sw = (thArgValue *)mod->GetArg(node, "sfreq"); // Sine Freq
+	in_freq = mod->GetArg(node, "freq");
+	in_pw = mod->GetArg(node, "pw"); // Pulse Width
+	in_sw = mod->GetArg(node, "sfreq"); // Sine Freq
 
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 

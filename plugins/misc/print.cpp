@@ -1,4 +1,4 @@
-/* $Id: print.cpp,v 1.2 2003/05/17 16:01:22 ink Exp $ */
+/* $Id: print.cpp,v 1.3 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -39,11 +37,11 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	thArgValue *in_arg;
+	thArg *in_arg;
 	unsigned int i;
-	char *nodename = node->GetName();
+	const char *nodename = node->GetName().c_str();
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
+	in_arg = mod->GetArg(node, "in");
 
 	printf("Printing Node %s:\n", nodename); 
 	for(i=0;i<windowlen;i++) {

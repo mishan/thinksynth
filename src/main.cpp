@@ -1,5 +1,6 @@
-/* $Id: main.cpp,v 1.88 2003/05/24 08:02:27 aaronl Exp $ */
+/* $Id: main.cpp,v 1.89 2003/05/30 00:55:41 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -8,11 +9,8 @@
 #include <unistd.h>
 #include <time.h>
 
-#include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -26,14 +24,13 @@
 
 #include "parser.h"
 
-char* plugin_path;
+string plugin_path;
 
 int main (int argc, char *argv[])
 {
 	int havearg;
 	char *filename;
-	char *dspname = strdup("test"); /* XXX for debugging */
-	unsigned int plugin_len;
+	string dspname = "test"; /* XXX for debugging */
 
 	int i, j;
 	thAudioFmt audiofmt;
@@ -44,8 +41,7 @@ int main (int argc, char *argv[])
 	int notetoplay = 69;  /* XXX Remove when sequencing is external */
 	int processwindows = 100;  /* How many windows do we process? */
 
-	plugin_path = strdup(PLUGIN_PATH);
-	plugin_len = strlen(plugin_path);
+	plugin_path = PLUGIN_PATH;
 
 	if (argc < 2) /* Not enough parameters */
 	{
@@ -71,21 +67,18 @@ syntax:
 			break;
 
 		case 'p':
-			free (plugin_path);
 			if (optarg[strlen(optarg)-1] != '/') {
-				plugin_path = (char*)malloc(strlen(optarg)+2);
-				sprintf (plugin_path, "%s/", optarg);
+				plugin_path = optarg;
+				plugin_path += '/';
 			}
 			else {
-				plugin_path = strdup(optarg);	
+				plugin_path = optarg;
 			}
 			
-			plugin_len = strlen (plugin_path);
 			break;
 				
 		case 'm':
-			free(dspname);
-			dspname = strdup (optarg);	
+			dspname = optarg;
 			break;
 			
 		case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
@@ -118,8 +111,8 @@ syntax:
 
 	Synth.LoadMod(filename);
 	
-	Synth.AddChannel(strdup("chan1"), dspname, 100.0);
-	Synth.AddNote("chan1", notetoplay, TH_MAX);
+	Synth.AddChannel(string("chan1"), dspname, 100.0);
+	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	audiofmt.channels = Synth.GetChans();
 	audiofmt.bits = 16;
@@ -186,6 +179,4 @@ syntax:
 	//	Synth.PrintChan(0);
 
 	free(filename);
-	free(dspname);
-	free(plugin_path);
 }

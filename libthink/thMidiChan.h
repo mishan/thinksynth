@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.18 2003/05/24 00:38:55 aaronl Exp $ */
+/* $Id: thMidiChan.h,v 1.19 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -17,13 +17,18 @@ class thMidiChan {
 
 		float *GetOutput (void) const { return output; }
 		int GetChannels (void) const { return channels; }
+
+		static void DestroyMap (map<string,thMidiChan*> themap)
+		{
+			DESTROYBODY(string,thMidiChan);
+		}
 	private:
-		void ProcessHelper (thBSTree *note);
 		int GetLen(int);
 
 		bool dirty;
 		thMod *modnode;
-		thBSTree *args, *notes;
+		map<string, thArg*> args;
+		map<int, thMidiNote*> notes;
 		int channels, windowlength;
 		float *output;
 		int outputnamelen;

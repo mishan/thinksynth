@@ -1,4 +1,4 @@
-/* $Id: saturate.cpp,v 1.1 2003/05/27 21:52:17 ink Exp $ */
+/* $Id: saturate.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,8 +8,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -41,15 +39,15 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_arg, *in_factor;
-	thArgValue *out_arg;
+	thArg *in_arg, *in_factor;
+	thArg *out_arg;
 	float factor;
 	unsigned int i;
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_factor = (thArgValue *)mod->GetArg(node, "factor");
+	in_arg = mod->GetArg(node, "in");
+	in_factor = mod->GetArg(node, "factor");
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {

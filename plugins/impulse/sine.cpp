@@ -1,4 +1,4 @@
-/* $Id: sine.cpp,v 1.1 2003/05/24 02:13:28 ink Exp $ */
+/* $Id: sine.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,8 +8,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -42,20 +40,20 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_len, *in_max, *in_percent;
-	thArgValue *out_arg;
+	thArg *in_len, *in_max, *in_percent;
+	thArg *out_arg;
 	float max, percent, parabolalen, offset, half;
 	unsigned int i, len;
 
-	in_len = (thArgValue *)mod->GetArg(node, "len"); /* Length of output */
-	in_max = (thArgValue *)mod->GetArg(node, "max"); /* Sine peak */
-	in_percent = (thArgValue *)mod->GetArg(node, "percent"); /* How much of the output is actually parabola */
+	in_len = mod->GetArg(node, "len"); /* Length of output */
+	in_max = mod->GetArg(node, "max"); /* Sine peak */
+	in_percent = mod->GetArg(node, "percent"); /* How much of the output is actually parabola */
 	len = (int)(*in_len)[0];
 	max = (*in_max)[0];
 	percent = (*in_percent)[0];
 	half = len/2;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(len);
 
 	if(percent == 0) {

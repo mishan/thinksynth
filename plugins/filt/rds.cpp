@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.5 2003/05/17 16:01:22 ink Exp $ */
+/* $Id: rds.cpp,v 1.6 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -44,17 +42,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	float *highout;
 	float *out_last;
-	thArgValue *in_arg, *in_cutoff, *in_res;
-	thArgValue *out_arg, *out_high;
-	thArgValue *inout_last;
+	thArg *in_arg, *in_cutoff, *in_res;
+	thArg *out_arg, *out_high;
+	thArg *inout_last;
 	unsigned int i;
 	float last, diff;
 	float prevdiff, rdiff;
 	float fact, rfact;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	out_high = (thArgValue *)mod->GetArg(node, "highout");
-	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, "out");
+	out_high = mod->GetArg(node, "highout");
+	inout_last = mod->GetArg(node, "last");
 
 	last = (*inout_last)[0];
 	prevdiff = (*inout_last)[1];
@@ -63,9 +61,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out = out_arg->allocate(windowlen);
 	highout = out_high->allocate(windowlen);
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
-	in_res = (thArgValue *)mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, "in");
+	in_cutoff = mod->GetArg(node, "cutoff");
+	in_res = mod->GetArg(node, "res");
 
 	for(i=0;i<windowlen;i++) {
 	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));

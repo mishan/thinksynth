@@ -1,4 +1,4 @@
-/* $Id: test.cpp,v 1.11 2003/05/12 05:54:35 misha Exp $ */
+/* $Id: test.cpp,v 1.12 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"

@@ -1,35 +1,46 @@
-/* $Id: thMod.h,v 1.30 2003/05/29 03:11:03 ink Exp $ */
+/* $Id: thMod.h,v 1.31 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
 
-class thNode;
+#include "thNode.h"
 
 class thMod {
 public:
-	thMod(const char *name);
-	thMod(thMod *oldmod);  /* Copy constructor */
+	thMod(const string &name);
+	thMod(const thMod &oldmod);  /* Copy constructor */
 	~thMod();
-	
-	thNode *FindNode(const char *name);
-	const thArgValue *GetArg (const char *nodename, const char *argname);
-	const thArgValue *GetArg (thNode *node, const char *argname);
-	
+
+	thNode *FindNode(string name) const
+	{
+		const map<string,thNode*>::const_iterator i = modnodes.find(name);
+		if (i != modnodes.end()) return i->second;
+		return 0;
+	};
+	thArg *GetArg (const string &nodename, const string &argname);
+	thArg *GetArg (thNode *node, const string &argname);
+	thArg *GetArg (const string &argname) { return GetArg(ionode, argname); };
+
 	void NewNode(thNode *node);
-	void SetIONode(const char *name);
+	void SetIONode(const string &name);
 	void PrintIONode(void);
 	thNode *GetIONode(void) const { return ionode; };
-	
-	char *GetName(void) const { return modname; };
-	void SetName(char *name);
-	
+
+	string GetName(void) const { return modname; };
+	void SetName(const string &name) { modname = name; };
+
 	void Process (unsigned int windowlen);
-	
+
 	void SetActiveNodes(void);
-	
+
 	void BuildSynthTree (void);
 
 	void ListNodes(void);
+
+	static void DestroyMap (map<string,thMod*> themap)
+	{
+		    DESTROYBODY(string,thMod);
+	};
 
 private:
 	void ProcessHelper (unsigned int windowlen, thNode *node);
@@ -37,16 +48,14 @@ private:
 
 	void CopyHelper (thNode *parentnode);
 
-	int BuildSynthTreeHelper(thNode *parent, char *nodename);
-	void BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode);
+	int BuildSynthTreeHelper(thNode *parent, const string &nodename);
+	void BuildSynthTreeHelper2(const map <string, thArg*> &argtree, thNode *currentnode);
 
-	void ListNodes(thBSTree *node);
-
-	thBSTree *modnodes;
-	thList activelist;
+	map<string,thNode*> modnodes;
+	list<thNode*> activelist;
 	thNode *ionode;
-	
-	char *modname;
+
+	string modname;
 };
 
 #endif /* TH_MOD_H */

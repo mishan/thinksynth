@@ -1,10 +1,9 @@
-/* $Id: thPluginManager.cpp,v 1.38 2003/05/11 09:05:29 aaronl Exp $ */
+/* $Id: thPluginManager.cpp,v 1.39 2003/05/30 00:55:42 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 #include <unistd.h>
 #include <dlfcn.h>
 #include <fcntl.h>
@@ -13,48 +12,38 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 
 thPluginManager::thPluginManager ()
 {
-	plugins = new thBSTree(StringCompare);
 }
 
 thPluginManager::~thPluginManager ()
 {
 	UnloadPlugins();
-	delete plugins;
 }
 
-/* Caller must free!!! */
-char *thPluginManager::GetPath (char *name)
+const string thPluginManager::GetPath (const string &name)
 {
-	char *path = new char[strlen(name) + strlen(plugin_path) + 
-					  strlen(SHARED_SUFFIX) + 1];
+	string path;
 	struct stat *dummy = (struct stat*)malloc (sizeof(struct stat));
-	
+
 	/* Use the default path first */
-	sprintf(path, "%s%s%s", plugin_path, name, SHARED_SUFFIX);
-	
+	path = plugin_path + name + SHARED_SUFFIX;
+
 	/* Check for existence in the expected place */
-	
-	if (stat (path, dummy) == -1) { /* File existeth not */
+
+	if (stat (path.c_str(), dummy) == -1) { /* File existeth not */
 #ifdef USE_DEBUG
-		fprintf (stderr, "thPluginManager: %s: %s\n", path, strerror(errno));
+		fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
-		delete[] path;
-		path = new char[strlen("plugins/") + strlen(name) + 
-					strlen(SHARED_SUFFIX) + 1];
-		
-		sprintf (path, "plugins/%s%s", name, SHARED_SUFFIX);
-		if(stat(path, dummy) == -1) {
+		path = "plugins/" + name + SHARED_SUFFIX;
+		if(stat(path.c_str(), dummy) == -1) {
 #ifdef USE_DEBUG
-			fprintf(stderr, "thPluginManager: %s: %s\n", path, strerror(errno));
+			fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
-			delete path;
-			return NULL;
+			return string(); // XXX
 		}
 	}
 
@@ -62,62 +51,44 @@ char *thPluginManager::GetPath (char *name)
 	return path;
 }
 
-int thPluginManager::LoadPlugin (char *name)
+int thPluginManager::LoadPlugin (const string &name)
 {
 	thPlugin *plugin;
-	char *path;
+	const string path = GetPath(name);
 
-	path = GetPath(name);
-
-	if (path == NULL) { /* Not found at all */
+	if (path.empty()) { /* Not found at all */
 		fprintf (stderr, "Could not find the plugin anywhere!\n");
 		return 1;
 	}
-	
+
 	plugin = new thPlugin (path);
-	delete[] path;
 
 	if (plugin->GetState() == thNotLoaded) {	/* something messed up */
 		delete plugin;
 		return 1;
 	}
 	
-	plugins->Insert((void *)strdup(name), (void *)plugin); /* XXX we must free this name later */
+	plugins[name] = plugin;
 
 	return 0;
 }
 
 
-void thPluginManager::UnloadPlugin(char *name)
+void thPluginManager::UnloadPlugin(const string &name)
 {
-	thPlugin *plugin = (thPlugin *)plugins->GetData((void *)name);
+	map<string, thPlugin*>::iterator i = plugins.find(name);
 
-	if(!plugin) {
-		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n", name);
+	if(i == plugins.end()) {
+		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n", name.c_str());
 		return;
 	}
 
-	plugins->Remove((void *)name);
-
+	thPlugin *plugin = i->second;
+	plugins.erase(i);
 	delete plugin;
-}
-
-thPlugin *thPluginManager::GetPlugin (char *name)
-{
-	thPlugin *plugin = (thPlugin *)plugins->GetData((void *)name);
-	
-	return plugin;
 }
 
 void thPluginManager::UnloadPlugins (void)
 {
-	/* XXX: modify thBSTree to take an option to delete data;
-	   by freeing each plugin it will unload each */
-/*	thListNode *node;
-
-	for(node = plugins->GetTail(); node; node = node->prev) {
-		thPlugin *plugin = (thPlugin *)node->data;
-
-		delete plugin;
-		} */
+	thPlugin::DestroyMap(plugins);
 }

@@ -1,57 +1,53 @@
-/* $Id: thMod.cpp,v 1.72 2003/05/29 03:11:03 ink Exp $ */
+/* $Id: thMod.cpp,v 1.73 2003/05/30 00:55:42 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "thList.h" /* XXX switch to BSTrees! */
-#include "thBSTree.h"
 #include "thArg.h"
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"
 
-thMod::thMod (const char *name)
+thMod::thMod (const string &name)
 {
 	ionode = NULL;
-	modname = strdup(name);
-	modnodes = new thBSTree(StringCompare);
+	modname = name;
 }
 
-thMod::thMod (thMod *oldmod)
+thMod::thMod (const thMod &oldmod)
 {
-	thNode *oldionode = oldmod->GetIONode();
+	thNode *oldionode = oldmod.GetIONode();
 	thNode *newnode = new thNode(oldionode->GetName(), oldionode->GetPlugin());
 
 	ionode = NULL;
-	modnodes = new thBSTree(StringCompare);
-	modname = strdup(oldmod->GetName());
+	modname = oldmod.GetName();
 
 	newnode->CopyArgs(oldionode->GetArgTree());
 
 	NewNode(newnode);
-	SetIONode(newnode->GetName());
+	ionode = newnode;
 
 	CopyHelper(oldionode);
 }
 
 thMod::~thMod ()
 {
-	free(modname);
-	delete modnodes;
+	thNode::DestroyMap(modnodes);
 }
 
 void thMod::CopyHelper (thNode *parentnode)
 {
 	thNode *data, *newnode;
-	thListNode *listnode;
-	thBSTree *argtree;
+	list<thNode*> children = parentnode->GetChildren();
+	map<string, thArg*> argtree;
 
-	if(parentnode->GetChildren()) {
-		for(listnode = parentnode->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
-			data = (thNode *)listnode->data;
+	if(!children.empty()) {
+		for(list<thNode*>::const_iterator i = children.begin(); i != children.end(); i++) {
+			data = *i;
 			if(!FindNode(data->GetName())) {
 				newnode = new thNode(data->GetName(), data->GetPlugin());
 				NewNode(newnode);
@@ -59,7 +55,7 @@ void thMod::CopyHelper (thNode *parentnode)
 
 				argtree = data->GetArgTree();
 
-				if(argtree) {
+				if(!argtree.empty()) {
 					newnode->CopyArgs(argtree);
 				}
 			}
@@ -67,51 +63,48 @@ void thMod::CopyHelper (thNode *parentnode)
 	}
 }
 
-thNode *thMod::FindNode (const char *name)
+thArg *thMod::GetArg (const string &nodename, const string &argname)
 {
-	return (thNode *)modnodes->GetData((void *)name);
-}
-
-const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
-{
-	thNode *node = (thNode *)modnodes->GetData((void *)nodename);
-	if (!node)
+	map<string, thNode*>::const_iterator i;
+	i = modnodes.find(modname);
+	if (i == modnodes.end())
 	{
-		printf("WARNING!!  Trying to get args from nonexistant node %s\n", nodename);
+		printf("WARNING!!  Trying to get args from nonexistant node %s\n", nodename.c_str());
 		return NULL;
 	}
-	return GetArg(node, argname);
+	return GetArg(i->second, argname);
 }
 
-const thArgValue *thMod::GetArg (thNode *node, const char *argname)
-  /* Follow pointers and return a thArgValue of a float string */
+thArg *thMod::GetArg (thNode *node, const string &argname)
+  /* Follow pointers and return a thArg of a float string */
 {
-	const thArgValue *args;
+	thArg *args;
 	float *tmp;
 
 	args = node->GetArg(argname);
 
 	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
-	  tmp = new float[1];
-	  tmp[0] = 0;
-	  args = node->SetArg(argname, tmp, 1)->GetArg();
+		tmp = new float[1];
+		tmp[0] = 0;
+		args = node->SetArg(argname, tmp, 1);
 	}
 
 	while (args && (args->argType == ARG_POINTER) && node) { 
 		/* Recurse through the list of pointers until we get a real value. */
-		node = (thNode *)modnodes->GetData((void *)args->argPointNode);
-		if (node) {
+		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
+		if (i != modnodes.end()) {
+			node = i->second;
 			args = node->GetArg(args->argPointName);
 			/* If the arg doesnt exist, make it a 0 */
 			if(args == NULL) {
-			  tmp = new float[1];
-			  tmp[0] = 0;
-			  args = ((thArg *)node->SetArg(argname, tmp, 1))->GetArg();
+				tmp = new float[1];
+				tmp[0] = 0;
+				args = node->SetArg(argname, tmp, 1);
 			}
 		}
 		else {
-			printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", node->GetName(),  args->argPointNode);
+			printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", node->GetName().c_str(), args->argPointNode.c_str());
 		}
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
@@ -120,23 +113,18 @@ const thArgValue *thMod::GetArg (thNode *node, const char *argname)
 
 void thMod::NewNode (thNode *node)
 {
-	modnodes->Insert(strdup(node->GetName()), node);
+	modnodes[node->GetName()] = node;
 }
 
-/* We own this string. The caller may not free it. */
-void thMod::SetName (char *name)
+void thMod::SetIONode (const string &name)
 {
-	free (modname);
-	modname = strdup(name);
-}
+	map <string, thNode*>::const_iterator i = modnodes.find (name);
 
-void thMod::SetIONode (const char *name)
-{
-	ionode = (thNode *)modnodes->GetData((void *)name);
-
-	if (ionode == NULL) {
-		printf ("thMod::SetIONode: warning; ionode is NULL\n");
+	if (i == modnodes.end()) {
+		printf ("thMod::SetIONode: ionode is NULL\n");
+		return;
 	}
+	ionode = i->second;
 }
 
 void thMod::PrintIONode (void)
@@ -146,16 +134,14 @@ void thMod::PrintIONode (void)
 
 void thMod::Process (unsigned int windowlen)
 {
-	thListNode *listnode;
-	thNode *data;
 	thPlugin *plug = NULL;
+	list<thNode*> children = ionode->GetChildren();
 
 	ionode->SetRecalc(false);
 
-	for(listnode = ionode->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
-		data = (thNode *)listnode->data;
-		if(data->GetRecalc() == true) {
-			ProcessHelper(windowlen, data);
+	for(list<thNode*>::const_iterator i = children.begin(); i != children.end(); i++) {
+		if((*i)->GetRecalc() == true) {
+			ProcessHelper(windowlen, *i);
 		}
 	}
 
@@ -166,15 +152,13 @@ void thMod::Process (unsigned int windowlen)
 
 void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 {
-	thListNode *listnode;
-	thNode *data;
+	list<thNode*> children = node->GetChildren();
 
 	node->SetRecalc(false);
   
-	for(listnode = node->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
-		data = (thNode *)listnode->data;
-		if(data->GetRecalc() == true) {
-			ProcessHelper(windowlen, data);
+	for(list<thNode*>::const_iterator i = children.begin(); i != children.end(); i++) {
+		if((*i)->GetRecalc() == true) {
+			ProcessHelper(windowlen, *i);
 		}
 	}
 
@@ -184,25 +168,22 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 
 void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active plugins */
 {
-	thListNode *listnode;
-	thNode *data;
-
-	for(listnode = activelist.GetTail(); listnode; listnode = listnode->prev) {
-		data = (thNode *)listnode->data;
+	for(list<thNode*>::const_iterator i = activelist.begin(); i != activelist.end(); i++) {
+		thNode *data = *i;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
-			SetActiveNodesHelper((thNode *)listnode->data);
+			SetActiveNodesHelper(data);
 		}
 	}
 }
 
 void thMod::SetActiveNodesHelper(thNode *node)
 {
-	thListNode *listnode;
+	list<thNode*> parents = node->GetParents();
 	thNode *data;
 
-	for(listnode = node->GetParents()->GetTail(); listnode; listnode = listnode->prev) {
-		data = (thNode *)listnode->data;
+	for(list<thNode*>::const_iterator i = parents.begin(); i != parents.end(); i++) {
+		data = *i;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
 			SetActiveNodesHelper(data);
@@ -212,18 +193,14 @@ void thMod::SetActiveNodesHelper(thNode *node)
 
 void thMod::BuildSynthTree (void)
 {
-	thBSTree *argtree;
-
 	/* We don't want to recalc the root if something points here */
-	ionode->SetRecalc(true);  
+	ionode->SetRecalc(true);
 
-	argtree = ionode->GetArgTree();
-	BuildSynthTreeHelper2(argtree, ionode);
+	BuildSynthTreeHelper2(ionode->GetArgTree(), ionode);
 }
 
-int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
+int thMod::BuildSynthTreeHelper(thNode *parent, const string &nodename)
 {
-	thBSTree *argtree;
 	thNode *currentnode = FindNode(nodename);
 
 	if(currentnode->GetRecalc() == true) {
@@ -233,24 +210,20 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	currentnode->SetRecalc(true);  /* This node has now been marked as processed */
 
 	if(currentnode->GetPlugin()->GetState() == thActive) {
-	  activelist.Add(currentnode);
+	  activelist.push_back(currentnode);
 	}
-
-	argtree = currentnode->GetArgTree();
-
-	BuildSynthTreeHelper2(argtree, currentnode);
-	return(0);
+	BuildSynthTreeHelper2(currentnode->GetArgTree(), currentnode);
+	return 0;
 }
 
-void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
+void thMod::BuildSynthTreeHelper2(const map<string, thArg*> &argtree, thNode *currentnode)
 {
-	const thArgValue *data;
+	const thArg *data;
 	thNode *node;
 
-	if(argtree) {
-		BuildSynthTreeHelper2(argtree->GetLeft(), currentnode);
-
-		data = ((thArg *)argtree->GetData())->GetArg();
+	for (map<string, thArg*>::const_iterator i = argtree.begin(); i != argtree.end(); i++)
+	{
+		data = i->second;
 		if(!data) {
 			fprintf(stderr, "thMod::BuildSynthTreeHelper2: data points to NULL\n");
 		}
@@ -259,7 +232,7 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 			node = FindNode(data->argPointNode);
 
 			if(!node) {
-			  printf("CRITICAL: Node %s not found!!\n", data->argPointNode);
+				printf("CRITICAL: Node %s not found!!\n", data->argPointNode.c_str());
 			}
 
 			currentnode->AddChild(node);
@@ -269,23 +242,11 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 				BuildSynthTreeHelper(currentnode, data->argPointNode);
 			}
 		}
-
-		BuildSynthTreeHelper2(argtree->GetRight(), currentnode);
 	}
 }
 
 void thMod::ListNodes(void)
 {
-  ListNodes(modnodes);
-}
-
-void thMod::ListNodes(thBSTree *node)
-{
-  if(node) {
-	ListNodes(node->GetLeft());
-
-	printf("%s:  %s\n", modname, ((thNode *)node->GetData())->GetName());
-
-	ListNodes(node->GetRight());
-  }
+	for(map<string,thNode*>::const_iterator i = modnodes.begin(); i != modnodes.end(); i++)
+		printf("%s:  %s\n", modname.c_str(), i->second->GetName().c_str());
 }

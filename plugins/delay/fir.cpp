@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.7 2003/05/25 17:31:25 ink Exp $ */
+/* $Id: fir.cpp,v 1.8 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -41,23 +39,23 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
 	float *buffer, *bufpos;
-	thArgValue *in_arg, *in_impulse, *in_mix;
-	thArgValue *out_arg;
-	thArgValue *inout_buffer, *inout_bufpos;
+	thArg *in_arg, *in_impulse, *in_mix;
+	thArg *out_arg;
+	thArg *inout_buffer, *inout_bufpos;
 	unsigned int i;
 	int j, index;
 	float impulse, mix;
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_impulse = (thArgValue *)mod->GetArg(node, "impulse");
-	in_mix = (thArgValue *)mod->GetArg(node, "mix");
+	in_arg = mod->GetArg(node, "in");
+	in_impulse = mod->GetArg(node, "impulse");
+	in_mix = mod->GetArg(node, "mix");
 
-	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
-	inout_bufpos = (thArgValue *)mod->GetArg(node, "bufpos");
+	inout_buffer = mod->GetArg(node, "buffer");
+	inout_bufpos = mod->GetArg(node, "bufpos");
 	buffer = inout_buffer->allocate(in_impulse->argNum);
 	bufpos = inout_bufpos->allocate(1);
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {

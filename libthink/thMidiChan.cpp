@@ -1,5 +1,6 @@
-/* $Id: thMidiChan.cpp,v 1.47 2003/05/24 00:38:55 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.48 2003/05/30 00:55:42 aaronl Exp $ */
 
+#include "think.h"
 #include "config.h"
 
 #include <stdio.h>
@@ -8,8 +9,6 @@
 
 #include "think.h"
 
-#include "thList.h"
-#include "thBSTree.h"
 #include "thArg.h"
 #include "thPlugin.h"
 #include "thNode.h"
@@ -20,8 +19,7 @@
 thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 {
 	float *allocatedamp = new float[1];
-	thArg *argstruct = new thArg("amp", allocatedamp, 1);
-	const thArgValue *chanarg = NULL;
+	const thArg *chanarg = NULL;
 
 	if(!mod) {
 		fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
@@ -32,12 +30,9 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	allocatedamp[0] = amp;
 	dirty = 1;
 
-	args = new thBSTree(StringCompare);
-	notes = new thBSTree(IntCompare);
+	args[string("amp")] = new thArg(string("amp"), allocatedamp, 1);
 
-	args->Insert((void *)strdup("amp"), (void *)argstruct);
-
-	chanarg = modnode->GetArg(modnode->GetIONode(), "channels");
+	chanarg = modnode->GetArg("channels");
 	channels = (int)chanarg->argValues[0];
 
 	output = new float[channels*windowlen];
@@ -46,69 +41,56 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 thMidiChan::~thMidiChan (void)
 {
-	delete modnode;
-	delete args;
-	delete notes;
-	delete output;
+	thArg::DestroyMap(args);
+	thMidiNote::DestroyMap(notes);
+	delete[] output;
 }
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote;
-	int *id = (int*) malloc(sizeof(int));
-
-	id[0] = (int)note;
-	midinote = (thMidiNote *)notes->GetData(id);
-	if(!midinote) {
+	int id = (int)note;
+	map<int, thMidiNote*>::const_iterator i = notes.find(id);
+	if(i == notes.end()) {
 		midinote = new thMidiNote(modnode, note, velocity);
-		notes->Insert(id, midinote);
+		notes[id] = midinote;
 	}
+	else midinote = i->second;
 	return midinote;
 }
 
 void thMidiChan::DelNote (int note)
 {
-	thBSTree *node = notes->Find(&note);
-
-	delete (thMidiNote *)node->GetData();
-
-	notes->Remove(&note);
+	map<int, thMidiNote*>::iterator i = notes.find(note);
+	delete i->second;
+	notes.erase(i);
 }
 
 void thMidiChan::Process (void)
 {
 	if (dirty) memset (output, 0, windowlength*channels*sizeof(float));
 	dirty = 0;
-	ProcessHelper(notes);
-}
-
-void thMidiChan::ProcessHelper (thBSTree *note)
-{
 	thMidiNote *data;
-	thArgValue *arg, *amp, *play;
+	thArg *arg, *amp, *play;
 	thMod *mod;
 	int i, j;
 	int delnote = 0;
 
-	if(!note) {
-		return;
-	}
+	string argname;
 
-	char *argname = (char*)alloca(outputnamelen+1);
-
-	ProcessHelper(note->GetLeft());
-
-	data = (thMidiNote *)note->GetData();
-	if(data) { /* XXX We should not have to do this! */
+	for (map<int, thMidiNote*>::iterator iter = notes.begin(); iter != notes.end(); ++iter)
+	{
+		data = iter->second;
 		dirty = 1;
 		data->Process(windowlength);
 		mod = data->GetMod();
-		amp = (thArgValue *)args->GetData((void *)"amp");
-		play = (thArgValue *)mod->GetArg(mod->GetIONode(), "play");
-	  
+		amp = args["amp"];
+		play = mod->GetArg("play");
+
 		for(i=0;i<channels;i++) {
-			sprintf(argname, "%s%i", OUTPUTPREFIX, i);
-			arg = (thArgValue *)mod->GetArg(mod->GetIONode(), argname);
+			argname = OUTPUTPREFIX;
+			argname += (char)(i+'0');
+			arg = mod->GetArg(argname);
 			for(j=0;j<windowlength;j++) {
 				output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 				if(play && (*play)[j] == 0) {
@@ -117,13 +99,12 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 				/* output += channel output * (amplitude/amplitude maximum) */
 			}
 		}
-	  
+
 		if(delnote == 1) {
-			DelNote(data->GetID());
+			delete data;
+			notes.erase(iter);
 		}
 	}
-
-	ProcessHelper(note->GetRight());
 }
 
 static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,

@@ -1,4 +1,4 @@
-/* $Id: res2pole.cpp,v 1.3 2003/05/22 00:05:04 ink Exp $ */
+/* $Id: res2pole.cpp,v 1.4 2003/05/30 00:55:41 aaronl Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org
@@ -13,8 +13,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -46,27 +44,27 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out, *highout, *bandout, *notchout, *delay;
-	thArgValue *in_arg, *in_cutoff, *in_res;
-	thArgValue *out_low, *out_high, *out_band, *out_notch;
-	thArgValue *inout_delay;
+	thArg *in_arg, *in_cutoff, *in_res;
+	thArg *out_low, *out_high, *out_band, *out_notch;
+	thArg *inout_delay;
 	float f, q;
 	unsigned int i;
 
-	out_low = (thArgValue *)mod->GetArg(node, "out");
-	out_high = (thArgValue *)mod->GetArg(node, "out_high");
-	out_band = (thArgValue *)mod->GetArg(node, "out_band");
-	out_notch = (thArgValue *)mod->GetArg(node, "out_notch");
+	out_low = mod->GetArg(node, "out");
+	out_high = mod->GetArg(node, "out_high");
+	out_band = mod->GetArg(node, "out_band");
+	out_notch = mod->GetArg(node, "out_notch");
 	out = out_low->allocate(windowlen);
 	highout = out_high->allocate(windowlen);
 	bandout = out_band->allocate(windowlen);
 	notchout = out_notch->allocate(windowlen);
 
-	inout_delay = (thArgValue *)mod->GetArg(node, "delay");
+	inout_delay = mod->GetArg(node, "delay");
 	delay = inout_delay->allocate(2);
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
-	in_res = (thArgValue *)mod->GetArg(node, "res");
+	in_arg = mod->GetArg(node, "in");
+	in_cutoff = mod->GetArg(node, "cutoff");
+	in_res = mod->GetArg(node, "res");
 
 	for(i=0;i<windowlen;i++) {
 		f = 2*sin(M_PI * (*in_cutoff)[i] / TH_SAMPLE);

@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.h,v 1.14 2003/05/08 00:53:33 ink Exp $ */
+/* $Id: thMidiNote.h,v 1.15 2003/05/30 00:55:42 aaronl Exp $ */
 
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
@@ -15,15 +15,18 @@ public:
 	/* returns a pointer to a list of values */
 	//thArgValue *GetArg(const char *name);
 	
-	thMod *GetMod(void) { return modnode; }
-	int GetID(void) { return noteid; }
+	thMod *GetMod(void) { return &modnode; }
+	int GetID(void) const { return noteid; }
 
 	void Process (int length);
-	
+
+	static void DestroyMap (map<int,thMidiNote*> themap)
+	{
+		DESTROYBODY(int, thMidiNote);
+	};
+
 private:
-	//		thBSTree *args;
-	thMod *modnode;
-	thNode *ionode;
+	thMod modnode;
 	int noteid;
 };
 

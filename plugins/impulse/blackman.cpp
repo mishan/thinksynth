@@ -1,4 +1,4 @@
-/* $Id: blackman.cpp,v 1.1 2003/05/24 07:44:50 ink Exp $ */
+/* $Id: blackman.cpp,v 1.2 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -8,8 +8,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -42,17 +40,17 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_len, *in_cut;
-	thArgValue *out_arg;
+	thArg *in_len, *in_cut;
+	thArg *out_arg;
 	float factor, len, k = 0;
 	unsigned int i;
 
-	in_len = (thArgValue *)mod->GetArg(node, "len"); /* Length of output */
-	in_cut = (thArgValue *)mod->GetArg(node, "cutoff"); /* 0 - 1 */
+	in_len = mod->GetArg(node, "len"); /* Length of output */
+	in_cut = mod->GetArg(node, "cutoff"); /* 0 - 1 */
 	len = (int)(*in_len)[0];
 	factor = (*in_cut)[0]/2;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, "out");
 	out = out_arg->allocate((int)len+1);
 	
 	for(i=0;i<=(unsigned int)len;i++) {

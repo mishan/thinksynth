@@ -1,4 +1,4 @@
-/* $Id: divbuf.cpp,v 1.2 2003/05/17 15:27:30 ink Exp $ */
+/* $Id: divbuf.cpp,v 1.3 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -7,8 +7,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -43,21 +41,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
 	float *out_buf;
-	thArgValue *in_arg, *in_factor;
-	thArgValue *out_arg;
-	thArgValue *inout_buffer;
+	thArg *in_arg, *in_factor;
+	thArg *out_arg;
+	thArg *inout_buffer;
 	
 	unsigned int i;
 	float factor, buffer;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
+	out_arg = mod->GetArg(node, "out");
+	inout_buffer = mod->GetArg(node, "buffer");
 	buffer = (*inout_buffer)[0];
 	out = out_arg->allocate(windowlen);
 	out_buf = inout_buffer->allocate(1);
 
-	in_arg = (thArgValue *)mod->GetArg(node, "in");
-	in_factor = (thArgValue *)mod->GetArg(node, "factor");
+	in_arg = mod->GetArg(node, "in");
+	in_factor = mod->GetArg(node, "factor");
 
 	for(i=0;i<windowlen;i++) {
 	  factor = SQR(SQR((*in_factor)[i]));

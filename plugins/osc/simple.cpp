@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.28 2003/05/23 05:35:53 ink Exp $ */
+/* $Id: simple.cpp,v 1.29 2003/05/30 00:55:41 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,8 +9,6 @@
 #include "think.h"
 
 #include "thArg.h"
-#include "thList.h"
-#include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
@@ -51,25 +49,25 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float position, wavelength;
 	float pw; /* Make pw cooler! */
 	float fmamt;
-	thArgValue *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset;
-	thArgValue *out_arg, *out_sync;
-	thArgValue *inout_last;
+	thArg *in_freq, *in_pw, *in_waveform, *in_fm, *in_fmamt, *in_reset;
+	thArg *out_arg, *out_sync;
+	thArg *inout_last;
 
-	out_arg = (thArgValue *)mod->GetArg(node, "out");
-	out_sync = (thArgValue *)mod->GetArg(node, "sync"); /* Output a 1 when the wave begins its cycle */
-	inout_last = (thArgValue *)mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, "out");
+	out_sync = mod->GetArg(node, "sync"); /* Output a 1 when the wave begins its cycle */
+	inout_last = mod->GetArg(node, "last");
 	position = (*inout_last)[0];
 	out_last = inout_last->allocate(1);
 	sync = out_sync->allocate(windowlen);
 
 	out = out_arg->allocate(windowlen);
 
-	in_freq = (thArgValue *)mod->GetArg(node, "freq");
-	in_pw = (thArgValue *)mod->GetArg(node, "pw");
-	in_waveform = (thArgValue *)mod->GetArg(node, "waveform");
-	in_fm = (thArgValue *)mod->GetArg(node, "fm"); /* FM Input */
-	in_fmamt = (thArgValue *)mod->GetArg(node, "fmamt"); /* Modulation amount */
-	in_reset = (thArgValue *)mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
+	in_freq = mod->GetArg(node, "freq");
+	in_pw = mod->GetArg(node, "pw");
+	in_waveform = mod->GetArg(node, "waveform");
+	in_fm = mod->GetArg(node, "fm"); /* FM Input */
+	in_fmamt = mod->GetArg(node, "fmamt"); /* Modulation amount */
+	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = TH_SAMPLE/(*in_freq)[i];
