@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.60 2003/05/03 23:51:17 ink Exp $ */
+/* $Id: thMod.cpp,v 1.61 2003/05/04 01:43:04 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -70,7 +70,6 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 void thMod::NewNode (thNode *node)
 {
-  printf("NEWNODE: %s\n", node->GetName());
 	modnodes->Insert(strdup(node->GetName()), node);
 }
 
@@ -244,8 +243,7 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 
 		if(data->argType == ARG_POINTER) {
 			node = FindNode(data->argPointNode);
-			printf("BUILDSYNTHTREE: Looking for note %s, found %s\n", data->argPointNode, node->GetName());
-			printf("BUILDSYNTHTREE: Adding %s to %s\n", data->argPointNode, currentnode->GetName());
+
 			currentnode->AddChild(node);
 			node->AddParent(currentnode);
 

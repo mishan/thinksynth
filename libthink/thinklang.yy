@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.38 2003/05/03 22:40:59 ink Exp $ */
+/* $Id: thinklang.yy,v 1.39 2003/05/04 01:43:04 ink Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -229,7 +229,6 @@ WORD ASSIGN fstr
 	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
 	arg[argsize] = 0;
-printf("PARSER: %s:  %s->%s (%i)(%i)\n", $1.str, node, arg, nodesize, argsize);
 	parsenode->SetArg($1.str, node, arg);
 
 	delete[] node;

@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.28 2003/05/03 19:28:26 ink Exp $ */
+/* $Id: thArg.cpp,v 1.29 2003/05/04 01:43:04 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -32,8 +32,6 @@ thArg::thArg(const char *name, const char *node, const char *value)
 	argValue.argName = strdup(name);
 	argValue.argPointNode = strdup(node);
 	argValue.argPointName = strdup(value);
-	printf("Making New Arg From: %s: %s->%s\n", name, node, value);
-		printf("New Arg: %s  %s->%s\n", argValue.argName, argValue.argPointNode, argValue.argPointName);
 	argValue.argValues = NULL;
 	argValue.argNum = 0;
 

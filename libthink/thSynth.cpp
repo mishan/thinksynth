@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.47 2003/05/04 00:14:00 aaronl Exp $ */
+/* $Id: thSynth.cpp,v 1.48 2003/05/04 01:43:04 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -60,8 +60,6 @@ void thSynth::LoadMod(const char *filename)
 	yyparse();
 	
 	delete parsenode;
-	printf("Building Newly Parsed Tree: %s\n", parsemod->GetName());
-	parsemod->ListNodes();
 	parsemod->BuildSynthTree();
 	modlist->Insert((void *)strdup(parsemod->GetName()), (void *)parsemod);
 }
