@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.27 2003/05/23 02:32:08 ink Exp $ */
+/* $Id: simple.cpp,v 1.28 2003/05/23 05:35:53 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,6 +16,8 @@
 #include "thNode.h"
 #include "thMod.h"
 #include "thSynth.h"
+
+#define SQR(x) ((x)*(x))
 
 char		*desc = "Basic Oscillator";
 thPluginState	mystate = thActive;
@@ -95,39 +97,46 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		} else {
 			ratio = (((position-halfwave)/(wavelength-halfwave))/2)+0.5;
 		}
-
+		
 		switch((int)(*in_waveform)[i]) {
-			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle */
-		case 0:    /* SINE WAVE */
-			out[i] = TH_MAX*sin(ratio*2*M_PI); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
-			break;
-		case 1:    /* SAWTOOTH WAVE */
-			out[i] = TH_RANGE*ratio+TH_MIN;
-			break;
-		case 2:    /* SQUARE WAVE */
-			if(ratio < 0.5) {
-				out[i] = TH_MIN;
-			} else {
-				out[i] = TH_MAX;
-			}
-			break;
-		case 3:    /* TRIANGLE WAVE */
-			ratio *= 2;
-			if(ratio < 1) {
+			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle, 5 = parabola */
+			case 0:    /* SINE WAVE */
+				out[i] = TH_MAX*sin(ratio*2*M_PI); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+				break;
+			case 1:    /* SAWTOOTH WAVE */
 				out[i] = TH_RANGE*ratio+TH_MIN;
-			} else {
-				out[i] = (-TH_RANGE)*(ratio-1)+TH_MAX;
-			}
-			break;
-		case 4:    /* HALF-CIRCLE WAVE */
-			if(ratio < 0.5) {
-				out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
-			} else {
-				out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*TH_MIN;
-			}
+				break;
+			case 2:    /* SQUARE WAVE */
+				if(ratio < 0.5) {
+					out[i] = TH_MIN;
+				} else {
+					out[i] = TH_MAX;
+				}
+				break;
+			case 3:    /* TRIANGLE WAVE */
+				ratio *= 2;
+				if(ratio < 1) {
+					out[i] = TH_RANGE*ratio+TH_MIN;
+				} else {
+					out[i] = (-TH_RANGE)*(ratio-1)+TH_MAX;
+				}
+				break;
+			case 4:    /* HALF-CIRCLE WAVE */
+				if(ratio < 0.5) {
+					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
+				} else {
+					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*TH_MIN;
+				}
+				break;
+			case 5:    /* PARABOLA WAVE */
+				if(ratio < 0.5) {
+					out[i] = TH_MAX*(1-SQR(ratio*4-1));
+				} else {
+					out[i] = TH_MAX*(SQR((ratio-0.5)*4-1)-1)       ;
+				}	
 		}
 	}
-
+	
 	out_last[0] = position;
 /*	node->SetArg("out", out, windowlen);
 	last[0] = position;
