@@ -1,0 +1,16 @@
+mandir=@mandir@
+prefix=@prefix@
+
+all clean:
+
+install:
+	mkdir -p $(DESTDIR)$(mandir)/man1
+	install -m 644 thinksynth.1 $(DESTDIR)$(mandir)/man1/
+
+uninstall:
+	rm $(DESTDIR)$(mandir)/man1/thinksynth.1
+
+distclean:
+	rm -f thinksynth.1 Makefile
+
+distrib: distclean

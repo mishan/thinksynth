@@ -1,0 +1,52 @@
+.TH THINKSYNTH "1" "September 2004" "thinksynth 0.1"
+.SH NAME
+thinksynth \- ALSA/JACK based MIDI synthesizer
+.SH SYNOPSIS
+.B thinksynth
+[\fI\-d OUTPUT\fR] [\fI\-p PATH\fR] [\fI\-r RATE\fR] [\fI\-l WINDOW\fR]
+.SH DESCRIPTION
+.PP
+.\" Foo Bar Baz - someone who knows alot more about internals FILL THIS IN
+Cows go 'moo.'
+.SH OPTIONS
+.TP
+\fB\-d\fR OUTPUT
+.PP
+This specifies the audio output module to use during your Thinksynth session.
+Currently, 'alsa' and 'jack' are supported. The default output module to use is '@DEFAULT_OUTPUT@'.
+.TP
+\fB\-p\fR PATH
+.PP
+This specifies an alternate path to search in for plugin modules. By default,
+it is '@plugin_path@'.
+.TP
+\fB\-r\fR RATE
+.PP
+This modifies the sample rate of the output; the default may vary depending on
+which audio output module is used
+.TP
+\fB\-l\fR WINDOW
+.PP
+.\" XXX - wtf is this, i don't know
+Modifies the window length for audio output.
+.SH AUTHOR
+Metaphonic Labs is...
+.TP
+Leif Ames <ink@bespin.org>
+.TP
+Misha Nasledov <misha@nasledov.com>
+.TP
+Aaron Lehmann <aaronl@vitelus.com>
+.TP
+Joshua Kwan <joshk@triplehelix.org>
+.SH "REPORTING BUGS"
+Report bugs to bugs@thinksynth.org.
+.SH COPYRIGHT
+Copyright \(co 2004 Metaphonic Labs Inc.
+.br
+This is free software; see the source for copying conditions.  There is NO
+warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+.SH "SEE ALSO"
+.B ardour(1),
+.B jackd(1),
+.B qjackctl(1)

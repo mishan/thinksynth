@@ -1,6 +1,6 @@
-# $Id: Makefile,v 1.22 2004/09/09 01:22:09 joshk Exp $
+# $Id: Makefile,v 1.23 2004/09/10 05:31:31 joshk Exp $
 
-SUBDIRS = libthink src plugins dsp etc
+SUBDIRS = libthink src plugins dsp etc docs
 NAME = thinksynth
 VERSION = devel
 exclusions = CVS .cvsignore .\#* debian

@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.94 2004/09/06 07:40:42 joshk Exp $
+dnl $Id: configure.ac,v 1.95 2004/09/10 05:31:31 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -289,6 +289,7 @@ AC_ARG_WITH(default-output,
 	[default_output="jack"])
 
 AC_DEFINE_UNQUOTED([DEFAULT_OUTPUT], "$default_output", [Default output device for thinksynth.])
+AC_SUBST(DEFAULT_OUTPUT, "$default_output")
 
 thinkrc=$sysconfdir/thinkrc
 AC_SUBST_DIR(thinkrc)
@@ -305,7 +306,20 @@ AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(dsp_path)
 AC_SUBST(plugin_path)
 
-AC_CONFIG_FILES([libthink/Makefile src/Makefile src/gui/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile etc/thinkrc etc/Makefile build.mk])
+AC_CONFIG_FILES([
+	libthink/Makefile
+	src/Makefile
+	src/gui/Makefile
+	plugins/Makefile
+	dsp/Makefile
+	etc/Makefile
+	docs/Makefile
+	etc/thinkrc
+	docs/thinksynth.1
+	plugins/plugin-common.mk
+	build.mk
+])
+
 AC_OUTPUT
 
 echo
