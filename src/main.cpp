@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.128 2004/02/01 10:02:04 misha Exp $ */
+/* $Id: main.cpp,v 1.129 2004/02/04 21:10:11 misha Exp $ */
 
 #include "config.h"
 
@@ -28,6 +28,8 @@
 
 #include "parser.h"
 
+/* XXX: remove ALSA/OSS-specific code from libthink */
+
 string plugin_path;
 
 const char syntax[] = \
@@ -41,8 +43,78 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "  -o [file|device]\tchange output dest\n"
 ;
 
-snd_seq_t *open_seq();
-int processmidi(thSynth *synth, snd_seq_t *seq_handle);
+/* XXX: this should not be here */
+snd_seq_t *open_seq (void)
+{
+
+    snd_seq_t *seq_handle;
+    
+    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
+	{
+        fprintf(stderr, "Error opening ALSA sequencer.\n");
+        exit(1);
+    }
+
+	snd_seq_set_client_name(seq_handle, "thinksynth");
+	
+    if (snd_seq_create_simple_port(seq_handle, "thinksynth",
+        SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
+        SND_SEQ_PORT_TYPE_APPLICATION) < 0)
+	{
+        fprintf(stderr, "Error creating sequencer port.\n");
+        exit(1);
+    }
+
+    return seq_handle;
+}
+
+int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
+{
+	snd_seq_event_t *ev;
+	float *pbuf = new float[1];  // Parameter buffer
+	char channelname[10];  /* XXX: FOR HARDCODED CHANNELS  remove this later */
+	
+	do {
+        snd_seq_event_input(seq_handle, &ev);
+		sprintf(channelname, "chan%i", ev->data.note.channel);
+        switch (ev->type) {
+			case SND_SEQ_EVENT_NOTEON:
+			{
+				Synth->AddNote(string(channelname), ev->data.note.note,
+							   ev->data.note.velocity);
+				break;
+			}
+			case SND_SEQ_EVENT_NOTEOFF:
+			{
+				/* XXX make this part better */
+				*pbuf = 0;
+				Synth->SetNoteArg(string(channelname), ev->data.note.note,
+								  "trigger", pbuf, 1);
+				break;
+			}
+			case SND_SEQ_EVENT_TEMPO:
+			{
+				printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
+				break;
+			}
+			case SND_SEQ_EVENT_TICK:
+			{
+				printf("TICK CHANGE:  %i\n", ev->data.control.value);
+				break;
+			}
+			case SND_SEQ_EVENT_PITCHBEND:
+			{
+				printf("PITCH BEND:  %i\n", ev->data.control.value);
+				break;
+			}
+		}
+		snd_seq_free_event(ev);
+    } while (snd_seq_event_input_pending(seq_handle, 0) > 0);
+
+	return 0;
+}
+
+
 
 int main (int argc, char *argv[])
 {
@@ -281,75 +353,6 @@ int main (int argc, char *argv[])
 	}
 
 	delete outputstream;
-
-	return 0;
-}
-
-snd_seq_t *open_seq() {
-
-    snd_seq_t *seq_handle;
-    
-    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
-	{
-        fprintf(stderr, "Error opening ALSA sequencer.\n");
-        exit(1);
-    }
-
-	snd_seq_set_client_name(seq_handle, "thinksynth");
-	
-    if (snd_seq_create_simple_port(seq_handle, "thinksynth",
-        SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
-        SND_SEQ_PORT_TYPE_APPLICATION) < 0)
-	{
-        fprintf(stderr, "Error creating sequencer port.\n");
-        exit(1);
-    }
-
-    return seq_handle;
-}
-
-int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
-{
-	snd_seq_event_t *ev;
-	float *pbuf = new float[1];  // Parameter buffer
-	char channelname[10];  /* XXX: FOR HARDCODED CHANNELS  remove this later */
-	
-	do {
-        snd_seq_event_input(seq_handle, &ev);
-		sprintf(channelname, "chan%i", ev->data.note.channel);
-        switch (ev->type) {
-			case SND_SEQ_EVENT_NOTEON:
-			{
-				Synth->AddNote(string(channelname), ev->data.note.note,
-							   ev->data.note.velocity);
-				break;
-			}
-			case SND_SEQ_EVENT_NOTEOFF:
-			{
-				/* XXX make this part better */
-				*pbuf = 0;
-				Synth->SetNoteArg(string(channelname), ev->data.note.note,
-								  "trigger", pbuf, 1);
-				break;
-			}
-			case SND_SEQ_EVENT_TEMPO:
-			{
-				printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
-				break;
-			}
-			case SND_SEQ_EVENT_TICK:
-			{
-				printf("TICK CHANGE:  %i\n", ev->data.control.value);
-				break;
-			}
-			case SND_SEQ_EVENT_PITCHBEND:
-			{
-				printf("PITCH BEND:  %i\n", ev->data.control.value);
-				break;
-			}
-		}
-		snd_seq_free_event(ev);
-    } while (snd_seq_event_input_pending(seq_handle, 0) > 0);
 
 	return 0;
 }
