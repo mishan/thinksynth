@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.47 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thArg.cpp,v 1.48 2004/09/30 09:18:58 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,6 +31,7 @@ thArg::thArg(const string &name, float *value, const int num)
 	argType = ARG_VALUE;
 	argPointNodeID = -1;   /* so we know it has not been set yet */
 	argPointArgID = -1;   /* so we know it has not been set yet */
+	argWidget = HIDE;
 }
 
 thArg::thArg(const string &name, const string &node, const string &value)
@@ -44,6 +45,7 @@ thArg::thArg(const string &name, const string &node, const string &value)
 	argType = ARG_POINTER;
 	argPointNodeID = -1;   /* so we know it has not been set yet */
 	argPointArgID = -1;   /* so we know it has not been set yet */
+	argWidget = HIDE;
 }
 
 thArg::thArg(const string &name, const string &chanarg)
@@ -57,6 +59,7 @@ thArg::thArg(const string &name, const string &chanarg)
     argPointNodeID = -1;   /* so we know it has not been set yet */
     argPointArgID = -1;   /* so we know it has not been set yet */
 	argPointArg = NULL;
+	argWidget = HIDE;
 }
 
 /* the equivalent of creating a thArg(NULL, NULL, 0) */
@@ -64,6 +67,7 @@ thArg::thArg (void)
 {
 	argValues = NULL;
 	argNum = 0;
+	argWidget = HIDE;
 }
 
 thArg::~thArg(void)

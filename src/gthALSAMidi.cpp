@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.15 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.16 2004/09/30 09:18:58 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,31 +41,6 @@ gthALSAMidi::gthALSAMidi (const char *argname)
 gthALSAMidi::~gthALSAMidi (void)
 {
 	snd_seq_close(seq_handle);
-}
-
-bool gthALSAMidi::ProcessEvents (void)
-{
-	bool r = false;
-
-	return r;
-	
-	/* XXX */
-
-	if (poll(pfds, seq_nfds, 0) > 0)
-	{
-		int j;
-
-		for (j = 0; j < seq_nfds; j++)
-		{
-			if (pfds[j].revents > 0)
-			{
-				m_sigMidiEvent(seq_handle);
-				r = true;
-			}
-		}
-	}
-
-	return r;
 }
 
 sigMidiEvent_t gthALSAMidi::signal_midi_event (void)

@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.h,v 1.7 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id: gthALSAMidi.h,v 1.8 2004/09/30 09:18:58 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -33,7 +33,6 @@ public:
 
 	sigMidiEvent_t signal_midi_event (void);
 
-	bool ProcessEvents (void);
 	bool pollMidiEvent (Glib::IOCondition);
 	inline bool seq_opened(void) const { return _seq_opened; }
 
