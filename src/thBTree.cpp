@@ -56,15 +56,18 @@ void thBTree::Insert(char *name, void *data)
 		return;
 	}
 
+	/* find a place to put this node in */
 	InsertHelper(bRoot, node);
 }
 
 void thBTree::InsertHelper(thBNode *root, thBNode *node)
 {
 	switch(StringCompare(node->name, root->name)) {
+		/* node is equal to current node, cannot have duplicate nodes */
 	case 0:
 		fprintf(stderr, "thBTree::InsertHelper: Duplicate node should not exist\n");
 		break;
+		/* node is less than current node */
 	case -1:
 		if(root->left) {
 			InsertHelper(root->left, node);
@@ -73,6 +76,7 @@ void thBTree::InsertHelper(thBNode *root, thBNode *node)
 			root->left = node;
 		}
 		break;
+		/* node is greater than current node */
 	case 1:
 		if(root->right) {
 			InsertHelper(root->right, node);
@@ -133,9 +137,13 @@ void thBTree::Remove(char *name)
 		}
 	}
 	else {
-		bRoot = newroot;
+		/* if this node doesn't have a parent, that means it's the root. Make
+		   newroot the new bRoot */
+ 		bRoot = newroot;
 	}
 
+	/* if we have a left-over node, we must rebuild the whole tree downwards,
+	   this is what the RemoveHelper method accomplishes */
 	if(newchild) {
 		RemoveHelper(newroot, newchild);	
 	}
