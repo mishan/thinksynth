@@ -1,6 +1,4 @@
 Makefile
-*.raw
-*.wav
 stamp-h*
 mkinstalldirs
 missing
