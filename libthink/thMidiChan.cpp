@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.40 2003/05/09 03:05:34 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.41 2003/05/11 04:34:29 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -84,13 +84,15 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 	thMidiNote *data;
 	thArgValue *arg, *amp, *play, *noteval;
 	thMod *mod;
-	char *argname = new char[outputnamelen+1]; /* XXX do we NEED to allocate this each time? */
+	char *argname;
 	int i, j;
 	int delnote = 0;
 
 	if(!note) {
 		return;
 	}
+
+	argname = new char[outputnamelen+1]; /* XXX do we NEED to allocate this each time? */
 
 	ProcessHelper(note->GetLeft());
 
