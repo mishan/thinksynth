@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.20 2004/11/26 01:15:11 joshk Exp $ */
+/* $Id: MainSynthWindow.h,v 1.21 2004/11/26 05:22:12 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -54,6 +54,7 @@ protected:
 	void onDspEntryActivate (void);
 	void onBrowseButton (void);
 	void onPatchLoadError (const char* failure);
+	void jackCheck (void);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;

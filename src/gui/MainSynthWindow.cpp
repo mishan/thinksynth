@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.55 2004/11/26 05:15:17 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.56 2004/11/26 05:22:12 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -114,19 +114,7 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 //	menuBar.accelerate(*midiMap); /* this is created on-demand */
 
 #ifdef HAVE_JACK
-	/* Not the best place to do it but we need to call toggleConnects */
-	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
-	{
-		vals = prefs->Get("autoconnect");
-		if (vals && *vals[0] == "true")
-		{
-			int error;
-			if ((error = ((gthJackAudio*)audio)->tryConnect()) == 0)
-				toggleConnects();
-			else
-				connectDialog (error);
-		}
-	}
+	signal_realize().connect(sigc::mem_fun(*this, &MainSynthWindow::jackCheck));
 #endif
 	
 	add(vbox);
@@ -319,7 +307,6 @@ void MainSynthWindow::menuJackAuto (void)
 		*val = "true";
 	}
 	
-	debug("setting autoconnect to %s (was %s)", val->c_str(), res[0]->c_str());
 	prefs->Set("autoconnect", vals);
 }
 
@@ -520,6 +507,27 @@ void MainSynthWindow::populate (void)
 	}
 
 }
+
+#ifdef HAVE_JACK
+void MainSynthWindow::jackCheck (void)
+{
+	string ** vals;
+
+	/* Not the best place to do it but we need to call toggleConnects */
+	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+	{
+		vals = prefs->Get("autoconnect");
+		if (vals && *vals[0] == "true")
+		{
+			int error;
+			if ((error = ((gthJackAudio*)audio)->tryConnect()) == 0)
+				toggleConnects();
+			else
+				connectDialog (error);
+		}
+	}
+}
+#endif
 
 void MainSynthWindow::onPatchesChanged (void)
 {
