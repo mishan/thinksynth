@@ -1,4 +1,4 @@
-# $Id: aspect.dsp,v 1.1 2004/05/21 03:35:15 ink Exp $
+# $Id: aspect.dsp,v 1.2 2004/05/21 03:38:05 ink Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-4-2004
@@ -105,11 +105,6 @@ node oenv env::adsfr {
 	f = ionode->of;
 	r = ionode->or;
 	trigger = ionode->trigger;
-};
-
-node playcalc math::add {
-	in0 = env1->play;
-	in1 = env2->play;
 };
 
 node fenv env::adsfr {
