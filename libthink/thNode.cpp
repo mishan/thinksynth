@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.37 2003/04/27 03:24:57 misha Exp $ */
+/* $Id: thNode.cpp,v 1.38 2003/04/27 03:34:52 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -65,7 +65,7 @@ thArg *thNode::SetArg (const char *name, const char *node, const char *value)
 
 const thArgValue *thNode::GetArg (const char *name)
 {
-	thArg *arg = (thArg *)args.GetData(name);
+	thArg *arg = (thArg *)args->GetData((void *)name);
 
 	return arg->GetArg();
 }
