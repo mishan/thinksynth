@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.53 2004/11/25 05:52:40 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.54 2004/11/26 01:15:11 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -100,7 +100,13 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	patchSel = new PatchSelWindow(synth);
 	midiMap = NULL;
-	prevDir = NULL;
+	
+	vals = prefs->Get("dspdir");
+
+	if (vals != NULL)
+		prevDir = strdup(vals[0]->c_str());
+	else
+		prevDir = strdup(DSP_PATH);
 
 	populateMenu();
 
@@ -157,6 +163,10 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	patchMgr->signal_patches_changed().connect(
 		sigc::mem_fun(*this, &MainSynthWindow::onPatchesChanged));
+	patchMgr->signal_patch_load_error().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::onPatchLoadError));
+
+	debug("signal connections made");
 
 	aboutBox = NULL;
 }
@@ -517,6 +527,17 @@ void MainSynthWindow::onPatchesChanged (void)
 	notebook.pages().clear();
 	populate();
 	notebook.show_all();	
+}
+
+void MainSynthWindow::onPatchLoadError (const char* failure)
+{
+	char *error = g_strdup_printf("Couldn't load patchfile %s; syntax error, or DSP does not exist",
+		failure);
+		
+	Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
+	
+	errorDialog.run();
+	free(error);
 }
 
 void MainSynthWindow::onAboutBoxHide (void)

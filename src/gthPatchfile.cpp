@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.7 2004/11/19 03:04:51 misha Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.8 2004/11/26 01:15:11 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -19,6 +19,7 @@
 
 #include "config.h"
 
+#include <sys/stat.h>
 #include <cassert>
 #include <stdlib.h>
 #include <stdio.h>
@@ -97,8 +98,11 @@ bool gthPatchManager::loadPatch (const string &filename, int chan)
 
 	bool r = parse(filename, chan);
 
-	m_signal_patches_changed();
-
+	if (r)
+		m_signal_patches_changed();
+	else
+		m_signal_patch_load_error(filename.c_str());
+	
 	return r;
 }
 
@@ -129,10 +133,7 @@ bool gthPatchManager::isLoaded (int chan)
 thMidiChan::ArgMap gthPatchManager::getChannelArgs (int chan)
 {
 	if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
-	{
-		
 		return thMidiChan::ArgMap();
-	}
 
 	thSynth *synth = thSynth::instance();
 	thMidiChan *mchan = synth->GetChannel(chan);
@@ -151,6 +152,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 {
 	FILE *prefsFile;
 	char buffer[256];
+	bool seen_dsp = false;
 	thSynth *synth = thSynth::instance();
 	PatchFileArgs arglist;
 
@@ -218,9 +220,22 @@ bool gthPatchManager::parse (const string &filename, int chan)
 			/* XXX: handle specific cases here for now */
 			if (key == "dsp" && values[0])
 			{
+				struct stat st;
+				const char *t = values[0]->c_str();
+				string f;
+				
 				patches_[chan]->dspFile = *values[0];
-				/* XXX: check error */
-				synth->LoadMod(values[0]->c_str(), chan, 0);
+			
+				/* check if we're in an absolute or relative path */
+				if (t[0] != '/' && stat(t, &st) == -1)
+					f = DSP_PATH + *values[0];
+				else
+					f = *values[0];
+					
+				if (synth->LoadMod(f.c_str(), chan, 0) == NULL)
+					goto owned;
+				
+				seen_dsp = true;
 			}
 			else if (values[0])
 			{
@@ -237,16 +252,29 @@ bool gthPatchManager::parse (const string &filename, int chan)
 					arg->SetValue(arglist[key]);
 				}
 			}
-			
+			else
+			{
+				/* erroneous directive ... */
+				goto owned;
+			}
 		}
 		
 	}
 
-//	patch.args = arglist;
-//	patch.filename = filename;
-	patches_[chan]->args = arglist;
+	/* OK, as far as we can tell */
+	if (seen_dsp)
+	{
+		fclose(prefsFile);
+		patches_[chan]->args = arglist;
 	
-	return true;
+		return true;
+	}
+
+owned:
+	fclose(prefsFile);
+	delete patches_[chan];
+	patches_[chan] = NULL;
+	return false;
 }
 
 bool gthPatchManager::savePatch (const string &filename, int chan)

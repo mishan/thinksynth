@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.19 2004/11/19 03:04:51 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.20 2004/11/26 01:15:11 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -53,6 +53,7 @@ protected:
 	void onSwitchPage (GtkNotebookPage *p, int pagenum);
 	void onDspEntryActivate (void);
 	void onBrowseButton (void);
+	void onPatchLoadError (const char* failure);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;

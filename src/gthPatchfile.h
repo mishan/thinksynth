@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.h,v 1.5 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: gthPatchfile.h,v 1.6 2004/11/26 01:15:11 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,7 +22,8 @@
 
 #define NUM_PATCHES 16
 
-typedef SigC::Signal0<void> type_signal_patches_changed;
+typedef sigc::signal<void> type_signal_patches_changed;
+typedef sigc::signal<void, const char*> type_signal_patch_load_error;
 
 class thArg;
 class thMidiChan;
@@ -36,7 +37,7 @@ public:
 	static gthPatchManager *instance (void);
 
 	bool newPatch (const string &dspName, int chan);
-	bool loadPatch (const string &filename, int chan);
+	bool loadPatch (const string & filename, int chan);
 	bool savePatch (const string &filename, int chan);
 	bool unloadPatch (int chan);
 	bool isLoaded (int chan);
@@ -65,6 +66,10 @@ public:
 	type_signal_patches_changed signal_patches_changed (void) {
 		return m_signal_patches_changed;
 	}
+	type_signal_patch_load_error signal_patch_load_error (void) {
+		return m_signal_patch_load_error;
+	}
+	
 private:
 	bool parse (const string &filename, int chan);
 
@@ -72,6 +77,7 @@ private:
 	PatchFile **patches_;
 	static gthPatchManager *instance_;
 	type_signal_patches_changed m_signal_patches_changed;
+	type_signal_patch_load_error m_signal_patch_load_error;
 };
 
 #endif /* GTH_PATCHFILE_H */
