@@ -1,4 +1,4 @@
-/* $Id: rds.cpp,v 1.2 2003/05/08 01:49:35 ink Exp $ */
+/* $Id: rds.cpp,v 1.3 2003/05/08 23:30:59 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +15,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define SQR(a) a*a
+#define SQR(a) (a*a)
 
 char		*desc = "Resonant Difference Scaling Filter";
 thPluginState	mystate = thActive;
