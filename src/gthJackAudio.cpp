@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.13 2004/09/05 00:51:03 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.14 2004/09/05 10:09:28 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -120,6 +120,8 @@ gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 
 gthJackAudio::~gthJackAudio (void)
 {
+	if (jack_handle)
+		jack_deactivate(jack_handle);
 }
 
 int gthJackAudio::Write (float *buf, int len)
