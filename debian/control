@@ -30,6 +30,7 @@ Description: C++ plugins and DSP files for Thinksynth
  This package contains all the C plugins and DSP 'instruments' for thinksynth.
 
 Package: libthink3
+Section: libs
 Architecture: any
 Depends: ${shlibs:Depends}
 Suggests: libthink3-dev
