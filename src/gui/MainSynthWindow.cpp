@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.14 2004/08/01 22:46:38 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.15 2004/08/02 02:16:46 misha Exp $ */
 
 #include "config.h"
 
@@ -133,7 +133,7 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 			}
 		}
 
-		notebook.prepend_page(*table, tabName);
+		notebook.append_page(*table, tabName);
 	}
 
 	show_all_children();
