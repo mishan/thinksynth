@@ -51,7 +51,7 @@ protected:
 	void onAboutBoxHide (void);
 	void onPatchSelHide (void);
 	void onMidiMapHide (void);
-	void onKeyboardHide (KeyboardWindow *kbwin);
+	void onKeyboardHide (void);
 	void onSwitchPage (GtkNotebookPage *p, int pagenum);
 	void onDspEntryActivate (void);
 	void onBrowseButton (void);
@@ -72,6 +72,7 @@ protected:
 	Gtk::Notebook notebook_;
 
 	PatchSelWindow *patchSel_;
+	KeyboardWindow *kbWin_;
 	AboutBox *aboutBox_;
 	MidiMap *midiMap_;
 private:

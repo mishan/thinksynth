@@ -99,6 +99,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 	midiMap_ = NULL;
 	patchSel_ = NULL;
 	aboutBox_ = NULL;
+	kbWin_ = NULL;
 
 	vals = prefs->Get("dspdir");
 
@@ -308,13 +309,16 @@ void MainSynthWindow::menuJackAuto (void)
 
 void MainSynthWindow::menuKeyboard (void)
 {
-	KeyboardWindow *kbwin = new KeyboardWindow (thSynth::instance());
-	menuBar_.accelerate(*kbwin);
-	kbwin->show_all_children();
-	kbwin->show();
-	kbwin->signal_hide().connect(
-		sigc::bind<KeyboardWindow *>(
-			sigc::mem_fun(*this, &MainSynthWindow::onKeyboardHide), kbwin));
+	if (kbWin_ == NULL)
+	{
+		kbWin_ = new KeyboardWindow (thSynth::instance());
+		menuBar_.accelerate(*kbWin_);
+		kbWin_->signal_hide().connect(
+			sigc::mem_fun(*this, &MainSynthWindow::onKeyboardHide));
+	}
+
+	kbWin_->show_all_children();
+	kbWin_->show();
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -580,9 +584,10 @@ void MainSynthWindow::onMidiMapHide (void)
 	midiMap_ = NULL;
 }
 
-void MainSynthWindow::onKeyboardHide (KeyboardWindow *kbwin)
+void MainSynthWindow::onKeyboardHide (void)
 {
-	delete kbwin;
+	delete kbWin_;
+	kbWin_ = NULL;
 }
 
 void MainSynthWindow::onSwitchPage (GtkNotebookPage *p, int pagenum)
