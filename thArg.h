@@ -7,8 +7,16 @@ public:
 	thArg();
 	~thArg();
 	
-	void SetArg(float *value, int num);
+	void SetArg(char *name, float *value, int num);
+
+	int GetCount(void);
+
+	/* it's wise to GetCount() before you GetArg() */
+	const float *GetArg(void);
 private:
+ 	char *argName;
+	float *argValues;
+	int argNum;
 };
 
 #endif /* TH_ARG_H */
