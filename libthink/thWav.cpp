@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.23 2003/05/07 07:39:45 aaronl Exp $ */
+/* $Id: thWav.cpp,v 1.24 2003/05/07 07:50:04 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -109,17 +109,17 @@ int thWav::Write (void *data, int len)
 
 void thWav::WriteRiff (void)
 {
-	long file_len = fmt.len + 28; /* add the fmt header size and the data 
+	int file_len = fmt.len + 28; /* add the fmt header size and the data 
 									 header size to the data length to get the 
 									 file size, not including the 4 bytes 
 									 allocated for the RIFF header */
- 	long fmt_len = FMT_LEN; /* this is the standard length of the fmt header,
+	int fmt_len = FMT_LEN; /* this is the standard length of the fmt header,
 							   it is the header minus the eight bytes for the 
 							   "fmt " string and the header length */
 	
 
 	write(fd, RIFF_HDR, 4);
- 	lewrite32(fd, file_len);
+	lewrite32(fd, file_len);
 	write(fd, WAVE_HDR, 4);
 	write(fd, FMT_HDR, 4);
 	lewrite32(fd, fmt_len);
