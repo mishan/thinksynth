@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.183 2004/05/26 00:23:23 misha Exp $ */
+/* $Id: main.cpp,v 1.184 2004/05/26 03:22:12 misha Exp $ */
 
 #include "config.h"
 
@@ -41,10 +41,6 @@ Gtk::Main *gtkMain = NULL;
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
 
-/* XXX: this is a *GROSS* error; the library level should not depend on an
-   application-level global; the thSynth class should have some sort of
-   plugin path and it should use the default of PLUGIN_PATH if nothing is
-   passed to it */
 static string plugin_path = PLUGIN_PATH;
 
 static const char syntax[] = \
@@ -322,13 +318,6 @@ int main (int argc, char *argv[])
 		printf ("Writing to '%s'\n", outputfname.c_str());
 	}
 
-#if 0
-	while (1)
-	{
-		sleep (100);
-	}
-#endif 
-
 	while (1)
 	{
 //		debug("iterating");
@@ -341,7 +330,6 @@ int main (int argc, char *argv[])
 
 	delete aout;
 	delete midi;
-//	delete gtkMain;
 
 	save_prefs (Synth);
 
