@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.42 2003/04/27 10:20:02 aaronl Exp $ */
+/* $Id: main.cpp,v 1.43 2003/04/27 21:31:58 joshk Exp $ */
 
 #include "config.h"
 
@@ -35,6 +35,7 @@ int main (int argc, char *argv[])
 	thMod *newmod;
 	int havearg;
 	char *filename;
+	char *dspname = "test"; /* XXX for debugging */
 
 	int i; /* XXX temporary hack to see more than 1 element of output */
 
@@ -46,7 +47,7 @@ syntax:
 		exit(1);
 	}
   
-	while ((havearg = getopt (argc, argv, "h")) != -1) {
+	while ((havearg = getopt (argc, argv, "hm:")) != -1) {
 		switch (havearg) {
 			case 'h':
 				printf (PACKAGE " " VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
@@ -55,7 +56,11 @@ syntax:
 				exit(0);
 
 				break;
-
+				
+			case 'm':
+				dspname = strdup(optarg);
+				break;
+				
 			default:
 				if (optind != argc) {
 					printf ("error: unrecognized parameter\n");
@@ -75,12 +80,12 @@ syntax:
 	Synth.LoadMod(filename);
 	Synth.ListMods();
   
-	((thMod *)Synth.FindMod("test"))->BuildSynthTree();
+	((thMod *)Synth.FindMod(dspname))->BuildSynthTree();
 
-	Synth.AddChannel(strdup("chan1"), "test", 80.0);
+	Synth.AddChannel(strdup("chan1"), dspname, 80.0);
 	Synth.AddNote("chan1", 20, 100);
 
-	newmod = ((thMod *)Synth.FindMod("test"))->Copy();
+	newmod = ((thMod *)Synth.FindMod(dspname))->Copy();
 	newmod->BuildSynthTree();
 	newmod->Process(newmod, 1024);
 
