@@ -72,6 +72,8 @@ nodes nodes
 |
 ionode
 |
+nameset
+|
 expression
 {
 	printf("%f\n", $1.floatval);
@@ -182,7 +184,7 @@ IO WORD
 ;
 
 nameset:
-NAME WORD
+NAME STRING
 {
 	printf("DSP Name: %s\n", $2.str);
 }

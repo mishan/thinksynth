@@ -8,3 +8,4 @@ node test2 foo::bar {
    bar = test1->bar;
 };
 io test1;
+name "test";
