@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.14 2004/11/10 02:09:19 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.15 2004/11/10 06:59:34 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -96,6 +96,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 
 	connectScroll_.add(connectView_);
 	connectScroll_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
+	connectScroll_.set_size_request(700, 128);
 
 	connectView_.signal_button_press_event().connect_notify(
 		sigc::mem_fun(*this, &MidiMap::onConnectionSelected));
