@@ -3,12 +3,12 @@ PLUGIN_DIRS = osc test
 
 all:
 	for i in $(PLUGIN_DIRS); do \
-		make -C $$i; \
+		$(MAKE) -C $$i; \
 	done
 
 clean:
 	for i in $(PLUGIN_DIRS); do \
-		make -C $$i clean; \
+		$(MAKE) -C $$i clean; \
 	done
 
 distclean: clean
@@ -16,10 +16,10 @@ distclean: clean
 
 install:
 	for i in $(PLUGIN_DIRS); do \
-		make -C $$i install; \
+		$(MAKE) -C $$i install; \
 	done
 
 uninstall:
 	for i in $(PLUGIN_DIRS); do \
-		make -C $$i uninstall; \
+		$(MAKE) -C $$i uninstall; \
 	done
