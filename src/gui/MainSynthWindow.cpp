@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.18 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.19 2004/08/21 21:41:41 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -79,7 +79,6 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth)
 										SigC::slot(
 											*this, &MainSynthWindow::menuAbout)
 				));
-		
 	}
 
 	/* add the menus to the menubar */
@@ -179,13 +178,13 @@ void MainSynthWindow::populate (void)
 					break;
 				case thArg::SLIDER:
 				{
-					Gtk::Label *label = manage(new Gtk::Label(argName));
-					
+					Gtk::Label *label = manage(new Gtk::Label(arg->argLabel));
+
 					Gtk::HScale *slider = manage(new Gtk::HScale(arg->argMin,
 																 arg->argMax,
 																 .0001));
 					Gtk::Adjustment *argAdjust = slider->get_adjustment();
-				
+
 					slider->set_draw_value(false);
 
 					slider->signal_value_changed().connect(
