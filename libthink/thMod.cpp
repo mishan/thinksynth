@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.78 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thMod.cpp,v 1.79 2004/04/09 08:32:32 ink Exp $ */
 
 #include "config.h"
 
@@ -274,7 +274,7 @@ to 0 here and set the index of each node to -1 when it is first created. */
 
 			if(registeredargs == 0)
 			{
-				printf("WARNING: Node %s has registered 0 args.  It is probably doing things the old, slow way.\n", curnode->GetName().c_str());
+				printf("WARNING: Node %s has registered 0 args.  It is probably doing things the old, slow way.  (%s)\n", curnode->GetName().c_str(), curnode->GetPlugin()->GetPath().c_str());
 			}
 			else
 			{
