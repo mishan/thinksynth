@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.6 2004/04/04 04:55:20 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.7 2004/04/04 07:59:54 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -95,9 +95,9 @@ Keyboard::Keyboard (void)
 	mouse_veloc = 127;
 	cur_size = 2; /* keyboard widget size parameter */
 
-	ctrl_on  = true;
-	shift_on = true;
-	alt_on   = true;
+	ctrl_on  = false;
+	shift_on = false;
+	alt_on   = false;
 
 	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
 	img_width  = key_sizes[cur_size][2] * 75;
