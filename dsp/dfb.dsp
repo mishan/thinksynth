@@ -6,7 +6,7 @@ node ionode {
 	channels = 2;
 	out0 = mixer->out;
 	out1 = mixer->out;
-	play = ionode->trigger;
+	play = env->play;
 
 	dlen = 44100;
 	fmamt = 0.1;
@@ -18,13 +18,13 @@ node ionode {
 	ddry = 0;
 
 	waveform = 1;
-	cutoff = 0.3;
-	res = 0.95;
+	cutoff = 0.24;
+	res = 0.7;
 
-	a = 800;
-	d = 2000;
+	a = 2800;
+	d = 4000;
 	s = 0.7;	# 1 = full, 0 = off
-	r = 4000;
+	r = 5000;
 };
 
 node suscalc math::mul {

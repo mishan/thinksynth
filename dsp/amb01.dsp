@@ -2,9 +2,9 @@ name "test";
 
 node ionode {
 	channels = 2;
-	out0 = lfilt->out;
-	out1 = rfilt->out;
-	play = ionode->trigger;
+	out0 = lmixer->out;
+	out1 = rmixer->out;
+	play = env->play;
 
 	centerdetune = -0.523;
 	ldetune = 0.94;
@@ -25,6 +25,25 @@ node ionode {
 	res = 0.8;
 
 	amp = 0.6;			# Amplitude before filtering
+
+	a = 800;
+	d = 2000;
+	s = 0.7;	# 1 = full, 0 = off
+	r = 6000;
+};
+
+node suscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->s;
+};
+
+node env env::adsr {
+	a = ionode->a;
+	d = ionode->d;
+	s = suscalc->out;
+	r = ionode->r;
+	p = ionode->velocity;
+	trigger = ionode->trigger;
 };
 
 node vmap env::map {
@@ -112,6 +131,16 @@ node rfilt filt::ink2 {
 	in = ramp->out;
 	cutoff = ionode->cutoff;
 	res = ionode->res;
+};
+
+node lmixer mixer::mul {
+	in0 = lfilt->out;
+	in1 = env->out;
+};
+
+node rmixer mixer::mul {
+	in0 = rfilt->out;
+	in1 = env->out;
 };
 
 io ionode;

@@ -6,9 +6,9 @@ name "test";
 
 node ionode {
 	channels = 2;
-	out0 = mixer->out;
-	out1 = mixer->out;
-	play = ionode->trigger;
+	out0 = envmixer->out;
+	out1 = envmixer->out;
+	play = env->play;
 
 	vmin = 0.01;
 	vmax = 1;
@@ -16,15 +16,23 @@ node ionode {
 	fade = vmap->out;
 	waveform = 5;
 
-	a = 800;
-	r = 1500;
+	a = 200;
+	d = 800;
+	s = 0.5;
+	r = 1000;
+};
+
+node suscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->s;
 };
 
 node env env::adsr {
 	a = ionode->a;
-	d = 0;
-	s = th_max;
+	d = ionode->d;
+	s = suscalc->out;
 	r = ionode->r;
+	p = ionode->velocity;
 	trigger = ionode->trigger;
 };
 
