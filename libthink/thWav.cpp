@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.36 2003/09/15 23:17:06 brandon Exp $ */
+/* $Id: thWav.cpp,v 1.37 2003/09/26 07:33:12 misha Exp $ */
 
 #include "config.h"
 
@@ -66,6 +66,7 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 
 	lseek(fd, 44, SEEK_SET);
 	// added by brandon on 9/15/03
+
 	outbuf=NULL;
 }
 
@@ -167,7 +168,7 @@ int thWav::Read (void *data, int len)
 	case 8:
 		r = fread(data, sizeof(unsigned char), len, file);
 		break;
-	case 16:
+	case 16: 
 	{
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
@@ -176,7 +177,7 @@ int thWav::Read (void *data, int len)
 		}
 #endif
 	}
-		break;
+	break;
 	default:
 		fprintf(stderr, "thWav::Read: %s: unsupported value for bits per "
 				"sample: %d\n", filename, fmt.bits);

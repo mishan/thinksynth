@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.34 2003/09/16 01:02:29 misha Exp $ */
+/* $Id: simple.cpp,v 1.35 2003/09/26 07:33:11 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -57,7 +57,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *inout_last;
 
 	out_arg = mod->GetArg(node, "out");
-	out_sync = mod->GetArg(node, "sync"); /* Output a 1 when the wave begins its cycle */
+	out_sync = mod->GetArg(node, "sync"); /* Output a 1 when the wave begins 
+											 its cycle */
 	inout_last = mod->GetArg(node, "last");
 	position = (*inout_last)[0];
 	out_last = inout_last->Allocate(1);
@@ -71,7 +72,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_waveform = mod->GetArg(node, "waveform");
 	in_fm = mod->GetArg(node, "fm"); /* FM Input */
 	in_fmamt = mod->GetArg(node, "fmamt"); /* Modulation amount */
-	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this goes to 1 */
+	in_reset = mod->GetArg(node, "reset"); /* Reset position to 0 when this 
+											  goes to 1 */
 	in_mul = mod->GetArg(node, "mul");  /* Multiply the wavelength by this */
 
 	for(i=0; i < (int)windowlen; i++) {
@@ -119,9 +121,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 		
 		switch((int)(*in_waveform)[i]) {
-			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle, 5 = parabola */
+			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle,
+			   5 = parabola */
 			case 0:    /* SINE WAVE */
-				out[i] = amp_max*sin(ratio*2*M_PI); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+				out[i] = amp_max*sin(ratio*2*M_PI); /* This will fuck up if 
+													   TH_MIX is not the 
+													   negative of TH_MIN */
 				break;
 			case 1:    /* SAWTOOTH WAVE */
 				out[i] = amp_range*ratio+amp_min;
@@ -143,7 +148,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				break;
 			case 4:    /* HALF-CIRCLE WAVE */
 				if(ratio < 0.5) {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*amp_max;
+					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/
+											(wavelength*wavelength))*amp_max;
 				} else {
 					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*amp_min;
 				}
@@ -152,8 +158,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				if(ratio < 0.5) {
 					out[i] = amp_max*(1-SQR(ratio*4-1));
 				} else {
-					out[i] = amp_max*(SQR((ratio-0.5)*4-1)-1)       ;
-				}	
+					out[i] = amp_max*(SQR((ratio-0.5)*4-1)-1);
+				}
 		}
 	}
 	
