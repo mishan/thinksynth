@@ -229,7 +229,6 @@ WORD ASSIGN nodearg
 	arg = new char[argsize];
 	memcpy(arg, p, argsize);
 	
-
 	parsenode->SetArg($1.str, node, arg);
 }
 |
