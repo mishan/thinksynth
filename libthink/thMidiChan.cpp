@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.24 2003/04/29 01:34:59 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.25 2003/04/29 01:38:56 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -99,6 +99,7 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 	  arg = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)argname);
 	  for(j=0;j<windowlength;j++) {
 		output[i][j] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+		/* output += channel output * (amplitude/amplidute maximum) */
 	  }
 	}
 
