@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.5 2004/04/01 07:46:26 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.6 2004/04/01 08:55:02 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -11,6 +11,7 @@ public:
 
 protected:
 	bool clickEvent (GdkEventButton *b);
+	bool unclickEvent (GdkEventButton *b);
 	bool keyEvent (GdkEventKey *k);
 	bool exposeEvent (GdkEventExpose *e);
 	void drawKeyboard (int mode);

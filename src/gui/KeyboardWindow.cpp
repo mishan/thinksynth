@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.8 2004/04/01 08:42:38 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.9 2004/04/01 08:55:02 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -150,6 +150,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	drawArea.signal_button_press_event().connect(
 		SigC::slot(*this, &KeyboardWindow::clickEvent));
 
+	drawArea.signal_button_release_event().connect(
+		SigC::slot(*this, &KeyboardWindow::unclickEvent));
+
 	drawArea.signal_key_press_event().connect(
 		SigC::slot(*this, &KeyboardWindow::keyEvent));
 
@@ -233,47 +236,50 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 	return true;
 }
 
+bool KeyboardWindow::unclickEvent (GdkEventButton *b)
+{
+	/* turn off if active */
+	if (mouse_notnum >= 0) {
+		set_note_off((int)chanVal->get_value(), mouse_notnum);
+		active_keys[mouse_notnum] = 0;
+	}
+	mouse_notnum = -1;
+
+	drawKeyboard(1);
+
+	return true;
+}
+
 bool KeyboardWindow::clickEvent (GdkEventButton *b)
 {	
 	int	veloc;
 
 	drawArea.grab_focus ();
 
-	if(b->type == GDK_BUTTON_PRESS) {
-		if (mouse_notnum >= 0) {	/* already active */
-			set_note_off((int)chanVal->get_value(), mouse_notnum);
-			active_keys[mouse_notnum] = 0;
-		}
-		
-		/* get note number */
-		mouse_notnum = get_coord ();
-		
-		if (mouse_notnum < 0) return false;
-		
-		switch (b->button) 
-		{
-			case 1:	veloc = veloc3; break;
-			case 2:	veloc = veloc2; break;
-			case 3:	veloc = veloc1; break;
-			default:
-				veloc = veloc0;
-				break;
-		}
-
-		active_keys[mouse_notnum] = 1;
-		synth->AddNote((int)chanVal->get_value(), mouse_notnum, veloc);
-		
-		mouse_veloc = veloc;	/* save velocity */
+	if (mouse_notnum >= 0) {	/* already active */
+		set_note_off((int)chanVal->get_value(), mouse_notnum);
+		active_keys[mouse_notnum] = 0;
 	}
-
-	else if (b->type == GDK_BUTTON_RELEASE)
+		
+	/* get note number */
+	mouse_notnum = get_coord ();
+		
+	if (mouse_notnum < 0) return false;
+		
+	switch (b->button) 
 	{
-		/* turn off if active */
-		if (mouse_notnum >= 0) {
-			set_note_off((int)chanVal->get_value(), mouse_notnum);
-		}
-		mouse_notnum = -1;
+		case 1:	veloc = veloc3; break;
+		case 2:	veloc = veloc2; break;
+		case 3:	veloc = veloc1; break;
+		default:
+			veloc = veloc0;
+			break;
 	}
+
+	active_keys[mouse_notnum] = 1;
+	synth->AddNote((int)chanVal->get_value(), mouse_notnum, veloc);
+
+	mouse_veloc = veloc;	/* save velocity */
 
 	drawKeyboard(1);
 
