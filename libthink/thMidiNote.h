@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
 

@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef HAVE_TH_AUDIOBUFFER_H
 #define HAVE_TH_AUDIOBUFFER_H 1
 

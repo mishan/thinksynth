@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef THINK_H
 #define THINK_H
 

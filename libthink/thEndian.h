@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef HAVE_ENDIAN_H
 #define HAVE_ENDIAN_H
 

@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
 

@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_PLUGIN_SIGNALER_H
 #define TH_PLUGIN_SIGNALER_H 1
 

@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef YY_GRAMMAR_H
 #define YY_GRAMMAR_H 1
 

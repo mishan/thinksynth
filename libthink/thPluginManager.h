@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1
 

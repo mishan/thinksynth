@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
 

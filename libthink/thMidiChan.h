@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
 

@@ -1,3 +1,5 @@
+/* $Id */
+
 #ifndef TH_AUDIO_H
 #define TH_AUDIO_H 1
 
