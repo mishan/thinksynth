@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.104 2004/11/28 05:02:22 joshk Exp $
+dnl $Id: configure.ac,v 1.105 2004/11/28 22:22:46 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -264,9 +264,47 @@ dnl ./configure --with-dsp-path=${prefix}/bar, so flatten that too
 AC_SUBST_DIR(dsp_path)
 
 AC_ARG_WITH(default-output,
-	[AC_HELP_STRING([--with-default-output], [Choose either 'jack', 'wav', or 'alsa' (default jack)])],
-	[default_output=$withval],
-	[default_output="jack"])
+[AC_HELP_STRING([--with-default-output], [Choose either 'jack', 'alsa', or 'none' (default jack)])],
+[
+	if test "$withval" = alsa && test "$have_alsa" -eq 0; then
+		if test "$have_jack" -eq 1; then
+			default_output="jack"
+		else
+			default_output="none"
+		fi
+		AC_MSG_WARN(['$withval' output not available, using '$default_output'])
+	elif test "$withval" = jack && test "$have_jack" -eq 0; then
+		if test "$have_alsa" -eq 1; then
+			default_output="alsa"
+		else
+			default_output="none"
+		fi
+		AC_MSG_WARN(['$withval' output not available, using '$default_output'])
+	else
+		case "$withval" in
+			alsa | none | jack) default_output="$withval" ;;
+			*)
+				if test "$have_jack" -eq 1; then
+					default_output="jack"
+				elif test "$have_alsa" -eq 1; then
+					default_output="alsa"
+				else
+					default_output="none"
+				fi
+				AC_MSG_WARN([unrecognized output '$withval', defaulting to '$default_output'])
+			;;
+		esac
+	fi
+],
+[
+	if test "$have_jack" -eq 1; then
+		default_output="jack"
+	elif test "$have_alsa" -eq 1; then
+		default_output="alsa"
+	else
+		default_output="none"
+	fi
+])
 
 AC_DEFINE_UNQUOTED([DEFAULT_OUTPUT], "$default_output", [Default output device for thinksynth.])
 AC_SUBST(DEFAULT_OUTPUT, "$default_output")
@@ -339,4 +377,4 @@ echo Plugins will be installed in    $plugin_path
 echo
 echo "Now run 'make' to build $PACKAGE_NAME"
 
-# vim:noet:ai:ts=8
+# vim:noet:ai:ts=4
