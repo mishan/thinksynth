@@ -44,7 +44,7 @@ should do it, or if you use ALSA:
 
 	$ jackd -d alsa
 
-... or if you're on Mac OS X:
+... or if you're on Mac OS X / FreeBSD:
 
 	$ jackd -d coreaudio
 
