@@ -1,6 +1,4 @@
 Makefile
-stamp-h*
-mkinstalldirs
 missing
 install-sh
 configure
