@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.59 2004/11/29 01:53:41 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.60 2004/12/14 07:50:40 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -593,6 +593,10 @@ void MainSynthWindow::onDspEntryActivate (void)
 	string dspfile = dspEntry.get_text();
 	int pagenum = notebook.get_current_page();
 
+	/* noop caused by a spurious Enter */
+	if (dspfile == "")
+		return;
+	
 	if (patchMgr->newPatch(dspfile, pagenum) == false)
 	{
 		char *error = g_strdup_printf("Couldn't load DSP %s; syntax error, or does not exist",
