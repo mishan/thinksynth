@@ -1,0 +1,11 @@
+SCRIPTS
+=======
+
+Currently there's only one script in this directory.
+
+regargify.pl - If you get something like this when loading your plugin:
+
+WARNING: Node shaper has registered 0 args.  It is probably doing things the old, slow way.  (/usr/lib/thinksynth/plugins/dist/saturate.so)
+
+Pass your source file to regargify.pl, and assuming you mostly stuck to the
+plugin template, it can convert your file to use the new scheme.
