@@ -72,11 +72,12 @@ void cleanup (int signum)
 
 void process_synth (void)
 {
-//	mainMutex->lock();
+	mainMutex->lock();
 	Synth->Process();
-//	mainMutex->unlock();
+	mainMutex->unlock();
 }
 
+/* ALSA callback */
 void audio_readywrite (gthAudio *audio, thSynth *synth)
 {
 	int l = synth->GetWindowLen();
@@ -91,12 +92,14 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 	process_synth ();
 }
 
+/* JACK callback */
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
 	gthJackAudio *jack = (gthJackAudio *)arg;
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
+	mainMutex->lock();
 	for(int i = 0; i < chans; i++)
 	{
 		float *synthbuffer = Synth->GetChanBuffer(i);
@@ -104,11 +107,12 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 		memcpy(buf, synthbuffer, l * sizeof(float));
 	}
+	mainMutex->unlock();
 	
 	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
-//	process->emit();
-	process_synth ();
+	process->emit();
+//	process_synth ();
 
 	return 0;
 }
