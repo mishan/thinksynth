@@ -1,4 +1,4 @@
-/* $Id: thMidiController.cpp,v 1.3 2004/11/09 12:23:08 ink Exp $ */
+/* $Id: thMidiController.cpp,v 1.4 2004/11/10 21:25:52 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -55,6 +55,14 @@ void thMidiController::newConnection (unsigned char channel,
 	/* XXX: Do a NULL-check, and if there is something here, tack it on
 	   the linked list */
 
-	connections_[channel][param] = connection;
-	connectionList_[channel * 128 + param] = connection;
+	if(connection == NULL)
+	{
+		connections_[channel][param] = 0;
+		connectionList_.erase(channel * 128 + param);
+	}
+	else
+	{
+		connections_[channel][param] = connection;
+		connectionList_[channel * 128 + param] = connection;
+	}
 }

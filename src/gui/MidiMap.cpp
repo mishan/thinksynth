@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.15 2004/11/10 06:59:34 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.16 2004/11/10 21:25:52 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,6 +41,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 	newConnectionHBox_ = manage(new Gtk::HBox);
 	destinationHBox_ = manage(new Gtk::HBox);
 	detailsHBox_ = manage(new Gtk::HBox);
+	buttonsHBox_ = manage(new Gtk::HBox);
 
 	channelLbl_ = manage(new Gtk::Label("Midi Channel"));
 	channelAdj_ = manage(new Gtk::Adjustment(1, 1, 16));
@@ -66,6 +67,11 @@ MidiMap::MidiMap (thSynth *argsynth)
 	addBtn_ = manage(new Gtk::Button("Add/Modify  Connection"));
 	addBtn_->signal_clicked().connect(sigc::mem_fun(*this,
 												   &MidiMap::onAddButton));
+	delBtn_ = manage(new Gtk::Button("Remove Connection"));
+	delBtn_->signal_clicked().connect(sigc::mem_fun(*this,
+												   &MidiMap::onDelButton));
+	buttonsHBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
+	buttonsHBox_->pack_start(*delBtn_, Gtk::PACK_EXPAND_WIDGET);
 
 	destChanCombo_ = manage(new Gtk::Combo);
 	fillDestChanCombo();
@@ -115,7 +121,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 
 	inputVBox_->pack_start(*srcDestHBox_, Gtk::PACK_EXPAND_WIDGET);
 	inputVBox_->pack_start(*detailsFrame_, Gtk::PACK_EXPAND_WIDGET);
-	inputVBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
+	inputVBox_->pack_start(*buttonsHBox_, Gtk::PACK_EXPAND_WIDGET);
 
 	mainVBox_->pack_start(*connectFrame_, Gtk::PACK_EXPAND_WIDGET);
 	mainVBox_->pack_start(*inputVBox_, Gtk::PACK_SHRINK);
@@ -444,4 +450,18 @@ void MidiMap::onAddButton (void)
 
 	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedChan_, selectedController_, selectedDestChan_, selectedInstrument_, selectedArg_->getLabel()));
 	populateConnections();
+}
+
+void MidiMap::onDelButton (void)
+{
+	thMidiControllerConnection *connection =
+	synth_->getMidiControllerConnection(selectedChan_, selectedController_);
+
+	if(connection)
+	{
+		delete connection;
+		synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, NULL);
+
+		populateConnections();
+	}
 }

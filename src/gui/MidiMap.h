@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.12 2004/11/10 02:09:19 ink Exp $ */
+/* $Id: MidiMap.h,v 1.13 2004/11/10 21:25:52 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -47,6 +47,7 @@ public:
 
 protected:
 	void onAddButton (void);
+	void onDelButton (void);
 	void onChannelChanged (void);
 	void onControllerChanged (void);
 	bool onDestChanComboChanged (GdkEventButton* b, int chan, string instrument);
@@ -74,6 +75,7 @@ protected:
 	Gtk::Frame *destinationFrame_;
 	Gtk::HBox *detailsHBox_;
 	Gtk::Frame *detailsFrame_;
+	Gtk::HBox *buttonsHBox_;
 	Gtk::Label *channelLbl_;
 	Gtk::SpinButton *channelSpinBtn_;
 	Gtk::Label *controllerLbl_;
@@ -85,6 +87,7 @@ protected:
 	Gtk::Label *maxLbl_;
 	Gtk::SpinButton *maxSpinBtn_;
 	Gtk::Button *addBtn_;
+	Gtk::Button *delBtn_;
 
 	Gtk::Frame *connectFrame_;
 	Gtk::ScrolledWindow connectScroll_;
