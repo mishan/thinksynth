@@ -186,7 +186,8 @@ IO WORD
 nameset:
 NAME STRING
 {
-	printf("DSP Name: %s\n", $2.str);
+	parsemod->SetName($2.str);
+	printf("DSP Name: %s\n", parsemod->GetName());
 }
 ;
 

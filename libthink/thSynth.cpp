@@ -42,3 +42,8 @@ void thSynth::LoadMod(char *filename)
 	
 	modlist->Insert(parsemod->GetName(), parsemod);
 }
+
+void thSynth::ListMods(void)
+{
+  modlist->PrintTree();
+}

@@ -38,5 +38,6 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 
 	thSynth *Synth = new thSynth;
 	Synth->LoadMod(argv[1]);
+	Synth->ListMods();
 }
 
