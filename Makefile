@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.13 2003/05/03 07:56:51 joshk Exp $
+# $Id: Makefile,v 1.14 2003/05/03 08:13:06 joshk Exp $
 
 SUBDIRS = src plugins
 
@@ -9,5 +9,6 @@ $(SUBDIRS):
 
 distclean: $(SUBDIRS)
 	rm -f build.mk config.log *~
+	rm -rf autom4te.cache
 
 .PHONY: clean distclean install uninstall $(SUBDIRS)
