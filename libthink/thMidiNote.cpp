@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.19 2003/04/27 10:38:52 ink Exp $ */
+/* $Id: thMidiNote.cpp,v 1.20 2003/04/27 20:03:53 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -65,7 +65,7 @@ void thMidiNote::Process (float *data, int length)
 {
 	int chan;
 
-	for(chan=0; chan < modnode->GetArg(((thNode *)modnode->GetIONode())->GetName(), "channels"); chan++) {
+	for(chan=0; chan < *((int *)modnode->GetArg(((thNode *)modnode->GetIONode())->GetName(), "channels")); chan++) {
 		printf("Processing Note Channel Number %i\n", chan);
 	}
 }
