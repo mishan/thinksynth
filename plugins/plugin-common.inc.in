@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.12 2003/04/26 03:54:13 aaronl Exp $
+# $Id: plugin-common.inc.in,v 1.13 2003/04/27 08:12:13 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -11,7 +11,7 @@ LDFLAGS = -lm -lc
 all: $(PLUGIN_NAMES)
 
 %.so: %.cpp
-	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -pedantic -shared -Wl,-soname,$@ -o $@ $<
+	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $<
 
 distclean clean:
 	for i in $(PLUGIN_NAMES); do \
