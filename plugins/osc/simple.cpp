@@ -57,7 +57,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	position = (int)in_last->argValues[0];
 
 	for(i=0; i < (int)windowlen; i++) {
-	  wavelength = TH_SAMPLE * (1.0/in_freq->argValues[i%in_freq->argNum]);
+	  wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
 	  if(++position > wavelength) {
 	    position = 0;
 	  }
