@@ -1,3 +1,5 @@
+/* $Id: KeyboardWindow.h,v 1.5 2004/04/01 07:46:26 misha Exp $ */
+
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
 

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.5 2004/04/01 07:44:49 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.6 2004/04/01 07:46:26 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -29,8 +29,6 @@ static char	key_conv_out[] = "`1234567890-=\\[];\',./";
 /* list of keys */
 static char	keylist_1[] = "1q2w3e4r5t6y7u8i9o0p-[=]\\";
 static char	keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
-/* base keys */
-static char	base_keys[] = "CDEFGAB";
 
 static unsigned int	color0 = 0x00000000;	/* key border			*/
 static unsigned int	color1 = 0x00FFFFFF;	/* white key			*/
@@ -466,16 +464,6 @@ int	KeyboardWindow::get_coord (void)
 
 #if 0
 
-/* close window */
-
-void	close_window (void)
-{
-	/* enable key repeat again */
-//	gdk_key_repeat_restore ();
-}
-
-
-
 void	adjust_transpose (int n)
 {
 	transpose += n;
@@ -618,46 +606,6 @@ void	fkeys_func (int key)
 	}
 }
 
-/* convert key value to note number		*/
-/* return value is -1 if key value is not valid	*/
-
-int	keyval_to_notnum (int key)
-{
-	char	*c;
-	int	m, n, o;
-
-	if ((key <= 0) || (key >= 256)) return -1;
-
-	/* upper case -> lower case */
-	if ((key >= 'A') && (key <= 'Z')) {
-		key -= 'A'; key += 'a';
-	}
-	/* convert SHIFT characters */
-	c = strchr (key_conv_in, key);
-	if (c != NULL) key = key_conv_out[c - key_conv_in];
-	/* find character in tables */
-	c = strchr (keylist_1, key);
-	if (c == NULL) {
-		c = strchr (keylist_2, key);
-		if (c == NULL) return -1;	/* not found */
-		n = (int) (c - keylist_2);
-	} else {
-		n = 14 + (int) (c - keylist_1);
-	}
-	n += 13;
-	/* key offset */
-	n += (key_ofs << 1);
-	m = n % 14;
-	o = n / 14;	/* octave */
-	/* check for invalid keys (E# and B#) */
-	if ((m == 5) || (m == 13)) return -1;
-	/* correct for missing black keys and transpose */
-	if (m > 4) m--;
-	n = 48 + transpose + 12 * o + m;
-	if ((n < 0) || (n > 127)) n = -1;
-
-	return n;
-}
 
 /* read and process keyboard and mouse events		*/
 /* return status is the sum of the following values:	*/
