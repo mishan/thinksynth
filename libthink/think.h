@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.18 2004/01/31 10:08:18 ink Exp $ */
+/* $Id: think.h,v 1.19 2004/03/21 06:51:27 ink Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -21,8 +21,11 @@ using namespace std;
 /* For note amplitude and stuff... */
 #define MIDIVALMAX 127
 
+/* how big many channel references should we allocate when we need more */
+#define CHANNELCHUNK 16
+
 /* Alsa output buffer */
-#define TH_BUFFER_PERIOD 1500
+#define TH_BUFFER_PERIOD 1024
 
 /* Language interface stuff... */
 #define OUTPUTPREFIX "out"

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.140 2004/02/13 08:27:58 misha Exp $ */
+/* $Id: main.cpp,v 1.141 2004/03/21 06:51:27 ink Exp $ */
 
 #include "config.h"
 
@@ -72,26 +72,33 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 {
 	snd_seq_event_t *ev;
 	float *pbuf = new float[1];  // Parameter buffer
-	char channelname[10];  /* XXX: FOR HARDCODED CHANNELS  remove this later */
 	
 	do
 	{
         snd_seq_event_input(seq_handle, &ev);
-		sprintf(channelname, "chan%i", ev->data.note.channel);
 
         switch (ev->type)
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
-				Synth->AddNote(string(channelname), ev->data.note.note,
-							   ev->data.note.velocity);
+				if(ev->data.note.velocity == 0)
+				{
+					*pbuf = 0;
+					Synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
+									  "trigger", pbuf, 1);
+				}
+				else
+				{	
+					Synth->AddNote(ev->data.note.channel, ev->data.note.note,
+								   ev->data.note.velocity);
+				}
 				break;
 			}
 			case SND_SEQ_EVENT_NOTEOFF:
 			{
 				/* XXX make this part better */
 				*pbuf = 0;
-				Synth->SetNoteArg(string(channelname), ev->data.note.note,
+				Synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
 								  "trigger", pbuf, 1);
 				break;
 			}
@@ -225,36 +232,36 @@ int main (int argc, char *argv[])
 
 		Synth.LoadMod(inputfname);
 		/* the first channel is the one passed on the command line */
-		Synth.AddChannel(string("chan0"), dspname, 12.0);
+		Synth.AddChannel(0, dspname, 12.0);
 	}
 
 	/* seed the random number generator */
 	srand(time(NULL));
 
 	Synth.LoadMod("dsp/piano0.dsp");
-	Synth.AddChannel(string("chan1"), "test", 14.0);
+	Synth.AddChannel(1, "test", 14.0);
 	Synth.LoadMod("dsp/organ0.dsp");
-	Synth.AddChannel(string("chan2"), "test", 12.0);
+	Synth.AddChannel(2, "test", 12.0);
 	Synth.LoadMod("dsp/sqrtest.dsp");
-	Synth.AddChannel(string("chan3"), "test", 2.0);
+	Synth.AddChannel(3, "test", 2.0);
 
 	Synth.LoadMod("dsp/dfb.dsp");
-	Synth.AddChannel(string("chan4"), "test", 12.0);
+	Synth.AddChannel(4, "test", 12.0);
 	Synth.LoadMod("dsp/harpsi0.dsp");
-	Synth.AddChannel(string("chan5"), "test", 12.0);
+	Synth.AddChannel(5, "test", 12.0);
 	Synth.LoadMod("dsp/harpsi1.dsp");
-	Synth.AddChannel(string("chan5"), "test", 12.0);
+	Synth.AddChannel(5, "test", 12.0);
 	Synth.LoadMod("dsp/mfm01.dsp");
-	Synth.AddChannel(string("chan6"), "test", 12.0);
+	Synth.AddChannel(6, "test", 12.0);
 	Synth.LoadMod("dsp/analog00.dsp");
-	Synth.AddChannel(string("chan7"), "test", 12.0);
+	Synth.AddChannel(7, "test", 12.0);
 	Synth.LoadMod("dsp/amb01.dsp");
-	Synth.AddChannel(string("chan8"), "test", 12.0);
+	Synth.AddChannel(8, "test", 12.0);
 
 
 	/* drums */
 	Synth.LoadMod("dsp/sd0.dsp");
-	Synth.AddChannel(string("chan9"), "test", 11.0);
+	Synth.AddChannel(9, "test", 11.0);
 
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 

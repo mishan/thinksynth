@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.70 2004/02/18 23:41:16 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.71 2004/03/21 06:51:27 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -36,6 +36,9 @@ thSynth::thSynth (void)
 	/* We should make a function to allocate this, so we can easily change
 	   thChans and thWindowlen */
 	thOutput = new float[thChans*thWindowlen];
+
+	channelcount = CHANNELCHUNK;
+	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan*));
 }
 
 thSynth::~thSynth (void)
@@ -43,7 +46,7 @@ thSynth::~thSynth (void)
 	delete [] thOutput;
 
 	DestroyMap(modlist);
-	DestroyMap(channels);
+	free(channels);
 }
 
 void thSynth::LoadMod (const string &filename)
@@ -99,20 +102,37 @@ void thSynth::ListMods (void)
 	}
 }
 
-void thSynth::AddChannel (const string &channame, const string &modname,
-						  float amp)
+void thSynth::AddChannel (int channum, const string &modname, float amp)
 {
-	channels[channame] = new thMidiChan(FindMod(modname), amp, thWindowlen);
+	thMidiChan **newchans;
+	int newchancount = channelcount;
+
+	if (channum > channelcount)
+	{
+		while(channum > newchancount) {
+			newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
+			/* add one more chunk to the channel pointer array */
+		}
+		newchans = (thMidiChan **)calloc(newchancount, sizeof(thMidiChan*));
+
+        /* copy pointers over */
+		memcpy(newchans, channels, channelcount * sizeof(thMidiChan*));
+		free(channels);
+		channelcount = newchancount;
+		channels = newchans;
+	}
+
+	channels[channum] = new thMidiChan(FindMod(modname), amp, thWindowlen);
 }
 
-thMidiNote *thSynth::AddNote (const string &channame, float note,
+thMidiNote *thSynth::AddNote (int channum, float note,
 							  float velocity)
 {
-	thMidiChan *chan = channels[channame];
+	thMidiChan *chan = channels[channum];
 
-	if (!chan)
+	if (!chan || channum > channelcount)
 	{
-		debug("thSynth::AddNote: no such channel %s", channame.c_str());
+		debug("thSynth::AddNote: no such channel %i", channum);
 
 		return NULL;
 	}
@@ -122,14 +142,14 @@ thMidiNote *thSynth::AddNote (const string &channame, float note,
 	return newnote;
 }
 
-int thSynth::SetNoteArg (const string &channame, int note, char *name,
+int thSynth::SetNoteArg (int channum, int note, char *name,
 						 float *value, int len)
 {
-	thMidiChan *chan = channels[channame];
+	thMidiChan *chan = channels[channum];
 
-	if (!chan)
+	if (!chan || channum > channelcount)
 	{
-		debug("thSynth::SetNoteArg: no such channel %s", channame.c_str());
+		debug("thSynth::SetNoteArg: no such channel %i", channum);
 
 		return 1;
 	}
@@ -146,33 +166,30 @@ void thSynth::Process (void)
 	int mixchannels, notechannels;
 	thMidiChan *chan;
 	float *chanoutput;
+	int i;
 
-	for (map<string, thMidiChan*>::const_iterator im = channels.begin();
-		 im != channels.end(); ++im)
+	for (i = 0; i < channelcount; i++)
 	{
-		chan = im->second;
+		chan = channels[i];
 
-		if (!chan)
+		if (chan)
 		{
-			debug("thSynth::Process: no such channel '%s'", im->first.c_str());
-			continue;
-		}
-
-		notechannels = chan->GetChannels();
-		mixchannels = notechannels;
-
-		if (mixchannels > thChans) {
-			mixchannels = thChans;
-		}
-
-		chan->Process();
-		chanoutput = chan->GetOutput();
-
-		for (int i = 0; i < mixchannels; i++)
-		{
-			for (int j = 0 ;j < thWindowlen; j++)
+			notechannels = chan->GetChannels();
+			mixchannels = notechannels;
+			
+			if (mixchannels > thChans) {
+				mixchannels = thChans;
+			}
+			
+			chan->Process();
+			chanoutput = chan->GetOutput();
+			
+			for (int i = 0; i < mixchannels; i++)
 			{
-				thOutput[i+(j*thChans)] += chanoutput[i+(j*notechannels)];
+				for (int j = 0 ;j < thWindowlen; j++)
+				{
+					thOutput[i+(j*thChans)] += chanoutput[i+(j*notechannels)];
+				}
 			}
 		}
 	}
