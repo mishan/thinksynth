@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.32 2003/10/16 21:04:03 misha Exp $ */
+/* $Id: thSynth.h,v 1.33 2003/10/16 21:04:46 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -21,9 +21,10 @@ public:
 	thMidiNote *AddNote(const string &channame, float note, float velocity);
 	void Process(void);
 	void PrintChan(int chan);
-	int GetChans(void) { return thChans; }
-	int GetWindowLen(void) { return thWindowlen; }
-	float *GetOutput(void) { return thOutput; }
+
+	int GetChans(void) const { return thChans; }
+	int GetWindowLen(void) const { return thWindowlen; }
+	float *GetOutput(void) const { return thOutput; }
 
 	/* note that as of 9/15/03 these don't do anything. corresponding changes
 	   elsewhere in the implementation must be made (thSamples is intialized to
