@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.129 2004/02/04 21:10:11 misha Exp $ */
+/* $Id: main.cpp,v 1.130 2004/02/05 07:07:15 misha Exp $ */
 
 #include "config.h"
 
@@ -68,16 +68,18 @@ snd_seq_t *open_seq (void)
     return seq_handle;
 }
 
-int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
+int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 {
 	snd_seq_event_t *ev;
 	float *pbuf = new float[1];  // Parameter buffer
 	char channelname[10];  /* XXX: FOR HARDCODED CHANNELS  remove this later */
 	
-	do {
+	do
+	{
         snd_seq_event_input(seq_handle, &ev);
 		sprintf(channelname, "chan%i", ev->data.note.channel);
-        switch (ev->type) {
+        switch (ev->type)
+		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
 				Synth->AddNote(string(channelname), ev->data.note.note,
@@ -190,7 +192,8 @@ int main (int argc, char *argv[])
 			}
 			default:
 			{
-				if (optind != argc) {
+				if (optind != argc)
+				{
 //					printf ("error: unrecognized parameter\n");
 					printf(syntax, argv[0]);
 					exit(1);
@@ -224,6 +227,10 @@ int main (int argc, char *argv[])
 	Synth.AddChannel(string("chan5"), "test", 12.0);
 	Synth.LoadMod("dsp/harpsi1.dsp");
 	Synth.AddChannel(string("chan5"), "test", 12.0);
+	Synth.LoadMod("dsp/mfm01.dsp");
+	Synth.AddChannel(string("chan6"), "test", 12.0);
+	Synth.LoadMod("dsp/analog00.dsp");
+	Synth.AddChannel(string("chan7"), "test", 12.0);
 	
 
 	/* drums */
@@ -234,7 +241,8 @@ int main (int argc, char *argv[])
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
-	try {
+	try
+	{
 		/* XXX: note that this is actually bad since there are potentially
 		   other /dev/dsp devices */
 		audiofmt.channels = Synth.GetChans();
@@ -289,11 +297,13 @@ int main (int argc, char *argv[])
 
 	/* XXX: handle these exceptions and consolidate them to one exception
 	   datatype */
-	catch (thIOException e) {
+	catch (thIOException e)
+	{
 		printf("thIOEXception on /dev/dsp\n");
 		/* XXX */
 	}
-	catch (thWavException e) {
+	catch (thWavException e)
+	{
 		printf("thWavException on %s\n", outputfname.c_str());
 		/* XXX */
 	}
@@ -307,9 +317,11 @@ int main (int argc, char *argv[])
 		printf ("Writing to '%s'\n", outputfname.c_str());
 	}
 
-	while (1) {
+	while (1)
+	{
 //	for (i = 0; i < processwindows; i++) {
-		if (poll (pfds, seq_nfds + nfds, 1000) > 0) {
+		if (poll (pfds, seq_nfds + nfds, 1000) > 0)
+		{
 			int j;
 
 			for (j = 0; j < seq_nfds; j++)
@@ -343,7 +355,7 @@ int main (int argc, char *argv[])
 							outputstream = new thALSAAudio(&audiofmt);
 						}
 
-						phandle = ((thALSAAudio *)outputstream)->play_handle;
+v						phandle = ((thALSAAudio *)outputstream)->play_handle;
 						//nfds = snd_pcm_poll_descriptors_count (phandle);
 						//snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
 					}
