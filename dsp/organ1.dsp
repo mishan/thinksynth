@@ -1,4 +1,4 @@
-# $Id: organ1.dsp,v 1.5 2004/05/05 09:16:06 ink Exp $
+# $Id: organ1.dsp,v 1.6 2004/05/05 10:37:46 ink Exp $
 # Synth Organ
 # Leif Ames <ink@bespin.org>
 # 4/7/2004
@@ -17,9 +17,9 @@ node ionode {
 	fade = vmap->out;
 
 	band1 = 2;
-	band2 = 3;
-	band3 = 4;
-	band4 = 5;
+	band2 = 4;
+	band3 = 6;
+	band4 = 8;
 
 	a = 5ms;
 	d = 20ms;
@@ -31,9 +31,9 @@ node ionode {
 	fs = 0.6;
 	fr = 500ms;
 
-	cutmin = 0;
-	cutmax = 0.2;
-	res = 0.25;
+	cutmin = 0.3;
+	cutmax = 0.1;
+	res = 0.3;
 };
 
 node suscalc math::mul {
