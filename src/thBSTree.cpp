@@ -36,7 +36,7 @@ thBSTree::~thBSTree (void)
 
 void thBSTree::Insert(char *name, void *data)
 {
-	thBNode *node;
+	thBSNode *node;
 
 	if(!name) {
 		fprintf(stderr, "thBSTree::Insert: Cannot insert node with NULL name\n");
@@ -48,7 +48,7 @@ void thBSTree::Insert(char *name, void *data)
 	 	return;
 	}
 
-	node = new thBNode;
+	node = new thBSNode;
  
 	node->name = strdup(name);
 	node->data = data;
@@ -65,7 +65,7 @@ void thBSTree::Insert(char *name, void *data)
  	InsertHelper(bRoot, node);
 }
 
-void thBSTree::InsertHelper(thBNode *root, thBNode *node)
+void thBSTree::InsertHelper(thBSNode *root, thBSNode *node)
 {
 	switch(StringCompare(node->name, root->name)) {
 		/* node is equal to current node, cannot have duplicate nodes */
@@ -95,10 +95,10 @@ void thBSTree::InsertHelper(thBNode *root, thBNode *node)
 
 void thBSTree::Remove(char *name)
 {
-	thBNode *node = Find(name);
-	thBNode *parent; /* can be NULL */
-	thBNode *left, *right; /* can also be NULL */
-	thBNode *newroot, *newchild; /* both of these are also potentially NULL */
+	thBSNode *node = Find(name);
+	thBSNode *parent; /* can be NULL */
+	thBSNode *left, *right; /* can also be NULL */
+	thBSNode *newroot, *newchild; /* both of these are also potentially NULL */
 
 	if(!node) {
 		fprintf(stderr, "thBSTree::Remove: No such node '%s'\n", name);
@@ -154,7 +154,7 @@ void thBSTree::Remove(char *name)
 	}
 }
 
-thBNode *thBSTree::Find(char *name)
+thBSNode *thBSTree::Find(char *name)
 {
 	if(!bRoot) {
 		return NULL;
@@ -168,7 +168,7 @@ void thBSTree::PrintTree (void)
 	PrintHelper(bRoot);
 }
 
-void thBSTree::PrintHelper (thBNode *root)
+void thBSTree::PrintHelper (thBSNode *root)
 {
 	if(!root) {
 		return;
@@ -179,7 +179,7 @@ void thBSTree::PrintHelper (thBNode *root)
 	PrintHelper (root->right);
 }
 
-void thBSTree::RemoveHelper(thBNode *root, thBNode *node)
+void thBSTree::RemoveHelper(thBSNode *root, thBSNode *node)
 {
 	if(!root) {
 		fprintf(stderr, "thBSTree::RemoveHelper: root is NULL\n");
@@ -195,7 +195,7 @@ void thBSTree::RemoveHelper(thBNode *root, thBNode *node)
 			switch(StringCompare(root->right->name, node->name)) {
 			case -1:
 			{
-				thBNode *right = root->right;
+				thBSNode *right = root->right;
 				root->right = node;
 				node = right;
 
@@ -222,7 +222,7 @@ void thBSTree::RemoveHelper(thBNode *root, thBNode *node)
 			switch(StringCompare(root->left->name, node->name)) {
 			case -1:
 			{
-				thBNode *left = root->left;
+				thBSNode *left = root->left;
 				root->left = node;
 				node = left;
 				
@@ -241,9 +241,9 @@ void thBSTree::RemoveHelper(thBNode *root, thBNode *node)
 	}
 }
 
-thBNode *thBSTree::GetParent(thBNode *root, thBNode *node)
+thBSNode *thBSTree::GetParent(thBSNode *root, thBSNode *node)
 {
-	thBNode *parent;
+	thBSNode *parent;
 
 	if(!root) {
 		return NULL;
@@ -264,7 +264,7 @@ thBNode *thBSTree::GetParent(thBNode *root, thBNode *node)
 	return NULL;
 }
 
-thBNode *thBSTree::FindHelper(thBNode *root, char *name)
+thBSNode *thBSTree::FindHelper(thBSNode *root, char *name)
 {
 	if(!name) {
 		return NULL;
@@ -297,7 +297,7 @@ thBNode *thBSTree::FindHelper(thBNode *root, char *name)
 	return NULL;
 }
 
-void thBSTree::DestroyTree (thBNode *root)
+void thBSTree::DestroyTree (thBSNode *root)
 {
 	if(!root) {
 		return;
