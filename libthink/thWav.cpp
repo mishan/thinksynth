@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.30 2003/05/11 04:40:51 misha Exp $ */
+/* $Id: thWav.cpp,v 1.31 2003/05/11 04:54:24 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -76,7 +76,7 @@ thWav::~thWav (void)
 		WriteRiff();
 
 		lseek(fd, 40, SEEK_SET);
-		lewrite32(fd, fmt.len);
+		lewrite32(fd, fmt.len - 8);
 
 		close(fd);
 	}
@@ -117,7 +117,7 @@ void thWav::WriteRiff (void)
 	
 
 	write(fd, RIFF_HDR, 4);
-	lewrite32(fd, fmt.len);
+	lewrite32(fd, fmt.len - 8);
 	write(fd, WAVE_HDR, 4);
 	write(fd, FMT_HDR, 4);
 	lewrite32(fd, fmt_len);
