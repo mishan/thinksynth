@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.1 2003/05/06 08:26:44 ink Exp $ */
+/* $Id: map.cpp,v 1.2 2003/05/06 17:38:00 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -24,12 +24,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Addition plugin unloading\n");
+	printf("Map plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Addition plugin loaded\n");
+	printf("Map plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);

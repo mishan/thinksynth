@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.72 2003/05/06 09:17:48 aaronl Exp $ */
+/* $Id: main.cpp,v 1.73 2003/05/06 17:38:00 ink Exp $ */
 
 #include "config.h"
 
@@ -121,21 +121,21 @@ syntax:
 	for(i=0; i<100; i++) {  /* For testing... */
 
 	  	  if(i==20) {
-		Synth.AddNote("chan1", 42, 100);
+		Synth.AddNote("chan1", 35, 100);
 	  }
-	  if(i==40) {
-		Synth.AddNote("chan1", 45, 100);
+	  if(i==30) {
+		Synth.AddNote("chan1", 40, 100);
 	  }
-	  if(i==60) {
-		Synth.AddNote("chan1", 50, 100);
-		Synth.AddNote("chan1", 55, 100);
-		Synth.AddNote("chan1", 57, 100);
+	  if(i==50) {
+		Synth.AddNote("chan1", 40, 100);
+		//Synth.AddNote("chan1", 45, 100);
+		//Synth.AddNote("chan1", 49, 100);
 	  }
-	  if(i==75) {
-		Synth.AddNote("chan1", 50, 100);
-		Synth.AddNote("chan1", 54, 100);
-		Synth.AddNote("chan1", 57, 100);
-		}
+	  if(i==80) {
+		Synth.AddNote("chan1", 38, 100);
+		//Synth.AddNote("chan1", 44, 100);
+		//Synth.AddNote("chan1", 47, 100);
+	  }
 
 	  Synth.Process();
 	  for(j=0; j < Synth.GetWindowLen() * Synth.GetChans(); j++) {

@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.29 2003/05/06 04:37:38 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.30 2003/05/06 17:38:00 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -77,25 +77,37 @@ void thMidiChan::Process (void)
 void thMidiChan::ProcessHelper (thBSTree *note)
 {
   thMidiNote *data;
-  thArgValue *arg, *amp;
+  thArgValue *arg, *amp, *play, *noteval;
   thMod *mod;
   char *argname = new char[outputnamelen];
   int i, j;
+  int delnote = 0;
 
   if(note) {
 	ProcessHelper(note->GetLeft());
 
 	data = (thMidiNote *)note->GetData();
-	data->Process(windowlength);
-	mod = data->GetMod();
-	amp = (thArgValue *)args->GetData((void *)"amp");
-
-	for(i=0;i<channels;i++) {
-	  sprintf(argname, "%s%i", OUTPUTPREFIX, i);
-	  arg = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)argname);
-	  for(j=0;j<windowlength;j++) {
-		output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
-		/* output += channel output * (amplitude/amplitude maximum) */
+	if(data) { /* XXX We should not have to do this! */
+	  data->Process(windowlength);
+	  mod = data->GetMod();
+	  amp = (thArgValue *)args->GetData((void *)"amp");
+	  play = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)"play");
+	  
+	  for(i=0;i<channels;i++) {
+		sprintf(argname, "%s%i", OUTPUTPREFIX, i);
+		arg = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)argname);
+		for(j=0;j<windowlength;j++) {
+		  output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
+		  if((*play)[i] == 0) {
+			delnote = 1;
+		  }
+		  /* output += channel output * (amplitude/amplitude maximum) */
+		}
+	  }
+	  
+	  if(delnote == 1) {
+		noteval = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)"note");
+		DelNote((int)(*noteval)[0]);
 	  }
 	}
 
