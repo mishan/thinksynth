@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.34 2003/09/16 01:02:29 misha Exp $ */
+/* $Id: thArg.cpp,v 1.35 2003/09/16 23:51:14 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -41,17 +41,18 @@ thArg::~thArg(void)
 }
 
 
-float *thArg::Allocate (int elements)
+float *thArg::Allocate (unsigned int elements)
 {
-	if(argNum != elements) {
+	if(argValues == NULL) {
+		argValues = new float[elements];
+		argNum = elements;
+	}
+	else if(argNum != elements) {
 		delete[] argValues;
 		argValues = new float[elements];
 		argNum = elements;
 	}
-	else if(argValues == NULL) {
-		argValues = new float[elements];
-		argNum = elements;
-	}
+
 	return argValues;
 }
 

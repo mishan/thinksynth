@@ -1,4 +1,4 @@
-/* $Id: echo.cpp,v 1.3 2003/09/16 01:02:28 misha Exp $ */
+/* $Id: echo.cpp,v 1.4 2003/09/16 23:51:14 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,23 +59,29 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_arg = mod->GetArg(node, "out");
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
-		buffer = inout_buffer->Allocate((int)(*in_size)[i]);
+	for(i = 0; i < windowlen; i++) {
+		unsigned int mySize = (int)(*in_size)[i];
+		unsigned int myBufpos = (int)*bufpos;
+
+		buffer = inout_buffer->Allocate(mySize);
 		in = (*in_arg)[i];
 		feedback = (*in_feedback)[i];
 		dry = (*in_dry)[i];
 
-		if(*bufpos > inout_buffer->argNum) {
-			*bufpos = 0;
+		if(myBufpos > inout_buffer->argNum) {
+			myBufpos = 0;
 		}
-		index = (int)(*bufpos - (*in_delay)[i]);
+		index = (int)(myBufpos - (*in_delay)[i]);
 		while(index < 0) {
 			index += inout_buffer->argNum;
 		}
 		delay = buffer[index];
-		buffer[(int)*bufpos] = (feedback * delay) + ((1-feedback) * in);
+
+		buffer[myBufpos] = (feedback * delay) + ((1-feedback) * in);
+
 		out[i] = ((1 - dry) * delay) + (dry * in);
-		(*bufpos)++;
+		++myBufpos;
+		*bufpos = (float)myBufpos;
 	}
 
 	return 0;

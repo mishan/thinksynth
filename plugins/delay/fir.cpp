@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.9 2003/09/16 01:02:28 misha Exp $ */
+/* $Id: fir.cpp,v 1.10 2003/09/16 23:51:14 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,8 +42,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *in_arg, *in_impulse, *in_mix;
 	thArg *out_arg;
 	thArg *inout_buffer, *inout_bufpos;
-	unsigned int i;
-	int j, index;
+	unsigned int i, j;
+	int index;
 	float impulse, mix;
 
 	in_arg = mod->GetArg(node, "in");
@@ -66,7 +66,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 		buffer[(int)*bufpos] = (*in_arg)[i];
 
-		for(j=0 ; j < in_impulse->argNum ; j++) {
+		for(j = 0; j < in_impulse->argNum; j++) {
 			index = (int)*bufpos - j;
 			if(index < 0) {
 				index += in_impulse->argNum;

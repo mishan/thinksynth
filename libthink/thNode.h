@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.37 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thNode.h,v 1.38 2003/09/16 23:51:14 misha Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -16,6 +16,7 @@ public:
 	thArg *SetArg (const string &name, const string &node, const string &value);
 
 	map<string,thArg*> GetArgTree (void) const { return args; }
+	
 	thArg *GetArg (const string &name) { return args[name]; };
 	void PrintArgs (void);
 
