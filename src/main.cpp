@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.137 2004/02/10 02:42:17 misha Exp $ */
+/* $Id: main.cpp,v 1.138 2004/02/10 02:49:23 misha Exp $ */
 
 #include "config.h"
 
@@ -247,7 +247,9 @@ int main (int argc, char *argv[])
 	Synth.AddChannel(string("chan6"), "test", 12.0);
 	Synth.LoadMod("dsp/analog00.dsp");
 	Synth.AddChannel(string("chan7"), "test", 12.0);
-	
+	Synth.LoadMod("dsp/amb01.dsp");
+	Synth.AddChannel(string("chan8"), "test", 12.0);
+
 
 	/* drums */
 	Synth.LoadMod("dsp/sd0.dsp");
