@@ -1,4 +1,4 @@
-/* $Id: thinklex.ll,v 1.26 2004/10/01 08:35:12 joshk Exp $ */
+/* $Id: thinklex.ll,v 1.27 2004/10/01 09:14:29 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -59,6 +59,7 @@ node		{ return NODE; }
 io		{ return IO; }
 name		{ return NAME; }
 description	{ return DESC; }
+author { return AUTHOR; }
 
 ms		{ return MS; }
 

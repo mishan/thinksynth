@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.42 2004/10/01 08:52:26 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.43 2004/10/01 09:14:29 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -349,7 +349,7 @@ void MainSynthWindow::populate (void)
 		
 		Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
 		Gtk::Frame *info_frame = manage(new Gtk::Frame);
-		Gtk::Table *info_table = manage(new Gtk::Table(2, 2));
+		Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
 
 		info_frame->set_label("DSP Information");
 		info_frame->add(*info_table);
@@ -360,10 +360,43 @@ void MainSynthWindow::populate (void)
 		{
 			Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
 			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->getComment()));
-		
-			info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
-			info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+
+			lname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+
+			info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::FILL, Gtk::FILL);
+			info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
 		}
+
+		thArg *dspDesc = args["desc"];
+
+		if (dspDesc)
+		{
+			Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
+			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->getComment()));
+
+			lname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+		
+			info_table->attach(*lname_lbl, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
+			info_table->attach(*rname_lbl, 1, 2, 1, 2, Gtk::FILL, Gtk::FILL);
+		}
+
+		thArg *dspAuthor = args["author"];
+
+		if (dspAuthor)
+		{
+			Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
+			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->getComment()));
+
+			lname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+
+		
+			info_table->attach(*lname_lbl, 0, 1, 2, 3, Gtk::FILL, Gtk::FILL);
+			info_table->attach(*rname_lbl, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
+		}
+
 
 		Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
 		ArgTable *dsp_table = manage(new ArgTable);
