@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.2 2003/05/20 02:33:53 aaronl Exp $
+# $Id: Makefile,v 1.3 2003/05/27 21:52:17 ink Exp $
 
-PLUGIN_NAMES = clip.so
+PLUGIN_NAMES = clip.so saturate.so
 include ../plugin-common.mk
