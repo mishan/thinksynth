@@ -83,6 +83,7 @@ node env env::adsr {
 	d = ionode->d;
 	s = suscalc->out;
 	r = ionode->r;
+	p = ionode->velocity;
 	trigger = ionode->trigger;
 };
 
