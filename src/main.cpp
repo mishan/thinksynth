@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.130 2004/02/05 07:07:15 misha Exp $ */
+/* $Id: main.cpp,v 1.131 2004/02/05 07:31:54 misha Exp $ */
 
 #include "config.h"
 
@@ -355,7 +355,7 @@ int main (int argc, char *argv[])
 							outputstream = new thALSAAudio(&audiofmt);
 						}
 
-v						phandle = ((thALSAAudio *)outputstream)->play_handle;
+						phandle = ((thALSAAudio *)outputstream)->play_handle;
 						//nfds = snd_pcm_poll_descriptors_count (phandle);
 						//snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
 					}
