@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.167 2004/04/18 09:51:28 misha Exp $ */
+/* $Id: main.cpp,v 1.168 2004/04/18 10:04:22 misha Exp $ */
 
 #include "config.h"
 
@@ -263,7 +263,7 @@ int main (int argc, char *argv[])
 	   integer internally based on format data */
 	try
 	{
-		midi = new thfALSAMidi("thinskynth");
+		midi = new thfALSAMidi("thinksynth");
 
 		midi->signal_midi_event().connect(
 			SigC::bind<thSynth *>(SigC::slot(&processmidi), &Synth));
