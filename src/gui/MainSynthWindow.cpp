@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.7 2004/04/02 11:33:11 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.8 2004/04/07 07:23:16 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -30,8 +30,7 @@
 extern Glib::Mutex *synthMutex;
 
 MainSynthWindow::MainSynthWindow (thSynth *synth)
-	: patchSel (synth),
-	  keyboardWin (synth)
+	: patchSel (synth)
 {
 	set_title("thinksynth");
 	set_default_size(320, 240);
@@ -87,7 +86,7 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
 
-	menuBar.accelerate(keyboardWin);
+//	menuBar.accelerate(keyboardWin);
 	menuBar.accelerate(patchSel);
 
 	show_all_children();
@@ -100,8 +99,12 @@ MainSynthWindow::~MainSynthWindow (void)
 
 void MainSynthWindow::menuKeyboard (void)
 {
-	keyboardWin.show_all_children();
-	keyboardWin.show();
+//	keyboardWin.show_all_children();
+//	keyboardWin.show();
+	KeyboardWindow *kbwin = new KeyboardWindow (realSynth);
+	menuBar.accelerate(*kbwin);
+	kbwin->show_all_children();
+	kbwin->show();
 }
 
 void MainSynthWindow::menuPatchSel (void)
