@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.18 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: MainSynthWindow.h,v 1.19 2004/11/19 03:04:51 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -47,9 +47,7 @@ protected:
 	void append_tab (const string &tabName, int num, bool is_real);
 	void populate (void);
 
-	void channelChanged (string filename, int chan, float amp);
-	void channelDeleted (int chan);
-
+	void onPatchesChanged (void);
 	void onAboutBoxHide (void);
 	void onKeyboardHide (KeyboardWindow *kbwin);
 	void onSwitchPage (GtkNotebookPage *p, int pagenum);

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.50 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.51 2004/11/19 03:04:51 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -149,11 +149,13 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	show_all_children();
 
-	synth->signal_channel_changed().connect(
-		sigc::mem_fun(*this, &MainSynthWindow::channelChanged));
-
-	synth->signal_channel_deleted().connect(
-		sigc::mem_fun(*this, &MainSynthWindow::channelDeleted));
+//	synth->signal_channel_changed().connect(
+//		sigc::mem_fun(*this, &MainSynthWindow::channelChanged));
+//	synth->signal_channel_deleted().connect(
+//		sigc::mem_fun(*this, &MainSynthWindow::channelDeleted));
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	patchMgr->signal_patches_changed().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::onPatchesChanged));
 
 	aboutBox = NULL;
 }
@@ -508,20 +510,12 @@ void MainSynthWindow::populate (void)
 
 }
 
-void MainSynthWindow::channelChanged (string filename, int chan, float amp)
+void MainSynthWindow::onPatchesChanged (void)
 {
 	notebook.hide_all();
 	notebook.pages().clear();
 	populate();
-	notebook.show_all();
-}
-
-void MainSynthWindow::channelDeleted (int chan)
-{
-	notebook.hide_all();
-	notebook.pages().clear();
-	populate();
-	notebook.show_all();
+	notebook.show_all();	
 }
 
 void MainSynthWindow::onAboutBoxHide (void)

@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.6 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.7 2004/11/19 03:04:51 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -92,6 +92,9 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 
 bool gthPatchManager::loadPatch (const string &filename, int chan)
 {
+	if ((chan < 0) || (chan >= numPatches_))
+		return false;
+
 	bool r = parse(filename, chan);
 
 	m_signal_patches_changed();
@@ -117,7 +120,7 @@ bool gthPatchManager::unloadPatch (int chan)
 
 bool gthPatchManager::isLoaded (int chan)
 {
-	if ((chan > 0) || (chan >= 0) || patches_[chan] == NULL)
+	if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
 		return false;
 
 	return true;
@@ -125,8 +128,11 @@ bool gthPatchManager::isLoaded (int chan)
 
 thMidiChan::ArgMap gthPatchManager::getChannelArgs (int chan)
 {
-	if ((chan > 0) || (chan >= 0) || patches_[chan] == NULL)
+	if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
+	{
+		
 		return thMidiChan::ArgMap();
+	}
 
 	thSynth *synth = thSynth::instance();
 	thMidiChan *mchan = synth->GetChannel(chan);
