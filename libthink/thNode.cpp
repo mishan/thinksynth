@@ -9,57 +9,66 @@
 
 thNode::thNode (char *name, thPlugin *thplug)
 {
-  nodename = strdup(name);
-  plugin = thplug;
-  args = new thBSTree;
+	nodename = strdup(name);
+	plugin = thplug;
+	args = new thBSTree;
 }
 
-thNode::~thNode ()
+thNode::~thNode (void)
 {
-  free(nodename);
-  delete args;
-  /* free anything else */
+	delete nodename;
+	delete args;
+	/* free anything else */
 }
 
-void thNode::SetName(char *name) {
-  free(nodename);
-  nodename = name;
-}
-
-char *thNode::GetName() {
-  return nodename;
-}
-
-void thNode::SetArg (char *name, float *value, int num)
+void thNode::SetName(const char *name)
 {
-  thArg *arg = (thArg *)args->Find(name);
-  if(!arg) {
-    arg = new thArg(name, value, num);
-    args->Insert(name, arg);
-  } else {
-    arg->SetArg(name, value, num);
-  }
+	delete nodename;
+	
+	nodename = strdup(name);
 }
 
-void thNode::SetArg (char *name, char *node, char *value)
+const char *thNode::GetName (void)
 {
-  thArg *arg = (thArg *)args->Find(name);
-  if(arg) {
-    arg->SetArg(name, node, value);
-  } else {
-    arg = new thArg(name, node, value);
-    args->Insert(name, arg);
-  }
+	return nodename;
 }
 
-thArgValue *thNode::GetArg (char *name)
+void thNode::SetArg (const char *name, const float *value, int num)
 {
-  thArg *arg = (thArg *)args->GetData(name);
-  return arg->GetArg();
+	thArg *arg = (thArg *)args->Find(name);
+
+	if(!arg) {
+		arg = new thArg(name, value, num);
+		args->Insert(name, arg);
+	}
+	else {
+		arg->SetArg(name, value, num);
+	}
 }
 
-void thNode::PrintArgs(void) {
-  args->PrintTree();
+void thNode::SetArg (const char *name, const char *node, const char *value)
+{
+	thArg *arg = (thArg *)args->Find(name);
+	
+	if(arg) {
+		arg->SetArg(name, node, value);
+	}
+	else {
+		arg = new thArg(name, node, value);
+		args->Insert(name, arg);
+	}
+}
+
+const thArgValue *thNode::GetArg (char *name)
+{
+	thArg *arg = (thArg *)args->GetData(name);
+
+	return arg->GetArg();
+}
+
+void thNode::PrintArgs (void)
+{
+	args->PrintTree();
 }
 
 void thNode::Process (void)

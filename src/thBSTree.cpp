@@ -14,7 +14,7 @@ thBSTree::~thBSTree (void)
 	DestroyTree(bRoot);
 }
 
-void thBSTree::Insert(char *name, void *data)
+void thBSTree::Insert(const char *name, void *data)
 {
 	thBSNode *node;
 
@@ -73,7 +73,7 @@ void thBSTree::InsertHelper(thBSNode *root, thBSNode *node)
 	}
 }
 
-void thBSTree::Remove(char *name)
+void thBSTree::Remove(const char *name)
 {
 	thBSNode *node = Find(name);
 	thBSNode *parent; /* can be NULL */
@@ -134,7 +134,7 @@ void thBSTree::Remove(char *name)
 	}
 }
 
-thBSNode *thBSTree::Find(char *name)
+thBSNode *thBSTree::Find(const char *name)
 {
 	if(!bRoot) {
 		return NULL;
@@ -244,7 +244,7 @@ thBSNode *thBSTree::GetParent(thBSNode *root, thBSNode *node)
 	return NULL;
 }
 
-thBSNode *thBSTree::FindHelper(thBSNode *root, char *name)
+thBSNode *thBSTree::FindHelper(thBSNode *root, const char *name)
 {
 	if(!name) {
 		return NULL;

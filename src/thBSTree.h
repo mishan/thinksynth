@@ -13,25 +13,25 @@ public:
 	thBSTree (void);
 	~thBSTree (void);
 
-	void Insert (char *name, void *data);
-	void Remove (char *name);
-	thBSNode *Find (char *name);
+	void Insert (const char *name, void *data);
+	void Remove (const char *name);
+	thBSNode *Find (const char *name);
 
 	void PrintTree (void);
-	void *GetData ( char *name );
+	void *GetData (char *name);
 private:
 	thBSNode *bRoot;
 
 	void PrintHelper (thBSNode *root);
 	void InsertHelper (thBSNode *root, thBSNode *node);
-	thBSNode *FindHelper (thBSNode *root, char *name);
+	thBSNode *FindHelper (thBSNode *root, const char *name);
 	thBSNode *GetParent (thBSNode *root, thBSNode *node);
 	void RemoveHelper (thBSNode *root, thBSNode *node);
 	
 	void DestroyTree (thBSNode *root);
 
 	/* inline string comparison function */
-	int StringCompare(char *str1, char *str2) {
+	int StringCompare(const char *str1, const char *str2) {
 		/* error */
 		if(!str1 || !str2) {
 			return -2;

@@ -3,16 +3,16 @@
 
 class thNode {
 public:
-	thNode(char *name, thPlugin *thplug);
-	~thNode();
+	thNode (char *name, thPlugin *thplug);
+	~thNode (void);
 
-	void SetName(char *name);
-	char *GetName();
-	void SetArg(char *name, float *value, int num);
-	void SetArg(char *name, char *node, char *value);
+	void SetName (const char *name);
+	const char *GetName (void);
+	void SetArg (const char *name, const float *value, int num);
+	void SetArg (const char *name, const char *node, const char *value);
 	
-	thArgValue *GetArg(char *name);
-	void PrintArgs(void);
+	const thArgValue *GetArg (char *name);
+	void PrintArgs (void);
 
 	void Process (void);
 private:
