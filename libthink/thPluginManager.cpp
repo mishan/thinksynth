@@ -27,7 +27,7 @@ thPluginManager::~thPluginManager ()
 char *thPluginManager::GetPath (char *name)
 {
 	char *path = new char[strlen(name) + strlen(PLUGPREFIX) + 
-						  strlen(PLUGPOSTFIX)];
+						  strlen(PLUGPOSTFIX) + 1];
 	
 	sprintf(path, "%s%s%s", PLUGPREFIX, name, PLUGPOSTFIX);
 
@@ -49,6 +49,7 @@ int thPluginManager::LoadPlugin (char *name)
 
 	plugin = new thPlugin (path, id, state);
 	plugins->Insert(name, plugin);
+
 	/* XXX */
 	return 0;
 }
