@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.43 2003/04/27 21:31:58 joshk Exp $ */
+/* $Id: main.cpp,v 1.44 2003/04/27 22:10:33 joshk Exp $ */
 
 #include "config.h"
 
@@ -93,4 +93,7 @@ syntax:
 	for(i=0;i<1024;i++) { /* XXX temporary hack to view more than 1 element of data */
 		printf("  = %f\n", ((thArgValue *)newmod->GetArg("ionode", "out"))->argValues[i]);
 	}
+
+	free(filename);
+	free(dspname);
 }
