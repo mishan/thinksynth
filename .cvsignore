@@ -1,6 +1,5 @@
 Makefile
 missing
-install-sh
 configure
 config.*
 Makefile.in
