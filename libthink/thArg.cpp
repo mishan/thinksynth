@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.22 2003/04/27 08:57:16 aaronl Exp $ */
+/* $Id: thArg.cpp,v 1.23 2003/04/27 09:56:36 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -9,13 +9,14 @@
 #include <string.h>
 
 #include "thArg.h"
+#include "thUtils.h"
 
 /* Ownership of value will transfer to us, but we copy the strings and you need
    to free those. Same goes for SetArg. */
 
 thArg::thArg(const char *name, float *value, const int num)
 {
-	argValue.argName = strdup(name);
+	argValue.argName = thstrdup(name);
 
 	argValue.argValues = value;
 
@@ -29,9 +30,9 @@ thArg::thArg(const char *name, float *value, const int num)
 
 thArg::thArg(const char *name, const char *node, const char *value)
 {
-	argValue.argName = strdup(name);
-	argValue.argPointNode = strdup(node);
-	argValue.argPointName = strdup(value);
+	argValue.argName = thstrdup(name);
+	argValue.argPointNode = thstrdup(node);
+	argValue.argPointName = thstrdup(value);
 
 	argValue.argValues = NULL;
 	argValue.argNum = 0;
@@ -63,7 +64,7 @@ void thArg::SetArg(const char *name, float *value, const int num)
 		delete argValue.argValues;
 	}
 
-	argValue.argName = strdup(name);
+	argValue.argName = thstrdup(name);
 	
 	argValue.argValues = value;
 
@@ -85,9 +86,9 @@ void thArg::SetArg(const char *name, const char *node, const char *value)
 		delete argValue.argPointName;
 	}
 
-	argValue.argName = strdup(name);
-	argValue.argPointNode = strdup(node);
-	argValue.argPointName = strdup(value);
+	argValue.argName = thstrdup(name);
+	argValue.argPointNode = thstrdup(node);
+	argValue.argPointName = thstrdup(value);
 
 	argValue.argType = ARG_POINTER;
 }

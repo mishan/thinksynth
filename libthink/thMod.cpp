@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.47 2003/04/27 09:20:05 aaronl Exp $ */
+/* $Id: thMod.cpp,v 1.48 2003/04/27 09:56:36 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -14,11 +14,12 @@
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"
+#include "thUtils.h"
 
 thMod::thMod (const char *name)
 {
 	ionode = NULL;
-	modname = strdup(name);
+	modname = thstrdup(name);
 	modnodes = new thBSTree(StringCompare);
 }
 
@@ -65,7 +66,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 void thMod::NewNode (thNode *node)
 {
-	modnodes->Insert(strdup(node->GetName()), node);
+	modnodes->Insert(thstrdup(node->GetName()), node);
 }
 
 /* We own this string. The caller may not free it. */

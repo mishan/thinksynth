@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.18 2003/04/27 07:43:42 joshk Exp $ */
+/* $Id: thWav.cpp,v 1.19 2003/04/27 09:56:36 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -29,11 +29,12 @@
 #include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 #include "thWav.h"
+#include "thUtils.h"
 
 thWav::thWav(char *name)
 	throw(thIOException, thWavException)
 {
-	filename = strdup(name);
+	filename = thstrdup(name);
 	type = READING;
 
 	if(!(file = fopen(filename, "r"))) {
@@ -46,7 +47,7 @@ thWav::thWav(char *name)
 thWav::thWav(char *name, const thAudioFmt *wfmt)
 	throw(thIOException)
 {
-	filename = strdup(name);
+	filename = thstrdup(name);
 	type = WRITING; /* writing */
 
 	if((fd = open(name, O_CREAT|O_WRONLY, 0660)) < 0) {

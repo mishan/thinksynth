@@ -1,11 +1,10 @@
-/* $Id: thMidiChan.cpp,v 1.16 2003/04/27 07:52:03 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.17 2003/04/27 09:56:36 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
 
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "thList.h"
@@ -17,15 +16,16 @@
 #include "thMidiNote.h"
 #include "thArg.h"
 #include "thMidiChan.h"
+#include "thUtils.h"
 
 thMidiChan::thMidiChan (thMod *mod, float amp)
 {
-	float *allocatedamp = (float *)malloc(sizeof(float));
+	float *allocatedamp = new float;
 	modnode = mod;
 	args = new thBSTree(StringCompare);
 	notes = new thBSTree(IntCompare);
 	allocatedamp[0] = amp;
-	args->Insert((void *)strdup("amp"), (void *)allocatedamp);
+	args->Insert((void *)thstrdup("amp"), (void *)allocatedamp);
 }
 
 thMidiChan::~thMidiChan ()
@@ -38,7 +38,7 @@ thMidiChan::~thMidiChan ()
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
-	int *id = (int *)malloc(sizeof(int));
+	int *id = new int;
 
 	*id = (int)note;
 	notes->Insert(id, midinote);

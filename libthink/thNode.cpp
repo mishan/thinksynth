@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.40 2003/04/27 04:40:29 misha Exp $ */
+/* $Id: thNode.cpp,v 1.41 2003/04/27 09:56:36 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -14,11 +14,12 @@
 #include "thPlugin.h"
 #include "thPluginManager.h"
 #include "thNode.h"
+#include "thUtils.h"
 
 thNode::thNode (const char *name, thPlugin *thplug)	
 {
 	plugin = thplug;
-	nodename = strdup(name);
+	nodename = thstrdup(name);
 	recalc = false;
 	args = new thBSTree(StringCompare);
 }
