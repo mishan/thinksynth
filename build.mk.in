@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.15 2003/05/11 07:29:18 aaronl Exp $
+# $Id: build.mk.in,v 1.16 2003/05/11 07:31:08 aaronl Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -27,7 +27,7 @@ ifeq ($(CXX_MT_BROKEN),yes)
 	mv .$<.dtx .$<.dt
 endif
 
--include .deps/.*.dt
+-include .*.dt
 endif
 
 distclean:: clean
