@@ -1,4 +1,4 @@
-/* $Id: add.cpp,v 1.1 2003/05/13 18:59:42 ink Exp $ */
+/* $Id: add.cpp,v 1.2 2003/05/17 15:27:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,9 +39,13 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out = new float[windowlen];
+	float *out;
 	thArgValue *in_0, *in_1;
+	thArgValue *out_arg;
 	unsigned int i;
+
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out = out_arg->allocate(windowlen);
 
 	in_0 = (thArgValue *)mod->GetArg(node, "in0");
 	in_1 = (thArgValue *)mod->GetArg(node, "in1");
@@ -50,7 +54,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		out[i] = (*in_0)[i]+(*in_1)[i];
 	}
 
-	node->SetArg("out", out, windowlen);
+/*	node->SetArg("out", out, windowlen); */
 	return 0;
 }
 

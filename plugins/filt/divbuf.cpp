@@ -1,4 +1,4 @@
-/* $Id: divbuf.cpp,v 1.1 2003/05/13 18:59:42 ink Exp $ */
+/* $Id: divbuf.cpp,v 1.2 2003/05/17 15:27:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,17 +41,23 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out = new float[windowlen];
-	float *out_buffer = new float[1];
-	thArgValue *in_arg, *in_factor, *in_buffer;
+	float *out;
+	float *out_buf;
+	thArgValue *in_arg, *in_factor;
+	thArgValue *out_arg;
+	thArgValue *inout_buffer;
+	
 	unsigned int i;
 	float factor, buffer;
 
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
+	buffer = (*inout_buffer)[0];
+	out = out_arg->allocate(windowlen);
+	out_buf = inout_buffer->allocate(1);
+
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_factor = (thArgValue *)mod->GetArg(node, "factor");
-	in_buffer = (thArgValue *)mod->GetArg(node, "buffer");
-
-	buffer = (*in_buffer)[0];
 
 	for(i=0;i<windowlen;i++) {
 	  factor = SQR(SQR((*in_factor)[i]));
@@ -61,10 +67,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	  out[i] = buffer;
 	}
 
-	out_buffer[0] = buffer;
+	out_buf[0] = buffer;
 
-	node->SetArg("out", out, windowlen);
-	node->SetArg("buffer", out_buffer, 1);
+/*	node->SetArg("out", out, windowlen);
+	node->SetArg("buffer", out_buffer, 1); */
 
 	return 0;
 }

@@ -1,4 +1,4 @@
-/* $Id: clip.cpp,v 1.2 2003/05/13 04:31:05 ink Exp $ */
+/* $Id: clip.cpp,v 1.3 2003/05/17 15:27:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,10 +39,14 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out = new float[windowlen];
+	float *out ;
 	thArgValue *in_arg, *in_clip, *in_lowclip;
+	thArgValue *out_arg;
 	unsigned int i;
 	float in, clip, lowclip;
+
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out = out_arg->allocate(windowlen);
 
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_clip = (thArgValue *)mod->GetArg(node, "clip");
@@ -71,7 +75,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		out[i] = (((in-lowclip)/(clip-lowclip))*TH_RANGE)+TH_MIN;
 	}
 
-	node->SetArg("out", out, windowlen);
+/*	node->SetArg("out", out, windowlen); */
 	return 0;
 }
 

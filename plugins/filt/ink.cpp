@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.2 2003/05/16 04:42:07 ink Exp $ */
+/* $Id: ink.cpp,v 1.3 2003/05/17 15:27:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,43 +42,53 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	float *out = new float[windowlen];
-	float *out_accel = new float[windowlen];
-	float *out_last = new float[1];
-	float *out_last_accel = new float[1];
-	thArgValue *in_arg, *in_cutoff, *in_res, *in_limit, *in_accel, *in_last;
+	float *out;
+	float *aout;
+	float *out_last;
+//	float *out_last_accel = new float[1];
+	thArgValue *in_arg, *in_cutoff, *in_res;
+	thArgValue *out_arg, *out_accel;
+	thArgValue *inout_last;
 	unsigned int i;
-	float diff, accel;
+	float last, diff, accel;
+
+	out_arg = (thArgValue *)mod->GetArg(node, "out");
+	out_accel = (thArgValue *)mod->GetArg(node, "aout");
+	inout_last = (thArgValue *)mod->GetArg(node, "last");
+
+	last = (*inout_last)[0];
+	accel = (*inout_last)[1];
+	out_last = inout_last->allocate(2);
+
+	out = out_arg->allocate(windowlen);
+	aout = out_accel->allocate(windowlen);
 
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_cutoff = (thArgValue *)mod->GetArg(node, "cutoff");
 	in_res = (thArgValue *)mod->GetArg(node, "res");
-	in_accel = (thArgValue *)mod->GetArg(node, "accel");
-	in_last = (thArgValue *)mod->GetArg(node, "last");
-
-	accel = (*in_accel)[0];
-	*out_last = (*in_last)[0];
 
 	for(i=0;i<windowlen;i++) {
-		diff = (*in_arg)[i] - *out_last;
+		diff = (*in_arg)[i] - last;
 
 		accel += diff*SQR((*in_cutoff)[i]);
 		accel *= 1-(1-SQR((*in_res)[i]));
 		
-		*out_last += accel;
+		last += accel;
 
-		out_accel[i] = accel;
+		aout[i] = accel;
 
-		out[i] = *out_last;
+		out[i] = last;
 	}
 
-	out_last_accel[0] = accel;
+	out_last[0] = last;
+	out_last[1] = accel;
+/*	out_last_accel[0] = accel;
 
 	node->SetArg("out", out, windowlen);
 	node->SetArg("aout", out_accel, windowlen);
 	node->SetArg("last", out_last, 1);
 	node->SetArg("accel", out_last_accel, 1);
-
+*/
 	return 0;
 }
 
