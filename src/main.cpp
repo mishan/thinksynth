@@ -127,7 +127,7 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 /* JACK callback */
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
-	gthJackAudio *jack = static_cast<GthJackAudio *>(arg);
+	gthJackAudio *jack = static_cast<gthJackAudio *>(arg);
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
