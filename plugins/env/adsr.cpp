@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.26 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: adsr.cpp,v 1.27 2004/10/22 04:31:03 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -120,7 +120,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 			temp = (*in_a)[i];
 
 			play[i] = 1;  /* Dont kill this note yet! */
-			out[i] = SQR((position++)/temp)*peak;
+			out[i] = ((position++)/temp)*peak;
 			if(position >= temp) {
 				phase = 1;   /* A ended, go to D */
 				position = 0;  /* ...and go back to the beginnning of the phase */
@@ -132,7 +132,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 			play[i] = 1;
 
-			out[i] = temp2+(SQR((temp-(position++))/temp)*(peak-temp2));
+			out[i] = temp2+(((temp-(position++))/temp)*(peak-temp2));
 			if(position >= temp) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
@@ -165,7 +165,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 				phase = 4;
 			} else {
 				play[i] = 1;
-				out[i] = SQR((temp-(position++))/temp)*temp2;
+				out[i] = SQR(((position++)-temp)/temp)*temp2;
 			}
 
 			if((*in_trigger)[i] > 0) { // We have been retriggered

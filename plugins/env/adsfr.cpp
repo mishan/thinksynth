@@ -1,4 +1,4 @@
-/* $Id: adsfr.cpp,v 1.9 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: adsfr.cpp,v 1.10 2004/10/22 04:31:03 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -139,7 +139,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 			play[i] = 1;  /* Dont kill this note yet! */
 			if (val_a < 1)
 				val_a = 1;
-			out[i] = SQR((position++)/val_a)*peak;
+			out[i] = ((position++)/val_a)*peak;
 			if(position >= val_a) {
 				phase = 1;   /* A ended, go to D */
 				position = 0;  /* ...and go back to the beginnning of the phase */
@@ -150,7 +150,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 			if (val_d < 1)
 				val_d = 1;
-			out[i] = val_s+SQR(((val_d-(position++))/val_d)*(peak-val_s));
+			out[i] = val_s+(((val_d-(position++))/val_d)*(peak-val_s));
 			if(position >= val_d) {
 				phase = 2;   /* D ended, go to S */
 				position = 0;
@@ -158,7 +158,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 			break;
 		case 2:
 			falloff = val_f;
-			temp = val_s * SQR((falloff - position++) / falloff);
+			temp = val_s * ((falloff - position++) / falloff);
 			if(temp == 0 || position > falloff) {  /* If there is no D section,
 													  make it end */
 				out[i] = 0;
@@ -184,7 +184,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 			}
 			else {
 				play[i] = 1;
-				out[i] = SQR((val_r-(position++))/val_r)*val_s;
+				out[i] = SQR(((position++)-val_r)/val_r)*val_s;
 			}
 
 			if(val_trigger > 0) { // We have been retriggered
