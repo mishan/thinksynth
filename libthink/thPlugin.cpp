@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.18 2003/04/25 19:09:58 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.19 2003/04/27 03:15:19 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -11,6 +11,8 @@
 #include <sys/types.h>
 #include <dlfcn.h>
 
+#include "thNode.cpp"
+#include "thMod.cpp"
 #include "thPlugin.h"
 
 thPlugin::thPlugin (const char *path)
@@ -47,7 +49,7 @@ thPlugin::~thPlugin ()
 	free(plugDesc);
 }
 
-int thPlugin::Fire (void *node, void *mod, unsigned int windowlen)
+int thPlugin::Fire (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	plugCallback(node, mod, windowlen);
 
@@ -115,7 +117,7 @@ int thPlugin::ModuleLoad (void)
 		goto loaderr;
 	}
 	
-	plugCallback = (void (*)(void *, void *, unsigned int))dlsym(plugHandle, "module_callback");
+	plugCallback = (void (*)(thNode *, thMod *, unsigned int))dlsym(plugHandle, "module_callback");
 	
 	/* Ensure that plugin's callback exists */
 	

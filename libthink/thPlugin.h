@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.12 2003/04/26 00:37:17 joshk Exp $ */
+/* $Id: thPlugin.h,v 1.13 2003/04/27 03:15:19 misha Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -6,6 +6,9 @@
 #define MODULE_IFACE_VER 3
 
 enum thPluginState { thActive, thPassive, thNotLoaded };
+
+class thNode;
+class thMod;
 
 class thPlugin {
 	public:
@@ -21,7 +24,7 @@ class thPlugin {
 		void SetDesc(const char *desc);
 		void SetState(thPluginState state) { plugState = state; };
 
-		int Fire (void *node, void *mod, unsigned int windowlen);
+		int Fire (thNode *node, thMod *mod, unsigned int windowlen);
 
 	private:
 		char *plugPath;
@@ -29,7 +32,7 @@ class thPlugin {
 		void *plugHandle;
 		char *plugDesc;
 
-		void (*plugCallback)(void *, void *, unsigned int);
+		void (*plugCallback)(thNode *, thMod *, unsigned int);
 
 		int ModuleLoad (void);
 		void ModuleUnload (void);
