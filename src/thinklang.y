@@ -12,10 +12,11 @@
 #include "thnodes.h"
 #include "mods.h"
 #include "itree.h"
-#include "yygrammar.h"
 #include "thplug.h"
 #include "main.h"
 */
+
+#include "yygrammar.h"
 #include "parser.h"
 
 
