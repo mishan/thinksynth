@@ -6,7 +6,7 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	cutlfo = 4;
+	cutlfo = 7;
 	reslfo = 0.05;
 
 	mincut = 0;
@@ -14,20 +14,20 @@ node ionode {
 	minres = 0;
 	maxres = 0.9;
 
-	pitch = 55;
-	waveform = 2;
-	pw = 0.5;
+	pitch = 110;
+	waveform = 1;
+	pw = 0.3;
 };
 
 node cutlfo osc::simple {  # Tri-wave LFO for cutoff
 	freq = ionode->cutlfo;
 	waveform = 3;
-	pw = 0.05;
+	pw = 0.1;
 };
 
 node reslfo osc::simple {  # Tri-wave LFO for resonance
 	freq = ionode->reslfo;
-	waveform = 3;
+	waveform = 0;
 };
 
 node cutmap env::map {  # Map the cutoff LFO to proper values

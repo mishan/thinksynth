@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.6 2003/06/01 19:34:32 ink Exp $ */
+/* $Id: ink.cpp,v 1.7 2003/06/01 20:21:47 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,11 +69,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		in = (*in_arg)[i];
 		diff = in - last;
 		//printf("diff: %f \tperc: %f \tlast: %f \t%f\n\nres: %f \tcut: %f\n\n", diff, diff/TH_RANGE, last, accel, (*in_res)[i], (*in_cutoff)[i]);
-		diff *= 1-SQR((diff/(TH_RANGE+1)));
-		accel += diff*SQR((*in_cutoff)[i]); /* My special blend of herbs and spices */
+		if(fabs(diff) > TH_RANGE) { /* damn unstable filters */
+			diff = TH_RANGE * (diff > 0 ? 1 : -1);
+		}
+		diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and spices */
+		accel += diff*SQR((*in_cutoff)[i]);
 		accel *= (*in_res)[i];
 		
-		if(abs((int)accel) > TH_RANGE) {
+		if(abs((int)accel) > TH_RANGE) { /* more instability protection */
 			accel = 0;
 			last = 0;
 		}
