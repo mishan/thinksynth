@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.3 2003/05/02 00:44:48 joshk Exp $ */
+/* $Id: adsr.cpp,v 1.4 2003/05/02 04:59:20 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +44,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out = new float[windowlen];
 	float *play = new float[windowlen];
 
-	float out_pos[2];
+	float *out_pos = new float[2];
 	float temp, temp2;  /* each (*in_a)[] thing uses a modulus and all that */
 	int position, phase;
 	unsigned int i;
