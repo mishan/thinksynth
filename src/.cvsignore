@@ -4,3 +4,4 @@ thinklang.cpp
 thinklang.h
 Makefile
 .*dt*
+.deps
