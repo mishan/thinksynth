@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.64 2004/02/01 04:24:52 joshk Exp $
+dnl $Id: configure.ac,v 1.65 2004/03/26 07:55:01 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -170,6 +170,27 @@ if test "$ac_cv_cxx_compiler_gnu" = yes; then
 	else
 		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt,-MT\$@"])
 	fi
+fi
+
+AC_MSG_CHECKING([for gthread-2.0])
+
+if ! pkg-config gthread-2.0 --libs >/dev/null 2>&1; then
+  AC_MSG_RESULT([not found])
+  AC_MSG_ERROR([You should install the Glib development headers before building this software. Try libglib2.0-dev in Debian.])
+else
+  AC_MSG_RESULT([found])
+  AC_SUBST(GTHREAD_LIBS, [`pkg-config gthread-2.0 --libs`])
+fi
+
+AC_MSG_CHECKING([for GTK--]) 
+
+if ! pkg-config gtkmm-2.0 --cflags >/dev/null 2>&1; then
+  AC_MSG_RESULT([not found])
+  AC_MSG_ERROR([You should install the GTK-- headers before building this software. Try libgtkmm2.0-dev in Debian.])
+else
+  AC_MSG_RESULT([found])
+  AC_SUBST(GTKMM_CFLAGS, [`pkg-config gtkmm-2.0 --cflags`])
+  AC_SUBST(GTKMM_LIBS,  [`pkg-config gtkmm-2.0 --libs`])
 fi
 
 AC_CHECK_LIB(asound, snd_pcm_hw_params_any,

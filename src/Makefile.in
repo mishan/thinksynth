@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.25 2004/03/24 10:05:20 misha Exp $
+# $Id: Makefile.in,v 1.26 2004/03/26 07:55:01 joshk Exp $
 
 BINARY = thinksynth monotest
 
@@ -10,15 +10,15 @@ all: thinksynth monotest
 include ../build.mk
 
 PICFLAGS = -fPIC
-INCLUDES = -I.. -I../libthink `pkg-config gtkmm-2.0 --cflags`
-LDFLAGS += @LIBS@ -L../libthink -lthink
+INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@
+LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink
 
 MAINOBJS = main.o ui.o $(WIDGETOBJS)
 MONOMAINOBJS = monotest.o
 WIDGETOBJS = PatchSelWindow.o
 
 thinksynth: $(MAINOBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) `pkg-config gtkmm-2.0 gthread-2.0 --libs` -lthink -L.
+	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS)  -lthink -L.
 
 monotest: $(MONOMAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MONOMAINOBJS) $(LDFLAGS) -lthink -L.
