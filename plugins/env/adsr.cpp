@@ -1,8 +1,10 @@
-/* $Id: adsr.cpp,v 1.1 2003/05/02 00:29:15 ink Exp $ */
+/* $Id: adsr.cpp,v 1.2 2003/05/02 00:41:43 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "think.h"
 
 #include "thArg.h"
 #include "thList.h"
@@ -37,18 +39,21 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-  thArgValue *in_a, *in_d, *in_s, *in_r;  /* User args */
+  thArgValue *in_a, *in_d, *in_s, *in_r, *in_trigger;  /* User args */
   thArgValue *in_position;  /* [0] = position in stage, [1] = current stage */
   float *out = new float[windowlen];
+  float *play = new float[windowlen];
+
   float out_pos[2];
   float temp, temp2;  /* each (*in_a)[] thing uses a modulus and all that */
   int position, phase;
-  int i;
+  unsigned int i;
 
   in_a = (thArgValue *)mod->GetArg(node->GetName(), "a");
   in_d = (thArgValue *)mod->GetArg(node->GetName(), "d");
   in_s = (thArgValue *)mod->GetArg(node->GetName(), "s");
   in_r = (thArgValue *)mod->GetArg(node->GetName(), "r");
+  in_trigger = (thArgValue *)mod->GetArg(node->GetName(), "trigger");
 
   in_position = (thArgValue *)mod->GetArg(node->GetName(), "position");
   position = (int)(*in_position)[0];
@@ -80,9 +85,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	  }
 	  break;
 	case 2:
-	  temp = (*in_s)[i];
-
-	  if(temp == 0) {  /* If there is no D section, make it end */
+	  if((*in_s)[i]  == 0) {  /* If there is no D section, make it end */
 		play[i] = 0;
 	  } else {
 		play[i] = 1;
@@ -90,27 +93,27 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	  out[i] = temp;
 
-	  if(trigger[i] == 0) {
+	  if((*in_trigger)[i] == 0) {
 		phase = 3;   /* D ended, time to fade out the note */
 		/* position should already be 0 from the D section */
 	  }
-	}
-	break;
-  case 3:
-	temp = (*in_r)[i];
-	temp2 = (*in_s)[i];
-
-	out = ((temp-(position++))/temp)*temp2;
-
-	if(position >= temp) {
+	  break;
+	case 3:
+	  temp = (*in_r)[i];
+	  temp2 = (*in_s)[i];
+	  
+	  out[i] = ((temp-(position++))/temp)*temp2;
+	  
+	  if(position >= temp) {
+		play[i] = 0;
+		phase = 4;
+	  }
+	  break;
+	case 4:   /* The note has ended and we are padding with 0 */
 	  play[i] = 0;
-	  phase = 4;
+	  out[i] = 0;
+	  break;
 	}
-	break;
-  case 4:   /* The note has ended and we are padding with 0 */
-	play[i] = 0;
-	out[i] = 0;
-	break;
   }
 
   out_pos[0] = position;
@@ -120,4 +123,5 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
   return 0;
 }
+
 
