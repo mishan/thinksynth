@@ -16,10 +16,12 @@ public:
 
 	const char *GetName (void);
 	const char *GetDesc (void);
+	bool GetState (void);
 
 	void MakePath (void);
 
 	void SetDesc(const char *desc);
+	void SetState(bool state);
 
 	int Fire (void);
 private:
