@@ -12,7 +12,7 @@ ArgSlider::ArgSlider (thArg *arg)
 	arg_ = arg;
 	set_value (arg_->argValues[0]);
 	set_draw_value();
-	set_value_pos(Gtk::POS_TOP);
+	set_value_pos(Gtk::POS_LEFT);
 }
 
 ArgSlider::~ArgSlider ()

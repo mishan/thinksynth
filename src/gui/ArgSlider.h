@@ -10,6 +10,7 @@ public:
 protected:
 	virtual void on_value_changed ();
 
+private:
 	thArg *arg_;
 };
 
