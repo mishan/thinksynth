@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.12 2003/05/03 07:27:24 joshk Exp $
+# $Id: Makefile,v 1.13 2003/05/03 07:56:51 joshk Exp $
 
 SUBDIRS = src plugins
 
@@ -8,6 +8,6 @@ $(SUBDIRS):
 	$(MAKE) -C $@ $(MAKECMDGOALS)
 
 distclean: $(SUBDIRS)
-	rm -f build.inc
+	rm -f build.mk config.log *~
 
 .PHONY: clean distclean install uninstall $(SUBDIRS)
