@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.105 2004/11/28 22:22:46 joshk Exp $
+dnl $Id: configure.ac,v 1.106 2004/11/29 04:10:03 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -256,12 +256,18 @@ fi
 AC_ARG_WITH(dsp-path,
 	[AC_HELP_STRING([--with-dsp-path], [Define a path to install DSPs into.])],
 	[dsp_path=$withval],
-	[dsp_path=${datadir}/${PACKAGE_NAME}/])
+	[dsp_path=${datadir}/${PACKAGE_NAME}/dsp/])
 
+AC_ARG_WITH(patch-path,
+	[AC_HELP_STRING([--with-patch-path], [Define a path to install patches into.])],
+	[patch_path=$withval],
+	[patch_path=${datadir}/${PACKAGE_NAME}/patches/])
+	
 dnl Someone may have been a smartass and configured with
 dnl ./configure --with-dsp-path=${prefix}/bar, so flatten that too
 
 AC_SUBST_DIR(dsp_path)
+AC_SUBST_DIR(patch_path)
 
 AC_ARG_WITH(default-output,
 [AC_HELP_STRING([--with-default-output], [Choose either 'jack', 'alsa', or 'none' (default jack)])],
@@ -319,9 +325,15 @@ if test `expr $dsp_path : .*/$` -eq 0; then
 	dsp_path=$dsp_path/
 fi
 
+if test `expr $patch_path : .*/$` -eq 0; then
+	patch_path=$patch_path/
+fi
+
 AC_DEFINE_UNQUOTED([DSP_PATH], "$dsp_path", [Path to DSPs.])
+AC_DEFINE_UNQUOTED([PATCH_PATH], "$patch_path",[Path to patches.])
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(dsp_path)
+AC_SUBST(patch_path)
 AC_SUBST(plugin_path)
 
 AC_CONFIG_FILES([
@@ -371,8 +383,8 @@ fi
 
 echo
 echo The binary will be installed in $bindir
-echo DSPs will be installed in       $datadir/$PACKAGE_NAME
-echo Patches will be installed in    $datadir/$PACKAGE_NAME/patches
+echo DSPs will be installed in       $dsp_path
+echo Patches will be installed in    $patch_path
 echo Plugins will be installed in    $plugin_path
 echo
 echo "Now run 'make' to build $PACKAGE_NAME"

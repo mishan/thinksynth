@@ -1,9 +1,6 @@
-# $Id: Makefile.in,v 1.3 2004/11/17 21:19:07 joshk Exp $
+# $Id: Makefile.in,v 1.4 2004/11/29 04:10:03 joshk Exp $
 
-prefix=@prefix@
-datadir=@datadir@
-patch_dirs = bass leads organs pads 
-
+patch_path := @patch_path@
 default: all
 
 include ../build.mk
@@ -17,11 +14,9 @@ distclean::
 clean::
 
 install:
-	install -d $(DESTDIR)$(datadir)/thinksynth/
-	install -d $(DESTDIR)$(datadir)/thinksynth/patches
-	for dir in $(patch_dirs); do \
-		cp -a $$dir $(DESTDIR)$(datadir)/thinksynth/patches/$$dir; \
-	done
+	mkdir -p $(DESTDIR)$(patch_path)
+	tar -cf - `find -name '*.patch'` | tar -C $(DESTDIR)$(patch_path) -xf -
 
 uninstall:
-	cd $(DESTDIR)$(datadir)/thinksynth/patches && rm -rf $(patch_dirs)
+	rm -rf $(DESTDIR)$(patch_path)
+	-rmdir $(dir $(DESTDIR)$(patch_path))

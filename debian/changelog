@@ -1,8 +1,8 @@
-thinksynth (0.0.cvs20041125-1) experimental; urgency=low
+thinksynth (0.0.cvs20041128-1) experimental; urgency=low
 
   * New upstream CVS snapshot.
 
- -- Joshua Kwan <joshk@triplehelix.org>  Thu, 25 Nov 2004 17:19:04 -0800
+ -- Joshua Kwan <joshk@triplehelix.org>  Sun, 28 Nov 2004 19:21:07 -0800
 
 thinksynth (0.0.cvs20041111-1) experimental; urgency=low
 

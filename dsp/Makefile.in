@@ -1,10 +1,6 @@
-# $Id: Makefile.in,v 1.10 2004/09/05 06:53:11 joshk Exp $
+# $Id: Makefile.in,v 1.11 2004/11/29 04:10:03 joshk Exp $
 
-prefix=@prefix@
-datadir=@datadir@
-dsp_files=$(wildcard *.dsp)
-args_dsp_files=$(wildcard args/*.dsp)
-
+dsp_path := @dsp_path@
 default: all
 
 include ../build.mk
@@ -18,12 +14,9 @@ distclean::
 clean::
 
 install:
-	install -d $(DESTDIR)$(datadir)/thinksynth
-	cp -uf *.dsp $(DESTDIR)$(datadir)/thinksynth
-	install -d $(DESTDIR)$(datadir)/thinksynth/args
-	cp -uf args/*.dsp $(DESTDIR)$(datadir)/thinksynth/args
+	mkdir -p $(DESTDIR)$(dsp_path)
+	tar -cf - `find -name '*.dsp'` | tar -C $(DESTDIR)$(dsp_path) -xf -
 
 uninstall:
-	cd $(DESTDIR)$(datadir)/thinksynth && rm -f $(dsp_files) $(args_dsp_files)
-	-rmdir $(DESTDIR)$(datadir)/thinksynth/args
-	-rmdir $(DESTDIR)$(datadir)/thinksynth
+	rm -rf $(DESTDIR)$(dsp_path)
+	-rmdir $(dir $(DESTDIR)$(dsp_path))
