@@ -5,6 +5,10 @@ node ionode {
 	out1 = mixer->out;
     channels = 2;
     play = env->play;
+
+	fhi = 150;
+	flo = 0;
+	d = 4000;
 };
 
 node mixer mixer::mul {
@@ -12,11 +16,9 @@ node mixer mixer::mul {
 	in1 = env->out;
 };
 
-node env env::adsr {
+node env env::ad {
 	a = 0;
-	d = 5000;
-	s = 70;
-	r = 2000;
+	d = ionode->d;
 	trigger = 0;
 };
 
@@ -24,8 +26,8 @@ node map1 env::map {
 	in = env->out;
 	inmin = 0;
 	inmax = th_max;
-	outmin = 25;
-	outmax = 120;
+	outmin = ionode->flo;
+	outmax = ionode->fhi;
 };
 
 node map2 env::map {
