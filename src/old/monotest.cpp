@@ -1,4 +1,4 @@
-/* $Id: monotest.cpp,v 1.1 2004/02/20 07:53:30 ink Exp $ */
+/* $Id: monotest.cpp,v 1.2 2004/02/21 02:58:18 ink Exp $ */
 
 #include "config.h"
 
@@ -177,7 +177,9 @@ int main (int argc, char *argv[])
 	float notepitch;
 	float targetpitch;
 	float monovelocity = 0;
-	float monoglide = 0.1;      /**** this changes how fast the note slides */
+	float monoglidemax = 0.1;      /**** this changes how fast the note slides */
+	float monoglidemin = 0.001;
+	float monoglide;
 	thMidiNote *mononote = NULL;
 	thArg *notearg;
 	float *notebuffer;
@@ -376,6 +378,26 @@ int main (int argc, char *argv[])
 					processmidi(&Synth, seq_handle, &notepitch, &targetpitch, &monovelocity, &mononote);
 				}
 			}
+
+			monoglide = (monovelocity / MIDIVALMAX)* (monoglidemax - monoglidemin) + monoglidemin;
+
+			/* monophonic stuff */
+			if(mononote && monovelocity) {
+				mononote->SetArg("note", &notepitch, 1);
+				startpitch = notepitch;
+				notepitch += (targetpitch - notepitch) * monoglide;
+				
+				notearg = mononote->GetMod()->GetIONode()->GetArg("note");
+				
+				windowlen = Synth.GetWindowLen();
+				notebuffer = notearg->Allocate(windowlen);
+				for(i = 0; i < windowlen; i++) /* ramp the note from one window to
+												  the next, not discrete steps */
+				{
+					notebuffer[i] = startpitch + (i / windowlen) * (notepitch - startpitch);
+				}
+			}
+			
 			for(j = seq_nfds; j < seq_nfds + nfds; j++)
 			{
 				if (pfds[j].revents > 0)
