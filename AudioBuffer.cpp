@@ -9,7 +9,7 @@
 AudioBuffer::AudioBuffer(int len, Audio *audio)
 {
 	size = len;
-	data = new int[size];
+	data = new unsigned char[size];
 	read = 0;
 	woffset = 0;     /* how far the writing is ahead of the reading */
 	audioPtr = audio;
@@ -29,7 +29,7 @@ bool AudioBuffer::is_room(int len)
 	return true;
 }
 
-void AudioBuffer::buf_write(int *udata, int len)
+void AudioBuffer::buf_write(unsigned char *udata, int len)
 {
 	int i;
 
@@ -42,9 +42,16 @@ void AudioBuffer::buf_write(int *udata, int len)
 	woffset += len;
 }
 
-int AudioBuffer::buf_read(int *udata, int len)
+int AudioBuffer::buf_read(unsigned char *udata, int len)
 {
 	int i;
+
+	if(woffset < NEED_MORE_BUFFER) {
+		if((audioPtr->Read(&data[read], NEED_MORE_BUFFER-woffset) < 0) 
+		   && (read == woffset)) {
+			return -1;
+		}
+	}
 
 	for(i = 0; i < len; i++) {
 		udata[i] = data[(read+i)%size];
@@ -53,12 +60,6 @@ int AudioBuffer::buf_read(int *udata, int len)
 	read += len;
 	woffset -= len;
 	read %= size;
-
-	if(woffset < NEED_MORE_BUFFER) {
-		if((audioPtr->Read(&data[read], NEED_MORE_BUFFER-woffset) < 0) && (read == woffset)) {
-			return -1;
-		}
-	}
 	
 	return 0;
 }

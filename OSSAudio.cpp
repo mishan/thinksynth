@@ -93,9 +93,9 @@ void OSSAudio::write_audio (void *buf, int len)
 
 void OSSAudio::play(AudioBuffer *buffer)
 {
-	int buf[BUF_SIZE];
+	unsigned char buf[BUF_SIZE];
 
-	while(buffer->buf_read((int *)buf, BUF_SIZE)) {
+	while(buffer->buf_read(buf, BUF_SIZE)) {
 		write_audio(buf, BUF_SIZE);
 	}
 }

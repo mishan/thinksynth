@@ -9,10 +9,10 @@ public:
 
 	bool is_room(int len); /* checks if there are len elements available in the
 							  buffer */
-	void buf_write(int *udata, int len);
-	int buf_read(int *udata, int len);
+	void buf_write(unsigned char *udata, int len);
+	int buf_read(unsigned char *udata, int len);
 private:
-	int *data;
+	unsigned char *data;
 	int read; /* how far the buffer has been read */
 	int woffset; /* how far the writing is ahead of the reading */
 	int size; /* the length of the buffer */
