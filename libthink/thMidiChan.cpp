@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.18 2003/04/27 10:17:12 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.19 2003/04/28 21:02:36 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -15,7 +15,6 @@
 #include "thNode.h"
 #include "thMod.h"
 #include "thMidiNote.h"
-#include "thArg.h"
 #include "thMidiChan.h"
 
 thMidiChan::thMidiChan (thMod *mod, float amp)

@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.24 2003/04/27 20:19:26 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.25 2003/04/28 21:02:36 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -18,7 +18,6 @@
 #include <errno.h>
 #endif
 
-#include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
 #include "thPluginManager.h"
