@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.42 2003/05/03 08:29:29 joshk Exp $
+dnl $Id: configure.ac,v 1.43 2003/05/03 08:30:44 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -22,7 +22,7 @@ YACC_LANG=CXX
 AC_PROG_YACC
 
 dnl We need bison to build, byacc just doesn't cut it
-if test "$YACC" != "bison"; then
+if test `expr "$YACC" : bison.*` -eq 0; then
 	AC_MSG_ERROR([Bison is required to build this program. $YACC just doesn't cut it.])
 fi
 
