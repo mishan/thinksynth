@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.1 2004/03/27 03:28:52 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.2 2004/03/27 07:34:52 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -57,7 +57,10 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 		Gtk::Menu::MenuList &menulist = menuHelp.items();
 
 		menulist.push_back(
-			Gtk::Menu_Helpers::MenuElem("About"));
+			Gtk::Menu_Helpers::MenuElem("About",
+										SigC::slot(
+											*this, &MainSynthWindow::menuAbout)
+				));
 		
 	}
 
@@ -93,4 +96,12 @@ void MainSynthWindow::menuPatchSel (void)
 void MainSynthWindow::menuQuit (void)
 {
 	kill (0, SIGTERM);
+}
+
+void MainSynthWindow::menuAbout (void)
+{
+	Gtk::MessageDialog dialog (PACKAGE_STRING, Gtk::MESSAGE_INFO,
+							   Gtk::BUTTONS_OK, true, true);
+
+	dialog.run();
 }
