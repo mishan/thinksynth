@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.133 2004/02/10 01:30:49 misha Exp $ */
+/* $Id: main.cpp,v 1.134 2004/02/10 01:53:24 misha Exp $ */
 
 #include "config.h"
 
@@ -116,7 +116,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 			}
 			default:
 			{
-				printf("got unknown event 0x%x\n", ev->type);
+				printf("got unknown event 0x%02x\n", ev->type);
 				break;
 			}
 		}
