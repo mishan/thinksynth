@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.18 2003/05/13 18:59:42 ink Exp $ */
+/* $Id: simple.cpp,v 1.19 2003/05/17 14:13:27 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,6 +47,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *last = new float[1];
 	float halfwave, ratio;
 	float position, wavelength;
+	float pw; /* Make pw cooler! */
 	thArgValue *in_freq, *in_pw, *in_waveform, *in_last;
 
 	in_freq = (thArgValue *)mod->GetArg(node, "freq");
@@ -68,32 +69,36 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		
 		switch((int)(*in_waveform)[i]) {
 			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle */
-			case 0:    /* SINE WAVE */
-				out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
-				break;
-			case 1:    /* SAWTOOTH WAVE */
-				out[i] = TH_RANGE*(ratio)+TH_MIN;
-				break;
-			case 2:    /* SQUARE WAVE */
-				if(ratio < 0.5) {
-					out[i] = TH_MIN;
-				} else {
-					out[i] = TH_MAX;
-				}
-				break;
-			case 3:    /* TRIANGLE WAVE */
-				if(position < halfwave) {
-					out[i] = TH_RANGE*(position/halfwave)+TH_MIN;
-				} else {
-					out[i] = (-1*TH_RANGE)*((position-halfwave)/halfwave)+TH_MAX;
-				}
-				break;
-			case 4:    /* HALF-CIRCLE WAVE */
-				if(position<halfwave) {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
-				} else {
-					out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*TH_MIN;
-				}
+		case 0:    /* SINE WAVE */
+			out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			break;
+		case 1:    /* SAWTOOTH WAVE */
+			out[i] = TH_RANGE*(ratio)+TH_MIN;
+			break;
+		case 2:    /* SQUARE WAVE */
+			pw = (*in_pw)[i];  /* Temporary pw for square */
+			if(pw == 0) {
+				pw = 0.5;
+			}
+			if(ratio < (*in_pw)[i]) {  /* XXX  Until I make the leet pw */
+				out[i] = TH_MIN;
+			} else {
+				out[i] = TH_MAX;
+			}
+			break;
+		case 3:    /* TRIANGLE WAVE */
+			if(position < halfwave) {
+				out[i] = TH_RANGE*(position/halfwave)+TH_MIN;
+			} else {
+				out[i] = (-1*TH_RANGE)*((position-halfwave)/halfwave)+TH_MAX;
+			}
+			break;
+		case 4:    /* HALF-CIRCLE WAVE */
+			if(position < halfwave) {
+				out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
+			} else {
+				out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*TH_MIN;
+			}
 		}
 	}
 	

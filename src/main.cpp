@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.84 2003/05/11 23:34:40 joshk Exp $ */
+/* $Id: main.cpp,v 1.85 2003/05/17 14:13:27 ink Exp $ */
 
 #include "config.h"
 
@@ -40,6 +40,8 @@ int main (int argc, char *argv[])
 	signed short *outputbuffer;
 	int buflen;
 	float *mixedbuffer;
+	int notetoplay = 69;  /* XXX Remove when sequencing is external */
+	int processwindows = 100;  /* How many windows do we process? */
 
 	plugin_path = strdup(PLUGIN_PATH);
 	plugin_len = strlen(plugin_path);
@@ -52,48 +54,56 @@ syntax:
 		printf("Try %s -h for help\n", argv[0]);
 		exit(1);
 	}
-  
-	while ((havearg = getopt (argc, argv, "hp:m:")) != -1) {
+	
+	while ((havearg = getopt (argc, argv, "hp:mn:l:")) != -1) {
 		switch (havearg) {
-			case 'h':
-				printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
-				/* TODO: insert some helpful text here */
-				printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
+		case 'h':
+			printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
+			/* TODO: insert some helpful text here */
+			printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
+			
+			printf("-h: display this help screen\n");
+			printf("-p PATH: modify the plugin search path\n");
+			printf("-m MOD: change the mod that will be used\n");
+			exit(0);
+			
+			break;
 
-				printf("-h: display this help screen\n");
-				printf("-p PATH: modify the plugin search path\n");
-				printf("-m MOD: change the mod that will be used\n");
-				exit(0);
+		case 'p':
+			free (plugin_path);
+			if (optarg[strlen(optarg)-1] != '/') {
+				plugin_path = (char*)malloc(strlen(optarg)+2);
+				sprintf (plugin_path, "%s/", optarg);
+			}
+			else {
+				plugin_path = strdup(optarg);	
+			}
+			
+			plugin_len = strlen (plugin_path);
+			break;
+				
+		case 'm':
+			free(dspname);
+			dspname = strdup (optarg);			
+			break;
+			
+		case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
+			//printf("Note to play: %s\n", optarg);
+					notetoplay = (int)atof(optarg);
+			break;
 
-				break;
+		case 'l':  /* windows to process, this should be done some other way too */
+			processwindows = atoi(optarg);
+			break;
 
-			case 'p':
-				free (plugin_path);
-				if (optarg[strlen(optarg)-1] != '/') {
-					plugin_path = (char*)malloc(strlen(optarg)+2);
-					sprintf (plugin_path, "%s/", optarg);
-				}
-				else {
-					plugin_path = strdup(optarg);	
-				}
-				
-				plugin_len = strlen (plugin_path);
-				break;
-				
-			case 'm':
-				free(dspname);
-				dspname = strdup (optarg);
-				
-				break;
-				
-			default:
-				if (optind != argc) {
-					printf ("error: unrecognized parameter\n");
-					goto syntax;
-				}
+		default:
+			if (optind != argc) {
+				printf ("error: unrecognized parameter\n");
+				goto syntax;
+			}
 		}
 	}
-
+	
 	if (optind == argc) {
 		printf ("error: no input file\n");
 		goto syntax;
@@ -101,11 +111,11 @@ syntax:
 	else {
 		filename = strdup(argv[optind]);
 	}
-
+	
 	Synth.LoadMod(filename);
-
+	
 	Synth.AddChannel(strdup("chan1"), dspname, 20.0);
-	Synth.AddNote("chan1", 50, 100);
+	Synth.AddNote("chan1", notetoplay, TH_MAX);
 
 	audiofmt.channels = Synth.GetChans();
 	audiofmt.bits = 16;
@@ -122,8 +132,8 @@ syntax:
 	printf ("Writing test.wav\n");
 
 	mixedbuffer = Synth.GetOutput();
-	for(i = 0; i < 150; i++) {  /* For testing... */
-		if(i==10) {
+	for(i = 0; i < processwindows; i++) {  /* For testing... */
+/*		if(i==10) {
 			Synth.AddNote("chan1", 52, 100);
 		}
 		else if(i==20) {
@@ -156,7 +166,7 @@ syntax:
 		  Synth.AddNote("chan1", 54, 100);
 		  Synth.AddNote("chan1", 57, 100);
 		}
-
+*/
 		Synth.Process();
 		for(j=0; j < buflen; j++) {
 			le16(outputbuffer[j], (signed short)(((float)mixedbuffer[j]/TH_MAX)
