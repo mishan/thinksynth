@@ -81,7 +81,12 @@ dnl Debug is disabled:
 dnl Debug is enabled:
 [
 	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-	CXXFLAGS="$CXXFLAGS -g"
+	CXXFLAGS="$CXXFLAGS -g -ggdb"
+	
+	dnl thinklang is too fucking broken, efence will die in yyparse()
+	dnl so let's disable this for now
+	dnl AC_CHECK_LIB(efence, malloc, [LIBS="$LIBS -lefence"])
+	
 	debug=yes
 ])
 
@@ -116,9 +121,7 @@ AC_SUBST_DIR(libdir)
 
 dnl XXX let's change this later
 plugin_path=${libdir}/${PACKAGE}/plugins/
-
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
-
 AC_SUBST(plugin_path)
 
 AC_OUTPUT([Makefile src/Makefile plugins/plugin-common.inc])
