@@ -1,4 +1,4 @@
-name "bd8";
+name "test";
 
 node ionode {
 	out0 = filt->out;
@@ -6,8 +6,8 @@ node ionode {
 	channels = 2;
 	play = aenv1->play;
 
-	fmin = 0;
-	fmax = 190;
+	fmin = 22;
+	fmax = 200;
 	bandmin = 0;
 	bandmax = 220;
 	toned = 3000;
@@ -24,7 +24,7 @@ node ionode {
 
 	tonemul = 1.15; # How much higher than the last
 	tonemuladd = 0.015; # Linear addition to the multiplication variable
-	dmul = 0.9; # How much shorter than the last
+	dmul = 0.8; # How much shorter than the last
 
 	fade1 = 0.4; # Osc 1 and 2
 	fade2 = 0.4; # Osc 3 and 4
@@ -69,7 +69,7 @@ node tonerelease math::add {  # tone envelope should be longer than amp
 };
 
 node dmul1 math::mul {
-	in0 = ionode->release;
+	in0 = ionode->ampd;
 	in1 = ionode->dmul;
 };
 

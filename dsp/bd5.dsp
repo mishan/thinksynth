@@ -6,24 +6,27 @@ node ionode {
 	channels = 2;
 	play = aenv1->play;
 
-	fmin = 0;
-	fmax = 210;
-	toned = 3000;
-	tonemid = 80;
-	tonerelease = 9000;
-	ampd = 6000;
-	ampmid = 180;
-	release = 6000;
+	fmin = 17;
+	fmax = 200;
+	toned = 3500;
+	tonemid = 50;
+	ampd = 4000;
+	ampmid = 170;
+	release = 10000;
 
 	cutoff = 0.3;
 	res = 0.95;
 	shaper = 2;
 
-	tonemul = 1.12; # How much higher than the last
+	tonemul = 1.131; # How much higher than the last
+	tonemuladd = 0.015; # Linear addition to the multiplication variable
 	dmul = 0.9; # How much shorter than the last
-	fade1 = 0.3; # Osc 1 and 2
-	fade2 = 0.3; # Osc 3 and 4
-	fade3 = 0.3; # Fade 1 and 2
+
+	fade1 = 0.4; # Osc 1 and 2
+	fade2 = 0.4; # Osc 3 and 4
+	fade3 = 0.4; # Osc 4 and 6
+	fade4 = 0.4; # Fader 2 and 3
+	fade5 = 0.33; # Fader 1 and 4
 
 	waveform = 5;
 };
@@ -48,6 +51,16 @@ node mixer4 mixer::mul {
 	in1 = aenv4->out;
 };
 
+node mixer5 mixer::mul {
+	in0 = osc3->out;
+	in1 = aenv5->out;
+};
+
+node mixer6 mixer::mul {
+	in0 = osc4->out;
+	in1 = aenv6->out;
+};
+
 node tonerelease math::add {  # tone envelope should be longer than amp
 	in0 = ionode->release;
 	in1 = ionode->ampd;
@@ -65,6 +78,16 @@ node dmul2 math::mul {
 
 node dmul3 math::mul {
 	in0 = dmul2->out;
+	in1 = ionode->dmul;
+};
+
+node dmul4 math::mul {
+	in0 = dmul3->out;
+	in1 = ionode->dmul;
+};
+
+node dmul5 math::mul {
+	in0 = dmul4->out;
 	in1 = ionode->dmul;
 };
 
@@ -108,12 +131,48 @@ node aenv4 env::adsr {
         trigger = 0;
 };
 
+node aenv5 env::adsr {
+        a = 0;
+        d = dmul4->out;
+        s = ionode->ampmid;
+        r = ionode->release;
+        trigger = 0;
+};
+
+node aenv6 env::adsr {
+        a = 0;
+        d = dmul5->out;
+        s = ionode->ampmid;
+        r = ionode->release;
+        trigger = 0;
+};
+
 node map1 env::map {
 	in = tenv->out;
 	inmin = 0;
 	inmax = th_max;
 	outmin = ionode->fmin;
 	outmax = ionode->fmax;
+};
+
+node tonemulcalc1 math::add {
+	in0 = ionode->tonemul;
+	in1 = ionode->tonemuladd;
+};
+
+node tonemulcalc2 math::add {
+	in0 = tonemulcalc1->out;
+	in1 = ionode->tonemuladd;
+};
+
+node tonemulcalc3 math::add {
+	in0 = tonemulcalc2->out;
+	in1 = ionode->tonemuladd;
+};
+
+node tonemulcalc4 math::add {
+	in0 = tonemulcalc3->out;
+	in1 = ionode->tonemuladd;
 };
 
 node pitchcalc1 math::mul {
@@ -123,12 +182,22 @@ node pitchcalc1 math::mul {
 
 node pitchcalc2 math::mul {
 	in0 = pitchcalc1->out;
-	in1 = ionode->tonemul;
+	in1 = tonemulcalc1->out;
 };
 
 node pitchcalc3 math::mul {
 	in0 = pitchcalc2->out;
-	in1 = ionode->tonemul;
+	in1 = tonemulcalc2->out;
+};
+
+node pitchcalc4 math::mul {
+	in0 = pitchcalc1->out;
+	in1 = tonemulcalc3->out;
+};
+
+node pitchcalc5 math::mul {
+	in0 = pitchcalc2->out;
+	in1 = tonemulcalc4->out;
 };
 
 node osc1 osc::simple {
@@ -151,6 +220,16 @@ node osc4 osc::simple {
 	waveform = ionode->waveform;
 };
 
+node osc5 osc::simple {
+	freq = pitchcalc4->out;
+	waveform = ionode->waveform;
+};
+
+node osc6 osc::simple {
+	freq = pitchcalc5->out;
+	waveform = ionode->waveform;
+};
+
 node fade1 mixer::fade {
 	in0 = mixer1->out;
 	in1 = mixer2->out;
@@ -164,13 +243,25 @@ node fade2 mixer::fade {
 };
 
 node fade3 mixer::fade {
-	in0 = fade1->out;
-	in1 = fade2->out;
+	in0 = mixer3->out;
+	in1 = mixer4->out;
 	fade = ionode->fade3;
 };
 
+node fade4 mixer::fade {
+	in0 = fade2->out;
+	in1 = fade3->out;
+	fade = ionode->fade4;
+};
+
+node fade5 mixer::fade {
+	in0 = fade1->out;
+	in1 = fade4->out;
+	fade = ionode->fade5;
+};
+
 node filt filt::inkshape {
-	in = fade3->out;
+	in = fade5->out;
 	cutoff = ionode->cutoff;
 	res = ionode->res;
 	shaper = ionode->shaper;

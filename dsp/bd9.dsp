@@ -1,4 +1,4 @@
-name "bd9";
+name "test";
 
 node ionode {
 	out0 = filt->out;
@@ -7,7 +7,7 @@ node ionode {
 	play = aenv1->play;
 
 	notemin = 10;
-	notemax = 60;
+	notemax = 52;
 	toned = 4500;
 	tonemid = 100;
 	ampd = 6000;
@@ -19,7 +19,7 @@ node ionode {
 	shaper = 2;
 
 	toneadd = 4; # How much to add for each osc (in halfsteps)
-	dmul = 0.5; # How much shorter than the last
+	dmul = 0.3; # How much shorter than the last
 
 	fade1 = 0.4; # Osc 1 and 2
 	fade2 = 0.4; # Osc 3 and 4
