@@ -1,23 +1,20 @@
 name "test";
 
 node ionode test::test {
-        out0 = osc->out;
-	out1 = osc->out;
+        out0 = mixer->out;
+	out1 = mixer->out;
         channels = 2;
         play = env->play;
         };
-#node freq misc::midi2freq {
-	#note = ionode->note;
-	#};
 node mixer mixer::mul {
-	in0 = osc->out;
+	in0 = filt->out;
 	in1 = env->out;
 	};
 node env env::adsr {
-	a = 100;
-	d = 6000;
-	s = 40;
-	r = 500;
+	a = 1;
+	d = 5000;
+	s = 70;
+	r = 1000;
 	trigger = 0;
 	};
 node map1 env::map {
@@ -25,13 +22,13 @@ node map1 env::map {
 	inmin = 0;
 	inmax = 256;
 	outmin = 25;
-	outmax = 120;
+	outmax = 100;
 	};
-#node filt filt::rds {
-	#in = osc->out;
-	#cutoff = map1->out;
-	#res = 0.6;
-	#};
+node filt filt::rds {
+	in = osc->out;
+	cutoff = 0.1;
+	res = 0.7;
+	};
 node osc osc::simple {
 	freq = map1->out;
 	waveform = 4;

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.76 2003/05/08 00:53:33 ink Exp $ */
+/* $Id: main.cpp,v 1.77 2003/05/08 01:18:30 ink Exp $ */
 
 #include "config.h"
 
@@ -134,7 +134,7 @@ syntax:
 			//Synth.AddNote("chan1", 49, 100);
 		}
 		else if(i==40) {
-			Synth.AddNote("chan1", 56, 100);
+			Synth.AddNote("chan1", 55, 100);
 			//Synth.AddNote("chan1", 44, 100);
 			//Synth.AddNote("chan1", 47, 100);
 		}
