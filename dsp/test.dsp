@@ -6,23 +6,20 @@ node ionode test::test {
         channels = 2;
         play = env->play;
 	test = freq->foo;
-	moretests = mixer->foo;
         };
 node freq misc::midi2freq {
 	note = ionode->note;
-	foo = 4;
 	};
 node mixer mixer::mul {
 	in0 = osc->out;
 	in1 = env->out;
-	foo = 9;
 	};
 node env env::adsr {
-	a = 100;
-	d = 300;
+	a = 1000;
+	d = 3000;
 	s = 40;
-	r = 500;
-	trigger = 1;
+	r = 20000;
+	trigger = 0;
 	};
 node osc osc::simple {
 	freq = freq->out;

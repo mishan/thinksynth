@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.67 2003/05/06 07:53:56 misha Exp $ */
+/* $Id: main.cpp,v 1.68 2003/05/06 08:08:05 ink Exp $ */
 
 #include "config.h"
 
@@ -103,8 +103,8 @@ syntax:
 
 	Synth.LoadMod(filename);
 
-	Synth.AddChannel(strdup("chan1"), dspname, 80.0);
-	Synth.AddNote("chan1", 69, 100);
+	Synth.AddChannel(strdup("chan1"), dspname, 50.0);
+	Synth.AddNote("chan1", 40, 100);
 
 	audiofmt.channels = Synth.GetChans();
 	audiofmt.bits = 16;
@@ -120,6 +120,24 @@ syntax:
 
 	mixedbuffer = Synth.GetOutput();
 	for(i=0; i<100; i++) {  /* For testing... */
+
+	  if(i==20) {
+		Synth.AddNote("chan1", 42, 100);
+	  }
+	  if(i==40) {
+		Synth.AddNote("chan1", 45, 100);
+	  }
+	  if(i==60) {
+		Synth.AddNote("chan1", 50, 100);
+		Synth.AddNote("chan1", 53, 100);
+		Synth.AddNote("chan1", 55, 100);
+	  }
+	  if(i==75) {
+		Synth.AddNote("chan1", 50, 100);
+		Synth.AddNote("chan1", 52, 100);
+		Synth.AddNote("chan1", 55, 100);
+	  }
+
 	  Synth.Process();
 	  for(j=0; j < Synth.GetWindowLen() * Synth.GetChans(); j++) {
 		outputbuffer[j] = (signed short)(((float)mixedbuffer[j]/TH_MAX)*32767);
