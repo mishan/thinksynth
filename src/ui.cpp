@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.5 2004/03/26 06:29:35 misha Exp $ */
+/* $Id: ui.cpp,v 1.6 2004/03/27 03:28:52 misha Exp $ */
 
 #include "config.h"
 
@@ -22,6 +22,7 @@
 #include "thSynth.h"
 
 #include "PatchSelWindow.h"
+#include "MainSynthWindow.h"
 
 extern thSynth Synth;
 
@@ -29,7 +30,7 @@ void ui_thread (void)
 {
 	Gtk::Main kit(NULL, NULL);
 
-	PatchSelWindow patchsel(&Synth);
+	MainSynthWindow synthWindow(&Synth);
 
-	Gtk::Main::run(patchsel);
+	Gtk::Main::run(synthWindow);
 }

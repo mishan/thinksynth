@@ -1,3 +1,5 @@
+/* $Id: PatchSelWindow.cpp,v 1.13 2004/03/27 03:28:52 misha Exp $ */
+
 #include "config.h"
 #include "think.h"
 
@@ -87,8 +89,11 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 			(SigC::slot(*this, &PatchSelWindow::LoadPatch), 
 			 chanEntry, realSynth));
 	}
+}
 
-	show_all_children();
+PatchSelWindow::~PatchSelWindow (void)
+{
+	hide ();
 }
 
 void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)

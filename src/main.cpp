@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.146 2004/03/26 07:44:24 misha Exp $ */
+/* $Id: main.cpp,v 1.147 2004/03/27 03:28:52 misha Exp $ */
 
 #include "config.h"
 
@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <signal.h>
 
 #include <alsa/asoundlib.h>
 
@@ -33,6 +34,12 @@
 #include "ui.h"
 
 Glib::Mutex *synthMutex = NULL;
+
+void cleanup (int signum)
+{
+	printf("received SIGTERM!\n\n exiting...\n");
+	exit (0);
+}
 
 /* XXX: remove ALSA/OSS-specific code from libthink */
 
@@ -167,6 +174,8 @@ int main (int argc, char *argv[])
 	snd_pcm_t *phandle;
 
 	Glib::thread_init();
+
+	signal(SIGTERM, (sighandler_t)cleanup);
 
 	plugin_path = PLUGIN_PATH;
 
