@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.9 2004/11/09 08:07:41 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.10 2004/11/09 08:20:00 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,71 +27,71 @@
 
 MidiMap::MidiMap (thSynth *argsynth)
 {
-	synth = argsynth;
+	synth_ = argsynth;
 
 	set_title("MIDI Controller Routing");
 
-	mainVBox = manage(new Gtk::VBox);
-	newConnectionFrame = manage(new Gtk::Frame("Connection Source"));
-	destinationFrame = manage(new Gtk::Frame("Connection Destination"));
-	detailsFrame = manage(new Gtk::Frame("Connection Details"));
-	newConnectionHBox = manage(new Gtk::HBox);
-	destinationHBox = manage(new Gtk::HBox);
-	detailsHBox = manage(new Gtk::HBox);
+	mainVBox_ = manage(new Gtk::VBox);
+	newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
+	destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
+	detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
+	newConnectionHBox_ = manage(new Gtk::HBox);
+	destinationHBox_ = manage(new Gtk::HBox);
+	detailsHBox_ = manage(new Gtk::HBox);
 
-	channelLbl = manage(new Gtk::Label("Midi Channel"));
-	channelAdj = manage(new Gtk::Adjustment(1, 1, 16));
-	channelSpinBtn = manage(new Gtk::SpinButton(*channelAdj, 1, 0));
-	channelSpinBtn->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onChannelChanged));
+	channelLbl_ = manage(new Gtk::Label("Midi Channel"));
+	channelAdj_ = manage(new Gtk::Adjustment(1, 1, 16));
+	channelSpinBtn_ = manage(new Gtk::SpinButton(*channelAdj_, 1, 0));
+	channelSpinBtn_->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onChannelChanged));
 
-	controllerLbl = manage(new Gtk::Label("Controller"));
-	controllerAdj = manage(new Gtk::Adjustment(1, 1, 128));
-	controllerSpinBtn = manage(new Gtk::SpinButton(*controllerAdj, 1, 0));
-	controllerSpinBtn->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onControllerChanged));
+	controllerLbl_ = manage(new Gtk::Label("Controller"));
+	controllerAdj_ = manage(new Gtk::Adjustment(1, 1, 128));
+	controllerSpinBtn_ = manage(new Gtk::SpinButton(*controllerAdj_, 1, 0));
+	controllerSpinBtn_->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onControllerChanged));
 
-	minLbl = manage(new Gtk::Label("Minimum"));
-	minAdj = manage(new Gtk::Adjustment(0, 0, 0));
-	minSpinBtn = manage(new Gtk::SpinButton(*minAdj, .1, 4));
-	minSpinBtn->signal_value_changed().connect(sigc::mem_fun(
+	minLbl_ = manage(new Gtk::Label("Minimum"));
+	minAdj_ = manage(new Gtk::Adjustment(0, 0, 0));
+	minSpinBtn_ = manage(new Gtk::SpinButton(*minAdj_, .1, 4));
+	minSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
 												*this,&MidiMap::onMinChanged));
-	maxLbl = manage(new Gtk::Label("Maximum"));
-	maxAdj = manage(new Gtk::Adjustment(0, 0, 0));
-	maxSpinBtn = manage(new Gtk::SpinButton(*maxAdj, .1, 4));
-	maxSpinBtn->signal_value_changed().connect(sigc::mem_fun(
+	maxLbl_ = manage(new Gtk::Label("Maximum"));
+	maxAdj_ = manage(new Gtk::Adjustment(0, 0, 0));
+	maxSpinBtn_ = manage(new Gtk::SpinButton(*maxAdj_, .1, 4));
+	maxSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
 												*this,&MidiMap::onMaxChanged));
 
-	addBtn = manage(new Gtk::Button("Add Connection"));
-	addBtn->signal_clicked().connect(sigc::mem_fun(*this,
+	addBtn_ = manage(new Gtk::Button("Add Connection"));
+	addBtn_->signal_clicked().connect(sigc::mem_fun(*this,
 												   &MidiMap::onAddButton));
 
-	destChanCombo = manage(new Gtk::Combo);
+	destChanCombo_ = manage(new Gtk::Combo);
 	fillDestChanCombo();
 
-	destArgCombo = manage(new Gtk::Combo);
+	destArgCombo_ = manage(new Gtk::Combo);
 	fillDestArgCombo(0);
 
-	add(*mainVBox);
+	add(*mainVBox_);
 
-	newConnectionHBox->pack_start(*channelLbl, Gtk::PACK_EXPAND_WIDGET);
-	newConnectionHBox->pack_start(*channelSpinBtn, Gtk::PACK_EXPAND_WIDGET);
-	newConnectionHBox->pack_start(*controllerLbl, Gtk::PACK_EXPAND_WIDGET);
-	newConnectionHBox->pack_start(*controllerSpinBtn, Gtk::PACK_EXPAND_WIDGET);
-	newConnectionFrame->add(*newConnectionHBox);
+	newConnectionHBox_->pack_start(*channelLbl_, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox_->pack_start(*channelSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox_->pack_start(*controllerLbl_, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionHBox_->pack_start(*controllerSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionFrame_->add(*newConnectionHBox_);
 
-	destinationHBox->pack_start(*destChanCombo, Gtk::PACK_EXPAND_WIDGET);
-	destinationHBox->pack_start(*destArgCombo, Gtk::PACK_EXPAND_WIDGET);
-	destinationFrame->add(*destinationHBox);
+	destinationHBox_->pack_start(*destChanCombo_, Gtk::PACK_EXPAND_WIDGET);
+	destinationHBox_->pack_start(*destArgCombo_, Gtk::PACK_EXPAND_WIDGET);
+	destinationFrame_->add(*destinationHBox_);
 
-	detailsHBox->pack_start(*minLbl, Gtk::PACK_EXPAND_WIDGET);
-	detailsHBox->pack_start(*minSpinBtn, Gtk::PACK_EXPAND_WIDGET);
-	detailsHBox->pack_start(*maxLbl, Gtk::PACK_EXPAND_WIDGET);
-	detailsHBox->pack_start(*maxSpinBtn, Gtk::PACK_EXPAND_WIDGET);
-	detailsFrame->add(*detailsHBox);
+	detailsHBox_->pack_start(*minLbl_, Gtk::PACK_EXPAND_WIDGET);
+	detailsHBox_->pack_start(*minSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	detailsHBox_->pack_start(*maxLbl_, Gtk::PACK_EXPAND_WIDGET);
+	detailsHBox_->pack_start(*maxSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
+	detailsFrame_->add(*detailsHBox_);
 
-	mainVBox->pack_start(*newConnectionFrame, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox->pack_start(*destinationFrame, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox->pack_start(*detailsFrame, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox->pack_start(*addBtn, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox_->pack_start(*newConnectionFrame_, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox_->pack_start(*destinationFrame_, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox_->pack_start(*detailsFrame_, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
 
 
 	show_all_children();
@@ -103,19 +103,19 @@ MidiMap::~MidiMap (void)
 
 void MidiMap::set_sensitive (bool sensitive)
 {
-	destArgCombo->set_sensitive(sensitive);
-	addBtn->set_sensitive(sensitive);
-	minSpinBtn->set_sensitive(sensitive);
-	maxSpinBtn->set_sensitive(sensitive);
+	destArgCombo_->set_sensitive(sensitive);
+	addBtn_->set_sensitive(sensitive);
+	minSpinBtn_->set_sensitive(sensitive);
+	maxSpinBtn_->set_sensitive(sensitive);
 }
 
 void MidiMap::fillDestChanCombo (void)
 {
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
-	std::map<int, string> *patchList = synth->GetPatchlist();
+	std::map<int, string> *patchList = synth_->GetPatchlist();
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
-		destChanCombo->get_list()->children();
+		destChanCombo_->get_list()->children();
 
 	destChanComboStrings.clear();
 
@@ -138,10 +138,10 @@ void MidiMap::fillDestArgCombo (int chan)
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
-		destArgCombo->get_list()->children();
-	if(synth->GetChannel(chan))
+		destArgCombo_->get_list()->children();
+	if(synth_->GetChannel(chan))
 	{
-		std::map<string, thArg *> argList = synth->GetChanArgs(chan);
+		std::map<string, thArg *> argList = synth_->GetChanArgs(chan);
 		destArgComboStrings.clear();
 		
 		for (std::map<string, thArg *>::iterator i = argList.begin();
@@ -164,7 +164,7 @@ void MidiMap::fillDestArgCombo (int chan)
 				if(!visibleArgs)
 				{
 					visibleArgs = 1;
-					selectedArg = i->second;
+					selectedArg_ = i->second;
 				}
 			}
 		}
@@ -172,12 +172,12 @@ void MidiMap::fillDestArgCombo (int chan)
 		if (visibleArgs)
 		{
 			set_sensitive(true);
-			selectedMin = selectedArg->getMin();
-			selectedMax = selectedArg->getMax();
-			minSpinBtn->set_range(selectedMin, selectedMax);
-			maxSpinBtn->set_range(selectedMin, selectedMax);
-			minSpinBtn->set_value(selectedMin);
-			maxSpinBtn->set_value(selectedMax);
+			selectedMin_ = selectedArg_->getMin();
+			selectedMax_ = selectedArg_->getMax();
+			minSpinBtn_->set_range(selectedMin_, selectedMax_);
+			maxSpinBtn_->set_range(selectedMin_, selectedMax_);
+			minSpinBtn_->set_value(selectedMin_);
+			maxSpinBtn_->set_value(selectedMax_);
 		}
 		else
 		{
@@ -192,12 +192,12 @@ void MidiMap::fillDestArgCombo (int chan)
 
 void MidiMap::onChannelChanged (void)
 {
-	selectedChan = (int)channelSpinBtn->get_value() - 1;
+	selectedChan_ = (int)channelSpinBtn_->get_value() - 1;
 }
 
 void MidiMap::onControllerChanged (void)
 {
-	selectedController = (int)controllerSpinBtn->get_value() - 1;
+	selectedController_ = (int)controllerSpinBtn_->get_value() - 1;
 }
 
 bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
@@ -208,27 +208,27 @@ bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
 
 bool MidiMap::onDestArgComboChanged (GdkEventButton* b, thArg *arg)
 {
-	selectedArg = arg;
-	selectedMin = arg->getMin();
-	selectedMax = arg->getMax();
-	minSpinBtn->set_range(selectedMin, selectedMax);
-	maxSpinBtn->set_range(selectedMin, selectedMax);
-	minSpinBtn->set_value(selectedMin);
-	maxSpinBtn->set_value(selectedMax);
+	selectedArg_ = arg;
+	selectedMin_ = arg->getMin();
+	selectedMax_ = arg->getMax();
+	minSpinBtn_->set_range(selectedMin_, selectedMax_);
+	maxSpinBtn_->set_range(selectedMin_, selectedMax_);
+	minSpinBtn_->set_value(selectedMin_);
+	maxSpinBtn_->set_value(selectedMax_);
 	return true;
 }
 
 void MidiMap::onMinChanged (void)
 {
-	selectedMin = minSpinBtn->get_value();
+	selectedMin_ = minSpinBtn_->get_value();
 }
 
 void MidiMap::onMaxChanged (void)
 {
-	selectedMax = maxSpinBtn->get_value();
+	selectedMax_ = maxSpinBtn_->get_value();
 }
 
 void MidiMap::onAddButton (void)
 {
-	synth->newMidiControllerConnection((unsigned char)selectedChan, (unsigned int)selectedController, new thMidiControllerConnection(selectedArg, selectedMin, selectedMax));
+	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_));
 }

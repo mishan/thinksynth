@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.7 2004/11/09 08:07:41 ink Exp $ */
+/* $Id: MidiMap.h,v 1.8 2004/11/09 08:20:00 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,40 +41,40 @@ protected:
 	void onMinChanged (void);
 	void onMaxChanged (void);
 
-	Gtk::Adjustment *channelAdj;
-	Gtk::Adjustment *controllerAdj;
-	Gtk::Adjustment *minAdj;
-	Gtk::Adjustment *maxAdj;
+	Gtk::Adjustment *channelAdj_;
+	Gtk::Adjustment *controllerAdj_;
+	Gtk::Adjustment *minAdj_;
+	Gtk::Adjustment *maxAdj_;
 
-	Gtk::VBox *mainVBox;
-	Gtk::HBox *newConnectionHBox;
-	Gtk::Frame *newConnectionFrame;
-	Gtk::HBox *destinationHBox;
-	Gtk::Frame *destinationFrame;
-	Gtk::HBox *detailsHBox;
-	Gtk::Frame *detailsFrame;
-	Gtk::Label *channelLbl;
-	Gtk::SpinButton *channelSpinBtn;
-	Gtk::Label *controllerLbl;
-	Gtk::SpinButton *controllerSpinBtn;
-	Gtk::Combo *destChanCombo;
-	Gtk::Combo *destArgCombo;
-	Gtk::Label *minLbl;
-	Gtk::SpinButton *minSpinBtn;
-	Gtk::Label *maxLbl;
-	Gtk::SpinButton *maxSpinBtn;
-	Gtk::Button *addBtn;
+	Gtk::VBox *mainVBox_;
+	Gtk::HBox *newConnectionHBox_;
+	Gtk::Frame *newConnectionFrame_;
+	Gtk::HBox *destinationHBox_;
+	Gtk::Frame *destinationFrame_;
+	Gtk::HBox *detailsHBox_;
+	Gtk::Frame *detailsFrame_;
+	Gtk::Label *channelLbl_;
+	Gtk::SpinButton *channelSpinBtn_;
+	Gtk::Label *controllerLbl_;
+	Gtk::SpinButton *controllerSpinBtn_;
+	Gtk::Combo *destChanCombo_;
+	Gtk::Combo *destArgCombo_;
+	Gtk::Label *minLbl_;
+	Gtk::SpinButton *minSpinBtn_;
+	Gtk::Label *maxLbl_;
+	Gtk::SpinButton *maxSpinBtn_;
+	Gtk::Button *addBtn_;
 
 private:
 	void fillDestChanCombo (void);
 	void fillDestArgCombo (int chan);
 
-	thSynth *synth;
-	int selectedChan;
-	int selectedController;
-	float selectedMin;
-	float selectedMax;
-	thArg *selectedArg;
+	thSynth *synth_;
+	int selectedChan_;
+	int selectedController_;
+	float selectedMin_;
+	float selectedMax_;
+	thArg *selectedArg_;
 };
 
 #endif /* ABOUT_BOX_H */
