@@ -1,0 +1,19 @@
+thinksynth port status
+======================
+
+OS			Build?		Function?
+--			------		---------
+Linux (native)		yes		yes
+
+FreeBSD			yes		no
+| We're waiting on ink for this one. Probably some thinko somewhere.
+
+Windows (Cygwin)	no		no
+| joshk is waiting on a new binutils that supports dynamic linking from
+| .exes (like the way it works in other unices.)
+
+Darwin			???		???
+
+Update this file as ports continue to progress.
+
+$Id: PORTING,v 1.1 2003/05/03 08:10:58 joshk Exp $
