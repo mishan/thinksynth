@@ -9,50 +9,61 @@
 #include <stdlib.h>
 #include <string.h>
 #include <endian.h>
+
 #include "endian.h"
+#include "Exception.h"
 #include "Wav.h"
 
-Wav::Wav()
+Wav::Wav(char *name)
+	throw(IOException, WavException)
 {
 
+	filename = strdup(name);
+ 	type = 0; /* reading */
+
+	if((fd = open(filename, O_RDONLY)) < 0) {
+		throw NOSUCHFILE;
+	}	
+
+	try {
+		read_header();
+	}
+	catch (WavException e) {
+		throw e;
+	}
+}
+
+Wav::Wav(char *name, WavFormat *wfmt)
+	throw(IOException)
+{
+	filename = strdup(name);
+	type = 1; /* writing */
+
+	if((fd = open(name, O_CREAT|O_WRONLY, 0660)) < 0) {
+		throw Exception(strerror(errno));
+	}
+	
+	memcpy(&fmt, wfmt, sizeof(WavFormat));
 }
 
 Wav::~Wav (void)
 {
-	close_wav();
-}
-
-int Wav::open_wav(char *name, short format, short channels, long samples, 
-			  short bits)
-{
-	this->name = strdup(name);
-	type = 1; /* writing */
-
-	if((fd = open(name, O_CREAT|O_WRONLY, 0660)) < 0) {
-		fprintf(stderr, "Wav::open: %s\n", strerror(errno));
-		return -1;
+	if(type) { /* if we're writing, we must write the header before we
+				  close */
+		/* get our current position in the file, which is the data length */
+		long data_len = lseek(fd, 0, SEEK_CUR) - 44;
+		
+		lseek(fd, 0, SEEK_SET);
+		
+		write_riff();
+		
+		lseek(fd, 40, SEEK_SET);
+		lewrite32(fd, data_len);
 	}
-
-	fmt.format = format;
-	fmt.channels = channels;
-	fmt.samples = samples;
-	fmt.bits = bits;
-
-	return 0;
+	
+	close(fd);
 }
 
-int Wav::open_wav(char *name)
-{
-	this->name = strdup(name);
- 	type = 0; /* reading */
-
-	if((fd = open(name, O_RDONLY)) < 0) {
-		fprintf(stderr, "Wav::open: %s\n", strerror(errno));
-		return -1;
-	}	
-
-	return read_header();
-}
 
 int Wav::write_wav (void *data, int len)
 {
@@ -104,23 +115,6 @@ void Wav::write_riff(void)
 	lewrite16(fd, fmt.bits);
 }
 
-void Wav::close_wav (void)
-{ 
-	if(type) { /* if we're writing, we must write the header before we
-				  close */
-		/* get our current position in the file, which is the data length */
-		long data_len = lseek(fd, 0, SEEK_CUR) - 44;
-		
-		lseek(fd, 0, SEEK_SET);
-		
-		write_riff();
-		
-		lseek(fd, 40, SEEK_SET);
-		lewrite32(fd, data_len);
-	}
-
-	close(fd);
-}
 
 int Wav::read_wav(void *data, int len)
 {
@@ -140,40 +134,37 @@ int Wav::read_wav(void *data, int len)
 		break;
 	default:
 		fprintf(stderr, "Wav::read_wav: %s: unsupported value for bits per "
-				"sample: %d\n", name, fmt.bits);
+				"sample: %d\n", filename, fmt.bits);
 		break;
 	}
 
 	return r;
 }
 
-int Wav::read_header(void)
+void Wav::read_header(void)
+	throw(WavException)
 {
 	char magic[5];
 	long len;
 
 	if(!(len = find_chunk(RIFF_HDR))) {
-		fprintf(stderr, "Wav::read_header: %s: missing RIFF header\n", name);
-		goto err;
+		throw NORIFFHDR;
 	}
 
 	read(fd, magic, 4);
 	if(strncmp(WAVE_HDR, magic, 4)) {
-		fprintf(stderr, "Wav::read_header: %s: missing WAVE header\n", name);
-		goto err;
+		throw NOWAVHDR;
+
 	}
 
-
 	if(!(len = find_chunk(FMT_HDR))) {
-		fprintf(stderr, "Wav::read_header: %s: could not find fmt chunk\n", name);
-		goto err;
+		throw NOFMTHDR;
 	}
 
 	/* the fmt header must be of length 16 as we require all the information
 	   it contains */
  	if(len < 16) {
-		fprintf(stderr, "Wav::read_header: %s: fmt header chunk is too short\n", name);
-		goto err;
+		throw BADFMTHDR;
 	}
 
 	/* read the fmt header into our struct */
@@ -185,16 +176,8 @@ int Wav::read_header(void)
 	leread16(fd, &fmt.bits);
 
 	if(!(fmt.len = find_chunk(DATA_HDR))) {
-		fprintf(stderr, "read_wav: %s: could not find data chunk\n", name);
-		goto err;
+		throw NODATA;
 	}
-
-	return 0;
-
-  err:
-	close_wav();
-
-	return -1;
 }
 
 int Wav::find_chunk(const char *label)
@@ -217,7 +200,7 @@ int Wav::find_chunk(const char *label)
 	return len;
 }
 
-Wav_Fmt Wav::get_fmt (void)
+WavFormat Wav::get_format (void)
 {
 	return fmt;
 }
