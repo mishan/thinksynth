@@ -20,8 +20,8 @@
 
 int main (int argc, char *argv[])
 {
-	parsemod = new thMod(NULL);     /* these are used by the parser */
-	parsenode = new thNode(NULL, NULL);
+	parsemod = new thMod("newmod");     /* these are used by the parser */
+	parsenode = new thNode("newnode", NULL);
 
 	yyparse();
 }
