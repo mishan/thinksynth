@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.61 2004/09/08 22:32:51 misha Exp $ */
+/* $Id: thinklang.yy,v 1.62 2004/09/18 02:16:06 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -24,6 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "yygrammar.h"
 #include "think.h"
 
 thMod *parsemod = NULL;
