@@ -69,6 +69,10 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 		{
 			chanAmp->set_value(amp->argValues[0]);
 		}
+		else
+		{
+			chanAmp->set_sensitive(false);
+		}
 
 		patchTable.attach(*chanLabel, 0, 1, i, i+1, Gtk::FILL, Gtk::SHRINK);
 		patchTable.attach(*chanEntry, 1, 2, i, i+1, Gtk::FILL, Gtk::SHRINK);
@@ -111,6 +115,11 @@ void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
 		errorDialog.run();
 		chanEntry->set_text("");
 		g_free(error);
+		chanAmp->set_sensitive(false);
+	}
+	else
+	{
+		chanAmp->set_sensitive(true);
 	}
 	
 	synthMutex->unlock();
