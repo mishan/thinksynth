@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.20 2003/04/27 10:17:12 aaronl Exp $ */
+/* $Id: thWav.cpp,v 1.21 2003/05/06 07:53:56 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -141,6 +141,7 @@ void thWav::WriteRiff (void)
 	lewrite32(fd, avgbytes);
 	lewrite16(fd, blockalign);
 	lewrite16(fd, fmt.bits);
+	write(fd, DATA_HDR, 4);
 }
 
 int thWav::Read (void *data, int len)

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.66 2003/05/06 06:20:35 ink Exp $ */
+/* $Id: main.cpp,v 1.67 2003/05/06 07:53:56 misha Exp $ */
 
 #include "config.h"
 
@@ -35,7 +35,7 @@ int main (int argc, char *argv[])
 
 	int i, j;
 	thAudioFmt audiofmt;
-	thWav *outputwav;
+	thWav *outputwav = NULL;
 	signed short *outputbuffer;
 	float *mixedbuffer;
 	thWavException e;
@@ -111,7 +111,7 @@ syntax:
 	audiofmt.samples = TH_SAMPLE;
 
 	try {
-	  outputwav = new thWav("test.wav", &audiofmt);
+		outputwav = new thWav("test.wav", &audiofmt);
 	}
 	catch (thWavException e) {
 	}
