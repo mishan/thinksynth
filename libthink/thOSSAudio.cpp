@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.17 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.18 2003/09/08 20:31:21 misha Exp $ */
 
 #include "config.h"
 
@@ -41,7 +41,7 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 					  1 channel, and 1 to indicate 2 
 					  channels, so we must decrement the 
 					  channel count */
-	int format = afmt->format;
+	int format;
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
 
@@ -58,7 +58,7 @@ thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 		throw errno;
 	}
 
-	if (ioctl(fd, SNDCTL_DSP_SETFMT, &format) == -1) {
+	if (ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
 		fprintf(stderr, "setfmt: /dev/dsp: %s\n", strerror(errno));
 	}
 
