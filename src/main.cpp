@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.157 2004/04/08 08:51:14 misha Exp $ */
+/* $Id: main.cpp,v 1.158 2004/04/08 22:44:58 misha Exp $ */
 
 #include "config.h"
 
@@ -22,6 +22,7 @@
 
 #include "ui.h"
 #include "signal.h"
+#include "prefs.h"
 
 /* XXX: globals */
 Gtk::Main *gtkMain = NULL;
@@ -29,9 +30,28 @@ Gtk::Main *gtkMain = NULL;
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
 
+/* XXX: this is a *GROSS* error; the library level should not depend on an
+   application-level global; the thSynth class should have some sort of
+   plugin path and it should use the default of PLUGIN_PATH if nothing is
+   passed to it */
+string plugin_path = PLUGIN_PATH;
+
+static const char syntax[] = \
+PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
+"Aaron Lehmann and Joshua Kwan\n"
+"Usage: %s [options] dsp-file\n"
+"-h\t\t\tdisplay this help screen\n"
+"-p [path]\t\tmodify the plugin search path\n"
+"-m [mod]\t\tchange the mod that will be used\n"
+"-d [alsa|oss|wav]\tchange output driver\n"
+"  -o [file|device]\tchange output dest\n"
+;
+
 void cleanup (int signum)
 {
 	printf("received SIGTERM!\n\n exiting...\n");
+
+	save_prefs(&Synth);
 
 	if (gtkMain)
 		delete gtkMain;
@@ -46,20 +66,6 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 
 	audio->Write(synthbuffer, l);
 }
-
-string plugin_path;
-
-const char syntax[] = \
-PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
-"Aaron Lehmann and Joshua Kwan\n"
-"Usage: %s [options] dsp-file\n"
-"-h\t\t\tdisplay this help screen\n"
-"-p [path]\t\tmodify the plugin search path\n"
-"-m [mod]\t\tchange the mod that will be used\n"
-"-d [alsa|oss|wav]\tchange output driver\n"
-"  -o [file|device]\tchange output dest\n"
-;
-
 
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
@@ -138,10 +144,12 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 int main (int argc, char *argv[])
 {
 	string outputfname;
-	string inputfname;         /* filename of .dsp file to use */
 	string driver = "alsa";
 	int havearg = -1;
 	thALSAAudio *aout = NULL;
+
+	/* seed the random number generator */
+	srand(time(NULL));
 
 	/* init Glib/Gtk stuff */
 	Glib::thread_init();
@@ -185,7 +193,6 @@ int main (int argc, char *argv[])
 			{
 				if (optind != argc)
 				{
-//					printf ("error: unrecognized parameter\n");
 					printf(syntax, argv[0]);
 					exit(1);
 				}
@@ -194,31 +201,7 @@ int main (int argc, char *argv[])
 		}
 	}
 
-	if (optind < argc) {
-		inputfname = argv[optind];
-
-		Synth.LoadMod(string(inputfname), 0, (float)12.0);
-	}
-	else
-	{
-		Synth.LoadMod("dsp/harpsi1.dsp", 0, (float)12.0);
-	}
-
-	/* seed the random number generator */
-	srand(time(NULL));
-
-	/* XXX: write a config file */
-	Synth.LoadMod("dsp/piano0.dsp", 1, (float)14.0);
-	Synth.LoadMod("dsp/organ0.dsp", 2, (float)12.0);
-	Synth.LoadMod("dsp/sqrtest.dsp", 3, (float)2.0);
-	Synth.LoadMod("dsp/dfb.dsp", 4, (float)12.0);
-	Synth.LoadMod("dsp/harpsi0.dsp", 5, (float)12.0);
-	Synth.LoadMod("dsp/mfm01.dsp", 6, (float)12.0);
-	Synth.LoadMod("dsp/analog00.dsp", 7, (float)12.0);
-	Synth.LoadMod("dsp/amb01.dsp", 8, (float)12.0);
-	/* drums */
-	Synth.LoadMod("dsp/sd0.dsp", 9, (float)11.0);
-	Synth.LoadMod("dsp/bd0.dsp", 10, (float)11.0);
+	read_prefs (&Synth);
 
 	Glib::Thread *const ui = Glib::Thread::create(SigC::slot(&ui_thread),
 												  true);
@@ -227,6 +210,8 @@ int main (int argc, char *argv[])
 	   integer internally based on format data */
 	try
 	{
+		printf ("Using the '%s' driver\n", driver.c_str());
+
  		if (driver == "alsa")
 		{
 			if (outputfname.length() > 0)
@@ -248,7 +233,7 @@ int main (int argc, char *argv[])
 		}
 		else
 		{
-			fprintf(stderr, "sorry, non-ALSA drivers are unsupported for now.\n");
+			fprintf(stderr,"sorry only ALSA driver is supported currently.\n");
 		}
 
 	}
@@ -259,8 +244,6 @@ int main (int argc, char *argv[])
 		fprintf(stderr, "error creating audio device: %s\n", strerror(e));
 		exit (1);
 	}
-
-	printf ("Using the '%s' driver\n", driver.c_str());
 
 	if (outputfname.length() > 0)
 	{
@@ -279,6 +262,8 @@ int main (int argc, char *argv[])
 
 	delete aout;
 	delete gtkMain;
+
+	save_prefs (&Synth);
 
 	return 0;
 }

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.25 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.26 2004/04/08 22:44:58 misha Exp $ */
 
 #include "config.h"
 
@@ -14,15 +14,15 @@
 #include "PatchSelWindow.h"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
-	: dspAmp (0, MIDIVALMAX, .5),
-	  setButton("Load Patch"), 
+ 	: dspAmp (0, MIDIVALMAX, .5),
+//	  setButton("Load Patch"), 
 	  browseButton("Browse"),
 	  ampLabel("Amplitude"),
 	  fileLabel("Filename")
 {
 	synth = argsynth;
 
-	set_default_size(500, 400);
+	set_default_size(550, 400);
 
 	set_title("thinksynth - Patch Selector");
 
@@ -86,7 +86,10 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	dspAmp.signal_value_changed().connect(
 		SigC::slot(*this, &PatchSelWindow::SetChannelAmp));
 
-	setButton.signal_clicked().connect(
+//	setButton.signal_clicked().connect(
+//		SigC::slot(*this, &PatchSelWindow::LoadPatch));
+
+	fileEntry.signal_activate().connect(
 		SigC::slot(*this, &PatchSelWindow::LoadPatch));
 
 	browseButton.signal_clicked().connect(
@@ -94,7 +97,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 	vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
 
-	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
 	controlTable.attach(dspAmp, 1, 2, 0, 1);
 	controlTable.attach(fileLabel, 0, 1, 1, 2, Gtk::SHRINK,
 						Gtk::SHRINK, 0, 5);
@@ -102,12 +105,11 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 						Gtk::FILL|Gtk::EXPAND, 0, 5);
 	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
 						0);
-	controlTable.attach(setButton, 0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+//	controlTable.attach(setButton, 0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 }
 
 PatchSelWindow::~PatchSelWindow (void)
 {
-//	hide ();
 }
 
 void PatchSelWindow::LoadPatch (void)
@@ -157,6 +159,8 @@ void PatchSelWindow::BrowsePatch (void)
 	fileSel.run();
 
 	fileEntry.set_text(fileSel.get_filename());
+
+	LoadPatch ();
 }
 
 void PatchSelWindow::SetChannelAmp (void)
@@ -225,7 +229,7 @@ void PatchSelWindow::CursorChanged (void)
 			   selected */
 			browseButton.set_sensitive(true);
 			fileEntry.set_sensitive(true);
-			setButton.set_sensitive(true);
+//			setButton.set_sensitive(true);
 
 			fileEntry.set_text(filename);
 			dspAmp.set_value((double)amp);
