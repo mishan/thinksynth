@@ -1,4 +1,4 @@
-# $Id: sd0.dsp,v 1.8 2004/02/09 10:50:28 misha Exp $
+# $Id: sd0.dsp,v 1.9 2004/04/22 08:57:27 ink Exp $
 # Snare Drum 0
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
@@ -11,12 +11,12 @@ node ionode {
 	channels = 2;
 	play = snareenv->play;
 
-	tonelen = 2000;
+	tonelen = 50 ms;
 	tonehi = 280;
 	tonelow = 250;
-	snarelen = 2000;
-	snares = 80;
-	snarer = 3000;
+	snarelen = 50 ms;
+	snares = 80%;
+	snarer = 65 ms;
 	snaresample = 0;
 	snare = 0.8;
 	filter = 0.8;
