@@ -32,16 +32,6 @@ thPlugin::~thPlugin ()
 	free(plugDesc);
 }
 
-const char *thPlugin::GetPath (void)
-{
-	return plugPath;
-}
-
-const char *thPlugin::GetDesc (void)
-{
-	return plugDesc;
-}
-
 int thPlugin::Fire (void *node, void *mod, unsigned int windowlen)
 {
 	plugCallback(node, mod, windowlen);

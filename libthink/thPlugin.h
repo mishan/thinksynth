@@ -8,8 +8,8 @@ public:
 	thPlugin(const char *path, int id, bool state);
 	~thPlugin ();
 
-	const char *GetPath (void);
-	const char *GetDesc (void);
+	const char *GetPath (void) { return plugPath; };
+	const char *GetDesc (void) { return plugDesc; };
 	bool GetState (void);
 
 	void MakePath (void);
