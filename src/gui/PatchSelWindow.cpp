@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.52 2004/11/28 03:18:03 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.53 2004/11/28 22:15:22 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -185,6 +185,7 @@ bool PatchSelWindow::LoadPatch (void)
 			else
 			{
 				/* error message handled in sighandler */
+				fileEntry.set_text("");
 				return false;
 			}
 
