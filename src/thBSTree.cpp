@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.27 2003/05/09 02:40:12 aaronl Exp $ */
+/* $Id: thBSTree.cpp,v 1.28 2003/05/11 05:13:35 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -73,6 +73,11 @@ void thBSTree::Insert(void *id, void *data)
 		bsData = data;
 	}
 
+	/* XXX: handle this */
+	if(!(data && bsData)) {
+		return;
+	}
+
 	switch(bsCompare(data, bsData)) {
 	case -1:
 		if(bsLeft) {
@@ -106,7 +111,8 @@ void thBSTree::Remove(void *id)
 
 bool thBSTree::_Remove(void *id, bool freemem)
 {
-	if (!bsId) return false;
+	if (!bsId || !id) return false;
+
 	/* this node isn't it, tell the children to remove this id,
 	   but avoid calling extra children */
 	if(bsCompare(id, bsId) != 0) {
@@ -126,6 +132,7 @@ bool thBSTree::_Remove(void *id, bool freemem)
 	bsId = NULL;
 	bsData = NULL;
 
+	/* XXX: check if they're empty or not */
 	if(bsLeft && bsRight) {
 		thBSTree *newchild;
 
