@@ -1,7 +1,7 @@
-# $Id: Makefile,v 1.10 2003/04/27 20:57:58 joshk Exp $
+# $Id: Makefile,v 1.11 2003/05/02 00:31:34 joshk Exp $
 
 # Change this for every new plugin
-PLUGIN_DIRS = osc test
+PLUGIN_DIRS = osc test env
 
 all clean install uninstall: $(PLUGIN_DIRS)
 
