@@ -9,10 +9,10 @@ public:
 	thNode *FindNode(char *name);
 	const thArgValue *GetArg (char *nodename, char *argname);
 	void NewNode(thNode *node);
-	const char *GetName(void);
+	const char *GetName(void) { return modname; };
 	void SetName(char *name);
 	void SetIONode(char *name);
-	thNode *GetIONode(void);
+	thNode *GetIONode(void) { return ionode; };
 	void PrintIONode(void);
 
 	void Process (void);

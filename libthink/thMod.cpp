@@ -57,11 +57,6 @@ void thMod::NewNode (thNode *node)
 	modnodes.Insert((char *)node->GetName(), node);
 }
 
-const char *thMod::GetName (void)
-{
-	return(modname);
-}
-
 void thMod::SetName (char *name)
 {
 	if(modname) {
@@ -73,11 +68,6 @@ void thMod::SetName (char *name)
 void thMod::SetIONode (char *name)
 {
 	ionode = (thNode *)((thBSNode *)modnodes.Find(name))->data;
-}
-
-thNode *thMod::GetIONode (void)
-{
-	return ionode;
 }
 
 void thMod::PrintIONode (void)
@@ -145,6 +135,3 @@ void thMod::SetActiveNodesHelper(thNode *node)
     }
   }
 }
-
-
-
