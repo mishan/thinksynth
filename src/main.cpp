@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.83 2003/05/11 09:05:29 aaronl Exp $ */
+/* $Id: main.cpp,v 1.84 2003/05/11 23:34:40 joshk Exp $ */
 
 #include "config.h"
 
@@ -119,6 +119,7 @@ syntax:
 
 	buflen = Synth.GetWindowLen() * Synth.GetChans();
 	outputbuffer = (signed short *)alloca(buflen * sizeof(signed short));
+	printf ("Writing test.wav\n");
 
 	mixedbuffer = Synth.GetOutput();
 	for(i = 0; i < 150; i++) {  /* For testing... */
