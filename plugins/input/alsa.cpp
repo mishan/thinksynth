@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.2 2004/02/22 03:12:39 misha Exp $ */
+/* $Id: alsa.cpp,v 1.3 2004/02/22 03:26:49 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -73,7 +73,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i = 0; i < windowlen; i++) {
 		out[i] = (((float)buf[i * channels]) / 32767) * TH_MAX;
-//		play[i] = !thwav->CheckEOF();
+		play[i] = 1;  /* playback does not end until alsa closes, but we
+						 don't handle that yet */
 	}
 
 	return 0;
