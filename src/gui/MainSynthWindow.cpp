@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.26 2004/09/09 07:14:07 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.27 2004/09/09 07:31:32 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -167,7 +167,9 @@ void MainSynthWindow::populate (void)
 		if (tabName.length() == 0)
 			continue;
 
-		tabName = basename(tabName.c_str());
+		/* display channel # */
+		tabName = g_strdup_printf("%d: %s", i->first + 1,
+			basename(tabName.c_str()));
 
 		std::map<string, thArg *> args = synth->GetChanArgs(i->first);
 		
