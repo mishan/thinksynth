@@ -9,7 +9,7 @@ public:
 	void SetArg(char *name, float *value, int len);
 	void SetArg(char *name, char *node, char *value);
 	
-	float *GetArg(char *name);
+	thArgValue *GetArg(char *name);
 
 	void Process (void);
 private:

@@ -4,8 +4,8 @@
 
 #include "thBTree.h"
 #include "thPlugin.h"
-#include "thNode.h"
 #include "thArg.h"
+#include "thNode.h"
 
 thNode::thNode (char *name, thPlugin *thplug)
 {
@@ -36,9 +36,10 @@ void thNode::SetArg (char *name, char *node, char * value)
 {
 }
 
-float *thNode::GetArg (char *name)
+thArgValue *thNode::GetArg (char *name)
 {
-	return NULL;
+	thArg *arg = (thArg *)args->Find(name);
+	return (thArgValue *)arg->GetArg();
 }
 
 void thNode::Process (void)

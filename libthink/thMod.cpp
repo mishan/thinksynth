@@ -4,6 +4,7 @@
 
 #include "thList.h" /* switch to BTrees! */
 #include "thBTree.h"
+#include "thArg.h"
 #include "thPlugin.h"
 #include "thNode.h"
 #include "thMod.h"
