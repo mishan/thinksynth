@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.16 2004/11/26 06:23:56 joshk Exp $ */
+/* $Id: PatchSelWindow.h,v 1.17 2004/11/27 07:58:24 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -60,6 +60,7 @@ protected:
 	void patchSelected (GdkEventButton *);
 	void fileEntryActivate (void);
 	void onPatchesChanged (void);
+	void onRealize (void);
 
 	Gtk::VBox vbox;
 	Gtk::Table controlTable;

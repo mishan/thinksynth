@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.49 2004/11/26 06:23:56 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.50 2004/11/27 07:58:24 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -71,7 +71,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchView.append_column("Filename", patchViewCols.dspName);
 	patchView.append_column("Amplitude", patchViewCols.amp);
 
-	signal_realize().connect(sigc::mem_fun(*this, &PatchSelWindow::populate));
+	signal_realize().connect(sigc::mem_fun(*this, &PatchSelWindow::onRealize));
 
 	dspAmp.signal_value_changed().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
@@ -100,27 +100,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
 						0); 
 	controlTable.attach(unloadButton, 3, 4, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5, 0); 
-
-	gthPrefs *prefs = gthPrefs::instance();
-
-	if (prefs)
-	{
-		string **vals = prefs->Get("patchdir");
-
-		if (vals)
-		{
-			prevDir = strdup(vals[0]->c_str());
-		}
-		else
-		{
-			prevDir = strdup(DSP_PATH "/patches");
-		}
-	}
-	else
-	{
-		prevDir = strdup(DSP_PATH "/patches");
-	}
-
+	
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	patchMgr->signal_patches_changed().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::onPatchesChanged));
@@ -434,6 +414,31 @@ void PatchSelWindow::populate (void)
 			"(Untitled)" : filename;
 		row[patchViewCols.amp] = amp ? (*amp)[0] : 0;
 	}
+}
+
+void PatchSelWindow::onRealize(void)
+{
+	gthPrefs *prefs = gthPrefs::instance();
+	
+	if (prefs)
+	{
+		string **vals = prefs->Get("patchdir");
+
+		if (vals)
+		{
+			prevDir = strdup(vals[0]->c_str());
+		}
+		else
+		{
+			prevDir = strdup(DSP_PATH "/patches");
+		}
+	}
+	else
+	{
+		prevDir = strdup(DSP_PATH "/patches");
+	}
+	
+	populate();
 }
 
 void PatchSelWindow::onPatchesChanged (void)
