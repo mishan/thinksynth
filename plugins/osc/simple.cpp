@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.47 2004/04/08 23:32:54 aaronl Exp $ */
+/* $Id: simple.cpp,v 1.48 2004/04/13 10:30:49 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,7 +25,7 @@ enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL,
 
 int args[INOUT_LAST + 1];
 
-char		*desc = "Basic Oscillator";
+char		*desc = "Complex Oscillator";
 thPluginState	mystate = thActive;
 
 void module_cleanup (struct module *mod)

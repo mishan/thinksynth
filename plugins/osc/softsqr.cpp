@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.16 2004/04/09 04:59:47 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.17 2004/04/13 10:30:49 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +13,8 @@ int args[INOUT_LAST + 1];
 
 char		*desc = "Square wave with sine-like transitions";
 thPluginState	mystate = thActive;
+
+static const float M_PI2 = 2*M_PI;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,15 +40,16 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	int i;
+	unsigned int i;
 	float *out;
 	float *out_last;
 	float wavelength, sinewavelength, ratio;
-	float sinewidth, minsqrwidth, maxsqrwidth, position;
+	float sinewidth, minsqrwidth, maxsqrwidth, position, lendiff;
 	int phase;
 	thArg *in_freq, *in_pw, *in_sw;
 	thArg *out_arg;
 	thArg *inout_last;
+	float val_freq, val_pw, val_sw;
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	inout_last = mod->GetArg(node, args[INOUT_LAST]);
@@ -61,47 +64,64 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_pw = mod->GetArg(node, args[IN_PW]); // Pulse Width
 
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
+	for(i = 0; i < windowlen; i++) {
+		val_freq = (*in_freq)[i];
+		val_pw = (*in_pw)[i];
+		val_sw = (*in_sw)[i];
 
-	for(i=0; i < (int)windowlen; i++) {
-		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
-		sinewavelength = TH_SAMPLE * (1.0/(*in_sw)[i]);
+		wavelength = TH_SAMPLE * (1.0/val_freq);
+		sinewavelength = TH_SAMPLE * (1.0/val_sw);
 		
 		if(sinewavelength > wavelength) {
-			sinewavelength = wavelength; /* otherwise the pitch bends when sfreq is low */
+			sinewavelength = wavelength; /* otherwise the pitch bends when 
+											sfreq is low */
 		}
 
+		lendiff = wavelength - sinewavelength;
 		sinewidth = sinewavelength/2;
-		maxsqrwidth = (wavelength - sinewavelength) * (*in_pw)[i];
-		minsqrwidth = (wavelength - sinewavelength) * (1-(*in_pw)[i]);
+
+		maxsqrwidth = (lendiff) * val_pw;
+		minsqrwidth = (lendiff) * (1-val_pw);
+
 		//printf("SoftSQR  Freq: %f \tSineWidth %f\n", (*in_sw)[i], sinewidth);
+
+		/* XXX: surely this math can be simplified ... */
 		switch(phase) {
 		case 0:    /* Sine segment from low to high */
-			ratio = position++/sinewidth;
-			ratio = (ratio/2)+0.75; // We need the right part of the sine wave
+			ratio = (position++)/sinewidth;
+			ratio = (ratio / 2) + 0.75; /* We need the right part of the sine
+										   wave */
+
 			if(position >= sinewidth) { // End when its over
 				position -= sinewidth;
 				phase++;
 			}
-			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*(M_PI2)); /* This will fuck up if TH_MIX
+												   is not the negative of 
+												   TH_MIN */
 			break;
 		case 1:    /* Maximum square */
-			if(position++>maxsqrwidth) {
+			if(position++ > maxsqrwidth) {
 				position -= maxsqrwidth;
 				phase++;
 			}
 			out[i] = TH_MAX;
 			break;
 		case 2:    /* Sine segment from high to low */
-			ratio = position++/sinewidth;
-			ratio = (ratio/2)+0.25; // We need the right part of the sine wave
+			ratio = (position++)/sinewidth;
+			ratio = (ratio / 2) + 0.25; /* We need the right part of the sine
+										   wave */
+
 			if(position >= sinewidth) {
 				position -= sinewidth;
 				phase++;
 			}
-			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
+			out[i] = TH_MAX*sin(ratio*(M_PI2)); /* This will fuck up if TH_MIX
+												   is not the negative of
+												   TH_MIN */
 			break;
 		case 3:    /* Minimum square */
-			if(position++>minsqrwidth) {
+			if(position++ > minsqrwidth) {
 				position -= minsqrwidth;
 				phase = 0;
 			}

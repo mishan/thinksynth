@@ -1,12 +1,10 @@
-/* $Id: thArg.h,v 1.31 2004/04/09 20:05:25 aaronl Exp $ */
+/* $Id: thArg.h,v 1.32 2004/04/13 10:30:49 misha Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
 
 #define ARG_VALUE 0
 #define ARG_POINTER 1
-
-
 
 class thArg {
 	public:
@@ -34,11 +32,13 @@ class thArg {
 	int argPointNodeID; /* index of the node to which the pointer points */
 	int argPointArgID;  /* index of the arg to which the pointer points */
 	int argType; /* is this arg a value or a pointer? */
+
 	float operator[] (unsigned int i) const {
 		if(!argNum) {
 			return 0;
 		}
-		else if(argNum == 1) {
+		else if(argNum == 1)
+		{
 			return argValues[0];
 		}
 		else if(i < argNum) {
@@ -48,6 +48,7 @@ class thArg {
 		/* else */
 		return argValues[i%argNum];
 	}
+
 };
 
 #endif /* TH_ARG_H */

@@ -1,4 +1,4 @@
-/* $Id: prefs.cpp,v 1.3 2004/04/09 07:29:40 misha Exp $ */
+/* $Id: prefs.cpp,v 1.4 2004/04/13 10:30:49 misha Exp $ */
 
 #include "config.h"
 
@@ -48,7 +48,7 @@ void save_prefs (thSynth *synth)
 			if (file.length() > 0)
 			{
 				fprintf(prefsFile, "channel %d,%s,%f\n", i, file.c_str(),
-						amp ? amp->argValues[0] : 0.0);
+						amp ? (*amp)[0] : 0.0);
 			}
 		}
 	}

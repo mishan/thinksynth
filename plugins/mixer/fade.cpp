@@ -1,4 +1,4 @@
-/* $Id: fade.cpp,v 1.9 2004/04/08 13:44:05 ink Exp $ */
+/* $Id: fade.cpp,v 1.10 2004/04/13 10:30:49 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -38,6 +38,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *in_0, *in_1, *in_fade;
 	thArg *out_arg;
 	unsigned int i;
+	float val_in0, val_in1, val_fade;
 
 	in_0 = mod->GetArg(node, args[IN_0]);
 	in_1 = mod->GetArg(node, args[IN_1]);
@@ -46,8 +47,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_arg = mod->GetArg(node, args[OUT]);
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
-		out[i] = ((*in_0)[i] * (1-(*in_fade)[i])) + ((*in_1)[i] * (*in_fade)[i]);
+	for(i = 0; i < windowlen; i++) {
+		val_in0 = (*in_0)[i];
+		val_in1 = (*in_1)[i];
+		val_fade = (*in_fade)[i];
+
+		out[i] = (val_in0 * (1-val_fade)) + (val_in1 * val_fade);
 	}
 
 	return 0;

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.4 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.5 2004/04/13 10:30:49 misha Exp $ */
 
 #include "config.h"
 
@@ -85,9 +85,6 @@ void thALSAAudio::SetFormat (thSynth *argsynth)
 	ofmt.period = period;
 	ofmt.channels = chans;
 
-//	memcpy(&ifmt, afmt, sizeof(thAudioFmt));
-//	memcpy(&ofmt, afmt, sizeof(thAudioFmt)); /* XXX */
-
 	snd_pcm_hw_params_alloca(&hw_params);
 	snd_pcm_hw_params_any(play_handle, hw_params);
 	snd_pcm_hw_params_set_access(play_handle, hw_params,
@@ -100,13 +97,14 @@ void thALSAAudio::SetFormat (thSynth *argsynth)
 
 
    /* where the buffer is actually set */
-//   snd_pcm_hw_params_set_periods(play_handle, hw_params, ifmt.channels, 0);
    snd_pcm_hw_params_set_periods(play_handle, hw_params, chans, 0);
    snd_pcm_hw_params_set_period_size(play_handle, hw_params,
 									 TH_BUFFER_PERIOD, 0);
    
 //	snd_pcm_hw_params_set_buffer_time(play_handle, hw_params, 1000, 0);
+
    snd_pcm_hw_params(play_handle, hw_params);
+
    snd_pcm_sw_params_alloca(&sw_params);
    snd_pcm_sw_params_current(play_handle, sw_params);
    snd_pcm_sw_params_set_avail_min(play_handle, sw_params, period);

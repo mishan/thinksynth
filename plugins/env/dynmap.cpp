@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.10 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: dynmap.cpp,v 1.1 2004/04/13 10:30:49 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,17 +9,17 @@
 enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
 int args[OUT_ARG + 1];
 
-char		*desc = "Maps a stream to a new value range";
+char		*desc = "Maps a stream to a new value range (dynamic)";
 thPluginState	mystate = thPassive;
 
 void module_cleanup (struct module *mod)
 {
-	printf("Map plugin unloading\n");
+	printf("Dynamic Map plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Map plugin loaded\n");
+	printf("Dynamic Map plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -52,13 +52,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_min = mod->GetArg(node, args[IN_OUTMIN]);
 	out_max = mod->GetArg(node, args[IN_OUTMAX]);
 
-	val_arg = (*in_arg)[i];
-	val_imin = (*in_min)[i];
-	val_imax = (*in_max)[i];
-	val_omin = (*out_min)[i];
-	val_omax = (*out_max)[i];
-
 	for(i = 0; i < windowlen; i++) {
+		val_arg = (*in_arg)[i];
+		val_imin = (*in_min)[i];
+		val_imax = (*in_max)[i];
+		val_omin = (*out_min)[i];
+		val_omax = (*out_max)[i];
 
 		percent = (val_arg-val_imin)/(val_imax-val_imin);
 		out[i] = (percent*(val_omax-val_omin))+val_omin;

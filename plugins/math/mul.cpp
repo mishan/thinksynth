@@ -1,4 +1,4 @@
-/* $Id: mul.cpp,v 1.10 2004/04/09 06:33:49 ink Exp $ */
+/* $Id: mul.cpp,v 1.11 2004/04/13 10:30:49 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +44,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
+	for(i = 0; i < windowlen; i++) {
 		out[i] = (*in_0)[i]*(*in_1)[i];
 	}
 

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.29 2004/04/09 09:01:36 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.30 2004/04/13 10:30:49 misha Exp $ */
 
 #include "config.h"
 
@@ -66,7 +66,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 			{
 				/* make the slider sensitive since there is an amp arg */
 				dspAmp.set_sensitive(true);
-				dspAmp.set_value((double)amp->argValues[0]);
+				dspAmp.set_value((double)(*amp)[0]);
 			}
 		}
 
@@ -75,7 +75,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 		if (amp)
 		{
-			row[patchViewCols.amp] = amp->argValues[0];
+			row[patchViewCols.amp] = (*amp)[0];
 		}
 		else
 		{

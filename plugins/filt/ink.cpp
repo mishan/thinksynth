@@ -1,4 +1,4 @@
-/* $Id: ink.cpp,v 1.11 2004/04/09 06:48:30 ink Exp $ */
+/* $Id: ink.cpp,v 1.12 2004/04/13 10:30:49 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -50,6 +50,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	thArg *inout_last;
 	unsigned int i;
 	float in, last, diff, accel;
+	float val_arg, val_cutoff, val_res;
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out_accel = mod->GetArg(node, args[OUT_AOUT]);
@@ -65,9 +66,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_arg = mod->GetArg(node, args[IN_ARG]);
 	in_cutoff = mod->GetArg(node, args[IN_CUTOFF]);
 	in_res = mod->GetArg(node, args[IN_RES]);
-
+	
 	for(i = 0; i < windowlen; i++) {
-		in = (*in_arg)[i];
+		val_arg = (*in_arg)[i];
+		val_cutoff = (*in_cutoff)[i];
+		val_res = (*in_res)[i];
+
+		in = val_arg;
 		diff = in - last;
 		//printf("diff: %f \tperc: %f \tlast: %f \t%f\n\nres: %f \tcut: %f\n\n", diff, diff/TH_RANGE, last, accel, (*in_res)[i], (*in_cutoff)[i]);
 		if(fabs(diff) > TH_RANGE) { /* damn unstable filters */
@@ -75,8 +80,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		}
 		diff *= 1-SQR((diff/(TH_RANGE+1))); /* My special blend of herbs and 
 											   spices */
-		accel += diff*SQR((*in_cutoff)[i]);
-		accel *= (*in_res)[i];
+		accel += diff*SQR(val_cutoff);
+		accel *= val_res;
 		
 		if(abs((int)accel) > TH_RANGE) { /* more instability protection */
 			accel = 0;
