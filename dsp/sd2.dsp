@@ -1,3 +1,4 @@
+# $Id: sd2.dsp,v 1.2 2004/02/09 10:50:28 misha Exp $
 name "test";
 
 node ionode {

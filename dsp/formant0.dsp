@@ -1,7 +1,7 @@
-name "test";
-
+# $Id: formant0.dsp,v 1.5 2004/02/09 10:50:28 misha Exp $
 # Written by Leif Ames <ink@bespin.org>  5/21/2003
 # FM passed through 3 band-pass filters
+name "test";
 
 node ionode {
 	out0 = mixer->out;

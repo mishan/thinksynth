@@ -1,3 +1,4 @@
+# $Id: sd0.dsp,v 1.8 2004/02/09 10:50:28 misha Exp $
 # Snare Drum 0
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

@@ -1,4 +1,4 @@
-# $Id: piano0.dsp,v 1.9 2004/02/08 12:42:44 ink Exp $
+# $Id: piano0.dsp,v 1.10 2004/02/09 10:50:28 misha Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
@@ -25,7 +25,7 @@ node ionode {
 	a = 20;
 	d = 6000;
 	s = 0.5;	# 1 = full, 0 = off
-	f = 400000;
+	f = 250000;
 	r = 15000;
 };
 

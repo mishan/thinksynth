@@ -1,3 +1,4 @@
+# $Id: fmtst.dsp,v 1.11 2004/02/09 10:50:28 misha Exp $
 name "test";
 
 node ionode {
