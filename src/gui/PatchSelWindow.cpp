@@ -107,8 +107,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchView.append_column("Filename", patchViewCols.dspName);
 	patchView.append_column("Amplitude", patchViewCols.amp);
 
-	signal_realize().connect(sigc::mem_fun(*this, &PatchSelWindow::onRealize));
-
 	dspAmp.signal_value_changed().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
 
@@ -525,7 +523,7 @@ void PatchSelWindow::populate (void)
 	}
 }
 
-void PatchSelWindow::onRealize(void)
+void PatchSelWindow::on_realize(void)
 {
 	gthPrefs *prefs = gthPrefs::instance();
 	

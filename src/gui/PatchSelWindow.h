@@ -52,7 +52,9 @@ protected:
 	void patchSelected (GdkEventButton *);
 	void fileEntryActivate (void);
 	void onPatchesChanged (void);
-	void onRealize (void);
+	
+	/* Overloaded GTK-- sighandler */
+	virtual void on_realize (void);
 
 	Gtk::VBox vbox;
 	Gtk::Table controlTable;

@@ -117,4 +117,4 @@ private:
 	thArg *selectedArg_;
 };
 
-#endif /* ABOUT_BOX_H */
+#endif /* MIDI_MAP_H */
