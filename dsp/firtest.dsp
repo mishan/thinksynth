@@ -10,8 +10,9 @@ node ionode {
 
 	percent = 1;
 	ilen = 64;
-	cutoff = 0.6;
-	pw = 0.5;
+	cutoff = 0.7;
+	firmix = 0.2;
+	pw = 0.1;
 };
 
 node freq misc::midi2freq {
@@ -37,6 +38,7 @@ node osc osc::simple {
 node fir delay::fir {
 	in = osc->out;
 	impulse = firenv->out;
+	mix = ionode->firmix;
 };
 
 io ionode;

@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.6 2003/05/25 07:05:40 ink Exp $ */
+/* $Id: fir.cpp,v 1.7 2003/05/25 17:31:25 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -41,15 +41,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
 	float *buffer, *bufpos;
-	thArgValue *in_arg, *in_impulse;
+	thArgValue *in_arg, *in_impulse, *in_mix;
 	thArgValue *out_arg;
 	thArgValue *inout_buffer, *inout_bufpos;
 	unsigned int i;
 	int j, index;
-	float impulse;
+	float impulse, mix;
 
 	in_arg = (thArgValue *)mod->GetArg(node, "in");
 	in_impulse = (thArgValue *)mod->GetArg(node, "impulse");
+	in_mix = (thArgValue *)mod->GetArg(node, "mix");
 
 	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
 	inout_bufpos = (thArgValue *)mod->GetArg(node, "bufpos");
@@ -76,6 +77,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			if(impulse) {
 				out[i] += impulse * buffer[index];
 			}
+		}
+		mix = (*in_mix)[i];
+		if(mix) {
+			buffer[(int)*bufpos] = (buffer[(int)*bufpos] * (1-mix)) + (out[i] * mix); // recursion!
 		}
 		(*bufpos)++;
 	}
