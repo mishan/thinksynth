@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.33 2004/05/26 11:16:27 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.34 2004/06/30 03:47:45 misha Exp $ */
 
 #include "config.h"
 
@@ -14,9 +14,9 @@
 
 #include "PatchSelWindow.h"
 
-#include "thfPrefs.h"
+#include "gthPrefs.h"
 
-extern thfPrefs *prefs;
+extern gthPrefs *prefs;
 
 #define DSP_PATH PREFIX "/share/thinksynth/"
 

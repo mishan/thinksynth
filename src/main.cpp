@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.186 2004/05/26 06:24:09 misha Exp $ */
+/* $id: main.cpp,v 1.186 2004/05/26 06:24:09 misha Exp $ */
 
 #include "config.h"
 
@@ -16,19 +16,19 @@
 
 #include "think.h"
 
-#include "thfAudio.h"
-#include "thfALSAAudio.h"
-#include "thfALSAMidi.h"
-#include "thfJackAudio.h"
+#include "gthAudio.h"
+#include "gthALSAAudio.h"
+#include "gthALSAMidi.h"
+#include "gthJackAudio.h"
 
 #include "ui.h"
 #include "signal.h"
 
-#include "thfPrefs.h"
+#include "gthPrefs.h"
 
 /* XXX: globals */
 thSynth *Synth = NULL;
-thfPrefs *prefs = NULL;
+gthPrefs *prefs = NULL;
 
 static Glib::Thread *ui = NULL;
 static Glib::Dispatcher *process = NULL;
@@ -77,7 +77,7 @@ void process_synth (void)
 //	mainMutex->unlock();
 }
 
-void audio_readywrite (thfAudio *audio, thSynth *synth)
+void audio_readywrite (gthAudio *audio, thSynth *synth)
 {
 	int l = synth->GetWindowLen();
 	float *synthbuffer = synth->GetOutput();
@@ -93,7 +93,7 @@ void audio_readywrite (thfAudio *audio, thSynth *synth)
 
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
-	thfJackAudio *jack = (thfJackAudio *)arg;
+	gthJackAudio *jack = (gthJackAudio *)arg;
 	int l = Synth->GetWindowLen();
 	int chans = Synth->GetChans();
 
@@ -190,8 +190,8 @@ int main (int argc, char *argv[])
 	string outputfname;
 	string driver = "jack";
 	int havearg = -1;
-	thfALSAMidi *midi = NULL;
-	thfAudio *aout = NULL;
+	gthALSAMidi *midi = NULL;
+	gthAudio *aout = NULL;
 	int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
 
 	/* seed the random number generator */
@@ -255,7 +255,7 @@ int main (int argc, char *argv[])
 
 	/* XXX: create global Synth object */
 	Synth = new thSynth(plugin_path, windowlen, samples);
-	prefs = new thfPrefs(Synth);
+	prefs = new gthPrefs(Synth);
 
 	/* Glib/Gtk signal/thread handling init */
 	Glib::thread_init();
@@ -282,7 +282,7 @@ int main (int argc, char *argv[])
 	   integer internally based on format data */
 	try
 	{
-		midi = new thfALSAMidi("thinksynth");
+		midi = new gthALSAMidi("thinksynth");
 
 		midi->signal_midi_event().connect(
 			SigC::bind<thSynth *>(SigC::slot(&processmidi), Synth));
@@ -292,19 +292,19 @@ int main (int argc, char *argv[])
 		if (driver == "alsa")
 		{ 
 			if (outputfname.length() > 0)
-				aout = new thfALSAAudio(Synth, outputfname.c_str());
+				aout = new gthALSAAudio(Synth, outputfname.c_str());
 			else
-				aout = new thfALSAAudio(Synth);
+				aout = new gthALSAAudio(Synth);
 
 			/* connect our audio out event handler and bind a synth to this
 			   instance */
-			((thfALSAAudio *)aout)->signal_ready_write().connect(
-				SigC::bind<thfAudio *,thSynth *>(SigC::slot(&audio_readywrite),
+			((gthALSAAudio *)aout)->signal_ready_write().connect(
+				SigC::bind<gthAudio *,thSynth *>(SigC::slot(&audio_readywrite),
 												 aout, Synth)); 
 		}
  		else if (driver == "jack")
 		{
-			aout = new thfJackAudio(Synth, playback_callback);
+			aout = new gthJackAudio(Synth, playback_callback);
 		}
 		else
 		{

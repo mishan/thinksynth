@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.10 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.11 2004/06/30 03:47:45 misha Exp $ */
 
 #include "config.h"
 
@@ -11,12 +11,12 @@
 
 #include "think.h"
 
-#include "thfAudio.h"
-#include "thfJackAudio.h"
+#include "gthAudio.h"
+#include "gthJackAudio.h"
 
 void jack_shutdown (void *arg)
 {
-//	thfJackAudio *jout = (thfJackAudio *)arg;
+//	gthJackAudio *jout = (gthJackAudio *)arg;
 
 	debug("shutting down");
 
@@ -24,7 +24,7 @@ void jack_shutdown (void *arg)
 	kill (0, SIGTERM);
 }
 
-thfJackAudio::thfJackAudio (thSynth *argsynth)
+gthJackAudio::gthJackAudio (thSynth *argsynth)
 	throw (thIOException)
 {
 	synth = argsynth;
@@ -59,7 +59,7 @@ thfJackAudio::thfJackAudio (thSynth *argsynth)
 	jack_on_shutdown (jack_handle, jack_shutdown, this);
 }
 
-thfJackAudio::thfJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
+gthJackAudio::gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 															   void *))
 	throw (thIOException)
 {
@@ -99,34 +99,34 @@ thfJackAudio::thfJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t,
 	jack_activate(jack_handle);
 }
 
-thfJackAudio::~thfJackAudio (void)
+gthJackAudio::~gthJackAudio (void)
 {
 }
 
-int thfJackAudio::Write (float *buf, int len)
-{
-	return 0;
-}
-
-int thfJackAudio::Read (void *buf, int len)
+int gthJackAudio::Write (float *buf, int len)
 {
 	return 0;
 }
 
-void thfJackAudio::SetFormat (thSynth *argsynth)
+int gthJackAudio::Read (void *buf, int len)
+{
+	return 0;
+}
+
+void gthJackAudio::SetFormat (thSynth *argsynth)
 {
 }
 
-void thfJackAudio::SetFormat (const thfAudioFmt *afmt)
+void gthJackAudio::SetFormat (const gthAudioFmt *afmt)
 {
 }
 
-bool thfJackAudio::ProcessEvents (void)
+bool gthJackAudio::ProcessEvents (void)
 {
 	return false;
 }
 
-void *thfJackAudio::GetOutBuf (int argchan, jack_nframes_t nframes)
+void *gthJackAudio::GetOutBuf (int argchan, jack_nframes_t nframes)
 {
 	if ((argchan < 0) || (argchan >= chans))
 		return NULL;

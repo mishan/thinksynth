@@ -1,9 +1,9 @@
-/* $Id: gthAudio.h,v 1.1 2004/05/11 19:51:38 misha Exp $ */
+/* $Id: gthAudio.h,v 1.2 2004/06/30 03:47:45 misha Exp $ */
 
-#ifndef THF_AUDIO_H
-#define THF_AUDIO_H 1
+#ifndef GTH_AUDIO_H
+#define GTH_AUDIO_H 1
 
-struct thfAudioFmt {
+struct gthAudioFmt {
 	short format;
 	short channels;
 	short bits;
@@ -13,21 +13,21 @@ struct thfAudioFmt {
 	int period;
 };
 
-class thfAudio
+class gthAudio
 {
 public:
-	inline virtual ~thfAudio () {
+	inline virtual ~gthAudio () {
 	}
 
 	virtual int Read(void *, int len) = 0;
 	virtual int Write(float *, int len) = 0;
 
-	virtual const thfAudioFmt *GetFormat(void) = 0;
+	virtual const gthAudioFmt *GetFormat(void) = 0;
 
-	virtual void SetFormat (const thfAudioFmt *fmt) = 0;
+	virtual void SetFormat (const gthAudioFmt *fmt) = 0;
 
 	virtual bool ProcessEvents (void) = 0;
 private:
 };
 
-#endif /* THF_AUDIO_H */
+#endif /* GTH_AUDIO_H */

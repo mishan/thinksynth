@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.41 2004/06/30 03:33:42 joshk Exp $
+# $Id: Makefile.in,v 1.42 2004/06/30 03:47:45 misha Exp $
 
 BINARY = thinksynth
 
@@ -17,9 +17,9 @@ INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
 # objects not compiled anymore:
 # thOSSAudio.o thWav.o
 
-MAINOBJS = main.o ui.o $(WIDGETOBJS) thfALSAAudio.o thfALSAMidi.o thfJackAudio.o thfPrefs.o
-MONOMAINOBJS = monotest.o thALSAAudio.o thWav.o
-WIDGETOBJS = MainSynthWindow.o PatchSelWindow.o Keyboard.o KeyboardWindow.o
+MAINOBJS = main.o ui.o $(WIDGETOBJS) gthALSAAudio.o gthALSAMidi.o gthJackAudio.o gthPrefs.o
+MONOMAINOBJS = monotest.o thALSAAudio.o
+WIDGETOBJS = gui/MainSynthWindow.o gui/PatchSelWindow.o gui/Keyboard.o gui/KeyboardWindow.o
 
 thinksynth: ../libthink/libthink.so.3 $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS)

@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.1 2004/05/11 19:46:11 misha Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.2 2004/06/30 03:47:45 misha Exp $ */
 
 #include "config.h"
 
@@ -11,10 +11,10 @@
 
 #include "think.h"
 
-#include "thfAudio.h"
-#include "thfALSAAudio.h"
+#include "gthAudio.h"
+#include "gthALSAAudio.h"
 
-thfALSAAudio::thfALSAAudio (thSynth *argsynth)
+gthALSAAudio::gthALSAAudio (thSynth *argsynth)
 	throw (thIOException)
 {
 	synth = argsynth;
@@ -22,7 +22,7 @@ thfALSAAudio::thfALSAAudio (thSynth *argsynth)
 	if (snd_pcm_open (&play_handle, ALSA_DEFAULT_DEVICE,
 					  SND_PCM_STREAM_PLAYBACK, 0) < 0)
 	{
-		fprintf(stderr, "thfALSAAudio::thfALSAAudio: %s\n", strerror(errno));
+		fprintf(stderr, "gthALSAAudio::gthALSAAudio: %s\n", strerror(errno));
 		throw errno;
 	}
 
@@ -34,16 +34,16 @@ thfALSAAudio::thfALSAAudio (thSynth *argsynth)
 
 	outbuf = NULL;
 
-	thread = Glib::Thread::create(SigC::slot(*this, &thfALSAAudio::main), false);
+	thread = Glib::Thread::create(SigC::slot(*this, &gthALSAAudio::main), false);
 //	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
-thfALSAAudio::thfALSAAudio (thSynth *argsynth, const char *device)
+gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 	throw (thIOException)
 {
 	if (snd_pcm_open (&play_handle, device, SND_PCM_STREAM_PLAYBACK, 0) < 0)
 	{
-		fprintf(stderr, "thfALSAAudio::thfALSAAudio: %s\n", strerror(errno));
+		fprintf(stderr, "gthALSAAudio::gthALSAAudio: %s\n", strerror(errno));
 		throw errno;
 	}
 
@@ -55,11 +55,11 @@ thfALSAAudio::thfALSAAudio (thSynth *argsynth, const char *device)
 
 	outbuf = NULL;
 
-	thread = Glib::Thread::create(SigC::slot(*this, &thfALSAAudio::main), false);
+	thread = Glib::Thread::create(SigC::slot(*this, &gthALSAAudio::main), false);
 //	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
-thfALSAAudio::~thfALSAAudio ()
+gthALSAAudio::~gthALSAAudio ()
 {
 	snd_pcm_close(play_handle);
 
@@ -71,7 +71,7 @@ thfALSAAudio::~thfALSAAudio ()
 	free (pfds);
 }
 
-void thfALSAAudio::SetFormat (thSynth *argsynth)
+void gthALSAAudio::SetFormat (thSynth *argsynth)
 {
 	snd_pcm_hw_params_t *hw_params;
 	snd_pcm_sw_params_t *sw_params;
@@ -110,13 +110,13 @@ void thfALSAAudio::SetFormat (thSynth *argsynth)
 	snd_pcm_sw_params(play_handle, sw_params);
 }
 
-void thfALSAAudio::SetFormat (const thfAudioFmt *afmt)
+void gthALSAAudio::SetFormat (const gthAudioFmt *afmt)
 {
 	snd_pcm_hw_params_t *hw_params;
 	snd_pcm_sw_params_t *sw_params;
 
-	memcpy(&ifmt, afmt, sizeof(thfAudioFmt));
-	memcpy(&ofmt, afmt, sizeof(thfAudioFmt)); /* XXX */
+	memcpy(&ifmt, afmt, sizeof(gthAudioFmt));
+	memcpy(&ofmt, afmt, sizeof(gthAudioFmt)); /* XXX */
 
 	snd_pcm_hw_params_alloca(&hw_params);
 	snd_pcm_hw_params_any(play_handle, hw_params);
@@ -158,12 +158,12 @@ void thfALSAAudio::SetFormat (const thfAudioFmt *afmt)
 }
 
 
-int thfALSAAudio::Read (void *outbuf, int len)
+int gthALSAAudio::Read (void *outbuf, int len)
 {
 	return -1;
 }
 
-int thfALSAAudio::Write (float *inbuf, int len)
+int gthALSAAudio::Write (float *inbuf, int len)
 {
 	int w = 0;
 	int chans = ofmt.channels;
@@ -176,7 +176,7 @@ int thfALSAAudio::Write (float *inbuf, int len)
 		outbuf = malloc(len*(ofmt.bits/8)*chans);
 		if (!outbuf)
 		{
-			fprintf(stderr,"thfALSAAudio::Write: could not allocate buffer\n");
+			fprintf(stderr,"gthALSAAudio::Write: could not allocate buffer\n");
 			exit(1);
 		}
 	}
@@ -201,7 +201,7 @@ int thfALSAAudio::Write (float *inbuf, int len)
 		}
 		default:
 		{
-			fprintf(stderr, "thfALSAAudio::Write(): %d-bit audio unsupported!\n",
+			fprintf(stderr, "gthALSAAudio::Write(): %d-bit audio unsupported!\n",
 					ofmt.bits);
 			exit(1);
 
@@ -247,12 +247,12 @@ int thfALSAAudio::Write (float *inbuf, int len)
 	return w;
 }
 
-sigReadyWrite_t thfALSAAudio::signal_ready_write (void)
+sigReadyWrite_t gthALSAAudio::signal_ready_write (void)
 {
 	return m_sigReadyWrite;
 }
 
-bool thfALSAAudio::ProcessEvents (void)
+bool gthALSAAudio::ProcessEvents (void)
 {
 	bool r = false;
 
@@ -277,19 +277,19 @@ bool thfALSAAudio::ProcessEvents (void)
 	return r;
 }
 
-bool thfALSAAudio::pollAudioEvent (Glib::IOCondition)
+bool gthALSAAudio::pollAudioEvent (Glib::IOCondition)
 {
 	m_sigReadyWrite();
 
 	return true;
 }
 
-void thfALSAAudio::main (void)
+void gthALSAAudio::main (void)
 {
 	Glib::RefPtr<Glib::MainContext> loMain = Glib::MainContext::create();
 	
 	loMain->signal_io().connect(SigC::slot(*this,
-										   &thfALSAAudio::pollAudioEvent),
+										   &gthALSAAudio::pollAudioEvent),
 									   pfds[0].fd, Glib::IO_OUT,
 								Glib::PRIORITY_HIGH);
 

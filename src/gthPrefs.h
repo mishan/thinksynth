@@ -1,14 +1,14 @@
-#ifndef THF_PREFS_H
-#define THF_PREFS_H
+#ifndef GTH_PREFS_H
+#define GTH_PREFS_H
 
 #define PREFS_FILE ".thinkrc"
 
-class thfPrefs
+class gthPrefs
 {
 public:
-	thfPrefs (thSynth *argsynth);
-	thfPrefs (thSynth *argsynth, const string &path);
-	~thfPrefs (void);
+	gthPrefs (thSynth *argsynth);
+	gthPrefs (thSynth *argsynth, const string &path);
+	~gthPrefs (void);
 
 	void Set (const string &key, string **vals);
 	string **Get (const string &key);
@@ -21,4 +21,4 @@ private:
 	string prefsPath;
 };
 
-#endif /* THF_PREFS_H */
+#endif /* GTH_PREFS_H */

@@ -1,26 +1,26 @@
-/* $Id: gthJackAudio.h,v 1.5 2004/05/11 19:46:11 misha Exp $ */
+/* $Id: gthJackAudio.h,v 1.6 2004/06/30 03:47:45 misha Exp $ */
 
-#ifndef THF_JACKAUDIO_H
-#define THF_JACKAUDIO_H
+#ifndef GTH_JACKAUDIO_H
+#define GTH_JACKAUDIO_H
 
-class thfJackAudio : public thfAudio
+class gthJackAudio : public gthAudio
 {
 public:
-	thfJackAudio (thSynth *argsynth)
+	gthJackAudio (thSynth *argsynth)
 		throw (thIOException);
 
-	thfJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t, void *))
+	gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t, void *))
 		throw (thIOException);
 
-	virtual ~thfJackAudio (void);
+	virtual ~gthJackAudio (void);
 
 	void *GetOutBuf (int chan, jack_nframes_t nframes);
 
 	int Write (float *, int len);
 	int Read (void *, int len);
-	const thfAudioFmt *GetFormat (void) { return &ofmt; };
+	const gthAudioFmt *GetFormat (void) { return &ofmt; };
 	void SetFormat (thSynth *argsynth);
-	void SetFormat (const thfAudioFmt *afmt);
+	void SetFormat (const gthAudioFmt *afmt);
 
 	bool ProcessEvents (void);
 
@@ -30,7 +30,7 @@ protected:
 	jack_port_t **out_ports;
 	thSynth *synth;
 private:
-	thfAudioFmt ofmt, ifmt;
+	gthAudioFmt ofmt, ifmt;
 };
 
-#endif /* THF_JACKAUDIO_H */
+#endif /* GTH_JACKAUDIO_H */

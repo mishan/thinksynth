@@ -6,7 +6,7 @@
 
 #include "think.h"
 
-#include "thfPrefs.h"
+#include "gthPrefs.h"
 
 #if 0
 static void remove_string(char *line, int index, int numchars)
@@ -38,23 +38,23 @@ static void trim_leadspc (char *line)
     *ptr1 = '\0';
 }
 
-thfPrefs::thfPrefs (thSynth *argsynth)
+gthPrefs::gthPrefs (thSynth *argsynth)
 {
 	prefsPath = string(getenv("HOME")) + string("/") + PREFS_FILE;
 	synth = argsynth;
 }
 
-thfPrefs::thfPrefs (thSynth *argsynth, const string &path)
+gthPrefs::gthPrefs (thSynth *argsynth, const string &path)
 {
 	prefsPath = path;
 	synth = argsynth;
 }
 
-thfPrefs::~thfPrefs (void)
+gthPrefs::~gthPrefs (void)
 {
 }
 
-void thfPrefs::Load (void)
+void gthPrefs::Load (void)
 {
 	FILE *prefsFile;
 	char buffer[256];
@@ -124,7 +124,7 @@ void thfPrefs::Load (void)
 	}
 }
 
-void thfPrefs::Save (void)
+void gthPrefs::Save (void)
 {
 	FILE *prefsFile;
 
@@ -182,12 +182,12 @@ void thfPrefs::Save (void)
 	fclose(prefsFile);
 }
 
-string **thfPrefs::Get (const string &key)
+string **gthPrefs::Get (const string &key)
 {
 	return prefs[key];
 }
 
-void thfPrefs::Set (const string &key, string **vals)
+void gthPrefs::Set (const string &key, string **vals)
 {
 	prefs[key] = vals;
 }

@@ -1,18 +1,18 @@
-/* $Id: gthALSAMidi.h,v 1.2 2004/04/17 23:01:34 misha Exp $ */
+/* $Id: gthALSAMidi.h,v 1.3 2004/06/30 03:47:45 misha Exp $ */
 
-#ifndef THF_ALSAMIDI_H
-#define THF_ALSAMIDI_H
+#ifndef GTH_ALSAMIDI_H
+#define GTH_ALSAMIDI_H
 
 #define ALSA_DEFAULT_DEVICE "hw:0"
 
 typedef SigC::Signal1<int, snd_seq_t *> sigMidiEvent_t;
 
-class thfALSAMidi : public SigC::Object
+class gthALSAMidi : public SigC::Object
 {
 public:
-	thfALSAMidi (const char *argname)
+	gthALSAMidi (const char *argname)
 		throw(thIOException);
-	~thfALSAMidi (void);
+	~gthALSAMidi (void);
 
 	sigMidiEvent_t signal_midi_event (void);
 
@@ -30,4 +30,4 @@ protected:
 	sigMidiEvent_t m_sigMidiEvent;
 };
 
-#endif /* THF_ALSAMIDI_H */
+#endif /* GTH_ALSAMIDI_H */

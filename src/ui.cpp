@@ -1,4 +1,4 @@
-/* $Id: ui.cpp,v 1.12 2004/05/25 03:54:04 misha Exp $ */
+/* $Id: ui.cpp,v 1.13 2004/06/30 03:47:45 misha Exp $ */
 
 #include "config.h"
 
@@ -12,10 +12,10 @@
 
 #include "think.h"
 
-#include "Keyboard.h"
-#include "KeyboardWindow.h"
-#include "PatchSelWindow.h"
-#include "MainSynthWindow.h"
+#include "gui/Keyboard.h"
+#include "gui/KeyboardWindow.h"
+#include "gui/PatchSelWindow.h"
+#include "gui/MainSynthWindow.h"
 
 extern thSynth *Synth;
 extern Gtk::Main *gtkMain;

@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.7 2004/05/21 06:43:47 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.8 2004/06/30 03:47:45 misha Exp $ */
 
 #include "config.h"
 
@@ -11,11 +11,11 @@
 
 #include "think.h"
 
-#include "thfALSAMidi.h"
+#include "gthALSAMidi.h"
 
 extern Glib::RefPtr<Glib::MainContext> mainContext;
 
-thfALSAMidi::thfALSAMidi (const char *argname)
+gthALSAMidi::gthALSAMidi (const char *argname)
 	throw (thIOException)
 {
 	name = argname;
@@ -26,12 +26,12 @@ thfALSAMidi::thfALSAMidi (const char *argname)
 
 }
 
-thfALSAMidi::~thfALSAMidi (void)
+gthALSAMidi::~gthALSAMidi (void)
 {
 	snd_seq_close(seq_handle);
 }
 
-bool thfALSAMidi::ProcessEvents (void)
+bool gthALSAMidi::ProcessEvents (void)
 {
 	bool r = false;
 
@@ -56,12 +56,12 @@ bool thfALSAMidi::ProcessEvents (void)
 	return r;
 }
 
-sigMidiEvent_t thfALSAMidi::signal_midi_event (void)
+sigMidiEvent_t gthALSAMidi::signal_midi_event (void)
 {
 	return m_sigMidiEvent;
 }
 
-bool thfALSAMidi::open_seq (void)
+bool gthALSAMidi::open_seq (void)
 {
 	int client_id, port_id;
 
@@ -87,7 +87,7 @@ bool thfALSAMidi::open_seq (void)
 
 	/* XXX: is this portable??? */
 	mainContext->signal_io().connect(SigC::slot(*this,
-												&thfALSAMidi::pollMidiEvent),
+												&gthALSAMidi::pollMidiEvent),
 									 pfds[0].fd, Glib::IO_IN|Glib::IO_PRI,
 									 Glib::PRIORITY_HIGH);
 
@@ -104,7 +104,7 @@ bool thfALSAMidi::open_seq (void)
 	return true;
 }
 
-bool thfALSAMidi::pollMidiEvent (Glib::IOCondition cond)
+bool gthALSAMidi::pollMidiEvent (Glib::IOCondition cond)
 {
 	m_sigMidiEvent(seq_handle);
 
