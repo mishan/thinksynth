@@ -1,5 +1,5 @@
-#ifndef HAVE_AUDIO_H
-#define HAVE_AUDIO_H
+#ifndef HAVE_OSSAUDIO_H
+#define HAVE_OSSAUDIO_H
 
 #include <sys/soundcard.h>
 
@@ -48,4 +48,4 @@ inline OSSAudio *new_OSSAudio(char *null, AudioFormat *afmt)
 	return NULL;
 }
 
-#endif /* HAVE_AUDIO_H */
+#endif /* HAVE_OSSAUDIO_H */

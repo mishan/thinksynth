@@ -12,6 +12,9 @@
 
 #include "endian.h"
 #include "Exception.h"
+#include "Audio.h"
+#include "AudioBuffer.h"
+#include "OSSAudio.h"
 #include "Wav.h"
 
 Wav::Wav(char *name)
@@ -156,6 +159,11 @@ int Wav::read_wav(void *data, int len)
 	}
 
 	return r;
+}
+
+int Wav::Read(void *data, int len)
+{
+	return read_wav(data, len);
 }
 
 void Wav::read_header(void)

@@ -10,6 +10,7 @@
 #include <errno.h>
 
 #include "Exception.h"
+#include "Audio.h"
 #include "AudioBuffer.h"
 #include "OSSAudio.h"
 
@@ -88,4 +89,13 @@ void OSSAudio::write_audio (void *buf, int len)
 	ioctl(fd, SNDCTL_DSP_SYNC, 0);
 	write(fd, buf, len);
 	ioctl(fd, SNDCTL_DSP_SYNC, 1);
+}
+
+void OSSAudio::play(AudioBuffer *buffer)
+{
+	int buf[BUF_SIZE];
+
+	while(buffer->buf_read((int *)buf, BUF_SIZE)) {
+		write_audio(buf, BUF_SIZE);
+	}
 }

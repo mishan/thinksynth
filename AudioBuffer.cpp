@@ -1,16 +1,18 @@
 #include <stdlib.h>
 #include <stdio.h>
 
+#include "Audio.h"
 #include "AudioBuffer.h"
 
 #define NEED_MORE_BUFFER 4096
 
-AudioBuffer::AudioBuffer(int len)
+AudioBuffer::AudioBuffer(int len, Audio *audio)
 {
+	size = len;
 	data = new int[size];
 	read = 0;
 	woffset = 0;     /* how far the writing is ahead of the reading */
-	size = len;
+	audioPtr = audio;
 }
 
 AudioBuffer::~AudioBuffer(void)
@@ -31,9 +33,7 @@ void AudioBuffer::buf_write(int *udata, int len)
 {
 	int i;
 
-	if(buff->woffset < NEED_MORE_BUFFER) {
-//		buf_write(u
-	}
+
 
 	for(i = 0; i < len; i++) {
 		data[(read + woffset + i)%size] = udata[i];
@@ -42,7 +42,7 @@ void AudioBuffer::buf_write(int *udata, int len)
 	woffset += len;
 }
 
-void AudioBuffer::buf_read(int *udata, int len)
+int AudioBuffer::buf_read(int *udata, int len)
 {
 	int i;
 
@@ -53,6 +53,14 @@ void AudioBuffer::buf_read(int *udata, int len)
 	read += len;
 	woffset -= len;
 	read %= size;
+
+	if(woffset < NEED_MORE_BUFFER) {
+		if((audioPtr->Read(&data[read], NEED_MORE_BUFFER-woffset) < 0) && (read == woffset)) {
+			return -1;
+		}
+	}
+	
+	return 0;
 }
 
 #ifdef TEST

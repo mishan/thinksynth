@@ -3,6 +3,8 @@
 #include <stdlib.h>
 
 #include "Exception.h"
+#include "Audio.h"
+#include "AudioBuffer.h"
 #include "Wav.h"
 #include "OSSAudio.h"
 
@@ -12,6 +14,7 @@ int main (int argc, char *argv[])
 	WavFormat wfmt;
 	OSSAudio *audio;
 	AudioFormat afmt;
+	AudioBuffer *buffer;
 	int len;
 
 	if(argc < 2) {
@@ -32,7 +35,12 @@ int main (int argc, char *argv[])
 	if(!(audio = new_OSSAudio(NULL, &afmt))) {
 		exit(1);
 	}
-		
+	
+	buffer = new AudioBuffer(BUF_SIZE, (Audio *)wav);
+	audio->play(buffer);
+
+	/*
+
 	switch(wfmt.bits) {
 	case 8:
 	{
@@ -52,8 +60,9 @@ int main (int argc, char *argv[])
 	break;
 	default:
 		break;
-	}
+		}*/
 	
 	delete wav;
 	delete audio;
+	delete buffer;
 }

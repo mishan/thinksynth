@@ -52,7 +52,8 @@ inline char *WavError(WavException e)
 	return NULL;
 }
 
-class Wav {
+class Wav: public Audio
+{
 public:
 	/* constructor for reading files */
 	Wav(char *name)
@@ -63,10 +64,11 @@ public:
 		throw(IOException);
 
 	/* our deconstructor, should close fd */
-	~Wav();
+	virtual ~Wav();
 
  	int write_wav(void *data, int len);
 	int read_wav(void *data, int len);
+	int Read(void *data, int len);
 
 	WavFormat get_format (void);
 	WavType get_type (void);
