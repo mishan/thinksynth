@@ -1,4 +1,4 @@
-# $Id: plugin-common.inc.in,v 1.14 2003/04/27 08:52:45 joshk Exp $
+# $Id: plugin-common.inc.in,v 1.15 2003/04/27 19:15:15 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -6,26 +6,32 @@ INCLUDES = -I../../src -I../..
 
 plugin_path=@plugin_path@
 
-PLUGIN_FLAGS=@PLUGIN_FLAGS@
-LDFLAGS = -lm -lc
+PLUGIN_LDFLAGS=@PLUGIN_LDFLAGS@
+USE_SONAME=@USE_SONAME@
+SHARED_SUFFIX=@SHARED_SUFFIX@
 
-all: $(PLUGIN_NAMES)
+all:
+	for i in $(PLUGIN_NAMES); do \
+		make $$i$(SHARED_SUFFIX) || exit 1; \
+	done
 
-%.so: %.cpp
-	$(CXX) $(LDFLAGS) $(CXXFLAGS) $(INCLUDES) $(PLUGIN_FLAGS) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $<
+%$(SHARED_SUFFIX): %.cpp
+ifeq ($(USE_SONAME),"yes")
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -Wl,-soname,$@ -o $@ $< $(PLUGIN_LDFLAGS)
+else
+	$(CXX) $(CXXFLAGS) $(INCLUDES) -DPLUGIN_BUILD -shared -o $@ $< $(PLUGIN_LDFLAGS)
+endif
 
 distclean clean:
-	for i in $(PLUGIN_NAMES); do \
-		if [ -f "$$i" ]; then rm -f $$i; fi\
-	done
+	rm -f *$(SHARED_SUFFIX) *.o
 
 install:
 	mkdir -p $(DESTDIR)$(plugin_path)
 	for i in $(PLUGIN_NAMES); do \
-		cp -f $$i $(DESTDIR)$(plugin_path)
+		cp -f $$i$(SHARED_SUFFIX) $(DESTDIR)$(plugin_path); \
 	done
 
 uninstall:
 	for i in $(PLUGIN_NAMES); do \
-		rm -f $(DESTDIR)$(plugin_path)/$$i; \
+		rm -f $(DESTDIR)$(plugin_path)/$$i$(SHARED_SUFFIX); \
 	done

@@ -1,2 +1,2 @@
-PLUGIN_NAMES=static.so simple.so
+PLUGIN_NAMES=static simple
 include ../plugin-common.inc
