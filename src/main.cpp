@@ -15,7 +15,7 @@ int main (int argc, char *argv[])
 	thWav *wav;
 	thOSSAudio *audio;
 	const thAudioFmt *afmt;
-	thAudioBuffer *buffer;
+//	thAudioBuffer *buffer = new thAudioBuffer;
 
 	if(argc < 2) {
 		fprintf(stderr, "usage: %s [file]\n", argv[0]);
