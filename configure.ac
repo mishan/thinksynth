@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.17 2003/04/25 19:37:06 joshk Exp $
+dnl $Id: configure.ac,v 1.18 2003/04/25 20:05:18 joshk Exp $
 
 AC_INIT
 
@@ -78,6 +78,7 @@ else
 	fi
 	if test "$system" = "FreeBSD"; then
 		AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
+		CXXFLAGS="$CXXFLAGS -Wno-long-long"
 		bsd_system=yes
 	fi
 	if test "$system" = "Darwin"; then
