@@ -8,10 +8,21 @@ node ionode {
 	channels = 2;
 	out0 = mixer->out;
 	out1 = mixer->out;
-	play = 1;
+	play = ionode->trigger;
 
-	fade = 0.4;
-	waveform = 0;
+	vmin = 0.01;
+	vmax = 1;
+
+	fade = vmap->out;
+	waveform = 5;
+};
+
+node vmap env::map {
+	in = ionode->velocity;
+	inmin = 0;
+	inmax = th_max;
+	outmin = ionode->vmin;
+	outmax = ionode->vmax;
 };
 
 node freq misc::midi2freq {

@@ -4,7 +4,7 @@ node ionode {
 	channels = 2;
 	out0 = lfilt->out;
 	out1 = rfilt->out;
-	play = 1;
+	play = ionode->trigger;
 
 	centerdetune = -0.523;
 	ldetune = 0.94;
@@ -18,10 +18,21 @@ node ionode {
 	lwave = 1;
 	rwave = 1;
 
-	cutoff = 0.3;
+	vmin = 0.02;
+	vmax = 0.9;
+
+	cutoff = vmap->out;
 	res = 0.8;
 
 	amp = 0.6;			# Amplitude before filtering
+};
+
+node vmap env::map {
+	in = ionode->velocity;
+	inmin = 0;
+	inmax = th_max;
+	outmin = ionode->vmin;
+	outmax = ionode->vmax;
 };
 
 node freq misc::midi2freq {
@@ -91,13 +102,13 @@ node ramp math::mul {
 	in1 = ionode->amp;
 };
 
-node lfilt filt::ink {
+node lfilt filt::ink2 {
 	in = lamp->out;
 	cutoff = ionode->cutoff;
 	res = ionode->res;
 };
 
-node rfilt filt::ink {
+node rfilt filt::ink2 {
 	in = ramp->out;
 	cutoff = ionode->cutoff;
 	res = ionode->res;

@@ -7,23 +7,32 @@ node ionode {
 	play = amp_env->play;
 
 	wave = 2;
-	pw = 0.1;
+	pw = 0.4;
 
 	cutmin = 0.1;
-	cutmax = 0.6;
-	res = 0.2;
+	cutmax = velcalc->out;
+	res = 0.9;
+
+	velcalcmin = 0;
+	velcalcmax = 0.99;
 
 	amp_a = 10000;
-	amp_d = 100000;
+	amp_d = 10000;
 	amp_s = 130;
 	amp_r = 20000;
 
-	filt_a = 50000;
-	filt_d = 60000;
+	filt_a = 5000;
+	filt_d = 6000;
 	filt_s = 100;
-	filt_r = 20000;
+	filt_r = 1000000;
+};
 
-	trigger = 0;
+node velcalc env::map {
+	in = ionode->velocity;
+	inmin = 0;
+	inmax = th_max;
+	outmin = ionode->velcalcmin;
+	outmax = ionode->velcalcmax;
 };
 
 node freq misc::midi2freq {
@@ -59,7 +68,7 @@ node cutmap env::map {
 	outmax = ionode->cutmax;
 };
 
-node filt filt::ink2 {
+node filt filt::res1pole {
 	in = osc1->out;
 	cutoff = cutmap->out;
 	res = ionode->res;
