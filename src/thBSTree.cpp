@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.28 2003/05/11 05:13:35 misha Exp $ */
+/* $Id: thBSTree.cpp,v 1.29 2003/05/11 05:23:18 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -71,11 +71,6 @@ void thBSTree::Insert(void *id, void *data)
 	if(IsEmpty()) {
 		bsId = id;
 		bsData = data;
-	}
-
-	/* XXX: handle this */
-	if(!(data && bsData)) {
-		return;
 	}
 
 	switch(bsCompare(data, bsData)) {
