@@ -1,11 +1,11 @@
-# $Id: ts1.dsp,v 1.1 2004/11/04 23:31:28 ink Exp $
+# $Id: ts1.dsp,v 1.2 2004/11/11 11:00:48 ink Exp $
 # TS-1
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
 
 name "TS-1";
 author "Leif Ames";
-description "Synth Prototype";
+description "Cool Synth";
 
 
 	@blim = 0.5;
