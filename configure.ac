@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.84 2004/08/17 02:04:32 joshk Exp $
+dnl $Id: configure.ac,v 1.85 2004/08/25 07:21:43 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -65,9 +65,19 @@ CXXFLAGS="-Wall -ffast-math"
 
 AC_CHECK_HEADERS(dlfcn.h)
 
-AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])],[LIBS="$LIBS -liberty"])
+AC_CHECK_HEADER(libgen.h,
+[
+	AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])
+])
 
-AC_CHECK_HEADER([iwlib.h], [AC_DEFINE(HAVE_IWLIB_H, 1, [Define if iwlib.h is present.])], [LIBS="$LIBS -liw"])
+AC_CHECK_LIB(iw, iw_get_stats,
+[
+	AC_CHECK_HEADER([iwlib.h],
+	[
+		AC_DEFINE(HAVE_IWLIB_H, 1, [Define if iwlib.h is present.])
+		LIBS="$LIBS -liw"
+	])
+])
 
 case "$ac_cv_host" in
 	*-freebsd*)
