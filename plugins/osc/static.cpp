@@ -1,3 +1,5 @@
+/* $Id: static.cpp,v 1.7 2003/04/25 07:25:22 joshk Exp $ */
+
 #define USE_PLUGIN
 
 #include <stdio.h>

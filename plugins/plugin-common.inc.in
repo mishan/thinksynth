@@ -1,3 +1,5 @@
+# $Id: plugin-common.inc.in,v 1.9 2003/04/25 07:25:22 joshk Exp $
+
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
 INCLUDES = -I../../src -I../..

@@ -1,3 +1,5 @@
+dnl $Id: configure.ac,v 1.16 2003/04/25 07:25:22 joshk Exp $
+
 AC_INIT
 
 dnl Don't let ancient Autoconfs touch this
