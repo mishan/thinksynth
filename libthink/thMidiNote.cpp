@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.24 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thMidiNote.cpp,v 1.25 2003/05/29 03:11:03 ink Exp $ */
 
 #include "config.h"
 
@@ -20,7 +20,7 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 
 	//	args = new thBSTree(StringCompare);
 
-	modnode = mod->Copy();
+	modnode = new thMod(mod);
 	modnode->BuildSynthTree();
 	ionode = modnode->GetIONode();
 
@@ -36,7 +36,7 @@ thMidiNote::thMidiNote (thMod *mod)
 {
   //	args = new thBSTree(StringCompare);
 
-	modnode = mod->Copy();
+	modnode = new thMod(mod);
 	modnode->BuildSynthTree();
 	ionode = modnode->GetIONode();
 }

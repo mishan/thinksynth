@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.71 2003/05/12 02:19:30 misha Exp $ */
+/* $Id: thMod.cpp,v 1.72 2003/05/29 03:11:03 ink Exp $ */
 
 #include "config.h"
 
@@ -20,10 +20,51 @@ thMod::thMod (const char *name)
 	modnodes = new thBSTree(StringCompare);
 }
 
+thMod::thMod (thMod *oldmod)
+{
+	thNode *oldionode = oldmod->GetIONode();
+	thNode *newnode = new thNode(oldionode->GetName(), oldionode->GetPlugin());
+
+	ionode = NULL;
+	modnodes = new thBSTree(StringCompare);
+	modname = strdup(oldmod->GetName());
+
+	newnode->CopyArgs(oldionode->GetArgTree());
+
+	NewNode(newnode);
+	SetIONode(newnode->GetName());
+
+	CopyHelper(oldionode);
+}
+
 thMod::~thMod ()
 {
 	free(modname);
 	delete modnodes;
+}
+
+void thMod::CopyHelper (thNode *parentnode)
+{
+	thNode *data, *newnode;
+	thListNode *listnode;
+	thBSTree *argtree;
+
+	if(parentnode->GetChildren()) {
+		for(listnode = parentnode->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
+			data = (thNode *)listnode->data;
+			if(!FindNode(data->GetName())) {
+				newnode = new thNode(data->GetName(), data->GetPlugin());
+				NewNode(newnode);
+				CopyHelper(data);
+
+				argtree = data->GetArgTree();
+
+				if(argtree) {
+					newnode->CopyArgs(argtree);
+				}
+			}
+		}
+	}
 }
 
 thNode *thMod::FindNode (const char *name)
@@ -165,48 +206,6 @@ void thMod::SetActiveNodesHelper(thNode *node)
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
 			SetActiveNodesHelper(data);
-		}
-	}
-}
-
-thMod *thMod::Copy (void)
-{
-	thMod *newmod = new thMod(modname);
-	thNode *newnode = new thNode(ionode->GetName(), ionode->GetPlugin());
-
-	newnode->CopyArgs(ionode->GetArgTree());
-
-	newmod->NewNode(newnode);
-	newmod->SetIONode((char *)newnode->GetName());
-
-	CopyHelper(newmod, ionode);
-
-	return newmod;
-}
-
-void thMod::CopyHelper (thMod *mod, thNode *parentnode)
-{
-	thNode *data, *newnode;
-	thListNode *listnode;
-	thBSTree *argtree;
-
-	if(parentnode->GetChildren()) {
-		for(listnode = parentnode->GetChildren()->GetTail(); listnode; listnode = listnode->prev) {
-			data = (thNode *)listnode->data;
-			if(!mod->FindNode(data->GetName())) {
-				newnode = new thNode(data->GetName(), data->GetPlugin());
-				mod->NewNode(newnode);
-				CopyHelper(mod, data);
-
-				argtree = data->GetArgTree();
-
-				if(argtree) {
-					newnode->CopyArgs(argtree);
-				}
-
-				//				mod->NewNode(newnode);
-				//CopyHelper(mod, data);
-			}
 		}
 	}
 }
