@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.7 2004/01/29 12:11:03 ink Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.8 2004/01/31 10:08:18 ink Exp $ */
 
 #include "config.h"
 
@@ -63,7 +63,7 @@ void thALSAAudio::SetFormat (const thAudioFmt *afmt)
    /* where the buffer is actually set */
    /* XXX: what is this constant 1.75?? */
    snd_pcm_hw_params_set_period_size(play_handle, hw_params,
-									 (int)(ifmt.period * 1.75), 0);
+									 TH_BUFFER_PERIOD, 0);
    
 //	snd_pcm_hw_params_set_buffer_time(play_handle, hw_params, 1000, 0);
    snd_pcm_hw_params(play_handle, hw_params);

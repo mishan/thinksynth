@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.17 2003/11/12 23:31:02 misha Exp $ */
+/* $Id: think.h,v 1.18 2004/01/31 10:08:18 ink Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -11,14 +11,18 @@ using namespace std;
 
 /* Sampling Rate */
 #define TH_SAMPLE 44100
+#define TH_WINDOW_LENGTH 512
 
 /* Signal Range */
-#define TH_MAX 256
-#define TH_MIN -256
+#define TH_MAX 127
+#define TH_MIN -127
 #define TH_RANGE (TH_MAX-TH_MIN)
 
 /* For note amplitude and stuff... */
 #define MIDIVALMAX 127
+
+/* Alsa output buffer */
+#define TH_BUFFER_PERIOD 1500
 
 /* Language interface stuff... */
 #define OUTPUTPREFIX "out"

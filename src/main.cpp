@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.115 2004/01/29 12:11:03 ink Exp $ */
+/* $Id: main.cpp,v 1.116 2004/01/31 10:08:18 ink Exp $ */
 
 #include "config.h"
 
@@ -131,7 +131,7 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
-	Synth.AddChannel(string("chan1"), dspname, 15.0);
+	Synth.AddChannel(string("chan1"), dspname, 7.0);
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to
@@ -245,6 +245,15 @@ int processmidi(thSynth *Synth, snd_seq_t *seq_handle)
 		case SND_SEQ_EVENT_NOTEOFF:
 			*pbuf = 0;
 			Synth->SetNoteArg(string("chan1"), ev->data.note.note, "trigger", pbuf, 1);  /* XXX make this part better */
+			break;
+		case SND_SEQ_EVENT_TEMPO:
+			printf("TEMPO CHANGE:  %i\n", ev->data.control.value);
+			break;
+		case SND_SEQ_EVENT_TICK:
+			printf("TICK CHANGE:  %i\n", ev->data.control.value);
+			break;
+		case SND_SEQ_EVENT_PITCHBEND:
+			printf("PITCH BEND:  %i\n", ev->data.control.value);
 			break;
 		}
 		snd_seq_free_event(ev);

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.63 2004/01/25 23:59:33 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.64 2004/01/31 10:08:18 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -26,7 +26,7 @@ thSynth::thSynth (void)
 
 	/* XXX: whoever commented this class: you found reason to comment on the
 	   obvious thSamples line but could offer no elucidation for this?? */
-	thWindowlen = 1024;
+	thWindowlen = TH_WINDOW_LENGTH;
 
 	thChans = 2;  /* mono / stereo / etc */
 
