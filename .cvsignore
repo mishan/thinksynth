@@ -1,5 +1,4 @@
 Makefile
-missing
 configure
 config.*
 Makefile.in
