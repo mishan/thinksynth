@@ -1,4 +1,4 @@
-# $Id: analog02.dsp,v 1.2 2004/02/19 09:57:40 ink Exp $
+# $Id: analog02.dsp,v 1.3 2004/02/19 10:19:31 ink Exp $
 name "test";
 
 node ionode {
@@ -29,8 +29,8 @@ node ionode {
 	amp_r = 8000;
 
 	filt_a = 0;
-	filt_d = 100000;
-	filt_s = 10;
+	filt_d = 200000;
+	filt_s = 50;
 	filt_r = 100000;
 
 	h_filt_a = 8000;  # for the high pass filter
@@ -40,7 +40,7 @@ node ionode {
 
 	hpmix = 0.4;  # how much of the high-passed signal is mixed in before
 	              # the low-pass
-	osc2mul = 0.5;
+	osc2mul = 2;
 	oscfade = 0.3;
 };
 
