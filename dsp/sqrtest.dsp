@@ -7,7 +7,7 @@ node ionode {
     play = env->play;
 
 	velcalcmin = 1;
-	velcalcmax = 30;
+	velcalcmax = 14;
 
 	cutmin = 0.5;
 	cutmax = 0.2;
@@ -38,9 +38,9 @@ node mixer mixer::mul {
 
 node env env::adsr {
 	a = 0;
-	d = 8000;
-	s = 100;
-	r = 4000;
+	d = 7000;
+	s = 110;
+	r = 5000;
 	trigger = ionode->trigger;
 };
 
