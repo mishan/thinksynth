@@ -94,6 +94,16 @@ void thNode::SetRecalc(bool state)
   recalc = state;
 }
 
+void thNode::AddChild(thNode *node)
+{
+  children->Add(node);
+}
+
+void thNode::AddParent(thNode *node)
+{
+  parents->Add(node);
+}
+
 void thNode::Process (void)
 {
 }
