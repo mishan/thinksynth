@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.3 2004/04/01 07:11:27 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.4 2004/04/01 07:23:27 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -199,6 +199,8 @@ bool KeyboardWindow::clickEvent (GdkEventButton *b)
 		}
 		mouse_notnum = -1;
 	}
+
+	drawKeyboard(1);
 
 	return true;
 }
