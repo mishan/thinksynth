@@ -1,6 +1,9 @@
 TODO before the Thinksynth alpha
 --------------------------------
++ -> mostly finished
+* -> unfinished
+- -> not started
 
 - better descriptions in debian/control
-- remove or fix (argify) obsolete DSPs
+* remove or fix (argify) obsolete DSPs
 - make a spec file for RH based distros?
