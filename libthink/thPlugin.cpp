@@ -66,10 +66,10 @@ int thPlugin::ModuleLoad (void)
 	
 	if(plugHandle == NULL) {
 #ifdef HAVE_DLERROR
-		fprintf(stderr, "thPluginManager::LoadPlugin: %s\n", 
+		fprintf(stderr, "thPlugin::ModuleLoad: %s\n", 
 				(char *)dlerror());
 #else
-		fprintf(stderr, "thPluginManager::LoadPlugin: %s%s\n", 
+		fprintf(stderr, "thPlugin::ModuleLoad: %s%s\n", 
 				"Could not load plugin: ", plugPath);
 #endif /* HAVE_DLERROR */
 
