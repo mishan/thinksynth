@@ -143,7 +143,7 @@ void gthPrefs::Load (void)
 					float *f = new float (atof(values[2]->c_str()));
 					thArg *arg = new thArg(string("amp"), f, 1);
 
-					s->SetChanArg(chan, arg);
+					s->setChanArg(chan, arg);
 				}
 			}	
 			else
@@ -212,7 +212,7 @@ void gthPrefs::Save (void)
 			if (file.length() > 0)
 			{
  				fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
-					(int)(synth->GetChanArg(i, "amp")->values_[0]));
+					(int)(synth->getChanArg(i, "amp")->values_[0]));
 			} 
 		}
 	}

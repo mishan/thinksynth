@@ -52,7 +52,7 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
 
 	ctrlFrame_->add(*ctrlTable_);
 
-	chanVal_ = manage(new Gtk::Adjustment(1, 1, synth_->GetChannelCount()));
+	chanVal_ = manage(new Gtk::Adjustment(1, 1, synth_->midiChanCount()));
 	chanBtn_ = manage(new Gtk::SpinButton(*chanVal_));
 
 	transVal_ = manage(new Gtk::Adjustment(0, -72, 72));
@@ -107,7 +107,7 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
 
 void KeyboardWindow::keyboardReset (void)
 {
-	synth_->ClearAll();
+	synth_->clearAll();
 	/* keyboardResetKeys is called somewhere along the way */
 }
 
@@ -126,12 +126,12 @@ KeyboardWindow::~KeyboardWindow (void)
 /* these are Keyboard widget-originated events */
 void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
 {
-	synth_->AddNote(chan, note, veloc);
+	synth_->addNote(chan, note, veloc);
 }
 
 void KeyboardWindow::eventNoteOff (int chan, int note)
 {
-	synth_->DelNote(chan, note);
+	synth_->delNote(chan, note);
 }
 
 void KeyboardWindow::eventChannelChanged (int chan)
@@ -187,7 +187,7 @@ bool KeyboardWindow::on_scroll_event (GdkEventScroll *s)
 
 	channel += (s->direction == GDK_SCROLL_UP ? 1 : -1);
 
-	if ((channel < 1) || (channel > synth_->GetChannelCount()))
+	if ((channel < 1) || (channel > synth_->midiChanCount()))
 		return true;
 
 	chanVal_->set_value(channel);

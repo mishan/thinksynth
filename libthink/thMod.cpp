@@ -234,7 +234,7 @@ void thMod::Process (unsigned int windowlen)
 	}
 
 	if((plug = ionode->GetPlugin())) {
-		plug->Fire(ionode, this, windowlen, synth->GetSamples());
+		plug->Fire(ionode, this, windowlen, synth->getSampleRate());
 	}
 }
 
@@ -251,7 +251,7 @@ void thMod::ProcessHelper(unsigned int windowlen, thNode *node)
 	}
 
 	/* FIRE! */
-	node->GetPlugin()->Fire(node, this, windowlen, synth->GetSamples());
+	node->GetPlugin()->Fire(node, this, windowlen, synth->getSampleRate());
 }
 
 /* reset the recalc flag for nodes with active plugins */

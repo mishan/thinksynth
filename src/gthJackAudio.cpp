@@ -58,7 +58,7 @@ gthJackAudio::gthJackAudio (thSynth *synth)
 	jack_on_shutdown (jack_handle_, jack_shutdown, this);
 
 	printf("attempting to set synth parameters to match JACK\n");
-	synth_->setSamples(jack_get_sample_rate(jack_handle_));
+	synth_->setSampleRate(jack_get_sample_rate(jack_handle_));
 //	synth_->setWindowLen(jack_get_buffer_size(jack_handle_));
 
 	getStats();
@@ -81,14 +81,15 @@ gthJackAudio::gthJackAudio (thSynth *synth,
 	jack_on_shutdown (jack_handle_, jack_shutdown, this);
 
 	printf("attempting to set synth parameters to match JACK\n");
-	synth->setSamples(jack_get_sample_rate(jack_handle_));
-	if ((unsigned int)synth_->GetWindowLen() !=
+	synth->setSampleRate(jack_get_sample_rate(jack_handle_));
+
+	if ((unsigned int)synth_->getWindowlen() !=
 		jack_get_buffer_size(jack_handle_))
 	{
 		fprintf(stderr, "WARNING! thinksynth's buffer size is different from that of JACK's. Currently this makes everything sound bad.. Try re-running thinksynth with the -l [windowlen] argument.\n");
 	}
 //	synth->setWindowLen(jack_get_buffer_size(jack_handle));
-	synth_->Process();
+	synth_->process();
 
 	getStats();
 
@@ -119,8 +120,8 @@ int gthJackAudio::tryConnect (bool connect)
 		registerPorts();
 		jack_on_shutdown (jack_handle_, jack_shutdown, this);
 		puts("JACK revived; setting synth params");
-		synth_->setSamples(jack_get_sample_rate(jack_handle_));
-		synth_->Process();
+		synth_->setSampleRate(jack_get_sample_rate(jack_handle_));
+		synth_->process();
 		
 		if (jcallback_ != NULL)
 			jack_set_process_callback(jack_handle_, jcallback_, this);
@@ -146,7 +147,7 @@ int gthJackAudio::tryConnect (bool connect)
 		char *out = new char[jacklen], *ths = new char[thlen];
 		int i;
 
-		for (i = 1; i <= synth_->GetChans(); i++)
+		for (i = 1; i <= synth_->audioChannelCount(); i++)
 		{
 			snprintf(out, jacklen, "%s:playback_%d", output.c_str(), i);
 			snprintf(ths, thlen, "thinksynth:out_%d", i);
@@ -194,7 +195,7 @@ void gthJackAudio::registerPorts (void)
 		return;
 	}
 	
-	chans_ = synth_->GetChans();
+	chans_ = synth_->audioChannelCount();
 	out_ports_ = new jack_port_t *[chans_];
 
 	for (int i = 0; i < chans_; i++)
@@ -221,8 +222,8 @@ void gthJackAudio::getStats (void)
 	printf("JACK buffer size is %d\n", jack_get_buffer_size(jack_handle_));
 	printf("JACK is %srealtime\n", jack_is_realtime(jack_handle_) ? "" : "not ");
 
-	printf("thinksynth sample rate is %li\n", synth_->GetSamples());
-	printf("thinksynth buffer size is %d\n", synth_->GetWindowLen());
+	printf("thinksynth sample rate is %li\n", synth_->getSampleRate());
+	printf("thinksynth buffer size is %d\n", synth_->getWindowlen());
 }
 
 gthJackAudio::~gthJackAudio (void)

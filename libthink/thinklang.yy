@@ -187,7 +187,7 @@ NIL
 nodes:
 NODE WORD plugname LCBRACK assignments RCBRACK
 {
-	thPluginManager *plugMgr = parseSynth->GetPluginManager();
+	thPluginManager *plugMgr = parseSynth->getPluginManager();
 
 	if(!plugMgr->GetPlugin($3.str)) {
 		if (plugMgr->LoadPlugin($3.str) == 1) { /* FAILED */

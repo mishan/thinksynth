@@ -122,14 +122,14 @@ void cleanup (int signum)
 
 void process_synth (void)
 {
-	Synth->Process();
+	Synth->process();
 }
 
 /* ALSA callback */
 void audio_readywrite (gthAudio *audio, thSynth *synth)
 {
-	int l = synth->GetWindowLen();
-	float *synthbuffer = synth->GetOutput();
+	int l = synth->getWindowlen();
+	float *synthbuffer = synth->getOutput();
 
 	audio->Write(synthbuffer, l);
 
@@ -142,8 +142,8 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 {
 	gthJackAudio *jack = static_cast<gthJackAudio *>(arg);
 
-	int l = Synth->GetWindowLen();
-	int chans = Synth->GetChans();
+	int l = Synth->getWindowlen();
+	int chans = Synth->audioChannelCount();
 
 	for (int i = 0; i < chans; i++)
 	{
@@ -178,7 +178,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 					m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
 								ev->data.note.velocity);
 					
-					synth->AddNote(ev->data.note.channel, ev->data.note.note,
+					synth->addNote(ev->data.note.channel, ev->data.note.note,
 								   ev->data.note.velocity);
 				}
 				/* a zero velocity can denote note off */
@@ -186,7 +186,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 				{
 					m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
 					
-					synth->DelNote(ev->data.note.channel, ev->data.note.note);
+					synth->delNote(ev->data.note.channel, ev->data.note.note);
 				}
 				break;
 			}
@@ -194,7 +194,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			{
 				m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
 				
-				synth->DelNote(ev->data.note.channel, ev->data.note.note);
+				synth->delNote(ev->data.note.channel, ev->data.note.note);
 				break;
 			}
 			case SND_SEQ_EVENT_TEMPO:
@@ -227,7 +227,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 			}
 			case SND_SEQ_EVENT_PORT_UNSUBSCRIBED:
 			{
-				synth->ClearAll();
+				synth->clearAll();
 				m_sigNoteClear();
 				break;
 			}
@@ -320,7 +320,7 @@ int main (int argc, char *argv[])
 	signal(SIGINT, (sighandler_t)cleanup);
 
 	/* create a window first */
-	Synth->Process();
+	Synth->process();
 
 	/* all thAudio classes will work with floating point buffers, converting
 	   to other formats internally, if necessary */

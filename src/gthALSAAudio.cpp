@@ -96,9 +96,9 @@ void gthALSAAudio::SetFormat (thSynth *argsynth)
 {
 	snd_pcm_hw_params_t *hw_params;
 	snd_pcm_sw_params_t *sw_params;
-	unsigned int samples = TH_SAMPLE;
-	unsigned int period = argsynth->GetWindowLen();
-	unsigned int chans = argsynth->GetChans();
+	unsigned int samples = argsynth->getSampleRate();
+	unsigned int period = argsynth->getWindowlen();
+	unsigned int chans = argsynth->audioChannelCount();
 
 	ofmt_.bits = 16;
 	ofmt_.samples = samples;

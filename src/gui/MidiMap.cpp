@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.25 2004/12/23 00:18:11 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -165,7 +165,7 @@ void MidiMap::fillDestChanCombo (void)
 	int first = 0;
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
-	std::map<int, string> *patchList = synth_->GetPatchlist();
+	std::map<int, string> *patchList = synth_->getPatchlist();
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
 		destChanCombo_->get_list()->children();
 
@@ -196,7 +196,7 @@ void MidiMap::setDestChanCombo (void)
 
 	Gtk::ComboDropDownItem *item;
 	Gtk::Label *namelabel;
-	std::map<int, string> *patchList = synth_->GetPatchlist();
+	std::map<int, string> *patchList = synth_->getPatchlist();
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
 		destChanCombo_->get_list()->children();
 
@@ -248,7 +248,8 @@ void MidiMap::fillDestArgCombo (int chan)
 	Gtk::Label *namelabel;
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
 		destArgCombo_->get_list()->children();
-	if(synth_->GetChannel(chan))
+
+	if(synth_->getChannel(chan))
 	{
 		gthPatchManager *patchMgr = gthPatchManager::instance();
 		thMidiChan::ArgMap argList = patchMgr->getChannelArgs(chan);
@@ -409,6 +410,7 @@ bool MidiMap::onDestArgComboChanged (GdkEventButton* b, thArg *arg)
 	maxSpinBtn_->set_range(selectedMin_, selectedMax_);
 	minSpinBtn_->set_value(selectedMin_);
 	maxSpinBtn_->set_value(selectedMax_);
+
 	return true;
 }
 
@@ -498,7 +500,15 @@ void MidiMap::onAddButton (void)
 	if(connection)
 		delete connection;
 
-	synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, new thMidiControllerConnection(selectedArg_, selectedMin_, selectedMax_, selectedExp_, selectedChan_, selectedController_, selectedDestChan_, selectedArg_->getLabel()));
+	synth_->newMidiControllerConnection((unsigned char)selectedChan_,
+										(unsigned int)selectedController_,
+										new thMidiControllerConnection(
+											selectedArg_, 
+											selectedMin_, selectedMax_, 
+											selectedExp_, selectedChan_, 
+											selectedController_, 
+											selectedDestChan_, 
+											selectedArg_->getLabel()));
 	populateConnections();
 }
 
@@ -510,7 +520,10 @@ void MidiMap::onDelButton (void)
 	if(connection)
 	{
 		delete connection;
-		synth_->newMidiControllerConnection((unsigned char)selectedChan_, (unsigned int)selectedController_, NULL);
+
+		synth_->newMidiControllerConnection((unsigned char)selectedChan_,
+											(unsigned int)selectedController_,
+											NULL);
 
 		populateConnections();
 	}

@@ -72,12 +72,12 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 	if (patches_[chan])
 	{
 		/* keep copy of amplitude */
-		amparg = new thArg (synth->GetChanArg(chan, "amp"));
+		amparg = new thArg (synth->getChanArg(chan, "amp"));
 		delete patches_[chan];
 		patches_[chan] = NULL;
 	}
 
-	thMod *mod = synth->LoadMod(dspName.c_str(), chan, 0);
+	thMod *mod = synth->loadMod(dspName.c_str(), chan, 0);
 
 	if (mod == NULL)
 	{
@@ -89,7 +89,7 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 		patches_[chan]->dspFile = dspName;
 
 		if (amparg != NULL)
-			synth->SetChanArg(chan, amparg); 
+			synth->setChanArg(chan, amparg); 
 	}
 
 	m_signal_patches_changed();
@@ -142,7 +142,7 @@ thMidiChan::ArgMap gthPatchManager::getChannelArgs (int chan)
 		return thMidiChan::ArgMap();
 
 	thSynth *synth = thSynth::instance();
-	thMidiChan *mchan = synth->GetChannel(chan);
+	thMidiChan *mchan = synth->getChannel(chan);
 
 	if (mchan == NULL)
 	{
@@ -264,20 +264,20 @@ bool gthPatchManager::parse (const string &filename, int chan)
 				else
 					f = *values[0];
 					
-				if (synth->LoadMod(f.c_str(), chan, 0) == NULL)
+				if (synth->loadMod(f.c_str(), chan, 0) == NULL)
 					goto owned;
 				
 				seen_dsp = true;
 			}
 			else if (values[0])
 			{
-				thArg *arg = synth->GetChanArg(chan, key);
+				thArg *arg = synth->getChanArg(chan, key);
 				if (arg == NULL)
 				{
 					float *value = new float;
 					*value = arglist[key];
 					thArg *arg = new thArg(key, value, 1);
-					synth->SetChanArg(chan, arg);
+					synth->setChanArg(chan, arg);
 				}
 				else
 				{

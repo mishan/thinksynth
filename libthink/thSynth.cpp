@@ -34,27 +34,27 @@ thSynth *thSynth::instance_ = NULL;
 
 thSynth::thSynth (int windowlen, int samples)
 {
-	synthMutex = new pthread_mutex_t;
-	pthread_mutex_init(synthMutex, NULL);
+	synthMutex_ = new pthread_mutex_t;
+	pthread_mutex_init(synthMutex_, NULL);
 
 	/* XXX: these should all be arguments and we should have corresponding
 	   accessor/mutator methods for these arguments */
-	thWindowlen = windowlen;
+	windowlen_ = windowlen;
 
-	thChans = 2;  /* mono / stereo / etc */
+	channels_ = 2;  /* mono / stereo / etc */
 
 	/* intialize default sample rate */
-	thSamples = samples;
+	sampleRate_ = samples;
 
 	/* We should make a function to allocate this, so we can easily change
 	   thChans and thWindowlen */
-	thOutput = new float[thChans*thWindowlen];
+	output_ = new float[channels_*windowlen_];
 
-	channelcount = CHANNELCHUNK;
-	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
+	midiChannelCnt_ = CHANNELCHUNK;
+	midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
 	/* default path */
-	pluginmanager = new thPluginManager(PLUGIN_PATH);
+	pluginmanager_ = new thPluginManager(PLUGIN_PATH);
 
 	controllerHandler_ = new thMidiController();
 
@@ -64,26 +64,26 @@ thSynth::thSynth (int windowlen, int samples)
 
 thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 {
-	synthMutex = new pthread_mutex_t;
-	pthread_mutex_init(synthMutex, NULL);
+	synthMutex_ = new pthread_mutex_t;
+	pthread_mutex_init(synthMutex_, NULL);
 
 	/* XXX: these should all be arguments and we should have corresponding
 	   accessor/mutator methods for these arguments */
-	thWindowlen = windowlen;
+	windowlen_ = windowlen;
 
-	thChans = 2;  /* mono / stereo / etc */
+	channels_ = 2;  /* mono / stereo / etc */
 
 	/* intialize default sample rate */
-	thSamples = samples;
+	sampleRate_ = samples;
 
 	/* We should make a function to allocate this, so we can easily change
 	   thChans and thWindowlen */
-	thOutput = new float[thChans*thWindowlen];
+	output_ = new float[channels_*windowlen_];
 
-	channelcount = CHANNELCHUNK;
-	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
+	midiChannelCnt_ = CHANNELCHUNK;
+	midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
-	pluginmanager = new thPluginManager(plugin_path);
+	pluginmanager_ = new thPluginManager(plugin_path);
 
 	controllerHandler_ = new thMidiController();
 
@@ -93,13 +93,13 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 
 thSynth::~thSynth (void)
 {
-	delete [] thOutput;
+	delete [] output_;
 
-	DestroyMap(modlist);
-	free(channels);
+	DestroyMap(modlist_);
+	free(midiChannels_);
 
-	pthread_mutex_destroy(synthMutex);
-	delete synthMutex;
+	pthread_mutex_destroy(synthMutex_);
+	delete synthMutex_;
 
 	if (instance_ == this)
 		instance_ = NULL;
@@ -107,20 +107,20 @@ thSynth::~thSynth (void)
 
 void thSynth::removeChan (int channum)
 {
-	if (((channum >= 0) && (channum < channelcount)) && channels[channum])
+	if (((channum >= 0) && (channum < midiChannelCnt_)) && midiChannels_[channum])
 	{
 /*		thMidiChan *chan = channels[channum];
 		if (chan)
 		delete chan; */
 
-		channels[channum] = NULL;
-		patchlist[channum] = "";
+		midiChannels_[channum] = NULL;
+		patchlist_[channum] = "";
 		controllerHandler_->clearByDestChan(channum);
-		m_sigChanDeleted(channum);
+		m_sigChanDeleted_(channum);
 	}
 }
 
-thMod * thSynth::LoadMod (const string &filename)
+thMod * thSynth::loadMod (const string &filename)
 {
 	struct stat dspinfo;
 
@@ -147,7 +147,7 @@ thMod * thSynth::LoadMod (const string &filename)
 		return NULL;
 	}
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
@@ -163,19 +163,19 @@ thMod * thSynth::LoadMod (const string &filename)
 	parsemod->BuildArgMap(); /* build the index of args */
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
-	modlist[parsemod->GetName()] = parsemod;
+	modlist_[parsemod->GetName()] = parsemod;
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
 	return parsemod;
 }
 
-thMod * thSynth::LoadMod (FILE *input)
+thMod * thSynth::loadMod (FILE *input)
 {
 	if (!input)
 		return NULL;
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 	
 	yyin = input;
 
@@ -191,42 +191,42 @@ thMod * thSynth::LoadMod (FILE *input)
 	parsemod->BuildArgMap(); /* build the index of args */
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
-	modlist[parsemod->GetName()] = parsemod;
+	modlist_[parsemod->GetName()] = parsemod;
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
 	return parsemod;
 }
 
-void thSynth::SetChanArg (int channum, thArg *arg)
+void thSynth::setChanArg (int channum, thArg *arg)
 {
-	if((channum < 0) || (channum >= channelcount))
+	if((channum < 0) || (channum >= midiChannelCnt_))
 	{
 		return;
 	}
 
-	thMidiChan *chan = channels[channum];
+	thMidiChan *chan = midiChannels_[channum];
 	
 	if (!chan)
 	{
 		return;
 	}
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 
 	chan->SetArg(arg);
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 }
 
-thArg *thSynth::GetChanArg (int channum, const string &argname)
+thArg *thSynth::getChanArg (int channum, const string &argname)
 {
-	if((channum < 0) || (channum >= channelcount))
+	if((channum < 0) || (channum >= midiChannelCnt_))
 	{
 		return NULL;
 	}
 
-	thMidiChan *chan = channels[channum];
+	thMidiChan *chan = midiChannels_[channum];
 
 	if(!chan)
 	{
@@ -236,18 +236,18 @@ thArg *thSynth::GetChanArg (int channum, const string &argname)
 	return chan->GetArg(argname);
 }
 
-int thSynth::SetChanArgData (int channum, const string &argname, float *data, int len)
+int thSynth::setChanArgData (int channum, const string &argname, float *data, int len)
 {
 	float *buffer;
 	thArg *argp;  /* pointer to the arg we search the chan for...  no need to
 					 search more than once! */
 
-	if((channum < 0) || (channum >= channelcount))
+	if((channum < 0) || (channum >= midiChannelCnt_))
 	{
 		return -1;
 	}
 
-	thMidiChan *chan = channels[channum];
+	thMidiChan *chan = midiChannels_[channum];
 
 	if(!chan)
 	{
@@ -275,7 +275,7 @@ void thSynth::newMidiControllerConnection (unsigned char channel,
 	controllerHandler_->newConnection(channel, param, connection);
 }
 
-thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
+thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 {
 	struct stat dspinfo;
 
@@ -302,7 +302,7 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
  		return NULL;
 	}
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
 	/* these are used by the parser */
@@ -317,19 +317,19 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	{
 		fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
 			filename.c_str());
-		pthread_mutex_unlock(synthMutex);
+		pthread_mutex_unlock(synthMutex_);
 		return NULL;
 	}
 	
 	parsemod->BuildArgMap(); /* build the index of args */
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
-	modlist[parsemod->GetName()] = parsemod;
+	modlist_[parsemod->GetName()] = parsemod;
 
 	thMidiChan **newchans;
-	int newchancount = channelcount;
+	int newchancount = midiChannelCnt_;
 
-	if (channum >= channelcount)
+	if (channum >= midiChannelCnt_)
 	{
 		while(channum >= newchancount)
 		{
@@ -339,49 +339,50 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 		newchans = (thMidiChan **)calloc(newchancount, sizeof(thMidiChan*));
 
         /* copy pointers over */
-		memcpy(newchans, channels, channelcount * sizeof(thMidiChan*));
-		free(channels);
-		channelcount = newchancount;
-		channels = newchans;
+		memcpy(newchans, midiChannels_, midiChannelCnt_ * sizeof(thMidiChan*));
+		free(midiChannels_);
+		midiChannelCnt_ = newchancount;
+		midiChannels_ = newchans;
 	}
 
-	if(channels[channum] != NULL)
+	if(midiChannels_[channum] != NULL)
 	{
-		delete channels[channum];
+		delete midiChannels_[channum];
 	}
 
-	channels[channum] = new thMidiChan(parsemod, amp, thWindowlen);
+	midiChannels_[channum] = new thMidiChan(parsemod, amp, windowlen_);
 
-	patchlist[channum] = filename;
+	patchlist_[channum] = filename;
 
 	/* make sure there are no midi controllers set up for this channel */
 	controllerHandler_->clearByDestChan(channum);
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
-	m_sigChanChanged(filename, channum, amp);
+	m_sigChanChanged_(filename, channum, amp);
 
 	return parsemod;
 }
 
 
 /* Make these voids return something and add error checking everywhere! */
-void thSynth::ListMods (void)
+void thSynth::listMods (void)
 {
-	for (map<string, thMod*>::const_iterator im = modlist.begin(); 
-		 im != modlist.end(); ++im) {
+	for (map<string, thMod*>::const_iterator im = modlist_.begin(); 
+		 im != modlist_.end(); ++im) {
 		printf("%s\n", im->first.c_str());
 	}
 }
 
+#if 0
 void thSynth::AddChannel (int channum, const string &modname, float amp)
 {
 	thMidiChan **newchans;
-	int newchancount = channelcount;
+	int newchancount = midiChannelCnt_;
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 
-	if (channum > channelcount)
+	if (channum > midiChannelCnt_)
 	{
 		while(channum > newchancount) {
 			newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
@@ -390,59 +391,60 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 		newchans = (thMidiChan **)calloc(newchancount, sizeof(thMidiChan*));
 
         /* copy pointers over */
-		memcpy(newchans, channels, channelcount * sizeof(thMidiChan*));
-		free(channels);
-		channelcount = newchancount;
-		channels = newchans;
+		memcpy(newchans, midiChannels_, midiChannelCnt_ * sizeof(thMidiChan*));
+		free(midiChannels_);
+		midiChannelCnt_ = newchancount;
+		midiChannels_ = newchans;
 	}
 
-	if(channels[channum] != NULL)
+	if(midiChannels_[channum] != NULL)
 	{
-		delete channels[channum];
+		delete midiChannels_[channum];
 	}
 
-	channels[channum] = new thMidiChan(FindMod(modname), amp, thWindowlen);
+	midiChannels_[channum] = new thMidiChan(findMod(modname), amp, windowlen_);
 //	channels[channum]->CopyChanArgs(channels[channum]->GetMod());
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
-	m_sigChanChanged(modname, channum, amp);
+	m_sigChanChanged_(modname, channum, amp);
 }
+#endif
 
-thMidiNote *thSynth::AddNote (int channum, float note,
+thMidiNote *thSynth::addNote (int channum, float note,
 							  float velocity)
 {
-	if((channum < 0) || (channum > channelcount))
+	if((channum < 0) || (channum > midiChannelCnt_))
 	{
-		debug("thSynth::AddNote: no such channel %d", channum);
+		debug("thSynth::addNote: no such channel %d", channum);
 
 		return NULL;
 	}
 
-	thMidiChan *chan = channels[channum];
+	thMidiChan *chan = midiChannels_[channum];
 
 	if (!chan)
 	{
-		debug("thSynth::AddNote: no such channel %d", channum);
+		debug("thSynth::addNote: no such channel %d", channum);
 		
 		return NULL;
 	}
 
- 	pthread_mutex_lock(synthMutex);
+ 	pthread_mutex_lock(synthMutex_);
 
 	thMidiNote *newnote = chan->AddNote(note, velocity);
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
 	return newnote;
 }
 
-int thSynth::DelNote (int channum, float note)
+int thSynth::delNote (int channum, float note)
 {
-	if((channum < 0) || (channum > channelcount))
+	if((channum < 0) || (channum > midiChannelCnt_))
 		return 1;
 
-	thMidiChan *chan = channels[channum];
+	thMidiChan *chan = midiChannels_[channum];
 
 	if(!chan)
 		return 1;
@@ -453,35 +455,37 @@ int thSynth::DelNote (int channum, float note)
 	if(sustain)
 		*pbuf = 2; /* set it to sustain */
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 	
 	chan->SetNoteArg ((int)note, "trigger", pbuf, 1);
 /* XXX IS THE OLD BUFFER BEING TAKEN CARE OF?  Possible memory leak */
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
 	return 0;
 }
 
-void thSynth::ClearAll (void)
+void thSynth::clearAll (void)
 {
-	thMidiChan **c = channels;
+	/* XXX: this code is horrible. fuck you joshk */
+	thMidiChan **c = midiChannels_;
 
 	while (*c)
 		(*c++)->ClearAll();
 }
 
-int thSynth::SetNoteArg (int channum, int note, char *name,
+#if 0
+int thSynth::setNoteArg (int channum, int note, char *name,
 						 float *value, int len)
 {
-	if((channum < 0) || (channum > channelcount))
+	if((channum < 0) || (channum > midiChannelCnt_))
 	{
 		debug("thSynth::SetNoteArg: no such channel %i", channum);
 
 		return 1;
 	}
 
-	thMidiChan *chan = channels[channum];
+	thMidiChan *chan = midiChannels_[channum];
 
 	if(!chan)
 	{
@@ -490,37 +494,37 @@ int thSynth::SetNoteArg (int channum, int note, char *name,
 		return 1;
 	}
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 	
 	chan->SetNoteArg (note, name, value, len);
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
 	return 0;
 }
+#endif
 
-void thSynth::Process (void)
+void thSynth::process (void)
 {
-
 	int mixchannels, notechannels;
 	thMidiChan *chan;
 	float *chanoutput;
 
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 
-	memset(thOutput, 0, thChans * thWindowlen * sizeof(float));
+	memset(output_, 0, channels_ * windowlen_ * sizeof(float));
 
-	for (int i = 0; i < channelcount; i++)
+	for (int i = 0; i < midiChannelCnt_; i++)
 	{
-		chan = channels[i];
+		chan = midiChannels_[i];
 
 		if (chan)
 		{
 			notechannels = chan->GetChannels();
 			mixchannels = notechannels;
 			
-			if (mixchannels > thChans) {
-				mixchannels = thChans;
+			if (mixchannels > channels_) {
+				mixchannels = channels_;
 			}
 			
 			chan->Process();
@@ -530,54 +534,54 @@ void thSynth::Process (void)
 			
 			for (int j = 0; j < mixchannels; j++)
 			{
-				for (int k = 0; k < thWindowlen; k++)
+				for (int k = 0; k < windowlen_; k++)
 				{
-					thOutput[bufferoffset + k] +=
+					output_[bufferoffset + k] +=
 						chanoutput[j + (k*mixchannels)];
 				}
 
-				bufferoffset += thWindowlen;
+				bufferoffset += windowlen_;
 			}
 		}
 	}
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 }
 
-void thSynth::PrintChan(int chan)
+void thSynth::printChan(int chan)
 {
-	for (int i = 0; i < thWindowlen; i++)
+	for (int i = 0; i < windowlen_; i++)
 	{
-		printf("-=- %f\n", thOutput[(i*thChans)+chan]);
+		printf("-=- %f\n", output_[(i*channels_)+chan]);
 	}
 }
 
-float *thSynth::GetOutput (void) const
+float *thSynth::getOutput (void) const
 {
 	/* try locking the mutex (and block) to make sure it's not processing */
-	pthread_mutex_lock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
 
 //	float *output = new float[thChans*thWindowlen];
-//	memcpy(output, thOutput, thChans*thWindowlen*sizeof(float));
-	float *output = thOutput;
+//	memcpy(output, output_, thChans*thWindowlen*sizeof(float));
+	float *output = output_;
 
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_unlock(synthMutex_);
 
 	return output;
 }
 
 float *thSynth::getChanBuffer (int chan)
 {
-	return &thOutput[chan * thWindowlen];
+	return &output_[chan * windowlen_];
 }
 
-void thSynth::setWindowLen (int windowlen)
+void thSynth::setWindowlen (int windowlen)
 {
 #if 0
-	pthread_mutex_lock(synthMutex);
-	thWindowlen = windowlen;
-	delete [] thOutput;
-	thOutput = new float[thChans*thWindowlen];
-	pthread_mutex_unlock(synthMutex);
+	pthread_mutex_lock(synthMutex_);
+	windowlen_ = windowlen;
+	delete [] output_;
+	output_ = new float[channels_*windowlen_];
+	pthread_mutex_unlock(synthMutex_);
 #endif
 }

@@ -164,7 +164,7 @@ void PatchSelWindow::UnloadDSP (void)
 		{
 #if 0
 		  	/* Delete the thMidiChan + modnode */
-			thMidiChan *c = synth->GetChannel((*iter)[patchViewCols.chanNum] - 1);
+			thMidiChan *c = synth->getChannel((*iter)[patchViewCols.chanNum] - 1);
 			synth->removeChan ((*iter)[patchViewCols.chanNum] - 1);
 
 			if (c)
@@ -372,7 +372,7 @@ void PatchSelWindow::SetChannelAmp (void)
 
 			(*iter)[patchViewCols.amp] = *val;
 
-			synth->SetChanArg(chanNum, arg);
+			synth->setChanArg(chanNum, arg);
 		} 
 	}
 }
@@ -466,8 +466,8 @@ void PatchSelWindow::CursorChanged (void)
 
 void PatchSelWindow::populate (void)
 {
-//	std::map<int, string> *patchlist = synth->GetPatchlist();
-//	int channelcount = synth->GetChannelCount();
+//	std::map<int, string> *patchlist = synth->getPatchlist();
+//	int channelcount = synth->midiChanCount();
 	gthPatchManager *patchMgr = gthPatchManager::instance();
 	int chancount = patchMgr->numPatches();
 	int selectedChan = -1;
@@ -499,7 +499,7 @@ void PatchSelWindow::populate (void)
 			continue;
 
 		string filename = patch->filename;
-		thArg *amp = synth->GetChanArg(i, "amp");
+		thArg *amp = synth->getChanArg(i, "amp");
 
 		/* populate the fields with the data from the first row */
 		if (i == 0)
