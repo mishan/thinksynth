@@ -14,7 +14,7 @@ public:
 	~thBTree (void);
 
 	void Insert (char *name, void *data);
-	void Remove (thBNode *bnode);
+	void Remove (char *name);
 	thBNode *Find (char *name);
 
 	void PrintTree (void);

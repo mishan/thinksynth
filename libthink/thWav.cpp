@@ -27,11 +27,6 @@ thWav::thWav(char *name)
 		throw (thIOException) errno;
 	}
 
-
-	buf = new char[88200];
-	printf("setting vbuf of %d\n", 88200);
-	setvbuf(file, buf, _IOFBF, 88200);
-
 	try {
 		ReadHeader();
 	}

@@ -118,6 +118,8 @@ void thOSSAudio::Play(thAudio *audioPtr)
 
 	SetFormat(afmt);
 
+	fcntl(fd, F_SETFL, O_NONBLOCK);
+
 	printf("playing with bufsiz of %d\n", buf_size);
 
 	switch(fmt.bits) {
@@ -147,9 +149,18 @@ void thOSSAudio::Play(thAudio *audioPtr)
 	break;
 	}
 
+	fcntl(fd, F_SETFL, 0);
 
-/*	int buf_refill = (int)(buffer->get_size()*BUF_REFILL_PERCENT); */
+	fd_set wfds;
 
-//	printf("%i\n", buffer->get_size());
-
+	FD_ZERO(&wfds);
+	FD_SET(fd, &wfds);
+	
+	while(1) {
+		select(fd+1, NULL, &wfds, NULL, NULL);
+		
+		if(FD_ISSET(fd, &wfds)) {
+			break;
+		}
+	}
 }

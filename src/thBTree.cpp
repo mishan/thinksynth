@@ -75,50 +75,58 @@ void thBTree::InsertHelper(thBNode *root, thBNode *node)
 	}
 }
 
-void thBTree::Remove(thBNode *node)
+void thBTree::Remove(char *name)
 {
-	thBNode *parent = GetParent(bRoot, node);
-	thBNode *left, *right;
+	thBNode *node = Find(name);
+	thBNode *parent; /* can be NULL */
+	thBNode *left, *right; /* can also be NULL */
+	thBNode *newroot, *newchild; /* both of these are also potentially NULL */
 
-	if(!parent) {
-		fprintf(stderr, "thBree::Remove: No such node '%s'\n", node->name);
+	if(!node) {
+		fprintf(stderr, "thBTree::Remove: No such node '%s'\n", name);
+		return;
 	}
+
+	parent = GetParent(bRoot, node);
 
 	left = node->left;
-	right = node->left;
+	right = node->right;
+
+	delete node->name;
+	delete node;
 	
-	if(parent->left == node) {
-		delete node->name;
-		delete node;
-
+	if(left && right) {
 		switch(StringCompare(left->name, right->name)) {
 		case 0:
 		case 1:
-			parent->left = left;
-			RemoveHelper(left, right);
+			newroot = left;
+			newchild = right;
 			break;
 		case -1:
-			parent->left = right;
-			RemoveHelper(right, left);
+			newroot = right;
+			newchild = left;
 			break;
 		}
-
 	}
-	else { /* parent->right == node */
-		delete node->name;
-		delete node;
+	else {
+		newroot = left ? left : right;
+		newchild = NULL;
+	}
 
-		switch(StringCompare(left->name, right->name)) {
-		case 0:
-		case 1:
-			parent->right = left;
-			RemoveHelper(left, right);
-			break;
-		case -1:
-			parent->right = right;
-			RemoveHelper(right, left);
-			break;
+	if(parent) {
+		if(parent->left == node) {
+			parent->left = newroot;
 		}
+		else { /* parent->right == node */
+			parent->right = newroot;
+		}
+	}
+	else {
+		bRoot = newroot;
+	}
+
+	if(newchild) {
+		RemoveHelper(newroot, newchild);	
 	}
 }
 
@@ -206,6 +214,10 @@ void thBTree::RemoveHelper(thBNode *root, thBNode *node)
 thBNode *thBTree::GetParent(thBNode *root, thBNode *node)
 {
 	thBNode *parent;
+
+	if(!root) {
+		return NULL;
+	}
 
 	if((root->left == node) || (root->right == node)) {
 		return root;

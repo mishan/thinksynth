@@ -1,5 +1,5 @@
-#ifndef HAVE_WAV_H
-#define HAVE_WAV_H 1
+#ifndef TH_WAV_H
+#define TH_WAV_H 1
 
 /* WAV headers */
 #define RIFF_HDR "RIFF"
@@ -69,7 +69,6 @@ private:
 	FILE *file;
 	thWavType type;
 	thAudioFmt fmt;
-	char *buf; /* for setbuf() */
 
 	short blockalign; /* wav-specific info */
 	long avgbytes;
@@ -111,4 +110,4 @@ inline thWav *new_thWav(char *name, thAudioFmt *wfmt)
 	return NULL;
 }
 
-#endif /* HAVE_WAV_H */
+#endif /* TH_WAV_H */
