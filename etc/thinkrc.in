@@ -4,6 +4,8 @@
 # edit this in the patch-selector.
 
 dspdir @dsp_path@
-channel 0,@dsp_path@args/rpiano0.dsp,20.000000
-channel 1,@dsp_path@args/amb01.dsp,20.000000
-channel 2,@dsp_path@args/organ0.dsp,20.000000
+patchdir @dsp_path@patches/
+channel 0,@dsp_path@patches/lead/SuperRes.patch,20
+channel 1,@dsp_path@patches/bass/FunkMachine.patch,20
+channel 2,@dsp_path@patches/organs/Organ1.patch,20
+channel 3,@dsp_path@patches/pads/SynString.patch,20
