@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.51 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thinklang.yy,v 1.52 2004/04/22 08:43:34 ink Exp $ */
 
 %{
 #include "config.h"
@@ -115,6 +115,11 @@ factor DIV term
 factor MOD term
 {
 	$$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
+}
+|
+factor MOD
+{
+	$$.floatval = $1.floatval * TH_MAX / 100;
 }
 ;
 
