@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.51 2003/05/06 18:20:46 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.52 2003/05/06 18:27:56 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -96,7 +96,7 @@ void thSynth::AddChannel(char *channame, char *modname, float amp)
 
 thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 {
-	thMidiChan *chan = channels->GetData((void *)channame);
+	thMidiChan *chan = (thMidiChan *)channels->GetData((void *)channame);
 	thMidiNote *newnote = chan->AddNote(note, velocity);
 
 	return newnote;
@@ -108,29 +108,29 @@ void thSynth::Process()
 	ProcessHelper(channels);
 }
 
-void thSynth::ProcessHelper(thBSTree *chan)
+void thSynth::ProcessHelper(thBSTree *node)
 {
 	int i, j, mixchannels, notechannels;
-	thMidiChan *data;
+	thMidiChan *chan;
 	float *chanoutput;
 
 	if(!chan) {
 		return;
 	}
 
-	ProcessHelper(chan->GetLeft());
+	ProcessHelper(node->GetLeft());
 
-	data = (thMidiChan *)chan->GetData();
+	chan = (thMidiChan *)node->GetData();
 
-	notechannels = data->GetChannels();
+	notechannels = chan->GetChannels();
 	mixchannels = notechannels;
 
 	if(mixchannels > thChans) {
 		mixchannels = thChans;
 	}
 
-	data->Process();
-	chanoutput = data->GetOutput();
+	chan->Process();
+	chanoutput = chan->GetOutput();
 
 	for(i = 0; i < mixchannels; i++) {
 		for(j = 0 ;j < thWindowlen; j++) {
@@ -138,7 +138,7 @@ void thSynth::ProcessHelper(thBSTree *chan)
 		}
 	}
 
-	ProcessHelper(chan->GetRight());
+	ProcessHelper(node->GetRight());
 }
 
 void thSynth::PrintChan(int chan)
