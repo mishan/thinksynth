@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.16 2004/11/13 22:45:48 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.17 2004/11/15 10:16:10 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -153,6 +153,7 @@ void gthPrefs::Load (void)
 void gthPrefs::Save (void)
 {
 	thSynth *synth = thSynth::instance();
+	gthPatchManager *patchMgr = gthPatchManager::instance();
 	FILE *prefsFile;
 
 	if ((prefsFile = fopen(prefsPath.c_str(), "w")) == NULL)
