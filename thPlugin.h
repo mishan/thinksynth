@@ -3,6 +3,10 @@
 
 #define MODULE_IFACE_VER 3
 
+/* XXX */
+#define PLUGPREFIX "plugins/"
+#define PLUGPOSTFIX ".so"
+
 class thPlugin {
 public:
 	thPlugin(const char *name, int id, bool state);
@@ -10,6 +14,8 @@ public:
 
 	const char *GetName (void);
 	const char *GetDesc (void);
+
+	void MakePath (void);
 
 	void SetDesc(const char *desc);
 
@@ -20,8 +26,10 @@ private:
 	bool plugState;
 	void *plugHandle;
 	char *plugDesc;
+	char *plugPath;
 
-	int ModuleLoad (char *filename);
+	int ModuleLoad (void);
+	void ModuleUnload (void);
 };
 
 #endif /* TH_PLUGIN_H */
