@@ -41,10 +41,11 @@ void thAudioBuffer::buf_write(unsigned char *udata, int len)
 int thAudioBuffer::buf_read(unsigned char *udata, int len)
 {
 	int i, bufempty = (int)(size*BUFFER_EMPTY_PERCENT);
+	unsigned char *buf = new unsigned char[bufempty];
+
 	printf("=-= %i %i =-=\n", woffset, len);
 	while(woffset <= bufempty) {
 		//printf("-= %i %i %i =-\n", woffset, size, bufempty);
-		unsigned char buf[bufempty];
 
 		if((audioPtr->Read(buf, bufempty) <= 0)) {
 			printf("--- EOF ---\n");
@@ -53,6 +54,8 @@ int thAudioBuffer::buf_read(unsigned char *udata, int len)
 
 		buf_write(buf, bufempty);
 	}
+
+	delete buf;
 
 	for(i = 0; i < len; i++) {
 		udata[i] = data[(read+i)%size];
