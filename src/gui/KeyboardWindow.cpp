@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.15 2004/04/01 20:01:49 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.16 2004/04/02 00:38:41 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -36,7 +36,7 @@ static unsigned int color4 = 0x00B0B0B0;    /* white key / active       */
 static unsigned int	color5 = 0x00707070;	/* black key / active		*/
 static unsigned int	color6 = 0x0090D0D0;	/* A (440 Hz) key / active	*/
 
-static int	key_sizes[4][7] =
+static int key_sizes[4][7] =
 {
 	/* keyboard size 0: 450x45 pixels */
 	{
@@ -81,7 +81,9 @@ static int	key_sizes[4][7] =
 };
 
 KeyboardWindow::KeyboardWindow (thSynth *argsynth)
-	: ctrlFrame ("Keyboard Control"), chanLbl("Channel"), transLbl("Transpose")
+	: ctrlFrame ("Keyboard Control"), 
+	  chanLbl("Channel"),
+	  transLbl("Transpose")
 {
 	synth = argsynth;
 
@@ -100,6 +102,8 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
 	img_width = key_sizes[cur_size][2] * 75;
+
+	focus_box = false;
 
 	set_title("thinksynth - Keyboard");
 
@@ -253,22 +257,23 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 
 bool KeyboardWindow::focusInEvent (GdkEventFocus *f)
 {
-	/*	printf("focus in called\n");
+//	printf("KeyboardWindow::focusInEvent\n");
 
-	Glib::RefPtr<Gtk::Style> style = drawArea.get_style();
-	Glib::RefPtr<Gdk::Window> wind = drawArea.get_window();
-	Gdk::Rectangle focus_rect(0, 0, img_width, img_height);
-	style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, drawArea,
-	"", 0, 0, img_width, img_height); */
+	focus_box = true;
+
+	drawKeyboardFocus();
 
 	return true;
 }
 
 bool KeyboardWindow::focusOutEvent (GdkEventFocus *f)
 {
-	/*	printf("focus out called\n");
-	
-	drawKeyboard(5); */
+//	printf("KeyboardWindow::focusOutEvent\n");
+
+	focus_box = false;
+
+	/* redraw widget */
+	drawKeyboard(5);
 
 	return true;
 }
@@ -328,6 +333,16 @@ bool KeyboardWindow::exposeEvent (GdkEventExpose *e)
 	drawKeyboard (5);
 
 	return true;
+}
+
+void KeyboardWindow::drawKeyboardFocus (void)
+{
+	Glib::RefPtr<Gtk::Style> style = drawArea.get_style();
+	Glib::RefPtr<Gdk::Window> wind = drawArea.get_window();
+ 	Gdk::Rectangle focus_rect(0, 0, img_width, img_height);
+
+	style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, drawArea,
+					   "", 0, 0, img_width, img_height);
 }
 
 void KeyboardWindow::drawKeyboard (int mode)
@@ -437,6 +452,11 @@ void KeyboardWindow::drawKeyboard (int mode)
 		}
 		k = (k == 11 ? 0 : k + 1);
 	} while (++i < 128);
+
+	if (focus_box)
+	{
+		drawKeyboardFocus();
+	}
 
 }
 

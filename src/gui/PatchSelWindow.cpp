@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.23 2004/04/01 20:01:49 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.24 2004/04/02 00:38:41 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -22,8 +22,11 @@
 #include "PatchSelWindow.h"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
-	: dspAmp (0, MIDIVALMAX, .5), setButton("Load Patch"), 
-	  browseButton("Browse"), ampLabel("Amplitude"), fileLabel("Filename")
+	: dspAmp (0, MIDIVALMAX, .5),
+	  setButton("Load Patch"), 
+	  browseButton("Browse"),
+	  ampLabel("Amplitude"),
+	  fileLabel("Filename")
 {
 	synth = argsynth;
 

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.8 2004/04/01 20:01:49 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.9 2004/04/02 00:38:41 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -11,6 +11,7 @@ public:
 
 protected:
 	void drawKeyboard (int mode);
+	void drawKeyboardFocus (void);
 
 	/* event callbacks */
 	bool focusInEvent (GdkEventFocus *f);
@@ -38,7 +39,8 @@ private:
 
 	/* lower-level widget stuff */
 	GdkWindow *drawable;
-	GdkGC		*kbgc;
+	GdkGC *kbgc;
+	bool focus_box;
 
 	/* keyboard stuff */
 	int img_width, img_height;

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.5 2004/04/01 08:24:49 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.6 2004/04/02 00:38:41 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -29,7 +29,8 @@
 extern Glib::Mutex *synthMutex;
 
 MainSynthWindow::MainSynthWindow (thSynth *synth)
-	: patchSel (synth), keyboardWin (synth)
+	: patchSel (synth),
+	  keyboardWin (synth)
 {
 	set_title("thinksynth");
 	set_default_size(320, 240);
