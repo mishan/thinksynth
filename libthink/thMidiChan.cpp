@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.52 2004/01/25 23:59:33 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.53 2004/01/29 10:26:06 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -51,11 +51,13 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	thMidiNote *midinote;
 	int id = (int)note;
 	map<int, thMidiNote*>::const_iterator i = notes.find(id);
-	if(i == notes.end()) {
+/*	if(i == notes.end()) {  
+these lines stopped new notes while old ones were still finishing.
+maybe we should keep track of these better */
 		midinote = new thMidiNote(modnode, note, velocity);
 		notes[id] = midinote;
-	}
-	else midinote = i->second;
+/*	}
+	else midinote = i->second; */
 	return midinote;
 }
 
@@ -82,7 +84,7 @@ int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
 	map<int, thMidiNote*>::iterator i = notes.find(note);
 
 	if(i != notes.end()) {
-		i->second->SetArg(name, value,  len);
+		i->second->SetArg(name, value, len);
 		return 1;
 	}
 	return 0;

@@ -6,13 +6,12 @@ node ionode {
     channels = 2;
     play = env->play;
 
-	velcalcmin = 0;
-	velcalcmax = 3000;
-#	blah = print->foo;
-};
+	velcalcmin = 1;
+	velcalcmax = 30;
 
-node print misc::print {
-	in = freq->out;
+	cutmin = 0.5;
+	cutmax = 0.2;
+	cutlfo = 1;
 };
 
 node velcalc env::map {
@@ -21,6 +20,11 @@ node velcalc env::map {
 	inmax = th_max;
 	outmin = ionode->velcalcmin;
 	outmax = ionode->velcalcmax;
+};
+
+node vmul math::mul {
+	in0 = velcalc->out;
+	in1 = freq->out;
 };
 
 node freq misc::midi2freq {
@@ -53,12 +57,24 @@ node map2 env::map {
 	inmin = th_min;
 	inmax = th_max;
 	outmin = 0;
-	outmax = velcalc->out;
+	outmax = vmul->out;
+};
+
+node cutlfo osc::simple {
+	freq = ionode->cutlfo;
+};
+
+node cutmap env::map {
+	in = cutlfo->out;
+	inmin = th_min;
+	inmax = th_max;
+	outmin = ionode->cutmin;
+	outmax = ionode->cutmax;
 };
 
 node filt filt::ink2 {
 	in = osc->out;
-	cutoff = 0.2;
+	cutoff = cutmap->out;
 	res = map1->out;
 };
 
