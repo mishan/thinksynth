@@ -9,7 +9,7 @@ CXXFLAGS+=-DPLUGIN_BUILD
 
 install:
 	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
-	for i in *.so; do \
+	for i in *@SHARED_SUFFIX@; do \
 		cp -f $$i $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR)); \
 	done
 
