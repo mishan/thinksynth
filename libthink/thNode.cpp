@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.43 2003/04/28 21:02:36 joshk Exp $ */
+/* $Id: thNode.cpp,v 1.44 2003/04/29 03:42:57 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -41,7 +41,7 @@ thArg *thNode::SetArg (const char *name, float *value, int num)
 
 	if(!arg) {
 		arg = new thArg(name, value, num);
-		args->Insert((void *)name, arg);
+		args->Insert((void *)strdup(name), arg);
 	}
 	else {
 		arg->SetArg(name, value, num);

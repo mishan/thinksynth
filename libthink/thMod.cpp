@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.50 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: thMod.cpp,v 1.51 2003/04/29 03:42:57 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -44,7 +44,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 		args = node->GetArg(argname);
 	}
 
-/* If the arg doesnt exist, make it a 0 */
+	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
 	  newfloat = new float;  /* Should change the init
 							 float newfloat[1]; */
@@ -57,6 +57,13 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 		node = (thNode *)modnodes->GetData((void *)args->argPointNode);
 		if (node) {
 			args = node->GetArg(args->argPointName);
+			/* If the arg doesnt exist, make it a 0 */
+			if(args == NULL) {
+			  newfloat = new float;  /* Should change the init
+										float newfloat[1]; */
+			  newfloat[0] = 0;
+			  args = ((thArg *)node->SetArg(argname, newfloat, 1))->GetArg();
+			}
 		}
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
