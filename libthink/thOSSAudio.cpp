@@ -61,7 +61,7 @@ thOSSAudio::~thOSSAudio()
 /* XXX XXX XXX */
 /* XXX: DO NOT PASS ioctl() shorts that are part of a structure as it will
    treat the pointer as a 32-bit integer and overwrite the next 16-bits of the
-   next element of the structure */
+   next element of the structure. THIS IS BAD. */
 
 void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 {
