@@ -31,6 +31,6 @@ mv $NAME $NAME-$1
 
 tar --exclude CVS --exclude .cvsignore --exclude autogen.sh \
 	--exclude make_release --exclude autom4te.cache  \
-	--exclude aclocal.m4 -czf $NAME-$1.tar.gz $NAME-$1 
+	--exclude aclocal.m4 -chzf $NAME-$1.tar.gz $NAME-$1 
 
 mv $NAME-$1 $NAME
