@@ -1,12 +1,12 @@
 name "test";
 
 node ionode {
-	out0 = filt->out;
-	out1 = filt->out;
+	out0 = filt->out_low;
+	out1 = filt->out_high;
 	channels = 2;
 	play = 1;
 
-	cutlfo = 0.5;
+	cutlfo = 1;
 	reslfo = 0.03;
 
 	mincut = 0.01;
@@ -49,7 +49,7 @@ node osc osc::simple {  # The oscillator
 	waveform = ionode->waveform;
 };
 
-node filt filt::res1pole {  # Do the actual filtering
+node filt filt::moog {  # Do the actual filtering
 	in = osc->out;
 	cutoff = cutmap->out;
 	res = resmap->out;
