@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.17 2004/04/07 07:10:40 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.18 2004/04/07 08:50:31 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -80,7 +80,6 @@ static int key_sizes[4][7] =
 		9		/* white key width 3 (E, B)		    */
 	}
 };
-
 
 Keyboard::Keyboard (void)
 {

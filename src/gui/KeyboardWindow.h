@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.14 2004/04/06 09:25:32 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.15 2004/04/07 08:50:31 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -20,6 +20,8 @@ protected:
 
 	void changeChannel (void);
 	void changeTranspose (void);
+
+	virtual bool on_scroll_event (GdkEventScroll *s);
 
 	thSynth *synth;
 private:

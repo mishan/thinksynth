@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.26 2004/04/07 00:58:00 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.27 2004/04/07 08:50:31 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -141,4 +141,18 @@ void KeyboardWindow::changeTranspose (void)
 	kbMutex.lock();
 	keyboard.SetTranspose((int)transVal->get_value());
 	kbMutex.unlock();
+}
+
+bool KeyboardWindow::on_scroll_event (GdkEventScroll *s)
+{
+	float channel = chanVal->get_value();
+
+	channel += (s->direction == GDK_SCROLL_UP ? 1 : -1);
+
+	if ((channel < 1) || (channel > synth->GetChannelCount()))
+		return true;
+
+	chanVal->set_value(channel);
+
+	return true;
 }
