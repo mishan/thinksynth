@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.5 2004/08/01 09:57:40 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.6 2004/08/01 11:05:18 misha Exp $ */
 
 #ifndef MAIN_SYNTH_WINDOW_H
 #define MAIN_SYNTH_WINDOW_H
@@ -10,6 +10,7 @@ public:
 	~MainSynthWindow (void);
 
 protected:
+	void sliderChanged (Gtk::HScale *, thArg *);
 	void menuKeyboard (void);
 	void menuPatchSel (void);
 	void menuQuit (void);

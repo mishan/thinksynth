@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.11 2004/08/01 10:54:26 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.12 2004/08/01 11:05:18 misha Exp $ */
 
 #include "config.h"
 
@@ -98,8 +98,7 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 
 		std::map<string, thArg *> args = realSynth->GetChanArgs(i->first);
 
-//		Gtk::Table *table = new Gtk::Table(args.size(), 2);
-		Gtk::VBox *vbox = new Gtk::VBox;
+		Gtk::Table *table = new Gtk::Table(args.size(), 2);
 
 		tabName = basename(tabName.c_str());
 		int row = 0;
@@ -113,23 +112,22 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 
 			if (arg->argWidget != thArg::HIDE)
 			{
-				Gtk::HBox *hbox = new Gtk::HBox;
 				Gtk::Label *label = new Gtk::Label(argName);
-				ArgSlider *slider = new ArgSlider(arg);
-//				Gtk::HScale *slider = new Gtk::HScale(1, 100, 1);
+//				ArgSlider *slider = new ArgSlider(arg);
+				Gtk::HScale *slider = new Gtk::HScale(arg->argMin, arg->argMax, .01);
 
-				hbox->pack_start(*label, Gtk::PACK_SHRINK);
-				hbox->pack_start(*slider);
-				vbox->pack_start(*hbox);
-/*				table->attach(*label, 0, 1, row, row+1);
+				slider->signal_value_changed().connect(
+					SigC::bind<Gtk::HScale *, thArg *>(SigC::slot(*this, &MainSynthWindow::sliderChanged), slider, arg));
+				slider->set_value(arg->argValues[0]);
+
+				table->attach(*label, 0, 1, row, row+1);
 				table->attach(*slider, 1, 2, row, row+1, Gtk::EXPAND|Gtk::FILL,
-				Gtk::EXPAND|Gtk::FILL); */
+							  Gtk::EXPAND|Gtk::FILL); 
 				row++;
 			}
 		}
 
-//		notebook.prepend_page(*table, tabName);
-		notebook.prepend_page(*vbox, tabName);
+		notebook.prepend_page(*table, tabName);
 	}
 
 	show_all_children();
@@ -138,6 +136,11 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 MainSynthWindow::~MainSynthWindow (void)
 {
 	menuQuit();
+}
+
+void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
+{
+	arg->argValues[0] = slider->get_value();
 }
 
 void MainSynthWindow::menuKeyboard (void)
