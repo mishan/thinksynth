@@ -1,4 +1,4 @@
-/* $Id: alsa.cpp,v 1.1 2004/01/31 12:25:13 misha Exp $ */
+/* $Id: alsa.cpp,v 1.2 2004/02/22 03:12:39 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,12 +34,22 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
+	snd_pcm_hw_params_t *hw_params;
+	snd_pcm_sw_params_t *sw_params;
+
+
 	/* XXX: hardcoded device */
 	if(snd_pcm_open (&cap_handle, "hw:0", SND_PCM_STREAM_CAPTURE, 0) < 0)
 	{
 		fprintf(stderr, "input::alsa::init: %s\n", strerror(errno));
 		return 1;
 	}
+
+	snd_pcm_hw_params_alloca(&hw_params);
+	snd_pcm_hw_params_any(cap_handle, hw_params);
+	snd_pcm_hw_params_set_access(cap_handle, hw_params,
+								SND_PCM_ACCESS_RW_INTERLEAVED);
+	snd_pcm_hw_params(cap_handle, hw_params);
 
 	printf("ALSA Input plugin loading\n");
 
