@@ -1,9 +1,9 @@
-dnl $Id: configure.ac,v 1.35 2003/05/03 03:53:49 joshk Exp $
+dnl $Id: configure.ac,v 1.36 2003/05/03 04:58:31 joshk Exp $
 
 AC_INIT
 
 dnl Don't let ancient Autoconfs touch this
-AC_PREREQ(2.57)
+AC_PREREQ(2.50)
 
 AC_PREFIX_DEFAULT([/usr/local])
 
