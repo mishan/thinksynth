@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.53 2004/10/01 08:52:26 misha Exp $
+# $Id: Makefile.in,v 1.54 2004/10/01 09:16:21 joshk Exp $
 
 BINARY = thinksynth
 
@@ -24,10 +24,7 @@ gui/gth.a: $(WIDGETSRCS)
 	$(MAKE) -C gui gth.a
 
 ../libthink/libthink.so.$(soname):
-# XXX
-ifeq (,$(wildcard ../libthink/.bstamp))
 	$(MAKE) -C ../libthink
-endif
 
 clean::
 	rm -f thinksynth

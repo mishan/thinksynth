@@ -1,11 +1,13 @@
-# $Id: Makefile,v 1.23 2004/09/10 05:31:31 joshk Exp $
+# $Id: Makefile,v 1.24 2004/10/01 09:16:21 joshk Exp $
 
-SUBDIRS = libthink src plugins dsp etc docs
+SUBDIRS = src plugins dsp etc docs #libthink is pulled in by dependency
+CLEAN_SUBDIRS = libthink $(SUBDIRS)
 NAME = thinksynth
 VERSION = devel
 exclusions = CVS .cvsignore .\#* debian
 
-all clean install uninstall: $(SUBDIRS)
+clean: $(CLEAN_SUBDIRS)
+all install uninstall: $(SUBDIRS)
 
 config.status: configure
 	sh configure
@@ -13,7 +15,7 @@ config.status: configure
 $(SUBDIRS): config.status
 	$(MAKE) -C $@ $(MAKECMDGOALS)
 
-distclean: config.status $(SUBDIRS) dodistclean
+distclean: config.status $(CLEAN_SUBDIRS) dodistclean
 
 dodistclean:
 	rm -f build.mk config.h config.log config.status *~
@@ -26,4 +28,4 @@ distrib: config.status $(SUBDIRS) dodistclean
 	rm -f ../$(NAME)-$(VERSION)
 	@echo "Created source release $(NAME)-$(VERSION).tar.gz"
 
-.PHONY: clean distclean install uninstall dist $(SUBDIRS)
+.PHONY: clean distclean install uninstall dist $(SUBDIRS) $(CLEAN_SUBDIRS)
