@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.19 2004/03/29 08:05:12 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.20 2004/03/29 23:54:30 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -22,8 +22,6 @@
 #include "thSynth.h"
 
 #include "PatchSelWindow.h"
-
-extern Glib::Mutex *synthMutex;
 
 PatchSelWindow::PatchSelWindow (thSynth *synth)
 	: dspAmp (0, MIDIVALMAX, .5), setButton("Load Patch"), 
@@ -50,12 +48,8 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	/* this is not to be used unless a valid amp arg is found */
 	dspAmp.set_sensitive(false);
 
-	synthMutex->lock();
-
 	std::map<int, string> *patchlist = realSynth->GetPatchlist();
 	int channelcount = realSynth->GetChannelCount();
-
-	synthMutex->unlock();
 
 	patchModel = Gtk::ListStore::create (patchViewCols);
 	patchView.set_model(patchModel);
@@ -127,6 +121,7 @@ void PatchSelWindow::LoadPatch (void)
 {
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
+
 	if(refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
@@ -137,9 +132,7 @@ void PatchSelWindow::LoadPatch (void)
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			thMod *loaded = NULL;
 
-			synthMutex->lock();
-
-			if ((loaded = realSynth->LoadMod(fileEntry.get_text().c_str(), 
+			if ((loaded = realSynth->LoadMod(fileEntry.get_text().c_str(),
 											 chanNum, (float)dspAmp.get_value()
 					 )) == NULL)
 			{
@@ -159,8 +152,7 @@ void PatchSelWindow::LoadPatch (void)
 				dspAmp.set_sensitive(true);
 			}
 
-			synthMutex->unlock();
-		} 
+		}
 	}
 
 }
@@ -193,11 +185,7 @@ void PatchSelWindow::SetChannelAmp (void)
 
 			(*iter)[patchViewCols.amp] = *val;
 
-			synthMutex->lock();
-
 			realSynth->SetChanArg(chanNum, arg);
-
-			synthMutex->unlock();
 		} 
 	}
 

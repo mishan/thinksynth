@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.40 2004/03/26 09:28:35 joshk Exp $ */
+/* $Id: thSynth.h,v 1.41 2004/03/29 23:54:30 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -56,6 +56,8 @@ private:
 	int thChans;  /* Number of channels (mono/stereo/etc) */
 	int thWindowlen;
 	long thSamples; /* the number of samples per second*/
+
+	pthread_mutex_t *synthMutex;
 };
 
 #endif /* TH_SYNTH_H */

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.147 2004/03/27 03:28:52 misha Exp $ */
+/* $Id: main.cpp,v 1.148 2004/03/29 23:54:30 misha Exp $ */
 
 #include "config.h"
 
@@ -32,8 +32,6 @@
 #include "parser.h"
 
 #include "ui.h"
-
-Glib::Mutex *synthMutex = NULL;
 
 void cleanup (int signum)
 {
@@ -265,7 +263,6 @@ int main (int argc, char *argv[])
 
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 	
-	synthMutex = new Glib::Mutex;
 	Glib::Thread *const ui = Glib::Thread::create(
 		SigC::slot(&ui_thread), true);
 
@@ -273,9 +270,6 @@ int main (int argc, char *argv[])
 	   integer internally based on format data */
 	try
 	{
-		// XXX
-		synthMutex->lock();
-
 		/* XXX: note that this is actually bad since there are potentially
 		   other /dev/dsp devices */
 		audiofmt.channels = Synth.GetChans();
@@ -326,9 +320,6 @@ int main (int argc, char *argv[])
 
 			}
 		}
-
-		// XXX
-		synthMutex->unlock();
 	}
 
 	/* XXX: handle these exceptions and consolidate them to one exception
@@ -363,21 +354,15 @@ int main (int argc, char *argv[])
 			{
 				if(pfds[j].revents > 0)
 				{
-					synthMutex->lock();
 					processmidi(&Synth, seq_handle);
-					synthMutex->unlock();
 				}
 			}
 			for(j = seq_nfds; j < seq_nfds + nfds; j++)
 			{
 				if (pfds[j].revents > 0)
 				{
-					synthMutex->lock();
-
 					int l = Synth.GetWindowLen();
 					Synth.Process();
-					
-					synthMutex->unlock();
 
 					if(outputstream->Write(synthbuffer, l) < l)
 					{

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.76 2004/03/26 09:28:35 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.77 2004/03/29 23:54:30 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -21,6 +21,9 @@
 
 thSynth::thSynth (void)
 {
+	synthMutex = new pthread_mutex_t;
+	pthread_mutex_init(synthMutex, NULL);
+
 	/* XXX: these should all be arguments and we should have corresponding
 	   accessor/mutator methods for these arguments */
 
@@ -43,6 +46,9 @@ thSynth::thSynth (void)
 
 thSynth::thSynth(thSynth *copySynth)
 {
+	synthMutex = new pthread_mutex_t;
+	pthread_mutex_init(synthMutex, NULL);
+
 	thWindowlen = copySynth->GetWindowLen();
 	thChans     = copySynth->GetChans();
 	thSamples   = copySynth->GetSamples();
@@ -61,6 +67,8 @@ thSynth::~thSynth (void)
 
 	DestroyMap(modlist);
 	free(channels);
+
+	pthread_mutex_destroy(synthMutex);
 }
 
 thMod * thSynth::LoadMod (const string &filename)
@@ -70,6 +78,8 @@ thMod * thSynth::LoadMod (const string &filename)
 				 strerror(errno));
 		return NULL;
 	}
+
+	pthread_mutex_lock(synthMutex);
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
@@ -87,13 +97,17 @@ thMod * thSynth::LoadMod (const string &filename)
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
 
+	pthread_mutex_unlock(synthMutex);
+
 	return parsemod;
 }
 
 thMod * thSynth::LoadMod (FILE *input)
 {
 	if (!input)
-	  return NULL;
+		return NULL;
+
+	pthread_mutex_lock(synthMutex);
 	
 	yyin = input;
 
@@ -109,6 +123,8 @@ thMod * thSynth::LoadMod (FILE *input)
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
+
+	pthread_mutex_unlock(synthMutex);
 
 	return parsemod;
 }
@@ -127,7 +143,11 @@ void thSynth::SetChanArg (int channum, thArg *arg)
 		return;
 	}
 
+	pthread_mutex_lock(synthMutex);
+
 	chan->SetArg(arg);
+
+	pthread_mutex_unlock(synthMutex);
 }
 
 thArg *thSynth::GetChanArg (int channum, const string &argname)
@@ -145,7 +165,6 @@ thArg *thSynth::GetChanArg (int channum, const string &argname)
 	}
 
 	return chan->GetArg(argname);
-
 }
 
 thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
@@ -155,6 +174,8 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 				 strerror(errno));
 		return NULL;
 	}
+
+	pthread_mutex_lock(synthMutex);
 
 	/* XXX: do we re-allocate these everytime we read a new input file?? */
 	/* these are used by the parser */
@@ -193,12 +214,10 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	}
 
 	channels[channum] = new thMidiChan(parsemod, amp, thWindowlen);
-/* Shouldn't be used until most DSPs have valid descriptions. */
-#if 0
-	patchlist[channum] = parsemod->GetDesc();
-#else
+
 	patchlist[channum] = filename;
-#endif
+
+	pthread_mutex_unlock(synthMutex);
 
 	return parsemod;
 }
@@ -217,6 +236,8 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 {
 	thMidiChan **newchans;
 	int newchancount = channelcount;
+
+	pthread_mutex_lock(synthMutex);
 
 	if (channum > channelcount)
 	{
@@ -239,6 +260,8 @@ void thSynth::AddChannel (int channum, const string &modname, float amp)
 	}
 
 	channels[channum] = new thMidiChan(FindMod(modname), amp, thWindowlen);
+
+	pthread_mutex_unlock(synthMutex);
 }
 
 thMidiNote *thSynth::AddNote (int channum, float note,
@@ -253,7 +276,11 @@ thMidiNote *thSynth::AddNote (int channum, float note,
 		return NULL;
 	}
 
+	pthread_mutex_lock(synthMutex);
+
 	thMidiNote *newnote = chan->AddNote(note, velocity);
+
+	pthread_mutex_unlock(synthMutex);
 
 	return newnote;
 }
@@ -269,20 +296,27 @@ int thSynth::SetNoteArg (int channum, int note, char *name,
 
 		return 1;
 	}
+
+	pthread_mutex_lock(synthMutex);
 	
 	chan->SetNoteArg (note, name, value, len);
+
+	pthread_mutex_unlock(synthMutex);
 
 	return 0;
 }
 
 void thSynth::Process (void)
 {
-	memset(thOutput, 0, thChans * thWindowlen * sizeof(float));
 
 	int mixchannels, notechannels;
 	thMidiChan *chan;
 	float *chanoutput;
 	int i;
+
+	pthread_mutex_lock(synthMutex);
+
+	memset(thOutput, 0, thChans * thWindowlen * sizeof(float));
 
 	for (i = 0; i < channelcount; i++)
 	{
@@ -309,6 +343,8 @@ void thSynth::Process (void)
 			}
 		}
 	}
+
+	pthread_mutex_unlock(synthMutex);
 }
 
 void thSynth::PrintChan(int chan)
