@@ -54,7 +54,7 @@ description "Made for brass";
 	@famt = 2;
 	@famt.widget = 1;
 	@famt.min = 0;
-	@famt.max = 4;
+	@famt.max = 16;
 	@famt.label = "Filter Envelope";
 
 	@oscmul = 2;
