@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.16 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: adsr.cpp,v 1.17 2003/06/24 21:14:04 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -130,10 +130,20 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				play[i] = 1;
 				out[i] = ((temp-(position++))/temp)*temp2;
 			}
+
+			if((*in_trigger)[i] == 1) { // We have been retriggered
+				position = 0;
+				phase = 0;
+			}
 			break;
 		case 4:   /* The note has ended and we are padding with 0 */
 			play[i] = 0;
 			out[i] = 0;
+
+			 if((*in_trigger)[i] == 1) { // We have been retriggered
+                                position = 0;
+                                phase = 0;
+                        }
 			break;
 		}
 	}
