@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.6 2004/11/09 07:09:38 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.7 2004/11/09 07:20:43 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,6 +32,9 @@ MidiMap::MidiMap (thSynth *argsynth)
 	set_title("MIDI Controller Routing");
 
 	mainVBox = manage(new Gtk::VBox);
+	newConnectionFrame = manage(new Gtk::Frame("Connection Source"));
+	destinationFrame = manage(new Gtk::Frame("Connection Destination"));
+	detailsFrame = manage(new Gtk::Frame("Connection Details"));
 	newConnectionHBox = manage(new Gtk::HBox);
 	destinationHBox = manage(new Gtk::HBox);
 	detailsHBox = manage(new Gtk::HBox);
@@ -73,18 +76,21 @@ MidiMap::MidiMap (thSynth *argsynth)
 	newConnectionHBox->pack_start(*channelSpinBtn, Gtk::PACK_EXPAND_WIDGET);
 	newConnectionHBox->pack_start(*controllerLbl, Gtk::PACK_EXPAND_WIDGET);
 	newConnectionHBox->pack_start(*controllerSpinBtn, Gtk::PACK_EXPAND_WIDGET);
+	newConnectionFrame->add(*newConnectionHBox);
 
 	destinationHBox->pack_start(*destChanCombo, Gtk::PACK_EXPAND_WIDGET);
 	destinationHBox->pack_start(*destArgCombo, Gtk::PACK_EXPAND_WIDGET);
+	destinationFrame->add(*destinationHBox);
 
 	detailsHBox->pack_start(*minLbl, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox->pack_start(*minSpinBtn, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox->pack_start(*maxLbl, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox->pack_start(*maxSpinBtn, Gtk::PACK_EXPAND_WIDGET);
+	detailsFrame->add(*detailsHBox);
 
-	mainVBox->pack_start(*newConnectionHBox, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox->pack_start(*destinationHBox, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox->pack_start(*detailsHBox, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox->pack_start(*newConnectionFrame, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox->pack_start(*destinationFrame, Gtk::PACK_EXPAND_WIDGET);
+	mainVBox->pack_start(*detailsFrame, Gtk::PACK_EXPAND_WIDGET);
 	mainVBox->pack_start(*addBtn, Gtk::PACK_EXPAND_WIDGET);
 
 

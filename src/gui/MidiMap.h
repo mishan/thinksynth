@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.5 2004/11/09 07:09:38 ink Exp $ */
+/* $Id: MidiMap.h,v 1.6 2004/11/09 07:20:43 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -44,8 +44,11 @@ protected:
 
 	Gtk::VBox *mainVBox;
 	Gtk::HBox *newConnectionHBox;
+	Gtk::Frame *newConnectionFrame;
 	Gtk::HBox *destinationHBox;
+	Gtk::Frame *destinationFrame;
 	Gtk::HBox *detailsHBox;
+	Gtk::Frame *detailsFrame;
 	Gtk::Label *channelLbl;
 	Gtk::SpinButton *channelSpinBtn;
 	Gtk::Label *controllerLbl;
