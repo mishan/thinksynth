@@ -103,7 +103,6 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	}
 	notecount++; /* see notecount_decay++ comment */
 
-/* XXXXXXXXXXXXXXXXXXX: THIS IS BAD   WE MUST REMAP ALLLLL MIDI VALUS AT THE SAME TIME (but we only really have this one right now) */
 	midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
 	notes[id] = midinote;
 
