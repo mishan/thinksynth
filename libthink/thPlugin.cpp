@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.22 2003/04/27 10:17:12 aaronl Exp $ */
+/* $Id: thPlugin.cpp,v 1.23 2003/04/29 02:03:59 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -75,8 +75,9 @@ void thPlugin::SetDesc (const char *desc)
 
 int thPlugin::ModuleLoad (void)
 {
-	int (*module_init) (int version, thPlugin *plugin);
-
+	int (*module_init) (thPlugin *plugin);
+	short* plug_apiversion;
+	
 	plugHandle = dlopen(plugPath, RTLD_NOW);
 	
 	if(plugHandle == NULL) {
@@ -92,17 +93,29 @@ int thPlugin::ModuleLoad (void)
 
 	/* Retrieve plugin's module_init (hopefully it exists!) */
 	
-	module_init = (int (*)(int, thPlugin *))dlsym (plugHandle, "module_init");
+	module_init = (int (*)(thPlugin *))dlsym (plugHandle, "module_init");
 
 	if (module_init == NULL) {
 		fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_init' symbol\n");		
 		goto loaderr;
 	}
 
-	/* Now that we have *something* for sure, let's call it and see
-	 * whether it screws up. */
+	/* Verify that the API version of the plugin matches our version. */
+	plug_apiversion = (short*)dlsym(plugHandle, "apiversion");
 
-	if (module_init (MODULE_IFACE_VER, this) != 0) {
+	if (plug_apiversion == NULL) {
+		fprintf(stderr, "thPlugin::ModuleLoad: API version symbol missing\n");
+		goto loaderr;
+	}
+
+	if (*plug_apiversion != MODULE_IFACE_VER) {
+		fprintf(stderr, "thPlugin::ModuleLoad: API version mismatch\n");
+		goto loaderr;
+	}
+	
+	/* We're semi sure that nothing bad is going to happen, so let's initialize the plugin. */
+
+	if (module_init (this) != 0) {
 		fprintf (stderr, "thPlugin::ModuleLoad: plugin initialization exited with an error\n");
 		goto loaderr;
 	}
@@ -139,9 +152,10 @@ void thPlugin::ModuleUnload (void)
 	
 	void (*module_cleanup) (thPlugin *plug);
 
-	/* Invoke the plugin's module_cleanup if it exists */
+	/* Invoke the plugin's module_cleanup ... */
 	module_cleanup = (void (*)(thPlugin *))dlsym (plugHandle, "module_cleanup");
 	
+	/* ... only if it exists */
 	if (module_cleanup != NULL) {
 		module_cleanup (this);
 	}

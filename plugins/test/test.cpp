@@ -1,6 +1,4 @@
-/* $Id: test.cpp,v 1.7 2003/04/27 06:09:11 misha Exp $ */
-
-#define USE_PLUGIN
+/* $Id: test.cpp,v 1.8 2003/04/29 02:03:59 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,7 +16,7 @@
 char		*desc = "Test Plugin";
 thPluginState	mystate = thPassive;
 
-extern "C" int	module_init (int version, thPlugin *plugin);
+extern "C" int	module_init (thPlugin *plugin);
 extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
 extern "C" void module_cleanup (struct module *mod);
 
@@ -27,7 +25,7 @@ void module_cleanup (struct module *mod)
 	printf("Sample module unloading\n");
 }
 
-int module_init (int version, thPlugin *plugin)
+int module_init (thPlugin *plugin)
 {
 	printf("test plugin loaded\n");
 	

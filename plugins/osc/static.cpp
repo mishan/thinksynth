@@ -1,6 +1,4 @@
-/* $Id: static.cpp,v 1.9 2003/04/27 06:14:54 misha Exp $ */
-
-#define USE_PLUGIN
+/* $Id: static.cpp,v 1.10 2003/04/29 02:03:59 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -21,7 +19,7 @@
 char		*desc = "Produces Random Signal";
 thPluginState	mystate = thActive;
 
-extern "C" int	module_init (int version, thPlugin *plugin);
+extern "C" int	module_init (thPlugin *plugin);
 extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
 extern "C" void module_cleanup (struct module *mod);
 
@@ -32,7 +30,7 @@ void module_cleanup (struct module *mod)
 
 /* ModuleLoad() invokes this function with a pointer to the plugin
  * instance. */
-int module_init (int version, thPlugin *plugin)
+int module_init (thPlugin *plugin)
 {
 	printf("Static plugin loaded\n");
 	plugin->SetDesc (desc);

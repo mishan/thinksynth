@@ -1,9 +1,15 @@
-/* $Id: thPlugin.h,v 1.15 2003/04/28 21:48:26 ink Exp $ */
+/* $Id: thPlugin.h,v 1.16 2003/04/29 02:03:59 joshk Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
 
 #define MODULE_IFACE_VER 3
+
+/* We don't want this to exist unless we're using a plugin. */
+
+#ifdef PLUGIN_BUILD
+short apiversion = MODULE_IFACE_VER;
+#endif
 
 enum thPluginState { thActive, thPassive, thNotLoaded };
 
