@@ -6,8 +6,10 @@ node ionode {
 	channels = 2;
 	play = env->play;
 
-	subosc = 0.3;
-	res = 0.5;
+	waveform = 1;
+	pw = 0.3;
+	subosc = 0.4;
+	res = 0.7;
 };
 
 node freq misc::midi2freq {
@@ -48,8 +50,8 @@ node filt filt::ink {
 
 node osc1 osc::simple {
 	freq = freq->out;
-	waveform = 2;
-	pw = 0.6;
+	waveform = ionode->waveform;
+	pw = ionode->pw;
 };
 
 node osc2 osc::simple {
