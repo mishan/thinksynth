@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.55 2004/12/22 08:00:38 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.56 2004/12/22 09:15:53 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,7 +22,6 @@
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <assert.h>
 #include <string.h>
 #include <errno.h>
 #include <libgen.h>
@@ -84,6 +83,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchInfoTable.attach(patchCommentsWin,
 		0, 2, 5, 7, Gtk::FILL, Gtk::FILL, 5, 0); 
 		
+	patchComments.set_wrap_mode(Gtk::WRAP_WORD_CHAR);
 	patchCommentsWin.add(patchComments);
 	patchCommentsWin.set_shadow_type(Gtk::SHADOW_IN);
 	patchCommentsWin.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
@@ -182,7 +182,13 @@ void PatchSelWindow::UnloadDSP (void)
  			patchMgr->unloadPatch((*iter)[patchViewCols.chanNum]-1);
 
 			/* After deletion, nothing will be highlighted, so disable
-			 * things */
+			 * and clear things */
+			patchRevised.set_text("");
+			patchCategory.set_text("");
+			patchAuthor.set_text("");
+			patchTitle.set_text("");
+			patchComments.get_buffer()->set_text("");
+			
 			fileEntry.set_text("");
 			fileEntry.set_sensitive(false);
 			browseButton.set_sensitive(false);
@@ -215,9 +221,18 @@ bool PatchSelWindow::LoadPatch (void)
 			{
 				/* focus the new channel */
 				char* cstr = g_strdup_printf("%d", chanNum);
+				gthPatchManager::PatchFile *patch = patchMgr->getPatch(chanNum);
 				Gtk::TreeModel::Path p(cstr);
 				patchView.set_cursor(p);
 				free(cstr);
+
+				/* load up metadata */
+				patchRevised.set_text(patch->info["revised"]);
+				patchCategory.set_text(patch->info["category"]);
+				patchAuthor.set_text(patch->info["author"]);
+				patchTitle.set_text(patch->info["title"]);
+				patchComments.get_buffer()->set_text(patch->info["comments"]);
+
 				return true;
 			}
 			else
@@ -297,8 +312,6 @@ void PatchSelWindow::SavePatch (void)
 			string **vals = NULL;
 			int chan = (*iter)[patchViewCols.chanNum]-1;
 
-			assert (chan == currchan);
-		
 			/* cull metadata */
 			patch = patchManager->getPatch(chan);
 
@@ -355,8 +368,6 @@ void PatchSelWindow::SetChannelAmp (void)
 		{
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			float *val = new float;
-
-			assert (chanNum == currchan);
 
 			*val = (float)dspAmp.get_value();
 			thArg *arg = new thArg(string("amp"), val, 1);
