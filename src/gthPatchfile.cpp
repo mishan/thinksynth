@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.11 2004/11/28 02:54:39 joshk Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.12 2004/12/22 04:19:59 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -195,6 +195,33 @@ bool gthPatchManager::parse (const string &filename, int chan)
 			int len = 1;
 			char *comCnt;
 
+			/* Parse special info field */
+			if (key == "info")
+			{
+				/* first find the prop name */
+				char* p = strchr(argPtr, ' ');
+				*p++ = '\0';
+
+				if (*p)
+				{
+					/* Replace escaped newlines. */
+					string t = p;
+					unsigned int i;
+
+					while ((i = t.find ("\\n")) != string::npos)
+						t.replace (i, 2, "\n");
+
+					/* Now argPtr is the property name */
+					patches_[chan]->info[argPtr] = t;
+				}
+				else
+				{
+					goto owned;
+				}
+			}
+			else
+			{
+			
 			for(comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
 			{
 				len++;
@@ -262,6 +289,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 				/* erroneous directive ... */
 				goto owned;
 			}
+			}
 		}
 		
 	}
@@ -300,6 +328,22 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 		   PACKAGE_VERSION, ctime(&t));
 	fprintf(prefsFile, "dsp %s\n\n", patches_[chan]->dspFile.c_str());
 
+	for (PatchFileInfo::iterator k = patches_[chan]->info.begin();
+		k != patches_[chan]->info.end(); k++)
+	{
+		/* replace with \n */
+		string t = k->second;
+		unsigned int i;
+
+		if (t.size() > 0)
+		{
+			while ((i = t.find("\n")) != string::npos)
+				t.replace(i, 1, "\\n");
+	
+			fprintf(prefsFile, "info %s %s\n", k->first.c_str(), t.c_str());
+		}
+	}
+	
 	for (thMidiChan::ArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.17 2004/11/27 07:58:24 joshk Exp $ */
+/* $Id: PatchSelWindow.h,v 1.18 2004/12/22 04:19:59 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -75,6 +75,20 @@ protected:
 	Gtk::Label fileLabel;
 	Gtk::Entry fileEntry;
 
+	Gtk::Expander patchInfoExpander;
+	Gtk::Table patchInfoTable;
+	Gtk::Label patchRevisedLbl;
+	Gtk::Entry patchRevised;
+	Gtk::Label patchCategoryLbl;
+	Gtk::Entry patchCategory;
+	Gtk::Label patchAuthorLbl;
+	Gtk::Entry patchAuthor;
+	Gtk::Label patchTitleLbl;
+	Gtk::Entry patchTitle;
+	Gtk::Label patchCommentsLbl;
+	Gtk::ScrolledWindow patchCommentsWin;
+	Gtk::TextView patchComments;
+
 	Gtk::ScrolledWindow patchScroll;
 	Gtk::TreeView patchView;
 	Glib::RefPtr<Gtk::ListStore> patchModel;
@@ -86,6 +100,7 @@ private:
 	thSynth *synth;
 	char *prevDir;
 
+	int currchan;
 	type_signal_patch_name_changed m_signal_patch_name_changed;
 };
 

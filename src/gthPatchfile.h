@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.h,v 1.6 2004/11/26 01:15:11 joshk Exp $ */
+/* $Id: gthPatchfile.h,v 1.7 2004/12/22 04:19:59 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -49,8 +49,11 @@ public:
 	thMidiChan::ArgMap getChannelArgs (int chan);
 
 	typedef map<string, float> PatchFileArgs;
+	typedef map<string, string> PatchFileInfo;
 	struct PatchFile {
 		PatchFileArgs args;
+		PatchFileInfo info;
+
 		string dspFile;
 		string filename;
 	};

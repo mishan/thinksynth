@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.53 2004/11/28 22:15:22 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.54 2004/12/22 04:19:59 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,8 +41,17 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	  saveButton("Save As"),
 	  unloadButton("Unload"),
 	  ampLabel("Amplitude"),
-	  fileLabel("Filename")
+	  fileLabel("Filename"),
+	  patchInfoExpander("Patch information"),
+	  patchInfoTable(5, 2),
+	  patchRevisedLbl("Last revised:"),
+	  patchCategoryLbl("Patch category:"),
+	  patchAuthorLbl("Patch author:"),
+	  patchTitleLbl("Patch name:"),
+	  patchCommentsLbl("Patch description/comments:")
 {
+	currchan = -1;
+	
 	synth = argsynth;
 
 	set_default_size(475, 400);
@@ -50,6 +59,33 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	set_title("thinksynth - Patch Selector");
 
 	add(vbox);
+
+	patchInfoExpander.add(patchInfoTable);
+
+	patchInfoTable.attach(patchRevisedLbl,
+		0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+	patchInfoTable.attach(patchRevised,
+		0, 1, 1, 2, Gtk::FILL, Gtk::FILL, 5, 0);
+	patchInfoTable.attach(patchCategoryLbl,
+		1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
+	patchInfoTable.attach(patchCategory,
+		1, 2, 1, 2, Gtk::FILL, Gtk::FILL, 5, 0);
+	patchInfoTable.attach(patchAuthorLbl,
+		0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK);
+	patchInfoTable.attach(patchAuthor,
+		0, 1, 3, 4, Gtk::FILL, Gtk::FILL, 5, 0);
+	patchInfoTable.attach(patchTitleLbl,
+		1, 2, 2, 3, Gtk::SHRINK, Gtk::SHRINK);
+	patchInfoTable.attach(patchTitle,
+		1, 2, 3, 4, Gtk::FILL, Gtk::FILL, 5, 0);
+	patchInfoTable.attach(patchCommentsLbl,
+		0, 2, 4, 5, Gtk::SHRINK, Gtk::SHRINK);
+	patchInfoTable.attach(patchCommentsWin,
+		0, 2, 5, 7, Gtk::FILL, Gtk::FILL, 5, 0); 
+		
+	patchCommentsWin.add(patchComments);
+	patchCommentsWin.set_shadow_type(Gtk::SHADOW_IN);
+	patchCommentsWin.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
 
 	patchScroll.add(patchView);
 	patchScroll.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
@@ -88,6 +124,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	unloadButton.signal_clicked().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
 	
+	vbox.pack_start(patchInfoExpander, Gtk::PACK_SHRINK);
 	vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
 
 	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
@@ -340,17 +377,35 @@ void PatchSelWindow::CursorChanged (void)
 {
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	/* This is the OLD patch from the previously selected channel */
+	gthPatchManager::PatchFile *oldpatch = NULL;
 	bool loaded;
+	
+	if (currchan > 0)
+		oldpatch = patchMgr->getPatch(currchan);
 
 	if(refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
 		iter = refSelection->get_selected();
 
+		/* save metadata from old patch */
+		if (oldpatch)
+		{
+			oldpatch->info["revised"] = patchRevised.get_text();
+			oldpatch->info["category"] = patchCategory.get_text();
+			oldpatch->info["author"] = patchAuthor.get_text();
+			oldpatch->info["title"] = patchTitle.get_text();
+			oldpatch->info["comments"] = patchComments.get_buffer()->get_text();
+		}
+
 		if(iter)
 		{
 			Glib::ustring filename = (*iter)[patchViewCols.dspName];
 			float amp = (*iter)[patchViewCols.amp];
+			currchan = (*iter)[patchViewCols.chanNum] - 1;
+			gthPatchManager::PatchFile *patch = patchMgr->getPatch(currchan);
 
 			/* make these widgets usable now that a valid row is
 			   selected */
@@ -365,10 +420,20 @@ void PatchSelWindow::CursorChanged (void)
 			 * to unload (except in your face) */
 			loaded = (filename != "");
 
+			/* populate metadata fields */
+			if (loaded)
+			{
+				patchRevised.set_text(patch->info["revised"]);
+				patchCategory.set_text(patch->info["category"]);
+				patchAuthor.set_text(patch->info["author"]);
+				patchTitle.set_text(patch->info["title"]);
+				patchComments.get_buffer()->set_text(patch->info["comments"]);
+			}
+
 			dspAmp.set_sensitive(loaded);
 			unloadButton.set_sensitive(loaded);
 			saveButton.set_sensitive(loaded);
-		} 
+		}
 	}
 }
 
