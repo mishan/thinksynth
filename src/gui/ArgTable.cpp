@@ -1,4 +1,4 @@
-/* $Id: ArgTable.cpp,v 1.3 2004/11/11 10:42:41 misha Exp $ */
+/* $Id: ArgTable.cpp,v 1.4 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -65,7 +65,7 @@ void ArgTable::insertArg (thArg *arg)
 			sigc::mem_fun(*this, &ArgTable::argChanged),
 			slider));
 
-	slider->set_value(arg->values_[0]);
+	slider->set_value((*arg)[0]);
 	
 	Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
 										   *argAdjust, .0001,

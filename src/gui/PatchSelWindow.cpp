@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.42 2004/11/11 05:51:03 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.43 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,12 +32,12 @@
 #include "PatchSelWindow.h"
 
 #include "gthPrefs.h"
-
-extern gthPrefs *prefs;
+#include "gthPatchfile.h"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
  	: dspAmp (0, MIDIVALMAX, 1),
 	  browseButton("Browse"),
+	  saveButton("Save As"),
 	  unloadButton("Unload"),
 	  ampLabel("Amplitude"),
 	  fileLabel("Filename")
@@ -63,40 +63,15 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	/* this is not to be used unless a valid amp arg is found */
 	dspAmp.set_sensitive(false);
 
-	std::map<int, string> *patchlist = synth->GetPatchlist();
-	int channelcount = synth->GetChannelCount();
-
 	patchModel = Gtk::ListStore::create (patchViewCols);
 	patchView.set_model(patchModel);
 
-	for(int i = 0; i < channelcount; i++)
-	{
-		Gtk::TreeModel::Row row = *(patchModel->append());
-		string filename = (*patchlist)[i];
-		thArg *amp = synth->GetChanArg(i, "amp");
-
-		/* populate the fields with the data from the first row */
-		if (i == 0)
-		{
-			fileEntry.set_text(filename);
-
-			if (amp)
-			{
-				/* make the slider sensitive since there is an amp arg */
-				dspAmp.set_sensitive(true);
-				dspAmp.set_value((double)(*amp)[0]);
-			}
-		}
-
-		row[patchViewCols.chanNum] = i + 1;
-		row[patchViewCols.dspName] = filename;
-		row[patchViewCols.amp] = amp ? (*amp)[0] : 0;
-	}
+	populate ();
 
 	patchView.append_column("Channel", patchViewCols.chanNum);
 	patchView.append_column("Filename", patchViewCols.dspName);
 	patchView.append_column("Amplitude", patchViewCols.amp);
-	
+
 	dspAmp.signal_value_changed().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
 
@@ -106,6 +81,9 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	browseButton.signal_clicked().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::BrowsePatch));
 
+	saveButton.signal_clicked().connect(
+		sigc::mem_fun(*this, &PatchSelWindow::SavePatch));
+
 	unloadButton.signal_clicked().connect(
 		sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
 	
@@ -113,17 +91,20 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 	controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
 	controlTable.attach(dspAmp, 1, 2, 0, 1);
+	controlTable.attach(saveButton, 2, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
 	controlTable.attach(fileLabel, 0, 1, 1, 2, Gtk::SHRINK,
 						Gtk::SHRINK, 0, 5);
 	controlTable.attach(fileEntry, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND,
 						Gtk::FILL|Gtk::EXPAND, 0, 5);
 	controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
-						0);
+						0); 
 	controlTable.attach(unloadButton, 3, 4, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5, 0); 
+
+	gthPrefs *prefs = gthPrefs::instance();
 
 	if (prefs)
 	{
-		string **vals = prefs->Get("dspdir");
+		string **vals = prefs->Get("patchdir");
 
 		if (vals)
 		{
@@ -138,6 +119,10 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	{
 		prevDir = strdup(DSP_PATH);
 	}
+
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	patchMgr->signal_patches_changed().connect(
+		sigc::mem_fun(*this, &PatchSelWindow::onPatchesChanged));
 }
 
 PatchSelWindow::~PatchSelWindow (void)
@@ -158,6 +143,7 @@ void PatchSelWindow::UnloadDSP (void)
 
 		if (iter)
 		{
+#if 0
 		  	/* Delete the thMidiChan + modnode */
 			thMidiChan *c = synth->GetChannel((*iter)[patchViewCols.chanNum] - 1);
 			synth->removeChan ((*iter)[patchViewCols.chanNum] - 1);
@@ -168,6 +154,8 @@ void PatchSelWindow::UnloadDSP (void)
 					delete m;
 				delete c;
 			}
+#endif
+			printf("WARNING! DSP is not actually being unloaded\n");
 
 			/* Zero everything */
 			(*iter)[patchViewCols.dspName] = "";
@@ -187,16 +175,42 @@ bool PatchSelWindow::LoadPatch (void)
 	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 		patchView.get_selection();
 
-	if(refSelection)
+	if (refSelection)
 	{
 		Gtk::TreeModel::iterator iter;
 		iter = refSelection->get_selected();
 
-		if(iter)
+		if (iter)
 		{
-			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
-			thMod *loaded = NULL;
+			int chanNum = (*iter)[patchViewCols.chanNum]-1;
+			gthPatchManager *patchMgr = gthPatchManager::instance();
 
+			printf("\nLOADING PATCH ONTO chanNum:%d\n", chanNum);
+
+			if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
+			{
+//				(*iter)[patchViewCols.dspName] = fileEntry.get_text();
+
+				dspAmp.set_sensitive(true);
+				unloadButton.set_sensitive(true);
+
+				return true;
+			}
+			else
+			{
+				char *error = g_strdup_printf("Couldn't load %s: %s",
+											  fileEntry.get_text().c_str(),
+											  strerror(errno));
+				Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
+
+				errorDialog.run();
+				g_free(error);
+				dspAmp.set_sensitive(false);
+
+				return false;
+			}
+
+/*			thMod *loaded = NULL;
 			if ((loaded = synth->LoadMod(fileEntry.get_text().c_str(),
 											 chanNum, (float)dspAmp.get_value()
 					 )) == NULL)
@@ -220,7 +234,7 @@ bool PatchSelWindow::LoadPatch (void)
 				unloadButton.set_sensitive(true);
 
 				return true;
-			}
+				} */
 
 		}
 	}
@@ -253,7 +267,48 @@ void PatchSelWindow::BrowsePatch (void)
 			vals[0] = new string(prevDir);
 			vals[1] = NULL;
 
-			prefs->Set("dspdir", vals);
+			gthPrefs *prefs = gthPrefs::instance();
+			prefs->Set("patchdir", vals);
+		}
+	}
+}
+
+void PatchSelWindow::SavePatch (void)
+{
+	gthPatchManager *patchManager = gthPatchManager::instance();
+	Gtk::FileSelection fileSel("thinksynth - Save Patch");
+	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
+		patchView.get_selection();
+
+	if (refSelection)
+	{
+		Gtk::TreeModel::iterator iter;
+		iter = refSelection->get_selected();
+
+		if (prevDir)
+			fileSel.set_filename(prevDir);
+
+		if(fileSel.run() == Gtk::RESPONSE_OK)
+		{
+			patchManager->savePatch(fileSel.get_filename(), (*iter)[patchViewCols.chanNum]-1);
+
+			/* update prefs file "prevDir" info */
+			fileEntry.set_text(fileSel.get_filename());
+
+			char *file = strdup(fileSel.get_filename().c_str());
+
+			if (prevDir)
+				free (prevDir);
+
+			prevDir = g_strdup_printf("%s/", dirname(file));
+			free (file);
+
+			string **vals = new string *[2];
+			vals[0] = new string(prevDir);
+			vals[1] = NULL;
+		
+			gthPrefs *prefs = gthPrefs::instance();
+			prefs->Set("patchdir", vals);
 		}
 	}
 }
@@ -339,6 +394,58 @@ void PatchSelWindow::CursorChanged (void)
 
 			dspAmp.set_sensitive(loaded);
 			unloadButton.set_sensitive(loaded);
+			saveButton.set_sensitive(loaded);
 		} 
 	}
+}
+
+void PatchSelWindow::populate (void)
+{
+//	std::map<int, string> *patchlist = synth->GetPatchlist();
+//	int channelcount = synth->GetChannelCount();
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	int chancount = patchMgr->numPatches();
+
+	patchModel->clear();
+
+	for(int i = 0; i < chancount; i++)
+	{
+		Gtk::TreeModel::Row row = *(patchModel->append());
+		gthPatchManager::Patch *patch = patchMgr->getPatch(i);
+
+		/* reset initial values */
+		row[patchViewCols.chanNum] = i + 1;
+		row[patchViewCols.amp] = 0;
+		row[patchViewCols.dspName] = "";
+
+		if (patch == NULL)
+			continue;
+
+		string filename = patch->filename;
+		thArg *amp = synth->GetChanArg(i, "amp");
+
+		/* populate the fields with the data from the first row */
+		if (i == 0)
+		{
+			fileEntry.set_text(filename);
+
+			if (amp)
+			{
+				/* make the slider sensitive since there is an amp arg */
+				dspAmp.set_sensitive(true);
+				dspAmp.set_value((double)(*amp)[0]);
+			}
+		}
+
+		row[patchViewCols.chanNum] = i + 1;
+		row[patchViewCols.dspName] = filename.length() == 0 ? 
+			"(Untitled)" : filename;
+		row[patchViewCols.amp] = amp ? (*amp)[0] : 0;
+	}
+}
+
+void PatchSelWindow::onPatchesChanged (void)
+{
+	printf("repopulating\n");
+	populate();
 }

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.48 2004/11/10 07:10:13 ink Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.49 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,6 +25,7 @@
 #include <errno.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <libgen.h>
 
 #include <gtkmm.h>
 #include <gtkmm/messagedialog.h>
@@ -44,6 +45,7 @@
 #endif
 
 #include "../gthPrefs.h"
+#include "../gthPatchfile.h"
 
 /* SUPER XXX */
 bool chosen = false;
@@ -122,10 +124,26 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	
 	add(vbox);
 
+	dspEntryLbl.set_label("DSP File: ");
+	dspBrowseBtn.set_label("Browse");
+	dspEntryBox.pack_start(dspEntryLbl, Gtk::PACK_SHRINK);
+	dspEntryBox.pack_start(dspEntry, Gtk::PACK_EXPAND_WIDGET);
+	dspEntryBox.pack_start(dspBrowseBtn, Gtk::PACK_SHRINK);
+
+	dspEntry.signal_activate().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::onDspEntryActivate));
+
+	dspBrowseBtn.signal_clicked().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::onBrowseButton));
+
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
+	vbox.pack_start(dspEntryBox, Gtk::PACK_SHRINK);
 	vbox.pack_start(notebook, Gtk::PACK_EXPAND_WIDGET);
 
 	notebook.set_scrollable();
+
+	notebook.signal_switch_page().connect(
+		sigc::mem_fun(*this, &MainSynthWindow::onSwitchPage));
 
 	populate();
 
@@ -335,125 +353,155 @@ void MainSynthWindow::menuAbout (void)
 		sigc::mem_fun(*this, &MainSynthWindow::onAboutBoxHide));
 }
 
+void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
+{
+	if (is_real == false)
+	{
+		Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
+		lbl->set_justify(Gtk::JUSTIFY_CENTER);
+		notebook.append_page(*lbl, tabName);
+		return;
+	}
+
+	std::map<string, thArg *> args = synth->GetChanArgs(num);
+
+	/* only 'amp' */
+	if (args.size() == 1)
+	{
+		Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
+		sorry->set_justify(Gtk::JUSTIFY_CENTER);
+		notebook.append_page(*sorry, tabName);
+		return;
+	}
+		
+	Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
+	Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
+	Gtk::Frame *info_frame = manage(new Gtk::Frame);
+	Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
+
+	tab_view->add(*tab_vbox);
+	tab_view->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+
+	info_frame->set_label("DSP Information");
+	info_frame->add(*info_table);
+
+	info_table->set_col_spacings(5);
+	info_table->set_row_spacings(5);
+
+	thArg *dspName = args["name"];
+
+	if (dspName)
+	{
+		Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
+		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->getComment()));
+
+		lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
+		rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+
+		info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::FILL, Gtk::FILL);
+		info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
+	}
+
+	thArg *dspAuthor = args["author"];
+
+	if (dspAuthor)
+	{
+		Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
+		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->getComment()));
+
+		lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
+		rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+
+		
+		info_table->attach(*lname_lbl, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
+		info_table->attach(*rname_lbl, 1, 2, 1, 2, Gtk::FILL, Gtk::FILL);
+	}
+
+	thArg *dspDesc = args["desc"];
+
+	if (dspDesc)
+	{
+		Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
+		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->getComment()));
+
+		lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
+		rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+		
+		info_table->attach(*lname_lbl, 0, 1, 2, 3, Gtk::FILL, Gtk::FILL);
+		info_table->attach(*rname_lbl, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
+	}
+
+	Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
+	ArgTable *dsp_table = manage(new ArgTable);
+
+	dsp_frame->set_label("DSP Parameters");
+	dsp_frame->add(*dsp_table);
+		
+	tab_vbox->pack_start(*info_frame, Gtk::PACK_SHRINK);
+	tab_vbox->pack_start(*dsp_frame);
+
+	/* populate each tab */
+	for (std::map<string, thArg *>::iterator j = args.begin();
+		 j != args.end(); j++)
+	{
+		string argName = j->first;
+		thArg *arg = j->second;
+
+		if (arg == NULL)
+			continue;
+
+		switch (arg->getWidgetType())
+		{
+			case thArg::HIDE:
+				break;
+			case thArg::SLIDER:
+			{
+				dsp_table->insertArg(arg);
+				break;				
+			}
+			default:
+				break;
+		}
+	}
+
+	notebook.append_page(*tab_view, tabName);
+
+}
+
 void MainSynthWindow::populate (void)
 {
 	/* populate notebook */
-	std::map<int, string> *patchList = synth->GetPatchlist();
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	int numPatches = patchMgr->numPatches();
 
-	for (std::map<int, string>::iterator i = patchList->begin();
-		 i != patchList->end(); i++)
+	for (int i = 0; i < numPatches; i++)
 	{
-		string tabName = i->second;
+		gthPatchManager::Patch *patch = patchMgr->getPatch(i);
 
-		if (tabName.length() == 0)
-			continue;
-
-		/* display channel # */
-		tabName = g_strdup_printf("%d: %s", i->first + 1,
-			basename(tabName.c_str()));
-
-		std::map<string, thArg *> args = synth->GetChanArgs(i->first);
-		
-		/* only 'amp' */
-		if (args.size() == 1)
+		if (patch == NULL)
 		{
-			Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
-			sorry->set_justify(Gtk::JUSTIFY_CENTER);
-			notebook.append_page(*sorry, tabName);
+			/* XXX: BAD */
+			string tabName = g_strdup_printf("%d: (Untitled)", i+1);
+			append_tab (tabName, i, false);
+
 			continue;
 		}
-		
-		Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
-		Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
-		Gtk::Frame *info_frame = manage(new Gtk::Frame);
-		Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
 
-		tab_view->add(*tab_vbox);
-		tab_view->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
-
-		info_frame->set_label("DSP Information");
-		info_frame->add(*info_table);
-
-		info_table->set_col_spacings(5);
-		info_table->set_row_spacings(5);
-
-		thArg *dspName = args["name"];
-
-		if (dspName)
+		string tabName;
+		if (patch->filename.length() > 0)
 		{
-			Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
-			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->getComment()));
+			tabName = patch->filename;
 
-			lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
-			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
-
-			info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::FILL, Gtk::FILL);
-			info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
+			/* display channel # */
+			tabName = g_strdup_printf("%d: %s", i + 1,
+									  basename((char *)tabName.c_str()));
+		}
+		else
+		{
+			tabName = g_strdup_printf("%d: (Untitled)", i+1);
 		}
 
-		thArg *dspAuthor = args["author"];
-
-		if (dspAuthor)
-		{
-			Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
-			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->getComment()));
-
-			lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
-			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
-
-		
-			info_table->attach(*lname_lbl, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
-			info_table->attach(*rname_lbl, 1, 2, 1, 2, Gtk::FILL, Gtk::FILL);
-		}
-
-		thArg *dspDesc = args["desc"];
-
-		if (dspDesc)
-		{
-			Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
-			Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->getComment()));
-
-			lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
-			rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
-		
-			info_table->attach(*lname_lbl, 0, 1, 2, 3, Gtk::FILL, Gtk::FILL);
-			info_table->attach(*rname_lbl, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
-		}
-
-		Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
-		ArgTable *dsp_table = manage(new ArgTable);
-
-		dsp_frame->set_label("DSP Parameters");
-		dsp_frame->add(*dsp_table);
-
-		tab_vbox->pack_start(*info_frame, Gtk::PACK_SHRINK);
-		tab_vbox->pack_start(*dsp_frame);
-
-		/* populate each tab */
-		for (std::map<string, thArg *>::iterator j = args.begin();
-			 j != args.end(); j++)
-		{
-			string argName = j->first;
-			thArg *arg = j->second;
-
-			if (arg == NULL)
-				continue;
-
-			switch (arg->getWidgetType())
-			{
-				case thArg::HIDE:
-					break;
-				case thArg::SLIDER:
-				{
-					dsp_table->insertArg(arg);
-					break;				
-				}
-				default:
-					break;
-			}
-		}
-
-		notebook.append_page(*tab_view, tabName);
+		append_tab (tabName, i, true);
 	}
 
 }
@@ -483,4 +531,80 @@ void MainSynthWindow::onAboutBoxHide (void)
 void MainSynthWindow::onKeyboardHide (KeyboardWindow *kbwin)
 {
 	delete kbwin;
+}
+
+void MainSynthWindow::onSwitchPage (GtkNotebookPage *p, int pagenum)
+{
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	gthPatchManager::Patch *patch = patchMgr->getPatch(pagenum);
+
+	if (patch == NULL)
+	{
+		dspEntry.set_text("");
+		return;
+	}
+
+	dspEntry.set_text(patch->dspFile);
+}
+
+void MainSynthWindow::onDspEntryActivate (void)
+{
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	string dspfile = dspEntry.get_text();
+	int pagenum = notebook.get_current_page();
+
+	
+	if (patchMgr->newPatch(dspfile, pagenum) == false)
+	{
+		printf("ERROR! Could not load DSP... [Pop-up a dialog]\n");
+		return;
+	}
+
+	notebook.hide_all();
+	notebook.pages().clear();
+	populate();
+	notebook.show_all();
+}
+
+void MainSynthWindow::onBrowseButton (void)
+{
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	int pagenum = notebook.get_current_page();
+	Gtk::FileSelection fileSel("thinksynth - Load Patch");
+
+	if (prevDir)
+		fileSel.set_filename(prevDir);
+
+	if(fileSel.run() == Gtk::RESPONSE_OK)
+	{
+		dspEntry.set_text(fileSel.get_filename());
+
+		if(patchMgr->newPatch(fileSel.get_filename(), pagenum))
+		{
+			char *file = strdup(fileSel.get_filename().c_str());
+
+			if (prevDir)
+				free (prevDir);
+
+			prevDir = g_strdup_printf("%s/", dirname(file));
+			free (file);
+
+			string **vals = new string *[2];
+			vals[0] = new string(prevDir);
+			vals[1] = NULL;
+
+			gthPrefs *prefs = gthPrefs::instance();
+			prefs->Set("patchdir", vals);
+
+			/* load up the patch file */
+			notebook.hide_all();
+			notebook.pages().clear();
+			populate();
+			notebook.show_all();
+		}
+		else
+		{
+			printf("ERROR! Could not load DSP... [Pop-up a dialog]\n");
+		}
+	}
 }

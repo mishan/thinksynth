@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.17 2004/10/28 01:21:47 ink Exp $ */
+/* $Id: MainSynthWindow.h,v 1.18 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -44,6 +44,7 @@ protected:
 	void menuJackDis (void);
 	void menuJackAuto (void);
 
+	void append_tab (const string &tabName, int num, bool is_real);
 	void populate (void);
 
 	void channelChanged (string filename, int chan, float amp);
@@ -51,12 +52,21 @@ protected:
 
 	void onAboutBoxHide (void);
 	void onKeyboardHide (KeyboardWindow *kbwin);
+	void onSwitchPage (GtkNotebookPage *p, int pagenum);
+	void onDspEntryActivate (void);
+	void onBrowseButton (void);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;
 	Gtk::Menu menuFile;
 	Gtk::Menu menuJack;
 	Gtk::Menu menuHelp;
+
+	Gtk::Entry dspEntry;
+	Gtk::Label dspEntryLbl;
+	Gtk::Button dspBrowseBtn;
+	Gtk::HBox dspEntryBox;
+
 	Gtk::Notebook notebook;
 
 	PatchSelWindow *patchSel;
@@ -66,6 +76,7 @@ private:
 	gthPrefs *prefs;
 	AboutBox *aboutBox;
 	MidiMap *midiMap;
+	char *prevDir;
 
 	void toggleConnects(void);
 };

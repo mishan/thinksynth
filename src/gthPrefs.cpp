@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.14 2004/09/24 00:38:40 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.15 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,7 +26,10 @@
 #include "think.h"
 
 #include "gthPrefs.h"
+#include "gthPatchfile.h"
 #include "gui-util.h"
+
+gthPrefs *gthPrefs::instance_ = NULL;
 
 #if 0
 static void remove_string(char *line, int index, int numchars)
@@ -41,26 +44,33 @@ static void remove_string(char *line, int index, int numchars)
 }
 #endif
 
-gthPrefs::gthPrefs (thSynth *argsynth)
+gthPrefs::gthPrefs (void)
 {
 	prefsPath = string(getenv("HOME")) + string("/") + PREFS_FILE;
-	synth = argsynth;
+
+	if (instance_ == NULL)
+		instance_ = this;
 }
 
-gthPrefs::gthPrefs (thSynth *argsynth, const string &path)
+gthPrefs::gthPrefs (const string &path)
 {
 	prefsPath = path;
-	synth = argsynth;
+
+	if (instance_ == NULL)
+		instance_ = this;
 }
 
 gthPrefs::~gthPrefs (void)
 {
+	if (instance_ == this)
+		instance_ = NULL;
 }
 
 void gthPrefs::Load (void)
 {
 	FILE *prefsFile;
 	char buffer[256];
+	thSynth *synth = thSynth::instance();
 
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
@@ -122,9 +132,13 @@ void gthPrefs::Load (void)
 			/* XXX: handle specific cases here for now */
 			if (key == "channel" && values[0] && values[1])
 			{
-				synth->LoadMod(values[1]->c_str(),
+				printf("loading DSP\n");
+				gthPatchManager *patchMgr = gthPatchManager::instance();
+				patchMgr->loadPatch(*values[1], atoi(values[0]->c_str()));
+/*				synth->LoadMod(values[1]->c_str(),
 							   atoi(values[0]->c_str()),
-							   values[2] ? atof(values[2]->c_str()) : 0 );
+							   values[2] ? atof(values[2]->c_str()) : 0 ); */
+//				printf("WARNING! Not loading DSP..\n");
 			}
 			else
 			{
@@ -138,6 +152,7 @@ void gthPrefs::Load (void)
 
 void gthPrefs::Save (void)
 {
+	thSynth *synth = thSynth::instance();
 	FILE *prefsFile;
 
 	if ((prefsFile = fopen(prefsPath.c_str(), "w")) == NULL)

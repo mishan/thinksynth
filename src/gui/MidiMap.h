@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.14 2004/11/11 01:07:44 ink Exp $ */
+/* $Id: MidiMap.h,v 1.15 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -61,6 +61,9 @@ protected:
 	void onExpToggled (void);
 	void onConnectionSelected (GdkEventButton *b);
 	void onConnectionMoved (void);
+	void onSynthChannelChanged (string filename, int chan, float amp);
+	void onSynthChannelDeleted (int chan);
+
 
 	Gtk::Adjustment *channelAdj_;
 	Gtk::Adjustment *controllerAdj_;

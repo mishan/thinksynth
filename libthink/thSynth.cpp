@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.108 2004/10/21 22:47:13 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.109 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,6 +30,8 @@
 #include "think.h"
 #include "parser.h"
 
+thSynth *thSynth::instance_ = NULL;
+
 thSynth::thSynth (int windowlen, int samples)
 {
 	synthMutex = new pthread_mutex_t;
@@ -55,6 +57,9 @@ thSynth::thSynth (int windowlen, int samples)
 	pluginmanager = new thPluginManager(PLUGIN_PATH);
 
 	controllerHandler_ = new thMidiController();
+
+	if (instance_ == NULL)
+		instance_ = this;
 }
 
 thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
@@ -81,6 +86,9 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 	pluginmanager = new thPluginManager(plugin_path);
 
 	controllerHandler_ = new thMidiController();
+
+	if (instance_ == NULL)
+		instance_ = this;
 }
 
 thSynth::~thSynth (void)
@@ -92,6 +100,9 @@ thSynth::~thSynth (void)
 
 	pthread_mutex_destroy(synthMutex);
 	delete synthMutex;
+
+	if (instance_ == this)
+		instance_ = NULL;
 }
 
 void thSynth::removeChan (int channum)

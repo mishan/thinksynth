@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.18 2004/11/11 05:51:03 joshk Exp $ */
+/* $Id: MidiMap.cpp,v 1.19 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -47,12 +47,16 @@ MidiMap::MidiMap (thSynth *argsynth)
 	channelLbl_ = manage(new Gtk::Label("Midi Channel"));
 	channelAdj_ = manage(new Gtk::Adjustment(1, 1, 16));
 	channelSpinBtn_ = manage(new Gtk::SpinButton(*channelAdj_, 1, 0));
-	channelSpinBtn_->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onChannelChanged));
+	channelSpinBtn_->signal_value_changed().connect(
+		sigc::mem_fun(*this,&MidiMap::onChannelChanged));
+	selectedChan_ = 0;
 
 	controllerLbl_ = manage(new Gtk::Label("Controller"));
 	controllerAdj_ = manage(new Gtk::Adjustment(1, 1, 128));
 	controllerSpinBtn_ = manage(new Gtk::SpinButton(*controllerAdj_, 1, 0));
-	controllerSpinBtn_->signal_value_changed().connect(sigc::mem_fun(*this,&MidiMap::onControllerChanged));
+	controllerSpinBtn_->signal_value_changed().connect(
+		sigc::mem_fun(*this,&MidiMap::onControllerChanged));
+	selectedController_ = 0;
 
 	minLbl_ = manage(new Gtk::Label("Minimum"));
 	minAdj_ = manage(new Gtk::Adjustment(0, 0, 0));
@@ -135,6 +139,11 @@ MidiMap::MidiMap (thSynth *argsynth)
 	mainVBox_->pack_start(*inputVBox_, Gtk::PACK_SHRINK);
 
 	show_all_children();
+
+	synth_->signal_channel_changed().connect(
+		sigc::mem_fun(*this, &MidiMap::onSynthChannelChanged));
+	synth_->signal_channel_deleted().connect(
+		sigc::mem_fun(*this, &MidiMap::onSynthChannelDeleted));
 }
 
 MidiMap::~MidiMap (void)
@@ -479,4 +488,18 @@ void MidiMap::onDelButton (void)
 
 		populateConnections();
 	}
+}
+
+void MidiMap::onSynthChannelChanged (string filename, int chan, float amp)
+{
+/* XXX: WHAT IF THIS HAD A CONNECTION?!  FIX! */
+	setDestChanCombo();
+	setDestArgCombo(selectedChan_);
+}
+
+void MidiMap::onSynthChannelDeleted (int chan)
+{
+/* XXX: WHAT IF THIS HAD A CONNECTION?!  FIX! */
+	setDestChanCombo();
+	setDestArgCombo(selectedChan_);
 }

@@ -1,4 +1,4 @@
-/* $Id: gthSignal.h,v 1.7 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthSignal.h,v 1.8 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,8 +25,5 @@ typedef SigC::Signal2<void, int, float> sigNoteOff;
 
 extern sigNoteOn  m_sigNoteOn;
 extern sigNoteOff m_sigNoteOff;
-
-//extern sigReadyWrite m_sigReadyWrite;
-//extern sigMidiEvent m_sigMidiEvent;
 
 #endif /* GTH_SIGNAL_H */

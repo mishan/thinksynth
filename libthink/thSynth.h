@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.59 2004/11/10 02:09:19 ink Exp $ */
+/* $Id: thSynth.h,v 1.60 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,6 +35,10 @@ public:
 	thSynth (const string &plugin_path, int windowlen, int samples);
 	~thSynth (void);
 
+	static thSynth *instance (void) {
+		return instance_;
+	}
+
 	thMod* LoadMod(const string &filename);
 	thMod* LoadMod(const string &filename, int channum, float amp);
 	thMod* LoadMod(FILE *input);
@@ -55,8 +59,11 @@ public:
 
 	int GetChans(void) const { return thChans; }
 
-	map<string, thArg*> GetChanArgs (int chan) { 
-			return channels[chan]->GetArgs();
+	map<string, thArg*> GetChanArgs (int chan) {
+		if ((chan < 0) || (chan >= channelcount))
+			return map<string, thArg*>();
+
+		return channels[chan]->GetArgs();
 	}
 
 	int GetWindowLen(void) const { return thWindowlen; }
@@ -124,6 +131,8 @@ private:
 	thMidiController *controllerHandler_;
 
 	pthread_mutex_t *synthMutex;
+
+	static thSynth *instance_;
 };
 
 #endif /* TH_SYNTH_H */

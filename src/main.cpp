@@ -316,7 +316,7 @@ int main (int argc, char *argv[])
 
 	/* XXX: create global Synth object */
 	Synth = new thSynth(plugin_path, windowlen, samples);
-	prefs = new gthPrefs(Synth);
+	prefs = gthPrefs::instance();
 
 	mainMutex = new Glib::Mutex;
 //	exitCond = new Glib::Cond;
@@ -326,7 +326,7 @@ int main (int argc, char *argv[])
 
 	prefs->Load();
 
-	gthPatchfile test("test.patch", Synth, 0);
+//	gthPatchfile test("test.patch", Synth, 0);
 
 	/* create a window first */
 	Synth->Process();

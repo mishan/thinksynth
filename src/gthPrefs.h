@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.h,v 1.4 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthPrefs.h,v 1.5 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,9 +25,16 @@
 class gthPrefs
 {
 public:
-	gthPrefs (thSynth *argsynth);
-	gthPrefs (thSynth *argsynth, const string &path);
+	gthPrefs (void);
+	gthPrefs (const string &path);
 	~gthPrefs (void);
+
+	static gthPrefs *instance (void) {
+		if (instance_ == NULL)
+			instance_ = new gthPrefs;
+
+		return instance_;
+	}
 
 	void Set (const string &key, string **vals);
 	string **Get (const string &key);
@@ -35,9 +42,10 @@ public:
 	void Load (void);
 	void Save (void);
 private:
-	thSynth *synth;
 	map <string, string**> prefs;
 	string prefsPath;
+
+	static gthPrefs *instance_;
 };
 
 #endif /* GTH_PREFS_H */

@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.14 2004/09/08 08:26:14 joshk Exp $ */
+/* $Id: PatchSelWindow.h,v 1.15 2004/11/13 22:17:48 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -48,11 +48,13 @@ protected:
 	bool LoadPatch (void);
 	void SetChannelAmp (void);
 	void BrowsePatch (void);
+	void SavePatch (void);
 	void CursorChanged (void);
 	void UnloadDSP (void);
 
 	void patchSelected (GdkEventButton *);
 	void fileEntryActivate (void);
+	void onPatchesChanged (void);
 
 	Gtk::VBox vbox;
 	Gtk::Table controlTable;
@@ -60,6 +62,7 @@ protected:
 	Gtk::HScale dspAmp;
 	Gtk::Button setButton;
 	Gtk::Button browseButton;
+	Gtk::Button saveButton;
 	Gtk::Button unloadButton;
 	Gtk::Label ampLabel;
 
@@ -72,6 +75,8 @@ protected:
 	PatchSelColumns patchViewCols;
 
 private:
+	void populate (void);
+
 	thSynth *synth;
 	char *prevDir;
 };
