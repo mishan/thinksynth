@@ -5,8 +5,8 @@ thinksynth_SOURCES = \
 	thArg.cpp \
 	thAudioBuffer.cpp \
 	thBSTree.cpp \
-	thList.cpp \
 	thHeap.cpp \
+	thList.cpp \
 	thMidiChan.cpp \
 	thMidiNote.cpp \
 	thMod.cpp \
