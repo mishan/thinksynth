@@ -4,7 +4,7 @@ node ionode {
 	out0 = mixer->out;
 	out1 = mixer->out;
 	channels = 2;
-	play = fm_env->play;
+	play = env->play;
 
 
 	a = 1000;
@@ -32,7 +32,7 @@ node ionode {
 	fmamtmin = 1;
 	fmamtmax = velcalc->out;
 
-	fmmul = 7;
+	fmmul = 1;
 
 	velcalcmin = 1;  # minimum modulation
 	velcalcmax = 10; # maximum modulation
