@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.39 2003/10/29 03:11:05 ink Exp $ */
+/* $Id: simple.cpp,v 1.40 2004/01/05 03:47:09 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -94,17 +94,23 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 								   get the beating effect.  grr */
 		}
 
-		position++;
+		position += 1 + (((*in_fm)[i] / TH_MAX) * (*in_fmamt)[i]);
+		//printf("%f\n", position);
+		/* worked FM into the position counter */
 
-if(position > wavelength || (*in_reset)[i] == 1) {
-	position -= (int)wavelength;
+		if(position > wavelength || (*in_reset)[i] == 1) {
+			position -= wavelength;
+			sync[i] = 1;
+		} else if (position < 0) {
+			position += wavelength;
 			sync[i] = 1;
 		} else {
 			sync[i] = 0;
 		}
 
-		fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
-		fmpos = (int)(position + (((*in_fm)[i] / TH_MAX) * wavelength * fmamt)) % (int)wavelength;
+//	fmamt = (*in_fmamt)[i]; /* If FM is being used, apply it! */
+//	fmpos = (int)(position + (((*in_fm)[i] / TH_MAX) * wavelength * fmamt)) % (int)wavelength;
+		fmpos = position;
 
 		pw = (*in_pw)[i];  /* Pulse Width */
 		if(pw == 0) {
@@ -115,7 +121,7 @@ if(position > wavelength || (*in_reset)[i] == 1) {
 		if(fmpos < halfwave) {
 			ratio = fmpos/(2*halfwave);
 		} else {
-			ratio = (((fmpos-halfwave)/(wavelength-halfwave))/2)+0.5;
+			ratio = ((fmpos - halfwave) / (wavelength - halfwave)) / 2 + 0.5;
 		}
 
 		switch((int)(*in_waveform)[i]) {
