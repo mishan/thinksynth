@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.72 2004/07/18 22:26:53 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.73 2004/07/18 22:29:52 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -135,7 +135,7 @@ void thMidiChan::CopyChanArgs (thMod *mod)
 		newdata->SetArgMax(data->GetArgMax());
 		newdata->SetArgWidget(data->GetArgWidget());
 
-		args[i->first] = newdata;
+		args[(*i).first] = newdata;
 	}
 }
 
