@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.31 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.32 2003/04/26 04:22:15 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -73,7 +73,6 @@ void thSynth::AddChannel(char *channame, char *modname)
 {
 	thMidiChan *newchan = new thMidiChan(FindMod(modname));
 	channels.Insert(channame, newchan);
-	chanlist.Add(newchan);
 }
 
 thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)

@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.29 2003/04/26 00:37:17 joshk Exp $ */
+/* $Id: thNode.h,v 1.30 2003/04/26 04:22:15 ink Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -15,9 +15,7 @@ class thNode {
 	
 		const thArgValue *GetArg (const char *name);
 		void PrintArgs (void);
-	
-		thList *GetArgList (void) { return args.GetList(); };
-	
+		
 		bool GetRecalc(void) { return recalc; };
 		void SetRecalc(bool state) { recalc = state; };
 	

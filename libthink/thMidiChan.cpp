@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.12 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thMidiChan.cpp,v 1.13 2003/04/26 04:22:15 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -31,21 +31,17 @@ thMidiChan::~thMidiChan ()
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote = new thMidiNote(modnode, note, velocity);
+	int *id = malloc(sizeof(int));
 
-	notes.Add(midinote);
+	*id = (int)note;
+	notes.Insert(id, midinote);
 	return midinote;
 }
 
-void thMidiChan::DelNote (thMidiNote *midinote)
+void thMidiChan::DelNote (int note)
 {
-	thListNode *node;
+	thBSTree *node = notes.Find(&note);
 
-	for(node = notes.GetHead(); node; node = node->prev) {
-		if(node->data == midinote) {
-			notes.Remove(node);
-			delete midinote;
-
-			return;
-		}
-	}
+	delete (thMidiNote *)node->GetData();
+	notes.Remove(&note);
 }
