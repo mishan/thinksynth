@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.44 2004/08/01 10:13:50 misha Exp $
+# $Id: Makefile.in,v 1.45 2004/09/05 10:10:01 joshk Exp $
 
 BINARY = thinksynth
 
@@ -28,7 +28,7 @@ ifeq (,$(wildcard ../libthink/.bstamp))
 endif
 
 clean::
-	rm -f thinksynth
+	rm -f thinksynth gui/*.o gui/gth.a
 
 distclean::
 	rm -f Makefile
