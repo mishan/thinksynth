@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.17 2003/05/07 16:10:37 misha Exp $ */
+/* $Id: thMidiChan.h,v 1.18 2003/05/24 00:38:55 aaronl Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -21,6 +21,7 @@ class thMidiChan {
 		void ProcessHelper (thBSTree *note);
 		int GetLen(int);
 
+		bool dirty;
 		thMod *modnode;
 		thBSTree *args, *notes;
 		int channels, windowlength;

@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.46 2003/05/24 00:23:52 aaronl Exp $ */
+/* $Id: thMidiChan.cpp,v 1.47 2003/05/24 00:38:55 aaronl Exp $ */
 
 #include "config.h"
 
@@ -30,6 +30,7 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	modnode = mod;
 	windowlength = windowlen;
 	allocatedamp[0] = amp;
+	dirty = 1;
 
 	args = new thBSTree(StringCompare);
 	notes = new thBSTree(IntCompare);
@@ -76,8 +77,8 @@ void thMidiChan::DelNote (int note)
 
 void thMidiChan::Process (void)
 {
-	memset (output, 0, windowlength*channels*sizeof(float));
-
+	if (dirty) memset (output, 0, windowlength*channels*sizeof(float));
+	dirty = 0;
 	ProcessHelper(notes);
 }
 
@@ -99,6 +100,7 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 
 	data = (thMidiNote *)note->GetData();
 	if(data) { /* XXX We should not have to do this! */
+		dirty = 1;
 		data->Process(windowlength);
 		mod = data->GetMod();
 		amp = (thArgValue *)args->GetData((void *)"amp");
