@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.20 2003/04/26 20:04:24 joshk Exp $
+dnl $Id: configure.ac,v 1.21 2003/04/26 22:34:57 joshk Exp $
 
 AC_INIT
 
@@ -24,11 +24,29 @@ AC_PROG_CXXCPP
 
 LEX_LANG=CXX
 YACC_LANG=CXX
-AM_PROG_LEX
+
+AC_PROG_LEX
+
+if test "$LEX" = ":"; then
+	AC_MSG_ERROR([A lex implementation is required to build this program.])
+fi
+
 AC_PROG_YACC
+
+dnl XXX this is a hack until autoconf gets fixed
+if test "$YACC" = "yacc"; then
+	if test ! -x $YACC; then
+		YACC=:
+	fi
+fi
+
+if test "$YACC" = ":"; then
+	AC_MSG_ERROR([A yacc implementation is required to build this program.])
+fi
 
 dnl The autoconf macro doesn't realize that it NEEDS -d to produce
 dnl the appropriate headers, so add this stupid hack.
+
 YACC="$YACC -d"
 
 AC_ISC_POSIX
