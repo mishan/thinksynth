@@ -14,7 +14,7 @@ thArg::thArg(char *name, float *value, int num)
 	argNum = num;
 }
 
-thArg::thArg ()
+thArg::thArg () /* the equivalent of creating a thArg(NULL, NULL, 0) */
 {
 	argName = NULL;
 	argValues = NULL;
@@ -34,9 +34,10 @@ thArg::~thArg()
 
 void thArg::SetArg(char *name, float *value, int num)
 {
-//	if(argName) {
-//		delete argName;
-//	}
+	if(argName) {
+		delete argName;
+	}
+
 	if(argValues) {
 		delete argValues;
 	}
@@ -51,9 +52,17 @@ void thArg::SetArg(char *name, float *value, int num)
 
 const thArgValue *thArg::GetArg (void)
 {
-	thArgValue *value = new thArgValue;
+	thArgValue *value;
+
+	if(!argName || !argValues) {
+		return NULL;
+	}
+
+	value = new thArgValue;
 
 	value->argName = argName;
 	value->argValues = argValues;
 	value->argNum = argNum;
+
+	return value;
 }
