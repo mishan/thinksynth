@@ -53,6 +53,8 @@ typedef void (*sighandler_t)(int);
 #include "gthJackAudio.h"
 #endif /* HAVE_JACK */
 
+#include "gthDummyAudio.h"
+
 #include "gthSignal.h"
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
@@ -374,10 +376,13 @@ int main (int argc, char *argv[])
 			return 1;
 #endif /* HAVE_JACK */
 		}
-		else if (driver != "none")
+		else
 		{
-			fprintf(stderr, "Sorry, only JACK/ALSA drivers are supported "
-					"currently for output.\n");
+			if (driver != "none")
+				fprintf(stderr, "Unrecognized driver '%s'!\n", driver.c_str());
+
+			puts("Using dummy audio device; no audio output will occur.");
+			aout = new gthDummyAudio(Synth);
 		}
 
 	}
@@ -388,7 +393,9 @@ int main (int argc, char *argv[])
 		if (driver == "jack")
 			fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
 
-		return 1;
+		fprintf(stderr, "Falling back to dummy audio device\n");
+
+		aout = new gthDummyAudio(Synth);
 	}
 
 	MainSynthWindow synthWindow(aout);

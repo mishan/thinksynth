@@ -15,7 +15,7 @@ include ../build.mk
 PICFLAGS =
 LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
-MAINOBJS = main.o @GTH_ALSA@ @GTH_JACK_AUDIO@ gthPrefs.o gthPatchfile.o
+MAINOBJS = main.o @GTH_ALSA@ @GTH_JACK_AUDIO@ gthPrefs.o gthPatchfile.o gthDummyAudio.o
 
 thinksynth: ../libthink/libthink$(so).$(soname) gui/gth.a $(MAINOBJS)
 	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) gui/gth.a
