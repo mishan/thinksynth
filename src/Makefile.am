@@ -1,10 +1,7 @@
 bin_PROGRAMS = thinksynth
 
 thinksynth_SOURCES = \
-	thinklex.l \
-	thinklang.y \
 	main.cpp \
-	endian.cpp \
 	Exception.cpp \
 	thArg.cpp \
 	thAudioBuffer.cpp \

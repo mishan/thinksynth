@@ -1,6 +1,8 @@
 #ifndef HAVE_ENDIAN_H
 #define HAVE_ENDIAN_H
 
+#include <unistd.h>
+
 /* Endianness stuff. Use only [lb]e{32,16}. With a decent compiler this has
  * no runtime overhead (try gcc 3.2 or higher). I like it because it requires no
  * build-time support (endianness defines or a configure script). */
@@ -41,24 +43,171 @@
                            else dest = bswap16(__feh); } while(0)
 
 
-extern int leread32(int fd, long *c);
-extern int leread16(int fd, short *c);
-extern int lewrite32(int fd, long c);
-extern int lewrite16(int fd, short c);
+/* read() and write() wrappers for maintaing data in little-endian 
+   byte-ordering; everything outside these wrappers should be stored in
+   host-endian format */
 
-extern int lefread32(FILE *stream, long *c);
-extern int lefread16(FILE *stream, short *c);
-extern int lefwrite32(FILE *stream, long c);
-extern int lefwrite16(FILE *stream, short c);
+inline int leread32(int fd, long *c)
+{
+	int r;
 
-extern int beread32(int fd, long *c);
-extern int beread16(int fd, short *c);
-extern int bewrite32(int fd, long c);
-extern int bewrite16(int fd, short c);
+	r = read(fd, c, 4);
+	le32(*c, *c);
 
-extern int befread32(FILE *stream, long *c);
-extern int befread16(FILE *stream, short *c);
-extern int befwrite32(FILE *stream, long c);
-extern int befwrite16(FILE *stream, short c);
+	return r;
+}
+
+inline int lefread32(FILE *stream, long *c)
+{
+	int r;
+
+	r = fread(c, 4, 1, stream);
+	le32(*c, *c);
+
+	return r;
+}
+
+inline int leread16(int fd, short *c)
+{
+	int r;
+
+	r = read(fd, c, 2);
+	le16(*c, *c);
+
+	return r;
+}
+
+inline int lefread16(FILE *stream, short *c)
+{
+	int r;
+
+	r = fread(c, 2, 1, stream);
+	le16(*c, *c);
+
+	return r;
+}
+
+inline int lewrite32(int fd, long c)
+{
+	int r;
+
+	le32(c, c);
+	r = write(fd, &c, 4);
+
+	return r;
+}
+
+inline int lefwrite32(FILE *stream, long c)
+{
+	int r;
+
+	le32(c, c);
+	r = fwrite(&c, 4, 1, stream);
+
+	return r;
+}
+
+inline int lewrite16(int fd, short c)
+{
+	int r;
+
+	le16(c, c);
+	r = write(fd, &c, 2);
+
+	return r;
+}
+
+inline int lefwrite16(FILE *stream, short c)
+{
+	int r;
+
+	le16(c, c);
+	r = fwrite(&c, 2, 1, stream);
+
+	return r;
+}
+
+/* read() and write() wrappers for maintaing data in big-endian 
+   byte-ordering */
+
+inline int beread32(int fd, long *c)
+{
+	int r;
+
+	r = read(fd, c, 4);
+	be32(*c, *c);
+
+	return r;
+}
+
+inline int befread32(FILE *stream, long *c)
+{
+	int r;
+
+	r = fread(c, 4, 1, stream);
+	be32(*c, *c);
+
+	return r;
+}
+
+inline int beread16(int fd, short *c)
+{
+	int r;
+
+	r = read(fd, c, 2);
+	be16(*c, *c);
+
+	return r;
+}
+
+inline int befread16(FILE *stream, short *c)
+{
+	int r;
+
+	r = fread(c, 2, 1, stream);
+	be16(*c, *c);
+
+	return r;
+}
+
+inline int bewrite32(int fd, long c)
+{
+	int r;
+
+	be32(c, c);
+	r = write(fd, &c, 4);
+
+	return r;
+}
+
+inline int befwrite32(FILE *stream, long c)
+{
+	int r;
+
+	be32(c, c);
+	r = fwrite(&c, 4, 1, stream);
+
+	return r;
+}
+
+inline int bewrite16(int fd, short c)
+{
+	int r;
+
+	be16(c, c);
+	r = write(fd, &c, 2);
+
+	return r;
+}
+
+inline int befwrite16(FILE *stream, short c)
+{
+	int r;
+
+	be16(c, c);
+	r = fwrite(&c, 2, 1, stream);
+
+	return r;
+}
 
 #endif /* HAVE_ENDIAN_H */

@@ -7,15 +7,17 @@ VERSION="0.1"
 AM_INIT_AUTOMAKE("$PACKAGE", "$VERSION")
 
 AC_PROG_CC
+AC_PROG_CXX
+AC_PROG_CXXCPP
 AC_CANONICAL_TARGET
 
+AM_PROG_LEX
 AC_PROG_YACC
 # grr stupid autoconf macro doesn't fucking realize that it NEEDS -d to produce
 # the appropriate headers, so I added this stupid hack
 YACC="$YACC -d"
-AM_PROG_LEX
 
-AC_CHECK_PROGS(BUILD_CC, g++ c++)
+AC_CHECK_PROGS(BUILD_CC, gcc cc)
 AC_ISC_POSIX
 AC_HEADER_STDC
 #AC_ARG_PROGRAM
@@ -100,7 +102,6 @@ AC_SUBST(LIBS)
 
 AC_OUTPUT([Makefile
 src/Makefile
-plugins/Makefile
 ])
 
 
