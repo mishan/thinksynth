@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.14 2004/04/07 02:22:08 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.15 2004/04/07 05:20:20 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -9,6 +9,7 @@
 #include <errno.h>
 
 #include <gtkmm.h>
+#include <gtk/gtk.h>
 
 #include "thArg.h"
 #include "thPlugin.h"
@@ -80,6 +81,11 @@ static int key_sizes[4][7] =
 	}
 };
 
+void on_button_drag_data_get(const Glib::RefPtr<Gdk::DragContext>&, GtkSelectionData* selection_data, guint, guint)
+{
+	printf("drag start\n");
+}
+
 Keyboard::Keyboard (void)
 {
 	channel = 0;
@@ -125,7 +131,17 @@ Keyboard::Keyboard (void)
 
 	dispatchRedraw.connect(
 		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 1));
+
+	std::list<Gtk::TargetEntry> listTargets;
+	listTargets.push_back(Gtk::TargetEntry("NOTE"));
+
+	drag_source_set(listTargets);
+	drag_dest_set(listTargets);
+
+	signal_drag_data_get().connect(
+		SigC::slot(on_button_drag_data_get));
 }
+
 
 Keyboard::~Keyboard (void)
 {
@@ -418,6 +434,19 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
 	return true;
 }
 
+bool Keyboard::on_drag_motion (Glib::RefPtr<Gdk::DragContext> d, int x, int y,
+							   guint time)
+{
+	printf("got drag motion (%d, %d)\n", x, y);
+
+	return true;
+}
+
+bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
+{
+	return true;
+}
+
 void Keyboard::drawKeyboardFocus (void)
 {
 	drawMutex.lock();
@@ -438,6 +467,9 @@ void Keyboard::drawKeyboard (int mode)
 	unsigned int	c;
 
 //	printf("entering Keyboard::drawKeyboard\n");
+
+	if (drawable == NULL)
+		return;
 
 	drawMutex.lock ();
 
