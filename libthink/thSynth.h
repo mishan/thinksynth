@@ -1,3 +1,8 @@
+#ifndef TH_SYNTH_H
+#define TH_SYNTH_H
+
+class thMidiNote;
+
 class thSynth {
 public:
 	thSynth();
@@ -22,3 +27,5 @@ private:
 
 	unsigned int windowlen;
 };
+
+#endif /* TH_SYNTH_H */

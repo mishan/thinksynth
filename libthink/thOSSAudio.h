@@ -1,5 +1,5 @@
-#ifndef HAVE_TH_OSSAUDIO_H
-#define HAVE_TH_OSSAUDIO_H
+#ifndef TH_OSSAUDIO_H
+#define TH_OSSAUDIO_H
 
 #include <sys/soundcard.h>
 
@@ -45,4 +45,4 @@ inline thOSSAudio *new_thOSSAudio(char *null, const thAudioFmt *afmt)
 	return NULL;
 }
 
-#endif /* HAVE_TH_OSSAUDIO_H */
+#endif /* TH_OSSAUDIO_H */
