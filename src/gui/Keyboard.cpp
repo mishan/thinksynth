@@ -104,6 +104,9 @@ Keyboard::Keyboard (void)
 	/* allow widget to receive mouse/keypress events */
 	add_events(Gdk::ALL_EVENTS_MASK);
 
+	/* allow the widget to grab focus and process keypress events */
+	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(gobj()), GTK_CAN_FOCUS);
+
 	focus_box = false;
 
 	/* init internal widget stuff to NULL for now; will be set up in
@@ -157,8 +160,6 @@ void Keyboard::on_realize (void)
 	Gtk::DrawingArea::on_realize ();
 
 	drawable = ((GtkWidget *)gobj())->window;
-	/* allow the widget to grab focus and process keypress events */
-	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(gobj()), GTK_CAN_FOCUS);
 
 	kbgc = gdk_gc_new (drawable);
 	gdk_gc_set_function (kbgc, GDK_COPY);

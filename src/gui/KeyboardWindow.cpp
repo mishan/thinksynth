@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.18 2004/04/03 02:18:43 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.19 2004/04/03 06:05:29 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -62,6 +62,9 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 	keyboard.signal_note_off().connect(
 		SigC::slot(*this, &KeyboardWindow::eventNoteOff));
+
+	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(chanBtn->gobj()), GTK_CAN_FOCUS);
+	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(transBtn->gobj()), GTK_CAN_FOCUS);
 }
 
 KeyboardWindow::~KeyboardWindow (void)

@@ -1,11 +1,11 @@
-/* $Id: Keyboard.h,v 1.3 2004/04/03 02:20:56 misha Exp $ */
+/* $Id: Keyboard.h,v 1.4 2004/04/03 06:05:29 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
 
 /* this widget's custom signals */
 typedef SigC::Signal3<void, int, int, float> type_signal_note_on;
-typedef SigC::Signal2<void, int, int> type_signal_note_off;
+typedef SigC::Signal2<void, int, int>        type_signal_note_off;
 
 class Keyboard : public Gtk::DrawingArea
 {
