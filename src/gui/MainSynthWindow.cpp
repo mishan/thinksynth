@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.15 2004/08/02 02:16:46 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.16 2004/08/02 21:41:00 misha Exp $ */
 
 #include "config.h"
 
@@ -98,7 +98,7 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 
 		std::map<string, thArg *> args = realSynth->GetChanArgs(i->first);
 
-		Gtk::Table *table = new Gtk::Table(args.size(), 2);
+		Gtk::Table *table = new Gtk::Table(args.size(), 3);
 
 		tabName = basename(tabName.c_str());
 		int row = 0;
@@ -118,7 +118,12 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 				Gtk::Label *label = new Gtk::Label(argName);
 
 				Gtk::HScale *slider = new Gtk::HScale(arg->argMin,
-													  arg->argMax, .001);
+													  arg->argMax, .0001);
+
+				slider->set_draw_value(false);
+
+				Gtk::SpinButton *spinbutton = new Gtk::SpinButton(
+					*(slider->get_adjustment()), .0001, 4);
 
 				slider->signal_value_changed().connect(
 					SigC::bind<Gtk::HScale *, thArg *>(
@@ -126,9 +131,12 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 						slider, arg));
 				slider->set_value(arg->argValues[0]);
 
-				table->attach(*label, 0, 1, row, row+1);
+				table->attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
+							  Gtk::SHRINK);
 				table->attach(*slider, 1, 2, row, row+1, Gtk::EXPAND|Gtk::FILL,
-							  Gtk::EXPAND|Gtk::FILL); 
+							  Gtk::EXPAND|Gtk::FILL);
+				table->attach(*spinbutton, 2, 3, row, row+1,
+							  Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
 				row++;
 			}
 		}
