@@ -41,6 +41,10 @@ thArg::thArg () /* the equivalent of creating a thArg(NULL, NULL, 0) */
 
 thArg::~thArg()
 {
+	if (argValue.argValues) delete[] argValue.argValues;
+	free (argValue.argName);
+	free (argValue.argPointNode);
+	free (argValue.argPointName);
 }
 
 void thArg::SetArg(const char *name, const float *value, const int num)

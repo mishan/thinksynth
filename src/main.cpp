@@ -39,14 +39,11 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 		exit(1);
 	}
 
-	/*	thSynth *Synth = new thSynth;    This is a global now */
-	Synth = new thSynth;
-
-	Synth->LoadMod(argv[1]);
-	Synth->ListMods();
+	Synth.LoadMod(argv[1]);
+	Synth.ListMods();
 	//((thMod *)Synth->FindMod("test"))->PrintIONode();
 	//printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
-	Synth->BuildSynthTree("static");
+	Synth.BuildSynthTree("static");
 	//	((thMod *)Synth->FindMod("test"))->Process();
-	Synth->Process("static");
+	Synth.Process("static");
 }
