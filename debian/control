@@ -8,8 +8,8 @@ Build-Depends: debhelper (>= 4), libgtkmm2.0-dev, libjack0.80.0-dev | libjack-de
 
 Package: thinksynth
 Architecture: any
-Depends: ${shlibs:Depends}
-Recommends: jack-audio-connection-kit, thinksynth-plugins
+Depends: ${shlibs:Depends}, thinksynth-plugins
+Recommends: jackd
 Suggests: jack-rack, qjackctl
 Description: a full-featured synthesizer and keyboard for JACK/ALSA
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
