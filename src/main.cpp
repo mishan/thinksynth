@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.123 2004/02/01 03:51:47 ink Exp $ */
+/* $Id: main.cpp,v 1.124 2004/02/01 09:07:23 misha Exp $ */
 
 #include "config.h"
 
@@ -119,27 +119,35 @@ int main (int argc, char *argv[])
 		}
 	}
 
-	if (optind == argc) {
-		/* XXX: thinksynth segfaults if no input is read */
-		Synth.LoadMod(stdin);
-	}
-	else {
+	if (optind < argc) {
 		inputfname = argv[optind];
 		Synth.LoadMod(inputfname);
+
+		/* the first channel is the one passed on the command line */
+		Synth.AddChannel(string("chan0"), dspname, 12.0);
 	}
 
 	/* seed the random number generator */
 	srand(time(NULL));
 
-	Synth.AddChannel(string("chan0"), dspname, 12.0);
 	Synth.LoadMod("dsp/piano0.dsp");
 	Synth.AddChannel(string("chan1"), "test", 14.0);
 	Synth.LoadMod("dsp/organ0.dsp");
 	Synth.AddChannel(string("chan2"), "test", 12.0);
 	Synth.LoadMod("dsp/sqrtest.dsp");
 	Synth.AddChannel(string("chan3"), "test", 2.0);
+
+	Synth.LoadMod("dsp/dfb.dsp");
+	Synth.AddChannel(string("chan4"), "test", 12.0);
+	Synth.LoadMod("dsb/harpsi0.dsp");
+	Synth.AddChannel(string("chan5"), "test", 12.0);
+	Synth.LoadMod("dsb/harpsi1.dsp");
+	Synth.AddChannel(string("chan5"), "test", 12.0);
+	
+
+	/* drums */
 	Synth.LoadMod("dsp/sd0.dsp");
-	Synth.AddChannel(string("chan9"), "test", 7.0);
+	Synth.AddChannel(string("chan9"), "test", 11.0);
 
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
