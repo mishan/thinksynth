@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.1 2004/04/15 07:41:17 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.2 2004/04/16 08:18:01 misha Exp $ */
 
 #include "config.h"
 
@@ -33,7 +33,7 @@ bool thfALSAMidi::ProcessEvents (void)
 {
 	bool r = false;
 
-	if (poll(pfds, seq_nfds, 1000) > 0)
+	if (poll(pfds, seq_nfds, 0) > 0)
 	{
 		int j;
 

@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.6 2004/04/15 09:38:42 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.7 2004/04/16 08:18:01 misha Exp $ */
 
 #include "config.h"
 
@@ -45,7 +45,7 @@ thALSAAudio::thALSAAudio (thSynth *argsynth, const char *device)
 	}
 
 	nfds = snd_pcm_poll_descriptors_count (play_handle);
-	pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * nfds);
+	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
 	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
 	SetFormat(argsynth);
@@ -61,6 +61,8 @@ thALSAAudio::~thALSAAudio ()
 	{
 		free (outbuf);
 	}
+
+	free (pfds);
 }
 
 void thALSAAudio::SetFormat (thSynth *argsynth)
@@ -241,7 +243,7 @@ bool thALSAAudio::ProcessEvents (void)
 {
 	bool r = false;
 
-	if (poll (pfds, nfds, 1000) > 0)
+	if (poll (pfds, nfds, 0) > 0)
 	{
 		int j;
 

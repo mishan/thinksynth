@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.162 2004/04/15 09:38:42 misha Exp $ */
+/* $Id: main.cpp,v 1.163 2004/04/16 08:18:01 misha Exp $ */
 
 #include "config.h"
 
@@ -81,6 +81,7 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 	memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
 
+	/* call the main thread to generate a new window */
 	process->emit();
 
 	return 0;
@@ -93,13 +94,17 @@ void process_synth (void)
 	float *synthbuf = Synth.GetOutput();
 	int l = Synth.GetWindowLen();
 
-	for (int i = 0; i < l; i++)
+/*	for (int i = 0; i < l; i++)
 	{
 		if (synthbuf[i] < TH_MIN)
 			synthbuf[i] = TH_MIN;
 		if (synthbuf[i] > TH_MAX)
 			synthbuf[i] = TH_MAX;
+
+		if (synthbuf[i])
+			printf("%f\t", synthbuf[i]);
 	}
+*/
 }
 
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
@@ -239,11 +244,6 @@ int main (int argc, char *argv[])
 
 	read_prefs (&Synth);
 
-
-	process = new Glib::Dispatcher;
-	process->connect(SigC::slot(process_synth));
-
-
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
 	/* all thAudio classes will work with floating point buffers converting to
@@ -274,6 +274,8 @@ int main (int argc, char *argv[])
 		{
 			aout = new thfJackAudio(&Synth);
 
+			process = new Glib::Dispatcher;
+			process->connect(SigC::slot(process_synth));
 
 			jack_client_t *jack_handle = ((thfJackAudio *)aout)->jack_handle;
 			jack_port_t *output_port = ((thfJackAudio *)aout)->output_port;
@@ -288,8 +290,6 @@ int main (int argc, char *argv[])
 		}
 
 	}
-	/* XXX: handle these exceptions and consolidate them to one exception
-	   datatype */
 	catch (thIOException e)
 	{
 		fprintf(stderr, "error creating audio device: %s\n", strerror(e));
@@ -302,7 +302,6 @@ int main (int argc, char *argv[])
 	}
 
 	Synth.Process();
-
 
 	while (1)
 	{
