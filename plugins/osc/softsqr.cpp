@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.9 2003/05/11 08:06:24 aaronl Exp $ */
+/* $Id: softsqr.cpp,v 1.10 2003/05/13 18:59:42 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,8 +46,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out = new float[windowlen];
 	float *last = new float[2];
 	float wavelength, sinewavelength, ratio;
-	float sinewidth, minsqrwidth, maxsqrwidth;
-	int position, phase;
+	float sinewidth, minsqrwidth, maxsqrwidth, position;
+	int phase;
 	thArgValue *in_freq, *in_pw, *in_sw, *in_position;
 
 	in_freq = (thArgValue *)mod->GetArg(node, "freq");
@@ -55,7 +55,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_sw = (thArgValue *)mod->GetArg(node, "sfreq"); // Sine Freq
 	in_position = (thArgValue *)mod->GetArg(node, "position");
 
-	position = (int)(*in_position)[0]; // Where in the phase we are
+	position = (*in_position)[0]; // Where in the phase we are
 	phase = (int)(*in_position)[1]; // Which phase are we in
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 
@@ -76,14 +76,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			ratio = position++/sinewidth;
 			ratio = (ratio/2)+0.75; // We need the right part of the sine wave
 			if(position >= sinewidth) { // End when its over
-				position = 0;
+				position -= sinewidth;
 				phase++;
 			}
 			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 1:    /* Maximum square */
 			if(position++>maxsqrwidth) {
-				position = 0;
+				position -= maxsqrwidth;
 				phase++;
 			}
 			out[i] = TH_MAX;
@@ -92,14 +92,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			ratio = position++/sinewidth;
 			ratio = (ratio/2)+0.25; // We need the right part of the sine wave
 			if(position >= sinewidth) {
-				position = 0;
+				position -= sinewidth;
 				phase++;
 			}
 			out[i] = TH_MAX*sin(ratio*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 3:    /* Minimum square */
 			if(position++>minsqrwidth) {
-				position = 0;
+				position -= minsqrwidth;
 				phase = 0;
 			}
 			out[i] = TH_MIN;
@@ -108,7 +108,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	}
 	
 	node->SetArg("out", out, windowlen);
-	last[0] = (float)position;
+	last[0] = position;
 	last[1] = (float)phase;
 	node->SetArg("position", (float*)last, 2);
 	
