@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.29 2004/09/19 02:53:28 joshk Exp $ */
+/* $Id: Keyboard.cpp,v 1.30 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -150,7 +150,7 @@ Keyboard::Keyboard (void)
 	}
 
 	dispatchRedraw.connect(
-		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 0));
+		sigc::bind<int>(sigc::mem_fun(*this, &Keyboard::drawKeyboard), 0));
 }
 
 void Keyboard::resetKeys (void)

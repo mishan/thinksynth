@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.h,v 1.6 2004/09/19 04:44:25 joshk Exp $ */
+/* $Id: gthALSAMidi.h,v 1.7 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,9 +22,9 @@
 
 #define ALSA_DEFAULT_MIDI_DEVICE "default"
 
-typedef SigC::Signal1<int, snd_seq_t *> sigMidiEvent_t;
+typedef sigc::signal1<int, snd_seq_t *> sigMidiEvent_t;
 
-class gthALSAMidi : public SigC::Object
+class gthALSAMidi
 {
 public:
 	gthALSAMidi (const char *argname)

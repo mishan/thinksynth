@@ -325,7 +325,7 @@ int main (int argc, char *argv[])
 		if (midi->seq_opened())
 		{
 			midi->signal_midi_event().connect(
-				SigC::bind<thSynth *>(SigC::slot(&processmidi), Synth));
+				sigc::bind<thSynth *>(sigc::ptr_fun(&processmidi), Synth));
 		}
 
 		printf ("Trying the '%s' driver\n", driver.c_str());
@@ -342,7 +342,7 @@ int main (int argc, char *argv[])
 			   instance */
 			gthALSAAudio *aptr = static_cast<gthALSAAudio *>(aout);
 			aptr->signal_ready_write().connect(
-				SigC::bind<gthAudio *,thSynth *>(SigC::slot(&audio_readywrite),
+				sigc::bind<gthAudio *,thSynth *>(sigc::ptr_fun(&audio_readywrite),
 												 aout, Synth)); 
 		}
 #ifdef HAVE_JACK

@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.h,v 1.6 2004/09/16 09:14:15 misha Exp $ */
+/* $Id: gthALSAAudio.h,v 1.7 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,9 +28,9 @@
 #define ALSA_DEFAULT_AUDIO_DEVICE "default"
 
 /* additional arguments are usually bound to the callbacks of this signal */
-typedef SigC::Signal0<void> sigReadyWrite_t;
+typedef sigc::signal0<void> sigReadyWrite_t;
 
-class gthALSAAudio : public gthAudio, public SigC::Object
+class gthALSAAudio : public gthAudio
 {
 public:
 	gthALSAAudio (thSynth *argsynth)

@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.8 2004/09/16 09:14:15 misha Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.9 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -51,7 +51,7 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth)
 
 	outbuf = NULL;
 
-	thread = Glib::Thread::create(SigC::slot(*this, &gthALSAAudio::main), false);
+	thread = Glib::Thread::create(sigc::mem_fun(*this, &gthALSAAudio::main), false);
 //	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
@@ -72,7 +72,7 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth, const char *device)
 
 	outbuf = NULL;
 
-	thread = Glib::Thread::create(SigC::slot(*this, &gthALSAAudio::main), false);
+	thread = Glib::Thread::create(sigc::mem_fun(*this, &gthALSAAudio::main), false);
 //	thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
@@ -313,7 +313,7 @@ void gthALSAAudio::main (void)
 {
 	Glib::RefPtr<Glib::MainContext> loMain = Glib::MainContext::create();
 	
-	loMain->signal_io().connect(SigC::slot(*this,
+	loMain->signal_io().connect(sigc::mem_fun(*this,
 										   &gthALSAAudio::pollAudioEvent),
 									   pfds[0].fd, Glib::IO_OUT,
 								Glib::PRIORITY_HIGH);

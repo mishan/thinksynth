@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.40 2004/09/18 05:30:34 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.41 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -128,10 +128,10 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	show_all_children();
 
 	synth->signal_channel_changed().connect(
-		SigC::slot(*this, &MainSynthWindow::channelChanged));
+		sigc::mem_fun(*this, &MainSynthWindow::channelChanged));
 
 	synth->signal_channel_deleted().connect(
-		SigC::slot(*this, &MainSynthWindow::channelDeleted));
+		sigc::mem_fun(*this, &MainSynthWindow::channelDeleted));
 
 	aboutBox = NULL;
 }
@@ -149,20 +149,20 @@ void MainSynthWindow::populateMenu (void)
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Keyboard",
-										Gtk::Menu::AccelKey("<ctrl>k"),
-										SigC::slot(*this, &MainSynthWindow::menuKeyboard)));
+										Gtk::AccelKey("<ctrl>k"),
+										sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard)));
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Patch Selector",
-										Gtk::Menu::AccelKey("<ctrl>p"),
-										SigC::slot(*this, &MainSynthWindow::menuPatchSel)));
+										Gtk::AccelKey("<ctrl>p"),
+										sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel)));
 
 		menulist.push_back(Gtk::Menu_Helpers::SeparatorElem());
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Quit",
-										Gtk::Menu::AccelKey("<ctrl>q"),
-										SigC::slot(*this, &MainSynthWindow::menuQuit)));
+										Gtk::AccelKey("<ctrl>q"),
+										sigc::mem_fun(*this, &MainSynthWindow::menuQuit)));
 	}
 
 #ifdef HAVE_JACK
@@ -171,17 +171,17 @@ void MainSynthWindow::populateMenu (void)
 	{
 		Gtk::Menu::MenuList &menulist = menuJack.items();
 		Gtk::CheckMenuItem *elem;
-		SigC::Slot0<void> autoslot = SigC::slot(*this, &MainSynthWindow::menuJackAuto);
+		sigc::slot0<void> autoslot = sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto);
 		string** vals;
 		bool sel;
 		
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Connect to JACK now",
-				SigC::slot(*this, &MainSynthWindow::menuJackTry)));
+				sigc::mem_fun(*this, &MainSynthWindow::menuJackTry)));
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_Disconnect from JACK",
-				SigC::slot(*this, &MainSynthWindow::menuJackDis)));
+				sigc::mem_fun(*this, &MainSynthWindow::menuJackDis)));
 
 		menulist.back().set_sensitive(false);
 
@@ -205,7 +205,7 @@ void MainSynthWindow::populateMenu (void)
 
 		menulist.push_back(
 			Gtk::Menu_Helpers::MenuElem("_About",
-										SigC::slot(
+										sigc::mem_fun(
 											*this, &MainSynthWindow::menuAbout)
 				));
 	}
@@ -291,8 +291,8 @@ void MainSynthWindow::menuKeyboard (void)
 	kbwin->show_all_children();
 	kbwin->show();
 	kbwin->signal_hide().connect(
-		SigC::bind<KeyboardWindow *>(
-			SigC::slot(*this, &MainSynthWindow::onKeyboardHide), kbwin));
+		sigc::bind<KeyboardWindow *>(
+			sigc::mem_fun(*this, &MainSynthWindow::onKeyboardHide), kbwin));
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -314,7 +314,7 @@ void MainSynthWindow::menuAbout (void)
 	aboutBox = new AboutBox;
 	aboutBox->show();
 	aboutBox->signal_hide().connect(
-		SigC::slot(*this, &MainSynthWindow::onAboutBoxHide));
+		sigc::mem_fun(*this, &MainSynthWindow::onAboutBoxHide));
 }
 
 void MainSynthWindow::sliderChanged (Gtk::HScale *slider, thArg *arg)
@@ -382,8 +382,8 @@ void MainSynthWindow::populate (void)
 					slider->set_draw_value(false);
 
 					slider->signal_value_changed().connect(
-						SigC::bind<Gtk::HScale *, thArg *>(
-							SigC::slot(*this, &MainSynthWindow::sliderChanged),
+						sigc::bind<Gtk::HScale *, thArg *>(
+							sigc::mem_fun(*this, &MainSynthWindow::sliderChanged),
 							slider, arg));
 
 					slider->set_value(arg->argValues[0]);

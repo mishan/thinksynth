@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.32 2004/09/19 02:53:28 joshk Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.33 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -64,39 +64,39 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	ctrlTable.attach(resetBtn, 4, 5, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 
 	chanVal->signal_value_changed().connect(
-		SigC::slot(*this, &KeyboardWindow::changeChannel));
+		sigc::mem_fun(*this, &KeyboardWindow::changeChannel));
 
 	transVal->signal_value_changed().connect(
-		SigC::slot(*this, &KeyboardWindow::changeTranspose));
+		sigc::mem_fun(*this, &KeyboardWindow::changeTranspose));
 
 	keyboard.signal_note_on().connect(
-		SigC::slot(*this, &KeyboardWindow::eventNoteOn));
+		sigc::mem_fun(*this, &KeyboardWindow::eventNoteOn));
 
 	keyboard.signal_note_off().connect(
-		SigC::slot(*this, &KeyboardWindow::eventNoteOff));
+		sigc::mem_fun(*this, &KeyboardWindow::eventNoteOff));
 
 	keyboard.signal_channel_changed().connect(
-		SigC::slot(*this, &KeyboardWindow::eventChannelChanged));
+		sigc::mem_fun(*this, &KeyboardWindow::eventChannelChanged));
 
 	keyboard.signal_transpose_changed().connect(
-		SigC::slot(*this, &KeyboardWindow::eventTransposeChanged));
+		sigc::mem_fun(*this, &KeyboardWindow::eventTransposeChanged));
 
 	chanBtn->unset_flags(Gtk::CAN_FOCUS);
 	transBtn->unset_flags(Gtk::CAN_FOCUS);
 	resetBtn.unset_flags(Gtk::CAN_FOCUS);
 
-	m_sigNoteOn.connect(SigC::slot(*this,
+	m_sigNoteOn.connect(sigc::mem_fun(*this,
 								   &KeyboardWindow::synthEventNoteOn));
 
 	m_sigNoteOff.connect(
-		SigC::slot(*this, &KeyboardWindow::synthEventNoteOff));
+		sigc::mem_fun(*this, &KeyboardWindow::synthEventNoteOff));
 
 	resetBtn.signal_clicked().connect(
-		SigC::slot(*this, &KeyboardWindow::keyboardReset));
+		sigc::mem_fun(*this, &KeyboardWindow::keyboardReset));
 
 /*  This has the undesired effect of also cutting off MIDI notes!
 	signal_focus_out_event().connect(
-		SigC::slot(*this, &KeyboardWindow::keyboardReset)); */
+		sigc::mem_fun(*this, &KeyboardWindow::keyboardReset)); */
 }
 
 void KeyboardWindow::keyboardReset (void)

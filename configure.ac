@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.98 2004/09/18 05:30:34 joshk Exp $
+dnl $Id: configure.ac,v 1.99 2004/09/19 08:43:38 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -180,7 +180,7 @@ PKG_CHECK_MODULES(GTHREAD, gthread-2.0)
 
 if test "$system" != "Darwin/OS X"; then
 
-PKG_CHECK_MODULES(GTKMM, gtkmm-2.0)
+PKG_CHECK_MODULES(GTKMM, gtkmm-2.4)
 
 PKG_CHECK_MODULES(JACK, jack,
 [
@@ -205,7 +205,7 @@ have_jack=0
 
 fi
 
-PKG_CHECK_MODULES(SIGC, sigc++-1.2)
+PKG_CHECK_MODULES(SIGC, sigc++-2.0)
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)

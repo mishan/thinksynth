@@ -4,7 +4,7 @@ Priority: optional
 Maintainer: Joshua Kwan <joshk@triplehelix.org>
 Uploaders: Misha Nasledov <misha@debian.org>, Aaron Lehmann <aaronl@vitelus.com>
 Standards-Version: 3.6.1
-Build-Depends: debhelper (>= 4), libgtkmm2.0-dev, libjack0.80.0-dev | libjack-dev, bison, flex
+Build-Depends: debhelper (>= 4), libgtkmm-2.4-dev, libjack0.80.0-dev | libjack-dev, bison, flex
 
 Package: thinksynth
 Architecture: any

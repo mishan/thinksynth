@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.40 2004/09/09 07:09:32 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.41 2004/09/19 08:43:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -54,9 +54,9 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchScroll.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
 
 	patchView.signal_button_press_event().connect_notify(
-		SigC::slot(*this, &PatchSelWindow::patchSelected));
+		sigc::mem_fun(*this, &PatchSelWindow::patchSelected));
 	patchView.signal_cursor_changed().connect(
-		SigC::slot(*this, &PatchSelWindow::CursorChanged));
+		sigc::mem_fun(*this, &PatchSelWindow::CursorChanged));
 
 	vbox.pack_start(patchScroll);
 
@@ -98,16 +98,16 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	patchView.append_column("Amplitude", patchViewCols.amp);
 	
 	dspAmp.signal_value_changed().connect(
-		SigC::slot(*this, &PatchSelWindow::SetChannelAmp));
+		sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
 
 	fileEntry.signal_activate().connect(
-		SigC::slot(*this, &PatchSelWindow::fileEntryActivate));
+		sigc::mem_fun(*this, &PatchSelWindow::fileEntryActivate));
 
 	browseButton.signal_clicked().connect(
-		SigC::slot(*this, &PatchSelWindow::BrowsePatch));
+		sigc::mem_fun(*this, &PatchSelWindow::BrowsePatch));
 
 	unloadButton.signal_clicked().connect(
-		SigC::slot(*this, &PatchSelWindow::UnloadDSP));
+		sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
 	
 	vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
 
