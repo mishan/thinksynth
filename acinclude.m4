@@ -1,4 +1,4 @@
-dnl $Id: acinclude.m4,v 1.6 2004/08/17 02:03:04 joshk Exp $
+dnl $Id: acinclude.m4,v 1.7 2004/09/19 22:13:25 joshk Exp $
 
 AC_DEFUN([AC_SUBST_DIR], [
 	ifelse($2,,,$1="[$]$2")
@@ -15,7 +15,7 @@ AC_DEFUN([AC_CXX_MT_BROKEN], [
 	echo 'int test_func (void) {}' > conftest.cpp
 	$CXX -Wp,-MMD,.confdep,-MTconftest.so -shared conftest.cpp -o conftest.so
 
-	if test -f conftest.so -a `nm conftest.so | grep test_func | wc -l` -ne 0; then
+	if test -f conftest.so && nm conftest.so | grep -q test_func; then
 		CXX_MT_BROKEN=no
 	else
 		CXX_MT_BROKEN=yes
