@@ -36,7 +36,7 @@ node map2 env::map {
 	in = env->out;
 	inmin = -256;
 	inmax = 256;
-	outmin = 500;
+	outmin = 0;
 	outmax = 2000;
 };
 

@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.7 2003/05/11 06:12:52 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.8 2003/05/11 06:57:46 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -63,6 +63,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		wavelength = TH_SAMPLE * (1.0/(*in_freq)[i]);
 		sinewavelength = TH_SAMPLE * (1.0/(*in_sw)[i]);
 		
+		if(sinewavelength > wavelength) {
+			sinewavelength = wavelength; /* otherwise the pitch bends when sfreq is low */
+		}
+
 		sinewidth = sinewavelength/2;
 		maxsqrwidth = (wavelength - sinewavelength) * (*in_pw)[i];
 		minsqrwidth = (wavelength - sinewavelength) * (1-(*in_pw)[i]);
