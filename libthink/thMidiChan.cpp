@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.39 2003/05/09 00:09:36 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.40 2003/05/09 03:05:34 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -52,7 +52,7 @@ thMidiChan::~thMidiChan (void)
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote;
-	int *id = new int[1];
+	int *id = (int*) malloc(sizeof(int));
 
 	id[0] = (int)note;
 	midinote = (thMidiNote *)notes->GetData(id);
@@ -109,7 +109,7 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 			arg = (thArgValue *)mod->GetArg(ionodename, (const char*)argname);
 			for(j=0;j<windowlength;j++) {
 				output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
-				if((*play)[i] == 0) {
+				if(play && (*play)[i] == 0) {
 					delnote = 1;
 				}
 				/* output += channel output * (amplitude/amplitude maximum) */

@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.8 2003/05/08 01:24:51 ink Exp $ */
+/* $Id: adsr.cpp,v 1.9 2003/05/09 03:05:34 aaronl Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,6 +113,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				play[i] = 0;
 				phase = 4;
 			}
+			else play[i] = 1;
 			break;
 		case 4:   /* The note has ended and we are padding with 0 */
 			play[i] = 0;

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.55 2003/05/08 03:56:24 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.56 2003/05/09 03:05:34 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -40,7 +40,7 @@ thSynth::~thSynth (void)
 {
 	delete modlist;
 	delete channels;
-	delete thOutput;
+	delete [] thOutput;
 }
 
 void thSynth::LoadMod(const char *filename)
