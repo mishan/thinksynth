@@ -33,8 +33,6 @@ void AudioBuffer::buf_write(unsigned char *udata, int len)
 {
 	int i;
 
-
-
 	for(i = 0; i < len; i++) {
 		data[(read + woffset + i)%size] = udata[i];
 	}
@@ -47,8 +45,7 @@ int AudioBuffer::buf_read(unsigned char *udata, int len)
 	int i;
 
 	if(woffset < NEED_MORE_BUFFER) {
-		if((audioPtr->Read(&data[read], NEED_MORE_BUFFER-woffset) < 0) 
-		   && (read == woffset)) {
+		if((audioPtr->Read(&data[read], NEED_MORE_BUFFER-woffset) < 0)) {
 			return -1;
 		}
 	}
@@ -61,7 +58,7 @@ int AudioBuffer::buf_read(unsigned char *udata, int len)
 	woffset -= len;
 	read %= size;
 	
-	return 0;
+	return len;
 }
 
 #ifdef TEST
