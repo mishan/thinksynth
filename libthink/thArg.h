@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.21 2003/05/11 07:56:44 ink Exp $ */
+/* $Id: thArg.h,v 1.22 2003/05/17 14:51:07 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -6,7 +6,14 @@
 #define ARG_VALUE 0
 #define ARG_POINTER 1
 
-struct thArgValue {
+class thArgValue {  /* This class is pretty public, but hey, it used to be 
+					   a struct */
+public:
+	thArgValue(void);
+	~thArgValue(void);
+
+	float *allocate (int elements);
+
 	char *argName; /* argument's name */
 	float *argValues; /* a pointer to an array of values */
 	int argNum; /* number of elements in argValues */

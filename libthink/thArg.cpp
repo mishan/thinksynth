@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.30 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thArg.cpp,v 1.31 2003/05/17 14:51:07 ink Exp $ */
 
 #include "config.h"
 
@@ -7,6 +7,33 @@
 #include <string.h>
 
 #include "thArg.h"
+
+
+/* Gotta take care of the thArgValue class */
+thArgValue::thArgValue (void)
+{
+	argNum = 0;
+}
+
+thArgValue::~thArgValue (void)
+{
+	if(argValues) {
+		delete[] argValues;
+	}
+}
+
+float *thArgValue::allocate (int elements)
+{
+	printf("Reallocate called on %s, %i %i\n", argName, argNum, elements);
+	if(argNum != elements) {
+		delete[] argValues;
+		argValues = new float[elements];
+	}
+	else if(argValues == NULL) {
+		argValues = new float[elements];
+	}
+	return argValues;
+}
 
 /* Ownership of value will transfer to us, but we copy the strings and you need
    to free those. Same goes for SetArg. */
@@ -42,9 +69,9 @@ thArg::thArg (void) /* the equivalent of creating a thArg(NULL, NULL, 0) */
 
 thArg::~thArg(void)
 {
-	if (argValue.argValues) {
+/*	if (argValue.argValues) {
 		delete[] argValue.argValues;
-	}
+		}*/ // This now handled in deconstructor, add the rest
 	free (argValue.argName);
 	free (argValue.argPointNode);
 	free (argValue.argPointName);
@@ -52,17 +79,17 @@ thArg::~thArg(void)
 
 void thArg::SetArg(const char *name, float *value, const int num)
 {
+	float *values;
+
 	if(argValue.argName) {
 		free (argValue.argName);
 	}
 
-	if(argValue.argValues) {
-		delete[] argValue.argValues;
-	}
+	values = argValue.allocate(num);
 
 	argValue.argName = strdup(name);
 	
-	argValue.argValues = value;
+	memcpy(argValue.argValues, value, num);
 
 	argValue.argNum = num;
 	argValue.argType = ARG_VALUE;

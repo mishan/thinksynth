@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.12 2003/05/17 14:13:27 ink Exp $ */
+/* $Id: adsr.cpp,v 1.13 2003/05/17 14:51:07 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -40,15 +40,29 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	thArgValue *in_a, *in_d, *in_s, *in_r, *in_p, *in_trigger;  /* User args */
-	thArgValue *in_position;  /* [0] = position in stage, [1] = current stage */
-	float *out = new float[windowlen];
-	float *play = new float[windowlen];
+	thArgValue *inout_position;  /* [0] = position in stage, [1] = current stage */
+	thArgValue *out_out, *out_play;
 
-	float *out_pos = new float[2];
+	float *out, *play;
+
+	float *out_pos;
 	float temp, temp2;  /* each (*in_a)[] thing uses a modulus and all that */
 	float peak;
-	int position, phase;
+	float position;
+	int phase;
 	unsigned int i;
+ 
+	out_out = (thArgValue *)mod->GetArg(node, "out");
+	out_play = (thArgValue *)mod->GetArg(node, "play");
+	inout_position = (thArgValue *)mod->GetArg(node, "position");
+
+	position = (*inout_position)[0];
+	phase = (int)(*inout_position)[1];
+	printf("ADSR: %f %i\n", position, phase);
+	out_pos = inout_position->allocate(2);
+
+	out = out_out->allocate(windowlen);
+	play = out_play->allocate(windowlen);
 
 	in_a = (thArgValue *)mod->GetArg(node, "a"); /* Attack */
 	in_d = (thArgValue *)mod->GetArg(node, "d"); /* Decay */
@@ -57,9 +71,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_p = (thArgValue *)mod->GetArg(node, "p"); /* Peak */
 	in_trigger = (thArgValue *)mod->GetArg(node, "trigger"); /* Note Trigger */
 
-	in_position = (thArgValue *)mod->GetArg(node, "position");
-	position = (int)(*in_position)[0];
-	phase = (int)(*in_position)[1];
+	position = (int)(*inout_position)[0];
+	phase = (int)(*inout_position)[1];
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;
@@ -133,9 +146,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	out_pos[0] = position;
 	out_pos[1] = phase;
-	node->SetArg("position", out_pos, 2);
+/*	node->SetArg("position", out_pos, 2);
 	node->SetArg("out", out, windowlen);
 	node->SetArg("play", play, windowlen);
-
+*/
 	return 0;
 }
