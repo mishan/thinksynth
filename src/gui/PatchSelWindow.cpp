@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.21 2004/04/01 02:28:00 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.22 2004/04/01 02:47:50 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -23,26 +23,23 @@
 
 #include "PatchSelWindow.h"
 
-PatchSelWindow::PatchSelWindow (thSynth *synth)
+PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	: dspAmp (0, MIDIVALMAX, .5), setButton("Load Patch"), 
 	  browseButton("Browse"), ampLabel("Amplitude"), fileLabel("Filename")
 {
-		set_default_size(500, 400);
+	synth = argsynth;
 
-	realSynth = synth;
-	mySynth = NULL;
-//	mySynth = new thSynth(realSynth);
+	set_default_size(500, 400);
 
 	set_title("thinksynth - Patch Selector");
-	
+
 	add(vbox);
 
 	patchScroll.add(patchView);
 	patchScroll.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
-	
+
 	patchView.signal_button_press_event().connect_notify(
 		SigC::slot(*this, &PatchSelWindow::patchSelected));
-	/* XXX: this might help with getting keyboard to work */
 	patchView.signal_cursor_changed().connect(
 		SigC::slot(*this, &PatchSelWindow::CursorChanged));
 
@@ -51,8 +48,8 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	/* this is not to be used unless a valid amp arg is found */
 	dspAmp.set_sensitive(false);
 
-	std::map<int, string> *patchlist = realSynth->GetPatchlist();
-	int channelcount = realSynth->GetChannelCount();
+	std::map<int, string> *patchlist = synth->GetPatchlist();
+	int channelcount = synth->GetChannelCount();
 
 	patchModel = Gtk::ListStore::create (patchViewCols);
 	patchView.set_model(patchModel);
@@ -61,7 +58,7 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	{
 		Gtk::TreeModel::Row row = *(patchModel->append());
 		string filename = (*patchlist)[i];
-		thArg *amp = realSynth->GetChanArg(i, "amp");
+		thArg *amp = synth->GetChanArg(i, "amp");
 
 		/* populate the fields with the data from the first row */
 		if (i == 0)
@@ -135,7 +132,7 @@ void PatchSelWindow::LoadPatch (void)
 			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			thMod *loaded = NULL;
 
-			if ((loaded = realSynth->LoadMod(fileEntry.get_text().c_str(),
+			if ((loaded = synth->LoadMod(fileEntry.get_text().c_str(),
 											 chanNum, (float)dspAmp.get_value()
 					 )) == NULL)
 			{
@@ -188,7 +185,7 @@ void PatchSelWindow::SetChannelAmp (void)
 
 			(*iter)[patchViewCols.amp] = *val;
 
-			realSynth->SetChanArg(chanNum, arg);
+			synth->SetChanArg(chanNum, arg);
 		} 
 	}
 }
@@ -227,7 +224,6 @@ void PatchSelWindow::CursorChanged (void)
 
 		if(iter)
 		{
-			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
 			Glib::ustring filename = (*iter)[patchViewCols.dspName];
 			float amp = (*iter)[patchViewCols.amp];
 

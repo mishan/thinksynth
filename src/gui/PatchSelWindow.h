@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.9 2004/04/01 02:28:00 misha Exp $ */
+/* $Id: PatchSelWindow.h,v 1.10 2004/04/01 02:47:50 misha Exp $ */
 
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
@@ -48,9 +48,7 @@ protected:
 	Glib::RefPtr<Gtk::ListStore> patchModel;
 	PatchSelColumns patchViewCols;
 private:
-	thSynth *realSynth, *mySynth;
-
-	string prevDir;
+	thSynth *synth;
 };
 
 #endif /* PATCHSEL_WINDOW_H */
