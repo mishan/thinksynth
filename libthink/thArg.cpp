@@ -82,21 +82,3 @@ void thArg::SetArg(const char *name, const char *node, const char *value)
 
 	argValue.argType = ARG_POINTER;
 }
-
-const thArgValue *thArg::GetArg (void)
-{
-  //	thArgValue *value;
-
-	/*
-	value = new thArgValue;
-
-	value->argName = argName;
-	value->argValues = argValues;
-	value->argNum = argNum;
-	value->argType = argType;
-	value->argPointNode = argPointNode;
-	value->argPointName = argPointName;
-	*/
-
-	return &argValue;
-}
