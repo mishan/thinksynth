@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.30 2003/05/06 17:38:00 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.31 2003/05/07 00:00:09 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -90,12 +90,13 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 	if(data) { /* XXX We should not have to do this! */
 	  data->Process(windowlength);
 	  mod = data->GetMod();
+	  const char* ionodename = mod->GetIONode()->GetName();
 	  amp = (thArgValue *)args->GetData((void *)"amp");
-	  play = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)"play");
+	  play = (thArgValue *)mod->GetArg(ionodename, (const char*)"play");
 	  
 	  for(i=0;i<channels;i++) {
 		sprintf(argname, "%s%i", OUTPUTPREFIX, i);
-		arg = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)argname);
+		arg = (thArgValue *)mod->GetArg(ionodename, (const char*)argname);
 		for(j=0;j<windowlength;j++) {
 		  output[i+(j*channels)] += (*arg)[j]*((*amp)[j]/MIDIVALMAX);
 		  if((*play)[i] == 0) {
@@ -106,7 +107,7 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 	  }
 	  
 	  if(delnote == 1) {
-		noteval = (thArgValue *)mod->GetArg((mod->GetIONode())->GetName(), (const char*)"note");
+		noteval = (thArgValue *)mod->GetArg(ionodename, (const char*)"note");
 		DelNote((int)(*noteval)[0]);
 	  }
 	}
