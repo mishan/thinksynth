@@ -1,0 +1,49 @@
+Source: thinksynth
+Section: sound
+Priority: optional
+Maintainer: Joshua Kwan <joshk@triplehelix.org>
+Uploaders: Misha Nasledov <misha@debian.org>, Aaron Lehmann <aaronl@vitelus.com>
+Standards-Version: 3.6.1
+Build-Depends: debhelper (>= 4), libgtkmm2.0-dev, libjack0.80.0-dev | libjack-dev, bison, flex
+
+Package: thinksynth
+Architecture: any
+Depends: ${shlibs:Depends}
+Recommends: jack-audio-connection-kit, thinksynth-plugins
+Suggests: jack-rack
+Description: a full-featured synthesizer and keyboard for JACK
+ thinksynth is a customizable synthesizer that uses JACK for interfacing with
+ other music hardware/software.
+ .
+ This is the GUI binary.
+
+Package: thinksynth-plugins
+Architecture: any
+Depends: ${shlibs:Depends}
+Recommends: thinksynth
+Description: C++ plugins and DSP files for Thinksynth
+ thinksynth is a customizable synthesizer that uses JACK for interfacing with
+ other music hardware/software.
+ .
+ This package contains all the C plugins and DSP 'instruments' for thinksynth.
+
+Package: libthink3
+Architecture: any
+Depends: ${shlibs:Depends}
+Suggests: libthink3-dev
+Description: the Thinksynth shared library
+ thinksynth is a customizable synthesizer that uses JACK for interfacing with
+ other music hardware/software.
+ .
+ This library is used by the Thinksynth GUI and plugins. If you want to build
+ your own plugins, consider installing libthink3-dev.
+
+Package: libthink3-dev
+Architecture: any
+Depends: libthink3 (= ${Source-Version})
+Provides: libthink-dev
+Description: the Thinksynth shared library (development files)
+ thinksynth is a customizable synthesizer that uses JACK for interfacing with
+ other music hardware/software.
+ .
+ These are the development files which you'll need to build out-of-tree plugins.

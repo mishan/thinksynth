@@ -1,0 +1,51 @@
+#!/usr/bin/make -f
+# debian/rules for thinksynth
+
+config.status: configure
+	sh configure --prefix=/usr
+
+build: build-stamp
+build-stamp: config.status
+	dh_testdir
+	$(MAKE)
+	touch $@
+
+clean:
+	rm -f build-stamp
+ifneq (,$(wildcard config.status))
+	$(MAKE) distclean
+endif
+	dh_clean
+
+install:
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+	dh_installdirs
+	mkdir -p debian/tmp
+	$(MAKE) install DESTDIR=$(CURDIR)/debian/tmp/
+	dh_install --sourcedir=debian/tmp
+#	mv $(D)/usr/bin/thinksynth $(D)/usr/lib/thinksynth/thinksynth-bin
+#	install -m 755 bin/thinksynth.sh $(D)/usr/bin/thinksynth
+
+binary-indep:
+# Ye olde no-op.
+
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+	dh_makeshlibs
+	dh_installdocs
+	dh_installchangelogs
+	dh_compress
+	dh_fixperms
+	dh_installdeb
+	dh_strip
+	dh_shlibdeps
+	dh_md5sums
+	dh_gencontrol
+	dh_builddeb
+
+binary: binary-arch
+
+.PHONY: binary binary-arch binary-indep install build
