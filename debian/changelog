@@ -1,3 +1,9 @@
+thinksynth (0.0.cvs20041029-1) experimental; urgency=low
+
+  * New upstream CVS snapshot.
+
+ -- Joshua Kwan <joshk@triplehelix.org>  Fri, 29 Oct 2004 21:42:24 -0700
+
 thinksynth (0.0.cvs20041004-1) experimental; urgency=low
 
   * Initial Release.
