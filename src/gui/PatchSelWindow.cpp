@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.36 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.37 2004/09/06 21:57:56 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -34,8 +34,6 @@
 #include "gthPrefs.h"
 
 extern gthPrefs *prefs;
-
-#define DSP_PATH PREFIX "/share/thinksynth/"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
  	: dspAmp (0, MIDIVALMAX, 1),

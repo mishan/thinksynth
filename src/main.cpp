@@ -294,6 +294,7 @@ int main (int argc, char *argv[])
 	process->connect(SigC::slot(process_synth));
 
 	signal(SIGUSR1, (sighandler_t)cleanup);
+        signal(SIGINT, (sighandler_t)cleanup);
 
 //	read_prefs (Synth);
 	prefs->Load();
