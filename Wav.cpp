@@ -64,29 +64,32 @@ Wav::~Wav (void)
 	close(fd);
 }
 
-
 int Wav::write_wav (void *data, int len)
 {
 	int r = 0;
 
 	switch(fmt.bits) {
 	case 8:
+		/* if data is 8bit, it must be unsigned */
 		r = write(fd, ((unsigned char *)data), len);
 		break;
 	case 16:
 	{
-		int i, c;
+		int i, c, l;
 		
 		for(i = 0; i < len; i += fmt.channels) {
 			for(c = 0; c < fmt.channels; c++) {
 				/* if data is 16bit, then it must be signed */
-				lewrite16(fd, ((signed short *)data)[c+i]);
+				if((l = lewrite16(fd, ((signed short *)data)[c+i])) < 0) {
+					/* XXX: handle error */
+				}
+				else { r += l; }
 			}
 		}
 	}
 	}
 
-	return 0;
+	return r;
 }
 
 void Wav::write_riff(void)
