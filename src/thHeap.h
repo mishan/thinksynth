@@ -1,4 +1,4 @@
-/* $Id: thHeap.h,v 1.4 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thHeap.h,v 1.5 2003/04/27 04:01:56 joshk Exp $ */
 
 #ifndef TH_HEAP_H
 #define TH_HEAP_H 1
@@ -25,15 +25,15 @@ private:
 	void shiftUp(int node);
 	void shiftDown(int node);
 
-	int Parent(int node) {
+	inline int Parent(int node) const {
 		return (node - 1) / 2;
 	}
 
-	int RightChild (int node) {
+	inline int RightChild (int node) const {
 		return 2 * (node + 1);
 	}
 
-	int LeftChild (int node) {
+	inline int LeftChild (int node) const {
 		return 2 * node + 1;
 	}
 };
