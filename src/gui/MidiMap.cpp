@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.24 2004/12/22 23:42:36 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.25 2004/12/23 00:18:11 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -55,7 +55,7 @@ MidiMap::MidiMap (thSynth *argsynth)
 	selectedChan_ = 0;
 
 	controllerLbl_ = manage(new Gtk::Label("Controller"));
-	controllerAdj_ = manage(new Gtk::Adjustment(1, 1, 128));
+	controllerAdj_ = manage(new Gtk::Adjustment(0, 0, 127));
 	controllerSpinBtn_ = manage(new Gtk::SpinButton(*controllerAdj_, 1, 0));
 	controllerSpinBtn_->signal_value_changed().connect(
 		sigc::mem_fun(*this,&MidiMap::onControllerChanged));
@@ -375,7 +375,7 @@ void MidiMap::populateConnections (void)
 			instrument = string("Untitled");
 		}
 		row[connectViewCols_.midiChan] = connection->getChan() + 1;
-		row[connectViewCols_.midiController] = connection->getController() + 1;
+		row[connectViewCols_.midiController] = connection->getController();
 		row[connectViewCols_.instrument] = g_strdup_printf("%i: %s",
 							connection->getDestChan() + 1, instrument.c_str());
 		row[connectViewCols_.argName] = connection->getArgName();
@@ -390,7 +390,7 @@ void MidiMap::onChannelChanged (void)
 
 void MidiMap::onControllerChanged (void)
 {
-	selectedController_ = (int)controllerSpinBtn_->get_value() - 1;
+	selectedController_ = (int)controllerSpinBtn_->get_value();
 }
 
 bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
@@ -462,9 +462,9 @@ void MidiMap::onConnectionMoved (void)
 		if(iter)
 		{
 			selectedChan_ = (*iter)[connectViewCols_.midiChan] - 1;
-			selectedController_ = (*iter)[connectViewCols_.midiController] - 1;
+			selectedController_ = (*iter)[connectViewCols_.midiController];
 			channelSpinBtn_->set_value(selectedChan_ + 1);
-			controllerSpinBtn_->set_value(selectedController_ + 1);
+			controllerSpinBtn_->set_value(selectedController_);
 			selectedConnection = synth_->getMidiControllerConnection(
 				(unsigned char)selectedChan_,
 				(unsigned int)selectedController_);
