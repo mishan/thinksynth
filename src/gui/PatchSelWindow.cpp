@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.22 2004/04/01 02:47:50 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.23 2004/04/01 20:01:49 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -8,9 +8,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include <gtk/gtk.h>
 #include <gtkmm.h>
-#include <gtkmm/messagedialog.h>
 
 #include "thArg.h"
 #include "thPlugin.h"
@@ -114,7 +112,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 PatchSelWindow::~PatchSelWindow (void)
 {
-	hide ();
+//	hide ();
 }
 
 void PatchSelWindow::LoadPatch (void)

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.14 2004/04/01 09:54:12 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.15 2004/04/01 20:01:49 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -8,9 +8,7 @@
 #include <string.h>
 #include <errno.h>
 
-#include <gtk/gtk.h>
 #include <gtkmm.h>
-#include <gtkmm/messagedialog.h>
 
 #include "thArg.h"
 #include "thPlugin.h"
@@ -30,11 +28,11 @@ static char	key_conv_out[] = "`1234567890-=\\[];\',./";
 static char	keylist_1[] = "1q2w3e4r5t6y7u8i9o0p-[=]\\";
 static char	keylist_2[] = "azsxdcfvgbhnjmk,l.;/\'";
 
-static unsigned int	color0 = 0x00000000;	/* key border			*/
-static unsigned int	color1 = 0x00FFFFFF;	/* white key			*/
-static unsigned int	color2 = 0x00000000;	/* black key			*/
-static unsigned int	color3 = 0x00C0FFFF;	/* A (440 Hz) key		*/
-static unsigned int	color4 = 0x00D0D0D0;	/* white key / active		*/
+static unsigned int	color0 = 0x00000000;	/* key border			    */
+static unsigned int	color1 = 0x00FFFFFF;	/* white key			    */
+static unsigned int	color2 = 0x00000000;	/* black key			    */
+static unsigned int	color3 = 0x00C0FFFF;	/* A (440 Hz) key		    */
+static unsigned int color4 = 0x00B0B0B0;    /* white key / active       */
 static unsigned int	color5 = 0x00707070;	/* black key / active		*/
 static unsigned int	color6 = 0x0090D0D0;	/* A (440 Hz) key / active	*/
 
@@ -42,43 +40,43 @@ static int	key_sizes[4][7] =
 {
 	/* keyboard size 0: 450x45 pixels */
 	{
-		26,		/* black key height			*/
+		26,		/* black key height			        */
 		19,		/* total height - black key height	*/
-		6,		/* white key total width		*/
-		3,		/* black key width			*/
-		4,		/* white key width 1 (C, F)		*/
+		6,		/* white key total width		    */
+		3,		/* black key width			        */
+		4,		/* white key width 1 (C, F)		    */
 		3,		/* white key width 2 (D, G, A)		*/
-		4		/* white key width 3 (E, B)		*/
+		4		/* white key width 3 (E, B)		    */
 	},
 	/* keyboard size 1: 600x60 pixels */
 	{
-		35,		/* black key height			*/
+		35,		/* black key height			        */
 		25,		/* total height - black key height	*/
-		8,		/* white key total width		*/
-		5,		/* black key width			*/
-		5,		/* white key width 1 (C, F)		*/
+		8,		/* white key total width		    */
+		5,		/* black key width			        */
+		5,		/* white key width 1 (C, F)		    */
 		3,		/* white key width 2 (D, G, A)		*/
-		5		/* white key width 3 (E, B)		*/
+		5		/* white key width 3 (E, B)		    */
 	},
 	/* keyboard size 2: 750x75 pixels */
 	{
-		43,		/* black key height			*/
+		43,		/* black key height			        */
 		32,		/* total height - black key height	*/
-		10,		/* white key total width		*/
-		6,		/* black key width			*/
-		7,		/* white key width 1 (C, F)		*/
+		10,		/* white key total width		    */
+		6,		/* black key width			        */
+		7,		/* white key width 1 (C, F)		    */
 		4,		/* white key width 2 (D, G, A)		*/
-		6		/* white key width 3 (E, B)		*/
+		6		/* white key width 3 (E, B)		    */
 	},
 	/* keyboard size 3: 1050x105 pixels */
 	{
-		61,		/* black key height			*/
+		61,		/* black key height			        */
 		44,		/* total height - black key height	*/
-		14,		/* white key total width		*/
-		8,		/* black key width			*/
-		10,		/* white key width 1 (C, F)		*/
+		14,		/* white key total width		    */
+		8,		/* black key width			        */
+		10,		/* white key width 1 (C, F)		    */
 		6,		/* white key width 2 (D, G, A)		*/
-		9		/* white key width 3 (E, B)		*/
+		9		/* white key width 3 (E, B)		    */
 	}
 };
 
@@ -95,7 +93,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	veloc3 = 127;
 	mouse_notnum = -1;
 	mouse_veloc = 127;
-	cur_size = 2;
+	cur_size = 2; /* keyboard widget size parameter */
 	ctrl_on = 0;
 	shift_on = 0;
 	alt_on = 0;
@@ -106,6 +104,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	set_title("thinksynth - Keyboard");
 
 	drawArea.set_size_request(img_width, img_height);
+	/* allow widget to receive mouse/keypress events */
 	drawArea.add_events(Gdk::ALL_EVENTS_MASK);
 
 	add(vbox);
@@ -125,10 +124,12 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	ctrlTable.attach(transLbl, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 	ctrlTable.attach(*transBtn, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
 
+	/* we must realize the widgets before we do some things .. */
 	realize();
 	gtk_widget_realize(GTK_WIDGET(drawArea.gobj()));	
 
 	drawable = ((GtkWidget *)drawArea.gobj())->window;
+	/* allow the widget to grab focus and process keypress events */
 	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(drawArea.gobj()), GTK_CAN_FOCUS);
 
 	kbgc = gdk_gc_new (drawable);
@@ -162,12 +163,16 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	drawArea.signal_key_release_event().connect(
 		SigC::slot(*this, &KeyboardWindow::keyEvent));
 
-	drawKeyboard (5);
+	drawArea.signal_focus_in_event().connect(
+		SigC::slot(*this, &KeyboardWindow::focusInEvent));
+
+	drawArea.signal_focus_out_event().connect(
+		SigC::slot(*this, &KeyboardWindow::focusOutEvent));
 }
 
 KeyboardWindow::~KeyboardWindow (void)
 {
-	hide ();
+//	hide ();
 
 //  gdk_key_repeat_enable ()
 }
@@ -184,15 +189,18 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 	{
 		case GDK_Control_L:
 		case GDK_Control_R:
-			ctrl_on = press; break;
+			ctrl_on = press;
+			break;
 		case GDK_Shift_L:		/* Shift */
 		case GDK_Shift_R:
-			shift_on = press; break;
+			shift_on = press;
+			break;
 		case GDK_Alt_L:			/* Alt */
 		case GDK_Alt_R:
 		case GDK_Meta_L:
 		case GDK_Meta_R:
-			alt_on = press; break;
+			alt_on = press; 
+			break;
 		case GDK_F1:			/* function keys */
 		case GDK_F2:
 		case GDK_F3:
@@ -209,6 +217,7 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 		case GDK_Right:
 		case GDK_Up:
 		case GDK_Down:
+			/* XXX */
 			break;
 		default:
 		{
@@ -239,6 +248,28 @@ bool KeyboardWindow::keyEvent (GdkEventKey *k)
 
 	drawKeyboard(1);
 	
+	return true;
+}
+
+bool KeyboardWindow::focusInEvent (GdkEventFocus *f)
+{
+	/*	printf("focus in called\n");
+
+	Glib::RefPtr<Gtk::Style> style = drawArea.get_style();
+	Glib::RefPtr<Gdk::Window> wind = drawArea.get_window();
+	Gdk::Rectangle focus_rect(0, 0, img_width, img_height);
+	style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, drawArea,
+	"", 0, 0, img_width, img_height); */
+
+	return true;
+}
+
+bool KeyboardWindow::focusOutEvent (GdkEventFocus *f)
+{
+	/*	printf("focus out called\n");
+	
+	drawKeyboard(5); */
+
 	return true;
 }
 
@@ -314,13 +345,15 @@ void KeyboardWindow::drawKeyboard (int mode)
 
 	/* z = 4 if entire window should be redrawn */
 	z = mode & 4;
-	if (z) {
+	if (z)
+	{
 		/* key borders */
 		gdk_rgb_gc_set_foreground (kbgc, color0);
 		gdk_draw_line (drawable, kbgc, 0, img_height - 1,
 					    img_width - 1, img_height - 1);
 		i = 128; l = -1;
-		do {
+		do 
+		{
 			l += s2;
 			gdk_draw_line (drawable, kbgc, l, 0, l, img_height - 2);
 		} while (--i);
@@ -329,33 +362,44 @@ void KeyboardWindow::drawKeyboard (int mode)
 	l = 0;				/* white key x pos */
 	i = k = 0;			/* key number (i: 0-127, k: 0-11) */
 	/* draw keys */
-	do {
+	do
+	{
 		/* update only if state changed or redraw window was reqd */
-		if ((active_keys[i] != prv_active_keys[i]) || z) {
+		if ((active_keys[i] != prv_active_keys[i]) || z)
+		{
 			/* save new state */
 			prv_active_keys[i] = active_keys[i];
-			if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1))) {
+			if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
+			{
 				/* white keys */
-				if (i == 69) {	/* A (440 Hz) */
+				if (i == 69) 
+				{	
+					/* A (440 Hz) */
 					c = (unsigned int)
 					    (active_keys[i] ? color6 : color3);
-				} else {
+				}
+				else
+				{
 					c = (unsigned int)
 					    (active_keys[i] ? color4 : color1);
 				}
+
 				/* set color */
 				gdk_rgb_gc_set_foreground (kbgc, c);
 				if ((k == 0) || (k == 5)) {
 					/* C, F */
 					gdk_draw_rectangle (drawable, kbgc, 1,
 							    l, 0, s4, s0);
-				} else if ((k == 4) || (k == 11)
-					   || (i == 127)) {
+				} 
+				else if ((k == 4) || (k == 11) || (i == 127))
+				{
 					/* E, B */
 					gdk_draw_rectangle (drawable, kbgc, 1,
 							    l + s2 - s6 - 1, 0,
 							    s6, s0);
-				} else {
+				}
+				else
+				{
 					/* D, G, A */
 					gdk_draw_rectangle (drawable, kbgc, 1,
 							    l + s2 - s6 - 1, 0,
@@ -363,7 +407,9 @@ void KeyboardWindow::drawKeyboard (int mode)
 				}
 				gdk_draw_rectangle (drawable, kbgc, 1,
 						    l, s0, s2 - 1, s1 - 1);
-			} else {
+			}
+			else
+			{
 				/* black keys */
 				c = (unsigned int)
 				    (active_keys[i] ? color5 : color2);
@@ -374,14 +420,18 @@ void KeyboardWindow::drawKeyboard (int mode)
 			}
 		}
 		/* new x coordinate */
-		if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1))) {
+		if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
+		{
 			/* white keys */
 			l += s2;
-			if ((k == 4) || (k == 11)) {
+			if ((k == 4) || (k == 11))
+			{
 				/* skip E# and B# */
 				j += s2;
 			}
-		} else {
+		}
+		else
+		{
 			/* black keys */
 			j += s2;
 		}
@@ -400,32 +450,49 @@ int	KeyboardWindow::keyval_to_notnum (int key)
 	if ((key <= 0) || (key >= 256)) return -1;
 
 	/* upper case -> lower case */
-	if ((key >= 'A') && (key <= 'Z')) {
+	if ((key >= 'A') && (key <= 'Z'))
+	{
 		key -= 'A'; key += 'a';
 	}
+
 	/* convert SHIFT characters */
 	c = strchr (key_conv_in, key);
-	if (c != NULL) key = key_conv_out[c - key_conv_in];
+	if (c != NULL)
+		key = key_conv_out[c - key_conv_in];
+
 	/* find character in tables */
 	c = strchr (keylist_1, key);
-	if (c == NULL) {
+	if (c == NULL)
+	{
 		c = strchr (keylist_2, key);
-		if (c == NULL) return -1;	/* not found */
+		if (c == NULL) 
+			return -1;	/* not found */
+
 		n = (int) (c - keylist_2);
-	} else {
+	}
+	else
+	{
 		n = 14 + (int) (c - keylist_1);
 	}
+
 	n += 13;
 	/* key offset */
 	n += (key_ofs << 1);
 	m = n % 14;
 	o = n / 14;	/* octave */
+
 	/* check for invalid keys (E# and B#) */
-	if ((m == 5) || (m == 13)) return -1;
+	if ((m == 5) || (m == 13))
+		return -1;
+
 	/* correct for missing black keys and transpose */
-	if (m > 4) m--;
+	if (m > 4)
+		m--;
+
 	n = 48 + (int)transVal->get_value() + 12 * o + m;
-	if ((n < 0) || (n > 127)) n = -1;
+
+	if ((n < 0) || (n > 127))
+		n = -1;
 
 	return n;
 }
@@ -439,36 +506,53 @@ int	KeyboardWindow::get_coord (void)
 
 	mask = GDK_MODIFIER_MASK;
 	gdk_window_get_pointer (drawable, &x, &y, &mask);
+
 	/* check for valid coordinates */
 	if ((x < 0) || (x >= img_width) || (y < 0) || (y >= img_height))
 		return -1;
+
 	/* calculate key number */
 	n = (x / key_sizes[cur_size][2]) << 1;
 	m = n % 14;
 	o = 12 * (n / 14) + m;
-	if (y < key_sizes[cur_size][0]) {		/* black keys */
+
+	if (y < key_sizes[cur_size][0])
+	{
+		/* black keys */
 		y = x - ((n >> 1) * key_sizes[cur_size][2]);
-		switch (m) {
-		case 0:			/* C */
-		case 6:			/* F */
-			if (y >= key_sizes[cur_size][4]) o++;
-			break;
-		case 4:			/* E */
-		case 12:		/* B */
-			if (y < (key_sizes[cur_size][2]
-				 - key_sizes[cur_size][6] - 1)) o--;
-			break;
-		default:		/* D, G, A */
-			if (y >= key_sizes[cur_size][4]) {
-				o++;
-			} else if (y < (key_sizes[cur_size][2]
-					- key_sizes[cur_size][6] - 1)) {
-				o--;
-			}
+		
+		switch (m)
+		{
+			case 0:			/* C */
+			case 6:			/* F */
+				if (y >= key_sizes[cur_size][4])
+					o++;
+				break;
+			case 4:			/* E */
+			case 12:		/* B */
+				if (y < (key_sizes[cur_size][2]
+						 - key_sizes[cur_size][6] - 1))
+					o--;
+				break;
+			default:		/* D, G, A */
+				if (y >= key_sizes[cur_size][4])
+				{
+					o++;
+				} 
+				else if (y < (key_sizes[cur_size][2]
+							  - key_sizes[cur_size][6] - 1))
+				{
+					o--;
+				}
+				break;
 		}
 	}
-	if (m > 4) o--;		/* correct for missing E# */
-	if (o > 127) o = 127;
+
+	/* correct for missing E# */
+	if (m > 4)
+		o--;
+	if (o > 127)
+		o = 127;
 
 	return (int) o;
 }
@@ -492,14 +576,6 @@ void	adjust_key_ofs (int n)
 	if (key_ofs < 0) key_ofs = 0;
 	if (key_ofs > 6) key_ofs = 6;
 	fprintf (stderr, "base key: %c\n", base_keys[key_ofs]);
-}
-
-/* add n to channel with range checking and print new value */
-
-void	adjust_channel (int n)
-{
-//	set_channel (channel + n);
-//	fprintf (stderr, "channel: %d\n", channel);
 }
 
 /* add n to program with range checking and print new value */

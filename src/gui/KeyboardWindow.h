@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.7 2004/04/01 09:54:12 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.8 2004/04/01 20:01:49 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -10,12 +10,19 @@ public:
 	~KeyboardWindow (void);
 
 protected:
+	void drawKeyboard (int mode);
+
+	/* event callbacks */
+	bool focusInEvent (GdkEventFocus *f);
+	bool focusOutEvent (GdkEventFocus *f);
 	bool clickEvent (GdkEventButton *b);
 	bool unclickEvent (GdkEventButton *b);
 	bool keyEvent (GdkEventKey *k);
 	bool exposeEvent (GdkEventExpose *e);
-	void drawKeyboard (int mode);
 
+	thSynth *synth;
+private:
+	/* widgets */
 	Gtk::DrawingArea drawArea;
 	Gtk::VBox vbox;
 	Gtk::Frame ctrlFrame;
@@ -29,11 +36,11 @@ protected:
 	Gtk::SpinButton *transBtn;
 	Gtk::Adjustment *transVal;
 
-	thSynth *synth;
-private:
+	/* lower-level widget stuff */
 	GdkWindow *drawable;
 	GdkGC		*kbgc;
 
+	/* keyboard stuff */
 	int img_width, img_height;
 	int prv_active_keys[128];
 	int active_keys[128];
