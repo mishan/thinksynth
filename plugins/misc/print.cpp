@@ -1,4 +1,4 @@
-/* $Id: print.cpp,v 1.3 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: print.cpp,v 1.4 2004/03/26 09:38:37 joshk Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -16,9 +16,11 @@
 char		*desc = "Prints 'in'";
 thPluginState	mystate = thPassive;
 
-extern "C" int	module_init (thPlugin *plugin);
-extern "C" int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
-extern "C" void module_cleanup (struct module *mod);
+extern "C" {
+  int	module_init (thPlugin *plugin);
+  int	module_callback (thNode *node, thMod *mod, unsigned int windowlen);
+  void module_cleanup (struct module *mod);
+}
 
 void module_cleanup (struct module *mod)
 {
