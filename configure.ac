@@ -38,8 +38,6 @@ AC_C_BIGENDIAN
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
-AC_CHECK_FUNCS(dlerror)
-
 AC_PATH_PROG(sedpath, sed)
 if test "_$sedpath" = _; then
 	AC_MSG_ERROR("Cannot find sed: I need it\!")
@@ -50,6 +48,7 @@ CXXFLAGS="-Wall -pedantic -rdynamic -ffast-math"
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. Is your C includes install complete?])])
 AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing libdl includes. Is your C includes install copmlete?])])
 AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"], [AC_MSG_ERROR([You need libdl to compile and use this program!])])
+AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR)],)
 
 AC_PATH_PROG(unamepath, uname)
 if test "_$unamepath" = _; then
