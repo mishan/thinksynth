@@ -8,10 +8,10 @@ node ionode {
 
 	waveform = 1;
 
-	percent = 0.9;
-	ilen = 32;
+	percent = 1;
+	ilen = 64;
 	imax = 1;
-	pw = 0.4;
+	pw = 0.5;
 };
 
 node freq misc::midi2freq {

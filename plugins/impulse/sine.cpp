@@ -1,8 +1,9 @@
-/* $Id: parabola.cpp,v 1.3 2003/05/24 02:13:28 ink Exp $ */
+/* $Id: sine.cpp,v 1.1 2003/05/24 02:13:28 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -15,9 +16,8 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define SQR(x) ((x)*(x))
 
-char		*desc = "Generates a small parabola";
+char		*desc = "Generates a sine impulse";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -26,12 +26,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Parabola plugin unloading\n");
+	printf("Sine plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Parabola plugin loaded\n");
+	printf("Sine plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -48,7 +48,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	unsigned int i, len;
 
 	in_len = (thArgValue *)mod->GetArg(node, "len"); /* Length of output */
-	in_max = (thArgValue *)mod->GetArg(node, "max"); /* Parabola peak */
+	in_max = (thArgValue *)mod->GetArg(node, "max"); /* Sine peak */
 	in_percent = (thArgValue *)mod->GetArg(node, "percent"); /* How much of the output is actually parabola */
 	len = (int)(*in_len)[0];
 	max = (*in_max)[0];
@@ -67,7 +67,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		out[i] = 0;
 	}
 	for(;i<(parabolalen/2)+offset;i++) {
-		out[i] = max*(1-SQR((i/((float)len-offset))*2-1));
+		out[i] = max*sin(i/((float)len-offset)*M_PI);
 	}
 	for(;i<len;i++) {
 		out[i] = out[(int)(half-(i-half))];
