@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.46 2003/05/11 07:29:18 aaronl Exp $
+dnl $Id: configure.ac,v 1.47 2003/05/16 02:39:10 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -8,10 +8,8 @@ AC_PREREQ(2.50)
 
 prefix="/usr/local"
 
-AC_CANONICAL_TARGET
-
-AC_PROG_CXX([$CXX g++ c++])
-AC_PROG_CC([$CC gcc cc egcs])
+AC_PROG_CXX
+AC_PROG_CC
 
 AC_PROG_CXXCPP
 
