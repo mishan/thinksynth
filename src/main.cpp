@@ -62,7 +62,7 @@ gthAudio *aout = NULL;
 static gthALSAMidi *midi = NULL;
 #endif /* HAVE_ALSA */
 
-Glib::Dispatcher *process = NULL;
+//Glib::Dispatcher *process = NULL;
 Gtk::Main *gtkMain = NULL;
 
 sigNoteOn  m_sigNoteOn;
@@ -135,8 +135,8 @@ void audio_readywrite (gthAudio *audio, thSynth *synth)
 	audio->Write(synthbuffer, l);
 
 	/* XXX: we should be using emit() but this fucks up */
-	process->emit();
-//	process_synth ();
+//	process->emit();
+	process_synth ();
 }
 
 #ifdef HAVE_JACK
@@ -158,8 +158,8 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 
 	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
-	process->emit();
-//	process_synth ();
+//	process->emit();
+	process_synth ();
 
 	return 0;
 }
@@ -321,8 +321,8 @@ int main (int argc, char *argv[])
 	Synth = new thSynth(plugin_path, windowlen, samples);
 	gthPrefs *prefs = gthPrefs::instance();
 
-	process = new Glib::Dispatcher;
-	process->connect(sigc::ptr_fun(&process_synth));
+//	process = new Glib::Dispatcher;
+//	process->connect(sigc::ptr_fun(&process_synth));
 
 	signal(SIGUSR1, (sighandler_t)cleanup);
 	signal(SIGINT, (sighandler_t)cleanup);
