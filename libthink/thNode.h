@@ -28,6 +28,8 @@ public:
 	void SetPlugin (thPlugin *plug);
 	thPlugin *GetPlugin() { return plugin; };
 
+	thBSTree *CopyArgs (thList *args);
+
 	void Process (void);
 private:
 	thBSTree args;

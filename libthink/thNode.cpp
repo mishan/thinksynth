@@ -76,6 +76,27 @@ void thNode::SetPlugin (thPlugin *plug)
   plugin = plug;
 }
 
+thBSTree *thNode::CopyArgs (thList *args)
+{
+  thListNode *listnode;
+  thBSTree *newargs = new thBSTree();
+  thArg *newarg;
+  thArgValue *data;
+
+  for(listnode = args->GetHead(); listnode; listnode = listnode->prev) {
+    data = (thArgValue *)((thArg *)listnode->data)->GetArg();
+    if(data->argType == ARG_VALUE) {
+      newarg = new thArg(data->argName, data->argValues, data->argNum);
+    }
+    else if(data->argType == ARG_POINTER) {
+      newarg = new thArg(data->argName, data->argPointNode, data->argPointName);
+    }
+    newargs->Insert(data->argName, newarg);
+  }
+
+  return newargs;
+}
+
 void thNode::Process (void)
 {
 }
