@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.29 2003/05/11 05:23:18 aaronl Exp $ */
+/* $Id: thBSTree.cpp,v 1.30 2003/05/11 06:00:59 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -73,7 +73,7 @@ void thBSTree::Insert(void *id, void *data)
 		bsData = data;
 	}
 
-	switch(bsCompare(data, bsData)) {
+	switch(bsCompare(id, bsId)) {
 	case -1:
 		if(bsLeft) {
 			bsLeft->Insert(id, data);
