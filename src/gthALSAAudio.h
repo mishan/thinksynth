@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.h,v 1.3 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthALSAAudio.h,v 1.4 2004/08/25 07:36:42 aaronl Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -25,7 +25,7 @@
 
 //#define ALSA_BUFSIZE 512
 
-#define ALSA_DEFAULT_DEVICE "hw:0"
+#define ALSA_DEFAULT_AUDIO_DEVICE "default"
 
 /* additional arguments are usually bound to the callbacks of this signal */
 typedef SigC::Signal0<void> sigReadyWrite_t;

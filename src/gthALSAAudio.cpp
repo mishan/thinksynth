@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.3 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.4 2004/08/25 07:36:42 aaronl Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,7 +36,7 @@ gthALSAAudio::gthALSAAudio (thSynth *argsynth)
 {
 	synth = argsynth;
 
-	if (snd_pcm_open (&play_handle, ALSA_DEFAULT_DEVICE,
+	if (snd_pcm_open (&play_handle, ALSA_DEFAULT_AUDIO_DEVICE,
 					  SND_PCM_STREAM_PLAYBACK, 0) < 0)
 	{
 		fprintf(stderr, "gthALSAAudio::gthALSAAudio: %s\n", strerror(errno));

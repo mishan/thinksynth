@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.9 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.10 2004/08/25 07:36:42 aaronl Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,7 +36,7 @@ gthALSAMidi::gthALSAMidi (const char *argname)
 	throw (thIOException)
 {
 	name = argname;
-	device = ALSA_DEFAULT_DEVICE;
+	device = ALSA_DEFAULT_MIDI_DEVICE;
 
 	if(!open_seq ())
 		throw errno;
