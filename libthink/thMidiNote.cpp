@@ -12,7 +12,7 @@
 
 thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 {
-	args = new thList;
+	args = new thBTree;
 
 	SetArg("note", &note, 1);
 	SetArg("velocity", &velocity, 1);
@@ -20,7 +20,7 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 
 thMidiNote::thMidiNote (thMod *mod)
 {
-	args = new thList;
+	args = new thBTree;
 }
 
 thMidiNote::~thMidiNote ()
@@ -30,11 +30,19 @@ thMidiNote::~thMidiNote ()
 
 void thMidiNote::SetArg (char *name, float *value, int num)
 {
+	thArg *arg = (thArg *)args->Find(name);
+	if(!arg) {
+		arg = new thArg(name, value, num);
+		args->Insert(name, arg);
+	} else {
+		arg->SetArg(name, value, num);
+	}
 }
 
-float *thMidiNote::GetArg (char *name)
+thArgValue *thMidiNote::GetArg (char *name)
 {
-	return NULL;
+	thArg *arg = (thArg *)args->Find(name);
+	return (thArgValue *)arg->GetArg();
 }
 
 void thMidiNote::Process (void)

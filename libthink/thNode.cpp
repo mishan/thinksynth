@@ -21,14 +21,14 @@ thNode::~thNode ()
  	/* free anything else */
 }
 
-void thNode::SetArg (char *name, float *value, int len)
+void thNode::SetArg (char *name, float *value, int num)
 {
 	thArg *arg = (thArg *)args->Find(name);
 	if(!arg) {
-		arg = new thArg(name, value, len);
+		arg = new thArg(name, value, num);
 		args->Insert(name, arg);
 	} else {
-		arg->SetArg(name, value, len);
+		arg->SetArg(name, value, num);
 	}
 }
 

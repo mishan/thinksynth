@@ -11,11 +11,11 @@ public:
 	void SetArg (char *name, float *value, int num);
 
 	/* returns a pointer to a list of values */
-	float *GetArg(char *name);
+	thArgValue *GetArg(char *name);
 
 	void Process (void);
 private:
-	thList *args;
+	thBTree *args;
 	thMod *modnode;
 };
 
