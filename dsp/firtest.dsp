@@ -10,7 +10,7 @@ node ionode {
 
 	percent = 1;
 	ilen = 64;
-	cutoff = 0.7;
+	cutoff = 0.6;
 	pw = 0.5;
 };
 
