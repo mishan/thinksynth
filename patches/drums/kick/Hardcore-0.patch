@@ -4,7 +4,7 @@
 # Tue Dec  7 17:36:26 2004
 
 
-dsp /home/ink/projects/thinksynth/dsp/bdshaped.dsp
+dsp bdshaped.dsp
 
 d 1597.826172
 d2 9906.522461
