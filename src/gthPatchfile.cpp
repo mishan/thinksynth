@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.8 2004/11/26 01:15:11 joshk Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.9 2004/11/26 03:51:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -287,9 +287,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 		return false;
 
 	if((prefsFile = fopen(filename.c_str(), "w")) == NULL)
-	{
 		return false;
-	}
 
 	printf("Saving %s\n", filename.c_str());
 	fprintf(prefsFile,
@@ -305,6 +303,8 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 	}
 
 	fclose(prefsFile);
+
+	patches_[chan]->filename = filename;
 
 	return true;
 }
