@@ -364,7 +364,6 @@ thMod * thSynth::loadMod (const string &filename, int channum, float amp)
 	return parsemod;
 }
 
-
 /* Make these voids return something and add error checking everywhere! */
 void thSynth::listMods (void)
 {

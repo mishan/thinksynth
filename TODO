@@ -7,3 +7,4 @@ TODO before the Thinksynth alpha
 - better descriptions in debian/control
 * remove or fix (argify) obsolete DSPs
 - make a spec file for RH based distros?
+- make thinksynth RT-safe by making sure malloc() is not used in thSynth::Process

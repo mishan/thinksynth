@@ -1,4 +1,4 @@
-/* $Id: thMidiController.cpp,v 1.5 2004/12/20 04:03:09 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,7 +28,7 @@ thMidiController::thMidiController (void)
 {
 	/* zero the pointer list */
 	memset(connections_, 0, 16 * 128 * sizeof(thMidiControllerConnection*));
-	connectionList_.clear();
+	connectionMap_.clear();
 }
 
 thMidiController::~thMidiController (void)
@@ -58,12 +58,12 @@ void thMidiController::newConnection (unsigned char channel,
 	if(connection == NULL)
 	{
 		connections_[channel][param] = 0;
-		connectionList_.erase(channel * 128 + param);
+		connectionMap_.erase(channel * 128 + param);
 	}
 	else
 	{
 		connections_[channel][param] = connection;
-		connectionList_[channel * 128 + param] = connection;
+		connectionMap_[channel * 128 + param] = connection;
 	}
 }
 
@@ -71,9 +71,9 @@ void thMidiController::clearByDestChan (unsigned int chan)
 {
 	thMidiControllerConnection *connection;
 	map<unsigned int, thMidiControllerConnection*>::iterator i =
-		connectionList_.begin();
+		connectionMap_.begin();
 
-	while (i != connectionList_.end())	
+	while (i != connectionMap_.end())	
 	{
 		map<unsigned int, thMidiControllerConnection*>::iterator j = i;
 		connection = i->second;
@@ -81,7 +81,7 @@ void thMidiController::clearByDestChan (unsigned int chan)
 		if((unsigned int)connection->getDestChan() == chan)
 		{
 			connections_[connection->getChan()][connection->getController()]=0;
-			connectionList_.erase(j);
+			connectionMap_.erase(j);
 		}
 	}
 }

@@ -1,4 +1,4 @@
-/* $Id $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -34,6 +34,8 @@ public:
 	thMidiController (void);
 	~thMidiController (void);
 
+	typedef map<unsigned int, thMidiControllerConnection *> ConnectionMap;
+
 	void handleMidi (unsigned char channel, unsigned int param,
 					 unsigned int value);
 
@@ -41,15 +43,17 @@ public:
 						thMidiControllerConnection *connection);
 	void clearByDestChan (unsigned int chan);
 
-	map<unsigned int, thMidiControllerConnection *>
-	*getConnectionList (void) { return &connectionList_; }
-	thMidiControllerConnection *getConnection
-	(unsigned char channel, unsigned int param)
-		{ return connections_[channel][param]; }
+	ConnectionMap *getConnectionMap (void) { return &connectionMap_; }
+
+	thMidiControllerConnection *getConnection (unsigned char channel, 
+											   unsigned int param)
+	{ 
+		return connections_[channel][param];
+	}
 
 private:
 	thMidiControllerConnection *connections_[16][128];
-	map<unsigned int, thMidiControllerConnection *> connectionList_;
+	ConnectionMap connectionMap_;
 };
 
 #endif /* TH_MIDICONTROLLER_H */

@@ -39,9 +39,7 @@ public:
 		return instance_;
 	}
 
-	typedef map<int, string> PatchList;
-	typedef map<string, thArg *> ChannelArgList;
-	typedef map<unsigned int, thMidiControllerConnection *> MidiConnectionList;
+	typedef map<string, thArg *> ChannelArgMap;
 
 	thMod *loadMod(const string &filename);
 	thMod *loadMod(const string &filename, int channum, float amp);
@@ -61,10 +59,10 @@ public:
 
 	int audioChannelCount (void) const { return channels_; }
 
-	ChannelArgList getChanArgs (int chan) {
+	ChannelArgMap getChanArgs (int chan) {
 		if ((chan < 0) || (chan >= midiChannelCnt_) || 
 			(midiChannels_[chan] == NULL))
-			return ChannelArgList();
+			return ChannelArgMap();
 
 		return midiChannels_[chan]->GetArgs();
 	}
@@ -81,8 +79,6 @@ public:
 
 	int midiChanCount (void) const { return midiChannelCnt_; }
 
-	PatchList *getPatchlist (void) { return &patchlist_; }
-
 	thArg *getChanArg (int channum, const string &argname);
 	void setChanArg (int channum, thArg *arg);
 	int setChanArgData (int channum, const string &argname, float *data,
@@ -95,14 +91,16 @@ public:
 									  unsigned int param,
 									  thMidiControllerConnection *connection);
 
-	MidiConnectionList *getMidiConnectionList (void) { 
-		return controllerHandler_->getConnectionList(); }
+	thMidiController::ConnectionMap *getMidiConnectionMap (void) { 
+		return controllerHandler_->getConnectionMap();
+	}
 
 	thMidiControllerConnection *getMidiControllerConnection
 	(unsigned char channel, unsigned int param) { 
-		return controllerHandler_->getConnection(channel, param); }
+		return controllerHandler_->getConnection(channel, param);
+	}
 
-	inline thMidiChan *getChannel (int chan) const
+	thMidiChan *getChannel (int chan) const
 	{
 		if ((chan < midiChannelCnt_) && (chan >= 0))
 			return midiChannels_[chan];
