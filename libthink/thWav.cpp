@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.29 2003/05/10 07:21:59 misha Exp $ */
+/* $Id: thWav.cpp,v 1.30 2003/05/11 04:40:51 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -76,7 +76,7 @@ thWav::~thWav (void)
 		WriteRiff();
 
 		lseek(fd, 40, SEEK_SET);
-		lewrite32(fd, fmt.len - 44);
+		lewrite32(fd, fmt.len);
 
 		close(fd);
 	}
@@ -117,7 +117,7 @@ void thWav::WriteRiff (void)
 	
 
 	write(fd, RIFF_HDR, 4);
-	lewrite32(fd, fmt.len - 8);
+	lewrite32(fd, fmt.len);
 	write(fd, WAVE_HDR, 4);
 	write(fd, FMT_HDR, 4);
 	lewrite32(fd, fmt_len);
@@ -127,6 +127,7 @@ void thWav::WriteRiff (void)
 	lewrite32(fd, avgbytes);
 	lewrite16(fd, blockalign);
 	lewrite16(fd, fmt.bits);
+
 	write(fd, DATA_HDR, 4);
 }
 
@@ -145,11 +146,9 @@ int thWav::Read (void *data, int len)
 		break;
 	case 16:
 	{
-		int i;
-
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
-		for(i = 0; i < r; i++) {
+		for(int i = 0; i < r; i++) {
 			le16(((signed short *)data)[i], ((signed short *)data)[i]);
 		}
 #endif
