@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.46 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thinklang.yy,v 1.47 2003/11/04 00:52:49 misha Exp $ */
 
 %{
 #include "think.h"
@@ -25,9 +25,9 @@ thMod *parsemod;
 thNode *parsenode;
 thSynth Synth;
 
-// XX - REIMPLEMENT GLOBAL STUFFS
-//modnode *parsemod = NULL;
-//static linked_list *targs = NULL;
+// XXX - REIMPLEMENT GLOBAL STUFFS
+// modnode *parsemod = NULL;
+// static linked_list *targs = NULL;
 
 void yyerror (const char *str)
 {
@@ -273,6 +273,8 @@ WORD MODSEP plugname
 fstr:		/* a node name and an fstring */
 WORD INTO WORD
 {
+	/* we must allocate two extra bytes; one for the '/' and one for the null
+       terminator */
 	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
 	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
 	free($1.str);

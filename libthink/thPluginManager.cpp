@@ -1,7 +1,7 @@
-/* $Id: thPluginManager.cpp,v 1.41 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thPluginManager.cpp,v 1.42 2003/11/04 00:52:49 misha Exp $ */
 
-#include "think.h"
 #include "config.h"
+#include "think.h"
 
 #include <stdio.h>
 #include <unistd.h>
@@ -77,12 +77,15 @@ void thPluginManager::UnloadPlugin(const string &name)
 	map<string, thPlugin*>::iterator i = plugins.find(name);
 
 	if(i == plugins.end()) {
-		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n", name.c_str());
+		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
+				name.c_str());
 		return;
 	}
 
 	thPlugin *plugin = i->second;
+
 	plugins.erase(i);
+
 	delete plugin;
 }
 

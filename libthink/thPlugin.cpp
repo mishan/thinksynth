@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.34 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thPlugin.cpp,v 1.35 2003/11/04 00:52:49 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -27,7 +27,7 @@ thPlugin::thPlugin (const string &path)
 
 	plugCallback = NULL;
 
-	if(ModuleLoad() == 1) { /* fail = return (1) */
+	if(ModuleLoad()) { /* fail = return (1) */
 		fprintf(stderr, "Couldn't load plugin %s\n", path.c_str());
 	}
 
@@ -65,14 +65,13 @@ void thPlugin::SetDesc (const string &desc)
 	plugDesc = desc;
 }
 
-/*	
- *	ModuleLoad ()
- * 	
+/*	ModuleLoad ()
+ *
  * 	precondition: plugPath != NULL
- * 	
+ *
  *	postcondition: plugState has been set to *something*.
  *	if it can't load correctly, set it thNotLoaded so that
- *	parents et al. can deal with it.
+ *	parents et al. can deal with it. 
  */
 
 int thPlugin::ModuleLoad (void)

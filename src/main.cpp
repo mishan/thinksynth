@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.102 2003/10/17 02:14:49 misha Exp $ */
+/* $Id: main.cpp,v 1.103 2003/11/04 00:52:49 misha Exp $ */
 
 #include "config.h"
 
@@ -45,16 +45,17 @@ static void print_syntax(char *argv0)
 
 int main (int argc, char *argv[])
 {
-	string dspname = "test"; /* XXX: for debugging ONLY */
+	string dspname = "test";   /* XXX: for debugging ONLY */
 	string outputfname("test.wav");
-	string inputfname; /* filename of .dsp file to use */
-	int notetoplay = 69;  /* XXX: Remove when sequencing is external */
+	string inputfname;         /* filename of .dsp file to use */
+	int notetoplay = 69;       /* XXX: Remove when sequencing is external */
 	int samplerate = TH_SAMPLE;
 	int processwindows = 100;  /* how long does sample play */
 	int buflen, havearg, i;
 	float *synthbuffer;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
+//	list<int> notestoplay;
 
 	plugin_path = PLUGIN_PATH;
 
@@ -95,7 +96,7 @@ int main (int argc, char *argv[])
 				dspname = optarg;
 				break;
 			}
-			case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
+			case 'n':  /* XXX: TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
 			{
 				notetoplay = (int)atof(optarg);
 				break;
@@ -155,7 +156,7 @@ int main (int argc, char *argv[])
 	catch (thIOException e) {
 		/* XXX */
 	}
-	catch (thWavException e){
+	catch (thWavException e) {
 		/* XXX */
 	}
 
