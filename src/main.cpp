@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.166 2004/04/18 00:47:43 misha Exp $ */
+/* $Id: main.cpp,v 1.167 2004/04/18 09:51:28 misha Exp $ */
 
 #include "config.h"
 
@@ -255,7 +255,7 @@ int main (int argc, char *argv[])
 	exitCond = new Glib::Cond;
 
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
-
+ 
 	process = new Glib::Dispatcher;
 	process->connect(SigC::slot(process_synth));
 

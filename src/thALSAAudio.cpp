@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.10 2004/04/17 23:01:34 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.11 2004/04/18 09:51:28 misha Exp $ */
 
 #include "config.h"
 
@@ -51,6 +51,9 @@ thALSAAudio::thALSAAudio (thSynth *argsynth, const char *device)
 	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
 	snd_pcm_poll_descriptors (play_handle, pfds, nfds);
 
+	Glib::signal_io().connect(SigC::slot(*this, &thALSAAudio::pollAudioEvent),
+							  pfds[0].fd, Glib::IO_OUT, Glib::PRIORITY_HIGH);
+
 	SetFormat(argsynth);
 
 	outbuf = NULL;
@@ -86,25 +89,25 @@ void thALSAAudio::SetFormat (thSynth *argsynth)
 	snd_pcm_hw_params_set_access(play_handle, hw_params,
 								SND_PCM_ACCESS_RW_INTERLEAVED);
 
-   snd_pcm_hw_params_set_format(play_handle, hw_params, SND_PCM_FORMAT_S16);
+	snd_pcm_hw_params_set_format(play_handle, hw_params, SND_PCM_FORMAT_S16);
    
-   snd_pcm_hw_params_set_rate_near(play_handle, hw_params, &samples, NULL);
-   snd_pcm_hw_params_set_channels(play_handle, hw_params, chans);
+	snd_pcm_hw_params_set_rate_near(play_handle, hw_params, &samples, NULL);
+	snd_pcm_hw_params_set_channels(play_handle, hw_params, chans);
 
 
    /* where the buffer is actually set */
-   snd_pcm_hw_params_set_periods(play_handle, hw_params, chans, 0);
-   snd_pcm_hw_params_set_period_size(play_handle, hw_params,
+	snd_pcm_hw_params_set_periods(play_handle, hw_params, chans, 0);
+	snd_pcm_hw_params_set_period_size(play_handle, hw_params,
 									 TH_BUFFER_PERIOD, 0);
    
 //	snd_pcm_hw_params_set_buffer_time(play_handle, hw_params, 1000, 0);
 
-   snd_pcm_hw_params(play_handle, hw_params);
+	snd_pcm_hw_params(play_handle, hw_params);
 
-   snd_pcm_sw_params_alloca(&sw_params);
-   snd_pcm_sw_params_current(play_handle, sw_params);
-   snd_pcm_sw_params_set_avail_min(play_handle, sw_params, period);
-   snd_pcm_sw_params(play_handle, sw_params);
+	snd_pcm_sw_params_alloca(&sw_params);
+	snd_pcm_sw_params_current(play_handle, sw_params);
+	snd_pcm_sw_params_set_avail_min(play_handle, sw_params, period);
+	snd_pcm_sw_params(play_handle, sw_params);
 }
 
 void thALSAAudio::SetFormat (const thAudioFmt *afmt)
@@ -119,38 +122,39 @@ void thALSAAudio::SetFormat (const thAudioFmt *afmt)
 	snd_pcm_hw_params_any(play_handle, hw_params);
 	snd_pcm_hw_params_set_access(play_handle, hw_params,
 								SND_PCM_ACCESS_RW_INTERLEAVED);
-   switch(ifmt.bits)
-   {
-	   case 8:
-	   {
-		   snd_pcm_hw_params_set_format(play_handle, hw_params,
+	switch(ifmt.bits)
+	{
+		case 8:
+		{
+			snd_pcm_hw_params_set_format(play_handle, hw_params,
 										SND_PCM_FORMAT_U8);
-		   break;
-	   }
-	   case 16:
-	   {
-		   snd_pcm_hw_params_set_format(play_handle, hw_params,
-										SND_PCM_FORMAT_S16);
-		   break;
-	   }
-   }
+			break;
+		}
+		case 16:
+		{
+			snd_pcm_hw_params_set_format(play_handle, hw_params,
+										 SND_PCM_FORMAT_S16);
+			break;
+		}
+	}
    
-   snd_pcm_hw_params_set_rate_near(play_handle, hw_params, (unsigned int *)&ofmt.samples, NULL);
-   snd_pcm_hw_params_set_channels(play_handle, hw_params, ofmt.channels);
+	snd_pcm_hw_params_set_rate_near(play_handle, hw_params, 
+									(unsigned int *)&ofmt.samples, NULL);
+	snd_pcm_hw_params_set_channels(play_handle, hw_params, ofmt.channels);
 
 
    /* where the buffer is actually set */
 //   snd_pcm_hw_params_set_periods(play_handle, hw_params, ifmt.channels, 0);
-   snd_pcm_hw_params_set_periods(play_handle, hw_params, ofmt.channels, 0);
-   snd_pcm_hw_params_set_period_size(play_handle, hw_params,
+	snd_pcm_hw_params_set_periods(play_handle, hw_params, ofmt.channels, 0);
+	snd_pcm_hw_params_set_period_size(play_handle, hw_params,
 									 TH_BUFFER_PERIOD, 0);
    
 //	snd_pcm_hw_params_set_buffer_time(play_handle, hw_params, 1000, 0);
-   snd_pcm_hw_params(play_handle, hw_params);
-   snd_pcm_sw_params_alloca(&sw_params);
-   snd_pcm_sw_params_current(play_handle, sw_params);
-   snd_pcm_sw_params_set_avail_min(play_handle, sw_params, ofmt.period);
-   snd_pcm_sw_params(play_handle, sw_params);
+	snd_pcm_hw_params(play_handle, hw_params);
+	snd_pcm_sw_params_alloca(&sw_params);
+	snd_pcm_sw_params_current(play_handle, sw_params);
+	snd_pcm_sw_params_set_avail_min(play_handle, sw_params, ofmt.period);
+	snd_pcm_sw_params(play_handle, sw_params);
 }
 
 
