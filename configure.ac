@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.52 2003/05/28 06:25:31 joshk Exp $
+dnl $Id: configure.ac,v 1.53 2003/05/29 05:48:53 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -33,7 +33,6 @@ if test `expr "$LEX" : .*missing 2>/dev/null` -ne 0; then
 	AC_MSG_ERROR([A lex implementation is required to build this program.])
 fi
 
-
 AC_ISC_POSIX
 AC_HEADER_STDC
 AC_C_CONST
@@ -57,16 +56,13 @@ AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation
 AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 
 AC_PATH_PROG(unamepath, uname)
-if test "_$unamepath" = _; then
+if test -z "$unamepath"; then
 	system="unknown"
 else
 	AC_MSG_CHECKING(system type)
 	system=`$unamepath -s`
 	AC_MSG_RESULT($system)
 	case "$system" in
-		Linux)
-			AC_DEFINE([USING_LINUX], 1, [Define if using Linux])
-		;;
 		FreeBSD)
 			AC_DEFINE([USING_FREEBSD], 1, [Define if using FreeBSD])
 			CXXFLAGS="$CXXFLAGS -Wno-long-long"
@@ -103,9 +99,14 @@ AC_ARG_ENABLE(debug,
 AC_HELP_STRING([--enable-debug],[print debug messages to stdout (default on)]),
 dnl Debug is enabled:
 [
-	AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-	CXXFLAGS="$CXXFLAGS -ggdb"
-	debug=yes
+	if test "$enableval" != no; then 
+		AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
+		CXXFLAGS="$CXXFLAGS -ggdb -W "
+		debug=yes
+	else
+		CXXFLAGS="$CXXFLAGS -O2"
+		debug=no
+	fi
 ],
 
 dnl Debug is disabled:
