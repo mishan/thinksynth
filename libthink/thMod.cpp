@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.56 2003/05/03 10:06:45 ink Exp $ */
+/* $Id: thMod.cpp,v 1.57 2003/05/03 10:34:31 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -225,10 +225,6 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	if(((thPlugin *)currentnode->GetPlugin())->GetState() == thActive) {
 	  activelist.Add(currentnode);
 	}
-
-	/*	parent->AddChild(currentnode);
-		currentnode->AddParent(parent);*/
-	printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
 
 	argtree = currentnode->GetArgTree();
 

@@ -4,13 +4,17 @@ node ionode test::test {
         out0 = mixer->out;
         channels = 1;
         play = env->play;
+	test = freq->foo;
+	moretests = mixer->foo;
         };
 node freq misc::midi2freq {
 	note = ionode->note;
+	foo = 4;
 	};
 node mixer mixer::mul {
 	in0 = osc->out;
 	in1 = env->out;
+	foo = 9;
 	};
 node env env::adsr {
 	a = 100;
