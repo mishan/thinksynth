@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.142 2004/03/24 09:58:32 misha Exp $ */
+/* $Id: main.cpp,v 1.143 2004/03/26 06:25:46 misha Exp $ */
 
 #include "config.h"
 
@@ -31,6 +31,10 @@
 #include "parser.h"
 
 #include "ui.h"
+
+Glib::Mutex *synthMutex = NULL;
+/* XXX: we should not have a single synth ptr */
+thSynth *glblSynth;
 
 /* XXX: remove ALSA/OSS-specific code from libthink */
 
@@ -235,49 +239,38 @@ int main (int argc, char *argv[])
 	if (optind < argc) {
 		inputfname = argv[optind];
 
-		Synth.LoadMod(inputfname);
-		/* the first channel is the one passed on the command line */
-		Synth.AddChannel(0, dspname, 12.0);
+		Synth.LoadMod(string(inputfname), 0, (float)12.0);
 	}
 
 	/* seed the random number generator */
 	srand(time(NULL));
 
+	Synth.LoadMod("dsp/piano0.dsp", 1, (float)14.0);
+	Synth.LoadMod("dsp/organ0.dsp", 2, (float)12.0);
+	Synth.LoadMod("dsp/sqrtest.dsp", 3, (float)2.0);
+	Synth.LoadMod("dsp/dfb.dsp", 4, (float)12.0);
+	Synth.LoadMod("dsp/harpsi0.dsp", 5, (float)12.0);
+	Synth.LoadMod("dsp/mfm01.dsp", 6, (float)12.0);
+	Synth.LoadMod("dsp/analog00.dsp", 7, (float)12.0);
+	Synth.LoadMod("dsp/amb01.dsp", 8, (float)12.0);
+	/* drums */
+	Synth.LoadMod("dsp/sd0.dsp", 9, (float)11.0);
+
+//	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
+	
+	synthMutex = new Glib::Mutex;
+	glblSynth = &Synth;
 	Glib::Thread *const ui = Glib::Thread::create(
 		SigC::slot(&ui_thread), true);
 
-
-	Synth.LoadMod("dsp/piano0.dsp");
-	Synth.AddChannel(1, "test", 14.0);
-	Synth.LoadMod("dsp/organ0.dsp");
-	Synth.AddChannel(2, "test", 12.0);
-	Synth.LoadMod("dsp/sqrtest.dsp");
-	Synth.AddChannel(3, "test", 2.0);
-
-	Synth.LoadMod("dsp/dfb.dsp");
-	Synth.AddChannel(4, "test", 12.0);
-	Synth.LoadMod("dsp/harpsi0.dsp");
-	Synth.AddChannel(5, "test", 12.0);
-	Synth.LoadMod("dsp/harpsi1.dsp");
-	Synth.AddChannel(5, "test", 12.0);
-	Synth.LoadMod("dsp/mfm01.dsp");
-	Synth.AddChannel(6, "test", 12.0);
-	Synth.LoadMod("dsp/analog00.dsp");
-	Synth.AddChannel(7, "test", 12.0);
-	Synth.LoadMod("dsp/amb01.dsp");
-	Synth.AddChannel(8, "test", 12.0);
-
-
-	/* drums */
-	Synth.LoadMod("dsp/sd0.dsp");
-	Synth.AddChannel(9, "test", 11.0);
-
-//	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
 	try
 	{
+		// XXX
+		synthMutex->lock();
+
 		/* XXX: note that this is actually bad since there are potentially
 		   other /dev/dsp devices */
 		audiofmt.channels = Synth.GetChans();
@@ -328,6 +321,9 @@ int main (int argc, char *argv[])
 
 			}
 		}
+
+		// XXX
+		synthMutex->unlock();
 	}
 
 	/* XXX: handle these exceptions and consolidate them to one exception

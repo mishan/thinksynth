@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.72 2004/03/24 06:23:24 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.73 2004/03/26 06:25:46 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -39,6 +39,20 @@ thSynth::thSynth (void)
 
 	channelcount = CHANNELCHUNK;
 	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan*));
+}
+
+thSynth::thSynth(thSynth *copySynth)
+{
+	thWindowlen = copySynth->GetWindowLen();
+	thChans     = copySynth->GetChans();
+	thSamples   = copySynth->GetSamples();
+	
+	thOutput = new float[thChans*thWindowlen];
+
+	channelcount = CHANNELCHUNK;
+	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
+
+	/* XXX: unfinished */
 }
 
 thSynth::~thSynth (void)
@@ -90,6 +104,55 @@ void thSynth::LoadMod (FILE *input)
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
+}
+
+void thSynth::LoadMod (const string &filename, int channum, float amp)
+{
+	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
+		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
+				 strerror(errno));
+		exit(1);
+	}
+
+	/* XXX: do we re-allocate these everytime we read a new input file?? */
+	/* these are used by the parser */
+	parsemod = new thMod("newmod");
+	parsenode = new thNode("newnode", NULL);
+
+	yyparse();
+
+	delete parsenode;
+
+	parsemod->SetPointers();
+	parsemod->BuildSynthTree();
+	modlist[parsemod->GetName()] = parsemod;
+
+	thMidiChan **newchans;
+	int newchancount = channelcount;
+
+	if (channum > channelcount)
+	{
+		while(channum > newchancount) {
+			newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
+			/* add one more chunk to the channel pointer array */
+		}
+		newchans = (thMidiChan **)calloc(newchancount, sizeof(thMidiChan*));
+
+        /* copy pointers over */
+		memcpy(newchans, channels, channelcount * sizeof(thMidiChan*));
+		free(channels);
+		channelcount = newchancount;
+		channels = newchans;
+	}
+
+	if(channels[channum] != NULL)
+	{
+		delete channels[channum];
+	}
+
+	channels[channum] = new thMidiChan(parsemod, amp, thWindowlen);
+
+	patchlist[channum] = filename;
 }
 
 

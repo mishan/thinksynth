@@ -4,13 +4,14 @@
 class PatchSelWindow : public Gtk::Window
 {
 public:
-	PatchSelWindow (void);
+	PatchSelWindow (thSynth *synth);
 
 protected:
 	Gtk::VBox vbox;
 
 	Gtk::Table patchTable;	
 private:
+	thSynth *realSynth, *mySynth;
 };
 
 #endif /* PATCHSEL_WINDOW_H */

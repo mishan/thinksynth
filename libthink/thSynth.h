@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.36 2004/03/21 06:51:27 ink Exp $ */
+/* $Id: thSynth.h,v 1.37 2004/03/26 06:25:46 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -9,9 +9,13 @@ class thMidiChan;
 class thSynth {
 public:
 	thSynth (void);
+	
+	/* XXX: copy constructor is not finished */
+	thSynth (thSynth *copySynth);
 	~thSynth (void);
 
 	void LoadMod(const string &filename);
+	void LoadMod(const string &filename, int channum, float amp);
 	void LoadMod(FILE *input);
 	thMod *FindMod(const string &name) { return modlist[name]; };
 	void ListMods(void);
@@ -33,10 +37,14 @@ public:
 	   work ok) (brandon) */
 	long GetSamples(void) { return thSamples; }
 	void SetSamples(long) { return; }
+
+	int GetChannelCount (void) const { return channelcount; }
+	map<int, string> *GetPatchlist (void) { return &patchlist; }
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 
 	map<string, thMod*> modlist;
+	map<int, string> patchlist;
 	thPluginManager pluginmanager;
 //	thList chanlist;
 	thMidiChan **channels; /* MIDI channels */
