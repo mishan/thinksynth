@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.16 2004/04/07 07:06:59 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.17 2004/04/07 07:10:40 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -433,7 +433,7 @@ bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 
 	int notenum = get_coord();
 
-	if (notenum != mouse_notnum)
+	if ((notenum >= 0) && (notenum != mouse_notnum))
 	{
 		active_keys[mouse_notnum] = 0;
 		m_signal_note_off(channel, mouse_notnum);
