@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.73 2004/06/19 00:22:09 joshk Exp $
+dnl $Id: configure.ac,v 1.74 2004/06/21 02:43:58 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -67,8 +67,6 @@ AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
 CXXFLAGS="-Wall -ffast-math"
-
-AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
 AC_CHECK_HEADERS(dlfcn.h)
 
@@ -209,23 +207,29 @@ AC_MSG_CHECKING([for JACK])
 
 if ! pkg-config --cflags jack >/dev/null 2>&1; then
   AC_MSG_RESULT([not found])
-  AC_MSG_ERROR([You need the JACK development files to build this software. Try libjack0.80.0-dev in Debian.])
+  have_jack=0
 else
   AC_MSG_RESULT([found])
   AC_SUBST(JACK_CFLAGS, [`pkg-config --cflags jack`])
   AC_SUBST(JACK_LIBS, [`pkg-config --libs jack`])
+  have_jack=1
 fi
+
+AC_DEFINE_UNQUOTED(HAVE_JACK, $have_jack, [Define to 1 if JACK is available.])
 
 AC_MSG_CHECKING([for ALSA])
 
 if ! pkg-config --cflags alsa >/dev/null 2>&1; then
   AC_MSG_RESULT([not found])
-  AC_MSG_ERROR([You need the ALSA asound development files to build this software. Try libasound2-dev in Debian.])
+  have_alsa=0
 else
   AC_MSG_RESULT([found])
   AC_SUBST(ALSA_CFLAGS, [`pkg-config --cflags alsa`])
   AC_SUBST(ALSA_LIBS, [`pkg-config --libs alsa`])
+  have_alsa=1
 fi
+
+AC_DEFINE_UNQUOTED(HAVE_ALSA, $have_alsa, [Define to 1 if ALSA files are available.])
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)
@@ -260,7 +264,21 @@ AC_OUTPUT
 echo
 echo $PACKAGE_NAME $PACKAGE_VERSION
 echo
-echo "compiling for system ....:" $system
+echo "compiling for system ....: $system"
+echo -n "ALSA support ............: "
+
+if test "$have_alsa" -eq 1; then
+  echo enabled
+else
+  echo disabled
+fi
+echo -n "JACK support ............: "
+if test "$have_jack" -eq 1; then
+  echo enabled
+else
+  echo disabled
+fi
+
 echo -n "debug ...................: $debug "
 
 if test "$efence" = yes; then
