@@ -1,4 +1,4 @@
-/* $Id: square.cpp,v 1.7 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,20 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_LEN,IN_WIDTH,IN_PW,IN_NUM,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_LEN] = plugin->RegArg("len");
+	args[IN_WIDTH] = plugin->RegArg("width");
+	args[IN_PW] = plugin->RegArg("pw");
+	args[IN_NUM] = plugin->RegArg("num");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -48,10 +57,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float i, pw, num, amp, width, pwidth;
 	unsigned int j, len;
 
-	in_len = mod->GetArg(node, "len"); /* Length of output */
-	in_width = mod->GetArg(node, "width"); /* Length of pulse */
-	in_pw = mod->GetArg(node, "pw"); /* Width of the pulses (%) if no length given */
-	in_num = mod->GetArg(node, "num"); /* Number of pulses */
+	in_len = mod->GetArg(node, args[IN_LEN]);
+	in_width = mod->GetArg(node, args[IN_WIDTH]);
+	in_pw = mod->GetArg(node, args[IN_PW]);
+	in_num = mod->GetArg(node, args[IN_NUM]);
 	len = (int)(*in_len)[0];
 	num = (*in_num)[0];
 	width = len/num;
@@ -62,7 +71,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	}
 	amp = 1/(pwidth*num);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(len);
 	for(i = 0; (i+width) < len; i += width) {
 		for(j = 0; j < width; j++) {
@@ -76,4 +85,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	
 	return 0;
 }
-

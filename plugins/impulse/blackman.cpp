@@ -1,4 +1,4 @@
-/* $Id: blackman.cpp,v 1.7 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,18 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_LEN,IN_CUT,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_LEN] = plugin->RegArg("len");
+	args[IN_CUT] = plugin->RegArg("cutoff");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -48,12 +55,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float factor, len, k = 0;
 	unsigned int i;
 
-	in_len = mod->GetArg(node, "len"); /* Length of output */
-	in_cut = mod->GetArg(node, "cutoff"); /* 0 - 1 */
+	in_len = mod->GetArg(node, args[IN_LEN]);
+	in_cut = mod->GetArg(node, args[IN_CUT]);
 	len = (int)(*in_len)[0];
 	factor = (*in_cut)[0]/2;
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate((int)len+1);
 	
 	for(i=0;i<=(unsigned int)len;i++) {
@@ -72,4 +79,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

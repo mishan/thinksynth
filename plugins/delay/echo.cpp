@@ -1,4 +1,4 @@
-/* $Id: echo.cpp,v 1.10 2004/10/01 08:52:25 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,11 +30,23 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_ARG,IN_SIZE,IN_DELAY,IN_FEEDBACK,IN_DRY,INOUT_BUFFER,INOUT_BUFPOS,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_SIZE] = plugin->RegArg("size");
+	args[IN_DELAY] = plugin->RegArg("delay");
+	args[IN_FEEDBACK] = plugin->RegArg("feedback");
+	args[IN_DRY] = plugin->RegArg("dry");
+	args[INOUT_BUFFER] = plugin->RegArg("buffer");
+	args[INOUT_BUFPOS] = plugin->RegArg("bufpos");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -50,18 +62,18 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	int index;
 	float delay, feedback, dry, in;
 
-	in_arg = mod->GetArg(node, "in");
-	in_size = mod->GetArg(node, "size"); /* Buffer size */
-	in_delay = mod->GetArg(node, "delay"); /* Delay length */
-	in_feedback = mod->GetArg(node, "feedback");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_size = mod->GetArg(node, args[IN_SIZE]);
+	in_delay = mod->GetArg(node, args[IN_DELAY]);
+	in_feedback = mod->GetArg(node, args[IN_FEEDBACK]);
 	/* How much of the origional signal is passed */
-	in_dry = mod->GetArg(node, "dry"); 
+	in_dry = mod->GetArg(node, args[IN_DRY]);
 
-	inout_buffer = mod->GetArg(node, "buffer");
-	inout_bufpos = mod->GetArg(node, "bufpos");
+	inout_buffer = mod->GetArg(node, args[INOUT_BUFFER]);
+	inout_bufpos = mod->GetArg(node, args[INOUT_BUFPOS]);
 	bufpos = inout_bufpos->Allocate(1);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {
@@ -93,4 +105,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

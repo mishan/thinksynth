@@ -1,4 +1,4 @@
-/* $Id: multisined.cpp,v 1.6 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,11 +36,26 @@ void module_cleanup (struct module *mod)
 
 /* ModuleLoad() invokes this function with a pointer to the plugin
  * instance. */
+enum { IN_WAVES,OUT_ARG,OUT_SYNC,INOUT_LAST,INOUT_FREQ,IN_FREQ,IN_AMP,IN_DETUNEFREQ,IN_DETUNEAMT,IN_AMPMUL,IN_AMPADD };
+
+int args[IN_AMPADD + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_WAVES] = plugin->RegArg("waves");
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[OUT_SYNC] = plugin->RegArg("sync");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[INOUT_FREQ] = plugin->RegArg("freqbuffer");
+	args[IN_FREQ] = plugin->RegArg("freq");
+	args[IN_AMP] = plugin->RegArg("amp");
+	args[IN_DETUNEFREQ] = plugin->RegArg("detunefreq");
+	args[IN_DETUNEAMT] = plugin->RegArg("detuneamt");
+	args[IN_AMPMUL] = plugin->RegArg("ampmul");
+	args[IN_AMPADD] = plugin->RegArg("ampadd");
 	return 0;
 }
 
@@ -59,29 +74,29 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg, *out_sync;
 	thArg *inout_last, *inout_freq;
 	
-	in_waves = mod->GetArg(node, "waves");
+	in_waves = mod->GetArg(node, args[IN_WAVES]);
 	waves = (int)(*in_waves)[0];
 	
-	out_arg = mod->GetArg(node, "out");
-	out_sync = mod->GetArg(node, "sync"); /* Output a 1 when the wave begins 
-											 its cycle */
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	out_sync = mod->GetArg(node, args[OUT_SYNC]);
+	/* Output a 1 when the wave begins its cycle */
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	out_last = inout_last->Allocate(waves);
 
-	inout_freq = mod->GetArg(node, "freqbuffer");
+	inout_freq = mod->GetArg(node, args[INOUT_FREQ]);
 	out_freq = inout_freq->Allocate(waves);
 
 	sync = out_sync->Allocate(windowlen);
 
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, "freq");
-	in_amp = mod->GetArg(node, "amp");
-	in_detunefreq = mod->GetArg(node, "detunefreq");
-	in_detuneamt = mod->GetArg(node, "detuneamt");
-	in_ampmul = mod->GetArg(node, "ampmul");
-	in_ampadd = mod->GetArg(node, "ampadd");
+	in_freq = mod->GetArg(node, args[IN_FREQ]);
+	in_amp = mod->GetArg(node, args[IN_AMP]);
+	in_detunefreq = mod->GetArg(node, args[IN_DETUNEFREQ]);
+	in_detuneamt = mod->GetArg(node, args[IN_DETUNEAMT]);
+	in_ampmul = mod->GetArg(node, args[IN_AMPMUL]);
+	in_ampadd = mod->GetArg(node, args[IN_AMPADD]);
 
 	for(i = 0; i < (int)windowlen; i++) {
 		//wavelength = samples/(*in_freq)[i];

@@ -1,4 +1,4 @@
-/* $Id: pitch.cpp,v 1.6 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,19 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,INOUT_LAST,IN_ARG,IN_FALLOFF };
+
+int args[IN_FALLOFF + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_FALLOFF] = plugin->RegArg("falloff");
 	return 0;
 }
 
@@ -51,8 +59,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float freq;
 	int sign, wavelength;
 
-	out_arg = mod->GetArg(node, "out");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 
 	last = (*inout_last)[0];
 	freq = (*inout_last)[1];
@@ -62,8 +70,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_falloff = mod->GetArg(node, "falloff");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_falloff = mod->GetArg(node, args[IN_FALLOFF]);
 
 
 	for(i = 0; i < windowlen; i++)
@@ -99,4 +107,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

@@ -1,4 +1,4 @@
-/* $Id: buzzer.cpp,v 1.6 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,6 +28,10 @@
 char		*desc = "Buzzer oscillator";
 thPluginState	mystate = thActive;
 
+enum { OUT_ARG, IN_FREQ, IN_FACTOR, INOUT_LAST };
+
+int args[INOUT_LAST + 1];
+
 void module_cleanup (struct module *mod)
 {
 }
@@ -38,7 +42,12 @@ int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
-	
+
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_FREQ] = plugin->RegArg("freq");
+	args[IN_FACTOR] = plugin->RegArg("factor");
+	args[INOUT_LAST] = plugin->RegArg("last");
+
 	return 0;
 }
 
@@ -54,15 +63,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, "out");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	out_last = inout_last->Allocate(1);
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, "freq");
-	in_factor = mod->GetArg(node, "factor"); // (1-abs(x^factor))*x
+	in_freq = mod->GetArg(node, args[IN_FREQ]);
+	in_factor = mod->GetArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
 
 	for(i=0; i < (int)windowlen; i++) {
 		wavelength = samples * (1.0/(*in_freq)[i]);

@@ -1,4 +1,4 @@
-/* $Id: print.cpp,v 1.8 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,11 +30,16 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_ARG };
+
+int args[IN_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_ARG] = plugin->RegArg("in");
 	return 0;
 }
 
@@ -45,7 +50,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	const char *nodename = node->GetName().c_str();
 
-	in_arg = mod->GetArg(node, "in");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
 
 	printf("Printing Node %s:\n", nodename); 
 	for(i=0;i<windowlen;i++) {
@@ -55,4 +60,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

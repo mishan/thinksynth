@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.3 2004/11/28 22:40:32 joshk Exp $
+# $Id$
 
-PLUGIN_NAMES = wav #alsa
+PLUGIN_NAMES = wav alsa
 include ../plugin-common.mk

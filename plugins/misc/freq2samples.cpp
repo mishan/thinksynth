@@ -1,4 +1,4 @@
-/* $Id: freq2samples.cpp,v 1.7 2004/10/01 08:52:26 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,17 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_FREQ,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_FREQ] = plugin->RegArg("freq");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -47,9 +53,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	unsigned int i, argnum;
 
-	in_freq = mod->GetArg(node, "freq");
+	in_freq = mod->GetArg(node, args[IN_FREQ]);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	argnum = (unsigned int) in_freq->getLen();
 	out = out_arg->Allocate(argnum);
 
@@ -60,4 +66,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 /*	node->SetArg("out", out, windowlen); */
 	return 0;
 }
-

@@ -1,4 +1,4 @@
-/* $Id: clip.cpp,v 1.9 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,11 +30,19 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,IN_ARG,IN_CLIP,IN_LOWCLIP };
+
+int args[IN_LOWCLIP + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_CLIP] = plugin->RegArg("clip");
+	args[IN_LOWCLIP] = plugin->RegArg("lowclip");
 	return 0;
 }
 
@@ -47,12 +55,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	float in, clip, lowclip;
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
-	in_arg = mod->GetArg(node, "in");
-	in_clip = mod->GetArg(node, "clip");
-	in_lowclip = mod->GetArg(node, "lowclip");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_clip = mod->GetArg(node, args[IN_CLIP]);
+	in_lowclip = mod->GetArg(node, args[IN_LOWCLIP]);
 
 	for(i=0;i<windowlen;i++) {
 		in = (*in_arg)[i];
@@ -80,4 +88,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 /*	node->SetArg("out", out, windowlen); */
 	return 0;
 }
-

@@ -1,4 +1,4 @@
-/* $Id: inksat.cpp,v 1.6 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,18 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_ARG,IN_FACTOR,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_ARG] = plugin->RegArg("in");
+	args[IN_FACTOR] = plugin->RegArg("factor");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -49,10 +56,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	unsigned int i;
 	signed int sign;
 
-	in_arg = mod->GetArg(node, "in");
-	in_factor = mod->GetArg(node, "factor");
+	in_arg = mod->GetArg(node, args[IN_ARG]);
+	in_factor = mod->GetArg(node, args[IN_FACTOR]);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
@@ -67,4 +74,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

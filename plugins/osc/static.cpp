@@ -1,4 +1,4 @@
-/* $Id: static.cpp,v 1.20 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,11 +32,18 @@ void module_cleanup (struct module *mod)
 
 /* ModuleLoad() invokes this function with a pointer to the plugin
  * instance. */
+enum { OUT_ARG,INOUT_LAST,IN_SAMPLE };
+
+int args[IN_SAMPLE + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_SAMPLE] = plugin->RegArg("sample");
 	return 0;
 }
 
@@ -51,14 +58,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg* out_arg;
 	thArg* inout_last;  /* So sample can be consistant over windows */
 
-	out_arg = mod->GetArg(node, "out");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	last = (*inout_last)[1];
 	out_last = inout_last->Allocate(1);
 	out = out_arg->Allocate(windowlen);
 
-	in_sample = mod->GetArg(node, "sample");
+	in_sample = mod->GetArg(node, args[IN_SAMPLE]);
 
 	for(i=0; i < (int)windowlen; i++) {
 		if(++position > (*in_sample)[i]) {

@@ -1,4 +1,4 @@
-/* $Id: softsqr2.cpp,v 1.13 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -28,6 +28,10 @@
 char		*desc = "Square wave with sine-like transitions, proportional to the frequency";
 thPluginState	mystate = thActive;
 
+enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_PW, IN_SW};
+
+int args[IN_SW + 1];
+
 void module_cleanup (struct module *mod)
 {
 }
@@ -38,6 +42,12 @@ int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
+
+	args[OUT_ARG] = plugin->RegArg("out");
+	args[INOUT_LAST] = plugin->RegArg("last");
+	args[IN_FREQ] = plugin->RegArg("freq");
+	args[IN_PW] = plugin->RegArg("pw");
+	args[IN_SW] = plugin->RegArg("sw");
 	
 	return 0;
 }
@@ -56,16 +66,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	thArg *inout_last;
 
-	out_arg = mod->GetArg(node, "out");
-	inout_last = mod->GetArg(node, "last");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
+	inout_last = mod->GetArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	phase = (int)(*inout_last)[1];
 	out_last = inout_last->Allocate(2);
 	out = out_arg->Allocate(windowlen);
 
-	in_freq = mod->GetArg(node, "freq");
-	in_pw = mod->GetArg(node, "pw"); // Pulse Width
-	in_sw = mod->GetArg(node, "sw"); // Sine Width
+	in_freq = mod->GetArg(node, args[IN_FREQ]);
+	in_pw = mod->GetArg(node, args[IN_PW]); // Pulse Width
+	in_sw = mod->GetArg(node, args[IN_SW]); // Sine Width
 
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 

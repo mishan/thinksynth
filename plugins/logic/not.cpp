@@ -1,4 +1,4 @@
-/* $Id: not.cpp,v 1.6 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -30,11 +30,17 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN] = plugin->RegArg("in");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -46,9 +52,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg;
 	unsigned int i;
 
-	in = mod->GetArg(node, "in");
+	in = mod->GetArg(node, args[IN]);
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
@@ -61,4 +67,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

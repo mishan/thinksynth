@@ -1,4 +1,4 @@
-/* $Id: parabola.cpp,v 1.9 2004/09/08 22:32:52 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -32,11 +32,19 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_LEN,IN_MAX,IN_PERCENT,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[IN_LEN] = plugin->RegArg("len");
+	args[IN_MAX] = plugin->RegArg("max");
+	args[IN_PERCENT] = plugin->RegArg("percent");
+	args[OUT_ARG] = plugin->RegArg("out");
 	return 0;
 }
 
@@ -49,15 +57,15 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float max, percent, parabolalen, offset, half;
 	unsigned int i, len;
 
-	in_len = mod->GetArg(node, "len"); /* Length of output */
-	in_max = mod->GetArg(node, "max"); /* Parabola peak */
-	in_percent = mod->GetArg(node, "percent"); /* How much of the output is actually parabola */
+	in_len = mod->GetArg(node, args[IN_LEN]);
+	in_max = mod->GetArg(node, args[IN_MAX]);
+	in_percent = mod->GetArg(node, args[IN_PERCENT]);
 	len = (int)(*in_len)[0];
 	max = (*in_max)[0];
 	percent = (*in_percent)[0];
 	half = len/2;
 
-	out_arg = mod->GetArg(node, "out");
+	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(len);
 
 	if(percent == 0) {
@@ -77,4 +85,3 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	return 0;
 }
-

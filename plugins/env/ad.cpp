@@ -1,4 +1,4 @@
-/* $Id: ad.cpp,v 1.6 2004/09/08 22:32:51 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,11 +31,22 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_OUT,OUT_PLAY,INOUT_POSITION,IN_A,IN_D,IN_P,IN_RESET };
+
+int args[IN_RESET + 1];
+
 int module_init (thPlugin *plugin)
 {
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
 
+	args[OUT_OUT] = plugin->RegArg("out");
+	args[OUT_PLAY] = plugin->RegArg("play");
+	args[INOUT_POSITION] = plugin->RegArg("position");
+	args[IN_A] = plugin->RegArg("a");
+	args[IN_D] = plugin->RegArg("d");
+	args[IN_P] = plugin->RegArg("p");
+	args[IN_RESET] = plugin->RegArg("reset");
 	return 0;
 }
 
@@ -55,9 +66,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	int phase;
 	unsigned int i;
  
-	out_out = mod->GetArg(node, "out");
-	out_play = mod->GetArg(node, "play");
-	inout_position = mod->GetArg(node, "position");
+	out_out = mod->GetArg(node, args[OUT_OUT]);
+	out_play = mod->GetArg(node, args[OUT_PLAY]);
+	inout_position = mod->GetArg(node, args[INOUT_POSITION]);
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
@@ -66,10 +77,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out = out_out->Allocate(windowlen);
 	play = out_play->Allocate(windowlen);
 
-	in_a = mod->GetArg(node, "a"); /* Attack */
-	in_d = mod->GetArg(node, "d"); /* Decay */
-	in_p = mod->GetArg(node, "p"); /* Peak */
-	in_reset = mod->GetArg(node, "reset"); /* Reset to A phase */
+	in_a = mod->GetArg(node, args[IN_A]);
+	in_d = mod->GetArg(node, args[IN_D]);
+	in_p = mod->GetArg(node, args[IN_P]);
+	in_reset = mod->GetArg(node, args[IN_RESET]);
 
 	if(phase == 0 && position == 0 && (*in_a)[0] == 0) {
 		phase = 1;
