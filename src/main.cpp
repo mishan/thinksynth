@@ -166,8 +166,9 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
 
-	if (snd_seq_event_input(seq_handle, &ev))
+	while (snd_seq_event_input_pending(seq_handle, 1))
 	{
+		snd_seq_event_input(seq_handle, &ev);
 		switch (ev->type)
 		{
 			case SND_SEQ_EVENT_NOTEON:

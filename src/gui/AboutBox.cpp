@@ -1,4 +1,4 @@
-/* $Id: AboutBox.cpp,v 1.9 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id: AboutBox.cpp,v 1.10 2004/09/21 22:55:26 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -63,7 +63,7 @@ AboutBox::AboutBox (void)
 	frame->set_shadow_type(Gtk::SHADOW_OUT);
 
 	pixmap = Gdk::Pixmap::create_from_xpm(get_colormap(), mask, thinksynth);
-	logo = new Gtk::Image(pixmap, mask);
+	logo = manage(new Gtk::Image(pixmap, mask));
 	frame->add(*logo);
 
 	/* Hack to get it to shrink down to our size */
