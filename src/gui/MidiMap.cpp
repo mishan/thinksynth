@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.17 2004/11/11 01:07:44 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.18 2004/11/11 05:51:03 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -405,10 +405,9 @@ void MidiMap::onConnectionSelected (GdkEventButton *b)
 			Gtk::TreeViewColumn *col;
 			int cell_x, cell_y; 
 
-			connectView_.get_path_at_pos((int)b->x, (int)b->y, path, col, 
-									  cell_x, cell_y);
-				
-			refSelection->select(path);
+			if (connectView_.get_path_at_pos((int)b->x, (int)b->y, path, col, 
+									  cell_x, cell_y))
+				refSelection->select(path);
 		}
 	}
 }

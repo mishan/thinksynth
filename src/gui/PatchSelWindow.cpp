@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.41 2004/09/19 08:43:38 joshk Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.42 2004/11/11 05:51:03 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -301,10 +301,9 @@ void PatchSelWindow::patchSelected (GdkEventButton *b)
 			Gtk::TreeViewColumn *col;
 			int cell_x, cell_y; 
 
-			patchView.get_path_at_pos((int)b->x, (int)b->y, path, col, 
-									  cell_x, cell_y);
-				
-			refSelection->select(path);
+			if (patchView.get_path_at_pos((int)b->x, (int)b->y, path, col, 
+									  cell_x, cell_y))
+				refSelection->select(path);
 		}
 	}
 }

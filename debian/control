@@ -34,6 +34,7 @@ Description: the Thinksynth shared library
  your own plugins, consider installing libthink3-dev.
 
 Package: libthink3-dev
+Section: libdevel
 Architecture: any
 Depends: libthink3 (= ${Source-Version})
 Provides: libthink-dev
