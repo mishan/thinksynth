@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.25 2003/05/02 19:48:24 ink Exp $ */
+/* $Id: thSynth.h,v 1.26 2003/05/06 04:37:38 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -31,7 +31,7 @@ private:
 	thPluginManager pluginmanager;
 	thList chanlist;
 	thBSTree *channels; /* MIDI channels */
-	float **output;
+	float *output;
 	int chans;  /* Number of channels (mono/stereo/etc) */
 	int windowlen;
 };

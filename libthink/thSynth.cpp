@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.48 2003/05/04 01:43:04 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.49 2003/05/06 04:37:38 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -28,17 +28,13 @@ thMod *parsemod;
 
 thSynth::thSynth()
 {
-	int i;
 	windowlen = 1024;
 	chans = 2;  /* mono / stereo / etc */
 
 	modlist = new thBSTree(StringCompare);
 	channels = new thBSTree(StringCompare);
 
-	output = new float *[chans];  /* We should make a function to allocate this, so we can easily change chans and windowlen */
-	for(i=0;i<chans;i++) {
-	  output[i] = new float[windowlen];
-	}
+	output = new float[chans*windowlen];  /* We should make a function to allocate this, so we can easily change chans and windowlen */
 }
 
 thSynth::~thSynth()
@@ -66,7 +62,7 @@ void thSynth::LoadMod(const char *filename)
 
 thMod *thSynth::FindMod(const char *modname)
 {
-	return (thMod *)modlist->GetData((void *)modname);
+  return (thMod *)modlist->GetData((void *)modname);
 }
 
 /* Make these voids return something and add error checking everywhere! */
@@ -106,26 +102,23 @@ thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 
 void thSynth::Process()
 {
-  int i;
-
-  for(i=0;i<chans;i++) {
-	memset(output[i], 0, windowlen*sizeof(float));
-  }
-
+  memset(output, 0, chans*windowlen*sizeof(float));
   ProcessHelper(channels);
 }
 
 void thSynth::ProcessHelper(thBSTree *chan)
 {
-  int i, j, mixchannels;
+  int i, j, mixchannels, notechannels;
   thMidiChan *data;
-  float **chanoutput;
+  float *chanoutput;
 
   if(chan) {
 	ProcessHelper(chan->GetLeft());
 
 	data = (thMidiChan *)chan->GetData();
-	mixchannels = data->GetChannels();
+
+	notechannels = data->GetChannels();
+	mixchannels = notechannels;
 	if(mixchannels > chans) {
 	  mixchannels = chans;
 	}
@@ -135,7 +128,7 @@ void thSynth::ProcessHelper(thBSTree *chan)
 
 	for(i=0;i<mixchannels;i++) {
 	  for(j=0;j<windowlen;j++) {
-		output[i][j] += chanoutput[i][j];
+		output[i+(j*chans)] += chanoutput[i+(j*notechannels)];
 	  }
 	}
 
@@ -148,6 +141,6 @@ void thSynth::PrintChan(int chan)
   int i;
 
   for(i=0;i<windowlen;i++) {
-	printf("-=- %f\n", output[chan][i]);
+	printf("-=- %f\n", output[(i*chans)+chan]);
   }
 }
