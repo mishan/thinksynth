@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.42 2003/04/29 00:16:35 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.43 2003/04/29 02:20:42 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -28,10 +28,17 @@ thMod *parsemod;
 
 thSynth::thSynth()
 {
+  int i;
 	windowlen = 1024;
+	chans = 2;  /* mono / stereo / etc */
 
 	modlist = new thBSTree(StringCompare);
 	channels = new thBSTree(StringCompare);
+
+	output = new float *[chans];  /* We should make a function to allocate this, so we can easily change chans and windowlen */
+	for(i=0;i<chans;i++) {
+	  output[i] = new float[windowlen];
+	}
 }
 
 thSynth::~thSynth()
@@ -99,17 +106,41 @@ thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 
 void thSynth::Process()
 {
+  int i, j;
+
+  for(i=0;i<chans;i++) {
+	for(j=0;j<windowlen;j++) {
+	  output[i][j] = 0;  /* I should use memset here too */
+	}
+  }
+
   ProcessHelper(channels);
 }
 
 void thSynth::ProcessHelper(thBSTree *chan)
 {
+  int i, j, mixchannels;
   thMidiChan *data;
+  float **chanoutput;
 
   if(chan) {
 	ProcessHelper(chan->GetLeft());
+
+	data = (thMidiChan *)chan->GetData();
+	mixchannels = data->GetChannels();
+	if(mixchannels > chans) {
+	  mixchannels = chans;
+	}
 	data = (thMidiChan *)chan->GetData();
 	data->Process();
+	chanoutput = data->GetOutput();
+
+	for(i=0;i<mixchannels;i++) {
+	  for(j=0;j<windowlen;j++) {
+		output[i][j] += chanoutput[i][j];
+	  }
+	}
+
 	ProcessHelper(chan->GetRight());
   }
 }

@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.14 2003/04/29 00:16:35 ink Exp $ */
+/* $Id: thMidiChan.h,v 1.15 2003/04/29 02:20:42 ink Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -15,6 +15,8 @@ class thMidiChan {
 
 		void Process (void);
 
+		float **GetOutput(void) { return output; }
+		int GetChannels(void) { return channels; }
 	private:
 		void ProcessHelper (thBSTree *note);
 		int GetLen(int);
