@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.15 2004/04/07 05:20:20 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.16 2004/04/07 07:06:59 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -81,10 +81,6 @@ static int key_sizes[4][7] =
 	}
 };
 
-void on_button_drag_data_get(const Glib::RefPtr<Gdk::DragContext>&, GtkSelectionData* selection_data, guint, guint)
-{
-	printf("drag start\n");
-}
 
 Keyboard::Keyboard (void)
 {
@@ -131,15 +127,6 @@ Keyboard::Keyboard (void)
 
 	dispatchRedraw.connect(
 		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 1));
-
-	std::list<Gtk::TargetEntry> listTargets;
-	listTargets.push_back(Gtk::TargetEntry("NOTE"));
-
-	drag_source_set(listTargets);
-	drag_dest_set(listTargets);
-
-	signal_drag_data_get().connect(
-		SigC::slot(on_button_drag_data_get));
 }
 
 
@@ -376,6 +363,11 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
 			if (notenum >= 0) {	/* note event */
 				int veloc = 0;
 
+				if (active_keys[notenum])
+				{
+					break;
+				}
+
 				if (alt_on) {	/* velocity */
 					veloc = veloc0;
 				} else if (ctrl_on) {
@@ -434,16 +426,26 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
 	return true;
 }
 
-bool Keyboard::on_drag_motion (Glib::RefPtr<Gdk::DragContext> d, int x, int y,
-							   guint time)
-{
-	printf("got drag motion (%d, %d)\n", x, y);
-
-	return true;
-}
-
 bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 {
+	if (mouse_notnum == -1)
+		return true;
+
+	int notenum = get_coord();
+
+	if (notenum != mouse_notnum)
+	{
+		active_keys[mouse_notnum] = 0;
+		m_signal_note_off(channel, mouse_notnum);
+
+		active_keys[notenum] = 1;
+		m_signal_note_on(channel, notenum, mouse_veloc);
+
+		mouse_notnum = notenum;
+
+		drawKeyboard(1);
+	}
+
 	return true;
 }
 

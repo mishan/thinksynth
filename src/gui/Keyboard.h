@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.11 2004/04/07 05:20:20 misha Exp $ */
+/* $Id: Keyboard.h,v 1.12 2004/04/07 07:06:59 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -43,7 +43,6 @@ protected:
 	virtual bool on_button_release_event (GdkEventButton *b);
 	virtual bool on_key_press_event      (GdkEventKey    *k);
 	virtual bool on_key_release_event    (GdkEventKey    *k);
-	virtual bool on_drag_motion          (Glib::RefPtr<Gdk::DragContext> d, int x, int y, guint time);
 	virtual bool on_motion_notify_event  (GdkEventMotion *e);
 
 	thSynth *synth;
