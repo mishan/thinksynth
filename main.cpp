@@ -4,7 +4,7 @@
 
 #include "Exception.h"
 #include "thAudio.h"
-#include "AudioBuffer.h"
+#include "thAudioBuffer.h"
 #include "thWav.h"
 #include "thOSSAudio.h"
 
@@ -13,7 +13,7 @@ int main (int argc, char *argv[])
 	thWav *wav;
 	thOSSAudio *audio;
 	const thAudioFmt *afmt;
-	AudioBuffer *buffer;
+	thAudioBuffer *buffer;
 
 	if(argc < 2) {
 		fprintf(stderr, "usage: %s [file]\n", argv[0]);

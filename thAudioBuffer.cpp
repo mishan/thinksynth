@@ -2,9 +2,9 @@
 #include <stdio.h>
 
 #include "thAudio.h"
-#include "AudioBuffer.h"
+#include "thAudioBuffer.h"
 
-AudioBuffer::AudioBuffer(int len, thAudio *audio)
+thAudioBuffer::thAudioBuffer(int len, thAudio *audio)
 {
 	size = len;
 	data = new unsigned char[size];
@@ -13,12 +13,12 @@ AudioBuffer::AudioBuffer(int len, thAudio *audio)
 	audioPtr = audio;
 }
 
-AudioBuffer::~AudioBuffer(void)
+thAudioBuffer::~thAudioBuffer(void)
 {
 	delete data;
 }
 
-bool AudioBuffer::is_room(int len)
+bool thAudioBuffer::is_room(int len)
 {
 	if(woffset + len > size) {
 		return false;
@@ -27,7 +27,7 @@ bool AudioBuffer::is_room(int len)
 	return true;
 }
 
-void AudioBuffer::buf_write(unsigned char *udata, int len)
+void thAudioBuffer::buf_write(unsigned char *udata, int len)
 {
 	int i;
 
@@ -38,7 +38,7 @@ void AudioBuffer::buf_write(unsigned char *udata, int len)
 	woffset += len;
 }
 
-int AudioBuffer::buf_read(unsigned char *udata, int len)
+int thAudioBuffer::buf_read(unsigned char *udata, int len)
 {
 	int i, bufempty = (int)(size*BUFFER_EMPTY_PERCENT);
 	printf("=-= %i %i =-=\n", woffset, len);
@@ -65,7 +65,7 @@ int AudioBuffer::buf_read(unsigned char *udata, int len)
 	return len;
 }
 
-int AudioBuffer::get_size(void)
+int thAudioBuffer::get_size(void)
 {
 	return size;
 }
@@ -73,7 +73,7 @@ int AudioBuffer::get_size(void)
 #ifdef TEST
 int main (void)
 {
-	AudioBuffer *mybuf = new AudioBuffer(100);
+	thAudioBuffer *mybuf = new thAudioBuffer(100);
 	int tempbuf[30], i;
 	int *readbuf;
 

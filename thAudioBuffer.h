@@ -1,13 +1,13 @@
-#ifndef HAVE_BUFFER_H
-#define HAVE_BUFFER_H 1
+#ifndef HAVE_TH_AUDIOBUFFER_H
+#define HAVE_TH_AUDIOBUFFER_H 1
 
 #define BUFFER_EMPTY_PERCENT 0.6
 
-class AudioBuffer 
+class thAudioBuffer 
 {
 public:
-	AudioBuffer(int len, thAudio *audio);
-	~AudioBuffer(void);
+	thAudioBuffer(int len, thAudio *audio);
+	~thAudioBuffer(void);
 
 	bool is_room(int len); /* checks if there are len elements available in the
 							  buffer */
@@ -23,4 +23,4 @@ private:
 	thAudio *audioPtr;
 };
 
-#endif /* HAVE_BUFFER_H */
+#endif /* HAVE_TH_AUDIOBUFFER_H */

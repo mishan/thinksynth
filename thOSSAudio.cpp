@@ -11,7 +11,7 @@
 
 #include "Exception.h"
 #include "thAudio.h"
-#include "AudioBuffer.h"
+#include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 
 /* null is a placeholder; to have wav output plugins and audio output plugins
