@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.25 2004/04/07 00:40:17 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.26 2004/04/07 00:58:00 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -100,20 +100,22 @@ void KeyboardWindow::eventNoteOff (int chan, int note)
 /* XXX: the synthEvent* callbacks are multi-threaded in origin */
 void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
 {
-//	printf("setting note on\n");
+	if(chan != keyboard.GetChannel())
+		return;
+
 	kbMutex.lock();
 	keyboard.SetNote((int)note, true);
 	kbMutex.unlock();
-//	printf("note set on\n");
 }
 
 void KeyboardWindow::synthEventNoteOff (int chan, float note)
 {
-//	printf("setting note off\n");
+	if(chan != keyboard.GetChannel())
+		return;
+
 	kbMutex.lock();
 	keyboard.SetNote((int)note, false);
 	kbMutex.unlock();
-//	printf("note set off\n");
 }
 
 void KeyboardWindow::eventChannelChanged (int chan)

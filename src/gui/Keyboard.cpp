@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.12 2004/04/07 00:40:17 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.13 2004/04/07 00:58:00 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -124,7 +124,7 @@ Keyboard::Keyboard (void)
 	}
 
 	dispatchRedraw.connect(
-		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 3));
+		SigC::bind<int>(SigC::slot(*this, &Keyboard::drawKeyboard), 1));
 }
 
 Keyboard::~Keyboard (void)
@@ -133,9 +133,22 @@ Keyboard::~Keyboard (void)
 
 void Keyboard::SetChannel (int argchan)
 {
+	mouse_notnum = -1;
+	for (int i = 0; i < 128; i++)
+	{
+		if (active_keys[i])
+		{
+			m_signal_note_off(channel, i);
+		}
+		active_keys[i] = 0;
+		prv_active_keys[i] = -1;
+	}
+
 	channel = argchan;
 
 	m_signal_channel_changed.emit(channel);
+
+	drawKeyboard (1);
 }
 
 void Keyboard::SetTranspose (int argtranspose)
