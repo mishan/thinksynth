@@ -27,6 +27,22 @@ thNode *thMod::FindNode (char *name)
   return (thNode *)((thBSNode *)modnodes->Find(name))->data;
 }
 
+thArgValue *thMod::GetArg (char *nodename, char *argname)
+  /* Follow pointers and return a thArgValue of a float string */
+{
+  thNode *node = (thNode *)((thBSNode *)modnodes->Find(nodename))->data;
+  thArgValue *args;
+
+  if (node) { args = node->GetArg(argname); }
+  while (args->argType == ARG_POINTER && node && args) {     /* Recurse through the 
+                                     list of pointers until we get a real value. */
+    node = (thNode *)((thBSNode *)modnodes->Find(args->argPointNode));
+    if (node) { args = node->GetArg(argname); }
+  }  /* Maybe also add some kind of infinite-loop checking thing? */
+
+  return args;
+}
+
 void thMod::NewNode (thNode *node)
 {
   modnodes->Insert(node->GetName(), node);

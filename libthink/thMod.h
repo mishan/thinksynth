@@ -6,7 +6,8 @@ public:
 	thMod(char *name);
 	~thMod();
 
-	thNode *FindNode(char *name); 
+	thNode *FindNode(char *name);
+	thArgValue *GetArg (char *nodename, char *argname);
 	void NewNode(thNode *node);
 	void SetIONode(char *name);
 	void PrintIONode(void);
