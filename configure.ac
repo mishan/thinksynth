@@ -136,6 +136,8 @@ esac
 
 AC_LINKER_DYNAMIC
 
+AC_PATH_PROGS([LDCONFIG], ldconfig, [": ldconfig"], [$PATH:/sbin:/usr/sbin:/usr/local/sbin])
+
 if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
 	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])

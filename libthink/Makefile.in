@@ -17,6 +17,7 @@ INCLUDES := -I..
 CXXFLAGS += @SIGC_CFLAGS@
 LDFLAGS += @LIBS@ @SIGC_LIBS@
 LIB_LDFLAGS := @LIB_LDFLAGS@
+LDCONFIG := @LDCONFIG@
 
 LIBOBJS = \
 	@NSMODULE_DL_O@ \
@@ -66,7 +67,7 @@ install:
 # DESTDIR installs are probably for packaging, otherwise you're probably
 # doing things correctly
 ifeq (,$(DESTDIR))
-	ldconfig -n $(libdir)
+	$(LDCONFIG) -n $(libdir)
 endif
 
 uninstall:
