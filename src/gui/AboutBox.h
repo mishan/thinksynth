@@ -1,4 +1,4 @@
-/* $Id: AboutBox.h,v 1.2 2004/09/16 07:37:13 misha Exp $ */
+/* $Id: AboutBox.h,v 1.3 2004/09/16 09:36:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,18 +20,20 @@
 #ifndef ABOUT_BOX_H
 #define ABOUT_BOX_H
 
-/* FONTS */
-#define HELVETICA_20_BFONT "-adobe-helvetica-bold-r-normal-*-20-*-*-*-*-*-*-*"
-#define HELVETICA_14_BFONT "-adobe-helvetica-bold-r-normal-*-14-*-*-*-*-*-*-*"
-#define HELVETICA_12_BFONT "-adobe-helvetica-bold-r-normal-*-12-*-*-*-*-*-*-*"
-#define HELVETICA_12_FONT  "-adobe-helvetica-medium-r-normal-*-12-*-*-*-*-*-*-*"
-#define HELVETICA_10_FONT  "-adobe-helvetica-medium-r-normal-*-10-*-*-*-*-*-*-*"
-#define CREDITS_FONT       "-misc-fixed-medium-r-normal--13-120-75-75-c-70-" \
-"iso8859-1"
+#define CREDITS_TEXT "\
+       Main Programming: Leif M. Ames \n\
+                         <ink@bespin.org>\n\
+                         Misha Nasledov \n\
+                         <misha@nasledov.com>\n\
+                         Joshua Kwan\n\
+                         <joshk@triplehelix.org>\n\
+                         Aaron Lehmann\n\
+                         <aaronl@vitelus.com>\n\n\
+"
 
-#define ABOUT_DEFAULT_WIDTH               100
-#define ABOUT_MAX_WIDTH                   600
-#define LINE_SKIP                          4
+
+/* FONTS */
+#define CREDITS_FONT       "monospace 9"
 
 class AboutBox : public Gtk::Window
 {

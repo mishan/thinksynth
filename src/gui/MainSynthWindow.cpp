@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.34 2004/09/16 09:14:15 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.35 2004/09/16 09:36:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -140,11 +140,11 @@ void MainSynthWindow::populateMenu (void)
 		bool sel;
 		
 		menulist.push_back(
-			Gtk::Menu_Helpers::MenuElem("Connect to JACK now",
+			Gtk::Menu_Helpers::MenuElem("_Connect to JACK now",
 				SigC::slot(*this, &MainSynthWindow::menuJackTry)));
 
 		menulist.push_back(
-			Gtk::Menu_Helpers::MenuElem("Disconnect from JACK",
+			Gtk::Menu_Helpers::MenuElem("_Disconnect from JACK",
 				SigC::slot(*this, &MainSynthWindow::menuJackDis)));
 
 		menulist.back().set_sensitive(false);
@@ -152,7 +152,7 @@ void MainSynthWindow::populateMenu (void)
 		menulist.push_back(Gtk::Menu_Helpers::SeparatorElem());
 
 		menulist.push_back(
-			Gtk::Menu_Helpers::CheckMenuElem ("Auto-connect to JACK",
+			Gtk::Menu_Helpers::CheckMenuElem ("_Auto-connect to JACK",
 				autoslot));
 
 		elem = (Gtk::CheckMenuItem*)&menulist.back();
@@ -169,7 +169,7 @@ void MainSynthWindow::populateMenu (void)
 		Gtk::Menu::MenuList &menulist = menuHelp.items();
 
 		menulist.push_back(
-			Gtk::Menu_Helpers::MenuElem("About",
+			Gtk::Menu_Helpers::MenuElem("_About",
 										SigC::slot(
 											*this, &MainSynthWindow::menuAbout)
 				));
@@ -185,9 +185,11 @@ void MainSynthWindow::populateMenu (void)
 		if (dynamic_cast<gthJackAudio*>(audio) != NULL)
 			menulist.push_back(Gtk::Menu_Helpers::MenuElem("_JACK",
 														menuJack));
-
-		menulist.push_back(Gtk::Menu_Helpers::MenuElem("_Help",
-													   menuHelp));
+		
+		Gtk::MenuItem *helpMenu = manage(new Gtk::MenuItem("_Help", true));
+		helpMenu->set_submenu(menuHelp);
+		helpMenu->set_right_justified();
+		menulist.push_back(*helpMenu);
 	}
 }
 

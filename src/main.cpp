@@ -359,10 +359,15 @@ int main (int argc, char *argv[])
 
 	mymain.run( synthWindow );
 
+	printf("closing audio devices...\n");
 	delete aout;
 	delete midi;
-
+	
+	printf("saving preferences\n");
 	prefs->Save();
+
+	printf("deleting synth\n");
+	delete Synth;
 
 	return 0;
 }

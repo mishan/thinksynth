@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.14 2004/09/16 09:14:15 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.15 2004/09/16 09:36:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -60,7 +60,6 @@ protected:
 	Gtk::Notebook notebook;
 
 	PatchSelWindow *patchSel;
-//	KeyboardWindow keyboardWin;
 private:
 	thSynth *synth;
 	gthAudio *audio;

@@ -1,4 +1,4 @@
-/* $Id: AboutBox.cpp,v 1.3 2004/09/16 09:17:31 misha Exp $ */
+/* $Id: AboutBox.cpp,v 1.4 2004/09/16 09:36:40 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -22,22 +22,6 @@
 #include <gtkmm.h>
 
 #include "AboutBox.h"
-
-gchar *get_credits()
-{
-   static gchar credits[] =
-"\
-       Main Programming: Leif M. Ames \n\
-                         <ink@bespin.org>\n\
-                         Misha Nasledov \n\
-                         <misha@nasledov.com>\n\
-                         Joshua Kwan\n\
-                         <joshk@triplehelix.org>\n\
-                         Aaron Lehmann\n\
-                         <aaronl@vitelus.com>\n\n\
-";
-   return (gchar*) credits;
-}
 
 AboutBox::AboutBox (void)
 {
@@ -90,8 +74,8 @@ AboutBox::AboutBox (void)
 	scrolledWindow->add(*txtCredits);
 	txtBuf = txtCredits->get_buffer();
 	Glib::RefPtr<Gtk::TextBuffer::Tag> fontTag = txtBuf->create_tag("font");
-	fontTag->property_font() = "monospace 9";
-	txtBuf->insert_with_tag(txtBuf->begin(), get_credits(), fontTag);
+	fontTag->property_font() = CREDITS_FONT;
+	txtBuf->insert_with_tag(txtBuf->begin(), CREDITS_TEXT, fontTag);
 
 	adj = scrolledWindow->get_vadjustment();
 	adj->set_value(0);
