@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.33 2003/05/11 06:23:46 joshk Exp $ */
+/* $Id: thWav.cpp,v 1.34 2003/06/03 03:29:53 aaronl Exp $ */
 
 #include "config.h"
 
@@ -60,6 +60,9 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 
 	/* XXX: support other formats */
 	fmt.format = PCM;
+
+	ftruncate(fd,0);
+	lseek(fd, 44, SEEK_SET);
 }
 
 thWav::~thWav (void)
@@ -96,7 +99,7 @@ int thWav::Write (void *data, int len)
 	switch(fmt.bits) {
 	case 8:
 		/* if data is 8bit, it must be unsigned */
-		r = write(fd, ((unsigned char *)data), len);
+		r = write(fd, data, len);
 		break;
 	case 16:
 		write(fd, data, len*sizeof(short));
