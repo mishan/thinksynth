@@ -1,4 +1,4 @@
-/* $Id: map.cpp,v 1.10 2004/04/13 10:30:49 misha Exp $ */
+/* $Id: map.cpp,v 1.11 2004/05/08 19:19:55 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,9 +39,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	float *out;
 	thArg *in_arg, *in_min, *in_max, *out_min, *out_max;
 	thArg *out_arg;
+	float buf_in[windowlen], buf_inmin[windowlen], buf_inmax[windowlen], buf_outmin[windowlen], buf_outmax[windowlen];
 	unsigned int i;
 	float percent;
-	float val_imin, val_imax, val_omin, val_omax, val_arg;
+	float val_imin, val_imax, val_omin, val_omax;
 
 	out_arg = mod->GetArg(node, args[OUT_ARG]);
 	out = out_arg->Allocate(windowlen);
@@ -52,15 +53,19 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	out_min = mod->GetArg(node, args[IN_OUTMIN]);
 	out_max = mod->GetArg(node, args[IN_OUTMAX]);
 
-	val_arg = (*in_arg)[i];
-	val_imin = (*in_min)[i];
-	val_imax = (*in_max)[i];
-	val_omin = (*out_min)[i];
-	val_omax = (*out_max)[i];
+	in_arg->GetBuffer(buf_in, windowlen);
+	in_min->GetBuffer(buf_inmin, windowlen);
+	in_max->GetBuffer(buf_inmax, windowlen);
+	out_min->GetBuffer(buf_outmin, windowlen);
+	out_max->GetBuffer(buf_outmax, windowlen);
 
 	for(i = 0; i < windowlen; i++) {
-
-		percent = (val_arg-val_imin)/(val_imax-val_imin);
+		val_imin = buf_inmin[i];
+		val_imax = buf_inmax[i];
+		val_omin = buf_outmin[i];
+		val_omax = buf_outmax[i];
+		
+		percent = (buf_in[i]-val_imin)/(val_imax-val_imin);
 		out[i] = (percent*(val_omax-val_omin))+val_omin;
 	}
 
