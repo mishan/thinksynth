@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.88 2004/05/05 03:16:42 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.89 2004/05/08 21:44:24 ink Exp $ */
 
 #include "config.h"
 
@@ -362,6 +362,7 @@ void thSynth::Process (void)
 	int mixchannels, notechannels;
 	thMidiChan *chan;
 	float *chanoutput;
+	int bufferoffset = 0;
 	int i;
 
 	pthread_mutex_lock(synthMutex);
@@ -386,9 +387,10 @@ void thSynth::Process (void)
 			
 			for (int i = 0; i < mixchannels; i++)
 			{
+				bufferoffset += thWindowlen;
 				for (int j = 0 ;j < thWindowlen; j++)
 				{
-					thOutput[i+(j*thChans)] += chanoutput[i+(j*notechannels)];
+					thOutput[bufferoffset + 1] += chanoutput[i + (j*notechannels)];
 				}
 			}
 		}
