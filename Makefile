@@ -1,9 +1,9 @@
-# $Id: Makefile,v 1.18 2004/04/04 03:12:14 joshk Exp $
+# $Id: Makefile,v 1.19 2004/09/05 07:17:16 joshk Exp $
 
 SUBDIRS = libthink src plugins dsp
 NAME = thinksynth
 VERSION = devel
-exclusions = CVS .cvsignore
+exclusions = CVS .cvsignore .\#*
 
 all clean install uninstall: $(SUBDIRS)
 

@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.6 2004/09/05 06:53:11 joshk Exp $
+# $Id: Makefile.in,v 1.7 2004/09/05 07:17:16 joshk Exp $
 
 libdir=@libdir@
 includedir=@includedir@
@@ -47,7 +47,7 @@ thinklex.cpp: thinklex.ll thinklang.o
 thinklang.hpp:
 
 clean::
-	rm -f libthink.so.3 .bstamp
+	rm -f libthink.so.3 libthink.so libthink.a .bstamp
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
