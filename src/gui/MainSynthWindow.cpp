@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.4 2004/04/01 06:51:35 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.5 2004/04/01 08:24:49 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -84,6 +84,9 @@ MainSynthWindow::MainSynthWindow (thSynth *synth)
 	add(vbox);
 
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
+
+	menuBar.accelerate(keyboardWin);
+	menuBar.accelerate(patchSel);
 
 	show_all_children();
 }
