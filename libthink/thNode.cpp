@@ -73,7 +73,7 @@ void thNode::PrintArgs (void)
 
 void thNode::SetPlugin (thPlugin *plug)
 {
-  plugin = plug;
+	plugin = plug;
 }
 
 void thNode::CopyArgs (thList *newargs)

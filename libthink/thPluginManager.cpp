@@ -64,7 +64,6 @@ int thPluginManager::LoadPlugin (char *name)
 	
 	plugins.Insert(name, plugin);
 
-	/* XXX */
 	return 0;
 }
 
