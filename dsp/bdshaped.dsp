@@ -1,4 +1,4 @@
-# $Id: bdshaped.dsp,v 1.2 2004/12/17 22:48:25 ink Exp $
+# $Id: bdshaped.dsp,v 1.3 2004/12/18 02:45:42 ink Exp $
 name "BD-10";
 author "Leif Ames";
 description "Simple Kick Drum";
@@ -79,7 +79,7 @@ node scalc mixer::mul {
 };
 
 node aenv env::adsr {
-	a = 0;
+	a = 0.5 ms;
 	d = @d2;
 	s = scalc->out;
 	r = @r2;
