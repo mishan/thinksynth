@@ -7,7 +7,7 @@
 static inline int StringCompare(char *str1, char *str2)
 {
 	if(!str1 || !str2) {
-		return 0;
+		return -2;
 	}
 
 	while(*str1 && *str2) {
@@ -261,7 +261,11 @@ thBNode *thBTree::GetParent(thBNode *root, thBNode *node)
 
 thBNode *thBTree::FindHelper(thBNode *root, char *name)
 {
-	if(!strcmp(root->name, name)) {
+	if(!name) {
+		return NULL;
+	}
+
+	if(root->name && (!strcmp(root->name, name))) {
 		return root;
 	}
 
