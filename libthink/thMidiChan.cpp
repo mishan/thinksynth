@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.51 2003/09/16 00:51:17 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.52 2004/01/25 23:59:33 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -64,6 +64,28 @@ void thMidiChan::DelNote (int note)
 	map<int, thMidiNote*>::iterator i = notes.find(note);
 	delete i->second;
 	notes.erase(i);
+}
+
+thMidiNote *thMidiChan::GetNote (int note)
+{
+	map<int, thMidiNote*>::iterator i = notes.find(note);
+
+	if(i != notes.end()) {
+		return i->second;
+	}
+
+	return NULL;
+}
+
+int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
+{
+	map<int, thMidiNote*>::iterator i = notes.find(note);
+
+	if(i != notes.end()) {
+		i->second->SetArg(name, value,  len);
+		return 1;
+	}
+	return 0;
 }
 
 void thMidiChan::Process (void)

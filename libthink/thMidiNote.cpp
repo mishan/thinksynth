@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.27 2003/06/03 22:14:07 aaronl Exp $ */
+/* $Id: thMidiNote.cpp,v 1.28 2004/01/25 23:59:33 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -44,3 +44,10 @@ void thMidiNote::Process (int length)
 	modnode.SetActiveNodes();
 	modnode.Process(length);
 }
+
+void thMidiNote::SetArg (char *name, float *value, int len)
+{
+	thNode *ionode = modnode.GetIONode();
+	ionode->SetArg(name, value, len);
+}
+

@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.34 2003/11/04 06:13:27 misha Exp $ */
+/* $Id: thSynth.h,v 1.35 2004/01/25 23:59:33 ink Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -19,6 +19,7 @@ public:
 	thPluginManager *GetPluginManager (void) { return &pluginmanager; };
 	void AddChannel(const string &channame, const string &modname, float amp);
 	thMidiNote *AddNote(const string &channame, float note, float velocity);
+	int SetNoteArg (const string &channame, int note, char *name, float *value, int len);
 	void Process(void);
 	void PrintChan(int chan);
 

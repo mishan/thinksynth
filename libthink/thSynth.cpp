@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.62 2003/10/16 21:04:03 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.63 2004/01/25 23:59:33 ink Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -108,6 +108,13 @@ thMidiNote *thSynth::AddNote(const string &channame, float note,
 	thMidiNote *newnote = chan->AddNote(note, velocity);
 
 	return newnote;
+}
+
+int thSynth::SetNoteArg (const string &channame, int note, char *name, float *value, int len)
+{
+	thMidiChan *chan = channels[channame];
+
+	chan->SetNoteArg (note, name, value, len);
 }
 
 void thSynth::Process()

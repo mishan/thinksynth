@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.h,v 1.16 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: thMidiNote.h,v 1.17 2004/01/25 23:59:33 ink Exp $ */
 
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
@@ -19,6 +19,7 @@ public:
 	int GetID(void) const { return noteid; }
 
 	void Process (int length);
+	void SetArg (char *name, float *value, int len);
 
 private:
 	thMod modnode;
