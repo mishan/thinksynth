@@ -1,4 +1,4 @@
-/* $Id: thAudioBuffer.cpp,v 1.8 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thAudioBuffer.cpp,v 1.9 2003/04/25 08:17:53 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -11,12 +11,12 @@
 #include "thAudioBuffer.h"
 
 thAudioBuffer::thAudioBuffer(int len, thAudio *audio)
-	:read(0),
-	woffset(0), /* how far writing is ahead of reading */
-	size(len),
-	audioPtr(audio)
 {
 	data = new unsigned char[size];
+	read = 0;
+	woffset = 0;  /* how far writing is ahead of reading */
+	size = len;
+	audioPtr = audio;
 }
 
 thAudioBuffer::~thAudioBuffer(void)

@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.18 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thArg.cpp,v 1.19 2003/04/25 08:17:53 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -39,13 +39,15 @@ thArg::thArg(const char *name, const char *node, const char *value)
 	argValue.argType = ARG_POINTER;
 }
 
-thArg::thArg () /* the equivalent of creating a thArg(NULL, NULL, 0) */
+thArg::thArg (void) /* the equivalent of creating a thArg(NULL, NULL, 0) */
 {
 }
 
-thArg::~thArg()
+thArg::~thArg(void)
 {
-	if (argValue.argValues) delete[] argValue.argValues;
+	if (argValue.argValues) {
+		delete[] argValue.argValues;
+	}
 	free (argValue.argName);
 	free (argValue.argPointNode);
 	free (argValue.argPointName);
