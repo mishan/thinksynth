@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.48 2003/05/16 04:49:06 joshk Exp $
+dnl $Id: configure.ac,v 1.49 2003/05/19 04:37:48 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -62,30 +62,8 @@ AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing dlfcn.h, we need this f
 
 AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])],[LIBS="$LIBS -liberty"])
 
-dnl Linux has libdl
-AC_CHECK_LIB(dl, dlopen, [LIBS="$LIBS -ldl"],
-
-dnl Others may have it in libc_r
-[AC_CHECK_LIB(c_r, dlopen,
-[
-	LIBS="$LIBS -lc_r"
-	lcr_for_dl=yes
-],
-
-dnl Poor cygwin users...
-	[AC_CHECK_LIB(cygwin, dlopen,
-		[LIBS="$LIBS -lcygwin"],
-
-dnl We need at least one of these
-[AC_MSG_ERROR([No dlopen implementation found on your system. Sorry.])])])])
-
-dnl Be smart this time round
-if test "$lcr_for_dl" = yes; then
-	AC_CHECK_LIB(c_r, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)
-else
-	AC_CHECK_LIB(dl, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],
-		[AC_CHECK_LIB(cygwin, dlerror, [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])],)])
-fi
+AC_SEARCH_LIBS(dlopen, [dl c_r cygwin], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
+AC_SEARCH_LIBS(dlerror, [dl c_r cygwin], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 
 AC_PATH_PROG(unamepath, uname)
 if test "_$unamepath" = _; then
