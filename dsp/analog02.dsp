@@ -1,4 +1,4 @@
-# $Id: analog02.dsp,v 1.1 2004/02/19 00:38:29 ink Exp $
+# $Id: analog02.dsp,v 1.2 2004/02/19 09:57:40 ink Exp $
 name "test";
 
 node ionode {
@@ -7,37 +7,41 @@ node ionode {
 	channels = 2;
 	play = amp_env->play;
 
-	wave = 1;
-	pw = 0.4;
+	factor = velcalc2->out;
+	factor2 = velcalc2->out;
 
-	cutmin = 0.1;
+	cutmin = 0.08;
 	cutmax = velcalc->out;
-	res = 0.9;
+	res = 0.2;
 
-	hcutmin = 800;
-	hcutmax = 2000;
-	hres = 0.9;
+	hcutmin = 0;
+	hcutmax = 5000;
+	hres = 0.5;
 
-	velcalcmin = 0.3;
-	velcalcmax = 0.99;
+	velcalcmin = 0.1;
+	velcalcmax = 0.9;
+	velcalc2min = 30;
+	velcalc2max = 1;
 
-	amp_a = 2000;
-	amp_d = 10000;
+	amp_a = 0;
+	amp_d = 1000;
 	amp_s = 100;
 	amp_r = 8000;
 
-	filt_a = 4000;
-	filt_d = 6000;
-	filt_s = 60;
+	filt_a = 0;
+	filt_d = 100000;
+	filt_s = 10;
 	filt_r = 100000;
 
-	h_filt_a = 10000;  # for the high pass filter
-	h_filt_d = 6000;
-	h_filt_s = 90;
+	h_filt_a = 8000;  # for the high pass filter
+	h_filt_d = 50000;
+	h_filt_s = 40;
 	h_filt_r = 50000;
 
-	hpmix = 0.6;  # how much of the high-passed signal is mixed in before
+	hpmix = 0.4;  # how much of the high-passed signal is mixed in before
 	              # the low-pass
+	osc2mul = 0.5;
+	oscfade = 0.3;
 };
 
 node velcalc env::map {
@@ -46,6 +50,14 @@ node velcalc env::map {
 	inmax = th_max;
 	outmin = ionode->velcalcmin;
 	outmax = ionode->velcalcmax;
+};
+
+node velcalc2 env::map {
+	in = ionode->velocity;
+	inmin = 0;
+	inmax = th_max;
+	outmin = ionode->velcalc2min;
+	outmax = ionode->velcalc2max;
 };
 
 node freq misc::midi2freq {
@@ -98,13 +110,13 @@ node hcutmap env::map {
 };
 
 node hfilt filt::res2pole {
-	in = osc1->out;
+	in = premix->out;
 	cutoff = hcutmap->out;
 	res = ionode->hres;
 };
 
 node hpmix mixer::fade {
-	in0 = osc1->out;
+	in0 = premix->out;
 	in1 = hfilt->out_high;
 	fade = ionode->hpmix;
 };
@@ -115,10 +127,25 @@ node filt2 filt::ink2 {
 	res = ionode->res;
 };
 
-node osc1 osc::simple {
+node osc1 osc::shapeo {
 	freq = freq->out;
-	waveform = ionode->wave;
-	pw = ionode->pw;
+	shape = ionode->factor;
+};
+
+node osc2mul math::mul {
+	in0 = freq->out;
+	in1 = ionode->osc2mul;
+};
+
+node osc2 osc::buzzer {
+	freq = osc2mul->out;
+	factor = ionode->factor2;
+};
+
+node premix mixer::fade {
+	in0 = osc1->out;
+	in1 = osc2->out;
+	fade = ionode->oscfade;
 };
 
 io ionode;
