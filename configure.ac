@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.57 2003/09/16 00:28:06 misha Exp $
+dnl $Id: configure.ac,v 1.58 2003/12/20 04:54:19 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -90,6 +90,7 @@ else
 		Darwin)
 		        CXXFLAGS="$CXXFLAGS -traditional-cpp"
 		        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
+                        AC_SUBST(NSMODULE_DL_CPP, nsmodule_dl.cpp)
 		;;
 		CYGWIN*)
 			AC_DEFINE([USING_CYGWIN], 1, [Define if using Cygwin/Win32])
