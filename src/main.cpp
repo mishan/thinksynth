@@ -45,5 +45,7 @@ printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValue
 	//printf("  = %f\n", *((thArgValue *)((thMod *)Synth->FindMod("test"))->GetArg("test1", "point"))->argValues);
 	Synth.BuildSynthTree("static");
 	//	((thMod *)Synth->FindMod("test"))->Process();
+
 	Synth.Process("static");
+printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]);
 }

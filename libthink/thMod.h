@@ -19,9 +19,13 @@ public:
 
 	void SetActiveNodes(void);
 
+	thMod *Copy (void);
+
 private:
 	void ProcessHelper (thMod *mod, unsigned int windowlen, thNode *node);
 	void SetActiveNodesHelper(thNode *node);
+
+	void CopyHelper (thMod *mod, thNode *parentnode);
 
 	thBSTree modnodes;
 	thList *activelist;

@@ -136,3 +136,33 @@ void thMod::SetActiveNodesHelper(thNode *node)
     }
   }
 }
+
+thMod *thMod::Copy (void)
+{
+  thMod *newmod = new thMod(modname);
+  thNode *newnode = new thNode((char *)ionode->GetName(), ionode->GetPlugin());
+
+  newmod->NewNode(newnode);
+  newmod->SetIONode((char *)newnode->GetName());
+  /* XXX  COPY IONODE ARGS AND STUFF */
+
+  CopyHelper(newmod, ionode);
+
+  return newmod;
+}
+
+void thMod::CopyHelper (thMod *mod, thNode *parentnode)
+{
+  thNode *data, *newnode;
+  thListNode *listnode;
+
+  if(parentnode->GetChildren()) {
+    for(listnode = ((thList* )parentnode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
+      data = (thNode *)listnode->data;
+      newnode = new thNode((char *)data->GetName(), data->GetPlugin());
+      /* XXX  COPY ARGS AND STUFF */
+      mod->NewNode(newnode);
+      CopyHelper(mod, data);
+    }
+  }
+}
