@@ -1,4 +1,4 @@
-/* $Id: ArgTable.cpp,v 1.1 2004/10/01 08:52:26 misha Exp $ */
+/* $Id: ArgTable.cpp,v 1.2 2004/11/09 00:48:17 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -84,5 +84,5 @@ void ArgTable::insertArg (thArg *arg)
 
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
-	arg->values_[0] = slider->get_value();
+	arg->SetValue(slider->get_value());
 }

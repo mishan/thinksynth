@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.41 2004/10/01 08:52:25 misha Exp $ */
+/* $Id: thArg.h,v 1.42 2004/11/09 00:48:17 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -39,6 +39,8 @@ public:
 	void SetAllocatedArg(const string &name, float *value, const int num);
 	void SetArg(const string &name, const string &node, const string &value);
 	void SetArg(const string &name, const string &chanarg);
+
+	void SetValue(float value); /* set a single float value */
 
 	void SetIndex (int i) { index_ = i; };
 	int GetIndex (void) { return index_; };
