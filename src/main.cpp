@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.110 2004/01/25 11:31:02 misha Exp $ */
+/* $Id: main.cpp,v 1.111 2004/01/25 11:51:51 misha Exp $ */
 
 #include "config.h"
 
@@ -135,7 +135,7 @@ int main (int argc, char *argv[])
 
 
 	Synth.AddChannel(string("chan1"), dspname, 30.0);
-	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
+//	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
@@ -184,8 +184,6 @@ int main (int argc, char *argv[])
 	/* grab address of buffer from synth object */
 	synthbuffer = Synth.GetOutput();
 
-	buflen = Synth.GetChans()*Synth.GetWindowLen();
-
 	printf ("Writing to '%s'\n", outputfname.c_str());
 
 	while (1) {
@@ -197,7 +195,6 @@ int main (int argc, char *argv[])
 			{
 				if(pfds[j].revents > 0)
 				{
-					printf("got a midi event\n");
 					processmidi(&Synth, seq_handle);
 				}
 			}
@@ -205,17 +202,11 @@ int main (int argc, char *argv[])
 			{
 				if (pfds[j].revents > 0)
 				{
-//					printf("got a pcm event\n");
 					Synth.Process();
-					outputstream->Write(synthbuffer, buflen);
+					outputstream->Write(synthbuffer, Synth.GetWindowLen());
 				}
 			}
 		}
-
-//		Synth.Process();
-
-		/* output the current window */
-//		outputstream->Write(synthbuffer, buflen);
 	}
 
 	delete outputstream;

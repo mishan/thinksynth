@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.1 2004/01/25 11:31:02 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.2 2004/01/25 11:51:51 misha Exp $ */
 
 #include "config.h"
 
@@ -77,12 +77,10 @@ int thALSAAudio::Write (float *inbuf, int len)
 	int bytes = ofmt.bits / 8;
 	int samplelen = bytes*chans;
 
-	printf("write called with %d frames\n", len);
-
-	/* malloc an appropriate buffer it would be *bad* if the length of the 
+		/* malloc an appropriate buffer it would be *bad* if the length of the 
 	   buffer passed in were to increase so don't do that (brandon) */
 	if (!outbuf){
-		outbuf = malloc(len*bytes);
+		outbuf = malloc(len*bytes*chans);
 		if (!outbuf){
 			fprintf(stderr,"thALSAAudio::Write -- could not allocate buffer\n");
 			exit(1);
@@ -92,7 +90,7 @@ int thALSAAudio::Write (float *inbuf, int len)
 	{
 		signed short *buf = (signed short*)outbuf;
 		/* convert to specified format */
-		for (i = 0; i < len; i++){ 
+		for (i = 0; i < len * chans; i++){ 
 			le16(buf[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
 		}
 	}
