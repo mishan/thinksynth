@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.19 2003/04/29 19:14:34 misha Exp $ */
+/* $Id: thBSTree.h,v 1.20 2003/04/29 19:33:27 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -13,9 +13,7 @@ public:
 	void Insert (thBSTree *node);
 
 	void Remove (void *id);
-	bool _Remove (void *id, bool freemem);
 	void Remove (thBSTree *node);
-	bool _Remove (thBSTree *node, bool freemem);
 
 	void *GetData (void *id); /* get data from a specific node id */
 
@@ -47,6 +45,9 @@ public:
 	inline bool IsLeaf (void) const {
 		return !bsLeft && !bsRight;
 	}
+protected:
+	bool _Remove (thBSTree *node, bool freemem);
+	bool _Remove (void *id, bool freemem);
 private:
 	thBSTree *bsLeft, *bsRight;
 	void *bsId, *bsData;
