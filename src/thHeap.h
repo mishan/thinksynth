@@ -1,16 +1,21 @@
-#ifndef CG_HEAP_H
-#define CG_HEAP_H 1
+#ifndef TH_HEAP_H
+#define TH_HEAP_H 1
 
-class cgHeap {
+struct thHeapNode {
+	int pri; /* priority */
+	void *data; /* data */
+};
+
+class thHeap {
 public:
-	cgHeap(int size);
-	~cgHeap(void);
+	thHeap(int size);
+	~thHeap(void);
 
-	void Add(int data);
-	int Pop(void);
+	void Add(int pri, void *data);
+	void *Pop(void);
 
 private:
-	int *heapData;
+	thHeapNode *heapData;
 
 	int heapSize;
 	int maxSize;
@@ -31,4 +36,4 @@ private:
 	}
 };
 
-#endif /* CG_HEAP_H */
+#endif /* TH_HEAP_H */
