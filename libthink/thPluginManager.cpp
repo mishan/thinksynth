@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.16 2003/04/25 07:18:42 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.17 2003/04/25 19:09:58 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -81,8 +81,7 @@ void thPluginManager::UnloadPlugin(char *name)
 	thPlugin *plugin = (thPlugin *)plugins.GetData(name);
 
 	if(!plugin) {
-		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
-				name);
+		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n", name);
 		return;
 	}
 

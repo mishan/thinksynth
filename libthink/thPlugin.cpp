@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.17 2003/04/25 08:52:50 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.18 2003/04/25 19:09:58 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -68,9 +68,9 @@ void thPlugin::SetDesc (const char *desc)
  * 	
  * 	precondition: plugPath != NULL
  * 	
- *	postcondition: plugState has been set to *something*, most preferably
- *	by the plugin itself - if not we'll error and prevent further usage of
- *	the module.
+ *	postcondition: plugState has been set to *something*, most
+ *	preferably by the plugin itself - if not we'll error and
+ *	prevent further usage of the module.
  */
 
 int thPlugin::ModuleLoad (void)
@@ -139,12 +139,13 @@ void thPlugin::ModuleUnload (void)
 	
 	void (*module_cleanup) (thPlugin *plug);
 
-	module_cleanup = (void (*)(thPlugin *))dlsym (plugHandle, 
-												  "module_cleanup");
+	/* Invoke the plugin's module_cleanup if it exists */
+	module_cleanup = (void (*)(thPlugin *))dlsym (plugHandle, "module_cleanup");
 	
 	if (module_cleanup != NULL) {
 		module_cleanup (this);
 	}
 
+	/* Finally, unload the plugin */
 	dlclose(plugHandle);
 }
