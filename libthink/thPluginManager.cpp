@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.42 2003/11/04 00:52:49 misha Exp $ */
+/* $Id: thPluginManager.cpp,v 1.43 2003/11/05 03:03:51 joshk Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -42,7 +42,7 @@ const string thPluginManager::GetPath (const string &name)
 #ifdef USE_DEBUG
 			fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
-			return string(); // XXX
+			return ""; /* Empty string */ 
 		}
 	}
 
