@@ -79,6 +79,9 @@ void cleanup (int signum)
 {
 	switch (signum)
 	{
+		case SIGINT:
+		  	printf("caught interrupt!\n");
+
 		case SIGUSR1:
 			printf("thinksynth shutting down..\n");
 			prefs->Save();
