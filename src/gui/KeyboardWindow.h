@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.13 2004/04/04 10:41:40 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.14 2004/04/06 09:25:32 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -23,6 +23,8 @@ protected:
 
 	thSynth *synth;
 private:
+	Glib::Mutex kbMutex;
+
 	Keyboard keyboard;
 
 	/* widgets */

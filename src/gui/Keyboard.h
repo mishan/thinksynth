@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.7 2004/04/04 10:41:40 misha Exp $ */
+/* $Id: Keyboard.h,v 1.8 2004/04/06 09:25:32 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -47,9 +47,9 @@ private:
 	type_signal_channel_changed   m_signal_channel_changed;
 	type_signal_transpose_changed m_signal_transpose_changed;
 
+	/* lower-level widget stuff */
 	Glib::Mutex drawMutex;
 
-	/* lower-level widget stuff */
 	GdkWindow *drawable;
 	GdkGC *kbgc;
 	bool focus_box;

@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.22 2004/04/04 10:41:40 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.23 2004/04/06 09:25:32 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -93,16 +93,23 @@ void KeyboardWindow::eventNoteOff (int chan, int note)
 	synth->DelNote(chan, note);
 }
 
+/* XXX: the synthEvent* callbacks are multi-threaded in origin */
 void KeyboardWindow::synthEventNoteOn (int chan, float note, float veloc)
 {
-//	keyboard.signal_note_on().emit(chan, (int)note, veloc);
+//	printf("setting note on\n");
+	kbMutex.lock();
 	keyboard.SetNote((int)note, true);
+	kbMutex.unlock();
+//	printf("note set on\n");
 }
 
 void KeyboardWindow::synthEventNoteOff (int chan, float note)
 {
-//	keyboard.signal_note_off().emit(chan, (int)note);
+//	printf("setting note off\n");
+	kbMutex.lock();
 	keyboard.SetNote((int)note, false);
+	kbMutex.unlock();
+//	printf("note set off\n");
 }
 
 void KeyboardWindow::eventChannelChanged (int chan)
@@ -117,11 +124,15 @@ void KeyboardWindow::eventTransposeChanged (int trans)
 
 void KeyboardWindow::changeChannel (void)
 {
+	kbMutex.lock();
 	/* the keyboard widget takes the real channel value */
 	keyboard.SetChannel((int)chanVal->get_value()-1);
+	kbMutex.unlock();
 }
 
 void KeyboardWindow::changeTranspose (void)
 {
+	kbMutex.lock();
 	keyboard.SetTranspose((int)transVal->get_value());
+	kbMutex.unlock();
 }

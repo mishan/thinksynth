@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.9 2004/04/04 10:41:40 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.10 2004/04/06 09:25:32 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -151,7 +151,8 @@ void Keyboard::SetTranspose (int argtranspose)
 void Keyboard::SetNote (int note, bool state)
 {
 	active_keys[note] = state ? 1 : 0;
-	drawKeyboard (5);
+	prv_active_keys[note] = -1;
+	drawKeyboard (0);
 }
 
 /* signal accessor methods */
@@ -195,14 +196,21 @@ bool Keyboard::on_expose_event (GdkEventExpose *e)
 	if (!drawable)
 		realize ();
 
+//	printf("got an expose event\n");
+
 	/* redraw widget */
-	drawKeyboard (5);
+	drawKeyboard (3);
+
+	if (focus_box)
+		drawKeyboardFocus();
 
 	return true;
 }
 
 bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 {
+//	printf("got focus in\n");
+
 	focus_box = true;
 
 	/* just draw the focus box */
@@ -213,10 +221,12 @@ bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 
 bool Keyboard::on_focus_out_event (GdkEventFocus *f)
 {
+//	printf("got focus out\n");
+
 	focus_box = false;
 
 	/* redraw widget */
-	drawKeyboard(5);
+//	drawKeyboard(5);
 
 	return true;
 }
@@ -231,7 +241,7 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 	if (mouse_notnum >= 0) {	/* already active */
 		m_signal_note_off(channel, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
-		drawKeyboard (1);
+		drawKeyboard (0);
 	}
 		
 	/* get note number */
@@ -251,7 +261,7 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 
 	m_signal_note_on(channel, mouse_notnum, veloc);
 	active_keys[mouse_notnum] = 1;
-	drawKeyboard(1);
+	drawKeyboard(0);
 
 	mouse_veloc = veloc;	/* save velocity */
 
@@ -264,7 +274,7 @@ bool Keyboard::on_button_release_event (GdkEventButton *b)
 	if (mouse_notnum >= 0) {
 		m_signal_note_off(channel, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
-		drawKeyboard(1);
+		drawKeyboard(0);
 	}
 
 	mouse_notnum = -1;
@@ -330,7 +340,7 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
 
 				active_keys[notenum] = 1;
 
-				drawKeyboard (1);
+				drawKeyboard (0);
 			}
 			break;
 		}
@@ -387,7 +397,7 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
 			if (notenum >= 0) {	/* note event */
 				m_signal_note_off(channel, notenum);
 				active_keys[notenum] = 0;
-				drawKeyboard (1);
+				drawKeyboard (0);
 			}
 			break;
 		}
@@ -399,12 +409,16 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
 
 void Keyboard::drawKeyboardFocus (void)
 {
+	drawMutex.lock();
+
 	Glib::RefPtr<Gtk::Style> style = get_style();
 	Glib::RefPtr<Gdk::Window> wind = get_window();
  	Gdk::Rectangle focus_rect(0, 0, img_width, img_height);
 
 	style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, *this,
 					   "", 0, 0, img_width, img_height);
+
+	drawMutex.unlock();
 }
 
 void Keyboard::drawKeyboard (int mode)
@@ -412,7 +426,11 @@ void Keyboard::drawKeyboard (int mode)
 	int		i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
 	unsigned int	c;
 
+//	printf("entering Keyboard::drawKeyboard\n");
+
 	drawMutex.lock ();
+
+//	printf("entered drawKeyboard\n");
 
 	s0 = key_sizes[cur_size][0];	/* black key height		*/
 	s1 = key_sizes[cur_size][1];	/* total height - b. key height	*/
@@ -422,37 +440,43 @@ void Keyboard::drawKeyboard (int mode)
 	s5 = key_sizes[cur_size][5];	/* white key width 2 (D, G, A)	*/
 	s6 = key_sizes[cur_size][6];	/* white key width 3 (E, B)	*/
 
-	/* z = 4 if entire window should be redrawn */
-	z = mode & 4;
-	if (z)
+	/* if entire widget should be redrawn */
+	if (mode & 2)
 	{
 		/* key borders */
 		gdk_rgb_gc_set_foreground (kbgc, color0);
 		gdk_draw_line (drawable, kbgc, 0, img_height - 1,
 					    img_width - 1, img_height - 1);
-		i = 128; l = -1;
+		i = 128;
+		l = -1;
 		do 
 		{
 			l += s2;
 			gdk_draw_line (drawable, kbgc, l, 0, l, img_height - 2);
 		} while (--i);
 	}
+
 	j = s4;				/* black key x pos */
 	l = 0;				/* white key x pos */
 	i = k = 0;			/* key number (i: 0-127, k: 0-11) */
+	z = mode & 1;       /* if all keys should be redrawn */
 	/* draw keys */
 	do
 	{
+//		printf("note: %d [%d:%d]\n", i, prv_active_keys[i], active_keys[i]);
 		/* update only if state changed or redraw window was reqd */
-		if ((active_keys[i] != prv_active_keys[i]) || z)
+		if (z || (active_keys[i] != prv_active_keys[i]))
 		{
+//			printf("updating note %d\n", i);
+
 			/* save new state */
 			prv_active_keys[i] = active_keys[i];
+
 			if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
 			{
 				/* white keys */
 				if (i == 60) 
-				{	
+				{
 					/* middle C */
 					c = (unsigned int)
 					    (active_keys[i] ? color6 : color3);
@@ -514,15 +538,19 @@ void Keyboard::drawKeyboard (int mode)
 			/* black keys */
 			j += s2;
 		}
+
 		k = (k == 11 ? 0 : k + 1);
+
 	} while (++i < 128);
 
-	if (focus_box)
+/*	if (focus_box)
 	{
 		drawKeyboardFocus();
-	}
+		} */
 
-	drawMutex.unlock ();
+	drawMutex.unlock();
+
+//	printf("returning Keyboard::drawKeyboard\n");
 }
 
 /* convert key value to note number		*/
