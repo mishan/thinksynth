@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.18 2004/03/27 10:13:50 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.19 2004/03/29 08:05:12 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -47,11 +47,8 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 
 	vbox.pack_start(patchScroll);
 
-	/* these widgets are not to be used until a valid row is selected */
+	/* this is not to be used unless a valid amp arg is found */
 	dspAmp.set_sensitive(false);
-	fileEntry.set_sensitive(false);
-	browseButton.set_sensitive(false);
-	setButton.set_sensitive(false);
 
 	synthMutex->lock();
 
@@ -68,6 +65,19 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 		Gtk::TreeModel::Row row = *(patchModel->append());
 		string filename = (*patchlist)[i];
 		thArg *amp = realSynth->GetChanArg(i, "amp");
+
+		/* populate the fields with the data from the first row */
+		if (i == 0)
+		{
+			fileEntry.set_text(filename);
+
+			if (amp)
+			{
+				/* make the slider sensitive since there is an amp arg */
+				dspAmp.set_sensitive(true);
+				dspAmp.set_value((double)amp->argValues[0]);
+			}
+		}
 
 		row[patchViewCols.chanNum] = i + 1;
 		row[patchViewCols.dspName] = filename;
@@ -195,7 +205,7 @@ void PatchSelWindow::SetChannelAmp (void)
 
 void PatchSelWindow::patchSelected (GdkEventButton *b)
 {
-	if (b && ((b->type == GDK_BUTTON_PRESS) && (b->button == 1)))
+	if(b && b->type == GDK_BUTTON_PRESS)
 	{
 		Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 			patchView.get_selection();
