@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.25 2004/05/11 06:06:51 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.26 2004/05/28 10:42:13 misha Exp $ */
 
 #include "config.h"
 
@@ -33,7 +33,7 @@ static unsigned int	color5 = 0x005050FF;	/* black key / active		*/
 static unsigned int	color6 = 0x005050FF;	/* middle C key / active	*/
 /* 0090D0D0 */
 
-static int key_sizes[4][7] =
+static int key_sizes[5][7] =
 {
 	/* keyboard size 0: 450x45 pixels */
 	{
@@ -74,7 +74,19 @@ static int key_sizes[4][7] =
 		10,		/* white key width 1 (C, F)		    */
 		6,		/* white key width 2 (D, G, A)		*/
 		9		/* white key width 3 (E, B)		    */
-	}
+	},
+	/* keyboard size 4 */
+	{
+		43,		/* black key height			        */
+		32,		/* total height - black key height	*/
+		11,		/* white key total width		    */
+		8,		/* black key width			        */
+		7,		/* white key width 1 (C, F)		    */
+		3,		/* white key width 2 (D, G, A)		*/
+		6		/* white key width 3 (E, B)		    */
+	},
+
+
 };
 
 Keyboard::Keyboard (void)
@@ -90,7 +102,7 @@ Keyboard::Keyboard (void)
 	veloc3 = 127;
 	mouse_notnum = -1;
 	mouse_veloc = 127;
-	cur_size = 2; /* keyboard widget size parameter */
+	cur_size = 4; /* keyboard widget size parameter */
 
 	ctrl_on  = false;
 	shift_on = false;
