@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.23 2004/05/11 05:46:36 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.24 2004/05/11 05:59:59 misha Exp $ */
 
 #include "config.h"
 
@@ -551,14 +551,19 @@ void Keyboard::drawKeyboard (int mode)
 				gdk_rgb_gc_set_foreground (kbgc, c);
 				if (active_keys[i])
 				{
-					gdk_draw_rectangle (drawable, kbgc, 1,
-										j+1, 1, s3-2, s0-2);
+					/* redraw the key's backdrop */
+					if (z)
+					{
+						gdk_draw_rectangle (drawable, kbgc, 1, j, 0, s3, s0);
+					}
+
+					gdk_draw_rectangle (drawable, kbgc, 1, j+1, 1, s3-2, s0-2);
 				}
 				else
 				{
-					gdk_draw_rectangle (drawable, kbgc, 1,
-										j, 0, s3, s0);
+					gdk_draw_rectangle (drawable, kbgc, 1, j, 0, s3, s0);
 				}
+
 			}
 		}
 		/* new x coordinate */
