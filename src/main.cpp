@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.31 2003/04/25 07:12:56 joshk Exp $ */
+/* $Id: main.cpp,v 1.32 2003/04/25 07:37:18 joshk Exp $ */
 
 #include "config.h"
 
@@ -44,10 +44,10 @@ syntax:
 		exit(1);
 	}
   
-	while ((havearg = getopt (argc, argv, "h") != -1)) {
+	while ((havearg = getopt (argc, argv, "h")) != -1) {
 		switch (havearg) {
 			case 'h':
-				printf (PACKAGE VERSION " by Misha Nasledov, Leif M. Ames, Aaron Lehmann and Joshua Kwan\n");
+				printf (PACKAGE " " VERSION " by Misha Nasledov, Leif M. Ames, Aaron Lehmann and Joshua Kwan\n");
 				/* TODO: insert some helpful text here */
 				goto syntax;
 				break;
