@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.90 2003/06/01 18:47:48 ink Exp $ */
+/* $Id: main.cpp,v 1.91 2003/06/14 09:37:55 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -26,6 +26,10 @@
 
 string plugin_path;
 
+#if defined(__i386__)
+int threednow, threednowext;
+#endif
+
 int main (int argc, char *argv[])
 {
 	int havearg;
@@ -43,6 +47,31 @@ int main (int argc, char *argv[])
 
 	plugin_path = PLUGIN_PATH;
 
+	/* check for 3dnow */
+#if defined (__i386__)
+	asm volatile ("\
+xorl %%edx, %%edx\n\t\
+xorl %%esi, %%esi\n\t\
+xorl %%eax,%%eax         # CPUID function: Vendor ID\n\t\
+cpuid                    # Invoke cpuid function\n\t\
+testl %%eax,%%eax\n\t\
+jz  1f\n\t\
+movl $0x80000000, %%eax  # CPUID function: Largest extended value\n\t\
+cpuid\n\t\
+cmpl $0x80000001, %%eax  # We can execute feature #1, right?\n\t\
+jl  1f                   # If not, we're done here.\n\t\
+movl $0x80000001, %%eax  # CPUID function: Signature + features\n\t\
+cpuid\n\t\
+movl %%edx, %%esi\n\t\
+andl $0x80000000, %%edx\n\t\
+shrl $0x0000001F, %%edx\n\t\
+andl $0x40000000, %%esi\n\t\
+shrl $0x0000001E, %%esi\n\t\
+1:\n\t"
+		: "=d" (threednow), "=S" (threednowext) : : "eax", "ecx");
+	printf ("3dnow support: %i, 3dnowext support: %i\n", threednow, threednowext);
+#endif
+
 	if (argc < 2) /* Not enough parameters */
 	{
 		printf ("error: not enough parameters\n");
@@ -51,7 +80,7 @@ syntax:
 		printf("Try %s -h for help\n", argv[0]);
 		exit(1);
 	}
-	
+
 	while ((havearg = getopt (argc, argv, "hp:m:n:l:")) != -1) {
 		switch (havearg) {
 		case 'h':

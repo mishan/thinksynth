@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.14 2003/06/03 23:05:06 aaronl Exp $ */
+/* $Id: think.h,v 1.15 2003/06/14 09:37:55 aaronl Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -55,5 +55,8 @@ void DestroyMap (map<T,U> themap)
 		delete i->second;
 };
 
+#if defined(__i386__)
+extern int threednow, threednowext;
+#endif
 
 #endif /* THINK_H */
