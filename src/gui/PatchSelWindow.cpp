@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.28 2004/04/09 09:00:10 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.29 2004/04/09 09:01:36 misha Exp $ */
 
 #include "config.h"
 
@@ -26,7 +26,7 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 	prevDir = strdup(DSP_PATH);
 	synth = argsynth;
 
-	set_default_size(550, 400);
+	set_default_size(475, 400);
 
 	set_title("thinksynth - Patch Selector");
 
