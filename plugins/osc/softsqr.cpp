@@ -1,4 +1,4 @@
-/* $Id: softsqr.cpp,v 1.2 2003/05/10 06:47:20 ink Exp $ */
+/* $Id: softsqr.cpp,v 1.3 2003/05/10 08:31:33 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,18 +65,19 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		sinewidth = wavelength * (*in_sw)[i];
 		maxsqrwidth = (wavelength - sinewidth) * (*in_pw)[i];
 		minsqrwidth = (wavelength - sinewidth) * (1-(*in_pw)[i]);
-
 		switch(phase) {
 		case 0:    /* Sine segment from low to high */
 			ratio = position++/sinewidth;
 			ratio = (ratio/2)+0.75; // We need the right part of the sine wave
 			if(position >= sinewidth) { // End when its over
+				position = 0;
 				phase++;
 			}
 			out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 1:    /* Maximum square */
 			if(position++>maxsqrwidth) {
+				position = 0;
 				phase++;
 			}
 			out[i] = TH_MAX;
@@ -85,12 +86,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			ratio = position++/sinewidth;
 			ratio = (ratio/2)+0.25; // We need the right part of the sine wave
 			if(position >= sinewidth) {
+				position = 0;
 				phase++;
 			}
 			out[i] = TH_MAX*sin((ratio)*(2*M_PI)); /* This will fuck up if TH_MIX is not the negative of TH_MIN */
 			break;
 		case 3:    /* Minimum square */
 			if(position++>minsqrwidth) {
+				position = 0;
 				phase = 0;
 			}
 			out[i] = TH_MIN;
