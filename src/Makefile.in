@@ -1,11 +1,12 @@
-# $Id: Makefile.in,v 1.32 2004/04/06 19:03:55 misha Exp $
+# $Id: Makefile.in,v 1.33 2004/04/07 04:09:29 misha Exp $
 
-BINARY = thinksynth monotest
+BINARY = thinksynth
 
 bindir=@bindir@
 prefix=@prefix@
 
-all: thinksynth monotest
+all: thinksynth
+
 
 include ../build.mk
 

@@ -1,4 +1,4 @@
-/* $Id: monotest.cpp,v 1.5 2004/03/21 06:55:14 ink Exp $ */
+/* $Id: monotest.cpp,v 1.6 2004/04/07 04:09:29 misha Exp $ */
 
 #include "config.h"
 
@@ -9,6 +9,8 @@
 #include <time.h>
 
 #include <alsa/asoundlib.h>
+
+#include <gtkmm.h>
 
 #include "think.h"
 

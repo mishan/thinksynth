@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.153 2004/04/06 20:47:34 misha Exp $ */
+/* $Id: main.cpp,v 1.154 2004/04/07 04:09:29 misha Exp $ */
 
 #include "config.h"
 
@@ -57,9 +57,6 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 {
 	int l = synth->GetWindowLen();
 	float *synthbuffer = synth->GetOutput();
-	int r;
-
-	synth->Process();
 
 	audio->Write(synthbuffer, l);
 }
@@ -80,30 +77,6 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "  -o [file|device]\tchange output dest\n"
 ;
 
-/* XXX: this should not be here */
-snd_seq_t *open_seq (void)
-{
-
-    snd_seq_t *seq_handle;
-    
-    if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
-	{
-        fprintf(stderr, "Error opening ALSA sequencer.\n");
-        exit(1);
-    }
-
-	snd_seq_set_client_name(seq_handle, "thinksynth");
-	
-    if (snd_seq_create_simple_port(seq_handle, "thinksynth",
-        SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
-        SND_SEQ_PORT_TYPE_APPLICATION) < 0)
-	{
-        fprintf(stderr, "Error creating sequencer port.\n");
-        exit(1);
-    }
-
-    return seq_handle;
-}
 
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
@@ -187,14 +160,8 @@ int main (int argc, char *argv[])
 	string outputfname;
 	string inputfname;         /* filename of .dsp file to use */
 	string driver = "alsa";
-	int samplerate = TH_SAMPLE;
 	int havearg = -1;
-	thAudioFmt audiofmt;
-	thAudio *outputstream = NULL;
-	snd_seq_t *seq_handle;    /* for ALSA midi */
-	int seq_nfds, nfds;
-	struct pollfd *pfds;
-	snd_pcm_t *phandle;
+	thALSAAudio *aout = NULL;
 
 	/* init Glib/Gtk stuff */
 	Glib::thread_init();
@@ -204,7 +171,7 @@ int main (int argc, char *argv[])
 
 	plugin_path = PLUGIN_PATH;
 
-	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:d:")) != -1) {
+	while ((havearg = getopt (argc, argv, "hp:o:d:")) != -1) {
 		switch (havearg)
 		{
 			case 'd':
@@ -215,12 +182,6 @@ int main (int argc, char *argv[])
 			case 'o':
 			{
 				outputfname = optarg;
-				break;
-			}
-			case 's':
-			{
-				printf("changing sample rate\n");
-				samplerate = atoi(optarg);
 				break;
 			}
 			case 'h':
@@ -281,111 +242,57 @@ int main (int argc, char *argv[])
 	   integer internally based on format data */
 	try
 	{
-		/* XXX: note that this is actually bad since there are potentially
-		   other /dev/dsp devices */
-		audiofmt.channels = Synth.GetChans();
-		audiofmt.bits = 16;
-		audiofmt.samples = samplerate;
-
-		/* XXX: move thALSAAudio into application layer, add fd magic code to
-		   class, add SigC++ signals (sigReadyRead, sigReadyWrite, etc) */
  		if (driver == "alsa")
 		{
-			audiofmt.period = Synth.GetWindowLen();
-
 			if (outputfname.length() > 0)
 			{
-				outputstream = new thALSAAudio(outputfname.c_str(), &audiofmt);
+				aout = new thALSAAudio(&Synth, outputfname.c_str());
 			}
 			else
 			{
-				outputstream = new thALSAAudio(&audiofmt);
+				aout = new thALSAAudio(&Synth);
 			}
 
-			phandle = ((thALSAAudio *)outputstream)->play_handle;
-
-			seq_handle = open_seq();
-			seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
-			nfds = snd_pcm_poll_descriptors_count (phandle);
-			pfds = (struct pollfd *)alloca(sizeof(struct pollfd) * 
-										   (seq_nfds + nfds));
-			snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
-			snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
-
+			/* connect our audio out event handler and bind a synth to this
+			   instance */
+			aout->signal_ready_write().connect(
+				SigC::bind<thAudio *, thSynth *>(SigC::slot(&audio_readywrite),
+												 aout, &Synth));
+			aout->signal_midi_event().connect(
+				SigC::bind<thSynth *>(SigC::slot(&processmidi), &Synth));
 		}
-		else if (driver == "oss")
+		else
 		{
-			fprintf(stderr, "%s:%d: sorry, OSS is broken for now\n", __FILE__,
-					__LINE__);
-			exit (1);
-			outputstream = new thOSSAudio(NULL, &audiofmt);
+			fprintf(stderr, "sorry, non-ALSA drivers are unsupported for now.\n");
 		}
-		else /* wav */
-		{
-			if (outputfname.length() > 0)
-			{
-				outputstream = new thWav((char *)outputfname.c_str(),
-										 &audiofmt);
-			}
-			else
-			{
-				outputstream = new thWav("test.wav", &audiofmt);
 
-			}
-		}
 	}
-
 	/* XXX: handle these exceptions and consolidate them to one exception
 	   datatype */
 	catch (thIOException e)
 	{
-		printf("thIOEXception on /dev/dsp\n");
-		/* XXX */
+		fprintf(stderr, "error creating audio device: %s\n", strerror(e));
+		exit (1);
 	}
-	catch (thWavException e)
-	{
-		printf("thWavException on %s\n", outputfname.c_str());
-		/* XXX */
-	}
-
-	/* connect our audio out event handler and bind a synth to this instance */
-	m_sigReadyWrite.connect(
-		SigC::bind<thAudio *, thSynth *>(SigC::slot(&audio_readywrite),
-										 outputstream, &Synth));
-	m_sigMidiEvent.connect(
-		SigC::bind<snd_seq_t *, thSynth *>(SigC::slot(&processmidi),
-										   seq_handle, &Synth));
 
 	printf ("Using the '%s' driver\n", driver.c_str());
+
 	if (outputfname.length() > 0)
 	{
 		printf ("Writing to '%s'\n", outputfname.c_str());
 	}
 
+	Synth.Process();
+
 	while (1)
 	{
-		if (poll (pfds, seq_nfds + nfds, 1000) > 0)
+		if (aout->ProcessEvents())
 		{
-			int j;
-
-			for (j = 0; j < seq_nfds; j++)
-			{
-				if(pfds[j].revents > 0)
-				{
- 					m_sigMidiEvent.emit();
-				}
-			}
-			for(j = seq_nfds; j < seq_nfds + nfds; j++)
-			{
-				if (pfds[j].revents > 0)
-				{
-					m_sigReadyWrite.emit();
-				}
-			}
+			Synth.Process();
 		}
 	}
 
-	delete outputstream;
+	delete aout;
 	delete gtkMain;
 
 	return 0;
