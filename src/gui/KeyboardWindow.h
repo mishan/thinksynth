@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.h,v 1.11 2004/04/03 02:18:43 misha Exp $ */
+/* $Id: KeyboardWindow.h,v 1.12 2004/04/04 08:24:40 misha Exp $ */
 
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
@@ -12,6 +12,8 @@ public:
 protected:
 	void eventNoteOn (int chan, int note, float veloc);
 	void eventNoteOff (int chan, int note);
+	void eventChannelChanged (int chan);
+	void eventTransposeChanged (int trans);
 
 	void changeChannel (void);
 	void changeTranspose (void);

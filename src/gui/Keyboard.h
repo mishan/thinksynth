@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.5 2004/04/03 08:33:51 misha Exp $ */
+/* $Id: Keyboard.h,v 1.6 2004/04/04 08:24:40 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -6,6 +6,8 @@
 /* this widget's custom signals */
 typedef SigC::Signal3<void, int, int, float> type_signal_note_on;
 typedef SigC::Signal2<void, int, int>        type_signal_note_off;
+typedef SigC::Signal1<void, int>             type_signal_channel_changed;
+typedef SigC::Signal1<void, int>             type_signal_transpose_changed;
 
 class Keyboard : public Gtk::DrawingArea
 {
@@ -16,8 +18,10 @@ public:
 	void SetChannel   (int argchan);
 	void SetTranspose (int argtranspose);
 
-	type_signal_note_on  signal_note_on  (void);
-	type_signal_note_off signal_note_off (void);
+	type_signal_note_on           signal_note_on  (void);
+	type_signal_note_off          signal_note_off (void);
+	type_signal_channel_changed   signal_channel_changed (void);
+	type_signal_transpose_changed signal_transpose_changed (void);
 protected:
 	void drawKeyboard (int mode);
 	void drawKeyboardFocus (void);
@@ -36,8 +40,10 @@ protected:
 	int channel;
 	int transpose;
 private:
-	type_signal_note_on  m_signal_note_on;
-	type_signal_note_off m_signal_note_off;
+	type_signal_note_on           m_signal_note_on;
+	type_signal_note_off          m_signal_note_off;
+	type_signal_channel_changed   m_signal_channel_changed;
+	type_signal_transpose_changed m_signal_transpose_changed;
 
 	/* lower-level widget stuff */
 	GdkWindow *drawable;
@@ -65,6 +71,9 @@ private:
 
 	int get_coord ();
 	int keyval_to_notnum (int key);
+	void adjust_transpose (int n);
+	void adjust_velocity (int m, int n);
+	void fkeys_func (int key);
 };
 
 #endif /* KEYBOARD_H */

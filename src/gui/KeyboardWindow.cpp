@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.20 2004/04/03 08:33:51 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.21 2004/04/04 08:24:40 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -63,6 +63,12 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	keyboard.signal_note_off().connect(
 		SigC::slot(*this, &KeyboardWindow::eventNoteOff));
 
+	keyboard.signal_channel_changed().connect(
+		SigC::slot(*this, &KeyboardWindow::eventChannelChanged));
+
+	keyboard.signal_transpose_changed().connect(
+		SigC::slot(*this, &KeyboardWindow::eventTransposeChanged));
+
 	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(chanBtn->gobj()), GTK_CAN_FOCUS);
 	GTK_WIDGET_UNSET_FLAGS(GTK_WIDGET(transBtn->gobj()), GTK_CAN_FOCUS);
 }
@@ -81,6 +87,16 @@ void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
 void KeyboardWindow::eventNoteOff (int chan, int note)
 {
 	synth->DelNote(chan, note);
+}
+
+void KeyboardWindow::eventChannelChanged (int chan)
+{
+	chanVal->set_value(chan+1);
+}
+
+void KeyboardWindow::eventTransposeChanged (int trans)
+{
+	transVal->set_value(trans);
 }
 
 void KeyboardWindow::changeChannel (void)

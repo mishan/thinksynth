@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.7 2004/04/04 07:59:54 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.8 2004/04/04 08:24:40 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -131,6 +131,8 @@ Keyboard::~Keyboard (void)
 void Keyboard::SetChannel (int argchan)
 {
 	channel = argchan;
+
+	m_signal_channel_changed.emit(channel);
 }
 
 void Keyboard::SetTranspose (int argtranspose)
@@ -142,6 +144,8 @@ void Keyboard::SetTranspose (int argtranspose)
 		argtranspose = 72;
 
 	transpose = argtranspose;
+
+	m_signal_transpose_changed.emit(transpose);
 }
 
 /* signal accessor methods */
@@ -153,6 +157,16 @@ type_signal_note_on Keyboard::signal_note_on (void)
 type_signal_note_off Keyboard::signal_note_off (void)
 {
 	return m_signal_note_off;
+}
+
+type_signal_channel_changed Keyboard::signal_channel_changed (void)
+{
+	return m_signal_channel_changed;
+}
+
+type_signal_transpose_changed Keyboard::signal_transpose_changed (void)
+{
+	return m_signal_transpose_changed;
 }
 
 /* overridden signal handlers */
@@ -290,7 +304,7 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
 		case GDK_Right:
 		case GDK_Up:
 		case GDK_Down:
-			/* XXX */
+			fkeys_func(keynum);
 			break;
 		default:
 		{
@@ -620,18 +634,15 @@ int	Keyboard::get_coord (void)
 }
 
 
-#if 0
-
-void	adjust_transpose (int n)
+void Keyboard::adjust_transpose (int n)
 {
 	transpose += n;
 	if (transpose < -72) transpose = -72;
 	if (transpose > 72) transpose = 72;
 	fprintf (stderr, "transpose: %d\n", transpose);
 }
-
+#if 0
 /* add n to base key with range checking and print new value */
-
 void	adjust_key_ofs (int n)
 {
 	key_ofs += n;
@@ -639,21 +650,15 @@ void	adjust_key_ofs (int n)
 	if (key_ofs > 6) key_ofs = 6;
 	fprintf (stderr, "base key: %c\n", base_keys[key_ofs]);
 }
-
-/* add n to program with range checking and print new value */
-
-void	adjust_program (int n)
-{
-//	send_program_change (midi_program + n);
-//	fprintf (stderr, "program: %d\n", midi_program);
-}
+#endif
 
 /* add n to velocity m with range checking and print new value	*/
 /* m is 4 for off velocity					*/
-int          off_vel = 64;
-void	adjust_velocity (int m, int n)
+void Keyboard::adjust_velocity (int m, int n)
 {
 	int	*veloc;
+
+	return;
 
 	switch (m) {
 	case 0: veloc = &veloc0; break;
@@ -661,7 +666,7 @@ void	adjust_velocity (int m, int n)
 	case 2: veloc = &veloc2; break;
 	case 3: veloc = &veloc3; break;
 	default:
-		veloc = &off_vel;
+		*veloc = 64; /* XXX: off_vel */
 	}
 	*veloc += n;
 	if (*veloc < 1) *veloc = 1;
@@ -676,7 +681,7 @@ void	adjust_velocity (int m, int n)
 
 /* function keys */
 
-void	fkeys_func (int key)
+void Keyboard::fkeys_func (int key)
 {
 	if (alt_on) {
 		switch (key) {
@@ -702,10 +707,10 @@ void	fkeys_func (int key)
 			case GDK_F3: adjust_velocity (4,  1); return;
 			case GDK_F4: adjust_velocity (4,  8); return;
 			/* channel number */
-			case GDK_F9:  adjust_channel (-1); return;
-			case GDK_F10: adjust_channel (-1); return;
-			case GDK_F11: adjust_channel ( 1); return;
-			case GDK_F12: adjust_channel ( 1); return;
+			case GDK_F9:  SetChannel (channel-1); return;
+			case GDK_F10: SetChannel (channel-1); return;
+			case GDK_F11: SetChannel (channel+1); return;
+			case GDK_F12: SetChannel (channel+1); return;
 			/* velocity 2 */
 			case GDK_Down:	adjust_velocity (2, -8); return;
 			case GDK_Left:	adjust_velocity (2, -1); return;
@@ -715,15 +720,10 @@ void	fkeys_func (int key)
 	} else {
 		switch (key) {
 			/* transpose */
-			case GDK_F1:  adjust_transpose (-12); return;
-			case GDK_F2:  adjust_transpose ( -1); return;
-			case GDK_F3:  adjust_transpose (  1); return;
-			case GDK_F4:  adjust_transpose ( 12); return;
-			/* program */
-			case GDK_F9:  adjust_program (-8); return;
-			case GDK_F10: adjust_program (-1); return;
-			case GDK_F11: adjust_program ( 1); return;
-			case GDK_F12: adjust_program ( 8); return;
+			case GDK_F1:  SetTranspose(transpose-12); return;
+			case GDK_F2:  SetTranspose(transpose-1); return;
+			case GDK_F3:  SetTranspose(transpose+1); return;
+			case GDK_F4:  SetTranspose(transpose+12); return;
 			/* velocity 3 */
 			case GDK_Down:	adjust_velocity (3, -8); return;
 			case GDK_Left:	adjust_velocity (3, -1); return;
@@ -731,6 +731,9 @@ void	fkeys_func (int key)
 			case GDK_Up:	adjust_velocity (3,  8); return;
 		}
 	}
+
+
+#if 0
 	switch (key) {
 	case GDK_F5:				/* print current settings */
 		fprintf (stderr, "==== current settings: ====\n");
@@ -754,13 +757,6 @@ void	fkeys_func (int key)
 	case GDK_F8:				/* base key + 1 */
 		adjust_key_ofs (1);
 	}
+#endif
 }
 
-
-/* read and process keyboard and mouse events		*/
-/* return status is the sum of the following values:	*/
-/*	1: some keys should be redrawn			*/
-/*	2: close window and exit			*/
-/*	4: redraw entire window				*/
-
-#endif
