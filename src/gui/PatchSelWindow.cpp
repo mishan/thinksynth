@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.20 2004/03/29 23:54:30 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.21 2004/04/01 02:28:00 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -42,6 +42,9 @@ PatchSelWindow::PatchSelWindow (thSynth *synth)
 	
 	patchView.signal_button_press_event().connect_notify(
 		SigC::slot(*this, &PatchSelWindow::patchSelected));
+	/* XXX: this might help with getting keyboard to work */
+	patchView.signal_cursor_changed().connect(
+		SigC::slot(*this, &PatchSelWindow::CursorChanged));
 
 	vbox.pack_start(patchScroll);
 
@@ -188,7 +191,6 @@ void PatchSelWindow::SetChannelAmp (void)
 			realSynth->SetChanArg(chanNum, arg);
 		} 
 	}
-
 }
 
 void PatchSelWindow::patchSelected (GdkEventButton *b)
@@ -197,6 +199,7 @@ void PatchSelWindow::patchSelected (GdkEventButton *b)
 	{
 		Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
 			patchView.get_selection();
+
 		if(refSelection)
 		{
 			Gtk::TreeModel::iterator iter;
@@ -208,36 +211,46 @@ void PatchSelWindow::patchSelected (GdkEventButton *b)
 									  cell_x, cell_y);
 				
 			refSelection->select(path);
+		}
+	}
+}
 
-			iter = refSelection->get_selected();
+void PatchSelWindow::CursorChanged (void)
+{
+	Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
+		patchView.get_selection();
 
-			if(iter)
+	if(refSelection)
+	{
+		Gtk::TreeModel::iterator iter;
+		iter = refSelection->get_selected();
+
+		if(iter)
+		{
+			int chanNum = (*iter)[patchViewCols.chanNum] - 1;
+			Glib::ustring filename = (*iter)[patchViewCols.dspName];
+			float amp = (*iter)[patchViewCols.amp];
+
+
+			/* make these widgets usable now that a valid row is
+			   selected */
+			browseButton.set_sensitive(true);
+			fileEntry.set_sensitive(true);
+			setButton.set_sensitive(true);
+
+			fileEntry.set_text(filename);
+			dspAmp.set_value((double)amp);
+
+			/* if no DSP is loaded, then don't touch the amplitude */
+			if (filename == "")
 			{
-				Glib::ustring filename = (*iter)[patchViewCols.dspName];
-				float amp = (*iter)[patchViewCols.amp];
-
-
-				/* make these widgets usable now that a valid row is
-				   selected */
-				browseButton.set_sensitive(true);
-				fileEntry.set_sensitive(true);
-				setButton.set_sensitive(true);
-
-				fileEntry.set_text(filename);
-				dspAmp.set_value((double)amp);
-
-				/* if no DSP is loaded, then don't touch the amplitude */
-				if (filename == "")
-				{
-					dspAmp.set_sensitive(false);
-				}
-				else
-				{
-					dspAmp.set_sensitive(true);
-				}
-
+				dspAmp.set_sensitive(false);
+			}
+			else
+			{
+				dspAmp.set_sensitive(true);
 			}
 
-		}
+		} 
 	}
 }

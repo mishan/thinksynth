@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.h,v 1.8 2004/03/27 10:00:25 misha Exp $ */
+/* $Id: PatchSelWindow.h,v 1.9 2004/04/01 02:28:00 misha Exp $ */
 
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
@@ -28,6 +28,7 @@ protected:
 	void LoadPatch (void);
 	void SetChannelAmp (void);
 	void BrowsePatch (void);
+	void CursorChanged (void);
 
 	void patchSelected (GdkEventButton *b);
 
