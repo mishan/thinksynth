@@ -6,21 +6,26 @@ node ionode {
 	channels = 2;
 	play = env->play;
 
-	filtlo = 0.1;
+	filtlo = 0.4;
 	filthi = 0.95;
-	res = 0.6;
+	res = 0.8;
 
 	bandlow = 50;
-	bandhi = 1400;
+	bandhi = 2400;
 
 	pw1 = 0.1;
-	pw2 = 0.1;
-	pw3 = 0.05;
+	pw2 = 0.2;
+	pw3 = 0.3;
 	freq2mul = 1.01;
 	freq3mul = 1.99;
 
 	mix1 = 0.4;	# osc 1 and osc2
 	mix2 = 0.2;	# mix1 and osc3
+
+	a = 0;
+	d = 3000;
+	s = 0.4;
+	r = 10000;
 };
 
 node freq misc::midi2freq {
@@ -42,12 +47,18 @@ node mixer mixer::mul {
 	in1 = env->out;
 };
 
+node suscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->s;
+};
+
 node env env::adsr {
-	a = 0;
-	d = 4000;
-	s = 70;
-	r = 35000;
-	trigger = 0;
+	a = ionode->a;
+	d = ionode->d;
+	s = suscalc->out;
+	r = ionode->r;
+	p = ionode->velocity;
+	trigger = ionode->trigger;
 };
 
 node map1 env::map {
@@ -66,28 +77,28 @@ node map2 env::map {
 	outmax = ionode->bandhi;
 };
 
-node filt filt::ink {
+node filt filt::ink2 {
 	in = mix2->out;
 	cutoff = map1->out;
 	res = ionode->res;
 };
 
-node osc1 osc::bandosc {
+node osc1 osc::softsqr {
 	freq = freq->out;
-	band = map2->out;
-	pw = 0.2;
+	sfreq = map2->out;
+	pw = ionode->pw1;
 };
 
 node osc2 osc::bandosc {
         freq = freq2->out;
         band = map2->out;
-        pw = 0.2;
+        pw = ionode->pw2;
 };
 
 node osc3 osc::bandosc {
         freq = freq3->out;
         band = map2->out;
-        pw = 0.2;
+        pw = ionode->pw3;
 };
 
 node mix1 mixer::fade {
