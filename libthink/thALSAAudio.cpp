@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.18 2004/02/13 08:31:25 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.19 2004/02/16 05:42:07 misha Exp $ */
 
 #include "config.h"
 
@@ -15,7 +15,8 @@ thALSAAudio::thALSAAudio (const thAudioFmt *afmt)
 	throw (thIOException)
 {
 	if (snd_pcm_open (&play_handle, ALSA_DEFAULT_DEVICE,
-					  SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+					  SND_PCM_STREAM_PLAYBACK, 0) < 0)
+	{
 		fprintf(stderr, "thALSAAUdio::SetFormat: %s\n", strerror(errno));
 		return;
 	}
@@ -29,7 +30,8 @@ thALSAAudio::thALSAAudio (const thAudioFmt *afmt)
 thALSAAudio::thALSAAudio (const char *device, const thAudioFmt *afmt)
 	throw (thIOException)
 {
-	if (snd_pcm_open (&play_handle, device, SND_PCM_STREAM_PLAYBACK, 0) < 0) {
+	if (snd_pcm_open (&play_handle, device, SND_PCM_STREAM_PLAYBACK, 0) < 0)
+	{
 		fprintf(stderr, "thALSAAUdio::SetFormat: %s\n", strerror(errno));
 		return;
 	}
@@ -62,15 +64,20 @@ void thALSAAudio::SetFormat (const thAudioFmt *afmt)
 	snd_pcm_hw_params_set_access(play_handle, hw_params,
 								SND_PCM_ACCESS_RW_INTERLEAVED);
 
-   switch(ifmt.bits) {
+   switch(ifmt.bits)
+   {
 	   case 8:
+	   {
 		   snd_pcm_hw_params_set_format(play_handle, hw_params,
 										SND_PCM_FORMAT_U8);
 		   break;
+	   }
 	   case 16:
+	   {
 		   snd_pcm_hw_params_set_format(play_handle, hw_params,
 										SND_PCM_FORMAT_S16);
 		   break;
+	   }
    }
    
    snd_pcm_hw_params_set_rate_near(play_handle, hw_params, (unsigned int *)&ifmt.samples, NULL);
@@ -98,7 +105,7 @@ int thALSAAudio::Read (void *outbuf, int len)
 
 int thALSAAudio::Write (float *inbuf, int len)
 {
-	int i, w = 0;
+	int w = 0;
 	int chans = ofmt.channels;
 
 	/* malloc an appropriate buffer it would be *bad* if the length of the 
@@ -119,7 +126,8 @@ int thALSAAudio::Write (float *inbuf, int len)
 		{
 			signed short *buf = (signed short*)outbuf;
 			/* convert to specified format */
-			for (i = 0; i < len * chans; i++){ 
+			for (int i = 0; i < len * chans; i++)
+			{ 
 				le16(buf[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
 			}
 			

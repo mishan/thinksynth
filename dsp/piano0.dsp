@@ -1,4 +1,4 @@
-# $Id: piano0.dsp,v 1.10 2004/02/09 10:50:28 misha Exp $
+# $Id: piano0.dsp,v 1.11 2004/02/16 05:42:07 misha Exp $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
@@ -11,8 +11,8 @@ node ionode {
 	channels = 2;
 	play = env->play;
 
-	sfreqlo = 600;
-	sfreqhi = 3500;
+	sfreqlo = 1600;
+	sfreqhi = 5500;
 
 	pw1 = 0.38;
 	pw2 = 0.75;
