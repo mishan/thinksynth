@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.24 2003/04/29 04:53:01 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.25 2003/04/29 05:55:20 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -18,6 +18,7 @@ thPlugin::thPlugin (const char *path)
 {
 	plugPath = strdup(path);
 	plugDesc = NULL;
+	plugState = thNotLoaded;
 
 	if(ModuleLoad() == 1) { /* fail = return (1) */
 		fprintf(stderr, "thPlugin::thPlugin: Failed to load plugin\n");
@@ -69,9 +70,9 @@ void thPlugin::SetDesc (const char *desc)
  * 	
  * 	precondition: plugPath != NULL
  * 	
- *	postcondition: plugState has been set to *something*, most
- *	preferably by the plugin itself - if not we'll error and
- *	prevent further usage of the module.
+ *	postcondition: plugState has been set to *something*.
+ *	if it can't load correctly, set it thNotLoaded so that
+ *	parents et al. can deal with it.
  */
 
 int thPlugin::ModuleLoad (void)
@@ -125,7 +126,7 @@ int thPlugin::ModuleLoad (void)
 	 * if we're still thNotLoaded after our recent invocation of module_init */
 	
 	if (plugState == thNotLoaded) {
-		fprintf(stderr, "thPlugin::ModuleLoad: Plugin has no state, aborting\n");
+		fprintf(stderr, "thPlugin::ModuleLoad: Plugin didn't set state, aborting\n");
 		goto loaderr;
 	}
 	
