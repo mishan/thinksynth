@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.13 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: think.h,v 1.14 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -48,10 +48,12 @@ using namespace std;
 #endif
 #endif
 
-/* XXX: find a better spot */
-#define DESTROYBODY(type1,type2)											\
-for (map<type1,type2*>::iterator i=themap.begin(); i!=themap.end(); i++)	\
-	delete i->second
+template <typename T, typename U>
+void DestroyMap (map<T,U> themap)
+{
+	for (typename map<T,U>::iterator i=themap.begin(); i!=themap.end(); i++)
+		delete i->second;
+};
 
 
 #endif /* THINK_H */

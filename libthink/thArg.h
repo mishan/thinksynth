@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.25 2003/05/30 00:55:41 aaronl Exp $ */
+/* $Id: thArg.h,v 1.26 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -38,11 +38,6 @@ class thArg {
 		}
 		return argValues[i%argNum];
 	}
-	static void DestroyMap (map<string,thArg*> themap)
-	{
-		DESTROYBODY(string, thArg);
-	};
-
 };
 
 #endif /* TH_ARG_H */

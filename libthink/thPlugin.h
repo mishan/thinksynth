@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.21 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thPlugin.h,v 1.22 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -33,11 +33,6 @@ class thPlugin {
 		void SetState(thPluginState state) { plugState = state; };
 
 		void Fire (thNode *node, thMod *mod, unsigned int windowlen);
-
-		static void DestroyMap (map<string,thPlugin*> themap)
-		{
-			DESTROYBODY(string,thPlugin);
-		}
 
 	private:
 		string plugPath;

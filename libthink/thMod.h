@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.31 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thMod.h,v 1.32 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -36,11 +36,6 @@ public:
 	void BuildSynthTree (void);
 
 	void ListNodes(void);
-
-	static void DestroyMap (map<string,thMod*> themap)
-	{
-		    DESTROYBODY(string,thMod);
-	};
 
 private:
 	void ProcessHelper (unsigned int windowlen, thNode *node);

@@ -1,4 +1,4 @@
-/* $Id: thNode.h,v 1.36 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thNode.h,v 1.37 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
@@ -38,11 +38,6 @@ public:
 	void CopyArgs (const map<string,thArg*> &args);
 
 	void Process (void);
-
-	static void DestroyMap (map<string,thNode*> themap)
-	{
-		DESTROYBODY(string,thNode);
-	}
 
 private:
 	map<string, thArg*> args;

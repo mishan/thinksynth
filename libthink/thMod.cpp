@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.73 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thMod.cpp,v 1.74 2003/06/03 23:05:06 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -36,7 +36,7 @@ thMod::thMod (const thMod &oldmod)
 
 thMod::~thMod ()
 {
-	thNode::DestroyMap(modnodes);
+	DestroyMap(modnodes);
 }
 
 void thMod::CopyHelper (thNode *parentnode)

@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.40 2003/06/03 04:09:29 aaronl Exp $ */
+/* $Id: thPluginManager.cpp,v 1.41 2003/06/03 23:05:06 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -88,5 +88,5 @@ void thPluginManager::UnloadPlugin(const string &name)
 
 void thPluginManager::UnloadPlugins (void)
 {
-	thPlugin::DestroyMap(plugins);
+	DestroyMap(plugins);
 }

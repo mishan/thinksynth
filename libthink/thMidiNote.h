@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.h,v 1.15 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thMidiNote.h,v 1.16 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
@@ -19,11 +19,6 @@ public:
 	int GetID(void) const { return noteid; }
 
 	void Process (int length);
-
-	static void DestroyMap (map<int,thMidiNote*> themap)
-	{
-		DESTROYBODY(int, thMidiNote);
-	};
 
 private:
 	thMod modnode;

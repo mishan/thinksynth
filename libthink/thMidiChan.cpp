@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.49 2003/06/01 18:47:48 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.50 2003/06/03 23:05:06 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -41,8 +41,8 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 thMidiChan::~thMidiChan (void)
 {
-	thArg::DestroyMap(args);
-	thMidiNote::DestroyMap(notes);
+	DestroyMap(args);
+	DestroyMap(notes);
 	delete[] output;
 }
 

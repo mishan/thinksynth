@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.50 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thNode.cpp,v 1.51 2003/06/03 23:05:06 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -20,7 +20,7 @@ thNode::thNode (const string &name, thPlugin *thplug)
 
 thNode::~thNode (void)
 {
-	thArg::DestroyMap(args);
+	DestroyMap(args);
 }
 
 thArg *thNode::SetArg (const string &name, float *value, int num)

@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.19 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thMidiChan.h,v 1.20 2003/06/03 23:05:06 aaronl Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -18,10 +18,6 @@ class thMidiChan {
 		float *GetOutput (void) const { return output; }
 		int GetChannels (void) const { return channels; }
 
-		static void DestroyMap (map<string,thMidiChan*> themap)
-		{
-			DESTROYBODY(string,thMidiChan);
-		}
 	private:
 		int GetLen(int);
 

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.59 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thSynth.cpp,v 1.60 2003/06/03 23:05:06 aaronl Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -33,8 +33,8 @@ thSynth::thSynth (void)
 thSynth::~thSynth (void)
 {
 	delete [] thOutput;
-	thMod::DestroyMap(modlist);
-	thMidiChan::DestroyMap(channels);
+	DestroyMap(modlist);
+	DestroyMap(channels);
 }
 
 void thSynth::LoadMod(const char *filename)
