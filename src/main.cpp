@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.164 2004/04/17 23:01:34 misha Exp $ */
+/* $Id: main.cpp,v 1.165 2004/04/18 00:33:43 misha Exp $ */
 
 #include "config.h"
 
@@ -309,6 +309,7 @@ int main (int argc, char *argv[])
 	while (1)
 	{
 		/* oh no, nothing to do! */
+		sleep (100);
 	}
 
 	delete aout;
