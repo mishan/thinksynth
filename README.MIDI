@@ -1,0 +1,34 @@
+Thinksynth MIDI support
+-----------------------
+
+Thinksynth has support for acting as an ALSA MIDI output sequencer. At this
+point, though, you have to configure each channel's instruments manually
+(we have not put together a General MIDI set of DSPs.) However, it is quite
+easy to try out, if not slightly buggy.
+
+You can either use Rosegarden or the simple 'pmidi' to play a MIDI through
+Thinksynth.
+
+1. Install the pmidi package somehow. The source is available at
+http://www.parabola.demon.co.uk/alsa/pmidi.html if your distribution doesn't
+supply a package or build script.
+
+                                     -or-
+
+1. Install Rosegarden. It's rosegarden4 in Debian and the source can be had
+at http://www.rosegardenmusic.com/getting/.
+
+2. Start thinksynth in whichever mode you fancy and make sure to connect to
+the ALSA outputs through the menu.
+
+3. Assign DSPs for each channel that the MIDI provides. Make sure to turn
+up the amplitudes accordingly.
+
+4. pmidi -l should tell you what client:port to use for thinksynth output.
+Use pmidi -p client:port midi.mid to play the MIDI and enjoy.
+
+                                     -or-
+									 
+4. You have to reassign each instrument in Rosegarden to use the "MIDI general
+synth" (or, it may call it MIDI external device) that is labeled 'thinksynth'.
+Then you can hit 'play'.

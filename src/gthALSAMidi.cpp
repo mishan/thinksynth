@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.12 2004/09/16 07:59:06 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.13 2004/09/18 05:59:55 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -29,8 +29,6 @@
 #include "think.h"
 
 #include "gthALSAMidi.h"
-
-extern Glib::RefPtr<Glib::MainContext> mainContext;
 
 gthALSAMidi::gthALSAMidi (const char *argname)
 	throw (thIOException)
@@ -80,7 +78,7 @@ sigMidiEvent_t gthALSAMidi::signal_midi_event (void)
 
 bool gthALSAMidi::open_seq (void)
 {
-	int client_id, port_id;
+	int port_id;
 
     if (snd_seq_open(&seq_handle, "default", SND_SEQ_OPEN_DUPLEX, 0) < 0)
 	{
@@ -88,7 +86,7 @@ bool gthALSAMidi::open_seq (void)
 		return false;
     }
 
-	client_id = snd_seq_set_client_name(seq_handle, name.c_str());
+	snd_seq_set_client_name(seq_handle, name.c_str());
 	
     if ((port_id = snd_seq_create_simple_port(seq_handle, name.c_str(),
 						SND_SEQ_PORT_CAP_WRITE|SND_SEQ_PORT_CAP_SUBS_WRITE,
@@ -97,6 +95,11 @@ bool gthALSAMidi::open_seq (void)
         fprintf(stderr, "Error creating sequencer port.\n");
 		return false;
     }
+	else
+	{
+		printf("Opened sequencer port for ALSA on %d:%d\n",
+			snd_seq_client_id(seq_handle), port_id);
+	}
 
 	seq_nfds = snd_seq_poll_descriptors_count(seq_handle, POLLIN);
 	pfds = (struct pollfd *)malloc(sizeof(struct pollfd) * seq_nfds);
