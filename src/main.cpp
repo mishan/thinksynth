@@ -26,7 +26,7 @@
 
 int main (int argc, char *argv[])
 {
-/*	parsemod = new thMod("newmod");     /* these are used by the parser */
+/*	parsemod = new thMod("newmod");     // these are used by the parser */
 /*	parsenode = new thNode("newnode", NULL);
 
 yyparse();
