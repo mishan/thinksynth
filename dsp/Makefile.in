@@ -1,13 +1,16 @@
-# $Id: Makefile.in,v 1.5 2004/03/26 08:16:48 joshk Exp $
+# $Id: Makefile.in,v 1.6 2004/03/26 08:29:17 joshk Exp $
 
 prefix=@prefix@
 datadir=@datadir@
 DSP_DIST_FILES=$(shell find -name '*.dsp')
 
+default: all
+
 include ../build.mk
 
 # Dummy target
 all:
+	@true
 
 distclean::
 	rm -f Makefile
