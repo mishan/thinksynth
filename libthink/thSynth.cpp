@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.77 2004/03/29 23:54:30 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.78 2004/03/30 05:08:27 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -69,6 +69,7 @@ thSynth::~thSynth (void)
 	free(channels);
 
 	pthread_mutex_destroy(synthMutex);
+	delete synthMutex;
 }
 
 thMod * thSynth::LoadMod (const string &filename)
