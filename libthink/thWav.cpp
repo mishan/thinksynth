@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.37 2003/09/26 07:33:12 misha Exp $ */
+/* $Id: thWav.cpp,v 1.38 2003/10/16 21:04:03 misha Exp $ */
 
 #include "config.h"
 
@@ -27,7 +27,7 @@
 #include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 #include "thWav.h"
-// added on 9/15/03 by brandon
+
 #include "think.h"
 
 thWav::thWav(char *name)
@@ -39,8 +39,10 @@ thWav::thWav(char *name)
 	if(!(file = fopen(filename, "r"))) {
 		throw (thIOException) errno;
 	}
-	// added by Brandon on 9/15/03
-	outbuf=NULL;
+
+	/* XXX: since this is a reading-wav, this is unused */
+	outbuf = NULL;
+
 	ReadHeader();
 }
 
@@ -65,9 +67,8 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 	fmt.format = PCM;
 
 	lseek(fd, 44, SEEK_SET);
-	// added by brandon on 9/15/03
 
-	outbuf=NULL;
+	outbuf = NULL;
 }
 
 thWav::~thWav (void)
@@ -82,62 +83,70 @@ thWav::~thWav (void)
 	else {
 		fclose(file);
 	}
-	if(filename) {
+
+	/* free stuff */
+	if (filename) {
 		free(filename);
 	}
-	if (outbuf) free(outbuf);
+
+	if (outbuf) {
+		free(outbuf);
+	}
 }
 
-//* changed this function on 9/15/03
 int thWav::Write (float *inbuf, int len)
 {
-	int r = -1;
-	// added this
-	int i;
+	int r = -1, i;
+
 	if(type == READING) {
 		/* XXX: throw an exception */
 		return -1;
 	}
-	// added this
-	// it would be *bad* if len were to increase
-	// between calls
+
+	/* it would be *bad* if len were to increase between calls */
 	if (!outbuf){
 		outbuf = malloc (len*fmt.bits);
 		if (!outbuf){
 			fprintf(stderr,"thWav::Write -- can't allocate output buffer");
 		}
 	}
-	// changed this so as to perform a conversion
-	// on the specified buffer
-	if ( fmt.bits == 8){
-		unsigned char *data=(unsigned char*)outbuf;
-		for (i=0; i < len; i++){
-			data[i]=(unsigned char)(((float)inbuf[i]/TH_MAX)*128);
+
+	/* perform a conversion on the buffer */
+	if (fmt.bits == 8){
+		unsigned char *data = (unsigned char*)outbuf;
+
+		for (i = 0; i < len; i++) {
+			data[i] = (unsigned char)(((float)inbuf[i]/TH_MAX)*128);
 		}
+
 		r = write(fd, data, len);
 	}
 	else if (fmt.bits == 16){
-		unsigned short *data=(unsigned short*)outbuf;
-		for (i=0; i < len; i++){
+		unsigned short *data = (unsigned short*)outbuf;
+
+		for (i = 0; i < len; i++) {
 			le16(data[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
 		}
-		r=write(fd, data, len*sizeof(short));
+
+		r = write(fd, data, len*sizeof(short));
 	}
 	else {
-		fprintf(stderr, "thWav::Write -- %d-bit audio is unsupported\n",fmt.bits);
+		fprintf(stderr, "thWav::Write -- %d-bit audio is unsupported\n",
+				fmt.bits);
 	}
+
 	return r;
 }
 
-/* Alters file seekage */
 void thWav::WriteRiff (void)
 {
-	lseek(fd, 0, SEEK_SET);
+	int oldpos = lseek(fd, 0, SEEK_CUR);
 
 	int fmt_len = FMT_LEN; /* this is the standard length of the fmt header,
 							   it is the header minus the eight bytes for the 
 							   "fmt " string and the header length */
 	
+	lseek(fd, 0, SEEK_SET);
 
 	write(fd, RIFF_HDR, 4);
 	lewrite32(fd, fmt.len - 8);
@@ -153,6 +162,10 @@ void thWav::WriteRiff (void)
 
 	write(fd, DATA_HDR, 4);
 	lewrite32(fd, fmt.len - 44);
+
+	/* restore the position in the filestream, although this is probably
+	   unnecessary */
+ 	lseek(fd, oldpos, SEEK_SET);
 }
 
 int thWav::Read (void *data, int len)

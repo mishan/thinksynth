@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.4 2003/09/16 01:02:28 misha Exp $ */
+/* $Id: wav.cpp,v 1.5 2003/10/16 21:04:03 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,7 +53,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i = 0; i < windowlen; i++) {
 		out[i] = (((float)buf[i])/32767)*TH_MAX;
-		printf("writing %f\n", out[i]);
+//		printf("writing %f\n", out[i]);
 	}
 
 	return 0;

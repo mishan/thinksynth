@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.31 2003/09/15 23:17:06 brandon Exp $ */
+/* $Id: thSynth.h,v 1.32 2003/10/16 21:04:03 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -11,7 +11,8 @@ public:
 	thSynth (void);
 	~thSynth (void);
 
-	void LoadMod(const char *name);
+	void LoadMod(const string &filename);
+	void LoadMod(FILE *input);
 	thMod *FindMod(const string &name) { return modlist[name]; };
 	void ListMods(void);
 	void BuildSynthTree(const string &modname);
@@ -23,13 +24,13 @@ public:
 	int GetChans(void) { return thChans; }
 	int GetWindowLen(void) { return thWindowlen; }
 	float *GetOutput(void) { return thOutput; }
-	/* these accessors added by Brandon on 9/15/03 */
-	// note that asof 9/15/03 these don't do anything. corresponding changes
-	// elsewhere in the implementation must be made (thSamples is intialized
-	// to TH_SAMPLE in the the constructor though, so calls to GetSamples
-	// should work ok)
+
+	/* note that as of 9/15/03 these don't do anything. corresponding changes
+	   elsewhere in the implementation must be made (thSamples is intialized to
+	   TH_SAMPLE in the the constructor though, so calls to GetSamples should
+	   work ok) (brandon) */
 	long GetSamples(void) { return thSamples; }
-	void SetSamples(long) { return;};
+	void SetSamples(long) { return; }
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 

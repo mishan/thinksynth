@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.22 2003/09/15 23:49:17 brandon Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.23 2003/10/16 21:04:03 misha Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -24,7 +24,7 @@
 #include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 #include "thEndian.h"
-//added by brandon on 9/15/03
+
 #include "think.h"
 /* XXX XXX XXX */
 /* XXX: DO NOT PASS ioctl() shorts that are part of a structure as it will
@@ -34,30 +34,30 @@
 
 /* null is a placeholder; to have wav output plugins and audio output plugins
    we must maintain the same number of arguments for interopability */
-
 thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	throw(thIOException)
 {
-	// rewrote this whole function on 9/15/03 brandon
 
-	// SetFormat closes and reopens the /dev/dsp device
-	// before changing settings, as is recomended in the
-	// OSS API Spec. here we open fd to make sure calling
-	// SetFormat causes no problems
+	/* SetFormat closes and reopens the /dev/dsp device
+	   before changing settings, as is recomended in the
+	   OSS API Spec. here we open fd to make sure calling
+	   SetFormat causes no problems */
 	if ((fd = open("/dev/dsp", O_WRONLY)) < 0) {
 		throw errno;
 	}
-	// now we set the format
+
 	SetFormat(afmt);
-	// and we initialize outbuf to null. this will be
-	// allocated on the first call to Write()
-	outbuf=NULL;
+
+	/* this will be allocated upon the first call to Write() */
+	outbuf = NULL;
 }
 
 thOSSAudio::~thOSSAudio()
 {
-	// added this on 9/15/03 brandon
-	if ( outbuf) free(outbuf);
+	if (outbuf) {
+		free(outbuf);
+	}
+
 	close(fd);
 }
 
@@ -68,8 +68,6 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 	memcpy(&ifmt, afmt, sizeof(thAudioFmt));
 
 	/* override value in format field with the bits parameter */
-	/* just a thought; could one of thse parameters be redundant? */
-
 	switch(afmt->bits) {
 	case 8:
 		ifmt.format = AFMT_U8;
@@ -79,25 +77,19 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 		break;
 	}
 
-	/* OSS uses the value of 0 to indicate 1 channel,
-	and 1 to indicate 2 channels, so we must decrement
-	the channel count */
-
-	/* note that the above does not appear to be true any longer */
-	/* i'm not decrementing this value */
-
 	ifmt.channels = afmt->channels;
 
-	/* instantiate local copies of data stored in format structure*/
-	/* to avoid problems with calls to ioctl -- see above */
+	/* instantiate local copies of data stored in format structure to avoid 
+	   problems with calls to ioctl -- see above */
 
 	int oss_format = ifmt.format;
 	int oss_channels = ifmt.channels;
 	int oss_samples = ifmt.samples;
 
-	// close /dev/dsp before changing settings
-	// even calling SNDCTL_DSP_RESET is not recomended
-	close (fd);
+	/* XXX: this should be done inside a separate method */
+	/* close /dev/dsp before changing settings even calling SNDCTL_DSP_RESET is
+	   not recomended */
+ 	close (fd);
 
 	if ((fd = open("/dev/dsp", O_WRONLY)) < 0) {
 		throw errno;
@@ -121,59 +113,61 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 	}
 	fprintf(stderr,"\t\tusing %d samples per second\n",oss_samples);
 
-	/* since a sound card may not support the required formats
-	store the returned values in the ofmt structure so the application
-	can decide what to do with the sound data*/
+	/* since a sound card may not support the required formats store the 
+	   returned values in the ofmt structure so the application can decide what
+	   to do with the sound data */
 
 	ofmt.format = oss_format;
 	ofmt.channels = oss_channels;
 	ofmt.samples = oss_samples;
-	ofmt.bits = oss_format; // <-this is bad--change this
+
+	ofmt.bits = oss_format; /* XXX: this is bad, change this */
 }
 
 int thOSSAudio::Write (float *inbuf, int len)
 {
-	// rewrote this whole function 9/15/03 brandon
-	int i,w=0;
+	int i ,w = 0;
 	int chans = ofmt.channels;
 	int bytes = ofmt.bits / 8;
 	int samplelen = bytes*chans;
 
-	// mallocate an appropriate buffer
-	// it would be *bad* if the length of
-	// the buffer passed in were to increase
-	// so don't do that
+	/* malloc an appropriate buffer it would be *bad* if the length of the 
+	   buffer passed in were to increase so don't do that (brandon) */
 	if (!outbuf){
-		outbuf=malloc(len*bytes);
+		outbuf = malloc(len*bytes);
 		if (!outbuf){
 			fprintf(stderr,"thOSSAudio::Write -- could not allocate buffer\n");
-			exit(0);
+			exit(1);
 		}
 	}
-	if ( bytes == 2){
-		signed short *buf=(signed short*)outbuf;
-		//convert to specified format
-		for ( i = 0; i < len; i++){
+	if (bytes == 2) {
+		signed short *buf = (signed short*)outbuf;
+		/* convert to specified format */
+		for (i = 0; i < len; i++){ 
 			le16(buf[i],(signed short)(((float)inbuf[i]/TH_MAX)*32767));
 		}
 	}
 	else {
 		fprintf(stderr,"\tthOSSAudio::Write() error: %d-bit audio unsupported!\n",ofmt.bits);
-		exit(0);
+		exit(1);
 	}
+
+	/* XXX: WTF? */
 	unsigned char *buff = (unsigned char *)outbuf;
-	w = write(fd,buff,len*bytes);
+
+	w = write(fd, buff, len*bytes);
+
 	return w;
 }
 
-int thOSSAudio::Read(void *, int len)
+int thOSSAudio::Read(void *inbuf, int len)
 {
-	// this function will need some more work
-	return read(fd, outbuf, len);
+	/* XXX: reading in of sound is NOT implemented */
+	/*	return read(fd, outbuf, len); */
+	return -1;
 }
 
-/* this function will also need some work*/
-
+/* XXX: NOT IMPLEMENTED */
 void thOSSAudio::Play(thAudio *audioPtr)
 {
 /*	const thAudioFmt *afmt = audioPtr->GetFormat();
