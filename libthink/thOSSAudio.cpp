@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.23 2003/10/16 21:04:03 misha Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.24 2003/10/17 08:16:20 aaronl Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -37,14 +37,6 @@
 thOSSAudio::thOSSAudio(char *null, const thAudioFmt *afmt)
 	throw(thIOException)
 {
-
-	/* SetFormat closes and reopens the /dev/dsp device
-	   before changing settings, as is recomended in the
-	   OSS API Spec. here we open fd to make sure calling
-	   SetFormat causes no problems */
-	if ((fd = open("/dev/dsp", O_WRONLY)) < 0) {
-		throw errno;
-	}
 
 	SetFormat(afmt);
 
@@ -85,11 +77,6 @@ void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 	int oss_format = ifmt.format;
 	int oss_channels = ifmt.channels;
 	int oss_samples = ifmt.samples;
-
-	/* XXX: this should be done inside a separate method */
-	/* close /dev/dsp before changing settings even calling SNDCTL_DSP_RESET is
-	   not recomended */
- 	close (fd);
 
 	if ((fd = open("/dev/dsp", O_WRONLY)) < 0) {
 		throw errno;
