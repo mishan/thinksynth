@@ -10,7 +10,7 @@ node ionode {
 
 	percent = 1;
 	ilen = 64;
-	imax = 1;
+	cutoff = 0.7;
 	pw = 0.5;
 };
 
@@ -23,10 +23,9 @@ node mixer mixer::mul {
 	in1 = env->out;
 };
 
-node firenv impulse::parabola {
+node firenv impulse::blackman {
 	len = ionode->ilen;
-	max = ionode->imax;
-	percent = ionode->percent;
+	cutoff = ionode->cutoff;
 };
 
 node osc osc::simple {
