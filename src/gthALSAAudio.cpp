@@ -1,4 +1,4 @@
-/* $Id: gthALSAAudio.cpp,v 1.13 2004/11/30 06:44:34 joshk Exp $ */
+/* $Id: gthALSAAudio.cpp,v 1.14 2004/12/20 07:00:43 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -235,7 +235,11 @@ int gthALSAAudio::Write (float *inbuf, int len)
 	/* XXX: WTF? */
 	// unsigned char *buff = (unsigned char *)outbuf; STOP SMOKING CRACK
 
-	w = snd_pcm_writei (play_handle, (unsigned char*)outbuf, len);
+	if (play_handle)
+		w = snd_pcm_writei (play_handle, (unsigned char*)outbuf, len);
+	else
+		w = 0; /* No fucking idea what happens here, but let's make it as much
+				  of a no-op as possible */
 
 	if (w < 0)
 	{
