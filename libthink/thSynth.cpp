@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.79 2004/04/01 09:27:38 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.80 2004/04/02 08:14:56 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -7,6 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 #include "thArg.h"
 #include "thPlugin.h"
@@ -74,6 +77,20 @@ thSynth::~thSynth (void)
 
 thMod * thSynth::LoadMod (const string &filename)
 {
+	struct stat dspinfo;
+
+	if (stat(filename.c_str(), &dspinfo) < 0)
+	{
+		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
+				 strerror(errno));
+		return NULL;
+	}
+	else if (S_ISDIR(dspinfo.st_mode))
+	{
+		fprintf(stderr, "%s is a directory\n", filename.c_str());
+		return NULL;
+	}
+
 	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
 		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
 				 strerror(errno));
@@ -170,10 +187,29 @@ thArg *thSynth::GetChanArg (int channum, const string &argname)
 
 thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 {
-	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
+	struct stat dspinfo;
+
+	if (stat(filename.c_str(), &dspinfo) < 0)
+	{
 		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
 				 strerror(errno));
 		return NULL;
+	}
+	else if (S_ISDIR(dspinfo.st_mode))
+	{
+		fprintf(stderr, "%s is a directory\n", filename.c_str());
+
+#ifdef EISDIR
+		errno = EISDIR; /* XXX */
+#endif
+
+		return NULL;
+	}
+
+ 	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
+	 	fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
+		 		 strerror(errno));
+ 		return NULL;
 	}
 
 	pthread_mutex_lock(synthMutex);
@@ -308,7 +344,7 @@ int thSynth::DelNote (int channum, float note)
 
 	pthread_mutex_lock(synthMutex);
 
-	chan->SetNoteArg ( note, "trigger", pbuf, 1);
+	chan->SetNoteArg ((int)note, "trigger", pbuf, 1);
 
 	pthread_mutex_unlock(synthMutex);
 
