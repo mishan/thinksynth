@@ -11,4 +11,4 @@ uninstall:
 	rm $(DESTDIR)$(sysconfdir)/thinkrc
 
 distclean:
-	rm -f thinkrc
+	rm -f thinkrc Makefile
