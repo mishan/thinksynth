@@ -1,0 +1,58 @@
+# $Id: Makefile.in,v 1.1 2004/01/28 10:36:37 misha Exp $
+
+libdir=@libdir@
+prefix=@prefix@
+
+all: libthink.so
+
+include ../build.mk
+
+PICFLAGS = -fPIC
+INCLUDES = -I..
+LDFLAGS += @LIBS@
+
+LIBOBJS = \
+	@NSMODULE_DL_CPP@ \
+	thinklang.o \
+	thinklex.o \
+	thArg.o \
+	thAudioBuffer.o \
+	thMidiChan.o \
+	thMidiNote.o \
+	thMod.o \
+	thNode.o \
+	thALSAAudio.o \
+	thOSSAudio.o \
+	thPlugin.o \
+	thPluginManager.o \
+	thSynth.o \
+	thWav.o
+
+
+libthink.so: libthink.so.3
+	ln -sf libthink.so.3 libthink.so
+
+libthink.so.3: $(LIBOBJS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -Wl,-soname,$@ -o $@ $(LIBOBJS)
+
+libthink.a: $(LIBOBJS)
+	ar crsv $@ $(LIBOBJS)
+
+thinklex.cpp: thinklex.ll thinklang.o
+	flex -o$@ thinklex.ll
+
+thinklang.hpp:
+
+clean::
+	rm -f libthink.so.3
+
+distclean::
+	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
+
+install:
+	mkdir -p $(DESTDIR)$(libdir)
+	cp -f libthink.so.3 $(DESTDIR)$(libdir)
+	ln -sf libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
+
+uninstall:
+	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
