@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.42 2004/06/30 03:47:45 misha Exp $
+# $Id: Makefile.in,v 1.43 2004/06/30 04:40:18 joshk Exp $
 
 BINARY = thinksynth
 
@@ -7,25 +7,19 @@ prefix=@prefix@
 
 all: thinksynth
 
-
 include ../build.mk
 
 PICFLAGS =
 LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
+WIDGETSRCS = gui/MainSynthWindow.cpp gui/PatchSelWindow.cpp gui/Keyboard.cpp gui/KeyboardWindow.cpp
+MAINOBJS = main.o ui.o gthALSAAudio.o gthALSAMidi.o gthJackAudio.o gthPrefs.o
 
-# objects not compiled anymore:
-# thOSSAudio.o thWav.o
+thinksynth: ../libthink/libthink.so.3 gui/gth.a $(MAINOBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) gui/gth.a
 
-MAINOBJS = main.o ui.o $(WIDGETOBJS) gthALSAAudio.o gthALSAMidi.o gthJackAudio.o gthPrefs.o
-MONOMAINOBJS = monotest.o thALSAAudio.o
-WIDGETOBJS = gui/MainSynthWindow.o gui/PatchSelWindow.o gui/Keyboard.o gui/KeyboardWindow.o
-
-thinksynth: ../libthink/libthink.so.3 $(MAINOBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS)
-
-monotest: ../libthink/libthink.so.3 $(MONOMAINOBJS)
-	$(CXX) $(CXXFLAGS) -o $@ $(MONOMAINOBJS) $(LDFLAGS)
+gui/gth.a: $(WIDGETSRCS)
+	$(MAKE) -C gui gth.a
 
 ../libthink/libthink.so.3:
 # XXX
@@ -35,7 +29,6 @@ endif
 
 clean::
 	rm -f thinksynth
-	rm -f monotest
 
 distclean::
 	rm -f Makefile

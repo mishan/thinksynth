@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.23 2004/06/30 03:33:42 joshk Exp $
+# $Id: build.mk.in,v 1.24 2004/06/30 04:40:18 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -37,6 +37,6 @@ dist:: distclean
 distclean:: clean
 
 clean::
-	rm -rf .*.dt *@SHARED_SUFFIX@ *.a *.o $(BINARY)
+	rm -rf .*.dt *@SHARED_SUFFIX@ *.a *.o .bstamp $(BINARY)
 
 .PHONY: distclean clean
