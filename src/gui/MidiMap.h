@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.3 2004/11/09 04:07:40 ink Exp $ */
+/* $Id: MidiMap.h,v 1.4 2004/11/09 05:15:05 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -27,31 +27,45 @@ public:
 	~MidiMap (void);
 
 protected:
-	void onCloseButton (void);
+	void onAddButton (void);
 	void onChannelChanged (void);
 	void onControllerChanged (void);
 	bool onDestChanComboChanged (GdkEventButton* b, int chan);
+	bool onDestArgComboChanged (GdkEventButton* b, thArg *arg);
+	void onMinChanged (void);
+	void onMaxChanged (void);
 
 	Gtk::Adjustment *channelAdj;
 	Gtk::Adjustment *controllerAdj;
+	Gtk::Adjustment *minAdj;
+	Gtk::Adjustment *maxAdj;
 
 	Gtk::VBox *mainVBox;
 	Gtk::HBox *newConnectionHBox;
 	Gtk::HBox *destinationHBox;
+	Gtk::HBox *detailsHBox;
 	Gtk::Label *channelLbl;
 	Gtk::SpinButton *channelSpinBtn;
 	Gtk::Label *controllerLbl;
 	Gtk::SpinButton *controllerSpinBtn;
 	Gtk::Combo *destChanCombo;
-	Gtk::Button *closeBtn;
+	Gtk::Combo *destArgCombo;
+	Gtk::Label *minLbl;
+	Gtk::SpinButton *minSpinBtn;
+	Gtk::Label *maxLbl;
+	Gtk::SpinButton *maxSpinBtn;
+	Gtk::Button *addBtn;
 
 private:
 	void fillDestChanCombo (void);
+	void fillDestArgCombo (int chan);
 
 	thSynth *synth;
 	int selectedChan;
 	int selectedController;
-	int selectedDestChan;
+	float selectedMin;
+	float selectedMax;
+	thArg *selectedArg;
 };
 
 #endif /* ABOUT_BOX_H */
