@@ -2,19 +2,38 @@ name "test";
 
 node ionode {
 	channels=2;
-	out0 = filt2->out;
-	out1 = filt2->out;
-	play = 1;
+	out0 = mixer->out;
+	out1 = mixer->out;
+	play = env->play;
 
 	wave1 = 5;
 	wave2 = 1;
 	fmamt = 0.8;
 
 	filt1 = 1.23;
-	filt2 = 3.21;
+	filt2 = 1.21;
 	filtlo = 0.3;
 	filthi = 1;
-	filtres = 0.4;
+	filtres = 0.1;
+
+	a = 800;
+	d = 2000;
+	s = 0.4;	# 1 = full, 0 = off
+	r = 4000;
+};
+
+node suscalc math::mul {
+	in0 = ionode->velocity;
+	in1 = ionode->s;
+};
+
+node env env::adsr {
+	a = ionode->a;
+	d = ionode->d;
+	s = suscalc->out;
+	r = ionode->r;
+	p = ionode->velocity;
+	trigger = ionode->trigger;
 };
 
 node freq misc::midi2freq {
@@ -65,10 +84,15 @@ node filt1 filt::moog {
 	res = ionode->filtres;
 };
 
-node filt2 filt::ink {
+node filt2 filt::ink2 {
 	in = filt1->out_low;
 	cutoff = lfomap2->out;
 	res = ionode->filtres;
+};
+
+node mixer mixer::mul {
+	in0 = filt2->out;
+	in1 = env->out;
 };
 
 io ionode;
