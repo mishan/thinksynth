@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.117 2004/01/31 11:48:34 ink Exp $ */
+/* $Id: main.cpp,v 1.118 2004/01/31 12:05:47 ink Exp $ */
 
 #include "config.h"
 
@@ -131,13 +131,13 @@ int main (int argc, char *argv[])
 	/* seed the random number generator */
 	srand(time(NULL));
 
-	Synth.AddChannel(string("chan1"), dspname, 7.0);
+	Synth.AddChannel(string("chan0"), dspname, 7.0);
 	Synth.LoadMod("dsp/mfm01.dsp");
-	Synth.AddChannel(string("chan2"), "test", 4.0);
+	Synth.AddChannel(string("chan1"), "test", 4.0);
 	Synth.LoadMod("dsp/analog01.dsp");
-	Synth.AddChannel(string("chan3"), "test", 7.0);
+	Synth.AddChannel(string("chan2"), "test", 7.0);
 	Synth.LoadMod("dsp/sqrtest.dsp");
-	Synth.AddChannel(string("chan4"), "test", 7.0);
+	Synth.AddChannel(string("chan3"), "test", 7.0);
 
 //	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
 
