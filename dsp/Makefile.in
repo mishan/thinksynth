@@ -3,8 +3,13 @@ datadir=@datadir@
 DSP_DIST_FILES=$(shell find -name '*.dsp')
 
 # Dummy target
-all clean distclean mostlyclean:
+all:
 	echo Making $@ in dsp
+
+distclean:
+	rm -f Makefile
+
+clean mostlyclean:
 
 install:
 	install -d $(DESTDIR)/$(datadir)/thinksynth
