@@ -109,7 +109,7 @@ case "$ac_cv_host" in
 		system="Darwin/OS X"
 	        CXXFLAGS="$CXXFLAGS -no-cpp-precomp -fno-common -flat_namespace -undefined suppress"
 	        AC_DEFINE([USING_DARWIN], 1, [Define if using Darwin])
-		AC_SUBST(NSMODULE_DL_CPP, nsmodule_dl.cpp)
+		AC_SUBST(NSMODULE_DL_O, nsmodule_dl.o)
 	;;
         *)
 		if which uname >/dev/null 2>&1; then
@@ -130,7 +130,7 @@ if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 	SHARED_SUFFIX=".so"
 	PLUGIN_SUFFIX="$SHARED_SUFFIX"
-	LIB_LDFLAGS="-shared"
+	LIB_LDFLAGS='-shared -Wl,-soname,$@'
 	PLUGIN_LDFLAGS="$LIB_LDFLAGS -lm"
 else
 	SHARED_SUFFIX=".dylib"
@@ -190,11 +190,11 @@ fi
 
 AC_CHECK_FUNC(basename,,
 [
-  BASENAME_CPP=basename.cpp
+  BASENAME_O=basename.o
   AC_DEFINE(USE_EXTERNAL_BASENAME, 1, [Define if a usable basename(3) is available.])
 ])
 
-AC_SUBST(BASENAME_CPP)
+AC_SUBST(BASENAME_O)
 
 PKG_CHECK_MODULES(GTHREAD, gthread-2.0)
 PKG_CHECK_MODULES(GTKMM, gtkmm-2.4)
