@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.58 2003/12/20 04:54:19 joshk Exp $
+dnl $Id: configure.ac,v 1.59 2003/12/21 05:57:48 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -68,7 +68,7 @@ CXXFLAGS="-Wall -ffast-math"
 
 AC_CHECK_HEADER([sys/soundcard.h],,[AC_MSG_ERROR([You're missing sys/soundcard.h. We need this for sound.])])
 
-AC_CHECK_HEADER([dlfcn.h],,[AC_MSG_ERROR([You're missing dlfcn.h, we need this for dlopen.])])
+AC_CHECK_HEADERS(dlfcn.h)
 
 AC_CHECK_HEADER([libgen.h],[AC_DEFINE(HAVE_LIBGEN_H, 1, [Define if libgen.h is present.])],[LIBS="$LIBS -liberty"])
 

@@ -11,13 +11,11 @@
 #define RTLD_LAZY 2185 /* built-in dl*(3) don't care */
 #endif /* !RTLD_LAZY */
 
-void undefinedErrorHandler(const char *);
-NSModule multipleErrorHandler(NSSymbol, NSModule, NSModule);
-void linkEditErrorHandler(NSLinkEditErrors, int, const char *, const char *);
-char *dlerror(void);
-void *dlopen(char *, int);
-int dlclose(void *);
-void *dlsym(void *, char *);
+#include "nsmodule_dl.h"
+
+static void undefinedErrorHandler(const char *);
+static NSModule multipleErrorHandler(NSSymbol, NSModule, NSModule);
+static void linkEditErrorHandler(NSLinkEditErrors, int, const char *, const char *);
 
 static int firstLoad = TRUE;
 static int myDlError;
@@ -46,20 +44,17 @@ NSModule multipleErrorHandler(NSSymbol s, NSModule old, NSModule new)
   ** This results in substantial leaking of memory... Should free one
   ** module, maybe?
   */
-  sendto_realops_flags(UMODE_ALL, L_ALL, "Symbol `%s' found in `%s' and `%s'",
-                       NSNameOfSymbol(s), NSNameOfModule(old), NSNameOfModule(new));
-  ilog(L_WARN, "Symbol `%s' found in `%s' and `%s'", NSNameOfSymbol(s),
-       NSNameOfModule(old), NSNameOfModule(new));
-  /* We return which module should be considered valid, I believe */
+  fprintf(stderr, "%s: Symbol `%s' found in `%s' and `%s'",
+                       __FILE__, NSNameOfSymbol(s), NSNameOfModule(old), NSNameOfModule(new));
+  
   return(new);
 }
 
 void linkEditErrorHandler(NSLinkEditErrors errorClass, int errnum,
                           const char *fileName, const char *errorString)
 {
-  sendto_realops_flags(UMODE_ALL, L_ALL, "Link editor error: %s for %s",
-                       errorString, fileName);
-  ilog(L_WARN, "Link editor error: %s for %s", errorString, fileName);
+  fprintf(stderr, "%s: Link editor error: %s for %s",
+                       __FILE__, errorString, fileName);
   return;
 }
 

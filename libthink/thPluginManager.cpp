@@ -1,11 +1,21 @@
-/* $Id: thPluginManager.cpp,v 1.43 2003/11/05 03:03:51 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.44 2003/12/21 05:57:48 joshk Exp $ */
 
 #include "config.h"
 #include "think.h"
 
 #include <stdio.h>
 #include <unistd.h>
-#include <dlfcn.h>
+
+#ifdef HAVE_DLFCN_H
+# include <dlfcn.h>
+#else
+# ifdef USING_DARWIN
+#  include "nsmodule_dl.h"
+# else
+#  error Need a dl implementation!
+# endif
+#endif
+
 #include <fcntl.h>
 #include <errno.h>
 

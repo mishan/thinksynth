@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.35 2003/11/04 00:52:49 misha Exp $ */
+/* $Id: thPlugin.cpp,v 1.36 2003/12/21 05:57:48 joshk Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -16,7 +16,15 @@ extern "C" { extern char *basename PARAMS ((const char *)); }
 #endif
 #endif
 
+#ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
+#else
+# ifdef USING_DARWIN
+#  include "nsmodule_dl.h"
+# else
+#  error Need a dl implementation!
+# endif
+#endif
 
 #include "thPlugin.h"
 
