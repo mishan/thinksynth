@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.40 2003/05/03 07:45:24 joshk Exp $
+dnl $Id: configure.ac,v 1.41 2003/05/03 08:15:04 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -229,7 +229,7 @@ fi
 
 echo
 echo The binary will be installed in $bindir
-echo DSPs will be installed in       $datadir/$PACKAGE
+echo DSPs will be installed in       $datadir/$PACKAGE_NAME
 echo Plugins will be installed in    $plugin_path
 echo
 echo "Now run 'make' to build $PACKAGE_NAME"
