@@ -47,9 +47,12 @@
 thSynth *Synth = NULL;
 gthPrefs *prefs = NULL;
 
+static gthAudio *aout = NULL;
+static gthALSAMidi *midi = NULL;
+
 static Glib::Thread *ui = NULL;
 static Glib::Dispatcher *process = NULL;
-static gthAudio *aout = NULL;
+
 
 Glib::RefPtr<Glib::MainContext> mainContext;
 
@@ -97,6 +100,12 @@ void cleanup (int signum)
 				printf("closing audio devices...\n");
 				delete aout;
 			}
+
+			if (midi)
+			{
+				delete midi;
+			}
+
 			exit (0);
 			break;
 	}
@@ -226,7 +235,6 @@ int main (int argc, char *argv[])
 	string outputfname;
 	string driver = DEFAULT_OUTPUT;
 	int havearg = -1;
-	gthALSAMidi *midi = NULL;
 	int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
 
 	/* seed the random number generator */

@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.102 2004/09/08 08:26:14 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.103 2004/09/08 21:26:59 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -91,9 +91,12 @@ thSynth::~thSynth (void)
 
 void thSynth::removeChan (int channum)
 {
-	/* XXX */
-	channels[channum] = NULL;
-	channelcount--;
+	if (((channum >= 0) && (channum < channelcount)) && channels[channum])
+	{
+		channels[channum] = NULL;
+		patchlist[channum] = "";
+		m_sigChanDeleted(channum);
+	}
 }
 
 thMod * thSynth::LoadMod (const string &filename)

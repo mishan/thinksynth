@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.54 2004/09/08 08:26:14 joshk Exp $ */
+/* $Id: thSynth.h,v 1.55 2004/09/08 21:26:59 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,6 +26,7 @@ class thMidiNote;
 class thMidiChan;
 
 typedef SigC::Signal3<void, string, int, float> type_signal_chan_changed;
+typedef SigC::Signal1<void, int> type_signal_chan_deleted;
 
 class thSynth {
 public:
@@ -93,10 +94,15 @@ public:
 		return m_sigChanChanged;
 	}
 
+	type_signal_chan_deleted signal_channel_deleted (void) {
+		return m_sigChanDeleted;
+	}
+
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 
 	type_signal_chan_changed m_sigChanChanged;
+	type_signal_chan_deleted m_sigChanDeleted;
 
 	map<string, thMod*> modlist;
 	map<int, string> patchlist;

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.23 2004/09/05 22:31:06 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.24 2004/09/08 21:26:59 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -65,6 +65,9 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth)
 
 	synth->signal_channel_changed().connect(
 		SigC::slot(*this, &MainSynthWindow::channelChanged));
+
+	synth->signal_channel_deleted().connect(
+		SigC::slot(*this, &MainSynthWindow::channelDeleted));
 }
 
 MainSynthWindow::~MainSynthWindow (void)
@@ -231,6 +234,14 @@ void MainSynthWindow::populate (void)
 }
 
 void MainSynthWindow::channelChanged (string filename, int chan, float amp)
+{
+	notebook.hide_all();
+	notebook.pages().clear();
+	populate();
+	notebook.show_all();
+}
+
+void MainSynthWindow::channelDeleted (int chan)
 {
 	notebook.hide_all();
 	notebook.pages().clear();

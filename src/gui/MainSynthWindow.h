@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.9 2004/09/05 00:21:48 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.10 2004/09/08 21:26:59 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -40,6 +40,7 @@ protected:
 	void populate (void);
 
 	void channelChanged (string filename, int chan, float amp);
+	void channelDeleted (int chan);
 
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;
