@@ -1,4 +1,4 @@
-/* $Id: ink2.cpp,v 1.1 2003/12/02 06:22:41 ink Exp $ */
+/* $Id: ink2.cpp,v 1.2 2003/12/02 07:00:09 ink Exp $ */
 
 /* Written by Leif Ames <ink@bespni.org>
    Algorithm taken from musicdsp.org posted by Paul Kellett */
@@ -6,6 +6,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#define SQR(x) ((x) * (x))
 
 #include "think.h"
 
@@ -16,9 +18,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-#define SIGN(x) (x < 0) ? -1 : 1
-
-char		*desc = "Resonant 1-pole LPF";
+char		*desc = "INK Filter ][";
 thPluginState	mystate = thActive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -27,12 +27,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("ResLPF plugin unloading\n");
+	printf("INK Filt ][ plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("ResLPF plugin loaded\n");
+	printf("INK Filt ][ plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -63,7 +63,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	in_res = mod->GetArg(node, "res");
 
 	for(i=0;i<windowlen;i++) {
-		f = (*in_cutoff)[i];
+		f = SQR((*in_cutoff)[i]);
 		q = (*in_res)[i];
 		in = (*in_arg)[i];
 
@@ -72,7 +72,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		buf1 *= 1 - (f * q);
 		buf1 += (in - buf0) * q;
 
-		out[i] = (buf0 - buf1); // - buf1);
+		out[i] = (buf0 - buf1);
 	}
 
 	buffer[0] = buf0;
