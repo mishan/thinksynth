@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.23 2003/05/18 03:57:39 ink Exp $ */
+/* $Id: simple.cpp,v 1.24 2003/05/19 00:39:05 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,13 +74,22 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		if(fmamt) {
 			wavelength += (wavelength * fmamt) * ((*in_fm)[i] / TH_MAX);
 		}
-		while(position >= wavelength) {
+		if(position >= wavelength) {
 			position = 0;
 		}
-		
-		ratio = position/wavelength;
-		halfwave = wavelength/2;
-		
+
+		pw = (*in_pw)[i];  /* Pulse Width */
+		if(pw == 0) {
+			pw = 0.5;
+		}
+
+		halfwave = wavelength * pw;
+		if(position < halfwave) {
+			ratio = (position/halfwave)/2;
+		} else {
+			ratio = (((position-halfwave)/(wavelength-halfwave))/2)+0.5;
+		}
+
 		switch((int)(*in_waveform)[i]) {
 			/* 0 = sine, 1 = sawtooth, 2 = square, 3 = tri, 4 = half-circle */
 		case 0:    /* SINE WAVE */
@@ -90,25 +99,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			out[i] = TH_RANGE*(ratio)+TH_MIN;
 			break;
 		case 2:    /* SQUARE WAVE */
-			pw = (*in_pw)[i];  /* Temporary pw for square */
-			if(pw == 0) {
-				pw = 0.5;
-			}
-			if(ratio < (*in_pw)[i]) {  /* XXX  Until I make the leet pw */
+			if(ratio < 0.5) {
 				out[i] = TH_MIN;
 			} else {
 				out[i] = TH_MAX;
 			}
 			break;
 		case 3:    /* TRIANGLE WAVE */
-			if(position < halfwave) {
-				out[i] = TH_RANGE*(position/halfwave)+TH_MIN;
+			if(ratio < 0.5) {
+				out[i] = TH_RANGE*(ratio*2)+TH_MIN;
 			} else {
-				out[i] = (-1*TH_RANGE)*((position-halfwave)/halfwave)+TH_MAX;
+				out[i] = (-1*TH_RANGE)*((ratio-0.5)*2)+TH_MAX;
 			}
 			break;
 		case 4:    /* HALF-CIRCLE WAVE */
-			if(position < halfwave) {
+			if(ratio < 0.5) {
 				out[i] = 2*sqrt(2)*sqrt((wavelength-(2*position))*position/(wavelength*wavelength))*TH_MAX;
 			} else {
 				out[i] = 2*sqrt(2)*sqrt((wavelength-(2*(position-halfwave)))*(position-halfwave)/(wavelength*wavelength))*TH_MIN;
