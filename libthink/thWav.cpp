@@ -10,7 +10,7 @@
 #include <string.h>
 #include <endian.h>
 
-#include "endian.h"
+#include "thEndian.h"
 #include "Exception.h"
 #include "thAudio.h"
 #include "thAudioBuffer.h"

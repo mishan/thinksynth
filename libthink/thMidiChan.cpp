@@ -7,6 +7,7 @@
 #include "thNode.h"
 #include "thMod.h"
 #include "thMidiNote.h"
+#include "thArg.h"
 #include "thMidiChan.h"
 
 thMidiChan::thMidiChan (thMod *mod)

@@ -49,7 +49,11 @@ void thArg::SetArg(char *name, float *value, int num)
 	argNum = num;
 }
 
-const float *thArg::GetArg (void)
+const thArgValue *thArg::GetArg (void)
 {
-	return argValues;
+	thArgValue *value = new thArgValue;
+
+	value->argName = argName;
+	value->argValues = argValues;
+	value->argNum = argNum;
 }

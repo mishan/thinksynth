@@ -8,6 +8,8 @@ public:
 
 	void AddNote(float note, float velocity);
 	void DelNote(thMidiNote *midinote);
+
+	void SetArg(thArg *arg);
 private:
 	thMod *modnode;
 	thList *args, *notes; 

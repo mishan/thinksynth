@@ -1,15 +1,12 @@
 %{
 #include "config.h"
-#include "structs.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "mods.h"
-#include "itree.h"
 #include "yygrammar.h"
-#include "parser.h"
+//#include "parser.h"
 
 int linenum = 1;
 
