@@ -77,25 +77,21 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 
 void cleanup (int signum)
 {
+	signal(signum, SIG_IGN);
 	switch (signum)
 	{
 		case SIGINT:
-			signal(SIGINT, SIG_IGN);
 		  	printf("caught interrupt!\n");
-			if (aout)
-			{
-				printf("closing audio devices...\n");
-				delete aout;
-			}
-
-			exit (0);
-			break;
+		
 		case SIGUSR1:
-			signal(SIGUSR1, SIG_IGN);
-
 			printf("thinksynth shutting down..\n");
-			printf("saving preferences\n");
-			prefs->Save();
+			
+			if (signum == SIGUSR1)
+			{
+				printf("saving preferences\n");
+				prefs->Save();
+			}
+			
 			if (aout)
 			{
 				printf("closing audio devices...\n");
