@@ -11,7 +11,7 @@
 #include <endian.h>
 
 #include "thEndian.h"
-#include "Exception.h"
+#include "thException.h"
 #include "thAudio.h"
 #include "thAudioBuffer.h"
 #include "thOSSAudio.h"
