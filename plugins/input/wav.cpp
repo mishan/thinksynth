@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.5 2003/10/16 21:04:03 misha Exp $ */
+/* $Id: wav.cpp,v 1.6 2003/11/10 12:20:49 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,15 +45,18 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	thArg *out_arg = mod->GetArg(node, "out");
-	signed short buf[windowlen];
+	thArg *out_play = mod->GetArg(node, "play");
+	signed short buf[windowlen * thwav->GetChannels()];
 	float *out = out_arg->Allocate(windowlen);
+	float *play = out_play->Allocate(windowlen);
 	unsigned int i;
+	int channels = thwav->GetChannels();
 
-	thwav->Read(buf, windowlen);
+	thwav->Read(buf, windowlen * channels);
 
 	for(i = 0; i < windowlen; i++) {
-		out[i] = (((float)buf[i])/32767)*TH_MAX;
-//		printf("writing %f\n", out[i]);
+		out[i] = (((float)buf[i * channels]) / 32767) * TH_MAX;
+		play[i] = !thwav->CheckEOF();
 	}
 
 	return 0;

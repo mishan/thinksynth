@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.11 2003/11/04 06:59:11 misha Exp $ */
+/* $Id: thWav.h,v 1.12 2003/11/10 12:20:49 ink Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -65,6 +65,8 @@ public:
 
 	virtual thAudioFmt *GetFormat (void);
 	thWavType GetType (void) { return type; };
+	int GetChannels (void) { return fmt.channels; };
+	int CheckEOF (void);
 
 	virtual void SetFormat(const thAudioFmt *wfmt);
 private:
