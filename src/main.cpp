@@ -355,19 +355,15 @@ int main (int argc, char *argv[])
 
 	while (1)
 	{
-//		debug("iterating");
 		mainContext->iteration (true); /* blocking */
 	}
 
 	printf("break!\n");
 
-//	exitCond->wait(*mainMutex);
-
 	delete aout;
 	delete midi;
 
 	prefs->Save();
-//	save_prefs (Synth);
 
 	return 0;
 }
