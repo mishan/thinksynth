@@ -1,4 +1,4 @@
-/* $Id: monotest.cpp,v 1.3 2004/02/21 09:59:07 ink Exp $ */
+/* $Id: monotest.cpp,v 1.4 2004/02/23 03:54:15 ink Exp $ */
 
 #include "config.h"
 
@@ -84,8 +84,8 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle, float *notepitch, float 
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
-				if(*mononote && ev->data.note.velocity == 0) {
-					if(ev->data.note.note == *targetpitch) {
+				if(ev->data.note.velocity == 0) {
+					if(*mononote && ev->data.note.note == *targetpitch) {
 						*pbuf = 0;
 						*notevelocity = 0;
 						(*mononote)->SetArg("trigger", pbuf, 1);
