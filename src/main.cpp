@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.61 2003/05/03 09:31:06 ink Exp $ */
+/* $Id: main.cpp,v 1.62 2003/05/03 10:50:26 ink Exp $ */
 
 #include "config.h"
 
@@ -93,7 +93,7 @@ syntax:
 	}
 
 	Synth.LoadMod(filename);
-	Synth.ListMods();
+	//	Synth.ListMods();
   
 	((thMod *)Synth.FindMod(dspname))->BuildSynthTree();
 
