@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.23 2004/04/16 08:18:01 misha Exp $ */
+/* $Id: think.h,v 1.24 2004/04/17 23:59:04 ink Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -14,8 +14,8 @@ using namespace std;
 #define TH_WINDOW_LENGTH 512
 
 /* Signal Range */
-#define TH_MAX 127
-#define TH_MIN -127
+#define TH_MAX 1
+#define TH_MIN -1
 #define TH_RANGE (TH_MAX-TH_MIN)
 
 /* For note amplitude and stuff... */

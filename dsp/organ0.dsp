@@ -1,4 +1,4 @@
-# $Id: organ0.dsp,v 1.6 2004/02/09 10:50:28 misha Exp $
+# $Id: organ0.dsp,v 1.7 2004/04/17 23:59:04 ink Exp $
 # Organ Synth
 # Leif Ames <ink@bespin.org>
 # 6-29-2003
@@ -23,8 +23,12 @@ node ionode {
 	r = 1000;
 };
 
+node vel misc::midi2range {
+	in = ionode->velocity;
+};
+
 node suscalc math::mul {
-	in0 = ionode->velocity;
+	in0 = vel->out;
 	in1 = ionode->s;
 };
 
@@ -33,12 +37,12 @@ node env env::adsr {
 	d = ionode->d;
 	s = suscalc->out;
 	r = ionode->r;
-	p = ionode->velocity;
+	p = vel->out;
 	trigger = ionode->trigger;
 };
 
 node vmap env::map {
-	in = ionode->velocity;
+	in = vel->out;
 	inmin = 0;
 	inmax = th_max;
 	outmin = ionode->vmin;
@@ -55,23 +59,23 @@ node osc1 osc::simple {
 };
 
 node osc2 osc::simple {
-        freq = freq->out;
-        waveform = ionode->waveform;
+    freq = freq->out;
+    waveform = ionode->waveform;
 	mul = 2;
 #	reset = osc1->sync;
 };
 
 node osc3 osc::simple {
-        freq = freq->out;
-        waveform = ionode->waveform;
-        mul = 4;
+    freq = freq->out;
+    waveform = ionode->waveform;
+    mul = 4;
 #        reset = osc2->sync;
 };
 
 node osc4 osc::simple {
-        freq = freq->out;
-        waveform = ionode->waveform;
-        mul = 8;
+    freq = freq->out;
+    waveform = ionode->waveform;
+    mul = 8;
  #       reset = osc3->sync;
 };
 
