@@ -1,4 +1,4 @@
-/* $Id: thBSTree.cpp,v 1.25 2003/04/27 09:29:39 aaronl Exp $ */
+/* $Id: thBSTree.cpp,v 1.26 2003/04/30 15:20:07 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -83,6 +83,7 @@ void thBSTree::Insert(void *id, void *data)
 		}
 		break;
 	case 0:
+		/* if the bsIds are equal, just update the data ptr */
 		bsData = data;
 		return;
 		break;
@@ -97,6 +98,7 @@ void thBSTree::Insert(void *id, void *data)
 	}
 }
 
+/* XXX: remove very last empty child node or all is lost */
 void thBSTree::Remove(void *id)
 {
 	_Remove(id, true);

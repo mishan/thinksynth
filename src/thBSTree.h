@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.20 2003/04/29 19:33:27 misha Exp $ */
+/* $Id: thBSTree.h,v 1.21 2003/04/30 15:20:07 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -56,7 +56,7 @@ private:
 };
 
 /* inline string comparison function */
-inline int StringCompare(void *_str1, void *_str2) {
+inline int StringCompare (void *_str1, void *_str2) {
 	char *str1 = (char *)_str1, *str2 = (char *)_str2;
 
 	/* error */
