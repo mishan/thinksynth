@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.21 2003/04/26 01:11:12 joshk Exp $ */
+/* $Id: thArg.cpp,v 1.22 2003/04/27 08:57:16 aaronl Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -90,13 +90,4 @@ void thArg::SetArg(const char *name, const char *node, const char *value)
 	argValue.argPointName = strdup(value);
 
 	argValue.argType = ARG_POINTER;
-}
-
-float thArg::GetValue (int position) const
-{
-	if(argValue.argType == ARG_POINTER) {
-		return 0;
-	}
-
-	return (argValue.argValues[position%argValue.argNum]);
 }

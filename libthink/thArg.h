@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.16 2003/04/26 01:11:12 joshk Exp $ */
+/* $Id: thArg.h,v 1.17 2003/04/27 08:57:16 aaronl Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -28,7 +28,7 @@ class thArg {
 		char *GetArgName (void) const { return argValue.argName; };
 		const thArgValue *GetArg(void) { return &argValue; };
 
-		float GetValue (int position) const;
+		float GetValue (int position) { return (argValue.argType != ARG_POINTER); };
 
 	private:
 		thArgValue argValue;
