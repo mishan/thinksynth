@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.10 2003/05/11 08:06:24 aaronl Exp $ */
+/* $Id: adsr.cpp,v 1.11 2003/05/11 10:04:55 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,7 +91,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 		case 2:
 		  temp = (*in_s)[i];
 			if(temp == 0) {  /* If there is no D section, make it end */
+				out[i] = 0;
 				play[i] = 0;
+				phase = 4;
 			} else {
 				play[i] = 1;
 			}
@@ -107,13 +109,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			temp = (*in_r)[i];
 			temp2 = (*in_s)[i];
 
-			out[i] = ((temp-(position++))/temp)*temp2;
-
-			if(position >= temp) {
+			if(temp == 0 || position >= temp) {  /* Make it end if it needs to */
+				out[i] = 0;
 				play[i] = 0;
 				phase = 4;
+			} else {
+				play[i] = 1;
+				out[i] = ((temp-(position++))/temp)*temp2;
 			}
-			else play[i] = 1;
 			break;
 		case 4:   /* The note has ended and we are padding with 0 */
 			play[i] = 0;
