@@ -14,7 +14,7 @@ node env env::adsr {
 	d = 300;
 	s = 40;
 	r = 500;
-	trigger = 0;
+	trigger = 1;
 	};
 node osc osc::simple {
 	freq = 440;
