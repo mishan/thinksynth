@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.23 2004/12/20 04:03:09 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.24 2004/12/22 23:42:36 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -257,7 +257,7 @@ void MidiMap::fillDestArgCombo (int chan)
 		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
-			if(i->second && i->second->getWidgetType() == thArg::SLIDER) {
+			if(i->second && i->second->getWidgetType() != thArg::HIDE) {
 				item = Gtk::manage(new Gtk::ComboDropDownItem);
 				namelabel = Gtk::manage(new Gtk::Label(
 								(i->second->getLabel().length() > 0) ?
@@ -328,7 +328,7 @@ void MidiMap::setDestArgCombo (int chan)
 		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
-			if(i->second && i->second->getWidgetType() == thArg::SLIDER) {
+			if(i->second && i->second->getWidgetType() != thArg::HIDE) {
 				item = Gtk::manage(new Gtk::ComboDropDownItem);
 				namelabel = Gtk::manage(new Gtk::Label(
 								(i->second->getLabel().length() > 0) ?

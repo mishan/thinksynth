@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.112 2004/12/20 04:03:09 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.113 2004/12/22 23:42:36 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -447,8 +447,11 @@ int thSynth::DelNote (int channum, float note)
 	if(!chan)
 		return 1;
 
-	float *pbuf = new float;
-	*pbuf = 0;
+	int sustain = (int)(*(chan->GetSusPedalArg()))[0];
+
+	float *pbuf = new float(0);
+	if(sustain)
+		*pbuf = 2; /* set it to sustain */
 
 	pthread_mutex_lock(synthMutex);
 	

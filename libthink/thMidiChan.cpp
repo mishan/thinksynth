@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.77 2004/10/01 08:52:25 misha Exp $ */
+/* $Id: thMidiChan.cpp,v 1.78 2004/12/22 23:42:36 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -55,6 +55,11 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 
 	notecount = 0;
 	notecount_decay = 0;
+
+	argSustain_ = new thArg(string("SusPedal"), new float(0), 1);
+	argSustain_->setWidgetType(thArg::CHANARG);
+	argSustain_->setLabel(string("Sustain Pedal"));
+	args["SusPedal"] = argSustain_;
 }
 
 thMidiChan::~thMidiChan (void)
@@ -159,7 +164,7 @@ void thMidiChan::Process (void)
 
 
 	thMidiNote *data;
-	thArg *arg, *amp, *play;
+	thArg *arg, *amp, *play, *trigger;
 	thMod *mod;
 	int i, j, index;
 	float buf_mix[windowlength];
@@ -167,6 +172,7 @@ void thMidiChan::Process (void)
 
 	string argname;
 
+	int sustain = (int)(*argSustain_)[0];
 
 /* Before any processing, we shall do a polyphony test. */
 	if(notecount + notecount_decay > polymax && polymax > 0) /* we have too
@@ -218,6 +224,9 @@ void thMidiChan::Process (void)
 		mod = data->GetMod();
 		amp = args["amp"];
 		play = mod->GetArg("play");
+		trigger = mod->GetArg("trigger");
+		if ((*trigger)[0] == 2 && sustain < 0x40)
+			trigger->SetValue(0);
 		
 		for(i = 0; i < channels; i++)
 		{
@@ -256,6 +265,9 @@ void thMidiChan::Process (void)
 		mod = data->GetMod();
 		amp = args["amp"];
 		play = mod->GetArg("play");
+		trigger = mod->GetArg("trigger");
+		if ((*trigger)[0] == 2 && sustain < 0x40)
+			trigger->SetValue(0);
 		
 		for(i=0;i<channels;i++) {
 			argname = OUTPUTPREFIX;

@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.44 2004/11/11 10:42:41 misha Exp $ */
+/* $Id: thArg.h,v 1.45 2004/12/22 23:42:36 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -39,7 +39,7 @@ public:
 	/* immidiate value, pointer to another node, pointer to a channel arg, or
 	   pointer to a note arg. */
 
-	enum WidgetType { HIDE = 0, SLIDER };
+	enum WidgetType { HIDE = 0, SLIDER, CHANARG };
 	
 	void SetArg(const string &name, float *value, const int num);
 	void SetAllocatedArg(const string &name, float *value, const int num);

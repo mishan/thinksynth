@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.30 2004/11/16 23:22:02 misha Exp $ */
+/* $Id: thMidiChan.h,v 1.31 2004/12/22 23:42:36 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -45,6 +45,8 @@ public:
 
 	thMod *GetMod (void) { return modnode; }
 
+	thArg *GetSusPedalArg (void) { return argSustain_; }
+
 	void CopyChanArgs (thMod *mod);
 	
 private:
@@ -62,6 +64,7 @@ private:
 	int polymax;  /* maximum polyphony */
 	int notecount, notecount_decay;  /* keeping track of polyphony this way
 										for now */
+	thArg *argSustain_; /* for the sustain pedal */
 };
 
 #endif /* TH_MIDICHAN_H */
