@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.138 2004/02/10 02:49:23 misha Exp $ */
+/* $Id: main.cpp,v 1.139 2004/02/10 04:36:39 misha Exp $ */
 
 #include "config.h"
 
@@ -143,7 +143,7 @@ int main (int argc, char *argv[])
 	int notetoplay = 69;       /* XXX: Remove when sequencing is external */
 	int samplerate = TH_SAMPLE;
 	int processwindows = 100;  /* how long does sample play */
-	int buflen, havearg, i;
+	int havearg;
 	float *synthbuffer = NULL;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
@@ -337,7 +337,6 @@ int main (int argc, char *argv[])
 
 	while (1)
 	{
-//	for (i = 0; i < processwindows; i++) {
 		if (poll (pfds, seq_nfds + nfds, 1000) > 0)
 		{
 			int j;
