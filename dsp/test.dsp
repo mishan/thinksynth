@@ -4,7 +4,6 @@ node ionode test::test {
         out0 = mixer->out;
         channels = 1;
         play = env->play;
-	test = 73;
         };
 node freq misc::midi2freq {
 	note = ionode->note;

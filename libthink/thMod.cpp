@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.55 2003/05/03 09:31:06 ink Exp $ */
+/* $Id: thMod.cpp,v 1.56 2003/05/03 10:06:45 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -226,8 +226,8 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	  activelist.Add(currentnode);
 	}
 
-	parent->AddChild(currentnode);
-	currentnode->AddParent(parent);
+	/*	parent->AddChild(currentnode);
+		currentnode->AddParent(parent);*/
 	printf("Added Child %s to %s\n", currentnode->GetName(), parent->GetName());
 
 	argtree = currentnode->GetArgTree();
@@ -247,6 +247,10 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 
 		if(data->argType == ARG_POINTER) {
 			node = FindNode(data->argPointNode);
+
+			currentnode->AddChild(node);
+			node->AddParent(currentnode);
+
 			if(node->GetRecalc() == false) {  /* Don't do the same node over and over */
 				BuildSynthTreeHelper(currentnode, data->argPointNode);
 			}

@@ -1,4 +1,4 @@
-/* $Id: adsr.cpp,v 1.5 2003/05/02 19:48:24 ink Exp $ */
+/* $Id: adsr.cpp,v 1.6 2003/05/03 10:06:45 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -115,6 +115,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 			out[i] = 0;
 			break;
 		}
+		printf("ADSR Output: %f  (Stage %i)\n", out[i], phase);
 	}
 
 	out_pos[0] = position;

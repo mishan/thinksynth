@@ -1,4 +1,4 @@
-/* $Id: mul.cpp,v 1.2 2003/05/02 23:18:33 joshk Exp $ */
+/* $Id: mul.cpp,v 1.3 2003/05/03 10:06:45 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,6 +48,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	for(i=0;i<windowlen;i++) {
 		out[i] = (*in_0)[i]*((*in_1)[i]/TH_MAX);
+		printf("Mixer::Mul: %f * %f = %f\n", (*in_0)[i], (*in_1)[i], out[i]);
 	}
 
 	node->SetArg("out", out, windowlen);
