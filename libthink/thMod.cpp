@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.51 2003/04/29 03:42:57 ink Exp $ */
+/* $Id: thMod.cpp,v 1.52 2003/04/29 06:12:50 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -38,7 +38,7 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 {
 	thNode *node = (thNode *)modnodes->GetData((void *)nodename);
 	const thArgValue *args;
-	float *newfloat;
+	float *tmp = new float[1];
 
 	if (node) {
 		args = node->GetArg(argname);
@@ -46,23 +46,19 @@ const thArgValue *thMod::GetArg (const char *nodename, const char *argname)
 
 	/* If the arg doesnt exist, make it a 0 */
 	if(args == NULL) {
-	  newfloat = new float;  /* Should change the init
-							 float newfloat[1]; */
 	  newfloat[0] = 0;
-	  args = ((thArg *)node->SetArg(argname, newfloat, 1))->GetArg();
+	  args = ((thArg *)node->SetArg(argname, tmp, 1))->GetArg();
 	}
 
-	while ((args->argType == ARG_POINTER) && node && args) { 
+	while (args && (args->argType == ARG_POINTER) && node) { 
 		/* Recurse through the list of pointers until we get a real value. */
 		node = (thNode *)modnodes->GetData((void *)args->argPointNode);
 		if (node) {
 			args = node->GetArg(args->argPointName);
 			/* If the arg doesnt exist, make it a 0 */
 			if(args == NULL) {
-			  newfloat = new float;  /* Should change the init
-										float newfloat[1]; */
 			  newfloat[0] = 0;
-			  args = ((thArg *)node->SetArg(argname, newfloat, 1))->GetArg();
+			  args = ((thArg *)node->SetArg(argname, tmp, 1))->GetArg();
 			}
 		}
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
@@ -87,7 +83,7 @@ void thMod::SetIONode (const char *name)
 	ionode = (thNode *)modnodes->GetData((void *)name);
 
 	if (ionode == NULL) {
-		printf ("thMod::SetIONOde: warning; ionode is NULL\n");
+		printf ("thMod::SetIONode: warning; ionode is NULL\n");
 	}
 }
 
@@ -116,7 +112,8 @@ void thMod::Process (unsigned int windowlen)
 	((thPlugin *)ionode->GetPlugin())->Fire(ionode, this, windowlen);
 }
 
-void thMod::ProcessHelper(unsigned windowlen, thNode *node) {
+void thMod::ProcessHelper(unsigned windowlen, thNode *node)
+{
 	thListNode *listnode;
 	thNode *data;
 
@@ -208,7 +205,7 @@ void thMod::BuildSynthTree (void)
 	thBSTree *argtree;
 	thArgValue *data;
 
-	/* We dont want to recalc the root if something points here */
+	/* We don't want to recalc the root if something points here */
 	ionode->SetRecalc(true);  
 
 	argtree = ionode->GetArgTree();
@@ -242,15 +239,6 @@ int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
 	argtree = currentnode->GetArgTree();
 
 	BuildSynthTreeHelper2(argtree, currentnode);
-/*	if(argtree) {
-		data = (thArgValue *)((thArg *)argtree->data)->GetArg();
-		if(data->argType == ARG_POINTER) {
-		node = FindNode(data->argPointNode); */
-			//	if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
-			/*	BuildSynthTreeHelper(currentnode, data->argPointNode);
-			}
-		}
-	}*/
 	return(0);
 }
 
@@ -265,7 +253,7 @@ void thMod::BuildSynthTreeHelper2(thBSTree *argtree, thNode *currentnode)
 
 		if(data->argType == ARG_POINTER) {
 			node = FindNode(data->argPointNode);
-			if(node->GetRecalc() == false) {  /* Dont do the same node over and over */
+			if(node->GetRecalc() == false) {  /* Don't do the same node over and over */
 				BuildSynthTreeHelper(currentnode, data->argPointNode);
 			}
 		}
