@@ -23,7 +23,7 @@ public:
 	int Fire (int sig, void *a, void *b, void *c, void *d, void *e, 
 			  char f);
 private:
-	thList *plugSignals[NUM_SIGNALS];
+	thList plugSignals[NUM_SIGNALS];
 };
 
 #endif /* TH_PLUGIN_SIGNALER_H */

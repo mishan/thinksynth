@@ -15,26 +15,26 @@
 
 thMod::thMod (char *name)
 {
-  modname = strdup(name);
-  modnodes = new thBSTree;
-  ionode = NULL;
-  
-  /* create any other objects */
+	modname = strdup(name);
+	ionode = NULL;
+
+	/* create any other objects */
 }
 
 thMod::~thMod ()
 {
+	free(modname);
 }
 
 thNode *thMod::FindNode (char *name)
 {
-	return (thNode *)((thBSNode *)modnodes->Find(name))->data;
+	return (thNode *)((thBSNode *)modnodes.Find(name))->data;
 }
 
 const thArgValue *thMod::GetArg (char *nodename, char *argname)
   /* Follow pointers and return a thArgValue of a float string */
 {
-	thNode *node = (thNode *)modnodes->GetData(nodename);
+	thNode *node = (thNode *)modnodes.GetData(nodename);
 	const thArgValue *args;
 	
 	if (node) {
@@ -43,7 +43,7 @@ const thArgValue *thMod::GetArg (char *nodename, char *argname)
 
 	while ((args->argType == ARG_POINTER) && node && args) { 
 		/* Recurse through the list of pointers until we get a real value. */
-		node = (thNode *)modnodes->GetData(args->argPointNode);
+		node = (thNode *)modnodes.GetData(args->argPointNode);
 		if (node) {
 			args = node->GetArg(args->argPointName);
 		}
@@ -54,7 +54,7 @@ const thArgValue *thMod::GetArg (char *nodename, char *argname)
 
 void thMod::NewNode (thNode *node)
 {
-	modnodes->Insert((char *)node->GetName(), node);
+	modnodes.Insert((char *)node->GetName(), node);
 }
 
 const char *thMod::GetName (void)
@@ -72,7 +72,7 @@ void thMod::SetName (char *name)
 
 void thMod::SetIONode (char *name)
 {
-	ionode = (thNode *)((thBSNode *)modnodes->Find(name))->data;
+	ionode = (thNode *)((thBSNode *)modnodes.Find(name))->data;
 }
 
 thNode *thMod::GetIONode (void)

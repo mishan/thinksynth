@@ -12,6 +12,6 @@ public:
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 
-	thBSTree *modlist;
-	thPluginManager *pluginmanager;
+	thBSTree modlist;
+	thPluginManager pluginmanager;
 };

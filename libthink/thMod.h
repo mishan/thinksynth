@@ -23,7 +23,7 @@ private:
 	void ProcessHelper (thNode *node);
 	void SetActiveNodesHelper(thNode *node);
 
-	thBSTree *modnodes;
+	thBSTree modnodes;
 	thList *activelist;
 	thNode *ionode;
 

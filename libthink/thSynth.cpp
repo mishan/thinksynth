@@ -22,14 +22,10 @@
 
 thSynth::thSynth()
 {
-	modlist = new thBSTree();
-	pluginmanager = new thPluginManager();
 }
 
 thSynth::~thSynth()
 {
-	delete modlist;
-	delete pluginmanager;
 }
 
 void thSynth::LoadMod(char *filename)
@@ -43,19 +39,19 @@ void thSynth::LoadMod(char *filename)
 	
 	delete parsenode;
 	
-	modlist->Insert(parsemod->GetName(), parsemod);
+	modlist.Insert(parsemod->GetName(), parsemod);
 }
 
 thMod *thSynth::FindMod(char *modname)
 {
-  return (thMod *)modlist->GetData(modname);
+  return (thMod *)modlist.GetData(modname);
 }
 
 /* Make these voids return something and add error checking everywhere! */
 
 void thSynth::ListMods(void)
 {
-  modlist->PrintTree();
+  modlist.PrintTree();
 }
 
 void thSynth::BuildSynthTree(char *modname)
@@ -106,7 +102,7 @@ int thSynth::BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename)
 
 const thPluginManager *thSynth::GetPluginManager(void)
 {
-  return pluginmanager;
+  return &pluginmanager;
 }
 
 

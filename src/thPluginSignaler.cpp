@@ -12,20 +12,10 @@
 
 thPluginSignaler::thPluginSignaler ()
 {
-	int i;
-
-	for(i = 0; i < NUM_SIGNALS; i++) {
-		plugSignals[i] = new thList;
-	}
 }
 
 thPluginSignaler::~thPluginSignaler ()
 {
-	int i;
-	
-	for(i = 0; i < NUM_SIGNALS; i++) {
-		delete plugSignals[i];
-	}
 }
 
 int thPluginSignaler::HookSignal (thPluginSignal *signal)
@@ -34,7 +24,7 @@ int thPluginSignaler::HookSignal (thPluginSignal *signal)
 		return 1;
 
 	if((signal->sigNum >= 0) && (signal->sigNum < NUM_SIGNALS)) {
-		plugSignals[signal->sigNum]->Add(signal);
+		plugSignals[signal->sigNum].Add(signal);
 	}
 	else {
 		return 1;
@@ -51,10 +41,10 @@ void thPluginSignaler::UnhookSignal (thPluginSignal *signal)
 		return;
 	}
 
-	for(node = plugSignals[signal->sigNum]->GetHead(); node; 
+	for(node = plugSignals[signal->sigNum].GetHead(); node; 
 		node = node->prev) {
 		if(node->data == signal) {
-			plugSignals[signal->sigNum]->Remove(node);
+			plugSignals[signal->sigNum].Remove(node);
 		}
 	}
 }
@@ -65,7 +55,7 @@ int thPluginSignaler::Fire (int sig, void *a, void *b, void *c, void *d,
 	thListNode *node;
 	int flag = 0;
 
-	for(node = plugSignals[sig]->GetHead(); node; node = node->prev) {
+	for(node = plugSignals[sig].GetHead(); node; node = node->prev) {
 		thPluginSignal *signal = (thPluginSignal *)node->data;
 
 		if(signal && signal->callback) {
