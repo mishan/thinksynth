@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.h,v 1.4 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: gthPatchfile.h,v 1.5 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -24,10 +24,13 @@
 
 typedef SigC::Signal0<void> type_signal_patches_changed;
 
+class thArg;
+class thMidiChan;
+
 class gthPatchManager
 {
 public:
-	gthPatchManager (void);
+	gthPatchManager (int numPatches=NUM_PATCHES);
 	~gthPatchManager (void);
 
 	static gthPatchManager *instance (void);
@@ -35,22 +38,23 @@ public:
 	bool newPatch (const string &dspName, int chan);
 	bool loadPatch (const string &filename, int chan);
 	bool savePatch (const string &filename, int chan);
+	bool unloadPatch (int chan);
+	bool isLoaded (int chan);
 
-	typedef map<string, float> PatchArgs;
-	struct Patch {
-		PatchArgs args;
+	int numPatches (void) {
+		return numPatches_;
+	}
+
+	thMidiChan::ArgMap getChannelArgs (int chan);
+
+	typedef map<string, float> PatchFileArgs;
+	struct PatchFile {
+		PatchFileArgs args;
 		string dspFile;
 		string filename;
 	};
 
-//	typedef map<int, Patch> PatchList;
-//	typedef PatchList::iterator PatchListIter;
-
-	int numPatches (void) {
-		return NUM_PATCHES;
-	}
-
-	Patch *getPatch (int chan)
+	PatchFile *getPatch (int chan)
 	{
 		if ((chan < 0) || (chan >= NUM_PATCHES))
 			return NULL;
@@ -58,21 +62,16 @@ public:
 		return patches_[chan];
 	}
 
-//	PatchList &getPatchList (void) {
-//		return patches_;
-//	}
 	type_signal_patches_changed signal_patches_changed (void) {
 		return m_signal_patches_changed;
 	}
 private:
-	type_signal_patches_changed m_signal_patches_changed;
-
 	bool parse (const string &filename, int chan);
 
-	//PatchList patches_;
-	Patch **patches_;
-
+	int numPatches_;
+	PatchFile **patches_;
 	static gthPatchManager *instance_;
+	type_signal_patches_changed m_signal_patches_changed;
 };
 
 #endif /* GTH_PATCHFILE_H */

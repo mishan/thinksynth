@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.49 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.50 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -363,8 +363,10 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 		return;
 	}
 
-	std::map<string, thArg *> args = synth->GetChanArgs(num);
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+	thMidiChan::ArgMap args = patchMgr->getChannelArgs(num);
 
+	/* XXX: this no longer applies */
 	/* only 'amp' */
 	if (args.size() == 1)
 	{
@@ -441,7 +443,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	tab_vbox->pack_start(*dsp_frame);
 
 	/* populate each tab */
-	for (std::map<string, thArg *>::iterator j = args.begin();
+	for (thMidiChan::ArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{
 		string argName = j->first;
@@ -476,7 +478,7 @@ void MainSynthWindow::populate (void)
 
 	for (int i = 0; i < numPatches; i++)
 	{
-		gthPatchManager::Patch *patch = patchMgr->getPatch(i);
+		gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
 		if (patch == NULL)
 		{
@@ -536,7 +538,7 @@ void MainSynthWindow::onKeyboardHide (KeyboardWindow *kbwin)
 void MainSynthWindow::onSwitchPage (GtkNotebookPage *p, int pagenum)
 {
 	gthPatchManager *patchMgr = gthPatchManager::instance();
-	gthPatchManager::Patch *patch = patchMgr->getPatch(pagenum);
+	gthPatchManager::PatchFile *patch = patchMgr->getPatch(pagenum);
 
 	if (patch == NULL)
 	{

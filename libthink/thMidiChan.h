@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.29 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: thMidiChan.h,v 1.30 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -33,7 +33,10 @@ public:
 	
 	thArg *GetArg (string argName) { return args[argName]; }
 	void SetArg (thArg *arg);
-	map<string, thArg*> GetArgs (void) { return args; }
+
+	typedef map<string, thArg*> ArgMap;
+
+	ArgMap GetArgs (void) { return args; }
 	
 	void Process (void);
 	

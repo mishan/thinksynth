@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.18 2004/11/15 10:41:54 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.19 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -189,7 +189,7 @@ void gthPrefs::Save (void)
 
 		for(int i = 0; i < chans; i++)
 		{
-			gthPatchManager::Patch *patch = patchMgr->getPatch(i);
+			gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
 			if (patch == NULL)
 				continue;

@@ -1,4 +1,4 @@
-/* $Id: gthPatchfile.cpp,v 1.5 2004/11/15 19:40:48 misha Exp $ */
+/* $Id: gthPatchfile.cpp,v 1.6 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,15 +31,17 @@
 
 gthPatchManager *gthPatchManager::instance_ = NULL;
 
-gthPatchManager::gthPatchManager (void)
+gthPatchManager::gthPatchManager (int numPatches)
 {
+	numPatches_ = numPatches;
+
 	if (instance_ == NULL)
 		instance_ = this;
 
-	patches_ = new Patch*[NUM_PATCHES];
+	patches_ = new PatchFile*[numPatches_];
 
 	/* init patches to NULL */
-	for (int i = 0; i < NUM_PATCHES; i++)
+	for (int i = 0; i < numPatches_; i++)
 		patches_[i] = NULL;
 }
 
@@ -49,7 +51,7 @@ gthPatchManager::~gthPatchManager (void)
 		instance_ = NULL;
 
 	/* XXX: do necessary cleanup here */
-	for (int i = 0; i < NUM_PATCHES; i++)
+	for (int i = 0; i < numPatches_; i++)
 		delete patches_[i];
 }
 
@@ -79,7 +81,7 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 	}
 	else
 	{
-		patches_[chan] = new Patch;
+		patches_[chan] = new PatchFile;
 		patches_[chan]->dspFile = dspName;
 	}
 
@@ -97,13 +99,54 @@ bool gthPatchManager::loadPatch (const string &filename, int chan)
 	return r;
 }
 
+bool gthPatchManager::unloadPatch (int chan)
+{
+	if ((chan < 0) || (chan >= numPatches_) || (patches_[chan] == NULL))
+		return false;
+
+	thSynth *synth = thSynth::instance();
+
+	synth->removeChan(chan);
+	delete patches_[chan];
+	patches_[chan] = NULL;
+
+	m_signal_patches_changed();
+
+	return true;
+}
+
+bool gthPatchManager::isLoaded (int chan)
+{
+	if ((chan > 0) || (chan >= 0) || patches_[chan] == NULL)
+		return false;
+
+	return true;
+}
+
+thMidiChan::ArgMap gthPatchManager::getChannelArgs (int chan)
+{
+	if ((chan > 0) || (chan >= 0) || patches_[chan] == NULL)
+		return thMidiChan::ArgMap();
+
+	thSynth *synth = thSynth::instance();
+	thMidiChan *mchan = synth->GetChannel(chan);
+
+	if (mchan == NULL)
+	{
+		printf("ERROR! Got NULL MidiChan\n");
+		return thMidiChan::ArgMap();
+	}
+
+	return mchan->GetArgs();
+}
+
 /* XXX: add error checking */
 bool gthPatchManager::parse (const string &filename, int chan)
 {
 	FILE *prefsFile;
 	char buffer[256];
 	thSynth *synth = thSynth::instance();
-	PatchArgs arglist;
+	PatchFileArgs arglist;
 
 	if((prefsFile = fopen(filename.c_str(), "r")) == NULL)
 	{
@@ -113,7 +156,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 	if (patches_[chan])
 		delete patches_[chan];
 
-	patches_[chan] = new Patch;
+	patches_[chan] = new PatchFile;
 	patches_[chan]->filename = filename;
 
 	while (!feof(prefsFile))
@@ -170,7 +213,6 @@ bool gthPatchManager::parse (const string &filename, int chan)
 			if (key == "dsp" && values[0])
 			{
 				patches_[chan]->dspFile = *values[0];
-				printf("associating with dsp %s\n", values[0]->c_str());
 				/* XXX: check error */
 				synth->LoadMod(values[0]->c_str(), chan, 0);
 			}
@@ -188,8 +230,6 @@ bool gthPatchManager::parse (const string &filename, int chan)
 				{
 					arg->SetValue(arglist[key]);
 				}
-
-				printf ("arg %s %f\n", key.c_str(), arglist[key]);
 			}
 			
 		}
@@ -206,8 +246,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 bool gthPatchManager::savePatch (const string &filename, int chan)
 {
 	FILE *prefsFile;
-	thSynth *synth = thSynth::instance();
-	std::map<string, thArg *> args = synth->GetChanArgs(chan);
+	thMidiChan::ArgMap args = getChannelArgs(chan);
 	time_t t = time(NULL);
 
 	if (patches_[chan] == NULL)
@@ -224,7 +263,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 		   PACKAGE_VERSION, ctime(&t));
 	fprintf(prefsFile, "dsp %s\n\n", patches_[chan]->dspFile.c_str());
 
-	for (std::map<string, thArg *>::iterator j = args.begin();
+	for (thMidiChan::ArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{
 		if(j->second->getWidgetType() != j->second->HIDE)

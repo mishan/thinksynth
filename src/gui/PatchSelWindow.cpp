@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.43 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.44 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -147,6 +147,7 @@ void PatchSelWindow::UnloadDSP (void)
 		  	/* Delete the thMidiChan + modnode */
 			thMidiChan *c = synth->GetChannel((*iter)[patchViewCols.chanNum] - 1);
 			synth->removeChan ((*iter)[patchViewCols.chanNum] - 1);
+
 			if (c)
 			{
 				thMod *m = c->GetMod();
@@ -155,17 +156,11 @@ void PatchSelWindow::UnloadDSP (void)
 				delete c;
 			}
 #endif
-			printf("WARNING! DSP is not actually being unloaded\n");
+			gthPatchManager *patchMgr = gthPatchManager::instance();
 
-			/* Zero everything */
-			(*iter)[patchViewCols.dspName] = "";
-			(*iter)[patchViewCols.amp] = 0;
-			dspAmp.set_value(0);
-			fileEntry.set_text("");
-
-			/* disable the button */
-			unloadButton.set_sensitive(false);
-			dspAmp.set_sensitive(false);
+			/* the subsequent signal emitted by patchMgr ought to cause
+			   this object to repopulate itself */
+ 			patchMgr->unloadPatch((*iter)[patchViewCols.chanNum]-1);
 		}
 	}
 }
@@ -185,15 +180,10 @@ bool PatchSelWindow::LoadPatch (void)
 			int chanNum = (*iter)[patchViewCols.chanNum]-1;
 			gthPatchManager *patchMgr = gthPatchManager::instance();
 
-			printf("\nLOADING PATCH ONTO chanNum:%d\n", chanNum);
-
-			if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
+			/* the patchMgr should subsequently emit a signal that will cause
+			   PatchSelWindow to correct its own contents */
+ 			if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
 			{
-//				(*iter)[patchViewCols.dspName] = fileEntry.get_text();
-
-				dspAmp.set_sensitive(true);
-				unloadButton.set_sensitive(true);
-
 				return true;
 			}
 			else
@@ -209,32 +199,6 @@ bool PatchSelWindow::LoadPatch (void)
 
 				return false;
 			}
-
-/*			thMod *loaded = NULL;
-			if ((loaded = synth->LoadMod(fileEntry.get_text().c_str(),
-											 chanNum, (float)dspAmp.get_value()
-					 )) == NULL)
-			{
-				char *error = g_strdup_printf("Couldn't load %s: %s",
-											  fileEntry.get_text().c_str(),
-											  strerror(errno));
-				Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
-
-				errorDialog.run();
-				g_free(error);
-				dspAmp.set_sensitive(false);
-
-				return false;
-			}
-			else
-			{
-				(*iter)[patchViewCols.dspName] = fileEntry.get_text();
-
-				dspAmp.set_sensitive(true);
-				unloadButton.set_sensitive(true);
-
-				return true;
-				} */
 
 		}
 	}
@@ -290,7 +254,8 @@ void PatchSelWindow::SavePatch (void)
 
 		if(fileSel.run() == Gtk::RESPONSE_OK)
 		{
-			patchManager->savePatch(fileSel.get_filename(), (*iter)[patchViewCols.chanNum]-1);
+			patchManager->savePatch(fileSel.get_filename(),
+									(*iter)[patchViewCols.chanNum]-1);
 
 			/* update prefs file "prevDir" info */
 			fileEntry.set_text(fileSel.get_filename());
@@ -401,6 +366,8 @@ void PatchSelWindow::CursorChanged (void)
 
 void PatchSelWindow::populate (void)
 {
+	debug("populating contents");
+
 //	std::map<int, string> *patchlist = synth->GetPatchlist();
 //	int channelcount = synth->GetChannelCount();
 	gthPatchManager *patchMgr = gthPatchManager::instance();
@@ -411,7 +378,7 @@ void PatchSelWindow::populate (void)
 	for(int i = 0; i < chancount; i++)
 	{
 		Gtk::TreeModel::Row row = *(patchModel->append());
-		gthPatchManager::Patch *patch = patchMgr->getPatch(i);
+		gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
 		/* reset initial values */
 		row[patchViewCols.chanNum] = i + 1;
@@ -446,6 +413,5 @@ void PatchSelWindow::populate (void)
 
 void PatchSelWindow::onPatchesChanged (void)
 {
-	printf("repopulating\n");
 	populate();
 }

@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.19 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.20 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -23,6 +23,7 @@
 #include <stdio.h>
 
 #include "think.h"
+#include "gthPatchfile.h"
 #include "MidiMap.h"
 
 MidiMap::MidiMap (thSynth *argsynth)
@@ -236,10 +237,11 @@ void MidiMap::fillDestArgCombo (int chan)
 		destArgCombo_->get_list()->children();
 	if(synth_->GetChannel(chan))
 	{
-		std::map<string, thArg *> argList = synth_->GetChanArgs(chan);
+		gthPatchManager *patchMgr = gthPatchManager::instance();
+		thMidiChan::ArgMap argList = patchMgr->getChannelArgs(chan);
 		destArgComboStrings.clear();
 		
-		for (std::map<string, thArg *>::iterator i = argList.begin();
+		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
 			if(i->second && i->second->getWidgetType() == thArg::SLIDER) {
@@ -291,9 +293,11 @@ void MidiMap::setDestArgCombo (int chan)
 	Gtk::Label *namelabel;
 	Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
 		destArgCombo_->get_list()->children();
-	if(synth_->GetChannel(chan))
+	gthPatchManager *patchMgr = gthPatchManager::instance();
+
+	if (patchMgr->isLoaded(chan))
 	{
-		std::map<string, thArg *> argList = synth_->GetChanArgs(chan);
+		thMidiChan::ArgMap argList = patchMgr->getChannelArgs(chan);
 
 		destArgComboStrings.clear();
 
@@ -309,7 +313,7 @@ void MidiMap::setDestArgCombo (int chan)
 		item->show_all();
 		destArgComboStrings.push_front(*item);
 		
-		for (std::map<string, thArg *>::iterator i = argList.begin();
+		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
 			if(i->second && i->second->getWidgetType() == thArg::SLIDER) {

@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.60 2004/11/13 22:17:48 ink Exp $ */
+/* $Id: thSynth.h,v 1.61 2004/11/16 23:22:02 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -60,7 +60,7 @@ public:
 	int GetChans(void) const { return thChans; }
 
 	map<string, thArg*> GetChanArgs (int chan) {
-		if ((chan < 0) || (chan >= channelcount))
+		if ((chan < 0) || (chan >= channelcount) || (channels[chan] == NULL))
 			return map<string, thArg*>();
 
 		return channels[chan]->GetArgs();
@@ -98,7 +98,7 @@ public:
 
 	inline thMidiChan * GetChannel (int chan) const
 	{
-		if (chan < channelcount)
+		if ((chan < channelcount) && (chan >= 0))
 			return channels[chan];
 		else
 			return NULL;
