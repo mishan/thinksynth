@@ -1,16 +1,18 @@
-# $Id: Makefile.in,v 1.4 2003/04/27 09:47:21 joshk Exp $
+# $Id: Makefile.in,v 1.5 2004/03/26 08:16:48 joshk Exp $
 
 prefix=@prefix@
 datadir=@datadir@
 DSP_DIST_FILES=$(shell find -name '*.dsp')
 
+include ../build.mk
+
 # Dummy target
 all:
 
-distclean:
+distclean::
 	rm -f Makefile
 
-clean mostlyclean:
+clean::
 
 install:
 	install -d $(DESTDIR)/$(datadir)/thinksynth
