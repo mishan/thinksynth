@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.31 2003/05/03 10:34:31 ink Exp $ */
+/* $Id: thinklang.yy,v 1.32 2003/05/03 18:36:57 joshk Exp $ */
 
 %{
 #ifdef HAVE_CONFIG_H
@@ -168,7 +168,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 			}
 		}
 	parsenode->SetPlugin(((thPluginManager *)Synth.GetPluginManager())->GetPlugin($3.str));
-	free($3.str);
+	free ($3.str);
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
@@ -236,8 +236,8 @@ WORD ASSIGN fstr
 //printf("PARSER: %s:  %s->%s (%i)(%i)\n", $1.str, node, arg, nodesize, argsize);
 	parsenode->SetArg($1.str, node, arg);
 
-	delete node;
-	delete arg;
+	delete[] node;
+	delete[] arg;
 }
 ;
 

@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.26 2003/05/03 10:34:31 ink Exp $ */
+/* $Id: thArg.cpp,v 1.27 2003/05/03 18:36:57 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -56,11 +56,11 @@ thArg::~thArg(void)
 void thArg::SetArg(const char *name, float *value, const int num)
 {
 	if(argValue.argName) {
-		delete argValue.argName;
+		free (argValue.argName);
 	}
 
 	if(argValue.argValues) {
-		delete argValue.argValues;
+		delete[] argValue.argValues;
 	}
 
 	argValue.argName = strdup(name);

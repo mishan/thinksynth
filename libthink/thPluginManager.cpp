@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.33 2003/05/03 09:31:07 ink Exp $ */
+/* $Id: thPluginManager.cpp,v 1.34 2003/05/03 18:36:57 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -33,7 +33,7 @@ thPluginManager::~thPluginManager ()
 char *thPluginManager::GetPath (char *name)
 {
 	char *path = new char[strlen(name) + strlen(plugin_path) + 
-						  strlen(SHARED_SUFFIX) + 1];
+					  strlen(SHARED_SUFFIX) + 1];
 	struct stat *dummy = (struct stat*)malloc (sizeof(struct stat));
 	
 	/* Use the default path first */
@@ -44,7 +44,7 @@ char *thPluginManager::GetPath (char *name)
 	if (stat (path, dummy) == -1) { /* File existeth not */
 		fprintf (stderr, "thPluginManager: %s: %s\n", path, strerror(errno));
 		
-		delete path;
+		delete[] path;
 		path = new char[strlen("plugins/") + strlen(name) + 
 					strlen(SHARED_SUFFIX) + 1];
 		
