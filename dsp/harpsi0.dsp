@@ -1,4 +1,4 @@
-# $Id: harpsi0.dsp,v 1.5 2004/04/09 06:54:47 ink Exp $
+# $Id: harpsi0.dsp,v 1.6 2004/04/09 07:06:21 ink Exp $
 name "test";
 
 node ionode {
@@ -8,25 +8,25 @@ node ionode {
 	play = env->play;
 
 	filtlo = 0.4;
-	filthi = 0.95;
-	res = 0.8;
+	filthi = 0.98;
+	res = 0.9;
 
 	bandlow = 50;
 	bandhi = 2400;
 
 	pw1 = 0.1;
-	pw2 = 0.2;
-	pw3 = 0.3;
-	freq2mul = 0.5;
-	freq3mul = 1.99;
+	pw2 = 0.05;
+	pw3 = 0.7;
+	freq2mul = 2.001;
+	freq3mul = 0.502;
 
 	mix1 = 0.4;	# osc 1 and osc2
 	mix2 = 0.2;	# mix1 and osc3
 
-	a = 0;
-	d = 3000;
+	a = 20;
+	d = 2400;
 	s = 0.4;
-	f = 100000;
+	f = 150000;
 	r = 7000;
 };
 
@@ -40,7 +40,7 @@ node freq2 math::mul {
 };
 
 node freq3 math::mul {
-        in0 = freq->out;
+    in0 = freq->out;
 	in1 = ionode->freq3mul;
 };
 
