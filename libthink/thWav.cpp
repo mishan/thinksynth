@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.25 2003/05/07 08:02:49 aaronl Exp $ */
+/* $Id: thWav.cpp,v 1.26 2003/05/07 23:02:55 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -145,14 +145,7 @@ int thWav::Read (void *data, int len)
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
 		for(int i = 0; i < r; i++) {
-			/* XXX */
-			signed short _data;
-
-			memcpy(&_data, &((signed short *)data)[i], sizeof(signed short));
-
-			le16(_data, _data);
-
-			memcpy(&((signed short *)data)[i], &_data, sizeof(signed short));
+			le16(data[i], data[i[);
 		}
 #endif
 		break;
