@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.43 2003/04/29 02:20:42 ink Exp $ */
+/* $Id: thSynth.cpp,v 1.44 2003/04/30 03:19:54 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -28,7 +28,7 @@ thMod *parsemod;
 
 thSynth::thSynth()
 {
-  int i;
+	int i;
 	windowlen = 1024;
 	chans = 2;  /* mono / stereo / etc */
 
