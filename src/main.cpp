@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.172 2004/05/05 03:16:42 misha Exp $ */
+/* $Id: main.cpp,v 1.173 2004/05/05 03:42:50 misha Exp $ */
 
 #include "config.h"
 
@@ -62,10 +62,12 @@ void cleanup (int signum)
 {
 	printf("received SIGTERM! exiting...\n\n");
 
-/*	save_prefs(&Synth);
+	save_prefs(&Synth);
 
-exit (0); */
+	/* XXX */
 	exitCond->signal();
+
+	exit (0);
 }
 
 void process_synth (void)

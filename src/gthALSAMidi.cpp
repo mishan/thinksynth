@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.3 2004/04/17 23:01:34 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.4 2004/05/05 03:42:50 misha Exp $ */
 
 #include "config.h"
 
@@ -12,6 +12,8 @@
 #include "think.h"
 
 #include "thfALSAMidi.h"
+
+extern Glib::RefPtr<Glib::MainContext> mainContext;
 
 thfALSAMidi::thfALSAMidi (const char *argname)
 	throw (thIOException)
@@ -84,9 +86,9 @@ bool thfALSAMidi::open_seq (void)
 	snd_seq_poll_descriptors(seq_handle, pfds, seq_nfds, POLLIN);
 
 	/* XXX: is this portable??? */
-	Glib::signal_io().connect(SigC::slot(*this, &thfALSAMidi::pollMidiEvent),
-							  pfds[0].fd, Glib::IO_IN,
-							  Glib::PRIORITY_DEFAULT_IDLE);
+	mainContext->signal_io().connect(SigC::slot(*this, &thfALSAMidi::pollMidiEvent),
+									 pfds[0].fd, Glib::IO_IN,
+									 Glib::PRIORITY_DEFAULT_IDLE);
 
 	return true;
 }
