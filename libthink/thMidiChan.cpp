@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.54 2004/02/07 08:02:33 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.55 2004/03/26 08:11:29 misha Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -44,6 +44,18 @@ thMidiChan::~thMidiChan (void)
 	DestroyMap(args);
 	DestroyMap(notes);
 	delete[] output;
+}
+
+void thMidiChan::SetArg (thArg *arg)
+{
+	thArg *oldArg = args[arg->GetArgName()];
+
+	if(oldArg)
+	{
+		delete oldArg;
+	}
+
+	args[arg->GetArgName()] = arg;
 }
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)

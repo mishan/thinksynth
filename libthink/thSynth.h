@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.37 2004/03/26 06:25:46 misha Exp $ */
+/* $Id: thSynth.h,v 1.38 2004/03/26 08:11:29 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -40,6 +40,8 @@ public:
 
 	int GetChannelCount (void) const { return channelcount; }
 	map<int, string> *GetPatchlist (void) { return &patchlist; }
+
+	void SetChanArg(int chan, thArg *arg);
 private:
 	int BuildSynthTreeHelper(thMod *mod, thNode *parent, char *nodename);
 

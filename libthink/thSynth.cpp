@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.73 2004/03/26 06:25:46 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.74 2004/03/26 08:11:29 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -104,6 +104,17 @@ void thSynth::LoadMod (FILE *input)
 	parsemod->SetPointers();
 	parsemod->BuildSynthTree();
 	modlist[parsemod->GetName()] = parsemod;
+}
+
+void thSynth::SetChanArg (int channum, thArg *arg)
+{
+	if((channum < 0) || (channum >= channelcount))
+	{
+		return;
+	}
+
+	thMidiChan *chan = channels[channum];
+	chan->SetArg(arg);
 }
 
 void thSynth::LoadMod (const string &filename, int channum, float amp)

@@ -8,6 +8,7 @@ public:
 
 protected:
 	void LoadPatch (Gtk::Entry *chanEntry, thSynth *synth);
+	void SetChannelAmp (Gtk::HScale *scale, thSynth *synth);
 
 	Gtk::VBox vbox;
 

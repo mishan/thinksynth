@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.h,v 1.22 2004/03/26 06:25:46 misha Exp $ */
+/* $Id: thMidiChan.h,v 1.23 2004/03/26 08:11:29 misha Exp $ */
 
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
@@ -14,6 +14,7 @@ public:
 	thMidiNote *GetNote (int note);
 	int SetNoteArg (int note, char *name, float *value, int len);
 	
+	thArg *GetArg (string argName) { return args[argName]; }
 	void SetArg (thArg *arg);
 	
 	void Process (void);
