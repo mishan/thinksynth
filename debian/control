@@ -14,9 +14,10 @@ Suggests: jack-rack, qjackctl
 Description: a full-featured synthesizer and keyboard for JACK/ALSA
  thinksynth is a customizable synthesizer that uses JACK for interfacing with
  other music hardware/software. It can also work standalone using an ALSA
- output backend.
+ output backend, which it is configured by default to do for ease of
+ immediate use.
  .
- This package contains the GUI binary and the stock set of binary plugins and
+ This package contains the GUI binary, the stock set of binary plugins, and
  DSP instruments required for basic synthesis.
 
 Package: libthink3
