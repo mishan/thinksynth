@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.46 2004/10/18 03:02:25 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.47 2004/10/28 01:21:47 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -36,6 +36,7 @@
 #include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
 #include "AboutBox.h"
+#include "MidiMap.h"
 #include "ArgTable.h"
 
 #ifdef HAVE_JACK
@@ -96,10 +97,12 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 	prefs = _prefs;
 
 	patchSel = new PatchSelWindow(synth);
+	midiMap = new MidiMap(synth);
 
 	populateMenu();
 
 	menuBar.accelerate(*patchSel);
+	menuBar.accelerate(*midiMap);
 
 #ifdef HAVE_JACK
 	/* Not the best place to do it but we need to call toggleConnects */
@@ -157,6 +160,11 @@ void MainSynthWindow::populateMenu (void)
 			Gtk::Menu_Helpers::MenuElem("_Patch Selector",
 										Gtk::AccelKey("<ctrl>p"),
 										sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel)));
+
+		menulist.push_back(
+			Gtk::Menu_Helpers::MenuElem("_MIDI Controllers",
+										Gtk::AccelKey("<ctrl>m"),
+										sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap)));
 
 		menulist.push_back(Gtk::Menu_Helpers::SeparatorElem());
 
@@ -301,6 +309,12 @@ void MainSynthWindow::menuPatchSel (void)
 {
 	patchSel->show_all_children();
 	patchSel->show();
+}
+
+void MainSynthWindow::menuMidiMap (void)
+{
+	midiMap->show_all_children();
+	midiMap->show();
 }
 
 void MainSynthWindow::menuQuit (void)

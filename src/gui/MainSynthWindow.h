@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.16 2004/10/01 08:52:26 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.17 2004/10/28 01:21:47 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -23,6 +23,7 @@
 class gthAudio;
 class gthPrefs;
 class AboutBox;
+class MidiMap;
 
 using namespace std;
 
@@ -36,6 +37,7 @@ protected:
 	void populateMenu (void);
 	void menuKeyboard (void);
 	void menuPatchSel (void);
+	void menuMidiMap (void);
 	void menuQuit (void);
 	void menuAbout (void);
 	void menuJackTry (void);
@@ -63,6 +65,7 @@ private:
 	gthAudio *audio;
 	gthPrefs *prefs;
 	AboutBox *aboutBox;
+	MidiMap *midiMap;
 
 	void toggleConnects(void);
 };
