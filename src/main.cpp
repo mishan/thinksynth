@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.95 2003/09/14 09:27:18 misha Exp $ */
+/* $Id: main.cpp,v 1.96 2003/09/14 20:43:19 ink Exp $ */
 
 #include "config.h"
 
@@ -20,6 +20,7 @@
 #include "thException.h"
 #include "thAudio.h"
 #include "thWav.h"
+#include "thOSSAudio.h"
 #include "thEndian.h"
 
 #include "parser.h"
@@ -32,15 +33,16 @@ int main (int argc, char *argv[])
 	char *filename;
 	string dspname = "test"; /* XXX for debugging */
 
-	int i, j;
+	int i,j,k;
 	thAudioFmt audiofmt;
-	thWav *outputwav = NULL;
+	thAudio *outputstream = NULL;
+	string outputfname("test.wav");
 	signed short *outputbuffer;
 	int buflen;
-	float *mixedbuffer;
+	float *synthbuffer;
 	int notetoplay = 69;  /* XXX Remove when sequencing is external */
-	int processwindows = 100;  /* How many windows do we process? */
-
+	int samplerate = TH_SAMPLE;
+	int processwindows = 100;  /* How long does sample play */
 	plugin_path = PLUGIN_PATH;
 
 	if (argc < 2) /* Not enough parameters */
@@ -51,19 +53,28 @@ syntax:
 		printf("Try %s -h for help\n", argv[0]);
 		exit(1);
 	}
-
-	while ((havearg = getopt (argc, argv, "hp:m:n:l:")) != -1) {
+// changed this line here
+	while ((havearg = getopt (argc, argv, "hp:m:n:l:o:s:")) != -1) {
 		switch (havearg) {
+// added this case here
+		case 'o':
+			outputfname=optarg;
+			break;
+// and this case here
+		case 's':
+		  printf("changing sample rate\n");
+		  samplerate = atoi(optarg);
+		  break;
 		case 'h':
 			printf (PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, Aaron Lehmann and Joshua Kwan\n");
 			/* TODO: insert some helpful text here */
 			printf("Usage: %s [options] dsp-file\n", argv[0]); /* i'd goto syntax but -h shouldn't exit 1 */
-			
+
 			printf("-h: display this help screen\n");
 			printf("-p PATH: modify the plugin search path\n");
 			printf("-m MOD: change the mod that will be used\n");
 			exit(0);
-			
+
 			break;
 
 		case 'p':
@@ -74,13 +85,13 @@ syntax:
 			else {
 				plugin_path = optarg;
 			}
-			
+
 			break;
-				
+
 		case 'm':
 			dspname = optarg;
 			break;
-			
+
 		case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
 			//printf("Note to play: %s\n", optarg);
 					notetoplay = (int)atof(optarg);
@@ -97,7 +108,7 @@ syntax:
 			}
 		}
 	}
-	
+
 	if (optind == argc) {
 		printf ("error: no input file\n");
 		goto syntax;
@@ -110,27 +121,52 @@ syntax:
 	srand(time(NULL));
 
 	Synth.LoadMod(filename);
-	
+
 	Synth.AddChannel(string("chan1"), dspname, 30.0);
 	Synth.AddNote(string("chan1"), notetoplay, TH_MAX);
-
-	audiofmt.channels = Synth.GetChans();
-	audiofmt.bits = 16;
-	audiofmt.samples = TH_SAMPLE;
-
+	//Synth.AddNote(string("chan1"), notetoplay + 4, TH_MAX);
+	//Synth.AddNote(string("chan1"), notetoplay + 7, TH_MAX);
+	/* changed a bunch of code relating to instantiating buffers */
 	try {
-		outputwav = new thWav("test.wav", &audiofmt);
+	  if ( outputfname == "/dev/dsp"){
+	  	audiofmt.channels = Synth.GetChans();
+		audiofmt.bits = 16;
+		audiofmt.samples = samplerate;
+	  	outputstream = new thOSSAudio(NULL,&audiofmt);
+	  }
+	  else {
+	  	audiofmt.channels = Synth.GetChans();
+		audiofmt.bits = 16;
+		audiofmt.samples = samplerate;
+	  	outputstream = new thWav((char *)outputfname.c_str(), &audiofmt);
+	  }
 	}
-	catch (thWavException e) {
+	/* added second catch block */
+	catch (thIOException e) {
+		/* pass */
+	}
+	catch (thWavException e){
+		/* pass */
 	}
 
+	/* changing all the following code do deal with the
+	potentiality that the output file may not support
+	the intended audio format */
+
+	memcpy(&audiofmt,outputstream->GetFormat(),sizeof(thAudioFmt));
+
+	/* allocate space for audio buffer based on returned audio format */
 	buflen = Synth.GetWindowLen() * Synth.GetChans();
-	outputbuffer = (signed short *)alloca(buflen * sizeof(signed short));
-	printf ("Writing test.wav\n");
+	outputbuffer = (signed short *) malloc(buflen*sizeof(signed short));
+	printf("length of buffer %d", buflen,audiofmt.bits/8);
+	// grab address of buffer from synthesizer
+	synthbuffer = Synth.GetOutput();
 
-	mixedbuffer = Synth.GetOutput();
-	for(i = 0; i < processwindows; i++) {  /* For testing... */
-/*		if(i==10) {
+	printf ("Writing %s\n",(char *)outputfname.c_str());
+	// for each window
+	for(i = 0; i < processwindows; i++) {
+	  		// get the synth to process it's data
+	  /*if(i==10) {
 			Synth.AddNote("chan1", 52, 100);
 		}
 		else if(i==20) {
@@ -162,21 +198,26 @@ syntax:
 		  Synth.AddNote("chan1", 50, 100);
 		  Synth.AddNote("chan1", 54, 100);
 		  Synth.AddNote("chan1", 57, 100);
-		}
-*/
+		  }*/
 		Synth.Process();
+		// convert floating point synth data to integer data
+		// which we use in the real world, normalizing=)
+		// if output channels > than Synth.GetChans()...duplicate sample
 		for(j=0; j < buflen; j++) {
-			le16(outputbuffer[j], (signed short)(((float)mixedbuffer[j]/TH_MAX)
-											 *32767));
+			outputbuffer[j]= (signed short)(((float)synthbuffer[j]/TH_MAX) *32767);
 		}
-		outputwav->Write(outputbuffer, buflen);
+		// send the window to the output device
+		outputstream->Write(outputbuffer, buflen);
 	}
 
-	delete outputwav;
+	if (outputfname != "/dev/dsp")
+	  delete (thWav*) outputstream;
+	else
+	  delete (thOSSAudio*) outputstream;
 
 	//Synth.Process();
 
 	//	Synth.PrintChan(0);
-
+	free(outputbuffer);
 	free(filename);
 }
