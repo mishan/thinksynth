@@ -6,8 +6,11 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	ilen = 16;
-	imax = 0.2;
+	waveform = 1;
+
+	percent = 0.9;
+	ilen = 32;
+	imax = 1;
 	pw = 0.4;
 };
 
@@ -23,11 +26,12 @@ node mixer mixer::mul {
 node firenv impulse::parabola {
 	len = ionode->ilen;
 	max = ionode->imax;
+	percent = ionode->percent;
 };
 
 node osc osc::simple {
 	freq = freq->out;
-	waveform = 2;
+	waveform = ionode->waveform;
 	pw = ionode->pw;
 };
 

@@ -1,4 +1,4 @@
-/* $Id: parabola.cpp,v 1.1 2003/05/23 23:44:39 ink Exp $ */
+/* $Id: parabola.cpp,v 1.2 2003/05/24 00:40:30 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +17,7 @@
 
 #define SQR(x) ((x)*(x))
 
-char		*desc = "Adds two streams";
+char		*desc = "Generates a small parabola";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -26,12 +26,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Addition plugin unloading\n");
+	printf("Parabola plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Addition plugin loaded\n");
+	printf("Parabola plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -42,21 +42,34 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArgValue *in_len, *in_max;
+	thArgValue *in_len, *in_max, *in_percent;
 	thArgValue *out_arg;
-	float max;
+	float max, percent, parabolalen, offset;
 	unsigned int i, len;
 
-	in_len = (thArgValue *)mod->GetArg(node, "len");
-	in_max = (thArgValue *)mod->GetArg(node, "max");
+	in_len = (thArgValue *)mod->GetArg(node, "len"); /* Length of output */
+	in_max = (thArgValue *)mod->GetArg(node, "max"); /* Parabola peak */
+	in_percent = (thArgValue *)mod->GetArg(node, "percent"); /* How much of the output is actually parabola */
 	len = (int)(*in_len)[0];
 	max = (*in_max)[0];
+	percent = (*in_percent)[0];
 
 	out_arg = (thArgValue *)mod->GetArg(node, "out");
 	out = out_arg->allocate(len);
 
-	for(i=0;i<len;i++) {
-		out[i] = max*(1-SQR((i/(float)len)*2-1));
+	if(percent == 0) {
+		percent = 1;
+	}
+	parabolalen = percent * len;
+	offset = (len-parabolalen)/2;
+	for(i=0;i<(int)offset;i++) {
+		out[i] = 0;
+	}
+	for(;i<parabolalen+offset;i++) {
+		out[i] = max*(1-SQR((i/((float)len-offset))*2-1));
+	}
+	for(;i<len;i++) {
+		out[i] = 0;
 	}
 
 	return 0;
