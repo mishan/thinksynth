@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.49 2003/04/29 00:16:35 ink Exp $ */
+/* $Id: main.cpp,v 1.50 2003/04/29 01:08:03 joshk Exp $ */
 
 #include "config.h"
 
@@ -16,28 +16,17 @@
 #include "thPluginManager.h"
 #include "thNode.h"
 #include "thMod.h"
-
-#include "thMidiNote.h"
-#include "thMidiChan.h"
-
-#include "thException.h"
-#include "thAudio.h"
-#include "thAudioBuffer.h"
-#include "thWav.h"
-#include "thOSSAudio.h"
-
 #include "thSynth.h"
 
 #include "parser.h"
 
 int main (int argc, char *argv[])
 {
-	thMod *newmod;
 	int havearg;
 	char *filename;
 	char dspname[] = "test"; /* XXX for debugging */
 
-	int i; /* XXX temporary hack to see more than 1 element of output */
+	/* int i; XXX temporary hack to see more than 1 element of output */
 
 	if (argc < 2) /* Not enough parameters */
 	{
