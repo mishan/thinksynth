@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.179 2004/05/21 06:43:47 misha Exp $ */
+/* $Id: main.cpp,v 1.180 2004/05/25 03:54:04 misha Exp $ */
 
 #include "config.h"
 
@@ -26,6 +26,8 @@
 #include "prefs.h"
 
 /* XXX: globals */
+thSynth *Synth = NULL;
+
 static Glib::Thread *ui = NULL;
 static Glib::Dispatcher *process = NULL;
 
@@ -43,7 +45,7 @@ sigNoteOff m_sigNoteOff;
    application-level global; the thSynth class should have some sort of
    plugin path and it should use the default of PLUGIN_PATH if nothing is
    passed to it */
-string plugin_path = PLUGIN_PATH;
+static string plugin_path = PLUGIN_PATH;
 
 static const char syntax[] = \
 PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
@@ -60,7 +62,7 @@ void cleanup (int signum)
 {
 	printf("received SIGTERM! exiting...\n\n");
 
-	save_prefs(&Synth);
+	save_prefs(Synth);
 
 	/* XXX */
 	exitCond->signal();
@@ -71,7 +73,7 @@ void cleanup (int signum)
 void process_synth (void)
 {
 //	mainMutex->lock();
-	Synth.Process();
+	Synth->Process();
 //	mainMutex->unlock();
 }
 
@@ -92,12 +94,12 @@ void audio_readywrite (thfAudio *audio, thSynth *synth)
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
 	thfJackAudio *jack = (thfJackAudio *)arg;
-	int l = Synth.GetWindowLen();
-	int chans = Synth.GetChans();
+	int l = Synth->GetWindowLen();
+	int chans = Synth->GetChans();
 
 	for(int i = 0; i < chans; i++)
 	{
-		float *synthbuffer = Synth.GetChanBuffer(i);
+		float *synthbuffer = Synth->GetChanBuffer(i);
 		void *buf = jack->GetOutBuf(i, nframes);
 
 		memcpy(buf, synthbuffer, l * sizeof(float));
@@ -208,8 +210,6 @@ int main (int argc, char *argv[])
 
 	signal(SIGTERM, (sighandler_t)cleanup);
 
-	plugin_path = PLUGIN_PATH;
-
 	while ((havearg = getopt (argc, argv, "hp:o:d:")) != -1) {
 		switch (havearg)
 		{
@@ -252,12 +252,14 @@ int main (int argc, char *argv[])
 		}
 	}
 
-	read_prefs (&Synth);
+	Synth = new thSynth(plugin_path);
+
+	read_prefs (Synth);
 
 	ui = Glib::Thread::create(SigC::slot(&ui_thread), false);
 
 	/* create a window first */
-	Synth.Process();
+	Synth->Process();
 
 	/* all thAudio classes will work with floating point buffers converting to
 	   integer internally based on format data */
@@ -266,26 +268,26 @@ int main (int argc, char *argv[])
 		midi = new thfALSAMidi("thinksynth");
 
 		midi->signal_midi_event().connect(
-			SigC::bind<thSynth *>(SigC::slot(&processmidi), &Synth));
+			SigC::bind<thSynth *>(SigC::slot(&processmidi), Synth));
 
 		printf ("Using the '%s' driver\n", driver.c_str());
 
 		if (driver == "alsa")
 		{ 
 			if (outputfname.length() > 0)
-				aout = new thfALSAAudio(&Synth, outputfname.c_str());
+				aout = new thfALSAAudio(Synth, outputfname.c_str());
 			else
-				aout = new thfALSAAudio(&Synth);
+				aout = new thfALSAAudio(Synth);
 
 			/* connect our audio out event handler and bind a synth to this
 			   instance */
 			((thfALSAAudio *)aout)->signal_ready_write().connect(
 				SigC::bind<thfAudio *,thSynth *>(SigC::slot(&audio_readywrite),
-												 aout, &Synth)); 
+												 aout, Synth)); 
 		}
  		else if (driver == "jack")
 		{
-			aout = new thfJackAudio(&Synth, playback_callback);
+			aout = new thfJackAudio(Synth, playback_callback);
 		}
 		else
 		{
@@ -325,7 +327,7 @@ int main (int argc, char *argv[])
 	delete midi;
 //	delete gtkMain;
 
-	save_prefs (&Synth);
+	save_prefs (Synth);
 
 	return 0;
 }

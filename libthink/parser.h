@@ -1,4 +1,4 @@
-/* $Id: parser.h,v 1.9 2004/04/22 08:47:20 misha Exp $ */
+/* $Id: parser.h,v 1.10 2004/05/25 03:54:04 misha Exp $ */
 
 #ifndef PARSER_H
 #define PARSER_H
@@ -11,6 +11,6 @@ extern int linenum;
 extern FILE *yyin;
 extern thMod *parsemod;     /* Damn you yacc, I hate globals */
 extern thNode *parsenode;
-extern thSynth Synth;
+extern thSynth *Synth;
 
 #endif /* PARSER_H */

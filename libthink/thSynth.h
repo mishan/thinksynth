@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.46 2004/05/21 06:43:47 misha Exp $ */
+/* $Id: thSynth.h,v 1.47 2004/05/25 03:54:04 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -8,7 +8,7 @@ class thMidiChan;
 
 class thSynth {
 public:
-	thSynth (void);
+	thSynth (const string &plugin_path);
 	~thSynth (void);
 
 	thMod* LoadMod(const string &filename);
@@ -17,7 +17,7 @@ public:
 	thMod *FindMod(const string &name) { return modlist[name]; };
 	void ListMods(void);
 	void BuildSynthTree(const string &modname);
-	thPluginManager *GetPluginManager (void) { return &pluginmanager; };
+	thPluginManager *GetPluginManager (void) { return pluginmanager; };
 	void AddChannel(int channum, const string &modname, float amp);
 
 	thMidiNote *AddNote(int channum, float note, float velocity);
@@ -55,8 +55,7 @@ private:
 
 	map<string, thMod*> modlist;
 	map<int, string> patchlist;
-	thPluginManager pluginmanager;
-//	thList chanlist;
+	thPluginManager *pluginmanager;
 	thMidiChan **channels; /* MIDI channels */
 	int channelcount;
 	float *thOutput;

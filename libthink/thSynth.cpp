@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.92 2004/05/11 10:35:56 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.93 2004/05/25 03:54:04 misha Exp $ */
 
 #include "config.h"
 
@@ -12,7 +12,7 @@
 
 #include "think.h"
 
-thSynth::thSynth (void)
+thSynth::thSynth (const string &plugin_path)
 {
 	synthMutex = new pthread_mutex_t;
 	pthread_mutex_init(synthMutex, NULL);
@@ -32,6 +32,8 @@ thSynth::thSynth (void)
 
 	channelcount = CHANNELCHUNK;
 	channels = (thMidiChan **)calloc(channelcount, sizeof(thMidiChan *));
+
+	pluginmanager = new thPluginManager(plugin_path);
 }
 
 thSynth::~thSynth (void)

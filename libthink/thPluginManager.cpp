@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.45 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thPluginManager.cpp,v 1.46 2004/05/25 03:54:04 misha Exp $ */
 
 #include "config.h"
 
@@ -23,8 +23,9 @@
 
 #include "think.h"
 
-thPluginManager::thPluginManager ()
+thPluginManager::thPluginManager (const string &path)
 {
+	plugin_path = path;
 }
 
 thPluginManager::~thPluginManager ()

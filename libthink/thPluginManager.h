@@ -1,11 +1,11 @@
-/* $Id: thPluginManager.h,v 1.10 2003/05/30 00:55:42 aaronl Exp $ */
+/* $Id: thPluginManager.h,v 1.11 2004/05/25 03:54:04 misha Exp $ */
 
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1
 
 class thPluginManager {
 public:
-	thPluginManager();
+	thPluginManager(const string &path);
 	~thPluginManager();
 
 	int LoadPlugin(const string &name);
@@ -18,6 +18,8 @@ private:
 	void UnloadPlugins (void);
 
 	const string GetPath (const string &name);
+
+	string plugin_path;
 };
 
 #endif /* TH_PLUGIN_MANAGER_H */

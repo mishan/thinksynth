@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.24 2004/04/08 13:33:30 ink Exp $ */
+/* $Id: thPlugin.h,v 1.25 2004/05/25 03:54:04 misha Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -21,8 +21,6 @@ extern "C" {
 }
 #endif
 
-extern string plugin_path;
-
 enum thPluginState { thActive, thPassive, thNotLoaded };
 
 class thNode;
@@ -30,7 +28,7 @@ class thMod;
 
 class thPlugin {
 public:
-	thPlugin(const string &path);
+	thPlugin (const string &path);
 	~thPlugin ();
 	
 	string GetPath (void) const { return plugPath; };

@@ -1,4 +1,6 @@
-/* $Id: wlan.cpp,v 1.2 2004/05/11 20:36:54 ink Exp $ */
+/* $Id: wlan.cpp,v 1.3 2004/05/25 03:54:04 misha Exp $ */
+
+#include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
