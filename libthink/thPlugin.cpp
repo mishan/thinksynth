@@ -1,4 +1,4 @@
-/* $Id: thPlugin.cpp,v 1.19 2003/04/27 03:15:19 misha Exp $ */
+/* $Id: thPlugin.cpp,v 1.20 2003/04/27 05:37:41 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -11,8 +11,6 @@
 #include <sys/types.h>
 #include <dlfcn.h>
 
-#include "thNode.cpp"
-#include "thMod.cpp"
 #include "thPlugin.h"
 
 thPlugin::thPlugin (const char *path)
