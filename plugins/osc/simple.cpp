@@ -1,4 +1,4 @@
-/* $Id: simple.cpp,v 1.52 2004/09/08 22:32:52 misha Exp $ */
+/* $Id: simple.cpp,v 1.53 2004/09/30 08:32:51 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -125,6 +125,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];
 		freq = buf_freq[i];
+
+		mul = buf_mul[i];  /* optional frequency multiplier */
+		if(mul) {
+			freq *= mul;
+		}
+
 		amp_max = buf_amp[i];
 		if(amp_max == 0) {
 		  amp_max = TH_MAX;
@@ -134,17 +140,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 		wavelength = samples/freq;
 
-		mul = buf_mul[i];
-		if(mul) {
-			wavelength *= 1/mul;  /* floats are inpresice, if you do freq/2 you
-								   get the beating effect.  grr */
-		}
-
 		position += 1 + ((buf_fm[i] / TH_MAX) * buf_fmamt[i]);
 		//printf("%f\n", position);
 		/* worked FM into the position counter */
 
-		if(position > wavelength || buf_reset[i] == 1) {
+		if(buf_reset[i] == 1) {
+			position = 0;
+			sync[i] = 1;
+		}
+
+		if(position > wavelength) {
 			position -= wavelength;
 			sync[i] = 1;
 		} else if (position < 0) {
