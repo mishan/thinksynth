@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.34 2003/04/27 04:40:29 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.35 2003/04/27 05:11:25 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -80,7 +80,7 @@ void thSynth::ListMods(thBSTree *node)
 	ListMods(node->GetRight());
 }
 
-thPluginManager *thSynth::GetPluginManager(void) const
+thPluginManager *thSynth::GetPluginManager(void)
 {
 	return &pluginmanager;
 }
