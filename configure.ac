@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.47 2003/05/16 02:39:10 joshk Exp $
+dnl $Id: configure.ac,v 1.48 2003/05/16 04:49:06 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -7,6 +7,9 @@ dnl Don't let ancient Autoconfs touch this
 AC_PREREQ(2.50)
 
 prefix="/usr/local"
+
+AC_CANONICAL_BUILD
+AC_CANONICAL_HOST
 
 AC_PROG_CXX
 AC_PROG_CC
