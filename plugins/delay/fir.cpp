@@ -1,4 +1,4 @@
-/* $Id: fir.cpp,v 1.1 2003/05/23 22:25:03 ink Exp $ */
+/* $Id: fir.cpp,v 1.2 2003/05/23 23:14:19 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,7 +52,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 
 	inout_buffer = (thArgValue *)mod->GetArg(node, "buffer");
 	inout_bufpos = (thArgValue *)mod->GetArg(node, "bufpos");
-	buffer = inout_buffer->allocate(in_arg->argNum);
+	buffer = inout_buffer->allocate(in_impulse->argNum);
 	bufpos = inout_bufpos->allocate(1);
 
 	out_arg = (thArgValue *)mod->GetArg(node, "out");
@@ -72,9 +72,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 				index += in_impulse->argNum;
 			}
 			out[i] += (*in_impulse)[j] * buffer[index];
+//			printf("i: %i\tj: %i index: %i buf: %f \timp: %f, out: %f\n", i, j, index, buffer[index], (*in_impulse)[j], out[i]);
 		}
 
-		*bufpos++;
+		(*bufpos)++;
 	}
 
 	return 0;
