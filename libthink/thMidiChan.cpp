@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.26 2003/04/29 03:12:58 joshk Exp $ */
+/* $Id: thMidiChan.cpp,v 1.27 2003/04/29 19:14:34 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -107,14 +107,21 @@ void thMidiChan::ProcessHelper (thBSTree *note)
   }
 }
 
-int thMidiChan::GetLen (int num)
+static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
+						   100000000, 1000000000};
+
+static int RangeSize = sizeof(RangeArray)/sizeof(int);
+
+int thMidiChan::GetLen (int _num)
 {
-  int retval = 1;
+	int num = abs(_num);
+	int i;
 
-  while(num >= 10) {
-	num /= 10;
-	retval++;
-  }
+	for(i = 0; i < RangeSize; i++) {
+		if(num < RangeArray[i]) {
+			return i+1;
+		}
+	}
 
-  return retval;
+	return RangeSize+1;
 }

@@ -1,4 +1,4 @@
-/* $Id: thBSTree.h,v 1.18 2003/04/27 04:35:25 misha Exp $ */
+/* $Id: thBSTree.h,v 1.19 2003/04/29 19:14:34 misha Exp $ */
 
 #ifndef TH_BSTREE_H
 #define TH_BSTREE_H 1
@@ -92,7 +92,7 @@ inline int StringCompare(void *_str1, void *_str2) {
 	/* str1 > str2 */
 	return 1;
 }
-/* inline integer comparison function */
+/* inline integer comparison function, very straightforward */
 inline int IntCompare(void *_int1, void *_int2) {
 	int int1 = *((int *)_int1), int2 = *((int *)_int2);
 
