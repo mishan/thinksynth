@@ -59,12 +59,24 @@ thOSSAudio::~thOSSAudio()
 
 void thOSSAudio::SetFormat (const thAudioFmt *afmt)
 {
-	int oss_channels = fmt.channels-1; /* OSS uses the value of 0 to indicate 
-										   1 channel, and 1 to indicate 2 
-										   channels, so we must decrement the 
-										   channel count */
+	int oss_channels = afmt->channels-1; /* OSS uses the value of 0 to indicate 											1 channel, and 1 to indicate 2 
+											channels, so we must decrement the 
+											channel count */
+	
+	printf("setting %d channels\n", oss_channels);
 
 	memcpy(&fmt, afmt, sizeof(thAudioFmt));
+
+	switch(afmt->bits) {
+	case 8:
+		printf("setting audio format to u8\n");
+		fmt.format = AFMT_U8;
+		break;
+	case 16:
+		printf("setting audio format to s16ne\n");
+		fmt.format = AFMT_S16_NE;
+		break;
+	}
 
 	if(ioctl(fd, SNDCTL_DSP_SETFMT, &fmt.format) == -1) {
 		fprintf(stderr, "/dev/dsp: %s\n", strerror(errno));
@@ -98,8 +110,13 @@ int thOSSAudio::Read(void *buf, int len)
 
 void thOSSAudio::Play(thAudio *audioPtr)
 {
-//	thAudioFmt afmt = audioPtr->GetFormat();
-	int buf_size = fmt.samples;
+	const thAudioFmt *afmt = audioPtr->GetFormat();
+	int buf_size = afmt->samples;
+	int r;
+
+	SetFormat(afmt);
+
+	printf("playing with bufsiz of %d\n", buf_size);
 
 	switch(fmt.bits) {
 	case 8:
@@ -108,8 +125,9 @@ void thOSSAudio::Play(thAudio *audioPtr)
 
 		printf("playing 8-bit audio\n");
 
-		while(audioPtr->Read(buf, buf_size) > 0) {
-			Write(buf, buf_size);
+		while((r = audioPtr->Read(buf, buf_size)) > 0) {
+			printf("writing %d bytes\n", r);
+			Write(buf, r);
 		}
 	}
 	break;
@@ -119,8 +137,9 @@ void thOSSAudio::Play(thAudio *audioPtr)
 
 		printf("playing 16-bit audio\n");
 
-		while(audioPtr->Read(buf, buf_size) > 0) {
-			Write(buf, buf_size*2);
+		while((r = audioPtr->Read(buf, buf_size)) > 0) {
+			printf("writing %d bytes\n", r*2);
+			Write(buf, r*2);
 		}
 	}
 	break;

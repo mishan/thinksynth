@@ -28,6 +28,11 @@ thWav::thWav(char *name)
 		throw (thIOException) errno;
 	}
 
+
+	buf = new char[88200];
+	printf("setting vbuf of %d\n", 88200);
+	setvbuf(file, buf, _IOFBF, 88200);
+
 	try {
 		ReadHeader();
 	}
@@ -35,9 +40,6 @@ thWav::thWav(char *name)
 		throw e;
 	}
 
-
-	buf = new char[fmt.samples*2];
-	setvbuf(file, buf, _IOFBF, fmt.samples*2);
 }
 
 thWav::thWav(char *name, const thAudioFmt *wfmt)
@@ -156,7 +158,7 @@ int thWav::Read (void *data, int len)
 	case 16:
 		r = fread(data, sizeof(signed short), len, file);
 #ifdef WORDS_BIGENDIAN
-		for(int i = 0; i < len; i++) {
+		for(int i = 0; i < r; i++) {
 			le16(data[i], data[i]);
 		}
 #endif
