@@ -7,9 +7,9 @@ node ionode {
 	play = wav->play;
 
 	flfo = 0.2;
-	cutmin = 300;
+	cutmin = 100;
 	cutmax = 2000;
-	res = 3;
+	res = 4;
 	fwave = 0;
 
 	dlfo = 0.1;
@@ -35,9 +35,14 @@ node flfo osc::simple {
 	waveform = ionode->fwave;
 };
 
+node follower env::follower {
+	in = wav->out;
+	falloff = 0.05;
+};
+
 node filtermap env::map {
-	in = flfo->out;
-	inmin = th_min;
+	in = follower->out;
+	inmin = 0;
 	inmax = th_max;
 	outmin = ionode->cutmin;
 	outmax = ionode->cutmax;
