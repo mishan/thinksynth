@@ -88,13 +88,12 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	map<int, thMidiNote*>::iterator i = notes.find(id);
 	if(i != notes.end()) {
 		/* Make sure to turn off the old note, or it will hang! */
-		/* XXX: Maybe we should keep track of who owned the note instead
-		   of just making it die */
 		float *pbuf = new float;
 		*pbuf = 0;
 
 		i->second->SetArg("trigger", pbuf, 1);
 
+		noteorder.remove(i->second);
 		decaying.push_front(i->second);
 		notes.erase(i);
 		notecount_decay++; /* we are keeping track of polyphony this way until
@@ -105,6 +104,7 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 
 	midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
 	notes[id] = midinote;
+	noteorder.push_back(midinote);
 
 	return midinote;
 }
@@ -200,23 +200,19 @@ void thMidiChan::Process (void)
 			while(iter != decaying.end() && notecount_decay > 0 &&
 				  notecount + notecount_decay > polymax) /* more to do */
 			{
-				data = *iter;
+				delete *iter;
 				iter = decaying.erase(iter);
-				delete data;
 				notecount_decay--;
 			}
 		}
 		if(notecount > polymax) /* too many notes held down */
 		{
-			map<int, thMidiNote*>::iterator iter = notes.begin();
-			while(iter != notes.end() && notecount > polymax)
+			list<thMidiNote*>::iterator iter = noteorder.begin();
+			while(iter != noteorder.end() && notecount > polymax)
 			{
-				map<int, thMidiNote*>::iterator olditer = iter;  /* a copy of
-												the old iterator to erase */
-				iter++;
-				data = olditer->second;
-				notes.erase(olditer);
-				delete data;
+				notes.erase((*iter)->GetID());
+				delete *iter;
+				iter = noteorder.erase(iter);
 				notecount--;
 			}	
 		}
@@ -263,6 +259,7 @@ void thMidiChan::Process (void)
 		
 		if(play && (*play)[windowlength - 1] == 0)
 		{
+			noteorder.remove(data);
 			delete data;
 			notes.erase(olditer);
 			notecount--;  /* polyphony stuff */

@@ -60,6 +60,7 @@ private:
 	map<string, thArg*> args;
 	map<int, thMidiNote*> notes;
 	list<thMidiNote*> decaying;  /* linked list for decaying notes */
+	list<thMidiNote*> noteorder; /* order of the notes for polyphony limits */
 	int channels, windowlength;
 	float *output;
 	int outputnamelen;
