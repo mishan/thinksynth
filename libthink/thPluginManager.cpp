@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.25 2003/04/28 21:02:36 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.26 2003/04/29 08:33:53 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -13,10 +13,7 @@
 #include <sys/stat.h>
 #include <dlfcn.h>
 #include <fcntl.h>
-
-#ifdef USE_DEBUG
 #include <errno.h>
-#endif
 
 #include "thBSTree.h"
 #include "thPlugin.h"
@@ -37,31 +34,29 @@ char *thPluginManager::GetPath (char *name)
 {
 	char *path = new char[strlen(name) + strlen(PLUGIN_PATH) + 
 						  strlen(SHARED_SUFFIX) + 1];
-	int fd;
-
+	struct stat *dummy = (struct stat*)malloc (sizeof(struct stat));
+	
 	/* Use the default path first */
 	sprintf(path, "%s%s%s", PLUGIN_PATH, name, SHARED_SUFFIX);
 	
 	/* Check for existence in the expected place */
-	fd = open (path, O_RDONLY);
-
-	if (fd < 0) { /* File existeth not */
-		fprintf (stderr, "thPluginManager::GetPath: %s not found, looking in plugins/\n", path);
+	
+	if (stat (path, dummy) == -1) { /* File existeth not */
+		fprintf (stderr, "thPluginManager: %s: %s/\n", path, strerror(errno));
 		
 		delete path;
 		path = new char[strlen("plugins/") + strlen(name) + 
-						strlen(SHARED_SUFFIX) + 1];
+					strlen(SHARED_SUFFIX) + 1];
+		
 		sprintf (path, "plugins/%s%s", name, SHARED_SUFFIX);
-		if((fd = open(path, O_RDONLY)) < 0) {
-			fprintf(stderr, "thPluginManager::GetPath: %s not found\n", path);
+		if(stat(path, dummy) == -1) {
+			fprintf(stderr, "thPluginManager: %s: %s\n", path, strerror(errno));
 			delete path;
 			return NULL;
 		}
 	}
-	
-	/* If we get here, the fd MUST be open - see the previous conditional */
-	close(fd);
-			
+
+	free (dummy);
 	return path;
 }
 
