@@ -13,7 +13,7 @@
 #include "thNode.h"
 #include "thMod.h"
 
-thMod::thMod (char *name)
+thMod::thMod (const char *name)
 {
 	modname = strdup(name);
 	ionode = NULL;
@@ -57,12 +57,11 @@ void thMod::NewNode (thNode *node)
 	modnodes.Insert((char *)node->GetName(), node);
 }
 
-void thMod::SetName (const char *name)
+/* We own this string. The caller may not free it. */
+void thMod::SetName (char *name)
 {
-	if(modname) {
-		free (modname);
-	}
-	modname = strdup(name);
+	free (modname);
+	modname = name;
 }
 
 void thMod::SetIONode (const char *name)

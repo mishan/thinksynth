@@ -3,14 +3,14 @@
 
 class thMod {
 public:
-	thMod(char *name);
+	thMod(const char *name);
 	~thMod();
 
 	thNode *FindNode(const char *name);
 	const thArgValue *GetArg (const char *nodename, const char *argname);
 	void NewNode(thNode *node);
 	const char *GetName(void) { return modname; };
-	void SetName(const char *name);
+	void SetName(char *name);
 	void SetIONode(const char *name);
 	thNode *GetIONode(void) { return ionode; };
 	void PrintIONode(void);

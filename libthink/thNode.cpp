@@ -13,7 +13,7 @@
 #include "thPluginManager.h"
 #include "thNode.h"
 
-thNode::thNode (char *name, thPlugin *thplug)
+thNode::thNode (const char *name, thPlugin *thplug)
 {
 	nodename = strdup(name);
 	plugin = thplug;
@@ -26,10 +26,11 @@ thNode::~thNode (void)
 	/* free anything else */
 }
 
-void thNode::SetName(const char *name)
+/* We own this string. The caller may not free it. */
+void thNode::SetName(char *name)
 {
 	free(nodename);
-	nodename = strdup(name);
+	nodename = name;
 }
 
 void thNode::SetArg (const char *name, const float *value, int num)

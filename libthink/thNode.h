@@ -3,10 +3,10 @@
 
 class thNode {
 public:
-	thNode (char *name, thPlugin *thplug);
+	thNode (const char *name, thPlugin *thplug);
 	~thNode (void);
 
-	void SetName (const char *name);
+	void SetName (char *name);
 	const char *GetName (void) { return nodename; };
 	void SetArg (const char *name, const float *value, int num);
 	void SetArg (const char *name, const char *node, const char *value);
