@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.80 2004/08/16 02:18:45 joshk Exp $
+dnl $Id: configure.ac,v 1.81 2004/08/16 02:20:43 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -95,7 +95,7 @@ case "$ac_cv_host" in
 	;;
 esac
 
-if test "$ac_cv_host" != Darwin; then
+if test "$system" != "Darwin/OS X"; then
 	AC_SEARCH_LIBS(dlopen, [dl c_r], , [AC_MSG_ERROR(No dlopen implementation found on your machine; not continuing.)])
 	AC_SEARCH_LIBS(dlerror, [dl c_r], [AC_DEFINE(HAVE_DLERROR, 1, [Define if DLERROR is available.])])
 	SHARED_SUFFIX=".so"
@@ -165,7 +165,7 @@ else
   AC_SUBST(GTHREAD_LIBS, [`pkg-config gthread-2.0 --libs`])
 fi
 
-if test "`uname -s`" != "Darwin"; then
+if test "$system" != "Darwin/OS X"; then
 
 AC_MSG_CHECKING([for GTK--]) 
 
