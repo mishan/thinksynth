@@ -1,4 +1,4 @@
-/* $Id: thPluginManager.cpp,v 1.23 2003/04/27 19:59:18 joshk Exp $ */
+/* $Id: thPluginManager.cpp,v 1.24 2003/04/27 20:19:26 joshk Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -59,9 +59,10 @@ char *thPluginManager::GetPath (char *name)
 			return NULL;
 		}
 	}
-
+	
+	/* If we get here, the fd MUST be open - see the previous conditional */
 	close(fd);
-		
+			
 	return path;
 }
 
@@ -73,6 +74,11 @@ int thPluginManager::LoadPlugin (char *name)
 
 	path = GetPath(name);
 
+	if (path == NULL) { /* Not found at all */
+		fprintf (stderr, "Could not find the plugin anywhere!\n");
+		return 1;
+	}
+	
 	plugin = new thPlugin (path);
 	delete[] path;
 
