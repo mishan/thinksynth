@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.88 2004/09/05 03:19:26 joshk Exp $
+dnl $Id: configure.ac,v 1.89 2004/09/05 03:21:40 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -97,7 +97,7 @@ case "$ac_cv_host" in
 		else
 			system="unknown"
 		fi
-		if "$ac_cv_c_compiler_gnu" = yes; then
+		if test "$ac_cv_c_compiler_gnu" = yes; then
 			CXXFLAGS="$CXXFLAGS -fPIC -DPIC"
 		fi
 	;;
