@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.12 2004/09/18 02:16:47 joshk Exp $ */
+/* $Id: gthJackAudio.h,v 1.13 2004/10/01 05:02:32 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -26,10 +26,10 @@
 class gthJackAudio : public gthAudio
 {
 public:
-	gthJackAudio (thSynth *argsynth)
+	gthJackAudio (thSynth *synth)
 		throw (thIOException);
 
-	gthJackAudio (thSynth *argsynth, int (*callback)(jack_nframes_t, void *))
+	gthJackAudio (thSynth *synth, int (*callback)(jack_nframes_t, void *))
 		throw (thIOException);
 
 	virtual ~gthJackAudio (void);
@@ -38,9 +38,9 @@ public:
 
 	int Write (float *, int len);
 	int Read (void *, int len);
-	const gthAudioFmt *GetFormat (void) { return &ofmt; };
-	void SetFormat (thSynth *argsynth);
-	void SetFormat (const gthAudioFmt *afmt);
+	const gthAudioFmt *GetFormat (void) { return &ofmt_; };
+	void SetFormat (thSynth *synth);
+	void SetFormat (const gthAudioFmt *fmt);
 
 	bool ProcessEvents (void);
 
@@ -49,19 +49,22 @@ public:
 	int getSampleRate (void);
 	int getBufferSize (void);
 
-	jack_client_t *jack_handle;
+	jack_client_t *jackHandle (void) { return jack_handle_; }
+
+	void invalidate (void);
 
 	/* Error codes */
 	enum { ERR_HANDLE_NULL = 256, ERR_NO_PLAYBACK };
 
 protected:
-	int chans;
-	jack_port_t **out_ports;
-	thSynth *synth;
-	int (*jcallback)(jack_nframes_t, void*);
+	int chans_;
+	jack_port_t **out_ports_;
+	thSynth *synth_;
+	jack_client_t *jack_handle_;
+	int (*jcallback_)(jack_nframes_t, void*);
 
 private:
-	gthAudioFmt ofmt, ifmt;
+	gthAudioFmt ofmt_, ifmt_;
 	void registerPorts (void);
 	void getStats (void);
 };
