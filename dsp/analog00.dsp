@@ -6,22 +6,22 @@ node ionode {
 	channels = 2;
 	play = amp_env->play;
 
-	wave = 1;
-	pw = 0.5;
+	wave = 2;
+	pw = 0.2;
 	subwave = 2;
-	subpw = 0.1;
+	subpw = 0.3;
 	sublevel = 0.2;
 
 	cutmin = 0.05;
-	cutmax = 0.9;
-	res = 0.9;
+	cutmax = 0.95;
+	res = 0.92;
 
-	amp_a = 2000;
+	amp_a = 4000;
 	amp_d = 30000;
 	amp_s = 130;
-	amp_r = 10000;
+	amp_r = 20000;
 
-	filt_a = 7000;
+	filt_a = 10000;
 	filt_d = 20000;
 	filt_s = 100;
 	filt_r = 20000;
