@@ -1,22 +1,24 @@
 name "test";
 
 node ionode test::test {
-	out0 = env->out;
+	out0 = mixer->out;
 	channels = 1;
+	play = env->play;
+	};
+node mixer mixer::mul {
+	in0 = osc->out;
+	in1 = env->out;
 	};
 node env env::adsr {
 	a = 100;
 	d = 300;
 	s = 40;
 	r = 500;
-	trigger = 1;
+	trigger = 0;
 	};
 node osc osc::simple {
 	freq = 440;
-	waveform = testnode->foo;
-	};
-node testnode test::test {
-	foo = 4;
+	waveform = 4;
 	};
 
 io ionode;

@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.53 2003/04/29 08:14:15 joshk Exp $ */
+/* $Id: thMod.cpp,v 1.54 2003/05/03 00:24:14 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -99,7 +99,7 @@ void thMod::Process (unsigned int windowlen)
 
 	ionode->SetRecalc(false);
 
-	for(listnode = ((thList *)ionode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
+	for(listnode = ((thList *)ionode->GetChildren())->GetHead(); listnode; listnode = listnode->next) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == true) {
 			ProcessHelper(windowlen, data);
@@ -119,7 +119,7 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 
 	node->SetRecalc(false);
   
-	for(listnode = ((thList *)node->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
+	for(listnode = ((thList *)node->GetChildren())->GetHead(); listnode; listnode = listnode->next) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == true) {
 			ProcessHelper(windowlen, data);
@@ -137,7 +137,7 @@ void thMod::SetActiveNodes(void) /* reset the recalc flag for nodes with active 
 	thListNode *listnode;
 	thNode *data;
 
-	for(listnode = activelist.GetHead(); listnode; listnode = listnode->prev) {
+	for(listnode = activelist.GetHead(); listnode; listnode = listnode->next) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
@@ -151,7 +151,7 @@ void thMod::SetActiveNodesHelper(thNode *node)
 	thListNode *listnode;
 	thNode *data;
 
-	for(listnode = ((thList *)node->GetParents())->GetHead(); listnode; listnode = listnode->prev) {
+	for(listnode = ((thList *)node->GetParents())->GetHead(); listnode; listnode = listnode->next) {
 		data = (thNode *)listnode->data;
 		if(data->GetRecalc() == false) {
 			data->SetRecalc(true);
@@ -182,7 +182,7 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 	thBSTree *argtree;
 
 	if(parentnode->GetChildren()) {
-		for(listnode = ((thList* )parentnode->GetChildren())->GetHead(); listnode; listnode = listnode->prev) {
+		for(listnode = ((thList* )parentnode->GetChildren())->GetHead(); listnode; listnode = listnode->next) {
 			data = (thNode *)listnode->data;
 			if(!mod->FindNode((char *)data->GetName())) {
 				newnode = new thNode((char *)data->GetName(), data->GetPlugin());
@@ -203,18 +203,12 @@ void thMod::CopyHelper (thMod *mod, thNode *parentnode)
 void thMod::BuildSynthTree (void)
 {
 	thBSTree *argtree;
-	thArgValue *data;
 
 	/* We don't want to recalc the root if something points here */
 	ionode->SetRecalc(true);  
 
 	argtree = ionode->GetArgTree();
-	if(argtree) {
-		data = (thArgValue *)((thArg *)argtree->GetData())->GetArg();
-		if(data->argType == ARG_POINTER) {
-			BuildSynthTreeHelper(ionode, data->argPointNode);
-		}
-	}
+	BuildSynthTreeHelper2(argtree, ionode);
 }
 
 int thMod::BuildSynthTreeHelper(thNode *parent, char *nodename)
