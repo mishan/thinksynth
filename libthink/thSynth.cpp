@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.50 2003/05/06 18:17:15 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.51 2003/05/06 18:20:46 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -31,14 +31,16 @@ thSynth::thSynth()
 	channels = new thBSTree(StringCompare);
 
 	thOutput = new float[thChans*thWindowlen];  /* We should make a function to
-											 allocate this, so we can easily
-											 change thChans and thWindowlen */
+												   allocate this, so we can 
+												   easily change thChans and
+												   thWindowlen */
 }
 
 thSynth::~thSynth()
 {
 	delete modlist;
 	delete channels;
+	delete thOutput;
 }
 
 void thSynth::LoadMod(const char *filename)
