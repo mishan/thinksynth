@@ -1,8 +1,9 @@
-/* $Id: div.cpp,v 1.7 2003/10/12 00:41:04 ink Exp $ */
+/* $Id: sin.cpp,v 1.1 2003/10/12 00:41:04 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <math.h>
 
 #include "think.h"
 
@@ -13,7 +14,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-char		*desc = "Divides two streams";
+char		*desc = "Sine Calculation";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -22,12 +23,12 @@ extern "C" void module_cleanup (struct module *mod);
 
 void module_cleanup (struct module *mod)
 {
-	printf("Division plugin unloading\n");
+	printf("Sine plugin unloading\n");
 }
 
 int module_init (thPlugin *plugin)
 {
-	printf("Division plugin loaded\n");
+	printf("Sine plugin loaded\n");
 
 	plugin->SetDesc (desc);
 	plugin->SetState (mystate);
@@ -38,21 +39,35 @@ int module_init (thPlugin *plugin)
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
 	float *out;
-	thArg *in_0, *in_1;
+	thArg *in_index, *in_wavelength, *in_amp;
 	thArg *out_arg;
 	unsigned int i;
+	float amp, wavelength;
 
-	in_0 = mod->GetArg(node, "in0");
-	in_1 = mod->GetArg(node, "in1");
+	in_index = mod->GetArg(node, "index");
+	in_wavelength = mod->GetArg(node, "wavelength");
+	in_amp = mod->GetArg(node, "amp");
 
 	out_arg = mod->GetArg(node, "out");
 	out = out_arg->Allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
-		out[i] = (*in_0)[i]/(*in_1)[i];
+	for(i=0;i<windowlen;i++)
+	{
+		amp = (*in_amp)[i];
+		wavelength = (*in_wavelength)[i];
+
+		if (amp == 0)
+		{
+			amp = 1;
+		}
+		if (wavelength == 0)
+		{
+			wavelength = 1;
+		}
+
+		out[i] = sin(((*in_index)[i] / wavelength) * M_PI * 2) * amp;
 	}
 
-/*	node->SetArg("out", out, windowlen); */
 	return 0;
 }
 

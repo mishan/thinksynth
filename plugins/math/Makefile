@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.3 2003/09/02 04:45:35 joshk Exp $
+# $Id: Makefile,v 1.4 2003/10/12 00:41:04 ink Exp $
 
-PLUGIN_NAMES = add sub mul div
+PLUGIN_NAMES = add sub mul div sin
 include ../plugin-common.mk
