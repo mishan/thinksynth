@@ -78,10 +78,8 @@ static int key_sizes[4][7] =
 	}
 };
 
-Keyboard::Keyboard (Gtk::Container *parent, thSynth *argsynth)
+Keyboard::Keyboard (void)
 {
-	synth = argsynth;
-
 	channel = 0;
 	transpose = 0;
 	
@@ -94,12 +92,13 @@ Keyboard::Keyboard (Gtk::Container *parent, thSynth *argsynth)
 	mouse_notnum = -1;
 	mouse_veloc = 127;
 	cur_size = 2; /* keyboard widget size parameter */
-	ctrl_on = 0;
-	shift_on = 0;
-	alt_on = 0;
+
+	ctrl_on  = true;
+	shift_on = true;
+	alt_on   = true;
 
 	img_height = key_sizes[cur_size][0] + key_sizes[cur_size][1];
-	img_width = key_sizes[cur_size][2] * 75;
+	img_width  = key_sizes[cur_size][2] * 75;
 
 	set_size_request(img_width, img_height);
 	/* allow widget to receive mouse/keypress events */
@@ -107,23 +106,10 @@ Keyboard::Keyboard (Gtk::Container *parent, thSynth *argsynth)
 
 	focus_box = false;
 
-	/* we must have a parent to be able to realize() and do some of our
-	   magic */
-	parent->add(*this);
-	realize();
-
-	drawable = ((GtkWidget *)gobj())->window;
-	/* allow the widget to grab focus and process keypress events */
-	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(gobj()), GTK_CAN_FOCUS);
-
-	kbgc = gdk_gc_new (drawable);
-	gdk_gc_set_function (kbgc, GDK_COPY);
-	gdk_gc_set_fill (kbgc, GDK_SOLID);
-	gdk_rgb_gc_set_foreground (kbgc, 0x00000000);
-	gdk_rgb_gc_set_background (kbgc, 0x00FFFFFF);
-
-		/* disable key repeat */
-//	gdk_key_repeat_disable ();
+	/* init internal widget stuff to NULL for now; will be set up in
+	   on_realize () */
+	drawable = NULL;
+	kbgc = NULL;
 
 	/* clear previous key state */
 	for (int i = 0; i < 128; i++)
@@ -131,24 +117,6 @@ Keyboard::Keyboard (Gtk::Container *parent, thSynth *argsynth)
 		prv_active_keys[i] = -2;
 		active_keys[i] = 0;
 	}
-
-	signal_expose_event().connect(SigC::slot(*this, &Keyboard::exposeEvent));
-
-	signal_button_press_event().connect(
-		SigC::slot(*this, &Keyboard::clickEvent));
-
-	signal_button_release_event().connect(
-		SigC::slot(*this, &Keyboard::unclickEvent));
-
-	signal_key_press_event().connect(SigC::slot(*this, &Keyboard::keyEvent));
-
-	signal_key_release_event().connect(SigC::slot(*this, &Keyboard::keyEvent));
-
-	signal_focus_in_event().connect(
-		SigC::slot(*this, &Keyboard::focusInEvent));
-
-	signal_focus_out_event().connect(
-		SigC::slot(*this, &Keyboard::focusOutEvent));
 }
 
 Keyboard::~Keyboard (void)
@@ -157,10 +125,7 @@ Keyboard::~Keyboard (void)
 
 void Keyboard::SetChannel (int argchan)
 {
-	if ((argchan >= 0) && (argchan < synth->GetChannelCount()))
-	{
-		channel = argchan;
-	}
+	channel = argchan;
 }
 
 void Keyboard::SetTranspose (int argtranspose)
@@ -174,29 +139,137 @@ void Keyboard::SetTranspose (int argtranspose)
 	transpose = argtranspose;
 }
 
-bool Keyboard::keyEvent (GdkEventKey *k)
+/* signal accessor methods */
+type_signal_note_on Keyboard::signal_note_on (void)
 {
-	int keynum, press, release, notenum, veloc;
+	return m_signal_note_on;
+}
+
+type_signal_note_off Keyboard::signal_note_off (void)
+{
+	return m_signal_note_off;
+}
+
+/* overloaded signal handlers */
+void Keyboard::on_realize (void)
+{
+	/* call the base class on_realize() method, then do our own stuff */
+	Gtk::DrawingArea::on_realize ();
+
+	drawable = ((GtkWidget *)gobj())->window;
+	/* allow the widget to grab focus and process keypress events */
+	GTK_WIDGET_SET_FLAGS(GTK_WIDGET(gobj()), GTK_CAN_FOCUS);
+
+	kbgc = gdk_gc_new (drawable);
+	gdk_gc_set_function (kbgc, GDK_COPY);
+	gdk_gc_set_fill (kbgc, GDK_SOLID);
+	gdk_rgb_gc_set_foreground (kbgc, 0x00000000);
+	gdk_rgb_gc_set_background (kbgc, 0x00FFFFFF);
+}
+
+bool Keyboard::on_expose_event (GdkEventExpose *e)
+{
+	if (!drawable)
+		realize ();
+
+	/* redraw widget */
+	drawKeyboard (5);
+
+	return true;
+}
+
+bool Keyboard::on_focus_in_event (GdkEventFocus *f)
+{
+	focus_box = true;
+
+	/* just draw the focus box */
+	drawKeyboardFocus();
+
+	return true;
+}
+
+bool Keyboard::on_focus_out_event (GdkEventFocus *f)
+{
+	focus_box = false;
+
+	/* redraw widget */
+	drawKeyboard(5);
+
+	return true;
+}
+
+bool Keyboard::on_button_press_event (GdkEventButton *b)
+{
+	int	veloc;
+
+	/* we want to steal focus on mouse-click */
+	grab_focus ();
+
+	if (mouse_notnum >= 0) {	/* already active */
+		m_signal_note_off.emit(channel, mouse_notnum);
+		active_keys[mouse_notnum] = 0;
+	}
+		
+	/* get note number */
+	mouse_notnum = get_coord ();
+		
+	if (mouse_notnum < 0) return false;
+		
+	switch (b->button) 
+	{
+		case 1:	veloc = veloc3; break;
+		case 2:	veloc = veloc2; break;
+		case 3:	veloc = veloc1; break;
+		default:
+			veloc = veloc0;
+			break;
+	}
+
+	active_keys[mouse_notnum] = 1;
+	m_signal_note_on.emit(channel, mouse_notnum, veloc);
+
+	mouse_veloc = veloc;	/* save velocity */
+
+	drawKeyboard(1);
+
+	return true;
+}
+
+bool Keyboard::on_button_release_event (GdkEventButton *b)
+{
+	/* turn off if active */
+	if (mouse_notnum >= 0) {
+		m_signal_note_off.emit(channel, mouse_notnum);
+		active_keys[mouse_notnum] = 0;
+	}
+	mouse_notnum = -1;
+
+	drawKeyboard(1);
+
+	return true;
+}
+
+bool Keyboard::on_key_press_event (GdkEventKey *k)
+{
+	int keynum, notenum, veloc;
 
 	keynum = k->keyval;
-	press = (k->type == GDK_KEY_PRESS ? 1 : 0);
-	release = 1 - press;
 
 	switch (keynum)
 	{
 		case GDK_Control_L:
 		case GDK_Control_R:
-			ctrl_on = press;
+			ctrl_on = true;
 			break;
 		case GDK_Shift_L:		/* Shift */
 		case GDK_Shift_R:
-			shift_on = press;
+			shift_on = true;
 			break;
 		case GDK_Alt_L:			/* Alt */
 		case GDK_Alt_R:
 		case GDK_Meta_L:
 		case GDK_Meta_R:
-			alt_on = press; 
+			alt_on = true;
 			break;
 		case GDK_F1:			/* function keys */
 		case GDK_F2:
@@ -221,22 +294,17 @@ bool Keyboard::keyEvent (GdkEventKey *k)
 			/* other keys */
 			notenum = keyval_to_notnum (keynum);
 			if (notenum >= 0) {	/* note event */
-				if (press) {	/* note-on */
-					if (alt_on) {	/* velocity */
-						veloc = veloc0;
-					} else if (ctrl_on) {
-						veloc = veloc1;
-					} else if (shift_on) {
-						veloc = veloc2;
-					} else {
-						veloc = veloc3;
-					}
-					synth->AddNote(channel, notenum, veloc);
-					active_keys[notenum] = 1;
-				} else {	/* note-off */
-					synth->DelNote(channel, notenum);
-					active_keys[notenum] = 0;
+				if (alt_on) {	/* velocity */
+					veloc = veloc0;
+				} else if (ctrl_on) {
+					veloc = veloc1;
+				} else if (shift_on) {
+					veloc = veloc2;
+				} else {
+					veloc = veloc3;
 				}
+				m_signal_note_on.emit(channel, notenum, veloc);
+				active_keys[notenum] = 1;
 			}
 			break;
 		}
@@ -248,83 +316,61 @@ bool Keyboard::keyEvent (GdkEventKey *k)
 	return true;
 }
 
-bool Keyboard::focusInEvent (GdkEventFocus *f)
+bool Keyboard::on_key_release_event (GdkEventKey *k)
 {
-//	printf("Keyboard::focusInEvent\n");
+	int keynum, notenum;
 
-	focus_box = true;
+	keynum = k->keyval;
 
-	drawKeyboardFocus();
-
-	return true;
-}
-
-bool Keyboard::focusOutEvent (GdkEventFocus *f)
-{
-//	printf("Keyboard::focusOutEvent\n");
-
-	focus_box = false;
-
-	/* redraw widget */
-	drawKeyboard(5);
-
-	return true;
-}
-
-bool Keyboard::unclickEvent (GdkEventButton *b)
-{
-	/* turn off if active */
-	if (mouse_notnum >= 0) {
-		synth->DelNote(channel, mouse_notnum);
-		active_keys[mouse_notnum] = 0;
-	}
-	mouse_notnum = -1;
-
-	drawKeyboard(1);
-
-	return true;
-}
-
-bool Keyboard::clickEvent (GdkEventButton *b)
-{	
-	int	veloc;
-
-	grab_focus ();
-
-	if (mouse_notnum >= 0) {	/* already active */
-		synth->DelNote(channel, mouse_notnum);
-		active_keys[mouse_notnum] = 0;
-	}
-		
-	/* get note number */
-	mouse_notnum = get_coord ();
-		
-	if (mouse_notnum < 0) return false;
-		
-	switch (b->button) 
+	switch (keynum)
 	{
-		case 1:	veloc = veloc3; break;
-		case 2:	veloc = veloc2; break;
-		case 3:	veloc = veloc1; break;
-		default:
-			veloc = veloc0;
+		case GDK_Control_L:
+		case GDK_Control_R:
+			ctrl_on = false;
 			break;
+		case GDK_Shift_L:		/* Shift */
+		case GDK_Shift_R:
+			shift_on = false;
+			break;
+		case GDK_Alt_L:			/* Alt */
+		case GDK_Alt_R:
+		case GDK_Meta_L:
+		case GDK_Meta_R:
+			alt_on = false;
+			break;
+		case GDK_F1:			/* function keys */
+		case GDK_F2:
+		case GDK_F3:
+		case GDK_F4:
+		case GDK_F5:
+		case GDK_F6:
+		case GDK_F7:
+		case GDK_F8:
+		case GDK_F9:
+		case GDK_F10:
+		case GDK_F11:
+		case GDK_F12:
+		case GDK_Left:
+		case GDK_Right:
+		case GDK_Up:
+		case GDK_Down:
+			/* XXX */
+			break;
+		default:
+		{
+			/* other keys */
+			notenum = keyval_to_notnum (keynum);
+			if (notenum >= 0) {	/* note event */
+				m_signal_note_off.emit(channel, notenum);
+				active_keys[notenum] = 0;
+			}
+			break;
+		}
+
 	}
 
-	active_keys[mouse_notnum] = 1;
-	synth->AddNote(channel, mouse_notnum, veloc);
-
-	mouse_veloc = veloc;	/* save velocity */
-
 	drawKeyboard(1);
-
-	return true;
-}
-
-bool Keyboard::exposeEvent (GdkEventExpose *e)
-{
-	drawKeyboard (5);
-
+	
 	return true;
 }
 

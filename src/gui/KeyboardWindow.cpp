@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.17 2004/04/02 11:33:11 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.18 2004/04/03 02:18:43 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -35,10 +35,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 	add(vbox);
 
 	vbox.pack_start(ctrlFrame, Gtk::PACK_SHRINK, 5);
-
-	/* we must realize the widgets before we do some things .. */
-	realize();
-	keyboard = new Keyboard(&vbox, synth);
+	vbox.pack_start(keyboard);
 
 	ctrlFrame.add(ctrlTable);
 
@@ -59,23 +56,35 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 	transVal->signal_value_changed().connect(
 		SigC::slot(*this, &KeyboardWindow::changeTranspose));
+
+	keyboard.signal_note_on().connect(
+		SigC::slot(*this, &KeyboardWindow::eventNoteOn));
+
+	keyboard.signal_note_off().connect(
+		SigC::slot(*this, &KeyboardWindow::eventNoteOff));
 }
 
 KeyboardWindow::~KeyboardWindow (void)
 {
-//	hide ();
+}
 
-//  gdk_key_repeat_enable ()
-	delete keyboard;
+void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
+{
+	synth->AddNote(chan, note, veloc);
+}
+
+void KeyboardWindow::eventNoteOff (int chan, int note)
+{
+	synth->DelNote(chan, note);
 }
 
 void KeyboardWindow::changeChannel (void)
 {
 	/* the keyboard widget takes the real channel value */
-	keyboard->SetChannel((int)chanVal->get_value()-1);
+	keyboard.SetChannel((int)chanVal->get_value()-1);
 }
 
 void KeyboardWindow::changeTranspose (void)
 {
-	keyboard->SetTranspose((int)transVal->get_value());
+	keyboard.SetTranspose((int)transVal->get_value());
 }
