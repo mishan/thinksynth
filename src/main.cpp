@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.53 2003/04/30 03:34:33 joshk Exp $ */
+/* $Id: main.cpp,v 1.54 2003/04/30 04:03:04 joshk Exp $ */
 
 #include "config.h"
 
@@ -51,12 +51,17 @@ syntax:
 				break;
 
 			case 'p':
+				free (plugin_path);
 				if (optarg[strlen(optarg)-1] != '/') {
-					plugin_path = (char*)(realloc(plugin_path, (plugin_len+1) * sizeof(char*)));
-					strcat(plugin_path, "/");
+					plugin_path = (char*)malloc(strlen(optarg)+2);
+					sprintf (plugin_path, "%s/", optarg);
 				}
-
-				strcpy(plugin_path, optarg);
+				else {
+					plugin_path = strdup(optarg);	
+				}
+				
+				plugin_len = strlen (plugin_path);
+				
 				break;
 
 			case 'm':
