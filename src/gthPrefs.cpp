@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.6 2004/08/16 09:34:48 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.7 2004/09/04 23:03:30 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -126,7 +126,6 @@ void gthPrefs::Load (void)
 			}
 
 			values[len] = NULL;
-
 
 			/* XXX: handle specific cases here for now */
 			if (key == "channel" && values[0] && values[1])

@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.19 2004/08/21 21:41:41 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.20 2004/09/04 23:03:30 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -178,7 +178,9 @@ void MainSynthWindow::populate (void)
 					break;
 				case thArg::SLIDER:
 				{
-					Gtk::Label *label = manage(new Gtk::Label(arg->argLabel));
+					Gtk::Label *label = manage(new Gtk::Label(
+											   arg->argLabel.length() > 0 ? 
+											   arg->argLabel : argName));
 
 					Gtk::HScale *slider = manage(new Gtk::HScale(arg->argMin,
 																 arg->argMax,
