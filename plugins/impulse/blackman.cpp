@@ -61,7 +61,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	factor = (*in_cut)[0]/2;
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate((int)len+1);
+	out = out_arg->allocate((int)len+1);
 	
 	for(i = 0; i <= (unsigned int)len; i++)
 	{

@@ -65,20 +65,20 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_impulse = mod->getArg(node, args[IN_IMPULSE]);
 	in_mix = mod->getArg(node, args[IN_MIX]);
 
-	impulse_len = in_impulse->getLen();
+	impulse_len = in_impulse->len();
 
 	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-	buffer = inout_buffer->Allocate(impulse_len);
-	bufpos = inout_bufpos->Allocate(1);
+	buffer = inout_buffer->allocate(impulse_len);
+	bufpos = inout_bufpos->allocate(1);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	for(i=0;i<windowlen;i++) {
 		out[i] = 0;
 
-		if(*bufpos > inout_buffer->getLen()) {
+		if(*bufpos > inout_buffer->len()) {
 			*bufpos = 0;
 		}
 		buffer[(int)*bufpos] = (*in_arg)[i];

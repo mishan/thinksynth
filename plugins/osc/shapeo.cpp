@@ -69,8 +69,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	phase = (int)(*inout_last)[1]; /* Which phase we are in */
-	out_last = inout_last->Allocate(2);
-	out = out_arg->Allocate(windowlen);
+	out_last = inout_last->allocate(2);
+	out = out_arg->allocate(windowlen);
 
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	in_shape = mod->getArg(node, args[IN_SHAPE]); // Shape Variable

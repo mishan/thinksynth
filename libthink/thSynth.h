@@ -39,8 +39,6 @@ public:
 		return instance_;
 	}
 
-	typedef map<string, thArg *> ChannelArgMap;
-
 	thMod *loadMod(const string &filename);
 	thMod *loadMod(const string &filename, int channum, float amp);
 	thMod *loadMod(FILE *input);
@@ -59,10 +57,10 @@ public:
 
 	int audioChannelCount (void) const { return channels_; }
 
-	ChannelArgMap getChanArgs (int chan) {
+	thMidiChan::ArgMap getChanArgs (int chan) {
 		if ((chan < 0) || (chan >= midiChannelCnt_) || 
 			(midiChannels_[chan] == NULL))
-			return ChannelArgMap();
+			return thMidiChan::ArgMap();
 
 		return midiChannels_[chan]->GetArgs();
 	}

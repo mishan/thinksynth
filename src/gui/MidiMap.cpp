@@ -284,21 +284,27 @@ void MidiMap::fillDestArgCombo (int chan)
 		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
-			if(i->second && i->second->getWidgetType() != thArg::HIDE) {
+			if(i->second && i->second->widgetType() != thArg::HIDE) 
+			{
 				item = Gtk::manage(new Gtk::ComboDropDownItem);
 				namelabel = Gtk::manage(new Gtk::Label(
-								(i->second->getLabel().length() > 0) ?
-								i->second->getLabel() : i->second->getName()));
+								(i->second->label().length() > 0) ?
+								i->second->label() : i->second->name()));
+
 				item->add(*namelabel);
+
 				item->signal_button_press_event().connect(
 					sigc::bind<thArg *>(sigc::mem_fun(*this,
 								&MidiMap::onDestArgComboChanged), i->second));
 				item->signal_focus_in_event().connect(
 					sigc::bind<thArg *>(sigc::mem_fun(*this,
 								&MidiMap::onDestArgComboFocus), i->second));
+
 				item->show_all();
+
 				destArgComboStrings.push_back(*item);
-				if(!visibleArgs)
+
+				if(visibleArgs == 0)
 				{
 					visibleArgs = 1;
 					selectedArg_ = i->second;
@@ -309,8 +315,8 @@ void MidiMap::fillDestArgCombo (int chan)
 		if (visibleArgs)
 		{
 			set_sensitive(true);
-			selectedMin_ = selectedArg_->getMin();
-			selectedMax_ = selectedArg_->getMax();
+			selectedMin_ = selectedArg_->min();
+			selectedMax_ = selectedArg_->max();
 			minSpinBtn_->set_range(selectedMin_, selectedMax_);
 			maxSpinBtn_->set_range(selectedMin_, selectedMax_);
 			minSpinBtn_->set_value(selectedMin_);
@@ -340,7 +346,7 @@ void MidiMap::setDestArgCombo (int chan)
 		if(selectedArg_)
 		{
 			item = Gtk::manage(new Gtk::ComboDropDownItem);
-			namelabel = Gtk::manage(new Gtk::Label(selectedArg_->getLabel()));
+			namelabel = Gtk::manage(new Gtk::Label(selectedArg_->label()));
 			item->add(*namelabel);
 			item->signal_button_press_event().connect(
 				sigc::bind<thArg *>(sigc::mem_fun(*this,
@@ -355,11 +361,11 @@ void MidiMap::setDestArgCombo (int chan)
 		for (thMidiChan::ArgMap::iterator i = argList.begin();
 			 i != argList.end(); i++)
 		{
-			if(i->second && i->second->getWidgetType() != thArg::HIDE) {
+			if(i->second && i->second->widgetType() != thArg::HIDE) {
 				item = Gtk::manage(new Gtk::ComboDropDownItem);
 				namelabel = Gtk::manage(new Gtk::Label(
-								(i->second->getLabel().length() > 0) ?
-								i->second->getLabel() : i->second->getName()));
+								(i->second->label().length() > 0) ?
+								i->second->label() : i->second->name()));
 				item->add(*namelabel);
 				item->signal_button_press_event().connect(
 					sigc::bind<thArg *>(sigc::mem_fun(*this,
@@ -367,7 +373,9 @@ void MidiMap::setDestArgCombo (int chan)
 				item->signal_focus_in_event().connect(
 					sigc::bind<thArg *>(sigc::mem_fun(*this,
 								&MidiMap::onDestArgComboFocus), i->second));
+
 				item->show_all();
+
 				destArgComboStrings.push_back(*item);
 			}
 		}
@@ -430,8 +438,8 @@ bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
 bool MidiMap::onDestArgComboChanged (GdkEventButton* b, thArg *arg)
 {
 	selectedArg_ = arg;
-	selectedMin_ = arg->getMin();
-	selectedMax_ = arg->getMax();
+	selectedMin_ = arg->min();
+	selectedMax_ = arg->max();
 	minSpinBtn_->set_range(selectedMin_, selectedMax_);
 	maxSpinBtn_->set_range(selectedMin_, selectedMax_);
 	minSpinBtn_->set_value(selectedMin_);
@@ -504,10 +512,10 @@ void MidiMap::onConnectionMoved (void)
 			setDestArgCombo(selectedDestChan_);
 			selectedMin_ = selectedConnection->getMin();
 			selectedMax_ = selectedConnection->getMax();
-			minSpinBtn_->set_range(selectedArg_->getMin(),
-								   selectedArg_->getMax());
-			maxSpinBtn_->set_range(selectedArg_->getMin(),
-								   selectedArg_->getMax());
+			minSpinBtn_->set_range(selectedArg_->min(),
+								   selectedArg_->max());
+			maxSpinBtn_->set_range(selectedArg_->min(),
+								   selectedArg_->max());
 			minSpinBtn_->set_value(selectedMin_);
 			maxSpinBtn_->set_value(selectedMax_);
 			expCheckBtn_->set_active(selectedExp_);
@@ -534,7 +542,7 @@ void MidiMap::onAddButton (void)
 											selectedExp_, selectedChan_, 
 											selectedController_, 
 											selectedDestChan_, 
-											selectedArg_->getLabel()));
+											selectedArg_->label()));
 	populateConnections();
 }
 

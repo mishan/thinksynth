@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.45 2004/12/22 23:42:36 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -41,27 +41,30 @@ public:
 
 	enum WidgetType { HIDE = 0, SLIDER, CHANARG };
 	
-	void SetArg(const string &name, float *value, const int num);
-	void SetAllocatedArg(const string &name, float *value, const int num);
-	void SetArg(const string &name, const string &node, const string &value);
-	void SetArg(const string &name, const string &chanarg);
+	void setArg(const string &name, float *value, const int num);
+	void setAllocatedArg(const string &name, float *value, const int num);
+	void setArg(const string &name, const string &node, const string &value);
+	void setArg(const string &name, const string &chanarg);
 
-	void SetValue(float value); /* set a single float value */
-	void SetValues(float *values, int len); /* set a longer arg */
+	void setValue(float value); /* set a single float value */
+	void setValue(float *values, int len); /* set a longer arg */
 
-	void SetIndex (int i) { index_ = i; };
-	int GetIndex (void) { return index_; };
-	void GetBuffer(float *buffer, unsigned int size);
+	void setIndex (int i) { index_ = i; };
+	int index (void) { return index_; };
+	void getBuffer (float *buffer, unsigned int size);
 
-	unsigned int getLen (void) { return len_; }
+	unsigned int len (void) { return len_; }
 
-	const string &getName (void) const { return name_; };
-	const string &getLabel (void) const { return label_; };
-	const string &getUnits (void) const { return units_; };
-	const string &getComment (void) const { return comment_; };
-	float getMin (void) { return min_; };
-	float getMax (void) { return max_; };
-	WidgetType getWidgetType (void) { return widgetType_; };
+	const string &name (void) const { return name_; };
+	const string &label (void) const { return label_; }
+	const string &units (void) const { return units_; }
+	const string &comment (void) const { return comment_; }
+
+	float min (void) const { return min_; }
+	float max (void) const { return max_; }
+
+	ArgType type (void) const { return type_; }
+	WidgetType widgetType (void) const { return widgetType_; }
 
 	void setLabel (const string &label) { label_ = label; };
 	void setUnits (const string &units) { units_ = units; };
@@ -70,28 +73,21 @@ public:
 	void setMax (float max) { max_ = max; };
 	void setWidgetType (WidgetType widgetType) { widgetType_ = widgetType; };
 
-	float *Allocate (unsigned int elements);
+	float *allocate (unsigned int elements);
 
-	string argPointNode; /* name of the node a pointer points to */
-	string argPointName; /* name of the argument a pointer points to */
-	int argPointNodeID; /* index of the node to which the pointer points */
-	int argPointArgID;  /* index of the arg to which the pointer points */
-	thArg *argPointArg; /* actual pointer to another arg- for midi chan and
-						   note args */
-	ArgType argType; /* is this arg a value or a pointer? */
+	const string &nodePtrName (void) const { return nodePtrName_; }
+	const string &argPtrName (void) const { return argPtrName_; }
 
-	string name_; /* argument's name */
-	int index_; /* where in the arg index this arg is located */
-	float *values_; /* a pointer to an array of values */
-	unsigned int len_; /* number of elements in argValues */
+	int nodePtrId (void) const { return nodePtrId_; }
+	void setNodePtrId (int id) { nodePtrId_ = id; }
 
-	/* Okay, a bit more info about the data */
-	float min_, max_;  /* for knobs and stuff, I'm sure it will be useful
-							  elsewhere, too */
-	WidgetType widgetType_;  /* our widget type */
-	string label_;  /* This will be displayed in the UI */
-	string units_;  /* This will be displayed too...  ms, Hz, sec etc... */
-	string comment_;
+	int argPtrId (void) const { return argPtrId_; }
+	void setArgPtrId (int id) { argPtrId_ = id; }
+
+	thArg *argPtr (void) const { return argPtr_; }
+	void setArgPtr (thArg *arg) { argPtr_ = arg; }
+
+	float *values (void) const { return values_; }
 
 	type_signal_arg_changed signal_arg_changed (void) {
 		return m_signal_arg_changed;
@@ -104,7 +100,6 @@ public:
 	   floats between argMin and argMax. */
 	/* We will probably also want more things here later, but this was all I
 	   could think of NEEDING right now. */
-
 	float operator[] (unsigned int i) const {
 		/* empty */
 		if(len_ == 0) 
@@ -123,8 +118,28 @@ public:
 		/* else */
 		return values_[i%len_];
 	}
+protected:
+	string nodePtrName_; /* name of the node a pointer points to */
+	string argPtrName_;  /* name of the argument a pointer points to */
+	int nodePtrId_;      /* index of the node to which the pointer points */
+	int argPtrId_;       /* index of the arg to which the pointer points */
+	thArg *argPtr_;      /* actual pointer to another arg- for midi chan and
+							note args */
 
-private:
+	ArgType type_;       /* is this arg a value or a pointer? */
+	string name_;        /* argument's name */
+	int index_;          /* where in the arg index this arg is located */
+	float *values_;      /* a pointer to an array of values */
+	unsigned int len_;   /* number of elements in argValues */
+
+	/* Okay, a bit more info about the data */
+	float min_, max_;        /* for knobs and stuff, I'm sure it will be useful
+								elsewhere, too */
+	WidgetType widgetType_;  /* our widget type */
+	string label_;           /* This will be displayed in the UI */
+	string units_;           /* This will be displayed too. ms, Hz, sec etc.*/
+	string comment_;
+
 	type_signal_arg_changed m_signal_arg_changed;
 };
 

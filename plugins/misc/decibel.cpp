@@ -56,8 +56,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	db = mod->getArg(node, args[DB]);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	argnum = (unsigned int)db->getLen();
-	out = out_arg->Allocate(argnum);
+	argnum = (unsigned int)db->len();
+	out = out_arg->allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
 		out[i] = exp((*db)[i]*.11512925f); // thx vorbis

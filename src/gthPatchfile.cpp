@@ -281,7 +281,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 				}
 				else
 				{
-					arg->SetValue(arglist[key]);
+					arg->setValue(arglist[key]);
 				}
 			}
 			else
@@ -347,7 +347,7 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
 	for (thMidiChan::ArgMap::iterator j = args.begin();
 		 j != args.end(); j++)
 	{
-		if(j->second->getWidgetType() != j->second->HIDE)
+		if(j->second->widgetType() != j->second->HIDE)
 			fprintf(prefsFile, "%s %f\n", j->first.c_str(), (*j->second)[0]);
 	}
 

@@ -1,4 +1,4 @@
-/* $Id: ArgTable.cpp,v 1.4 2004/11/13 22:17:48 ink Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -45,11 +45,9 @@ void ArgTable::insertArg (thArg *arg)
 
 	int row = args_++;
 
-	Gtk::Label *label = manage(new Gtk::Label(
-								   (arg->getLabel().length() > 0) ?
-								   arg->getLabel() : arg->getName()));
-	Gtk::HScale *slider = manage(new Gtk::HScale(arg->getMin(), arg->getMax(),
-												 .0001));
+	Gtk::Label *label = manage(new Gtk::Label((arg->label().length() > 0) ?
+											  arg->label() : arg->name()));
+	Gtk::HScale *slider = manage(new Gtk::HScale(arg->min(),arg->max(),.0001));
 
 	Gtk::Adjustment *argAdjust = slider->get_adjustment();
 
@@ -89,7 +87,7 @@ void ArgTable::insertArg (thArg *arg)
 	
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
-	arg->SetValue(slider->get_value());
+	arg->setValue(slider->get_value());
 }
 
 void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)

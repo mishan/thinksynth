@@ -88,10 +88,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	position = (*inout_position)[0];
 	phase = (int)(*inout_position)[1];
-	out_pos = inout_position->Allocate(2);
+	out_pos = inout_position->allocate(2);
 
-	out = out_out->Allocate(windowlen);
-	play = out_play->Allocate(windowlen);
+	out = out_out->allocate(windowlen);
+	play = out_play->allocate(windowlen);
 	in_a = mod->getArg(node, args[IN_A]); /* Attack */
 	in_d = mod->getArg(node, args[IN_D]); /* Decay */
 	in_s = mod->getArg(node, args[IN_S]); /* Sustain */

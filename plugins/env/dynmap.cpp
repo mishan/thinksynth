@@ -59,7 +59,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float val_imin, val_imax, val_omin, val_omax, val_arg;
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_min = mod->getArg(node, args[IN_INMIN]);

@@ -123,18 +123,18 @@ thArg *thMod::getArg (thNode *node, const string &argname)
 		args = node->SetArg(argname, tmp, 1);
 	}
 	
-	while (args && (args->argType == thArg::ARG_POINTER) && node)
+	while (args && (args->type() == thArg::ARG_POINTER) && node)
 	{
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
 //		if (i != modnodes.end()) {
 //			node = i->second;
 		
-		node = nodeindex_[args->argPointNodeID];
+		node = nodeindex_[args->nodePtrId()];
 		//printf("Arg Point: %s (%i)\n", args->argPointName.c_str(), args->argPointArgID);
 		//args = node->GetArg(args->argPointName);
-		argpointname = args->argPointName; /* the arg this arg points to */
-		args = node->GetArg(args->argPointArgID);
+		argpointname = args->argPtrName(); /* the arg this arg points to */
+		args = node->GetArg(args->argPtrId());
 		/* If the arg doesnt exist, make it a 0 */
 		if(args == NULL)
 		{
@@ -149,9 +149,9 @@ thArg *thMod::getArg (thNode *node, const string &argname)
 		  }*/
 	}   /* Maybe also add some kind of infinite-loop checking thing? */
 
-	if (args->argType == thArg::ARG_CHANNEL)
+	if (args->type() == thArg::ARG_CHANNEL)
 	{
-		args = args->argPointArg;
+		args = args->argPtr();
 	}
 
 	return args;
@@ -164,19 +164,19 @@ thArg *thMod::getArg (thNode *node, int argindex)
 	
 	args = node->GetArg(argindex);
 
-	if (args->argType == thArg::ARG_CHANNEL)
+	if (args->type() == thArg::ARG_CHANNEL)
 	{
-		args = args->argPointArg;
+		args = args->argPtr();
 	}
 
-	while (args && (args->argType == thArg::ARG_POINTER) && node)
+	while (args && (args->type() == thArg::ARG_POINTER) && node)
 	{ 
 		/* Recurse through the list of pointers until we get a real value. */
 //		map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
 //		if (i != modnodes.end()) {
 //			node = i->second;		
-		node = nodeindex_[args->argPointNodeID];
-		args = node->GetArg(args->argPointArgID);
+		node = nodeindex_[args->nodePtrId()];
+		args = node->GetArg(args->argPtrId());
 		
 		if(args == NULL)
 		{
@@ -220,14 +220,14 @@ void thMod::printIONode (void)
 
 void thMod::setChanArg (thArg *arg)
 {
-	thArg *oldArg = chanargs_[arg->getName()];
+	thArg *oldArg = chanargs_[arg->name()];
 
 	if (oldArg)
 	{
 		delete oldArg;
 	}
 
-	chanargs_[arg->getName()] = arg;
+	chanargs_[arg->name()] = arg;
 }
 
 void thMod::process (unsigned int windowlen)
@@ -357,7 +357,7 @@ to 0 here and set the index of each node to -1 when it is first created. */
 					else
 					{
 						index = curnode->AddArgToIndex(curarg);
-						curarg->SetIndex(index);
+						curarg->setIndex(index);
 					}
 
 				}
@@ -379,11 +379,11 @@ to 0 here and set the index of each node to -1 when it is first created. */
 			}
 			else
 			{
-				if(curarg->GetIndex() < 0) /* has not been indexed yet */
+				if(curarg->index() < 0) /* has not been indexed yet */
 				{
 					/* add the node to the index */
 					index = curnode->AddArgToIndex(curarg);
-					curarg->SetIndex(index);	
+					curarg->setIndex(index);	
 				}
 			}
 		}
@@ -424,31 +424,33 @@ void thMod::setPointers (void)
 			}
 
 			/* if the thArg is a pointer, set argPointNodeID to the node's ID */
-			if(curarg && curarg->argType == thArg::ARG_POINTER)
+			if(curarg && curarg->type() == thArg::ARG_POINTER)
 			{
-				node = findNode(curarg->argPointNode);
+				node = findNode(curarg->nodePtrName());
 				
 				if(node == NULL)
 				{
 					printf("setPointers: Node %s not found!!\n",
-						   curarg->argPointNode.c_str());
+						   curarg->nodePtrName().c_str());
 				}
 				else
 				{
-					arg = node->GetArg(curarg->argPointName);
+					string argPtrName = curarg->argPtrName();
+
+					arg = node->GetArg(argPtrName);
 					
 					/* if the arg does not exist, set it to 0 */
 					if(arg == NULL)
 					{
 						tmp = new float[1];
 						tmp[0] = 0;
-						arg = node->SetArg(curarg->argPointName, tmp, 1);
+						arg = node->SetArg(argPtrName, tmp, 1);
 
-						node->GetArgTree()[arg->getName()] = arg;
+						node->GetArgTree()[arg->name()] = arg;
 					} 
 
-					curarg->argPointNodeID = node->GetID();
-					curarg->argPointArgID = arg->GetIndex();
+					curarg->setNodePtrId(node->GetID());
+					curarg->setArgPtrId(arg->index());
 				}
 			}
 		}
@@ -520,14 +522,14 @@ void thMod::buildSynthTreeHelper2(const ArgMap &argtree, thNode *currentnode)
 			fprintf(stderr, "thMod::buildSynthTreeHelper2: data points to NULL\n");
 		}
 
-		if(data && data->argType == thArg::ARG_POINTER)
+		if(data && data->type() == thArg::ARG_POINTER)
 		{
-			node = nodeindex_[data->argPointNodeID];
+			node = nodeindex_[data->nodePtrId()];
 
 			if(node == NULL)
 			{
 				printf("CRITICAL: Node %s not found!!\n",
-					   data->argPointNode.c_str());
+					   data->nodePtrName().c_str());
 			}
 
 			currentnode->AddChild(node);
@@ -536,7 +538,7 @@ void thMod::buildSynthTreeHelper2(const ArgMap &argtree, thNode *currentnode)
 			/* Don't do the same node over and over */
 			if(node->GetRecalc() == false)
 			{
-				buildSynthTreeHelper(currentnode, data->argPointNodeID);
+				buildSynthTreeHelper(currentnode, data->nodePtrId());
 			}
 		}
 	}

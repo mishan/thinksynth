@@ -314,7 +314,7 @@ WORD ASSIGN expression
 
 	float *copy = new float[1];
 	*copy = $3.floatval;
-	parsenode->SetArg($1.str, copy, 1)->SetIndex(-1); /* XXX: This is sorta
+	parsenode->SetArg($1.str, copy, 1)->setIndex(-1); /* XXX: This is sorta
 										hackish, make it not index it here */
 	free($1.str);
 }
@@ -338,7 +338,7 @@ WORD ASSIGN fstr
 	arg = new char[argsize+1];
 	memcpy(arg, p, argsize);
 	arg[argsize] = 0;
-	parsenode->SetArg($1.str, node, arg)->SetIndex(-1); /* XXX: This is sorta
+	parsenode->SetArg($1.str, node, arg)->setIndex(-1); /* XXX: This is sorta
 										hackish, make it not index it here */
 	delete[] node;
 	delete[] arg;
@@ -355,7 +355,7 @@ WORD ASSIGN ATSIGN WORD
 	chanarg = new char[chanarglen + 1];		/* +1 for the terminating '\0' */
 	memcpy(chanarg, $4.str, chanarglen + 1);
 
-    parsenode->SetArg($1.str, chanarg)->SetIndex(-1); /* XXX: This is sorta
+    parsenode->SetArg($1.str, chanarg)->setIndex(-1); /* XXX: This is sorta
                                         hackish, make it not index it here */
 }
 ;

@@ -60,12 +60,12 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_1 = mod->getArg(node, args[IN_1]);
 	in_fade = mod->getArg(node, args[IN_FADE]);
 
-	in_0->GetBuffer(buf_in0, windowlen);
-	in_1->GetBuffer(buf_in1, windowlen);
-	in_fade->GetBuffer(buf_fade, windowlen);
+	in_0->getBuffer(buf_in0, windowlen);
+	in_1->getBuffer(buf_in1, windowlen);
+	in_fade->getBuffer(buf_fade, windowlen);
 
 	out_arg = mod->getArg(node, args[OUT]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {
 		val_fade = buf_fade[i];

@@ -74,7 +74,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	amp = 1/(pwidth*num);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(len);
+	out = out_arg->allocate(len);
 
 	for(i = 0; (i+width) < len; i += width)
 	{

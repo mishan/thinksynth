@@ -62,8 +62,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	last = (*inout_last)[1];
-	out_last = inout_last->Allocate(1);
-	out = out_arg->Allocate(windowlen);
+	out_last = inout_last->allocate(1);
+	out = out_arg->allocate(windowlen);
 
 	in_sample = mod->getArg(node, args[IN_SAMPLE]);
 

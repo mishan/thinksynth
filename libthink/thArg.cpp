@@ -1,4 +1,4 @@
-/* $Id: thArg.cpp,v 1.53 2004/11/11 10:42:41 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -31,9 +31,9 @@ thArg::thArg(const string &name, float *value, const int num)
 	values_ = value;
 	len_ = num;
 
-	argType = ARG_VALUE;
-	argPointNodeID = -1;   /* so we know it has not been set yet */
-	argPointArgID = -1;   /* so we know it has not been set yet */
+	type_ = ARG_VALUE;
+	nodePtrId_ = -1;   /* so we know it has not been set yet */
+	argPtrId_ = -1;   /* so we know it has not been set yet */
 
 	widgetType_ = HIDE;
 	min_ = 0;
@@ -46,12 +46,12 @@ thArg::thArg(const string &name, const string &node, const string &value)
 	values_ = NULL;
 	len_ = 0;
 
-	argPointNode = node;
-	argPointName = value;
+	nodePtrName_ = node;
+	argPtrName_ = value;
 
-	argType = ARG_POINTER;
-	argPointNodeID = -1;   /* so we know it has not been set yet */
-	argPointArgID = -1;   /* so we know it has not been set yet */
+	type_ = ARG_POINTER;
+	nodePtrId_ = -1;   /* so we know it has not been set yet */
+	argPtrId_ = -1;   /* so we know it has not been set yet */
 
 	widgetType_ = HIDE;
 	min_ = 0;
@@ -64,12 +64,12 @@ thArg::thArg(const string &name, const string &chanarg)
     values_ = NULL;
     len_ = 0;
 
-    argPointName = chanarg;
+    argPtrName_ = chanarg;
 
-    argType = ARG_CHANNEL;
-    argPointNodeID = -1;   /* so we know it has not been set yet */
-    argPointArgID = -1;   /* so we know it has not been set yet */
-	argPointArg = NULL;
+    type_ = ARG_CHANNEL;
+    nodePtrId_ = -1;   /* so we know it has not been set yet */
+    argPtrId_ = -1;   /* so we know it has not been set yet */
+	argPtr_ = NULL;
 
 	widgetType_ = HIDE;
 	min_ = 0;
@@ -92,11 +92,11 @@ thArg::thArg (const thArg *copyArg)
 	max_ = copyArg->max_;
 	widgetType_ = copyArg->widgetType_;
 
-	argPointName = copyArg->argPointName;
-	argType = copyArg->argType;
-	argPointNodeID = copyArg->argPointNodeID;
-	argPointArgID = copyArg->argPointArgID;
-	argPointArg = copyArg->argPointArg;
+	argPtrName_ = copyArg->argPtrName_;
+	type_ = copyArg->type_;
+	nodePtrId_ = copyArg->nodePtrId_;
+	argPtrId_ = copyArg->argPtrId_;
+	argPtr_ = copyArg->argPtr_;
 }
 
 /* the equivalent of creating a thArg(NULL, NULL, 0) */
@@ -105,9 +105,9 @@ thArg::thArg (void)
 	values_ = NULL;
 	len_ = 0;
 	widgetType_ = HIDE;
-    argPointNodeID = -1;   /* so we know it has not been set yet */
-    argPointArgID = -1;   /* so we know it has not been set yet */
-	argPointArg = NULL;
+    nodePtrId_ = -1;   /* so we know it has not been set yet */
+    argPtrId_ = -1;   /* so we know it has not been set yet */
+	argPtr_ = NULL;
 }
 
 thArg::~thArg(void)
@@ -117,7 +117,7 @@ thArg::~thArg(void)
 	}
 }
 
-float *thArg::Allocate (unsigned int elements)
+float *thArg::allocate (unsigned int elements)
 {
 	if(values_ == NULL) {
 		values_ = new float[elements];
@@ -132,48 +132,48 @@ float *thArg::Allocate (unsigned int elements)
 	return values_;
 }
 
-void thArg::SetArg(const string &name, float *value, const int num)
+void thArg::setArg(const string &name, float *value, const int num)
 {
-	values_ = Allocate(num);
+	values_ = allocate(num);
 	
 	name_ = name;
 	
 	memcpy(values_, value, num * sizeof(float));
 
 	len_ = num;
-	argType = ARG_VALUE;
+	type_ = ARG_VALUE;
 }
 
-void thArg::SetAllocatedArg(const string &name, float *value, const int num)
+void thArg::setAllocatedArg(const string &name, float *value, const int num)
 {
 	values_ = value;
 	name_ = name;
 	len_ = num;
-	argType = ARG_VALUE;
+	type_ = ARG_VALUE;
 }
 
-void thArg::SetArg(const string &name, const string &node, const string &value)
+void thArg::setArg(const string &name, const string &node, const string &value)
 {
 	name_ = name;
-	argPointNode = node;
-	argPointName = value;
+	nodePtrName_ = node;
+	argPtrName_ = value;
 	
-	argType = ARG_POINTER;
+	type_ = ARG_POINTER;
 }
 
-void thArg::SetArg(const string &name, const string &chanarg)
+void thArg::setArg(const string &name, const string &chanarg)
 {
     name_ = name;
-    argPointName = chanarg;
+    argPtrName_ = chanarg;
 
-    argType = ARG_CHANNEL;
+    type_ = ARG_CHANNEL;
 }
 
-void thArg::GetBuffer(float *buffer, unsigned int size)
+void thArg::getBuffer(float *buffer, unsigned int size)
 {
 	unsigned int i, j;	
 
-	if(argType == ARG_VALUE)
+	if(type_ == ARG_VALUE)
     {
 		j = 0; /* depth into the arg float array (for the loop) */
 		for(i = 0; i < size; i++)
@@ -187,16 +187,16 @@ void thArg::GetBuffer(float *buffer, unsigned int size)
 	}
 }
 
-void thArg::SetValue(float value)
+void thArg::setValue(float value)
 {
-	values_ = Allocate(1);
+	values_ = allocate(1);
 	values_[0] = value;
 	m_signal_arg_changed(this);
 }
 
-void thArg::SetValues(float *values, int len)
+void thArg::setValue(float *values, int len)
 {
-	Allocate(len);
+	allocate(len);
 	memcpy(values_, values, len*sizeof(float));
 	m_signal_arg_changed(this);
 }

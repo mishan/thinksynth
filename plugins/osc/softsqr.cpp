@@ -75,16 +75,16 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
 	phase = (int)(*inout_last)[1]; /* Which phase we are in */
-	out_last = inout_last->Allocate(2);
-	out = out_arg->Allocate(windowlen);
+	out_last = inout_last->allocate(2);
+	out = out_arg->allocate(windowlen);
 
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	in_sw = mod->getArg(node, args[IN_SFREQ]); // Sine Freq
 	in_pw = mod->getArg(node, args[IN_PW]); // Pulse Width
 
-	in_freq->GetBuffer(buf_freq, windowlen);
-	in_pw->GetBuffer(buf_pw, windowlen);
-	in_sw->GetBuffer(buf_sfreq, windowlen);
+	in_freq->getBuffer(buf_freq, windowlen);
+	in_pw->getBuffer(buf_pw, windowlen);
+	in_sw->getBuffer(buf_sfreq, windowlen);
 
 	/*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 	for(i = 0; i < windowlen; i++) {

@@ -70,8 +70,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
 	phase = (int)(*inout_last)[1];
-	out_last = inout_last->Allocate(2);
-	out = out_arg->Allocate(windowlen);
+	out_last = inout_last->allocate(2);
+	out = out_arg->allocate(windowlen);
 
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	in_pw = mod->getArg(node, args[IN_PW]); // Pulse Width

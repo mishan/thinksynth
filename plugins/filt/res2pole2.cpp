@@ -76,17 +76,17 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	vibrapos = (*inout_last)[0];
 	vibraspeed = (*inout_last)[1];
-	out_last = inout_last->Allocate(2);
+	out_last = inout_last->allocate(2);
 
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
 	in_res = mod->getArg(node, args[IN_RES]);
 	
-	in_arg->GetBuffer(buf_in, windowlen);
-	in_cutoff->GetBuffer(buf_cut, windowlen);
-	in_res->GetBuffer(buf_res, windowlen);
+	in_arg->getBuffer(buf_in, windowlen);
+	in_cutoff->getBuffer(buf_cut, windowlen);
+	in_res->getBuffer(buf_res, windowlen);
 
 	for(streamofs = 0; streamofs < windowlen; streamofs++)
 	{

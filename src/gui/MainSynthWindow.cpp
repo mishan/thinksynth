@@ -405,7 +405,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	if (dspName)
 	{
 		Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
-		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->getComment()));
+		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->comment()));
 
 		lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
 		rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
@@ -419,7 +419,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	if (dspAuthor)
 	{
 		Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
-		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->getComment()));
+		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->comment()));
 
 		lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
 		rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
@@ -434,7 +434,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 	if (dspDesc)
 	{
 		Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
-		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->getComment()));
+		Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->comment()));
 
 		lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
 		rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
@@ -462,7 +462,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
 		if (arg == NULL)
 			continue;
 
-		switch (arg->getWidgetType())
+		switch (arg->widgetType())
 		{
 			case thArg::HIDE:
 				break;

@@ -66,7 +66,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 		buf_feedback[windowlen];
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_size = mod->getArg(node, args[IN_SIZE]); /* Buffer size */
@@ -75,20 +75,20 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-	bufpos = inout_bufpos->Allocate(1);
+	bufpos = inout_bufpos->allocate(1);
 
 
-	in_freq->GetBuffer(buf_freq, windowlen);
-	in_arg->GetBuffer(buf_in, windowlen);
-	in_feedback->GetBuffer(buf_feedback, windowlen);
-	in_size->GetBuffer(buf_size, windowlen);
+	in_freq->getBuffer(buf_freq, windowlen);
+	in_arg->getBuffer(buf_in, windowlen);
+	in_feedback->getBuffer(buf_feedback, windowlen);
+	in_size->getBuffer(buf_size, windowlen);
 
-	buffer = inout_buffer->Allocate((int)buf_size[0]);
+	buffer = inout_buffer->allocate((int)buf_size[0]);
 
 	for(i = 0; i < windowlen; i++) {
 		period = samples / buf_freq[i];
 
-		if(*bufpos > inout_buffer->getLen()) {
+		if(*bufpos > inout_buffer->len()) {
 			*bufpos = 0;
 		}
 		if(*bufpos > period) {

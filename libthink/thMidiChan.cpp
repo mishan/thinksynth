@@ -38,106 +38,106 @@ thMidiChan::thMidiChan (thMod *mod, float amp, int windowlen)
 	CopyChanArgs(mod);
 	AssignChanArgPointers(mod);
 
-	modnode = mod;
-	windowlength = windowlen;
+	modnode_ = mod;
+	windowlength_ = windowlen;
 	allocatedamp[0] = amp;
-	dirty = 1;
+	dirty_ = 1;
 
-	args[string("amp")] = new thArg(string("amp"), allocatedamp, 1);
+	args_[string("amp")] = new thArg(string("amp"), allocatedamp, 1);
 
-	chanarg = modnode->getArg("channels");
-	channels = (int)chanarg->values_[0];
+	chanarg = modnode_->getArg("channels");
+	channels_ = (int)chanarg->values()[0];
 
-	output = new float[channels*windowlen];
-	outputnamelen = strlen(OUTPUTPREFIX) + GetLen(channels);
+	output_ = new float[channels_*windowlen];
+	outputnamelen_ = strlen(OUTPUTPREFIX) + GetLen(channels_);
 
-	polymax = 10;    /* XXX We need to be able to set this somehow */
+	polymax_ = 10;    /* XXX We need to be able to set this somehow */
 
-	notecount = 0;
-	notecount_decay = 0;
+	notecount_ = 0;
+	notecount_decay_ = 0;
 
 	argSustain_ = new thArg(string("SusPedal"), new float(0), 1);
 	argSustain_->setWidgetType(thArg::CHANARG);
 	argSustain_->setLabel(string("Sustain Pedal"));
-	args["SusPedal"] = argSustain_;
+	args_["SusPedal"] = argSustain_;
 }
 
 thMidiChan::~thMidiChan (void)
 {
-	DestroyMap(args);
-	DestroyMap(notes);
-	delete[] output;
+	DestroyMap(args_);
+	DestroyMap(notes_);
+	delete[] output_;
 }
 
 void thMidiChan::SetArg (thArg *arg)
 {
-	thArg *oldArg = args[arg->getName()];
+	thArg *oldArg = args_[arg->name()];
 
 	if (oldArg)
 	{
 		delete oldArg;
 	}
 
-	args[arg->getName()] = arg;
+	args_[arg->name()] = arg;
 }
 
 thMidiNote *thMidiChan::AddNote (float note, float velocity)
 {
 	thMidiNote *midinote;
 	int id = (int)note;
-	map<int, thMidiNote*>::iterator i = notes.find(id);
-	if(i != notes.end()) {
+	NoteMap::iterator i = notes_.find(id);
+	if(i != notes_.end()) {
 		/* Make sure to turn off the old note, or it will hang! */
 		float *pbuf = new float;
 		*pbuf = 0;
 
 		i->second->SetArg("trigger", pbuf, 1);
 
-		noteorder.remove(i->second);
-		decaying.push_front(i->second);
-		notes.erase(i);
-		notecount_decay++; /* we are keeping track of polyphony this way until
+		noteorder_.remove(i->second);
+		decaying_.push_front(i->second);
+		notes_.erase(i);
+		notecount_decay_++; /* we are keeping track of polyphony this way until
 							  the advanced cool method is implemented */
 		/* no need to dec notecounter since the new note replaces this one */
 	}
-	notecount++; /* see notecount_decay++ comment */
+	notecount_++; /* see notecount_decay_++ comment */
 
-	midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
-	notes[id] = midinote;
-	noteorder.push_back(midinote);
+	midinote = new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX);
+	notes_[id] = midinote;
+	noteorder_.push_back(midinote);
 
 	return midinote;
 }
 
 void thMidiChan::DelNote (int note)
 {
-	map<int, thMidiNote*>::iterator i = notes.find(note);
+	NoteMap::iterator i = notes_.find(note);
 	delete i->second;
-	notes.erase(i);
+	notes_.erase(i);
 }
 
 void thMidiChan::ClearAll (void)
 {
-	map<int, thMidiNote*>::iterator i;
-	list<thMidiNote*>::iterator j;
+	NoteMap::iterator i;
+	NoteList::iterator j;
 
-	for (i = notes.begin(); i != notes.end(); i++)
+	for (i = notes_.begin(); i != notes_.end(); i++)
 	{
 		delete i->second;
-		notes.erase(i);
+		notes_.erase(i);
 	}
-	for (j = decaying.begin(); j != decaying.end(); j++)
+	for (j = decaying_.begin(); j != decaying_.end(); j++)
 	{
 		delete *j;
-		j = decaying.erase(j);
+		j = decaying_.erase(j);
 	}
 }
 
 thMidiNote *thMidiChan::GetNote (int note)
 {
-	map<int, thMidiNote*>::iterator i = notes.find(note);
+	NoteMap::iterator i = notes_.find(note);
 
-	if(i != notes.end()) {
+	if(i != notes_.end()) {
 		return i->second;
 	}
 
@@ -146,9 +146,9 @@ thMidiNote *thMidiChan::GetNote (int note)
 
 int thMidiChan::SetNoteArg (int note, char *name, float *value, int len)
 {
-	map<int, thMidiNote*>::iterator i = notes.find(note);
+	NoteMap::iterator i = notes_.find(note);
 
-	if(i != notes.end()) {
+	if(i != notes_.end()) {
 		i->second->SetArg(name, value, len);
 		return 1;
 	}
@@ -167,138 +167,149 @@ void thMidiChan::CopyChanArgs (thMod *mod)
 
 		newdata = new thArg(data);
 
-		args[(*i).first] = newdata;
+		args_[(*i).first] = newdata;
 	}
 }
 
 void thMidiChan::Process (void)
 {
-	if (dirty) 
+	if (dirty_) 
 	{
-		memset (output, 0, windowlength*channels*sizeof(float));
+		memset (output_, 0, windowlength_*channels_*sizeof(float));
 	}
-	dirty = false;
+	dirty_ = false;
 
 
 	thMidiNote *data;
 	thArg *arg, *amp, *play, *trigger;
 	thMod *mod;
 	int i, j, index;
-	float buf_mix[windowlength];
-	float buf_amp[windowlength];
+	float buf_mix[windowlength_];
+	float buf_amp[windowlength_];
 
 	string argname;
 
 	int sustain = (int)(*argSustain_)[0];
 
-/* Before any processing, we shall do a polyphony test. */
-	if(notecount + notecount_decay > polymax && polymax > 0) /* we have too
-											many notes, and polyphony > 0 */
+	/* Before any processing, we shall do a polyphony test. */
+	if(notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 
 	{
-		if(notecount_decay > 0) /* there are some notes not being held down */
+		/* we have too many notes, and polyphony > 0 */
+
+		if(notecount_decay_ > 0) /* there are some notes not being held down */
 		{
-			list<thMidiNote*>::iterator iter = decaying.begin();
-			while(iter != decaying.end() && notecount_decay > 0 &&
-				  notecount + notecount_decay > polymax) /* more to do */
+			NoteList::iterator iter = decaying_.begin();
+
+			/* more to do */
+			while(iter != decaying_.end() && notecount_decay_ > 0 &&
+				  notecount_ + notecount_decay_ > polymax_)
 			{
 				delete *iter;
-				iter = decaying.erase(iter);
-				notecount_decay--;
+				iter = decaying_.erase(iter);
+				notecount_decay_--;
 			}
 		}
-		if(notecount > polymax) /* too many notes held down */
+		if(notecount_ > polymax_) /* too many notes held down */
 		{
-			list<thMidiNote*>::iterator iter = noteorder.begin();
-			while(iter != noteorder.end() && notecount > polymax)
+			NoteList::iterator iter = noteorder_.begin();
+			while(iter != noteorder_.end() && notecount_ > polymax_)
 			{
-				notes.erase((*iter)->GetID());
+				notes_.erase((*iter)->GetID());
 				delete *iter;
-				iter = noteorder.erase(iter);
-				notecount--;
+				iter = noteorder_.erase(iter);
+				notecount_--;
 			}	
 		}
 	}
 
 	/* re-count the notes as we process, just to be sure nothing screws up */
-	notecount = 0;
-	notecount_decay = 0;
+	notecount_ = 0;
+	notecount_decay_ = 0;
 
-	map<int, thMidiNote*>::iterator iter = notes.begin();
-	while(iter != notes.end())
+	NoteMap::iterator iter = notes_.begin();
+	while(iter != notes_.end())
 	{
-		notecount++;
+		notecount_++;
 
 		data = iter->second;
 
-		dirty = true;
+		dirty_ = true;
 		
-		data->Process(windowlength);
+		data->Process(windowlength_);
 		
 		mod = data->GetMod();
-		amp = args["amp"];
+		amp = args_["amp"];
 		play = mod->getArg("play");
 		trigger = mod->getArg("trigger");
+
 		if ((*trigger)[0] == 2 && sustain < 0x40)
-			trigger->SetValue(0);
+			trigger->setValue(0);
 		
-		for(i = 0; i < channels; i++)
+		for(i = 0; i < channels_; i++)
 		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
 			arg = mod->getArg(argname);
-			arg->GetBuffer(buf_mix, windowlength);
-			amp->GetBuffer(buf_amp, windowlength);
-			for(j = 0; j < windowlength; j++)
+			arg->getBuffer(buf_mix, windowlength_);
+			amp->getBuffer(buf_amp, windowlength_);
+
+			for(j = 0; j < windowlength_; j++)
 			{
-				index = i+(j*channels);
-				output[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
+				index = i+(j*channels_);
+				output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
 			}
 		}
 
-		map<int, thMidiNote*>::iterator olditer = iter++;  /* a copy of the
-													old iterator to erase */
+		NoteMap::iterator olditer = iter++;  /* a copy of the
+												old iterator to erase */
 		
-		if(play && (*play)[windowlength - 1] == 0)
+		if(play && (*play)[windowlength_ - 1] == 0)
 		{
-			noteorder.remove(data);
+			noteorder_.remove(data);
 			delete data;
-			notes.erase(olditer);
-			notecount--;  /* polyphony stuff */
+			notes_.erase(olditer);
+			notecount_--;  /* polyphony stuff */
 		}
 	}
 
-/* Now, the [almost] exact same thing for the list of decaying notes */
+	/* Now, the [almost] exact same thing for the list of decaying notes */
+	NoteList::iterator diter = decaying_.begin();
 
-	list<thMidiNote*>::iterator diter = decaying.begin();
-	while(diter != decaying.end())
+	while(diter != decaying_.end())
 	{
-		notecount_decay++;
+		notecount_decay_++;
 		data = *diter;
-		dirty = 1;
-		data->Process(windowlength);
+		dirty_ = 1;
+		data->Process(windowlength_);
 		mod = data->GetMod();
-		amp = args["amp"];
+		amp = args_["amp"];
 		play = mod->getArg("play");
 		trigger = mod->getArg("trigger");
+
 		if ((*trigger)[0] == 2 && sustain < 0x40)
-			trigger->SetValue(0);
+			trigger->setValue(0);
 		
-		for(i=0;i<channels;i++) {
+		for(i = 0; i < channels_; i++)
+		{
 			argname = OUTPUTPREFIX;
 			argname += (char)(i+'0');
 			arg = mod->getArg(argname);
-			arg->GetBuffer(buf_mix, windowlength);
-			amp->GetBuffer(buf_amp, windowlength);
-			for(j=0;j<windowlength;j++) {
-				index = i+(j*channels);
-				output[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
+			arg->getBuffer(buf_mix, windowlength_);
+			amp->getBuffer(buf_amp, windowlength_);
+
+			index = i;
+			for(j = 0; j < windowlength_; j++)
+			{
+				output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
+				index += channels_;
 			}
 		}
 		
-		if(play && (*play)[windowlength - 1] == 0) {
-			diter = decaying.erase(diter);
+		if(play && (*play)[windowlength_ - 1] == 0)
+		{
+			diter = decaying_.erase(diter);
 			delete data;
-			notecount_decay--;  /* more polyphony stuff */
+			notecount_decay_--;  /* more polyphony stuff */
 		}
 		else
 		{
@@ -307,6 +318,8 @@ void thMidiChan::Process (void)
 	}
 }
 
+/* XXX: this is ghetto; but this method can be used globally, move it to
+   util */
 static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
 						   100000000, 1000000000};
 
@@ -344,9 +357,9 @@ void thMidiChan::AssignChanArgPointers (thMod *mod)
 		{
 			curarg = j->second;
 
-			if(curarg->argType == thArg::ARG_CHANNEL)
+			if(curarg->type() == thArg::ARG_CHANNEL)
 			{
-				curarg->argPointArg = args[curarg->argPointName];
+				curarg->setArgPtr(args_[curarg->argPtrName()]);
 			}
 		}
 	}

@@ -60,9 +60,9 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	float t1, t2;
 	unsigned int i;
 
-	float *out_low = (mod->getArg(node, "out_low"))->Allocate(windowlen);
-	float *out_high = (mod->getArg(node, "out_high"))->Allocate(windowlen);
-	float *out_band = (mod->getArg(node, "out_bandpass"))->Allocate(windowlen);
+	float *out_low = (mod->getArg(node, "out_low"))->allocate(windowlen);
+	float *out_high = (mod->getArg(node, "out_high"))->allocate(windowlen);
+	float *out_band = (mod->getArg(node, "out_bandpass"))->allocate(windowlen);
 
 	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	b0 = (*inout_buffer)[0];
@@ -70,7 +70,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	b2 = (*inout_buffer)[2];
 	b3 = (*inout_buffer)[3];
 	b4 = (*inout_buffer)[4];
-	buffer = inout_buffer->Allocate(5);
+	buffer = inout_buffer->allocate(5);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);

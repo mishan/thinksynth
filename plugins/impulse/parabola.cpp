@@ -66,7 +66,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	half = len/2;
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(len);
+	out = out_arg->allocate(len);
 
 	if(percent == 0) {
 		percent = 1;

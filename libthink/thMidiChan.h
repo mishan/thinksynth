@@ -24,6 +24,10 @@ class thMidiChan {
 public:
 	thMidiChan (thMod *mod, float amp, int windowlen);
 	~thMidiChan (void);
+
+	typedef map<string, thArg*> ArgMap;
+	typedef map<int, thMidiNote*> NoteMap;
+	typedef list<thMidiNote*> NoteList;
 	
 	thMidiNote *AddNote (float note, float velocity);
 	void DelNote (int note);
@@ -33,19 +37,17 @@ public:
 	thMidiNote *GetNote (int note);
 	int SetNoteArg (int note, char *name, float *value, int len);
 	
-	thArg *GetArg (string argName) { return args[argName]; }
+	thArg *GetArg (string argName) { return args_[argName]; }
 	void SetArg (thArg *arg);
 
-	typedef map<string, thArg*> ArgMap;
-
-	ArgMap GetArgs (void) { return args; }
+	ArgMap GetArgs (void) { return args_; }
 	
 	void Process (void);
 	
-	float *GetOutput (void) const { return output; }
-	int GetChannels (void) const { return channels; }
+	float *GetOutput (void) const { return output_; }
+	int GetChannels (void) const { return channels_; }
 
-	thMod *GetMod (void) { return modnode; }
+	thMod *GetMod (void) { return modnode_; }
 
 	thArg *GetSusPedalArg (void) { return argSustain_; }
 
@@ -55,17 +57,17 @@ private:
 	int GetLen(int);
 	void AssignChanArgPointers(thMod *mod);
 	
-	bool dirty;
-	thMod *modnode;
-	map<string, thArg*> args;
-	map<int, thMidiNote*> notes;
-	list<thMidiNote*> decaying;  /* linked list for decaying notes */
-	list<thMidiNote*> noteorder; /* order of the notes for polyphony limits */
-	int channels, windowlength;
-	float *output;
-	int outputnamelen;
-	int polymax;  /* maximum polyphony */
-	int notecount, notecount_decay;  /* keeping track of polyphony this way
+	bool dirty_;
+	thMod *modnode_;
+	ArgMap args_;
+	NoteMap notes_;
+	NoteList decaying_;  /* linked list for decaying notes */
+	NoteList noteorder_; /* order of the notes for polyphony limits */
+	int channels_, windowlength_;
+	float *output_;
+	int outputnamelen_;
+	int polymax_;  /* maximum polyphony */
+	int notecount_, notecount_decay_;  /* keeping track of polyphony this way
 										for now */
 	thArg *argSustain_; /* for the sustain pedal */
 };

@@ -63,8 +63,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out_arg = mod->getArg(node, args[OUT_ARG]);
 	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	buffer = (*inout_buffer)[0];
-	out = out_arg->Allocate(windowlen);
-	out_buf = inout_buffer->Allocate(1);
+	out = out_arg->allocate(windowlen);
+	out_buf = inout_buffer->allocate(1);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_factor = mod->getArg(node, args[IN_FACTOR]);

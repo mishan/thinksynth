@@ -98,10 +98,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 											 its cycle */
 	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
-	out_last = inout_last->Allocate(1);
-	sync = out_sync->Allocate(windowlen);
+	out_last = inout_last->allocate(1);
+	sync = out_sync->allocate(windowlen);
 
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	in_amp = mod->getArg(node, args[IN_AMP]);
@@ -113,14 +113,14 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 											  goes to 1 */
 	in_mul = mod->getArg(node, args[IN_MUL]);  /* Multiply the wavelength by this */
 
-	in_freq->GetBuffer(buf_freq, windowlen);
-	in_amp->GetBuffer(buf_amp, windowlen);
-	in_pw->GetBuffer(buf_pw, windowlen);
-	in_waveform->GetBuffer(buf_waveform, windowlen);
-	in_fm->GetBuffer(buf_fm, windowlen);
-	in_fmamt->GetBuffer(buf_fmamt, windowlen);
-	in_reset->GetBuffer(buf_reset, windowlen);
-	in_mul->GetBuffer(buf_mul, windowlen);
+	in_freq->getBuffer(buf_freq, windowlen);
+	in_amp->getBuffer(buf_amp, windowlen);
+	in_pw->getBuffer(buf_pw, windowlen);
+	in_waveform->getBuffer(buf_waveform, windowlen);
+	in_fm->getBuffer(buf_fm, windowlen);
+	in_fmamt->getBuffer(buf_fmamt, windowlen);
+	in_reset->getBuffer(buf_reset, windowlen);
+	in_mul->getBuffer(buf_mul, windowlen);
 
 	for(i=0; i < (int)windowlen; i++) {
 		//wavelength = TH_SAMPLE/(*in_freq)[i];

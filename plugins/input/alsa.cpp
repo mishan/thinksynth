@@ -71,8 +71,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	thArg *out_arg = mod->getArg(node, "out");
 	thArg *out_play = mod->getArg(node, "play");
 	signed short buf[windowlen * channels];
-	float *out = out_arg->Allocate(windowlen);
-	float *play = out_play->Allocate(windowlen);
+	float *out = out_arg->allocate(windowlen);
+	float *play = out_play->allocate(windowlen);
 	unsigned int i;
 
 	if(snd_pcm_readi(cap_handle, buf, windowlen) < 0)

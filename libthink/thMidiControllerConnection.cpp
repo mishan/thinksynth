@@ -47,7 +47,9 @@ void thMidiControllerConnection::setParam (unsigned int value)
 	float realvalue;
 
 	realvalue = (float)value/MIDIVALMAX;
+
 	if(scale_ == EXPONENTIAL) /* give it a nice curve */
 		realvalue = 1 - logf(M_E - (realvalue * (M_E - 1)));
-	arg_->SetValue(realvalue * (max_ - min_) + min_);
+
+	arg_->setValue(realvalue * (max_ - min_) + min_);
 }

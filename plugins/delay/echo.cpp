@@ -72,21 +72,21 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
 	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-	bufpos = inout_bufpos->Allocate(1);
+	bufpos = inout_bufpos->allocate(1);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {
 		unsigned int mySize = (int)(*in_size)[i];
 		unsigned int myBufpos = (int)*bufpos;
 
-		buffer = inout_buffer->Allocate(mySize);
+		buffer = inout_buffer->allocate(mySize);
 		in = (*in_arg)[i];
 		feedback = (*in_feedback)[i];
 		dry = (*in_dry)[i];
 
-		unsigned int inOutLen = inout_buffer->getLen();
+		unsigned int inOutLen = inout_buffer->len();
 
 		if(myBufpos > inOutLen) {
 			myBufpos = 0;

@@ -211,8 +211,9 @@ void gthPrefs::Save (void)
 			   channel */
 			if (file.length() > 0)
 			{
+				thArg *amp = synth->getChanArg(i, "amp");
  				fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
-					(int)(synth->getChanArg(i, "amp")->values_[0]));
+						(int)((*amp)[0]));
 			} 
 		}
 	}

@@ -73,10 +73,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 
 	last = (*inout_last)[0];
 	prevdiff = (*inout_last)[1];
-	out_last = inout_last->Allocate(2);
+	out_last = inout_last->allocate(2);
 
-	out = out_arg->Allocate(windowlen);
-	highout = out_high->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
+	highout = out_high->allocate(windowlen);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);

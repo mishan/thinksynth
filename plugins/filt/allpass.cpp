@@ -62,10 +62,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	/* IIR delay buffer for in and out */
 	inout_last = mod->getArg(node, args[INOUT_LAST]);
-	last = inout_last->Allocate(2);
+	last = inout_last->allocate(2);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	for(i = 0; i < windowlen; i++) {
 		in = (*in_arg)[i];

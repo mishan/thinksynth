@@ -56,8 +56,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	argnum = (unsigned int) in_freq->getLen();
-	out = out_arg->Allocate(argnum);
+	argnum = (unsigned int) in_freq->len();
+	out = out_arg->allocate(argnum);
 
 	for(i=0;i<argnum;i++) {
 	  out[i] = (1/(*in_freq)[i])*samples;

@@ -92,10 +92,10 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out_sync2 = mod->getArg(node, args[OUT_SYNC2]);
 	inout_last = mod->getArg(node, args[INOUT_LAST]);
 	position = (*inout_last)[0];
-	out_last = inout_last->Allocate(2);
-	sync = out_sync->Allocate(windowlen);
-	sync2 = out_sync2->Allocate(windowlen);
-	out = out_arg->Allocate(windowlen);
+	out_last = inout_last->allocate(2);
+	sync = out_sync->allocate(windowlen);
+	sync2 = out_sync2->allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	in_pw = mod->getArg(node, args[IN_PW]);
 	in_waveform = mod->getArg(node, args[IN_WAVEFORM]);

@@ -58,7 +58,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	in_1 = mod->getArg(node, args[IN_1]);
 
 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->Allocate(windowlen);
+	out = out_arg->allocate(windowlen);
 
 	for(i = 0 ; i < windowlen; i++)
 	{

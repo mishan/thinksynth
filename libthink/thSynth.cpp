@@ -255,9 +255,8 @@ int thSynth::setChanArgData (int channum, const string &argname, float *data, in
 	}
 
 	argp = chan->GetArg(argname);
-	buffer = argp->Allocate(len);
+	buffer = argp->allocate(len);
 	memcpy(buffer, data, len * sizeof(float));
-	argp->len_ = len;
 
 	return 1;
 }

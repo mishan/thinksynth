@@ -72,13 +72,13 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	out_high = mod->getArg(node, args[OUT_HIGH]);
 	out_band = mod->getArg(node, args[OUT_BAND]);
 	out_notch = mod->getArg(node, args[OUT_NOTCH]);
-	out = out_low->Allocate(windowlen);
-	highout = out_high->Allocate(windowlen);
-	bandout = out_band->Allocate(windowlen);
-	notchout = out_notch->Allocate(windowlen);
+	out = out_low->allocate(windowlen);
+	highout = out_high->allocate(windowlen);
+	bandout = out_band->allocate(windowlen);
+	notchout = out_notch->allocate(windowlen);
 
 	inout_delay = mod->getArg(node, args[INOUT_DELAY]);
-	delay = inout_delay->Allocate(2);
+	delay = inout_delay->allocate(2);
 
 	in_arg = mod->getArg(node, args[IN_ARG]);
 	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);

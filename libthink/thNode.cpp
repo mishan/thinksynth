@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.60 2004/10/01 08:52:25 misha Exp $ */
+/* $Id$ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -49,11 +49,11 @@ thArg *thNode::SetArg (const string &name, float *value, int num)
 	if(i == args.end() || !i->second /* XXX shouldnt be necessary */) {
 		arg = new thArg(name, value, num);
 		args[name] = arg;
-		arg->SetIndex(AddArgToIndex(arg));
+		arg->setIndex(AddArgToIndex(arg));
 	}
 	else {
 		arg = i->second;
-		arg->SetArg(name, value, num);
+		arg->setArg(name, value, num);
 	}
 
 	return arg;
@@ -66,12 +66,12 @@ thArg *thNode::SetArg (const string &name, const string &node, const string &val
 
 	if(i != args.end() && i->second /* XXX we should not have to do this */) {
 		arg = i->second;
-		arg->SetArg(name, node, value);
+		arg->setArg(name, node, value);
 	}
 	else {
 		arg = new thArg(name, node, value);
 		args[name] = arg;
-		arg->SetIndex(AddArgToIndex(arg));
+		arg->setIndex(AddArgToIndex(arg));
 	}
 
 	return arg;
@@ -84,12 +84,12 @@ thArg *thNode::SetArg (const string &name, const string &chanarg)
 
     if(i != args.end() && i->second /* XXX we should not have to do this */) {
         arg = i->second;
-        arg->SetArg(name, chanarg);
+        arg->setArg(name, chanarg);
     }
     else {
         arg = new thArg(name, chanarg);
         args[name] = arg;
-        arg->SetIndex(AddArgToIndex(arg));
+        arg->setIndex(AddArgToIndex(arg));
     }
      
     return arg;
@@ -131,15 +131,15 @@ void thNode::CopyArgs (const map<string, thArg*> &newargs)
 	{
 		data = i->second;
 
-		if (data->argType == thArg::ARG_NOTE)
+		if (data->type() == thArg::ARG_NOTE)
 			continue;
 
 		newarg = new thArg(data);
 
-		args[data->getName()] = newarg;
+		args[data->name()] = newarg;
 
-		newarg->SetIndex(data->GetIndex());
-		while(newarg->GetIndex() > argsize)
+		newarg->setIndex(data->index());
+		while(newarg->index() > argsize)
 		{
 			newindex = (thArg **)calloc(argsize + ARGCHUNK, sizeof(thArg *));
 			
@@ -148,7 +148,7 @@ void thNode::CopyArgs (const map<string, thArg*> &newargs)
 			argindex = newindex;
 			argsize += ARGCHUNK;
 		}
-		argindex[newarg->GetIndex()] = newarg;
+		argindex[newarg->index()] = newarg;
 	}
 }
 

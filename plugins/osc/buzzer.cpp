@@ -67,8 +67,8 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen,
 	inout_last = mod->getArg(node, args[INOUT_LAST]);
 
 	position = (*inout_last)[0]; /* Where in the phase we are */
-	out_last = inout_last->Allocate(1);
-	out = out_arg->Allocate(windowlen);
+	out_last = inout_last->allocate(1);
+	out = out_arg->allocate(windowlen);
 
 	in_freq = mod->getArg(node, args[IN_FREQ]);
 	in_factor = mod->getArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
