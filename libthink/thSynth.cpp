@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.110 2004/11/25 02:28:45 joshk Exp $ */
+/* $Id: thSynth.cpp,v 1.111 2004/11/26 05:38:51 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -316,6 +316,7 @@ thMod * thSynth::LoadMod (const string &filename, int channum, float amp)
 	{
 		fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
 			filename.c_str());
+		pthread_mutex_unlock(synthMutex);
 		return NULL;
 	}
 	
