@@ -4,7 +4,7 @@ node ionode {
 	out0 = filt->out;
 	out1 = filt->out;
 	channels = 2;
-	play = wav->play;
+	play = input->play;
 
 	cutmin = 80;
 	cutmax = 4000;
@@ -18,11 +18,11 @@ node ionode {
 	ddry = 0.6;
 };
 
-node wav input::wav {
+node input input::alsa {
 };
 
 node follower env::follower {
-	in = wav->out;
+	in = input->out;
 	falloff = 3.2;
 };
 
@@ -35,7 +35,7 @@ node filtermap env::map {
 };
 
 node delaymap env::map {
-	in = wav->out;
+	in = input->out;
 	inmin = th_min;
 	inmax = th_max;
 	outmin = ionode->delaymin;
@@ -43,7 +43,7 @@ node delaymap env::map {
 };
 
 node delay delay::echo {
-	in = wav->out;
+	in = input->out;
 	size = ionode->dlen;
 	delay = delaymap->out;
 	feedback = ionode->dfeed;
