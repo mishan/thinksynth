@@ -1,4 +1,4 @@
-/* $Id: test.cpp,v 1.9 2003/05/02 21:24:20 ink Exp $ */
+/* $Id: mul.cpp,v 1.1 2003/05/02 21:24:20 ink Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,7 +15,7 @@
 #include "thMod.h"
 #include "thSynth.h"
 
-char		*desc = "Test Plugin";
+char		*desc = "Multiplies two streams";
 thPluginState	mystate = thPassive;
 
 extern "C" int	module_init (thPlugin *plugin);
@@ -39,7 +39,18 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-	printf("TEST!!\n");
-	return 0;
+  float *out = new float[windowlen];
+  thArgValue *in_0, *in_1;
+  unsigned int i;
+
+  in_0 = (thArgValue *)mod->GetArg(node->GetName(), "in0");
+  in_1 = (thArgValue *)mod->GetArg(node->GetName(), "in1");
+
+  for(i=0;i<windowlen;i++) {
+	out[i] = (*in_0)[i]*((*in_1)[i]/TH_MAX);
+  }
+
+  node->SetArg("out", out, windowlen);
+  return 0;
 }
 

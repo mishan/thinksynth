@@ -1,7 +1,7 @@
-# $Id: Makefile,v 1.11 2003/05/02 00:31:34 joshk Exp $
+# $Id: Makefile,v 1.12 2003/05/02 21:24:20 ink Exp $
 
 # Change this for every new plugin
-PLUGIN_DIRS = osc test env
+PLUGIN_DIRS = osc mixer env test
 
 all clean install uninstall: $(PLUGIN_DIRS)
 
