@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.56 2004/11/09 01:02:41 joshk Exp $
+# $Id: Makefile.in,v 1.57 2004/11/09 18:38:34 joshk Exp $
 
 BINARY = thinksynth
 
@@ -40,4 +40,4 @@ install:
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/thinksynth
 
-.PHONY: gui/gth.a
+.PHONY: gui/gth.a ../libthink/libthink.so.$(soname)
