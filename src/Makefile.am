@@ -2,7 +2,6 @@ bin_PROGRAMS = thinksynth
 
 thinksynth_SOURCES = \
 	main.cpp \
-	Exception.cpp \
 	thArg.cpp \
 	thAudioBuffer.cpp \
 	thBTree.cpp \
