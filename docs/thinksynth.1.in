@@ -7,16 +7,16 @@ thinksynth \- ALSA/JACK based MIDI synthesizer
 .SH DESCRIPTION
 .PP
 .\" Foo Bar Baz - someone who knows alot more about internals FILL THIS IN
-Cows go 'moo.'
+Cows go `moo.'
 .SH OPTIONS
 .TP
 \fB\-d\fR OUTPUT
 This specifies the audio output module to use during your Thinksynth session.
-Currently, 'alsa' and 'jack' are supported. The default output module to use is '@DEFAULT_OUTPUT@'.
+Currently, `alsa' and `jack' are supported. The default output module to use is `@DEFAULT_OUTPUT@'.
 .TP
 \fB\-p\fR PATH
 This specifies an alternate path to search in for plugin modules. By default,
-it is '@plugin_path@'.
+it is `@plugin_path@'.
 .TP
 \fB\-r\fR RATE
 This modifies the sample rate of the output; the default may vary depending on
@@ -26,14 +26,15 @@ which audio output module is used
 .\" XXX - wtf is this, i don't know
 Modifies the window length for audio output.
 .SH AUTHORS
+.TP
 \fBMetaphonic Labs\fR is...
-.TP
+
 Leif Ames <ink@bespin.org>
-.TP
+.br
 Misha Nasledov <misha@nasledov.com>
-.TP
+.br
 Aaron Lehmann <aaronl@vitelus.com>
-.TP
+.br
 Joshua Kwan <joshk@triplehelix.org>
 .SH "REPORTING BUGS"
 Report bugs to bugs@thinksynth.org.
