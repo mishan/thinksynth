@@ -1,4 +1,4 @@
-/* $Id: thMod.h,v 1.36 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: thMod.h,v 1.37 2004/07/18 21:22:50 ink Exp $ */
 
 #ifndef TH_MOD_H
 #define TH_MOD_H 1
@@ -38,6 +38,9 @@ public:
 
 	int GetNodeCount (void) const { return nodecount; }
 
+	thArg *GetChanArg (string argName) { return chanargs[argName]; }
+	void SetChanArg (thArg *arg);
+
 	void Process (unsigned int windowlen);
 
 	void SetActiveNodes(void);
@@ -66,6 +69,8 @@ private:
 	map<string,thNode*> modnodes;
 	list<thNode*> activelist;
 	thNode *ionode;
+
+	map<string,thArg*> chanargs;  /* midi chan args */
 
 	string modname, moddesc;
 

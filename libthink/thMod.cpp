@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.84 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: thMod.cpp,v 1.85 2004/07/18 21:22:50 ink Exp $ */
 
 #include "config.h"
 
@@ -181,6 +181,18 @@ void thMod::PrintIONode (void)
 	ionode->PrintArgs();
 }
 
+void thMod::SetChanArg (thArg *arg)
+{
+	thArg *oldArg = chanargs[arg->GetArgName()];
+
+	if (oldArg)
+	{
+		delete oldArg;
+	}
+
+	chanargs[arg->GetArgName()] = arg;
+}
+
 void thMod::Process (unsigned int windowlen)
 {
 	thPlugin *plug = NULL;
@@ -337,7 +349,6 @@ void thMod::SetPointers (void)
 	thNode *curnode;  /* current node and arg in the loops */
 	thArg *arg;
 	thArg *curarg;
-	int index;
 	float *tmp;
 
 	map<string,thArg*> argiterator;
@@ -385,8 +396,6 @@ void thMod::SetPointers (void)
 						tmp = new float[1];
 						tmp[0] = 0;
 						arg = node->SetArg(curarg->argPointName, tmp, 1);
-						//index = node->AddArgToIndex(arg);
-						//arg->SetIndex(index);
 
 						node->GetArgTree()[arg->argName] = arg;
 					} 

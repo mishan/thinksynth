@@ -1,4 +1,4 @@
-/* $Id: thinklex.ll,v 1.22 2004/04/22 08:55:28 ink Exp $ */
+/* $Id: thinklex.ll,v 1.23 2004/07/18 21:22:50 ink Exp $ */
 
 %{
 #include "config.h"
@@ -62,7 +62,9 @@ ms		{ return MS; }
 "("		{ return OPAREN; }
 ")"		{ return CPAREN; }
 
-"$"		{ return DOLLAR; }
+\.		{ return PERIOD; }
+"@"		{ return ATSIGN; }	/* chan midi arg */
+"$"		{ return DOLLAR; }  /* note midi arg */
 
 \".*\" {
   yylval.str = (char *)malloc(strlen(yytext) - 1);

@@ -1,4 +1,4 @@
-/* $Id: thArg.h,v 1.35 2004/07/11 22:44:36 misha Exp $ */
+/* $Id: thArg.h,v 1.36 2004/07/18 21:22:50 ink Exp $ */
 
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
@@ -52,6 +52,7 @@ class thArg {
 	int argWidget;  /* XXX We must #define widget types, like slider, knob,
 					   input box, etc etc etc...  This is optional, and will
 					   only really be used by io node args */
+	/* if argWidget is 0, the parameter is not to be displayed in the UI */
 	string argLabel;  /* This will be displayed in the UI */
 	string argUnits;  /* This will be displayed too...  ms, Hz, sec etc... */
 

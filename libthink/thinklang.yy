@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.56 2004/05/25 04:42:47 misha Exp $ */
+/* $Id: thinklang.yy,v 1.57 2004/07/18 21:22:50 ink Exp $ */
 
 %{
 #include "config.h"
@@ -46,7 +46,8 @@ extern "C" int yywrap(void)
 %token INTO
 %token MODSEP
 %token ADD SUB MUL DIV MOD CPAREN OPAREN NIL
-%token DOLLAR
+%token PERIOD
+%token ATSIGN DOLLAR
 %token STRING
 
 %%
@@ -64,6 +65,8 @@ nodes nodes
 	yyerror("missing semicolon after node\n");
 	YYERROR;
 }
+|
+paramsetup		/* $someparam.min = 20; sort of thing */
 |
 ionode
 |
@@ -203,6 +206,61 @@ NODE WORD LCBRACK assignments RCBRACK
 	free($2.str);
 }
 ;
+
+paramsetup:
+ATSIGN WORD ASSIGN expression
+{
+	printf("Chan Arg %s = %f\n", $2.str, $4.floatval);
+	float *copy = new float[1];
+	*copy = $4.floatval;
+	parsemod->SetChanArg(new thArg($2.str, copy, 1));
+}
+|
+ATSIGN WORD PERIOD WORD ASSIGN expression
+{
+	thArg *chanarg;
+
+	printf("Arg Name: %s \tData: %s \t=> %f\n", $2.str, $4.str, $6.floatval);
+
+	chanarg = parsemod->GetChanArg($2.str);
+	printf("Value: %f\n", chanarg->argValues[0]);
+
+	if(strcmp($4.str, "min") == 0)
+	{
+		chanarg->SetArgMin($6.floatval);
+	}
+	else if(strcmp($4.str, "max") == 0)
+	{
+		chanarg->SetArgMax($6.floatval);
+	}
+	else if(strcmp($4.str, "widget") == 0)
+	{
+		chanarg->SetArgWidget((int)$6.floatval);
+	}
+	else
+		printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);
+}
+|
+ATSIGN WORD PERIOD WORD ASSIGN STRING
+{
+	thArg *chanarg;
+
+	printf("Arg Name: %s \tData: %s \t=> %s\n", $2.str, $4.str, $6.str);
+
+	chanarg = parsemod->GetChanArg($2.str);
+	printf("Value: %f\n", chanarg->argValues[0]);
+
+	if(strcmp($4.str, "label") == 0)
+	{
+		chanarg->SetArgLabel($6.str);
+	}
+	else if(strcmp($4.str, "units") == 0)
+	{
+		chanarg->SetArgUnits($6.str);
+	}
+	else
+		printf("ERROR:  Invalid arg parameter '%s <string>'\n", $4.str);
+}
 
 ionode:
 IO WORD
