@@ -1,3 +1,7 @@
+GNU_RMDIR_OPTION = @GNU_RMDIR_OPTION@
+
+PLUGIN_NAMES := $(addsuffix @SHARED_SUFFIX@,$(PLUGIN_NAMES))
+
 all: $(PLUGIN_NAMES)
 
 include ../../build.mk
@@ -11,11 +15,12 @@ CXXFLAGS+=-DPLUGIN_BUILD
 
 install:
 	mkdir -p $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))
-	for i in *@SHARED_SUFFIX@; do \
-		cp -f $$i $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR)); \
+	for plugin in $(PLUGIN_NAMES); do \
+	  cp -f $$plugin $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR)); \
 	done
 
 uninstall:
-	for i in $(PLUGIN_NAMES); do \
-		rm -f $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))/$$i@SHARED_SUFFIX@; \
+	for plugin in $(PLUGIN_NAMES); do \
+	  rm -f $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))/$$plugin; \
 	done
+	-rmdir $(GNU_RMDIR_OPTION) $(DESTDIR)/$(plugin_path)/$(notdir $(CURDIR))

@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.1 2003/06/24 21:39:01 ink Exp $
+# $Id: Makefile,v 1.2 2003/09/02 04:45:35 joshk Exp $
 
-PLUGIN_NAMES = and.so not.so
+PLUGIN_NAMES = and not
 include ../plugin-common.mk

@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.4 2003/06/06 19:14:01 ink Exp $
+# $Id: Makefile,v 1.5 2003/09/02 04:45:35 joshk Exp $
 
-PLUGIN_NAMES = clip.so saturate.so waveman.so
+PLUGIN_NAMES = clip saturate waveman
 include ../plugin-common.mk

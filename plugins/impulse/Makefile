@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.4 2003/05/25 21:28:34 ink Exp $
+# $Id: Makefile,v 1.5 2003/09/02 04:45:35 joshk Exp $
 
-PLUGIN_NAMES = sine.so parabola.so square.so blackman.so
+PLUGIN_NAMES = sine parabola square blackman
 include ../plugin-common.mk

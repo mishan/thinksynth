@@ -1,21 +1,22 @@
-# $Id: Makefile.in,v 1.11 2003/06/04 01:31:22 aaronl Exp $
+# $Id: Makefile.in,v 1.12 2003/09/02 04:45:35 joshk Exp $
 
 BINARY = thinksynth
 
 bindir=@bindir@
+libdir=@libdir@
 prefix=@prefix@
 
 all: thinksynth
 
 include ../build.mk
 
+PICFLAGS = -fPIC
 INCLUDES = -I..
 LDFLAGS += @LIBS@
 
-OBJS = \
+LIBOBJS = \
 	thinklang.o \
 	thinklex.o \
-	main.o \
 	thArg.o \
 	thAudioBuffer.o \
 	thMidiChan.o \
@@ -28,13 +29,27 @@ OBJS = \
 	thSynth.o \
 	thWav.o
 
-thinksynth: $(OBJS)
-	$(CXX) -rdynamic -o $@ $(OBJS) $(LDFLAGS)
+MAINOBJS = main.o
+
+thinksynth: libthink.so $(MAINOBJS)
+	$(CXX) $(CXXFLAGS) -o $@ $(MAINOBJS) $(LDFLAGS) -lthink -L.
+
+libthink.so: libthink.so.3
+	ln -sf libthink.so.3 libthink.so
+
+libthink.so.3: $(LIBOBJS)
+	$(CXX) $(CXXFLAGS) $(LDFLAGS) -shared -Wl,-soname,$@ -o $@ $(LIBOBJS)
+
+libthink.a: $(LIBOBJS)
+	ar crsv $@ $(LIBOBJS)
 
 thinklex.cpp: thinklex.ll thinklang.o
 	flex -o$@ thinklex.ll
 
 thinklang.hpp:
+
+clean::
+	rm -f libthink.so.3
 
 distclean::
 	rm -f thinklang.cpp thinklex.cpp thinklang.hpp thinklang.h Makefile
@@ -42,6 +57,10 @@ distclean::
 install:
 	mkdir -p $(DESTDIR)$(bindir)
 	cp -f thinksynth $(DESTDIR)$(bindir)
+	mkdir -p $(DESTDIR)$(libdir)
+	cp -f libthink.so.3 $(DESTDIR)$(libdir)
+	ln -sf libthink.so.3 $(DESTDIR)$(libdir)/libthink.so
 
 uninstall:
 	rm -f $(DESTDIR)$(bindir)/thinksynth
+	rm -f $(DESTDIR)$(libdir)/libthink.so.3 $(DESTDIR)$(libdir)/libthink.so

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.93 2003/06/14 23:41:11 aaronl Exp $ */
+/* $Id: main.cpp,v 1.94 2003/09/02 04:45:35 joshk Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -26,10 +26,6 @@
 
 string plugin_path;
 
-#if defined(__i386__) && defined(__GNUC__)
-int threednow, threednowext;
-#endif
-
 int main (int argc, char *argv[])
 {
 	int havearg;
@@ -46,31 +42,6 @@ int main (int argc, char *argv[])
 	int processwindows = 100;  /* How many windows do we process? */
 
 	plugin_path = PLUGIN_PATH;
-
-	/* check for 3dnow */
-#if defined (__i386__) && defined (__GNUC__)
-	asm volatile ("\
-xorl %%edx, %%edx\n\t\
-xorl %%ecx, %%ecx\n\t\
-xorl %%eax,%%eax         # CPUID function: Vendor ID\n\t\
-cpuid                    # Invoke cpuid function\n\t\
-testl %%eax,%%eax\n\t\
-jz  1f\n\t\
-movl $0x80000000, %%eax  # CPUID function: Largest extended value\n\t\
-cpuid\n\t\
-cmpl $0x80000001, %%eax  # We can execute feature #1, right?\n\t\
-jl  1f                   # If not, we're done here.\n\t\
-movl $0x80000001, %%eax  # CPUID function: Signature + features\n\t\
-cpuid\n\t\
-movl %%edx, %%ecx\n\t\
-andl $0x80000000, %%edx\n\t\
-shrl $0x0000001F, %%edx\n\t\
-andl $0x40000000, %%ecx\n\t\
-shrl $0x0000001E, %%ecx\n\t\
-1:\n\t"
-		: "=d" (threednow), "=c" (threednowext) : : "eax", "ebx");
-	printf ("3dnow support: %i, 3dnowext support: %i\n", threednow, threednowext);
-#endif
 
 	if (argc < 2) /* Not enough parameters */
 	{

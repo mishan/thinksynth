@@ -1,4 +1,4 @@
-# $Id: Makefile,v 1.12 2003/06/17 01:00:43 ink Exp $
+# $Id: Makefile,v 1.13 2003/09/02 04:45:35 joshk Exp $
 
-PLUGIN_NAMES = static.so simple.so softsqr.so softsqr2.so bandosc.so
+PLUGIN_NAMES = static simple softsqr softsqr2 bandosc
 include ../plugin-common.mk

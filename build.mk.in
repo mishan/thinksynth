@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.18 2003/06/15 00:33:18 aaronl Exp $
+# $Id: build.mk.in,v 1.19 2003/09/02 04:45:35 joshk Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -16,7 +16,7 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 	@LEX@ -o $@ $<
 
 %.o: %.cpp
-	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
+	$(CXX) $(PICFLAGS) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
 
 %@SHARED_SUFFIX@: %.cpp
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS)
@@ -33,6 +33,6 @@ endif
 distclean:: clean
 
 clean::
-	rm -rf .*.dt *@SHARED_SUFFIX@ *.o $(BINARY)
+	rm -rf .*.dt *@SHARED_SUFFIX@ *.a *.o $(BINARY)
 
 .PHONY: distclean clean

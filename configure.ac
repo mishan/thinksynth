@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.55 2003/08/03 02:48:38 misha Exp $
+dnl $Id: configure.ac,v 1.56 2003/09/02 04:45:35 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -16,7 +16,27 @@ AC_PROG_CC
 
 AC_PROG_CXXCPP
 
+dnl Test for a GNU rmdir which supports --ignore-fail-on-non-empty
+
+AC_MSG_CHECKING([if rmdir supports --ignore-fail-on-non-empty])
+
+mkdir .conftest
+touch .conftest/x
+
+if rmdir --ignore-fail-on-non-empty .conftest; then
+  GNU_RMDIR_OPTION="--ignore-fail-on-non-empty"
+  AC_MSG_RESULT(yes)
+else
+  AC_MSG_RESULT(no)
+fi
+
+AC_SUBST(GNU_RMDIR_OPTION)
+
+rm -f .conftest/x
+rmdir .conftest
+
 AC_LANG(C++)
+
 LEX_LANG=CXX
 YACC_LANG=CXX
 
@@ -101,7 +121,7 @@ dnl Debug is enabled:
 [
 	if test "$enableval" != no; then 
 		AC_DEFINE([USE_DEBUG], 1, [Define if you want debugging enabled])
-		CXXFLAGS="$CXXFLAGS -ggdb -W "
+		CXXFLAGS="$CXXFLAGS -ggdb -W -Wno-unused-parameter"
 		debug=yes
 	else
 		CXXFLAGS="$CXXFLAGS -O2"
@@ -175,7 +195,7 @@ fi
 AC_DEFINE_UNQUOTED([PLUGIN_PATH], "$plugin_path", [Path to plugins.])
 AC_SUBST(plugin_path)
 
-AC_CONFIG_FILES([src/Makefile plugins/plugin-common.mk dsp/Makefile build.mk])
+AC_CONFIG_FILES([src/Makefile plugins/plugin-common.mk plugins/Makefile dsp/Makefile build.mk])
 AC_OUTPUT
 
 echo
