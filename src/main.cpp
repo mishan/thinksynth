@@ -324,8 +324,6 @@ int main (int argc, char *argv[])
 	signal(SIGUSR1, (sighandler_t)cleanup);
 	signal(SIGINT, (sighandler_t)cleanup);
 
-	prefs->Load();
-
 //	gthPatchfile test("test.patch", Synth, 0);
 
 	/* create a window first */
@@ -392,6 +390,8 @@ int main (int argc, char *argv[])
 	}
 
 	MainSynthWindow synthWindow(Synth, prefs, aout);
+
+	prefs->Load();
 
 	mymain.run( synthWindow );
 
