@@ -112,7 +112,7 @@ dnl plugins/mixer/Makefile
 
 AC_SUBST_DIR(libdir)
 
-AC_OUTPUT([Makefile src/Makefile plugins/Makefile plugins/plugin-common.inc])
+AC_OUTPUT([Makefile src/Makefile plugins/plugin-common.inc])
 
 echo
 echo $PACKAGE $VERSION
