@@ -1,4 +1,4 @@
-/* $Id: MidiMap.h,v 1.8 2004/11/09 08:20:00 ink Exp $ */
+/* $Id: MidiMap.h,v 1.9 2004/11/09 09:24:38 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,6 +20,23 @@
 #ifndef MIDI_MAP_H
 #define MIDI_MAP_H
 
+class MidiMapColumns : public Gtk::TreeModel::ColumnRecord
+{
+public:
+	MidiMapColumns (void)
+		{
+			add (midiChan);
+			add (midiController);
+			add (instrument);
+			add (argName);
+		}
+	Gtk::TreeModelColumn <int> midiChan;
+	Gtk::TreeModelColumn <int> midiController;
+	Gtk::TreeModelColumn <string> instrument;
+	Gtk::TreeModelColumn <string> argName;
+};
+
+
 class MidiMap : public Gtk::Window
 {
 public:
@@ -40,6 +57,8 @@ protected:
 		{ return onDestArgComboChanged(NULL, arg); }
 	void onMinChanged (void);
 	void onMaxChanged (void);
+	void onConnectionSelected (GdkEventButton *b);
+	void onConnectionMoved (void);
 
 	Gtk::Adjustment *channelAdj_;
 	Gtk::Adjustment *controllerAdj_;
@@ -47,6 +66,7 @@ protected:
 	Gtk::Adjustment *maxAdj_;
 
 	Gtk::VBox *mainVBox_;
+	Gtk::HBox *srcDestHBox_;
 	Gtk::HBox *newConnectionHBox_;
 	Gtk::Frame *newConnectionFrame_;
 	Gtk::HBox *destinationHBox_;
@@ -65,9 +85,16 @@ protected:
 	Gtk::SpinButton *maxSpinBtn_;
 	Gtk::Button *addBtn_;
 
+	Gtk::Frame *connectFrame_;
+	Gtk::ScrolledWindow connectScroll_;
+	Gtk::TreeView connectView_;
+	Glib::RefPtr<Gtk::ListStore> connectModel_;
+	MidiMapColumns connectViewCols_;
+
 private:
 	void fillDestChanCombo (void);
 	void fillDestArgCombo (int chan);
+	void populateConnections (void);
 
 	thSynth *synth_;
 	int selectedChan_;

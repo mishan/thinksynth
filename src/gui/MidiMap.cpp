@@ -1,4 +1,4 @@
-/* $Id: MidiMap.cpp,v 1.10 2004/11/09 08:20:00 ink Exp $ */
+/* $Id: MidiMap.cpp,v 1.11 2004/11/09 09:24:38 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -35,6 +35,8 @@ MidiMap::MidiMap (thSynth *argsynth)
 	newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
 	destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
 	detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
+	connectFrame_ = manage(new Gtk::Frame("Connections"));
+	srcDestHBox_ = manage(new Gtk::HBox);
 	newConnectionHBox_ = manage(new Gtk::HBox);
 	destinationHBox_ = manage(new Gtk::HBox);
 	detailsHBox_ = manage(new Gtk::HBox);
@@ -82,17 +84,37 @@ MidiMap::MidiMap (thSynth *argsynth)
 	destinationHBox_->pack_start(*destArgCombo_, Gtk::PACK_EXPAND_WIDGET);
 	destinationFrame_->add(*destinationHBox_);
 
+	srcDestHBox_->pack_start(*newConnectionFrame_, Gtk::PACK_EXPAND_WIDGET);
+	srcDestHBox_->pack_start(*destinationFrame_, Gtk::PACK_EXPAND_WIDGET);
+
 	detailsHBox_->pack_start(*minLbl_, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox_->pack_start(*minSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox_->pack_start(*maxLbl_, Gtk::PACK_EXPAND_WIDGET);
 	detailsHBox_->pack_start(*maxSpinBtn_, Gtk::PACK_EXPAND_WIDGET);
 	detailsFrame_->add(*detailsHBox_);
 
-	mainVBox_->pack_start(*newConnectionFrame_, Gtk::PACK_EXPAND_WIDGET);
-	mainVBox_->pack_start(*destinationFrame_, Gtk::PACK_EXPAND_WIDGET);
+	connectScroll_.add(connectView_);
+	connectScroll_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
+
+	connectView_.signal_button_press_event().connect_notify(
+		sigc::mem_fun(*this, &MidiMap::onConnectionSelected));
+	connectView_.signal_cursor_changed().connect_notify(
+		sigc::mem_fun(*this, &MidiMap::onConnectionMoved));
+	connectFrame_->add(connectScroll_);
+
+	connectModel_ = Gtk::ListStore::create (connectViewCols_);
+	connectView_.set_model(connectModel_);
+
+	populateConnections();
+	connectView_.append_column("Channel", connectViewCols_.midiChan);
+	connectView_.append_column("Controller", connectViewCols_.midiController);
+	connectView_.append_column("Instrument", connectViewCols_.instrument);
+	connectView_.append_column("Parameter", connectViewCols_.argName);
+
+	mainVBox_->pack_start(*srcDestHBox_, Gtk::PACK_EXPAND_WIDGET);
 	mainVBox_->pack_start(*detailsFrame_, Gtk::PACK_EXPAND_WIDGET);
 	mainVBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
-
+	mainVBox_->pack_start(*connectFrame_, Gtk::PACK_EXPAND_WIDGET);
 
 	show_all_children();
 }
@@ -190,6 +212,10 @@ void MidiMap::fillDestArgCombo (int chan)
 	}
 }
 
+void MidiMap::populateConnections (void)
+{
+}
+
 void MidiMap::onChannelChanged (void)
 {
 	selectedChan_ = (int)channelSpinBtn_->get_value() - 1;
@@ -226,6 +252,14 @@ void MidiMap::onMinChanged (void)
 void MidiMap::onMaxChanged (void)
 {
 	selectedMax_ = maxSpinBtn_->get_value();
+}
+
+void MidiMap::onConnectionSelected (GdkEventButton *b)
+{
+}
+
+void MidiMap::onConnectionMoved (void)
+{
 }
 
 void MidiMap::onAddButton (void)

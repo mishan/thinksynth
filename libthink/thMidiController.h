@@ -40,8 +40,12 @@ public:
 	void newConnection (unsigned char channel, unsigned int param,
 						thMidiControllerConnection *connection);
 
+	std::map<unsigned int, thMidiControllerConnection *>
+	getConnectionList (void) { return connectionList_; }
+
 private:
 	thMidiControllerConnection *connections_[16][128];
+	std::map<unsigned int, thMidiControllerConnection *> connectionList_;
 };
 
 #endif /* TH_MIDICONTROLLER_H */

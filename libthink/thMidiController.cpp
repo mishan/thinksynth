@@ -1,4 +1,4 @@
-/* $Id: thMidiController.cpp,v 1.1 2004/10/21 22:47:13 ink Exp $ */
+/* $Id: thMidiController.cpp,v 1.2 2004/11/09 09:24:38 ink Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -54,4 +54,5 @@ void thMidiController::newConnection (unsigned char channel,
 	   the linked list */
 
 	connections_[channel][param] = connection;
+	connectionList_[channel * 128 + param] = connection;
 }
