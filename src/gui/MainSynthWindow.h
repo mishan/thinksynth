@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.11 2004/09/15 07:40:52 joshk Exp $ */
+/* $Id: MainSynthWindow.h,v 1.12 2004/09/15 08:31:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -38,6 +38,7 @@ protected:
 	void menuQuit (void);
 	void menuAbout (void);
 	void menuJackTry (void);
+	void menuJackDis (void);
 	void menuJackAuto (void);
 
 	void sliderChanged (Gtk::HScale *, thArg *);
@@ -60,6 +61,8 @@ private:
 	thSynth *synth;
 	gthAudio *audio;
 	gthPrefs *prefs;
+
+	void toggleConnects(void);
 };
 
 #endif /* MAIN_SYNTH_WINDOW_H */

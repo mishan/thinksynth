@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.28 2004/09/15 07:40:52 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.29 2004/09/15 08:31:38 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -44,8 +44,19 @@
 bool chosen = false;
 extern Glib::Mutex *synthMutex;
 
+void MainSynthWindow::toggleConnects (void)
+{
+	Gtk::MenuItem *me = (Gtk::MenuItem *)&menuJack.items()[0];
+	Gtk::MenuItem *dis = (Gtk::MenuItem *)&menuJack.items()[1];
+	bool c = me->is_sensitive();
+	me->set_sensitive(!c);
+	dis->set_sensitive(c);
+}
+
 MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)
 {
+	string ** vals;
+	
 	set_title("thinksynth");
 	set_default_size(520, 360);
 
@@ -59,6 +70,17 @@ MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_
 
 	menuBar.accelerate(*patchSel);
 
+	/* Not the best place to do it but we need to call toggleConnects */
+	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+	{
+		vals = prefs->Get("autoconnect");
+		if (*vals[0] == "true")
+		{
+			if (((gthJackAudio*)audio)->tryConnect())
+				toggleConnects();
+		}
+	}
+	
 	add(vbox);
 
 	vbox.pack_start(menuBar, Gtk::PACK_SHRINK);
@@ -120,6 +142,14 @@ void MainSynthWindow::populateMenu (void)
 				SigC::slot(*this, &MainSynthWindow::menuJackTry)));
 
 		menulist.push_back(
+			Gtk::Menu_Helpers::MenuElem("Disconnect from JACK",
+				SigC::slot(*this, &MainSynthWindow::menuJackDis)));
+
+		menulist.back().set_sensitive(false);
+
+		menulist.push_back(Gtk::Menu_Helpers::SeparatorElem());
+
+		menulist.push_back(
 			Gtk::Menu_Helpers::CheckMenuElem ("Auto-connect to JACK",
 				autoslot));
 
@@ -159,13 +189,25 @@ void MainSynthWindow::populateMenu (void)
 	}
 }
 
+void MainSynthWindow::menuJackDis (void)
+{
+	gthJackAudio *jaudio = (gthJackAudio*)audio;
+	
+	if (jaudio)
+	{
+		jaudio->tryConnect(false);
+		toggleConnects();
+	}
+}
+
 void MainSynthWindow::menuJackTry (void)
 {
 	gthJackAudio *jaudio = (gthJackAudio*)audio;
 
 	if (jaudio)
 	{
-		jaudio->tryConnect();
+		if (jaudio->tryConnect())
+			toggleConnects();
 	}
 }
 
