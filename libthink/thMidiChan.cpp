@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.64 2004/05/04 21:21:04 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.65 2004/05/04 21:24:56 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -57,10 +57,8 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	int id = (int)note;
 	map<int, thMidiNote*>::iterator i = notes.find(id);
 	if(i != notes.end()) {  
-		/* XXX: UNCOMMENT THESE
 		decaying.push_front(i->second);
 		notes.erase(i);
-		*/
 	}
 /* XXXXXXXXXXXXXXXXXXX: THIS IS BAD   WE MUST REMAP ALLLLL MIDI VALUS AT THE SAME TIME (but we only really have this one right now) */
 	midinote = new thMidiNote(modnode, note, velocity * TH_MAX / MIDIVALMAX);
@@ -136,7 +134,6 @@ void thMidiChan::Process (void)
 
 /* Now, the [almost] exact same thing for the list of decaying notes */
 
-/* XXX: UNCOMMENT THIS
 	list<thMidiNote*>::iterator diter = decaying.begin();
 	while(diter != decaying.end())
 	{
@@ -165,7 +162,7 @@ void thMidiChan::Process (void)
 		{
 			diter++;
 		}
-		}  XXX: END UNCOMMENT HERE */
+	}
 }
 
 static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
