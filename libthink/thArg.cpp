@@ -31,7 +31,6 @@ thArg::thArg(const char *name, const char *node, const char *value)
 	argValue->argNum = 0;
 
 	argValue->argType = ARG_POINTER;
-	printf("+++ %s  %i +++\n", argValue->argName, argValue->argType);
 }
 
 thArg::thArg () /* the equivalent of creating a thArg(NULL, NULL, 0) */

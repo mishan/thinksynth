@@ -24,6 +24,7 @@ int main (int argc, char *argv[])
 	parsenode = new thNode("newnode", NULL);
 
 	yyparse();
-	parsemod->PrintIONode();
-	parsemod->GetArg("test1", "point");
+	//	parsemod->PrintIONode();
+	printf("  = %f\n", *((thArgValue *)parsemod->GetArg("test1", "point"))->argValues);
 }
+

@@ -149,20 +149,6 @@ NUMBER
 NIL
 ;
 
-/*output:
-OUTPUT fstr fstr
-{
-	printf("outputting left %s and right %s\n", $2.str, $3.str);
-
-	build_tree(node_find(parsemod->nodelist,strtok($2.str,"/")));
-	build_tree(node_find(parsemod->nodelist,strtok($3.str,"/")));
-
-	leftroot = node_find(parsemod->nodelist,strtok($2.str,"/"));
-	rightroot = node_find(parsemod->nodelist,strtok($3.str,"/"));
-}
-;
-*/
-
 nodes:
 NODE WORD plugname LCBRACK assignments RCBRACK
 {
@@ -190,8 +176,6 @@ IO WORD
 {
 	printf("IO node defined as %s\n", $2.str);
 	parsemod->SetIONode($2.str);
-//	XXX - - FIX THIS TOO
-//	parsemod->statusnode = node_find(parsemod->nodelist, $2.str);
 }
 ;
 
@@ -259,7 +243,7 @@ WORD ASSIGN fstr
 	
 	arg = new char[argsize];
 	memcpy(arg, p, argsize);
-printf("%s %s\n", node, arg);	
+
 	parsenode->SetArg($1.str, node, arg);
 }
 ;

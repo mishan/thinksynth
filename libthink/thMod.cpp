@@ -35,18 +35,11 @@ thArgValue *thMod::GetArg (char *nodename, char *argname)
   thArgValue *args;
 
   if (node) { args = node->GetArg(argname); }
-  printf("=-= %s %i  %p  %s\n", args->argName, args->argType, args, args->argPointNode);
-  printf("--==-- %p\n", args);
- node->PrintArgs();
- printf("---\n");
- modnodes->PrintTree();
-  while (args->argType == ARG_POINTER && node && args) {     /* Recurse through the 
-                                     list of pointers until we get a real value. */
-    printf("%s\n", args->argName);
+  while (args->argType == ARG_POINTER && node && args) {     /* Recurse through
+			    the list of pointers until we get a real value. */
     node = (thNode *)modnodes->GetData(args->argPointNode);
     if (node) { args = node->GetArg(args->argPointName); }
   }  /* Maybe also add some kind of infinite-loop checking thing? */
-printf("-=- %s %i\n", args->argName, args->argType);
   return args;
 }
 
