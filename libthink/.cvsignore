@@ -6,3 +6,4 @@ thinklang.h
 Makefile
 libthink.so*
 .*.dt
+.bstamp
