@@ -1,4 +1,4 @@
-/* $Id: thMod.cpp,v 1.57 2003/05/03 10:34:31 ink Exp $ */
+/* $Id: thMod.cpp,v 1.58 2003/05/03 10:41:58 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -106,8 +106,6 @@ void thMod::Process (unsigned int windowlen)
 		}
 	}
 
-	printf("thMod::Process  %s\n", ionode->GetName());
-
 	/* FIRE! */
 	((thPlugin *)ionode->GetPlugin())->Fire(ionode, this, windowlen);
 }
@@ -125,8 +123,6 @@ void thMod::ProcessHelper(unsigned windowlen, thNode *node)
 			ProcessHelper(windowlen, data);
 		}
 	}
-
-	printf("thMod::ProcessHelper  %s\n", node->GetName());
 
 	/* FIRE! */
 	((thPlugin *)node->GetPlugin())->Fire(node, this, windowlen);

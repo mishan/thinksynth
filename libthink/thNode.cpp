@@ -1,4 +1,4 @@
-/* $Id: thNode.cpp,v 1.45 2003/05/03 09:31:07 ink Exp $ */
+/* $Id: thNode.cpp,v 1.46 2003/05/03 10:41:58 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -102,11 +102,9 @@ void thNode::CopyArgs (thBSTree *newargs)
 	if(data->argType == ARG_VALUE) {
 	  newvalues = new float[data->argNum];
 	  memcpy(newvalues, data->argValues, data->argNum*sizeof(float));
-	  printf("CopyArgs: %s: %f %f\n", data->argName, data->argValues[0], newvalues[0]);
 		newarg = new thArg(data->argName, newvalues, data->argNum);
 	}
 	else if(data->argType == ARG_POINTER) {
-	  printf("CopyArgs: Copying Pointer: %s: %s->%s\n", data->argName, data->argPointNode, data->argPointName);
 		newarg = new thArg(data->argName, data->argPointNode,
 						   data->argPointName);
 
