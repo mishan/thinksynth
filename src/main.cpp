@@ -407,8 +407,11 @@ int main (int argc, char *argv[])
 
 	delete prefs;
 
-	printf("closing audio devices...\n");
-	delete aout;
+	if (aout)
+	{
+		printf("closing audio devices...\n");
+		delete aout;
+	}
 
 	/* Will not be reached if using 'alsa' driver */
 #if 0
