@@ -4,6 +4,20 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+#include "thArg.h"
+#include "thList.h"
+#include "thBSTree.h"
+#include "thPlugin.h"
+#include "thNode.h"
+#include "thMod.h"
+#include "thSynth.h"
+
+#include "parser.h"
+
+//thNode *parsenode;
+//thMod *parsemod;
 
 thSynth::thSynth()
 {

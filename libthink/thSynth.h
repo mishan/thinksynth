@@ -7,4 +7,4 @@ public:
 
 private:
 	thBSTree *modlist;
-}
+};

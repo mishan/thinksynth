@@ -17,6 +17,7 @@ thinksynth_SOURCES = \
 	thPlugin.cpp \
 	thPluginManager.cpp \
 	thPluginSignaler.cpp \
+	thSynth.cpp \
 	thWav.cpp
 
 thinksynth_LDADD = @LEXLIB@
