@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.92 2003/06/14 09:52:41 aaronl Exp $ */
+/* $Id: main.cpp,v 1.93 2003/06/14 23:41:11 aaronl Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -26,7 +26,7 @@
 
 string plugin_path;
 
-#if defined(__i386__)
+#if defined(__i386__) && defined(__GNUC__)
 int threednow, threednowext;
 #endif
 
@@ -48,7 +48,7 @@ int main (int argc, char *argv[])
 	plugin_path = PLUGIN_PATH;
 
 	/* check for 3dnow */
-#if defined (__i386__)
+#if defined (__i386__) && defined (__GNUC__)
 	asm volatile ("\
 xorl %%edx, %%edx\n\t\
 xorl %%ecx, %%ecx\n\t\
