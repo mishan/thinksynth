@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.26 2003/05/07 23:02:55 misha Exp $ */
+/* $Id: thWav.cpp,v 1.27 2003/05/08 03:56:24 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -83,7 +83,9 @@ thWav::~thWav (void)
 	else {
 		fclose(file);
 	}
-
+	if(filename) {
+		free(filename);
+	}
 }
 
 int thWav::Write (void *data, int len)

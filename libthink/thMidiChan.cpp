@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.37 2003/05/08 00:53:33 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.38 2003/05/08 03:56:24 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -115,9 +115,9 @@ void thMidiChan::ProcessHelper (thBSTree *note)
 		if(delnote == 1) {
 			DelNote(data->GetID());
 		}
-
-		delete[] argname;
 	}
+
+	delete[] argname;
 
 	ProcessHelper(note->GetRight());
 }

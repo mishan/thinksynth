@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.78 2003/05/08 01:49:35 ink Exp $ */
+/* $Id: main.cpp,v 1.79 2003/05/08 03:56:24 ink Exp $ */
 
 #include "config.h"
 
@@ -169,4 +169,5 @@ syntax:
 	//	Synth.PrintChan(0);
 
 	free(filename);
+	free(dspname);
 }
