@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.8 2004/09/05 00:21:48 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.9 2004/09/05 09:38:23 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -165,6 +165,9 @@ void gthPrefs::Save (void)
 		string key = i->first;
 		string **values = i->second;
 		
+		if (values == NULL)
+			continue;
+
 		fprintf(prefsFile, "%s ", key.c_str());
 
 		for(int j = 0; values[j]; j++)
