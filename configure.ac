@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.66 2004/03/26 08:24:50 joshk Exp $
+dnl $Id: configure.ac,v 1.67 2004/03/30 05:09:39 joshk Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -171,6 +171,12 @@ if test "$ac_cv_cxx_compiler_gnu" = yes; then
 		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt,-MT\$@"])
 	fi
 fi
+
+AC_CHECK_FUNC(basename,,
+[
+  AC_SUBST(BASENAME_CPP, [basename.cpp])
+  AC_DEFINE(USE_EXTERNAL_BASENAME, 1, [Define if a usable basename(3) is available.])
+])
 
 AC_MSG_CHECKING([for gthread-2.0])
 

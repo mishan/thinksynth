@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.1 2004/01/28 10:36:37 misha Exp $
+# $Id: Makefile.in,v 1.2 2004/03/30 05:09:39 joshk Exp $
 
 libdir=@libdir@
 prefix=@prefix@
@@ -13,6 +13,7 @@ LDFLAGS += @LIBS@
 
 LIBOBJS = \
 	@NSMODULE_DL_CPP@ \
+	@BASENAME_CPP@ \
 	thinklang.o \
 	thinklex.o \
 	thArg.o \

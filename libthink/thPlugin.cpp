@@ -1,19 +1,22 @@
-/* $Id: thPlugin.cpp,v 1.36 2003/12/21 05:57:48 joshk Exp $ */
+/* $Id: thPlugin.cpp,v 1.37 2004/03/30 05:09:39 joshk Exp $ */
 
 #include "config.h"
 #include "think.h"
 
 #include <stdio.h>
 
-#ifdef HAVE_LIBGEN_H
-#include <libgen.h>
-#else /* libiberty */
-#include <ansidecl.h>
-#ifdef PARAMS
-extern "C" { extern char *basename PARAMS ((const char *)); }
+#ifdef USE_EXTERNAL_BASENAME
+# include "basename.h"
+# define basename(p) support_basename(p)
 #else
-#error no basename implementation available! get a better unix
-#endif
+# ifdef HAVE_LIBGEN_H
+#  include <libgen.h>
+# else /* libiberty */
+#  include <ansidecl.h>
+#  ifdef PARAMS
+extern "C" { extern char *basename PARAMS ((const char *)); }
+#  endif
+# endif
 #endif
 
 #ifdef HAVE_DLFCN_H
