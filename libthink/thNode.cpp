@@ -10,6 +10,7 @@
 #include "thList.h"
 #include "thBSTree.h"
 #include "thPlugin.h"
+#include "thPluginManager.h"
 #include "thNode.h"
 
 thNode::thNode (char *name, thPlugin *thplug)
@@ -69,6 +70,13 @@ void thNode::PrintArgs (void)
 	args.PrintTree();
 }
 
+void thNode::SetPlugin (thPlugin *plug)
+{
+  plugin = plug;
+}
+
 void thNode::Process (void)
 {
 }
+
+

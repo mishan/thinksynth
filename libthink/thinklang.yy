@@ -179,6 +179,7 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 		printf("Loading %s...\n", $3.str);
 		((thPluginManager *)Synth->GetPluginManager())->LoadPlugin($3.str);
 		}
+	parsenode->SetPlugin(((thPluginManager *)Synth->GetPluginManager())->GetPlugin($3.str));
 	parsenode->SetName($2.str);
 	parsemod->NewNode(parsenode);
 	parsenode = new thNode("newnode", NULL);		/* add name, plugin */

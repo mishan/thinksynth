@@ -25,6 +25,8 @@ public:
 	thList *GetChildren() { return &children; };
 	thList *GetParents() { return &parents; };
 
+	void SetPlugin (thPlugin *plug);
+
 	void Process (void);
 private:
 	thBSTree args;
