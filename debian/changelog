@@ -1,9 +1,10 @@
-thinksynth (0.0.cvs20041110-2) experimental; urgency=low
+thinksynth (0.0.cvs20041111-1) experimental; urgency=low
 
+  * This new snapshot fixes a minor GTK snafu in the TreeViews.
   * Section: libdevel for libthink3-dev. Don't know how that fell
     through the cracks.
 
- -- Joshua Kwan <joshk@triplehelix.org>  Wed, 10 Nov 2004 21:39:16 -0800
+ -- Joshua Kwan <joshk@triplehelix.org>  Thu, 11 Nov 2004 10:07:15 -0800
 
 thinksynth (0.0.cvs20041110-1) experimental; urgency=low
 
