@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.65 2004/02/01 09:23:31 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.66 2004/02/01 09:30:09 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -45,7 +45,7 @@ thSynth::~thSynth (void)
 	DestroyMap(channels);
 }
 
-void thSynth::LoadMod(const string &filename)
+void thSynth::LoadMod (const string &filename)
 {
 	if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
 		fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
@@ -68,7 +68,7 @@ void thSynth::LoadMod(const string &filename)
 	modlist[parsemod->GetName()] = parsemod;
 }
 
-void thSynth::LoadMod(FILE *input)
+void thSynth::LoadMod (FILE *input)
 {
 	yyin = input;
 
@@ -87,7 +87,7 @@ void thSynth::LoadMod(FILE *input)
 
 
 /* Make these voids return something and add error checking everywhere! */
-void thSynth::ListMods(void)
+void thSynth::ListMods (void)
 {
 	for (map<string, thMod*>::const_iterator im = modlist.begin(); 
 		 im != modlist.end(); ++im) {
@@ -95,14 +95,14 @@ void thSynth::ListMods(void)
 	}
 }
 
-void thSynth::AddChannel(const string &channame, const string &modname,
-						 float amp)
+void thSynth::AddChannel (const string &channame, const string &modname,
+						  float amp)
 {
 	channels[channame] = new thMidiChan(FindMod(modname), amp, thWindowlen);
 }
 
-thMidiNote *thSynth::AddNote(const string &channame, float note,
-							 float velocity)
+thMidiNote *thSynth::AddNote (const string &channame, float note,
+							  float velocity)
 {
 	thMidiChan *chan = channels[channame];
 
@@ -118,7 +118,8 @@ thMidiNote *thSynth::AddNote(const string &channame, float note,
 	return newnote;
 }
 
-int thSynth::SetNoteArg (const string &channame, int note, char *name, float *value, int len)
+int thSynth::SetNoteArg (const string &channame, int note, char *name,
+						 float *value, int len)
 {
 	thMidiChan *chan = channels[channame];
 
@@ -134,9 +135,9 @@ int thSynth::SetNoteArg (const string &channame, int note, char *name, float *va
 	return 0;
 }
 
-void thSynth::Process()
+void thSynth::Process (void)
 {
-	memset(thOutput, 0, thChans*thWindowlen*sizeof(float));
+	memset(thOutput, 0, thChans * thWindowlen * sizeof(float));
 
 	int i, j, mixchannels, notechannels;
 	thMidiChan *chan;
