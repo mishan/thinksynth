@@ -1,4 +1,4 @@
-/* $Id: thinklex.ll,v 1.21 2004/04/08 00:34:56 misha Exp $ */
+/* $Id: thinklex.ll,v 1.22 2004/04/22 08:55:28 ink Exp $ */
 
 %{
 #include "config.h"
@@ -40,6 +40,8 @@ node		{ return NODE; }
 io		{ return IO; }
 name		{ return NAME; }
 description	{ return DESC; }
+
+ms		{ return MS; }
 
 "{"		{ return LCBRACK; }
 "}"		{ return RCBRACK; }

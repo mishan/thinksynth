@@ -1,4 +1,4 @@
-/* $Id: thinklang.yy,v 1.53 2004/04/22 08:47:20 misha Exp $ */
+/* $Id: thinklang.yy,v 1.54 2004/04/22 08:55:28 ink Exp $ */
 
 %{
 #include "config.h"
@@ -40,6 +40,7 @@ extern "C" int yywrap(void)
 %}
 
 %token NODE IO NAME DESC
+%token MS
 %token WORD 
 %token FLOAT NUMBER
 %token ENDSTATE ASSIGN LCBRACK RCBRACK
@@ -128,9 +129,14 @@ factor MOD term
 	$$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
 }
 |
-factor MOD
+factor MOD /* percentage of TH_MAX  (ex: somearg = 50%) */
 {
 	$$.floatval = $1.floatval * TH_MAX / 100;
+}
+|
+factor MS /* milliseconds */
+{
+	$$.floatval = $1.floatval * TH_SAMPLE / 1000;
 }
 ;
 
