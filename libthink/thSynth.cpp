@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.95 2004/05/26 00:14:04 misha Exp $ */
+/* $Id: thSynth.cpp,v 1.96 2004/06/15 06:15:28 ink Exp $ */
 
 #include "config.h"
 
@@ -350,6 +350,7 @@ int thSynth::DelNote (int channum, float note)
 	pthread_mutex_lock(synthMutex);
 	
 	chan->SetNoteArg ((int)note, "trigger", pbuf, 1);
+/* XXX IS THE OLD BUFFER BEING TAKEN CARE OF?  Possible memory leak */
 
 	pthread_mutex_unlock(synthMutex);
 

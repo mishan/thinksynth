@@ -1,4 +1,4 @@
-/* $Id: thMidiChan.cpp,v 1.69 2004/05/21 00:04:25 ink Exp $ */
+/* $Id: thMidiChan.cpp,v 1.70 2004/06/15 06:15:28 ink Exp $ */
 
 #include "think.h"
 #include "config.h"
@@ -56,7 +56,15 @@ thMidiNote *thMidiChan::AddNote (float note, float velocity)
 	thMidiNote *midinote;
 	int id = (int)note;
 	map<int, thMidiNote*>::iterator i = notes.find(id);
-	if(i != notes.end()) {  
+	if(i != notes.end()) {
+		/* Make sure to turn off the old note, or it will hang! */
+		/* XXX: Maybe we should keep track of who owned the note instead
+		   of just making it die */
+		float *pbuf = new float;
+		*pbuf = 0;
+
+		i->second->SetArg("trigger", pbuf, 1);
+
 		decaying.push_front(i->second);
 		notes.erase(i);
 	}
