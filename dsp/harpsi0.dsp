@@ -1,4 +1,4 @@
-# $Id: harpsi0.dsp,v 1.4 2004/02/09 10:50:28 misha Exp $
+# $Id: harpsi0.dsp,v 1.5 2004/04/09 06:54:47 ink Exp $
 name "test";
 
 node ionode {
@@ -26,6 +26,7 @@ node ionode {
 	a = 0;
 	d = 3000;
 	s = 0.4;
+	f = 100000;
 	r = 7000;
 };
 
@@ -53,10 +54,11 @@ node suscalc math::mul {
 	in1 = ionode->s;
 };
 
-node env env::adsr {
+node env env::adsfr {
 	a = ionode->a;
 	d = ionode->d;
 	s = suscalc->out;
+	f = ionode->f;
 	r = ionode->r;
 	p = ionode->velocity;
 	trigger = ionode->trigger;
