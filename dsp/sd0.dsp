@@ -17,7 +17,6 @@ node ionode {
 	snaresample = 0;
 	snare = 0.7;
 	filter = 0.5;
-	res = 0.8;
 };
 
 node mixer mixer::fade {
@@ -60,10 +59,9 @@ node pitch env::map {
 	outmax = ionode->tonehi;
 };
 
-node filt filt::rds {
+node filt filt::ds {
 	in = dist->out;
 	cutoff = ionode->filter;
-	res = ionode->res;
 };
 
 node dist dist::clip {
