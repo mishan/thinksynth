@@ -1,4 +1,4 @@
-/* $Id: test.cpp,v 1.10 2003/05/06 18:08:09 misha Exp $ */
+/* $Id: test.cpp,v 1.11 2003/05/12 05:54:35 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,7 +39,7 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
-//	printf("TEST!!\n");
+	printf("TEST!!\n");
 	return 0;
 }
 
