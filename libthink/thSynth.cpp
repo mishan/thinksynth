@@ -75,13 +75,17 @@ void thSynth::BuildSynthTree(char *modname)
   }
 }
 
-void thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
+int thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
 {
   thListNode *listnode;
   thArgValue *data;
-  thNode *node;
+  thNode *node = mod->FindNode(nodename);
 
-  for(listnode = ((thList *)((thNode *)mod->FindNode(nodename))->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
+  if(node->GetRecalc() == true) {
+    return(1);  /* This node has already been processed */
+  }
+
+  for(listnode = ((thList *)node->GetArgList())->GetHead() ; listnode ; listnode = listnode->prev) {
     data = (thArgValue *)((thArg *)listnode->data)->GetArg();
     printf("--- %s %i\n", data->argName, data->argType);
     if(data->argType == ARG_POINTER) {
@@ -94,6 +98,7 @@ void thSynth::BuildSynthTreeHelper(thMod *mod, char *nodename)
       }
     }
   }
+  return(0);
 }
     
       

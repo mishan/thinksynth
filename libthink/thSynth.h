@@ -9,7 +9,7 @@ public:
 	void BuildSynthTree(char *modname);
 
 private:
-	void BuildSynthTreeHelper(thMod *mod, char *nodename);
+	int BuildSynthTreeHelper(thMod *mod, char *nodename);
 
 	thBSTree *modlist;
 };

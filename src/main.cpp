@@ -4,6 +4,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "think.h"
+
 #include "thArg.h"
 #include "thList.h"
 #include "thBSTree.h"
