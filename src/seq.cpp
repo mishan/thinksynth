@@ -1,4 +1,4 @@
-/* $Id: seq.cpp,v 1.1 2003/11/04 05:53:21 ink Exp $ */
+/* $Id: seq.cpp,v 1.2 2003/11/04 07:25:59 ink Exp $ */
 
 #include "config.h"
 
@@ -85,10 +85,10 @@ int parse (char *command, thSynth *Synth)
 
 int main (int argc, char *argv[])
 {
-	string dspname = "test"; /* XXX: for debugging ONLY */
+	string dspname = "test";   /* XXX: for debugging ONLY */
 	string outputfname("test.wav");
-	string inputfname; /* filename of .dsp file to use */
-	int notetoplay = 69;  /* XXX: Remove when sequencing is external */
+	string inputfname;         /* filename of .dsp file to use */
+	int notetoplay = 69;       /* XXX: Remove when sequencing is external */
 	int samplerate = TH_SAMPLE;
 	int processwindows = 100;  /* how long does sample play */
 	int buflen, havearg, i;
@@ -140,7 +140,7 @@ int main (int argc, char *argv[])
 				dspname = optarg;
 				break;
 			}
-			case 'n':  /* TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
+			case 'n':  /* XXX: TAKE THIS OUT WHEN SEQUENCING IS EXTERNAL */
 			{
 				notetoplay = (int)atof(optarg);
 				break;
@@ -153,7 +153,7 @@ int main (int argc, char *argv[])
 			default:
 			{
 				if (optind != argc) {
-//				printf ("error: unrecognized parameter\n");
+//					printf ("error: unrecognized parameter\n");
 					print_syntax(argv[0]);
 					exit(1);
 				}
@@ -200,9 +200,11 @@ int main (int argc, char *argv[])
 	/* XXX: handle these exceptions and consolidate them to one exception
 	   datatype */
 	catch (thIOException e) {
+		printf("thIOEXception on /dev/dsp\n");
 		/* XXX */
 	}
-	catch (thWavException e){
+	catch (thWavException e) {
+		printf("thWavException on %s\n", outputfname.c_str());
 		/* XXX */
 	}
 
@@ -216,7 +218,9 @@ int main (int argc, char *argv[])
 
 	/* grab address of buffer from synth object */
 	synthbuffer = Synth.GetOutput();
+
 	buflen = Synth.GetChans()*Synth.GetWindowLen();
+
 	printf ("Writing to '%s'\n",(char *)outputfname.c_str());
 
 	for (i = 0; i < processwindows; i++) {
