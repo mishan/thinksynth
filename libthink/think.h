@@ -1,4 +1,4 @@
-/* $Id: think.h,v 1.24 2004/04/17 23:59:04 ink Exp $ */
+/* $Id: think.h,v 1.25 2004/05/21 06:43:47 misha Exp $ */
 
 #ifndef THINK_H
 #define THINK_H
@@ -11,7 +11,7 @@ using namespace std;
 
 /* Sampling Rate */
 #define TH_SAMPLE 44100
-#define TH_WINDOW_LENGTH 512
+#define TH_WINDOW_LENGTH 1024
 
 /* Signal Range */
 #define TH_MAX 1

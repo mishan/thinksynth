@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.8 2004/05/11 19:46:11 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.9 2004/05/21 06:43:47 misha Exp $ */
 
 #include "config.h"
 
@@ -48,7 +48,7 @@ thfJackAudio::thfJackAudio (thSynth *argsynth)
 										  0);
 	}
 
-//	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
+	jack_set_buffer_size(jack_handle, TH_WINDOW_LENGTH);
 
 	debug("sample rate is %d\n", jack_get_sample_rate(jack_handle));
 

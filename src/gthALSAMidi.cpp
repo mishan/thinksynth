@@ -1,4 +1,4 @@
-/* $Id: gthALSAMidi.cpp,v 1.6 2004/05/05 06:27:48 misha Exp $ */
+/* $Id: gthALSAMidi.cpp,v 1.7 2004/05/21 06:43:47 misha Exp $ */
 
 #include "config.h"
 
@@ -88,9 +88,19 @@ bool thfALSAMidi::open_seq (void)
 	/* XXX: is this portable??? */
 	mainContext->signal_io().connect(SigC::slot(*this,
 												&thfALSAMidi::pollMidiEvent),
-									 pfds[0].fd, Glib::IO_IN,
+									 pfds[0].fd, Glib::IO_IN|Glib::IO_PRI,
 									 Glib::PRIORITY_HIGH);
 
+	printf("current MIDI size: %d\n",
+		   snd_seq_get_input_buffer_size(seq_handle));
+
+	/* XXX */
+//	snd_seq_set_input_buffer_size(seq_handle, 50000);
+
+//	printf("current MIDI size: %d\n",
+//		   snd_seq_get_input_buffer_size(seq_handle));
+
+	
 	return true;
 }
 

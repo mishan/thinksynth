@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.178 2004/05/11 19:46:11 misha Exp $ */
+/* $Id: main.cpp,v 1.179 2004/05/21 06:43:47 misha Exp $ */
 
 #include "config.h"
 
@@ -70,32 +70,9 @@ void cleanup (int signum)
 
 void process_synth (void)
 {
-
 //	mainMutex->lock();
 	Synth.Process();
 //	mainMutex->unlock();
-
-#if 0
-	float *synthbuffer = Synth.GetOutput();
-	int l = Synth.GetWindowLen();
-
-	for (int i = 0; i < l; i++)
-	{
-		if (!synthbuffer[i])
-			continue;
-
-		synthbuffer[i] *= 10;
-
-		if (synthbuffer[i] < TH_MIN)
-			synthbuffer[i] = TH_MIN;
-		if (synthbuffer[i] > TH_MAX)
-			synthbuffer[i] = TH_MAX;
-
-		printf("%f\t", synthbuffer[i]);
-	}
-#endif 
-
-
 }
 
 void audio_readywrite (thfAudio *audio, thSynth *synth)
@@ -138,11 +115,9 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
 
-	do
+	while (snd_seq_event_input(seq_handle, &ev))
 	{
-        snd_seq_event_input(seq_handle, &ev);
-
-        switch (ev->type)
+		switch (ev->type)
 		{
 			case SND_SEQ_EVENT_NOTEON:
 			{
@@ -150,7 +125,7 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 				{
 					m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
 								ev->data.note.velocity);
-
+					
 					synth->AddNote(ev->data.note.channel, ev->data.note.note,
 								   ev->data.note.velocity);
 				}
@@ -158,16 +133,15 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 				else 
 				{
 					m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
-
+					
 					synth->DelNote(ev->data.note.channel, ev->data.note.note);
-					break;
 				}
 				break;
 			}
 			case SND_SEQ_EVENT_NOTEOFF:
 			{
 				m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
-
+				
 				synth->DelNote(ev->data.note.channel, ev->data.note.note);
 				break;
 			}
@@ -202,9 +176,10 @@ int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 				break;
 			}
 		}
+		
 		snd_seq_free_event(ev);
-    } while (snd_seq_event_input_pending(seq_handle, 0) > 0);
-
+	}
+	
 	return 0;
 }
 

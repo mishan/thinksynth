@@ -1,4 +1,4 @@
-/* $Id: thSynth.h,v 1.45 2004/05/08 22:50:05 ink Exp $ */
+/* $Id: thSynth.h,v 1.46 2004/05/21 06:43:47 misha Exp $ */
 
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
@@ -33,7 +33,10 @@ public:
 //	float *GetOutput(void) const { return thOutput; }
 	float *GetOutput (void) const;
 
-	float *GetChanBuffer (int chan) { return &thOutput[chan * thWindowlen]; };
+	float *GetChanBuffer (int chan) { 
+//		pthread_mutex_lock(synthMutex);
+//		pthread_mutex_unlock(synthMutex);
+		return &thOutput[chan * thWindowlen]; };
 
 	/* note that as of 9/15/03 these don't do anything. corresponding changes
 	   elsewhere in the implementation must be made (thSamples is intialized to
