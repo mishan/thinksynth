@@ -1,4 +1,4 @@
-/* $Id: gthPrefs.cpp,v 1.9 2004/09/05 09:38:23 misha Exp $ */
+/* $Id: gthPrefs.cpp,v 1.10 2004/09/05 10:09:15 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -80,7 +80,7 @@ void gthPrefs::Load (void)
 
 	if((prefsFile = fopen(prefsPath.c_str(), "r")) == NULL)
 	{
-		/* XXX: set the defaults */
+		synth->LoadMod(DSP_PATH "/rpiano0.dsp", 0, 20);
 		return;
 	}
 
