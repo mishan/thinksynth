@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.cpp,v 1.4 2004/05/04 04:33:49 misha Exp $ */
+/* $Id: gthJackAudio.cpp,v 1.5 2004/05/08 22:49:50 misha Exp $ */
 
 #include "config.h"
 
@@ -23,10 +23,16 @@ thfJackAudio::thfJackAudio (thSynth *argsynth)
 		throw errno;
 	}
 
-	if((output_port = jack_port_register(jack_handle, "Out",
-									JACK_DEFAULT_AUDIO_TYPE, 
-									JackPortIsOutput, 0))
-	   == NULL)
+	if((out_1 = jack_port_register(jack_handle, "out_1",
+								   JACK_DEFAULT_AUDIO_TYPE, 
+								   JackPortIsOutput, 0)) == NULL)
+	{
+		throw errno;
+	}
+
+	if((out_2 = jack_port_register(jack_handle, "out_2",
+								   JACK_DEFAULT_AUDIO_TYPE, 
+								   JackPortIsOutput, 0)) == NULL)
 	{
 		throw errno;
 	}

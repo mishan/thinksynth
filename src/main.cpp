@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.173 2004/05/05 03:42:50 misha Exp $ */
+/* $Id: main.cpp,v 1.174 2004/05/08 22:49:50 misha Exp $ */
 
 #include "config.h"
 
@@ -116,15 +116,19 @@ void audio_readywrite (thAudio *audio, thSynth *synth)
 
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
-	jack_port_t *output_port = (jack_port_t *)arg;
-	float *synthbuffer = Synth.GetOutput();
+	jack_port_t **ports = (jack_port_t **)arg;
 	int l = Synth.GetWindowLen();
 
-	jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
-		jack_port_get_buffer(output_port, nframes);
+	for(int i = 0; ports[i]; i++)
+	{
+		float *synthbuffer = Synth.GetChanBuffer(i);
 
-	memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
+		jack_default_audio_sample_t *buf = (jack_default_audio_sample_t *)
+			jack_port_get_buffer(ports[i], nframes);
 
+		memcpy(buf, synthbuffer, l * sizeof(jack_default_audio_sample_t));
+	}
+	
 	/* XXX: we should be using emit() but this fucks up */
 	/* call the main thread to generate a new window */
 //	process->emit();
@@ -292,7 +296,7 @@ int main (int argc, char *argv[])
 		printf ("Using the '%s' driver\n", driver.c_str());
 
 		if (driver == "alsa")
-		{
+		{ 
 			if (outputfname.length() > 0)
 				aout = new thALSAAudio(&Synth, outputfname.c_str());
 			else
@@ -309,10 +313,15 @@ int main (int argc, char *argv[])
 			aout = new thfJackAudio(&Synth);
 
 			jack_client_t *jack_handle = ((thfJackAudio *)aout)->jack_handle;
-			jack_port_t *output_port = ((thfJackAudio *)aout)->output_port;
+
+			jack_port_t **ports = new jack_port_t *[Synth.GetChans() + 1];
+			/* XXX */
+			ports[0] = ((thfJackAudio *)aout)->out_1;
+			ports[1] = ((thfJackAudio *)aout)->out_2;
+			ports[2] = NULL;
 
 			jack_set_process_callback(jack_handle, playback_callback,
-									  output_port);
+									  ports);
 			jack_activate(jack_handle);
 		}
 		else

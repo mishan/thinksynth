@@ -1,4 +1,4 @@
-/* $Id: gthJackAudio.h,v 1.2 2004/04/15 09:38:43 misha Exp $ */
+/* $Id: gthJackAudio.h,v 1.3 2004/05/08 22:49:50 misha Exp $ */
 
 #ifndef THF_JACKAUDIO_H
 #define THF_JACKAUDIO_H
@@ -21,7 +21,7 @@ public:
 	bool ProcessEvents (void);
 
 	jack_client_t *jack_handle;
-	jack_port_t *output_port;
+	jack_port_t *out_1, *out_2;
 protected:
 	thSynth *synth;
 private:
