@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.112 2004/01/25 12:54:06 misha Exp $ */
+/* $Id: main.cpp,v 1.113 2004/01/25 22:55:23 misha Exp $ */
 
 #include "config.h"
 
@@ -57,6 +57,7 @@ int main (int argc, char *argv[])
 	snd_seq_t *seq_handle;    /* for ALSA midi */
 	int seq_nfds, nfds;
 	struct pollfd *pfds;
+	snd_pcm_t *phandle;
 
 
 	plugin_path = PLUGIN_PATH;
@@ -147,8 +148,6 @@ int main (int argc, char *argv[])
 			outputstream = new thOSSAudio(NULL, &audiofmt);
 		}
 		else if (outputfname == "hw:0") {
-			snd_pcm_t *phandle;
-
 			audiofmt.period = Synth.GetWindowLen();
 
 			outputstream = new thALSAAudio(NULL, &audiofmt);
@@ -199,8 +198,12 @@ int main (int argc, char *argv[])
 			{
 				if (pfds[j].revents > 0)
 				{
+					int l = Synth.GetWindowLen();
 					Synth.Process();
-					outputstream->Write(synthbuffer, Synth.GetWindowLen());
+					if(outputstream->Write(synthbuffer, l) < l) {
+						fprintf(stderr, "xrun !\n");
+						snd_pcm_prepare(phandle);
+					}
 				}
 			}
 		}

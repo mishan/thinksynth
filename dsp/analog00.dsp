@@ -9,17 +9,17 @@ node ionode {
 	wave = 2;
 	pw = 0.1;
 
-	cutmin = 40;
-	cutmax = 3000;
-	res = 0.9;
+	cutmin = 0.1;
+	cutmax = 0.6;
+	res = 0.2;
 
-	amp_a = 1000;
-	amp_d = 10000;
+	amp_a = 10000;
+	amp_d = 100000;
 	amp_s = 130;
 	amp_r = 20000;
 
-	filt_a = 5000;
-	filt_d = 10000;
+	filt_a = 50000;
+	filt_d = 60000;
 	filt_s = 100;
 	filt_r = 20000;
 
@@ -31,7 +31,7 @@ node freq misc::midi2freq {
 };
 
 node mixer mixer::mul {
-	in0 = filt2->out;
+	in0 = filt->out;
 	in1 = amp_env->out;
 };
 
@@ -59,13 +59,13 @@ node cutmap env::map {
 	outmax = ionode->cutmax;
 };
 
-node filt filt::res2pole {
+node filt filt::ink2 {
 	in = osc1->out;
 	cutoff = cutmap->out;
 	res = ionode->res;
 };
 
-node filt2 filt::res2pole {
+node filt2 filt::ink2 {
 	in = filt->out;
 	cutoff = cutmap->out;
 	res = ionode->res;

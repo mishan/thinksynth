@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.2 2004/01/25 11:51:51 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.3 2004/01/25 22:55:23 misha Exp $ */
 
 #include "config.h"
 
@@ -58,6 +58,8 @@ void thALSAAudio::SetFormat (const thAudioFmt *afmt)
     snd_pcm_hw_params_set_channels(play_handle, hw_params, ifmt.channels);
     snd_pcm_hw_params_set_periods(play_handle, hw_params, 2, 0);
     snd_pcm_hw_params_set_period_size(play_handle, hw_params, ifmt.period, 0);
+
+	snd_pcm_hw_params_set_buffer_time(play_handle, hw_params, 1000, 0);
     snd_pcm_hw_params(play_handle, hw_params);
     snd_pcm_sw_params_alloca(&sw_params);
     snd_pcm_sw_params_current(play_handle, sw_params);
@@ -104,7 +106,7 @@ int thALSAAudio::Write (float *inbuf, int len)
 	unsigned char *buff = (unsigned char *)outbuf;
 
 //	w = write(fd, buff, len*bytes);
-	snd_pcm_writei (play_handle, buff, len);
+	w = snd_pcm_writei (play_handle, buff, len);
 
 	return w;
 }
