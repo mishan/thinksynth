@@ -1,4 +1,4 @@
-/* $Id: thALSAAudio.cpp,v 1.19 2004/02/16 05:42:07 misha Exp $ */
+/* $Id: thALSAAudio.cpp,v 1.1 2004/04/06 19:03:55 misha Exp $ */
 
 #include "config.h"
 

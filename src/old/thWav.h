@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.12 2003/11/10 12:20:49 ink Exp $ */
+/* $Id: thWav.h,v 1.1 2004/04/06 19:03:55 misha Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1

@@ -1,4 +1,4 @@
-/* $Id: wav.cpp,v 1.7 2004/03/26 09:50:33 joshk Exp $ */
+/* $Id: wav.cpp,v 1.8 2004/04/06 19:03:55 misha Exp $ */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -12,18 +12,13 @@
 #include "thNode.h"
 #include "thMod.h"
 #include "thSynth.h"
-#include "thAudio.h"
+//#include "thAudio.h"
 #include "thException.h"
-#include "thWav.h"
+//#include "thWav.h"
 
-char		*desc = "Wav Input";
+char		*desc = "Wav Input (BROKEN)";
 thPluginState	mystate = thActive;
-
-
-
-
-
-static thWav *thwav = NULL;
+//static thWav *thwav = NULL;
 
 void module_cleanup (struct module *mod)
 {
@@ -32,7 +27,7 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	thwav = new_thWav("testwav.wav");
+//	thwav = new_thWav("testwav.wav");
 
 	printf("Wav Input plugin loading\n");
 
@@ -44,6 +39,7 @@ int module_init (thPlugin *plugin)
 
 int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 {
+/*
 	thArg *out_arg = mod->GetArg(node, "out");
 	thArg *out_play = mod->GetArg(node, "play");
 	signed short buf[windowlen * thwav->GetChannels()];
@@ -57,7 +53,7 @@ int module_callback (thNode *node, thMod *mod, unsigned int windowlen)
 	for(i = 0; i < windowlen; i++) {
 		out[i] = (((float)buf[i * channels]) / 32767) * TH_MAX;
 		play[i] = !thwav->CheckEOF();
-	}
+		} */
 
 	return 0;
 }

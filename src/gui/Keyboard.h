@@ -1,4 +1,4 @@
-/* $Id: Keyboard.h,v 1.8 2004/04/06 09:25:32 misha Exp $ */
+/* $Id: Keyboard.h,v 1.9 2004/04/06 19:03:55 misha Exp $ */
 
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
@@ -15,18 +15,24 @@ public:
 	Keyboard (void);
 	~Keyboard (void);
 
+	/* parameter mutator methods */
 	void SetChannel   (int argchan);
 	void SetTranspose (int argtranspose);
-	void SetNote (int note, bool state);
-
-	type_signal_note_on           signal_note_on  (void);
-	type_signal_note_off          signal_note_off (void);
-	type_signal_channel_changed   signal_channel_changed (void);
+	void SetNote      (int note, bool state);
+	
+	/* parameter accessor methods */
+ 	int  GetChannel   (void);
+	int  GetTranspose (void);
+	bool GetNote      (int note);
+	
+	/* signal accessor methods */
+	type_signal_note_on           signal_note_on           (void);
+ 	type_signal_note_off          signal_note_off          (void);
+	type_signal_channel_changed   signal_channel_changed   (void);
 	type_signal_transpose_changed signal_transpose_changed (void);
-
 protected:
 	void drawKeyboard (int mode);
-	void drawKeyboardFocus (void);
+ 	void drawKeyboardFocus (void);
 
 	/* overridden signal handlers */
 	virtual void on_realize              (void);

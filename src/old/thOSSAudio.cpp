@@ -1,4 +1,4 @@
-/* $Id: thOSSAudio.cpp,v 1.25 2004/01/25 10:06:36 misha Exp $ */
+/* $Id: thOSSAudio.cpp,v 1.1 2004/04/06 19:03:55 misha Exp $ */
 
 #include "config.h"
 #include <stdio.h>
@@ -21,7 +21,6 @@
 
 #include "thException.h"
 #include "thAudio.h"
-#include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 #include "thEndian.h"
 

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.151 2004/04/06 04:07:36 misha Exp $ */
+/* $Id: main.cpp,v 1.152 2004/04/06 19:03:55 misha Exp $ */
 
 #include "config.h"
 
@@ -40,6 +40,9 @@ Gtk::Main *gtkMain = NULL;
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
 
+sigReadyWrite m_sigReadyWrite;
+sigMidiEvent m_sigMidiEvent;
+
 void cleanup (int signum)
 {
 	printf("received SIGTERM!\n\n exiting...\n");
@@ -50,7 +53,41 @@ void cleanup (int signum)
 	exit (0);
 }
 
-/* XXX: remove ALSA/OSS-specific code from libthink */
+void audio_readywrite (thAudio *audio, thSynth *synth)
+{
+	int l = synth->GetWindowLen();
+	float *synthbuffer = synth->GetOutput();
+
+	synth->Process();
+
+	if(audio->Write(synthbuffer, l) < l)
+	{
+		fprintf(stderr, "<< BUFFER OVERRUN >> snd_pcm_prepare()\n");
+		snd_pcm_prepare(((thALSAAudio *)audio)->play_handle);
+
+		/* XXX: this part won't work here anyway ... write a
+		   thALSAAudio::reinit() ??? */
+#if 0
+		/* this part is experimental */
+		delete outputstream;
+
+		if (outputfname.length() > 0)
+		{
+			outputstream = new thALSAAudio(outputfname.c_str(),
+										   &audiofmt);
+		}
+		else
+		{
+			outputstream = new thALSAAudio(&audiofmt);
+		}
+#endif
+
+//		phandle = ((thALSAAudio *)outputstream)->play_handle;
+	}
+}
+
+/* XXX: rewrite main event routine; pass Audio object a set of signal objects
+   with appropriate callbacks set; e.g: readyRead callback, readyWrite, etc. */
 
 string plugin_path;
 
@@ -90,7 +127,7 @@ snd_seq_t *open_seq (void)
     return seq_handle;
 }
 
-int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
+int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
 	snd_seq_event_t *ev;
 	float *pbuf = new float[1];  // Parameter buffer
@@ -109,12 +146,12 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 				if(ev->data.note.velocity == 0)
 				{
 					*pbuf = 0;
-					Synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
-									  "trigger", pbuf, 1);
+					synth->SetNoteArg(ev->data.note.channel,
+									  ev->data.note.note, "trigger", pbuf, 1);
 				}
 				else
 				{	
-					Synth->AddNote(ev->data.note.channel, ev->data.note.note,
+					synth->AddNote(ev->data.note.channel, ev->data.note.note,
 								   ev->data.note.velocity);
 				}
 				break;
@@ -125,7 +162,7 @@ int processmidi (thSynth *Synth, snd_seq_t *seq_handle)
 
 				/* XXX make this part better */
 				*pbuf = 0;
-				Synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
+				synth->SetNoteArg(ev->data.note.channel, ev->data.note.note,
 								  "trigger", pbuf, 1);
 				break;
 			}
@@ -173,7 +210,6 @@ int main (int argc, char *argv[])
 	string inputfname;         /* filename of .dsp file to use */
 	string driver = "alsa";
 	int samplerate = TH_SAMPLE;
-	float *synthbuffer = NULL;
 	int havearg = -1;
 	thAudioFmt audiofmt;
 	thAudio *outputstream = NULL;
@@ -273,7 +309,9 @@ int main (int argc, char *argv[])
 		audiofmt.bits = 16;
 		audiofmt.samples = samplerate;
 
-		if (driver == "alsa")
+		/* XXX: move thALSAAudio into application layer, add fd magic code to
+		   class, add SigC++ signals (sigReadyRead, sigReadyWrite, etc) */
+ 		if (driver == "alsa")
 		{
 			audiofmt.period = Synth.GetWindowLen();
 
@@ -332,8 +370,13 @@ int main (int argc, char *argv[])
 		/* XXX */
 	}
 
-	/* grab address of buffer from synth object */
-	synthbuffer = Synth.GetOutput();
+	/* connect our audio out event handler and bind a synth to this instance */
+	m_sigReadyWrite.connect(
+		SigC::bind<thAudio *, thSynth *>(SigC::slot(&audio_readywrite),
+										 outputstream, &Synth));
+	m_sigMidiEvent.connect(
+		SigC::bind<snd_seq_t *, thSynth *>(SigC::slot(&processmidi),
+										   seq_handle, &Synth));
 
 	printf ("Using the '%s' driver\n", driver.c_str());
 	if (outputfname.length() > 0)
@@ -351,38 +394,14 @@ int main (int argc, char *argv[])
 			{
 				if(pfds[j].revents > 0)
 				{
-					processmidi(&Synth, seq_handle);
+ 					m_sigMidiEvent.emit();
 				}
 			}
 			for(j = seq_nfds; j < seq_nfds + nfds; j++)
 			{
 				if (pfds[j].revents > 0)
 				{
-					int l = Synth.GetWindowLen();
-					Synth.Process();
-
-					if(outputstream->Write(synthbuffer, l) < l)
-					{
-						fprintf(stderr, "<< BUFFER UNDERRUN >> Restarting ALSA output\n");
-						snd_pcm_prepare(phandle);
-
-						/* this part is experimental */
-						delete outputstream;
-
-						if (outputfname.length() > 0)
-						{
-							outputstream = new thALSAAudio(outputfname.c_str(),
-														   &audiofmt);
-						}
-						else
-						{
-							outputstream = new thALSAAudio(&audiofmt);
-						}
-
-						phandle = ((thALSAAudio *)outputstream)->play_handle;
-						//nfds = snd_pcm_poll_descriptors_count (phandle);
-						//snd_pcm_poll_descriptors (phandle, pfds+seq_nfds, nfds);
-					}
+					m_sigReadyWrite.emit();
 				}
 			}
 		}

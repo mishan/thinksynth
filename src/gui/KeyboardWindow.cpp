@@ -1,4 +1,4 @@
-/* $Id: KeyboardWindow.cpp,v 1.23 2004/04/06 09:25:32 misha Exp $ */
+/* $Id: KeyboardWindow.cpp,v 1.24 2004/04/06 19:03:55 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -18,6 +18,7 @@
 #include "thMidiNote.h"
 #include "thMidiChan.h"
 #include "thSynth.h"
+#include "thAudio.h"
 
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
@@ -79,6 +80,7 @@ KeyboardWindow::KeyboardWindow (thSynth *argsynth)
 
 KeyboardWindow::~KeyboardWindow (void)
 {
+	/* free dynamically-allocated widgets */
 	delete chanVal;
 	delete transVal;
 }

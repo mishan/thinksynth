@@ -1,4 +1,4 @@
-/* $Id: Keyboard.cpp,v 1.10 2004/04/06 09:25:32 misha Exp $ */
+/* $Id: Keyboard.cpp,v 1.11 2004/04/06 19:03:55 misha Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -150,9 +150,29 @@ void Keyboard::SetTranspose (int argtranspose)
 
 void Keyboard::SetNote (int note, bool state)
 {
+	/* XXX */
+
 	active_keys[note] = state ? 1 : 0;
 	prv_active_keys[note] = -1;
-	drawKeyboard (0);
+	drawKeyboard(2);
+}
+
+int Keyboard::GetChannel (void)
+{
+	return channel;
+}
+
+int Keyboard::GetTranspose (void)
+{
+	return transpose;
+}
+
+bool Keyboard::GetNote (int note)
+{
+	if((note < 0) || (note > 127))
+	   return false;
+
+	return active_keys[note] ? true : false;
 }
 
 /* signal accessor methods */
@@ -179,7 +199,8 @@ type_signal_transpose_changed Keyboard::signal_transpose_changed (void)
 /* overridden signal handlers */
 void Keyboard::on_realize (void)
 {
-	/* call the base class on_realize() method, then do our own stuff */
+	/* call the base class on_realize() method so it will do its own stuff, 
+	   then we will do our own stuff */
 	Gtk::DrawingArea::on_realize ();
 
 	drawable = ((GtkWidget *)gobj())->window;
@@ -193,10 +214,8 @@ void Keyboard::on_realize (void)
 
 bool Keyboard::on_expose_event (GdkEventExpose *e)
 {
-	if (!drawable)
+ 	if (drawable == NULL)
 		realize ();
-
-//	printf("got an expose event\n");
 
 	/* redraw widget */
 	drawKeyboard (3);
@@ -241,7 +260,7 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
 	if (mouse_notnum >= 0) {	/* already active */
 		m_signal_note_off(channel, mouse_notnum);
 		active_keys[mouse_notnum] = 0;
-		drawKeyboard (0);
+//		drawKeyboard (0);
 	}
 		
 	/* get note number */
@@ -284,11 +303,7 @@ bool Keyboard::on_button_release_event (GdkEventButton *b)
 
 bool Keyboard::on_key_press_event (GdkEventKey *k)
 {
-	int keynum, notenum, veloc;
-
-	keynum = k->keyval;
-
-	switch (keynum)
+	switch (k->keyval)
 	{
 		case GDK_Control_L:
 		case GDK_Control_R:
@@ -320,13 +335,15 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
 		case GDK_Right:
 		case GDK_Up:
 		case GDK_Down:
-			fkeys_func(keynum);
+			fkeys_func(k->keyval);
 			break;
 		default:
 		{
 			/* other keys */
-			notenum = keyval_to_notnum (keynum);
+			int notenum = keyval_to_notnum (k->keyval);
 			if (notenum >= 0) {	/* note event */
+				int veloc = 0;
+
 				if (alt_on) {	/* velocity */
 					veloc = veloc0;
 				} else if (ctrl_on) {
@@ -352,11 +369,7 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
 
 bool Keyboard::on_key_release_event (GdkEventKey *k)
 {
-	int keynum, notenum;
-
-	keynum = k->keyval;
-
-	switch (keynum)
+	switch (k->keyval)
 	{
 		case GDK_Control_L:
 		case GDK_Control_R:
@@ -372,28 +385,10 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
 		case GDK_Meta_R:
 			alt_on = false;
 			break;
-		case GDK_F1:			/* function keys */
-		case GDK_F2:
-		case GDK_F3:
-		case GDK_F4:
-		case GDK_F5:
-		case GDK_F6:
-		case GDK_F7:
-		case GDK_F8:
-		case GDK_F9:
-		case GDK_F10:
-		case GDK_F11:
-		case GDK_F12:
-		case GDK_Left:
-		case GDK_Right:
-		case GDK_Up:
-		case GDK_Down:
-			/* XXX */
-			break;
 		default:
 		{
 			/* other keys */
-			notenum = keyval_to_notnum (keynum);
+			int notenum = keyval_to_notnum (k->keyval);
 			if (notenum >= 0) {	/* note event */
 				m_signal_note_off(channel, notenum);
 				active_keys[notenum] = 0;

@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.40 2003/11/10 12:20:49 ink Exp $ */
+/* $Id: thWav.cpp,v 1.1 2004/04/06 19:03:55 misha Exp $ */
 
 #include "config.h"
 
@@ -24,7 +24,6 @@
 #include "thEndian.h"
 #include "thException.h"
 #include "thAudio.h"
-#include "thAudioBuffer.h"
 #include "thOSSAudio.h"
 #include "thWav.h"
 

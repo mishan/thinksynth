@@ -1,4 +1,4 @@
-# $Id: Makefile.in,v 1.31 2004/04/02 11:33:11 misha Exp $
+# $Id: Makefile.in,v 1.32 2004/04/06 19:03:55 misha Exp $
 
 BINARY = thinksynth monotest
 
@@ -13,8 +13,8 @@ PICFLAGS = -fPIC
 INCLUDES = -I.. -I../libthink @GTKMM_CFLAGS@
 LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../libthink -lthink
 
-MAINOBJS = main.o ui.o $(WIDGETOBJS)
-MONOMAINOBJS = monotest.o
+MAINOBJS = main.o ui.o $(WIDGETOBJS) thALSAAudio.o thOSSAudio.o thWav.o
+MONOMAINOBJS = monotest.o thALSAAudio.o thWav.o
 WIDGETOBJS = MainSynthWindow.o PatchSelWindow.o Keyboard.o KeyboardWindow.o
 
 thinksynth: $(MAINOBJS)
