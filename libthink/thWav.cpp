@@ -1,4 +1,4 @@
-/* $Id: thWav.cpp,v 1.38 2003/10/16 21:04:03 misha Exp $ */
+/* $Id: thWav.cpp,v 1.39 2003/11/04 06:59:11 misha Exp $ */
 
 #include "config.h"
 
@@ -50,7 +50,7 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 	throw(thIOException)
 {
 	filename = strdup(name);
-	type = WRITING; /* writing */
+	type = WRITING;
 
 	if((fd = open(name, O_CREAT|O_WRONLY|O_TRUNC, 0660)) < 0) {
 		throw (thIOException)errno;
@@ -73,10 +73,8 @@ thWav::thWav(char *name, const thAudioFmt *wfmt)
 
 thWav::~thWav (void)
 {
-	if(type == WRITING) { /* if we're writing, we must write the header before
-							 we close */
-		/* get our current position in the file, which is the data length */
-		fmt.len = lseek(fd, 0, SEEK_CUR);
+	/* if we're writing, we must write the header before we close */
+	if(type == WRITING) {
 		WriteRiff();
 		close(fd);
 	}
@@ -161,7 +159,7 @@ void thWav::WriteRiff (void)
 	lewrite16(fd, fmt.bits);
 
 	write(fd, DATA_HDR, 4);
-	lewrite32(fd, fmt.len - 44);
+	lewrite32(fd, oldpos - 44);
 
 	/* restore the position in the filestream, although this is probably
 	   unnecessary */

@@ -1,4 +1,4 @@
-/* $Id: thAudio.h,v 1.6 2003/09/15 23:17:06 brandon Exp $ */
+/* $Id: thAudio.h,v 1.7 2003/11/04 06:59:11 misha Exp $ */
 
 #ifndef TH_AUDIO_H
 #define TH_AUDIO_H 1
@@ -15,9 +15,9 @@ struct thAudioFmt {
 class thAudio
 {
 public:
-	// changed on 9/15/03 by brandon lewis
-	// all thAudio classes will work with floating point buffers
-	// converting to integer internally based on format data
+	inline virtual ~thAudio () {
+	}
+
 	virtual int Read(void *, int len) = 0;
 	virtual int Write(float *, int len) = 0;
 

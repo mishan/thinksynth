@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.104 2003/11/04 06:13:27 misha Exp $ */
+/* $Id: main.cpp,v 1.105 2003/11/04 06:59:11 misha Exp $ */
 
 #include "config.h"
 
@@ -153,9 +153,11 @@ int main (int argc, char *argv[])
 	/* XXX: handle these exceptions and consolidate them to one exception
 	   datatype */
 	catch (thIOException e) {
+		printf("thIOEXception on /dev/dsp\n");
 		/* XXX */
 	}
 	catch (thWavException e) {
+		printf("thWavException on %s\n", outputfname.c_str());
 		/* XXX */
 	}
 

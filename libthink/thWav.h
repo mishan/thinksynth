@@ -1,4 +1,4 @@
-/* $Id: thWav.h,v 1.10 2003/09/15 23:17:06 brandon Exp $ */
+/* $Id: thWav.h,v 1.11 2003/11/04 06:59:11 misha Exp $ */
 
 #ifndef TH_WAV_H
 #define TH_WAV_H 1
@@ -58,17 +58,15 @@ public:
 	/* our deconstructor, should close fd */
 	virtual ~thWav();
 
-	// changed on 9/15/03 by brandon lewis
-	// all thAudio classes will work with floating point buffers
-	// converting to integer internally based on format data
-	/* Len is the total number of samples. Data must be byteswapped if necessary. */
- 	int Write(float *,int len);
-	int Read(void *, int len);
+	/* Len is the total number of samples. Data must be byteswapped if 
+	   necessary. */
+ 	virtual int Write(float *,int len);
+	virtual int Read(void *, int len);
 
-	thAudioFmt *GetFormat (void);
+	virtual thAudioFmt *GetFormat (void);
 	thWavType GetType (void) { return type; };
 
-	void SetFormat(const thAudioFmt *wfmt);
+	virtual void SetFormat(const thAudioFmt *wfmt);
 private:
 	char *filename; /* path to the file */
 	int fd;
