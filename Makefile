@@ -6,7 +6,7 @@ SRCS=main.cpp thOSSAudio.cpp endian.cpp AudioBuffer.cpp Exception.cpp thWav.cpp 
 	thList.cpp thNode.cpp thMod.cpp thMidiChan.cpp thMidiNote.cpp thPlugin.cpp
 OBJS=$(SRCS:.cpp=.o)
 
-LIBS=
+LIBS=-ldl
 LIBOBJ=$(LIBS:.cpp=.o)
 
 CFLAGS=-g -Wall
