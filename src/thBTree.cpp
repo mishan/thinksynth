@@ -38,13 +38,18 @@ void thBTree::Insert(char *name, void *data)
 {
 	thBNode *node;
 
-	if(Find(name)) {
-		fprintf(stderr, "thBTree::Insert: Duplicate node '%s'\n", name);
+	if(!name) {
+		fprintf(stderr, "thBTree::Insert: Cannot insert node with NULL name\n");
 		return;
 	}
 
-	node = new thBNode;
+ 	if(Find(name)) {
+		fprintf(stderr, "thBTree::Insert: Duplicate node '%s'\n", name);
+	 	return;
+	}
 
+	node = new thBNode;
+ 
 	node->name = strdup(name);
 	node->data = data;
 
@@ -56,8 +61,8 @@ void thBTree::Insert(char *name, void *data)
 		return;
 	}
 
-	/* find a place to put this node in */
-	InsertHelper(bRoot, node);
+ 	/* find a place to put this node in */
+ 	InsertHelper(bRoot, node);
 }
 
 void thBTree::InsertHelper(thBNode *root, thBNode *node)
