@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.h,v 1.10 2003/04/27 10:38:52 ink Exp $ */
+/* $Id: thMidiNote.h,v 1.11 2003/04/28 21:48:26 ink Exp $ */
 
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
@@ -15,7 +15,7 @@ class thMidiNote {
 		/* returns a pointer to a list of values */
 		thArgValue *GetArg(const char *name);
 
-		void Process (float *data, int length);
+		void Process (int length);
 
 	private:
 		thBSTree *args;

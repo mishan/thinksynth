@@ -1,4 +1,4 @@
-/* $Id: thPlugin.h,v 1.14 2003/04/27 07:43:01 joshk Exp $ */
+/* $Id: thPlugin.h,v 1.15 2003/04/28 21:48:26 ink Exp $ */
 
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
@@ -23,6 +23,7 @@ class thPlugin {
 
 		void SetDesc(const char *desc);
 		void SetState(thPluginState state) { plugState = state; };
+		thPluginState GetState(void) { return plugState; };
 
 		int Fire (thNode *node, thMod *mod, unsigned int windowlen);
 

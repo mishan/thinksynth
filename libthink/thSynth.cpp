@@ -1,4 +1,4 @@
-/* $Id: thSynth.cpp,v 1.39 2003/04/27 10:17:12 aaronl Exp $ */
+/* $Id: thSynth.cpp,v 1.40 2003/04/28 21:48:26 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -100,5 +100,5 @@ thMidiNote *thSynth::AddNote(char *channame, float note, float velocity)
 void thSynth::Process(const char *modname)
 {
 	thMod *mod = FindMod(modname);
-	mod->Process(mod, windowlen);
+	mod->Process(windowlen);
 }

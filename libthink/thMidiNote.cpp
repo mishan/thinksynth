@@ -1,4 +1,4 @@
-/* $Id: thMidiNote.cpp,v 1.20 2003/04/27 20:03:53 misha Exp $ */
+/* $Id: thMidiNote.cpp,v 1.21 2003/04/28 21:48:26 ink Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -23,6 +23,7 @@ thMidiNote::thMidiNote (thMod *mod, float note, float velocity)
 	args = new thBSTree(StringCompare);
 
 	modnode = mod->Copy();
+	modnode->BuildSynthTree();
 	*notep = note, *velocityp = velocity;
 
 	SetArg("note", notep, 1);
@@ -61,11 +62,8 @@ thArgValue *thMidiNote::GetArg (const char *name)
 	return (thArgValue *)arg->GetArg();
 }
 
-void thMidiNote::Process (float *data, int length)
+void thMidiNote::Process (int length)
 {
-	int chan;
-
-	for(chan=0; chan < *((int *)modnode->GetArg(((thNode *)modnode->GetIONode())->GetName(), "channels")); chan++) {
-		printf("Processing Note Channel Number %i\n", chan);
-	}
+  modnode->SetActiveNodes();
+  modnode->Process(length);
 }

@@ -1,4 +1,4 @@
-/* $Id: main.cpp,v 1.46 2003/04/27 23:45:37 joshk Exp $ */
+/* $Id: main.cpp,v 1.47 2003/04/28 21:48:26 ink Exp $ */
 
 #include "config.h"
 
@@ -87,7 +87,7 @@ syntax:
 
 	newmod = ((thMod *)Synth.FindMod(dspname))->Copy();
 	newmod->BuildSynthTree();
-	newmod->Process(newmod, 1024);
+	newmod->Process(1024);
 
 	/*  printf("  = %f\n", ((thArgValue *)((thMod *)Synth.FindMod("static"))->GetArg("static", "out"))->argValues[0]); */
 	for(i=0;i<1024;i++) { /* XXX temporary hack to view more than 1 element of data */
