@@ -31,11 +31,11 @@ node map1 env::map {
 node filt filt::rds {
 	in = osc->out;
 	cutoff = map1->out;
-	res = 0.8;
+	res = 0.5;
 	};
 node osc osc::simple {
 	freq = freq->out;
-	waveform = 4;
+	waveform = 1;
 	};
 
 io ionode;
