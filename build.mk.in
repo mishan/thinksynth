@@ -1,4 +1,4 @@
-# $Id: build.mk.in,v 1.14 2003/05/11 05:03:19 aaronl Exp $
+# $Id: build.mk.in,v 1.15 2003/05/11 07:29:18 aaronl Exp $
 
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
@@ -15,27 +15,24 @@ CXX_MT_BROKEN=@CXX_MT_BROKEN@
 %.cpp: %.ll
 	@LEX@ -o $@ $<
 
-.deps:
-	@mkdir -p .deps
-
-%.o: %.cpp .deps
+%.o: %.cpp
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -c -o $@ $<
 
-%@SHARED_SUFFIX@: %.cpp .deps
+%@SHARED_SUFFIX@: %.cpp
 	$(CXX) $(CXXFLAGS) @DEP_FLAGS@ $(INCLUDES) -shared @SONAME_FLAGS@ -o $@ $< $(SO_LDFLAGS)
 
 ifeq ($(USING_GNU_CXX),yes)
 ifeq ($(CXX_MT_BROKEN),yes)
-	sed 's/\.o:/.@SHARED_SUFFIX@:/g' .deps/$<.dt > .deps/$<.dtx
-	mv .deps/$<.dtx .deps/$<.dt
+	sed 's/\.o:/.@SHARED_SUFFIX@:/g' .$<.dt > .$<.dtx
+	mv .$<.dtx .$<.dt
 endif
 
--include .deps/*.dt
+-include .deps/.*.dt
 endif
 
 distclean:: clean
 
 clean::
-	rm -rf .deps *@SHARED_SUFFIX@ *.o $(BINARY)
+	rm -rf .*.dt *@SHARED_SUFFIX@ *.o $(BINARY)
 
 .PHONY: distclean clean

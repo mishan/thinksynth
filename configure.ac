@@ -1,4 +1,4 @@
-dnl $Id: configure.ac,v 1.45 2003/05/11 06:23:46 joshk Exp $
+dnl $Id: configure.ac,v 1.46 2003/05/11 07:29:18 aaronl Exp $
 
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
@@ -173,9 +173,9 @@ if test "$ac_cv_cxx_compiler_gnu" = yes; then
 
 	AC_SUBST(USING_GNU_CXX, yes)
 	if test "$CXX_MT_BROKEN" = yes; then
-		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.deps/\$<.dt"])
+		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt"])
 	else
-		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.deps/\$<.dt,-MT\$@"])
+		AC_SUBST(DEP_FLAGS, ["-Wp,-MMD,.\$<.dt,-MT\$@"])
 	fi
 fi
 
