@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.22 2004/09/05 00:51:03 misha Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.23 2004/09/05 22:31:06 misha Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -232,6 +232,7 @@ void MainSynthWindow::populate (void)
 
 void MainSynthWindow::channelChanged (string filename, int chan, float amp)
 {
+	notebook.hide_all();
 	notebook.pages().clear();
 	populate();
 	notebook.show_all();
