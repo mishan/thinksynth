@@ -9,21 +9,21 @@ node ionode {
 	channels = 2;
 	play = 1;
 
-	f1 = 700;
-	f2 = 1200;
-	f3 = 2600;
+	f1 = 400;
+	f2 = 2250;
+	f3 = 3300;
 
 	fade1 = 0.3;
 	fade2 = 0.5;
 
-	wave = 2;
+	wave = 1;
 	pw = 0.4 ;
 	detune1 = 1.2;
 	detune2 = -0.8;
 	detune3 = 2.1;
 
-	oscfade1 = 0.4;
-	oscfade2 = 0.4;
+	oscfade1 = 0.2;
+	oscfade2 = 0.2;
 	oscfade3 = 0.3;
 
 	res = 5;
