@@ -31,6 +31,8 @@ Installing JACK
   http://jackit.sourceforge.net. A howto for building / installing it
   is beyond the scope of this document.
 
+* There is a JACK .pkg for OS X, which can be found at www.jackosx.com.
+
 Running JACK
 ------------
 
@@ -41,6 +43,10 @@ If you use OSS:
 should do it, or if you use ALSA:
 
 	$ jackd -d alsa
+
+... or if you're on Mac OS X:
+
+	$ jackd -d coreaudio
 
 will start the JACK daemon.
 

@@ -11,7 +11,7 @@ FreeBSD
 	- JACK:		???		???
 
 Darwin
-	- JACK:		no		no
+	- JACK:		yes		???
 
 Update this file as ports continue to progress.
 

@@ -17,7 +17,6 @@ TODO before the Thinksynth alpha
 
 OS X port
 ---------
-- PortAudio backend (which in turn fits into CoreAudio for OS X, and moreover
-  magically saves us from having to code more audio backends for other operating
-  systems - including Windows.)
+- CoreAudio MIDI backend.
+- Test JACK output.
 - Installation instructions. Getting it set up was a real bitch.
