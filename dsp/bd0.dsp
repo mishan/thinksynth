@@ -14,7 +14,7 @@ node env env::adsr {
 	a = 0;
 	d = 5000;
 	s = 70;
-	r = 1000;
+	r = 2000;
 	trigger = 0;
 	};
 node map1 env::map {
@@ -33,8 +33,8 @@ node map2 env::map {
         };
 node filt filt::rds {
 	in = osc->out;
-	cutoff = map2->out;
-	res = 0.4;
+	cutoff = 0.4;
+	res = map2->out;
 	};
 node osc osc::simple {
 	freq = map1->out;
