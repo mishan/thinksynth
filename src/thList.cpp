@@ -1,4 +1,4 @@
-/* $Id: thList.cpp,v 1.9 2003/04/26 04:26:28 misha Exp $ */
+/* $Id: thList.cpp,v 1.10 2003/04/26 04:39:54 misha Exp $ */
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
@@ -10,11 +10,18 @@
 
 thList::thList(void)
 {
-	lData = NULL;
+	head = NULL;
+	tail = NULL;
 }
 
 thList::~thList(void)
 {
+	thListNode *node, *prev;
+
+	for(node = head; node; node = prev) {
+		prev = node->prev;
+		delete node;
+	}
 }
 
 void thList::Add(void *data) 
