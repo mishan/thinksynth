@@ -1,10 +1,10 @@
-typedef struct buffer {
+struct Buffer {
 	int *data;
 	int read, woffset, len;
 };
 
-buffer *buffer_new(int size);
-void buffer_free(buffer *buf);
-int buffer_is_room(buffer *buf, int size);
-void buffer_write(buffer *buf, int *data, int len);
-void buffer_read(buffer *buf, int *data, int len)
+extern Buffer *buffer_new(int size);
+extern void buffer_free(Buffer *buf);
+extern int buffer_is_room(Buffer *buf, int size);
+extern void buffer_write(Buffer *buf, int *data, int len);
+extern void buffer_read(Buffer *buf, int *data, int len);

@@ -3,34 +3,37 @@
 
 #include "buffer.h"
 
-buffer *buffer_new(int size) {
-	buffer *buf = malloc(sizeof(buffer));
+Buffer *buffer_new(int size)
+{
+	Buffer *buf = new Buffer[1];
 
-	buf->data = malloc(size*sizeof(int));
+	buf->data = new int[size];;
 	buf->read = 0;
 	buf->woffset = 0;     /* how far the writing is ahead of the reading */
 	buf->len = size;
+
+	return buf;
 }
 
-void buffer_free(buffer *buf) {
-	free(buf->data);
+void buffer_free(Buffer *buf) {
+	delete buf->data;
 }
 
-int buffer_is_room(buffer *buf, int size) {
+int buffer_is_room(Buffer *buf, int size) {
 	if(buf->woffset + size > buf->len) { return(0); }
 	return(1);
 }
 
-void buffer_write(buffer *buf, int *data, int len) {
+void buffer_write(Buffer *buf, int *data, int len) {
 	int cnt;
 
 	for(cnt=0;cnt<len;cnt++) {
-		buf->data[(buf->read + buf->woffset + cnt)%buf->len] = buf[cnt];
+		buf->data[(buf->read + buf->woffset + cnt)%buf->len] = data[cnt];
 	}
 	buf->woffset += len;
 }
 
-void buffer_read(buffer *buf, int *data, int len) {
+void buffer_read(Buffer *buf, int *data, int len) {
 	int cnt;
 
 	for(cnt=0;cnt<len;cnt++) {
@@ -40,11 +43,11 @@ void buffer_read(buffer *buf, int *data, int len) {
 }
 
 void main(void) {
-	buffer *mybuf = buffer_new(100);
+	Buffer *mybuf = buffer_new(100);
 	int tempbuf[30], cnt;
 	int *readbuf;
 
-	readbuf = alloca(10);
+	readbuf = (int *)alloca(10);
 
 	for(cnt=0;cnt<30;cnt++) {
 		tempbuf[cnt] = cnt;
