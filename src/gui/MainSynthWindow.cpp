@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.cpp,v 1.27 2004/09/09 07:31:32 joshk Exp $ */
+/* $Id: MainSynthWindow.cpp,v 1.28 2004/09/15 07:40:52 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -37,14 +37,21 @@
 #include "MainSynthWindow.h"
 #include "ArgSlider.h"
 
+#include "../gthJackAudio.h"
+#include "../gthPrefs.h"
+
+/* SUPER XXX */
+bool chosen = false;
 extern Glib::Mutex *synthMutex;
 
-MainSynthWindow::MainSynthWindow (thSynth *_synth)
+MainSynthWindow::MainSynthWindow (thSynth *_synth, gthPrefs *_prefs, gthAudio *_audio)
 {
 	set_title("thinksynth");
 	set_default_size(520, 360);
 
 	synth = _synth;
+	audio = _audio;
+	prefs = _prefs;
 
 	patchSel = new PatchSelWindow(synth);
 
@@ -99,6 +106,32 @@ void MainSynthWindow::populateMenu (void)
 										SigC::slot(*this, &MainSynthWindow::menuQuit)));
 	}
 
+	/* JACK */
+	if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+	{
+		Gtk::Menu::MenuList &menulist = menuJack.items();
+		Gtk::CheckMenuItem *elem;
+		SigC::Slot0<void> autoslot = SigC::slot(*this, &MainSynthWindow::menuJackAuto);
+		string** vals;
+		bool sel;
+		
+		menulist.push_back(
+			Gtk::Menu_Helpers::MenuElem("Connect to JACK now",
+				SigC::slot(*this, &MainSynthWindow::menuJackTry)));
+
+		menulist.push_back(
+			Gtk::Menu_Helpers::CheckMenuElem ("Auto-connect to JACK",
+				autoslot));
+
+		elem = (Gtk::CheckMenuItem*)&menulist.back();
+	
+		vals = prefs->Get("autoconnect");
+		sel = !!(vals && *vals[0] == "true");
+		debug("set to %s; about to set_active -> %d", vals[0]->c_str(), (int)sel);
+		elem->set_active(sel);
+		debug("done");
+	}
+	
 	/* Help */
 	{
 		Gtk::Menu::MenuList &menulist = menuHelp.items();
@@ -117,9 +150,48 @@ void MainSynthWindow::populateMenu (void)
 		menulist.push_back(Gtk::Menu_Helpers::MenuElem("_File",
 													   menuFile));
 
+		if (dynamic_cast<gthJackAudio*>(audio) != NULL)
+			menulist.push_back(Gtk::Menu_Helpers::MenuElem("_JACK",
+														menuJack));
+
 		menulist.push_back(Gtk::Menu_Helpers::MenuElem("_Help",
 													   menuHelp));
 	}
+}
+
+void MainSynthWindow::menuJackTry (void)
+{
+	gthJackAudio *jaudio = (gthJackAudio*)audio;
+
+	if (jaudio)
+	{
+		jaudio->tryConnect();
+	}
+}
+
+void MainSynthWindow::menuJackAuto (void)
+{
+	string *val = new string;
+	string **vals = new string*[2];
+	
+	string **res = prefs->Get("autoconnect");
+
+	vals[0] = val;
+	vals[1] = NULL;
+
+	if (res && *res[0] == "true")
+	{
+		if (chosen == false) { chosen = true; return; }
+		*val = "false";
+	}
+	else
+	{
+		chosen = true;
+		*val = "true";
+	}
+	
+	debug("setting autoconnect to %s (was %s)", val->c_str(), res[0]->c_str());
+	prefs->Set("autoconnect", vals);
 }
 
 void MainSynthWindow::menuKeyboard (void)

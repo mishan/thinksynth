@@ -1,4 +1,4 @@
-/* $Id: MainSynthWindow.h,v 1.10 2004/09/08 21:26:59 misha Exp $ */
+/* $Id: MainSynthWindow.h,v 1.11 2004/09/15 07:40:52 joshk Exp $ */
 /*
  * Copyright (C) 2004 Metaphonic Labs
  *
@@ -20,12 +20,15 @@
 #ifndef MAIN_SYNTH_WINDOW_H
 #define MAIN_SYNTH_WINDOW_H
 
+class gthAudio;
+class gthPrefs;
+
 using namespace std;
 
 class MainSynthWindow : public Gtk::Window
 {
 public:
-	MainSynthWindow (thSynth *);
+	MainSynthWindow (thSynth *, gthPrefs *, gthAudio *);
 	~MainSynthWindow (void);
 
 protected:
@@ -34,6 +37,8 @@ protected:
 	void menuPatchSel (void);
 	void menuQuit (void);
 	void menuAbout (void);
+	void menuJackTry (void);
+	void menuJackAuto (void);
 
 	void sliderChanged (Gtk::HScale *, thArg *);
 
@@ -45,6 +50,7 @@ protected:
 	Gtk::VBox vbox;
 	Gtk::MenuBar menuBar;
 	Gtk::Menu menuFile;
+	Gtk::Menu menuJack;
 	Gtk::Menu menuHelp;
 	Gtk::Notebook notebook;
 
@@ -52,6 +58,8 @@ protected:
 //	KeyboardWindow keyboardWin;
 private:
 	thSynth *synth;
+	gthAudio *audio;
+	gthPrefs *prefs;
 };
 
 #endif /* MAIN_SYNTH_WINDOW_H */
