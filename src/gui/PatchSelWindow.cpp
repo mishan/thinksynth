@@ -1,4 +1,4 @@
-/* $Id: PatchSelWindow.cpp,v 1.13 2004/03/27 03:28:52 misha Exp $ */
+/* $Id: PatchSelWindow.cpp,v 1.14 2004/03/27 04:12:18 joshk Exp $ */
 
 #include "config.h"
 #include "think.h"
@@ -118,7 +118,6 @@ void PatchSelWindow::LoadPatch (Gtk::Entry *chanEntry, thSynth *synth)
 		Gtk::MessageDialog errorDialog (error, Gtk::MESSAGE_ERROR);
 
 		errorDialog.run();
-		chanEntry->set_text("");
 		g_free(error);
 		chanAmp->set_sensitive(false);
 	}
