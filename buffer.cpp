@@ -5,7 +5,7 @@
 
 Buffer *buffer_new(int size)
 {
-	Buffer *buf = new Buffer[1];
+	Buffer *buf = new Buffer;
 
 	buf->data = new int[size];
 	buf->read = 0;
