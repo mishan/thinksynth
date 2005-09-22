@@ -43,9 +43,9 @@ int thUtil::getNumLength (int num)
 
 /* Stolen from ircd-hybrid */
 
-char* thUtil::basename(char *path)
+string thUtil::basename(const char *path)
 {
-	char *s;
+	const char *s;
   
 	if ((s = strrchr(path, '/')) == NULL)
 		s = path;
@@ -57,30 +57,25 @@ char* thUtil::basename(char *path)
 
 /* dirname - by Lars Wirzenius. PD? */
 
-char* thUtil::dirname (char *path)
+string thUtil::dirname (const char *path)
 {
     const char *last_slash;
-    char *ret;
+	string ret;
     size_t len;
     
     last_slash = strrchr(path, '/');
 
     if (last_slash == NULL) {
-        ret = (char*)malloc(1);
-        if (ret != NULL)
-            *ret = '\0';
-        return ret;
+        return "";
     }
 
     if (last_slash == path)
         ++last_slash;
         
     len = last_slash - path;
-    ret = (char*)malloc(len + 1);
-    if (ret == NULL)
-        return NULL;
 
-    memcpy(ret, path, len);
-    ret[len] = '\0';
+	ret = path;
+	ret = ret.substr(0, len);
+
     return ret;
 }

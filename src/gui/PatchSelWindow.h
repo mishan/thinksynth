@@ -92,7 +92,7 @@ private:
 	void populate (void);
 
 	thSynth *synth;
-	char *prevDir;
+	string prevDir;
 
 	int currchan;
 };

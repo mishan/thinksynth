@@ -77,7 +77,7 @@ protected:
 	MidiMap *midiMap_;
 private:
 	gthAudio *audio_;
-	char *prevDir_;
+	string prevDir_;
 
 	void toggleConnects(void);
 };

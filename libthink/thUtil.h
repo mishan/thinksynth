@@ -20,14 +20,18 @@
 #ifndef TH_UTIL_H
 #define TH_UTIL_H
 
+using namespace std;
+
+#include <string>
+
 class thUtil {
 public:
 	thUtil (void) { }
 	~thUtil (void) { }
 
 	static int getNumLength (int num);
-	static char* basename (char* path);
-	static char* dirname (char* path);
+	static string basename (const char* path);
+	static string dirname (const char* path);
 };
 
 #endif /* TH_UTIL_H */

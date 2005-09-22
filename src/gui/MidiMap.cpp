@@ -19,6 +19,9 @@
 
 #include "config.h"
 
+#include <iostream>
+#include <sstream>
+
 #include <gtkmm.h>
 #include <stdio.h>
 
@@ -174,15 +177,19 @@ void MidiMap::fillDestChanCombo (void)
 
 	for (int i = 0; i < numPatches; i++)
 	{
+		std::ostringstream chanStr;
+		string name;
+
 		if (patchMgr->isLoaded(i) == false)
 			continue;
 
 		gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
+		chanStr << i + 1 << ": ";
+		name = chanStr.str() + thUtil::basename((char*)patch->dspFile.c_str());
+
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
-		namelabel = Gtk::manage(
-			new Gtk::Label(g_strdup_printf("%d: %s", i + 1,
-										   thUtil::basename((char*)patch->dspFile.c_str()))));
+		namelabel = Gtk::manage(new Gtk::Label(name));
 
 		item->add(*namelabel);
 		item->signal_button_press_event().connect(
@@ -220,10 +227,12 @@ void MidiMap::setDestChanCombo (void)
 	{
 		gthPatchManager::PatchFile * patch =
 			patchMgr->getPatch(selectedDestChan_ + 1);
+		std::ostringstream chanStr;
 
+		chanStr << selectedDestChan_ + 1 << ": ";
 		/* maybe we should use filename, not dspFile */
-		selectedInstrument = g_strdup_printf("%i: %s", selectedDestChan_ + 1,
-											 thUtil::basename((char*)patch->dspFile.c_str()));
+		selectedInstrument = chanStr.str() +
+			thUtil::basename((char*)patch->dspFile.c_str());
 
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
 		namelabel = Gtk::manage(new Gtk::Label(selectedInstrument));
@@ -244,12 +253,14 @@ void MidiMap::setDestChanCombo (void)
 			continue;
 
 		gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
+		std::ostringstream chanStr;
+		string name;
+
+		chanStr << i + 1 << ": ";
+		name = chanStr.str() + thUtil::basename((char*)patch->dspFile.c_str());
 
 		item = Gtk::manage(new Gtk::ComboDropDownItem);
-		namelabel = Gtk::manage(
-			new Gtk::Label(
-				g_strdup_printf("%d: %s", i + 1,
-								thUtil::basename((char*)patch->dspFile.c_str()))));
+		namelabel = Gtk::manage(new Gtk::Label(name));
 
 		item->add(*namelabel);
 		item->signal_button_press_event().connect(
@@ -409,10 +420,14 @@ void MidiMap::populateConnections (void)
 		{
 			instrument = string("Untitled");
 		}
+		
+		std::ostringstream chanStr;
+		chanStr << connection->destChan() + 1 << ": ";
+		instrument = chanStr.str() + instrument;
+
 		row[connectViewCols_.midiChan] = connection->chan() + 1;
 		row[connectViewCols_.midiController] = connection->controller();
-		row[connectViewCols_.instrument] = g_strdup_printf("%i: %s",
-							connection->destChan() + 1, instrument.c_str());
+		row[connectViewCols_.instrument] = instrument;
 		row[connectViewCols_.argName] = connection->argName();
 	}
 }

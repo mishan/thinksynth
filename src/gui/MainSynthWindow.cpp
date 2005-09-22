@@ -19,6 +19,9 @@
 
 #include "config.h"
 
+#include <iostream>
+#include <sstream>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -102,9 +105,9 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 	vals = prefs->Get("dspdir");
 
 	if (vals != NULL)
-		prevDir_ = strdup(vals[0]->c_str());
+		prevDir_ = *(vals[0]);
 	else
-		prevDir_ = strdup(DSP_PATH);
+		prevDir_ = DSP_PATH;
 
 	populateMenu();
 
@@ -489,28 +492,26 @@ void MainSynthWindow::populate (void)
 	for (int i = 0; i < numPatches; i++)
 	{
 		gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
-
+		std::ostringstream chanStr;
+		string tabName;
+		
+		chanStr << i + 1 << ": ";
+		
 		if (patch == NULL)
 		{
-			/* XXX: BAD */
-			string tabName = g_strdup_printf("%d: (Untitled)", i+1);
+			tabName = chanStr.str() + "(Untitled)";
 			append_tab (tabName, i, false);
-
 			continue;
 		}
 
-		string tabName;
 		if (patch->filename.length() > 0)
 		{
-			tabName = patch->filename;
-
 			/* display channel # */
-			tabName = g_strdup_printf("%d: %s", i + 1,
-									  thUtil::basename((char*)tabName.c_str()));
+			tabName = chanStr.str() + patch->filename;
 		}
 		else
 		{
-			tabName = g_strdup_printf("%d: (Untitled)", i+1);
+			tabName = chanStr.str() + "(Untitled)";
 		}
 
 		append_tab (tabName, i, true);
@@ -640,7 +641,7 @@ void MainSynthWindow::onBrowseButton (void)
 	int pagenum = notebook_.get_current_page();
 	Gtk::FileSelection fileSel("thinksynth - Load DSP");
 
-	if (prevDir_)
+	if (prevDir_ != "")
 		fileSel.set_filename(prevDir_);
 
 	if (fileSel.run() == Gtk::RESPONSE_OK)
@@ -649,13 +650,9 @@ void MainSynthWindow::onBrowseButton (void)
 
 		if (patchMgr->newPatch(fileSel.get_filename(), pagenum))
 		{
-			char *dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
+			string dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
 
-			if (prevDir_)
-				free (prevDir_);
-
-			prevDir_ = g_strdup_printf("%s/", dn);
-			free (dn);
+			prevDir_ = dn + "/";
 
 			string **vals = new string *[2];
 			vals[0] = new string(prevDir_);

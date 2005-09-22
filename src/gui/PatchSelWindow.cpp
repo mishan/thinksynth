@@ -19,6 +19,9 @@
 
 #include "config.h"
 
+#include <sstream>
+#include <iostream>
+
 #include <sys/stat.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,8 +146,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
 PatchSelWindow::~PatchSelWindow (void)
 {
-	if (prevDir)
-		free (prevDir);
 }
 
 void PatchSelWindow::UnloadDSP (void)
@@ -217,11 +218,12 @@ bool PatchSelWindow::LoadPatch (void)
  			if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
 			{
 				/* focus the new channel */
-				char* cstr = g_strdup_printf("%d", chanNum);
-				gthPatchManager::PatchFile *patch = patchMgr->getPatch(chanNum);
-				Gtk::TreeModel::Path p(cstr);
+				std::ostringstream s;
+				s << chanNum;
+
+				gthPatchManager::PatchFile *patch =patchMgr->getPatch(chanNum);
+				Gtk::TreeModel::Path p(s.str());
 				patchView.set_cursor(p);
-				free(cstr);
 
 				/* load up metadata */
 				patchRevised.set_text(patch->info["revised"]);
@@ -249,7 +251,7 @@ void PatchSelWindow::BrowsePatch (void)
 {
 	Gtk::FileSelection fileSel ("thinksynth - Load Patch");
 
-	if (prevDir)
+	if (prevDir != "")
 		fileSel.set_filename(prevDir);
 
 	if (fileSel.run() == Gtk::RESPONSE_OK)
@@ -267,15 +269,11 @@ void PatchSelWindow::BrowsePatch (void)
 
 		if (LoadPatch())
 		{
-			char *dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
+			string dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
 			string **vals = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
 
-			if (prevDir)
-				free (prevDir);
-
-			prevDir = g_strdup_printf("%s/", dn);
-			free (dn);
+			prevDir = dn;
 
 			vals = new string *[2];
 			vals[0] = new string(prevDir);
@@ -298,15 +296,15 @@ void PatchSelWindow::SavePatch (void)
 		Gtk::TreeModel::iterator iter;
 		iter = refSelection->get_selected();
 
-		if (prevDir)
+		if (prevDir != "")
 			fileSel.set_filename(prevDir);
 		
 		if (fileSel.run() == Gtk::RESPONSE_OK)
 		{
 			gthPatchManager::PatchFile *patch = NULL;
 			gthPrefs *prefs = gthPrefs::instance();
-			char *file = strdup(fileSel.get_filename().c_str());
-			char *dn = thUtil::dirname(file);
+			string file = fileSel.get_filename();
+			string dn = thUtil::dirname(file.c_str());
 			int chan = (*iter)[patchViewCols.chanNum]-1;
 			string **vals = NULL;
 
@@ -325,15 +323,9 @@ void PatchSelWindow::SavePatch (void)
 			fileEntry.set_text(file);
 
 			/* update patch window with new name */
-			(*iter)[patchViewCols.dspName] = strdup(thUtil::basename(file));
+			(*iter)[patchViewCols.dspName] = thUtil::basename(file.c_str());
 
-			if (prevDir)
-				free (prevDir);
-
-			prevDir = g_strdup_printf("%s/", dn);
-
-			free(dn);
-			free(file);
+			prevDir = dn;
 
 			vals = new string *[2];
 			vals[0] = new string(prevDir);
@@ -495,7 +487,7 @@ void PatchSelWindow::populate (void)
 		string filename = patch->filename;
 		thArg *amp = synth->getChanArg(i, "amp");
 
-		/* populate the fields with the data from the first row */
+		/* populate the controls with the data from the first row */
 		if (i == 0)
 		{
 			fileEntry.set_text(filename);
@@ -516,10 +508,10 @@ void PatchSelWindow::populate (void)
 
 	if (selectedChan != -1)
 	{
-		char *cstr = g_strdup_printf("%d", selectedChan);
-		Gtk::TreeModel::Path p(cstr);
+		std::ostringstream s;
+		s << selectedChan;
+		Gtk::TreeModel::Path p(s.str());
 		patchView.set_cursor(p);
-		free(cstr);
 	}
 }
 
@@ -535,16 +527,18 @@ void PatchSelWindow::on_realize(void)
 
 		if (vals)
 		{
-			prevDir = strdup(vals[0]->c_str());
+			prevDir = *vals[0];
 		}
 		else
 		{
-			prevDir = strdup(DSP_PATH "/patches");
+			prevDir = DSP_PATH;
+			prevDir += "/patches";
 		}
 	}
 	else
 	{
-		prevDir = strdup(DSP_PATH "/patches");
+		prevDir = DSP_PATH;
+		prevDir += "/patches";
 	}
 	
 	populate();
