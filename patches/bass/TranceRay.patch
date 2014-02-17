@@ -4,7 +4,7 @@
 # Wed Dec 29 13:14:21 2004
 
 
-dsp /home/ink/projects/thinksynth/dsp/anasync.dsp
+dsp /usr/local/share//thinksynth/dsp/anasync.dsp
 
 info author Leif Ames
 info category Bass

@@ -4,7 +4,7 @@
 # Fri Jun  3 13:04:19 2005
 
 
-dsp /home/ink/projects/thinksynth/dsp/mfm03.dsp
+dsp /usr/local/share//thinksynth/dsp/mfm03.dsp
 
 SusPedal 0.000000
 a 35.280003

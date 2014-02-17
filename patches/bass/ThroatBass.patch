@@ -4,7 +4,7 @@
 # Sat Mar 26 13:52:19 2005
 
 
-dsp /home/ink/projects/thinksynth/dsp/ts2.dsp
+dsp /usr/local/share//thinksynth/dsp/ts2.dsp
 
 SusPedal 0.000000
 a 220.500015

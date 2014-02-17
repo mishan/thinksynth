@@ -4,7 +4,7 @@
 # Tue May 10 22:20:58 2005
 
 
-dsp /home/ink/projects/thinksynth/dsp/anasync.dsp
+dsp /usr/local/share//thinksynth/dsp/anasync.dsp
 
 info author Leif Ames
 info category Leads
