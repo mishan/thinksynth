@@ -1,5 +1,4 @@
 /* dl(3) wrappers  for OS X
- * $Id$
  */
 
 #ifndef INCLUDED_nsmodule_dl_h

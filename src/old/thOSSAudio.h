@@ -1,4 +1,3 @@
-/* $Id$ */
 
 #ifndef TH_OSSAUDIO_H
 #define TH_OSSAUDIO_H

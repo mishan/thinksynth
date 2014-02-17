@@ -1,6 +1,5 @@
-/* $Id: thNode.h 1240 2004-08-16 09:34:48Z misha $ */
 /*
- * Copyright (C) 2004-2005 Metaphonic Labs
+ * Copyright (C) 2004-2014 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the

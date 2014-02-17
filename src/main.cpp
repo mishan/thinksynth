@@ -1,6 +1,5 @@
-/* $id: main.cpp,v 1.186 2004/05/26 06:24:09 misha Exp $ */
 /*
- * Copyright (C) 2004-2005 Metaphonic Labs
+ * Copyright (C) 2004-2014 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
