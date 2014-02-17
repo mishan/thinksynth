@@ -1,5 +1,3 @@
-# $Id$
-
 SUBDIRS = src plugins patches dsp etc docs #libthink is pulled in by dependency
 ALL_SUBDIRS = libthink $(SUBDIRS)
 NAME = thinksynth
