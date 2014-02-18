@@ -22,8 +22,8 @@
 
 #include "think.h"
 
-char		*desc = "Echo (echo echo echo)";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Echo (echo echo echo)";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -35,73 +35,73 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_SIZE] = plugin->regArg("size");
-	args[IN_DELAY] = plugin->regArg("delay");
-	args[IN_FEEDBACK] = plugin->regArg("feedback");
-	args[IN_DRY] = plugin->regArg("dry");
-	args[INOUT_BUFFER] = plugin->regArg("buffer");
-	args[INOUT_BUFPOS] = plugin->regArg("bufpos");
-	args[OUT_ARG] = plugin->regArg("out");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_SIZE] = plugin->regArg("size");
+    args[IN_DELAY] = plugin->regArg("delay");
+    args[IN_FEEDBACK] = plugin->regArg("feedback");
+    args[IN_DRY] = plugin->regArg("dry");
+    args[INOUT_BUFFER] = plugin->regArg("buffer");
+    args[INOUT_BUFPOS] = plugin->regArg("bufpos");
+    args[OUT_ARG] = plugin->regArg("out");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	float *buffer, *bufpos;
-	thArg *in_arg, *in_size, *in_delay, *in_feedback, *in_dry;
-	thArg *out_arg;
-	thArg *inout_buffer, *inout_bufpos;
-	unsigned int i;
-	int index;
-	float delay, feedback, dry, in;
+    float *out;
+    float *buffer, *bufpos;
+    thArg *in_arg, *in_size, *in_delay, *in_feedback, *in_dry;
+    thArg *out_arg;
+    thArg *inout_buffer, *inout_bufpos;
+    unsigned int i;
+    int index;
+    float delay, feedback, dry, in;
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_size = mod->getArg(node, args[IN_SIZE]);
-	in_delay = mod->getArg(node, args[IN_DELAY]);
-	in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
-	/* How much of the origional signal is passed */
-	in_dry = mod->getArg(node, args[IN_DRY]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_size = mod->getArg(node, args[IN_SIZE]);
+    in_delay = mod->getArg(node, args[IN_DELAY]);
+    in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
+    /* How much of the origional signal is passed */
+    in_dry = mod->getArg(node, args[IN_DRY]);
 
-	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-	bufpos = inout_bufpos->allocate(1);
+    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
+    bufpos = inout_bufpos->allocate(1);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	for(i = 0; i < windowlen; i++) {
-		unsigned int mySize = (int)(*in_size)[i];
-		unsigned int myBufpos = (int)*bufpos;
+    for(i = 0; i < windowlen; i++) {
+        unsigned int mySize = (int)(*in_size)[i];
+        unsigned int myBufpos = (int)*bufpos;
 
-		buffer = inout_buffer->allocate(mySize);
-		in = (*in_arg)[i];
-		feedback = (*in_feedback)[i];
-		dry = (*in_dry)[i];
+        buffer = inout_buffer->allocate(mySize);
+        in = (*in_arg)[i];
+        feedback = (*in_feedback)[i];
+        dry = (*in_dry)[i];
 
-		unsigned int inOutLen = inout_buffer->len();
+        unsigned int inOutLen = inout_buffer->len();
 
-		if(myBufpos > inOutLen) {
-			myBufpos = 0;
-		}
-		index = (int)(myBufpos - (*in_delay)[i]);
-		while(index < 0) {
-			index += inOutLen;
-		}
-		delay = buffer[index];
+        if(myBufpos > inOutLen) {
+            myBufpos = 0;
+        }
+        index = (int)(myBufpos - (*in_delay)[i]);
+        while(index < 0) {
+            index += inOutLen;
+        }
+        delay = buffer[index];
 
-		buffer[myBufpos] = (feedback * delay) + ((1-feedback) * in);
+        buffer[myBufpos] = (feedback * delay) + ((1-feedback) * in);
 
-		out[i] = ((1 - dry) * delay) + (dry * in);
-		++myBufpos;
-		*bufpos = (float)myBufpos;
-	}
+        out[i] = ((1 - dry) * delay) + (dry * in);
+        ++myBufpos;
+        *bufpos = (float)myBufpos;
+    }
 
-	return 0;
+    return 0;
 }

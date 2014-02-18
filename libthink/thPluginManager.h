@@ -21,20 +21,20 @@
 
 class thPluginManager {
 public:
-	thPluginManager(const string &path);
-	~thPluginManager();
+    thPluginManager(const string &path);
+    ~thPluginManager();
 
-	int loadPlugin(const string &name);
-	void unloadPlugin(const string &name);
+    int loadPlugin(const string &name);
+    void unloadPlugin(const string &name);
 
-	thPlugin *getPlugin (const string &name) { return plugins_[name]; };
+    thPlugin *getPlugin (const string &name) { return plugins_[name]; };
 private:
-	typedef map<string, thPlugin*> PluginMap;
-	PluginMap plugins_;
-	string plugin_path_;
+    typedef map<string, thPlugin*> PluginMap;
+    PluginMap plugins_;
+    string plugin_path_;
 
-	void unloadPlugins (void);
-	const string getPath (const string &name);
+    void unloadPlugins (void);
+    const string getPath (const string &name);
 };
 
 #endif /* TH_PLUGIN_MANAGER_H */

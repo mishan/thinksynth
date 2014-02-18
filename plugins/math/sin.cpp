@@ -23,8 +23,8 @@
 
 #include "think.h"
 
-char		*desc = "Sine Calculation";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Sine Calculation";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -32,45 +32,45 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_index, *in_wavelength, *in_amp;
-	thArg *out_arg;
-	unsigned int i;
-	float amp, wavelength;
+    float *out;
+    thArg *in_index, *in_wavelength, *in_amp;
+    thArg *out_arg;
+    unsigned int i;
+    float amp, wavelength;
 
-	in_index = mod->getArg(node, "index");
-	in_wavelength = mod->getArg(node, "wavelength");
-	in_amp = mod->getArg(node, "amp");
+    in_index = mod->getArg(node, "index");
+    in_wavelength = mod->getArg(node, "wavelength");
+    in_amp = mod->getArg(node, "amp");
 
-	out_arg = mod->getArg(node, "out");
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, "out");
+    out = out_arg->allocate(windowlen);
 
-	for(i = 0; i < windowlen; i++)
-	{
-		amp = (*in_amp)[i];
-		wavelength = (*in_wavelength)[i];
+    for(i = 0; i < windowlen; i++)
+    {
+        amp = (*in_amp)[i];
+        wavelength = (*in_wavelength)[i];
 
-		if (amp == 0)
-		{
-			amp = 1;
-		}
-		if (wavelength == 0)
-		{
-			wavelength = 1;
-		}
+        if (amp == 0)
+        {
+            amp = 1;
+        }
+        if (wavelength == 0)
+        {
+            wavelength = 1;
+        }
 
-		out[i] = sin(((*in_index)[i] / wavelength) * M_PI * 2) * amp;
-	}
+        out[i] = sin(((*in_index)[i] / wavelength) * M_PI * 2) * amp;
+    }
 
-	return 0;
+    return 0;
 }
 

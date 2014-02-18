@@ -24,8 +24,8 @@
 
 #include "think.h"
 
-char		*desc = "Resonant 1-pole LPF";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Resonant 1-pole LPF";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,54 +37,54 @@ int args[IN_RES + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[INOUT_BUFFER] = plugin->regArg("buffer");
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_CUTOFF] = plugin->regArg("cutoff");
-	args[IN_RES] = plugin->regArg("res");
+    args[OUT_ARG] = plugin->regArg("out");
+    args[INOUT_BUFFER] = plugin->regArg("buffer");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_CUTOFF] = plugin->regArg("cutoff");
+    args[IN_RES] = plugin->regArg("res");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out, *buffer;
-	thArg *in_arg, *in_cutoff, *in_res;
-	thArg *out_arg;
-	thArg *inout_buffer;
-	float buf0, buf1;
-	float fb, f, q;  /* feedback, cutoff, resonance */
-	unsigned int i;
+    float *out, *buffer;
+    thArg *in_arg, *in_cutoff, *in_res;
+    thArg *out_arg;
+    thArg *inout_buffer;
+    float buf0, buf1;
+    float fb, f, q;  /* feedback, cutoff, resonance */
+    unsigned int i;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-	buf0 = (*inout_buffer)[0];
-	buf1 = (*inout_buffer)[1];
-	buffer = inout_buffer->allocate(2);
+    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    buf0 = (*inout_buffer)[0];
+    buf1 = (*inout_buffer)[1];
+    buffer = inout_buffer->allocate(2);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
-	in_res = mod->getArg(node, args[IN_RES]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_res = mod->getArg(node, args[IN_RES]);
 
-	for(i = 0; i < windowlen; i++)
-	{
-		f = (*in_cutoff)[i];
-		q = (*in_res)[i];
-		fb = q + q/(1.0 - f);
+    for(i = 0; i < windowlen; i++)
+    {
+        f = (*in_cutoff)[i];
+        q = (*in_res)[i];
+        fb = q + q/(1.0 - f);
 
-		buf0 = buf0 + f * ((*in_arg)[i] - buf0 + fb * (buf0 - buf1));
-		buf1 = buf1 + f * (buf0 - buf1);
-		out[i] = buf1;
-	}
+        buf0 = buf0 + f * ((*in_arg)[i] - buf0 + fb * (buf0 - buf1));
+        buf1 = buf1 + f * (buf0 - buf1);
+        out[i] = buf1;
+    }
 
-	buffer[0] = buf0;
-	buffer[1] = buf1;
+    buffer[0] = buf0;
+    buffer[1] = buf1;
 
-	return 0;
+    return 0;
 }

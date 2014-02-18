@@ -29,8 +29,8 @@
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, INOUT_BUFFER};
 int args[INOUT_BUFFER + 1];
 
-char		*desc = "INK Filter ][";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "INK Filter ][";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,59 +38,59 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_CUTOFF] = plugin->regArg("cutoff");
-	args[IN_RES] = plugin->regArg("res");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_CUTOFF] = plugin->regArg("cutoff");
+    args[IN_RES] = plugin->regArg("res");
 
-	args[OUT_ARG] = plugin->regArg("out");
+    args[OUT_ARG] = plugin->regArg("out");
 
-	args[INOUT_BUFFER] = plugin->regArg("buffer");
+    args[INOUT_BUFFER] = plugin->regArg("buffer");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out, *buffer;
-	thArg *in_arg, *in_cutoff, *in_res;
-	thArg *out_arg;
-	thArg *inout_buffer;
-	float buf0, buf1, in;
-	float f, q;  /* cutoff, res */
-	unsigned int i;
+    float *out, *buffer;
+    thArg *in_arg, *in_cutoff, *in_res;
+    thArg *out_arg;
+    thArg *inout_buffer;
+    float buf0, buf1, in;
+    float f, q;  /* cutoff, res */
+    unsigned int i;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-	buf0 = (*inout_buffer)[0];
-	buf1 = (*inout_buffer)[1];
-	buffer = inout_buffer->allocate(2);
+    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    buf0 = (*inout_buffer)[0];
+    buf1 = (*inout_buffer)[1];
+    buffer = inout_buffer->allocate(2);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
-	in_res = mod->getArg(node, args[IN_RES]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_res = mod->getArg(node, args[IN_RES]);
 
-	for(i=0;i<windowlen;i++) {
-		f = SQR((*in_cutoff)[i]);
-		q = (*in_res)[i];
-		in = (*in_arg)[i];
+    for(i=0;i<windowlen;i++) {
+        f = SQR((*in_cutoff)[i]);
+        q = (*in_res)[i];
+        in = (*in_arg)[i];
 
-		buf0 *= 1 - f;
-		buf0 += (buf1 - in) * f;
-		buf1 *= 1 - (f * q);
-		buf1 += (in - buf0) * q;
+        buf0 *= 1 - f;
+        buf0 += (buf1 - in) * f;
+        buf1 *= 1 - (f * q);
+        buf1 += (in - buf0) * q;
 
-		out[i] = (buf0 - buf1);
-	}
+        out[i] = (buf0 - buf1);
+    }
 
-	buffer[0] = buf0;
-	buffer[1] = buf1;
+    buffer[0] = buf0;
+    buffer[1] = buf1;
 
-	return 0;
+    return 0;
 }
 

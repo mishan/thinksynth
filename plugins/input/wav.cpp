@@ -25,8 +25,8 @@
 //#include "thAudio.h"
 //#include "thWav.h"
 
-char		*desc = "Wav Input (BROKEN)";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Wav Input (BROKEN)";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 //static thWav *thwav = NULL;
 
 void module_cleanup (struct module *mod)
@@ -35,32 +35,32 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-//	thwav = new_thWav("testwav.wav");
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
-	
-	return 0;
+//    thwav = new_thWav("testwav.wav");
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
+    
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
 /*
-	thArg *out_arg = mod->GetArg(node, "out");
-	thArg *out_play = mod->GetArg(node, "play");
-	signed short buf[windowlen * thwav->GetChannels()];
-	float *out = out_arg->allocate(windowlen);
-	float *play = out_play->allocate(windowlen);
-	unsigned int i;
-	int channels = thwav->GetChannels();
+    thArg *out_arg = mod->GetArg(node, "out");
+    thArg *out_play = mod->GetArg(node, "play");
+    signed short buf[windowlen * thwav->GetChannels()];
+    float *out = out_arg->allocate(windowlen);
+    float *play = out_play->allocate(windowlen);
+    unsigned int i;
+    int channels = thwav->GetChannels();
 
-	thwav->Read(buf, windowlen * channels);
+    thwav->Read(buf, windowlen * channels);
 
-	for(i = 0; i < windowlen; i++) {
-		out[i] = (((float)buf[i * channels]) / 32767) * TH_MAX;
-		play[i] = !thwav->CheckEOF();
-		} */
+    for(i = 0; i < windowlen; i++) {
+        out[i] = (((float)buf[i * channels]) / 32767) * TH_MAX;
+        play[i] = !thwav->CheckEOF();
+        } */
 
-	return 0;
+    return 0;
 }
 

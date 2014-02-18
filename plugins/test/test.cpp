@@ -22,8 +22,8 @@
 
 #include "think.h"
 
-char		*desc = "Test Plugin";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Test Plugin";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -31,16 +31,16 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->SetDesc (desc);
-	plugin->SetState (mystate);
-	
-	return 0;
+    plugin->SetDesc (desc);
+    plugin->SetState (mystate);
+    
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	printf("TEST!!\n");
-	return 0;
+    printf("TEST!!\n");
+    return 0;
 }
 

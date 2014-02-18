@@ -30,56 +30,56 @@ class thMidiChan;
 class gthPatchManager
 {
 public:
-	gthPatchManager (int numPatches=NUM_PATCHES);
-	~gthPatchManager (void);
+    gthPatchManager (int numPatches=NUM_PATCHES);
+    ~gthPatchManager (void);
 
-	static gthPatchManager *instance (void);
+    static gthPatchManager *instance (void);
 
-	bool newPatch (const string &dspName, int chan);
-	bool loadPatch (const string & filename, int chan);
-	bool savePatch (const string &filename, int chan);
-	bool unloadPatch (int chan);
-	bool isLoaded (int chan);
+    bool newPatch (const string &dspName, int chan);
+    bool loadPatch (const string & filename, int chan);
+    bool savePatch (const string &filename, int chan);
+    bool unloadPatch (int chan);
+    bool isLoaded (int chan);
 
-	int numPatches (void) {
-		return numPatches_;
-	}
+    int numPatches (void) {
+        return numPatches_;
+    }
 
-	thArgMap getChannelArgs (int chan);
+    thArgMap getChannelArgs (int chan);
 
-	typedef map<string, float> PatchFileArgs;
-	typedef map<string, string> PatchFileInfo;
-	struct PatchFile {
-		PatchFileArgs args;
-		PatchFileInfo info;
+    typedef map<string, float> PatchFileArgs;
+    typedef map<string, string> PatchFileInfo;
+    struct PatchFile {
+        PatchFileArgs args;
+        PatchFileInfo info;
 
-		string dspFile;
-		string filename;
-	};
+        string dspFile;
+        string filename;
+    };
 
-	PatchFile *getPatch (int chan)
-	{
-		if ((chan < 0) || (chan >= NUM_PATCHES))
-			return NULL;
+    PatchFile *getPatch (int chan)
+    {
+        if ((chan < 0) || (chan >= NUM_PATCHES))
+            return NULL;
 
-		return patches_[chan];
-	}
+        return patches_[chan];
+    }
 
-	type_signal_patches_changed signal_patches_changed (void) {
-		return m_signal_patches_changed;
-	}
-	type_signal_patch_load_error signal_patch_load_error (void) {
-		return m_signal_patch_load_error;
-	}
-	
+    type_signal_patches_changed signal_patches_changed (void) {
+        return m_signal_patches_changed;
+    }
+    type_signal_patch_load_error signal_patch_load_error (void) {
+        return m_signal_patch_load_error;
+    }
+    
 private:
-	bool parse (const string &filename, int chan);
+    bool parse (const string &filename, int chan);
 
-	int numPatches_;
-	PatchFile **patches_;
-	static gthPatchManager *instance_;
-	type_signal_patches_changed m_signal_patches_changed;
-	type_signal_patch_load_error m_signal_patch_load_error;
+    int numPatches_;
+    PatchFile **patches_;
+    static gthPatchManager *instance_;
+    type_signal_patches_changed m_signal_patches_changed;
+    type_signal_patch_load_error m_signal_patch_load_error;
 };
 
 #endif /* GTH_PATCHFILE_H */

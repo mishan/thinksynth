@@ -30,29 +30,29 @@
 
 class thMidiController {
 public:
-	thMidiController (void);
-	~thMidiController (void);
+    thMidiController (void);
+    ~thMidiController (void);
 
-	typedef map<unsigned int, thMidiControllerConnection *> ConnectionMap;
+    typedef map<unsigned int, thMidiControllerConnection *> ConnectionMap;
 
-	void handleMidi (unsigned char channel, unsigned int param,
-					 unsigned int value);
+    void handleMidi (unsigned char channel, unsigned int param,
+                     unsigned int value);
 
-	void newConnection (unsigned char channel, unsigned int param,
-						thMidiControllerConnection *connection);
-	void clearByDestChan (unsigned int chan);
+    void newConnection (unsigned char channel, unsigned int param,
+                        thMidiControllerConnection *connection);
+    void clearByDestChan (unsigned int chan);
 
-	ConnectionMap *connectionMap (void) { return &connectionMap_; }
+    ConnectionMap *connectionMap (void) { return &connectionMap_; }
 
-	thMidiControllerConnection *getConnection (unsigned char channel, 
-											   unsigned int param)
-	{ 
-		return connections_[channel][param];
-	}
+    thMidiControllerConnection *getConnection (unsigned char channel, 
+                                               unsigned int param)
+    { 
+        return connections_[channel][param];
+    }
 
 private:
-	thMidiControllerConnection *connections_[16][128];
-	ConnectionMap connectionMap_;
+    thMidiControllerConnection *connections_[16][128];
+    ConnectionMap connectionMap_;
 };
 
 #endif /* TH_MIDICONTROLLER_H */

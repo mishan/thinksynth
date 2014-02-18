@@ -29,75 +29,75 @@ typedef sigc::signal<void, int>             type_signal_transpose_changed;
 class Keyboard : public Gtk::DrawingArea
 {
 public:
-	Keyboard (void);
-	~Keyboard (void);
+    Keyboard (void);
+    ~Keyboard (void);
 
-	/* parameter mutator methods */
-	void SetChannel   (int argchan);
-	void SetTranspose (int argtranspose);
-	void SetNote      (int note, bool state);
-	
-	void resetKeys (void);
-	
-	/* parameter accessor methods */
- 	int  GetChannel   (void);
-	int  GetTranspose (void);
-	bool GetNote      (int note);
-	
-	/* signal accessor methods */
-	type_signal_note_clear        signal_note_clear        (void);
-	type_signal_note_on           signal_note_on           (void);
- 	type_signal_note_off          signal_note_off          (void);
-	type_signal_channel_changed   signal_channel_changed   (void);
-	type_signal_transpose_changed signal_transpose_changed (void);
+    /* parameter mutator methods */
+    void SetChannel   (int argchan);
+    void SetTranspose (int argtranspose);
+    void SetNote      (int note, bool state);
+    
+    void resetKeys (void);
+    
+    /* parameter accessor methods */
+     int  GetChannel   (void);
+    int  GetTranspose (void);
+    bool GetNote      (int note);
+    
+    /* signal accessor methods */
+    type_signal_note_clear        signal_note_clear        (void);
+    type_signal_note_on           signal_note_on           (void);
+     type_signal_note_off          signal_note_off          (void);
+    type_signal_channel_changed   signal_channel_changed   (void);
+    type_signal_transpose_changed signal_transpose_changed (void);
 protected:
-	void drawKeyboard (int mode);
- 	void drawKeyboardFocus (void);
-	
-	/* overridden signal handlers */
-	virtual void on_realize              (void);
-	virtual bool on_expose_event         (GdkEventExpose *e);
- 	virtual bool on_focus_in_event       (GdkEventFocus  *f);
-	virtual bool on_focus_out_event      (GdkEventFocus  *f);
-	virtual bool on_button_press_event   (GdkEventButton *b);
-	virtual bool on_button_release_event (GdkEventButton *b);
-	virtual bool on_key_press_event      (GdkEventKey    *k);
-	virtual bool on_key_release_event    (GdkEventKey    *k);
-	virtual bool on_motion_notify_event  (GdkEventMotion *e);
+    void drawKeyboard (int mode);
+     void drawKeyboardFocus (void);
+    
+    /* overridden signal handlers */
+    virtual void on_realize              (void);
+    virtual bool on_expose_event         (GdkEventExpose *e);
+     virtual bool on_focus_in_event       (GdkEventFocus  *f);
+    virtual bool on_focus_out_event      (GdkEventFocus  *f);
+    virtual bool on_button_press_event   (GdkEventButton *b);
+    virtual bool on_button_release_event (GdkEventButton *b);
+    virtual bool on_key_press_event      (GdkEventKey    *k);
+    virtual bool on_key_release_event    (GdkEventKey    *k);
+    virtual bool on_motion_notify_event  (GdkEventMotion *e);
 
-	int channel_;
-	int transpose_;
+    int channel_;
+    int transpose_;
 private:
-	int get_coord ();
-	int keyval_to_notnum (int key);
+    int get_coord ();
+    int keyval_to_notnum (int key);
 
-	type_signal_note_clear        m_signal_note_clear_;
-	type_signal_note_on           m_signal_note_on_;
-	type_signal_note_off          m_signal_note_off_;
-	type_signal_channel_changed   m_signal_channel_changed_;
-	type_signal_transpose_changed m_signal_transpose_changed_;
+    type_signal_note_clear        m_signal_note_clear_;
+    type_signal_note_on           m_signal_note_on_;
+    type_signal_note_off          m_signal_note_off_;
+    type_signal_channel_changed   m_signal_channel_changed_;
+    type_signal_transpose_changed m_signal_transpose_changed_;
 
-	/* lower-level widget stuff */
-	Glib::Mutex drawMutex_;
-	Glib::Dispatcher dispatchRedraw_;
+    /* lower-level widget stuff */
+    Glib::Mutex drawMutex_;
+    Glib::Dispatcher dispatchRedraw_;
 
-	GdkWindow *drawable_;
-	GdkGC *kbgc_;
-	bool focus_box_;
+    GdkWindow *drawable_;
+    GdkGC *kbgc_;
+    bool focus_box_;
 
-	/* keyboard stuff */
-	int img_width_, img_height_;
-	int prv_active_keys_[128];
-	int active_keys_[128];
+    /* keyboard stuff */
+    int img_width_, img_height_;
+    int prv_active_keys_[128];
+    int active_keys_[128];
 
-	int mouse_notnum_;
-	int veloc0_;
-	int veloc1_;
-	int veloc2_;
-	int veloc3_;
-	int mouse_veloc_;
+    int mouse_notnum_;
+    int veloc0_;
+    int veloc1_;
+    int veloc2_;
+    int veloc3_;
+    int mouse_veloc_;
 
-	int cur_size_;
+    int cur_size_;
 };
 
 #endif /* KEYBOARD_H */

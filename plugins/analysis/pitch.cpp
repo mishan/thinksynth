@@ -24,7 +24,7 @@
 #include "think.h"
 
 char *desc = "Follows the pitch of the input";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,74 +36,74 @@ int args[IN_FALLOFF + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[INOUT_LAST] = plugin->regArg("last");
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_FALLOFF] = plugin->regArg("falloff");
+    args[OUT_ARG] = plugin->regArg("out");
+    args[INOUT_LAST] = plugin->regArg("last");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_FALLOFF] = plugin->regArg("falloff");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out, *out_last;
-	thArg *in_arg, *in_falloff;
-	thArg *out_arg;
-	thArg *inout_last;
-	unsigned int i;
-	float input, last, falloff;
-	float freq;
-	int sign, wavelength;
+    float *out, *out_last;
+    thArg *in_arg, *in_falloff;
+    thArg *out_arg;
+    thArg *inout_last;
+    unsigned int i;
+    float input, last, falloff;
+    float freq;
+    int sign, wavelength;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
 
-	last = (*inout_last)[0];
-	freq = (*inout_last)[1];
-	wavelength = (int)(*inout_last)[2];
+    last = (*inout_last)[0];
+    freq = (*inout_last)[1];
+    wavelength = (int)(*inout_last)[2];
 
-	out_last = inout_last->allocate(3);
+    out_last = inout_last->allocate(3);
 
-	out = out_arg->allocate(windowlen);
+    out = out_arg->allocate(windowlen);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_falloff = mod->getArg(node, args[IN_FALLOFF]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_falloff = mod->getArg(node, args[IN_FALLOFF]);
 
 
-	for(i = 0; i < windowlen; i++)
-	{
-		falloff = pow(0.1, (*in_falloff)[i]);
+    for(i = 0; i < windowlen; i++)
+    {
+        falloff = pow(0.1, (*in_falloff)[i]);
 
-		input = (*in_arg)[i];
+        input = (*in_arg)[i];
 
-		if(last > 0)
-			sign = 1;
-		else
-			sign = 0;
-		
-		if(sign == 0 && input > 0) /* trigger on the rising edge */
-		{
-			freq = samples / wavelength;
-			wavelength = 0;
-		}
-		else
-		{
-			wavelength++;
-		}
+        if(last > 0)
+            sign = 1;
+        else
+            sign = 0;
+        
+        if(sign == 0 && input > 0) /* trigger on the rising edge */
+        {
+            freq = samples / wavelength;
+            wavelength = 0;
+        }
+        else
+        {
+            wavelength++;
+        }
 
-		out[i] = freq;
+        out[i] = freq;
 
-		last = input;
-	}
+        last = input;
+    }
 
-	out_last[0] = last;
-	out_last[1] = freq;
-	out_last[2] = wavelength;
-	
+    out_last[0] = last;
+    out_last[1] = freq;
+    out_last[2] = wavelength;
+    
 
-	return 0;
+    return 0;
 }

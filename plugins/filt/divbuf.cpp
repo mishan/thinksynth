@@ -24,8 +24,8 @@
 
 #define SQR(a) (a*a)
 
-char		*desc = "Cheap IIR-ish Filter";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Cheap IIR-ish Filter";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,49 +37,49 @@ int args[IN_FACTOR + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[INOUT_BUFFER] = plugin->regArg("buffer");
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_FACTOR] = plugin->regArg("factor");
-	return 0;
+    args[OUT_ARG] = plugin->regArg("out");
+    args[INOUT_BUFFER] = plugin->regArg("buffer");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_FACTOR] = plugin->regArg("factor");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	float *out_buf;
-	thArg *in_arg, *in_factor;
-	thArg *out_arg;
-	thArg *inout_buffer;
-	
-	unsigned int i;
-	float factor, buffer;
+    float *out;
+    float *out_buf;
+    thArg *in_arg, *in_factor;
+    thArg *out_arg;
+    thArg *inout_buffer;
+    
+    unsigned int i;
+    float factor, buffer;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-	buffer = (*inout_buffer)[0];
-	out = out_arg->allocate(windowlen);
-	out_buf = inout_buffer->allocate(1);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    buffer = (*inout_buffer)[0];
+    out = out_arg->allocate(windowlen);
+    out_buf = inout_buffer->allocate(1);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_factor = mod->getArg(node, args[IN_FACTOR]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_factor = mod->getArg(node, args[IN_FACTOR]);
 
-	for(i=0;i<windowlen;i++) {
-	  factor = SQR(SQR((*in_factor)[i]));
+    for(i=0;i<windowlen;i++) {
+      factor = SQR(SQR((*in_factor)[i]));
 
-	  buffer = ((*in_arg)[i] * factor) + (buffer * (1-factor));
+      buffer = ((*in_arg)[i] * factor) + (buffer * (1-factor));
 
-	  out[i] = buffer;
-	}
+      out[i] = buffer;
+    }
 
-	out_buf[0] = buffer;
+    out_buf[0] = buffer;
 
-/*	node->SetArg("out", out, windowlen);
-	node->SetArg("buffer", out_buffer, 1); */
+/*    node->SetArg("out", out, windowlen);
+    node->SetArg("buffer", out_buffer, 1); */
 
-	return 0;
+    return 0;
 }

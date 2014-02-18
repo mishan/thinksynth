@@ -21,21 +21,21 @@
 
 class thMidiNote {
 public:
-	thMidiNote (thSynthTree *tree, float note, float velocity);
-	thMidiNote (thSynthTree *tree);
-	~thMidiNote ();
-	
-	thSynthTree *synthTree (void) { return &synthTree_; }
-	int id (void) const { return noteid_; }
+    thMidiNote (thSynthTree *tree, float note, float velocity);
+    thMidiNote (thSynthTree *tree);
+    ~thMidiNote ();
+    
+    thSynthTree *synthTree (void) { return &synthTree_; }
+    int id (void) const { return noteid_; }
 
-	void process (int length);
+    void process (int length);
 
-	void setArg (const string &name, float value);
-	void setArg (const string &name, const float *value, int len);
+    void setArg (const string &name, float value);
+    void setArg (const string &name, const float *value, int len);
 
 private:
-	thSynthTree synthTree_;
-	int noteid_;
+    thSynthTree synthTree_;
+    int noteid_;
 };
 
 #endif /* TH_MIDINOTE_H */

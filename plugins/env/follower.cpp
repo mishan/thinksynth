@@ -23,8 +23,8 @@
 
 #include "think.h"
 
-char		*desc = "Follows the envelope of the input";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Follows the envelope of the input";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,58 +36,58 @@ int args[IN_FALLOFF + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[INOUT_LAST] = plugin->regArg("last");
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_FALLOFF] = plugin->regArg("falloff");
-	return 0;
+    args[OUT_ARG] = plugin->regArg("out");
+    args[INOUT_LAST] = plugin->regArg("last");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_FALLOFF] = plugin->regArg("falloff");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out, *out_last;
-	thArg *in_arg, *in_falloff;
-	thArg *out_arg;
-	thArg *inout_last;
-	unsigned int i;
-	float last, absolute, falloff;
+    float *out, *out_last;
+    thArg *in_arg, *in_falloff;
+    thArg *out_arg;
+    thArg *inout_last;
+    unsigned int i;
+    float last, absolute, falloff;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
 
-	last = (*inout_last)[0];
+    last = (*inout_last)[0];
 
-	out_last = inout_last->allocate(1);
+    out_last = inout_last->allocate(1);
 
-	out = out_arg->allocate(windowlen);
+    out = out_arg->allocate(windowlen);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_falloff = mod->getArg(node, args[IN_FALLOFF]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_falloff = mod->getArg(node, args[IN_FALLOFF]);
 
-	for(i = 0; i < windowlen; i++)
-	{
-		absolute = fabs((*in_arg)[i]);
-		falloff = pow(0.1, (*in_falloff)[i]);
+    for(i = 0; i < windowlen; i++)
+    {
+        absolute = fabs((*in_arg)[i]);
+        falloff = pow(0.1, (*in_falloff)[i]);
 
-		if(absolute >= last)
-		{
-			last += absolute * falloff;
-		}
-		else
-		{
-			last -= last * falloff;
-		}
+        if(absolute >= last)
+        {
+            last += absolute * falloff;
+        }
+        else
+        {
+            last -= last * falloff;
+        }
 
-		out[i] = last;
-	}
+        out[i] = last;
+    }
 
-	out_last[0] = last;
+    out_last[0] = last;
 
-	
+    
 
-	return 0;
+    return 0;
 }

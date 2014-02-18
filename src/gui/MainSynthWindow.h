@@ -29,56 +29,56 @@ using namespace std;
 class MainSynthWindow : public Gtk::Window
 {
 public:
-	MainSynthWindow (gthAudio *);
-	~MainSynthWindow (void);
+    MainSynthWindow (gthAudio *);
+    ~MainSynthWindow (void);
 
 protected:
-	void populateMenu (void);
-	void menuKeyboard (void);
-	void menuPatchSel (void);
-	void menuMidiMap (void);
-	void menuQuit (void);
-	void menuAbout (void);
-	void menuJackTry (void);
-	void menuJackDis (void);
-	void menuJackAuto (void);
+    void populateMenu (void);
+    void menuKeyboard (void);
+    void menuPatchSel (void);
+    void menuMidiMap (void);
+    void menuQuit (void);
+    void menuAbout (void);
+    void menuJackTry (void);
+    void menuJackDis (void);
+    void menuJackAuto (void);
 
-	void append_tab (const string &tabName, int num, bool is_real);
-	void populate (void);
+    void append_tab (const string &tabName, int num, bool is_real);
+    void populate (void);
 
-	void onPatchesChanged (void);
-	void onAboutBoxHide (void);
-	void onPatchSelHide (void);
-	void onMidiMapHide (void);
-	void onKeyboardHide (void);
-	void onSwitchPage (GtkNotebookPage *p, int pagenum);
-	void onDspEntryActivate (void);
-	void onBrowseButton (void);
-	void onPatchLoadError (const char* failure);
-	void jackCheck (void);
+    void onPatchesChanged (void);
+    void onAboutBoxHide (void);
+    void onPatchSelHide (void);
+    void onMidiMapHide (void);
+    void onKeyboardHide (void);
+    void onSwitchPage (GtkNotebookPage *p, int pagenum);
+    void onDspEntryActivate (void);
+    void onBrowseButton (void);
+    void onPatchLoadError (const char* failure);
+    void jackCheck (void);
 
-	Gtk::VBox vbox_;
-	Gtk::MenuBar menuBar_;
-	Gtk::Menu menuFile_;
-	Gtk::Menu menuJack_;
-	Gtk::Menu menuHelp_;
+    Gtk::VBox vbox_;
+    Gtk::MenuBar menuBar_;
+    Gtk::Menu menuFile_;
+    Gtk::Menu menuJack_;
+    Gtk::Menu menuHelp_;
 
-	Gtk::Entry dspEntry_;
-	Gtk::Label dspEntryLbl_;
-	Gtk::Button dspBrowseBtn_;
-	Gtk::HBox dspEntryBox_;
+    Gtk::Entry dspEntry_;
+    Gtk::Label dspEntryLbl_;
+    Gtk::Button dspBrowseBtn_;
+    Gtk::HBox dspEntryBox_;
 
-	Gtk::Notebook notebook_;
+    Gtk::Notebook notebook_;
 
-	PatchSelWindow *patchSel_;
-	KeyboardWindow *kbWin_;
-	AboutBox *aboutBox_;
-	MidiMap *midiMap_;
+    PatchSelWindow *patchSel_;
+    KeyboardWindow *kbWin_;
+    AboutBox *aboutBox_;
+    MidiMap *midiMap_;
 private:
-	gthAudio *audio_;
-	string prevDir_;
+    gthAudio *audio_;
+    string prevDir_;
 
-	void toggleConnects(void);
+    void toggleConnects(void);
 };
 
 #endif /* MAIN_SYNTH_WINDOW_H */

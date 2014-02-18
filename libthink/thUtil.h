@@ -25,12 +25,12 @@ using namespace std;
 
 class thUtil {
 public:
-	thUtil (void) { }
-	~thUtil (void) { }
+    thUtil (void) { }
+    ~thUtil (void) { }
 
-	static int getNumLength (int num);
-	static string basename (const char* path);
-	static string dirname (const char* path);
+    static int getNumLength (int num);
+    static string basename (const char* path);
+    static string dirname (const char* path);
 };
 
 #endif /* TH_UTIL_H */

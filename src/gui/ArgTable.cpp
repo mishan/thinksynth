@@ -28,9 +28,9 @@
 #include "ArgTable.h"
 
 ArgTable::ArgTable (void)
-	: Gtk::Table(1, 3), rows_(1), args_(0)
+    : Gtk::Table(1, 3), rows_(1), args_(0)
 {
-	
+    
 }
 
 ArgTable::~ArgTable (void)
@@ -39,57 +39,57 @@ ArgTable::~ArgTable (void)
 
 void ArgTable::insertArg (thArg *arg)
 {
-	if (arg == NULL)
-		return;
+    if (arg == NULL)
+        return;
 
-	int row = args_++;
+    int row = args_++;
 
-	Gtk::Label *label = manage(new Gtk::Label((arg->label().length() > 0) ?
-											  arg->label() : arg->name()));
-	Gtk::HScale *slider = manage(new Gtk::HScale(arg->min(),arg->max(),.0001));
+    Gtk::Label *label = manage(new Gtk::Label((arg->label().length() > 0) ?
+                                              arg->label() : arg->name()));
+    Gtk::HScale *slider = manage(new Gtk::HScale(arg->min(),arg->max(),.0001));
 
-	Gtk::Adjustment *argAdjust = slider->get_adjustment();
+    Gtk::Adjustment *argAdjust = slider->get_adjustment();
 
-	slider->set_draw_value(false);
+    slider->set_draw_value(false);
 
-	slider->signal_value_changed().connect(
-		sigc::bind<Gtk::HScale *, thArg *>(
-			sigc::mem_fun(*this, &ArgTable::sliderChanged),
-			slider, arg));
+    slider->signal_value_changed().connect(
+        sigc::bind<Gtk::HScale *, thArg *>(
+            sigc::mem_fun(*this, &ArgTable::sliderChanged),
+            slider, arg));
 
-	arg->signal_arg_changed().connect(
-		sigc::bind<Gtk::HScale *>(
-			sigc::mem_fun(*this, &ArgTable::argChanged),
-			slider));
+    arg->signal_arg_changed().connect(
+        sigc::bind<Gtk::HScale *>(
+            sigc::mem_fun(*this, &ArgTable::argChanged),
+            slider));
 
-	slider->set_value((*arg)[0]);
-	
-	Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
-										   *argAdjust, .0001,
-										   4));
+    slider->set_value((*arg)[0]);
+    
+    Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
+                                           *argAdjust, .0001,
+                                           4));
 
-	if (args_ > rows_)
-	{
-		resize(args_, 3);
-		rows_ = args_;
-	}
+    if (args_ > rows_)
+    {
+        resize(args_, 3);
+        rows_ = args_;
+    }
 
-	attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
-		   Gtk::SHRINK);
-	attach(*slider, 1, 2, row, row+1,
-		   Gtk::EXPAND|Gtk::FILL,
-		   Gtk::EXPAND|Gtk::FILL);
-	attach(*valEntry, 2, 3, row, row+1,
-		   Gtk::SHRINK|Gtk::FILL,
-		   Gtk::SHRINK|Gtk::FILL);
+    attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
+           Gtk::SHRINK);
+    attach(*slider, 1, 2, row, row+1,
+           Gtk::EXPAND|Gtk::FILL,
+           Gtk::EXPAND|Gtk::FILL);
+    attach(*valEntry, 2, 3, row, row+1,
+           Gtk::SHRINK|Gtk::FILL,
+           Gtk::SHRINK|Gtk::FILL);
 }
-	
+    
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
-	arg->setValue(slider->get_value());
+    arg->setValue(slider->get_value());
 }
 
 void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)
 {
-	slider->set_value((*arg)[0]);
+    slider->set_value((*arg)[0]);
 }

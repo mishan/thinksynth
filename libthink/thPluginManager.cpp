@@ -41,80 +41,80 @@
 
 thPluginManager::thPluginManager (const string &path)
 {
-	plugin_path_ = path;
+    plugin_path_ = path;
 }
 
 thPluginManager::~thPluginManager ()
 {
-	unloadPlugins();
+    unloadPlugins();
 }
 
 const string thPluginManager::getPath (const string &name)
 {
-	string path;
-	struct stat dummy;
+    string path;
+    struct stat dummy;
 
-	/* Use the default path first */
-	path = plugin_path_ + name + PLUGIN_SUFFIX;
+    /* Use the default path first */
+    path = plugin_path_ + name + PLUGIN_SUFFIX;
 
-	/* Check for existence in the expected place */
-	if (stat (path.c_str(), &dummy) == -1) { /* File existeth not */
+    /* Check for existence in the expected place */
+    if (stat (path.c_str(), &dummy) == -1) { /* File existeth not */
 #ifdef USE_DEBUG
-		fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
+        fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
-		path = "plugins/" + name + PLUGIN_SUFFIX;
-		if (stat(path.c_str(), &dummy) == -1) {
+        path = "plugins/" + name + PLUGIN_SUFFIX;
+        if (stat(path.c_str(), &dummy) == -1) {
 #ifdef USE_DEBUG
-			fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
+            fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
 #endif
-			return ""; /* Empty string */ 
-		}
-	}
+            return ""; /* Empty string */ 
+        }
+    }
 
-	return path;
+    return path;
 }
 
 int thPluginManager::loadPlugin (const string &name)
 {
-	thPlugin *plugin;
-	const string path = getPath(name);
+    thPlugin *plugin;
+    const string path = getPath(name);
 
-	if (path.empty()) { /* Not found at all */
-		fprintf (stderr, "Could not find the plugin anywhere!\n");
-		return 1;
-	}
+    if (path.empty()) { /* Not found at all */
+        fprintf (stderr, "Could not find the plugin anywhere!\n");
+        return 1;
+    }
 
-	plugin = new thPlugin (path);
+    plugin = new thPlugin (path);
 
-	if (plugin->state() == thPlugin::NOTLOADED) { /* something messed up */
-		delete plugin;
-		return 1;
-	}
-	
-	plugins_[name] = plugin;
+    if (plugin->state() == thPlugin::NOTLOADED) { /* something messed up */
+        delete plugin;
+        return 1;
+    }
+    
+    plugins_[name] = plugin;
 
-	return 0;
+    return 0;
 }
 
 
 void thPluginManager::unloadPlugin(const string &name)
 {
-	PluginMap::iterator i = plugins_.find(name);
+    PluginMap::iterator i = plugins_.find(name);
 
-	if (i == plugins_.end()) {
-		fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
-				name.c_str());
-		return;
-	}
+    if (i == plugins_.end()) {
+        fprintf(stderr, "thPluginManager::UnloadPlugin: No such plugin '%s'\n",
+                name.c_str());
+        return;
+    }
 
-	thPlugin *plugin = i->second;
+    thPlugin *plugin = i->second;
 
-	plugins_.erase(i);
+    plugins_.erase(i);
 
-	delete plugin;
+    delete plugin;
 }
 
 void thPluginManager::unloadPlugins (void)
 {
-	DestroyMap(plugins_);
+    DestroyMap(plugins_);
 }

@@ -67,82 +67,82 @@
 
 inline int leread32(int fd, int *c)
 {
-	int r;
+    int r;
 
-	r = read(fd, c, 4);
-	le32(*c, *c);
+    r = read(fd, c, 4);
+    le32(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int lefread32(FILE *stream, int *c)
 {
-	int r;
+    int r;
 
-	r = fread(c, 4, 1, stream);
-	le32(*c, *c);
+    r = fread(c, 4, 1, stream);
+    le32(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int leread16(int fd, short *c)
 {
-	int r;
+    int r;
 
-	r = read(fd, c, 2);
-	le16(*c, *c);
+    r = read(fd, c, 2);
+    le16(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int lefread16(FILE *stream, short *c)
 {
-	int r;
+    int r;
 
-	r = fread(c, 2, 1, stream);
-	le16(*c, *c);
+    r = fread(c, 2, 1, stream);
+    le16(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int lewrite32(int fd, int c)
 {
-	int r;
+    int r;
 
-	le32(c, c);
-	r = write(fd, &c, 4);
+    le32(c, c);
+    r = write(fd, &c, 4);
 
-	return r;
+    return r;
 }
 
 inline int lefwrite32(FILE *stream, int c)
 {
-	int r;
+    int r;
 
-	le32(c, c);
-	r = fwrite(&c, 4, 1, stream);
+    le32(c, c);
+    r = fwrite(&c, 4, 1, stream);
 
-	return r;
+    return r;
 }
 
 inline int lewrite16(int fd, short c)
 {
-	int r;
+    int r;
 
-	le16(c, c);
-	r = write(fd, &c, 2);
+    le16(c, c);
+    r = write(fd, &c, 2);
 
-	return r;
+    return r;
 }
 
 inline int lefwrite16(FILE *stream, short c)
 {
-	int r;
+    int r;
 
-	le16(c, c);
-	r = fwrite(&c, 2, 1, stream);
+    le16(c, c);
+    r = fwrite(&c, 2, 1, stream);
 
-	return r;
+    return r;
 }
 
 /* read() and write() wrappers for maintaing data in big-endian 
@@ -150,82 +150,82 @@ inline int lefwrite16(FILE *stream, short c)
 
 inline int beread32(int fd, int *c)
 {
-	int r;
+    int r;
 
-	r = read(fd, c, 4);
-	be32(*c, *c);
+    r = read(fd, c, 4);
+    be32(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int befread32(FILE *stream, int *c)
 {
-	int r;
+    int r;
 
-	r = fread(c, 4, 1, stream);
-	be32(*c, *c);
+    r = fread(c, 4, 1, stream);
+    be32(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int beread16(int fd, short *c)
 {
-	int r;
+    int r;
 
-	r = read(fd, c, 2);
-	be16(*c, *c);
+    r = read(fd, c, 2);
+    be16(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int befread16(FILE *stream, short *c)
 {
-	int r;
+    int r;
 
-	r = fread(c, 2, 1, stream);
-	be16(*c, *c);
+    r = fread(c, 2, 1, stream);
+    be16(*c, *c);
 
-	return r;
+    return r;
 }
 
 inline int bewrite32(int fd, int c)
 {
-	int r;
+    int r;
 
-	be32(c, c);
-	r = write(fd, &c, 4);
+    be32(c, c);
+    r = write(fd, &c, 4);
 
-	return r;
+    return r;
 }
 
 inline int befwrite32(FILE *stream, int c)
 {
-	int r;
+    int r;
 
-	be32(c, c);
-	r = fwrite(&c, 4, 1, stream);
+    be32(c, c);
+    r = fwrite(&c, 4, 1, stream);
 
-	return r;
+    return r;
 }
 
 inline int bewrite16(int fd, short c)
 {
-	int r;
+    int r;
 
-	be16(c, c);
-	r = write(fd, &c, 2);
+    be16(c, c);
+    r = write(fd, &c, 2);
 
-	return r;
+    return r;
 }
 
 inline int befwrite16(FILE *stream, short c)
 {
-	int r;
+    int r;
 
-	be16(c, c);
-	r = fwrite(&c, 2, 1, stream);
+    be16(c, c);
+    r = fwrite(&c, 2, 1, stream);
 
-	return r;
+    return r;
 }
 
 #endif /* TH_ENDIAN_H */

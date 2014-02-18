@@ -9,12 +9,12 @@ inline void trim_leadspc (char *line)
     
     /* find the first non-space and point to it with 'line_strt' */
     for (line_strt = line; *line_strt != '\0'; line_strt++)
-	if (*line_strt != ' ' && *line_strt != '\t')
-	    break;
+    if (*line_strt != ' ' && *line_strt != '\t')
+        break;
     
     /* copy the string beginning at 'line_strt' into 'line' */
     for (ptr1 = line, ptr2 = line_strt; *ptr2 != '\0'; ptr1++, ptr2++)
-	*ptr1 = *ptr2;
+    *ptr1 = *ptr2;
     *ptr1 = '\0';
 }
 

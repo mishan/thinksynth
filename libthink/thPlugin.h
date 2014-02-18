@@ -31,56 +31,56 @@ class thPlugin;
 
 /* Provide the prototypes */
 extern "C" {
-	int  module_init (thPlugin *plugin);
-	int  module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-						  unsigned int samples);
-	void module_cleanup (struct module *mod);
+    int  module_init (thPlugin *plugin);
+    int  module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
+                          unsigned int samples);
+    void module_cleanup (struct module *mod);
 }
 #endif
 
 class thPlugin {
 public:
-	thPlugin (const string &path);
-	~thPlugin ();
+    thPlugin (const string &path);
+    ~thPlugin ();
 
-	enum State { ACTIVE, PASSIVE, NOTLOADED };
+    enum State { ACTIVE, PASSIVE, NOTLOADED };
 
-	typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
-	typedef int (*ModuleInit)(thPlugin *);
-	typedef void (*ModuleCleanup)(thPlugin *);
-	
-	const string &path (void) const { return path_; };
-	const string &desc (void) const { return desc_; };
-	State state (void) const { return state_; };
-	
-	void setDesc(const string &desc) { desc_ = desc; }
-	void setState(State state) { state_ = state; };
-	
-	int regArg (const string &argname);
-	
-	int argCount (void) const { return argcounter_; };
-	string getArgName (int index) { 
-		if (index >= 0 && index < argcounter_)
-			return *args_[index]; 
-		return "";
-	}
-	
-	void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
-			   unsigned int samples);
+    typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
+    typedef int (*ModuleInit)(thPlugin *);
+    typedef void (*ModuleCleanup)(thPlugin *);
+    
+    const string &path (void) const { return path_; };
+    const string &desc (void) const { return desc_; };
+    State state (void) const { return state_; };
+    
+    void setDesc(const string &desc) { desc_ = desc; }
+    void setState(State state) { state_ = state; };
+    
+    int regArg (const string &argname);
+    
+    int argCount (void) const { return argcounter_; };
+    string getArgName (int index) { 
+        if (index >= 0 && index < argcounter_)
+            return *args_[index]; 
+        return "";
+    }
+    
+    void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
+               unsigned int samples);
 private:
-	int moduleLoad (void);
-	void moduleUnload (void);
+    int moduleLoad (void);
+    void moduleUnload (void);
 
-	string path_;
-	string desc_;
-	State state_;
-	void *handle_;
+    string path_;
+    string desc_;
+    State state_;
+    void *handle_;
 
-	string **args_;
-	int argcounter_; /* how many args are registered */
-	int argsize_; /* length of the arg storage array */
+    string **args_;
+    int argcounter_; /* how many args are registered */
+    int argsize_; /* length of the arg storage array */
 
-	Callback callback_;
+    Callback callback_;
 };
 
 #endif /* TH_PLUGIN_H */

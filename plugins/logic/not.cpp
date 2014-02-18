@@ -22,8 +22,8 @@
 
 #include "think.h"
 
-char		*desc = "Logical Not";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Logical Not";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -35,31 +35,31 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN] = plugin->regArg("in");
-	args[OUT_ARG] = plugin->regArg("out");
-	return 0;
+    args[IN] = plugin->regArg("in");
+    args[OUT_ARG] = plugin->regArg("out");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in;
-	thArg *out_arg;
-	unsigned int i;
+    float *out;
+    thArg *in;
+    thArg *out_arg;
+    unsigned int i;
 
-	in = mod->getArg(node, args[IN]);
+    in = mod->getArg(node, args[IN]);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	for(i = 0 ; i < windowlen; i++)
-	{
-		out[i] = ((*in)[i] > 0) ? 0 : 1;
-	}
+    for(i = 0 ; i < windowlen; i++)
+    {
+        out[i] = ((*in)[i] > 0) ? 0 : 1;
+    }
 
-	return 0;
+    return 0;
 }

@@ -38,21 +38,21 @@ int yyparse (void);
 
 int YYPARSE (thSynth *argsynth)
 {
-	parseSynth = argsynth;
+    parseSynth = argsynth;
 
-	linenum = 1;
+    linenum = 1;
 
-	return yyparse();
+    return yyparse();
 }
 
 void yyerror (const char *str)
 {
-	fprintf(stderr, "line %d: error: %s\n", linenum, str);
+    fprintf(stderr, "line %d: error: %s\n", linenum, str);
 }
 
 extern "C" int yywrap(void)
 {
-	return 1;
+    return 1;
 }
 %}
 
@@ -80,11 +80,11 @@ nodes
 |
 nodes nodes
 {
-	yyerror("missing semicolon after node\n");
-	YYERROR;
+    yyerror("missing semicolon after node\n");
+    YYERROR;
 }
 |
-paramsetup		/* $someparam.min = 20; sort of thing */
+paramsetup        /* $someparam.min = 20; sort of thing */
 |
 ionode
 |
@@ -96,7 +96,7 @@ authset
 |
 expression
 {
-	printf("%f\n", $1.floatval);
+    printf("%f\n", $1.floatval);
 }
 ;
 
@@ -107,29 +107,29 @@ simple_expression
 simple_expression:
 unsigned_simple_expression
 {
-	$$.floatval = $1.floatval;
+    $$.floatval = $1.floatval;
 }
 |
 SUB unsigned_simple_expression
 {
-	$$.floatval = $2.floatval*-1;
+    $$.floatval = $2.floatval*-1;
 }
 ;
 
 unsigned_simple_expression:
 term
 {
-	$$.floatval = $1.floatval;
+    $$.floatval = $1.floatval;
 }
 |
 term ADD unsigned_simple_expression
 {
-	$$.floatval = $1.floatval + $3.floatval;
+    $$.floatval = $1.floatval + $3.floatval;
 }
 |
 term SUB unsigned_simple_expression
 {
-	$$.floatval = $1.floatval - $3.floatval;
+    $$.floatval = $1.floatval - $3.floatval;
 }
 ;
 
@@ -138,46 +138,46 @@ factor
 |
 factor MUL term
 {
-	$$.floatval = $1.floatval * $3.floatval;
+    $$.floatval = $1.floatval * $3.floatval;
 }
 |
 factor DIV term
 {
-	$$.floatval = $1.floatval / $3.floatval;
+    $$.floatval = $1.floatval / $3.floatval;
 }
 |
 factor MOD term
 {
-	$$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
+    $$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
 }
 |
 factor MOD /* percentage of TH_MAX  (ex: somearg = 50%) */
 {
-	$$.floatval = $1.floatval * TH_MAX / 100;
+    $$.floatval = $1.floatval * TH_MAX / 100;
 }
 |
 factor MS /* milliseconds */
 {
-	$$.floatval = $1.floatval * TH_SAMPLE / 1000;
+    $$.floatval = $1.floatval * TH_SAMPLE / 1000;
 }
 ;
 
 factor:
 OPAREN expression CPAREN
 {
-	$$.floatval = $2.floatval;
+    $$.floatval = $2.floatval;
 }
 |
 unsigned_constant
 {
-	$$.floatval = $1.floatval;
+    $$.floatval = $1.floatval;
 }
 ;
 
 unsigned_constant:
 NUMBER
 {
-	$$.floatval = $1.floatval;
+    $$.floatval = $1.floatval;
 }
 |
 NIL
@@ -186,117 +186,117 @@ NIL
 nodes:
 NODE WORD plugname LCBRACK assignments RCBRACK
 {
-	thPluginManager *plugMgr = parseSynth->getPluginManager();
+    thPluginManager *plugMgr = parseSynth->getPluginManager();
 
-	if (!plugMgr->getPlugin($3.str)) {
-		if (plugMgr->loadPlugin($3.str) == 1) { /* FAILED */
-			printf ("Error loading required %s, aborting.\n", $3.str);
-			exit(1);
-		}
-	}
+    if (!plugMgr->getPlugin($3.str)) {
+        if (plugMgr->loadPlugin($3.str) == 1) { /* FAILED */
+            printf ("Error loading required %s, aborting.\n", $3.str);
+            exit(1);
+        }
+    }
 
-	parsenode->setPlugin(plugMgr->getPlugin($3.str));
-	parsenode->setName($2.str);
+    parsenode->setPlugin(plugMgr->getPlugin($3.str));
+    parsenode->setName($2.str);
 
-	parsetree->newNode(parsenode, true);
-	parsenode = new thNode("newnode", NULL);		/* add name, plugin */
+    parsetree->newNode(parsenode, true);
+    parsenode = new thNode("newnode", NULL);        /* add name, plugin */
 
-	free($2.str);
-	free($3.str);
+    free($2.str);
+    free($3.str);
 }
 |
 NODE WORD LCBRACK assignments RCBRACK
 {
-	parsenode->setName($2.str);
-	parsenode->setPlugin(NULL);
+    parsenode->setName($2.str);
+    parsenode->setPlugin(NULL);
 
-	parsetree->newNode(parsenode, true);
-	parsenode = new thNode("newnode", NULL);
+    parsetree->newNode(parsenode, true);
+    parsenode = new thNode("newnode", NULL);
 
-	free($2.str);
+    free($2.str);
 }
 ;
 
 paramsetup:
 ATSIGN WORD ASSIGN expression
 {
-	parsetree->setChanArg(new thArg($2.str, $4.floatval));
+    parsetree->setChanArg(new thArg($2.str, $4.floatval));
 }
 |
 ATSIGN WORD PERIOD WORD ASSIGN expression
 {
-	thArg *chanarg;
+    thArg *chanarg;
 
-	chanarg = parsetree->getChanArg($2.str);
+    chanarg = parsetree->getChanArg($2.str);
 
-	if (strcmp($4.str, "min") == 0)
-	{
-		chanarg->setMin($6.floatval);
-	}
-	else if (strcmp($4.str, "max") == 0)
-	{
-		chanarg->setMax($6.floatval);
-	}
-	else if (strcmp($4.str, "widget") == 0)
-	{
-		chanarg->setWidgetType((thArg::WidgetType)$6.floatval);
-	}
-	else
-		printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);
+    if (strcmp($4.str, "min") == 0)
+    {
+        chanarg->setMin($6.floatval);
+    }
+    else if (strcmp($4.str, "max") == 0)
+    {
+        chanarg->setMax($6.floatval);
+    }
+    else if (strcmp($4.str, "widget") == 0)
+    {
+        chanarg->setWidgetType((thArg::WidgetType)$6.floatval);
+    }
+    else
+        printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);
 }
 |
 ATSIGN WORD PERIOD WORD ASSIGN STRING
 {
-	thArg *chanarg;
+    thArg *chanarg;
 
-	chanarg = parsetree->getChanArg($2.str);
+    chanarg = parsetree->getChanArg($2.str);
 
-	if (strcmp($4.str, "label") == 0)
-	{
-		chanarg->setLabel($6.str);
-	}
-	else if (strcmp($4.str, "units") == 0)
-	{
-		chanarg->setUnits($6.str);
-	}
-	else
-		printf("ERROR:  Invalid arg parameter '%s <string>'\n", $4.str);
+    if (strcmp($4.str, "label") == 0)
+    {
+        chanarg->setLabel($6.str);
+    }
+    else if (strcmp($4.str, "units") == 0)
+    {
+        chanarg->setUnits($6.str);
+    }
+    else
+        printf("ERROR:  Invalid arg parameter '%s <string>'\n", $4.str);
 }
 
 ionode:
 IO WORD
 {
-	parsetree->setIONode($2.str);
+    parsetree->setIONode($2.str);
 }
 ;
 
 authset:
 AUTHOR STRING
 {
-	thArg *autharg = new thArg("author", NULL, 0);
-	autharg->setComment($2.str);
+    thArg *autharg = new thArg("author", NULL, 0);
+    autharg->setComment($2.str);
 
-	parsetree->setChanArg(autharg);
+    parsetree->setChanArg(autharg);
 }
 ;
 
 nameset:
 NAME STRING
 {
-	thArg *namearg = new thArg("name", NULL, 0);
-	namearg->setComment($2.str);
+    thArg *namearg = new thArg("name", NULL, 0);
+    namearg->setComment($2.str);
 
-	parsetree->setChanArg(namearg);
+    parsetree->setChanArg(namearg);
 }
 ;
 
 descset:
 DESC STRING
 {
-	thArg *descarg = new thArg("desc", NULL, 0);
-	descarg->setComment($2.str);
+    thArg *descarg = new thArg("desc", NULL, 0);
+    descarg->setComment($2.str);
 
-	parsetree->setChanArg(descarg);
+    parsetree->setChanArg(descarg);
 };
 
 assignments:
@@ -307,49 +307,49 @@ assignments assignment ENDSTATE
 assignment:
 WORD ASSIGN expression
 {
-	/* XXX: This is sorta hackish, make it not index it here */
-	parsenode->setArg($1.str, $3.floatval)->setIndex(-1);
+    /* XXX: This is sorta hackish, make it not index it here */
+    parsenode->setArg($1.str, $3.floatval)->setIndex(-1);
 
-	free($1.str);
+    free($1.str);
 }
 |
 WORD ASSIGN fstr
 {
-	char *node, *arg, *p;
-	int argsize, nodesize;
-	
-	/* Make $3.str ("node/arg" format) into the above vars */
-	p = strchr($3.str, '/');
-	p++;
-	
-	argsize = strlen(p);
-	nodesize = strlen($3.str)-argsize-1;
-	
-	node = new char[nodesize+1];
-	memcpy(node, $3.str, nodesize);
-	node[nodesize] = 0;
+    char *node, *arg, *p;
+    int argsize, nodesize;
+    
+    /* Make $3.str ("node/arg" format) into the above vars */
+    p = strchr($3.str, '/');
+    p++;
+    
+    argsize = strlen(p);
+    nodesize = strlen($3.str)-argsize-1;
+    
+    node = new char[nodesize+1];
+    memcpy(node, $3.str, nodesize);
+    node[nodesize] = 0;
 
-	arg = new char[argsize+1];
-	memcpy(arg, p, argsize);
-	arg[argsize] = 0;
+    arg = new char[argsize+1];
+    memcpy(arg, p, argsize);
+    arg[argsize] = 0;
 
-	/* XXX: This is sorta hackish, make it not index it here */
-	parsenode->setArg($1.str, node, arg)->setIndex(-1);
+    /* XXX: This is sorta hackish, make it not index it here */
+    parsenode->setArg($1.str, node, arg)->setIndex(-1);
 
-	delete[] node;
-	delete[] arg;
-	delete[] $3.str;
-	free($1.str);
+    delete[] node;
+    delete[] arg;
+    delete[] $3.str;
+    free($1.str);
 }
 |
 WORD ASSIGN ATSIGN WORD
 {
-	char *chanarg;
-	int chanarglen;
+    char *chanarg;
+    int chanarglen;
 
-	chanarglen = strlen($4.str);
-	chanarg = new char[chanarglen + 1];		/* +1 for the terminating '\0' */
-	memcpy(chanarg, $4.str, chanarglen + 1);
+    chanarglen = strlen($4.str);
+    chanarg = new char[chanarglen + 1];        /* +1 for the terminating '\0' */
+    memcpy(chanarg, $4.str, chanarglen + 1);
 
     parsenode->setArg($1.str, chanarg)->setIndex(-1); /* XXX: This is sorta
                                         hackish, make it not index it here */
@@ -359,30 +359,30 @@ WORD ASSIGN ATSIGN WORD
 plugname:
 WORD MODSEP WORD
 {
-	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
-	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-	free($1.str);
-	free($3.str);
+    $$.str = new char[strlen($1.str) + strlen($3.str) + 2];
+    sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
+    free($1.str);
+    free($3.str);
 }
 |
 WORD MODSEP plugname
 {
-	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
-	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-	delete $3.str;
-	free($1.str);
+    $$.str = new char[strlen($1.str) + strlen($3.str) + 2];
+    sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
+    delete $3.str;
+    free($1.str);
 }
 ;
 
-fstr:		/* a node name and an fstring */
+fstr:        /* a node name and an fstring */
 WORD INTO WORD
 {
-	/* we must allocate two extra bytes; one for the '/' and one for the null
+    /* we must allocate two extra bytes; one for the '/' and one for the null
        terminator */
-	$$.str = new char[strlen($1.str) + strlen($3.str) + 2];
-	sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-	free($1.str);
-	free($3.str);
+    $$.str = new char[strlen($1.str) + strlen($3.str) + 2];
+    sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
+    free($1.str);
+    free($3.str);
 }
 ;
 %%

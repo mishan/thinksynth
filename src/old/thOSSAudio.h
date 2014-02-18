@@ -15,42 +15,42 @@
 class thOSSAudio: public thAudio
 {
 public:
-	thOSSAudio(char *null, const thAudioFmt *afmt)
-		throw(thIOException);
+    thOSSAudio(char *null, const thAudioFmt *afmt)
+        throw(thIOException);
 
-	virtual ~thOSSAudio();
+    virtual ~thOSSAudio();
 
-	void Play (thAudio *audioPtr);
-	// changed on 9/15/03 by brandon lewis
-	// all thAudio classes will work with floating point buffers
-	// converting to integer internally based on format data
-	int Write (float *, int len);
-	int Read (void *, int len);
-	const thAudioFmt *GetFormat (void) { return &ofmt; };
-	void SetFormat (const thAudioFmt *fmt);
+    void Play (thAudio *audioPtr);
+    // changed on 9/15/03 by brandon lewis
+    // all thAudio classes will work with floating point buffers
+    // converting to integer internally based on format data
+    int Write (float *, int len);
+    int Read (void *, int len);
+    const thAudioFmt *GetFormat (void) { return &ofmt; };
+    void SetFormat (const thAudioFmt *fmt);
 
-	bool ProcessEvents (void);
+    bool ProcessEvents (void);
 private:
-	int fd;
-	thAudioFmt ofmt;
-	// added second format structure on 9/15/03
-	// intended to store the actual format of the synth data
-	thAudioFmt ifmt;
-	void *outbuf;
+    int fd;
+    thAudioFmt ofmt;
+    // added second format structure on 9/15/03
+    // intended to store the actual format of the synth data
+    thAudioFmt ifmt;
+    void *outbuf;
 };
 
 inline thOSSAudio *new_thOSSAudio(char *null, const thAudioFmt *afmt)
 {
-	try {
-		thOSSAudio *audio = new thOSSAudio(null, afmt);
+    try {
+        thOSSAudio *audio = new thOSSAudio(null, afmt);
 
-		return audio;
-	}
-	catch (thIOException e) {
-		fprintf(stderr, "thOSSAudio::thOSSAudio: %s\n", strerror(e));	
-	}
+        return audio;
+    }
+    catch (thIOException e) {
+        fprintf(stderr, "thOSSAudio::thOSSAudio: %s\n", strerror(e));    
+    }
 
-	return NULL;
+    return NULL;
 }
 
 #endif /* TH_OSSAUDIO_H */

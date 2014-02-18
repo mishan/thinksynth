@@ -22,30 +22,30 @@
 class AboutBox : public Gtk::Window
 {
 public:
-	AboutBox (void);
-	~AboutBox (void);
+    AboutBox (void);
+    ~AboutBox (void);
 
 protected:
-	void onCloseButton (void);
+    void onCloseButton (void);
 
-	Gtk::Fixed          *fixed_;
-	Gtk::Button         *btnClose_;
-	Gtk::Notebook       *notebook_;
-	Gtk::Frame          *frame_;
-	Gtk::Image          *logo_;
-	Gtk::VBox           *vbmaster_;
-	Gtk::VBox           *vbleft_;
-	Gtk::VBox           *vbright_;
-	Gtk::VBox           *spacer_;
-	Gtk::HBox           *hcredits_;
-	Gtk::HBox           *framebox_;
-	Gtk::Label          *txtVersion_;
-	Gtk::Label          *txtCopyright_;
-	Gtk::Label          *txtMetaphonic_;
-	
-	Glib::RefPtr<Gtk::TextBuffer>     txtBuf_;
-	Glib::RefPtr<Gdk::Pixmap>         pixmap_;
-	Glib::RefPtr<Gdk::Bitmap>         mask_;
+    Gtk::Fixed          *fixed_;
+    Gtk::Button         *btnClose_;
+    Gtk::Notebook       *notebook_;
+    Gtk::Frame          *frame_;
+    Gtk::Image          *logo_;
+    Gtk::VBox           *vbmaster_;
+    Gtk::VBox           *vbleft_;
+    Gtk::VBox           *vbright_;
+    Gtk::VBox           *spacer_;
+    Gtk::HBox           *hcredits_;
+    Gtk::HBox           *framebox_;
+    Gtk::Label          *txtVersion_;
+    Gtk::Label          *txtCopyright_;
+    Gtk::Label          *txtMetaphonic_;
+    
+    Glib::RefPtr<Gtk::TextBuffer>     txtBuf_;
+    Glib::RefPtr<Gdk::Pixmap>         pixmap_;
+    Glib::RefPtr<Gdk::Bitmap>         mask_;
 };
 
 #endif /* ABOUT_BOX_H */

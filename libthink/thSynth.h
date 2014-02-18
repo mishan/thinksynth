@@ -24,95 +24,95 @@ class thMidiChan;
 
 class thSynth {
 public:
-	thSynth (int windowlen=TH_DEFAULT_WINDOW_LENGTH,
-			 int samples=TH_DEFAULT_SAMPLES);
-	thSynth (const string &plugin_path, int windowlen, int samples);
-	~thSynth (void);
+    thSynth (int windowlen=TH_DEFAULT_WINDOW_LENGTH,
+             int samples=TH_DEFAULT_SAMPLES);
+    thSynth (const string &plugin_path, int windowlen, int samples);
+    ~thSynth (void);
 
-	static thSynth *instance (void) {
-		return instance_;
-	}
+    static thSynth *instance (void) {
+        return instance_;
+    }
 
-	thSynthTree *loadTree(const string &filename);
-	thSynthTree *loadTree(const string &filename, int channum, float amp);
-	thSynthTree *loadTree(FILE *input);
+    thSynthTree *loadTree(const string &filename);
+    thSynthTree *loadTree(const string &filename, int channum, float amp);
+    thSynthTree *loadTree(FILE *input);
 
-	void listTrees (void);
-	thPluginManager *getPluginManager (void) { return pluginmanager_; };
+    void listTrees (void);
+    thPluginManager *getPluginManager (void) { return pluginmanager_; };
 
-	thMidiNote *addNote(int channum, float note, float velocity);
-	int delNote (int channum, float note);
-	void clearAll (void);
+    thMidiNote *addNote(int channum, float note, float velocity);
+    int delNote (int channum, float note);
+    void clearAll (void);
 
-	void process(void);
-	void printChan(int chan);
-	void removeChan (int channum);
+    void process(void);
+    void printChan(int chan);
+    void removeChan (int channum);
 
-	int audioChannelCount (void) const { return channels_; }
+    int audioChannelCount (void) const { return channels_; }
 
-	thArgMap getChanArgs (int chan) {
-		if ((chan < 0) || (chan >= midiChannelCnt_) || 
-			(midiChannels_[chan] == NULL))
-			return thArgMap();
+    thArgMap getChanArgs (int chan) {
+        if ((chan < 0) || (chan >= midiChannelCnt_) || 
+            (midiChannels_[chan] == NULL))
+            return thArgMap();
 
-		return midiChannels_[chan]->args();
-	}
+        return midiChannels_[chan]->args();
+    }
 
-	int getWindowlen (void) const { return windowlen_; }
-	void setWindowlen (int);
+    int getWindowlen (void) const { return windowlen_; }
+    void setWindowlen (int);
 
-	float *getOutput (void) const;
+    float *getOutput (void) const;
 
-	float *getChanBuffer (int chan);
+    float *getChanBuffer (int chan);
 
-	long getSampleRate (void) const { return sampleRate_; }
-	void setSampleRate (long samples) { sampleRate_ = samples; }
+    long getSampleRate (void) const { return sampleRate_; }
+    void setSampleRate (long samples) { sampleRate_ = samples; }
 
-	int midiChanCount (void) const { return midiChannelCnt_; }
+    int midiChanCount (void) const { return midiChannelCnt_; }
 
-	thArg *getChanArg (int channum, const string &argname);
-	void setChanArg (int channum, thArg *arg);
+    thArg *getChanArg (int channum, const string &argname);
+    void setChanArg (int channum, thArg *arg);
 
-	void handleMidiController (unsigned char channel, unsigned int param,
-							   unsigned int value);
+    void handleMidiController (unsigned char channel, unsigned int param,
+                               unsigned int value);
 
-	void newMidiControllerConnection (unsigned char channel,
-									  unsigned int param,
-									  thMidiControllerConnection *connection);
+    void newMidiControllerConnection (unsigned char channel,
+                                      unsigned int param,
+                                      thMidiControllerConnection *connection);
 
-	thMidiController::ConnectionMap *getMidiConnectionMap (void) { 
-		return controllerHandler_->connectionMap();
-	}
+    thMidiController::ConnectionMap *getMidiConnectionMap (void) { 
+        return controllerHandler_->connectionMap();
+    }
 
-	thMidiControllerConnection *getMidiControllerConnection
-	(unsigned char channel, unsigned int param) { 
-		return controllerHandler_->getConnection(channel, param);
-	}
+    thMidiControllerConnection *getMidiControllerConnection
+    (unsigned char channel, unsigned int param) { 
+        return controllerHandler_->getConnection(channel, param);
+    }
 
-	thMidiChan *getChannel (int chan) const
-	{
-		if ((chan < midiChannelCnt_) && (chan >= 0))
-			return midiChannels_[chan];
-		else
-			return NULL;
-	}
+    thMidiChan *getChannel (int chan) const
+    {
+        if ((chan < midiChannelCnt_) && (chan >= 0))
+            return midiChannels_[chan];
+        else
+            return NULL;
+    }
 
 private:
-	map<string, thSynthTree*> treelist_;
-	map<int, string> patchlist_;
-	thPluginManager *pluginmanager_;
-	thMidiChan **midiChannels_; /* MIDI channels */
-	int midiChannelCnt_;
-	float *output_;
-	int channels_;  /* Number of channels (mono/stereo/etc) */
-	int windowlen_;
-	long sampleRate_; /* the number of samples per second*/
+    map<string, thSynthTree*> treelist_;
+    map<int, string> patchlist_;
+    thPluginManager *pluginmanager_;
+    thMidiChan **midiChannels_; /* MIDI channels */
+    int midiChannelCnt_;
+    float *output_;
+    int channels_;  /* Number of channels (mono/stereo/etc) */
+    int windowlen_;
+    long sampleRate_; /* the number of samples per second*/
 
-	thMidiController *controllerHandler_;
+    thMidiController *controllerHandler_;
 
-	pthread_mutex_t *synthMutex_;
+    pthread_mutex_t *synthMutex_;
 
-	static thSynth *instance_;
+    static thSynth *instance_;
 };
 
 #endif /* TH_SYNTH_H */

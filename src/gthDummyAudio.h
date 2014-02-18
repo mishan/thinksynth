@@ -25,18 +25,18 @@ class thSynth;
 class gthDummyAudio : public gthAudio
 {
 public:
-	gthDummyAudio (thSynth *synth);
-	virtual ~gthDummyAudio (void);
+    gthDummyAudio (thSynth *synth);
+    virtual ~gthDummyAudio (void);
 
-	int Write (float *, int len);
-	int Read (void *, int len);
-	const gthAudioFmt *GetFormat (void) { return &ofmt; };
-	void SetFormat (const gthAudioFmt *fmt);
+    int Write (float *, int len);
+    int Read (void *, int len);
+    const gthAudioFmt *GetFormat (void) { return &ofmt; };
+    void SetFormat (const gthAudioFmt *fmt);
 
-	bool ProcessEvents (void);
+    bool ProcessEvents (void);
 
 private:
-	gthAudioFmt ofmt;
+    gthAudioFmt ofmt;
 };
 
 #endif /* GTH_DUMMYAUDIO_H */

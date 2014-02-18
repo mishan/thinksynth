@@ -25,37 +25,37 @@
 
 class thMidiControllerConnection {
 public:
-	thMidiControllerConnection (thArg *arg, float min, float max, int scale,
-								int chan, int controller, int dchan,
-								string argName);
-	~thMidiControllerConnection (void);
+    thMidiControllerConnection (thArg *arg, float min, float max, int scale,
+                                int chan, int controller, int dchan,
+                                string argName);
+    ~thMidiControllerConnection (void);
 
 
-	enum { LINEAR = 0, EXPONENTIAL };
+    enum { LINEAR = 0, EXPONENTIAL };
 
-	void setMin (float min) { min_ = min; }
-	void setMax (float max) { max_ = max; }
-	float min (void) { return min_; }
-	float max (void) { return max_; }
+    void setMin (float min) { min_ = min; }
+    void setMax (float max) { max_ = max; }
+    float min (void) { return min_; }
+    float max (void) { return max_; }
 
-	void setScale (int scale) { scale_ = scale; }
-	int scale (void) { return scale_; }
+    void setScale (int scale) { scale_ = scale; }
+    int scale (void) { return scale_; }
 
-	int chan (void) { return chan_; }
-	int controller (void) { return controller_; }
-	int destChan (void) { return destchan_; }
-	string argName (void) { return argName_; }
-	thArg *arg (void) { return arg_; }
-	/* XXX: put linear/exponential here too */
+    int chan (void) { return chan_; }
+    int controller (void) { return controller_; }
+    int destChan (void) { return destchan_; }
+    string argName (void) { return argName_; }
+    thArg *arg (void) { return arg_; }
+    /* XXX: put linear/exponential here too */
 
-	void setParam (unsigned int value);
+    void setParam (unsigned int value);
 private:
-	thArg *arg_;
-	int chan_, controller_;
-	int destchan_;
-	string argName_;
-	float min_, max_;
-	int scale_;
+    thArg *arg_;
+    int chan_, controller_;
+    int destchan_;
+    string argName_;
+    float min_, max_;
+    int scale_;
 };
 
 #endif /* TH_MIDICONTROLLERCONNECTION */

@@ -26,26 +26,26 @@ typedef sigc::signal1<int, snd_seq_t *> sigMidiEvent_t;
 class gthALSAMidi
 {
 public:
-	gthALSAMidi (const char *name)
-		throw(thIOException);
-	~gthALSAMidi (void);
+    gthALSAMidi (const char *name)
+        throw(thIOException);
+    ~gthALSAMidi (void);
 
-	sigMidiEvent_t signal_midi_event (void);
+    sigMidiEvent_t signal_midi_event (void);
 
-	bool pollMidiEvent (Glib::IOCondition);
-	inline bool seq_opened(void) const { return seq_opened_; }
+    bool pollMidiEvent (Glib::IOCondition);
+    inline bool seq_opened(void) const { return seq_opened_; }
 
 protected:
-	string name_, device_;
+    string name_, device_;
 
-	bool open_seq (void);
-	bool seq_opened_;
+    bool open_seq (void);
+    bool seq_opened_;
 
-	snd_seq_t *seq_handle_;
-	int seq_nfds_;
-	struct pollfd *pfds_;
+    snd_seq_t *seq_handle_;
+    int seq_nfds_;
+    struct pollfd *pfds_;
 
-	sigMidiEvent_t m_sigMidiEvent_;
+    sigMidiEvent_t m_sigMidiEvent_;
 };
 
 #endif /* GTH_ALSAMIDI_H */

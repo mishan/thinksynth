@@ -22,8 +22,8 @@
 
 #include "think.h"
 
-char		*desc = "Prints 'in'";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Prints 'in'";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -35,31 +35,31 @@ int args[IN_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->regArg("in");
+    args[IN_ARG] = plugin->regArg("in");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	thArg *in_arg;
-	unsigned int i;
-	const char *nodename = node->name().c_str();
+    thArg *in_arg;
+    unsigned int i;
+    const char *nodename = node->name().c_str();
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
 
-	printf("Printing Node %s:\n", nodename); 
+    printf("Printing Node %s:\n", nodename); 
 
-	for(i = 0; i < windowlen; i++)
-	{
-		printf("%f \t", (*in_arg)[i]);
-	}
+    for(i = 0; i < windowlen; i++)
+    {
+        printf("%f \t", (*in_arg)[i]);
+    }
 
-	printf("\n");
+    printf("\n");
 
-	return 0;
+    return 0;
 }

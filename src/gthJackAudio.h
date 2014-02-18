@@ -25,47 +25,47 @@
 class gthJackAudio : public gthAudio
 {
 public:
-	gthJackAudio (thSynth *synth)
-		throw (thIOException);
+    gthJackAudio (thSynth *synth)
+        throw (thIOException);
 
-	gthJackAudio (thSynth *synth, int (*callback)(jack_nframes_t, void *))
-		throw (thIOException);
+    gthJackAudio (thSynth *synth, int (*callback)(jack_nframes_t, void *))
+        throw (thIOException);
 
-	virtual ~gthJackAudio (void);
+    virtual ~gthJackAudio (void);
 
-	void *GetOutBuf (int chan, jack_nframes_t nframes);
+    void *GetOutBuf (int chan, jack_nframes_t nframes);
 
-	int Write (float *, int len);
-	int Read (void *, int len);
-	const gthAudioFmt *GetFormat (void) { return &ofmt_; };
-	void SetFormat (thSynth *synth);
-	void SetFormat (const gthAudioFmt *fmt);
+    int Write (float *, int len);
+    int Read (void *, int len);
+    const gthAudioFmt *GetFormat (void) { return &ofmt_; };
+    void SetFormat (thSynth *synth);
+    void SetFormat (const gthAudioFmt *fmt);
 
-	bool ProcessEvents (void);
+    bool ProcessEvents (void);
 
-	int tryConnect (bool connect = true);
+    int tryConnect (bool connect = true);
 
-	int getSampleRate (void);
-	int getBufferSize (void);
+    int getSampleRate (void);
+    int getBufferSize (void);
 
-	jack_client_t *jackHandle (void) { return jack_handle_; }
+    jack_client_t *jackHandle (void) { return jack_handle_; }
 
-	void invalidate (void);
+    void invalidate (void);
 
-	/* Error codes */
-	enum { ERR_HANDLE_NULL = 256, ERR_NO_PLAYBACK };
+    /* Error codes */
+    enum { ERR_HANDLE_NULL = 256, ERR_NO_PLAYBACK };
 
 protected:
-	int chans_;
-	jack_port_t **out_ports_;
-	thSynth *synth_;
-	jack_client_t *jack_handle_;
-	int (*jcallback_)(jack_nframes_t, void*);
+    int chans_;
+    jack_port_t **out_ports_;
+    thSynth *synth_;
+    jack_client_t *jack_handle_;
+    int (*jcallback_)(jack_nframes_t, void*);
 
 private:
-	gthAudioFmt ofmt_, ifmt_;
-	void registerPorts (void);
-	void getStats (void);
+    gthAudioFmt ofmt_, ifmt_;
+    void registerPorts (void);
+    void getStats (void);
 };
 
 #endif /* GTH_JACKAUDIO_H */

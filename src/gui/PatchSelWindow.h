@@ -22,78 +22,78 @@
 class PatchSelColumns : public Gtk::TreeModel::ColumnRecord
 {
 public:
-	PatchSelColumns (void)
-	{
-		add (chanNum);
-		add (dspName);
-		add (amp);
-	}
+    PatchSelColumns (void)
+    {
+        add (chanNum);
+        add (dspName);
+        add (amp);
+    }
 
-	Gtk::TreeModelColumn <unsigned int> chanNum;
-	Gtk::TreeModelColumn <Glib::ustring> dspName;
-	Gtk::TreeModelColumn <float> amp;
+    Gtk::TreeModelColumn <unsigned int> chanNum;
+    Gtk::TreeModelColumn <Glib::ustring> dspName;
+    Gtk::TreeModelColumn <float> amp;
 };
 
 class PatchSelWindow : public Gtk::Window
 {
 public:
-	PatchSelWindow (thSynth *);
-	~PatchSelWindow (void);
+    PatchSelWindow (thSynth *);
+    ~PatchSelWindow (void);
 
 protected:
-	bool LoadPatch (void);
-	void SetChannelAmp (void);
-	void BrowsePatch (void);
-	void SavePatch (void);
-	void CursorChanged (void);
-	void UnloadDSP (void);
+    bool LoadPatch (void);
+    void SetChannelAmp (void);
+    void BrowsePatch (void);
+    void SavePatch (void);
+    void CursorChanged (void);
+    void UnloadDSP (void);
 
-	void patchSelected (GdkEventButton *);
-	void fileEntryActivate (void);
-	void onPatchesChanged (void);
-	
-	/* Overloaded GTK-- sighandler */
-	virtual void on_realize (void);
+    void patchSelected (GdkEventButton *);
+    void fileEntryActivate (void);
+    void onPatchesChanged (void);
+    
+    /* Overloaded GTK-- sighandler */
+    virtual void on_realize (void);
 
-	Gtk::VBox vbox;
-	Gtk::Table controlTable;
+    Gtk::VBox vbox;
+    Gtk::Table controlTable;
 
-	Gtk::HScale dspAmp;
-	Gtk::Button setButton;
-	Gtk::Button browseButton;
-	Gtk::Button saveButton;
-	Gtk::Button unloadButton;
-	Gtk::Label ampLabel;
+    Gtk::HScale dspAmp;
+    Gtk::Button setButton;
+    Gtk::Button browseButton;
+    Gtk::Button saveButton;
+    Gtk::Button unloadButton;
+    Gtk::Label ampLabel;
 
-	Gtk::Label fileLabel;
-	Gtk::Entry fileEntry;
+    Gtk::Label fileLabel;
+    Gtk::Entry fileEntry;
 
-	Gtk::Expander patchInfoExpander;
-	Gtk::Table patchInfoTable;
-	Gtk::Label patchRevisedLbl;
-	Gtk::Entry patchRevised;
-	Gtk::Label patchCategoryLbl;
-	Gtk::Entry patchCategory;
-	Gtk::Label patchAuthorLbl;
-	Gtk::Entry patchAuthor;
-	Gtk::Label patchTitleLbl;
-	Gtk::Entry patchTitle;
-	Gtk::Label patchCommentsLbl;
-	Gtk::ScrolledWindow patchCommentsWin;
-	Gtk::TextView patchComments;
+    Gtk::Expander patchInfoExpander;
+    Gtk::Table patchInfoTable;
+    Gtk::Label patchRevisedLbl;
+    Gtk::Entry patchRevised;
+    Gtk::Label patchCategoryLbl;
+    Gtk::Entry patchCategory;
+    Gtk::Label patchAuthorLbl;
+    Gtk::Entry patchAuthor;
+    Gtk::Label patchTitleLbl;
+    Gtk::Entry patchTitle;
+    Gtk::Label patchCommentsLbl;
+    Gtk::ScrolledWindow patchCommentsWin;
+    Gtk::TextView patchComments;
 
-	Gtk::ScrolledWindow patchScroll;
-	Gtk::TreeView patchView;
-	Glib::RefPtr<Gtk::ListStore> patchModel;
-	PatchSelColumns patchViewCols;
+    Gtk::ScrolledWindow patchScroll;
+    Gtk::TreeView patchView;
+    Glib::RefPtr<Gtk::ListStore> patchModel;
+    PatchSelColumns patchViewCols;
 
 private:
-	void populate (void);
+    void populate (void);
 
-	thSynth *synth;
-	string prevDir;
+    thSynth *synth;
+    string prevDir;
 
-	int currchan;
+    int currchan;
 };
 
 #endif /* PATCHSEL_WINDOW_H */

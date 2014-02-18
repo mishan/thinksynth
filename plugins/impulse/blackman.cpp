@@ -23,8 +23,8 @@
 
 #include "think.h"
 
-char		*desc = "Generates a sine impulse";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Generates a sine impulse";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,52 +36,52 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_LEN] = plugin->regArg("len");
-	args[IN_CUT] = plugin->regArg("cutoff");
-	args[OUT_ARG] = plugin->regArg("out");
-	return 0;
+    args[IN_LEN] = plugin->regArg("len");
+    args[IN_CUT] = plugin->regArg("cutoff");
+    args[OUT_ARG] = plugin->regArg("out");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_len, *in_cut;
-	thArg *out_arg;
-	float factor, len, k = 0;
-	unsigned int i;
+    float *out;
+    thArg *in_len, *in_cut;
+    thArg *out_arg;
+    float factor, len, k = 0;
+    unsigned int i;
 
-	in_len = mod->getArg(node, args[IN_LEN]);
-	in_cut = mod->getArg(node, args[IN_CUT]);
-	len = (int)(*in_len)[0];
-	factor = (*in_cut)[0]/2;
+    in_len = mod->getArg(node, args[IN_LEN]);
+    in_cut = mod->getArg(node, args[IN_CUT]);
+    len = (int)(*in_len)[0];
+    factor = (*in_cut)[0]/2;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate((int)len+1);
-	
-	for(i = 0; i <= (unsigned int)len; i++)
-	{
-		if(i == len/2)
-		{
-			out[i] = 2*M_PI*factor;
-		} 
-		else 
-		{
-			out[i] = (sin(2*M_PI*factor*(i-len/2))/(i-len/2))*
-				(0.42-0.5*cos((2*M_PI*i)/len)+0.08*cos((4*M_PI*i)/len));
-		}
-		k += out[i];  /* We need to make all the samples add up to 1 */
-	}
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate((int)len+1);
+    
+    for(i = 0; i <= (unsigned int)len; i++)
+    {
+        if(i == len/2)
+        {
+            out[i] = 2*M_PI*factor;
+        } 
+        else 
+        {
+            out[i] = (sin(2*M_PI*factor*(i-len/2))/(i-len/2))*
+                (0.42-0.5*cos((2*M_PI*i)/len)+0.08*cos((4*M_PI*i)/len));
+        }
+        k += out[i];  /* We need to make all the samples add up to 1 */
+    }
 
-	k = 1/k;
+    k = 1/k;
 
-	for(i = 0; i < len; i++)
-	{
-		out[i] *= k;
-	}
+    for(i = 0; i < len; i++)
+    {
+        out[i] *= k;
+    }
 
-	return 0;
+    return 0;
 }

@@ -9,7 +9,7 @@
 
 #ifndef HAVE_DLOPEN
 
-#ifndef	RTLD_LAZY
+#ifndef    RTLD_LAZY
 #define RTLD_LAZY 2185 /* built-in dl*(3) don't care */
 #endif /* !RTLD_LAZY */
 

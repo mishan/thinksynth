@@ -25,8 +25,8 @@
 
 #define SQR(a) ((a)*(a))
 
-char		*desc = "Resonant Difference Shaping Filter";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Resonant Difference Shaping Filter";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -38,72 +38,72 @@ int args[IN_FACTOR + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[OUT_HIGH] = plugin->regArg("out_high");
-	args[INOUT_LAST] = plugin->regArg("last");
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_CUTOFF] = plugin->regArg("cutoff");
-	args[IN_RES] = plugin->regArg("res");
-	args[IN_FACTOR] = plugin->regArg("factor");
+    args[OUT_ARG] = plugin->regArg("out");
+    args[OUT_HIGH] = plugin->regArg("out_high");
+    args[INOUT_LAST] = plugin->regArg("last");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_CUTOFF] = plugin->regArg("cutoff");
+    args[IN_RES] = plugin->regArg("res");
+    args[IN_FACTOR] = plugin->regArg("factor");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	float *highout;
-	float *out_last;
-	thArg *in_arg, *in_cutoff, *in_res, *in_factor;
-	thArg *out_arg, *out_high;
-	thArg *inout_last;
-	unsigned int i;
-	float last, diff;
-	float prevdiff, rdiff;
-	float fact, rfact;
+    float *out;
+    float *highout;
+    float *out_last;
+    thArg *in_arg, *in_cutoff, *in_res, *in_factor;
+    thArg *out_arg, *out_high;
+    thArg *inout_last;
+    unsigned int i;
+    float last, diff;
+    float prevdiff, rdiff;
+    float fact, rfact;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out_high = mod->getArg(node, args[OUT_HIGH]);
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out_high = mod->getArg(node, args[OUT_HIGH]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
 
-	last = (*inout_last)[0];
-	prevdiff = (*inout_last)[1];
-	out_last = inout_last->allocate(2);
+    last = (*inout_last)[0];
+    prevdiff = (*inout_last)[1];
+    out_last = inout_last->allocate(2);
 
-	out = out_arg->allocate(windowlen);
-	highout = out_high->allocate(windowlen);
+    out = out_arg->allocate(windowlen);
+    highout = out_high->allocate(windowlen);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
-	in_res = mod->getArg(node, args[IN_RES]);
-	in_factor = mod->getArg(node, args[IN_FACTOR]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_res = mod->getArg(node, args[IN_RES]);
+    in_factor = mod->getArg(node, args[IN_FACTOR]);
 
-	for(i=0;i<windowlen;i++) {
-	  fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));
-	  rfact = 1-(SQR((*in_res)[i]));
+    for(i=0;i<windowlen;i++) {
+      fact = (*in_cutoff)[i]; //1-(SQR((*in_cutoff)[i]));
+      rfact = 1-(SQR((*in_res)[i]));
 
-	  diff = (*in_arg)[i] - last;
-	  if(fabs(diff) > TH_RANGE) { /* in case the input is screwy */
-		  diff = TH_RANGE * (diff > 0 ? 1 : -1);
-	  }
-	  diff *= pow(1-fabs(diff/(TH_RANGE+1)), (*in_factor)[i]); /* Diff shaping magic */
+      diff = (*in_arg)[i] - last;
+      if(fabs(diff) > TH_RANGE) { /* in case the input is screwy */
+          diff = TH_RANGE * (diff > 0 ? 1 : -1);
+      }
+      diff *= pow(1-fabs(diff/(TH_RANGE+1)), (*in_factor)[i]); /* Diff shaping magic */
 
-	  highout[i] = diff;
-	  rdiff = diff - prevdiff;
-	  rdiff *= rfact;
-	  diff -= rdiff;
-	  diff *= fact;
-	  last += diff;
+      highout[i] = diff;
+      rdiff = diff - prevdiff;
+      rdiff *= rfact;
+      diff -= rdiff;
+      diff *= fact;
+      last += diff;
 
-	  out[i] = last;
-	}
+      out[i] = last;
+    }
 
-	out_last[0] = last;
-	out_last[1] = prevdiff;
+    out_last[0] = last;
+    out_last[1] = prevdiff;
 
-	return 0;
+    return 0;
 }

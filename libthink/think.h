@@ -74,8 +74,8 @@ using namespace std;
 template <typename T, typename U>
 void DestroyMap (map<T,U> themap)
 {
-	for (typename map<T,U>::iterator i=themap.begin(); i!=themap.end(); i++)
-		delete i->second;
+    for (typename map<T,U>::iterator i=themap.begin(); i!=themap.end(); i++)
+        delete i->second;
 };
 
 /* DATATYPES */

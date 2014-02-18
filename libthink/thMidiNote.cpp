@@ -25,29 +25,29 @@
 #include "think.h"
 
 thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity)
-	: synthTree_(*tree)
+    : synthTree_(*tree)
 {
-	synthTree_.buildSynthTree();
-	thNode *ionode = synthTree_.IONode();
+    synthTree_.buildSynthTree();
+    thNode *ionode = synthTree_.IONode();
 
-	ionode->setArg("note", note);
-	ionode->setArg("velocity", velocity);
-	ionode->setArg("trigger", 1);
+    ionode->setArg("note", note);
+    ionode->setArg("velocity", velocity);
+    ionode->setArg("trigger", 1);
 
-	noteid_ = (int)note;
+    noteid_ = (int)note;
 }
 
 thMidiNote::thMidiNote (thSynthTree *tree)
-	: synthTree_(*tree)
+    : synthTree_(*tree)
 {
-	synthTree_.buildSynthTree();
-	thNode *ionode = synthTree_.IONode();
+    synthTree_.buildSynthTree();
+    thNode *ionode = synthTree_.IONode();
 
-	ionode->setArg("note", 0);     /* set these to 0, it may matter when */
-	ionode->setArg("velocity", 0); /* the args are indexed as well */
-	ionode->setArg("trigger", 0);
+    ionode->setArg("note", 0);     /* set these to 0, it may matter when */
+    ionode->setArg("velocity", 0); /* the args are indexed as well */
+    ionode->setArg("trigger", 0);
 
-	noteid_ = 0;
+    noteid_ = 0;
 }
 
 thMidiNote::~thMidiNote ()
@@ -56,19 +56,19 @@ thMidiNote::~thMidiNote ()
 
 void thMidiNote::process (int length)
 {
-	synthTree_.setActiveNodes();
-	synthTree_.process(length);
+    synthTree_.setActiveNodes();
+    synthTree_.process(length);
 }
 
 void thMidiNote::setArg (const string &name, float value)
 {
-	thNode *ionode = synthTree_.IONode();
-	ionode->setArg(name, value);
+    thNode *ionode = synthTree_.IONode();
+    ionode->setArg(name, value);
 }
 
 void thMidiNote::setArg (const string &name, const float *value, int len)
 {
-	thNode *ionode = synthTree_.IONode();
-	ionode->setArg(name, value, len);
+    thNode *ionode = synthTree_.IONode();
+    ionode->setArg(name, value, len);
 }
 

@@ -24,20 +24,20 @@
 #include "think.h"
 
 thMidiControllerConnection::thMidiControllerConnection (thArg *arg, float min,
-														float max, int scale,
-														int chan,
-														int controller,
-														int dchan,
-														string argName)
+                                                        float max, int scale,
+                                                        int chan,
+                                                        int controller,
+                                                        int dchan,
+                                                        string argName)
 {
-	arg_ = arg;
-	min_ = min;
-	max_ = max;
-	chan_ = chan;
-	controller_ = controller;
-	destchan_ = dchan;
-	argName_ = argName;
-	scale_ = scale;
+    arg_ = arg;
+    min_ = min;
+    max_ = max;
+    chan_ = chan;
+    controller_ = controller;
+    destchan_ = dchan;
+    argName_ = argName;
+    scale_ = scale;
 }
 
 thMidiControllerConnection::~thMidiControllerConnection (void)
@@ -46,12 +46,12 @@ thMidiControllerConnection::~thMidiControllerConnection (void)
 
 void thMidiControllerConnection::setParam (unsigned int value)
 {
-	float realvalue;
+    float realvalue;
 
-	realvalue = (float)value/MIDIVALMAX;
+    realvalue = (float)value/MIDIVALMAX;
 
-	if (scale_ == EXPONENTIAL) /* give it a nice curve */
-		realvalue = 1 - logf(M_E - (realvalue * (M_E - 1)));
+    if (scale_ == EXPONENTIAL) /* give it a nice curve */
+        realvalue = 1 - logf(M_E - (realvalue * (M_E - 1)));
 
-	arg_->setValue(realvalue * (max_ - min_) + min_);
+    arg_->setValue(realvalue * (max_ - min_) + min_);
 }

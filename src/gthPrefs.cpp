@@ -46,186 +46,186 @@ static void remove_string(char *line, int index, int numchars)
 
 gthPrefs::gthPrefs (void)
 {
-	prefsPath_ = string(getenv("HOME")) + string("/") + PREFS_FILE;
+    prefsPath_ = string(getenv("HOME")) + string("/") + PREFS_FILE;
 
-	if (instance_ == NULL)
-		instance_ = this;
+    if (instance_ == NULL)
+        instance_ = this;
 }
 
 gthPrefs::gthPrefs (const string &path)
 {
-	prefsPath_ = path;
+    prefsPath_ = path;
 
-	if (instance_ == NULL)
-		instance_ = this;
+    if (instance_ == NULL)
+        instance_ = this;
 }
 
 gthPrefs::~gthPrefs (void)
 {
-	if (instance_ == this)
-		instance_ = NULL;
+    if (instance_ == this)
+        instance_ = NULL;
 }
 
 void gthPrefs::Load (void)
 {
-	FILE *prefsFile;
-	char buffer[256];
+    FILE *prefsFile;
+    char buffer[256];
 
-	debug("loading preferences");
+    debug("loading preferences");
 
-	if ((prefsFile = fopen(prefsPath_.c_str(), "r")) == NULL)
-	{
-		fprintf(stderr, "could not open %s: %s\n", prefsPath_.c_str(),
-			strerror(errno));
-	  	if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
-		{
-			/* just give up */
-			fprintf(stderr, "could not open " DEFAULT_THINKRC ": %s\n",
-				strerror(errno));
-			return;
-		}
-		else
-			printf("opened default configuration " DEFAULT_THINKRC "\n");
-	}
+    if ((prefsFile = fopen(prefsPath_.c_str(), "r")) == NULL)
+    {
+        fprintf(stderr, "could not open %s: %s\n", prefsPath_.c_str(),
+            strerror(errno));
+          if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
+        {
+            /* just give up */
+            fprintf(stderr, "could not open " DEFAULT_THINKRC ": %s\n",
+                strerror(errno));
+            return;
+        }
+        else
+            printf("opened default configuration " DEFAULT_THINKRC "\n");
+    }
 
-	while (fgets(buffer, 256, prefsFile) != NULL)
-	{
-		trim_leadspc(buffer);
-		buffer[strlen(buffer)-1] = '\0';
+    while (fgets(buffer, 256, prefsFile) != NULL)
+    {
+        trim_leadspc(buffer);
+        buffer[strlen(buffer)-1] = '\0';
 
-		if (buffer[0] == '\n' || buffer[0] == '#')
-			continue;
+        if (buffer[0] == '\n' || buffer[0] == '#')
+            continue;
 
-		char *argPtr = strchr(buffer, ' ');
-		if (argPtr == NULL)
-			continue;
+        char *argPtr = strchr(buffer, ' ');
+        if (argPtr == NULL)
+            continue;
 
-		*argPtr++ = '\0';
-		string key = buffer;
+        *argPtr++ = '\0';
+        string key = buffer;
 
-		trim_leadspc(argPtr);
-		if (*argPtr)
-		{
-			int len = 1;
-			char *comCnt;
+        trim_leadspc(argPtr);
+        if (*argPtr)
+        {
+            int len = 1;
+            char *comCnt;
 
-			for (comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
-			{
-				len++;
-			}
+            for (comCnt=strchr(argPtr,',');comCnt;comCnt = strchr(++comCnt,','))
+            {
+                len++;
+            }
 
-			string **values = new string *[len+1];
+            string **values = new string *[len+1];
 
-			for (int i = 0; i < len; i++)
-			{
-				char *comPtr = strchr(argPtr, ',');
-				if (comPtr)
-					*comPtr = '\0';
+            for (int i = 0; i < len; i++)
+            {
+                char *comPtr = strchr(argPtr, ',');
+                if (comPtr)
+                    *comPtr = '\0';
 
-				values[i] = new string(argPtr);
+                values[i] = new string(argPtr);
 
-				argPtr = comPtr+1;
-			}
+                argPtr = comPtr+1;
+            }
 
-			values[len] = NULL;
+            values[len] = NULL;
 
-			/* XXX: handle specific cases here for now */
-			if (key == "channel" && values[0] && values[1])
-			{
-				int chan = atoi(values[0]->c_str());
-				gthPatchManager *patchMgr = gthPatchManager::instance();
-				patchMgr->loadPatch(*values[1], chan);
+            /* XXX: handle specific cases here for now */
+            if (key == "channel" && values[0] && values[1])
+            {
+                int chan = atoi(values[0]->c_str());
+                gthPatchManager *patchMgr = gthPatchManager::instance();
+                patchMgr->loadPatch(*values[1], chan);
 
-				/* Amplitude setting */
-				if (values[2] != NULL)
-				{
-					thSynth *s = thSynth::instance();
-					thArg *arg = new thArg("amp", atof(values[2]->c_str()));
+                /* Amplitude setting */
+                if (values[2] != NULL)
+                {
+                    thSynth *s = thSynth::instance();
+                    thArg *arg = new thArg("amp", atof(values[2]->c_str()));
 
-					s->setChanArg(chan, arg);
-				}
-			}	
-			else
-			{
-				prefs_[key] = values;
-			}
-		}
-	}
+                    s->setChanArg(chan, arg);
+                }
+            }    
+            else
+            {
+                prefs_[key] = values;
+            }
+        }
+    }
 }
 
 void gthPrefs::Save (void)
 {
-	gthPatchManager *patchMgr = gthPatchManager::instance();
-	FILE *prefsFile;
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    FILE *prefsFile;
 
-	if ((prefsFile = fopen(prefsPath_.c_str(), "w")) == NULL)
-	{
-		fprintf(stderr, "%s: %s\n", prefsPath_.c_str(), strerror(errno));
-		return;
-	}
+    if ((prefsFile = fopen(prefsPath_.c_str(), "w")) == NULL)
+    {
+        fprintf(stderr, "%s: %s\n", prefsPath_.c_str(), strerror(errno));
+        return;
+    }
 
-	debug("writing to '%s'", prefsPath_.c_str());
+    debug("writing to '%s'", prefsPath_.c_str());
 
-	fprintf(prefsFile, "# %s configuration file\n", PACKAGE_STRING);
-	fprintf(prefsFile, "# lines beginning with '#' are comments\n\n");
-	
-	/* save variables here */
-	for (map<string, string**>::const_iterator i = prefs_.begin();
-		 i != prefs_.end(); i++)
-	{
-		string key = i->first;
-		string **values = i->second;
-		
-		if (values == NULL)
-			continue;
-		
-		fprintf(prefsFile, "%s ", key.c_str());
+    fprintf(prefsFile, "# %s configuration file\n", PACKAGE_STRING);
+    fprintf(prefsFile, "# lines beginning with '#' are comments\n\n");
+    
+    /* save variables here */
+    for (map<string, string**>::const_iterator i = prefs_.begin();
+         i != prefs_.end(); i++)
+    {
+        string key = i->first;
+        string **values = i->second;
+        
+        if (values == NULL)
+            continue;
+        
+        fprintf(prefsFile, "%s ", key.c_str());
 
-		for (int j = 0; values[j]; j++)
-		{
-			fprintf(prefsFile, "%s", values[j]->c_str());
+        for (int j = 0; values[j]; j++)
+        {
+            fprintf(prefsFile, "%s", values[j]->c_str());
 
-			if (values[j+1])
-				fprintf(prefsFile, ",");
-		}
+            if (values[j+1])
+                fprintf(prefsFile, ",");
+        }
 
-		fprintf(prefsFile, "\n");
-	}
+        fprintf(prefsFile, "\n");
+    }
 
-	/* save channel mappings */
-	{
-		int chans = patchMgr->numPatches();
-		thSynth *synth = thSynth::instance();
+    /* save channel mappings */
+    {
+        int chans = patchMgr->numPatches();
+        thSynth *synth = thSynth::instance();
 
-		for (int i = 0; i < chans; i++)
-		{
-			gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
+        for (int i = 0; i < chans; i++)
+        {
+            gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
-			if (patch == NULL)
-				continue;
+            if (patch == NULL)
+                continue;
 
-			string file = patch->filename;
+            string file = patch->filename;
 
-			/* after all, the .dsp file is the determining factor in a
-			   channel */
-			if (file.length() > 0)
-			{
-				thArg *amp = synth->getChanArg(i, "amp");
- 				fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
-						(int)((*amp)[0]));
-			} 
-		}
-	}
+            /* after all, the .dsp file is the determining factor in a
+               channel */
+            if (file.length() > 0)
+            {
+                thArg *amp = synth->getChanArg(i, "amp");
+                 fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
+                        (int)((*amp)[0]));
+            } 
+        }
+    }
 
-	fclose(prefsFile);
+    fclose(prefsFile);
 }
 
 string **gthPrefs::Get (const string &key)
 {
-	return prefs_[key];
+    return prefs_[key];
 }
 
 void gthPrefs::Set (const string &key, string **vals)
 {
-	prefs_[key] = vals;
+    prefs_[key] = vals;
 }

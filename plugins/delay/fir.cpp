@@ -22,8 +22,8 @@
 
 #include "think.h"
 
-char		*desc = "Applies an impulse response";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Applies an impulse response";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -35,69 +35,69 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_IMPULSE] = plugin->regArg("impulse");
-	args[IN_MIX] = plugin->regArg("mix");
-	args[INOUT_BUFFER] = plugin->regArg("buffer");
-	args[INOUT_BUFPOS] = plugin->regArg("bufpos");
-	args[OUT_ARG] = plugin->regArg("out");
-	return 0;
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_IMPULSE] = plugin->regArg("impulse");
+    args[IN_MIX] = plugin->regArg("mix");
+    args[INOUT_BUFFER] = plugin->regArg("buffer");
+    args[INOUT_BUFPOS] = plugin->regArg("bufpos");
+    args[OUT_ARG] = plugin->regArg("out");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	float *buffer, *bufpos;
-	thArg *in_arg, *in_impulse, *in_mix;
-	thArg *out_arg;
-	thArg *inout_buffer, *inout_bufpos;
-	unsigned int i, j;
-	int index;
-	float impulse, mix;
-	unsigned int impulse_len;
+    float *out;
+    float *buffer, *bufpos;
+    thArg *in_arg, *in_impulse, *in_mix;
+    thArg *out_arg;
+    thArg *inout_buffer, *inout_bufpos;
+    unsigned int i, j;
+    int index;
+    float impulse, mix;
+    unsigned int impulse_len;
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_impulse = mod->getArg(node, args[IN_IMPULSE]);
-	in_mix = mod->getArg(node, args[IN_MIX]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_impulse = mod->getArg(node, args[IN_IMPULSE]);
+    in_mix = mod->getArg(node, args[IN_MIX]);
 
-	impulse_len = in_impulse->len();
+    impulse_len = in_impulse->len();
 
-	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-	buffer = inout_buffer->allocate(impulse_len);
-	bufpos = inout_bufpos->allocate(1);
+    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
+    buffer = inout_buffer->allocate(impulse_len);
+    bufpos = inout_bufpos->allocate(1);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
-		out[i] = 0;
+    for(i=0;i<windowlen;i++) {
+        out[i] = 0;
 
-		if(*bufpos > inout_buffer->len()) {
-			*bufpos = 0;
-		}
-		buffer[(int)*bufpos] = (*in_arg)[i];
+        if(*bufpos > inout_buffer->len()) {
+            *bufpos = 0;
+        }
+        buffer[(int)*bufpos] = (*in_arg)[i];
 
-		for(j = 0; j < impulse_len; j++) {
-			index = (int)*bufpos - j;
-			if(index < 0) {
-				index += impulse_len;
-			}
-			impulse = (*in_impulse)[j];
-			if(impulse) {
-				out[i] += impulse * buffer[index];
-			}
-		}
-		mix = (*in_mix)[i];
-		if(mix) {
-			buffer[(int)*bufpos] = (buffer[(int)*bufpos] * (1-mix)) + (out[i] * mix); // recursion!
-		}
-		(*bufpos)++;
-	}
+        for(j = 0; j < impulse_len; j++) {
+            index = (int)*bufpos - j;
+            if(index < 0) {
+                index += impulse_len;
+            }
+            impulse = (*in_impulse)[j];
+            if(impulse) {
+                out[i] += impulse * buffer[index];
+            }
+        }
+        mix = (*in_mix)[i];
+        if(mix) {
+            buffer[(int)*bufpos] = (buffer[(int)*bufpos] * (1-mix)) + (out[i] * mix); // recursion!
+        }
+        (*bufpos)++;
+    }
 
-	return 0;
+    return 0;
 }

@@ -31,12 +31,12 @@ gthDummyAudio::~gthDummyAudio (void)
 
 int gthDummyAudio::Write (float *buf, int len)
 {
-	return 0;
+    return 0;
 }
 
 int gthDummyAudio::Read (void *buf, int len)
 {
-	return 0;
+    return 0;
 }
 
 void gthDummyAudio::SetFormat (const gthAudioFmt *afmt)
@@ -45,5 +45,5 @@ void gthDummyAudio::SetFormat (const gthAudioFmt *afmt)
 
 bool gthDummyAudio::ProcessEvents (void)
 {
-	return false;
+    return false;
 }

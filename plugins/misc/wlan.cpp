@@ -32,8 +32,8 @@
 enum {OUT_ARG};
 int args[OUT_ARG + 1];
 
-char		*desc = "Passes on a wireless interface's signal level";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Passes on a wireless interface's signal level";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -42,47 +42,47 @@ void module_cleanup (struct module *mod)
 int module_init (thPlugin *plugin)
 {
 #ifdef HAVE_IWLIB_H
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
+    args[OUT_ARG] = plugin->regArg("out");
 
-	return 0;
+    return 0;
 #else
-	fprintf(stderr, "ERROR: WLan plugin compiled without libiw support!\n");
+    fprintf(stderr, "ERROR: WLan plugin compiled without libiw support!\n");
 
-	return 1;
+    return 1;
 #endif /* HAVE_IWLIB_H */
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
 #ifdef HAVE_IWLIB_H
-	float *out;
-	thArg *out_arg;
-	unsigned int i, argnum;
+    float *out;
+    thArg *out_arg;
+    unsigned int i, argnum;
 
-	static int wfd = -1;
-	iwstats is;
-	char *dev = "eth1";
+    static int wfd = -1;
+    iwstats is;
+    char *dev = "eth1";
 
-	if (wfd < 0)
-		wfd = iw_sockets_open();
+    if (wfd < 0)
+        wfd = iw_sockets_open();
 
-	if (iw_get_stats (wfd, dev, &is, NULL, 0) == -1)
-	{
-		fprintf(stderr, "Could not get information for device '%s'\n", dev);
-		return 1;
-	}
+    if (iw_get_stats (wfd, dev, &is, NULL, 0) == -1)
+    {
+        fprintf(stderr, "Could not get information for device '%s'\n", dev);
+        return 1;
+    }
 
- 	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(1);
-	out[0] = is.qual.qual;
+     out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(1);
+    out[0] = is.qual.qual;
 
-	return 0;
+    return 0;
 #else
-	return 1;
+    return 1;
 #endif /* HAVE_IWLIB_H */
 }
 

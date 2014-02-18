@@ -28,73 +28,73 @@
 
 #include "think.h"
 
-char		*desc = "Resonant 2-pole Chamberlin filter";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Resonant 2-pole Chamberlin filter";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
 }
 
 enum { OUT_LOW, OUT_HIGH, OUT_BAND, OUT_NOTCH, INOUT_DELAY, IN_ARG, IN_CUTOFF,
-	   IN_RES };
+       IN_RES };
 
 int args[IN_RES + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_LOW] = plugin->regArg("out");
-	args[OUT_HIGH] = plugin->regArg("out_high");
-	args[OUT_BAND] = plugin->regArg("out_band");
-	args[OUT_NOTCH] = plugin->regArg("out_notch");
-	args[INOUT_DELAY] = plugin->regArg("delay");
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_CUTOFF] = plugin->regArg("cutoff");
-	args[IN_RES] = plugin->regArg("res");
+    args[OUT_LOW] = plugin->regArg("out");
+    args[OUT_HIGH] = plugin->regArg("out_high");
+    args[OUT_BAND] = plugin->regArg("out_band");
+    args[OUT_NOTCH] = plugin->regArg("out_notch");
+    args[INOUT_DELAY] = plugin->regArg("delay");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_CUTOFF] = plugin->regArg("cutoff");
+    args[IN_RES] = plugin->regArg("res");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out, *highout, *bandout, *notchout, *delay;
-	thArg *in_arg, *in_cutoff, *in_res;
-	thArg *out_low, *out_high, *out_band, *out_notch;
-	thArg *inout_delay;
-	float f, q;
-	unsigned int i;
+    float *out, *highout, *bandout, *notchout, *delay;
+    thArg *in_arg, *in_cutoff, *in_res;
+    thArg *out_low, *out_high, *out_band, *out_notch;
+    thArg *inout_delay;
+    float f, q;
+    unsigned int i;
 
-	out_low = mod->getArg(node, args[OUT_LOW]);
-	out_high = mod->getArg(node, args[OUT_HIGH]);
-	out_band = mod->getArg(node, args[OUT_BAND]);
-	out_notch = mod->getArg(node, args[OUT_NOTCH]);
-	out = out_low->allocate(windowlen);
-	highout = out_high->allocate(windowlen);
-	bandout = out_band->allocate(windowlen);
-	notchout = out_notch->allocate(windowlen);
+    out_low = mod->getArg(node, args[OUT_LOW]);
+    out_high = mod->getArg(node, args[OUT_HIGH]);
+    out_band = mod->getArg(node, args[OUT_BAND]);
+    out_notch = mod->getArg(node, args[OUT_NOTCH]);
+    out = out_low->allocate(windowlen);
+    highout = out_high->allocate(windowlen);
+    bandout = out_band->allocate(windowlen);
+    notchout = out_notch->allocate(windowlen);
 
-	inout_delay = mod->getArg(node, args[INOUT_DELAY]);
-	delay = inout_delay->allocate(2);
+    inout_delay = mod->getArg(node, args[INOUT_DELAY]);
+    delay = inout_delay->allocate(2);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
-	in_res = mod->getArg(node, args[IN_RES]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
+    in_res = mod->getArg(node, args[IN_RES]);
 
-	for(i=0;i<windowlen;i++) {
-		f = 2*sin(M_PI * (*in_cutoff)[i] / samples);
-		q = 1/((*in_res)[i]*2);
+    for(i=0;i<windowlen;i++) {
+        f = 2*sin(M_PI * (*in_cutoff)[i] / samples);
+        q = 1/((*in_res)[i]*2);
 
-		out[i] = delay[1] + f * delay[0];  /* Low Pass */
-		highout[i] = (*in_arg)[i] - out[i] - q * delay[0]; /* High Pass */
-		bandout[i] = f * highout[i] + delay[0];
-		notchout[i] = highout[i] + out[i];
-	
-		delay[0] = bandout[i];
-		delay[1] = out[i];
-	}
+        out[i] = delay[1] + f * delay[0];  /* Low Pass */
+        highout[i] = (*in_arg)[i] - out[i] - q * delay[0]; /* High Pass */
+        bandout[i] = f * highout[i] + delay[0];
+        notchout[i] = highout[i] + out[i];
+    
+        delay[0] = bandout[i];
+        delay[1] = out[i];
+    }
 
-	return 0;
+    return 0;
 }

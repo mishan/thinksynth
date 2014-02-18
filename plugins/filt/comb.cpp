@@ -22,11 +22,11 @@
 
 #include "think.h"
 
-char		*desc = "Comb Filter";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Comb Filter";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {IN_ARG, IN_FREQ, IN_FEEDBACK, IN_SIZE, OUT_ARG, INOUT_BUFFER,
-	  INOUT_BUFPOS};
+      INOUT_BUFPOS};
 int args[INOUT_BUFPOS + 1];
 
 void module_cleanup (struct module *mod)
@@ -35,71 +35,71 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_FREQ] = plugin->regArg("freq");
-	args[IN_FEEDBACK] = plugin->regArg("feedback");
-	args[IN_SIZE] = plugin->regArg("size");
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_FREQ] = plugin->regArg("freq");
+    args[IN_FEEDBACK] = plugin->regArg("feedback");
+    args[IN_SIZE] = plugin->regArg("size");
 
-	args[OUT_ARG] = plugin->regArg("out");
+    args[OUT_ARG] = plugin->regArg("out");
 
-	args[INOUT_BUFFER] = plugin->regArg("buffer");
-	args[INOUT_BUFPOS] = plugin->regArg("bufpos");
+    args[INOUT_BUFFER] = plugin->regArg("buffer");
+    args[INOUT_BUFPOS] = plugin->regArg("bufpos");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	float *buffer, *bufpos;
-	thArg *in_arg, *in_size, *in_freq, *in_feedback;
-	thArg *out_arg;
-	thArg *inout_buffer, *inout_bufpos;
-	unsigned int i;
-	float period;
-	float buf_in[windowlen], buf_size[windowlen], buf_freq[windowlen],
-		buf_feedback[windowlen];
+    float *out;
+    float *buffer, *bufpos;
+    thArg *in_arg, *in_size, *in_freq, *in_feedback;
+    thArg *out_arg;
+    thArg *inout_buffer, *inout_bufpos;
+    unsigned int i;
+    float period;
+    float buf_in[windowlen], buf_size[windowlen], buf_freq[windowlen],
+        buf_feedback[windowlen];
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_size = mod->getArg(node, args[IN_SIZE]); /* Buffer size */
-	in_freq = mod->getArg(node, args[IN_FREQ]); /* Delay length spacing */
-	in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_size = mod->getArg(node, args[IN_SIZE]); /* Buffer size */
+    in_freq = mod->getArg(node, args[IN_FREQ]); /* Delay length spacing */
+    in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
 
-	inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
-	inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
-	bufpos = inout_bufpos->allocate(1);
+    inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
+    inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
+    bufpos = inout_bufpos->allocate(1);
 
 
-	in_freq->getBuffer(buf_freq, windowlen);
-	in_arg->getBuffer(buf_in, windowlen);
-	in_feedback->getBuffer(buf_feedback, windowlen);
-	in_size->getBuffer(buf_size, windowlen);
+    in_freq->getBuffer(buf_freq, windowlen);
+    in_arg->getBuffer(buf_in, windowlen);
+    in_feedback->getBuffer(buf_feedback, windowlen);
+    in_size->getBuffer(buf_size, windowlen);
 
-	buffer = inout_buffer->allocate((int)buf_size[0]);
+    buffer = inout_buffer->allocate((int)buf_size[0]);
 
-	for(i = 0; i < windowlen; i++) {
-		period = samples / buf_freq[i];
+    for(i = 0; i < windowlen; i++) {
+        period = samples / buf_freq[i];
 
-		if(*bufpos > inout_buffer->len()) {
-			*bufpos = 0;
-		}
-		if(*bufpos > period) {
-			*bufpos -= period;
-		}
+        if(*bufpos > inout_buffer->len()) {
+            *bufpos = 0;
+        }
+        if(*bufpos > period) {
+            *bufpos -= period;
+        }
 
-		buffer[(int)*bufpos] = buf_feedback[i] * buffer[(int)*bufpos] + buf_in[i];
-		out[i] = buffer[(int)*bufpos];
+        buffer[(int)*bufpos] = buf_feedback[i] * buffer[(int)*bufpos] + buf_in[i];
+        out[i] = buffer[(int)*bufpos];
 
-		++(*bufpos);
-	}
+        ++(*bufpos);
+    }
 
-	return 0;
+    return 0;
 }
 

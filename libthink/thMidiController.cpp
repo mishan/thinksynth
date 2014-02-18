@@ -25,65 +25,65 @@
 
 thMidiController::thMidiController (void)
 {
-	/* zero the pointer list */
-	memset(connections_, 0, 16 * 128 * sizeof(thMidiControllerConnection*));
-	connectionMap_.clear();
+    /* zero the pointer list */
+    memset(connections_, 0, 16 * 128 * sizeof(thMidiControllerConnection*));
+    connectionMap_.clear();
 }
 
 thMidiController::~thMidiController (void)
 {
-	/* XXX: later on, check for connection classes and nuke them */
+    /* XXX: later on, check for connection classes and nuke them */
 }
 
 void thMidiController::handleMidi (unsigned char channel, unsigned int param,
-								   unsigned int value)
+                                   unsigned int value)
 {
-	thMidiControllerConnection *connectionptr = connections_[channel][param];
+    thMidiControllerConnection *connectionptr = connections_[channel][param];
 
-	if (connectionptr)
-	{
-		connectionptr->setParam(value);
+    if (connectionptr)
+    {
+        connectionptr->setParam(value);
 
-	}
+    }
 }
 
 void thMidiController::newConnection (unsigned char channel,
-									  unsigned int param,
-									  thMidiControllerConnection *connection)
+                                      unsigned int param,
+                                      thMidiControllerConnection *connection)
 {
-	/* XXX: Do a NULL-check, and if there is something here, tack it on
-	   the linked list */
+    /* XXX: Do a NULL-check, and if there is something here, tack it on
+       the linked list */
 
-	if (connection == NULL)
-	{
-		connections_[channel][param] = 0;
-		connectionMap_.erase(channel * 128 + param);
-	}
-	else
-	{
-		connections_[channel][param] = connection;
-		connectionMap_[channel * 128 + param] = connection;
-	}
+    if (connection == NULL)
+    {
+        connections_[channel][param] = 0;
+        connectionMap_.erase(channel * 128 + param);
+    }
+    else
+    {
+        connections_[channel][param] = connection;
+        connectionMap_[channel * 128 + param] = connection;
+    }
 }
 
 void thMidiController::clearByDestChan (unsigned int chan)
 {
-	thMidiControllerConnection *connection;
-	map<unsigned int, thMidiControllerConnection*>::iterator i =
-		connectionMap_.begin();
+    thMidiControllerConnection *connection;
+    map<unsigned int, thMidiControllerConnection*>::iterator i =
+        connectionMap_.begin();
 
-	while (i != connectionMap_.end())
-	{
-		map<unsigned int, thMidiControllerConnection*>::iterator j = i;
-		connection = (i++)->second;
+    while (i != connectionMap_.end())
+    {
+        map<unsigned int, thMidiControllerConnection*>::iterator j = i;
+        connection = (i++)->second;
 
-		if ((unsigned int)connection->destChan() == chan)
-		{
-			int chan = connection->chan(),
-				controller = connection->controller();
+        if ((unsigned int)connection->destChan() == chan)
+        {
+            int chan = connection->chan(),
+                controller = connection->controller();
 
-			connections_[chan][controller] = NULL;
-			connectionMap_.erase(j);
-		}
-	}
+            connections_[chan][controller] = NULL;
+            connectionMap_.erase(j);
+        }
+    }
 }

@@ -25,8 +25,8 @@
 enum {IN_0, IN_1, IN_FADE, OUT};
 int args[OUT+1];
 
-char		*desc = "Fades between two streams";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Fades between two streams";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -34,43 +34,43 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_0] = plugin->regArg("in0");
-	args[IN_1] = plugin->regArg("in1");
-	args[IN_FADE] = plugin->regArg("fade");
-	args[OUT] = plugin->regArg("out");
+    args[IN_0] = plugin->regArg("in0");
+    args[IN_1] = plugin->regArg("in1");
+    args[IN_FADE] = plugin->regArg("fade");
+    args[OUT] = plugin->regArg("out");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_0, *in_1, *in_fade;
-	thArg *out_arg;
-	float buf_in0[windowlen], buf_in1[windowlen], buf_fade[windowlen];
-	unsigned int i;
-	float val_fade;
+    float *out;
+    thArg *in_0, *in_1, *in_fade;
+    thArg *out_arg;
+    float buf_in0[windowlen], buf_in1[windowlen], buf_fade[windowlen];
+    unsigned int i;
+    float val_fade;
 
-	in_0 = mod->getArg(node, args[IN_0]);
-	in_1 = mod->getArg(node, args[IN_1]);
-	in_fade = mod->getArg(node, args[IN_FADE]);
+    in_0 = mod->getArg(node, args[IN_0]);
+    in_1 = mod->getArg(node, args[IN_1]);
+    in_fade = mod->getArg(node, args[IN_FADE]);
 
-	in_0->getBuffer(buf_in0, windowlen);
-	in_1->getBuffer(buf_in1, windowlen);
-	in_fade->getBuffer(buf_fade, windowlen);
+    in_0->getBuffer(buf_in0, windowlen);
+    in_1->getBuffer(buf_in1, windowlen);
+    in_fade->getBuffer(buf_fade, windowlen);
 
-	out_arg = mod->getArg(node, args[OUT]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT]);
+    out = out_arg->allocate(windowlen);
 
-	for(i = 0; i < windowlen; i++) {
-		val_fade = buf_fade[i];
+    for(i = 0; i < windowlen; i++) {
+        val_fade = buf_fade[i];
 
-		out[i] = (buf_in0[i] * (1-val_fade)) + (buf_in1[i] * val_fade);
-	}
+        out[i] = (buf_in0[i] * (1-val_fade)) + (buf_in1[i] * val_fade);
+    }
 
-	return 0;
+    return 0;
 }

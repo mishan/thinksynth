@@ -24,8 +24,8 @@
 
 #include "think.h"
 
-char		*desc = "Sin-Saw oscillator";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Sin-Saw oscillator";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum { OUT_ARG, IN_FREQ, IN_FACTOR, INOUT_LAST };
 
@@ -39,51 +39,51 @@ void module_cleanup (struct module *mod)
  * instance. */
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[IN_FREQ] = plugin->regArg("freq");
-	args[IN_FACTOR] = plugin->regArg("factor");
-	args[INOUT_LAST] = plugin->regArg("last");
+    args[OUT_ARG] = plugin->regArg("out");
+    args[IN_FREQ] = plugin->regArg("freq");
+    args[IN_FACTOR] = plugin->regArg("factor");
+    args[INOUT_LAST] = plugin->regArg("last");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	int i;
-	float *out;
-	float *out_last;
-	float wavelength;
-	float position, posratio;
-	thArg *in_freq, *in_factor;
-	thArg *out_arg;
-	thArg *inout_last;
+    int i;
+    float *out;
+    float *out_last;
+    float wavelength;
+    float position, posratio;
+    thArg *in_freq, *in_factor;
+    thArg *out_arg;
+    thArg *inout_last;
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
 
-	position = (*inout_last)[0]; /* Where in the phase we are */
-	out_last = inout_last->allocate(1);
-	out = out_arg->allocate(windowlen);
+    position = (*inout_last)[0]; /* Where in the phase we are */
+    out_last = inout_last->allocate(1);
+    out = out_arg->allocate(windowlen);
 
-	in_freq = mod->getArg(node, args[IN_FREQ]);
-	in_factor = mod->getArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_factor = mod->getArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
 
-	for(i=0; i < (int)windowlen; i++) {
-		wavelength = samples * (1.0/(*in_freq)[i]);
+    for(i=0; i < (int)windowlen; i++) {
+        wavelength = samples * (1.0/(*in_freq)[i]);
 
-		posratio = 2*(position/wavelength)-1;
-		out[i] = (1-pow(fabs(posratio), (*in_factor)[i]))*posratio*TH_MAX;
-		//	printf("%f \t%f\n", position, out[i]);
-		if(++position > wavelength) {
-		  position = 0;
-		}
-	}
-	
-	out_last[0] = position;
-	
-	return 0;
+        posratio = 2*(position/wavelength)-1;
+        out[i] = (1-pow(fabs(posratio), (*in_factor)[i]))*posratio*TH_MAX;
+        //    printf("%f \t%f\n", position, out[i]);
+        if(++position > wavelength) {
+          position = 0;
+        }
+    }
+    
+    out_last[0] = position;
+    
+    return 0;
 }

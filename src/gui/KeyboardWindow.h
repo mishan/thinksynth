@@ -22,45 +22,45 @@
 class KeyboardWindow : public Gtk::Window
 {
 public:
-	KeyboardWindow (thSynth *synth);
-	~KeyboardWindow (void);
+    KeyboardWindow (thSynth *synth);
+    ~KeyboardWindow (void);
 
 protected:
-	void eventNoteOn (int chan, int note, float veloc);
-	void eventNoteOff (int chan, int note);
-	void eventChannelChanged (int chan);
-	void eventTransposeChanged (int trans);
+    void eventNoteOn (int chan, int note, float veloc);
+    void eventNoteOff (int chan, int note);
+    void eventChannelChanged (int chan);
+    void eventTransposeChanged (int trans);
 
-	void synthEventNoteOn (int chan, float note, float veloc);
-	void synthEventNoteOff (int chan, float note);
+    void synthEventNoteOn (int chan, float note, float veloc);
+    void synthEventNoteOff (int chan, float note);
 
-	void changeChannel (void);
-	void changeTranspose (void);
-	void keyboardReset (void);
-	void keyboardResetKeys (void);
+    void changeChannel (void);
+    void changeTranspose (void);
+    void keyboardReset (void);
+    void keyboardResetKeys (void);
 
-	virtual bool on_scroll_event (GdkEventScroll *s);
+    virtual bool on_scroll_event (GdkEventScroll *s);
 
-	thSynth *synth_;
+    thSynth *synth_;
 private:
-	Glib::Mutex kbMutex_;
+    Glib::Mutex kbMutex_;
 
-	Keyboard *keyboard_;
+    Keyboard *keyboard_;
 
-	/* widgets */
-	Gtk::VBox vbox_;
-	Gtk::Frame *ctrlFrame_;
-	Gtk::Table *ctrlTable_;
+    /* widgets */
+    Gtk::VBox vbox_;
+    Gtk::Frame *ctrlFrame_;
+    Gtk::Table *ctrlTable_;
 
-	Gtk::Label *chanLbl_;
-	Gtk::SpinButton *chanBtn_;
-	Gtk::Adjustment *chanVal_;
+    Gtk::Label *chanLbl_;
+    Gtk::SpinButton *chanBtn_;
+    Gtk::Adjustment *chanVal_;
 
-	Gtk::Label *transLbl_;
-	Gtk::SpinButton *transBtn_;
-	Gtk::Adjustment *transVal_;
+    Gtk::Label *transLbl_;
+    Gtk::SpinButton *transBtn_;
+    Gtk::Adjustment *transVal_;
 
-	Gtk::Button *resetBtn_;
+    Gtk::Button *resetBtn_;
 };
 
 #endif /* KEYBOARD_WINDOW_H */

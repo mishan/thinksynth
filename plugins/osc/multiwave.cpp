@@ -26,8 +26,8 @@
 
 #define SQR(x) ((x)*(x))
 
-char		*desc = "Multiple Parabola Waves";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Multiple Parabola Waves";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -41,95 +41,95 @@ int args[IN_AMPADD + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_WAVES] = plugin->regArg("waves");
-	args[OUT_ARG] = plugin->regArg("out");
-	args[OUT_SYNC] = plugin->regArg("sync");
-	args[INOUT_LAST] = plugin->regArg("last");
-	args[INOUT_FREQ] = plugin->regArg("freqbuffer");
-	args[IN_FREQ] = plugin->regArg("freq");
-	args[IN_AMP] = plugin->regArg("amp");
-	args[IN_PITCHMUL] = plugin->regArg("pitchmul");
-	args[IN_PITCHADD] = plugin->regArg("pitchadd");
-	args[IN_AMPMUL] = plugin->regArg("ampmul");
-	args[IN_AMPADD] = plugin->regArg("ampadd");
+    args[IN_WAVES] = plugin->regArg("waves");
+    args[OUT_ARG] = plugin->regArg("out");
+    args[OUT_SYNC] = plugin->regArg("sync");
+    args[INOUT_LAST] = plugin->regArg("last");
+    args[INOUT_FREQ] = plugin->regArg("freqbuffer");
+    args[IN_FREQ] = plugin->regArg("freq");
+    args[IN_AMP] = plugin->regArg("amp");
+    args[IN_PITCHMUL] = plugin->regArg("pitchmul");
+    args[IN_PITCHADD] = plugin->regArg("pitchadd");
+    args[IN_AMPMUL] = plugin->regArg("ampmul");
+    args[IN_AMPADD] = plugin->regArg("ampadd");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	int i, j;
-	float *out;
-	float *out_last, *sync, *out_freq;
-	float position, wfreq;
-	double wavelength, freq;
-	float amp_max, amp_min, amp_range;
-	float pitchmul, pitchadd, ampmul, ampadd;
-	int waves;
-	thArg *in_freq, *in_amp, *in_waves, *in_pitchmul, *in_pitchadd, *in_ampmul, *in_ampadd;
-	thArg *out_arg, *out_sync;
-	thArg *inout_last, *inout_freq;
-	
-	in_waves = mod->getArg(node, args[IN_WAVES]);
-	waves = (int)(*in_waves)[0];
-	
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out_sync = mod->getArg(node, args[OUT_SYNC]);
-	/* Output a 1 when the wave begins its cycle */
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
-	position = (*inout_last)[0];
-	out_last = inout_last->allocate(waves);
+    int i, j;
+    float *out;
+    float *out_last, *sync, *out_freq;
+    float position, wfreq;
+    double wavelength, freq;
+    float amp_max, amp_min, amp_range;
+    float pitchmul, pitchadd, ampmul, ampadd;
+    int waves;
+    thArg *in_freq, *in_amp, *in_waves, *in_pitchmul, *in_pitchadd, *in_ampmul, *in_ampadd;
+    thArg *out_arg, *out_sync;
+    thArg *inout_last, *inout_freq;
+    
+    in_waves = mod->getArg(node, args[IN_WAVES]);
+    waves = (int)(*in_waves)[0];
+    
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out_sync = mod->getArg(node, args[OUT_SYNC]);
+    /* Output a 1 when the wave begins its cycle */
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+    position = (*inout_last)[0];
+    out_last = inout_last->allocate(waves);
 
-	inout_freq = mod->getArg(node, args[INOUT_FREQ]);
-	out_freq = inout_freq->allocate(waves);
+    inout_freq = mod->getArg(node, args[INOUT_FREQ]);
+    out_freq = inout_freq->allocate(waves);
 
-	sync = out_sync->allocate(windowlen);
+    sync = out_sync->allocate(windowlen);
 
-	out = out_arg->allocate(windowlen);
+    out = out_arg->allocate(windowlen);
 
-	in_freq = mod->getArg(node, args[IN_FREQ]);
-	in_amp = mod->getArg(node, args[IN_AMP]);
-	in_pitchmul = mod->getArg(node, args[IN_PITCHMUL]);
-	in_pitchadd = mod->getArg(node, args[IN_PITCHADD]);
-	in_ampmul = mod->getArg(node, args[IN_AMPMUL]);
-	in_ampadd = mod->getArg(node, args[IN_AMPADD]);
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_amp = mod->getArg(node, args[IN_AMP]);
+    in_pitchmul = mod->getArg(node, args[IN_PITCHMUL]);
+    in_pitchadd = mod->getArg(node, args[IN_PITCHADD]);
+    in_ampmul = mod->getArg(node, args[IN_AMPMUL]);
+    in_ampadd = mod->getArg(node, args[IN_AMPADD]);
 
-	for(i = 0; i < (int)windowlen; i++) {
-		//wavelength = TH_SAMPLE/(*in_freq)[i];
-		freq = (*in_freq)[i];
-		amp_max = (*in_amp)[i];
-		if(amp_max == 0) {
-		  amp_max = TH_MAX;
-		}
-		amp_min = -amp_max;
-		amp_range = amp_max-amp_min;
+    for(i = 0; i < (int)windowlen; i++) {
+        //wavelength = TH_SAMPLE/(*in_freq)[i];
+        freq = (*in_freq)[i];
+        amp_max = (*in_amp)[i];
+        if(amp_max == 0) {
+          amp_max = TH_MAX;
+        }
+        amp_min = -amp_max;
+        amp_range = amp_max-amp_min;
 
-		pitchmul = (*in_pitchmul)[i];
-		pitchadd = (*in_pitchadd)[i];
-		ampmul = (*in_ampmul)[i];
-		ampadd = (*in_ampadd)[i];
+        pitchmul = (*in_pitchmul)[i];
+        pitchadd = (*in_pitchadd)[i];
+        ampmul = (*in_ampmul)[i];
+        ampadd = (*in_ampadd)[i];
 
-		wavelength = samples / freq;
-		out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
-		if(++(out_last[0]) > wavelength)
-			out_last[0] = 0;
+        wavelength = samples / freq;
+        out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
+        if(++(out_last[0]) > wavelength)
+            out_last[0] = 0;
 
-		for(j = 1; j < waves; j++)
-		{
-			wfreq = freq * pow(pitchmul, j) + (pitchadd * j);
-			wavelength = samples / wfreq;
-			out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * (pow(ampmul, j) + (ampadd * j)));
-			if(++(out_last[j]) > wavelength)
-				out_last[j] = 0;
-		}
-	}
-/*	node->SetArg("out", out, windowlen);
-	last[0] = position;
-	node->SetArg("last", (float*)last, 1);
-*/	
-	return 0;
+        for(j = 1; j < waves; j++)
+        {
+            wfreq = freq * pow(pitchmul, j) + (pitchadd * j);
+            wavelength = samples / wfreq;
+            out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * (pow(ampmul, j) + (ampadd * j)));
+            if(++(out_last[j]) > wavelength)
+                out_last[j] = 0;
+        }
+    }
+/*    node->SetArg("out", out, windowlen);
+    last[0] = position;
+    node->SetArg("last", (float*)last, 1);
+*/    
+    return 0;
 }

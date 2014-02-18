@@ -22,36 +22,36 @@
 #include "thUtil.h"
 
 static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
-						   100000000, 1000000000};
+                           100000000, 1000000000};
 
 static int RangeSize = sizeof(RangeArray)/sizeof(int);
 
 int thUtil::getNumLength (int num)
 {
-	num = abs(num);
-	int i;
+    num = abs(num);
+    int i;
 
-	for (i = 0; i < RangeSize; i++) {
-		if (num < RangeArray[i]) {
-			return i+1;
-		}
-	}
+    for (i = 0; i < RangeSize; i++) {
+        if (num < RangeArray[i]) {
+            return i+1;
+        }
+    }
 
-	return RangeSize+1;
+    return RangeSize+1;
 }
 
 /* Stolen from ircd-hybrid */
 
 string thUtil::basename(const char *path)
 {
-	const char *s;
+    const char *s;
   
-	if ((s = strrchr(path, '/')) == NULL)
-		s = path;
-	else
-		s++;
+    if ((s = strrchr(path, '/')) == NULL)
+        s = path;
+    else
+        s++;
   
-	return (s);
+    return (s);
 }
 
 /* dirname - by Lars Wirzenius. PD? */
@@ -59,7 +59,7 @@ string thUtil::basename(const char *path)
 string thUtil::dirname (const char *path)
 {
     const char *last_slash;
-	string ret;
+    string ret;
     size_t len;
     
     last_slash = strrchr(path, '/');
@@ -73,8 +73,8 @@ string thUtil::dirname (const char *path)
         
     len = last_slash - path;
 
-	ret = path;
-	ret = ret.substr(0, len);
+    ret = path;
+    ret = ret.substr(0, len);
 
     return ret;
 }

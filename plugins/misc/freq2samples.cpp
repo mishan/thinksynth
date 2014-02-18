@@ -23,8 +23,8 @@
 
 #include "think.h"
 
-char		*desc = "Converts a frequency to wavelength in samples";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Converts a frequency to wavelength in samples";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,32 +36,32 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_FREQ] = plugin->regArg("freq");
-	args[OUT_ARG] = plugin->regArg("out");
-	return 0;
+    args[IN_FREQ] = plugin->regArg("freq");
+    args[OUT_ARG] = plugin->regArg("out");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_freq;
-	thArg *out_arg;
-	unsigned int i, argnum;
+    float *out;
+    thArg *in_freq;
+    thArg *out_arg;
+    unsigned int i, argnum;
 
-	in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_freq = mod->getArg(node, args[IN_FREQ]);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	argnum = (unsigned int) in_freq->len();
-	out = out_arg->allocate(argnum);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    argnum = (unsigned int) in_freq->len();
+    out = out_arg->allocate(argnum);
 
-	for(i=0;i<argnum;i++) {
-	  out[i] = (1/(*in_freq)[i])*samples;
-	}
+    for(i=0;i<argnum;i++) {
+      out[i] = (1/(*in_freq)[i])*samples;
+    }
 
-/*	node->SetArg("out", out, windowlen); */
-	return 0;
+/*    node->SetArg("out", out, windowlen); */
+    return 0;
 }

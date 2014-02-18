@@ -23,8 +23,8 @@
 
 #include "think.h"
 
-char		*desc = "Resonator filter";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Resonator filter";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,62 +36,62 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_ARG] = plugin->regArg("in");
-	args[IN_FREQ] = plugin->regArg("freq");
-	args[IN_FB] = plugin->regArg("fb");
-	args[INOUT_LAST] = plugin->regArg("last");
-	args[OUT_ARG] = plugin->regArg("out");
-	return 0;
+    args[IN_ARG] = plugin->regArg("in");
+    args[IN_FREQ] = plugin->regArg("freq");
+    args[IN_FB] = plugin->regArg("fb");
+    args[INOUT_LAST] = plugin->regArg("last");
+    args[OUT_ARG] = plugin->regArg("out");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_arg, *in_freq, *in_fb;
-	thArg *out_arg;
-	thArg *inout_last;
-	unsigned int i;
-	float *last;
-	float in, omega, a0, freq, fb;
+    float *out;
+    thArg *in_arg, *in_freq, *in_fb;
+    thArg *out_arg;
+    thArg *inout_last;
+    unsigned int i;
+    float *last;
+    float in, omega, a0, freq, fb;
 
-	in_arg = mod->getArg(node, args[IN_ARG]);
-	in_freq = mod->getArg(node, args[IN_FREQ]);
-	in_fb = mod->getArg(node, args[IN_FB]);
+    in_arg = mod->getArg(node, args[IN_ARG]);
+    in_freq = mod->getArg(node, args[IN_FREQ]);
+    in_fb = mod->getArg(node, args[IN_FB]);
 
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
-	last = inout_last->allocate(3);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+    last = inout_last->allocate(3);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	for(i = 0; i < windowlen; i++) {
-		in = (*in_arg)[i];
-		freq = (*in_freq)[i];
-		fb = (*in_fb)[i];
+    for(i = 0; i < windowlen; i++) {
+        in = (*in_arg)[i];
+        freq = (*in_freq)[i];
+        fb = (*in_fb)[i];
 
-		omega = M_PI * freq / samples;
-		a0 = -(1.0 - omega) / (1.0 + omega);
+        omega = M_PI * freq / samples;
+        a0 = -(1.0 - omega) / (1.0 + omega);
 
-		in -= (last[0] * fb);
+        in -= (last[0] * fb);
 
-		out[i] = a0 * (in - last[0]) + last[1];
-		last[2] = last[0];
-		last[0] = out[i];
-		last[1] = in;
+        out[i] = a0 * (in - last[0]) + last[1];
+        last[2] = last[0];
+        last[0] = out[i];
+        last[1] = in;
 
-		/* allpass algorithm from krodokov on #musicdsp
-		omega = pi * freq / samplerate;
-		a0 = -(1.0 - omega) / (1.0 + omega);
-		Out[0] = a0 * (In[0] - Out[1]) + In[1];
-		Out[1] = Out[0]; In[1] = In[0];
-		*/
+        /* allpass algorithm from krodokov on #musicdsp
+        omega = pi * freq / samplerate;
+        a0 = -(1.0 - omega) / (1.0 + omega);
+        Out[0] = a0 * (In[0] - Out[1]) + In[1];
+        Out[1] = Out[0]; In[1] = In[0];
+        */
 
-		//printf("%f %f %f: %f \t%f\n", freq, (*in_fb)[i], a0, in, out[i]);
-	}
+        //printf("%f %f %f: %f \t%f\n", freq, (*in_fb)[i], a0, in, out[i]);
+    }
 
-	return 0;
+    return 0;
 }

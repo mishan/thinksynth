@@ -1,29 +1,29 @@
 name "test";
 
 node ionode {
-	out0 = mixer->out;
+    out0 = mixer->out;
     out1 = mixer->out;
     channels = 2;
     play = wav->play;
 
-	ampfalloff = 3.2;
-	filtfalloff = 3.6;
+    ampfalloff = 3.2;
+    filtfalloff = 3.6;
 
-	filtmin = 0.05;
-	filtmax = 1;
-	res = 0.8;
+    filtmin = 0.05;
+    filtmax = 1;
+    res = 0.8;
 
-	gatecut = 6;
+    gatecut = 6;
     gateroll = 3;
 
-	mul1 = 1;
-	mul2 = 1;
-	waveform1 = 1;
-	waveform2 = 2;
-	fmamt = 0.8;
-	fmamt2 = 0.1;
+    mul1 = 1;
+    mul2 = 1;
+    waveform1 = 1;
+    waveform2 = 2;
+    fmamt = 0.8;
+    fmamt2 = 0.1;
 
-	tone = 0.85;
+    tone = 0.85;
 };
 
 node wav input::wav {
@@ -50,44 +50,44 @@ node filtfollower env::followavg {
 };
 
 node filtmap env::map {
-	in = filtfollower->out;
-	inmin = 0;
-	inmax = th_max;
-	outmin = ionode->filtmin;
-	outmax = ionode->filtmax;
+    in = filtfollower->out;
+    inmin = 0;
+    inmax = th_max;
+    outmin = ionode->filtmin;
+    outmax = ionode->filtmax;
 };
 
 node osc1 osc::simple {
-	freq = pitch->out;
-	waveform = ionode->waveform1;
-	fm = osc1->out;
-	fmamt = ionode->fmamt2;
-	mul = ionode->mul1;
+    freq = pitch->out;
+    waveform = ionode->waveform1;
+    fm = osc1->out;
+    fmamt = ionode->fmamt2;
+    mul = ionode->mul1;
 };
 
 node osc2 osc::simple {
-	freq = pitch->out;
-	waveform = ionode->waveform2;
-	fm = osc1->out;
-	fmamt = ionode->fmamt;
-	mul = ionode->mul2;
+    freq = pitch->out;
+    waveform = ionode->waveform2;
+    fm = osc1->out;
+    fmamt = ionode->fmamt;
+    mul = ionode->mul2;
 };
 
 node premix mixer::fade {
-	in0 = osc1->out;
-	in1 = osc2->out;
-	fade = ionode->tone;
+    in0 = osc1->out;
+    in1 = osc2->out;
+    fade = ionode->tone;
 };
 
 node filt filt::ink2 {
-	in = premix->out;
-	cutoff = filtmap->out;
-	res = ionode->res;
+    in = premix->out;
+    cutoff = filtmap->out;
+    res = ionode->res;
 };
 
 node mixer mixer::mul {
-	in0 = filt->out;
-	in1 = follower->out;
+    in0 = filt->out;
+    in1 = follower->out;
 };
 
 io ionode;

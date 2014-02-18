@@ -1,79 +1,79 @@
 name "test";
 
 node ionode {
-	out0 = delay->out;
-	out1 = delay->out;
-	channels = 2;
-	play = 1;
+    out0 = delay->out;
+    out1 = delay->out;
+    channels = 2;
+    play = 1;
 
-	waveform = 1;
-	pw = 0.2;
+    waveform = 1;
+    pw = 0.2;
 
-	dlen = 1000;
-	dmin = 50;
-	dmax = 500;
-	dlfo = 0.2;
-	dfeed = 0.3;
-	ddry = 0.5;
+    dlen = 1000;
+    dmin = 50;
+    dmax = 500;
+    dlfo = 0.2;
+    dfeed = 0.3;
+    ddry = 0.5;
 
-	pulsediv = 6;
-	pulsewave = 3;
-	pulsepw = 0.2;
+    pulsediv = 6;
+    pulsewave = 3;
+    pulsepw = 0.2;
 };
 
 node freq misc::midi2freq {
-	note = ionode->note;
+    note = ionode->note;
 };
 
 node pulsediv math::div {
-	in0 = freq->out;
-	in1 = ionode->pulsediv;
+    in0 = freq->out;
+    in1 = ionode->pulsediv;
 };
 
 node lfo osc::simple {
-	freq = ionode->dlfo;
-	waveform = 5;
+    freq = ionode->dlfo;
+    waveform = 5;
 };
 
 node dmap env::map {
-	in = lfo->out;
-	inmin = th_min;
-	inmax = th_max;
-	outmin = ionode->dmin;
-	outmax = ionode->dmax;
+    in = lfo->out;
+    inmin = th_min;
+    inmax = th_max;
+    outmin = ionode->dmin;
+    outmax = ionode->dmax;
 };
 
 node pulseosc osc::simple {
-	freq = pulsediv->out;
-	waveform = ionode->pulsewave;
-	pw = ionode->pulsepw;
+    freq = pulsediv->out;
+    waveform = ionode->pulsewave;
+    pw = ionode->pulsepw;
 };
 
 node pulsemap env::map {
-	in = pulseosc->out;
-	inmin = th_min;
-	inmax = th_max;
-	outmin = 1;
+    in = pulseosc->out;
+    inmin = th_min;
+    inmax = th_max;
+    outmin = 1;
         outmax = 0;
 };
 
 node osc osc::simple {
-	freq = freq->out;
-	waveform = ionode->waveform;
-	pw = ionode->pw;
+    freq = freq->out;
+    waveform = ionode->waveform;
+    pw = ionode->pw;
 };
 
 node oscmix math::mul {
-	in0 = osc->out;
-	in1 = pulsemap->out;
+    in0 = osc->out;
+    in1 = pulsemap->out;
 };
 
 node delay delay::echo {
-	in = oscmix->out;
-	size = ionode->dlen;
-	delay = dmap->out;
-	feedback = ionode->dfeed;
-	dry = ionode->ddry;
+    in = oscmix->out;
+    size = ionode->dlen;
+    delay = dmap->out;
+    feedback = ionode->dfeed;
+    dry = ionode->ddry;
 };
 
 io ionode;

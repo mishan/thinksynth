@@ -25,8 +25,8 @@
 enum {IN_0, IN_1, OUT_ARG};
 int args[OUT_ARG + 1];
 
-char		*desc = "Adds two streams";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Adds two streams";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -34,34 +34,34 @@ void module_cleanup (struct module *mod)
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_0] = plugin->regArg("in0");
-	args[IN_1] = plugin->regArg("in1");
-	args[OUT_ARG] = plugin->regArg("out");
+    args[IN_0] = plugin->regArg("in0");
+    args[IN_1] = plugin->regArg("in1");
+    args[OUT_ARG] = plugin->regArg("out");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_0, *in_1;
-	thArg *out_arg;
-	unsigned int i;
+    float *out;
+    thArg *in_0, *in_1;
+    thArg *out_arg;
+    unsigned int i;
 
-	in_0 = mod->getArg(node, args[IN_0]);
-	in_1 = mod->getArg(node, args[IN_1]);
+    in_0 = mod->getArg(node, args[IN_0]);
+    in_1 = mod->getArg(node, args[IN_1]);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(windowlen);
 
-	for(i=0;i<windowlen;i++) {
-		out[i] = ((*in_0)[i]+(*in_1)[i])/2;
-	}
+    for(i=0;i<windowlen;i++) {
+        out[i] = ((*in_0)[i]+(*in_1)[i])/2;
+    }
 
-	return 0;
+    return 0;
 }
 

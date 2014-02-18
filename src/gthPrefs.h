@@ -24,27 +24,27 @@
 class gthPrefs
 {
 public:
-	gthPrefs (void);
-	gthPrefs (const string &path);
-	~gthPrefs (void);
+    gthPrefs (void);
+    gthPrefs (const string &path);
+    ~gthPrefs (void);
 
-	static gthPrefs *instance (void) {
-		if (instance_ == NULL)
-			instance_ = new gthPrefs;
+    static gthPrefs *instance (void) {
+        if (instance_ == NULL)
+            instance_ = new gthPrefs;
 
-		return instance_;
-	}
+        return instance_;
+    }
 
-	void Set (const string &key, string **vals);
-	string **Get (const string &key);
+    void Set (const string &key, string **vals);
+    string **Get (const string &key);
 
-	void Load (void);
-	void Save (void);
+    void Load (void);
+    void Save (void);
 private:
-	map <string, string**> prefs_;
-	string prefsPath_;
+    map <string, string**> prefs_;
+    string prefsPath_;
 
-	static gthPrefs *instance_;
+    static gthPrefs *instance_;
 };
 
 #endif /* GTH_PREFS_H */

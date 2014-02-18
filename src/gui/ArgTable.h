@@ -22,15 +22,15 @@
 class ArgTable : public Gtk::Table
 {
 public:
-	ArgTable (void);
-	~ArgTable (void);
+    ArgTable (void);
+    ~ArgTable (void);
 
-	void insertArg (thArg *arg);
+    void insertArg (thArg *arg);
 private:
-	void sliderChanged (Gtk::HScale *, thArg *);
-	void argChanged (thArg *, Gtk::HScale *);
+    void sliderChanged (Gtk::HScale *, thArg *);
+    void argChanged (thArg *, Gtk::HScale *);
 
-	int rows_, args_;
+    int rows_, args_;
 };
 
 #endif /* ARGTABLE_H */

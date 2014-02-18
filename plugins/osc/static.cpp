@@ -22,8 +22,8 @@
 
 #include "think.h"
 
-char		*desc = "Produces Random Signal";
-thPlugin::State	mystate = thPlugin::ACTIVE;
+char        *desc = "Produces Random Signal";
+thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -37,49 +37,49 @@ int args[IN_SAMPLE + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[OUT_ARG] = plugin->regArg("out");
-	args[INOUT_LAST] = plugin->regArg("last");
-	args[IN_SAMPLE] = plugin->regArg("sample");
-	return 0;
+    args[OUT_ARG] = plugin->regArg("out");
+    args[INOUT_LAST] = plugin->regArg("last");
+    args[IN_SAMPLE] = plugin->regArg("sample");
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	int i;
-	float *out;
-	float *out_last;
-	float position, last;
-	thArg* in_sample;  /* How often to change the random number */
-	thArg* out_arg;
-	thArg* inout_last;  /* So sample can be consistant over windows */
+    int i;
+    float *out;
+    float *out_last;
+    float position, last;
+    thArg* in_sample;  /* How often to change the random number */
+    thArg* out_arg;
+    thArg* inout_last;  /* So sample can be consistant over windows */
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	inout_last = mod->getArg(node, args[INOUT_LAST]);
-	position = (*inout_last)[0];
-	last = (*inout_last)[1];
-	out_last = inout_last->allocate(1);
-	out = out_arg->allocate(windowlen);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    inout_last = mod->getArg(node, args[INOUT_LAST]);
+    position = (*inout_last)[0];
+    last = (*inout_last)[1];
+    out_last = inout_last->allocate(1);
+    out = out_arg->allocate(windowlen);
 
-	in_sample = mod->getArg(node, args[IN_SAMPLE]);
+    in_sample = mod->getArg(node, args[IN_SAMPLE]);
 
-	for(i=0; i < (int)windowlen; i++) {
-		if(++position > (*in_sample)[i]) {
-			out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
-			position = 0;
-			last = out[i];
-		} else {
-			out[i] = last;
-		}
-	}
+    for(i=0; i < (int)windowlen; i++) {
+        if(++position > (*in_sample)[i]) {
+            out[i] = TH_RANGE*(rand()/(RAND_MAX+1.0))+TH_MIN;
+            position = 0;
+            last = out[i];
+        } else {
+            out[i] = last;
+        }
+    }
 
-	out_last[0] = position;
-	out_last[1] = last;
-/*	node->SetArg("out", out, windowlen);
-	node->SetArg("last", last, 2);
+    out_last[0] = position;
+    out_last[1] = last;
+/*    node->SetArg("out", out, windowlen);
+    node->SetArg("last", last, 2);
 */
-	return 0;
+    return 0;
 }

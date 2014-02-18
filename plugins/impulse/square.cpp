@@ -23,8 +23,8 @@
 
 #include "think.h"
 
-char		*desc = "Generates a square wave impulse";
-thPlugin::State	mystate = thPlugin::PASSIVE;
+char        *desc = "Generates a square wave impulse";
+thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)
 {
@@ -36,52 +36,52 @@ int args[OUT_ARG + 1];
 
 int module_init (thPlugin *plugin)
 {
-	plugin->setDesc (desc);
-	plugin->setState (mystate);
+    plugin->setDesc (desc);
+    plugin->setState (mystate);
 
-	args[IN_LEN] = plugin->regArg("len");
-	args[IN_WIDTH] = plugin->regArg("width");
-	args[IN_PW] = plugin->regArg("pw");
-	args[IN_NUM] = plugin->regArg("num");
-	args[OUT_ARG] = plugin->regArg("out");
+    args[IN_LEN] = plugin->regArg("len");
+    args[IN_WIDTH] = plugin->regArg("width");
+    args[IN_PW] = plugin->regArg("pw");
+    args[IN_NUM] = plugin->regArg("num");
+    args[OUT_ARG] = plugin->regArg("out");
 
-	return 0;
+    return 0;
 }
 
 int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-					 unsigned int samples)
+                     unsigned int samples)
 {
-	float *out;
-	thArg *in_len, *in_pw, *in_num, *in_width;
-	thArg *out_arg;
-	float i, pw, num, amp, width, pwidth;
-	unsigned int j, len;
+    float *out;
+    thArg *in_len, *in_pw, *in_num, *in_width;
+    thArg *out_arg;
+    float i, pw, num, amp, width, pwidth;
+    unsigned int j, len;
 
-	in_len = mod->getArg(node, args[IN_LEN]);
-	in_width = mod->getArg(node, args[IN_WIDTH]);
-	in_pw = mod->getArg(node, args[IN_PW]);
-	in_num = mod->getArg(node, args[IN_NUM]);
+    in_len = mod->getArg(node, args[IN_LEN]);
+    in_width = mod->getArg(node, args[IN_WIDTH]);
+    in_pw = mod->getArg(node, args[IN_PW]);
+    in_num = mod->getArg(node, args[IN_NUM]);
 
-	len = (int)(*in_len)[0];
-	num = (*in_num)[0];
-	width = len/num;
-	pwidth = (*in_width)[0];
-	if(pwidth == 0) {
-		pw = (*in_pw)[0];
-		pwidth = width * pw;
-	}
-	amp = 1/(pwidth*num);
+    len = (int)(*in_len)[0];
+    num = (*in_num)[0];
+    width = len/num;
+    pwidth = (*in_width)[0];
+    if(pwidth == 0) {
+        pw = (*in_pw)[0];
+        pwidth = width * pw;
+    }
+    amp = 1/(pwidth*num);
 
-	out_arg = mod->getArg(node, args[OUT_ARG]);
-	out = out_arg->allocate(len);
+    out_arg = mod->getArg(node, args[OUT_ARG]);
+    out = out_arg->allocate(len);
 
-	for(i = 0; (i+width) < len; i += width)
-	{
-		for(j = 0; j < width; j++)
-		{
-			out[(int)i+j] = (j <= pwidth) ? amp : 0;
-		}
-	}
-	
-	return 0;
+    for(i = 0; (i+width) < len; i += width)
+    {
+        for(j = 0; j < width; j++)
+        {
+            out[(int)i+j] = (j <= pwidth) ? amp : 0;
+        }
+    }
+    
+    return 0;
 }
