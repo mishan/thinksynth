@@ -1,5 +1,3 @@
-dnl $Id$
-
 AC_DEFUN([AC_SUBST_DIR], [
 	ifelse($2,,,$1="[$]$2")
 	$1=`(

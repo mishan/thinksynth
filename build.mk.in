@@ -1,5 +1,3 @@
-# $Id$
-
 CXX=@CXX@
 CXXFLAGS=@CXXFLAGS@
 

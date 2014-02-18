@@ -1,5 +1,3 @@
-# $Id$
-
 patch_path := @patch_path@
 default: all
 

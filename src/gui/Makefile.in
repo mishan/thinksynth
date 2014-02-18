@@ -1,5 +1,3 @@
-# $Id$
-
 all: gth.a
 
 include ../../build.mk

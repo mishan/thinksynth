@@ -1,5 +1,3 @@
-dnl $Id$
-
 AC_INIT([thinksynth],[0.1])
 AC_CONFIG_HEADERS([config.h])
 

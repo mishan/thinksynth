@@ -1,5 +1,3 @@
-# $Id$
-
 BINARY = thinksynth
 
 bindir=@bindir@
