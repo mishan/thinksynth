@@ -1,4 +1,3 @@
-# $Id$
 name "test";
 
 @cutoff = 0.5;

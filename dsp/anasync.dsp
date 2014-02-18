@@ -1,4 +1,3 @@
-# $Id$
 
 name "AnaSync";
 author "Leif Ames";

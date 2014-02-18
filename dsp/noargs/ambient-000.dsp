@@ -1,4 +1,3 @@
-# $Id$
 # glitch synth 1
 # leif ames <ink@bespin.org>
 # 5-30-2004

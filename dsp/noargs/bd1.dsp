@@ -1,4 +1,3 @@
-# $Id$
 name "bd";
 
 node ionode {

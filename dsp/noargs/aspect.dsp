@@ -1,4 +1,3 @@
-# $Id$
 # Based off the old piano0 dsp
 # Leif Ames <ink@bespin.org>
 # 5-20-2004

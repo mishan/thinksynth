@@ -1,4 +1,3 @@
-# $Id$
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

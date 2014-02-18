@@ -1,4 +1,3 @@
-# $Id$
 # TS-1
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

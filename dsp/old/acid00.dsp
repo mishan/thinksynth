@@ -1,4 +1,3 @@
-# $Id$
 # Written by Leif Ames <ink@bespin.org>
 # 5-24-2003
 

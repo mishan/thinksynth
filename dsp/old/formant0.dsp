@@ -1,4 +1,3 @@
-# $Id$
 # Written by Leif Ames <ink@bespin.org>  5/21/2003
 # FM passed through 3 band-pass filters
 name "test";

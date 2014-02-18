@@ -1,4 +1,3 @@
-# $Id$
 name "AMB 01";
 author "Leif Ames";
 description "4 oscs in a stereo mix";

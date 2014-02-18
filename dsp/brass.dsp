@@ -1,4 +1,3 @@
-# $Id: ts1.dsp 1515 2004-12-07 02:38:57Z ink $
 # TS-1
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

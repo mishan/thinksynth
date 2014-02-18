@@ -1,4 +1,3 @@
-# $Id$
 # Snare Drum 0
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

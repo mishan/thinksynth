@@ -1,4 +1,3 @@
-# $Id$
 name "BD-10";
 author "Leif Ames";
 description "Simple Kick Drum";

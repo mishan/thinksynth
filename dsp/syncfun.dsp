@@ -1,4 +1,3 @@
-# $Id$
 name "Sync Fun";
 author "Leif Ames";
 description "A little bit of fun with hard-sync";

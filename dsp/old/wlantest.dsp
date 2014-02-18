@@ -1,4 +1,3 @@
-# $Id$
 # Organ Synth
 # Leif Ames <ink@bespin.org>
 # 6-29-2003

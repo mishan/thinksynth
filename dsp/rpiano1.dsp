@@ -1,4 +1,3 @@
-# $Id: rpiano0.dsp 1596 2005-02-01 07:48:46Z misha $
 # Piano-like synth
 # Leif Ames <ink@bespin.org>
 # 5-11-2003

@@ -1,4 +1,3 @@
-# $Id$
 name "Hat 0";
 author "Leif Ames";
 description "Electronic Hihat";

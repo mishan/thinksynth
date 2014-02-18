@@ -1,4 +1,3 @@
-# $Id: ts1.dsp 1596 2005-02-01 07:48:46Z misha $
 # TS-1
 # Leif Ames <ink@bespin.org>
 # 5-11-2003
