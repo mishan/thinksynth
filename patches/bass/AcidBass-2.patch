@@ -4,7 +4,7 @@
 # Sun Apr 17 01:16:05 2005
 
 
-dsp /usr/local/share/thinksynth/dsp/ts1.dsp
+dsp ts1.dsp
 
 info author Leif Ames
 info category Leads

@@ -4,7 +4,7 @@
 # Thu Dec 23 21:47:48 2004
 
 
-dsp /usr/local/share/thinksynth/dsp/shapeo.dsp
+dsp shapeo.dsp
 
 info author Leif Ames
 info category Leads
