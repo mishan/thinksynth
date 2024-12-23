@@ -25,11 +25,9 @@
 class gthJackAudio : public gthAudio
 {
 public:
-    gthJackAudio (thSynth *synth)
-        throw (thIOException);
+    gthJackAudio (thSynth *synth);
 
-    gthJackAudio (thSynth *synth, int (*callback)(jack_nframes_t, void *))
-        throw (thIOException);
+    gthJackAudio (thSynth *synth, int (*callback)(jack_nframes_t, void *));
 
     virtual ~gthJackAudio (void);
 

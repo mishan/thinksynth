@@ -39,7 +39,6 @@ void jack_shutdown (void *arg)
 }
 
 gthJackAudio::gthJackAudio (thSynth *synth)
-    throw (thIOException)
 {
     synth_ = synth;
     jcallback_ = NULL;
@@ -62,7 +61,6 @@ gthJackAudio::gthJackAudio (thSynth *synth)
 
 gthJackAudio::gthJackAudio (thSynth *synth,
                             int (*callback)(jack_nframes_t, void *))
-    throw (thIOException)
 {
       synth_ = synth;
     jcallback_ = callback;

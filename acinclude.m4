@@ -33,7 +33,7 @@ AC_DEFUN([AC_LINKER_DYNAMIC], [
           found=yes
           AC_MSG_RESULT(no flags)
         else
-          for opt in -Wl,-export-dynamic -rdynamic -Wl,-B,dynamic; do
+          for opt in -Wl,-export-dynamic,--no-as-needed -rdynamic -Wl,-B,dynamic; do
             LDFLAGS="${hold_LDFLAGS} ${opt}"
             AC_LINK_IFELSE(AC_LANG_PROGRAM([],[int i;]), found=yes, found=no)
             if test "$found" = yes; then

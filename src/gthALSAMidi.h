@@ -26,8 +26,7 @@ typedef sigc::signal1<int, snd_seq_t *> sigMidiEvent_t;
 class gthALSAMidi
 {
 public:
-    gthALSAMidi (const char *name)
-        throw(thIOException);
+    gthALSAMidi (const char *name);
     ~gthALSAMidi (void);
 
     sigMidiEvent_t signal_midi_event (void);

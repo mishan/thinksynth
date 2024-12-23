@@ -32,10 +32,8 @@ typedef sigc::signal0<void> sigReadyWrite_t;
 class gthALSAAudio : public gthAudio
 {
 public:
-    gthALSAAudio (thSynth *synth)
-        throw(thIOException);
-    gthALSAAudio (thSynth *synth, const char *device)
-        throw(thIOException);
+    gthALSAAudio (thSynth *synth);
+    gthALSAAudio (thSynth *synth, const char *device);
 
     virtual ~gthALSAAudio ();
 

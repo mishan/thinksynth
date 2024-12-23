@@ -30,7 +30,6 @@
 #include "gthALSAMidi.h"
 
 gthALSAMidi::gthALSAMidi (const char *name)
-    throw (thIOException)
 {
     name_ = name;
     device_ = ALSA_DEFAULT_MIDI_DEVICE;

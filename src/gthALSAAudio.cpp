@@ -31,7 +31,6 @@
 #include "gthALSAAudio.h"
 
 gthALSAAudio::gthALSAAudio (thSynth *synth)
-    throw (thIOException)
 {
     synth_ = synth;
 
@@ -56,7 +55,6 @@ gthALSAAudio::gthALSAAudio (thSynth *synth)
 }
 
 gthALSAAudio::gthALSAAudio (thSynth *synth, const char *device)
-    throw (thIOException)
 {
     if (snd_pcm_open (&play_handle_, device, SND_PCM_STREAM_PLAYBACK, 0) < 0)
     {
