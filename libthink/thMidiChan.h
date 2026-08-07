@@ -21,28 +21,40 @@
 
 class thMidiChan {
 public:
+    /* Takes ownership of `mod' and destroys it. Each channel needs its own
+       tree: assignChanArgPointers() caches raw thArg pointers into the tree's
+       nodes, so a tree shared between two channels has its pointers overwritten
+       by whichever was constructed last, and destroying either channel leaves
+       the other dereferencing freed args. */
     thMidiChan (thSynthTree *mod, float amp, int windowlen);
     ~thMidiChan (void);
 
     typedef map<int, thMidiNote*> NoteMap;
     typedef list<thMidiNote*> NoteList;
-    
+
     thMidiNote *addNote (float note, float velocity);
     void delNote (int note);
-    
+
     void clearAll (void);
-    
+
+    void process (void);
+
     thMidiNote *getNote (int note);
     int setNoteArg (int note, const string &name, float value);
     int setNoteArg (int note, const string &name, const float *value, int len);
-    
-    thArg *getArg (string argName) { return args_[argName]; }
+
+    /* NB: deliberately not args_[argName] -- map::operator[] inserts a NULL on
+       every miss, which allocates on the audio thread and leaves NULLs behind
+       for every iteration site to trip over. */
+    thArg *getArg (const string &argName) const {
+        const thArgMap::const_iterator i = args_.find(argName);
+        if (i != args_.end()) return i->second;
+        return NULL;
+    }
     void setArg (thArg *arg);
 
-    thArgMap args (void) { return args_; }
-    
-    void process (void);
-    
+    const thArgMap &args (void) const { return args_; }
+
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
 
@@ -54,7 +66,7 @@ public:
     
 private:
     void assignChanArgPointers(thSynthTree *mod);
-    
+
     bool dirty_;
     thSynthTree *modnode_;
     thArgMap args_;

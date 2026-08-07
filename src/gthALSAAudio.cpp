@@ -48,14 +48,21 @@ gthALSAAudio::gthALSAAudio (thSynth *synth)
     SetFormat(synth_);
 
     outbuf_ = NULL;
+    running_ = true;
 
+    /* joinable (was false): the destructor has to be able to wait for this
+       thread before freeing the buffers it reads. */
     thread_ = Glib::Thread::create(sigc::mem_fun(*this, &gthALSAAudio::main),
-                                   false);
+                                   true);
 //    thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
 gthALSAAudio::gthALSAAudio (thSynth *synth, const char *device)
 {
+    /* This overload never assigned synth_ and then handed the uninitialised
+       member to SetFormat() -- a guaranteed crash with `-d alsa -o <device>'. */
+    synth_ = synth;
+
     if (snd_pcm_open (&play_handle_, device, SND_PCM_STREAM_PLAYBACK, 0) < 0)
     {
         fprintf(stderr, "gthALSAAudio::gthALSAAudio: %s\n", strerror(errno));
@@ -69,14 +76,27 @@ gthALSAAudio::gthALSAAudio (thSynth *synth, const char *device)
     SetFormat(synth_);
 
     outbuf_ = NULL;
+    running_ = true;
 
+    /* joinable (was false): the destructor has to be able to wait for this
+       thread before freeing the buffers it reads. */
     thread_ = Glib::Thread::create(sigc::mem_fun(*this, &gthALSAAudio::main),
-                                   false);
+                                   true);
 //    thread->set_priority(Glib::THREAD_PRIORITY_URGENT);
 }
 
 gthALSAAudio::~gthALSAAudio ()
 {
+    /* Stop and reap the polling thread before tearing down anything it reads,
+       otherwise it keeps running against freed memory. */
+    running_ = false;
+
+    if (thread_ != NULL)
+    {
+        thread_->join();
+        thread_ = NULL;
+    }
+
     if (play_handle_ != NULL)
     {
         snd_pcm_close(play_handle_);
@@ -84,9 +104,14 @@ gthALSAAudio::~gthALSAAudio ()
     }
 
     if (outbuf_)
+    {
         free (outbuf_);
+        outbuf_ = NULL;
+    }
 
     free (pfds_);
+    pfds_ = NULL;
+    nfds_ = 0;
 }
 
 void gthALSAAudio::SetFormat (thSynth *argsynth)
@@ -214,8 +239,14 @@ int gthALSAAudio::Write (float *inbuf, int len)
             {
                 for (int j = 0; j < len; j++)
                 {
-                    le16(buf[j * chans + i], 
-                         (signed short)(((float)inbuf[bufferoffset + j]/TH_MAX)*32767));
+                    /* Clamp first. Casting an out-of-range float to short is
+                       undefined and wraps in practice, so a sample just past
+                       +1.0 came out near -32768 -- a full-scale sign flip on
+                       every overshoot. */
+                    float sample = thClampSample(inbuf[bufferoffset + j]);
+
+                    le16(buf[j * chans + i],
+                         (signed short)((sample / TH_MAX) * 32767));
                 }
                 bufferoffset += len;
             }
@@ -320,15 +351,23 @@ bool gthALSAAudio::pollAudioEvent (Glib::IOCondition)
 
 void gthALSAAudio::main (void)
 {
+    if (pfds_ == NULL || nfds_ <= 0)
+    {
+        return;
+    }
+
     Glib::RefPtr<Glib::MainContext> loMain = Glib::MainContext::create();
-    
+
     loMain->signal_io().connect(sigc::mem_fun(*this,
                                            &gthALSAAudio::pollAudioEvent),
                                 pfds_[0].fd, Glib::IO_OUT,
                                 Glib::PRIORITY_HIGH);
 
-    while (1)
+    /* was `while (1)'. Blocking iteration would also have made the thread
+       unstoppable even with a flag, so don't block. */
+    while (running_)
     {
-        loMain->iteration (true);
+        loMain->iteration (false);
+        Glib::usleep(1000);
     }
 }

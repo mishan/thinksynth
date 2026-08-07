@@ -22,6 +22,7 @@
 #include <map>
 #include <string>
 #include <list>
+#include <vector>
 
 using namespace std;
 
@@ -43,6 +44,14 @@ using namespace std;
 /* how big many channel references should we allocate when we need more */
 #define CHANNELCHUNK 16
 
+/* Number of MIDI channel slots, allocated once at construction.
+ *
+ * This used to grow on demand with calloc/memcpy/free while the audio thread
+ * was iterating the array -- a use-after-free waiting to happen, for no gain:
+ * MIDI channels are 0-15 by protocol and gthPatchManager tops out at
+ * NUM_PATCHES (16) as well. A fixed array removes the race outright. */
+#define TH_MIDI_CHANNELS 16
+
 /* number of node argument references allocated at a time */
 #define ARGCHUNK 16
 
@@ -51,6 +60,44 @@ using namespace std;
 
 /* Language interface stuff... */
 #define OUTPUTPREFIX "out"
+
+/* Upper bound on a DSP's `channels' setting. The value is read straight out of
+   a .dsp file and used to size an allocation, so it needs a sanity limit. Ten
+   is also the point at which the out0..out9 naming in thMidiChan::process()
+   would need more than one digit. */
+#define TH_MAX_CHANNELS 10
+
+/* Clamp one sample to the nominal output range.
+ *
+ * thSynth::process sums every sounding note into one buffer with no headroom
+ * management at all -- each note contributes up to TH_MAX scaled only by the
+ * channel amplitude -- so anything past a note or two runs over full scale.
+ * Handing that to the output stage is not merely loud:
+ *
+ *   - the ALSA path casts float to signed short. Converting an out-of-range
+ *     float to an integer type is undefined, and in practice it wraps, so a
+ *     sample just past +1.0 comes out near -32768. Every overshoot becomes a
+ *     full-scale discontinuity -- which is the harsh static on a note's
+ *     attack, worsening with each extra voice held down.
+ *   - the JACK path hands raw floats to a port that expects -1..1.
+ *
+ * Clamping is the floor, not the ceiling: it turns wraparound into ordinary
+ * hard clipping. Actually keeping the mix inside the rails (per-voice gain
+ * staging, or a limiter) is a separate design question -- see REVIVAL.md.
+ *
+ * NB: written as two one-sided comparisons rather than fabs/isnan because the
+ * tree is built with -ffast-math, under which the compiler may assume no NaNs.
+ */
+static inline float thClampSample (float sample)
+{
+    if (sample > TH_MAX)
+        return (float)TH_MAX;
+
+    if (sample < TH_MIN)
+        return (float)TH_MIN;
+
+    return sample;
+}
 
 /* Handy debug function */
 

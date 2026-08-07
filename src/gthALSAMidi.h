@@ -23,7 +23,9 @@
 
 typedef sigc::signal1<int, snd_seq_t *> sigMidiEvent_t;
 
-class gthALSAMidi
+/* sigc::trackable so the pollMidiEvent slot handed to Glib::signal_io() is
+   disconnected on destruction instead of being left with a dangling `this'. */
+class gthALSAMidi : public sigc::trackable
 {
 public:
     gthALSAMidi (const char *name);

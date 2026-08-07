@@ -29,7 +29,10 @@
 /* additional arguments are usually bound to the callbacks of this signal */
 typedef sigc::signal0<void> sigReadyWrite_t;
 
-class gthALSAAudio : public gthAudio
+/* sigc::trackable so that the mem_fun slots this object hands to the main loop
+   are disconnected when it goes away, rather than left pointing at freed
+   memory. */
+class gthALSAAudio : public gthAudio, public sigc::trackable
 {
 public:
     gthALSAAudio (thSynth *synth);
@@ -61,6 +64,11 @@ private:
     Glib::Thread *thread_;
     gthAudioFmt ofmt_, ifmt_;
     void *outbuf_;
+
+    /* main() used to be `while (1)', so the detached thread outlived the
+       object and kept touching pfds_ and m_sigReadyWrite_ after both were
+       gone. The destructor now clears this and waits for the thread to notice. */
+    volatile bool running_;
 };
 
 #endif /* GTH_ALSAAUDIO_H */

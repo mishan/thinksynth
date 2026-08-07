@@ -156,12 +156,28 @@ int playback_callback (jack_nframes_t nframes, void *arg)
     int l = Synth->getWindowlen();
     int chans = Synth->audioChannelCount();
 
+    /* JACK's period and thinksynth's window length are independent; copying
+       `l' frames into an `nframes' buffer overran the port whenever JACK's
+       period was the smaller of the two. */
+    int copy = ((int)nframes < l) ? (int)nframes : l;
+
     for (int i = 0; i < chans; i++)
     {
         float *synthbuffer = Synth->getChanBuffer(i);
-        void *buf = jack->GetOutBuf(i, nframes);
+        float *buf = static_cast<float *>(jack->GetOutBuf(i, nframes));
 
-        memcpy(buf, synthbuffer, l * sizeof(float));
+        if (buf == NULL)
+            continue;
+
+        /* Clamped rather than memcpy'd: a JACK port expects -1..1, and the mix
+           runs well past that with more than a voice or two held down. */
+        for (int k = 0; k < copy; k++)
+            buf[k] = thClampSample(synthbuffer[k]);
+
+        /* If JACK wants more than we produced, pad with silence rather than
+           leaving whatever was in the port buffer. */
+        if ((int)nframes > copy)
+            memset(buf + copy, 0, ((int)nframes - copy) * sizeof(float));
     }
 
     /* generate a new window; must make sure that everything herein is RT-safe.
@@ -175,11 +191,15 @@ int playback_callback (jack_nframes_t nframes, void *arg)
 #ifdef HAVE_ALSA
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
 {
-    snd_seq_event_t *ev;
+    snd_seq_event_t *ev = NULL;
 
     while (snd_seq_event_input_pending(seq_handle, 1))
     {
-        snd_seq_event_input(seq_handle, &ev);
+        /* The return value was discarded and `ev' dereferenced regardless. On
+           an input overrun (-ENOSPC) snd_seq_event_input never writes it. */
+        if (snd_seq_event_input(seq_handle, &ev) < 0 || ev == NULL)
+            break;
+
         switch (ev->type)
         {
             case SND_SEQ_EVENT_NOTEON:

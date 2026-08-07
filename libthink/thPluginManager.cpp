@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <string.h>   /* strerror */
 #include <unistd.h>
 
 #ifdef HAVE_DLFCN_H

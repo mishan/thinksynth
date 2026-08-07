@@ -33,17 +33,34 @@ gthALSAMidi::gthALSAMidi (const char *name)
 {
     name_ = name;
     device_ = ALSA_DEFAULT_MIDI_DEVICE;
-    seq_opened_ = open_seq();
 
+    /* Initialise before open_seq(), which fills them in on success. The old
+       code cleared pfds_ *after* open_seq() had allocated it, discarding the
+       pointer and leaking the array. */
+    seq_handle_ = NULL;
     pfds_ = NULL;
+    seq_nfds_ = 0;
+
+    seq_opened_ = open_seq();
 }
 
 gthALSAMidi::~gthALSAMidi (void)
 {
-    snd_seq_close(seq_handle_);
+    /* snd_seq_close() was called unconditionally, so on any box where the
+       sequencer was unavailable this closed an uninitialised handle on exit. */
+    if (seq_handle_ != NULL)
+    {
+        snd_seq_close(seq_handle_);
+        seq_handle_ = NULL;
+    }
 
     if (pfds_)
+    {
         free(pfds_);
+        pfds_ = NULL;
+    }
+
+    seq_nfds_ = 0;
 }
 
 sigMidiEvent_t gthALSAMidi::signal_midi_event (void)
@@ -59,6 +76,7 @@ bool gthALSAMidi::open_seq (void)
                      SND_SEQ_OPEN_DUPLEX, 0) < 0)
     {
         fprintf(stderr, "Error opening ALSA sequencer.\n");
+        seq_handle_ = NULL;  /* snd_seq_open leaves this untouched on failure */
         return false;
     }
 
@@ -78,6 +96,13 @@ bool gthALSAMidi::open_seq (void)
     }
 
     seq_nfds_ = snd_seq_poll_descriptors_count(seq_handle_, POLLIN);
+
+    if (seq_nfds_ <= 0)
+    {
+        fprintf(stderr, "ALSA sequencer reported no poll descriptors.\n");
+        return false;
+    }
+
     pfds_ = (struct pollfd *)malloc(sizeof(struct pollfd) * seq_nfds_);
     snd_seq_poll_descriptors(seq_handle_, pfds_, seq_nfds_, POLLIN);
 

@@ -51,7 +51,7 @@ public:
     int audioChannelCount (void) const { return channels_; }
 
     thArgMap getChanArgs (int chan) {
-        if ((chan < 0) || (chan >= midiChannelCnt_) || 
+        if ((chan < 0) || (chan >= midiChannelCnt_) ||
             (midiChannels_[chan] == NULL))
             return thArgMap();
 
@@ -98,9 +98,19 @@ public:
     }
 
 private:
+    /* Shared tail of the three loadTree() overloads: checks the parse result,
+       validates the tree, and resolves it. Returns NULL (having discarded the
+       half-built tree) if the .dsp did not parse into something usable.
+
+       registerTree: true puts the tree in treelist_ under thSynth's ownership;
+       false gives the caller an unowned tree to hand to a thMidiChan. */
+    thSynthTree *finishParse (const string &what, int parseResult,
+                              bool registerTree);
+
     map<string, thSynthTree*> treelist_;
     map<int, string> patchlist_;
     thPluginManager *pluginmanager_;
+
     thMidiChan **midiChannels_; /* MIDI channels */
     int midiChannelCnt_;
     float *output_;

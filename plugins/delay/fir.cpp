@@ -77,7 +77,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for(i=0;i<windowlen;i++) {
         out[i] = 0;
 
-        if(*bufpos > inout_buffer->len()) {
+        /* was `>' -- valid indices run 0..len-1, so a bufpos equal to len fell
+           through and wrote one float past the end of the buffer. */
+        if(*bufpos >= inout_buffer->len()) {
             *bufpos = 0;
         }
         buffer[(int)*bufpos] = (*in_arg)[i];

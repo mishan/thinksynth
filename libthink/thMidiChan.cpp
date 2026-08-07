@@ -29,29 +29,47 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
 {
     const thArg *chanarg = NULL;
 
-    if (!mod) {
-        fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
-    }
-
-    copyChanArgs(mod);
-    assignChanArgPointers(mod);
-
     modnode_ = mod;
     windowlength_ = windowlen;
     dirty_ = 1;
+    channels_ = 1;
+    output_ = NULL;
+    outputnamelen_ = 0;
+    polymax_ = 10;
+    notecount_ = 0;
+    notecount_decay_ = 0;
+    argSustain_ = NULL;
+
+    if (!mod) {
+        /* This used to print and then dereference mod anyway. */
+        fprintf(stderr, "thMidiChan::thMidiChan: NULL mod passed\n");
+    }
+    else {
+        copyChanArgs(mod);
+        assignChanArgPointers(mod);
+    }
 
     args_[string("amp")] = new thArg(string("amp"), amp);
 
-    chanarg = modnode_->getArg("channels");
-    channels_ = (int)chanarg->values()[0];
+    if (modnode_) {
+        chanarg = modnode_->getArg("channels");
+    }
+
+    /* `channels' comes straight out of the .dsp, so it can be absent, zero, or
+       absurd. It sizes an allocation and drives the mix loop in thSynth. */
+    if (chanarg && chanarg->values()) {
+        channels_ = (int)chanarg->values()[0];
+    }
+
+    if (channels_ < 1 || channels_ > TH_MAX_CHANNELS) {
+        fprintf(stderr, "thMidiChan::thMidiChan: channel count %d out of "
+                "range, clamping to 1\n", channels_);
+        channels_ = 1;
+    }
 
     output_ = new float[channels_*windowlen];
+    memset(output_, 0, channels_ * windowlen * sizeof(float));
     outputnamelen_ = strlen(OUTPUTPREFIX) + thUtil::getNumLength(channels_);
-
-    polymax_ = 10;    /* XXX We need to be able to set this somehow */
-
-    notecount_ = 0;
-    notecount_decay_ = 0;
 
     argSustain_ = new thArg(string("SusPedal"), 0);
     argSustain_->setWidgetType(thArg::CHANARG);
@@ -61,14 +79,36 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
 
 thMidiChan::~thMidiChan (void)
 {
+    /* clearAll() covers notes_, decaying_ and noteorder_; the old destructor
+       only walked notes_ and leaked every decaying note. Notes hold copies of
+       modnode_, so they have to go first. */
+    clearAll();
+
     DestroyMap(args_);
-    DestroyMap(notes_);
+
+    /* We own the tree (see the constructor comment). */
+    delete modnode_;
+    modnode_ = NULL;
+
     delete[] output_;
+    output_ = NULL;
 }
 
 void thMidiChan::setArg (thArg *arg)
 {
+    if (arg == NULL)
+    {
+        return;
+    }
+
     thArg *oldArg = args_[arg->name()];
+
+    /* Guard self-assignment: deleting and then storing the same pointer back
+       would leave the map holding freed memory. */
+    if (oldArg == arg)
+    {
+        return;
+    }
 
     if (oldArg)
     {
@@ -76,13 +116,32 @@ void thMidiChan::setArg (thArg *arg)
     }
 
     args_[arg->name()] = arg;
+
+    if (arg->name() == "SusPedal")
+    {
+        argSustain_ = arg;
+    }
+
+    /* Node args in the shared tree hold raw thArg* into this map (see
+       assignChanArgPointers), so swapping an arg out from under them leaves
+       those pointers dangling. Re-resolve them. */
+    if (modnode_)
+    {
+        assignChanArgPointers(modnode_);
+    }
 }
 
 thMidiNote *thMidiChan::addNote (float note, float velocity)
 {
     thMidiNote *midinote;
+
+    if (modnode_ == NULL)
+        return NULL;
+
     int id = (int)note;
+
     NoteMap::iterator i = notes_.find(id);
+
     if (i != notes_.end()) {
         /* Make sure to turn off the old note, or it will hang! */
         i->second->setArg("trigger", 0);
@@ -106,25 +165,53 @@ thMidiNote *thMidiChan::addNote (float note, float velocity)
 void thMidiChan::delNote (int note)
 {
     NoteMap::iterator i = notes_.find(note);
+
+    /* find() returning end() was not checked, so an unknown note dereferenced
+       the past-the-end iterator. */
+    if (i == notes_.end())
+    {
+        return;
+    }
+
+    noteorder_.remove(i->second);
     delete i->second;
     notes_.erase(i);
+
+    if (notecount_ > 0)
+        notecount_--;
 }
 
 void thMidiChan::clearAll (void)
 {
-    NoteMap::iterator i;
-    NoteList::iterator j;
-
-    for (i = notes_.begin(); i != notes_.end(); i++)
+    /* This used to be:
+     *
+     *   for (i = notes_.begin(); i != notes_.end(); i++) {
+     *       delete i->second; notes_.erase(i);
+     *   }
+     *
+     * -- erase() invalidates i, and then i++ advances the dead iterator. The
+     * decaying_ loop had the same bug plus a double advance (erase() returns
+     * the next element and the loop then incremented past it).
+     *
+     * noteorder_ was never cleared either, so it was left holding pointers to
+     * every note this function had just freed.
+     */
+    for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
     {
         delete i->second;
-        notes_.erase(i);
     }
-    for (j = decaying_.begin(); j != decaying_.end(); j++)
+    notes_.clear();
+
+    for (NoteList::iterator j = decaying_.begin(); j != decaying_.end(); ++j)
     {
         delete *j;
-        j = decaying_.erase(j);
     }
+    decaying_.clear();
+
+    noteorder_.clear();
+
+    notecount_ = 0;
+    notecount_decay_ = 0;
 }
 
 thMidiNote *thMidiChan::getNote (int note)
@@ -166,22 +253,49 @@ int thMidiChan::setNoteArg (int note, const string &name, const float *value,
 void thMidiChan::copyChanArgs (thSynthTree *tree)
 {
     thArg *data, *newdata;
-    thArgMap sourceargs = tree->chanArgs();
+
+    if (tree == NULL)
+    {
+        return;
+    }
+
+    const thArgMap &sourceargs = tree->chanArgs();
 
     for (thArgMap::const_iterator i = sourceargs.begin();
          i != sourceargs.end(); i++)
     {
         data = i->second;
 
+        if (data == NULL)
+        {
+            continue;
+        }
+
         newdata = new thArg(data);
 
-        args_[(*i).first] = newdata;
+        /* Don't leak the arg this replaces. */
+        thArgMap::iterator existing = args_.find(i->first);
+
+        if (existing != args_.end())
+        {
+            delete existing->second;
+            existing->second = newdata;
+        }
+        else
+        {
+            args_[i->first] = newdata;
+        }
     }
 }
 
 void thMidiChan::process (void)
 {
-    if (dirty_) 
+    if (output_ == NULL || windowlength_ <= 0)
+    {
+        return;
+    }
+
+    if (dirty_)
     {
         memset (output_, 0, windowlength_*channels_*sizeof(float));
     }
@@ -197,7 +311,14 @@ void thMidiChan::process (void)
 
     string argname;
 
-    int sustain = (int)(*argSustain_)[0];
+    int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
+
+    amp = getArg("amp");
+
+    if (amp == NULL)
+    {
+        return;
+    }
 
     /* Before any processing, we shall do a polyphony test. */
     if (notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 
@@ -226,7 +347,7 @@ void thMidiChan::process (void)
                 delete *iter;
                 iter = noteorder_.erase(iter);
                 notecount_--;
-            }    
+            }
         }
     }
 
@@ -244,20 +365,25 @@ void thMidiChan::process (void)
         dirty_ = true;
         
         data->process(windowlength_);
-        
-        tree = data->synthTree();
-        amp = args_["amp"];
-        play = tree->getArg("play");
-        trigger = tree->getArg("trigger");
 
-        if ((*trigger)[0] == 2 && sustain < 0x40)
+        tree = data->synthTree();
+        play = tree ? tree->getArg("play") : NULL;
+        trigger = tree ? tree->getArg("trigger") : NULL;
+
+        if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
             trigger->setValue(0);
-        
-        for (i = 0; i < channels_; i++)
+
+        for (i = 0; tree && i < channels_; i++)
         {
             argname = OUTPUTPREFIX;
             argname += (char)(i+'0');
             arg = tree->getArg(argname);
+
+            /* A DSP whose io node declares more channels than it wires up has
+               no outN arg for the missing ones. */
+            if (arg == NULL)
+                continue;
+
             arg->getBuffer(buf_mix, windowlength_);
             amp->getBuffer(buf_amp, windowlength_);
 
@@ -271,7 +397,7 @@ void thMidiChan::process (void)
 
         NoteMap::iterator olditer = iter++;  /* a copy of the
                                                 old iterator to erase */
-        
+
         if (play && (*play)[windowlength_ - 1] == 0)
         {
             noteorder_.remove(data);
@@ -291,18 +417,21 @@ void thMidiChan::process (void)
         dirty_ = 1;
         data->process(windowlength_);
         tree = data->synthTree();
-        amp = args_["amp"];
-        play = tree->getArg("play");
-        trigger = tree->getArg("trigger");
+        play = tree ? tree->getArg("play") : NULL;
+        trigger = tree ? tree->getArg("trigger") : NULL;
 
-        if ((*trigger)[0] == 2 && sustain < 0x40)
+        if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
             trigger->setValue(0);
-        
-        for (i = 0; i < channels_; i++)
+
+        for (i = 0; tree && i < channels_; i++)
         {
             argname = OUTPUTPREFIX;
             argname += (char)(i+'0');
             arg = tree->getArg(argname);
+
+            if (arg == NULL)
+                continue;
+
             arg->getBuffer(buf_mix, windowlength_);
             amp->getBuffer(buf_amp, windowlength_);
 
@@ -327,27 +456,56 @@ void thMidiChan::process (void)
     }
 }
 
+/* XXX: the tree this walks is shared between every channel that loaded the same
+   .dsp (thSynth::treelist_), so the last channel constructed wins and the
+   others are left pointing into a thMidiChan that may since have been
+   destroyed. Fixing that properly means giving each channel its own tree, or
+   resolving chanargs at process time rather than caching pointers. */
 void thMidiChan::assignChanArgPointers (thSynthTree *tree)
 {
     thNode *curnode;
     thArg *curarg;
-    thSynthTree::NodeMap sourcenodes = tree->nodes();
-    thArgMap sourceargs;
+
+    if (tree == NULL)
+    {
+        return;
+    }
+
+    const thSynthTree::NodeMap &sourcenodes = tree->nodes();
 
     for (thSynthTree::NodeMap::const_iterator i = sourcenodes.begin();
          i != sourcenodes.end(); i++)
     {
         curnode = i->second;
-        sourceargs = curnode->args();
+
+        if (curnode == NULL)
+        {
+            continue;
+        }
+
+        const thArgMap &sourceargs = curnode->args();
 
         for (thArgMap::const_iterator j = sourceargs.begin();
          j != sourceargs.end(); j++)
         {
             curarg = j->second;
 
-            if (curarg->type() == thArg::ARG_CHANNEL)
+            if (curarg && curarg->type() == thArg::ARG_CHANNEL)
             {
-                curarg->setArgPtr(args_[curarg->argPtrName()]);
+                /* getArg() rather than args_[...]: the latter inserted a NULL
+                   for every unknown chanarg name, and the NULL then got handed
+                   to the audio thread as an arg pointer. */
+                thArg *target = getArg(curarg->argPtrName());
+
+                if (target == NULL)
+                {
+                    fprintf(stderr, "thMidiChan: node '%s' arg '%s' references "
+                            "undeclared chanarg '@%s'\n",
+                            curnode->name().c_str(), curarg->name().c_str(),
+                            curarg->argPtrName().c_str());
+                }
+
+                curarg->setArgPtr(target);
             }
         }
     }

@@ -42,10 +42,24 @@ libthink$(so).$(soname): $(LIBOBJS)
 libthink.a: $(LIBOBJS)
 	ar crsv $@ $(LIBOBJS)
 
-thinklex.cpp: thinklex.ll thinklang.o
-	flex -o$@ thinklex.ll
+# bison emits the parser and its header together. The header has to be a real
+# target: the old `thinklang.hpp:' stub relied on build.mk renaming whatever
+# bison produced after the fact, which stopped working with bison >= 3 (the
+# generated .cpp #includes the header under the name bison was told to use).
+thinklang.cpp: thinklang.yy
+	@YACC@ --defines=thinklang.h -o $@ $<
 
-thinklang.hpp:
+thinklang.h: thinklang.cpp
+	@test -f $@ || { rm -f thinklang.cpp; $(MAKE) thinklang.cpp; }
+
+# was `thinklex.ll thinklang.o' -- the lexer needs the parser's token
+# definitions, not the compiled object.
+thinklex.cpp: thinklex.ll thinklang.h
+	@LEX@ -o$@ thinklex.ll
+
+# Generated sources are implicit-rule intermediates; without this make deletes
+# them at the end of every build and regenerates them on the next one.
+.SECONDARY: thinklang.cpp thinklang.h thinklex.cpp
 
 clean::
 	rm -f libthink.so.$(soname) libthink$(so) libthink.a 

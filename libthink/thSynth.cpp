@@ -50,7 +50,9 @@ thSynth::thSynth (int windowlen, int samples)
        thChans and thWindowlen */
     output_ = new float[channels_*windowlen_];
 
-    midiChannelCnt_ = CHANNELCHUNK;
+    /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
+       thread can iterate it without racing a resize. */
+    midiChannelCnt_ = TH_MIDI_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
     /* default path */
@@ -80,7 +82,9 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
        thChans and thWindowlen */
     output_ = new float[channels_*windowlen_];
 
-    midiChannelCnt_ = CHANNELCHUNK;
+    /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
+       thread can iterate it without racing a resize. */
+    midiChannelCnt_ = TH_MIDI_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
     pluginmanager_ = new thPluginManager(plugin_path);
@@ -95,8 +99,20 @@ thSynth::~thSynth (void)
 {
     delete [] output_;
 
+    /* The channels were never destroyed here at all -- each one leaked its
+       args, its notes and (now) its tree. */
+    for (int i = 0; i < midiChannelCnt_; i++)
+    {
+        delete midiChannels_[i];
+        midiChannels_[i] = NULL;
+    }
+
     DestroyMap(treelist_);
     free(midiChannels_);
+    midiChannels_ = NULL;
+
+    delete controllerHandler_;
+    delete pluginmanager_;
 
     pthread_mutex_destroy(synthMutex_);
     delete synthMutex_;
@@ -107,16 +123,96 @@ thSynth::~thSynth (void)
 
 void thSynth::removeChan (int channum)
 {
-    if (((channum >= 0) && (channum < midiChannelCnt_)) && midiChannels_[channum])
-    {
-/*        thMidiChan *chan = channels[channum];
-        if (chan)
-        delete chan; */
+    if ((channum < 0) || (channum >= midiChannelCnt_))
+        return;
 
-        midiChannels_[channum] = NULL;
+    pthread_mutex_lock(synthMutex_);
+
+    thMidiChan *chan = midiChannels_[channum];
+
+    /* Clear the slot before destroying, not after: process() walks this array.
+       The delete used to be commented out entirely, so every removed channel
+       leaked its notes, args and tree. */
+    midiChannels_[channum] = NULL;
+
+    pthread_mutex_unlock(synthMutex_);
+
+    if (chan)
+    {
+        delete chan;
         patchlist_[channum] = "";
         controllerHandler_->clearByDestChan(channum);
     }
+}
+
+/* Common tail for the loadTree() overloads.
+ *
+ * Historically the return value of YYPARSE() was thrown away and the tree was
+ * resolved regardless. A .dsp with a syntax error, a missing `io' declaration,
+ * or a node referencing a plugin that failed to load would then produce a tree
+ * with a NULL ionode and an unbuilt node index, which the audio thread would
+ * walk straight off the end of. Callers already handle a NULL return.
+ *
+ * `registerTree' decides ownership. The per-channel overload passes false and
+ * hands the tree to the thMidiChan, which owns it outright; the two whole-synth
+ * overloads pass true and the tree goes into treelist_, owned by thSynth.
+ *
+ * Trees used to *always* go into treelist_, keyed by the DSP's `name'
+ * statement. Since every .dsp without a `name' parses as "newmod", they all
+ * collided -- and thMidiChan::assignChanArgPointers caches raw thArg pointers
+ * into the tree it is handed, so two channels sharing one tree silently
+ * overwrote each other's chanarg pointers, and destroying either left the other
+ * pointing at freed memory.
+ *
+ * Must be called with synthMutex_ held; parsetree is consumed either way.
+ */
+thSynthTree *thSynth::finishParse (const string &what, int parseResult,
+                                   bool registerTree)
+{
+    thSynthTree *tree = parsetree;
+
+    parsetree = NULL;
+
+    if (tree == NULL)
+    {
+        return NULL;
+    }
+
+    if (parseResult != 0)
+    {
+        fprintf(stderr, "%s: parse failed, discarding\n", what.c_str());
+        delete tree;
+        return NULL;
+    }
+
+    if (tree->IONode() == NULL)
+    {
+        fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
+                what.c_str());
+        delete tree;
+        return NULL;
+    }
+
+    tree->buildArgMap(); /* build the index of args */
+    tree->setPointers();
+    tree->buildSynthTree();
+
+    if (registerTree)
+    {
+        /* Still name-keyed, so still collision-prone -- but nothing owns these
+           except thSynth itself, so a collision only leaks. */
+        map<string, thSynthTree*>::iterator existing =
+            treelist_.find(tree->name());
+
+        if (existing != treelist_.end() && existing->second != tree)
+        {
+            delete existing->second;
+        }
+
+        treelist_[tree->name()] = tree;
+    }
+
+    return tree;
 }
 
 thSynthTree * thSynth::loadTree (const string &filename)
@@ -153,20 +249,20 @@ thSynthTree * thSynth::loadTree (const string &filename)
     parsetree = new thSynthTree("newmod", this);
     parsenode = new thNode("newnode", NULL);
 
-    YYPARSE(this);
+    int parseResult = YYPARSE(this);
 
     fclose(yyin);
+    yyin = NULL;
 
     delete parsenode;
+    parsenode = NULL;
 
-    parsetree->buildArgMap(); /* build the index of args */
-    parsetree->setPointers();
-    parsetree->buildSynthTree();
-    treelist_[parsetree->name()] = parsetree;
+    /* No channel involved, so thSynth keeps this one. */
+    thSynthTree *tree = finishParse(filename, parseResult, true);
 
     pthread_mutex_unlock(synthMutex_);
 
-    return parsetree;
+    return tree;
 }
 
 thSynthTree * thSynth::loadTree (FILE *input)
@@ -183,37 +279,34 @@ thSynthTree * thSynth::loadTree (FILE *input)
     parsetree = new thSynthTree("newmod", this);
     parsenode = new thNode("newnode", NULL);
 
-    YYPARSE(this);
+    int parseResult = YYPARSE(this);
 
     delete parsenode;
+    parsenode = NULL;
 
-    parsetree->buildArgMap(); /* build the index of args */
-    parsetree->setPointers();
-    parsetree->buildSynthTree();
-    treelist_[parsetree->name()] = parsetree;
+    thSynthTree *tree = finishParse("<stream>", parseResult, true);
 
     pthread_mutex_unlock(synthMutex_);
 
-    return parsetree;
+    return tree;
 }
 
 void thSynth::setChanArg (int channum, thArg *arg)
 {
-    if ((channum < 0) || (channum >= midiChannelCnt_))
+    if ((channum < 0) || (channum >= midiChannelCnt_) || arg == NULL)
     {
-        return;
-    }
-
-    thMidiChan *chan = midiChannels_[channum];
-    
-    if (!chan)
-    {
+        delete arg;
         return;
     }
 
     pthread_mutex_lock(synthMutex_);
 
-    chan->setArg(arg);
+    thMidiChan *chan = midiChannels_[channum];
+
+    if (chan)
+        chan->setArg(arg);
+    else
+        delete arg;
 
     pthread_mutex_unlock(synthMutex_);
 }
@@ -252,6 +345,12 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 {
     struct stat dspinfo;
 
+    if (channum < 0)
+    {
+        fprintf(stderr, "thSynth::loadTree: negative channel %d\n", channum);
+        return NULL;
+    }
+
     if (stat(filename.c_str(), &dspinfo) < 0)
     {
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
@@ -282,40 +381,32 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     parsetree = new thSynthTree("newmod", this);
     parsenode = new thNode("newnode", NULL);
 
-    YYPARSE(this);
+    int parseResult = YYPARSE(this);
+
+    fclose(yyin);
+    yyin = NULL;
 
     delete parsenode;
+    parsenode = NULL;
 
-    if (parsetree->IONode() == NULL)
+    /* registerTree false: the thMidiChan below takes ownership. */
+    thSynthTree *tree = finishParse(filename, parseResult, false);
+
+    if (tree == NULL)
     {
-        fprintf(stderr, "%s: DSP does not have a valid IO node!\n",
-            filename.c_str());
         pthread_mutex_unlock(synthMutex_);
         return NULL;
     }
-    
-    parsetree->buildArgMap(); /* build the index of args */
-    parsetree->setPointers();
-    parsetree->buildSynthTree();
-    treelist_[parsetree->name()] = parsetree;
 
-    thMidiChan **newchans;
-    int newchancount = midiChannelCnt_;
-
+    /* The array is a fixed TH_MIDI_CHANNELS slots and is never resized, so
+       there is nothing to grow here any more. */
     if (channum >= midiChannelCnt_)
     {
-        while (channum >= newchancount)
-        {
-            newchancount = ((newchancount / CHANNELCHUNK) + 1) * CHANNELCHUNK;
-            /* add one more chunk to the channel pointer array */
-        }
-        newchans = (thMidiChan **)calloc(newchancount, sizeof(thMidiChan*));
-
-        /* copy pointers over */
-        memcpy(newchans, midiChannels_, midiChannelCnt_ * sizeof(thMidiChan*));
-        free(midiChannels_);
-        midiChannelCnt_ = newchancount;
-        midiChannels_ = newchans;
+        fprintf(stderr, "thSynth::loadTree: channel %d is beyond the %d "
+                "available channels\n", channum, midiChannelCnt_);
+        delete tree;
+        pthread_mutex_unlock(synthMutex_);
+        return NULL;
     }
 
     if (midiChannels_[channum] != NULL)
@@ -323,7 +414,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
         delete midiChannels_[channum];
     }
 
-    midiChannels_[channum] = new thMidiChan(parsetree, amp, windowlen_);
+    midiChannels_[channum] = new thMidiChan(tree, amp, windowlen_);
 
     patchlist_[channum] = filename;
 
@@ -332,7 +423,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     pthread_mutex_unlock(synthMutex_);
 
-    return parsetree;
+    return tree;
 }
 
 /* Make these voids return something and add error checking everywhere! */
@@ -347,7 +438,9 @@ void thSynth::listTrees (void)
 thMidiNote *thSynth::addNote (int channum, float note,
                               float velocity)
 {
-    if ((channum < 0) || (channum > midiChannelCnt_))
+    /* was `> midiChannelCnt_' -- midiChannels_[midiChannelCnt_] is one past
+       the end of the array. */
+    if ((channum < 0) || (channum >= midiChannelCnt_))
     {
         debug("thSynth::addNote: no such channel %d", channum);
 
@@ -359,11 +452,11 @@ thMidiNote *thSynth::addNote (int channum, float note,
     if (!chan)
     {
         debug("thSynth::addNote: no such channel %d", channum);
-        
+
         return NULL;
     }
 
-     pthread_mutex_lock(synthMutex_);
+    pthread_mutex_lock(synthMutex_);
 
     thMidiNote *newnote = chan->addNote(note, velocity);
 
@@ -374,7 +467,8 @@ thMidiNote *thSynth::addNote (int channum, float note,
 
 int thSynth::delNote (int channum, float note)
 {
-    if ((channum < 0) || (channum > midiChannelCnt_))
+    /* was `> midiChannelCnt_' -- one past the end of the array. */
+    if ((channum < 0) || (channum >= midiChannelCnt_))
         return 1;
 
     thMidiChan *chan = midiChannels_[channum];
@@ -382,12 +476,16 @@ int thSynth::delNote (int channum, float note)
     if (!chan)
         return 1;
 
-    int sustain = (int)(*(chan->sustainPedal()))[0];
+    thArg *pedal = chan->sustainPedal();
+
+    if (pedal == NULL)
+        return 1;
+
+    int sustain = (int)(*pedal)[0];
 
     pthread_mutex_lock(synthMutex_);
-    
-    chan->setNoteArg ((int)note, "trigger", sustain ? 2 : 0);
-    /* XXX IS THE OLD BUFFER BEING TAKEN CARE OF?  Possible memory leak */
+
+    chan->setNoteArg((int)note, "trigger", sustain ? 2 : 0);
 
     pthread_mutex_unlock(synthMutex_);
 
@@ -396,11 +494,18 @@ int thSynth::delNote (int channum, float note)
 
 void thSynth::clearAll (void)
 {
-    /* XXX: this code is horrible. fuck you joshk */
-    thMidiChan **c = midiChannels_;
+    pthread_mutex_lock(synthMutex_);
 
-    while (*c)
-        (*c++)->clearAll();
+    /* This used to walk `while (*c) (*c++)->clearAll()', relying on a NULL
+       terminator that midiChannels_ does not have -- with every slot occupied
+       it ran straight off the end of the array. */
+    for (int i = 0; i < midiChannelCnt_; i++)
+    {
+        if (midiChannels_[i])
+            midiChannels_[i]->clearAll();
+    }
+
+    pthread_mutex_unlock(synthMutex_);
 }
 
 void thSynth::process (void)
@@ -408,8 +513,6 @@ void thSynth::process (void)
     int mixchannels, notechannels;
     thMidiChan *chan;
     float *chanoutput;
-
-//    pthread_mutex_lock(synthMutex_);
 
     memset(output_, 0, channels_ * windowlen_ * sizeof(float));
 
@@ -429,6 +532,10 @@ void thSynth::process (void)
             chan->process();
             chanoutput = chan->output();
 
+            if (chanoutput == NULL || mixchannels <= 0) {
+                continue;
+            }
+
             int bufferoffset = 0;
             int inneroffset, chanoffset;
 
@@ -447,8 +554,6 @@ void thSynth::process (void)
             }
         }
     }
-
-//    pthread_mutex_unlock(synthMutex_);
 }
 
 void thSynth::printChan(int chan)
@@ -461,13 +566,9 @@ void thSynth::printChan(int chan)
 
 float *thSynth::getOutput (void) const
 {
-//    pthread_mutex_lock(synthMutex_);
-
-    float *output = output_;
-
-//    pthread_mutex_unlock(synthMutex_);
-
-    return output;
+    /* output_ is allocated once in the constructor and never moved, so there is
+       nothing to lock here -- the commented-out mutex was pointless. */
+    return output_;
 }
 
 float *thSynth::getChanBuffer (int chan)

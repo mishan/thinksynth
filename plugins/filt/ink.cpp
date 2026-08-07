@@ -102,7 +102,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         accel += diff*SQR(val_cutoff);
         accel *= val_res;
         
-        if(abs((int)accel) > TH_RANGE) { /* more instability protection */
+        /* was abs((int)accel): casting an already-diverged float to int is
+           itself undefined, and abs(INT_MIN) has no result. Stay in float. */
+        if(fabs(accel) > TH_RANGE) { /* more instability protection */
             accel = 0;
             last = 0;
         }
