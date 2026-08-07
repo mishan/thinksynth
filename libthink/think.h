@@ -133,6 +133,8 @@ typedef list<thNode *> thNodeList;
 
 
 /* XXX: INCLUDES */
+#include "thRing.h"
+#include "thSynthCommand.h"
 #include "thArg.h"
 #include "thEndian.h"
 #include "thException.h"

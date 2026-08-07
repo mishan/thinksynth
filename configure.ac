@@ -19,7 +19,15 @@ dnl	- Function /arguments/ have changed
 dnl	- Function /behaviors/ have changed such that users need to make
 dnl	  revisions to the calls to have them work the way they did before
 dnl	  (bad)
-lib_major=4
+dnl
+dnl 4 -> 5: the command-queue rework changed thSynth's layout (it gained the
+dnl two ring buffers and a second channel array) and changed signatures --
+dnl thSynth::addNote returns bool now, and thMidiChan::process/clearAll/setArg
+dnl take a retire queue. Accessors like thSynth::getChannel are inlined in the
+dnl headers and read members at new offsets, so a binary built against these
+dnl headers must not be able to resolve against an installed libthink.so.4 --
+dnl it links happily and then reads garbage.
+lib_major=5
 
 dnl Update this when:
 dnl	- The new library needs new supporting libraries, but nothing else

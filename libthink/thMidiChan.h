@@ -32,12 +32,30 @@ public:
     typedef map<int, thMidiNote*> NoteMap;
     typedef list<thMidiNote*> NoteList;
 
-    thMidiNote *addNote (float note, float velocity);
-    void delNote (int note);
+    typedef thRing<thRetired, TH_RETIRE_QUEUE_SIZE> RetireQueue;
 
-    void clearAll (void);
+    /* ---- GUI thread ---- */
 
-    void process (void);
+    /* Allocates the note, which means copy-constructing the whole synth tree.
+       Deliberately separate from installing it: this is far too expensive to
+       do in an audio callback, so the GUI thread builds and thSynth hands the
+       finished object over through the command queue. */
+    thMidiNote *buildNote (float note, float velocity);
+
+    /* ---- audio thread ---- */
+
+    /* Installs a note built by buildNote(), applying the polyphony limit.
+       Anything displaced goes on `retire' for the GUI thread to free. */
+    void insertNote (thMidiNote *note, RetireQueue *retire);
+
+    /* Releases a sounding note (sustain pedal permitting). */
+    void releaseNote (int note);
+
+    void clearAll (RetireQueue *retire);
+
+    void process (RetireQueue *retire);
+
+    /* ---- either, with care ---- */
 
     thMidiNote *getNote (int note);
     int setNoteArg (int note, const string &name, float value);
@@ -51,7 +69,9 @@ public:
         if (i != args_.end()) return i->second;
         return NULL;
     }
-    void setArg (thArg *arg);
+    /* Audio thread: replaces the arg of the same name and retires the old one
+       rather than deleting it under the GUI thread's feet. */
+    void setArg (thArg *arg, RetireQueue *retire);
 
     const thArgMap &args (void) const { return args_; }
 
@@ -66,6 +86,11 @@ public:
     
 private:
     void assignChanArgPointers(thSynthTree *mod);
+
+    /* Hands `note' to the GUI thread to destroy. Falls back to deleting it
+       here if the retire queue is full -- that costs RT-safety in a case that
+       should not arise, but never correctness. */
+    void retireNote (thMidiNote *note, RetireQueue *retire);
 
     bool dirty_;
     thSynthTree *modnode_;

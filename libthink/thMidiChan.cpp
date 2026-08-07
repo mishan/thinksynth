@@ -81,8 +81,12 @@ thMidiChan::~thMidiChan (void)
 {
     /* clearAll() covers notes_, decaying_ and noteorder_; the old destructor
        only walked notes_ and leaked every decaying note. Notes hold copies of
-       modnode_, so they have to go first. */
-    clearAll();
+       modnode_, so they have to go first.
+
+       NULL retire queue: by the time a channel is destroyed the GUI thread has
+       already taken it back off the audio thread, so there is nobody left to
+       hand the notes to and they are freed directly. */
+    clearAll(NULL);
 
     DestroyMap(args_);
 
@@ -94,7 +98,23 @@ thMidiChan::~thMidiChan (void)
     output_ = NULL;
 }
 
-void thMidiChan::setArg (thArg *arg)
+void thMidiChan::retireNote (thMidiNote *note, RetireQueue *retire)
+{
+    if (note == NULL)
+        return;
+
+    thRetired item;
+
+    item.kind = thRetired::NOTE;
+    item.note = note;
+
+    /* Destroying a note tears down a whole synth tree, so hand it to the GUI
+       thread. If the queue is backed up, take the hit here rather than leak. */
+    if (retire == NULL || !retire->push(item))
+        delete note;
+}
+
+void thMidiChan::setArg (thArg *arg, RetireQueue *retire)
 {
     if (arg == NULL)
     {
@@ -112,7 +132,16 @@ void thMidiChan::setArg (thArg *arg)
 
     if (oldArg)
     {
-        delete oldArg;
+        thRetired item;
+
+        item.kind = thRetired::ARG;
+        item.arg = oldArg;
+
+        /* Node args in live note trees still point at oldArg until
+           assignChanArgPointers() below re-resolves them, so it cannot be
+           freed here. */
+        if (retire == NULL || !retire->push(item))
+            delete oldArg;
     }
 
     args_[arg->name()] = arg;
@@ -131,14 +160,28 @@ void thMidiChan::setArg (thArg *arg)
     }
 }
 
-thMidiNote *thMidiChan::addNote (float note, float velocity)
+/* GUI thread.
+ *
+ * All this does is allocate. It reads modnode_, which the audio thread never
+ * writes -- notes run on their own copies of the tree, not on the prototype.
+ */
+thMidiNote *thMidiChan::buildNote (float note, float velocity)
 {
-    thMidiNote *midinote;
-
     if (modnode_ == NULL)
         return NULL;
 
-    int id = (int)note;
+    return new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX);
+}
+
+/* Audio thread. This is what used to be the second half of addNote(), and it
+   is the part that has to be here: touching notes_ and noteorder_ from the GUI
+   thread while process() walked them is what produced the static. */
+void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
+{
+    if (midinote == NULL)
+        return;
+
+    int id = midinote->id();
 
     NoteMap::iterator i = notes_.find(id);
 
@@ -155,14 +198,15 @@ thMidiNote *thMidiChan::addNote (float note, float velocity)
     }
     notecount_++; /* see notecount_decay_++ comment */
 
-    midinote = new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX);
     notes_[id] = midinote;
     noteorder_.push_back(midinote);
 
-    return midinote;
+    (void)retire;
 }
 
-void thMidiChan::delNote (int note)
+/* Audio thread. Was thSynth::delNote poking the note's `trigger' arg directly
+   from the GUI thread. */
+void thMidiChan::releaseNote (int note)
 {
     NoteMap::iterator i = notes_.find(note);
 
@@ -173,15 +217,15 @@ void thMidiChan::delNote (int note)
         return;
     }
 
-    noteorder_.remove(i->second);
-    delete i->second;
-    notes_.erase(i);
+    int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
 
-    if (notecount_ > 0)
-        notecount_--;
+    /* 2 means "released but held by the pedal"; process() turns it into 0 when
+       the pedal comes up. */
+    i->second->setArg("trigger", sustain ? 2 : 0);
 }
 
-void thMidiChan::clearAll (void)
+/* Audio thread (or the destructor, once the audio thread has stopped). */
+void thMidiChan::clearAll (RetireQueue *retire)
 {
     /* This used to be:
      *
@@ -198,13 +242,13 @@ void thMidiChan::clearAll (void)
      */
     for (NoteMap::iterator i = notes_.begin(); i != notes_.end(); ++i)
     {
-        delete i->second;
+        retireNote(i->second, retire);
     }
     notes_.clear();
 
     for (NoteList::iterator j = decaying_.begin(); j != decaying_.end(); ++j)
     {
-        delete *j;
+        retireNote(*j, retire);
     }
     decaying_.clear();
 
@@ -288,7 +332,7 @@ void thMidiChan::copyChanArgs (thSynthTree *tree)
     }
 }
 
-void thMidiChan::process (void)
+void thMidiChan::process (RetireQueue *retire)
 {
     if (output_ == NULL || windowlength_ <= 0)
     {
@@ -333,7 +377,7 @@ void thMidiChan::process (void)
             while (iter != decaying_.end() && notecount_decay_ > 0 &&
                   notecount_ + notecount_decay_ > polymax_)
             {
-                delete *iter;
+                retireNote(*iter, retire);
                 iter = decaying_.erase(iter);
                 notecount_decay_--;
             }
@@ -344,7 +388,7 @@ void thMidiChan::process (void)
             while (iter != noteorder_.end() && notecount_ > polymax_)
             {
                 notes_.erase((*iter)->id());
-                delete *iter;
+                retireNote(*iter, retire);
                 iter = noteorder_.erase(iter);
                 notecount_--;
             }
@@ -401,9 +445,11 @@ void thMidiChan::process (void)
         if (play && (*play)[windowlength_ - 1] == 0)
         {
             noteorder_.remove(data);
-            delete data;
             notes_.erase(olditer);
             notecount_--;  /* polyphony stuff */
+
+            /* Hand it to the GUI thread: this frees an entire synth tree. */
+            retireNote(data, retire);
         }
     }
 
@@ -446,7 +492,7 @@ void thMidiChan::process (void)
         if (play && (*play)[windowlength_ - 1] == 0)
         {
             diter = decaying_.erase(diter);
-            delete data;
+            retireNote(data, retire);
             notecount_decay_--;  /* more polyphony stuff */
         }
         else
