@@ -20,6 +20,8 @@
 #define THINK_H
 
 #include <math.h>
+#include <stdint.h>
+#include <string.h>
 
 #include <map>
 #include <string>
@@ -83,6 +85,28 @@ using namespace std;
 #define TH_MASTER_GAIN_DEFAULT 1.0f
 #define TH_MASTER_GAIN_MAX     4.0f
 
+/* Is this sample an ordinary finite number?
+ *
+ * Deliberately done on the bit pattern rather than with isfinite()/isnan().
+ * The tree is built with -ffast-math, which implies -ffinite-math-only, under
+ * which the compiler is entitled to assume no NaNs or infinities exist and to
+ * fold those predicates to a constant. Inspecting the bits cannot be optimised
+ * away on that basis.
+ *
+ * memcpy rather than a union or a cast through float*: it is the only spelling
+ * that is not a strict-aliasing violation, and every compiler turns it into a
+ * register move.
+ */
+static inline bool thIsFinite (float sample)
+{
+    uint32_t bits;
+
+    memcpy(&bits, &sample, sizeof(bits));
+
+    /* exponent all ones => infinity (zero mantissa) or NaN (non-zero) */
+    return (bits & 0x7f800000u) != 0x7f800000u;
+}
+
 /* Soft limiter for the master output.
  *
  * thSynth::process sums voices with no headroom management -- and they sum
@@ -111,6 +135,29 @@ static inline float thSoftLimit (float sample)
 {
     const float knee = TH_LIMIT_KNEE;
     const float range = (float)TH_MAX - knee;
+
+    /* Non-finite input has to be caught before the arithmetic, not after.
+     * A NaN fails `mag <= knee' (every comparison with NaN is false), so it
+     * would fall through to tanhf(NaN) = NaN, sail past thClampSample for the
+     * same reason, and reach the output stage -- where the ALSA path casts it
+     * to signed short, which is undefined, and the JACK path hands it to a
+     * port where it poisons every downstream client.
+     *
+     * A diverging DSP is the realistic source (a few of the old ones already
+     * reach 1e5), so silence is the right answer for NaN: there is no sensible
+     * sign to preserve. Infinities do have one, so they saturate. */
+    if (!thIsFinite(sample))
+    {
+        uint32_t bits;
+
+        memcpy(&bits, &sample, sizeof(bits));
+
+        if (bits & 0x007fffffu)         /* non-zero mantissa => NaN */
+            return 0.0f;
+
+        return (bits & 0x80000000u) ? (float)TH_MIN : (float)TH_MAX;
+    }
+
     const float mag = (sample < 0.0f) ? -sample : sample;
 
     if (mag <= knee)
@@ -139,11 +186,16 @@ static inline float thSoftLimit (float sample)
  * hard clipping. Actually keeping the mix inside the rails (per-voice gain
  * staging, or a limiter) is a separate design question -- see REVIVAL.md.
  *
- * NB: written as two one-sided comparisons rather than fabs/isnan because the
- * tree is built with -ffast-math, under which the compiler may assume no NaNs.
+ * NaN is handled explicitly rather than left to the comparisons. Both of them
+ * are false for NaN, so it would pass straight through this function to the
+ * float-to-short cast, which is undefined for it. thSoftLimit normally catches
+ * that first, but this is the backstop and should not rely on being second.
  */
 static inline float thClampSample (float sample)
 {
+    if (!thIsFinite(sample))
+        return thSoftLimit(sample);
+
     if (sample > TH_MAX)
         return (float)TH_MAX;
 
@@ -152,6 +204,7 @@ static inline float thClampSample (float sample)
 
     return sample;
 }
+
 
 /* Handy debug function */
 
