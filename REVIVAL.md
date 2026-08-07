@@ -477,18 +477,71 @@ problem more mildly -- raw floats handed to a port that expects -1..1.
 `thClampSample()` (in `think.h`) now guards both paths. That converts
 wraparound into ordinary hard clipping, which is a bug fix, not a design.
 
-**Keeping the mix inside the rails is still open.** Clamping means `ts1.dsp`
-distorts on 21% of samples with four voices held, and `anasync.dsp` clips on a
-single note. The options are per-voice gain staging (divide by polyphony, or by
-`sqrt` of it), a proper limiter on the output, or simply lowering the default
-channel amplitude. `scripts/dsplevel` measures it:
+### Gain staging
 
-```sh
-LD_LIBRARY_PATH=libthink scripts/dsplevel -p plugins/ $(find dsp -name '*.dsp')
+Clamping stopped the wraparound but did nothing about headroom. Measured across
+all 78 shipped DSPs, before any gain work:
+
+| voices | median peak | clean | hot (1–4×) | very hot (4–100×) | diverging (>100×) |
+|---|---|---|---|---|---|
+| 1 | 0.78 | 47 | 17 | 7 | 4 |
+| 2 | 1.53 | 20 | 39 | 12 | 6 |
+| 3 | 2.34 | 8 | 46 | 17 | 7 |
+| 4 | 3.12 | 6 | 44 | 18 | 10 |
+
+Three things that shaped the fix. The median DSP is *well calibrated at one
+voice* (0.78) — whoever tuned these did it by ear against a single note. The
+median then scales almost exactly linearly with voice count (0.78 × N), meaning
+voices sum coherently, which they would since every envelope peaks together on
+the attack — so the overshoot is an attack transient, not a sustained level
+problem. And four DSPs (`old/test.dsp` at 1.75e5, `old/bd10.dsp` at 2e4) do not
+have a gain problem at all; their filters diverge.
+
+`thSoftLimit()` in `think.h` is a memoryless waveshaper on the master output:
+
+```
+        |x|  <= knee :  unchanged
+        |x|  >  knee :  knee + range * tanh((|x| - knee) / range)
 ```
 
-Its exit status is the number of DSPs that clip on a *single* voice — those are
-the ones whose own gain is too hot, as opposed to polyphony summing.
+with `TH_LIMIT_KNEE` at 0.7. It is continuous in value *and* slope at the knee
+(`tanh'(0) == 1`, so it leaves the linear region at unity gain) and asymptotic
+to exactly `TH_MAX`, so even a DSP diverging to 1e5 saturates gracefully with
+no special case.
+
+A waveshaper rather than a compressor, deliberately: it has no envelope, so a
+held note does not change level as other notes come and go — the thing that
+makes `1/N` per-voice scaling unpleasant to play. Below the knee it is exactly
+the identity, so quiet material and most single notes are bit-unchanged. It
+needs no lookahead, so no latency and no state to make RT-unsafe.
+
+Alongside it, `thSynth` gained a master gain (`setMasterGain`/`masterGain`),
+defaulting to unity so existing patches keep the level they were tuned at, and
+persisted in `.thinkrc` as `mastergain`. It is read by the audio thread every
+window and written from the GUI, so it goes through a relaxed atomic for the
+same reason `thArg::setValue` does.
+
+Result across the corpus: **no DSP exceeds `TH_MAX` at any voice count**, and 33
+of 81 are untouched entirely at one voice. `ts1.dsp` at four voices has its peak
+pulled down 6.2 dB; at one voice it is unaltered.
+
+`scripts/dsplevel` reports peak, the proportion of samples the limiter bent, and
+the gain reduction at the peak — the last of those matters because "38% of
+samples shaped" sounds alarming while most of those samples sit just above the
+knee and move by a fraction of a dB:
+
+```
+dsp/ts1.dsp
+  1 voice:  peak  0.617  shaped   0.0% of samples  peak cut   0.0 dB
+  4 voices: peak  1.000  shaped  38.8% of samples  peak cut   6.2 dB
+```
+
+Its exit status is the number of measurements still exceeding `TH_MAX`, which
+should be zero.
+
+**Still open:** the four diverging DSPs are being saved by the limiter rather
+than fixed. Their filters are numerically unstable and want looking at
+separately.
 
 ### Uninitialised plugin state (found on the way, also real)
 

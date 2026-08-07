@@ -81,6 +81,31 @@ public:
     long getSampleRate (void) const { return sampleRate_; }
     void setSampleRate (long samples) { sampleRate_ = samples; }
 
+    /* Master gain, applied to the summed mix before the output limiter.
+     *
+     * Written from the GUI thread and read by the audio thread every window,
+     * so it goes through a relaxed atomic rather than the command queue -- the
+     * same reasoning as thArg::setValue for a slider. A torn read of a gain
+     * would be audible; last-writer-wins is exactly what a fader wants. */
+    void setMasterGain (float gain)
+    {
+        if (gain < 0.0f)
+            gain = 0.0f;
+        else if (gain > TH_MASTER_GAIN_MAX)
+            gain = TH_MASTER_GAIN_MAX;
+
+        __atomic_store(&masterGain_, &gain, __ATOMIC_RELAXED);
+    }
+
+    float masterGain (void) const
+    {
+        float gain;
+
+        __atomic_load(&masterGain_, &gain, __ATOMIC_RELAXED);
+
+        return gain;
+    }
+
     int midiChanCount (void) const { return midiChannelCnt_; }
 
     thArg *getChanArg (int channum, const string &argname);
@@ -156,6 +181,7 @@ private:
     float *output_;
     int channels_;  /* Number of channels (mono/stereo/etc) */
     int windowlen_;
+    float masterGain_;  /* see setMasterGain(); accessed atomically */
     long sampleRate_; /* the number of samples per second*/
 
     thMidiController *controllerHandler_;

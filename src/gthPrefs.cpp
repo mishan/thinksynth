@@ -130,7 +130,14 @@ void gthPrefs::Load (void)
             values[len] = NULL;
 
             /* XXX: handle specific cases here for now */
-            if (key == "channel" && values[0] && values[1])
+            if (key == "mastergain" && values[0])
+            {
+                thSynth *s = thSynth::instance();
+
+                if (s)
+                    s->setMasterGain(atof(values[0]->c_str()));
+            }
+            else if (key == "channel" && values[0] && values[1])
             {
                 int chan = atoi(values[0]->c_str());
                 gthPatchManager *patchMgr = gthPatchManager::instance();
@@ -192,6 +199,14 @@ void gthPrefs::Save (void)
         fprintf(prefsFile, "\n");
     }
 
+    /* master output gain */
+    {
+        thSynth *synth = thSynth::instance();
+
+        if (synth)
+            fprintf(prefsFile, "mastergain %f\n", synth->masterGain());
+    }
+
     /* save channel mappings */
     {
         int chans = patchMgr->numPatches();
@@ -211,8 +226,11 @@ void gthPrefs::Save (void)
             if (file.length() > 0)
             {
                 thArg *amp = synth->getChanArg(i, "amp");
-                 fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
-                        (int)((*amp)[0]));
+
+                /* getChanArg returns NULL for a channel with no amp, and this
+                   runs on every exit including from the signal handler. */
+                fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
+                        amp ? (int)((*amp)[0]) : MIDIVALMAX);
             } 
         }
     }
