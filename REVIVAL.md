@@ -2,8 +2,8 @@
 
 Survey date: 2026-08-07. Written against `master` @ `1e4905d`.
 
-> **Status:** section 3's Tier 0 is done, plus five further memory bugs that only
-> showed up once a sanitizer build existed. See [section 6](#6-whats-been-fixed)
+> **Status:** Tier 0 is done, along with the output-stage static, the leaks,
+> tree ownership and the concurrency rework. See [section 6](#6-whats-been-fixed)
 > for what changed and how to re-run the checks.
 
 ## 1. What's here
@@ -529,54 +529,77 @@ FAIL  dsp/anasync.dsp (non-deterministic output, first differing window 0
 differing at window 0.** Zero fail after it. (`renderNote` reseeds `rand()`, or
 the twelve DSPs built on `osc::static` would show up as false positives.)
 
-### Where the queue rework got to
+### The queue rework, and a bad measurement
 
-After the command queue landed, level 1 went from **52 races to 15**. The
-container corruption is gone -- no more concurrent `std::map` mutation, no more
-GUI-thread frees of notes the callback is mixing.
+The command queue works. With a synthetic audio thread hammered by GUI-side
+note, parameter and patch changes, `dspstress` reports:
 
-The 15 that remain all have one shape: the main thread *allocates* a note's arg
-buffer inside `buildNote` (`thArg::thArg(const thArg *)`, a 4-byte `new
-float[1]`), and the audio thread later *writes* that same buffer from plugin
-code (`midi2freq.cpp:67`, `out[i] = ...`). That is exactly the handoff the
-command ring is supposed to order.
+| Level | Before the queue | After |
+|---|---|---|
+| 1 `notes` | 280 races | **0** |
+| 2 `clear` | 95 races, then hung | **0** |
+| 3 `chanargs` | — | **0** |
+| 4 `reload` | — | **0** |
 
-Four experiments, in order:
+Getting there required correcting a measurement error worth recording, because
+it wasted a lot of effort and produced numbers this document previously
+reported as fact.
 
-| Experiment | Races |
-|---|---|
-| Lock-free ring alone | 15 |
-| Mutex around the whole of `process()` | 0 |
-| Mutex around **only** `drainCommands()` | 0 |
-| Retirement disabled entirely (leak every note) | 12 |
+`configure.ac` *assigned* `CXXFLAGS` rather than appending to it:
 
-Plus: the ring was extracted and tested standalone under TSan with the exact
-pattern in question -- producer allocates and writes, consumer writes and
-frees, 20 000 items -- and comes back **clean**. And the racing buffer was
-confirmed by pointer-printing to belong to a note's own arg, not to a shared
-chanarg.
+```sh
+CXXFLAGS="-Wall -ffast-math"
+```
 
-So: the design is right (a short mutex around just the handoff silences
-everything, which means nothing outside the queue is shared), the ring is
-correct in isolation, and retirement/allocator recycling is not the cause.
-**Why the lock-free ring alone does not give ThreadSanitizer the
-happens-before edge here is still unexplained.** That question is open and this
-document should not pretend otherwise.
+So `./configure CXXFLAGS="-fsanitize=thread"` was silently discarded, and every
+"ThreadSanitizer" build had **libthink and the plugins uninstrumented**. Only
+the harness itself carried the flag. TSan still saw malloc/free and pthread
+calls through its interceptors, so it still produced reports -- but it could
+not see the ring's atomics, so it had no way to derive the happens-before edge
+between the two threads. That is precisely why every remaining report had the
+same shape: *main allocated this block, audio wrote it, with no ordering*.
 
-The pragmatic fix is a short `queueMutex_` held by the GUI only around the push
-and by the audio thread via `pthread_mutex_trylock` around the drain -- on a
-failed trylock the commands simply apply on the next window, roughly 23 ms
-later, which is inaudible and never blocks the callback. That is verifiably
-race-free. It should not be landed as though it were understood.
+It also explains why a mutex around the queue handoff silenced everything
+(pthread calls are intercepted regardless of instrumentation) and why explicit
+`__tsan_acquire`/`__tsan_release` annotations did too (they are library calls
+into libtsan). Both "fixes" were supplying an edge that the invisible atomics
+already established. The ring was correct all along, exactly as its standalone
+test said.
+
+`configure.ac` now saves the user's `CXXFLAGS` up front and re-appends them
+last, after the `-O2`/`-g3` logic, so anything passed to configure wins. With
+that in place and libthink genuinely instrumented, the ring's own atomics are
+enough and the annotations were removed.
+
+Two real races did surface once TSan could see properly, both in
+`thArg::setValue`:
+
+- It did `values_ = allocate(1)` unconditionally. Even when `allocate` returns
+  the same pointer, that is an 8-byte non-atomic write to a member the audio
+  thread reads in `getBuffer()`. It now writes only the float, leaving
+  `values_` alone, in the no-reallocation case.
+- `thSynth::setChanArg` was queueing every change, including plain value
+  updates, which is what broke the GUI reading its own writes back. It now
+  applies scalar-to-scalar updates in place -- one relaxed atomic store, no
+  reallocation, immediately visible -- and queues only genuine replacements.
+
+### Superseded: where the queue rework got to (measured wrong)
+
+An earlier revision of this document reported the queue taking level 1 "from
+52 races to 15", and described 15 remaining races as unexplained. Both numbers
+came from the uninstrumented builds described above and should be disregarded.
+The experiments run against them -- mutex around the drain, retirement
+disabled, annotations -- were all measuring the same artefact.
 
 ### What the harness found originally
 
-Against the current code, **every level fails**:
+Against the pre-queue code (commit `64ff0b3`), with libthink properly
+instrumented, **every level fails**:
 
-- **Level 1** — 52 race reports in under a second, from `addNote`/`delNote`
-  alone.
-- **Level 2** — hangs. `clearAll` concurrent with `process()` corrupts the note
-  containers badly enough to spin forever.
+- **Level 1** — 280 race reports in well under a second, from
+  `addNote`/`delNote` alone.
+- **Level 2** — 95 reports, then hangs: `clearAll` concurrent with `process()`
+  corrupts the note containers badly enough to spin forever.
 - **Level 4** — SEGV. Reloading a patch on a channel the callback is inside.
 
 The level 1 report is the interesting one, because it explains the audible

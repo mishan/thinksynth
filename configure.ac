@@ -7,6 +7,13 @@ AC_PREREQ(2.50)
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 
+dnl Remember what the user asked for before anything here starts appending.
+dnl CXXFLAGS below is assigned, not appended to, so `./configure CXXFLAGS=...'
+dnl was silently discarded -- which quietly produced uninstrumented builds when
+dnl trying to configure with -fsanitize=... These are re-appended last, after
+dnl the -O2/-g3 logic, so the user's choices win.
+USER_CXXFLAGS="$CXXFLAGS"
+
 AC_PROG_CXX
 AC_PROG_CC
 
@@ -250,6 +257,10 @@ fi
 
 AC_SUBST(GTH_ALSA)
 AC_SUBST(GTH_JACK_AUDIO)
+
+dnl Last, so anything passed to configure overrides the defaults chosen above
+dnl (notably -O2/-g3, and sanitizer flags which must reach every object).
+CXXFLAGS="$CXXFLAGS $USER_CXXFLAGS"
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)

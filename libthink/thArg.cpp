@@ -290,14 +290,20 @@ void thArg::getBuffer (float *buffer, unsigned int size)
    below and thSynth::setChanArg. */
 void thArg::setValue(float value)
 {
-    const bool wasScalar = (values_ != NULL && len_ == 1);
-
-    values_ = allocate(1);
-
-    if (wasScalar)
+    if (values_ != NULL && len_ == 1)
+    {
+        /* Store straight into the existing buffer. Note that values_ itself is
+           deliberately not reassigned: allocate(1) would return the same
+           pointer, but the assignment is still an 8-byte non-atomic write to a
+           member the audio thread reads in getBuffer(), which is a race even
+           though the value never changes. */
         __atomic_store(&values_[0], &value, __ATOMIC_RELAXED);
+    }
     else
+    {
+        values_ = allocate(1);
         values_[0] = value;
+    }
 
     m_signal_arg_changed(this);
 }

@@ -488,9 +488,46 @@ void thSynth::setChanArg (int channum, thArg *arg)
         return;
     }
 
-    /* Queued rather than applied here: installing an arg deletes the one it
-       replaces, and live note trees still point at that one until the channel
-       re-resolves them. */
+    thArg *existing = guiChannels_[channum]->getArg(arg->name());
+
+    /* Fast path: changing the value of an arg that is already a single float.
+     *
+     * thArg::setValue does not reallocate in that case, so it is one relaxed
+     * atomic store into a buffer the audio thread is only reading -- safe to
+     * do right here, and it has to be done right here, because callers read
+     * their own writes straight back. gthPatchManager::newPatch saves the
+     * amplitude, reloads the DSP, restores it with setChanArg and then
+     * repopulates the slider table from the channel; queueing that made the
+     * GUI show the pre-restore value. Patch loading does the same for every
+     * `name value' line it parses.
+     *
+     * The metadata carried across is GUI-only state (widget type, range,
+     * label); the audio thread never reads it. */
+    if (existing != NULL
+        && existing->type() == thArg::ARG_VALUE && existing->len() == 1
+        && arg->type() == thArg::ARG_VALUE && arg->len() == 1)
+    {
+        existing->setWidgetType(arg->widgetType());
+        existing->setMin(arg->min());
+        existing->setMax(arg->max());
+
+        if (!arg->label().empty())
+            existing->setLabel(arg->label());
+        if (!arg->units().empty())
+            existing->setUnits(arg->units());
+
+        existing->setValue((*arg)[0]);
+
+        pthread_mutex_unlock(synthMutex_);
+
+        delete arg;
+        return;
+    }
+
+    /* Anything else really is a replacement -- a new arg, or one changing
+       length -- and installing it deletes the arg it displaces while live note
+       trees still point at that one until the channel re-resolves them. That
+       has to happen on the audio thread. */
     thSynthCommand cmd;
 
     cmd.type = thSynthCommand::SET_CHAN_ARG;
