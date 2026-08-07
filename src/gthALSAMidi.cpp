@@ -44,10 +44,13 @@ gthALSAMidi::gthALSAMidi (const char *name)
     seq_opened_ = open_seq();
 }
 
-gthALSAMidi::~gthALSAMidi (void)
+/* Tears down whatever open_seq() managed to set up. Safe to call on a
+   partially-opened sequencer, and safe to call twice. */
+void gthALSAMidi::closeSeq (void)
 {
-    /* snd_seq_close() was called unconditionally, so on any box where the
-       sequencer was unavailable this closed an uninitialised handle on exit. */
+    /* snd_seq_close() used to be called unconditionally from the destructor,
+       so on any box where the sequencer was unavailable this closed an
+       uninitialised handle on exit. */
     if (seq_handle_ != NULL)
     {
         snd_seq_close(seq_handle_);
@@ -61,6 +64,11 @@ gthALSAMidi::~gthALSAMidi (void)
     }
 
     seq_nfds_ = 0;
+}
+
+gthALSAMidi::~gthALSAMidi (void)
+{
+    closeSeq();
 }
 
 sigMidiEvent_t gthALSAMidi::signal_midi_event (void)
@@ -87,6 +95,13 @@ bool gthALSAMidi::open_seq (void)
                         SND_SEQ_PORT_TYPE_APPLICATION)) < 0)
     {
         fprintf(stderr, "Error creating sequencer port.\n");
+
+        /* The client is registered with ALSA from snd_seq_open onwards, so
+           bailing out without closing leaves it visible to every other
+           sequencer client until the process exits. Returning false means
+           "nothing was opened", so leave nothing behind. */
+        closeSeq();
+
         return false;
     }
     else
@@ -100,6 +115,8 @@ bool gthALSAMidi::open_seq (void)
     if (seq_nfds_ <= 0)
     {
         fprintf(stderr, "ALSA sequencer reported no poll descriptors.\n");
+        closeSeq();
+
         return false;
     }
 

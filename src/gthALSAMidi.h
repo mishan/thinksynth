@@ -40,6 +40,11 @@ protected:
     string name_, device_;
 
     bool open_seq (void);
+
+    /* Undoes open_seq(), including from its own failure paths. Safe on a
+       partially-opened sequencer and safe to call twice. */
+    void closeSeq (void);
+
     bool seq_opened_;
 
     snd_seq_t *seq_handle_;

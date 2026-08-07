@@ -312,12 +312,18 @@ void thSynth::removeChan (int channum)
         cmd.chan = channum;
         cmd.channel = NULL;
 
-        guiChannels_[channum] = NULL;
-
-        postCommand(cmd);
-
-        patchlist_[channum] = "";
-        controllerHandler_->clearByDestChan(channum);
+        /* Only forget the channel if the audio thread has actually been told
+           to drop it. Clearing guiChannels_ first meant that a full queue left
+           the GUI believing the channel was gone while the callback carried on
+           playing it -- and with the GUI's only reference dropped, nothing was
+           ever going to free it. The bookkeeping below has to go the same way,
+           or the patch list and controller map disagree with reality. */
+        if (postCommand(cmd))
+        {
+            guiChannels_[channum] = NULL;
+            patchlist_[channum] = "";
+            controllerHandler_->clearByDestChan(channum);
+        }
     }
 
     pthread_mutex_unlock(synthMutex_);
@@ -655,15 +661,18 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     cmd.chan = channum;
     cmd.channel = newchan;
 
-    guiChannels_[channum] = newchan;
-
+    /* Publish only once the swap is queued. Assigning first and then resetting
+       to NULL on failure would drop the GUI's reference to whatever channel was
+       already there, leaving it playing with nothing able to reach it. */
     if (!postCommand(cmd))
     {
-        /* postCommand deleted newchan, which owns the tree. */
-        guiChannels_[channum] = NULL;
+        /* postCommand deleted newchan, which owns the tree; the previous
+           channel is untouched and still current. */
         pthread_mutex_unlock(synthMutex_);
         return NULL;
     }
+
+    guiChannels_[channum] = newchan;
 
     patchlist_[channum] = filename;
 

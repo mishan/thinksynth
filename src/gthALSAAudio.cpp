@@ -48,7 +48,7 @@ gthALSAAudio::gthALSAAudio (thSynth *synth)
     SetFormat(synth_);
 
     outbuf_ = NULL;
-    running_ = true;
+    running_.store(true, std::memory_order_relaxed);
 
     /* joinable (was false): the destructor has to be able to wait for this
        thread before freeing the buffers it reads. */
@@ -76,7 +76,7 @@ gthALSAAudio::gthALSAAudio (thSynth *synth, const char *device)
     SetFormat(synth_);
 
     outbuf_ = NULL;
-    running_ = true;
+    running_.store(true, std::memory_order_relaxed);
 
     /* joinable (was false): the destructor has to be able to wait for this
        thread before freeing the buffers it reads. */
@@ -88,8 +88,9 @@ gthALSAAudio::gthALSAAudio (thSynth *synth, const char *device)
 gthALSAAudio::~gthALSAAudio ()
 {
     /* Stop and reap the polling thread before tearing down anything it reads,
-       otherwise it keeps running against freed memory. */
-    running_ = false;
+       otherwise it keeps running against freed memory. Release so the thread's
+       acquire load below is ordered against everything done here. */
+    running_.store(false, std::memory_order_release);
 
     if (thread_ != NULL)
     {
@@ -365,7 +366,7 @@ void gthALSAAudio::main (void)
 
     /* was `while (1)'. Blocking iteration would also have made the thread
        unstoppable even with a flag, so don't block. */
-    while (running_)
+    while (running_.load(std::memory_order_acquire))
     {
         loMain->iteration (false);
         Glib::usleep(1000);
