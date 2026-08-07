@@ -58,6 +58,8 @@ thSynth::thSynth (int windowlen, int samples)
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
+    masterGain_ = TH_MASTER_GAIN_DEFAULT;
+
     /* default path */
     pluginmanager_ = new thPluginManager(PLUGIN_PATH);
 
@@ -90,6 +92,8 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     midiChannelCnt_ = TH_MIDI_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
+
+    masterGain_ = TH_MASTER_GAIN_DEFAULT;
 
     pluginmanager_ = new thPluginManager(plugin_path);
 
@@ -846,6 +850,21 @@ void thSynth::process (void)
             }
         }
     }
+
+    /* Master gain, then the limiter.
+     *
+     * Voices are summed above with no headroom management and they sum
+     * coherently -- every envelope peaks together on the attack -- so the mix
+     * routinely runs past full scale once more than one note sounds. Doing
+     * this here rather than in each audio backend means every output path gets
+     * it, and getOutput() hands back the signal that will actually be heard.
+     * The clamps in the ALSA and JACK paths stay as a backstop for anything
+     * the limiter cannot tame (a NaN out of a diverging DSP, say). */
+    const float gain = masterGain();
+    const int samples = channels_ * windowlen_;
+
+    for (int i = 0; i < samples; i++)
+        output_[i] = thSoftLimit(output_[i] * gain);
 }
 
 void thSynth::printChan(int chan)

@@ -38,8 +38,8 @@
  *   make -C scripts
  *   LD_LIBRARY_PATH=libthink scripts/dsplevel -p plugins/ dsp/ts1.dsp
  *
- * Exit status is the number of files that clip on a single voice: past 1.0 on
- * one note is the DSP itself being hot, rather than polyphony summing.
+ * Exit status is the number of measurements that still exceed TH_MAX after the
+ * master limiter, which should be none.
  */
 
 #include "config.h"
@@ -52,11 +52,35 @@
 #include "think.h"
 
 struct LevelResult {
-    float peak;
+    float peak;      /* highest |sample| after the master limiter          */
     int peakWindow;
-    long over;
+    long over;       /* samples past TH_MAX -- should always be zero now   */
+    long shaped;     /* samples the limiter actually bent (past the knee)  */
     long total;
+    float peakCutDb; /* how hard the limiter worked at the peak, in dB      */
 };
+
+/* Invert thSoftLimit to recover the pre-limiter value, so the report can say
+   how much gain reduction actually happened rather than just how many samples
+   crossed the knee -- a sample at 0.78 only moves to 0.778, which is nothing,
+   and counting it alongside one pulled down from 3.1 is misleading. */
+static float unLimit (float y)
+{
+    const float knee = TH_LIMIT_KNEE;
+    const float range = (float)TH_MAX - knee;
+
+    if (y <= knee)
+        return y;
+
+    const float t = (y - knee) / range;
+
+    /* atanh diverges as the peak approaches TH_MAX, and a float peak lands
+       exactly on 1.0 easily, so cap rather than report a nonsense figure. */
+    if (t >= 0.99995f)
+        return -1.0f;
+
+    return knee + range * atanhf(t);
+}
 
 static bool measure (const string &pluginPath, const char *file, int voices,
                      int windows, LevelResult &result)
@@ -79,7 +103,9 @@ static bool measure (const string &pluginPath, const char *file, int voices,
     result.peak = 0;
     result.peakWindow = -1;
     result.over = 0;
+    result.shaped = 0;
     result.total = 0;
+    result.peakCutDb = 0;
 
     for (int w = 0; w < windows; w++)
     {
@@ -100,8 +126,21 @@ static bool measure (const string &pluginPath, const char *file, int voices,
             if (a > (float)TH_MAX)
                 result.over++;
 
+            if (a > TH_LIMIT_KNEE)
+                result.shaped++;
+
             result.total++;
         }
+    }
+
+    if (result.peak > TH_LIMIT_KNEE)
+    {
+        const float before = unLimit(result.peak);
+
+        if (before < 0.0f)
+            result.peakCutDb = -1.0f;      /* saturated; report as a floor */
+        else if (before > result.peak && result.peak > 0)
+            result.peakCutDb = 20.0f * log10f(before / result.peak);
     }
 
     return true;
@@ -174,13 +213,21 @@ int main (int argc, char **argv)
                 break;
             }
 
-            printf("  %d voice%s peak %6.3f at window %-2d  clipped %5.1f%%%s\n",
-                   v, (v == 1) ? ": " : "s:", r.peak, r.peakWindow,
-                   r.total ? (100.0 * r.over / r.total) : 0.0,
-                   (v == 1 && r.peak > (float)TH_MAX) ? "   <- hot on one voice"
-                                                      : "");
+            char cut[32];
 
-            if (v == 1 && r.peak > (float)TH_MAX)
+            if (r.peakCutDb < 0.0f)
+                snprintf(cut, sizeof(cut), "  >20 dB");
+            else
+                snprintf(cut, sizeof(cut), "%5.1f dB", r.peakCutDb);
+
+            printf("  %d voice%s peak %6.3f  shaped %5.1f%% of samples  "
+                   "peak cut %s%s\n",
+                   v, (v == 1) ? ": " : "s:", r.peak,
+                   r.total ? (100.0 * r.shaped / r.total) : 0.0, cut,
+                   (r.over > 0) ? "   <- STILL CLIPPING" : "");
+
+            /* Nothing should get past the limiter any more. */
+            if (r.over > 0)
                 hot++;
         }
     }

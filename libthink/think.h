@@ -19,6 +19,8 @@
 #ifndef THINK_H
 #define THINK_H
 
+#include <math.h>
+
 #include <map>
 #include <string>
 #include <list>
@@ -66,6 +68,58 @@ using namespace std;
    is also the point at which the out0..out9 naming in thMidiChan::process()
    would need more than one digit. */
 #define TH_MAX_CHANNELS 10
+
+/* Where the output limiter stops being transparent.
+ *
+ * Below this a sample passes through bit-for-bit; above it the curve bends
+ * towards TH_MAX. The measured median .dsp peaks at 0.78 on a single voice, so
+ * a knee at 0.7 leaves most single notes entirely untouched and only starts
+ * working once voices sum. */
+#define TH_LIMIT_KNEE 0.7f
+
+/* Master gain range. The default is unity: the limiter, not a gain cut, is
+   what keeps the mix inside the rails, so existing patches keep the level they
+   were tuned at. Above unity is allowed for quiet DSPs. */
+#define TH_MASTER_GAIN_DEFAULT 1.0f
+#define TH_MASTER_GAIN_MAX     4.0f
+
+/* Soft limiter for the master output.
+ *
+ * thSynth::process sums voices with no headroom management -- and they sum
+ * coherently, because every envelope peaks together on the attack -- so across
+ * the shipped DSPs the median peak runs 0.78 / 1.53 / 2.34 / 3.12 for one to
+ * four voices. Hard clipping that is audible as buzz on every chord.
+ *
+ * This is a memoryless waveshaper rather than a compressor, deliberately:
+ *
+ *   - it has no envelope, so a held note does not change level when other
+ *     notes come and go, which is the thing that makes 1/N-style per-voice
+ *     scaling unpleasant to play;
+ *   - below the knee it is exactly the identity, so quiet material and single
+ *     notes are unaltered;
+ *   - above the knee it rounds peaks off with low-order harmonic distortion
+ *     instead of the discontinuity of a hard clip;
+ *   - it needs no lookahead, so it adds no latency and no state to make
+ *     RT-unsafe.
+ *
+ * The curve is continuous in value *and* slope at the knee: tanh'(0) == 1, so
+ * it leaves the linear region at unity gain, and tanh -> 1 gives an asymptote
+ * of exactly TH_MAX. A wildly diverging DSP (a few of the old ones reach 1e5)
+ * therefore saturates gracefully rather than needing a special case.
+ */
+static inline float thSoftLimit (float sample)
+{
+    const float knee = TH_LIMIT_KNEE;
+    const float range = (float)TH_MAX - knee;
+    const float mag = (sample < 0.0f) ? -sample : sample;
+
+    if (mag <= knee)
+        return sample;
+
+    const float shaped = knee + range * tanhf((mag - knee) / range);
+
+    return (sample < 0.0f) ? -shaped : shaped;
+}
 
 /* Clamp one sample to the nominal output range.
  *
