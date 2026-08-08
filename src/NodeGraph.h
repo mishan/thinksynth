@@ -77,7 +77,7 @@ public:
         bool isPort;
 
         /* True if the plugin declares this an output.
-        
+
            An output is an arg like any other: it is in the node's arg map and
            it has a value. But the plugin writes it, so offering a spin button
            for it would invite an edit that gets overwritten on the next
@@ -85,8 +85,12 @@ public:
            since seeing what a node produces is half of reading a patch. */
         bool isOutput;
 
+        /* True if `value' means anything. A wired parameter has no number of
+           its own; a chanarg has the channel's, which is worth showing. */
+        bool hasValue;
+
         Param (void) : kind(VALUE), value(0), min(0), max(0), isPort(false),
-                       isOutput(false) { }
+                       isOutput(false), hasValue(false) { }
     };
 
     struct Box {
@@ -176,7 +180,7 @@ public:
 
 private:
     static int findPort (const Box &b, const string &name, bool wantInput);
-    void collectParams (thNode *n, Box &b);
+    void collectParams (thSynthTree *tree, thNode *n, Box &b);
     void assignLayers (void);
     void orderWithinLayers (void);
     void placePorts (Box &b);

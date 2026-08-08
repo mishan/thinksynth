@@ -113,7 +113,7 @@ static bool isStateArg (thNode *n, const string &name)
  * channel arg -- seeing that `cutoff' is driven by `env->out' rather than by a
  * number is exactly what a panel is for, and hiding wired args would make the
  * list change shape as things get connected. */
-void NodeGraph::collectParams (thNode *n, Box &b)
+void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
 {
     thPlugin *p = n->plugin();
 
@@ -166,15 +166,42 @@ void NodeGraph::collectParams (thNode *n, Box &b)
                 break;
 
             case thArg::ARG_CHANNEL:
+            {
                 prm.kind = Param::CHANARG;
-                /* setArg(name, chanarg) stores the channel arg's name in the
-                   same field a node pointer would use. */
-                prm.source = "@" + arg->nodePtrName();
+
+                /* The chanarg's name lives in argPtrName_, not nodePtrName_ --
+                   a channel arg has no node half. */
+                const string &chan = arg->argPtrName();
+
+                prm.source = "@" + chan;
+
+                /* In most DSPs every meaningful setting is a chanarg, so a
+                   panel that showed only "@cutoff" would be a list of names
+                   with no numbers in it. The tree knows what @cutoff is. */
+                thArg *ca = tree ? tree->getChanArg(chan) : NULL;
+
+                if (ca && ca->type() == thArg::ARG_VALUE && ca->len() > 0)
+                {
+                    prm.value = (*ca)[0];
+                    prm.hasValue = true;
+
+                    /* The range and label belong to the chanarg too. */
+                    if (ca->min() != 0 || ca->max() != 0)
+                    {
+                        prm.min = ca->min();
+                        prm.max = ca->max();
+                    }
+
+                    if (prm.label.empty())
+                        prm.label = ca->label();
+                }
+
                 break;
+            }
 
             case thArg::ARG_NOTE:
                 prm.kind = Param::NOTE;
-                prm.source = "@" + arg->nodePtrName();
+                prm.source = "@" + arg->argPtrName();
                 break;
 
             case thArg::ARG_VALUE:
@@ -183,6 +210,7 @@ void NodeGraph::collectParams (thNode *n, Box &b)
                 /* A multi-sample arg has no single value to show; the first
                    sample is a reasonable stand-in and len() says the rest. */
                 prm.value = (arg->len() > 0) ? (*arg)[0] : 0.0f;
+                prm.hasValue = true;
                 break;
         }
 
@@ -262,7 +290,7 @@ bool NodeGraph::build (thSynthTree *tree)
             }
         }
 
-        collectParams(n, b);
+        collectParams(tree, n, b);
 
         boxes_.push_back(b);
         byName_[b.name] = (int)boxes_.size() - 1;
@@ -410,6 +438,20 @@ bool NodeGraph::build (thSynthTree *tree)
 
                 tb.ports.push_back(port);
                 e.toPort = (int)tb.ports.size() - 1;
+            }
+
+            /* An io node arg that something reads -- note, velocity, trigger
+               -- is an output of the MIDI source, whatever the io node's own
+               (nonexistent) plugin would say. Without this the panel would
+               cheerfully offer to set `ionode.note' to a number, which is not
+               a thing that can be done to incoming MIDI. */
+            if (ios != sourceOfIo.end())
+            {
+                Box &io = boxes_[srcIt->second];
+
+                for (size_t q = 0; q < io.params.size(); q++)
+                    if (io.params[q].name == arg->argPtrName())
+                        io.params[q].isOutput = true;
             }
 
             if (e.fromPort >= 0 && e.toPort >= 0)

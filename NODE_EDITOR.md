@@ -207,9 +207,9 @@ Implemented on `node-editor` off `gtkmm3-port`. Steps refer to §6 above.
 | 2. Graph model and layout | done | `src/NodeGraph.{h,cpp}` |
 | 3. Read-only canvas | done | `src/gui/NodeCanvas.{h,cpp}` |
 | 4. Interaction | done | drag, Ctrl+wheel zoom, hover; hit-testing in `NodeGraph` |
-| 5. The `.dsp` writer | positions only | `src/NodeLayout.{h,cpp}` |
-| 6. Editing | not started | needs the writer below |
-| 7. Parameter controls | in progress | |
+| 5. The `.dsp` writer | positions and values | `src/NodeLayout.{h,cpp}`, `src/NodeEdit.{h,cpp}` |
+| 6. Editing | not started | wires and nodes, still ahead |
+| 7. Parameter controls | done | `src/gui/NodeParams.{h,cpp}` |
 
 Reachable from **File → Node View** (Ctrl+N). `NodeWindow` parses its own tree
 through `thSynth::parseTree()`, which neither registers nor owns the result, so
@@ -250,3 +250,50 @@ one line — the right-hand side of a single `arg = value` — where edge editin
 needs the full node-definition writer up front. Since step 6 needs that same
 splicer anyway, building it against the smaller problem first is the cheaper way
 to find out where the writer is wrong.
+
+### What the grammar actually allows
+
+Writing values turned out to be constrained in ways reading never revealed:
+
+- The lexer's number pattern is `[0-9]+(\.[0-9]*)?`. **No exponent.** A value
+  that needs one cannot be written at all — `NodeEdit` refuses rather than
+  emitting something that will not parse.
+- **Negatives** exist only as a unary-minus rule over that. Eight in the corpus.
+- `5 ms` is `5 * TH_SAMPLE / 1000` and `50%` is `50 * TH_MAX / 100`. Both are
+  exactly invertible, so a value written with a unit keeps it.
+- **229 uses of `th_max` and `th_min`**, plus `th_range`, `th_midimax` and
+  `th_sample`. A writer that did not recognise these would turn `inmax =
+  th_max` into `inmax = 1` on the first save of any file containing one.
+- Eight right-hand sides are arithmetic. `NodeEdit` refuses those too — an
+  editor that silently replaced someone's `a * 2` with a constant would be
+  doing exactly the damage splicing exists to prevent.
+
+Two things fell out of building it that are worth recording:
+
+**Exact float equality does not work.** libthink is built with `-ffast-math`,
+which lets the compiler turn the grammar's `× TH_SAMPLE / 1000` into a multiply
+by the reciprocal. So `0.5 ms` is held as 22.0500011 where honest arithmetic
+gives 22.0499992 — a couple of ULP apart, and enough that re-deriving the
+literal exactly is impossible. Demanding it rewrote `0.5 ms` as
+`0.50000003 ms`. The comparison is now four ULP wide. `REVIVAL.md` lists
+dropping the global `-ffast-math` as outstanding; this is one concrete thing it
+costs.
+
+**The guarantee is about untouched values, not about round trips.** Once a
+value has genuinely been changed and changed back, `th_max` comes back as `1` —
+the writer has no memory of how a number used to be spelled, only of when it
+does not need to touch one at all. So `scripts/dspwrite` asserts the property
+that matters: a write of the value already there changes no byte of the file.
+1942 of those across the corpus, every one byte-identical.
+
+### Args that no plugin declared
+
+The panel and the canvas are built by separate passes, so `dspgraph` now
+cross-checks them — and they disagreed. `filt::moog` produces `out_low`,
+`out_high` and `out_bandpass` and registered none of them; they existed only as
+string lookups inside the callback. `math::sin` registered nothing at all.
+`input::alsa` likewise. Six wires were being silently dropped. All three now
+register properly, verified sound-identical by the new `scripts/dspab`.
+
+This qualifies §1: "302 of 305 args agree, zero disagree" was measured over
+*registered* args, so args conjured at callback time were never in the sample.

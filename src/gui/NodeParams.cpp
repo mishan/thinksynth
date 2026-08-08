@@ -76,37 +76,42 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
         string text = p.source;
         string tip;
 
+        char num[64] = "";
+
+        if (p.hasValue)
+            snprintf(num, sizeof(num), "%g", p.value);
+
         if (p.isOutput && p.kind == NodeGraph::Param::VALUE)
         {
             /* Shown as a number, but not offered for editing: the plugin
                writes it on every window. Before anything has been rendered it
                reads 0, which is honest rather than interesting. */
-            char buf[64];
-
-            snprintf(buf, sizeof(buf), "%g", p.value);
-
-            text = buf;
+            text = num;
             tip = "An output of this node. The plugin writes it.";
         }
+        else if (p.kind == NodeGraph::Param::POINTER)
+            tip = "Driven by another node. Change the wire, not the value.";
+        else if (p.kind == NodeGraph::Param::NOTE)
+        {
+            /* Not the same thing as a channel arg, and saying so matters: a
+               note arg is per-note -- velocity, the note number -- and
+               changing the channel would not touch it. */
+            tip = "Comes from the note being played.";
+        }
         else
-            switch (p.kind)
-            {
-                case NodeGraph::Param::POINTER:
-                    tip = "Driven by another node. "
-                          "Change the wire, not the value.";
-                    break;
+        {
+            /* In most DSPs every setting worth touching is a chanarg, so
+               showing only "@cutoff" would be a list of names with no numbers
+               in it. Editing one means rewriting the channel block rather than
+               this node, which is not built yet -- hence shown, not offered. */
+            if (p.hasValue)
+                text = p.source + " = " + num;
 
-                case NodeGraph::Param::NOTE:
-                    /* Not the same thing as a channel arg, and saying so
-                       matters: a note arg is per-note -- velocity, the note
-                       number -- and changing the channel would not touch it. */
-                    tip = "Comes from the note being played.";
-                    break;
+            tip = "Comes from a channel parameter.";
 
-                default:
-                    tip = "Comes from a channel parameter.";
-                    break;
-            }
+            if (!p.units.empty())
+                tip += "  (" + p.units + ")";
+        }
 
         Gtk::Label *src = manage(new Gtk::Label(text));
 
