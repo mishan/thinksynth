@@ -134,24 +134,51 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
     while (!lines.empty() && lines.back().find_first_not_of(" \t\r") == string::npos)
         lines.pop_back();
 
-    ofstream out(filename.c_str());
+    /* Into a temporary beside the target, then renamed over it.
+     *
+     * Truncating the real file and writing into it means a crash, a full disk
+     * or a killed process leaves a half-written .dsp -- and that is someone's
+     * patch, possibly the only copy. rename() within a directory is atomic, so
+     * the file ends up either the old one or the new one, never a prefix of
+     * the new one. Beside the target rather than in /tmp, because rename
+     * cannot cross a filesystem. */
+    const string tmp = filename + ".layout-tmp";
 
-    if (!out)
-        return false;
-
-    for (size_t i = 0; i < lines.size(); i++)
-        out << lines[i] << "\n";
-
-    out << "\n" << LAYOUT_PFX << "  Node editor positions. Comments only, so\n"
-        << LAYOUT_PFX << "  the file loads exactly as it did without them.\n";
-
-    for (size_t i = 0; i < graph.boxes().size(); i++)
     {
-        const NodeGraph::Box &b = graph.boxes()[i];
+        ofstream out(tmp.c_str());
 
-        out << LAYOUT_TAG << keyFor(graph, (int)i) << " "
-            << (long)(b.x + 0.5) << " " << (long)(b.y + 0.5) << "\n";
+        if (!out)
+            return false;
+
+        for (size_t i = 0; i < lines.size(); i++)
+            out << lines[i] << "\n";
+
+        out << "\n" << LAYOUT_PFX << "  Node editor positions. Comments only, so\n"
+            << LAYOUT_PFX << "  the file loads exactly as it did without them.\n";
+
+        for (size_t i = 0; i < graph.boxes().size(); i++)
+        {
+            const NodeGraph::Box &b = graph.boxes()[i];
+
+            out << LAYOUT_TAG << keyFor(graph, (int)i) << " "
+                << (long)(b.x + 0.5) << " " << (long)(b.y + 0.5) << "\n";
+        }
+
+        out.flush();
+
+        if (!out.good())
+        {
+            out.close();
+            remove(tmp.c_str());
+            return false;
+        }
     }
 
-    return out.good();
+    if (rename(tmp.c_str(), filename.c_str()) != 0)
+    {
+        remove(tmp.c_str());
+        return false;
+    }
+
+    return true;
 }
