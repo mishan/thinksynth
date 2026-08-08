@@ -19,9 +19,9 @@
 #ifndef GTH_SIGNAL_H
 #define GTH_SIGNAL_H
 
-typedef sigc::signal<void, int, float, float> sigNoteOn;
-typedef sigc::signal<void, int, float> sigNoteOff;
-typedef sigc::signal<void> sigNoteClear;
+typedef sigc::signal<void(int, float, float)> sigNoteOn;
+typedef sigc::signal<void(int, float)> sigNoteOff;
+typedef sigc::signal<void()> sigNoteClear;
 
 extern sigNoteOn  m_sigNoteOn;
 extern sigNoteOff m_sigNoteOff;

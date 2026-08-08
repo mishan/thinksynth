@@ -29,7 +29,7 @@
 #define ALSA_DEFAULT_AUDIO_DEVICE "default"
 
 /* additional arguments are usually bound to the callbacks of this signal */
-typedef sigc::signal0<void> sigReadyWrite_t;
+typedef sigc::signal<void()> sigReadyWrite_t;
 
 /* sigc::trackable so that the mem_fun slots this object hands to the main loop
    are disconnected when it goes away, rather than left pointing at freed
