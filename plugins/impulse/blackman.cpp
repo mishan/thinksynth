@@ -39,9 +39,9 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_LEN] = plugin->regArg("len");
-    args[IN_CUT] = plugin->regArg("cutoff");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
+    args[IN_CUT] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     return 0;
 }
 

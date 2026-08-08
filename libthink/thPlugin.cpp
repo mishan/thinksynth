@@ -42,6 +42,7 @@ thPlugin::thPlugin (const string &path)
     callback_ = NULL;
 
     args_ = (string **)calloc(ARGCHUNK, sizeof(string *));
+    argdirs_ = (ArgDir *)calloc(ARGCHUNK, sizeof(ArgDir));
     argcounter_ = 0;
     argsize_ = ARGCHUNK;
 
@@ -62,7 +63,9 @@ thPlugin::~thPlugin ()
     }
 
     free(args_);
+    free(argdirs_);
     args_ = NULL;
+    argdirs_ = NULL;
     argcounter_ = 0;
     argsize_ = 0;
 }
@@ -86,9 +89,10 @@ void thPlugin::fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
 /* here is how we register args.  plugins can register their arguments and get
    an integer index for fast lookup */
-int thPlugin::regArg (const string &argname)
+int thPlugin::regArg (const string &argname, ArgDir dir)
 {
     string **newargs;
+    ArgDir *newdirs;
 
     /* was `>' -- valid slots are 0..argsize_-1, so registering the arg that
        lands exactly on argsize_ wrote one element past the array before the
@@ -97,15 +101,20 @@ int thPlugin::regArg (const string &argname)
     {
         /* make room for more args */
         newargs = (string **)calloc(argsize_ + ARGCHUNK, sizeof(string *));
+        newdirs = (ArgDir *)calloc(argsize_ + ARGCHUNK, sizeof(ArgDir));
         /* copy args over to new memory */
         memcpy(newargs, args_, argcounter_ * sizeof(string *));
+        memcpy(newdirs, argdirs_, argcounter_ * sizeof(ArgDir));
         free(args_);
+        free(argdirs_);
 
         args_ = newargs;
+        argdirs_ = newdirs;
         argsize_ += ARGCHUNK;
     }
 
     args_[argcounter_] = new string(argname);
+    argdirs_[argcounter_] = dir;
     argcounter_++;
 
     return (argcounter_ - 1);

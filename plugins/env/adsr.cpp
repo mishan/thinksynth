@@ -43,18 +43,18 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_A] = plugin->regArg("a");
-    args[IN_D] = plugin->regArg("d");
-    args[IN_S] = plugin->regArg("s");
-    args[IN_R] = plugin->regArg("r");
-    args[IN_P] = plugin->regArg("p");
-    args[IN_TRIGGER] = plugin->regArg("trigger");
-    args[IN_RESET] = plugin->regArg("reset");
+    args[IN_A] = plugin->regArg("a", thPlugin::ARG_IN);
+    args[IN_D] = plugin->regArg("d", thPlugin::ARG_IN);
+    args[IN_S] = plugin->regArg("s", thPlugin::ARG_IN);
+    args[IN_R] = plugin->regArg("r", thPlugin::ARG_IN);
+    args[IN_P] = plugin->regArg("p", thPlugin::ARG_IN);
+    args[IN_TRIGGER] = plugin->regArg("trigger", thPlugin::ARG_IN);
+    args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
 
-    args[OUT_ARG] = plugin->regArg("out");
-    args[OUT_PLAY] = plugin->regArg("play");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
 
-    args[INOUT_POSITION] = plugin->regArg("position");
+    args[INOUT_POSITION] = plugin->regArg("position", thPlugin::ARG_STATE);
 
     return 0;
 }

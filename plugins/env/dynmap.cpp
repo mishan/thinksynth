@@ -37,12 +37,12 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_INMIN] = plugin->regArg("inmin");
-    args[IN_INMAX] = plugin->regArg("inmax");
-    args[IN_OUTMIN] = plugin->regArg("outmin");
-    args[IN_OUTMAX] = plugin->regArg("outmax");
-    args[IN_ARG] = plugin->regArg("in");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[IN_INMIN] = plugin->regArg("inmin", thPlugin::ARG_IN);
+    args[IN_INMAX] = plugin->regArg("inmax", thPlugin::ARG_IN);
+    args[IN_OUTMIN] = plugin->regArg("outmin", thPlugin::ARG_IN);
+    args[IN_OUTMAX] = plugin->regArg("outmax", thPlugin::ARG_IN);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
 
     return 0;
 }

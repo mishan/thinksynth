@@ -57,16 +57,16 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_FREQ] = plugin->regArg("freq");
-    args[IN_PW] = plugin->regArg("pw");
-    args[IN_WAVEFORM] = plugin->regArg("waveform");
-    args[IN_RESET] = plugin->regArg("reset");
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+    args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
 
-    args[OUT_ARG] = plugin->regArg("out");
-    args[OUT_SYNC] = plugin->regArg("sync");
-    args[OUT_SYNC2] = plugin->regArg("sync2");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    args[OUT_SYNC2] = plugin->regArg("sync2", thPlugin::ARG_OUT);
 
-    args[INOUT_LAST] = plugin->regArg("last");
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
     return 0;
 }

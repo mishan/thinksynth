@@ -45,14 +45,14 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[OUT_LOW] = plugin->regArg("out");
-    args[OUT_HIGH] = plugin->regArg("out_high");
-    args[OUT_BAND] = plugin->regArg("out_band");
-    args[OUT_NOTCH] = plugin->regArg("out_notch");
-    args[INOUT_DELAY] = plugin->regArg("delay");
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_CUTOFF] = plugin->regArg("cutoff");
-    args[IN_RES] = plugin->regArg("res");
+    args[OUT_LOW] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    args[OUT_BAND] = plugin->regArg("out_band", thPlugin::ARG_OUT);
+    args[OUT_NOTCH] = plugin->regArg("out_notch", thPlugin::ARG_OUT);
+    args[INOUT_DELAY] = plugin->regArg("delay", thPlugin::ARG_STATE);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
 
     return 0;
 }

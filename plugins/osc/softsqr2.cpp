@@ -42,11 +42,11 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[OUT_ARG] = plugin->regArg("out");
-    args[INOUT_LAST] = plugin->regArg("last");
-    args[IN_FREQ] = plugin->regArg("freq");
-    args[IN_PW] = plugin->regArg("pw");
-    args[IN_SW] = plugin->regArg("sw");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    args[IN_SW] = plugin->regArg("sw", thPlugin::ARG_IN);
     
     return 0;
 }

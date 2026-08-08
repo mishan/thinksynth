@@ -38,10 +38,10 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[OUT_ARG] = plugin->regArg("out");
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_CLIP] = plugin->regArg("clip");
-    args[IN_LOWCLIP] = plugin->regArg("lowclip");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_CLIP] = plugin->regArg("clip", thPlugin::ARG_IN);
+    args[IN_LOWCLIP] = plugin->regArg("lowclip", thPlugin::ARG_IN);
 
     return 0;
 }

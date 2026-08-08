@@ -34,7 +34,10 @@ dnl take a retire queue. Accessors like thSynth::getChannel are inlined in the
 dnl headers and read members at new offsets, so a binary built against these
 dnl headers must not be able to resolve against an installed libthink.so.4 --
 dnl it links happily and then reads garbage.
-lib_major=5
+dnl
+dnl 5 -> 6: thPlugin gained an argdirs_ array and regArg() a direction
+dnl parameter, so both the class layout and the header-inlined accessors moved.
+lib_major=6
 
 dnl Update this when:
 dnl	- The new library needs new supporting libraries, but nothing else

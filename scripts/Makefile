@@ -44,13 +44,17 @@ SAN := -fsanitize=address,undefined -fno-omit-frame-pointer
 # its own build tree configured with -fsanitize=thread throughout.
 TSAN := -fsanitize=thread -fno-omit-frame-pointer
 
-all: dspcheck dspstress dsplevel
+all: dspcheck dspstress dsplevel dspgraph
 
 dspcheck: $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS) $(LDFLAGS)
 
 dsplevel: dsplevel.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
+
+# NodeGraph is deliberately GTK-free so it can be exercised headlessly.
+dspgraph: dspgraph.cpp $(TOP)/src/NodeGraph.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspgraph.cpp $(TOP)/src/NodeGraph.cpp $(LDFLAGS)
 
 dspstress: dspstress.cpp
 	$(CXX) $(CXXFLAGS) -pthread -o $@ $< $(LDFLAGS)
@@ -66,6 +70,6 @@ dspstress-tsan: dspstress.cpp
 	$(CXX) $(CXXFLAGS) $(TSAN) -pthread -o $@ $< $(TSAN) $(LDFLAGS)
 
 clean:
-	rm -f dspcheck dspcheck-asan dspstress dspstress-tsan dsplevel
+	rm -f dspcheck dspcheck-asan dspstress dspstress-tsan dsplevel dspgraph
 
 .PHONY: all asan tsan clean

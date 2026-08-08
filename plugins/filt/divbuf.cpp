@@ -40,10 +40,10 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[OUT_ARG] = plugin->regArg("out");
-    args[INOUT_BUFFER] = plugin->regArg("buffer");
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_FACTOR] = plugin->regArg("factor");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_FACTOR] = plugin->regArg("factor", thPlugin::ARG_IN);
     return 0;
 }
 

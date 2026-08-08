@@ -38,10 +38,10 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[INOUT_LAST] = plugin->regArg("last");
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_LATCH] = plugin->regArg("latch");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_LATCH] = plugin->regArg("latch", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     return 0;
 }
 

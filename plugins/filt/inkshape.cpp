@@ -41,13 +41,13 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[OUT_ARG] = plugin->regArg("out");
-    args[OUT_ACCEL] = plugin->regArg("aout");
-    args[INOUT_LAST] = plugin->regArg("last");
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_CUTOFF] = plugin->regArg("cutoff");
-    args[IN_RES] = plugin->regArg("res");
-    args[IN_SHAPER] = plugin->regArg("shaper");
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[OUT_ACCEL] = plugin->regArg("aout", thPlugin::ARG_OUT);
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    args[IN_SHAPER] = plugin->regArg("shaper", thPlugin::ARG_IN);
 
     return 0;
 }
