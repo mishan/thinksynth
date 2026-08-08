@@ -60,8 +60,16 @@ public:
     static int apply (const NodeGraph &graph, const PosMap &pos,
                       NodeGraph &target);
 
-    /* Rewrites the file's layout block in place. Everything else is preserved
-       byte for byte. */
+    /* Rewrites the file's layout block.
+
+       Every non-layout line is preserved exactly, and nothing is regenerated
+       from the parsed model. Two things are normalised rather than preserved,
+       so "byte for byte" would overstate it: line endings come out as \n, and
+       trailing blank lines are dropped -- otherwise the blank line before the
+       block would accumulate one per save.
+
+       Written to a temporary beside the target and renamed into place, so an
+       interrupted save cannot leave a half-written .dsp. */
     static bool write (const string &filename, const NodeGraph &graph);
 
     /* The key a box is stored under. */
