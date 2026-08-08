@@ -34,6 +34,15 @@
 #include <vector>
 #include <map>
 
+/* Named explicitly rather than relying on think.h's `using namespace std'
+   having been pulled in first. This header is meant to be includable from a
+   translation unit that knows nothing about libthink -- that is the whole
+   point of keeping it free of engine types -- and it was not. */
+using std::string;
+using std::vector;
+using std::map;
+using std::pair;
+
 class thSynthTree;
 class thNode;
 
@@ -95,7 +104,8 @@ public:
 
     struct Box {
         string name;        /* the node's name in the .dsp   */
-        string plugin;      /* "osc::simple", or "" for io   */
+        string plugin;      /* "osc::simple"; the io halves get
+                               "midi in" and "audio out"     */
         vector<Port> ports;
         vector<Param> params;
 
@@ -120,10 +130,12 @@ public:
         int fromBox, toBox;     /* indices into boxes_          */
         int fromPort, toPort;   /* indices into that box's ports */
 
-        /* True if layering had to reverse this edge to break a cycle. Five of
-           the shipped DSPs are genuine feedback loops (reverb01, dfb,
-           smoothie and friends); these want drawing differently rather than
-           being treated as an error. */
+        /* True if layering found this to be a back edge and left it out of
+           the ranking. Nothing is reversed -- the edge is drawn from and to
+           the same ports as any other, just dashed. Five of the shipped DSPs
+           are genuine feedback loops (reverb01, dfb, smoothie and friends);
+           these want drawing differently rather than being treated as an
+           error. */
         bool feedback;
 
         Edge (void) : fromBox(-1), toBox(-1), fromPort(-1), toPort(-1),

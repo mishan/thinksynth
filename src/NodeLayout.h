@@ -40,6 +40,12 @@
 
 #include <string>
 #include <map>
+#include <utility>
+
+using std::string;
+using std::map;
+using std::pair;
+using std::make_pair;
 
 class NodeGraph;
 

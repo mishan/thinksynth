@@ -31,7 +31,8 @@ class thSynth;
  *
  * The tree it parses is its own -- see thSynth::parseTree -- so nothing here
  * can disturb a channel that is playing. Read-only as far as the audio engine
- * is concerned; the only thing this window can write is the layout comments.
+ * is concerned: what this window writes, it writes to the .dsp on disk, and
+ * only when asked.
  */
 class NodeWindow : public Gtk::Window
 {
@@ -46,7 +47,8 @@ public:
 
 protected:
     void onArrange (void);
-    void onSaveLayout (void);
+    void onSave (void);
+    void onRevert (void);
     void onZoomIn (void);
     void onZoomOut (void);
     void onZoomReset (void);
@@ -56,6 +58,10 @@ protected:
 
     void setStatus (const string &text);
     void updateTitle (void);
+    void updateDirty (void);
+
+    /* Positions and pending values, written together. */
+    bool writeAll (string &why);
 
 private:
     thSynth *synth_;
@@ -63,7 +69,15 @@ private:
 
     NodeGraph graph_;
     string filename_;
-    bool dirty_;
+
+    bool layoutDirty_;
+
+    /* Edits typed into the panel but not yet written. Keyed by node name and
+       arg name rather than by box index, so they survive the reparse that
+       follows a save. Nothing touches the file until Save -- an editor that
+       rewrote a .dsp on every focus-out would be alarming to use, however
+       well tested the writer is. */
+    std::map<std::pair<std::string, std::string>, double> pending_;
 
     Gtk::VBox vbox_;
     Gtk::HBox toolbar_;
@@ -75,6 +89,7 @@ private:
 
     Gtk::Button arrangeBtn_;
     Gtk::Button saveBtn_;
+    Gtk::Button revertBtn_;
     Gtk::Button zoomInBtn_;
     Gtk::Button zoomOutBtn_;
     Gtk::Button zoomResetBtn_;

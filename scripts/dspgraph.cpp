@@ -239,6 +239,45 @@ int main (int argc, char **argv)
             }
         }
 
+        /* no plugin-internal state exposed.
+         *
+         * The header comment has claimed this from the start and nothing
+         * checked it. INOUT_ args are delay ring buffers, envelope positions,
+         * filter history -- 69 of them across the plugins, none referenced by
+         * any .dsp -- and a port for one would invite wiring something that is
+         * not a signal. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            thNode *n = tree->findNode(bx.name);
+            thPlugin *pl = n ? n->plugin() : NULL;
+
+            if (pl == NULL)
+                continue;
+
+            for (int k = 0; k < pl->argCount(); k++)
+            {
+                if (pl->getArgDir(k) != thPlugin::ARG_STATE)
+                    continue;
+
+                const string sname = pl->getArgName(k);
+
+                for (size_t q = 0; q < bx.ports.size(); q++)
+                    if (bx.ports[q].name == sname)
+                    { printf("FAIL  %s: %s exposes internal state %s as a "
+                             "port\n", argv[f], bx.name.c_str(), sname.c_str());
+                      problems++; break; }
+
+                for (size_t q = 0; q < bx.params.size(); q++)
+                    if (bx.params[q].name == sname)
+                    { printf("FAIL  %s: %s lists internal state %s as a "
+                             "parameter\n", argv[f], bx.name.c_str(),
+                             sname.c_str());
+                      problems++; break; }
+            }
+        }
+
         /* parameters and wires must describe the same thing.
          *
          * Params come from each node's thArgMap; edges come from a separate
