@@ -1230,11 +1230,16 @@ void NodeGraph::setControlValue (int box, float value)
 
     b.ctlValue = value;
 
-    /* Everything reading this control shows the new number straight away. */
+    /* Everything reading this control shows the new number straight away.
+     *
+     * The name is built once. Inside the loop it was a fresh allocation per
+     * parameter inspected, on every motion event of a slider drag. */
+    const string source = "@" + b.ctlArg;
+
     for (size_t i = 0; i < boxes_.size(); i++)
         for (size_t k = 0; k < boxes_[i].params.size(); k++)
             if (boxes_[i].params[k].kind == Param::CHANARG &&
-                boxes_[i].params[k].source == "@" + b.ctlArg)
+                boxes_[i].params[k].source == source)
             {
                 boxes_[i].params[k].value = value;
                 boxes_[i].params[k].hasValue = true;
