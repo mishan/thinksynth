@@ -76,7 +76,17 @@ public:
            never registered is still listed, just not a port. */
         bool isPort;
 
-        Param (void) : kind(VALUE), value(0), min(0), max(0), isPort(false) { }
+        /* True if the plugin declares this an output.
+        
+           An output is an arg like any other: it is in the node's arg map and
+           it has a value. But the plugin writes it, so offering a spin button
+           for it would invite an edit that gets overwritten on the next
+           window. Shown, not offered -- hiding it outright would be worse,
+           since seeing what a node produces is half of reading a patch. */
+        bool isOutput;
+
+        Param (void) : kind(VALUE), value(0), min(0), max(0), isPort(false),
+                       isOutput(false) { }
     };
 
     struct Box {

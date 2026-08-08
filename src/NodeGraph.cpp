@@ -129,6 +129,7 @@ void NodeGraph::collectParams (thNode *n, Box &b)
         /* Plugin-internal state -- a delay line's ring buffer, an envelope's
            position. Not something anyone should be shown, let alone set. */
         bool isPort = false;
+        bool isOutput = false;
         bool isState = false;
 
         if (p)
@@ -138,6 +139,7 @@ void NodeGraph::collectParams (thNode *n, Box &b)
                 {
                     isState = (p->getArgDir(k) == thPlugin::ARG_STATE);
                     isPort = (p->getArgDir(k) == thPlugin::ARG_IN);
+                    isOutput = (p->getArgDir(k) == thPlugin::ARG_OUT);
                     break;
                 }
         }
@@ -154,6 +156,7 @@ void NodeGraph::collectParams (thNode *n, Box &b)
         prm.min = arg->min();
         prm.max = arg->max();
         prm.isPort = isPort;
+        prm.isOutput = isOutput;
 
         switch (arg->type())
         {
