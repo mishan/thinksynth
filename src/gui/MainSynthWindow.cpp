@@ -52,11 +52,16 @@ bool chosen = false;
 
 void MainSynthWindow::toggleConnects (void)
 {
-    Gtk::MenuItem *me = (Gtk::MenuItem *)&menuJack_.items()[0];
-    Gtk::MenuItem *dis = (Gtk::MenuItem *)&menuJack_.items()[1];
-    bool c = me->is_sensitive();
-    me->set_sensitive(!c);
-    dis->set_sensitive(c);
+    /* These used to be fished out of menuJack_.items() by index. gtkmm-3 has
+       no items() list, and indexing a menu by position was fragile anyway --
+       the two items are held directly now. */
+    if (jackConnect_ == NULL || jackDisconnect_ == NULL)
+        return;
+
+    bool c = jackConnect_->is_sensitive();
+
+    jackConnect_->set_sensitive(!c);
+    jackDisconnect_->set_sensitive(c);
 }
 
 #ifdef HAVE_JACK
@@ -157,99 +162,118 @@ MainSynthWindow::~MainSynthWindow (void)
     menuQuit();
 }
 
+/* Builds one activatable menu item: label with mnemonic, optional accelerator,
+   and its callback. Gtk::Menu_Helpers::MenuElem did all of this in a single
+   expression; gtkmm-3 removed the whole helpers namespace along with
+   Menu::items(), so items are constructed and appended individually. */
+Gtk::MenuItem *MainSynthWindow::addMenuItem (Gtk::Menu &menu,
+                                             const Glib::ustring &label,
+                                             const sigc::slot<void> &handler,
+                                             const char *accel)
+{
+    Gtk::MenuItem *item = manage(new Gtk::MenuItem(label, true));
+
+    item->signal_activate().connect(handler);
+
+    if (accel != NULL)
+    {
+        Gtk::AccelKey key(accel);
+
+        item->add_accelerator("activate", get_accel_group(),
+                              key.get_key(), key.get_mod(),
+                              Gtk::ACCEL_VISIBLE);
+    }
+
+    menu.append(*item);
+
+    return item;
+}
+
 void MainSynthWindow::populateMenu (void)
 {
+    /* The accelerators used to come along with each MenuElem; they need an
+       explicit group now. Gtk::Window::get_accel_group() hands back the
+       window's own, already attached -- calling add_accel_group() on it
+       attaches it a second time and trips an assertion in GTK. */
+
     /* File */
-    {
-        Gtk::Menu::MenuList &menulist = menuFile_.items();
+    addMenuItem(menuFile_, "_Keyboard",
+                sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard),
+                "<ctrl>k");
+    addMenuItem(menuFile_, "_Patch Selector",
+                sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel),
+                "<ctrl>p");
+    addMenuItem(menuFile_, "_MIDI Controllers",
+                sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap),
+                "<ctrl>m");
 
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_Keyboard",
-                                        Gtk::AccelKey("<ctrl>k"),
-                                        sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard)));
+    menuFile_.append(*manage(new Gtk::SeparatorMenuItem()));
 
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_Patch Selector",
-                                        Gtk::AccelKey("<ctrl>p"),
-                                        sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel)));
-
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_MIDI Controllers",
-                                        Gtk::AccelKey("<ctrl>m"),
-                                        sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap)));
-
-        menulist.push_back(Gtk::Menu_Helpers::SeparatorElem());
-
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_Quit",
-                                        Gtk::AccelKey("<ctrl>q"),
-                                        sigc::mem_fun(*this, &MainSynthWindow::menuQuit)));
-    }
+    addMenuItem(menuFile_, "_Quit",
+                sigc::mem_fun(*this, &MainSynthWindow::menuQuit),
+                "<ctrl>q");
 
 #ifdef HAVE_JACK
     /* JACK */
     if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
     {
         gthPrefs *prefs = gthPrefs::instance();
-        Gtk::Menu::MenuList &menulist = menuJack_.items();
-        Gtk::CheckMenuItem *elem;
-        sigc::slot0<void> autoslot =
-            sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto);
         string** vals;
         bool sel;
-        
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_Connect to JACK now",
-                sigc::mem_fun(*this, &MainSynthWindow::menuJackTry)));
 
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_Disconnect from JACK",
-                sigc::mem_fun(*this, &MainSynthWindow::menuJackDis)));
+        jackConnect_ = addMenuItem(menuJack_, "_Connect to JACK now",
+                        sigc::mem_fun(*this, &MainSynthWindow::menuJackTry));
 
-        menulist.back().set_sensitive(false);
+        jackDisconnect_ = addMenuItem(menuJack_, "_Disconnect from JACK",
+                        sigc::mem_fun(*this, &MainSynthWindow::menuJackDis));
 
-        menulist.push_back(Gtk::Menu_Helpers::SeparatorElem());
+        jackDisconnect_->set_sensitive(false);
 
-        menulist.push_back(
-            Gtk::Menu_Helpers::CheckMenuElem ("_Auto-connect to JACK",
-                autoslot));
+        menuJack_.append(*manage(new Gtk::SeparatorMenuItem()));
 
-        elem = (Gtk::CheckMenuItem*)&menulist.back();
-    
+        Gtk::CheckMenuItem *autoItem =
+            manage(new Gtk::CheckMenuItem("_Auto-connect to JACK", true));
+
         vals = prefs->Get("autoconnect");
         sel = !!(vals && *vals[0] == "true");
-        elem->set_active(sel);
+
+        /* Set the state before connecting, or this would fire the handler and
+           write the preference straight back. */
+        autoItem->set_active(sel);
+
+        autoItem->signal_toggled().connect(
+            sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto));
+
+        menuJack_.append(*autoItem);
     }
 #endif /* HAVE_JACK */
-    
-    /* Help */
-    {
-        Gtk::Menu::MenuList &menulist = menuHelp_.items();
 
-        menulist.push_back(
-            Gtk::Menu_Helpers::MenuElem("_About",
-                                        sigc::mem_fun(
-                                            *this, &MainSynthWindow::menuAbout)
-                ));
-    }
+    /* Help */
+    addMenuItem(menuHelp_, "_About",
+                sigc::mem_fun(*this, &MainSynthWindow::menuAbout));
 
     /* add the menus to the menubar */
     {
-        Gtk::Menu::MenuList &menulist = menuBar_.items();
+        Gtk::MenuItem *fileMenu = manage(new Gtk::MenuItem("_File", true));
 
-        menulist.push_back(Gtk::Menu_Helpers::MenuElem("_File",
-                                                       menuFile_));
+        fileMenu->set_submenu(menuFile_);
+        menuBar_.append(*fileMenu);
 
 #ifdef HAVE_JACK
         if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
-            menulist.push_back(Gtk::Menu_Helpers::MenuElem("_JACK",
-                                                        menuJack_));
+        {
+            Gtk::MenuItem *jackMenu = manage(new Gtk::MenuItem("_JACK", true));
+
+            jackMenu->set_submenu(menuJack_);
+            menuBar_.append(*jackMenu);
+        }
 #endif
-        
+
         Gtk::MenuItem *helpMenu = manage(new Gtk::MenuItem("_Help", true));
+
         helpMenu->set_submenu(menuHelp_);
         helpMenu->set_right_justified();
-        menulist.push_back(*helpMenu);
+        menuBar_.append(*helpMenu);
     }
 }
 
@@ -544,8 +568,13 @@ void MainSynthWindow::onPatchesChanged (void)
 {
     int pagenum = notebook_.get_current_page();
 
-    notebook_.hide_all();
-    notebook_.pages().clear();
+    /* gtkmm-3 dropped Notebook::pages() and Widget::hide_all(); pages are
+       removed one at a time now, and hide() covers the children. */
+    notebook_.hide();
+
+    while (notebook_.get_n_pages() > 0)
+        notebook_.remove_page(-1);
+
     populate();
     notebook_.show_all();
 
@@ -588,7 +617,9 @@ void MainSynthWindow::onKeyboardHide (void)
     kbWin_ = NULL;
 }
 
-void MainSynthWindow::onSwitchPage (GtkNotebookPage *p, int pagenum)
+/* gtkmm-3 passes the page widget itself rather than the opaque GtkNotebookPage
+   struct, which no longer exists. */
+void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(pagenum);
@@ -626,8 +657,13 @@ void MainSynthWindow::onDspEntryActivate (void)
         return;
     }
 
-    notebook_.hide_all();
-    notebook_.pages().clear();
+    /* gtkmm-3 dropped Notebook::pages() and Widget::hide_all(); pages are
+       removed one at a time now, and hide() covers the children. */
+    notebook_.hide();
+
+    while (notebook_.get_n_pages() > 0)
+        notebook_.remove_page(-1);
+
     populate();
     notebook_.show_all();
 
@@ -638,10 +674,14 @@ void MainSynthWindow::onBrowseButton (void)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int pagenum = notebook_.get_current_page();
-    Gtk::FileSelection fileSel("thinksynth - Load DSP");
+    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Load DSP",
+                                   Gtk::FILE_CHOOSER_ACTION_OPEN);
+
+    fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+    fileSel.add_button(Gtk::Stock::OPEN, Gtk::RESPONSE_OK);
 
     if (prevDir_ != "")
-        fileSel.set_filename(prevDir_);
+        fileSel.set_current_folder(prevDir_);
 
     if (fileSel.run() == Gtk::RESPONSE_OK)
     {
@@ -661,8 +701,11 @@ void MainSynthWindow::onBrowseButton (void)
             prefs->Set("dspdir", vals);
 
             /* load up the patch file */
-            notebook_.hide_all();
-            notebook_.pages().clear();
+            notebook_.hide();
+
+            while (notebook_.get_n_pages() > 0)
+                notebook_.remove_page(-1);
+
             populate();
             notebook_.show_all();
             notebook_.set_current_page(pagenum);
