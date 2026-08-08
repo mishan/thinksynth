@@ -30,6 +30,8 @@
  *   - clicking a box's centre picks that box, and clicking a port's drawn
  *     position picks that port -- the two things a mouse does, checked
  *     without a mouse
+ *   - clicking the middle of a wire finds a wire, and the ends of every
+ *     wire sit on the ports it claims to join
  *   - a saved layout comes back exactly, and saving changes nothing in the
  *     file except `# @layout' lines
  *   - the parameter list and the wires agree: every parameter driven by
@@ -235,6 +237,86 @@ int main (int argc, char **argv)
                 { printf("FAIL  %s: port %s.%s at (%.1f,%.1f) picks %d/%d\n",
                          argv[f], bx.name.c_str(), bx.ports[k].name.c_str(),
                          px, py, hb, hp);
+                  problems++; }
+            }
+        }
+
+        /* wires: what is drawn is what can be clicked.
+         *
+         * edgeCurve() feeds both the canvas and edgeAt(), so this is really
+         * checking that the sampling in edgeAt is fine enough and that the
+         * curve ends where the ports are. Wires overlap, so the midpoint of
+         * one may legitimately find another -- what must not happen is
+         * finding nothing at all. */
+        for (size_t e = 0; e < edges.size() && problems < 5; e++)
+        {
+            double xs[4], ys[4];
+
+            g.edgeCurve((int)e, xs, ys);
+
+            double px, py;
+
+            g.portPos(edges[e].fromBox, edges[e].fromPort, px, py);
+
+            if (xs[0] != px || ys[0] != py)
+            { printf("FAIL  %s: wire %d does not start at its port\n",
+                     argv[f], (int)e);
+              problems++; continue; }
+
+            g.portPos(edges[e].toBox, edges[e].toPort, px, py);
+
+            if (xs[3] != px || ys[3] != py)
+            { printf("FAIL  %s: wire %d does not end at its port\n",
+                     argv[f], (int)e);
+              problems++; continue; }
+
+            /* the point at t = 0.5 on the cubic */
+            const double mx = 0.125 * (xs[0] + 3*xs[1] + 3*xs[2] + xs[3]);
+            const double my = 0.125 * (ys[0] + 3*ys[1] + 3*ys[2] + ys[3]);
+
+            if (g.edgeAt(mx, my) < 0)
+            { printf("FAIL  %s: the middle of wire %d finds no wire\n",
+                     argv[f], (int)e);
+              problems++; }
+        }
+
+        /* connect() and removeEdge() must keep the params and the wires in
+           step, the same way build() does. */
+        if (problems == 0 && !edges.empty())
+        {
+            NodeGraph g2;
+
+            g2.build(tree);
+            g2.layout();
+
+            const size_t before = g2.edges().size();
+
+            g2.removeEdge(0);
+
+            if (g2.edges().size() != before - 1)
+            { printf("FAIL  %s: removeEdge did not remove one\n", argv[f]);
+              problems++; }
+
+            const NodeGraph::Edge &e0 = edges[0];
+
+            string why;
+
+            if (!g2.connect(e0.fromBox, e0.fromPort, e0.toBox, e0.toPort, why))
+            { printf("FAIL  %s: cannot reconnect wire 0: %s\n", argv[f],
+                     why.c_str());
+              problems++; }
+            else if (g2.edges().size() != before)
+            { printf("FAIL  %s: reconnecting changed the wire count to %d\n",
+                     argv[f], (int)g2.edges().size());
+              problems++; }
+            else
+            {
+                /* connecting a second time must replace, not duplicate */
+                g2.connect(e0.fromBox, e0.fromPort, e0.toBox, e0.toPort, why);
+
+                if (g2.edges().size() != before)
+                { printf("FAIL  %s: connecting twice made %d wires, not %d\n",
+                         argv[f], (int)g2.edges().size(), (int)before);
                   problems++; }
             }
         }

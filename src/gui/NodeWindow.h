@@ -55,6 +55,9 @@ protected:
     void onBoxMoved (int box);
     void onSelected (int box);
     void onParamEdited (int box, string name, double value);
+    void onConnect (int fromBox, int fromPort, int toBox, int toPort);
+    void onDisconnect (int edge);
+    void onRefused (string why);
 
     void setStatus (const string &text);
     void updateTitle (void);
@@ -78,6 +81,17 @@ private:
        rewrote a .dsp on every focus-out would be alarming to use, however
        well tested the writer is. */
     std::map<std::pair<std::string, std::string>, double> pending_;
+
+    /* Wire edits, in the order they were made. Order matters: connecting an
+       input and then disconnecting it must end up disconnected, and a map
+       keyed by target would be enough for that, but replaying them in order
+       is easier to reason about and there are never many. */
+    struct WireEdit {
+        string node, arg;       /* the input end                     */
+        string srcNode, srcPort;/* empty for a disconnect            */
+    };
+
+    vector<WireEdit> wires_;
 
     Gtk::VBox vbox_;
     Gtk::HBox toolbar_;

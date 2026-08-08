@@ -38,6 +38,7 @@ const char *NodeEdit::resultText (Result r)
         case NO_NODE:     return "no such node in the file";
         case NOT_A_VALUE: return "that parameter is wired to something";
         case UNWRITABLE:  return "that number cannot be written in a .dsp";
+        case REFUSED:     return "that edit does not make sense";
         case IO_ERROR:    return "could not read or write the file";
     }
 
@@ -419,6 +420,72 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
     return false;
 }
 
+/* ---- file in, file out ------------------------------------------------- */
+
+static bool readLines (const string &filename, vector<string> &lines,
+                       bool &endsWithNewline)
+{
+    ifstream in(filename.c_str(), ios::binary);
+
+    if (!in)
+        return false;
+
+    string all((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
+
+    endsWithNewline = all.empty() || all[all.size() - 1] == '\n';
+
+    string cur;
+
+    lines.clear();
+
+    for (size_t i = 0; i < all.size(); i++)
+    {
+        if (all[i] == '\n') { lines.push_back(cur); cur.clear(); }
+        else cur += all[i];
+    }
+
+    if (!cur.empty())
+        lines.push_back(cur);
+
+    return true;
+}
+
+static bool writeLines (const string &filename, const vector<string> &lines,
+                        bool endsWithNewline)
+{
+    ofstream out(filename.c_str(), ios::binary | ios::trunc);
+
+    if (!out)
+        return false;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        out << lines[i];
+
+        if (i + 1 < lines.size() || endsWithNewline)
+            out << "\n";
+    }
+
+    return out.good();
+}
+
+/* The indentation already used inside a block, so an inserted line looks like
+   the ones around it rather than like an editor got at the file. */
+static string indentOf (const vector<string> &lines, size_t open, size_t close)
+{
+    for (size_t i = open + 1; i < close; i++)
+    {
+        const string::size_type a = lines[i].find_first_not_of(" \t");
+
+        if (a != string::npos && a > 0)
+            return lines[i].substr(0, a);
+    }
+
+    return "    ";
+}
+
+/* ---- the edits --------------------------------------------------------- */
+
 NodeEdit::Result NodeEdit::setValue (const string &filename,
                                      const string &node, const string &arg,
                                      double value, string &why)
@@ -428,30 +495,10 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
+    if (!readLines(filename, lines, endsWithNewline))
     {
-        ifstream in(filename.c_str(), ios::binary);
-
-        if (!in)
-        {
-            why = "could not open " + filename;
-            return IO_ERROR;
-        }
-
-        string all((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
-
-        if (!all.empty() && all[all.size() - 1] != '\n')
-            endsWithNewline = false;
-
-        string cur;
-
-        for (size_t i = 0; i < all.size(); i++)
-        {
-            if (all[i] == '\n') { lines.push_back(cur); cur.clear(); }
-            else cur += all[i];
-        }
-
-        if (!cur.empty())
-            lines.push_back(cur);
+        why = "could not open " + filename;
+        return IO_ERROR;
     }
 
     size_t open = 0, close = 0;
@@ -527,42 +574,146 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
             return UNWRITABLE;
         }
 
-        string indent = "    ";
-
-        for (size_t i = open + 1; i < close; i++)
-        {
-            const string &l = lines[i];
-            const string::size_type a = l.find_first_not_of(" \t");
-
-            if (a != string::npos && a > 0)
-            {
-                indent = l.substr(0, a);
-                break;
-            }
-        }
-
-        lines.insert(lines.begin() + close, indent + arg + " = " + text + ";");
+        lines.insert(lines.begin() + close,
+                     indentOf(lines, open, close) + arg + " = " + text + ";");
     }
 
-    ofstream out(filename.c_str(), ios::binary | ios::trunc);
-
-    if (!out)
+    if (!writeLines(filename, lines, endsWithNewline))
     {
         why = "could not write " + filename;
         return IO_ERROR;
     }
 
-    for (size_t i = 0; i < lines.size(); i++)
-    {
-        out << lines[i];
+    return OK;
+}
 
-        if (i + 1 < lines.size() || endsWithNewline)
-            out << "\n";
+NodeEdit::Result NodeEdit::connect (const string &filename, const string &node,
+                                    const string &arg, const string &srcNode,
+                                    const string &srcPort, string &why)
+{
+    why.clear();
+
+    /* No self-reference check here.
+     *
+     * It would be wrong: three shipped DSPs contain `ionode.fade78 =
+     * ionode->velocity', because the io node is one node in the file but two
+     * things in reality -- the MIDI source and the audio sink. Whether a
+     * connection makes sense is a question about the graph, where that split
+     * is visible; see NodeGraph::canConnect. This function's job is to write
+     * faithfully what it is told. */
+    if (srcNode.empty() || srcPort.empty())
+    {
+        why = "no source for the connection";
+        return REFUSED;
     }
 
-    if (!out.good())
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
     {
-        why = "write failed";
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    size_t open = 0, close = 0;
+
+    if (!findNodeBlock(lines, node, open, close))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+
+    /* Every one of the 3476 connections in the corpus is spelled exactly
+       `name->port', with no spaces around the arrow, so writing it this way
+       reproduces the existing text byte for byte. */
+    const string text = srcNode + "->" + srcPort;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (findAssign(lines, open, close, arg, line, from, to))
+    {
+        /* Already says exactly this: leave the file alone. Same reasoning as
+           setValue -- connecting something to where it already is connected
+           must not produce a diff. */
+        if (trim(lines[line].substr(from, to - from)) == text)
+            return OK;
+
+        lines[line] = lines[line].substr(0, from) + text +
+                      lines[line].substr(to);
+    }
+    else
+        lines.insert(lines.begin() + close,
+                     indentOf(lines, open, close) + arg + " = " + text + ";");
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::disconnect (const string &filename,
+                                       const string &node, const string &arg,
+                                       double value, string &why)
+{
+    why.clear();
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    size_t open = 0, close = 0;
+
+    if (!findNodeBlock(lines, node, open, close))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findAssign(lines, open, close, arg, line, from, to))
+        return OK;      /* nothing there to disconnect */
+
+    const string oldRhs = trim(lines[line].substr(from, to - from));
+
+    if (oldRhs.find("->") == string::npos)
+    {
+        why = arg + " is not connected to anything";
+        return REFUSED;
+    }
+
+    /* The line is rewritten rather than deleted.
+     *
+     * To the engine `in = 0;' and no line at all are the same thing --
+     * buildArgMap() invents the arg either way. Keeping the line preserves
+     * whatever trailing comment was on it, and it means a disconnect followed
+     * by a reconnect restores the file exactly, because only the right-hand
+     * side ever moved. Deleting and re-inserting would put the line somewhere
+     * else with different indentation. */
+    string text;
+
+    if (!formatWithUnits(value, "", text))
+    {
+        why = "cannot write that value in a .dsp";
+        return UNWRITABLE;
+    }
+
+    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
         return IO_ERROR;
     }
 

@@ -187,6 +187,37 @@ public:
     /* Absolute position of a port's handle. */
     void portPos (int box, int port, double &x, double &y) const;
 
+    /* Whether a wire from one port to another is allowed, with a sentence
+       saying why not.
+
+       Here rather than in NodeEdit because it needs the graph: the io node is
+       one node in the .dsp but two boxes on screen, and three shipped DSPs
+       genuinely read ionode->velocity into an ionode arg. A rule phrased over
+       node names would have to forbid that. */
+    bool canConnect (int fromBox, int fromPort, int toBox, int toPort,
+                     string &why) const;
+
+    /* The cubic a wire is drawn along: its two endpoints and two control
+       points, in graph coordinates.
+
+       Here rather than in the canvas so that drawing and hit-testing cannot
+       drift apart -- "clicking a wire selects a different wire" is precisely
+       the bug that happens when the same curve is described twice. */
+    void edgeCurve (int edge, double *xs, double *ys) const;
+
+    /* The wire nearest the point, within `slack', or -1. */
+    int edgeAt (double x, double y, double slack = 5.0) const;
+
+    /* Adds a wire, replacing whatever fed that input -- the grammar has one
+       right-hand side per arg, so two wires into one input cannot be spelled.
+       Updates the target's parameter snapshot to match. False, with a reason,
+       if canConnect says no. */
+    bool connect (int fromBox, int fromPort, int toBox, int toPort,
+                  string &why);
+
+    /* Removes a wire and puts the target parameter back to a plain value. */
+    void removeEdge (int edge);
+
     /* Index of a box by node name, or -1. For the io node this is the sink
        half, which is the one that owns the args. */
     int boxByName (const string &name) const;

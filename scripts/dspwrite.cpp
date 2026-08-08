@@ -32,6 +32,12 @@
  *   4. write the original value back and confirm it parses to the original
  *      value again, in at most one changed line
  *
+ * And for every wire:
+ *
+ *   5. disconnect it, reparse, confirm the parameter is no longer driven
+ *   6. reconnect it and confirm the file is byte identical to where it started
+ *   7. connect it again to where it already goes, and confirm nothing moved
+ *
  * (3) is the strong one, and it is the guarantee the editor actually makes:
  * open a file, save it, nothing changed. Not the same as (4). Once a value has
  * genuinely been changed and changed back, `inmax = th_max' comes back as
@@ -209,6 +215,7 @@ int main (int argc, char **argv)
 
     int failed = 0, files = 0, edits = 0, skipped = 0, inserted = 0;
     int unwritable = 0, noops = 0, respelt = 0;
+    int wiresCut = 0, wireNoops = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -392,6 +399,92 @@ int main (int argc, char **argv)
             }
         }
 
+        /* ---- wires ---- */
+
+        for (size_t e = 0; e < g.edges().size() && problems < 4; e++)
+        {
+            const NodeGraph::Edge &ed = g.edges()[e];
+
+            const NodeGraph::Box &tb = g.boxes()[ed.toBox];
+            const NodeGraph::Box &fb = g.boxes()[ed.fromBox];
+
+            const string arg = tb.ports[ed.toPort].name;
+            const string port = fb.ports[ed.fromPort].name;
+
+            if (!spit(tmp, original))
+            { printf("FAIL  %s: could not stage a copy\n", argv[f]);
+              problems++; break; }
+
+            string why;
+
+            /* 5. disconnecting must actually disconnect */
+            NodeEdit::Result r =
+                NodeEdit::disconnect(tmp, tb.name, arg, 0, why);
+
+            if (r != NodeEdit::OK)
+            { printf("FAIL  %s: disconnect(%s.%s) -> %s (%s)\n", argv[f],
+                     tb.name.c_str(), arg.c_str(),
+                     NodeEdit::resultText(r), why.c_str());
+              problems++; continue; }
+
+            {
+                thSynthTree *t2 = synth.parseTree(tmp);
+
+                if (t2 == NULL)
+                { printf("FAIL  %s: will not parse after disconnecting %s.%s\n",
+                         argv[f], tb.name.c_str(), arg.c_str());
+                  problems++; continue; }
+
+                thNode *n2 = t2->findNode(tb.name);
+                thArg *a2 = n2 ? n2->getArg(arg) : NULL;
+
+                const bool stillWired =
+                    (a2 && a2->type() == thArg::ARG_POINTER);
+
+                delete t2;
+
+                if (stillWired)
+                { printf("FAIL  %s: %s.%s still wired after disconnect\n",
+                         argv[f], tb.name.c_str(), arg.c_str());
+                  problems++; continue; }
+            }
+
+            wiresCut++;
+
+            /* 6. reconnecting must give the file back exactly */
+            r = NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
+
+            if (r != NodeEdit::OK)
+            { printf("FAIL  %s: connect(%s.%s <- %s->%s) -> %s (%s)\n", argv[f],
+                     tb.name.c_str(), arg.c_str(), fb.name.c_str(),
+                     port.c_str(), NodeEdit::resultText(r), why.c_str());
+              problems++; continue; }
+
+            string back;
+
+            slurp(tmp, back);
+
+            if (back != original)
+            { printf("FAIL  %s: reconnecting %s.%s did not give the file back\n",
+                     argv[f], tb.name.c_str(), arg.c_str());
+              showFirstDiff(original, back);
+              problems++; continue; }
+
+            /* 7. connecting to where it already goes must change nothing */
+            r = NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
+
+            slurp(tmp, back);
+
+            if (r != NodeEdit::OK || back != original)
+            { printf("FAIL  %s: reconnecting %s.%s to where it already goes "
+                     "changed the file\n", argv[f], tb.name.c_str(),
+                     arg.c_str());
+              showFirstDiff(original, back);
+              problems++; continue; }
+
+            wireNoops++;
+        }
+
         if (problems)
             failed++;
         else if (!quiet)
@@ -406,6 +499,8 @@ int main (int argc, char **argv)
            edits, inserted, unwritable);
     printf("  %d no-op writes, every one byte-identical; %d came back correct "
            "but respelt\n", noops, respelt);
+    printf("  %d wires cut and restored, %d reconnects to where they already "
+           "went, all byte-identical\n", wiresCut, wireNoops);
 
     return failed;
 }

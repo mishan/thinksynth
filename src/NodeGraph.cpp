@@ -838,3 +838,174 @@ int NodeGraph::boxByName (const string &name) const
 
     return (f == byName_.end()) ? -1 : f->second;
 }
+
+bool NodeGraph::canConnect (int fromBox, int fromPort, int toBox, int toPort,
+                            string &why) const
+{
+    why.clear();
+
+    if (fromBox < 0 || fromBox >= (int)boxes_.size() ||
+        toBox < 0 || toBox >= (int)boxes_.size())
+    { why = "no such node"; return false; }
+
+    const Box &fb = boxes_[fromBox];
+    const Box &tb = boxes_[toBox];
+
+    if (fromPort < 0 || fromPort >= (int)fb.ports.size() ||
+        toPort < 0 || toPort >= (int)tb.ports.size())
+    { why = "no such port"; return false; }
+
+    if (fb.ports[fromPort].isInput)
+    { why = "wires start at an output"; return false; }
+
+    if (!tb.ports[toPort].isInput)
+    { why = "wires end at an input"; return false; }
+
+    /* Box, not node: the io node's two halves share a name, and connecting
+       the MIDI source into the audio sink is exactly what a DSP does. */
+    if (fromBox == toBox)
+    { why = "a node cannot feed itself"; return false; }
+
+    return true;
+}
+
+/* Horizontal-tangent cubic: wires leave an output rightwards and enter an
+   input from the left, which reads as flow even where one doubles back. The
+   control offset grows with distance so long wires bow more. */
+void NodeGraph::edgeCurve (int edge, double *xs, double *ys) const
+{
+    for (int i = 0; i < 4; i++)
+        xs[i] = ys[i] = 0;
+
+    if (edge < 0 || edge >= (int)edges_.size())
+        return;
+
+    const Edge &e = edges_[edge];
+
+    double x1, y1, x2, y2;
+
+    portPos(e.fromBox, e.fromPort, x1, y1);
+    portPos(e.toBox, e.toPort, x2, y2);
+
+    double reach = (x2 - x1) * 0.5;
+
+    if (reach < 30.0)
+        reach = 30.0 + (x1 - x2) * 0.25;    /* a back edge needs a wider bow */
+
+    xs[0] = x1;          ys[0] = y1;
+    xs[1] = x1 + reach;  ys[1] = y1;
+    xs[2] = x2 - reach;  ys[2] = y2;
+    xs[3] = x2;          ys[3] = y2;
+}
+
+int NodeGraph::edgeAt (double x, double y, double slack) const
+{
+    int best = -1;
+    double bestD = slack * slack;
+
+    for (size_t e = 0; e < edges_.size(); e++)
+    {
+        double xs[4], ys[4];
+
+        edgeCurve((int)e, xs, ys);
+
+        /* Sampled rather than solved. Thirty-two points on a wire that is at
+           most a few hundred pixels long puts them within a few pixels of each
+           other, which is finer than the slack being tested against. */
+        for (int i = 0; i <= 32; i++)
+        {
+            const double t = i / 32.0;
+            const double u = 1.0 - t;
+
+            const double bx = u*u*u*xs[0] + 3*u*u*t*xs[1] +
+                              3*u*t*t*xs[2] + t*t*t*xs[3];
+            const double by = u*u*u*ys[0] + 3*u*u*t*ys[1] +
+                              3*u*t*t*ys[2] + t*t*t*ys[3];
+
+            const double dx = bx - x, dy = by - y;
+            const double d = dx * dx + dy * dy;
+
+            if (d < bestD)
+            {
+                bestD = d;
+                best = (int)e;
+            }
+        }
+    }
+
+    return best;
+}
+
+bool NodeGraph::connect (int fromBox, int fromPort, int toBox, int toPort,
+                         string &why)
+{
+    if (!canConnect(fromBox, fromPort, toBox, toPort, why))
+        return false;
+
+    /* One right-hand side per arg: a second wire into the same input is not
+       something the grammar can express, so this replaces rather than adds. */
+    for (size_t e = 0; e < edges_.size(); e++)
+        if (edges_[e].toBox == toBox && edges_[e].toPort == toPort)
+        {
+            edges_.erase(edges_.begin() + e);
+            break;
+        }
+
+    Edge e;
+
+    e.fromBox = fromBox;
+    e.fromPort = fromPort;
+    e.toBox = toBox;
+    e.toPort = toPort;
+
+    edges_.push_back(e);
+
+    /* Keep the parameter snapshot honest, so the panel agrees with the canvas
+       without waiting for a save and a reparse. */
+    Box &tb = boxes_[toBox];
+
+    const string src = boxes_[fromBox].name + "->" +
+                       boxes_[fromBox].ports[fromPort].name;
+
+    for (size_t k = 0; k < tb.params.size(); k++)
+        if (tb.params[k].name == tb.ports[toPort].name)
+        {
+            tb.params[k].kind = Param::POINTER;
+            tb.params[k].source = src;
+            tb.params[k].hasValue = false;
+            return true;
+        }
+
+    Param p;
+
+    p.name = tb.ports[toPort].name;
+    p.kind = Param::POINTER;
+    p.source = src;
+    p.isPort = true;
+
+    tb.params.push_back(p);
+
+    return true;
+}
+
+void NodeGraph::removeEdge (int edge)
+{
+    if (edge < 0 || edge >= (int)edges_.size())
+        return;
+
+    const Edge e = edges_[edge];
+
+    edges_.erase(edges_.begin() + edge);
+
+    Box &tb = boxes_[e.toBox];
+
+    for (size_t k = 0; k < tb.params.size(); k++)
+        if (tb.params[k].name == tb.ports[e.toPort].name)
+        {
+            tb.params[k].kind = Param::VALUE;
+            tb.params[k].source.clear();
+            tb.params[k].value = 0;
+            tb.params[k].hasValue = true;
+            break;
+        }
+}

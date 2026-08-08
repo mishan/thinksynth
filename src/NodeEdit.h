@@ -54,6 +54,7 @@ public:
         NO_NODE,        /* no `node <name>' block in the file      */
         NOT_A_VALUE,    /* the arg is wired to something           */
         UNWRITABLE,     /* no way to spell this number             */
+        REFUSED,        /* the edit does not make sense            */
         IO_ERROR
     };
 
@@ -66,6 +67,24 @@ public:
      */
     static Result setValue (const string &filename, const string &node,
                             const string &arg, double value, string &why);
+
+    /* Points `<node>.<arg>' at `<srcNode>-><srcPort>'. Adds the line if the
+       file did not have one. Connecting something to where it already is
+       connected changes no byte of the file.
+
+       Does not judge whether the connection is sensible -- that needs the
+       graph, which knows the io node is really two boxes. See
+       NodeGraph::canConnect. */
+    static Result connect (const string &filename, const string &node,
+                           const string &arg, const string &srcNode,
+                           const string &srcPort, string &why);
+
+    /* Replaces a connection with a plain value, leaving the line in place --
+       to the engine `in = 0;' and no line at all are the same thing, and
+       keeping the line preserves its trailing comment and makes a reconnect
+       restore the file exactly. */
+    static Result disconnect (const string &filename, const string &node,
+                              const string &arg, double value, string &why);
 
     /* OK if the file has an explicit `<node> { <arg> = ...; }'. Distinguishes
        an arg the author wrote from one buildArgMap() invented, which is the

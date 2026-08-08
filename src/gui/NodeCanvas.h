@@ -52,6 +52,24 @@ public:
     int selected (void) const { return selBox_; }
     void setSelected (int box);
 
+    /* Emitted when a wire is dragged between two ports, and when one is
+       asked to be removed. The canvas does not change the graph itself --
+       the window owns that, because it also has to record the edit. */
+    typedef sigc::signal<void(int, int, int, int)> type_signal_connect;
+    type_signal_connect signal_connect_requested (void) {
+        return m_signal_connect_;
+    }
+
+    typedef sigc::signal<void(int)> type_signal_disconnect;
+    type_signal_disconnect signal_disconnect_requested (void) {
+        return m_signal_disconnect_;
+    }
+
+    /* Emitted with a reason when a drop is refused, so the window can say
+       why rather than the wire just vanishing. */
+    typedef sigc::signal<void(string)> type_signal_refused;
+    type_signal_refused signal_refused (void) { return m_signal_refused_; }
+
 protected:
     virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
     virtual bool on_button_press_event (GdkEventButton *b);
@@ -63,8 +81,9 @@ protected:
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
                   const NodeGraph::Box &b, bool highlit, bool selected);
-    void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr,
-                   const NodeGraph::Edge &e);
+    void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
+                   bool highlit);
+    void drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr);
 
     /* widget pixels -> graph coordinates */
     void toGraph (double sx, double sy, double &gx, double &gy) const;
@@ -81,8 +100,20 @@ private:
     int hoverBox_, hoverPort_;
     int selBox_;
 
+    /* Wire being dragged: the port it started at, and where the loose end
+       currently is, in graph coordinates. */
+    int wireBox_, wirePort_;
+    double wireX_, wireY_;
+    int wireTargetBox_, wireTargetPort_;
+    bool wireTargetOk_;
+
+    int hoverEdge_;
+
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
+    type_signal_connect m_signal_connect_;
+    type_signal_disconnect m_signal_disconnect_;
+    type_signal_refused m_signal_refused_;
 };
 
 #endif /* NODE_CANVAS_H */
