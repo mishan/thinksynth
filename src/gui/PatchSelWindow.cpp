@@ -248,10 +248,16 @@ bool PatchSelWindow::LoadPatch (void)
 
 void PatchSelWindow::BrowsePatch (void)
 {
-    Gtk::FileSelection fileSel ("thinksynth - Load Patch");
+    /* gtkmm-3 removed Gtk::FileSelection. FileChooserDialog has no buttons of
+       its own, so the action area has to be populated explicitly. */
+    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Load Patch",
+                                   Gtk::FILE_CHOOSER_ACTION_OPEN);
+
+    fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+    fileSel.add_button(Gtk::Stock::OPEN, Gtk::RESPONSE_OK);
 
     if (prevDir != "")
-        fileSel.set_filename(prevDir);
+        fileSel.set_current_folder(prevDir);
 
     if (fileSel.run() == Gtk::RESPONSE_OK)
     {
@@ -286,7 +292,8 @@ void PatchSelWindow::BrowsePatch (void)
 void PatchSelWindow::SavePatch (void)
 {
     gthPatchManager *patchManager = gthPatchManager::instance();
-    Gtk::FileSelection fileSel("thinksynth - Save Patch");
+    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Save Patch",
+                                   Gtk::FILE_CHOOSER_ACTION_SAVE);
     Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
         patchView.get_selection();
 
@@ -295,9 +302,13 @@ void PatchSelWindow::SavePatch (void)
         Gtk::TreeModel::iterator iter;
         iter = refSelection->get_selected();
 
+        fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+        fileSel.add_button(Gtk::Stock::SAVE, Gtk::RESPONSE_OK);
+        fileSel.set_do_overwrite_confirmation(true);
+
         if (prevDir != "")
-            fileSel.set_filename(prevDir);
-        
+            fileSel.set_current_folder(prevDir);
+
         if (fileSel.run() == Gtk::RESPONSE_OK)
         {
             gthPatchManager::PatchFile *patch = NULL;
