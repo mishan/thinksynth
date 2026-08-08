@@ -22,12 +22,12 @@
 #include "../NodeGraph.h"
 
 /*
- * Read-only view of a NodeGraph.
+ * View of a NodeGraph: draws it, and lets boxes be dragged and the whole thing
+ * zoomed.
  *
- * Deliberately draw-only for now: no dragging, no editing, no hit-testing.
- * The point of this stage is to answer the one question the headless tests
- * cannot, which is whether an automatically arranged thinksynth graph is
- * legible at 17 layers deep.
+ * Still no editing -- wires cannot be made or broken here yet. Hit-testing
+ * lives in NodeGraph rather than in this class so it can be tested without a
+ * display; this widget only converts coordinates and tracks the drag.
  */
 class NodeCanvas : public Gtk::DrawingArea
 {
@@ -37,16 +37,43 @@ public:
     /* The canvas does not own the graph. */
     void setGraph (NodeGraph *graph);
 
+    double zoom (void) const { return zoom_; }
+    void setZoom (double z);
+
+    /* Emitted when a box has been dragged, so a host can mark the document
+       dirty and eventually write the position out. */
+    typedef sigc::signal<void(int)> type_signal_box_moved;
+    type_signal_box_moved signal_box_moved (void) { return m_signal_box_moved_; }
+
 protected:
     virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
+    virtual bool on_button_press_event (GdkEventButton *b);
+    virtual bool on_button_release_event (GdkEventButton *b);
+    virtual bool on_motion_notify_event (GdkEventMotion *m);
+    virtual bool on_scroll_event (GdkEventScroll *s);
+    virtual bool on_leave_notify_event (GdkEventCrossing *c);
 
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
-                  const NodeGraph::Box &b);
+                  const NodeGraph::Box &b, bool highlit);
     void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr,
                    const NodeGraph::Edge &e);
 
+    /* widget pixels -> graph coordinates */
+    void toGraph (double sx, double sy, double &gx, double &gy) const;
+
+    void updateSize (void);
+
     NodeGraph *graph_;
+
+    double zoom_;
+
+    int dragBox_;             /* box being dragged, or -1        */
+    double dragDX_, dragDY_;  /* grab point within that box      */
+
+    int hoverBox_, hoverPort_;
+
+    type_signal_box_moved m_signal_box_moved_;
 };
 
 #endif /* NODE_CANVAS_H */

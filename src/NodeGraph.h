@@ -102,8 +102,31 @@ public:
     int layerCount (void) const { return layers_; }
     int feedbackCount (void) const;
 
-    /* Moves a box, for dragging. Does not re-layer. */
+    /* Moves a box, for dragging. Does not re-layer, and does not extend the
+       canvas extent -- call refreshExtent() if the box may have gone past the
+       previous bounds. */
     void moveBox (int index, double x, double y);
+
+    /* Recomputes width()/height() from where the boxes actually are, after
+       dragging has moved them off the laid-out grid. */
+    void refreshExtent (void);
+
+    /* Hit-testing, in graph coordinates. Deliberately here rather than in the
+       canvas so it can be exercised headlessly -- "clicking a port's centre
+       finds that port" is exactly the sort of thing that silently goes wrong
+       and is tedious to notice by hand.
+
+       boxAt returns the topmost box containing the point, or -1. Later boxes
+       win, matching the draw order. */
+    int boxAt (double x, double y) const;
+
+    /* portAt finds a port whose handle contains the point, within `slack'
+       pixels. Returns true and fills box/port on a hit. */
+    bool portAt (double x, double y, int &box, int &port,
+                 double slack = 6.0) const;
+
+    /* Absolute position of a port's handle. */
+    void portPos (int box, int port, double &x, double &y) const;
 
 private:
     static int findPort (const Box &b, const string &name, bool wantInput);

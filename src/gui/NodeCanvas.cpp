@@ -40,23 +40,160 @@
 
 #define PORT_R  3.5
 
+#define ZOOM_MIN  0.25
+#define ZOOM_MAX  3.0
+
 NodeCanvas::NodeCanvas (void)
-    : graph_(NULL)
+    : graph_(NULL), zoom_(1.0), dragBox_(-1), dragDX_(0), dragDY_(0),
+      hoverBox_(-1), hoverPort_(-1)
 {
+    add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
+               Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK |
+               Gdk::SMOOTH_SCROLL_MASK | Gdk::LEAVE_NOTIFY_MASK);
+}
+
+void NodeCanvas::updateSize (void)
+{
+    if (graph_)
+        set_size_request((int)(graph_->width() * zoom_),
+                         (int)(graph_->height() * zoom_));
 }
 
 void NodeCanvas::setGraph (NodeGraph *graph)
 {
     graph_ = graph;
+    dragBox_ = hoverBox_ = hoverPort_ = -1;
 
-    if (graph_)
-        set_size_request((int)graph_->width(), (int)graph_->height());
-
+    updateSize();
     queue_draw();
 }
 
+void NodeCanvas::setZoom (double z)
+{
+    if (z < ZOOM_MIN) z = ZOOM_MIN;
+    if (z > ZOOM_MAX) z = ZOOM_MAX;
+
+    zoom_ = z;
+
+    updateSize();
+    queue_draw();
+}
+
+void NodeCanvas::toGraph (double sx, double sy, double &gx, double &gy) const
+{
+    gx = sx / zoom_;
+    gy = sy / zoom_;
+}
+
+bool NodeCanvas::on_button_press_event (GdkEventButton *b)
+{
+    if (graph_ == NULL || b->button != 1)
+        return false;
+
+    double gx, gy;
+
+    toGraph(b->x, b->y, gx, gy);
+
+    const int hit = graph_->boxAt(gx, gy);
+
+    if (hit >= 0)
+    {
+        dragBox_ = hit;
+        dragDX_ = gx - graph_->boxes()[hit].x;
+        dragDY_ = gy - graph_->boxes()[hit].y;
+    }
+
+    return true;
+}
+
+bool NodeCanvas::on_button_release_event (GdkEventButton *b)
+{
+    if (dragBox_ >= 0)
+    {
+        /* A box dragged past the old bounds needs the scrollable area to grow
+           with it, or it becomes unreachable. */
+        graph_->refreshExtent();
+        updateSize();
+
+        m_signal_box_moved_(dragBox_);
+        dragBox_ = -1;
+    }
+
+    return true;
+}
+
+bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
+{
+    if (graph_ == NULL)
+        return false;
+
+    double gx, gy;
+
+    toGraph(m->x, m->y, gx, gy);
+
+    if (dragBox_ >= 0)
+    {
+        double nx = gx - dragDX_;
+        double ny = gy - dragDY_;
+
+        /* Keep boxes out of negative space: the canvas has no origin offset,
+           so anything dragged above or left of zero would be unreachable. */
+        if (nx < 0) nx = 0;
+        if (ny < 0) ny = 0;
+
+        graph_->moveBox(dragBox_, nx, ny);
+        queue_draw();
+
+        return true;
+    }
+
+    /* Hover feedback on ports. Not used for anything yet, but it is what makes
+       the click target discoverable once wiring exists, and it is the cheapest
+       possible check that portAt() agrees with what is drawn. */
+    int hb = -1, hp = -1;
+
+    graph_->portAt(gx, gy, hb, hp);
+
+    if (hb != hoverBox_ || hp != hoverPort_)
+    {
+        hoverBox_ = hb;
+        hoverPort_ = hp;
+        queue_draw();
+    }
+
+    return true;
+}
+
+bool NodeCanvas::on_leave_notify_event (GdkEventCrossing *c)
+{
+    if (hoverBox_ >= 0 || hoverPort_ >= 0)
+    {
+        hoverBox_ = hoverPort_ = -1;
+        queue_draw();
+    }
+
+    return true;
+}
+
+bool NodeCanvas::on_scroll_event (GdkEventScroll *s)
+{
+    /* Ctrl+wheel zooms; a bare wheel is left to the scrolled window, which is
+       what people expect of a large canvas. */
+    if ((s->state & GDK_CONTROL_MASK) == 0)
+        return false;
+
+    if (s->direction == GDK_SCROLL_UP)
+        setZoom(zoom_ * 1.1);
+    else if (s->direction == GDK_SCROLL_DOWN)
+        setZoom(zoom_ / 1.1);
+    else if (s->direction == GDK_SCROLL_SMOOTH && s->delta_y != 0)
+        setZoom(zoom_ * (s->delta_y < 0 ? 1.1 : 1.0 / 1.1));
+
+    return true;
+}
+
 void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
-                          const NodeGraph::Box &b)
+                          const NodeGraph::Box &b, bool highlit)
 {
     cr->set_line_width(1.0);
 
@@ -64,8 +201,15 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
     cr->set_source_rgb(COL_BOX);
     cr->fill_preserve();
-    cr->set_source_rgb(COL_BOX_EDGE);
+    if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->set_line_width(2.0);
+    }
+    else
+        cr->set_source_rgb(COL_BOX_EDGE);
     cr->stroke();
+    cr->set_line_width(1.0);
 
     /* title bar -- the io halves get their own colour, since "midi in" and
        "audio out" are the two ends of the signal path and worth spotting */
@@ -105,17 +249,20 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     {
         const NodeGraph::Port &p = b.ports[k];
 
-        cr->arc(b.x + p.x, b.y + p.y, PORT_R, 0, 2 * M_PI);
+        const bool hot = (hoverBox_ >= 0 &&
+                          &graph_->boxes()[hoverBox_] == &b &&
+                          (int)k == hoverPort_);
+
+        cr->arc(b.x + p.x, b.y + p.y, hot ? PORT_R + 2.0 : PORT_R, 0, 2 * M_PI);
 
         /* Not `set_source_rgb(p.isInput ? COL_PORT_IN : COL_PORT_OUT)'.
          *
          * These macros are three comma-separated numbers, and the middle
          * operand of ?: swallows commas: that expression parsed as
          * set_source_rgb(isInput ? (0.60, 0.75, 0.55) : 0.80, 0.72, 0.50),
-         * i.e. red = 0.55 or 0.80 with green and blue always 0.72 and 0.50.
-         * Inputs came out olive instead of green and the two port colours
-         * differed only in the red channel -- close enough to look deliberate
-         * and never noticed by eye. */
+         * i.e. red from the conditional with green and blue always 0.72 and
+         * 0.50. Inputs came out olive rather than green, and the two port
+         * colours differed only in the red channel. */
         if (p.isInput)
             cr->set_source_rgb(COL_PORT_IN);
         else
@@ -196,6 +343,9 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     if (graph_ == NULL)
         return true;
 
+    cr->save();
+    cr->scale(zoom_, zoom_);
+
     /* Wires first so boxes sit on top of them; a wire disappearing behind a
        box reads better than one crossing its face. */
     const vector<NodeGraph::Edge> &edges = graph_->edges();
@@ -206,7 +356,9 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 
     for (size_t b = 0; b < boxes.size(); b++)
-        drawBox(cr, boxes[b]);
+        drawBox(cr, boxes[b], (int)b == dragBox_ || (int)b == hoverBox_);
+
+    cr->restore();
 
     return true;
 }

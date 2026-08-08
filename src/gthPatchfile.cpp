@@ -68,6 +68,24 @@ gthPatchManager *gthPatchManager::instance (void) {
     return instance_;
 }
 
+string gthPatchManager::resolveDsp (const string &dspName)
+{
+    struct stat st;
+
+    if (dspName.empty())
+        return dspName;
+
+    if (dspName[0] == '/' || stat(dspName.c_str(), &st) == 0)
+        return dspName;
+
+    const string inPath = DSP_PATH + dspName;
+
+    if (stat(inPath.c_str(), &st) == 0)
+        return inPath;
+
+    return dspName;
+}
+
 bool gthPatchManager::newPatch (const string &dspName, int chan)
 {
     thSynth *synth = thSynth::instance();
@@ -82,7 +100,9 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
         patches_[chan] = NULL;
     }
 
-    thSynthTree *mod = synth->loadTree(dspName.c_str(), chan, 0);
+    /* Load the resolved path but remember the name as given, so a patch saved
+       afterwards still carries the short name it came with. */
+    thSynthTree *mod = synth->loadTree(resolveDsp(dspName).c_str(), chan, 0);
 
     if (mod == NULL)
     {
@@ -288,17 +308,9 @@ bool gthPatchManager::parse (const string &filename, int chan)
             /* XXX: handle specific cases here for now */
             if (key == "dsp")
             {
-                struct stat st;
-                const char *t = values[0].c_str();
-                string f;
-
                 patches_[chan]->dspFile = values[0];
 
-                /* check if we're in an absolute or relative path */
-                if (t[0] != '/' && stat(t, &st) == -1)
-                    f = DSP_PATH + values[0];
-                else
-                    f = values[0];
+                const string f = resolveDsp(values[0]);
 
                 if (synth->loadTree(f.c_str(), chan, 0) == NULL)
                     goto owned;

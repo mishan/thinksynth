@@ -53,8 +53,9 @@ dsplevel: dsplevel.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
 # NodeGraph is deliberately GTK-free so it can be exercised headlessly.
-dspgraph: dspgraph.cpp $(TOP)/src/NodeGraph.cpp
-	$(CXX) $(CXXFLAGS) -o $@ dspgraph.cpp $(TOP)/src/NodeGraph.cpp $(LDFLAGS)
+dspgraph: dspgraph.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeLayout.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspgraph.cpp $(TOP)/src/NodeGraph.cpp \
+		$(TOP)/src/NodeLayout.cpp $(LDFLAGS)
 
 dspstress: dspstress.cpp
 	$(CXX) $(CXXFLAGS) -pthread -o $@ $< $(LDFLAGS)

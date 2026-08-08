@@ -25,6 +25,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <signal.h>
 
@@ -40,6 +42,7 @@
 #include "AboutBox.h"
 #include "MidiMap.h"
 #include "ArgTable.h"
+#include "NodeWindow.h"
 
 #ifdef HAVE_JACK
 # include "../gthJackAudio.h"
@@ -105,6 +108,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     patchSel_ = NULL;
     aboutBox_ = NULL;
     kbWin_ = NULL;
+    nodeWin_ = NULL;
 
     /* Only assigned when the JACK menu is built, which does not happen for an
        ALSA-only build -- and toggleConnects() reads them either way. */
@@ -211,6 +215,9 @@ void MainSynthWindow::populateMenu (void)
     addMenuItem(menuFile_, "_MIDI Controllers",
                 sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap),
                 "<ctrl>m");
+    addMenuItem(menuFile_, "_Node View",
+                sigc::mem_fun(*this, &MainSynthWindow::menuNodes),
+                "<ctrl>n");
 
     menuFile_.append(*manage(new Gtk::SeparatorMenuItem()));
 
@@ -348,6 +355,61 @@ void MainSynthWindow::menuKeyboard (void)
 
     kbWin_->show_all_children();
     kbWin_->show();
+}
+
+/* Opens the node view on whatever .dsp the current tab names. The window
+   parses its own copy of the file, so it neither sees nor disturbs the tree
+   the channel is playing -- which also means it works before a patch has been
+   loaded, as long as the entry names a readable file. */
+void MainSynthWindow::menuNodes (void)
+{
+    /* The entry shows the patch's stored name, which is normally bare
+       ("ts1.dsp") -- resolving it is the patch manager's rule, not ours. */
+    const string typed = dspEntry_.get_text();
+    string dspfile = gthPatchManager::resolveDsp(typed);
+
+    /* resolveDsp only knows about the install path. If the file came from
+       somewhere the user browsed to, that directory is the better guess. */
+    if (!typed.empty() && typed[0] != '/' && !prevDir_.empty())
+    {
+        struct stat st;
+
+        if (stat(dspfile.c_str(), &st) != 0 &&
+            stat((prevDir_ + typed).c_str(), &st) == 0)
+            dspfile = prevDir_ + typed;
+    }
+
+    if (dspfile.empty())
+    {
+        Gtk::MessageDialog dlg(*this, "No DSP file selected.", false,
+                               Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
+        dlg.set_secondary_text("Choose a DSP for this patch first; the node "
+                               "view shows the file named above.");
+        dlg.run();
+        return;
+    }
+
+    if (nodeWin_ == NULL)
+    {
+        nodeWin_ = new NodeWindow(thSynth::instance());
+        menuBar_.accelerate(*nodeWin_);
+        nodeWin_->signal_hide().connect(
+            sigc::mem_fun(*this, &MainSynthWindow::onNodeWinHide));
+    }
+
+    if (nodeWin_->filename() != dspfile && !nodeWin_->open(dspfile))
+    {
+        Gtk::MessageDialog dlg(*this, "Could not read that DSP.", false,
+                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+        dlg.set_secondary_text(dspfile == typed ? dspfile
+                                                : typed + "  (" + dspfile + ")");
+        dlg.run();
+        return;
+    }
+
+    nodeWin_->show_all_children();
+    nodeWin_->show();
+    nodeWin_->present();
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -614,6 +676,12 @@ void MainSynthWindow::onMidiMapHide (void)
 {
     delete midiMap_;
     midiMap_ = NULL;
+}
+
+void MainSynthWindow::onNodeWinHide (void)
+{
+    delete nodeWin_;
+    nodeWin_ = NULL;
 }
 
 void MainSynthWindow::onKeyboardHide (void)

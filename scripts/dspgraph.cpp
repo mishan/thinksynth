@@ -27,6 +27,11 @@
  *     express that, so if it happens the builder is wrong)
  *   - no two boxes overlap after layout
  *   - no plugin-internal state (ARG_STATE) is exposed as a port
+ *   - clicking a box's centre picks that box, and clicking a port's drawn
+ *     position picks that port -- the two things a mouse does, checked
+ *     without a mouse
+ *   - a saved layout comes back exactly, and saving changes nothing in the
+ *     file except `# @layout' lines
  *
  * Exit status is the number of files with a failure.
  *
@@ -42,11 +47,53 @@
 
 #include "think.h"
 #include "NodeGraph.h"
+#include "NodeLayout.h"
+
+#include <fstream>
+#include <sstream>
 
 static bool overlaps (const NodeGraph::Box &a, const NodeGraph::Box &b)
 {
     return !(a.x + a.w <= b.x || b.x + b.w <= a.x ||
              a.y + a.h <= b.y || b.y + b.h <= a.y);
+}
+
+/* Every line of a file except its `# @layout' comments. Two files agreeing on
+   this are the same file as far as the parser is concerned. */
+static bool nonLayoutLines (const string &path, vector<string> &out)
+{
+    ifstream in(path.c_str());
+
+    if (!in)
+        return false;
+
+    string line;
+
+    out.clear();
+
+    while (getline(in, line))
+        if (line.compare(0, 9, "# @layout") != 0)
+            out.push_back(line);
+
+    /* write() drops trailing blank lines, so ignore them on both sides. */
+    while (!out.empty() &&
+           out.back().find_first_not_of(" \t\r") == string::npos)
+        out.pop_back();
+
+    return true;
+}
+
+static bool copyFile (const string &from, const string &to)
+{
+    ifstream in(from.c_str(), ios::binary);
+    ofstream out(to.c_str(), ios::binary | ios::trunc);
+
+    if (!in || !out)
+        return false;
+
+    out << in.rdbuf();
+
+    return out.good();
 }
 
 int main (int argc, char **argv)
@@ -158,6 +205,103 @@ int main (int argc, char **argv)
                 { printf("FAIL  %s: %s overlaps %s\n", argv[f],
                          boxes[a].name.c_str(), boxes[b].name.c_str());
                   problems++; break; }
+
+        /* hit-testing: a click at a box's centre picks that box */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+            const int hit = g.boxAt(bx.x + bx.w / 2, bx.y + bx.h / 2);
+
+            if (hit != (int)b)
+            { printf("FAIL  %s: centre of %s picks box %d, not %d\n", argv[f],
+                     bx.name.c_str(), hit, (int)b);
+              problems++; }
+
+            /* ...and at a port's drawn position picks that port. Boxes do not
+               overlap, so there is exactly one right answer. */
+            for (size_t k = 0; k < bx.ports.size() && problems < 5; k++)
+            {
+                double px, py;
+                int hb = -1, hp = -1;
+
+                g.portPos((int)b, (int)k, px, py);
+
+                if (!g.portAt(px, py, hb, hp) ||
+                    hb != (int)b || hp != (int)k)
+                { printf("FAIL  %s: port %s.%s at (%.1f,%.1f) picks %d/%d\n",
+                         argv[f], bx.name.c_str(), bx.ports[k].name.c_str(),
+                         px, py, hb, hp);
+                  problems++; }
+            }
+        }
+
+        /* layout round-trip, on a copy so the corpus is never touched */
+        if (problems == 0)
+        {
+            const string tmp = "/tmp/dspgraph-layout.dsp";
+
+            vector<string> before, after;
+
+            if (!copyFile(argv[f], tmp) || !nonLayoutLines(tmp, before))
+            { printf("FAIL  %s: could not copy for round-trip\n", argv[f]);
+              problems++; }
+            else
+            {
+                /* Move everything somewhere arbitrary but reproducible, so a
+                   layout that silently failed to save cannot pass by
+                   coincidentally matching what layout() would recompute. */
+                for (size_t b = 0; b < boxes.size(); b++)
+                    g.moveBox((int)b, 17.0 + b * 13.0, 23.0 + b * 7.0);
+
+                g.refreshExtent();
+
+                if (!NodeLayout::write(tmp, g))
+                { printf("FAIL  %s: layout write failed\n", argv[f]);
+                  problems++; }
+                else if (!nonLayoutLines(tmp, after))
+                { printf("FAIL  %s: could not re-read after write\n", argv[f]);
+                  problems++; }
+                else if (before != after)
+                { printf("FAIL  %s: writing the layout changed %d other line(s)\n",
+                         argv[f], (int)after.size() - (int)before.size());
+                  problems++; }
+                else if (!NodeLayout::write(tmp, g) ||
+                         !nonLayoutLines(tmp, after) || before != after)
+                { printf("FAIL  %s: saving twice is not the same as once\n",
+                         argv[f]);
+                  problems++; }
+                else
+                {
+                    NodeLayout::PosMap pos;
+
+                    NodeLayout::read(tmp, pos);
+
+                    /* Read back into a freshly laid-out graph, the way opening
+                       the file again would. */
+                    NodeGraph g2;
+
+                    g2.build(tree);
+                    g2.layout();
+
+                    const int applied = NodeLayout::apply(g2, pos, g2);
+
+                    if (applied != (int)boxes.size())
+                    { printf("FAIL  %s: restored %d of %d positions\n", argv[f],
+                             applied, (int)boxes.size());
+                      problems++; }
+                    else
+                        for (size_t b = 0; b < boxes.size(); b++)
+                            if (g2.boxes()[b].x != 17.0 + b * 13.0 ||
+                                g2.boxes()[b].y != 23.0 + b * 7.0)
+                            { printf("FAIL  %s: %s came back at (%.1f,%.1f)\n",
+                                     argv[f], boxes[b].name.c_str(),
+                                     g2.boxes()[b].x, g2.boxes()[b].y);
+                              problems++; break; }
+                }
+            }
+
+            remove(tmp.c_str());
+        }
 
         if (problems) failed++;
         else if (!quiet)
