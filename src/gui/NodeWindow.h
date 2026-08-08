@@ -58,6 +58,7 @@ protected:
     void onConnect (int fromBox, int fromPort, int toBox, int toPort);
     void onDisconnect (int edge);
     void onRefused (string why);
+    void onControlChanged (int box, double value, bool commit);
 
     void setStatus (const string &text);
     void updateTitle (void);
@@ -89,9 +90,13 @@ private:
     struct WireEdit {
         string node, arg;       /* the input end                     */
         string srcNode, srcPort;/* empty for a disconnect            */
+        string srcControl;      /* set instead, for a control source */
     };
 
     vector<WireEdit> wires_;
+
+    /* Control values changed by dragging a slider, keyed by chanarg name. */
+    std::map<std::string, double> controls_;
 
     Gtk::VBox vbox_;
     Gtk::HBox toolbar_;

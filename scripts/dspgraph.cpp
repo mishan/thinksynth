@@ -30,6 +30,8 @@
  *   - clicking a box's centre picks that box, and clicking a port's drawn
  *     position picks that port -- the two things a mouse does, checked
  *     without a mouse
+ *   - every control's slider handle is where its value says, and clicking it
+ *     finds that control
  *   - clicking the middle of a wire finds a wire, and the ends of every
  *     wire sit on the ports it claims to join
  *   - a saved layout comes back exactly, and saving changes nothing in the
@@ -132,6 +134,7 @@ int main (int argc, char **argv)
     int failed = 0, total = 0, skipped = 0;
     long boxTotal = 0, edgeTotal = 0, fbTotal = 0, fbFiles = 0;
     int maxLayers = 0, maxBoxes = 0;
+    long controls = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -321,6 +324,51 @@ int main (int argc, char **argv)
             }
         }
 
+        /* controls: the handle is where the value says, and it can be hit.
+         *
+         * Same reasoning as the wires -- sliderGeometry feeds the drawing and
+         * sliderAt/sliderValueAt both, so this checks the two directions
+         * agree: value -> handle position -> value. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            if (!bx.isControl)
+                continue;
+
+            controls++;
+
+            double x0, x1, y, hx;
+
+            if (!g.sliderGeometry((int)b, x0, x1, y, hx))
+            { printf("FAIL  %s: control @%s has no slider\n", argv[f],
+                     bx.ctlArg.c_str());
+              problems++; continue; }
+
+            if (g.sliderAt(hx, y) != (int)b)
+            { printf("FAIL  %s: the handle of @%s picks control %d, not %d\n",
+                     argv[f], bx.ctlArg.c_str(), g.sliderAt(hx, y), (int)b);
+              problems++; continue; }
+
+            /* The track is only about a hundred pixels wide, so a value
+               recovered from a handle position is quantised to roughly a
+               hundredth of the range. */
+            const double v = g.sliderValueAt((int)b, hx);
+            const double tol = (bx.ctlMax - bx.ctlMin) * 0.02 + 1e-6;
+
+            if (fabs(v - (double)bx.ctlValue) > tol)
+            { printf("FAIL  %s: @%s reads %g at its own handle, not %g\n",
+                     argv[f], bx.ctlArg.c_str(), v, (double)bx.ctlValue);
+              problems++; continue; }
+
+            /* Both ends of the track must give the declared limits. */
+            if (fabs(g.sliderValueAt((int)b, x0) - bx.ctlMin) > tol ||
+                fabs(g.sliderValueAt((int)b, x1) - bx.ctlMax) > tol)
+            { printf("FAIL  %s: @%s track ends do not give its range\n",
+                     argv[f], bx.ctlArg.c_str());
+              problems++; }
+        }
+
         /* no plugin-internal state exposed.
          *
          * The header comment has claimed this from the start and nothing
@@ -371,13 +419,36 @@ int main (int argc, char **argv)
             const NodeGraph::Box &bx = boxes[b];
 
             /* The io source half is a display artefact with no node behind
-               it, so it has no args and no params -- skip it. */
-            if (bx.isIoSource)
+               it, and a control box is a `@name' block rather than a node.
+               Neither has an arg map to cross-check. */
+            if (bx.isIoSource || bx.isControl)
                 continue;
 
             int wiredParams = 0;
 
             for (size_t k = 0; k < bx.params.size(); k++)
+            {
+                /* A chanarg reference is a wire now too -- it comes from the
+                   control box for that `@name'. */
+                if (bx.params[k].kind == NodeGraph::Param::CHANARG)
+                {
+                    bool found = false;
+
+                    for (size_t e = 0; e < edges.size() && !found; e++)
+                        if (edges[e].toBox == (int)b &&
+                            boxes[edges[e].toBox].ports[edges[e].toPort].name ==
+                                bx.params[k].name &&
+                            boxes[edges[e].fromBox].isControl)
+                            found = true;
+
+                    /* Reading a chanarg the file never declared leaves nothing
+                       to wire it to, and the parser has already complained. */
+                    if (found)
+                        wiredParams++;
+
+                    continue;
+                }
+
                 if (bx.params[k].kind == NodeGraph::Param::POINTER)
                 {
                     /* A reference to a node that does not exist is the .dsp's
@@ -408,6 +479,7 @@ int main (int argc, char **argv)
                              bx.params[k].source.c_str());
                       problems++; }
                 }
+            }
 
             int incoming = 0;
 
@@ -506,9 +578,11 @@ int main (int argc, char **argv)
     printf("\n%d graphs built, %d failed, %d skipped (would not load)\n",
            total, failed, skipped);
     if (total)
-        printf("  %ld boxes, %ld wires; largest %d boxes, deepest %d layers\n"
+        printf("  %ld boxes (%ld of them controls), %ld wires; "
+               "largest %d boxes, deepest %d layers\n"
                "  %ld feedback wires across %ld files\n",
-               boxTotal, edgeTotal, maxBoxes, maxLayers, fbTotal, fbFiles);
+               boxTotal, controls, edgeTotal, maxBoxes, maxLayers,
+               fbTotal, fbFiles);
 
     return failed;
 }

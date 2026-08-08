@@ -115,15 +115,42 @@ string NodeEdit::unitsOf (const string &rhs)
     if (!s.empty() && s[s.size() - 1] == '%')
         return "%";
 
-    if (s.size() >= 2 && s.compare(s.size() - 2, 2, "ms") == 0)
+    if (s.size() > 2 && s.compare(s.size() - 2, 2, "ms") == 0)
     {
-        /* "...ms" only counts if it is a suffix and not the tail of an
-           identifier -- `th_params' must not read as a millisecond value. */
-        if (s.size() == 2 || !isWordChar(s[s.size() - 3]))
+        /* Both `5 ms' and `80ms' occur -- 65 and 33 times respectively -- so
+           the space cannot be required. What distinguishes a unit from the
+           tail of an identifier is that a number comes before it: `th_params'
+           has no number, `80ms' does. */
+        const string head = trim(s.substr(0, s.size() - 2));
+
+        if (!head.empty() && (isdigit((unsigned char)head[0]) ||
+                              head[0] == '.' || head[0] == '-'))
             return "ms";
     }
 
     return "";
+}
+
+/* The exact trailing text of a right-hand side, so a rewrite keeps `80ms'
+   spelled that way rather than turning it into `80 ms'. */
+static string suffixTextOf (const string &rhs)
+{
+    const string s = trim(rhs);
+    const string u = NodeEdit::unitsOf(s);
+
+    if (u.empty())
+        return "";
+
+    if (u == "%")
+        return "%";
+
+    /* everything from where the number stops to the end */
+    string::size_type p = s.size() - 2;
+
+    while (p > 0 && (s[p - 1] == ' ' || s[p - 1] == '\t'))
+        p--;
+
+    return s.substr(p);
 }
 
 /* "The same number", at the precision that matters.
@@ -200,7 +227,22 @@ static double removeUnits (double value, const string &units)
     return value;
 }
 
+/* The number alone, correctly scaled for `units' but with no suffix. */
+static bool formatLiteral (double value, const string &units, string &out);
+
 bool NodeEdit::formatWithUnits (double value, const string &units, string &out)
+{
+    string n;
+
+    if (!formatLiteral(value, units, n))
+        return false;
+
+    out = n + ((units == "ms") ? " ms" : units);
+
+    return true;
+}
+
+static bool formatLiteral (double value, const string &units, string &out)
 {
     if (!(value == value) || value > 1e30 || value < -1e30)
         return false;           /* NaN or infinity: no spelling exists */
@@ -208,8 +250,6 @@ bool NodeEdit::formatWithUnits (double value, const string &units, string &out)
     const double want = value;
 
     const double literal = removeUnits(value, units);
-
-    const string suffix = (units == "ms") ? " ms" : units;
 
     /* Shortest decimal that comes back as the same float.
      *
@@ -235,7 +275,7 @@ bool NodeEdit::formatWithUnits (double value, const string &units, string &out)
             if (value != 0.0 && atof(cand.c_str()) == 0.0)
                 continue;
 
-            out = cand + suffix;
+            out = cand;
 
             return true;
         }
@@ -558,14 +598,14 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
 
         string text;
 
-        if (!formatWithUnits(value, units, text))
+        if (!formatLiteral(value, units, text))
         {
             why = "cannot write that value in a .dsp";
             return UNWRITABLE;
         }
 
         lines[line] = lines[line].substr(0, from) + text +
-                      lines[line].substr(to);
+                      suffixTextOf(oldRhs) + lines[line].substr(to);
     }
     else
     {
@@ -593,6 +633,67 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
     return OK;
 }
 
+/* Points an arg at whatever `text' says, adding the line if there is none. */
+static NodeEdit::Result bindArg (const string &filename, const string &node,
+                                 const string &arg, const string &text,
+                                 string &why)
+{
+    /* An empty destination would be catastrophic rather than merely wrong:
+       string::find("") returns 0, so findAssign would match at the start of
+       the first line it looked at and rewrite whatever assignment happened to
+       be there. Every caller passes a real name; this guards the one that
+       someday does not. Here rather than in connect() so connectControl gets
+       it too. */
+    if (node.empty() || arg.empty())
+    {
+        why = "no destination for the connection";
+        return NodeEdit::REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return NodeEdit::IO_ERROR;
+    }
+
+    size_t open = 0, close = 0;
+
+    if (!findNodeBlock(lines, node, open, close))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NodeEdit::NO_NODE;
+    }
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (findAssign(lines, open, close, arg, line, from, to))
+    {
+        /* Already says exactly this: leave the file alone. Same reasoning as
+           setValue -- connecting something to where it already is connected
+           must not produce a diff. */
+        if (trim(lines[line].substr(from, to - from)) == text)
+            return NodeEdit::OK;
+
+        lines[line] = lines[line].substr(0, from) + text +
+                      lines[line].substr(to);
+    }
+    else
+        lines.insert(lines.begin() + close,
+                     indentOf(lines, open, close) + arg + " = " + text + ";");
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return NodeEdit::IO_ERROR;
+    }
+
+    return NodeEdit::OK;
+}
+
 NodeEdit::Result NodeEdit::connect (const string &filename, const string &node,
                                     const string &arg, const string &srcNode,
                                     const string &srcPort, string &why)
@@ -605,72 +706,34 @@ NodeEdit::Result NodeEdit::connect (const string &filename, const string &node,
      * ionode->velocity', because the io node is one node in the file but two
      * things in reality -- the MIDI source and the audio sink. Whether a
      * connection makes sense is a question about the graph, where that split
-     * is visible; see NodeGraph::canConnect. This function's job is to write
-     * faithfully what it is told. */
+     * is visible; see NodeGraph::canConnect. This function writes faithfully
+     * what it is told. */
     if (srcNode.empty() || srcPort.empty())
     {
         why = "no source for the connection";
         return REFUSED;
     }
 
-    /* An empty destination would be catastrophic rather than merely wrong:
-       string::find("") returns 0, so findAssign would match at the start of
-       the first line it looked at and rewrite whatever assignment happened to
-       be there. Every caller passes a real name; this guards the one that
-       someday does not. */
-    if (node.empty() || arg.empty())
+    /* Every one of the 3476 node-to-node connections in the corpus is spelled
+       exactly `name->port', with no spaces around the arrow, so writing it
+       this way reproduces the existing text byte for byte. */
+    return bindArg(filename, node, arg, srcNode + "->" + srcPort, why);
+}
+
+NodeEdit::Result NodeEdit::connectControl (const string &filename,
+                                           const string &node,
+                                           const string &arg,
+                                           const string &control, string &why)
+{
+    why.clear();
+
+    if (control.empty())
     {
-        why = "no destination for the connection";
+        why = "no control to connect to";
         return REFUSED;
     }
 
-    vector<string> lines;
-    bool endsWithNewline = true;
-
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
-
-    size_t open = 0, close = 0;
-
-    if (!findNodeBlock(lines, node, open, close))
-    {
-        why = "no `node " + node + "' block in the file";
-        return NO_NODE;
-    }
-
-    /* Every one of the 3476 connections in the corpus is spelled exactly
-       `name->port', with no spaces around the arrow, so writing it this way
-       reproduces the existing text byte for byte. */
-    const string text = srcNode + "->" + srcPort;
-
-    size_t line = 0;
-    string::size_type from = 0, to = 0;
-
-    if (findAssign(lines, open, close, arg, line, from, to))
-    {
-        /* Already says exactly this: leave the file alone. Same reasoning as
-           setValue -- connecting something to where it already is connected
-           must not produce a diff. */
-        if (trim(lines[line].substr(from, to - from)) == text)
-            return OK;
-
-        lines[line] = lines[line].substr(0, from) + text +
-                      lines[line].substr(to);
-    }
-    else
-        lines.insert(lines.begin() + close,
-                     indentOf(lines, open, close) + arg + " = " + text + ";");
-
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
-
-    return OK;
+    return bindArg(filename, node, arg, "@" + control, why);
 }
 
 NodeEdit::Result NodeEdit::disconnect (const string &filename,
@@ -710,7 +773,11 @@ NodeEdit::Result NodeEdit::disconnect (const string &filename,
 
     const string oldRhs = trim(lines[line].substr(from, to - from));
 
-    if (oldRhs.find("->") == string::npos)
+    /* Two things count as connected: a node's output, and a control. Since
+       controls became nodes on the canvas, `a = @a' is a wire like any other
+       and cutting it has to work the same way. */
+    if (oldRhs.find("->") == string::npos &&
+        (oldRhs.empty() || oldRhs[0] != '@'))
     {
         why = arg + " is not connected to anything";
         return REFUSED;
@@ -770,6 +837,141 @@ NodeEdit::Result NodeEdit::find (const string &filename, const string &node,
 
     if (!findAssign(lines, open, close, arg, line, from, to))
         return NOT_A_VALUE;
+
+    return OK;
+}
+
+/* Locates a top-level `@<name> = <rhs>;'.
+ *
+ * "Top level" means at brace depth zero: the control declarations sit outside
+ * every node block, indented only by convention. Restricting to depth zero
+ * means a node's `freq = @filt1' -- which mentions the same name -- cannot be
+ * mistaken for the declaration.
+ */
+static bool findChanArg (const vector<string> &lines, const string &name,
+                         size_t &line, string::size_type &rhsFrom,
+                         string::size_type &rhsTo)
+{
+    const string want = "@" + name;
+
+    int depth = 0;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        if (depth == 0)
+        {
+            const string t = trim(code);
+
+            if (t.compare(0, want.size(), want) == 0)
+            {
+                /* `@blim' and not `@blim2' or `@blim.min' */
+                string::size_type p = want.size();
+
+                if (p >= t.size() || !isWordChar(t[p]))
+                {
+                    while (p < t.size() && (t[p] == ' ' || t[p] == '\t'))
+                        p++;
+
+                    if (p < t.size() && t[p] == '=')
+                    {
+                        /* back to an offset in the original line */
+                        const string::size_type base =
+                            code.find_first_not_of(" \t");
+
+                        const string::size_type eq = base + p;
+                        const string::size_type semi = code.find(';', eq);
+
+                        if (semi == string::npos)
+                            return false;
+
+                        string::size_type s =
+                            code.find_first_not_of(" \t", eq + 1);
+
+                        if (s == string::npos || s > semi)
+                            return false;
+
+                        string::size_type e = semi;
+
+                        while (e > s &&
+                               (code[e - 1] == ' ' || code[e - 1] == '\t'))
+                            e--;
+
+                        line = i;
+                        rhsFrom = s;
+                        rhsTo = e;
+
+                        return true;
+                    }
+                }
+            }
+        }
+
+        for (size_t k = 0; k < code.size(); k++)
+        {
+            if (code[k] == '{') depth++;
+            else if (code[k] == '}' && depth > 0) depth--;
+        }
+    }
+
+    return false;
+}
+
+NodeEdit::Result NodeEdit::setChanArg (const string &filename,
+                                       const string &name, double value,
+                                       string &why)
+{
+    why.clear();
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findChanArg(lines, name, line, from, to))
+    {
+        why = "no `@" + name + " = ...' line in the file";
+        return NO_NODE;
+    }
+
+    const string oldRhs = lines[line].substr(from, to - from);
+
+    double oldValue;
+
+    if (!parseRhs(oldRhs, oldValue))
+    {
+        why = "@" + name + " is currently `" + oldRhs +
+              "', which this editor will not rewrite.";
+        return UNWRITABLE;
+    }
+
+    if (sameValue(oldValue, value))
+        return OK;
+
+    string text;
+
+    if (!formatLiteral(value, unitsOf(oldRhs), text))
+    {
+        why = "cannot write that value in a .dsp";
+        return UNWRITABLE;
+    }
+
+    lines[line] = lines[line].substr(0, from) + text + suffixTextOf(oldRhs) +
+                  lines[line].substr(to);
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
 
     return OK;
 }

@@ -94,6 +94,9 @@ NodeWindow::NodeWindow (thSynth *synth)
     canvas_.signal_refused().connect(
         sigc::mem_fun(*this, &NodeWindow::onRefused));
 
+    canvas_.signal_control_changed().connect(
+        sigc::mem_fun(*this, &NodeWindow::onControlChanged));
+
     params_.signal_param_edited().connect(
         sigc::mem_fun(*this, &NodeWindow::onParamEdited));
 
@@ -118,14 +121,16 @@ void NodeWindow::updateTitle (void)
 {
     string base = thUtil::basename((char *)filename_.c_str());
 
-    const bool dirty = layoutDirty_ || !pending_.empty() || !wires_.empty();
+    const bool dirty = layoutDirty_ || !pending_.empty() ||
+                       !wires_.empty() || !controls_.empty();
 
     set_title("thinksynth - Nodes - " + base + (dirty ? " *" : ""));
 }
 
 void NodeWindow::updateDirty (void)
 {
-    const bool dirty = layoutDirty_ || !pending_.empty() || !wires_.empty();
+    const bool dirty = layoutDirty_ || !pending_.empty() ||
+                       !wires_.empty() || !controls_.empty();
 
     /* Save is offered only when there is something to save. It used to be
        enabled whenever a file was open, and saving with nothing pending still
@@ -178,6 +183,7 @@ bool NodeWindow::open (const string &filename)
     layoutDirty_ = false;
     pending_.clear();
     wires_.clear();
+    controls_.clear();
 
     canvas_.setGraph(&graph_);
     params_.setBox(NULL, -1);
@@ -225,11 +231,16 @@ bool NodeWindow::writeAll (string &why)
     {
         const WireEdit &e = wires_[w];
 
-        NodeEdit::Result r =
-            e.srcNode.empty()
-                ? NodeEdit::disconnect(filename_, e.node, e.arg, 0, why)
-                : NodeEdit::connect(filename_, e.node, e.arg,
-                                    e.srcNode, e.srcPort, why);
+        NodeEdit::Result r;
+
+        if (!e.srcControl.empty())
+            r = NodeEdit::connectControl(filename_, e.node, e.arg,
+                                         e.srcControl, why);
+        else if (e.srcNode.empty())
+            r = NodeEdit::disconnect(filename_, e.node, e.arg, 0, why);
+        else
+            r = NodeEdit::connect(filename_, e.node, e.arg,
+                                  e.srcNode, e.srcPort, why);
 
         if (r != NodeEdit::OK)
         {
@@ -237,6 +248,23 @@ bool NodeWindow::writeAll (string &why)
                 why = string(NodeEdit::resultText(r));
 
             why = e.node + "." + e.arg + ": " + why;
+
+            return false;
+        }
+    }
+
+    for (std::map<std::string, double>::const_iterator i = controls_.begin();
+         i != controls_.end(); ++i)
+    {
+        NodeEdit::Result r =
+            NodeEdit::setChanArg(filename_, i->first, i->second, why);
+
+        if (r != NodeEdit::OK)
+        {
+            if (why.empty())
+                why = string(NodeEdit::resultText(r));
+
+            why = "@" + i->first + ": " + why;
 
             return false;
         }
@@ -277,6 +305,7 @@ void NodeWindow::onSave (void)
 
     const int n = (int)pending_.size();
     const int w = (int)wires_.size();
+    const int c = (int)controls_.size();
 
     string why;
 
@@ -306,12 +335,14 @@ void NodeWindow::onSave (void)
     char buf[160];
 
     /* One snprintf per case rather than a format string chosen by a
-       conditional. The earlier version handed the same argument list to both
+       conditional. An earlier version handed the same argument list to both
        branches, so the one taking no arguments read an int as a %s. */
-    if (n || w)
+    if (n || c || w)
         snprintf(buf, sizeof(buf),
-                 "Saved: %d value%s, %d wire change%s, and the layout.",
-                 n, n == 1 ? "" : "s", w, w == 1 ? "" : "s");
+                 "Saved: %d value%s, %d control%s, %d wire change%s, "
+                 "and the layout.",
+                 n, n == 1 ? "" : "s", c, c == 1 ? "" : "s",
+                 w, w == 1 ? "" : "s");
     else
         snprintf(buf, sizeof(buf), "Saved: layout only.");
 
@@ -325,6 +356,7 @@ void NodeWindow::onRevert (void)
 
     pending_.clear();
     wires_.clear();
+    controls_.clear();
     layoutDirty_ = false;
 
     open(filename_);
@@ -403,8 +435,13 @@ void NodeWindow::onConnect (int fromBox, int fromPort, int toBox, int toPort)
 
     e.node = graph_.boxes()[toBox].name;
     e.arg = graph_.boxes()[toBox].ports[toPort].name;
-    e.srcNode = graph_.boxes()[fromBox].name;
-    e.srcPort = graph_.boxes()[fromBox].ports[fromPort].name;
+    if (graph_.boxes()[fromBox].isControl)
+        e.srcControl = graph_.boxes()[fromBox].ctlArg;
+    else
+    {
+        e.srcNode = graph_.boxes()[fromBox].name;
+        e.srcPort = graph_.boxes()[fromBox].ports[fromPort].name;
+    }
 
     wires_.push_back(e);
 
@@ -412,7 +449,9 @@ void NodeWindow::onConnect (int fromBox, int fromPort, int toBox, int toPort)
     params_.setBox(&graph_, canvas_.selected());
     updateDirty();
 
-    setStatus(e.node + "." + e.arg + " <- " + e.srcNode + "->" + e.srcPort);
+    setStatus(e.node + "." + e.arg + " <- " +
+              (e.srcControl.empty() ? e.srcNode + "->" + e.srcPort
+                                    : "@" + e.srcControl));
 }
 
 void NodeWindow::onDisconnect (int edge)
@@ -436,6 +475,36 @@ void NodeWindow::onDisconnect (int edge)
     updateDirty();
 
     setStatus("Disconnected " + e.node + "." + e.arg + ".  Revert undoes it.");
+}
+
+/* A slider moved. `commit' is false while dragging and true on release.
+ *
+ * The graph has already been updated by the canvas, so this only has to
+ * refresh what else is showing the number and, on release, record the edit.
+ * Recording only on release means a drag across the track is one change
+ * rather than one per pixel. */
+void NodeWindow::onControlChanged (int box, double value, bool commit)
+{
+    if (box < 0 || box >= (int)graph_.boxes().size())
+        return;
+
+    const NodeGraph::Box &b = graph_.boxes()[box];
+
+    /* Everything reading this control shows the new number too. */
+    params_.setBox(&graph_, canvas_.selected());
+
+    char buf[160];
+
+    snprintf(buf, sizeof(buf), "@%s = %g", b.ctlArg.c_str(), value);
+
+    setStatus(buf);
+
+    if (!commit)
+        return;
+
+    controls_[b.ctlArg] = value;
+
+    updateDirty();
 }
 
 void NodeWindow::onRefused (string why)

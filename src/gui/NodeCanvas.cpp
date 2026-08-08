@@ -39,6 +39,10 @@
 #define COL_PORT_OUT  0.80, 0.72, 0.50
 #define COL_SELECT    0.95, 0.85, 0.45
 #define COL_CUT       0.90, 0.42, 0.38
+#define COL_CTL_HEAD  0.34, 0.30, 0.44
+#define COL_TRACK     0.16, 0.17, 0.19
+#define COL_FILL      0.62, 0.55, 0.82
+#define COL_HANDLE    0.86, 0.83, 0.94
 
 #define PORT_R  3.5
 
@@ -50,7 +54,7 @@ NodeCanvas::NodeCanvas (void)
       hoverBox_(-1), hoverPort_(-1), selBox_(-1),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
-      hoverEdge_(-1)
+      hoverEdge_(-1), dragSlider_(-1)
 {
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK |
@@ -70,6 +74,7 @@ void NodeCanvas::setGraph (NodeGraph *graph)
     dragBox_ = hoverBox_ = hoverPort_ = selBox_ = -1;
     wireBox_ = wirePort_ = wireTargetBox_ = wireTargetPort_ = -1;
     hoverEdge_ = -1;
+    dragSlider_ = -1;
 
     m_signal_selected_(-1);
 
@@ -113,6 +118,25 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
     double gx, gy;
 
     toGraph(b->x, b->y, gx, gy);
+
+    /* A slider takes precedence over the box it is drawn on, or a control
+       could never be adjusted -- only dragged around. */
+    const int slider = graph_->sliderAt(gx, gy);
+
+    if (slider >= 0)
+    {
+        dragSlider_ = slider;
+
+        const double v = graph_->sliderValueAt(slider, gx);
+
+        graph_->setControlValue(slider, (float)v);
+
+        setSelected(slider);
+        m_signal_control_(slider, v, false);
+        queue_draw();
+
+        return true;
+    }
 
     /* A port takes precedence over the box it sits on: the handles straddle
        the edge, so a click there means "wire", not "move". */
@@ -164,6 +188,20 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
 bool NodeCanvas::on_button_release_event (GdkEventButton *b)
 {
     (void)b;    /* which button came up does not matter here */
+
+    if (dragSlider_ >= 0)
+    {
+        const int s = dragSlider_;
+
+        dragSlider_ = -1;
+
+        /* The committing emit. Everything before this was live feedback. */
+        m_signal_control_(s, (double)graph_->boxes()[s].ctlValue, true);
+
+        queue_draw();
+
+        return true;
+    }
 
     if (wireBox_ >= 0)
     {
@@ -235,6 +273,18 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
         if (ny < 0) ny = 0;
 
         graph_->moveBox(dragBox_, nx, ny);
+        queue_draw();
+
+        return true;
+    }
+
+    if (dragSlider_ >= 0)
+    {
+        const double v = graph_->sliderValueAt(dragSlider_, gx);
+
+        graph_->setControlValue(dragSlider_, (float)v);
+
+        m_signal_control_(dragSlider_, v, false);
         queue_draw();
 
         return true;
@@ -350,11 +400,14 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->stroke();
     cr->set_line_width(1.0);
 
-    /* title bar -- the io halves get their own colour, since "midi in" and
-       "audio out" are the two ends of the signal path and worth spotting */
+    /* title bar -- the io halves and the controls get their own colours, since
+       "midi in", "audio out" and the knobs are the parts of a patch you look
+       for first */
     cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, 20.0);
     if (b.isIoSource || b.isIoSink)
         cr->set_source_rgb(COL_IO_HEAD);
+    else if (b.isControl)
+        cr->set_source_rgb(COL_CTL_HEAD);
     else
         cr->set_source_rgb(COL_HEAD);
     cr->fill();
@@ -364,9 +417,21 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->set_font_size(10.0);
     cr->set_source_rgb(COL_TEXT);
     cr->move_to(b.x + 6, b.y + 14);
-    cr->show_text(b.name);
 
-    if (!b.plugin.empty())
+    /* A control's label is what the .dsp author called it -- "Band Limit"
+       rather than "blim" -- and that is the useful thing to read. The bare
+       name is still there in the tooltip-less corner on the right. */
+    cr->show_text(b.isControl ? b.ctlLabel : b.name);
+
+    if (b.isControl)
+    {
+        drawSlider(cr, b);
+
+        /* The one output port still wants drawing, so fall through to the
+           port loop rather than returning here. */
+    }
+
+    if (!b.plugin.empty() && !b.isControl)
     {
         cr->select_font_face("sans", Cairo::FONT_SLANT_ITALIC,
                              Cairo::FONT_WEIGHT_NORMAL);
@@ -424,6 +489,71 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
             cr->show_text(p.name);
         }
     }
+}
+
+/* The slider on a control box: a track, the filled part up to the handle, the
+   handle, and the value.
+ *
+ * The geometry comes from NodeGraph::sliderGeometry, which is also what
+ * sliderAt() and sliderValueAt() use, so what is drawn and what is dragged are
+ * one thing. */
+void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
+                             const NodeGraph::Box &b)
+{
+    int index = -1;
+
+    for (size_t i = 0; i < graph_->boxes().size(); i++)
+        if (&graph_->boxes()[i] == &b)
+        { index = (int)i; break; }
+
+    double x0, x1, y, hx;
+
+    if (!graph_->sliderGeometry(index, x0, x1, y, hx))
+        return;
+
+    cr->set_line_width(3.0);
+    cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+
+    cr->move_to(x0, y);
+    cr->line_to(x1, y);
+    cr->set_source_rgb(COL_TRACK);
+    cr->stroke();
+
+    if (hx > x0)
+    {
+        cr->move_to(x0, y);
+        cr->line_to(hx, y);
+        cr->set_source_rgb(COL_FILL);
+        cr->stroke();
+    }
+
+    cr->set_line_cap(Cairo::LINE_CAP_BUTT);
+
+    cr->arc(hx, y, (index == dragSlider_) ? 6.0 : 5.0, 0, 2 * M_PI);
+    cr->set_source_rgb(COL_HANDLE);
+    cr->fill();
+
+    /* The number, right-aligned under the track. Four significant figures is
+       enough for anything with a declared range and short enough to fit. */
+    char buf[48];
+
+    snprintf(buf, sizeof(buf), "%.4g", (double)b.ctlValue);
+
+    cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
+                         Cairo::FONT_WEIGHT_NORMAL);
+    cr->set_font_size(8.0);
+    cr->set_source_rgb(COL_DIM);
+
+    Cairo::TextExtents te;
+    cr->get_text_extents(buf, te);
+    cr->move_to(b.x + b.w - te.width - 6, b.y + b.h - 3);
+    cr->show_text(buf);
+
+    /* ...and the range at the left, so the slider's travel means something. */
+    snprintf(buf, sizeof(buf), "%.3g-%.3g", (double)b.ctlMin, (double)b.ctlMax);
+
+    cr->move_to(b.x + 6, b.y + b.h - 3);
+    cr->show_text(buf);
 }
 
 void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,

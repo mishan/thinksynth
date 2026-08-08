@@ -105,6 +105,7 @@ public:
 
     struct Box {
         string name;        /* the node's name in the .dsp   */
+
         string plugin;      /* "osc::simple"; the io halves get
                                "midi in" and "audio out"     */
         vector<Port> ports;
@@ -123,8 +124,25 @@ public:
         bool isIoSource;
         bool isIoSink;
 
+        /* A control: one of the .dsp's top-level `@name' blocks, drawn as a
+           box with a slider and one output.
+           
+           These are where a DSP keeps the settings meant to be played with --
+           all 206 in the corpus declare .widget = 1, .min and .max, and 173
+           give a .label. Showing them as text on whatever node happens to read
+           them buried the interesting part of the patch; showing them as nodes
+           puts the knobs on the canvas and turns `in1 = @blim' into a wire
+           like any other. */
+        bool isControl;
+
+        string ctlArg;      /* the chanarg's name, without the @ */
+        string ctlLabel;    /* .label, or the name again         */
+        float ctlValue;
+        float ctlMin, ctlMax;
+
         Box (void) : x(0), y(0), w(0), h(0), layer(0), order(0),
-                     isIoSource(false), isIoSink(false) { }
+                     isIoSource(false), isIoSink(false), isControl(false),
+                     ctlValue(0), ctlMin(0), ctlMax(1) { }
     };
 
     struct Edge {
@@ -217,6 +235,24 @@ public:
 
     /* Removes a wire and puts the target parameter back to a plain value. */
     void removeEdge (int edge);
+
+    /* The slider geometry of a control box, in graph coordinates: the track
+       from x0 to x1 at height y, and where the handle sits along it.
+
+       In the model rather than the canvas for the same reason edgeCurve is:
+       the thing you drag and the thing you see have to be one shape. */
+    bool sliderGeometry (int box, double &x0, double &x1, double &y,
+                         double &handleX) const;
+
+    /* The control box whose slider contains the point, or -1. */
+    int sliderAt (double x, double y) const;
+
+    /* The value a slider would take if its handle were dragged to `x'.
+       Clamped to the control's declared range. */
+    float sliderValueAt (int box, double x) const;
+
+    /* Sets a control's value, for dragging. Does not touch the file. */
+    void setControlValue (int box, float value);
 
     /* Index of a box by node name, or -1. For the io node this is the sink
        half, which is the one that owns the args. */
