@@ -453,6 +453,38 @@ thSynthTree * thSynth::loadTree (const string &filename)
     return tree;
 }
 
+thSynthTree * thSynth::parseTree (const string &filename)
+{
+    struct stat dspinfo;
+
+    if (stat(filename.c_str(), &dspinfo) < 0 || S_ISDIR(dspinfo.st_mode))
+        return NULL;
+
+    if ((yyin = fopen(filename.c_str(), "r")) == NULL)
+        return NULL;
+
+    /* Same mutex as loadTree: the parser's globals (yyin, parsetree,
+       parsenode) are shared, so two parses at once would interleave. */
+    pthread_mutex_lock(synthMutex_);
+
+    parsetree = new thSynthTree("newmod", this);
+    parsenode = new thNode("newnode", NULL);
+
+    int parseResult = YYPARSE(this);
+
+    fclose(yyin);
+    yyin = NULL;
+
+    delete parsenode;
+    parsenode = NULL;
+
+    thSynthTree *tree = finishParse(filename, parseResult, false);
+
+    pthread_mutex_unlock(synthMutex_);
+
+    return tree;
+}
+
 thSynthTree * thSynth::loadTree (FILE *input)
 {
     if (!input)

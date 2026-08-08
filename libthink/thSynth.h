@@ -37,6 +37,16 @@ public:
     thSynthTree *loadTree(const string &filename, int channum, float amp);
     thSynthTree *loadTree(FILE *input);
 
+    /* Parses a .dsp and hands back a tree that thSynth neither owns nor
+       tracks: the caller deletes it.
+
+       loadTree() registers into treelist_ keyed by the tree's *name*, and a
+       name collision deletes whatever was registered before -- possibly the
+       tree a channel is playing right now. That risk is acceptable when
+       loading a patch and absurd when merely looking at one, so the node
+       editor uses this instead. */
+    thSynthTree *parseTree(const string &filename);
+
     void listTrees (void);
     thPluginManager *getPluginManager (void) { return pluginmanager_; };
 
