@@ -33,6 +33,7 @@
 #include <string>
 #include <vector>
 #include <map>
+#include <utility>      /* std::pair; <map> is not required to provide it */
 
 /* Named explicitly rather than relying on think.h's `using namespace std'
    having been pulled in first. This header is meant to be includable from a
