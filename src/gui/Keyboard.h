@@ -87,6 +87,10 @@ private:
 
     bool focus_box_;
 
+    /* Ratio of the widget's allocation to its natural key_sizes[] geometry.
+       on_draw scales by these; the mouse hit-testing divides by them. */
+    double scaleX_, scaleY_;
+
     /* keyboard stuff */
     int img_width_, img_height_;
     int prv_active_keys_[128];

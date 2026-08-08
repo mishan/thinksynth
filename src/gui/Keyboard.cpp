@@ -49,6 +49,10 @@ static unsigned int    color5 = 0x005050FF;    /* black key / active        */
 static unsigned int    color6 = 0x005050FF;    /* middle C key / active    */
 /* 0090D0D0 */
 
+/* White keys in the 128-note range the widget covers: 10 full octaves of 7
+   plus C..G of the eleventh. */
+#define KB_WHITE_KEYS 75
+
 static int key_sizes[5][7] =
 {
     /* keyboard size 0: 450x45 pixels */
@@ -119,8 +123,10 @@ Keyboard::Keyboard (void)
     mouse_veloc_ = 127;
     cur_size_ = 4; /* keyboard widget size parameter */
 
+    scaleX_ = scaleY_ = 1.0;
+
     img_height_ = key_sizes[cur_size_][0] + key_sizes[cur_size_][1];
-    img_width_  = key_sizes[cur_size_][2] * 75;
+    img_width_  = key_sizes[cur_size_][2] * KB_WHITE_KEYS;
 
     set_size_request(img_width_, img_height_);
     /* allow widget to receive mouse/keypress events */
@@ -260,7 +266,29 @@ type_signal_transpose_changed Keyboard::signal_transpose_changed (void)
 
 bool Keyboard::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
 {
+    /* The layout below is written in the fixed pixel units of key_sizes[], so
+       rather than reworking all of it for a resizable widget, the natural
+       drawing is scaled onto whatever allocation we were given. The widget
+       still requests its natural size as a minimum, so this only ever scales
+       up.
+     *
+     * scaleX_/scaleY_ are remembered because the mouse hit-testing has to undo
+       exactly the same mapping -- otherwise clicks land on the wrong key as
+       soon as the window is resized. */
+    Gtk::Allocation alloc = get_allocation();
+
+    scaleX_ = (img_width_  > 0) ? alloc.get_width()  / (double)img_width_  : 1.0;
+    scaleY_ = (img_height_ > 0) ? alloc.get_height() / (double)img_height_ : 1.0;
+
+    if (scaleX_ <= 0.0) scaleX_ = 1.0;
+    if (scaleY_ <= 0.0) scaleY_ = 1.0;
+
+    cr->save();
+    cr->scale(scaleX_, scaleY_);
+
     drawKeyboard (cr);
+
+    cr->restore();
 
     return true;
 }
@@ -437,7 +465,10 @@ void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
 
     /* key borders */
     setColour(cr, color0);
-    cr->set_line_width(1.0);
+
+    /* Undo the horizontal scale for stroke width so borders stay about one
+       device pixel wide however far the keyboard is stretched. */
+    cr->set_line_width((scaleX_ > 0.0) ? 1.0 / scaleX_ : 1.0);
 
     /* Cairo strokes centred on the path, so a 1px line wants a half-pixel
        offset to land on the pixel rather than straddling two. */
@@ -445,7 +476,12 @@ void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
     cr->line_to(img_width_ - 1, img_height_ - 0.5);
     cr->stroke();
 
-    i = 128;
+    /* One divider per white key, not one per note. This ran 128 times against
+       a keyboard only KB_WHITE_KEYS wide, so it always drew 53 verticals past
+       the right-hand edge -- invisible only while the widget's allocation
+       happened to match its requested width, and plainly visible in a wider
+       window. */
+    i = KB_WHITE_KEYS;
     l = -1;
     do
     {
@@ -627,6 +663,13 @@ int    Keyboard::get_coord (void)
     win->get_device_position(
         Gdk::Display::get_default()->get_default_seat()->get_pointer(),
         x, y, mask);
+
+    /* Undo the on_draw scale so the arithmetic below still works in the fixed
+       key_sizes[] units it was written for. */
+    if (scaleX_ > 0.0)
+        x = (int)(x / scaleX_);
+    if (scaleY_ > 0.0)
+        y = (int)(y / scaleY_);
 
     /* check for valid coordinates */
     if ((x < 0) || (x >= img_width_) || (y < 0) || (y >= img_height_))

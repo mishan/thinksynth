@@ -62,10 +62,10 @@ protected:
     void onConnectionMoved (void);
     void onPatchChanged (void);
 
-    Gtk::Adjustment *channelAdj_;
-    Gtk::Adjustment *controllerAdj_;
-    Gtk::Adjustment *minAdj_;
-    Gtk::Adjustment *maxAdj_;
+    Glib::RefPtr<Gtk::Adjustment> channelAdj_;
+    Glib::RefPtr<Gtk::Adjustment> controllerAdj_;
+    Glib::RefPtr<Gtk::Adjustment> minAdj_;
+    Glib::RefPtr<Gtk::Adjustment> maxAdj_;
 
     Gtk::VBox *mainVBox_;
     Gtk::VBox *inputVBox_;
@@ -81,8 +81,12 @@ protected:
     Gtk::SpinButton *channelSpinBtn_;
     Gtk::Label *controllerLbl_;
     Gtk::SpinButton *controllerSpinBtn_;
-    Gtk::Combo *destChanCombo_;
-    Gtk::Combo *destArgCombo_;
+    Gtk::ComboBoxText *destChanCombo_;
+    Gtk::ComboBoxText *destArgCombo_;
+
+    /* Repopulating a ComboBoxText emits signal_changed; without this the
+       selection handlers would recurse back into the fill functions. */
+    bool rebuilding_;
     Gtk::Label *minLbl_;
     Gtk::SpinButton *minSpinBtn_;
     Gtk::Label *maxLbl_;
@@ -99,6 +103,8 @@ protected:
     MidiMapColumns connectViewCols_;
 
 private:
+    void onDestChanSelected (void);
+    void onDestArgSelected (void);
     void fillDestChanCombo (void);
     void setDestChanCombo (void);
     void fillDestArgCombo (int chan);
