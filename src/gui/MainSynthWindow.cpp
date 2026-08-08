@@ -397,7 +397,11 @@ void MainSynthWindow::menuNodes (void)
             sigc::mem_fun(*this, &MainSynthWindow::onNodeWinHide));
     }
 
-    if (nodeWin_->filename() != dspfile && !nodeWin_->open(dspfile))
+    /* The tab being shown is the channel the file is loaded on, which is what
+       lets the node view push slider moves into the running synth. */
+    const int chan = notebook_.get_current_page();
+
+    if (nodeWin_->filename() != dspfile && !nodeWin_->open(dspfile, chan))
     {
         Gtk::MessageDialog dlg(*this, "Could not read that DSP.", false,
                                Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);

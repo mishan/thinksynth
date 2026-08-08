@@ -40,8 +40,12 @@ public:
     NodeWindow (thSynth *synth);
     ~NodeWindow (void);
 
-    /* Parses and displays a .dsp. Safe to call again to switch files. */
-    bool open (const string &filename);
+    /* Parses and displays a .dsp. Safe to call again to switch files.
+     *
+     * `chan' is the channel the file is loaded on, or -1. When it is a real
+     * channel playing this same .dsp, edits are applied to the live graph as
+     * well as recorded for the save, so they can be heard. */
+    bool open (const string &filename, int chan = -1);
 
     const string &filename (void) const { return filename_; }
 
@@ -60,6 +64,15 @@ protected:
     void onRefused (string why);
     void onControlChanged (int box, double value, bool commit);
 
+    /* Pushes an edit into the running synth, if this window is attached to a
+       channel playing this file. Returns what happened, for the status bar. */
+    const char *applyControlLive (const string &name, double value);
+    const char *applyValueLive (const string &node, const string &arg,
+                                double value);
+
+    /* True if channel_ is playing the file this window is showing. */
+    bool attached (void) const;
+
     void setStatus (const string &text);
     void updateTitle (void);
     void updateDirty (void);
@@ -73,6 +86,7 @@ private:
 
     NodeGraph graph_;
     string filename_;
+    int channel_;           /* channel this file is loaded on, or -1 */
 
     bool layoutDirty_;
 

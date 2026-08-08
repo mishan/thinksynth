@@ -44,7 +44,7 @@ SAN := -fsanitize=address,undefined -fno-omit-frame-pointer
 # its own build tree configured with -fsanitize=thread throughout.
 TSAN := -fsanitize=thread -fno-omit-frame-pointer
 
-all: dspcheck dspstress dsplevel dspgraph dspab dspwrite
+all: dspcheck dspstress dsplevel dspgraph dspab dspwrite dsplive
 
 dspcheck: $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS) $(LDFLAGS)
@@ -57,6 +57,10 @@ dsplevel: dsplevel.cpp
 dspwrite: dspwrite.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeEdit.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dspwrite.cpp $(TOP)/src/NodeGraph.cpp \
 		$(TOP)/src/NodeEdit.cpp $(LDFLAGS)
+
+# Does moving a control change the sound of a note already ringing?
+dsplive: dsplive.cpp $(TOP)/src/NodeGraph.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dsplive.cpp $(TOP)/src/NodeGraph.cpp $(LDFLAGS)
 
 # A/B: same note through two plugin sets, compared bitwise.
 dspab: dspab.cpp
