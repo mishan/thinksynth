@@ -38,6 +38,7 @@
 #define COL_PORT_IN   0.60, 0.75, 0.55
 #define COL_PORT_OUT  0.80, 0.72, 0.50
 #define COL_SELECT    0.95, 0.85, 0.45
+#define COL_CUT       0.90, 0.42, 0.38
 
 #define PORT_R  3.5
 
@@ -46,7 +47,10 @@
 
 NodeCanvas::NodeCanvas (void)
     : graph_(NULL), zoom_(1.0), dragBox_(-1), dragDX_(0), dragDY_(0),
-      hoverBox_(-1), hoverPort_(-1), selBox_(-1)
+      hoverBox_(-1), hoverPort_(-1), selBox_(-1),
+      wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
+      wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
+      hoverEdge_(-1)
 {
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK |
@@ -64,6 +68,8 @@ void NodeCanvas::setGraph (NodeGraph *graph)
 {
     graph_ = graph;
     dragBox_ = hoverBox_ = hoverPort_ = selBox_ = -1;
+    wireBox_ = wirePort_ = wireTargetBox_ = wireTargetPort_ = -1;
+    hoverEdge_ = -1;
 
     m_signal_selected_(-1);
 
@@ -108,6 +114,37 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
 
     toGraph(b->x, b->y, gx, gy);
 
+    /* A port takes precedence over the box it sits on: the handles straddle
+       the edge, so a click there means "wire", not "move". */
+    int pb = -1, pp = -1;
+
+    if (graph_->portAt(gx, gy, pb, pp))
+    {
+        wireBox_ = pb;
+        wirePort_ = pp;
+        wireX_ = gx;
+        wireY_ = gy;
+        wireTargetBox_ = wireTargetPort_ = -1;
+        wireTargetOk_ = false;
+
+        setSelected(pb);
+        queue_draw();
+
+        return true;
+    }
+
+    /* Clicking a wire and pressing Delete is one interaction too many for
+       something this small, so a click on a wire removes it. The window
+       confirms nothing -- Revert is right there, and nothing has been written
+       to the file yet. */
+    const int edge = graph_->edgeAt(gx, gy);
+
+    if (edge >= 0 && graph_->boxAt(gx, gy) < 0)
+    {
+        m_signal_disconnect_(edge);
+        return true;
+    }
+
     const int hit = graph_->boxAt(gx, gy);
 
     /* Selecting on press rather than on release: a drag should show you what
@@ -127,6 +164,42 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
 bool NodeCanvas::on_button_release_event (GdkEventButton *b)
 {
     (void)b;    /* which button came up does not matter here */
+
+    if (wireBox_ >= 0)
+    {
+        const int fromBox = wireBox_, fromPort = wirePort_;
+        const int toBox = wireTargetBox_, toPort = wireTargetPort_;
+
+        wireBox_ = wirePort_ = -1;
+        wireTargetBox_ = wireTargetPort_ = -1;
+
+        queue_draw();
+
+        if (toBox < 0)
+            return true;        /* dropped on nothing; no complaint needed */
+
+        /* Dragging output-to-input and input-to-output are the same gesture,
+           so whichever end is the input becomes the destination. */
+        int a = fromBox, ap = fromPort, z = toBox, zp = toPort;
+
+        if (graph_->boxes()[a].ports[ap].isInput)
+        {
+            a = toBox; ap = toPort;
+            z = fromBox; zp = fromPort;
+        }
+
+        string why;
+
+        if (!graph_->canConnect(a, ap, z, zp, why))
+        {
+            m_signal_refused_(why);
+            return true;
+        }
+
+        m_signal_connect_(a, ap, z, zp);
+
+        return true;
+    }
 
     if (dragBox_ >= 0)
     {
@@ -167,17 +240,56 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
         return true;
     }
 
-    /* Hover feedback on ports. Not used for anything yet, but it is what makes
-       the click target discoverable once wiring exists, and it is the cheapest
-       possible check that portAt() agrees with what is drawn. */
+    if (wireBox_ >= 0)
+    {
+        wireX_ = gx;
+        wireY_ = gy;
+
+        int tb = -1, tp = -1;
+
+        wireTargetOk_ = false;
+
+        if (graph_->portAt(gx, gy, tb, tp) &&
+            !(tb == wireBox_ && tp == wirePort_))
+        {
+            /* Test the connection in the direction it would actually be made,
+               so the feedback while dragging matches what the drop will do. */
+            int a = wireBox_, ap = wirePort_, z = tb, zp = tp;
+
+            if (graph_->boxes()[a].ports[ap].isInput)
+            { a = tb; ap = tp; z = wireBox_; zp = wirePort_; }
+
+            string why;
+
+            wireTargetOk_ = graph_->canConnect(a, ap, z, zp, why);
+        }
+        else
+            tb = tp = -1;
+
+        wireTargetBox_ = tb;
+        wireTargetPort_ = tp;
+
+        queue_draw();
+
+        return true;
+    }
+
+    /* Hover feedback: ports, so the wire handles are discoverable, and wires,
+       so it is clear which one a click would remove. */
     int hb = -1, hp = -1;
 
     graph_->portAt(gx, gy, hb, hp);
 
-    if (hb != hoverBox_ || hp != hoverPort_)
+    int he = -1;
+
+    if (hb < 0 && graph_->boxAt(gx, gy) < 0)
+        he = graph_->edgeAt(gx, gy);
+
+    if (hb != hoverBox_ || hp != hoverPort_ || he != hoverEdge_)
     {
         hoverBox_ = hb;
         hoverPort_ = hp;
+        hoverEdge_ = he;
         queue_draw();
     }
 
@@ -188,9 +300,9 @@ bool NodeCanvas::on_leave_notify_event (GdkEventCrossing *c)
 {
     (void)c;
 
-    if (hoverBox_ >= 0 || hoverPort_ >= 0)
+    if (hoverBox_ >= 0 || hoverPort_ >= 0 || hoverEdge_ >= 0)
     {
-        hoverBox_ = hoverPort_ = -1;
+        hoverBox_ = hoverPort_ = hoverEdge_ = -1;
         queue_draw();
     }
 
@@ -314,31 +426,30 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     }
 }
 
-void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr,
-                           const NodeGraph::Edge &e)
+void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
+                           bool highlit)
 {
-    const vector<NodeGraph::Box> &boxes = graph_->boxes();
+    const NodeGraph::Edge &e = graph_->edges()[edge];
 
-    const NodeGraph::Box &fb = boxes[e.fromBox];
-    const NodeGraph::Box &tb = boxes[e.toBox];
+    /* The curve comes from the graph, which is also what edgeAt() tests
+       against -- so what is drawn and what can be clicked are the same shape
+       by construction rather than by two functions agreeing. */
+    double xs[4], ys[4];
 
-    const double x1 = fb.x + fb.ports[e.fromPort].x;
-    const double y1 = fb.y + fb.ports[e.fromPort].y;
-    const double x2 = tb.x + tb.ports[e.toPort].x;
-    const double y2 = tb.y + tb.ports[e.toPort].y;
+    graph_->edgeCurve(edge, xs, ys);
 
-    /* Horizontal-tangent bezier: wires leave an output rightwards and enter an
-       input from the left, which reads as flow even where a wire doubles back.
-       The control offset grows with distance so long wires bow more. */
-    double reach = (x2 - x1) * 0.5;
+    cr->move_to(xs[0], ys[0]);
+    cr->curve_to(xs[1], ys[1], xs[2], ys[2], xs[3], ys[3]);
 
-    if (reach < 30.0)
-        reach = 30.0 + (x1 - x2) * 0.25;    /* a back edge needs a wider bow */
-
-    cr->move_to(x1, y1);
-    cr->curve_to(x1 + reach, y1, x2 - reach, y2, x2, y2);
-
-    if (e.feedback)
+    if (highlit)
+    {
+        /* A wire under the pointer is about to be removed if clicked, so it
+           gets the warning colour rather than a subtle emphasis. */
+        cr->set_source_rgb(COL_CUT);
+        cr->set_line_width(2.6);
+        cr->unset_dash();
+    }
+    else if (e.feedback)
     {
         cr->set_source_rgb(COL_FEEDBACK);
         cr->set_line_width(1.6);
@@ -359,6 +470,56 @@ void NodeCanvas::drawEdge (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->unset_dash();
 }
 
+/* The wire being dragged, from its origin port to the pointer. */
+void NodeCanvas::drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr)
+{
+    if (wireBox_ < 0)
+        return;
+
+    double x1, y1;
+
+    graph_->portPos(wireBox_, wirePort_, x1, y1);
+
+    double x2 = wireX_, y2 = wireY_;
+
+    /* Snap the loose end to the port it would land on, so the wire visibly
+       commits before the button comes up. */
+    if (wireTargetBox_ >= 0)
+        graph_->portPos(wireTargetBox_, wireTargetPort_, x2, y2);
+
+    double reach = (x2 - x1) * 0.5;
+
+    if (reach < 30.0)
+        reach = 30.0 + (x1 - x2) * 0.25;
+
+    cr->move_to(x1, y1);
+    cr->curve_to(x1 + reach, y1, x2 - reach, y2, x2, y2);
+
+    if (wireTargetBox_ >= 0 && !wireTargetOk_)
+        cr->set_source_rgb(COL_CUT);        /* would be refused */
+    else if (wireTargetBox_ >= 0)
+        cr->set_source_rgb(COL_SELECT);     /* would connect */
+    else
+        cr->set_source_rgb(COL_DIM);        /* nothing under the pointer */
+
+    cr->set_line_width(2.0);
+
+    vector<double> dashes;
+    dashes.push_back(5.0);
+    dashes.push_back(3.0);
+    cr->set_dash(dashes, 0.0);
+
+    cr->stroke();
+    cr->unset_dash();
+
+    if (wireTargetBox_ >= 0)
+    {
+        cr->arc(x2, y2, PORT_R + 2.5, 0, 2 * M_PI);
+        cr->set_line_width(1.5);
+        cr->stroke();
+    }
+}
+
 bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
 {
     Gtk::Allocation alloc = get_allocation();
@@ -375,16 +536,17 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
 
     /* Wires first so boxes sit on top of them; a wire disappearing behind a
        box reads better than one crossing its face. */
-    const vector<NodeGraph::Edge> &edges = graph_->edges();
-
-    for (size_t e = 0; e < edges.size(); e++)
-        drawEdge(cr, edges[e]);
+    for (size_t e = 0; e < graph_->edges().size(); e++)
+        drawEdge(cr, (int)e, (int)e == hoverEdge_);
 
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 
     for (size_t b = 0; b < boxes.size(); b++)
         drawBox(cr, boxes[b], (int)b == dragBox_ || (int)b == hoverBox_,
                 (int)b == selBox_);
+
+    /* On top of everything: it is the thing being manipulated. */
+    drawPendingWire(cr);
 
     cr->restore();
 

@@ -208,7 +208,7 @@ Implemented on `node-editor` off `gtkmm3-port`. Steps refer to §6 above.
 | 3. Read-only canvas | done | `src/gui/NodeCanvas.{h,cpp}` |
 | 4. Interaction | done | drag, Ctrl+wheel zoom, hover; hit-testing in `NodeGraph` |
 | 5. The `.dsp` writer | positions and values | `src/NodeLayout.{h,cpp}`, `src/NodeEdit.{h,cpp}` |
-| 6. Editing | not started | wires and nodes, still ahead |
+| 6. Editing | wires done | `NodeEdit::connect`/`disconnect`, canvas drag |
 | 7. Parameter controls | done | `src/gui/NodeParams.{h,cpp}` |
 
 Reachable from **File → Node View** (Ctrl+N). `NodeWindow` parses its own tree
@@ -297,3 +297,50 @@ register properly, verified sound-identical by the new `scripts/dspab`.
 
 This qualifies §1: "302 of 305 args agree, zero disagree" was measured over
 *registered* args, so args conjured at callback time were never in the sample.
+
+### Wiring
+
+Drag from a port to another port. The rubber band snaps to the port it would
+land on and turns red when the drop would be refused, so the refusal is visible
+before the button comes up rather than after. Dragging output-to-input and
+input-to-output are the same gesture. Clicking a wire removes it.
+
+Wire edits apply to the on-screen graph immediately but reach the file only on
+Save, alongside the pending values — a wiring gesture that produced no visible
+wire until a save would be unusable, and a file rewritten on every gesture
+would be alarming.
+
+Two things this settled:
+
+**"A node cannot feed itself" is false for this format.** It was in the writer
+first, and three shipped DSPs failed the round trip on it: `jp420`, `organ2`
+and `jp420-B` all contain `ionode.fade78 = ionode->velocity`. The io node is one
+node in the file and two boxes on screen, so the rule only makes sense phrased
+over boxes. It lives in `NodeGraph::canConnect` now; `NodeEdit` writes what it
+is told and judges nothing.
+
+**The curve is in the model, not the canvas.** `NodeGraph::edgeCurve` feeds both
+the drawing and `edgeAt`, so what is drawn and what can be clicked are the same
+shape by construction. Describing the same cubic twice is how "clicking a wire
+selects a different wire" happens.
+
+`scripts/dspwrite` now cuts and restores every wire in the corpus:
+
+```
+2877 wires cut and restored, 2877 reconnects to where they already
+went, all byte-identical
+```
+
+The reconnect being byte-identical is what makes it safe: all 3476 connections
+in the corpus are spelled `name->port` with no spaces, so rewriting one
+reproduces the original text exactly. That is also why `disconnect` rewrites the
+line to `= 0` rather than deleting it — to the engine the two are the same, but
+only the rewrite keeps the line's position, indentation and trailing comment,
+and only the rewrite makes a reconnect restore the file.
+
+### Still ahead
+
+Adding and removing whole nodes, which needs the plugin list and a way to name
+things. And chanarg editing: most DSPs keep every setting worth touching in the
+channel block, and the panel shows those values but will not yet change them —
+that means writing the `@name = ...` block rather than a node block.

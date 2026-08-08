@@ -85,6 +85,15 @@ NodeWindow::NodeWindow (thSynth *synth)
     canvas_.signal_selected().connect(
         sigc::mem_fun(*this, &NodeWindow::onSelected));
 
+    canvas_.signal_connect_requested().connect(
+        sigc::mem_fun(*this, &NodeWindow::onConnect));
+
+    canvas_.signal_disconnect_requested().connect(
+        sigc::mem_fun(*this, &NodeWindow::onDisconnect));
+
+    canvas_.signal_refused().connect(
+        sigc::mem_fun(*this, &NodeWindow::onRefused));
+
     params_.signal_param_edited().connect(
         sigc::mem_fun(*this, &NodeWindow::onParamEdited));
 
@@ -109,14 +118,14 @@ void NodeWindow::updateTitle (void)
 {
     string base = thUtil::basename((char *)filename_.c_str());
 
-    const bool dirty = layoutDirty_ || !pending_.empty();
+    const bool dirty = layoutDirty_ || !pending_.empty() || !wires_.empty();
 
     set_title("thinksynth - Nodes - " + base + (dirty ? " *" : ""));
 }
 
 void NodeWindow::updateDirty (void)
 {
-    const bool dirty = layoutDirty_ || !pending_.empty();
+    const bool dirty = layoutDirty_ || !pending_.empty() || !wires_.empty();
 
     /* Save is offered only when there is something to save. It used to be
        enabled whenever a file was open, and saving with nothing pending still
@@ -168,6 +177,7 @@ bool NodeWindow::open (const string &filename)
     filename_ = filename;
     layoutDirty_ = false;
     pending_.clear();
+    wires_.clear();
 
     canvas_.setGraph(&graph_);
     params_.setBox(NULL, -1);
@@ -208,6 +218,30 @@ void NodeWindow::onArrange (void)
  * second splice worked from a file the first had already reflowed. */
 bool NodeWindow::writeAll (string &why)
 {
+    /* Wires before values: disconnecting puts a plain number in place of the
+       connection, and a value edit on that same arg should land on top of it
+       rather than being overwritten by it. */
+    for (size_t w = 0; w < wires_.size(); w++)
+    {
+        const WireEdit &e = wires_[w];
+
+        NodeEdit::Result r =
+            e.srcNode.empty()
+                ? NodeEdit::disconnect(filename_, e.node, e.arg, 0, why)
+                : NodeEdit::connect(filename_, e.node, e.arg,
+                                    e.srcNode, e.srcPort, why);
+
+        if (r != NodeEdit::OK)
+        {
+            if (why.empty())
+                why = string(NodeEdit::resultText(r));
+
+            why = e.node + "." + e.arg + ": " + why;
+
+            return false;
+        }
+    }
+
     for (std::map<std::pair<std::string, std::string>, double>::const_iterator
              i = pending_.begin();
          i != pending_.end(); ++i)
@@ -242,6 +276,7 @@ void NodeWindow::onSave (void)
         return;
 
     const int n = (int)pending_.size();
+    const int w = (int)wires_.size();
 
     string why;
 
@@ -270,12 +305,13 @@ void NodeWindow::onSave (void)
 
     char buf[160];
 
-    /* Two format strings, not one chosen by a conditional: the "layout only"
-       branch took no arguments but was still handed (int, const char *), so
-       with no pending values this passed an int where %s was expected. */
-    if (n)
-        snprintf(buf, sizeof(buf), "Saved: %d value%s and the layout.",
-                 n, n == 1 ? "" : "s");
+    /* One snprintf per case rather than a format string chosen by a
+       conditional. The earlier version handed the same argument list to both
+       branches, so the one taking no arguments read an int as a %s. */
+    if (n || w)
+        snprintf(buf, sizeof(buf),
+                 "Saved: %d value%s, %d wire change%s, and the layout.",
+                 n, n == 1 ? "" : "s", w, w == 1 ? "" : "s");
     else
         snprintf(buf, sizeof(buf), "Saved: layout only.");
 
@@ -288,6 +324,7 @@ void NodeWindow::onRevert (void)
         return;
 
     pending_.clear();
+    wires_.clear();
     layoutDirty_ = false;
 
     open(filename_);
@@ -345,6 +382,65 @@ void NodeWindow::onParamEdited (int box, string name, double value)
              (int)pending_.size(), pending_.size() == 1 ? "" : "s");
 
     setStatus(buf);
+}
+
+/* Applies a wire to the graph on screen and records it for the save.
+ *
+ * Applied immediately rather than only on Save so the canvas shows what was
+ * just drawn -- a wiring gesture that produced no visible wire until a save
+ * would be unusable. The file is still untouched until Save. */
+void NodeWindow::onConnect (int fromBox, int fromPort, int toBox, int toPort)
+{
+    string why;
+
+    if (!graph_.connect(fromBox, fromPort, toBox, toPort, why))
+    {
+        setStatus("Cannot connect: " + why);
+        return;
+    }
+
+    WireEdit e;
+
+    e.node = graph_.boxes()[toBox].name;
+    e.arg = graph_.boxes()[toBox].ports[toPort].name;
+    e.srcNode = graph_.boxes()[fromBox].name;
+    e.srcPort = graph_.boxes()[fromBox].ports[fromPort].name;
+
+    wires_.push_back(e);
+
+    canvas_.queue_draw();
+    params_.setBox(&graph_, canvas_.selected());
+    updateDirty();
+
+    setStatus(e.node + "." + e.arg + " <- " + e.srcNode + "->" + e.srcPort);
+}
+
+void NodeWindow::onDisconnect (int edge)
+{
+    if (edge < 0 || edge >= (int)graph_.edges().size())
+        return;
+
+    const NodeGraph::Edge &ed = graph_.edges()[edge];
+
+    WireEdit e;
+
+    e.node = graph_.boxes()[ed.toBox].name;
+    e.arg = graph_.boxes()[ed.toBox].ports[ed.toPort].name;
+
+    graph_.removeEdge(edge);
+
+    wires_.push_back(e);
+
+    canvas_.queue_draw();
+    params_.setBox(&graph_, canvas_.selected());
+    updateDirty();
+
+    setStatus("Disconnected " + e.node + "." + e.arg + ".  Revert undoes it.");
+}
+
+void NodeWindow::onRefused (string why)
+{
+    setStatus("Cannot connect: " + why);
 }
 
 void NodeWindow::onZoomIn (void)
