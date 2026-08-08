@@ -51,6 +51,10 @@ public:
     type_signal_channel_changed   signal_channel_changed   (void);
     type_signal_transpose_changed signal_transpose_changed (void);
 protected:
+    /* Sends note-off for everything currently held. Anything that changes the
+       key-to-note mapping must call this before changing it. */
+    void releaseAllNotes (void);
+
     void drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr);
      void drawKeyboardFocus (const Cairo::RefPtr<Cairo::Context> &cr);
     static void setColour (const Cairo::RefPtr<Cairo::Context> &cr,

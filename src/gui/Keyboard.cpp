@@ -168,20 +168,34 @@ Keyboard::~Keyboard (void)
 {
 }
 
-void Keyboard::SetChannel (int channel)
+/* Releases every note the keyboard is currently holding.
+ *
+ * Anything that changes how a keypress maps to a note has to do this first.
+ * The note-off carries the number the note was *started* with, which is what
+ * active_keys_ is indexed by -- releasing after the mapping has changed sends
+ * note-off for a note that was never started, and leaves the original
+ * sounding forever.
+ */
+void Keyboard::releaseAllNotes (void)
 {
-    /* reset keyboard state */
     mouse_notnum_ = -1;
+
     for (int i = 0; i < 128; i++)
     {
-        /* turn off notes from previous channel */
         if (active_keys_[i])
         {
             m_signal_note_off_(channel_, i);
         }
+
         active_keys_[i] = 0;
         prv_active_keys_[i] = -1;
     }
+}
+
+void Keyboard::SetChannel (int channel)
+{
+    /* turn off notes from the previous channel */
+    releaseAllNotes();
 
     channel_ = channel;
 
@@ -198,12 +212,22 @@ void Keyboard::SetTranspose (int transpose)
     if (transpose > 72)
         transpose = 72;
 
+    if (transpose == transpose_)
+        return;
+
+    /* keyval_to_notnum() adds transpose_, so a key held across a transpose
+       change would release the wrong note and leave the original hanging.
+       SetChannel has always done this; SetTranspose never did. */
+    releaseAllNotes();
+
     transpose_ = transpose;
 
     /* transpose has been changed internally; emit the changed signal so
        widgets which interface with us will be able to update their transpose
        display, if any */
     m_signal_transpose_changed_(transpose_);
+
+    queue_draw();
 }
 
 void Keyboard::SetNote (int note, bool state)
