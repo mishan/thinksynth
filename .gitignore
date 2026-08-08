@@ -13,6 +13,9 @@ scripts/dspstress
 scripts/dspstress-tsan
 scripts/dsplevel
 scripts/dspgraph
+scripts/dspab
+scripts/dspwrite
+scripts/dsplive
 
 libthink/libthink.so.*
 libthink/thinklang.cpp
@@ -34,3 +37,11 @@ build.mk
 autom4te.cache
 aclocal.m4
 configure~
+
+# Editor droppings. An emacs autosave and a lock symlink for two of the DSPs
+# got committed once; the lock files are dangling symlinks to a user@host that
+# means nothing to anyone else.
+\#*\#
+.\#*
+*~
+.*.swp
