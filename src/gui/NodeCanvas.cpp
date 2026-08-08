@@ -420,7 +420,9 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
     /* A control's label is what the .dsp author called it -- "Band Limit"
        rather than "blim" -- and that is the useful thing to read. The bare
-       name is still there in the tooltip-less corner on the right. */
+       name goes in the right-hand corner where a node shows its plugin, so
+       the box still says which `@name' it is: the label is for reading, the
+       name is what the rest of the file refers to. */
     cr->show_text(b.isControl ? b.ctlLabel : b.name);
 
     if (b.isControl)
@@ -431,7 +433,9 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
            port loop rather than returning here. */
     }
 
-    if (!b.plugin.empty() && !b.isControl)
+    const string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;
+
+    if (!corner.empty())
     {
         cr->select_font_face("sans", Cairo::FONT_SLANT_ITALIC,
                              Cairo::FONT_WEIGHT_NORMAL);
@@ -439,9 +443,9 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
         cr->set_source_rgb(COL_DIM);
 
         Cairo::TextExtents te;
-        cr->get_text_extents(b.plugin, te);
+        cr->get_text_extents(corner, te);
         cr->move_to(b.x + b.w - te.width - 6, b.y + 14);
-        cr->show_text(b.plugin);
+        cr->show_text(corner);
     }
 
     /* ports */
@@ -500,11 +504,16 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
                              const NodeGraph::Box &b)
 {
-    int index = -1;
+    /* The index by pointer arithmetic rather than by scanning. drawBox is
+       handed a reference to an element of the vector, so the offset is exact;
+       scanning for it made drawing the controls quadratic in the number of
+       boxes, every frame, on the one code path that runs during a drag. */
+    const vector<NodeGraph::Box> &all = graph_->boxes();
 
-    for (size_t i = 0; i < graph_->boxes().size(); i++)
-        if (&graph_->boxes()[i] == &b)
-        { index = (int)i; break; }
+    if (all.empty() || &b < &all[0] || &b > &all[all.size() - 1])
+        return;
+
+    const int index = (int)(&b - &all[0]);
 
     double x0, x1, y, hx;
 
