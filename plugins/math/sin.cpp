@@ -30,10 +30,21 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { IN_INDEX,IN_WAVELENGTH,IN_AMP,OUT_ARG };
+
+int args[OUT_ARG + 1];
+
 int module_init (thPlugin *plugin)
 {
     plugin->setDesc (desc);
     plugin->setState (mystate);
+
+    /* Registered nothing at all until now -- hence the "doing things the old,
+       slow way" warning on every load, and a box with no ports on it. */
+    args[IN_INDEX] = plugin->regArg("index", thPlugin::ARG_IN);
+    args[IN_WAVELENGTH] = plugin->regArg("wavelength", thPlugin::ARG_IN);
+    args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
 
     return 0;
 }
@@ -47,11 +58,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     unsigned int i;
     float amp, wavelength;
 
-    in_index = mod->getArg(node, "index");
-    in_wavelength = mod->getArg(node, "wavelength");
-    in_amp = mod->getArg(node, "amp");
+    in_index = mod->getArg(node, args[IN_INDEX]);
+    in_wavelength = mod->getArg(node, args[IN_WAVELENGTH]);
+    in_amp = mod->getArg(node, args[IN_AMP]);
 
-    out_arg = mod->getArg(node, "out");
+    out_arg = mod->getArg(node, args[OUT_ARG]);
     out = out_arg->allocate(windowlen);
 
     for(i = 0; i < windowlen; i++)

@@ -107,6 +107,86 @@ static bool isStateArg (thNode *n, const string &name)
     return false;
 }
 
+/* Snapshots a node's args into display parameters.
+ *
+ * Every arg is listed, including the ones bound to another node or to a
+ * channel arg -- seeing that `cutoff' is driven by `env->out' rather than by a
+ * number is exactly what a panel is for, and hiding wired args would make the
+ * list change shape as things get connected. */
+void NodeGraph::collectParams (thNode *n, Box &b)
+{
+    thPlugin *p = n->plugin();
+
+    const thArgMap &args = n->args();
+
+    for (thArgMap::const_iterator a = args.begin(); a != args.end(); ++a)
+    {
+        thArg *arg = a->second;
+
+        if (arg == NULL)
+            continue;
+
+        /* Plugin-internal state -- a delay line's ring buffer, an envelope's
+           position. Not something anyone should be shown, let alone set. */
+        bool isPort = false;
+        bool isState = false;
+
+        if (p)
+        {
+            for (int k = 0; k < p->argCount(); k++)
+                if (p->getArgName(k) == a->first)
+                {
+                    isState = (p->getArgDir(k) == thPlugin::ARG_STATE);
+                    isPort = (p->getArgDir(k) == thPlugin::ARG_IN);
+                    break;
+                }
+        }
+
+        if (isState)
+            continue;
+
+        Param prm;
+
+        prm.name = a->first;
+        prm.label = arg->label();
+        prm.units = arg->units();
+        prm.comment = arg->comment();
+        prm.min = arg->min();
+        prm.max = arg->max();
+        prm.isPort = isPort;
+
+        switch (arg->type())
+        {
+            case thArg::ARG_POINTER:
+                prm.kind = Param::POINTER;
+                prm.source = arg->nodePtrName() + "->" + arg->argPtrName();
+                break;
+
+            case thArg::ARG_CHANNEL:
+                prm.kind = Param::CHANARG;
+                /* setArg(name, chanarg) stores the channel arg's name in the
+                   same field a node pointer would use. */
+                prm.source = "@" + arg->nodePtrName();
+                break;
+
+            case thArg::ARG_NOTE:
+                prm.kind = Param::NOTE;
+                prm.source = "@" + arg->nodePtrName();
+                break;
+
+            case thArg::ARG_VALUE:
+            default:
+                prm.kind = Param::VALUE;
+                /* A multi-sample arg has no single value to show; the first
+                   sample is a reasonable stand-in and len() says the rest. */
+                prm.value = (arg->len() > 0) ? (*arg)[0] : 0.0f;
+                break;
+        }
+
+        b.params.push_back(prm);
+    }
+}
+
 bool NodeGraph::build (thSynthTree *tree)
 {
     boxes_.clear();
@@ -178,6 +258,8 @@ bool NodeGraph::build (thSynthTree *tree)
                 b.ports.push_back(port);
             }
         }
+
+        collectParams(n, b);
 
         boxes_.push_back(b);
         byName_[b.name] = (int)boxes_.size() - 1;
@@ -291,9 +373,12 @@ bool NodeGraph::build (thSynthTree *tree)
 
             e.fromPort = findPort(fb, arg->argPtrName(), false);
 
-            /* An output the plugin never registered still exists as far as
-               the .dsp is concerned -- and for the io source half, every one
-               of its outputs is discovered exactly this way. */
+            /* An output the plugin never registered still exists as far as the
+               .dsp is concerned, and dropping the wire would be worse than
+               showing a port that no registration backs. Three plugins create
+               their outputs by string lookup in the callback -- moog's out_low
+               among them -- and this is what keeps those wires drawn. The io
+               source half discovers every one of its outputs this way too. */
             if (e.fromPort < 0)
             {
                 Port port;
@@ -700,4 +785,11 @@ bool NodeGraph::portAt (double x, double y, int &box, int &port,
     }
 
     return found;
+}
+
+int NodeGraph::boxByName (const string &name) const
+{
+    map<string, int>::const_iterator f = byName_.find(name);
+
+    return (f == byName_.end()) ? -1 : f->second;
 }

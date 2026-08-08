@@ -21,6 +21,7 @@
 
 #include "../NodeGraph.h"
 #include "NodeCanvas.h"
+#include "NodeParams.h"
 
 class thSynth;
 
@@ -50,6 +51,8 @@ protected:
     void onZoomOut (void);
     void onZoomReset (void);
     void onBoxMoved (int box);
+    void onSelected (int box);
+    void onParamEdited (int box, string name, double value);
 
     void setStatus (const string &text);
     void updateTitle (void);
@@ -64,8 +67,10 @@ private:
 
     Gtk::VBox vbox_;
     Gtk::HBox toolbar_;
+    Gtk::HPaned split_;
     Gtk::ScrolledWindow scroller_;
     NodeCanvas canvas_;
+    NodeParams params_;
     Gtk::Label status_;
 
     Gtk::Button arrangeBtn_;

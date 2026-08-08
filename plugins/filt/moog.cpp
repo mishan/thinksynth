@@ -32,9 +32,10 @@ void module_cleanup (struct module *mod)
 {
 }
 
-enum { INOUT_BUFFER,IN_ARG,IN_CUTOFF,IN_RES };
+enum { INOUT_BUFFER,IN_ARG,IN_CUTOFF,IN_RES,
+       OUT_LOW,OUT_HIGH,OUT_BANDPASS };
 
-int args[IN_RES + 1];
+int args[OUT_BANDPASS + 1];
 
 int module_init (thPlugin *plugin)
 {
@@ -45,6 +46,15 @@ int module_init (thPlugin *plugin)
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+
+    /* These three are what the filter is *for*, and until now they existed
+       only as string lookups in the callback -- created on first use, invisible
+       to anything asking the plugin what it produces. A .dsp reading
+       filt->out_low was therefore reading an output nothing declared. */
+    args[OUT_LOW] = plugin->regArg("out_low", thPlugin::ARG_OUT);
+    args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    args[OUT_BANDPASS] = plugin->regArg("out_bandpass", thPlugin::ARG_OUT);
+
     return 0;
 }
 
@@ -59,9 +69,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float t1, t2;
     unsigned int i;
 
-    float *out_low = (mod->getArg(node, "out_low"))->allocate(windowlen);
-    float *out_high = (mod->getArg(node, "out_high"))->allocate(windowlen);
-    float *out_band = (mod->getArg(node, "out_bandpass"))->allocate(windowlen);
+    float *out_low = mod->getArg(node, args[OUT_LOW])->allocate(windowlen);
+    float *out_high = mod->getArg(node, args[OUT_HIGH])->allocate(windowlen);
+    float *out_band = mod->getArg(node, args[OUT_BANDPASS])->allocate(windowlen);
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
     b0 = (*inout_buffer)[0];

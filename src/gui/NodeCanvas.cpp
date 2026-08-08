@@ -37,6 +37,7 @@
 #define COL_FEEDBACK  0.88, 0.55, 0.40
 #define COL_PORT_IN   0.60, 0.75, 0.55
 #define COL_PORT_OUT  0.80, 0.72, 0.50
+#define COL_SELECT    0.95, 0.85, 0.45
 
 #define PORT_R  3.5
 
@@ -45,7 +46,7 @@
 
 NodeCanvas::NodeCanvas (void)
     : graph_(NULL), zoom_(1.0), dragBox_(-1), dragDX_(0), dragDY_(0),
-      hoverBox_(-1), hoverPort_(-1)
+      hoverBox_(-1), hoverPort_(-1), selBox_(-1)
 {
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK |
@@ -62,9 +63,22 @@ void NodeCanvas::updateSize (void)
 void NodeCanvas::setGraph (NodeGraph *graph)
 {
     graph_ = graph;
-    dragBox_ = hoverBox_ = hoverPort_ = -1;
+    dragBox_ = hoverBox_ = hoverPort_ = selBox_ = -1;
+
+    m_signal_selected_(-1);
 
     updateSize();
+    queue_draw();
+}
+
+void NodeCanvas::setSelected (int box)
+{
+    if (box == selBox_)
+        return;
+
+    selBox_ = box;
+
+    m_signal_selected_(selBox_);
     queue_draw();
 }
 
@@ -95,6 +109,10 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
     toGraph(b->x, b->y, gx, gy);
 
     const int hit = graph_->boxAt(gx, gy);
+
+    /* Selecting on press rather than on release: a drag should show you what
+       you are dragging while you drag it. */
+    setSelected(hit);
 
     if (hit >= 0)
     {
@@ -197,7 +215,7 @@ bool NodeCanvas::on_scroll_event (GdkEventScroll *s)
 }
 
 void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
-                          const NodeGraph::Box &b, bool highlit)
+                          const NodeGraph::Box &b, bool highlit, bool selected)
 {
     cr->set_line_width(1.0);
 
@@ -205,7 +223,12 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
     cr->set_source_rgb(COL_BOX);
     cr->fill_preserve();
-    if (highlit)
+    if (selected)
+    {
+        cr->set_source_rgb(COL_SELECT);
+        cr->set_line_width(2.5);
+    }
+    else if (highlit)
     {
         cr->set_source_rgb(COL_WIRE);
         cr->set_line_width(2.0);
@@ -360,7 +383,8 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 
     for (size_t b = 0; b < boxes.size(); b++)
-        drawBox(cr, boxes[b], (int)b == dragBox_ || (int)b == hoverBox_);
+        drawBox(cr, boxes[b], (int)b == dragBox_ || (int)b == hoverBox_,
+                (int)b == selBox_);
 
     cr->restore();
 

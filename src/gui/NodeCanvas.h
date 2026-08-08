@@ -45,6 +45,13 @@ public:
     typedef sigc::signal<void(int)> type_signal_box_moved;
     type_signal_box_moved signal_box_moved (void) { return m_signal_box_moved_; }
 
+    /* Emitted when the selection changes, with the box index or -1. */
+    typedef sigc::signal<void(int)> type_signal_selected;
+    type_signal_selected signal_selected (void) { return m_signal_selected_; }
+
+    int selected (void) const { return selBox_; }
+    void setSelected (int box);
+
 protected:
     virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
     virtual bool on_button_press_event (GdkEventButton *b);
@@ -55,7 +62,7 @@ protected:
 
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
-                  const NodeGraph::Box &b, bool highlit);
+                  const NodeGraph::Box &b, bool highlit, bool selected);
     void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr,
                    const NodeGraph::Edge &e);
 
@@ -72,8 +79,10 @@ private:
     double dragDX_, dragDY_;  /* grab point within that box      */
 
     int hoverBox_, hoverPort_;
+    int selBox_;
 
     type_signal_box_moved m_signal_box_moved_;
+    type_signal_selected m_signal_selected_;
 };
 
 #endif /* NODE_CANVAS_H */
