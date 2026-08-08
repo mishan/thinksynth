@@ -32,6 +32,12 @@
  *   4. write the original value back and confirm it parses to the original
  *      value again, in at most one changed line
  *
+ * And for every control -- the .dsp's top-level `@name' blocks:
+ *
+ *   8. move it, reparse, confirm the value took
+ *   9. put it back, confirm at most one line differs, and confirm a write of
+ *      the value already there changes nothing at all
+ *
  * And for every wire:
  *
  *   5. disconnect it, reparse, confirm the parameter is no longer driven
@@ -216,6 +222,7 @@ int main (int argc, char **argv)
     int failed = 0, files = 0, edits = 0, skipped = 0, inserted = 0;
     int unwritable = 0, noops = 0, respelt = 0;
     int wiresCut = 0, wireNoops = 0;
+    int controlsMoved = 0, controlNoops = 0, controlsRespelt = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -399,6 +406,112 @@ int main (int argc, char **argv)
             }
         }
 
+        /* ---- controls ---- */
+
+        for (size_t b = 0; b < g.boxes().size() && problems < 4; b++)
+        {
+            const NodeGraph::Box &bx = g.boxes()[b];
+
+            if (!bx.isControl)
+                continue;
+
+            if (!spit(tmp, original))
+            { printf("FAIL  %s: could not stage a copy\n", argv[f]);
+              problems++; break; }
+
+            /* Somewhere inside the declared range, and not where it already
+               is -- a third of the way along, or two thirds if that happens
+               to be the current value. */
+            double target = bx.ctlMin + (bx.ctlMax - bx.ctlMin) / 3.0;
+
+            if ((float)target == bx.ctlValue)
+                target = bx.ctlMin + (bx.ctlMax - bx.ctlMin) * 2.0 / 3.0;
+
+            string why;
+
+            NodeEdit::Result r =
+                NodeEdit::setChanArg(tmp, bx.ctlArg, target, why);
+
+            if (r != NodeEdit::OK)
+            { printf("FAIL  %s: setChanArg(@%s) -> %s (%s)\n", argv[f],
+                     bx.ctlArg.c_str(), NodeEdit::resultText(r), why.c_str());
+              problems++; continue; }
+
+            /* 8. the parser must see it, and the graph must show it on the
+                  control box */
+            {
+                thSynthTree *t2 = synth.parseTree(tmp);
+
+                if (t2 == NULL)
+                { printf("FAIL  %s: will not parse after setting @%s\n",
+                         argv[f], bx.ctlArg.c_str());
+                  problems++; continue; }
+
+                NodeGraph g2;
+
+                g2.build(t2);
+                delete t2;
+
+                double got = 0;
+                bool found = false;
+
+                for (size_t q = 0; q < g2.boxes().size(); q++)
+                    if (g2.boxes()[q].isControl &&
+                        g2.boxes()[q].ctlArg == bx.ctlArg)
+                    { got = g2.boxes()[q].ctlValue; found = true; break; }
+
+                if (!found)
+                { printf("FAIL  %s: @%s is no longer a control after writing\n",
+                         argv[f], bx.ctlArg.c_str());
+                  problems++; continue; }
+
+                if (fabs(got - target) > fabs(target) * 1e-5 + 1e-6)
+                { printf("FAIL  %s: @%s written as %g, read back as %g\n",
+                         argv[f], bx.ctlArg.c_str(), target, got);
+                  problems++; continue; }
+            }
+
+            controlsMoved++;
+
+            /* 9. and back.
+             *
+             * Not byte-identical, necessarily: `@shape2 = 3.0' comes back as
+             * `@shape2 = 3' once it has genuinely been moved, the same way
+             * `th_max' comes back as `1'. The writer remembers when it need
+             * not touch a line, not how a number used to be spelled. What
+             * must hold is that nothing else moved. */
+            r = NodeEdit::setChanArg(tmp, bx.ctlArg, bx.ctlValue, why);
+
+            string back;
+
+            slurp(tmp, back);
+
+            if (r != NodeEdit::OK || changedLines(original, back) > 1)
+            { printf("FAIL  %s: restoring @%s changed %d lines\n", argv[f],
+                     bx.ctlArg.c_str(), changedLines(original, back));
+              showFirstDiff(original, back);
+              problems++; continue; }
+
+            if (back != original)
+                controlsRespelt++;
+
+            /* The strong one: writing the value that is already there must
+               change nothing. Checked against whatever the file says now,
+               not against the original. */
+            const string beforeNoop = back;
+
+            NodeEdit::setChanArg(tmp, bx.ctlArg, bx.ctlValue, why);
+            slurp(tmp, back);
+
+            if (back != beforeNoop)
+            { printf("FAIL  %s: a no-op write to @%s changed the file\n",
+                     argv[f], bx.ctlArg.c_str());
+              showFirstDiff(beforeNoop, back);
+              problems++; continue; }
+
+            controlNoops++;
+        }
+
         /* ---- wires ---- */
 
         for (size_t e = 0; e < g.edges().size() && problems < 4; e++)
@@ -452,7 +565,9 @@ int main (int argc, char **argv)
             wiresCut++;
 
             /* 6. reconnecting must give the file back exactly */
-            r = NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
+            r = fb.isControl
+                    ? NodeEdit::connectControl(tmp, tb.name, arg, fb.ctlArg, why)
+                    : NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
 
             if (r != NodeEdit::OK)
             { printf("FAIL  %s: connect(%s.%s <- %s->%s) -> %s (%s)\n", argv[f],
@@ -471,7 +586,9 @@ int main (int argc, char **argv)
               problems++; continue; }
 
             /* 7. connecting to where it already goes must change nothing */
-            r = NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
+            r = fb.isControl
+                    ? NodeEdit::connectControl(tmp, tb.name, arg, fb.ctlArg, why)
+                    : NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
 
             slurp(tmp, back);
 
@@ -501,6 +618,9 @@ int main (int argc, char **argv)
            "but respelt\n", noops, respelt);
     printf("  %d wires cut and restored, %d reconnects to where they already "
            "went, all byte-identical\n", wiresCut, wireNoops);
+    printf("  %d controls moved and restored (%d respelt), %d no-op writes, "
+           "every one byte-identical\n", controlsMoved, controlsRespelt,
+           controlNoops);
 
     return failed;
 }

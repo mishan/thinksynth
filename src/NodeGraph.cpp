@@ -34,13 +34,19 @@
 #define ROW_GAP       24.0
 #define MARGIN        20.0
 
+/* Controls: the height of the slider row, and how far the track is inset from
+   the box edges so the handle never overlaps the port. */
+#define CTL_ROW       26.0
+#define CTL_INSET     14.0
+#define CTL_HANDLE     5.0
+
 /* Orders box indices by the position layering gave them.
  *
- * A functor rather than a lambda: nothing in this tree asks for a standard --
- * no -std anywhere in configure.ac, the Makefiles or scripts/Makefile -- so
- * the whole build runs on whatever the compiler defaults to, and on an older
- * toolchain that is C++98. The rest of the node editor is careful to stay
- * inside that; this one line was not. */
+ * A functor rather than a lambda. The build does now ask for C++11 -- see
+ * configure.ac -- but it asks for it because think.h needs <atomic>, not
+ * because anything wanted lambdas, and this file is the one piece of the node
+ * editor deliberately kept independent of the engine. No reason to spend a
+ * language feature on a three-line comparison. */
 namespace {
     struct ByOrder {
         const vector<NodeGraph::Box> &boxes;
@@ -341,7 +347,70 @@ bool NodeGraph::build (thSynthTree *tree)
         }
     }
 
-    /* Pass 3: edges. An ARG_POINTER arg is a wire from another node's arg. */
+    /* Pass 3: a control box per top-level `@name' block.
+     *
+     * Created before edges so that pass 4 can wire chanarg references to them.
+     * Every one of the 206 declarations in the corpus carries .widget = 1,
+     * .min and .max, so there is no question of which ones deserve a slider --
+     * declaring a chanarg *is* declaring a control. */
+    map<string, int> controlOf;
+
+    {
+        const thArgMap &chan = tree->chanArgs();
+
+        for (thArgMap::const_iterator a = chan.begin(); a != chan.end(); ++a)
+        {
+            thArg *arg = a->second;
+
+            if (arg == NULL)
+                continue;
+
+            /* Only the ones declaring a widget.
+             *
+             * `name "TS-1"', `author' and `description' are stored as chanargs
+             * too -- 110 of the 316 in the corpus -- and they are strings, not
+             * knobs. Every one of the 206 real controls sets .widget; none of
+             * the metadata does. The format already draws this line, so there
+             * is no need to guess at it by name. */
+            if (arg->widgetType() == thArg::HIDE)
+                continue;
+
+            Box b;
+
+            b.isControl = true;
+            b.ctlArg = a->first;
+            b.name = "@" + a->first;
+            b.ctlLabel = arg->label().empty() ? a->first : arg->label();
+            b.ctlValue = (arg->len() > 0) ? (*arg)[0] : 0.0f;
+            b.ctlMin = arg->min();
+            b.ctlMax = arg->max();
+
+            /* A range of nothing would make a slider that cannot move. Only
+               33 of the 206 omit a label; none omit a range, but a patch
+               written by hand might. */
+            if (b.ctlMax <= b.ctlMin)
+            {
+                b.ctlMin = 0;
+                b.ctlMax = (b.ctlValue > 1.0f) ? b.ctlValue * 2.0f : 1.0f;
+            }
+
+            b.plugin = "control";
+
+            Port port;
+
+            port.name = a->first;
+            port.isInput = false;
+            port.x = port.y = 0;
+
+            b.ports.push_back(port);
+
+            boxes_.push_back(b);
+            controlOf[a->first] = (int)boxes_.size() - 1;
+        }
+    }
+
+    /* Pass 4: edges. An ARG_POINTER arg is a wire from another node's arg;
+       an ARG_CHANNEL arg is a wire from a control. */
     for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
          i != nodes.end(); ++i)
     {
@@ -361,7 +430,47 @@ bool NodeGraph::build (thSynthTree *tree)
         {
             thArg *arg = a->second;
 
-            if (arg == NULL || arg->type() != thArg::ARG_POINTER)
+            if (arg == NULL)
+                continue;
+
+            /* `in1 = @blim' is a connection from the @blim control, and
+               drawing it as one is the whole point of having controls be
+               nodes. */
+            if (arg->type() == thArg::ARG_CHANNEL)
+            {
+                map<string, int>::iterator c =
+                    controlOf.find(arg->argPtrName());
+
+                if (c == controlOf.end())
+                    continue;       /* reads a chanarg the file never declared */
+
+                Edge ce;
+
+                ce.fromBox = c->second;
+                ce.fromPort = 0;
+                ce.toBox = dst->second;
+
+                Box &cb = boxes_[ce.toBox];
+
+                ce.toPort = findPort(cb, a->first, true);
+
+                if (ce.toPort < 0)
+                {
+                    Port port;
+
+                    port.name = a->first;
+                    port.isInput = true;
+                    port.x = port.y = 0;
+
+                    cb.ports.push_back(port);
+                    ce.toPort = (int)cb.ports.size() - 1;
+                }
+
+                edges_.push_back(ce);
+                continue;
+            }
+
+            if (arg->type() != thArg::ARG_POINTER)
                 continue;
 
             map<string, int>::iterator srcIt = byName_.find(arg->nodePtrName());
@@ -638,6 +747,11 @@ void NodeGraph::placePorts (Box &b)
 
     b.w = BOX_W;
     b.h = BOX_HEAD + BOX_PAD * 2 + PORT_PITCH * max(max(ins, outs), 1);
+
+    /* A control needs room under the title for its slider and readout. Its one
+       port then sits beside the slider row rather than above it. */
+    if (b.isControl)
+        b.h = BOX_HEAD + BOX_PAD * 2 + CTL_ROW;
 
     int i = 0, o = 0;
 
@@ -1029,4 +1143,100 @@ void NodeGraph::removeEdge (int edge)
             tb.params[k].hasValue = true;
             break;
         }
+}
+
+bool NodeGraph::sliderGeometry (int box, double &x0, double &x1, double &y,
+                                double &handleX) const
+{
+    x0 = x1 = y = handleX = 0;
+
+    if (box < 0 || box >= (int)boxes_.size())
+        return false;
+
+    const Box &b = boxes_[box];
+
+    if (!b.isControl)
+        return false;
+
+    x0 = b.x + CTL_INSET;
+    x1 = b.x + b.w - CTL_INSET;
+    y = b.y + BOX_HEAD + BOX_PAD + CTL_ROW * 0.5;
+
+    const double span = (b.ctlMax > b.ctlMin)
+                        ? (double)(b.ctlMax - b.ctlMin) : 1.0;
+
+    double t = ((double)b.ctlValue - (double)b.ctlMin) / span;
+
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+
+    handleX = x0 + t * (x1 - x0);
+
+    return true;
+}
+
+int NodeGraph::sliderAt (double x, double y) const
+{
+    for (int i = (int)boxes_.size() - 1; i >= 0; i--)
+    {
+        if (!boxes_[i].isControl)
+            continue;
+
+        double x0, x1, ty, hx;
+
+        if (!sliderGeometry(i, x0, x1, ty, hx))
+            continue;
+
+        /* The whole slider row is the target, not just the handle. Clicking
+           anywhere on the track should jump the value there -- hunting for a
+           five-pixel handle is unpleasant at any zoom. */
+        if (x >= x0 - CTL_HANDLE && x <= x1 + CTL_HANDLE &&
+            y >= ty - CTL_ROW * 0.5 && y <= ty + CTL_ROW * 0.5)
+            return i;
+    }
+
+    return -1;
+}
+
+float NodeGraph::sliderValueAt (int box, double x) const
+{
+    double x0, x1, y, hx;
+
+    if (!sliderGeometry(box, x0, x1, y, hx))
+        return 0;
+
+    const Box &b = boxes_[box];
+
+    if (x1 <= x0)
+        return b.ctlMin;
+
+    double t = (x - x0) / (x1 - x0);
+
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+
+    return (float)((double)b.ctlMin + t * ((double)b.ctlMax - (double)b.ctlMin));
+}
+
+void NodeGraph::setControlValue (int box, float value)
+{
+    if (box < 0 || box >= (int)boxes_.size() || !boxes_[box].isControl)
+        return;
+
+    Box &b = boxes_[box];
+
+    if (value < b.ctlMin) value = b.ctlMin;
+    if (value > b.ctlMax) value = b.ctlMax;
+
+    b.ctlValue = value;
+
+    /* Everything reading this control shows the new number straight away. */
+    for (size_t i = 0; i < boxes_.size(); i++)
+        for (size_t k = 0; k < boxes_[i].params.size(); k++)
+            if (boxes_[i].params[k].kind == Param::CHANARG &&
+                boxes_[i].params[k].source == "@" + b.ctlArg)
+            {
+                boxes_[i].params[k].value = value;
+                boxes_[i].params[k].hasValue = true;
+            }
 }

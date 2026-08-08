@@ -70,6 +70,14 @@ public:
     typedef sigc::signal<void(string)> type_signal_refused;
     type_signal_refused signal_refused (void) { return m_signal_refused_; }
 
+    /* Emitted while a control's slider is dragged, and once more when it is
+       released -- the window shows the value live but only records the edit
+       on release, so a drag across the track is one change and not fifty. */
+    typedef sigc::signal<void(int, double, bool)> type_signal_control;
+    type_signal_control signal_control_changed (void) {
+        return m_signal_control_;
+    }
+
 protected:
     virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
     virtual bool on_button_press_event (GdkEventButton *b);
@@ -84,6 +92,8 @@ private:
     void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
                    bool highlit);
     void drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr);
+    void drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
+                     const NodeGraph::Box &b);
 
     /* widget pixels -> graph coordinates */
     void toGraph (double sx, double sy, double &gx, double &gy) const;
@@ -109,11 +119,15 @@ private:
 
     int hoverEdge_;
 
+    /* Control whose slider is being dragged, or -1. */
+    int dragSlider_;
+
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
     type_signal_connect m_signal_connect_;
     type_signal_disconnect m_signal_disconnect_;
     type_signal_refused m_signal_refused_;
+    type_signal_control m_signal_control_;
 };
 
 #endif /* NODE_CANVAS_H */

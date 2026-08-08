@@ -209,7 +209,7 @@ Implemented on `node-editor` off `gtkmm3-port`. Steps refer to §6 above.
 | 4. Interaction | done | drag, Ctrl+wheel zoom, hover; hit-testing in `NodeGraph` |
 | 5. The `.dsp` writer | positions and values | `src/NodeLayout.{h,cpp}`, `src/NodeEdit.{h,cpp}` |
 | 6. Editing | wires done | `NodeEdit::connect`/`disconnect`, canvas drag |
-| 7. Parameter controls | done | `src/gui/NodeParams.{h,cpp}` |
+| 7. Parameter controls | done | `NodeParams`, plus control nodes on the canvas |
 
 Reachable from **File → Node View** (Ctrl+N). `NodeWindow` parses its own tree
 through `thSynth::parseTree()`, which neither registers nor owns the result, so
@@ -344,3 +344,62 @@ Adding and removing whole nodes, which needs the plugin list and a way to name
 things. And chanarg editing: most DSPs keep every setting worth touching in the
 channel block, and the panel shows those values but will not yet change them —
 that means writing the `@name = ...` block rather than a node block.
+
+## 9. Controls as nodes
+
+A DSP keeps the settings meant to be played with in top-level `@name` blocks:
+
+```
+@blim = 0.5;
+@blim.widget = 1;
+@blim.min = 0;
+@blim.max = 2;
+@blim.label = "Band Limit";
+```
+
+and nodes read them as `in1 = @blim`. Showing that as greyed-out text on
+whichever node happened to read it buried the most interesting part of the
+patch. Each block is now a node of its own — a box with a slider, one output,
+and a wire to every arg that reads it. `in1 = @blim` is a wire like any other.
+
+Three things the corpus decided:
+
+**Which chanargs are controls.** All 206 declarations carry `.widget = 1`,
+`.min` and `.max`; 173 also give `.label`. So there is no judgement to make —
+declaring a chanarg *is* declaring a control. But the parser also stores
+`name`, `author` and `description` as chanargs, 110 of them, and those are
+strings rather than knobs. `.widget` is exactly the line the format already
+draws between the two, so that is the filter: 316 chanargs, 206 controls.
+
+**`@name` is a connection, so it has to be cuttable.** `disconnect` only
+recognised `node->port`. Once controls became nodes, `a = @a` is a wire and
+cutting it has to work the same way.
+
+**A control source is spelled differently.** `@blim`, not `blim->blim`. That is
+`NodeEdit::connectControl`, separate from `connect` rather than inferred from a
+name starting with `@` — guessing would fail on the one `.dsp` that names a node
+oddly, and the caller always knows which it has.
+
+Writing them found one more thing about the format. `unitsOf` required a
+non-word character before `ms`, so `80ms` did not read as a unit while `5 ms`
+did — 33 and 65 occurrences respectively. What actually distinguishes a unit
+from the tail of an identifier is a number in front of it. Fixing that also
+cleared the last three values the writer had called unwritable.
+
+The rewrite now preserves the original spacing too: `80ms` stays `80ms` rather
+than becoming `80 ms`.
+
+```
+1945 values rewritten and restored, 1211 inserted, 0 unwritable
+1945 no-op writes, every one byte-identical
+3094 wires cut and restored, 3094 reconnects to where they already went
+ 206 controls moved and restored (4 respelt), 206 no-op writes,
+     every one byte-identical
+```
+
+### Still ahead
+
+Adding and removing whole nodes, which needs the plugin list and a way to name
+things. And `.min`/`.max`/`.label` are read but not editable — changing a
+control's *range* means rewriting three more lines, which is the same splice
+applied three times rather than anything new.

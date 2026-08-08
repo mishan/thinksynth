@@ -79,12 +79,32 @@ public:
                            const string &arg, const string &srcNode,
                            const string &srcPort, string &why);
 
-    /* Replaces a connection with a plain value, leaving the line in place --
-       to the engine `in = 0;' and no line at all are the same thing, and
-       keeping the line preserves its trailing comment and makes a reconnect
-       restore the file exactly. */
+    /* Points `<node>.<arg>' at a control: `@<control>'.
+    
+       Separate from connect() rather than inferred from the source name,
+       because the spelling is genuinely different -- `@blim', not
+       `blim->blim' -- and guessing from a name that happens to start with an
+       @ would be the kind of cleverness that fails on the one .dsp that names
+       a node oddly. The caller knows which it has; the graph marks it. */
+    static Result connectControl (const string &filename, const string &node,
+                                  const string &arg, const string &control,
+                                  string &why);
+
+    /* Replaces a connection -- a `node->port' or a `@control' -- with a plain
+       value, leaving the line in place. To the engine `in = 0;' and no line at
+       all are the same thing, and keeping the line preserves its trailing
+       comment and makes a reconnect restore the file exactly. */
     static Result disconnect (const string &filename, const string &node,
                               const string &arg, double value, string &why);
+
+    /* Sets a top-level `@<name> = <value>;' -- one of the .dsp's control
+       declarations.
+
+       These live outside any node block, so this looks for the line at brace
+       depth zero rather than inside a `node' body. As with setValue, writing
+       the value already there changes no byte. */
+    static Result setChanArg (const string &filename, const string &name,
+                              double value, string &why);
 
     /* OK if the file has an explicit `<node> { <arg> = ...; }'. Distinguishes
        an arg the author wrote from one buildArgMap() invented, which is the
