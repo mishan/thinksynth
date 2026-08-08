@@ -492,6 +492,12 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
 {
     why.clear();
 
+    if (node.empty() || arg.empty())
+    {
+        why = "no node or parameter named";
+        return REFUSED;
+    }
+
     vector<string> lines;
     bool endsWithNewline = true;
 
@@ -607,6 +613,17 @@ NodeEdit::Result NodeEdit::connect (const string &filename, const string &node,
         return REFUSED;
     }
 
+    /* An empty destination would be catastrophic rather than merely wrong:
+       string::find("") returns 0, so findAssign would match at the start of
+       the first line it looked at and rewrite whatever assignment happened to
+       be there. Every caller passes a real name; this guards the one that
+       someday does not. */
+    if (node.empty() || arg.empty())
+    {
+        why = "no destination for the connection";
+        return REFUSED;
+    }
+
     vector<string> lines;
     bool endsWithNewline = true;
 
@@ -661,6 +678,12 @@ NodeEdit::Result NodeEdit::disconnect (const string &filename,
                                        double value, string &why)
 {
     why.clear();
+
+    if (node.empty() || arg.empty())
+    {
+        why = "no node or parameter named";
+        return REFUSED;
+    }
 
     vector<string> lines;
     bool endsWithNewline = true;
