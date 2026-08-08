@@ -34,7 +34,7 @@
 #include "NodeWindow.h"
 
 NodeWindow::NodeWindow (thSynth *synth)
-    : synth_(synth), tree_(NULL), layoutDirty_(false),
+    : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), revertBtn_("Revert"),
       zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1")
 {
@@ -143,7 +143,65 @@ void NodeWindow::updateDirty (void)
     updateTitle();
 }
 
-bool NodeWindow::open (const string &filename)
+bool NodeWindow::attached (void) const
+{
+    return synth_ != NULL && channel_ >= 0 &&
+           synth_->getChannel(channel_) != NULL;
+}
+
+/* A control is a channel arg, and a channel arg is shared by every note
+ * sounding on that channel -- notes copy the tree but chanarg references
+ * resolve back through it. So this is heard immediately, on notes already
+ * ringing, which is the whole point of putting sliders on the canvas.
+ *
+ * thArg::setValue(float) is the route the keyboard's own sliders use: a single
+ * atomic store, no reallocation, safe to call from here while the audio thread
+ * reads. */
+const char *NodeWindow::applyControlLive (const string &name, double value)
+{
+    if (!attached())
+        return "";
+
+    thArg *arg = synth_->getChanArg(channel_, name);
+
+    if (arg == NULL)
+        return "  (not on the live channel)";
+
+    arg->setValue((float)value);
+
+    return "  (live)";
+}
+
+/* A node's own value is a different matter. Each note copy-constructs the
+ * whole tree at note-on, so changing the channel's template changes what the
+ * *next* note will sound like and leaves ringing notes alone. Saying so is
+ * better than implying an immediacy that is not there. */
+const char *NodeWindow::applyValueLive (const string &node, const string &arg,
+                                        double value)
+{
+    if (!attached())
+        return "";
+
+    thMidiChan *chan = synth_->getChannel(channel_);
+    thSynthTree *tree = chan ? chan->modnode() : NULL;
+
+    if (tree == NULL)
+        return "  (not on the live channel)";
+
+    thNode *n = tree->findNode(node);
+    thArg *a = n ? n->getArg(arg) : NULL;
+
+    /* Only a plain value. Writing over an arg that points at another node or
+       at a chanarg would break the link rather than change a number. */
+    if (a == NULL || a->type() != thArg::ARG_VALUE)
+        return "  (not on the live channel)";
+
+    a->setValue((float)value);
+
+    return "  (next note)";
+}
+
+bool NodeWindow::open (const string &filename, int chan)
 {
     thSynthTree *tree = synth_->parseTree(filename);
 
@@ -180,6 +238,7 @@ bool NodeWindow::open (const string &filename)
     tree_ = tree;
     graph_ = g;
     filename_ = filename;
+    channel_ = chan;
     layoutDirty_ = false;
     pending_.clear();
     wires_.clear();
@@ -191,11 +250,17 @@ bool NodeWindow::open (const string &filename)
 
     char buf[256];
 
+    char chanText[64] = "  not attached to a channel";
+
+    if (attached())
+        snprintf(chanText, sizeof(chanText), "  live on channel %d",
+                 channel_ + 1);
+
     snprintf(buf, sizeof(buf),
-             "%d nodes, %d connections (%d feedback), %d layers%s",
+             "%d nodes, %d connections (%d feedback), %d layers%s.%s",
              (int)graph_.boxes().size(), (int)graph_.edges().size(),
              graph_.feedbackCount(), graph_.layerCount(),
-             restored ? ", layout restored" : "");
+             restored ? ", layout restored" : "", chanText);
 
     setStatus(buf);
 
@@ -325,8 +390,9 @@ void NodeWindow::onSave (void)
        including a value the writer had to round to something spellable. */
     const string f = filename_;
     const int sel = canvas_.selected();
+    const int ch = channel_;
 
-    if (!open(f))
+    if (!open(f, ch))
         return;
 
     if (sel >= 0 && sel < (int)graph_.boxes().size())
@@ -354,14 +420,72 @@ void NodeWindow::onRevert (void)
     if (filename_.empty())
         return;
 
+    /* Remember what was touched before reloading, because reloading is what
+       tells us the on-disk values to put back. */
+    vector<string> ctlNames;
+
+    for (std::map<std::string, double>::const_iterator i = controls_.begin();
+         i != controls_.end(); ++i)
+        ctlNames.push_back(i->first);
+
+    vector<pair<string, string> > valNames;
+
+    for (std::map<std::pair<std::string, std::string>, double>::const_iterator
+             i = pending_.begin();
+         i != pending_.end(); ++i)
+        valNames.push_back(i->first);
+
     pending_.clear();
     wires_.clear();
     controls_.clear();
     layoutDirty_ = false;
 
-    open(filename_);
+    if (!open(filename_, channel_))
+        return;
 
-    setStatus("Reverted to what is on disk.");
+    /* Put the running synth back as well. Reverting the file and leaving the
+       sound wherever the sliders were left would be worse than not offering
+       Revert at all. */
+    int restored = 0;
+
+    for (size_t i = 0; i < ctlNames.size(); i++)
+        for (size_t q = 0; q < graph_.boxes().size(); q++)
+            if (graph_.boxes()[q].isControl &&
+                graph_.boxes()[q].ctlArg == ctlNames[i])
+            {
+                applyControlLive(ctlNames[i], graph_.boxes()[q].ctlValue);
+                restored++;
+                break;
+            }
+
+    for (size_t i = 0; i < valNames.size(); i++)
+    {
+        const int b = graph_.boxByName(valNames[i].first);
+
+        if (b < 0)
+            continue;
+
+        for (size_t k = 0; k < graph_.boxes()[b].params.size(); k++)
+            if (graph_.boxes()[b].params[k].name == valNames[i].second &&
+                graph_.boxes()[b].params[k].hasValue)
+            {
+                applyValueLive(valNames[i].first, valNames[i].second,
+                               graph_.boxes()[b].params[k].value);
+                restored++;
+                break;
+            }
+    }
+
+    char buf[128];
+
+    if (attached() && restored)
+        snprintf(buf, sizeof(buf),
+                 "Reverted to what is on disk; %d value%s put back live.",
+                 restored, restored == 1 ? "" : "s");
+    else
+        snprintf(buf, sizeof(buf), "Reverted to what is on disk.");
+
+    setStatus(buf);
 }
 
 void NodeWindow::onBoxMoved (int box)
@@ -405,12 +529,14 @@ void NodeWindow::onParamEdited (int box, string name, double value)
 
     pending_[make_pair(b.name, name)] = value;
 
+    const char *live = applyValueLive(b.name, name, value);
+
     updateDirty();
 
     char buf[256];
 
-    snprintf(buf, sizeof(buf), "%s.%s = %g  (%d unsaved change%s)",
-             b.name.c_str(), name.c_str(), value,
+    snprintf(buf, sizeof(buf), "%s.%s = %g%s  (%d unsaved change%s)",
+             b.name.c_str(), name.c_str(), value, live,
              (int)pending_.size(), pending_.size() == 1 ? "" : "s");
 
     setStatus(buf);
@@ -493,9 +619,11 @@ void NodeWindow::onControlChanged (int box, double value, bool commit)
     /* Everything reading this control shows the new number too. */
     params_.setBox(&graph_, canvas_.selected());
 
-    char buf[160];
+    const char *live = applyControlLive(b.ctlArg, value);
 
-    snprintf(buf, sizeof(buf), "@%s = %g", b.ctlArg.c_str(), value);
+    char buf[192];
+
+    snprintf(buf, sizeof(buf), "@%s = %g%s", b.ctlArg.c_str(), value, live);
 
     setStatus(buf);
 

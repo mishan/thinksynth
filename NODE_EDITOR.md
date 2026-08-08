@@ -403,3 +403,38 @@ Adding and removing whole nodes, which needs the plugin list and a way to name
 things. And `.min`/`.max`/`.label` are read but not editable — changing a
 control's *range* means rewriting three more lines, which is the same splice
 applied three times rather than anything new.
+
+## 10. Hearing the change
+
+Moving a control pushes the value straight into the running synth, so it is
+audible on notes already sounding — the same `thArg::setValue(float)` the
+keyboard's sliders have always used: a single atomic store, no reallocation,
+safe to call from the GUI thread while the audio thread reads.
+
+The window has to be attached to a channel for this, so **File → Node View**
+now opens on the channel of the tab you are looking at, and the status bar says
+`live on channel 3` or `not attached to a channel`.
+
+Two kinds of edit, and they behave differently:
+
+- **Controls** are channel args, shared by every note on the channel. Changing
+  one is heard immediately, mid-note.
+- **A node's own value** is copied into each note at note-on, so changing it
+  changes the *next* note and leaves ringing ones alone. The status bar says
+  `(next note)` rather than pretending otherwise.
+- **Wire changes** are not applied live at all; they need the graph rebuilt.
+
+`scripts/dsplive` is the check, and it is the only one in this project that
+tests the actual sound. It renders the same note twice — once untouched, once
+with a control moved halfway through — and asserts the halves before the move
+are bitwise identical while the halves after differ:
+
+```
+81 files, 0 failed
+151 controls changed the sound of a ringing note, 55 had no effect on it
+```
+
+The 55 are not failures. `@a`, `@d` and `@r` on a typical patch are envelope
+times: by the time the change lands the note is in sustain, so there is
+correctly nothing to hear. Reporting them separately rather than as errors
+keeps the check honest about what it can prove.
