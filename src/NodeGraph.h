@@ -48,10 +48,42 @@ public:
         double x, y;
     };
 
+    /* One settable thing on a node: what the .dsp calls an arg.
+     *
+     * A snapshot, not a live pointer. That keeps this header free of libthink
+     * as well as of GTK, and means the graph stays valid and checkable after
+     * the tree it was built from is gone. Anything that wants to *change* a
+     * value goes through the .dsp text, not through here. */
+    struct Param {
+        /* Where the value comes from. Mirrors thArg::ArgType; kept separate so
+           this header needs nothing from libthink. */
+        enum Kind { VALUE = 0, POINTER, CHANARG, NOTE };
+
+        string name;
+        string label;       /* human name from the .dsp, or empty */
+        string units;       /* "ms", "%" -- display only          */
+        string comment;
+
+        Kind kind;
+        float value;        /* meaningful when kind == VALUE      */
+        float min, max;     /* both 0 if the .dsp gave no range   */
+
+        /* For POINTER, "env->out"; for CHANARG, "@cutoff". Empty otherwise. */
+        string source;
+
+        /* True if the plugin registers this as an input port -- one of the
+           things a wire can land on. An arg the .dsp binds that the plugin
+           never registered is still listed, just not a port. */
+        bool isPort;
+
+        Param (void) : kind(VALUE), value(0), min(0), max(0), isPort(false) { }
+    };
+
     struct Box {
         string name;        /* the node's name in the .dsp   */
         string plugin;      /* "osc::simple", or "" for io   */
         vector<Port> ports;
+        vector<Param> params;
 
         double x, y, w, h;
 
@@ -128,8 +160,13 @@ public:
     /* Absolute position of a port's handle. */
     void portPos (int box, int port, double &x, double &y) const;
 
+    /* Index of a box by node name, or -1. For the io node this is the sink
+       half, which is the one that owns the args. */
+    int boxByName (const string &name) const;
+
 private:
     static int findPort (const Box &b, const string &name, bool wantInput);
+    void collectParams (thNode *n, Box &b);
     void assignLayers (void);
     void orderWithinLayers (void);
     void placePorts (Box &b);

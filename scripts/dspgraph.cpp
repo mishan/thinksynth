@@ -32,6 +32,10 @@
  *     without a mouse
  *   - a saved layout comes back exactly, and saving changes nothing in the
  *     file except `# @layout' lines
+ *   - the parameter list and the wires agree: every parameter driven by
+ *     another node has a wire to match, and every wire has a parameter. The
+ *     two are built by separate passes over separate data, so they disagreeing
+ *     means one of them is wrong
  *
  * Exit status is the number of files with a failure.
  *
@@ -233,6 +237,67 @@ int main (int argc, char **argv)
                          px, py, hb, hp);
                   problems++; }
             }
+        }
+
+        /* parameters and wires must describe the same thing.
+         *
+         * Params come from each node's thArgMap; edges come from a separate
+         * pass resolving ARG_POINTER names to boxes. Nothing keeps them in
+         * step, so cross-checking them is close to free and would catch a
+         * whole class of "the panel says one thing, the canvas another". */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            /* The io source half is a display artefact with no node behind
+               it, so it has no args and no params -- skip it. */
+            if (bx.isIoSource)
+                continue;
+
+            int wiredParams = 0;
+
+            for (size_t k = 0; k < bx.params.size(); k++)
+                if (bx.params[k].kind == NodeGraph::Param::POINTER)
+                {
+                    /* A reference to a node that does not exist is the .dsp's
+                       bug, not the graph's -- old/firtest.dsp reads filt->out
+                       and env->out with neither node defined, and the parser
+                       already says so. There is correctly no wire, and the
+                       panel correctly still shows what the file asked for. */
+                    const string &src = bx.params[k].source;
+                    const string node = src.substr(0, src.find("->"));
+
+                    if (g.boxByName(node) < 0)
+                        continue;
+
+                    wiredParams++;
+
+                    bool found = false;
+
+                    for (size_t e = 0; e < edges.size() && !found; e++)
+                        if (edges[e].toBox == (int)b &&
+                            boxes[edges[e].toBox].ports[edges[e].toPort].name ==
+                                bx.params[k].name)
+                            found = true;
+
+                    if (!found)
+                    { printf("FAIL  %s: %s.%s says it is driven by %s, "
+                             "but there is no wire\n", argv[f],
+                             bx.name.c_str(), bx.params[k].name.c_str(),
+                             bx.params[k].source.c_str());
+                      problems++; }
+                }
+
+            int incoming = 0;
+
+            for (size_t e = 0; e < edges.size(); e++)
+                if (edges[e].toBox == (int)b)
+                    incoming++;
+
+            if (incoming != wiredParams)
+            { printf("FAIL  %s: %s has %d wires in but %d wired parameters\n",
+                     argv[f], bx.name.c_str(), incoming, wiredParams);
+              problems++; }
         }
 
         /* layout round-trip, on a copy so the corpus is never touched */

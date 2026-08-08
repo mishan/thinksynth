@@ -44,7 +44,7 @@ SAN := -fsanitize=address,undefined -fno-omit-frame-pointer
 # its own build tree configured with -fsanitize=thread throughout.
 TSAN := -fsanitize=thread -fno-omit-frame-pointer
 
-all: dspcheck dspstress dsplevel dspgraph
+all: dspcheck dspstress dsplevel dspgraph dspab
 
 dspcheck: $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS) $(LDFLAGS)
@@ -53,6 +53,10 @@ dsplevel: dsplevel.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
 # NodeGraph is deliberately GTK-free so it can be exercised headlessly.
+# A/B: same note through two plugin sets, compared bitwise.
+dspab: dspab.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspab.cpp $(LDFLAGS)
+
 dspgraph: dspgraph.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeLayout.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dspgraph.cpp $(TOP)/src/NodeGraph.cpp \
 		$(TOP)/src/NodeLayout.cpp $(LDFLAGS)

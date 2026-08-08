@@ -29,6 +29,7 @@
 #include "../NodeGraph.h"
 #include "../NodeLayout.h"
 #include "NodeCanvas.h"
+#include "NodeParams.h"
 #include "NodeWindow.h"
 
 NodeWindow::NodeWindow (thSynth *synth)
@@ -52,11 +53,15 @@ NodeWindow::NodeWindow (thSynth *synth)
     scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroller_.add(canvas_);
 
+    split_.pack1(scroller_, true, false);
+    split_.pack2(params_, false, false);
+    split_.set_position(660);
+
     status_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
     status_.set_padding(6, 2);
 
     vbox_.pack_start(toolbar_, Gtk::PACK_SHRINK);
-    vbox_.pack_start(scroller_);
+    vbox_.pack_start(split_);
     vbox_.pack_start(status_, Gtk::PACK_SHRINK);
 
     arrangeBtn_.signal_clicked().connect(
@@ -72,6 +77,12 @@ NodeWindow::NodeWindow (thSynth *synth)
 
     canvas_.signal_box_moved().connect(
         sigc::mem_fun(*this, &NodeWindow::onBoxMoved));
+
+    canvas_.signal_selected().connect(
+        sigc::mem_fun(*this, &NodeWindow::onSelected));
+
+    params_.signal_param_edited().connect(
+        sigc::mem_fun(*this, &NodeWindow::onParamEdited));
 
     saveBtn_.set_sensitive(false);
 
@@ -193,6 +204,29 @@ void NodeWindow::onBoxMoved (int box)
 
     dirty_ = true;
     updateTitle();
+}
+
+void NodeWindow::onSelected (int box)
+{
+    params_.setBox(&graph_, box);
+}
+
+/* Nothing writes yet -- the value splicer is the next piece. Reporting what
+   would be written is worth more than silently doing nothing, because it says
+   which arg on which node the panel thinks it is editing, which is the part
+   most likely to be wrong. */
+void NodeWindow::onParamEdited (int box, string name, double value)
+{
+    if (box < 0 || box >= (int)graph_.boxes().size())
+        return;
+
+    char buf[256];
+
+    snprintf(buf, sizeof(buf),
+             "%s.%s = %g  (not saved yet: the value writer is not built)",
+             graph_.boxes()[box].name.c_str(), name.c_str(), value);
+
+    setStatus(buf);
 }
 
 void NodeWindow::onZoomIn (void)
