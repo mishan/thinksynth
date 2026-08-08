@@ -20,11 +20,11 @@
 #define KEYBOARD_H
 
 /* this widget's custom signals */
-typedef sigc::signal<void>                  type_signal_note_clear;
-typedef sigc::signal<void, int, int, float> type_signal_note_on;
-typedef sigc::signal<void, int, int>        type_signal_note_off;
-typedef sigc::signal<void, int>             type_signal_channel_changed;
-typedef sigc::signal<void, int>             type_signal_transpose_changed;
+typedef sigc::signal<void()>                  type_signal_note_clear;
+typedef sigc::signal<void(int, int, float)> type_signal_note_on;
+typedef sigc::signal<void(int, int)>        type_signal_note_off;
+typedef sigc::signal<void(int)>             type_signal_channel_changed;
+typedef sigc::signal<void(int)>             type_signal_transpose_changed;
 
 class Keyboard : public Gtk::DrawingArea
 {

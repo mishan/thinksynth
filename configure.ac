@@ -212,7 +212,11 @@ AC_ARG_ENABLE(efence,
 	
 AC_ARG_ENABLE(,,,)
 
-AC_DEFINE_UNQUOTED([PREFIX], "$prefix", [The prefix where thinksynth is installed])
+dnl Not TH_PREFIX for tidiness: gtkmm-4 has Gtk::StringFilter::MatchMode::PREFIX,
+dnl and a bare PREFIX macro rewrites it, which detonates the enum and takes
+dnl 250 errors' worth of that header down with it. Nothing referenced this
+dnl macro anyway.
+AC_DEFINE_UNQUOTED([TH_PREFIX], "$prefix", [The prefix where thinksynth is installed])
 
 dnl Construction of plugin-common.inc
 

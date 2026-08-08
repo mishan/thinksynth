@@ -21,8 +21,8 @@
 
 #define NUM_PATCHES 16
 
-typedef sigc::signal<void> type_signal_patches_changed;
-typedef sigc::signal<void, const char*> type_signal_patch_load_error;
+typedef sigc::signal<void()> type_signal_patches_changed;
+typedef sigc::signal<void(const char*)> type_signal_patch_load_error;
 
 class thArg;
 class thMidiChan;
