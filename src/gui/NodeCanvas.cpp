@@ -106,7 +106,21 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
         const NodeGraph::Port &p = b.ports[k];
 
         cr->arc(b.x + p.x, b.y + p.y, PORT_R, 0, 2 * M_PI);
-        cr->set_source_rgb(p.isInput ? COL_PORT_IN : COL_PORT_OUT);
+
+        /* Not `set_source_rgb(p.isInput ? COL_PORT_IN : COL_PORT_OUT)'.
+         *
+         * These macros are three comma-separated numbers, and the middle
+         * operand of ?: swallows commas: that expression parsed as
+         * set_source_rgb(isInput ? (0.60, 0.75, 0.55) : 0.80, 0.72, 0.50),
+         * i.e. red = 0.55 or 0.80 with green and blue always 0.72 and 0.50.
+         * Inputs came out olive instead of green and the two port colours
+         * differed only in the red channel -- close enough to look deliberate
+         * and never noticed by eye. */
+        if (p.isInput)
+            cr->set_source_rgb(COL_PORT_IN);
+        else
+            cr->set_source_rgb(COL_PORT_OUT);
+
         cr->fill();
 
         cr->set_source_rgb(COL_DIM);
