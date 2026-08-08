@@ -45,6 +45,8 @@
 
 #include <string>
 
+using std::string;
+
 class NodeEdit {
 public:
     enum Result {
