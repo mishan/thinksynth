@@ -108,6 +108,8 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
 
 bool NodeCanvas::on_button_release_event (GdkEventButton *b)
 {
+    (void)b;    /* which button came up does not matter here */
+
     if (dragBox_ >= 0)
     {
         /* A box dragged past the old bounds needs the scrollable area to grow
@@ -166,6 +168,8 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
 
 bool NodeCanvas::on_leave_notify_event (GdkEventCrossing *c)
 {
+    (void)c;
+
     if (hoverBox_ >= 0 || hoverPort_ >= 0)
     {
         hoverBox_ = hoverPort_ = -1;
