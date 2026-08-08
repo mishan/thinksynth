@@ -142,6 +142,7 @@ Keyboard::Keyboard (void)
     {
         prv_active_keys_[i] = -2;
         active_keys_[i] = 0;
+        active_veloc_[i] = 0;
     }
 
     dispatchRedraw_.connect(
@@ -159,6 +160,7 @@ void Keyboard::resetKeys (void)
             m_signal_note_off_(channel_, i);
         
         active_keys_[i] = 0;
+        active_veloc_[i] = 0;
     }
 
     queue_draw();
@@ -188,6 +190,7 @@ void Keyboard::releaseAllNotes (void)
         }
 
         active_keys_[i] = 0;
+        active_veloc_[i] = 0;
         prv_active_keys_[i] = -1;
     }
 }
@@ -215,12 +218,65 @@ void Keyboard::SetTranspose (int transpose)
     if (transpose == transpose_)
         return;
 
-    /* keyval_to_notnum() adds transpose_, so a key held across a transpose
-       change would release the wrong note and leave the original hanging.
-       SetChannel has always done this; SetTranspose never did. */
-    releaseAllNotes();
+    /* Held notes follow the transpose rather than being dropped.
+     *
+     * keyval_to_notnum() adds transpose_, so a key held across a change would
+     * otherwise release the wrong note and leave the original hanging. Simply
+     * releasing everything is not right either: the physical keys are still
+     * down, and X only auto-repeats the most recently pressed one, so a
+     * three-note chord came back as a single note.
+     *
+     * The new number is just the old one shifted by the delta -- the mapping
+     * is 48 + transpose_ + 12*octave + degree, so the key's contribution is
+     * unchanged and only the transpose term moves.
+     */
+    const int delta = transpose - transpose_;
+
+    int heldNote[128];
+    int heldVeloc[128];
+    int held = 0;
+
+    for (int i = 0; i < 128; i++)
+    {
+        if (!active_keys_[i])
+            continue;
+
+        heldNote[held] = i;
+        heldVeloc[held] = active_veloc_[i] ? active_veloc_[i] : veloc3_;
+        held++;
+
+        /* release at the number it was started with */
+        m_signal_note_off_(channel_, i);
+
+        active_keys_[i] = 0;
+        active_veloc_[i] = 0;
+        prv_active_keys_[i] = -1;
+    }
 
     transpose_ = transpose;
+
+    for (int i = 0; i < held; i++)
+    {
+        const int notenum = heldNote[i] + delta;
+
+        /* a note shifted off either end of the range simply stops */
+        if (notenum < 0 || notenum > 127)
+            continue;
+
+        m_signal_note_on_(channel_, notenum, heldVeloc[i]);
+
+        active_keys_[notenum] = 1;
+        active_veloc_[notenum] = heldVeloc[i];
+        prv_active_keys_[notenum] = -1;
+    }
+
+    /* keep the mouse's idea of what it is holding in step */
+    if (mouse_notnum_ >= 0)
+    {
+        const int notenum = mouse_notnum_ + delta;
+
+        mouse_notnum_ = (notenum >= 0 && notenum <= 127) ? notenum : -1;
+    }
 
     /* transpose has been changed internally; emit the changed signal so
        widgets which interface with us will be able to update their transpose
@@ -233,6 +289,7 @@ void Keyboard::SetTranspose (int transpose)
 void Keyboard::SetNote (int note, bool state)
 {
     active_keys_[note] = state ? 1 : 0;
+    active_veloc_[note] = state ? veloc3_ : 0;
     prv_active_keys_[note] = -1;
 
     dispatchRedraw_();
@@ -398,8 +455,9 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
         }
 
         m_signal_note_on_(channel_, notenum, veloc3_);
-        
+
         active_keys_[notenum] = 1;
+        active_veloc_[notenum] = veloc3_;
         
         queue_draw();
     }
@@ -435,6 +493,7 @@ bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
         m_signal_note_off_(channel_, mouse_notnum_);
 
         active_keys_[notenum] = 1;
+        active_veloc_[notenum] = mouse_veloc_;
         m_signal_note_on_(channel_, notenum, mouse_veloc_);
 
         mouse_notnum_ = notenum;

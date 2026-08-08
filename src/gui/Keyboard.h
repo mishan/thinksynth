@@ -100,6 +100,10 @@ private:
     int prv_active_keys_[128];
     int active_keys_[128];
 
+    /* Velocity each held note was started with, so a transpose can re-trigger
+       it at the same strength. Indexed like active_keys_. */
+    int active_veloc_[128];
+
     int mouse_notnum_;
     int veloc0_;
     int veloc1_;
