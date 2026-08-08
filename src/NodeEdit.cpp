@@ -22,6 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <ctype.h>      /* isalnum, isdigit -- used by the RHS parsing */
 
 #include <fstream>
 #include <vector>

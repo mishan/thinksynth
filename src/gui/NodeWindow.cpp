@@ -118,7 +118,12 @@ void NodeWindow::updateDirty (void)
 {
     const bool dirty = layoutDirty_ || !pending_.empty();
 
-    saveBtn_.set_sensitive(!filename_.empty());
+    /* Save is offered only when there is something to save. It used to be
+       enabled whenever a file was open, and saving with nothing pending still
+       wrote the layout block -- so opening a .dsp that had never been through
+       the editor and pressing Save added twenty comment lines to a file the
+       user had not edited. */
+    saveBtn_.set_sensitive(!filename_.empty() && dirty);
     revertBtn_.set_sensitive(dirty);
 
     updateTitle();
@@ -166,7 +171,7 @@ bool NodeWindow::open (const string &filename)
 
     canvas_.setGraph(&graph_);
     params_.setBox(NULL, -1);
-    updateDirty();
+    updateDirty();     /* leaves Save insensitive: nothing is pending yet */
 
     char buf[256];
 
@@ -265,10 +270,14 @@ void NodeWindow::onSave (void)
 
     char buf[160];
 
-    snprintf(buf, sizeof(buf),
-             n ? "Saved: %d value%s and the layout."
-               : "Saved: layout only.%s%s",
-             n, n == 1 ? "" : "s");
+    /* Two format strings, not one chosen by a conditional: the "layout only"
+       branch took no arguments but was still handed (int, const char *), so
+       with no pending values this passed an int where %s was expected. */
+    if (n)
+        snprintf(buf, sizeof(buf), "Saved: %d value%s and the layout.",
+                 n, n == 1 ? "" : "s");
+    else
+        snprintf(buf, sizeof(buf), "Saved: layout only.");
 
     setStatus(buf);
 }
