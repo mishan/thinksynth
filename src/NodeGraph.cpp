@@ -862,9 +862,11 @@ bool NodeGraph::canConnect (int fromBox, int fromPort, int toBox, int toPort,
     { why = "wires end at an input"; return false; }
 
     /* Box, not node: the io node's two halves share a name, and connecting
-       the MIDI source into the audio sink is exactly what a DSP does. */
+       the MIDI source into the audio sink is exactly what a DSP does. The
+       message says "box" for the same reason -- phrased as a rule about nodes
+       it would read as forbidding something three shipped DSPs do. */
     if (fromBox == toBox)
-    { why = "a node cannot feed itself"; return false; }
+    { why = "a box cannot feed itself"; return false; }
 
     return true;
 }
@@ -908,6 +910,25 @@ int NodeGraph::edgeAt (double x, double y, double slack) const
         double xs[4], ys[4];
 
         edgeCurve((int)e, xs, ys);
+
+        /* A cubic stays inside the convex hull of its control points, so the
+           bounding box of those four -- grown by the slack -- is a sound
+           rejection test and costs four comparisons instead of 33 distance
+           calculations. This runs on every pointer motion over a graph with
+           up to 3094 wires, which is where it matters. */
+        double bx0 = xs[0], bx1 = xs[0], by0 = ys[0], by1 = ys[0];
+
+        for (int i = 1; i < 4; i++)
+        {
+            if (xs[i] < bx0) bx0 = xs[i];
+            if (xs[i] > bx1) bx1 = xs[i];
+            if (ys[i] < by0) by0 = ys[i];
+            if (ys[i] > by1) by1 = ys[i];
+        }
+
+        if (x < bx0 - slack || x > bx1 + slack ||
+            y < by0 - slack || y > by1 + slack)
+            continue;
 
         /* Sampled rather than solved. Thirty-two points on a wire that is at
            most a few hundred pixels long puts them within a few pixels of each
