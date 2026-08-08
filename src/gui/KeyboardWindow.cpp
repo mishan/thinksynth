@@ -51,11 +51,15 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
 
     ctrlFrame_->add(*ctrlTable_);
 
-    chanVal_ = manage(new Gtk::Adjustment(1, 1, synth_->midiChanCount()));
-    chanBtn_ = manage(new Gtk::SpinButton(*chanVal_));
+    /* gtkmm-3: Adjustment is refcounted with a protected constructor, so it is
+       created through the factory and held by RefPtr rather than manage()d.
+       That also retires the double free the old destructor had here -- it
+       delete'd two Gtk::manage()d adjustments the SpinButtons already owned. */
+    chanVal_ = Gtk::Adjustment::create(1, 1, synth_->midiChanCount());
+    chanBtn_ = manage(new Gtk::SpinButton(chanVal_));
 
-    transVal_ = manage(new Gtk::Adjustment(0, -72, 72));
-    transBtn_ = manage(new Gtk::SpinButton(*transVal_));
+    transVal_ = Gtk::Adjustment::create(0, -72, 72);
+    transBtn_ = manage(new Gtk::SpinButton(transVal_));
 
     ctrlTable_->attach(*chanLbl_, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
     ctrlTable_->attach(*chanBtn_, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
@@ -83,9 +87,9 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
     keyboard_->signal_transpose_changed().connect(
         sigc::mem_fun(*this, &KeyboardWindow::eventTransposeChanged));
 
-    chanBtn_->unset_flags(Gtk::CAN_FOCUS);
-    transBtn_->unset_flags(Gtk::CAN_FOCUS);
-    resetBtn_->unset_flags(Gtk::CAN_FOCUS);
+    chanBtn_->set_can_focus(false);
+    transBtn_->set_can_focus(false);
+    resetBtn_->set_can_focus(false);
 
     resetBtn_->signal_clicked().connect(
         sigc::mem_fun(*this, &KeyboardWindow::keyboardReset));

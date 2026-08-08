@@ -409,8 +409,8 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
         Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->comment()));
 
-        lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
-        rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+        lname_lbl->set_alignment(Gtk::ALIGN_END);
+        rname_lbl->set_alignment(Gtk::ALIGN_START);
 
         info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::FILL, Gtk::FILL);
         info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
@@ -423,8 +423,8 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
         Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->comment()));
 
-        lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
-        rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+        lname_lbl->set_alignment(Gtk::ALIGN_END);
+        rname_lbl->set_alignment(Gtk::ALIGN_START);
 
         
         info_table->attach(*lname_lbl, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
@@ -438,8 +438,8 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
         Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->comment()));
 
-        lname_lbl->set_alignment(Gtk::ALIGN_RIGHT);
-        rname_lbl->set_alignment(Gtk::ALIGN_LEFT);
+        lname_lbl->set_alignment(Gtk::ALIGN_END);
+        rname_lbl->set_alignment(Gtk::ALIGN_START);
         
         info_table->attach(*lname_lbl, 0, 1, 2, 3, Gtk::FILL, Gtk::FILL);
         info_table->attach(*rname_lbl, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);

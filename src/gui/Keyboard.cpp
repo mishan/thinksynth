@@ -127,14 +127,9 @@ Keyboard::Keyboard (void)
     add_events(Gdk::ALL_EVENTS_MASK);
 
     /* allow the widget to grab focus and process keypress events */
-    set_flags(Gtk::CAN_FOCUS);
+    set_can_focus(true);
 
     focus_box_ = false;
-
-    /* init internal widget stuff to NULL for now; will be set up in
-       on_realize () */
-    drawable_ = NULL;
-    kbgc_ = NULL;
 
     /* clear previous key state */
     for (int i = 0; i < 128; i++)
@@ -144,7 +139,7 @@ Keyboard::Keyboard (void)
     }
 
     dispatchRedraw_.connect(
-        sigc::bind<int>(sigc::mem_fun(*this, &Keyboard::drawKeyboard), 0));
+        sigc::mem_fun(*this, &Keyboard::queueRedraw));
 }
 
 void Keyboard::resetKeys (void)
@@ -160,7 +155,7 @@ void Keyboard::resetKeys (void)
         active_keys_[i] = 0;
     }
 
-    drawKeyboard(1);
+    queue_draw();
 }
   
 Keyboard::~Keyboard (void)
@@ -186,7 +181,7 @@ void Keyboard::SetChannel (int channel)
 
     m_signal_channel_changed_(channel_);
 
-    drawKeyboard (1);
+    queue_draw();
 }
 
 void Keyboard::SetTranspose (int transpose)
@@ -258,31 +253,14 @@ type_signal_transpose_changed Keyboard::signal_transpose_changed (void)
 }
 
 /* overridden signal handlers */
-void Keyboard::on_realize (void)
+
+/* on_realize no longer has anything to do. It used to reach through gobj() for
+   the GdkWindow and build a GdkGC; GTK3 has neither, and the drawing context
+   arrives with on_draw instead. */
+
+bool Keyboard::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
 {
-    /* call the base class on_realize() method so it will do its own stuff, 
-       then we will do our own stuff */
-    Gtk::DrawingArea::on_realize ();
-
-    drawable_ = ((GtkWidget *)gobj())->window;
-
-    kbgc_ = gdk_gc_new (drawable_);
-    gdk_gc_set_function (kbgc_, GDK_COPY);
-    gdk_gc_set_fill (kbgc_, GDK_SOLID);
-    gdk_rgb_gc_set_foreground (kbgc_, 0x00000000);
-    gdk_rgb_gc_set_background (kbgc_, 0x00FFFFFF);
-}
-
-bool Keyboard::on_expose_event (GdkEventExpose *e)
-{
-     if (drawable_ == NULL)
-        realize ();
-
-    /* redraw widget */
-    drawKeyboard (3);
-
-    if (focus_box_)
-        drawKeyboardFocus();
+    drawKeyboard (cr);
 
     return true;
 }
@@ -291,8 +269,7 @@ bool Keyboard::on_focus_in_event (GdkEventFocus *f)
 {
     focus_box_ = true;
 
-    /* just draw the focus box */
-    drawKeyboardFocus();
+    queue_draw();
 
     return true;
 }
@@ -301,8 +278,7 @@ bool Keyboard::on_focus_out_event (GdkEventFocus *f)
 {
     focus_box_ = false;
 
-    /* redraw widget */
-    drawKeyboard(5);
+    queue_draw();
 
     return true;
 }
@@ -337,7 +313,7 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
     m_signal_note_on_(channel_, mouse_notnum_, veloc);
     active_keys_[mouse_notnum_] = 1;
 
-    drawKeyboard(0);
+    queue_draw();
 
     mouse_veloc_ = veloc;    /* save velocity */
 
@@ -350,7 +326,7 @@ bool Keyboard::on_button_release_event (GdkEventButton *b)
     if (mouse_notnum_ >= 0) {
         m_signal_note_off_(channel_, mouse_notnum_);
         active_keys_[mouse_notnum_] = 0;
-        drawKeyboard(0);
+        queue_draw();
     }
 
     mouse_notnum_ = -1;
@@ -373,7 +349,7 @@ bool Keyboard::on_key_press_event (GdkEventKey *k)
         
         active_keys_[notenum] = 1;
         
-        drawKeyboard (0);
+        queue_draw();
     }
 
     return true;
@@ -386,7 +362,7 @@ bool Keyboard::on_key_release_event (GdkEventKey *k)
     if (notenum >= 0) {    /* note event */
         m_signal_note_off_(channel_, notenum);
         active_keys_[notenum] = 0;
-        drawKeyboard (0);
+        queue_draw();
     }
 
     return true;
@@ -411,29 +387,43 @@ bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 
         mouse_notnum_ = notenum;
 
-        drawKeyboard(1);
+        queue_draw();
     }
 
     return true;
 }
 
-void Keyboard::drawKeyboardFocus (void)
+void Keyboard::drawKeyboardFocus (const Cairo::RefPtr<Cairo::Context> &cr)
 {
-    Glib::RefPtr<Gtk::Style> style = get_style();
-    Glib::RefPtr<Gdk::Window> wind = get_window();
-     Gdk::Rectangle focus_rect(0, 0, img_width_, img_height_);
-
-    style->paint_focus(wind, Gtk::STATE_NORMAL, focus_rect, *this,
-                       "", 0, 0, img_width_, img_height_);
+    /* Gtk::Style and its paint_* methods went with GTK3's move to CSS; the
+       theme is asked to render through the style context now. */
+    get_style_context()->render_focus(cr, 0, 0, img_width_, img_height_);
 }
 
-void Keyboard::drawKeyboard (int mode)
-{    
-    int i, j, k, l, z, s0, s1, s2, s3, s4, s5, s6;
-    unsigned int c;
+/* Sets a packed 0x00RRGGBB colour on the context. */
+void Keyboard::setColour (const Cairo::RefPtr<Cairo::Context> &cr,
+                          unsigned int rgb)
+{
+    cr->set_source_rgb(((rgb >> 16) & 0xff) / 255.0,
+                       ((rgb >>  8) & 0xff) / 255.0,
+                       ( rgb        & 0xff) / 255.0);
+}
 
-    if (drawable_ == NULL)
-        return;
+/* GTK3 draws through a Cairo context supplied by on_draw(), and expects the
+ * whole exposed region to be painted every time. The old code went straight at
+ * the GdkWindow with a GdkGC whenever a key changed, and used `mode' to say
+ * whether to repaint the borders and whether to repaint every key or only the
+ * ones whose state had moved. Neither of those choices is ours to make now, so
+ * the mode flag and prv_active_keys_ bookkeeping are gone: this paints the lot,
+ * and the callers just queue a redraw.
+ *
+ * That sounds wasteful and is not -- Cairo clips to the damaged region, so
+ * repainting a key still only touches that key's pixels.
+ */
+void Keyboard::drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr)
+{
+    int i, j, k, l, s0, s1, s2, s3, s4, s5, s6;
+    unsigned int c;
 
     drawMutex_.lock();
 
@@ -445,35 +435,33 @@ void Keyboard::drawKeyboard (int mode)
     s5 = key_sizes[cur_size_][5];    /* white key width 2 (D, G, A)    */
     s6 = key_sizes[cur_size_][6];    /* white key width 3 (E, B)    */
 
-    /* if entire widget should be redrawn */
-    if (mode & 2)
+    /* key borders */
+    setColour(cr, color0);
+    cr->set_line_width(1.0);
+
+    /* Cairo strokes centred on the path, so a 1px line wants a half-pixel
+       offset to land on the pixel rather than straddling two. */
+    cr->move_to(0, img_height_ - 0.5);
+    cr->line_to(img_width_ - 1, img_height_ - 0.5);
+    cr->stroke();
+
+    i = 128;
+    l = -1;
+    do
     {
-        /* key borders */
-        gdk_rgb_gc_set_foreground (kbgc_, color0);
-        gdk_draw_line (drawable_, kbgc_, 0, img_height_ - 1,
-                        img_width_ - 1, img_height_ - 1);
-        i = 128;
-        l = -1;
-        do 
-        {
-            l += s2;
-            gdk_draw_line (drawable_, kbgc_, l, 0, l, img_height_ - 2);
-        } while (--i);
-    }
+        l += s2;
+        cr->move_to(l + 0.5, 0);
+        cr->line_to(l + 0.5, img_height_ - 2);
+    } while (--i);
+    cr->stroke();
 
     j = s4;                /* black key x pos */
     l = 0;                /* white key x pos */
     i = k = 0;            /* key number (i: 0-127, k: 0-11) */
-    z = mode & 1;       /* if all keys should be redrawn */
     /* draw keys */
     do
     {
-        /* update only if state changed or redraw window was reqd */
-        if (z || (active_keys_[i] != prv_active_keys_[i]))
         {
-            /* save new state */
-            prv_active_keys_[i] = active_keys_[i];
-
             if (((k >= 5) && (k & 1)) || ((k < 5) && !(k & 1)))
             {
                 /* white keys */
@@ -490,28 +478,26 @@ void Keyboard::drawKeyboard (int mode)
                 }
 
                 /* set color */
-                gdk_rgb_gc_set_foreground (kbgc_, c);
+                setColour(cr, c);
                 if ((k == 0) || (k == 5)) {
                     /* C, F */
-                    gdk_draw_rectangle (drawable_, kbgc_, 1,
-                                l, 0, s4, s0);
+                    cr->rectangle(l, 0, s4, s0);
+                    cr->fill();
                 } 
                 else if ((k == 4) || (k == 11) || (i == 127))
                 {
                     /* E, B */
-                    gdk_draw_rectangle (drawable_, kbgc_, 1,
-                                l + s2 - s6 - 1, 0,
-                                s6, s0);
+                    cr->rectangle(l + s2 - s6 - 1, 0, s6, s0);
+                    cr->fill();
                 }
                 else
                 {
                     /* D, G, A */
-                    gdk_draw_rectangle (drawable_, kbgc_, 1,
-                                l + s2 - s6 - 1, 0,
-                                s5, s0);
+                    cr->rectangle(l + s2 - s6 - 1, 0, s5, s0);
+                    cr->fill();
                 }
-                gdk_draw_rectangle (drawable_, kbgc_, 1,
-                            l, s0, s2 - 1, s1 - 1);
+                cr->rectangle(l, s0, s2 - 1, s1 - 1);
+                cr->fill();
             }
             else
             {
@@ -519,21 +505,22 @@ void Keyboard::drawKeyboard (int mode)
                 c = (unsigned int)
                     (active_keys_[i] ? color5 : color2);
                 /* set color */
-                gdk_rgb_gc_set_foreground (kbgc_, c);
+                setColour(cr, c);
                 if (active_keys_[i])
                 {
-                    /* redraw the key's backdrop */
-                    if (mode & 2)
-                    {
-                        gdk_draw_rectangle (drawable_, kbgc_, 1, j, 0, s3, s0);
-                    }
+                    /* backdrop, then the lit face inset by a pixel */
+                    setColour(cr, color2);
+                    cr->rectangle(j, 0, s3, s0);
+                    cr->fill();
 
-                    gdk_draw_rectangle (drawable_, kbgc_, 1, j+1, 1, s3-2,
-                                        s0-2);
+                    setColour(cr, c);
+                    cr->rectangle(j + 1, 1, s3 - 2, s0 - 2);
+                    cr->fill();
                 }
                 else
                 {
-                    gdk_draw_rectangle (drawable_, kbgc_, 1, j, 0, s3, s0);
+                    cr->rectangle(j, 0, s3, s0);
+                    cr->fill();
                 }
 
             }
@@ -561,8 +548,8 @@ void Keyboard::drawKeyboard (int mode)
 
     if (focus_box_)
     {
-        drawKeyboardFocus ();
-    } 
+        drawKeyboardFocus (cr);
+    }
 
     drawMutex_.unlock();
 
@@ -627,11 +614,19 @@ int    Keyboard::keyval_to_notnum (int key)
 /* return -1 if pointer is not in keyboard area */
 int    Keyboard::get_coord (void)
 {
-    gint        x, y, m, n, o;
-    GdkModifierType    mask;
+    int         x, y, m, n, o;
+    Gdk::ModifierType mask;
 
-    mask = GDK_MODIFIER_MASK;
-    gdk_window_get_pointer (drawable_, &x, &y, &mask);
+    /* gdk_window_get_pointer is deprecated in GTK3 in favour of asking the
+       seat's pointer device where it is. */
+    Glib::RefPtr<Gdk::Window> win = get_window();
+
+    if (!win)
+        return -1;
+
+    win->get_device_position(
+        Gdk::Display::get_default()->get_default_seat()->get_pointer(),
+        x, y, mask);
 
     /* check for valid coordinates */
     if ((x < 0) || (x >= img_width_) || (y < 0) || (y >= img_height_))

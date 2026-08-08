@@ -51,12 +51,16 @@ public:
     type_signal_channel_changed   signal_channel_changed   (void);
     type_signal_transpose_changed signal_transpose_changed (void);
 protected:
-    void drawKeyboard (int mode);
-     void drawKeyboardFocus (void);
+    void drawKeyboard (const Cairo::RefPtr<Cairo::Context> &cr);
+     void drawKeyboardFocus (const Cairo::RefPtr<Cairo::Context> &cr);
+    static void setColour (const Cairo::RefPtr<Cairo::Context> &cr,
+                           unsigned int rgb);
+
+    /* Dispatcher target: redraws happen through the widget now. */
+    void queueRedraw (void) { queue_draw(); }
     
     /* overridden signal handlers */
-    virtual void on_realize              (void);
-    virtual bool on_expose_event         (GdkEventExpose *e);
+    virtual bool on_draw                 (const Cairo::RefPtr<Cairo::Context> &cr);
      virtual bool on_focus_in_event       (GdkEventFocus  *f);
     virtual bool on_focus_out_event      (GdkEventFocus  *f);
     virtual bool on_button_press_event   (GdkEventButton *b);
@@ -81,8 +85,6 @@ private:
     Glib::Mutex drawMutex_;
     Glib::Dispatcher dispatchRedraw_;
 
-    GdkWindow *drawable_;
-    GdkGC *kbgc_;
     bool focus_box_;
 
     /* keyboard stuff */

@@ -49,7 +49,7 @@ AboutBox::AboutBox (void)
         sigc::mem_fun(*this, &AboutBox::onCloseButton));
     fixed_->put(*btnClose_, 384, 383);
     btnClose_->set_size_request(88, 36);
-    btnClose_->set_flags(Gtk::CAN_DEFAULT);
+    btnClose_->set_can_default(true);
     btnClose_->grab_focus();
     btnClose_->grab_default();
 
@@ -62,8 +62,11 @@ AboutBox::AboutBox (void)
     frame_->set_size_request(415, 135);
     frame_->set_shadow_type(Gtk::SHADOW_OUT);
 
-    pixmap_ = Gdk::Pixmap::create_from_xpm(get_colormap(), mask_, thinksynth);
-    logo_ = manage(new Gtk::Image(pixmap_, mask_));
+    /* create_from_xpm needed a colormap and produced a server-side pixmap plus
+       a 1-bit mask. Gdk::Pixbuf reads the same inline XPM data directly and
+       keeps the transparency as an alpha channel. */
+    logoPixbuf_ = Gdk::Pixbuf::create_from_xpm_data(thinksynth);
+    logo_ = manage(new Gtk::Image(logoPixbuf_));
     frame_->add(*logo_);
 
     /* Hack to get it to shrink down to our size */
@@ -78,7 +81,7 @@ AboutBox::AboutBox (void)
     header = manage(new Gtk::Label(
           "Version " PACKAGE_VERSION "\n"
           "Copyright (C) 2004-2014 Metaphonic Labs\n\n"
-          "Metaphonic Labs is...", Gtk::ALIGN_CENTER));
+          "Metaphonic Labs is..."));
 #endif
     txtVersion_ = manage(new Gtk::Label("Version " PACKAGE_VERSION, 0.5));
     txtCopyright_ = manage(
@@ -100,8 +103,8 @@ AboutBox::AboutBox (void)
     {
         Gtk::Label *label_author_ = manage(new Gtk::Label(
               g_strdup_printf("<b>%s</b>", *a),
-              Gtk::ALIGN_RIGHT));
-        Gtk::Label *label_email_ = manage(new Gtk::Label(*e, Gtk::ALIGN_LEFT));
+              Gtk::ALIGN_END));
+        Gtk::Label *label_email_ = manage(new Gtk::Label(*e, Gtk::ALIGN_START));
 
         label_author_->set_use_markup(true);
         vbleft_->pack_start(*label_author_);

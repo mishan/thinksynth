@@ -48,7 +48,9 @@ void ArgTable::insertArg (thArg *arg)
                                               arg->label() : arg->name()));
     Gtk::HScale *slider = manage(new Gtk::HScale(arg->min(),arg->max(),.0001));
 
-    Gtk::Adjustment *argAdjust = slider->get_adjustment();
+    /* gtkmm-3: Gtk::Adjustment is refcounted and its constructor is protected,
+       so it is handed out as a RefPtr rather than a raw pointer. */
+    Glib::RefPtr<Gtk::Adjustment> argAdjust = slider->get_adjustment();
 
     slider->set_draw_value(false);
 
@@ -64,9 +66,8 @@ void ArgTable::insertArg (thArg *arg)
 
     slider->set_value((*arg)[0]);
     
-    Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(
-                                           *argAdjust, .0001,
-                                           4));
+    Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust, .0001,
+                                                           4));
 
     if (args_ > rows_)
     {
