@@ -106,6 +106,7 @@ public:
     void moveBox (int index, double x, double y);
 
 private:
+    static int findPort (const Box &b, const string &name, bool wantInput);
     void assignLayers (void);
     void orderWithinLayers (void);
     void placePorts (Box &b);

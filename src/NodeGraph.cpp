@@ -39,6 +39,54 @@ NodeGraph::NodeGraph (void)
 {
 }
 
+/* A port by name.
+ *
+ * Direction is a preference, not a requirement. Demanding it meant that a port
+ * declared the wrong way -- a plugin built against the old header, where
+ * everything defaults to ARG_IN, or any other mismatch between metadata and
+ * use -- both failed to match *and* got a second port created beside it with
+ * the same name, which then read as a valid input and hid the mistake. The
+ * .dsp is the authority on what is connected; the registration is only the
+ * authority on what to call it. */
+int NodeGraph::findPort (const Box &b, const string &name, bool wantInput)
+{
+    int fallback = -1;
+
+    for (size_t k = 0; k < b.ports.size(); k++)
+        if (b.ports[k].name == name)
+        {
+            if (b.ports[k].isInput == wantInput)
+                return (int)k;
+
+            if (fallback < 0)
+                fallback = (int)k;
+        }
+
+    return fallback;
+}
+
+/* Does this node's plugin call `name' internal state?
+ *
+ * Pass 1 deliberately leaves ARG_STATE off the boxes -- a delay line's ring
+ * buffer is not something to wire. But a .dsp can name one anyway, and without
+ * this the edge builder would helpfully invent a port for it and undo that
+ * decision. 69 args across the plugins are state; no shipped .dsp references
+ * one, so this is a guard against files yet to be written rather than against
+ * the corpus. */
+static bool isStateArg (thNode *n, const string &name)
+{
+    thPlugin *p = n ? n->plugin() : NULL;
+
+    if (p == NULL)
+        return false;
+
+    for (int k = 0; k < p->argCount(); k++)
+        if (p->getArgName(k) == name)
+            return p->getArgDir(k) == thPlugin::ARG_STATE;
+
+    return false;
+}
+
 bool NodeGraph::build (thSynthTree *tree)
 {
     boxes_.clear();
@@ -201,14 +249,32 @@ bool NodeGraph::build (thSynthTree *tree)
             e.fromBox = fromBox;
             e.toBox = dst->second;
 
-            /* find (or, for the io source, create) the ports at each end */
+            /* Find, or failing that create, the ports at each end. */
+            thSynthTree::NodeMap::const_iterator srcNode =
+                nodes.find(arg->nodePtrName());
+
+            /* A reference to something the plugin calls internal state is a
+               mistake in the .dsp, not an undeclared port. Inventing a port
+               for it would put a delay line's ring buffer on the canvas as
+               something wireable. */
+            if (isStateArg(n, a->first) ||
+                (srcNode != nodes.end() &&
+                 isStateArg(srcNode->second, arg->argPtrName())))
+            {
+                fprintf(stderr, "%s.%s: refers to plugin-internal state; "
+                        "not drawing it\n", n->name().c_str(),
+                        a->first.c_str());
+                continue;
+            }
+
             Box &fb = boxes_[e.fromBox];
 
-            for (size_t k = 0; k < fb.ports.size(); k++)
-                if (fb.ports[k].name == arg->argPtrName() && !fb.ports[k].isInput)
-                    e.fromPort = (int)k;
+            e.fromPort = findPort(fb, arg->argPtrName(), false);
 
-            if (e.fromPort < 0 && fb.isIoSource)
+            /* An output the plugin never registered still exists as far as
+               the .dsp is concerned -- and for the io source half, every one
+               of its outputs is discovered exactly this way. */
+            if (e.fromPort < 0)
             {
                 Port port;
 
@@ -222,9 +288,7 @@ bool NodeGraph::build (thSynthTree *tree)
 
             Box &tb = boxes_[e.toBox];
 
-            for (size_t k = 0; k < tb.ports.size(); k++)
-                if (tb.ports[k].name == a->first && tb.ports[k].isInput)
-                    e.toPort = (int)k;
+            e.toPort = findPort(tb, a->first, true);
 
             /* An arg bound in the .dsp that the plugin never registered still
                deserves a port -- better to show the wiring than hide it. */
