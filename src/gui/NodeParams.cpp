@@ -71,17 +71,49 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
 
     grid->attach(*name, 0, row, 1, 1);
 
-    if (p.kind != NodeGraph::Param::VALUE)
+    if (p.kind != NodeGraph::Param::VALUE || p.isOutput)
     {
-        Gtk::Label *src = manage(new Gtk::Label(p.source));
+        string text = p.source;
+        string tip;
+
+        if (p.isOutput && p.kind == NodeGraph::Param::VALUE)
+        {
+            /* Shown as a number, but not offered for editing: the plugin
+               writes it on every window. Before anything has been rendered it
+               reads 0, which is honest rather than interesting. */
+            char buf[64];
+
+            snprintf(buf, sizeof(buf), "%g", p.value);
+
+            text = buf;
+            tip = "An output of this node. The plugin writes it.";
+        }
+        else
+            switch (p.kind)
+            {
+                case NodeGraph::Param::POINTER:
+                    tip = "Driven by another node. "
+                          "Change the wire, not the value.";
+                    break;
+
+                case NodeGraph::Param::NOTE:
+                    /* Not the same thing as a channel arg, and saying so
+                       matters: a note arg is per-note -- velocity, the note
+                       number -- and changing the channel would not touch it. */
+                    tip = "Comes from the note being played.";
+                    break;
+
+                default:
+                    tip = "Comes from a channel parameter.";
+                    break;
+            }
+
+        Gtk::Label *src = manage(new Gtk::Label(text));
 
         src->set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
         src->set_padding(8, 2);
         src->set_sensitive(false);
-        src->set_tooltip_text(
-            p.kind == NodeGraph::Param::POINTER
-                ? "Driven by another node. Change the wire, not the value."
-                : "Comes from a channel parameter.");
+        src->set_tooltip_text(tip);
 
         grid->attach(*src, 1, row, 1, 1);
 
