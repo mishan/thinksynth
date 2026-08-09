@@ -41,7 +41,7 @@ enum {IN_FREQ, IN_PW, IN_WAVEFORM, IN_RESET, OUT_ARG, OUT_SYNC,
 
 int args[INOUT_LAST + 1];
 
-char        *desc = "Complex Oscillator";
+static const char desc[] = "Complex Oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 const float SQRT2_2 = 2*sqrt(2);

@@ -22,7 +22,7 @@
 
 #include "think.h"
 
-char        *desc = "Sample and hold";
+static const char desc[] = "Sample and hold";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)

@@ -28,7 +28,7 @@
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, OUT_AOUT, INOUT_LAST};
 int args[INOUT_LAST + 1];
 
-char        *desc = "`INK Filter`  Gravity-based low pass";
+static const char desc[] = "`INK Filter`  Gravity-based low pass";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

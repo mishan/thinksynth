@@ -25,7 +25,7 @@
 
 #define SQR(x) ((x)*(x))
 
-char        *desc = "`INK Filter`  Gravity-based low pass";
+static const char desc[] = "`INK Filter`  Gravity-based low pass";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

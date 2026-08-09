@@ -22,7 +22,7 @@
 
 #include "think.h"
 
-char        *desc = "Prints 'in'";
+static const char desc[] = "Prints 'in'";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)

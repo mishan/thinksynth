@@ -24,7 +24,7 @@
 
 #include "think.h"
 
-char        *desc = "Shaped oscillator";
+static const char desc[] = "Shaped oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_SHAPE};

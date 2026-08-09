@@ -24,7 +24,7 @@
 
 #include "think.h"
 
-char        *desc = "Sin-Saw oscillator";
+static const char desc[] = "Sin-Saw oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum { OUT_ARG, IN_FREQ, IN_FACTOR, INOUT_LAST };

@@ -22,7 +22,7 @@
 
 #include "think.h"
 
-char        *desc = "Comb Filter";
+static const char desc[] = "Comb Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {IN_ARG, IN_FREQ, IN_FEEDBACK, IN_SIZE, OUT_ARG, INOUT_BUFFER,

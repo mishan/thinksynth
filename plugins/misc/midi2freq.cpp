@@ -28,7 +28,7 @@ int args[OUT_ARG + 1];
 
 #define SQR(x) ((x)*(x))
 
-char        *desc = "Converts a midi note value to it's respective frequency";
+static const char desc[] = "Converts a midi note value to it's respective frequency";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)

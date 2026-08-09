@@ -23,7 +23,7 @@
 
 #include "think.h"
 
-char        *desc = "Follows the envelope of the input";
+static const char desc[] = "Follows the envelope of the input";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

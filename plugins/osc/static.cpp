@@ -22,7 +22,7 @@
 
 #include "think.h"
 
-char        *desc = "Produces Random Signal";
+static const char desc[] = "Produces Random Signal";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
