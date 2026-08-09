@@ -105,7 +105,67 @@ pkg_check_modules(GTHREAD REQUIRED IMPORTED_TARGET gthread-2.0)
 
 # The one audio backend. RtAudio covers ALSA/JACK/Pulse/OSS, CoreAudio, and
 # WASAPI/DirectSound/ASIO behind a single callback API.
-pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
+#
+# Deliberately not a requirement on the distribution's packaging. Making it
+# one failed on all three CI platforms at once, and the reason is worse than a
+# naming mismatch: Ubuntu 24.04 does not carry librtaudio-dev at all, and
+# 22.04 carries RtAudio 5.2 -- while this code is written against 6, which
+# reports errors by return code rather than by throwing and identifies devices
+# by opaque id rather than by index. A system package would be missing on some
+# runners and the wrong API on others.
+#
+# So the version floor is explicit and a source build is the normal case, not
+# an emergency one. A system copy is used only when it is new enough.
+include(FetchContent)
+
+set(THINK_RTAUDIO_VERSION 6.0.1)
+
+# Forces the fetch path even where pkg-config would have found something.
+# Exists so the fallback can be exercised on a machine that has the system
+# package -- an untested fallback is not a fallback.
+option(THINK_FETCH_RT "Always build RtAudio from source" OFF)
+
+if(NOT THINK_FETCH_RT)
+  pkg_check_modules(RTAUDIO IMPORTED_TARGET "rtaudio>=6.0.0")
+endif()
+
+if(RTAUDIO_FOUND)
+  set(THINK_RTAUDIO_LIB PkgConfig::RTAUDIO)
+  set(THINK_RTAUDIO_ORIGIN "system ${RTAUDIO_VERSION}")
+else()
+  message(STATUS "rtaudio not found via pkg-config; fetching ${THINK_RTAUDIO_VERSION}")
+
+  # Static, so a fetched build needs no runtime deployment story of its own.
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(BUILD_TESTING OFF CACHE BOOL "" FORCE)
+  set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+
+  # Which APIs a fetched RtAudio builds, decided here rather than left to its
+  # own probing. Left to itself it enables whatever it can find, so the set of
+  # backends in a build would depend on what happened to be installed on the
+  # machine that produced it -- and on a macOS runner with Homebrew JACK
+  # present that meant an interface carrying a bare `-ljack' with no -L to go
+  # with it. JACK stays on for Linux, where it is the point.
+  if(APPLE)
+    set(RTAUDIO_API_CORE ON  CACHE BOOL "" FORCE)
+    set(RTAUDIO_API_JACK OFF CACHE BOOL "" FORCE)
+  elseif(WIN32)
+    set(RTAUDIO_API_WASAPI ON  CACHE BOOL "" FORCE)
+    set(RTAUDIO_API_DS     OFF CACHE BOOL "" FORCE)
+    set(RTAUDIO_API_ASIO   OFF CACHE BOOL "" FORCE)  # SDK is not redistributable
+    set(RTAUDIO_API_JACK   OFF CACHE BOOL "" FORCE)
+  endif()
+
+  FetchContent_Declare(rtaudio
+      GIT_REPOSITORY https://github.com/thestk/rtaudio.git
+      GIT_TAG ${THINK_RTAUDIO_VERSION}
+      GIT_SHALLOW TRUE)
+
+  FetchContent_MakeAvailable(rtaudio)
+
+  set(THINK_RTAUDIO_LIB rtaudio)
+  set(THINK_RTAUDIO_ORIGIN "fetched ${THINK_RTAUDIO_VERSION}")
+endif()
 
 pkg_check_modules(JACK IMPORTED_TARGET jack)
 pkg_check_modules(ALSA IMPORTED_TARGET alsa)
@@ -260,7 +320,7 @@ message(STATUS "")
 message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
 message(STATUS "  system ................: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  build type ............: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  RtAudio ...............: ${RTAUDIO_VERSION}")
+message(STATUS "  RtAudio ...............: ${THINK_RTAUDIO_ORIGIN}")
 message(STATUS "  ALSA MIDI .............: ${HAVE_ALSA}")
 message(STATUS "  legacy JACK backend ...: ${THINK_WITH_LEGACY_JACK}")
 message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")

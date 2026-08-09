@@ -19,7 +19,7 @@
 #ifndef GTH_RTAUDIO_H
 #define GTH_RTAUDIO_H 1
 
-#include <rtaudio/RtAudio.h>
+#include <RtAudio.h>
 
 #include "gthAudio.h"
 

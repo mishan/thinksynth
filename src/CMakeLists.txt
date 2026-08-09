@@ -61,7 +61,7 @@ target_link_libraries(thinksynth PRIVATE
     think
     PkgConfig::GTKMM
     PkgConfig::GTHREAD
-    PkgConfig::RTAUDIO)
+    ${THINK_RTAUDIO_LIB})
 
 if(HAVE_ALSA)
   target_link_libraries(thinksynth PRIVATE PkgConfig::ALSA)
