@@ -134,7 +134,23 @@ int main (int argc, char **argv)
                to hold under it too or it is untested code pretending
                otherwise. */
             if (++i >= argc) return 2;
-            wrapWidth = atof(argv[i]);
+
+            /* strtod with the end pointer checked, not atof. atof returns 0
+               for anything it cannot read, and 0 is the value that means "do
+               not wrap" -- so `-w 150O' with a letter O would have run the
+               whole suite unwrapped and reported a clean pass for a mode it
+               never exercised. A missing argument already fails hard here; a
+               malformed one should too. */
+            char *end = NULL;
+
+            wrapWidth = strtod(argv[i], &end);
+
+            if (end == argv[i] || *end != '\0' || wrapWidth < 0)
+            {
+                fprintf(stderr, "-w wants a width in pixels, not \"%s\"\n",
+                        argv[i]);
+                return 2;
+            }
         }
         else { firstFile = i; break; }
     }
