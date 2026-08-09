@@ -32,15 +32,16 @@
 # endif
 #endif
 
-#include <fcntl.h>
 #include <errno.h>
 
-#include <sys/types.h>
-#include <sys/stat.h>
 #include <stdlib.h>     /* getenv */
-#include <dirent.h>     /* the plugin-root search */
+
+#include <filesystem>   /* the plugin-root search, and every path join */
+#include <system_error>
 
 #include "think.h"
+
+namespace fs = std::filesystem;
 
 thPluginManager::thPluginManager (const string &path)
 {
@@ -52,81 +53,79 @@ thPluginManager::~thPluginManager ()
     unloadPlugins();
 }
 
-/* Does this directory hold plugins -- <root>/<category>/<something>.so? */
-static bool hasPlugins (const string &root)
+/* Does this directory hold plugins -- <root>/<category>/<something>.so?
+ *
+ * Was a nest of opendir/readdir/stat. directory_iterator does the same walk
+ * without the manual "." and ".." skipping, without a second stat() per
+ * entry, and without dirent.h, which Windows does not have.
+ *
+ * The non-throwing overloads are used deliberately: a plugin root that does
+ * not exist is the normal case here -- resolveRoot() calls this on every
+ * candidate in turn -- and it must read as "no" rather than as an exception.
+ */
+static bool hasPlugins (const fs::path &root)
 {
-    DIR *top = opendir(root.c_str());
+    std::error_code ec;
 
-    if (top == NULL)
+    if (!fs::is_directory(root, ec))
         return false;
 
-    bool found = false;
-    struct dirent *de;
-
-    while (!found && (de = readdir(top)) != NULL)
+    for (const auto &cat : fs::directory_iterator(root, ec))
     {
-        const string cat = de->d_name;
+        if (ec)
+            return false;
 
-        if (cat == "." || cat == "..")
+        if (!cat.is_directory(ec))
             continue;
 
-        const string sub = root + cat;
-
-        struct stat st;
-
-        if (stat(sub.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
-            continue;
-
-        DIR *d = opendir(sub.c_str());
-
-        if (d == NULL)
-            continue;
-
-        struct dirent *pe;
-        const string suffix = PLUGIN_SUFFIX;
-
-        while ((pe = readdir(d)) != NULL)
+        for (const auto &f : fs::directory_iterator(cat.path(), ec))
         {
-            const string f = pe->d_name;
+            if (ec)
+                break;
 
-            if (f.size() > suffix.size() &&
-                f.compare(f.size() - suffix.size(), suffix.size(),
-                          suffix) == 0)
-            { found = true; break; }
+            if (f.path().extension() == PLUGIN_SUFFIX)
+                return true;
         }
-
-        closedir(d);
     }
 
-    closedir(top);
-
-    return found;
+    return false;
 }
 
-/* The directory the running executable is in, with a trailing slash, or "". */
-static string exeDir (void)
+/* The directory the running executable is in, or "".
+ *
+ * Still Linux-only. macOS wants _NSGetExecutablePath and Windows
+ * GetModuleFileNameW; until those land this candidate is simply skipped,
+ * which costs nothing on Linux because the cwd-relative one usually covers
+ * it -- but it is why an installed .app or a Windows install directory
+ * cannot find its own plugins yet. See PORTING.md section 4d.
+ */
+static fs::path exeDir (void)
 {
     char buf[4096];
 
-    /* Linux only; everywhere else this candidate is simply skipped, which
-       costs nothing because the cwd-relative one usually covers it. */
     const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
 
     if (n <= 0)
-        return "";
+        return fs::path();
 
     buf[n] = 0;
 
-    string path = buf;
+    return fs::path(buf).parent_path();
+}
 
-    const string::size_type slash = path.rfind('/');
+/* getPath() builds "<root><category>/<name><suffix>" by plain concatenation,
+   so the contract is that a root always ends in a separator. */
+static string withTrailingSlash (const string &path)
+{
+    if (path.empty() || path[path.size() - 1] == '/')
+        return path;
 
-    return (slash == string::npos) ? "" : path.substr(0, slash + 1);
+    return path + '/';
 }
 
 string thPluginManager::resolveRoot (const string &preferred)
 {
-    vector<string> tries;
+    vector<fs::path> tries;
 
     const char *env = getenv("THINK_PLUGIN_PATH");
 
@@ -136,56 +135,45 @@ string thPluginManager::resolveRoot (const string &preferred)
     tries.push_back(preferred);
     tries.push_back("plugins");
 
-    const string exe = exeDir();
+    const fs::path exe = exeDir();
 
     if (!exe.empty())
     {
         /* src/thinksynth run from anywhere: ../plugins from the binary. */
-        tries.push_back(exe + "../plugins");
-        tries.push_back(exe + "plugins");
+        tries.push_back(exe.parent_path() / "plugins");
+        tries.push_back(exe / "plugins");
     }
 
     for (size_t i = 0; i < tries.size(); i++)
     {
-        string root = tries[i];
-
-        if (root.empty())
+        if (tries[i].empty())
             continue;
 
-        if (root[root.size() - 1] != '/')
-            root += '/';
-
-        if (hasPlugins(root))
-            return root;
+        if (hasPlugins(tries[i]))
+            return withTrailingSlash(tries[i].string());
     }
 
-    string fallback = preferred;
-
-    if (!fallback.empty() && fallback[fallback.size() - 1] != '/')
-        fallback += '/';
-
-    return fallback;
+    return withTrailingSlash(preferred);
 }
 
 const string thPluginManager::getPath (const string &name)
 {
-    string path;
-    struct stat dummy;
+    std::error_code ec;
 
     /* Use the default path first */
-    path = plugin_path_ + name + PLUGIN_SUFFIX;
+    string path = plugin_path_ + name + PLUGIN_SUFFIX;
 
     /* Check for existence in the expected place */
-    if (stat (path.c_str(), &dummy) == -1) { /* File existeth not */
+    if (!fs::exists(path, ec)) { /* File existeth not */
 #ifdef USE_DEBUG
-        fprintf (stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
+        fprintf (stderr, "thPluginManager: %s: not found\n", path.c_str());
 #endif
         path = "plugins/" + name + PLUGIN_SUFFIX;
-        if (stat(path.c_str(), &dummy) == -1) {
+        if (!fs::exists(path, ec)) {
 #ifdef USE_DEBUG
-            fprintf(stderr, "thPluginManager: %s: %s\n", path.c_str(), strerror(errno));
+            fprintf(stderr, "thPluginManager: %s: not found\n", path.c_str());
 #endif
-            return ""; /* Empty string */ 
+            return ""; /* Empty string */
         }
     }
 

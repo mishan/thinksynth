@@ -19,6 +19,8 @@
 #include <cstdlib>
 #include <cstring>
 
+#include <filesystem>
+
 #include "thUtil.h"
 
 static int RangeArray[] = {10, 100, 1000, 10000, 100000, 1000000, 10000000,
@@ -49,41 +51,39 @@ int thUtil::getNumLength (int num)
     return RangeSize+1;
 }
 
-/* Stolen from ircd-hybrid */
+/* These were a strrchr(path, '/') pair -- one lifted from ircd-hybrid, one
+ * from Lars Wirzenius -- which is correct on Unix and wrong everywhere else:
+ * a Windows path separator is a backslash, and "C:file" is relative to the
+ * current directory *of drive C*, which no amount of slash-hunting will tell
+ * you. std::filesystem knows all of that per platform.
+ *
+ * Checked case by case against the old implementations. Behaviour on Unix is
+ * unchanged, including the odd corners:
+ *
+ *     basename("foo")   -> "foo"      dirname("foo")   -> ""
+ *     basename("a/b")   -> "b"        dirname("a/b")   -> "a"
+ *     basename("/foo")  -> "foo"      dirname("/foo")  -> "/"
+ *     basename("foo/")  -> ""         dirname("foo/")  -> "foo"
+ *     basename("/")     -> ""         dirname("/")     -> "/"
+ *
+ * One deliberate difference: dirname("/a//b") was "/a/" and is now "/a".
+ * Duplicate separators get collapsed. Both name the same directory, and the
+ * only consumers are Gtk::FileChooser::set_current_folder and the patch
+ * list's display column.
+ */
 
-string thUtil::basename(const char *path)
+string thUtil::basename (const char *path)
 {
-    const char *s;
-  
-    if ((s = strrchr(path, '/')) == NULL)
-        s = path;
-    else
-        s++;
-  
-    return (s);
-}
+    if (path == NULL)
+        return "";
 
-/* dirname - by Lars Wirzenius. PD? */
+    return std::filesystem::path(path).filename().string();
+}
 
 string thUtil::dirname (const char *path)
 {
-    const char *last_slash;
-    string ret;
-    size_t len;
-    
-    last_slash = strrchr(path, '/');
-
-    if (last_slash == NULL) {
+    if (path == NULL)
         return "";
-    }
 
-    if (last_slash == path)
-        ++last_slash;
-        
-    len = last_slash - path;
-
-    ret = path;
-    ret = ret.substr(0, len);
-
-    return ret;
+    return std::filesystem::path(path).parent_path().string();
 }
