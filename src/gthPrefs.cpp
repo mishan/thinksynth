@@ -124,18 +124,36 @@ void gthPrefs::Load (void)
 
                 values[i] = new string(argPtr);
 
-                argPtr = comPtr+1;
+                /* No comma means this was the last value, and there is
+                   nothing after it to point at. `argPtr = comPtr + 1' ran
+                   anyway, which is arithmetic on a null pointer: undefined,
+                   and it produced a garbage pointer that the next strchr
+                   would have read had the loop not been about to end.
+                   `len' is the comma count plus one, so this is always the
+                   final iteration and no value is skipped.
+
+                   Not new -- every single-valued preference takes this path,
+                   dspdir and autoconnect included -- but mastergain is the
+                   one that made someone look. */
+                if (comPtr == NULL)
+                    break;
+
+                argPtr = comPtr + 1;
             }
 
             values[len] = NULL;
 
             /* XXX: handle specific cases here for now */
+            bool consumed = false;
+
             if (key == "mastergain" && values[0])
             {
                 thSynth *s = thSynth::instance();
 
                 if (s)
                     s->setMasterGain(atof(values[0]->c_str()));
+
+                consumed = true;
             }
             else if (key == "channel" && values[0] && values[1])
             {
@@ -151,7 +169,21 @@ void gthPrefs::Load (void)
 
                     s->setChanArg(chan, arg);
                 }
-            }    
+
+                consumed = true;
+            }
+
+            if (consumed)
+            {
+                /* Acted on rather than stored -- Save() writes mastergain
+                   back from the synth and channels from the patch manager.
+                   Nothing else owns the array, so it has to go here; both
+                   branches used to walk away from it. */
+                for (int i = 0; i < len; i++)
+                    delete values[i];
+
+                delete[] values;
+            }
             else
             {
                 prefs_[key] = values;
