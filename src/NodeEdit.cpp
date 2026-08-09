@@ -25,6 +25,7 @@
 #include <ctype.h>      /* isalnum, isdigit -- used by the RHS parsing */
 
 #include <sys/stat.h>   /* stat, chmod -- writeLines preserves the mode */
+#include <unistd.h>     /* access -- and refuses a read-only target */
 
 #include <fstream>
 #include <vector>
@@ -554,6 +555,21 @@ static bool readLines (const string &filename, vector<string> &lines,
 static bool writeLines (const string &filename, const vector<string> &lines,
                         bool endsWithNewline)
 {
+    /* Refuse a target that exists and cannot be written.
+     *
+     * Renaming over a file needs write permission on the *directory*, not on
+     * the file, so temp-and-rename will happily replace a read-only .dsp that
+     * happens to sit in a directory you own. The old ios::trunc write failed
+     * on one, as it should. Making the write atomic must not also quietly
+     * strip the meaning off a read-only bit, so this puts that back.
+     *
+     * The node editor never reaches this on a read-only patch anyway -- it
+     * edits a scratch copy and offers Save As -- but NodeEdit is not only
+     * called by the node editor, and "the file said no" is the answer here. */
+    if (access(filename.c_str(), F_OK) == 0 &&
+        access(filename.c_str(), W_OK) != 0)
+        return false;
+
     const string tmp = filename + ".edit-tmp";
 
     {

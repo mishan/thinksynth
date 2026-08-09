@@ -21,6 +21,9 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>   /* access -- can the source be written back? */
+
+#include <fstream>
 
 #include <gtkmm.h>
 
@@ -37,8 +40,10 @@
 
 NodeWindow::NodeWindow (thSynth *synth)
     : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
+      structuralDirty_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
-      arrangeBtn_("Auto-arrange"), saveBtn_("Save"), revertBtn_("Revert"),
+      arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),
+      revertBtn_("Revert"),
       zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1"),
       zoomFitBtn_("Fit")
 {
@@ -53,6 +58,7 @@ NodeWindow::NodeWindow (thSynth *synth)
     toolbar_.pack_start(deleteBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(arrangeBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(saveBtn_, Gtk::PACK_SHRINK);
+    toolbar_.pack_start(saveAsBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(revertBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_end(zoomInBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_end(zoomResetBtn_, Gtk::PACK_SHRINK);
@@ -83,6 +89,8 @@ NodeWindow::NodeWindow (thSynth *synth)
         sigc::mem_fun(*this, &NodeWindow::onArrange));
     saveBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeWindow::onSave));
+    saveAsBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &NodeWindow::onSaveAs));
     revertBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeWindow::onRevert));
     zoomInBtn_.signal_clicked().connect(
@@ -135,6 +143,7 @@ NodeWindow::NodeWindow (thSynth *synth)
         sigc::mem_fun(*this, &NodeWindow::onParamEdited));
 
     saveBtn_.set_sensitive(false);
+    saveAsBtn_.set_sensitive(false);
     revertBtn_.set_sensitive(false);
     deleteBtn_.set_sensitive(false);
     palette_.setSensitive(false);
@@ -146,6 +155,11 @@ NodeWindow::~NodeWindow (void)
 {
     /* parseTree() handed us a tree nobody else tracks. */
     delete tree_;
+
+    /* The scratch copy is this window's alone and means nothing without it.
+       Anything worth keeping went to the source on Save. */
+    if (!work_.empty())
+        ::remove(work_.c_str());
 }
 
 void NodeWindow::setStatus (const string &text)
@@ -153,27 +167,47 @@ void NodeWindow::setStatus (const string &text)
     status_.set_text(text);
 }
 
+/* Is there anything the source does not have?
+ *
+ * Two kinds, and both count. Values, wires and positions are held in memory
+ * until Save. Added and removed nodes are already in the working copy, because
+ * showing them needed a parse -- but the source has not seen them either, so
+ * structuralDirty_ makes them count the same. Before the working copy they
+ * were in the user's file the moment they happened, so there was nothing to
+ * track and Save could not be offered for them. */
+bool NodeWindow::dirty (void) const
+{
+    return layoutDirty_ || structuralDirty_ || !pending_.empty() ||
+           !wires_.empty() || !controls_.empty();
+}
+
 void NodeWindow::updateTitle (void)
 {
-    string base = thUtil::basename((char *)filename_.c_str());
+    string base = thUtil::basename((char *)source_.c_str());
 
-    const bool dirty = layoutDirty_ || !pending_.empty() ||
-                       !wires_.empty() || !controls_.empty();
+    /* A read-only source is worth saying in the title rather than only when
+       Save is pressed: it changes where the work is going to end up. */
+    const string ro = (!source_.empty() && !sourceWritable())
+                      ? "  [read-only]" : "";
 
-    set_title("thinksynth - Nodes - " + base + (dirty ? " *" : ""));
+    set_title("thinksynth - Nodes - " + base + (dirty() ? " *" : "") + ro);
 }
 
 void NodeWindow::updateDirty (void)
 {
-    const bool dirty = layoutDirty_ || !pending_.empty() ||
-                       !wires_.empty() || !controls_.empty();
+    const bool dirty = this->dirty();
 
     /* Save is offered only when there is something to save. It used to be
        enabled whenever a file was open, and saving with nothing pending still
        wrote the layout block -- so opening a .dsp that had never been through
        the editor and pressing Save added twenty comment lines to a file the
        user had not edited. */
-    saveBtn_.set_sensitive(!filename_.empty() && dirty);
+    saveBtn_.set_sensitive(!work_.empty() && dirty);
+
+    /* Save As stays available with nothing pending: "give me my own copy of
+       this patch" is a reason to use it, and for a read-only source it is the
+       only way anything gets written at all. */
+    saveAsBtn_.set_sensitive(!work_.empty());
     revertBtn_.set_sensitive(dirty);
 
     updateTitle();
@@ -237,13 +271,106 @@ const char *NodeWindow::applyValueLive (const string &node, const string &arg,
     return "  (next note)";
 }
 
+bool NodeWindow::copyFile (const string &from, const string &to)
+{
+    ifstream in(from.c_str(), ios::binary);
+
+    if (!in)
+        return false;
+
+    ofstream out(to.c_str(), ios::binary | ios::trunc);
+
+    if (!out)
+        return false;
+
+    out << in.rdbuf();
+
+    /* An empty source makes rdbuf() set failbit with nothing wrong, so ask
+       the stream whether it is *bad* rather than whether it is good. */
+    out.flush();
+
+    return !out.bad();
+}
+
+bool NodeWindow::sourceWritable (void) const
+{
+    if (source_.empty())
+        return false;
+
+    return access(source_.c_str(), W_OK) == 0;
+}
+
+/* A scratch .dsp holding a copy of the source.
+ *
+ * In the temp directory rather than beside the original, because the whole
+ * point is that the original's directory may not be writable -- an installed
+ * patch lives somewhere root owns. Nothing is lost by moving it: a .dsp
+ * resolves no paths relative to itself. Strings in the grammar are only name,
+ * author, description, label and group, and no plugin opens a file, so the
+ * copy parses exactly as the original does wherever it sits.
+ *
+ * One scratch file per window, reused for the life of it and removed in the
+ * destructor. */
+bool NodeWindow::startWorkingCopy (const string &source)
+{
+    if (work_.empty())
+    {
+        const char *tmp = getenv("TMPDIR");
+
+        char buf[512];
+
+        snprintf(buf, sizeof(buf), "%s/thinksynth-edit-%ld-%p.dsp",
+                 tmp && *tmp ? tmp : "/tmp", (long)getpid(), (const void *)this);
+
+        work_ = buf;
+    }
+
+    return copyFile(source, work_);
+}
+
 bool NodeWindow::open (const string &filename, int chan)
 {
+    /* Take the copy before anything else: from here on the window only ever
+       looks at the copy, so a failure to make one has to stop the open. */
+    if (!startWorkingCopy(filename))
+    {
+        setStatus("Could not read " + filename);
+        return false;
+    }
+
+    const string prevSource = source_;
+    const int prevChannel = channel_;
+
+    source_ = filename;
+    channel_ = chan;
+
+    if (!reload())
+    {
+        source_ = prevSource;
+        channel_ = prevChannel;
+        return false;
+    }
+
+    structuralDirty_ = false;
+
+    if (!sourceWritable())
+        setStatus(status_.get_text() + "  --  read-only; Save will ask where "
+                  "to put it");
+
+    updateDirty();
+
+    return true;
+}
+
+bool NodeWindow::reload (void)
+{
+    const string filename = work_;
+
     thSynthTree *tree = synth_->parseTree(filename);
 
     if (tree == NULL)
     {
-        setStatus("Could not parse " + filename);
+        setStatus("Could not parse " + source_);
         return false;
     }
 
@@ -252,7 +379,7 @@ bool NodeWindow::open (const string &filename, int chan)
     if (!g.build(tree))
     {
         delete tree;
-        setStatus("Could not build a graph for " + filename);
+        setStatus("Could not build a graph for " + source_);
         return false;
     }
 
@@ -273,8 +400,6 @@ bool NodeWindow::open (const string &filename, int chan)
     delete tree_;
     tree_ = tree;
     graph_ = g;
-    filename_ = filename;
-    channel_ = chan;
     layoutDirty_ = false;
     pending_.clear();
     wires_.clear();
@@ -362,12 +487,12 @@ bool NodeWindow::writeAll (string &why)
         NodeEdit::Result r;
 
         if (!e.srcControl.empty())
-            r = NodeEdit::connectControl(filename_, e.node, e.arg,
+            r = NodeEdit::connectControl(work_, e.node, e.arg,
                                          e.srcControl, why);
         else if (e.srcNode.empty())
-            r = NodeEdit::disconnect(filename_, e.node, e.arg, 0, why);
+            r = NodeEdit::disconnect(work_, e.node, e.arg, 0, why);
         else
-            r = NodeEdit::connect(filename_, e.node, e.arg,
+            r = NodeEdit::connect(work_, e.node, e.arg,
                                   e.srcNode, e.srcPort, why);
 
         if (r != NodeEdit::OK)
@@ -385,7 +510,7 @@ bool NodeWindow::writeAll (string &why)
          i != controls_.end(); ++i)
     {
         NodeEdit::Result r =
-            NodeEdit::setChanArg(filename_, i->first, i->second, why);
+            NodeEdit::setChanArg(work_, i->first, i->second, why);
 
         if (r != NodeEdit::OK)
         {
@@ -402,7 +527,7 @@ bool NodeWindow::writeAll (string &why)
              i = pending_.begin();
          i != pending_.end(); ++i)
     {
-        NodeEdit::Result r = NodeEdit::setValue(filename_, i->first.first,
+        NodeEdit::Result r = NodeEdit::setValue(work_, i->first.first,
                                                 i->first.second, i->second,
                                                 why);
 
@@ -417,7 +542,7 @@ bool NodeWindow::writeAll (string &why)
         }
     }
 
-    if (!NodeLayout::write(filename_, graph_))
+    if (!NodeLayout::write(work_, graph_))
     {
         why = "could not write the layout";
         return false;
@@ -428,7 +553,7 @@ bool NodeWindow::writeAll (string &why)
 
 void NodeWindow::onSave (void)
 {
-    if (filename_.empty())
+    if (work_.empty())
         return;
 
     const int n = (int)pending_.size();
@@ -448,14 +573,34 @@ void NodeWindow::onSave (void)
         return;
     }
 
-    /* Reopen rather than trusting the in-memory graph. The file is now the
-       truth, and reparsing it is the only way to see what it actually says --
-       including a value the writer had to round to something spellable. */
-    const string f = filename_;
-    const int sel = canvas_.selected();
-    const int ch = channel_;
+    /* Everything is now in the working copy. Putting it where the user
+       expects is a separate step, and the one that can fail for reasons that
+       have nothing to do with the edits -- an installed patch, a read-only
+       medium, someone else's file.
 
-    if (!open(f, ch))
+       Offer Save As rather than an error. The work is safe either way; all
+       that is in question is where it lands. */
+    if (!sourceWritable() || !copyFile(work_, source_))
+    {
+        if (!saveAsDialog())
+        {
+            setStatus("Not saved: " + source_ + " cannot be written. "
+                      "Use Save As to put it somewhere else.");
+            return;
+        }
+    }
+
+    structuralDirty_ = false;
+
+    /* Reparse rather than trusting the in-memory graph. The file is now the
+       truth, and reading it back is the only way to see what it actually says
+       -- including a value the writer had to round to something spellable.
+
+       reload(), not open(): the working copy is what was just written and the
+       source is now a copy of it, so there is nothing to fetch. */
+    const int sel = canvas_.selected();
+
+    if (!reload())
         return;
 
     if (sel >= 0 && sel < (int)graph_.boxes().size())
@@ -480,7 +625,7 @@ void NodeWindow::onSave (void)
 
 void NodeWindow::onRevert (void)
 {
-    if (filename_.empty())
+    if (work_.empty())
         return;
 
     /* Remember what was touched before reloading, because reloading is what
@@ -503,7 +648,11 @@ void NodeWindow::onRevert (void)
     controls_.clear();
     layoutDirty_ = false;
 
-    if (!open(filename_, channel_))
+    /* open(), not reload(): re-copying the source over the working file is
+       what throws away nodes added and deleted since the last save. Until the
+       working copy existed there was nothing to throw them away with, and
+       Revert quietly left them in place. */
+    if (!open(source_, channel_))
         return;
 
     /* Put the running synth back as well. Reverting the file and leaving the
@@ -594,13 +743,16 @@ vector<string> NodeWindow::takenNames (void) const
 
 /* Adds a node of the chosen type, named so it does not collide.
  *
- * Written to the file at once rather than held with the other pending edits.
- * A node's ports come from its plugin, and the only thing that knows them is
- * a parse -- so the honest way to show a new node is to write it and reopen,
- * which is what this does. Revert undoes it like anything else. */
+ * Written out at once rather than held with the other pending edits. A node's
+ * ports come from its plugin, and the only thing that knows them is a parse --
+ * so the honest way to show a new node is to write it and reparse.
+ *
+ * What it is written to is the working copy, not the user's .dsp. That is what
+ * makes the claim in the next sentence true, which it was not before: Revert
+ * undoes this like anything else, by taking a fresh copy of the source. */
 void NodeWindow::onPaletteAdd (string spelling)
 {
-    if (filename_.empty())
+    if (work_.empty())
     {
         setStatus("Open or create a .dsp first.");
         return;
@@ -625,7 +777,7 @@ void NodeWindow::onPaletteAdd (string spelling)
         return;
     }
 
-    NodeEdit::Result r = NodeEdit::addNode(filename_, name, spelling, why);
+    NodeEdit::Result r = NodeEdit::addNode(work_, name, spelling, why);
 
     if (r != NodeEdit::OK)
     {
@@ -633,10 +785,12 @@ void NodeWindow::onPaletteAdd (string spelling)
         return;
     }
 
-    const string f = filename_;
-    const int ch = channel_;
+    structuralDirty_ = true;
 
-    if (!open(f, ch))
+    /* reload(), emphatically not open(): the node has just been written to
+       the working copy, and open() would replace that copy with a fresh one
+       taken from the source -- undoing the add in the act of displaying it. */
+    if (!reload())
         return;
 
     /* Put it where there is room rather than on top of layer 0, and select it
@@ -755,7 +909,7 @@ bool NodeWindow::askControl (string &name, double &value, double &min,
 
 void NodeWindow::onPaletteAddControl (void)
 {
-    if (filename_.empty())
+    if (work_.empty())
     {
         setStatus("Open or create a .dsp first.");
         return;
@@ -787,17 +941,16 @@ void NodeWindow::onPaletteAddControl (void)
         return;
     }
 
-    if (NodeEdit::addControl(filename_, name, value, min, max, label, why)
+    if (NodeEdit::addControl(work_, name, value, min, max, label, why)
         != NodeEdit::OK)
     {
         setStatus("Could not add @" + name + ": " + why);
         return;
     }
 
-    const string f = filename_;
-    const int ch = channel_;
+    structuralDirty_ = true;
 
-    if (!open(f, ch))
+    if (!reload())
         return;
 
     const int box = graph_.boxByName("@" + name);
@@ -821,7 +974,7 @@ void NodeWindow::onDeleteNode (void)
 {
     const int box = canvas_.selected();
 
-    if (box < 0 || box >= (int)graph_.boxes().size() || filename_.empty())
+    if (box < 0 || box >= (int)graph_.boxes().size() || work_.empty())
         return;
 
     const NodeGraph::Box &b = graph_.boxes()[box];
@@ -851,8 +1004,8 @@ void NodeWindow::onDeleteNode (void)
     }
 
     const NodeEdit::Result r =
-        isControl ? NodeEdit::removeControl(filename_, name, refs, why)
-                  : NodeEdit::removeNode(filename_, name, refs, why);
+        isControl ? NodeEdit::removeControl(work_, name, refs, why)
+                  : NodeEdit::removeNode(work_, name, refs, why);
 
     if (r != NodeEdit::OK)
     {
@@ -860,10 +1013,9 @@ void NodeWindow::onDeleteNode (void)
         return;
     }
 
-    const string f = filename_;
-    const int ch = channel_;
+    structuralDirty_ = true;
 
-    if (!open(f, ch))
+    if (!reload())
         return;
 
     char buf[192];
@@ -884,6 +1036,90 @@ void NodeWindow::onDeleteNode (void)
 }
 
 /* A new .dsp: ask where, write the smallest file that loads, open it. */
+/* Where should this go? Asks, writes there, and adopts it as the source.
+ *
+ * The working copy is already complete by the time this runs -- Save flushes
+ * everything into it before deciding where to put it -- so this is a file copy
+ * and a change of address, nothing more.
+ *
+ * Adopting the new path matters: after saving a read-only patch somewhere of
+ * your own, the next Save should go there without asking again. */
+bool NodeWindow::saveAsDialog (void)
+{
+    Gtk::FileChooserDialog dlg(*this, "Save DSP As",
+                               Gtk::FILE_CHOOSER_ACTION_SAVE);
+
+    dlg.set_transient_for(*this);
+    dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+    dlg.add_button("Save", Gtk::RESPONSE_OK);
+    dlg.set_do_overwrite_confirmation(true);
+
+    if (!source_.empty())
+    {
+        dlg.set_current_name(thUtil::basename((char *)source_.c_str()));
+
+        /* Not the source's own folder as the starting point when it cannot be
+           written -- offering the directory that just refused the write is
+           not much of a suggestion. */
+        if (sourceWritable())
+            dlg.set_current_folder(thUtil::dirname(source_.c_str()));
+    }
+    else
+        dlg.set_current_name("untitled.dsp");
+
+    if (dlg.run() != Gtk::RESPONSE_OK)
+        return false;
+
+    const string path = dlg.get_filename();
+
+    dlg.hide();
+
+    if (!copyFile(work_, path))
+    {
+        Gtk::MessageDialog err(*this, "Could not save there.", false,
+                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+        err.set_secondary_text(path);
+        err.run();
+
+        return false;
+    }
+
+    source_ = path;
+
+    return true;
+}
+
+void NodeWindow::onSaveAs (void)
+{
+    if (work_.empty())
+        return;
+
+    string why;
+
+    /* Flush first: Save As means "this, as I see it, over there", and the
+       pending values are part of what is on screen. */
+    if (!flushPending(why))
+    {
+        setStatus("Not saved: " + why);
+        return;
+    }
+
+    if (!saveAsDialog())
+        return;
+
+    structuralDirty_ = false;
+
+    const int sel = canvas_.selected();
+
+    if (!reload())
+        return;
+
+    if (sel >= 0 && sel < (int)graph_.boxes().size())
+        canvas_.setSelected(sel);
+
+    setStatus("Saved as " + source_ + ".");
+}
+
 void NodeWindow::onNewFile (void)
 {
     Gtk::FileChooserDialog dlg(*this, "New DSP", Gtk::FILE_CHOOSER_ACTION_SAVE);
@@ -894,8 +1130,8 @@ void NodeWindow::onNewFile (void)
     dlg.set_do_overwrite_confirmation(true);
     dlg.set_current_name("untitled.dsp");
 
-    if (!filename_.empty())
-        dlg.set_current_folder(thUtil::dirname(filename_.c_str()));
+    if (!source_.empty())
+        dlg.set_current_folder(thUtil::dirname(source_.c_str()));
 
     if (dlg.run() != Gtk::RESPONSE_OK)
         return;
