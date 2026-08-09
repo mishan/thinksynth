@@ -33,7 +33,9 @@
  *   - every control's slider handle is where its value says, and clicking it
  *     finds that control, whether it is a free-standing box or a strip
  *     attached to the node it drives
- *   - an attached control sits against its host and overlaps nothing
+ *   - an attached control sits above its host, overlaps nothing, and its
+ *     wire still reaches the port it drives -- adjacency says which node a
+ *     control belongs to, only the wire says which parameter
  *   - a shared control -- one several nodes read -- is laid out before
  *     everything it drives, rather than being stranded in layer 0
  *   - clicking the middle of a wire finds a wire, and the ends of every
@@ -261,11 +263,6 @@ int main (int argc, char **argv)
          * finding nothing at all. */
         for (size_t e = 0; e < edges.size() && problems < 5; e++)
         {
-            /* An implied edge is not drawn -- it is the join between a strip
-               and the box it sits against -- so there is no curve to click. */
-            if (g.edgeIsImplied((int)e))
-                continue;
-
             double xs[4], ys[4];
 
             g.edgeCurve((int)e, xs, ys);
@@ -398,23 +395,46 @@ int main (int argc, char **argv)
 
             const NodeGraph::Box &host = boxes[bx.attachedTo];
 
-            if (bx.x + bx.w > host.x)
+            /* Above the host, in the same column. */
+            if (bx.y + bx.h > host.y)
             { printf("FAIL  %s: @%s runs into %s\n", argv[f],
                      bx.ctlArg.c_str(), host.name.c_str());
               problems++; continue; }
 
-            if (host.x - (bx.x + bx.w) > 40.0)
-            { printf("FAIL  %s: @%s is %.0fpx from %s, not beside it\n",
-                     argv[f], bx.ctlArg.c_str(),
-                     host.x - (bx.x + bx.w), host.name.c_str());
+            if (bx.x != host.x)
+            { printf("FAIL  %s: @%s is not in %s's column\n", argv[f],
+                     bx.ctlArg.c_str(), host.name.c_str());
               problems++; continue; }
 
-            /* Vertically within the host's span, give or take the strip
-               stack being taller than the host. */
-            const double slack = 200.0;
+            /* Close above it: the whole point is that it reads as part of
+               that node rather than as something nearby. */
+            if (host.y - (bx.y + bx.h) > 160.0)
+            { printf("FAIL  %s: @%s is %.0fpx above %s, not on it\n",
+                     argv[f], bx.ctlArg.c_str(),
+                     host.y - (bx.y + bx.h), host.name.c_str());
+              problems++; continue; }
 
-            if (bx.y + bx.h < host.y - slack || bx.y > host.y + host.h + slack)
-            { printf("FAIL  %s: @%s is not level with %s\n", argv[f],
+            /* And its wire still lands on a real port of the host, which is
+               the only thing that says which parameter it drives. */
+            bool wired = false;
+
+            for (size_t e = 0; e < edges.size(); e++)
+                if (edges[e].fromBox == (int)b && edges[e].toBox == bx.attachedTo)
+                {
+                    double xs[4], ys[4];
+
+                    g.edgeCurve((int)e, xs, ys);
+
+                    double px, py;
+
+                    g.portPos(edges[e].toBox, edges[e].toPort, px, py);
+
+                    if (xs[3] == px && ys[3] == py)
+                        wired = true;
+                }
+
+            if (!wired)
+            { printf("FAIL  %s: @%s has no wire to a port of %s\n", argv[f],
                      bx.ctlArg.c_str(), host.name.c_str());
               problems++; }
         }

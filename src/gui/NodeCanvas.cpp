@@ -22,6 +22,8 @@
 
 #include "think.h"
 
+#include <algorithm>
+
 #include "NodeCanvas.h"
 
 /* Palette. Kept flat and low-contrast so the wires stay the loudest thing on
@@ -55,7 +57,7 @@ NodeCanvas::NodeCanvas (void)
       hoverBox_(-1), hoverPort_(-1), selBox_(-1),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
-      hoverEdge_(-1), dragSlider_(-1)
+      hoverEdge_(-1), dragSlider_(-1), fitPending_(false)
 {
     add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
                Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK |
@@ -92,6 +94,66 @@ void NodeCanvas::setSelected (int box)
 
     m_signal_selected_(selBox_);
     queue_draw();
+}
+
+/* The space available to draw in: the scrolled window's viewport, not this
+   widget, which has already been sized to the graph. */
+static void viewportSize (Gtk::Widget *w, int &cw, int &ch)
+{
+    cw = ch = 0;
+
+    Gtk::Widget *p = w ? w->get_parent() : NULL;
+
+    while (p)
+    {
+        Gtk::Viewport *v = dynamic_cast<Gtk::Viewport *>(p);
+
+        if (v)
+        {
+            cw = v->get_allocated_width();
+            ch = v->get_allocated_height();
+            return;
+        }
+
+        p = p->get_parent();
+    }
+}
+
+void NodeCanvas::zoomToFit (void)
+{
+    if (graph_ == NULL || graph_->width() <= 0 || graph_->height() <= 0)
+        return;
+
+    int cw = 0, ch = 0;
+
+    viewportSize(this, cw, ch);
+
+    if (cw < 32 || ch < 32)
+    {
+        /* Nothing allocated yet -- this is the first open, before GTK has
+           laid anything out. Try again when it has. */
+        fitPending_ = true;
+        return;
+    }
+
+    fitPending_ = false;
+
+    double z = min(cw / graph_->width(), ch / graph_->height());
+
+    /* Never magnify. A four-node patch blown up to fill the window looks
+       broken, and the point here is only to bring an oversized one down. */
+    if (z > 1.0)
+        z = 1.0;
+
+    setZoom(z);
+}
+
+void NodeCanvas::on_size_allocate (Gtk::Allocation &alloc)
+{
+    Gtk::DrawingArea::on_size_allocate(alloc);
+
+    if (fitPending_)
+        zoomToFit();
 }
 
 void NodeCanvas::setZoom (double z)
@@ -768,14 +830,7 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     /* Wires first so boxes sit on top of them; a wire disappearing behind a
        box reads better than one crossing its face. */
     for (size_t e = 0; e < graph_->edges().size(); e++)
-    {
-        /* The join between a strip and its host: they are touching, so a
-           line between them would be a line to nowhere. */
-        if (graph_->edgeIsImplied((int)e))
-            continue;
-
         drawEdge(cr, (int)e, (int)e == hoverEdge_);
-    }
 
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 

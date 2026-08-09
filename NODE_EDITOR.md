@@ -584,10 +584,21 @@ parameters driven   controls
 
 **197 of 206 controls drive exactly one parameter**, and no control anywhere
 drives two parameters on the same node. So the ordinary case is a control that
-belongs to precisely one box, and it is drawn as a strip against that box's
-left edge — label, track, value on one line, no title bar, no ports. The wire
-is not drawn, because the two things are touching and a line between them would
-say nothing. A host carries between one and five of them, median one.
+belongs to precisely one box, and it is drawn as a strip stacked on top of that
+box — label, track, value on one line, no title bar. A host carries between one
+and five, median one.
+
+**Above, not beside.** Beside was the first attempt and it cost every column
+its own width again: `ts1.dsp` went from 2148 pixels wide to 3058 while using
+only 352 of them vertically. A graph runs left to right, so width is the axis
+that runs out and height is the one going spare. A strip the same width as the
+box it sits on costs no width at all.
+
+**And the wire is still drawn.** Dropping it was a mistake: sitting a strip on
+a node says which node a control belongs to, but a node has several inputs and
+adjacency cannot say which one. That is precisely what the wire is for. It gets
+a vertical-tangent curve rather than the usual horizontal one, because it drops
+a short distance rather than crossing the canvas.
 
 ### The nine that are shared
 
@@ -606,13 +617,31 @@ cannot make any edge run backwards.
 ### What it bought
 
 ```
-                mean         tallest              widest
-before     1703 x 663    2656 (aspect2)            3336
-after      1822 x 519    1486 (jp420)              3386
+                       mean         tallest         widest
+controls as boxes  1703 x 663    2656 (aspect2)      3336
+attached beside    1822 x 519    1486                3386
+attached above     1703 x 542    1486                3336
+plus a tighter gap 1502 x 542    1486                2920
 ```
 
-44% off the worst case height for 1.5% on the worst case width. Graphs are
-naturally wide — signal flows left to right — so height is the scarcer axis.
+Attaching above is strictly better than where this started: 18% shorter for
+exactly the same width. Attaching beside was shorter still and much wider,
+which was the wrong trade.
+
+`LAYER_GAP` then came down from 70 to 44. It was 70 because a control in layer
+0 could have a long wire crossing a column; they are strips on their hosts now,
+so the wires between columns are short and 26 pixels a layer was being spent on
+nothing. On a 17-layer patch that is 440 pixels.
+
+### Width is a property of the patch
+
+None of this makes a deep patch narrow. `ts1.dsp` has an eleven-stage signal
+chain and 25 of the 81 graphs are still wider than 1600 pixels; the deepest is
+seventeen layers and about 2900. That is what the patch *is*.
+
+So the node view fits the graph to the window when it opens, and there is a Fit
+button. It never magnifies past 1:1 — a four-node patch blown up to fill the
+window looks broken, and the point is only to bring an oversized one down.
 
 `scripts/dspgraph` checks that each attached control sits against its host and
 overlaps nothing, that its slider still hit-tests, that implied edges are

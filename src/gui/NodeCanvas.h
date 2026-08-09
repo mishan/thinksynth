@@ -40,6 +40,18 @@ public:
     double zoom (void) const { return zoom_; }
     void setZoom (double z);
 
+    /* Scales so the whole graph is visible, never magnifying past 1:1.
+    
+       A patch is as wide as its signal chain is deep -- 17 layers of ts1's
+       kind is about 2900 pixels -- and no amount of layout tuning changes
+       that. Being able to see all of it on opening, and zoom in to work, is
+       the answer to a graph wider than the screen.
+    
+       Deferred if the widget has no size yet: on the first open it is called
+       before GTK has allocated anything, and fitting to a zero-width canvas
+       would give a useless zoom. */
+    void zoomToFit (void);
+
     /* Emitted when a box has been dragged, so a host can mark the document
        dirty and eventually write the position out. */
     typedef sigc::signal<void(int)> type_signal_box_moved;
@@ -80,6 +92,7 @@ public:
 
 protected:
     virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
+    virtual void on_size_allocate (Gtk::Allocation &alloc);
     virtual bool on_button_press_event (GdkEventButton *b);
     virtual bool on_button_release_event (GdkEventButton *b);
     virtual bool on_motion_notify_event (GdkEventMotion *m);
@@ -123,6 +136,10 @@ private:
 
     /* Control whose slider is being dragged, or -1. */
     int dragSlider_;
+
+    /* Set by zoomToFit when there was no allocation to fit to; acted on by
+       the next size-allocate. */
+    bool fitPending_;
 
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
