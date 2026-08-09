@@ -217,6 +217,31 @@ install(DIRECTORY patches/ DESTINATION "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}
         FILES_MATCHING PATTERN "*.patch")
 
 # ---------------------------------------------------------------------------
+# The two generated data files that used to come from etc/Makefile.in and
+# docs/Makefile.in.
+#
+# Their templates still spell substitutions the way configure did -- @dsp_path@
+# rather than @THINK_DSP_PATH@ -- so the variables are aliased here instead of
+# rewriting files whose contents are not really ours to reformat.
+# ---------------------------------------------------------------------------
+
+set(dsp_path       "${THINK_DSP_PATH}")
+set(patch_path     "${THINK_PATCH_PATH}")
+set(plugin_path    "${THINK_PLUGIN_PATH}")
+set(thinkrc        "${THINK_DEFAULT_THINKRC}")
+set(DEFAULT_OUTPUT "${THINK_DEFAULT_OUTPUT}")
+set(PACKAGE_VERSION "${PROJECT_VERSION}")
+
+configure_file(etc/thinkrc.in        "${PROJECT_BINARY_DIR}/etc/thinkrc" @ONLY)
+configure_file(docs/thinksynth.1.in  "${PROJECT_BINARY_DIR}/docs/thinksynth.1" @ONLY)
+
+install(FILES "${PROJECT_BINARY_DIR}/etc/thinkrc"
+        DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}")
+
+install(FILES "${PROJECT_BINARY_DIR}/docs/thinksynth.1"
+        DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+
+# ---------------------------------------------------------------------------
 
 message(STATUS "")
 message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
