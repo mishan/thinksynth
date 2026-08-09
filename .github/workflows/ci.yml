@@ -18,10 +18,10 @@
 name: ci
 
 on:
-  # `push' alone fires for every branch, and `pull_request' fires again for
-  # the same commits once a PR exists -- which is why every job ran twice.
-  # Pushes are only interesting on the trunk and the porting stack;
-  # everything else is covered by its PR.
+  # Only master on push. `pull_request' already covers every topic branch,
+  # and listing them under `push' too is what made each job appear twice --
+  # once as (push) and once as (pull_request) -- since every branch in the
+  # porting stack has a PR open against the one below it.
   push:
     branches:
       - master

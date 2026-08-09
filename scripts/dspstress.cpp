@@ -33,10 +33,9 @@
  * ThreadSanitizer and AddressSanitizer cannot be combined, so this needs its
  * own build tree):
  *
- *   ./configure --enable-debug \
- *       CXXFLAGS="-g -O1 -fsanitize=thread" LDFLAGS="-fsanitize=thread"
- *   make -j8 && make -C scripts tsan
- *   LD_LIBRARY_PATH=libthink scripts/dspstress -p plugins/ dsp/ts1.dsp
+ *   cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DTHINK_SANITIZE=thread
+ *   cmake --build build-tsan
+ *   build-tsan/scripts/dspstress -p build-tsan/plugins/ dsp/ts1.dsp
  *
  * Work is split into levels so a report can be attributed to one kind of
  * operation rather than to "something concurrent". Each level runs in a forked
