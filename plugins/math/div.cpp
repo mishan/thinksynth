@@ -25,7 +25,7 @@
 enum {IN_0, IN_1, OUT_ARG};
 int args[OUT_ARG + 1];
 
-char        *desc = "Divides two streams";
+static const char desc[] = "Divides two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)

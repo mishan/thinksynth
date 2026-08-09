@@ -24,7 +24,7 @@
 
 #define SQR(x) ((x)*(x))
 
-char        *desc = "Generates a small parabola";
+static const char desc[] = "Generates a small parabola";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)

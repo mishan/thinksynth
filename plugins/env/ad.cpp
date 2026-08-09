@@ -23,7 +23,7 @@
 
 #include "think.h"
 
-char        *desc = "ADSR Envelope Generator";
+static const char desc[] = "ADSR Envelope Generator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

@@ -24,7 +24,7 @@
 
 #define SQR(a) (a*a)
 
-char        *desc = "Cheap IIR-ish Filter";
+static const char desc[] = "Cheap IIR-ish Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

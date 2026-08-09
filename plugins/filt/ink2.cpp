@@ -29,7 +29,7 @@
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, INOUT_BUFFER};
 int args[INOUT_BUFFER + 1];
 
-char        *desc = "INK Filter ][";
+static const char desc[] = "INK Filter ][";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

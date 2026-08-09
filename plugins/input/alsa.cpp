@@ -24,7 +24,7 @@
 
 #include "think.h"
 
-char        *desc = "ALSA Input";
+static const char desc[] = "ALSA Input";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 snd_pcm_t *cap_handle = NULL;

@@ -25,7 +25,7 @@
 
 #include "think.h"
 
-char        *desc = "Moog Filter";
+static const char desc[] = "Moog Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)

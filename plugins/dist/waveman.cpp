@@ -25,7 +25,7 @@
 
 #include "think.h"
 
-char        *desc = "Applies waveman's waveshaper";
+static const char desc[] = "Applies waveman's waveshaper";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (struct module *mod)

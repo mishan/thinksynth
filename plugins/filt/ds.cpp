@@ -25,7 +25,7 @@
 
 #define SQR(a) ((a)*(a))
 
-char        *desc = "Difference Scaling Filter";
+static const char desc[] = "Difference Scaling Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (struct module *mod)
