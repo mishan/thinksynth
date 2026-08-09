@@ -140,9 +140,24 @@ public:
         float ctlValue;
         float ctlMin, ctlMax;
 
+        /* For a control with exactly one consumer: the box it feeds. It is
+           drawn as a strip against that box's left edge instead of as a node
+           of its own, and the wire between them is not drawn -- being next to
+           something is a clearer way of saying "belongs to it" than a line
+           across the canvas.
+        
+           197 of the 206 controls in the corpus have exactly one consumer, so
+           this is the ordinary case, not an optimisation. The other 9 stay
+           free-standing boxes with visible wires, which turns out to be the
+           useful reading: a control drawn as a box is one that several things
+           share. -1 when free-standing. */
+        int attachedTo;
+        int attachSlot;     /* its row in the host's strip */
+
         Box (void) : x(0), y(0), w(0), h(0), layer(0), order(0),
                      isIoSource(false), isIoSink(false), isControl(false),
-                     ctlValue(0), ctlMin(0), ctlMax(1) { }
+                     ctlValue(0), ctlMin(0), ctlMax(1),
+                     attachedTo(-1), attachSlot(0) { }
     };
 
     struct Edge {
@@ -254,12 +269,21 @@ public:
     /* Sets a control's value, for dragging. Does not touch the file. */
     void setControlValue (int box, float value);
 
+    /* True if this edge runs from an attached control to the box it is
+       attached to. Such an edge is real -- the .dsp says so -- but drawing it
+       would be a line between two things already touching, so the canvas
+       skips it and so does hit-testing. */
+    bool edgeIsImplied (int edge) const;
+
     /* Index of a box by node name, or -1. For the io node this is the sink
        half, which is the one that owns the args. */
     int boxByName (const string &name) const;
 
 private:
     static int findPort (const Box &b, const string &name, bool wantInput);
+
+    /* Decides which controls attach to which box. Called by layout(). */
+    void assignAttachments (void);
     void collectParams (thSynthTree *tree, thNode *n, Box &b);
     void assignLayers (void);
     void orderWithinLayers (void);

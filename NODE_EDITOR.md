@@ -562,8 +562,65 @@ node osc osc::simple {
 
 ### Still ahead
 
-**Controls clutter the canvas.** A patch like `ts1.dsp` has thirteen of them
-and they all land in layer 0, a column down the left edge taller than the rest
-of the graph. They have no inputs, so layering has nowhere else to put them.
-Worth solving properly: collapsing them to a compact rail, or docking them, or
-laying each one out beside the parameter it drives rather than at the far left.
+Nothing outstanding on authoring itself. See §12 for how the controls stopped
+crowding the canvas.
+
+## 12. Controls as attachments
+
+Thirteen controls in `ts1.dsp` all landed in layer 0 — they have no inputs, so
+longest-path layering has nowhere else to put them — making a column down the
+left edge taller than the signal path it belonged to. `aspect2.dsp` was worse:
+31 controls, 2656 pixels tall.
+
+The fix is to stop treating a control as a node when it behaves like a property
+of one. Measured first, because the whole design turns on it:
+
+```
+parameters driven   controls
+          1            197
+          2              8
+          4              1
+```
+
+**197 of 206 controls drive exactly one parameter**, and no control anywhere
+drives two parameters on the same node. So the ordinary case is a control that
+belongs to precisely one box, and it is drawn as a strip against that box's
+left edge — label, track, value on one line, no title bar, no ports. The wire
+is not drawn, because the two things are touching and a line between them would
+say nothing. A host carries between one and five of them, median one.
+
+### The nine that are shared
+
+A control read by several nodes cannot attach to any one of them. Those stay
+boxes with visible wires — and that turns out to be the useful reading rather
+than a fallback: **a control still drawn as a box is one that several things
+share.** The corner says `@waveform  shared x4` so it is clear that is the
+reason, not a failure to attach.
+
+They were also being stranded. Layering gives an input-less box layer 0, so
+`@waveform` in `organ0.dsp` sat at the far left with four long wires crossing
+the patch to reach nodes in the middle. A free-standing control is now placed
+just before its earliest consumer; nothing points at it, so moving it right
+cannot make any edge run backwards.
+
+### What it bought
+
+```
+                mean         tallest              widest
+before     1703 x 663    2656 (aspect2)            3336
+after      1822 x 519    1486 (jp420)              3386
+```
+
+44% off the worst case height for 1.5% on the worst case width. Graphs are
+naturally wide — signal flows left to right — so height is the scarcer axis.
+
+`scripts/dspgraph` checks that each attached control sits against its host and
+overlaps nothing, that its slider still hit-tests, that implied edges are
+neither drawn nor clickable, and that every shared control is laid out before
+everything it drives.
+
+One thing worth recording from building this: a crash in a throwaway harness
+turned out to be a stale `NodeGraph.h` sitting next to the test source, so it
+compiled against the old `Box` and linked the new one. `#include "NodeGraph.h"`
+resolves relative to the including file first. Nothing wrong with the code, but
+it cost a debugging session and would cost another.
