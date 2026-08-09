@@ -65,6 +65,11 @@ protected:
     void onRefused (string why);
     void onControlChanged (int box, double value, bool commit);
     void onPaletteAdd (string spelling);
+    void onPaletteAddControl (void);
+
+    /* Asks for a control's name, range and label. False if cancelled. */
+    bool askControl (string &name, double &value, double &min, double &max,
+                     string &label);
     void onNewFile (void);
     void onDeleteNode (void);
 

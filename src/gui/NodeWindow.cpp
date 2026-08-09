@@ -111,6 +111,9 @@ NodeWindow::NodeWindow (thSynth *synth)
     palette_.signal_add().connect(
         sigc::mem_fun(*this, &NodeWindow::onPaletteAdd));
 
+    palette_.signal_add_control().connect(
+        sigc::mem_fun(*this, &NodeWindow::onPaletteAddControl));
+
     newBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeWindow::onNewFile));
     deleteBtn_.signal_clicked().connect(
@@ -536,12 +539,17 @@ void NodeWindow::onSelected (int box)
 
     /* A control is a `@name' block, not a node, and the io node is the one
        thing the file cannot do without. Neither is deletable. */
+    /* Controls are deletable now that they can be created. The io node is
+       still not: a .dsp without one does not load. */
     const bool deletable =
         box >= 0 && box < (int)graph_.boxes().size() &&
-        !graph_.boxes()[box].isControl &&
         !graph_.boxes()[box].isIoSource && !graph_.boxes()[box].isIoSink;
 
     deleteBtn_.set_sensitive(deletable);
+
+    if (box >= 0 && box < (int)graph_.boxes().size())
+        deleteBtn_.set_label(graph_.boxes()[box].isControl ? "Delete control"
+                                                           : "Delete node");
 }
 
 vector<string> NodeWindow::takenNames (void) const
@@ -618,6 +626,165 @@ void NodeWindow::onPaletteAdd (string spelling)
     setStatus("Added " + name + " (" + spelling + ").  Wire it up, then Save.");
 }
 
+/* Name, range and label for a new control.
+ *
+ * A control needs more than a click: unlike a plugin, nothing about it is
+ * implied by what was chosen. The range in particular has no sensible default
+ * -- 0 to 1 is right for a mix and useless for a filter cutoff -- and getting
+ * it wrong means a slider that cannot reach the value you want. */
+bool NodeWindow::askControl (string &name, double &value, double &min,
+                             double &max, string &label)
+{
+    Gtk::Dialog dlg("New control", *this, true);
+
+    dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+    dlg.add_button("Add", Gtk::RESPONSE_OK);
+    dlg.set_default_response(Gtk::RESPONSE_OK);
+
+    Gtk::Grid grid;
+
+    grid.set_row_spacing(4);
+    grid.set_column_spacing(8);
+    grid.set_border_width(8);
+
+    Gtk::Entry nameEntry, labelEntry;
+
+    nameEntry.set_text(name);
+    nameEntry.set_activates_default(true);
+    labelEntry.set_activates_default(true);
+    labelEntry.set_placeholder_text("optional");
+
+    Glib::RefPtr<Gtk::Adjustment> minAdj =
+        Gtk::Adjustment::create(0, -1000000, 1000000, 0.1, 1);
+    Glib::RefPtr<Gtk::Adjustment> maxAdj =
+        Gtk::Adjustment::create(1, -1000000, 1000000, 0.1, 1);
+    Glib::RefPtr<Gtk::Adjustment> valAdj =
+        Gtk::Adjustment::create(0.5, -1000000, 1000000, 0.1, 1);
+
+    Gtk::SpinButton minSpin(minAdj, 0.1, 4);
+    Gtk::SpinButton maxSpin(maxAdj, 0.1, 4);
+    Gtk::SpinButton valSpin(valAdj, 0.1, 4);
+
+    const char *labels[] = { "Name", "Label", "Minimum", "Maximum", "Value" };
+    Gtk::Widget *fields[] = { &nameEntry, &labelEntry, &minSpin, &maxSpin,
+                              &valSpin };
+
+    for (int i = 0; i < 5; i++)
+    {
+        Gtk::Label *l = manage(new Gtk::Label(labels[i]));
+
+        l->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
+
+        grid.attach(*l, 0, i, 1, 1);
+        grid.attach(*fields[i], 1, i, 1, 1);
+    }
+
+    Gtk::Label hint;
+
+    hint.set_markup("<small>The name is what nodes read as "
+                    "<tt>@name</tt>.</small>");
+    hint.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
+    grid.attach(hint, 0, 5, 2, 1);
+
+    dlg.get_content_area()->pack_start(grid);
+    dlg.show_all_children();
+
+    /* Looped rather than validated once, so a rejected name can be corrected
+       instead of throwing the whole dialog away. */
+    while (dlg.run() == Gtk::RESPONSE_OK)
+    {
+        name = nameEntry.get_text();
+        label = labelEntry.get_text();
+        min = minSpin.get_value();
+        max = maxSpin.get_value();
+        value = valSpin.get_value();
+
+        string complaint;
+
+        if (!NodeEdit::validName(name))
+            complaint = "A control name must start with a letter or "
+                        "underscore and contain only letters, digits and "
+                        "underscores.";
+        else if (!NodeEdit::validLabel(label))
+            complaint = "A label cannot contain a quote -- the .dsp string "
+                        "syntax has no way to escape one.";
+        else if (max <= min)
+            complaint = "The maximum must be above the minimum.";
+
+        if (complaint.empty())
+            return true;
+
+        Gtk::MessageDialog err(dlg, complaint, false, Gtk::MESSAGE_WARNING,
+                               Gtk::BUTTONS_OK, true);
+        err.run();
+    }
+
+    return false;
+}
+
+void NodeWindow::onPaletteAddControl (void)
+{
+    if (filename_.empty())
+    {
+        setStatus("Open or create a .dsp first.");
+        return;
+    }
+
+    /* A name nothing else uses, offered as a starting point. */
+    vector<string> taken;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+        if (graph_.boxes()[b].isControl)
+            taken.push_back(graph_.boxes()[b].ctlArg);
+
+    string name = NodeCatalog::suggestName("", "ctl", taken);
+    string label;
+    double value = 0.5, min = 0, max = 1;
+
+    if (!askControl(name, value, min, max, label))
+        return;
+
+    /* Everything pending would be lost by the reopen below. */
+    if (!pending_.empty() || !wires_.empty() || !controls_.empty() ||
+        layoutDirty_)
+    {
+        string w2;
+
+        writeAll(w2);
+    }
+
+    string why;
+
+    if (NodeEdit::addControl(filename_, name, value, min, max, label, why)
+        != NodeEdit::OK)
+    {
+        setStatus("Could not add @" + name + ": " + why);
+        return;
+    }
+
+    const string f = filename_;
+    const int ch = channel_;
+
+    if (!open(f, ch))
+        return;
+
+    const int box = graph_.boxByName("@" + name);
+
+    if (box >= 0)
+    {
+        graph_.moveBox(box, 20.0, graph_.height() + 20.0);
+        graph_.refreshExtent();
+        canvas_.setGraph(&graph_);
+        canvas_.setSelected(box);
+
+        layoutDirty_ = true;
+        updateDirty();
+    }
+
+    setStatus("Added @" + name +
+              ".  Drag from its output to a parameter to use it.");
+}
+
 void NodeWindow::onDeleteNode (void)
 {
     const int box = canvas_.selected();
@@ -627,10 +794,11 @@ void NodeWindow::onDeleteNode (void)
 
     const NodeGraph::Box &b = graph_.boxes()[box];
 
-    if (b.isControl || b.isIoSource || b.isIoSink)
+    if (b.isIoSource || b.isIoSink)
         return;
 
-    const string name = b.name;
+    const bool isControl = b.isControl;
+    const string name = isControl ? b.ctlArg : b.name;
 
     string why;
     int refs = 0;
@@ -643,7 +811,11 @@ void NodeWindow::onDeleteNode (void)
         writeAll(w2);
     }
 
-    if (NodeEdit::removeNode(filename_, name, refs, why) != NodeEdit::OK)
+    const NodeEdit::Result r =
+        isControl ? NodeEdit::removeControl(filename_, name, refs, why)
+                  : NodeEdit::removeNode(filename_, name, refs, why);
+
+    if (r != NodeEdit::OK)
     {
         setStatus("Could not delete " + name + ": " + why);
         return;
@@ -660,10 +832,14 @@ void NodeWindow::onDeleteNode (void)
     /* The references are the part nobody asked for, so they are the part
        worth reporting. Left in place they would make the file load with
        "Node x not found" and read zero. */
-    snprintf(buf, sizeof(buf),
-             refs ? "Deleted %s, and disconnected %d input%s that read from it."
-                  : "Deleted %s.",
-             name.c_str(), refs, refs == 1 ? "" : "s");
+    const string shown = (isControl ? "@" : "") + name;
+
+    if (refs)
+        snprintf(buf, sizeof(buf),
+                 "Deleted %s, and disconnected %d input%s that read from it.",
+                 shown.c_str(), refs, refs == 1 ? "" : "s");
+    else
+        snprintf(buf, sizeof(buf), "Deleted %s.", shown.c_str());
 
     setStatus(buf);
 }

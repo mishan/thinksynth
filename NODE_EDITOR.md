@@ -515,9 +515,55 @@ ok    a patch built from nothing renders audio (peak 1.0000)
 That last one is the point. Everything above it can pass while the result is a
 file that loads and makes no sound, which is not authoring.
 
+### Controls
+
+The palette's first entry, above the plugin categories and on its own, because
+a control is the one thing there that is not a plugin: `@blim` is a block in
+the file, not something in `plugins/`. Filing it under a made-up category would
+say otherwise.
+
+Adding one asks for a name, range and label, because unlike a plugin nothing
+about a control is implied by picking it. The range especially has no sensible
+default — 0 to 1 is right for a mix and useless for a filter cutoff — and
+getting it wrong means a slider that cannot reach the value you want. The
+dialog loops rather than validating once, so a rejected name can be corrected
+instead of throwing the whole thing away.
+
+Two constraints the format imposes, both enforced rather than discovered later:
+
+- **A label cannot contain a quote.** The lexer's string is `"[^"\n]*"` with no
+  escapes at all, so there is no spelling for one.
+- **`@x.min` before `@x` has nothing to modify** — the parser says so and
+  ignores it. The block is written value, widget, min, max, label, in that
+  order, before the first `node`, which is where all 206 of the shipped ones
+  sit.
+
+Deleting a control removes its whole block and rewrites every `= @name` that
+read from it, for the same reason deleting a node does: left alone the arg
+resolves to nothing and silently reads zero.
+
+`scripts/dspnew` covers four controls including a negative range, a tiny range
+and one with no label, checks each comes back as a control box with the range
+and label it was given, and checks that a label containing a quote and an
+inverted range are both refused. The demo patch it builds now has a knob on it:
+
+```
+    @level = 6000;
+    @level.widget = 1;
+    @level.min = 0;
+    @level.max = 12000;
+    @level.label = "Level";
+...
+node osc osc::simple {
+    freq = freq->out;
+    amp = @level;
+};
+```
+
 ### Still ahead
 
-The palette adds a node but cannot yet add a **control** — a `@name` block with
-a range and a label. That is the other half of authoring a patch someone else
-can play, and it is a different writer: the channel block rather than a node
-block.
+**Controls clutter the canvas.** A patch like `ts1.dsp` has thirteen of them
+and they all land in layer 0, a column down the left edge taller than the rest
+of the graph. They have no inputs, so layering has nowhere else to put them.
+Worth solving properly: collapsing them to a compact rail, or docking them, or
+laying each one out beside the parameter it drives rather than at the far left.
