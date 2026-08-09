@@ -233,21 +233,33 @@ void Keyboard::SetTranspose (int transpose)
     int heldVeloc[128];
     int held = 0;
 
-    for (int i = 0; i < 128; i++)
+    /* The arrays are touched under drawMutex_ -- SetNote() writes them from
+       the engine thread -- but the lock is never held across a signal
+       emission. note_on and note_off reach thSynth, which takes its own
+       mutex, while the engine thread can be inside SetNote() holding nothing
+       and wanting drawMutex_: holding one and asking for the other from both
+       sides is how a deadlock is spelled. So: snapshot under the lock, emit
+       unlocked, write back under the lock. */
     {
-        if (!active_keys_[i])
-            continue;
+        Glib::Mutex::Lock lock(drawMutex_);
 
-        heldNote[held] = i;
-        heldVeloc[held] = active_veloc_[i] ? active_veloc_[i] : veloc3_;
-        held++;
+        for (int i = 0; i < 128; i++)
+        {
+            if (!active_keys_[i])
+                continue;
 
-        /* release at the number it was started with */
-        m_signal_note_off_(channel_, i);
+            heldNote[held] = i;
+            heldVeloc[held] = active_veloc_[i] ? active_veloc_[i] : veloc3_;
+            held++;
 
-        active_keys_[i] = 0;
-        active_veloc_[i] = 0;
+            active_keys_[i] = 0;
+            active_veloc_[i] = 0;
+        }
     }
+
+    /* release at the number each was started with */
+    for (int i = 0; i < held; i++)
+        m_signal_note_off_(channel_, heldNote[i]);
 
     transpose_ = transpose;
 
@@ -260,6 +272,8 @@ void Keyboard::SetTranspose (int transpose)
             continue;
 
         m_signal_note_on_(channel_, notenum, heldVeloc[i]);
+
+        Glib::Mutex::Lock lock(drawMutex_);
 
         active_keys_[notenum] = 1;
         active_veloc_[notenum] = heldVeloc[i];
@@ -281,10 +295,24 @@ void Keyboard::SetTranspose (int transpose)
     queue_draw();
 }
 
+/* Called from the synthesizer engine thread, not the GUI one -- which is why
+ * it ends in a dispatcher rather than a direct redraw.
+ *
+ * KeyboardWindow wraps its two callers in kbMutex_, but that is a different
+ * mutex from the one drawKeyboard() holds, so it only serialised the two
+ * callbacks against each other and did nothing at all about drawing. The one
+ * that matters is drawMutex_, taken here. */
 void Keyboard::SetNote (int note, bool state)
 {
-    active_keys_[note] = state ? 1 : 0;
-    active_veloc_[note] = state ? veloc3_ : 0;
+    if (note < 0 || note > 127)
+        return;
+
+    {
+        Glib::Mutex::Lock lock(drawMutex_);
+
+        active_keys_[note] = state ? 1 : 0;
+        active_veloc_[note] = state ? veloc3_ : 0;
+    }
 
     dispatchRedraw_();
 }
