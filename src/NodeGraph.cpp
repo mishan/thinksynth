@@ -60,6 +60,7 @@
 #define ATTACH_H      20.0
 #define ATTACH_GAP     2.0    /* between stacked strips          */
 #define ATTACH_PAD     4.0    /* between the stack and its host  */
+#define GROUP_HEAD    12.0    /* the heading above a group's rows */
 
 /* Orders box indices by the position layering gave them.
  *
@@ -402,6 +403,7 @@ bool NodeGraph::build (thSynthTree *tree)
             b.ctlArg = a->first;
             b.name = "@" + a->first;
             b.ctlLabel = arg->label().empty() ? a->first : arg->label();
+            b.ctlGroup = arg->group();
             b.ctlValue = (arg->len() > 0) ? (*arg)[0] : 0.0f;
             b.ctlMin = arg->min();
             b.ctlMax = arg->max();
@@ -852,12 +854,71 @@ void NodeGraph::assignAttachments (void)
             boxes_[b].attachedTo = host;
     }
 
-    /* Slots, in box order, so the strip does not reshuffle between runs. */
-    vector<int> used(boxes_.size(), 0);
+    /* Slots. Grouped controls are kept together and in the order the file
+       declares them, so an ADSR reads A, D, S, R rather than being scattered
+       through whatever else the node reads. Ungrouped ones follow. */
+    for (size_t h = 0; h < boxes_.size(); h++)
+    {
+        vector<int> mine;
 
-    for (size_t b = 0; b < boxes_.size(); b++)
-        if (boxes_[b].attachedTo >= 0)
-            boxes_[b].attachSlot = used[boxes_[b].attachedTo]++;
+        for (size_t b = 0; b < boxes_.size(); b++)
+            if (boxes_[b].attachedTo == (int)h)
+                mine.push_back((int)b);
+
+        if (mine.empty())
+            continue;
+
+        vector<int> ordered;
+        vector<string> seen;
+
+        /* Groups first, each run contiguous, in order of first appearance. */
+        for (size_t i = 0; i < mine.size(); i++)
+        {
+            const string &g = boxes_[mine[i]].ctlGroup;
+
+            if (g.empty())
+                continue;
+
+            bool already = false;
+
+            for (size_t s = 0; s < seen.size(); s++)
+                if (seen[s] == g)
+                { already = true; break; }
+
+            if (already)
+                continue;
+
+            seen.push_back(g);
+
+            /* Only worth a heading if this host actually shows more than one
+               of the group. A group can span several nodes -- ts1's "Filter"
+               is a cutoff on one, a resonance on another -- and titling each
+               single slider "Filter" three times is noise where the label
+               already says what it is. */
+            int here = 0;
+
+            for (size_t j = 0; j < mine.size(); j++)
+                if (boxes_[mine[j]].ctlGroup == g)
+                    here++;
+
+            for (size_t j = 0; j < mine.size(); j++)
+                if (boxes_[mine[j]].ctlGroup == g)
+                {
+                    boxes_[mine[j]].groupHead =
+                        here > 1 && (ordered.empty() ||
+                                     boxes_[ordered.back()].ctlGroup != g);
+
+                    ordered.push_back(mine[j]);
+                }
+        }
+
+        for (size_t i = 0; i < mine.size(); i++)
+            if (boxes_[mine[i]].ctlGroup.empty())
+                ordered.push_back(mine[i]);
+
+        for (size_t i = 0; i < ordered.size(); i++)
+            boxes_[ordered[i]].attachSlot = (int)i;
+    }
 }
 
 bool NodeGraph::edgeIsImplied (int edge) const
@@ -873,19 +934,25 @@ bool NodeGraph::edgeIsImplied (int edge) const
     return boxes_[e.fromBox].attachedTo == e.toBox;
 }
 
-/* The strip height for a host: its attached controls stacked. */
+/* The strip height for a host: its attached controls stacked, plus a slim
+   heading for each group among them. */
 static double stripHeight (const vector<NodeGraph::Box> &boxes, int host)
 {
-    int n = 0;
+    int n = 0, heads = 0;
 
     for (size_t b = 0; b < boxes.size(); b++)
         if (boxes[b].attachedTo == host)
+        {
             n++;
+
+            if (boxes[b].groupHead)
+                heads++;
+        }
 
     if (n == 0)
         return 0;
 
-    return n * ATTACH_H + (n - 1) * ATTACH_GAP;
+    return n * ATTACH_H + (n - 1) * ATTACH_GAP + heads * GROUP_HEAD;
 }
 
 void NodeGraph::layout (void)
@@ -1022,8 +1089,26 @@ void NodeGraph::layout (void)
         c.w = ATTACH_W;
         c.h = ATTACH_H;
         c.x = host.x;
-        c.y = host.y - ATTACH_PAD - sh +
-              c.attachSlot * (ATTACH_H + ATTACH_GAP);
+
+        /* Walk the stack rather than multiplying, because a group heading
+           pushes everything below it down by its own height. */
+        double dy = 0;
+
+        for (int slot = 0; slot < c.attachSlot; slot++)
+            for (size_t k = 0; k < boxes_.size(); k++)
+                if (boxes_[k].attachedTo == c.attachedTo &&
+                    boxes_[k].attachSlot == slot)
+                {
+                    if (boxes_[k].groupHead)
+                        dy += GROUP_HEAD;
+
+                    dy += ATTACH_H + ATTACH_GAP;
+                }
+
+        if (c.groupHead)
+            dy += GROUP_HEAD;
+
+        c.y = host.y - ATTACH_PAD - sh + dy;
     }
 
     width_ = x - LAYER_GAP + MARGIN;

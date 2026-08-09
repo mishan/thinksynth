@@ -344,6 +344,83 @@ int main (int argc, char **argv)
               failed++; continue; }
         }
 
+        /* Groups: an envelope's four sliders declared as one thing. */
+        {
+            const string g = "/tmp/dspnew-group.dsp";
+
+            remove(g.c_str());
+
+            if (NodeEdit::createFile(g, "grp", "dspnew", why) != NodeEdit::OK ||
+                NodeEdit::addNode(g, "env", "env::adsr", why) != NodeEdit::OK)
+            { printf("FAIL  group setup: %s\n", why.c_str()); failed++; }
+            else
+            {
+                const char *names[] = { "a", "d", "s", "r", NULL };
+                const char *labels[] = { "Attack", "Decay", "Sustain",
+                                         "Release" };
+                bool ok = true;
+
+                for (int i = 0; names[i]; i++)
+                    if (NodeEdit::addControl(g, names[i], 0.25, 0, 1,
+                                             labels[i], "Envelope", why)
+                            != NodeEdit::OK ||
+                        NodeEdit::connectControl(g, "env", names[i], names[i],
+                                                 why) != NodeEdit::OK)
+                    { printf("FAIL  group control %s: %s\n", names[i],
+                             why.c_str());
+                      failed++; ok = false; break; }
+
+                thSynthTree *gt = ok ? synth.parseTree(g) : NULL;
+
+                if (ok && gt == NULL)
+                { printf("FAIL  a grouped .dsp does not parse\n"); failed++; }
+                else if (gt)
+                {
+                    NodeGraph gg;
+
+                    gg.build(gt);
+                    gg.layout();
+                    delete gt;
+
+                    int inGroup = 0, heads = 0;
+
+                    for (size_t b = 0; b < gg.boxes().size(); b++)
+                    {
+                        if (gg.boxes()[b].ctlGroup != "Envelope")
+                            continue;
+
+                        inGroup++;
+
+                        if (gg.boxes()[b].groupHead)
+                            heads++;
+                    }
+
+                    if (inGroup != 4)
+                    { printf("FAIL  %d controls in the group, not 4\n",
+                             inGroup);
+                      failed++; }
+
+                    /* Exactly one heading, or the block is drawn as several
+                       blocks that happen to share a name. */
+                    if (heads != 1)
+                    { printf("FAIL  the group has %d headings, not 1\n",
+                             heads);
+                      failed++; }
+
+                    if (inGroup == 4 && heads == 1)
+                        printf("ok    a group of 4 reads back as one block\n");
+                }
+            }
+
+            remove(g.c_str());
+        }
+
+        /* A group name has the same constraint as a label. */
+        if (NodeEdit::addControl(scratch, "bad3", 0, 0, 1, "", "no \"quotes\"",
+                                 why) == NodeEdit::OK)
+        { printf("FAIL  a group name containing a quote was accepted\n");
+          failed++; }
+
         /* A label the lexer could not read back must be refused, not written:
            the string rule is `"[^"\n]*"' with no escapes at all. */
         if (NodeEdit::addControl(scratch, "bad", 0, 0, 1, "say \"hi\"", why)

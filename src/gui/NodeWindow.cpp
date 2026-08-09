@@ -282,12 +282,10 @@ bool NodeWindow::open (const string &filename, int chan)
 
     canvas_.setGraph(&graph_);
 
-    /* Shown whole to begin with. A patch is as wide as its signal chain is
-       deep and the deepest here is 17 layers -- opening zoomed to 1:1 puts
-       most of it off the right-hand edge, and the first thing anyone would
-       do is zoom out. */
-    canvas_.zoomToFit();
-
+    /* Deliberately not zoomToFit() here. Opening every patch shrunk to fit
+       makes a wide one unreadable and disguises the fact that it is wide,
+       which is a way of not fixing it. Fit is a button for when an overview
+       is what you want. */
     params_.setBox(NULL, -1);
     palette_.setSensitive(true);
     deleteBtn_.set_sensitive(false);

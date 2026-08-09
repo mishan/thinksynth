@@ -1355,7 +1355,8 @@ static size_t findFirstNodeLine (const vector<string> &lines)
 NodeEdit::Result NodeEdit::addControl (const string &filename,
                                        const string &name, double value,
                                        double min, double max,
-                                       const string &label, string &why)
+                                       const string &label,
+                                       const string &group, string &why)
 {
     why.clear();
 
@@ -1368,6 +1369,12 @@ NodeEdit::Result NodeEdit::addControl (const string &filename,
     if (!validLabel(label))
     {
         why = "a label cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (!validLabel(group))
+    {
+        why = "a group name cannot contain a quote or a newline";
         return REFUSED;
     }
 
@@ -1419,6 +1426,9 @@ NodeEdit::Result NodeEdit::addControl (const string &filename,
 
     if (!label.empty())
         block.push_back("    @" + name + ".label = \"" + label + "\";");
+
+    if (!group.empty())
+        block.push_back("    @" + name + ".group = \"" + group + "\";");
 
     block.push_back("");
 
