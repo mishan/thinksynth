@@ -44,7 +44,8 @@ SAN := -fsanitize=address,undefined -fno-omit-frame-pointer
 # its own build tree configured with -fsanitize=thread throughout.
 TSAN := -fsanitize=thread -fno-omit-frame-pointer
 
-all: dspcheck dspstress dsplevel dspgraph dspab dspwrite dsplive dspnew
+all: dspcheck dspstress dsplevel dspgraph dspab dspwrite dsplive dspnew \
+     dsplayout
 
 dspcheck: $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS) $(LDFLAGS)
@@ -57,6 +58,10 @@ dsplevel: dsplevel.cpp
 dspwrite: dspwrite.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeEdit.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dspwrite.cpp $(TOP)/src/NodeGraph.cpp \
 		$(TOP)/src/NodeEdit.cpp $(LDFLAGS)
+
+# What does a graph's shape cost, and would wrapping help? (It would not.)
+dsplayout: dsplayout.cpp $(TOP)/src/NodeGraph.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dsplayout.cpp $(TOP)/src/NodeGraph.cpp $(LDFLAGS)
 
 # Can the editor build a working .dsp from nothing?
 dspnew: dspnew.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeCatalog.cpp \

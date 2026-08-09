@@ -701,8 +701,61 @@ Boxes are 128 wide and the gap between layers is 44, so a layer costs 172 and
 there is not much left to reclaim without making the port names unreadable.
 Twenty-five of the eighty-one graphs are wider than 1600.
 
-Genuinely narrowing those needs a different layering — the current one is
-longest-path, which maximises depth by construction. Something width-bounded
-(Coffman-Graham, or a simple "no more than N layers, spill into rows") would
-trade depth for the height that attaching the controls just freed up. That is
-the next real move on this, and it is a bigger one than tuning constants.
+Genuinely narrowing those looked like it needed a different layering. It does
+not — see §15, which measures that claim and finds it wrong.
+
+## 15. Why the layout is not going to get much narrower
+
+The previous section said a width-bounded layering would trade depth for
+height. That was wrong, and measuring it was the first thing worth doing.
+
+**The layering is already optimal.** Longest-path puts every node at its
+critical-path depth, and no drawing in which every wire goes forwards can have
+fewer columns than the critical path. `scripts/dsplayout` checks this against
+the corpus:
+
+```
+81 graphs, 1 above the minimum layer count
+```
+
+Eighty of eighty-one are already at the floor. Coffman-Graham and friends bound
+the number of nodes *per layer*, which makes a graph taller and can make it
+deeper — the opposite of what is wanted here.
+
+**Boxes cannot shrink much either.** A box must fit its longest input and
+output port names on the same row. Worst in the corpus is 18 characters
+together, median 6 to 9, and the header carries the node name plus the plugin
+name, which already clips. Perhaps 12% is available, on a 172-pixel layer of
+which 128 is the box.
+
+**So the only real lever left is not drawing the graph in one row.** That is
+implemented — `NodeGraph::setWrapWidth` cuts the column sequence into bands and
+stacks them, the way a long circuit is drawn on several rows of a schematic. It
+works, and it hits the target exactly:
+
+```
+  wrap 0      mean 1502 x  542   widest 2920   25 over 1600   0 wrapped
+  wrap 1900   mean 1359 x  595   widest 1888   15 over 1600  10 wrapped, 166 jumps
+  wrap 1500   mean 1058 x  752   widest 1372    0 over 1600  41 wrapped, 462 jumps
+```
+
+**And it is off, because the cut profile says it is a bad trade.** Every wire
+crossing a band boundary becomes a long return from the right edge to the left,
+one band down. `dsplayout` counts them per boundary:
+
+```
+dsp/ts1.dsp       11 layers  cuts: 4 6 7 7 6 7 5 4 3 3
+dsp/old/bd9.dsp   17 layers  cuts: 44 42 38 35 33 29 25 23 18 16 12 11 9 7 5 3
+```
+
+`bd9.dsp` is the widest graph in the corpus at 2920 pixels and therefore the
+one that most needs wrapping — and splitting it in half costs **23 long return
+wires**. These patches are not chains; they are broad fans, dozens of parallel
+paths from the input to the mixer. Wrapping trades a scrollbar for a tangle.
+
+The code stays, defaulted off, and `dspgraph -w 1500` runs every layout
+invariant against it so it is not untested code pretending otherwise. If a
+patch ever turns up that is deep and *narrowly* connected, it is one call away.
+
+For everything else: the graph is as wide as the patch is deep, it scrolls, and
+Fit is there when an overview is what you want.

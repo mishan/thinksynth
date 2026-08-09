@@ -62,6 +62,11 @@
 #define ATTACH_PAD     4.0    /* between the stack and its host  */
 #define GROUP_HEAD    12.0    /* the heading above a group's rows */
 
+/* Between stacked bands when a graph is wrapped. Generous, because the wire
+   that comes back from the end of one band to the start of the next has to
+   read as a return rather than as a wire to the box above. */
+#define BAND_GAP      70.0
+
 /* Orders box indices by the position layering gave them.
  *
  * A functor rather than a lambda. The build does now ask for C++11 -- see
@@ -83,8 +88,22 @@ namespace {
 }
 
 NodeGraph::NodeGraph (void)
-    : width_(0), height_(0), layers_(0)
+    : width_(0), height_(0), layers_(0), wrapWidth_(0), bands_(1), bandSize_(0)
 {
+}
+
+bool NodeGraph::edgeWraps (int edge) const
+{
+    if (bandSize_ <= 0 || edge < 0 || edge >= (int)edges_.size())
+        return false;
+
+    const Edge &e = edges_[edge];
+
+    if (e.fromBox < 0 || e.toBox < 0)
+        return false;
+
+    return boxes_[e.fromBox].layer / bandSize_ !=
+           boxes_[e.toBox].layer / bandSize_;
 }
 
 /* A port by name.
@@ -1021,7 +1040,34 @@ void NodeGraph::layout (void)
         tallest = max(tallest, h - ROW_GAP);
     }
 
-    double x = MARGIN;
+    /* How many layers go in a band.
+     *
+     * Everything is the same width, so this is arithmetic rather than a
+     * packing problem: work out how many columns fit, then divide the layers
+     * evenly between that many bands so the last one is not a stub. */
+    bandSize_ = layers_;
+    bands_ = 1;
+
+    if (wrapWidth_ > 0)
+    {
+        const double perLayer = BOX_W + LAYER_GAP;
+        const double avail = wrapWidth_ - MARGIN * 2 + LAYER_GAP;
+
+        int fit = (int)(avail / perLayer);
+
+        if (fit < 1)
+            fit = 1;
+
+        if (fit < layers_)
+        {
+            bands_ = (layers_ + fit - 1) / fit;
+            bandSize_ = (layers_ + bands_ - 1) / bands_;
+        }
+    }
+
+    /* Each band is as tall as its tallest column, and they stack. */
+    vector<double> bandTop(bands_, 0.0);
+    vector<double> bandHigh(bands_, 0.0);
 
     for (int l = 0; l < layers_; l++)
     {
@@ -1037,9 +1083,53 @@ void NodeGraph::layout (void)
 
         h -= ROW_GAP;
 
+        const int band = l / bandSize_;
+
+        bandHigh[band] = max(bandHigh[band], h);
+    }
+
+    {
+        double top = MARGIN;
+
+        for (int i = 0; i < bands_; i++)
+        {
+            bandTop[i] = top;
+            top += bandHigh[i] + BAND_GAP;
+        }
+    }
+
+    double x = MARGIN;
+    double widest_ = 0;
+    int lastBand = 0;
+
+    for (int l = 0; l < layers_; l++)
+    {
+        const int band = l / bandSize_;
+
+        /* A new band starts back at the left margin, below the last. */
+        if (band != lastBand)
+        {
+            widest_ = max(widest_, x - LAYER_GAP + MARGIN);
+            x = MARGIN;
+            lastBand = band;
+        }
+
+        double h = 0;
+
+        for (size_t k = 0; k < inLayer[l].size(); k++)
+        {
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+
+            h += boxes_[inLayer[l][k]].h +
+                 (sh > 0 ? sh + ATTACH_PAD : 0) + ROW_GAP;
+        }
+
+        h -= ROW_GAP;
+
         /* Centring keeps a one-box column beside the middle of a six-box one,
-           which shortens the wires and stops the drawing looking top-heavy. */
-        double y = MARGIN + (tallest - h) / 2.0;
+           which shortens the wires and stops the drawing looking top-heavy.
+           Within its own band, when wrapped. */
+        double y = bandTop[band] + (bandHigh[band] - h) / 2.0;
         double widest = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
@@ -1098,8 +1188,14 @@ void NodeGraph::layout (void)
         c.y = host.y - ATTACH_PAD - sh + dy;
     }
 
-    width_ = x - LAYER_GAP + MARGIN;
-    height_ = tallest + MARGIN * 2;
+    width_ = max(widest_, x - LAYER_GAP + MARGIN);
+
+    if (bands_ > 1)
+    {
+        height_ = bandTop[bands_ - 1] + bandHigh[bands_ - 1] + MARGIN;
+    }
+    else
+        height_ = tallest + MARGIN * 2;
 }
 
 int NodeGraph::feedbackCount (void) const

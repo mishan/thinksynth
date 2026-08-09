@@ -114,6 +114,7 @@ int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
     bool quiet = false;
+    double wrapWidth = 0;
     int firstFile = -1;
 
     for (int i = 1; i < argc; i++)
@@ -125,6 +126,15 @@ int main (int argc, char **argv)
         }
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
             quiet = true;
+        else if (!strcmp(argv[i], "-w"))
+        {
+            /* Lay out wrapped into bands. Off in the shipped editor -- see
+               NODE_EDITOR.md -- but the code exists, so the invariants have
+               to hold under it too or it is untested code pretending
+               otherwise. */
+            if (++i >= argc) return 2;
+            wrapWidth = atof(argv[i]);
+        }
         else { firstFile = i; break; }
     }
 
@@ -161,6 +171,7 @@ int main (int argc, char **argv)
             continue;
         }
 
+        g.setWrapWidth(wrapWidth);
         g.layout();
 
         const vector<NodeGraph::Box> &boxes = g.boxes();
