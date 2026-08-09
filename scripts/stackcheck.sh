@@ -22,7 +22,7 @@ set -e
 
 STACK="master revive-thinksynth gain-staging gtkmm3-port node-editor \
        node-editor-interaction node-editor-params node-editor-writer \
-       node-editor-wires node-editor-controls"
+       node-editor-wires node-editor-controls node-editor-authoring"
 
 fail=0
 

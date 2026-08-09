@@ -208,7 +208,7 @@ Implemented on `node-editor` off `gtkmm3-port`. Steps refer to §6 above.
 | 3. Read-only canvas | done | `src/gui/NodeCanvas.{h,cpp}` |
 | 4. Interaction | done | drag, Ctrl+wheel zoom, hover; hit-testing in `NodeGraph` |
 | 5. The `.dsp` writer | positions and values | `src/NodeLayout.{h,cpp}`, `src/NodeEdit.{h,cpp}` |
-| 6. Editing | wires done | `NodeEdit::connect`/`disconnect`, canvas drag |
+| 6. Editing | done | wires, and nodes via the palette |
 | 7. Parameter controls | done | `NodeParams`, plus control nodes on the canvas |
 
 Reachable from **File → Node View** (Ctrl+N). `NodeWindow` parses its own tree
@@ -438,3 +438,86 @@ The 55 are not failures. `@a`, `@d` and `@r` on a typical patch are envelope
 times: by the time the change lands the note is in sustain, so there is
 correctly nothing to hear. Reporting them separately rather than as errors
 keeps the check honest about what it can prove.
+
+## 11. Authoring
+
+A palette of every plugin on disk, grouped by category, and a New action that
+writes a `.dsp` from nothing.
+
+`thPluginManager` loads plugins by name and cannot enumerate them, so
+`NodeCatalog` walks the plugin directory instead: 62 plugins across 11
+categories. Names come from the filesystem, which is instant. A plugin is only
+dlopened when it is selected, to show its description and ports — loading all
+62 to draw a list would make the palette the slowest thing in the window.
+
+The grouping is not an invention: a `.dsp` spells a plugin `osc::simple`, so
+category-then-name is how the format already thinks about it.
+
+### What "new" means
+
+There is no such thing as a valid empty `.dsp`. `finishParse` rejects any file
+without an io node, so New writes the smallest thing that loads: the three info
+strings, `node ionode { channels = 2; };` and `io ionode;`. Adding
+`misc::midi2freq` and `osc::simple` and wiring three connections gives:
+
+```
+name "demo";
+author "Misha";
+description "";
+
+node ionode {
+    channels = 2;
+    out0 = osc->out;
+};
+
+node freq misc::midi2freq {
+    note = ionode->note;
+};
+
+node osc osc::simple {
+    freq = freq->out;
+};
+
+io ionode;
+```
+
+which is indistinguishable from a hand-written file, because it is built by the
+same splicer that edits one.
+
+### Nodes are written immediately, unlike everything else
+
+Values, wires and control positions are held until Save. Adding a node is not:
+a node's ports come from its plugin, the only thing that knows them is a parse,
+and a node that exists on the canvas but not on disk has no honest way to be
+drawn. So add and delete write and reopen. Revert still undoes them.
+
+Deleting a node also rewrites every `= <node>->...` that referred to it. Left
+alone those make the file load with `setPointers: Node x not found!!` and read
+zero — a delete that quietly breaks three other nodes is worse than one that
+says it disconnected them, so the count is reported.
+
+### The check
+
+`scripts/dspnew` builds files rather than reading them. It creates a `.dsp`,
+adds and removes **one node of every plugin in the catalogue**, confirming each
+time that the file still parses and that the node arrives with exactly the
+ports its plugin declares — then that removing it restores the file byte for
+byte. Finally it builds an oscillator patch, wires it, renders a note and
+checks the output is not silence:
+
+```
+catalogue: 62 plugins in 11 categories
+ok    a new .dsp parses
+ok    62 plugins added and removed, file restored each time
+ok    a patch built from nothing renders audio (peak 1.0000)
+```
+
+That last one is the point. Everything above it can pass while the result is a
+file that loads and makes no sound, which is not authoring.
+
+### Still ahead
+
+The palette adds a node but cannot yet add a **control** — a `@name` block with
+a range and a label. That is the other half of authoring a patch someone else
+can play, and it is a different writer: the channel block rather than a node
+block.
