@@ -19,7 +19,11 @@
 #ifndef GTH_PREFS_H
 #define GTH_PREFS_H
 
-#define PREFS_FILE ".thinkrc"
+/* Lives inside Glib::get_user_config_dir()/thinksynth/, so no leading dot. */
+#define PREFS_FILE "thinkrc"
+
+/* The pre-XDG location, directly in $HOME. Read as a fallback, never written. */
+#define LEGACY_PREFS_FILE ".thinkrc"
 
 class gthPrefs
 {
@@ -27,6 +31,9 @@ public:
     gthPrefs (void);
     gthPrefs (const string &path);
     ~gthPrefs (void);
+
+    static string prefsPath (void);
+    static string legacyPrefsPath (void);
 
     static gthPrefs *instance (void) {
         if (instance_ == NULL)

@@ -37,6 +37,14 @@
 #include <filesystem>   /* the plugin-root search, and every path join */
 #include <system_error>
 
+#if defined(_WIN32)
+# define WIN32_LEAN_AND_MEAN
+# define NOMINMAX       /* or windows.h's min/max macros meet <algorithm> */
+# include <windows.h>
+#elif defined(__APPLE__)
+# include <mach-o/dyld.h>   /* _NSGetExecutablePath */
+#endif
+
 #include "think.h"
 
 namespace fs = std::filesystem;
@@ -91,14 +99,47 @@ static bool hasPlugins (const fs::path &root)
 
 /* The directory the running executable is in, or "".
  *
- * Still Linux-only. macOS wants _NSGetExecutablePath and Windows
- * GetModuleFileNameW; until those land this candidate is simply skipped,
- * which costs nothing on Linux because the cwd-relative one usually covers
- * it -- but it is why an installed .app or a Windows install directory
- * cannot find its own plugins yet. See PORTING.md section 4d.
+ * This is what lets an installed tree find its own plugins without an
+ * absolute path compiled into it, so it has to work on all three platforms:
+ * a macOS .app and a Windows install directory have nothing else to go on.
+ * It used to be readlink("/proc/self/exe") and nothing else, which meant the
+ * candidate was silently skipped everywhere but Linux.
  */
 static fs::path exeDir (void)
 {
+#if defined(_WIN32)
+
+    wchar_t buf[32768];   /* MAX_PATH is a lie; long paths need the big one */
+
+    const DWORD n = GetModuleFileNameW(NULL, buf, sizeof(buf) / sizeof(buf[0]));
+
+    if (n == 0 || n >= sizeof(buf) / sizeof(buf[0]))
+        return fs::path();
+
+    return fs::path(buf, buf + n).parent_path();
+
+#elif defined(__APPLE__)
+
+    uint32_t size = 0;
+
+    /* Returns -1 and sets size to what is actually needed. */
+    _NSGetExecutablePath(NULL, &size);
+
+    vector<char> buf(size + 1, 0);
+
+    if (_NSGetExecutablePath(buf.data(), &size) != 0)
+        return fs::path();
+
+    /* May be a symlink or contain ".."; canonical() resolves both, and a
+       failure here just means the candidate is skipped. */
+    std::error_code ec;
+
+    const fs::path resolved = fs::canonical(fs::path(buf.data()), ec);
+
+    return ec ? fs::path(buf.data()).parent_path() : resolved.parent_path();
+
+#else
+
     char buf[4096];
 
     const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
@@ -109,6 +150,8 @@ static fs::path exeDir (void)
     buf[n] = 0;
 
     return fs::path(buf).parent_path();
+
+#endif
 }
 
 /* getPath() builds "<root><category>/<name><suffix>" by plain concatenation,
@@ -137,8 +180,20 @@ string thPluginManager::resolveRoot (const string &preferred)
 
     if (!exe.empty())
     {
-        /* src/thinksynth run from anywhere: ../plugins from the binary. */
+        /* Build tree: src/thinksynth run from anywhere. */
         tries.push_back(exe.parent_path() / "plugins");
+
+        /* Unix install: <prefix>/bin/thinksynth against
+           <prefix>/lib/thinksynth/plugins. This is what makes an installed
+           tree relocatable rather than tied to the ${libdir} that was
+           compiled in. */
+        tries.push_back(exe.parent_path() / "lib" / PACKAGE_NAME / "plugins");
+
+        /* macOS bundle: Contents/MacOS/thinksynth against
+           Contents/Resources/plugins. */
+        tries.push_back(exe.parent_path() / "Resources" / "plugins");
+
+        /* Windows install, and the build tree on any platform. */
         tries.push_back(exe / "plugins");
     }
 
