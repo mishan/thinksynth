@@ -103,25 +103,34 @@ pkg_check_modules(SIGC   REQUIRED IMPORTED_TARGET sigc++-2.0)
 pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-3.0)
 pkg_check_modules(GTHREAD REQUIRED IMPORTED_TARGET gthread-2.0)
 
+# The one audio backend. RtAudio covers ALSA/JACK/Pulse/OSS, CoreAudio, and
+# WASAPI/DirectSound/ASIO behind a single callback API.
+pkg_check_modules(RTAUDIO REQUIRED IMPORTED_TARGET rtaudio)
+
 pkg_check_modules(JACK IMPORTED_TARGET jack)
 pkg_check_modules(ALSA IMPORTED_TARGET alsa)
 
-if(JACK_FOUND)
-  set(HAVE_JACK 1)
-endif()
-
-# configure.ac skipped the ALSA probe entirely on Darwin.
+# ALSA is now only the MIDI sequencer; RtAudio does ALSA output. configure.ac
+# skipped the probe entirely on Darwin and so does this.
 if(ALSA_FOUND AND NOT APPLE)
   set(HAVE_ALSA 1)
 endif()
 
-if(HAVE_JACK)
-  set(THINK_DEFAULT_OUTPUT jack)
-elseif(HAVE_ALSA)
-  set(THINK_DEFAULT_OUTPUT alsa)
-else()
-  set(THINK_DEFAULT_OUTPUT none)
+# The hand-written JACK backend, superseded by RtAudio's JACK API. Off by
+# default; worth keeping buildable until someone has listened to the RtAudio
+# path under load and is happy with it, at which point delete gthJackAudio.
+cmake_dependent_option(THINK_WITH_LEGACY_JACK
+    "Also build the old in-tree JACK backend (-d legacy-jack)" OFF
+    "JACK_FOUND" OFF)
+
+if(THINK_WITH_LEGACY_JACK)
+  set(HAVE_LEGACY_JACK 1)
 endif()
+
+# What -d selects when nothing says otherwise. Empty means "let RtAudio
+# choose", which is the right default now that one backend covers everything.
+set(THINK_DEFAULT_OUTPUT "" CACHE STRING
+    "Default audio API: alsa, jack, pulse, core, wasapi, none, or empty")
 
 # ---------------------------------------------------------------------------
 # Platform probes
@@ -251,8 +260,9 @@ message(STATUS "")
 message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
 message(STATUS "  system ................: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  build type ............: ${CMAKE_BUILD_TYPE}")
-message(STATUS "  ALSA ..................: ${HAVE_ALSA}")
-message(STATUS "  JACK ..................: ${HAVE_JACK}")
+message(STATUS "  RtAudio ...............: ${RTAUDIO_VERSION}")
+message(STATUS "  ALSA MIDI .............: ${HAVE_ALSA}")
+message(STATUS "  legacy JACK backend ...: ${THINK_WITH_LEGACY_JACK}")
 message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")
 message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
 message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")

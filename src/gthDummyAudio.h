@@ -20,23 +20,32 @@
 #define GTH_DUMMYAUDIO_H
 
 #include "gthAudio.h"
-class thSynth;
 
+/* No device. The GUI comes up, patches load and the keyboard works; nothing
+   is heard. This is what -d none selects, and what everything falls back to
+   when no backend will open. */
 class gthDummyAudio : public gthAudio
 {
 public:
-    gthDummyAudio (thSynth *synth);
+    gthDummyAudio (void);
     virtual ~gthDummyAudio (void);
 
-    int Write (float *, int len);
-    int Read (void *, int len);
-    const gthAudioFmt *GetFormat (void) { return &ofmt; };
-    void SetFormat (const gthAudioFmt *fmt);
+    bool open (const gthAudioFmt &want, gthAudioSource *source);
+    bool start (void);
+    void stop (void);
 
-    bool ProcessEvents (void);
+    bool running (void) const { return running_; }
+
+    const gthAudioFmt &format (void) const { return fmt_; }
+    std::string deviceName (void) const { return "none"; }
+
+    std::vector<gthAudioDevice> devices (void) const {
+        return std::vector<gthAudioDevice>();
+    }
 
 private:
-    gthAudioFmt ofmt;
+    gthAudioFmt fmt_;
+    bool running_;
 };
 
 #endif /* GTH_DUMMYAUDIO_H */
