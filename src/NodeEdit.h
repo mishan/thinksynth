@@ -106,6 +106,36 @@ public:
     static Result setChanArg (const string &filename, const string &name,
                               double value, string &why);
 
+    /* Appends `node <name> <cat>::<plugin> { };' before the `io' line.
+    
+       Before the io line because the grammar wants every node defined by the
+       time `io <name>;' names one, and because that is where every shipped
+       .dsp puts its last node. Refuses a name the file already uses, and a
+       name the lexer would not accept as a WORD. */
+    static Result addNode (const string &filename, const string &node,
+                           const string &plugin, string &why);
+
+    /* Removes a node's block, and every `= <node>->...' that referred to it.
+    
+       Both, because leaving the references would make the file stop parsing:
+       setPointers warns and the node resolves to nothing. `removed' gets the
+       count of references rewritten, which is worth telling the user -- it is
+       the part of a delete they did not ask for. */
+    static Result removeNode (const string &filename, const string &node,
+                              int &removed, string &why);
+
+    /* Writes a new .dsp containing nothing but what it takes to load: the
+       three info strings, an io node, and the `io' line naming it.
+    
+       There is no such thing as a valid empty .dsp -- without an io node
+       finishParse rejects the file -- so "new" has to mean this rather than a
+       blank page. Refuses to overwrite. */
+    static Result createFile (const string &filename, const string &name,
+                              const string &author, string &why);
+
+    /* True if `name' is something the lexer will read back as a node name. */
+    static bool validName (const string &name);
+
     /* OK if the file has an explicit `<node> { <arg> = ...; }'. Distinguishes
        an arg the author wrote from one buildArgMap() invented, which is the
        difference between changing a line and adding one. */

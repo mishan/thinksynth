@@ -44,7 +44,7 @@ SAN := -fsanitize=address,undefined -fno-omit-frame-pointer
 # its own build tree configured with -fsanitize=thread throughout.
 TSAN := -fsanitize=thread -fno-omit-frame-pointer
 
-all: dspcheck dspstress dsplevel dspgraph dspab dspwrite dsplive
+all: dspcheck dspstress dsplevel dspgraph dspab dspwrite dsplive dspnew
 
 dspcheck: $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS) $(LDFLAGS)
@@ -57,6 +57,12 @@ dsplevel: dsplevel.cpp
 dspwrite: dspwrite.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeEdit.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dspwrite.cpp $(TOP)/src/NodeGraph.cpp \
 		$(TOP)/src/NodeEdit.cpp $(LDFLAGS)
+
+# Can the editor build a working .dsp from nothing?
+dspnew: dspnew.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeCatalog.cpp \
+	$(TOP)/src/NodeEdit.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspnew.cpp $(TOP)/src/NodeGraph.cpp \
+		$(TOP)/src/NodeCatalog.cpp $(TOP)/src/NodeEdit.cpp $(LDFLAGS)
 
 # Does moving a control change the sound of a note already ringing?
 dsplive: dsplive.cpp $(TOP)/src/NodeGraph.cpp

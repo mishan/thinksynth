@@ -975,3 +975,254 @@ NodeEdit::Result NodeEdit::setChanArg (const string &filename,
 
     return OK;
 }
+
+/* ---- adding and removing whole nodes ----------------------------------- */
+
+bool NodeEdit::validName (const string &name)
+{
+    /* The lexer's WORD is [A-Za-z_][A-Za-z0-9_]*, and a name that does not
+       match comes back as something else entirely -- or as a parse error on
+       the next load, which is a bad way to find out. */
+    if (name.empty() || isdigit((unsigned char)name[0]))
+        return false;
+
+    for (string::size_type i = 0; i < name.size(); i++)
+        if (!isWordChar(name[i]))
+            return false;
+
+    /* Not a keyword either. `node', `io' and the info words would produce a
+       file that parses as something the author did not write. */
+    static const char *reserved[] = {
+        "node", "io", "name", "author", "description", "desc",
+        "th_max", "th_min", "th_range", "th_midimax", "th_sample", "ms", NULL
+    };
+
+    for (int i = 0; reserved[i]; i++)
+        if (name == reserved[i])
+            return false;
+
+    return true;
+}
+
+/* The line index of `io <something>;', or lines.size() if there is none. */
+static size_t findIoLine (const vector<string> &lines)
+{
+    int depth = 0;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        if (depth == 0)
+        {
+            const string t = trim(code);
+
+            if (t.compare(0, 3, "io ") == 0 || t.compare(0, 3, "io\t") == 0)
+                return i;
+        }
+
+        for (size_t k = 0; k < code.size(); k++)
+        {
+            if (code[k] == '{') depth++;
+            else if (code[k] == '}' && depth > 0) depth--;
+        }
+    }
+
+    return lines.size();
+}
+
+NodeEdit::Result NodeEdit::addNode (const string &filename, const string &node,
+                                    const string &plugin, string &why)
+{
+    why.clear();
+
+    if (!validName(node))
+    {
+        why = "`" + node + "' is not a usable node name";
+        return REFUSED;
+    }
+
+    if (plugin.find("::") == string::npos)
+    {
+        why = "`" + plugin + "' is not a <category>::<plugin> name";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    size_t open = 0, close = 0;
+
+    if (findNodeBlock(lines, node, open, close))
+    {
+        why = "the file already has a node called `" + node + "'";
+        return REFUSED;
+    }
+
+    /* Before the io line: the grammar needs every node to exist by the time
+       `io' names one, and it is where the last node sits in every shipped
+       file anyway. */
+    const size_t at = findIoLine(lines);
+
+    vector<string> block;
+
+    block.push_back("node " + node + " " + plugin + " {");
+    block.push_back("};");
+    block.push_back("");
+
+    lines.insert(lines.begin() + at, block.begin(), block.end());
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::removeNode (const string &filename,
+                                       const string &node, int &removed,
+                                       string &why)
+{
+    why.clear();
+    removed = 0;
+
+    if (node.empty())
+    {
+        why = "no node named";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    size_t open = 0, close = 0;
+
+    if (!findNodeBlock(lines, node, open, close))
+    {
+        why = "no `node " + node + "' block in the file";
+        return NO_NODE;
+    }
+
+    /* Anything reading from it has to stop, or the file loads with
+       "setPointers: Node x not found!!" and the arg silently reads zero.
+       Rewritten to 0 rather than deleted, the same as disconnect(): the line
+       keeps its place and its trailing comment. */
+    const string ref = node + "->";
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        if (i >= open && i <= close)
+            continue;                   /* the block itself, going away */
+
+        const string code = codeOf(lines[i]);
+        const string::size_type eq = code.find('=');
+
+        if (eq == string::npos)
+            continue;
+
+        const string::size_type at = code.find(ref, eq);
+
+        if (at == string::npos)
+            continue;
+
+        /* `osc->out' and not `myosc->out' */
+        if (at > 0 && isWordChar(code[at - 1]))
+            continue;
+
+        const string::size_type semi = code.find(';', eq);
+
+        if (semi == string::npos || at > semi)
+            continue;
+
+        string::size_type from = code.find_first_not_of(" \t", eq + 1);
+        string::size_type to = semi;
+
+        while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
+            to--;
+
+        lines[i] = lines[i].substr(0, from) + "0" + lines[i].substr(to);
+        removed++;
+    }
+
+    /* Take a blank line after the block with it, so deleting nodes does not
+       leave the file gappier each time. */
+    size_t last = close;
+
+    if (last + 1 < lines.size() &&
+        trim(codeOf(lines[last + 1])).empty() &&
+        lines[last + 1].find_first_not_of(" \t\r") == string::npos)
+        last++;
+
+    lines.erase(lines.begin() + open, lines.begin() + last + 1);
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::createFile (const string &filename,
+                                       const string &name,
+                                       const string &author, string &why)
+{
+    why.clear();
+
+    {
+        ifstream probe(filename.c_str());
+
+        if (probe)
+        {
+            why = filename + " already exists";
+            return REFUSED;
+        }
+    }
+
+    /* The smallest file that loads.
+     *
+     * finishParse rejects anything without an io node, so a genuinely empty
+     * .dsp is not a thing that can exist -- "new" means this. out0 and out1
+     * are wired to nothing yet, which is legal: buildArgMap invents them as
+     * zero and the DSP renders silence until something is connected. */
+    vector<string> lines;
+
+    lines.push_back("# " + name);
+
+    if (!author.empty())
+        lines.push_back("# " + author);
+
+    lines.push_back("");
+    lines.push_back("name \"" + name + "\";");
+    lines.push_back("author \"" + author + "\";");
+    lines.push_back("description \"\";");
+    lines.push_back("");
+    lines.push_back("node ionode {");
+    lines.push_back("    channels = 2;");
+    lines.push_back("};");
+    lines.push_back("");
+    lines.push_back("io ionode;");
+
+    if (!writeLines(filename, lines, true))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}

@@ -31,10 +31,13 @@
 #include "../NodeEdit.h"
 #include "NodeCanvas.h"
 #include "NodeParams.h"
+#include "NodePalette.h"
+#include "../NodeCatalog.h"
 #include "NodeWindow.h"
 
 NodeWindow::NodeWindow (thSynth *synth)
     : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
+      newBtn_("New..."), deleteBtn_("Delete node"),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), revertBtn_("Revert"),
       zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1")
 {
@@ -45,6 +48,8 @@ NodeWindow::NodeWindow (thSynth *synth)
 
     toolbar_.set_spacing(4);
     toolbar_.set_border_width(4);
+    toolbar_.pack_start(newBtn_, Gtk::PACK_SHRINK);
+    toolbar_.pack_start(deleteBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(arrangeBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(saveBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(revertBtn_, Gtk::PACK_SHRINK);
@@ -55,15 +60,21 @@ NodeWindow::NodeWindow (thSynth *synth)
     scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroller_.add(canvas_);
 
+    /* Palette on the left, canvas in the middle, parameters on the right --
+       the order things are used in: pick, place, adjust. */
+    outer_.pack1(palette_, false, false);
+    outer_.pack2(split_, true, false);
+    outer_.set_position(210);
+
     split_.pack1(scroller_, true, false);
     split_.pack2(params_, false, false);
-    split_.set_position(660);
+    split_.set_position(520);
 
     status_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
     status_.set_padding(6, 2);
 
     vbox_.pack_start(toolbar_, Gtk::PACK_SHRINK);
-    vbox_.pack_start(split_);
+    vbox_.pack_start(outer_);
     vbox_.pack_start(status_, Gtk::PACK_SHRINK);
 
     arrangeBtn_.signal_clicked().connect(
@@ -97,11 +108,25 @@ NodeWindow::NodeWindow (thSynth *synth)
     canvas_.signal_control_changed().connect(
         sigc::mem_fun(*this, &NodeWindow::onControlChanged));
 
+    palette_.signal_add().connect(
+        sigc::mem_fun(*this, &NodeWindow::onPaletteAdd));
+
+    newBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &NodeWindow::onNewFile));
+    deleteBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &NodeWindow::onDeleteNode));
+
+    /* The plugin path the synth was built with, so the palette offers exactly
+       what this synth can load. */
+    palette_.populate(PLUGIN_PATH, synth_ ? synth_->getPluginManager() : NULL);
+
     params_.signal_param_edited().connect(
         sigc::mem_fun(*this, &NodeWindow::onParamEdited));
 
     saveBtn_.set_sensitive(false);
     revertBtn_.set_sensitive(false);
+    deleteBtn_.set_sensitive(false);
+    palette_.setSensitive(false);
 
     show_all_children();
 }
@@ -246,6 +271,8 @@ bool NodeWindow::open (const string &filename, int chan)
 
     canvas_.setGraph(&graph_);
     params_.setBox(NULL, -1);
+    palette_.setSensitive(true);
+    deleteBtn_.set_sensitive(false);
     updateDirty();     /* leaves Save insensitive: nothing is pending yet */
 
     char buf[256];
@@ -502,6 +529,189 @@ void NodeWindow::onBoxMoved (int box)
 void NodeWindow::onSelected (int box)
 {
     params_.setBox(&graph_, box);
+
+    /* A control is a `@name' block, not a node, and the io node is the one
+       thing the file cannot do without. Neither is deletable. */
+    const bool deletable =
+        box >= 0 && box < (int)graph_.boxes().size() &&
+        !graph_.boxes()[box].isControl &&
+        !graph_.boxes()[box].isIoSource && !graph_.boxes()[box].isIoSink;
+
+    deleteBtn_.set_sensitive(deletable);
+}
+
+vector<string> NodeWindow::takenNames (void) const
+{
+    vector<string> names;
+
+    for (size_t b = 0; b < graph_.boxes().size(); b++)
+        if (!graph_.boxes()[b].isControl)
+            names.push_back(graph_.boxes()[b].name);
+
+    return names;
+}
+
+/* Adds a node of the chosen type, named so it does not collide.
+ *
+ * Written to the file at once rather than held with the other pending edits.
+ * A node's ports come from its plugin, and the only thing that knows them is
+ * a parse -- so the honest way to show a new node is to write it and reopen,
+ * which is what this does. Revert undoes it like anything else. */
+void NodeWindow::onPaletteAdd (string spelling)
+{
+    if (filename_.empty())
+    {
+        setStatus("Open or create a .dsp first.");
+        return;
+    }
+
+    const string name =
+        NodeCatalog::suggestName("", spelling.substr(spelling.find("::") + 2),
+                                 takenNames());
+
+    string why;
+
+    NodeEdit::Result r = NodeEdit::addNode(filename_, name, spelling, why);
+
+    if (r != NodeEdit::OK)
+    {
+        setStatus("Could not add " + spelling + ": " + why);
+        return;
+    }
+
+    /* Everything pending is already in memory and would be lost by the
+       reopen, so write it out first. */
+    if (!pending_.empty() || !wires_.empty() || !controls_.empty() ||
+        layoutDirty_)
+    {
+        string w2;
+
+        if (!writeAll(w2))
+            setStatus("Added " + name + ", but could not save the rest: " + w2);
+    }
+
+    const string f = filename_;
+    const int ch = channel_;
+
+    if (!open(f, ch))
+        return;
+
+    /* Put it where there is room rather than on top of layer 0, and select it
+       so its parameters are the ones showing. */
+    const int box = graph_.boxByName(name);
+
+    if (box >= 0)
+    {
+        graph_.moveBox(box, 20.0, graph_.height() + 20.0);
+        graph_.refreshExtent();
+        canvas_.setGraph(&graph_);
+        canvas_.setSelected(box);
+
+        layoutDirty_ = true;
+        updateDirty();
+    }
+
+    setStatus("Added " + name + " (" + spelling + ").  Wire it up, then Save.");
+}
+
+void NodeWindow::onDeleteNode (void)
+{
+    const int box = canvas_.selected();
+
+    if (box < 0 || box >= (int)graph_.boxes().size() || filename_.empty())
+        return;
+
+    const NodeGraph::Box &b = graph_.boxes()[box];
+
+    if (b.isControl || b.isIoSource || b.isIoSink)
+        return;
+
+    const string name = b.name;
+
+    string why;
+    int refs = 0;
+
+    if (!pending_.empty() || !wires_.empty() || !controls_.empty() ||
+        layoutDirty_)
+    {
+        string w2;
+
+        writeAll(w2);
+    }
+
+    if (NodeEdit::removeNode(filename_, name, refs, why) != NodeEdit::OK)
+    {
+        setStatus("Could not delete " + name + ": " + why);
+        return;
+    }
+
+    const string f = filename_;
+    const int ch = channel_;
+
+    if (!open(f, ch))
+        return;
+
+    char buf[192];
+
+    /* The references are the part nobody asked for, so they are the part
+       worth reporting. Left in place they would make the file load with
+       "Node x not found" and read zero. */
+    snprintf(buf, sizeof(buf),
+             refs ? "Deleted %s, and disconnected %d input%s that read from it."
+                  : "Deleted %s.",
+             name.c_str(), refs, refs == 1 ? "" : "s");
+
+    setStatus(buf);
+}
+
+/* A new .dsp: ask where, write the smallest file that loads, open it. */
+void NodeWindow::onNewFile (void)
+{
+    Gtk::FileChooserDialog dlg(*this, "New DSP", Gtk::FILE_CHOOSER_ACTION_SAVE);
+
+    dlg.set_transient_for(*this);
+    dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
+    dlg.add_button("Create", Gtk::RESPONSE_OK);
+    dlg.set_do_overwrite_confirmation(true);
+    dlg.set_current_name("untitled.dsp");
+
+    if (!filename_.empty())
+        dlg.set_current_folder(thUtil::dirname(filename_.c_str()));
+
+    if (dlg.run() != Gtk::RESPONSE_OK)
+        return;
+
+    const string path = dlg.get_filename();
+
+    dlg.hide();
+
+    /* createFile refuses to overwrite; the chooser has already asked, so an
+       existing file is one the user meant to replace. */
+    ::remove(path.c_str());
+
+    string base = thUtil::basename(path.c_str());
+
+    const string::size_type dot = base.rfind(".dsp");
+
+    if (dot != string::npos)
+        base = base.substr(0, dot);
+
+    string why;
+
+    if (NodeEdit::createFile(path, base, "", why) != NodeEdit::OK)
+    {
+        Gtk::MessageDialog err(*this, "Could not create the file.", false,
+                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
+        err.set_secondary_text(why);
+        err.run();
+        return;
+    }
+
+    /* Not attached to a channel: nothing has loaded it. */
+    if (open(path, -1))
+        setStatus("Created " + base +
+                  ".dsp -- an io node and nothing else. Add nodes from the "
+                  "palette.");
 }
 
 /* Records an edit. Nothing reaches the file until Save.

@@ -22,6 +22,7 @@
 #include "../NodeGraph.h"
 #include "NodeCanvas.h"
 #include "NodeParams.h"
+#include "NodePalette.h"
 
 class thSynth;
 
@@ -63,6 +64,12 @@ protected:
     void onDisconnect (int edge);
     void onRefused (string why);
     void onControlChanged (int box, double value, bool commit);
+    void onPaletteAdd (string spelling);
+    void onNewFile (void);
+    void onDeleteNode (void);
+
+    /* Every node name the file uses, so a new one can avoid them. */
+    vector<string> takenNames (void) const;
 
     /* Pushes an edit into the running synth, if this window is attached to a
        channel playing this file. Returns what happened, for the status bar. */
@@ -112,12 +119,25 @@ private:
     /* Control values changed by dragging a slider, keyed by chanarg name. */
     std::map<std::string, double> controls_;
 
+    /* Nodes added and removed. Unlike values and wires these are applied to
+       the file straight away rather than held until Save.
+
+       Adding a node means asking the plugin what ports it has, which means
+       loading it, which is exactly what reparsing the file does anyway -- and
+       a half-added node that exists on the canvas but not on disk is a state
+       with no honest way to draw it. So the file is the record, and Revert is
+       what undoes it. */
+    Gtk::Button newBtn_;
+    Gtk::Button deleteBtn_;
+
     Gtk::VBox vbox_;
     Gtk::HBox toolbar_;
-    Gtk::HPaned split_;
+    Gtk::HPaned outer_;     /* palette | the rest      */
+    Gtk::HPaned split_;     /* canvas  | parameters    */
     Gtk::ScrolledWindow scroller_;
     NodeCanvas canvas_;
     NodeParams params_;
+    NodePalette palette_;
     Gtk::Label status_;
 
     Gtk::Button arrangeBtn_;
