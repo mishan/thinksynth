@@ -60,8 +60,22 @@ separate_arguments(extra NATIVE_COMMAND "${EXTRA_ARGS}")
 
 message(STATUS "${MODE}: ${count} files")
 
+# A .patch names its DSP by bare filename -- `dsp ts1.dsp' -- and
+# gthPatchManager::resolveDsp resolves that relative to the current directory
+# before falling back to the compiled-in DSP_PATH. ctest's working directory
+# is the build tree, where neither hits, so the sweep needs to run from where
+# the DSPs actually are.
+#
+# This is why the patch gate passed locally and failed in CI for so long: a
+# stale /usr/local/share/thinksynth/dsp on the development machine was
+# quietly answering the DSP_PATH fallback.
+if(WORKING_DIR)
+  set(_wd WORKING_DIRECTORY "${WORKING_DIR}")
+endif()
+
 execute_process(
     COMMAND "${HARNESS}" ${extra} -p "${PLUGIN_DIR}" ${files}
+    ${_wd}
     RESULT_VARIABLE rc)
 
 # Every harness returns the number of files that failed, so a non-zero status
