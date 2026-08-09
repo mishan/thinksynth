@@ -429,10 +429,8 @@ time macOS and Windows arrive there is a working net under you.
 2. ~~**Linux CI** — build, `dspcheck` over `dsp/` and `patches/`, `dsplevel`,
    plus an ASan/UBSan job.~~ Done — section 11.
 3. ~~**Platform-independent cleanups**, all on Linux.~~ Done — section 11.
-4. **The audio rework**, on Linux: reshape `gthAudio` to callback form, add the
-   sample ring (§3b — this fixes the window/period bug that exists today), bring
-   `gthRtAudio` up against ALSA and JACK. `scripts/dsplive` and `scripts/dspab`
-   are the tools for judging it.
+4. ~~**The audio rework**, on Linux.~~ Done — section 11. **Not yet listened
+   to**: it has been verified headlessly, and wants an ear on real hardware.
 5. **The MIDI rework**, on Linux: RtMidi + `thRing` + `Glib::Dispatcher`, delete
    `gthALSAMidi`.
 6. **macOS.** By this point the genuinely new work is `_NSGetExecutablePath`,
@@ -619,3 +617,38 @@ sooner rather than later.
 Still outstanding from §5: DSP lookup goes through `DSP_PATH` with no
 executable-relative fallback, so an installed tree finds its plugins
 relocatably but not its DSPs. `PATCH_PATH` is defined and referenced nowhere.
+
+### The audio rework (§8 step 4)
+
+`gthAudio` is now callback-shaped, as §3a proposed. `Read()` and
+`ProcessEvents()` are gone — both were dead on all three implementations.
+`gthALSAAudio` is deleted; `gthJackAudio` survives only behind
+`-DTHINK_WITH_LEGACY_JACK=ON` (`-d legacy-jack`), so there is something to
+A/B against before it goes for good.
+
+`gthRtAudio` is the one backend. `-d alsa`, `-d jack`, `-d pulse`, `-d core`,
+`-d wasapi` now name an RtAudio API rather than an implementation of ours, so
+the command line means what it always meant. `-L` lists the APIs and devices,
+which nothing could do before.
+
+**`gthSynthSource` is the point of the exercise.** It turns thSynth's
+fixed-size windows into whatever the device asked for, which is the bug in §1.
+Deliberately not a lock-free ring: both ends run on the audio thread, because
+the callback calls `process()` itself when it runs dry, so there is nothing to
+synchronise. The cost is that a callback crossing a window boundary does a
+whole window's work.
+
+`scripts/dspblock` is the regression test, and it was confirmed to fail before
+it was trusted to pass. It renders the same patch at block sizes 512, 256,
+2048, 333, 64, 1 and 4096 and compares each stream bit-for-bit against the
+1024-frame reference. Against the old arithmetic, reinstated on a scratch
+branch, it fails at **every** block size — at frame 513 for a 512-frame period
+(the dropped tail) and at frame 1025 for 2048 (the inserted silence). Against
+the new code all seven agree.
+
+**What has not been done: nobody has heard it.** Everything above is headless.
+The sandbox this was built in has no sound server, so what is actually
+verified is that the samples are correct and that every `-d` selection starts,
+falls back to the dummy device when no hardware answers, and shuts down
+cleanly. Latency, underrun behaviour under load, and whether RtAudio's JACK
+path is as good as the hand-written one are all open, and want an ear.

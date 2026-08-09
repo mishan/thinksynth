@@ -25,6 +25,8 @@ set(THINKSYNTH_SOURCES
     gthPrefs.cpp
     gthPatchfile.cpp
     gthDummyAudio.cpp
+    gthSynthSource.cpp
+    gthRtAudio.cpp
     gui/AboutBox.cpp
     gui/ArgTable.cpp
     gui/Keyboard.cpp
@@ -37,11 +39,13 @@ set(THINKSYNTH_SOURCES
     gui/NodeWindow.cpp
     gui/PatchSelWindow.cpp)
 
+# Only the MIDI half of the ALSA backend is left; gthALSAAudio is gone,
+# replaced by RtAudio's ALSA support.
 if(HAVE_ALSA)
-  list(APPEND THINKSYNTH_SOURCES gthALSAAudio.cpp gthALSAMidi.cpp)
+  list(APPEND THINKSYNTH_SOURCES gthALSAMidi.cpp)
 endif()
 
-if(HAVE_JACK)
+if(HAVE_LEGACY_JACK)
   list(APPEND THINKSYNTH_SOURCES gthJackAudio.cpp)
 endif()
 
@@ -56,13 +60,14 @@ target_include_directories(thinksynth PRIVATE
 target_link_libraries(thinksynth PRIVATE
     think
     PkgConfig::GTKMM
-    PkgConfig::GTHREAD)
+    PkgConfig::GTHREAD
+    PkgConfig::RTAUDIO)
 
 if(HAVE_ALSA)
   target_link_libraries(thinksynth PRIVATE PkgConfig::ALSA)
 endif()
 
-if(HAVE_JACK)
+if(HAVE_LEGACY_JACK)
   target_link_libraries(thinksynth PRIVATE PkgConfig::JACK)
 endif()
 

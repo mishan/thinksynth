@@ -42,16 +42,17 @@ typedef void (*sighandler_t)(int);
 
 #include "think.h"
 #include "gthAudio.h"
+#include "gthSynthSource.h"
+#include "gthRtAudio.h"
 
 #ifdef HAVE_ALSA
-#include "gthALSAAudio.h"
 #include "gthALSAMidi.h"
 #endif /* HAVE_ALSA */
 
-#ifdef HAVE_JACK
+#ifdef HAVE_LEGACY_JACK
 #include <jack/jack.h>
 #include "gthJackAudio.h"
-#endif /* HAVE_JACK */
+#endif /* HAVE_LEGACY_JACK */
 
 #include "gthDummyAudio.h"
 
@@ -67,6 +68,7 @@ typedef void (*sighandler_t)(int);
 /* XXX: globals */
 thSynth *Synth = NULL;
 gthAudio *aout = NULL;
+static gthSynthSource *asource = NULL;
 
 #ifdef HAVE_ALSA
 static gthALSAMidi *midi = NULL;
@@ -86,8 +88,10 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "Usage: %s [options]\n"
 "-h\t\t\tdisplay this help screen\n"
 "-p [path]\t\tmodify the plugin search path\n"
-"-d [jack|alsa]\tchange output driver\n"
-"  -o [file|device]\tchange output dest\n"
+"-d [driver]\t\taudio API: alsa, jack, pulse, core, wasapi, asio,\n"
+"\t\t\tnone, or empty to let RtAudio choose\n"
+"  -o [device]\t\toutput device, by full or partial name\n"
+"-L\t\t\tlist the audio APIs and devices, then exit\n"
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
 ;
@@ -115,8 +119,13 @@ void cleanup (int signum)
             if (aout)
             {
                 printf("closing audio devices...\n");
+                aout->stop();
                 delete aout;
+                aout = NULL;
             }
+
+            delete asource;
+            asource = NULL;
 
 #ifdef HAVE_ALSA
             if (midi)
@@ -135,31 +144,29 @@ void process_synth (void)
     Synth->process();
 }
 
-#ifdef HAVE_ALSA
-/* ALSA callback */
-void audio_readywrite (gthAudio *audio, thSynth *synth)
-{
-    int l = synth->getWindowlen();
-    float *synthbuffer = synth->getOutput();
+/* audio_readywrite() and playback_callback() used to be here.
+ *
+ * The first pushed a window at gthALSAAudio::Write() whenever a poll on
+ * ALSA's descriptors said there was room. The second was JACK's callback,
+ * reaching for the global Synth and copying min(nframes, windowlen) frames
+ * per channel -- which silently dropped or padded audio whenever those two
+ * disagreed, and only ever agreed because JACK's default period is 1024 and
+ * so is TH_DEFAULT_WINDOW_LENGTH.
+ *
+ * Both are now gthSynthSource, which every backend pulls from and which
+ * copes with any block size. scripts/dspblock is the regression test.
+ */
 
-    audio->Write(synthbuffer, l);
-
-    process_synth ();
-}
-#endif
-
-#ifdef HAVE_JACK
-/* JACK callback */
+#ifdef HAVE_LEGACY_JACK
+/* The old hand-written JACK callback, kept only so the in-tree JACK backend
+   can still be built for an A/B against RtAudio's. It has the window/period
+   bug described above; that is the point of keeping it. */
 int playback_callback (jack_nframes_t nframes, void *arg)
 {
     gthJackAudio *jack = static_cast<gthJackAudio *>(arg);
 
     int l = Synth->getWindowlen();
     int chans = Synth->audioChannelCount();
-
-    /* JACK's period and thinksynth's window length are independent; copying
-       `l' frames into an `nframes' buffer overran the port whenever JACK's
-       period was the smaller of the two. */
     int copy = ((int)nframes < l) ? (int)nframes : l;
 
     for (int i = 0; i < chans; i++)
@@ -170,24 +177,48 @@ int playback_callback (jack_nframes_t nframes, void *arg)
         if (buf == NULL)
             continue;
 
-        /* Clamped rather than memcpy'd: a JACK port expects -1..1, and the mix
-           runs well past that with more than a voice or two held down. */
         for (int k = 0; k < copy; k++)
             buf[k] = thClampSample(synthbuffer[k]);
 
-        /* If JACK wants more than we produced, pad with silence rather than
-           leaving whatever was in the port buffer. */
         if ((int)nframes > copy)
             memset(buf + copy, 0, ((int)nframes - copy) * sizeof(float));
     }
 
-    /* generate a new window; must make sure that everything herein is RT-safe.
-       this means no mutex locks or memory allocations */
     process_synth ();
 
     return 0;
 }
-#endif /* HAVE_JACK */
+#endif /* HAVE_LEGACY_JACK */
+
+/* -L */
+static void listAudio (void)
+{
+    const std::vector<std::string> apis = gthRtAudio::availableApis();
+
+    printf("audio APIs in this build:");
+
+    for (size_t i = 0; i < apis.size(); i++)
+        printf(" %s", apis[i].c_str());
+
+    printf("\n\noutput devices on the default API:\n");
+
+    gthRtAudio probe;
+
+    if (!probe.valid())
+    {
+        printf("  (none -- RtAudio would not start)\n");
+        return;
+    }
+
+    const std::vector<gthAudioDevice> devs = probe.devices();
+
+    for (size_t i = 0; i < devs.size(); i++)
+        printf("  %-52s %u ch%s\n", devs[i].name.c_str(),
+               devs[i].outputChannels, devs[i].isDefault ? "  (default)" : "");
+
+    if (devs.empty())
+        printf("  (none)\n");
+}
 
 #ifdef HAVE_ALSA
 int processmidi (snd_seq_t *seq_handle, thSynth *synth)
@@ -314,10 +345,15 @@ int main (int argc, char *argv[])
      * its lexer, so anything embedding the library has to do the same. */
     setlocale(LC_NUMERIC, "C");
 
-    while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1)
+    while ((havearg = getopt (argc, argv, "hLp:o:d:r:l:")) != -1)
     {
         switch (havearg)
         {
+            case 'L':
+            {
+                listAudio();
+                return 0;
+            }
             case 'r':
             {
                 samples = atoi(optarg);
@@ -375,11 +411,16 @@ int main (int argc, char *argv[])
     signal(SIGUSR1, (sighandler_t)cleanup);
     signal(SIGINT, (sighandler_t)cleanup);
 
-    /* create a window first */
-    Synth->process();
+    /* The source primes the synth in prepare(); no need to render a window
+       here as well. */
+    asource = new gthSynthSource(Synth);
 
-    /* all thAudio classes will work with floating point buffers, converting
-       to other formats internally, if necessary */
+    gthAudioFmt want;
+
+    want.rate = samples;
+    want.channels = Synth->audioChannelCount();
+    want.frames = 0;              /* let the device choose; see gthSynthSource */
+
     try
     {
 #ifdef HAVE_ALSA
@@ -392,55 +433,67 @@ int main (int argc, char *argv[])
         }
 #endif /* HAVE_ALSA */
 
-        printf ("Trying the '%s' driver\n", driver.c_str());
-
-        if (driver == "alsa")
-        { 
-#ifdef HAVE_ALSA
-            if (outputfname.length() > 0)
-                aout = new gthALSAAudio(Synth, outputfname.c_str());
-            else
-                aout = new gthALSAAudio(Synth);
-
-            /* connect our audio out event handler and bind a synth to this
-               instance */
-            gthALSAAudio *aptr = static_cast<gthALSAAudio *>(aout);
-            aptr->signal_ready_write().connect(
-                sigc::bind<gthAudio *,thSynth *>(sigc::ptr_fun(&audio_readywrite),
-                                                 aout, Synth)); 
-#else
-            fprintf(stderr, "Sorry, ALSA is not supported in this build.\n");
-#endif /* HAVE_ALSA */
-        }
-         else if (driver == "jack")
+#ifdef HAVE_LEGACY_JACK
+        if (driver == "legacy-jack")
         {
-#ifdef HAVE_JACK
+            /* The in-tree JACK backend, for an A/B against RtAudio's. */
             aout = new gthJackAudio(Synth, playback_callback);
-#else
-            fprintf(stderr, "Sorry, JACK is not supported in this build.\n");
-            return 1;
-#endif /* HAVE_JACK */
+        }
+        else
+#endif /* HAVE_LEGACY_JACK */
+        if (driver == "none")
+        {
+            puts("Using dummy audio device; no audio output will occur.");
+            aout = new gthDummyAudio();
         }
         else
         {
-            if (driver != "none")
-                fprintf(stderr, "Unrecognized driver '%s'!\n", driver.c_str());
+            /* "alsa", "jack", "pulse", "core", "wasapi", "asio" all name an
+               RtAudio API now; an empty or unrecognised value lets RtAudio
+               pick. So -d jack and -d alsa still mean what they meant, but
+               the implementation behind them is no longer ours. */
+            printf("Trying the '%s' audio API\n",
+                   driver.empty() ? "(default)" : driver.c_str());
 
-            puts("Using dummy audio device; no audio output will occur.");
-            aout = new gthDummyAudio(Synth);
+            gthRtAudio *rt = new gthRtAudio(driver, outputfname);
+
+            if (rt->valid() && rt->open(want, asource) && rt->start())
+            {
+                aout = rt;
+            }
+            else
+            {
+                delete rt;
+
+                fprintf(stderr, "Could not open an audio device.\n");
+
+                if (driver == "jack")
+                    fprintf(stderr, "Perhaps you should start jackd? "
+                                    "Try jackd -d alsa.\n");
+
+                fprintf(stderr, "Falling back to dummy audio device; "
+                                "try -L to see what is available.\n");
+
+                aout = new gthDummyAudio();
+            }
         }
 
+        /* The dummy and legacy-JACK paths still need opening and starting;
+           the RtAudio one has already done both. */
+        if (aout != NULL && !aout->running())
+        {
+            aout->open(want, asource);
+            aout->start();
+        }
     }
     catch (thIOException e)
     {
         fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
-
-        if (driver == "jack")
-            fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
-
         fprintf(stderr, "Falling back to dummy audio device\n");
 
-        aout = new gthDummyAudio(Synth);
+        aout = new gthDummyAudio();
+        aout->open(want, asource);
+        aout->start();
     }
 
     MainSynthWindow synthWindow(aout);
@@ -461,8 +514,15 @@ int main (int argc, char *argv[])
     if (aout)
     {
         printf("closing audio devices...\n");
+
+        /* Stop before anything the callback touches goes away. */
+        aout->stop();
         delete aout;
+        aout = NULL;
     }
+
+    delete asource;
+    asource = NULL;
 
     /* Will not be reached if using 'alsa' driver */
 #if 0

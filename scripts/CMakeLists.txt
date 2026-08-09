@@ -41,6 +41,10 @@ think_harness(dsplevel)
 think_harness(dspab)
 think_harness(dspstress THREADS)
 
+# The audio path's block-size handling, without a sound card. gthSynthSource
+# is deliberately free of both gtkmm and RtAudio so this can link it directly.
+think_harness(dspblock EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -84,5 +88,14 @@ add_test(NAME dsplevel
                  "-DEXTRA_ARGS=-v 4"
                  -P "${_runner}")
 
-set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel
+# Rendering each patch eight times over is slow, so this runs on a
+# representative handful rather than the whole corpus: what is being tested is
+# gthSynthSource, not the DSPs.
+add_test(NAME dspblock
+         COMMAND dspblock -q -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/anasync.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/mfm01.dsp")
+
+set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock
                      PROPERTIES TIMEOUT 900)
