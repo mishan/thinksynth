@@ -120,7 +120,11 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja pkg-config bison flex gtkmm3 jack
+          # No jack: RtAudio and RtMidi are built with CoreAudio/CoreMIDI
+          # only on macOS, and having Homebrew JACK present is what produced
+          # `ld: library jack not found' -- RtAudio detected it and exported a
+          # bare -ljack with no -L to go with it.
+          brew install cmake ninja pkg-config bison flex gtkmm3
 
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be

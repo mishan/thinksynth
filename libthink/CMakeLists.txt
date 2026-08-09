@@ -30,6 +30,7 @@ set(THINK_SOURCES
     thMidiController.cpp
     thSynth.cpp
     thUtil.cpp
+    thDynLib.cpp
     ${BISON_ThinkParser_OUTPUTS}
     ${FLEX_ThinkLexer_OUTPUTS})
 

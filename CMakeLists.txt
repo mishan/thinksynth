@@ -142,11 +142,18 @@ else()
   set(RTAUDIO_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
   # Which APIs a fetched RtAudio builds, decided here rather than left to its
-  # own probing. Left to itself it enables whatever it can find, so the set of
-  # backends in a build would depend on what happened to be installed on the
-  # machine that produced it -- and on a macOS runner with Homebrew JACK
-  # present that meant an interface carrying a bare `-ljack' with no -L to go
-  # with it. JACK stays on for Linux, where it is the point.
+  # own probing.
+  #
+  # Left to itself it enables whatever it can find, and on a macOS runner with
+  # Homebrew JACK installed that meant an interface carrying a bare `-ljack'
+  # with no -L to go with it: `ld: library 'jack' not found', after everything
+  # else had compiled. Being explicit also means the set of backends does not
+  # depend on what happens to be installed on the machine that built it, which
+  # for a shipped binary matters more than the convenience.
+  #
+  # JACK stays on for Linux, where it is the point. macOS gets CoreAudio and
+  # Windows WASAPI; both can have JACK added deliberately by someone who wants
+  # it and has the development files to hand.
   if(APPLE)
     set(RTAUDIO_API_CORE ON  CACHE BOOL "" FORCE)
     set(RTAUDIO_API_JACK OFF CACHE BOOL "" FORCE)
@@ -163,6 +170,12 @@ else()
   # and its install script looks for it in the top-level one, so `cmake
   # --install' and every cpack run fail with "cannot find
   # .../RtAudioConfig.cmake". CMake honours this for install rules from 3.28.
+  #
+  # They also both create a custom target called `uninstall', which cannot
+  # share a name in one build; each exposes the name as a cache variable for
+  # exactly that.
+  set(RTAUDIO_TARGETNAME_UNINSTALL "rtaudio-uninstall" CACHE STRING "" FORCE)
+
   FetchContent_Declare(rtaudio
       GIT_REPOSITORY https://github.com/thestk/rtaudio.git
       GIT_TAG ${THINK_RTAUDIO_VERSION}
@@ -204,10 +217,14 @@ else()
   set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
   set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "" FORCE)
 
-  # RtAudio and RtMidi both create a custom target called `uninstall', and two
-  # targets cannot share a name in one build. Both expose the name as a cache
-  # variable for exactly this; without it, fetching the second fails at
-  # configure time with CMP0002.
+  # Same reasoning as RtAudio above.
+  if(APPLE)
+    set(RTMIDI_API_CORE ON  CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK OFF CACHE BOOL "" FORCE)
+  elseif(WIN32)
+    set(RTMIDI_API_WINMM ON  CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK  OFF CACHE BOOL "" FORCE)
+  endif()
   set(RTMIDI_TARGETNAME_UNINSTALL "rtmidi-uninstall" CACHE STRING "" FORCE)
 
   if(APPLE)

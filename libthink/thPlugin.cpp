@@ -22,13 +22,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* macOS has had a real dlopen(3) since 10.3; the NSModule shim that used
-   to sit behind USING_DARWIN here has been dead code for twenty years. */
-#ifdef HAVE_DLFCN_H
-#include <dlfcn.h>
-#else
-# error Need a dl implementation!
-#endif
+#include "thDynLib.h"
 
 #include "think.h"
 
@@ -123,23 +117,19 @@ int thPlugin::moduleLoad (void)
     ModuleInit module_init;
     unsigned char* plug_apiversion;
         
-    handle_ = dlopen(path_.c_str(), RTLD_NOW);
+    handle_ = thDynLib::open(path_);
     
     if (handle_ == NULL) {
 
-#ifdef HAVE_DLERROR
-        fprintf(stderr, "thPlugin::ModuleLoad: %s\n", dlerror());
-#else
-        fprintf(stderr, "thPlugin::ModuleLoad: Unable to load plugin: %s",
-                path_.c_str());
-#endif /* HAVE_DLERROR */
+        fprintf(stderr, "thPlugin::ModuleLoad: %s: %s\n", path_.c_str(),
+                thDynLib::lastError().c_str());
 
         goto loaderr;
     }
 
     /* Retrieve plugin's module_init (hopefully it exists!) */
     
-    module_init = (ModuleInit)dlsym (handle_, "module_init");
+    module_init = (ModuleInit)thDynLib::symbol(handle_, "module_init");
 
     if (module_init == NULL) {
         fprintf(stderr, "thPlugin::ModuleLoad: Could not find 'module_init' symbol\n");        
@@ -147,7 +137,7 @@ int thPlugin::moduleLoad (void)
     }
 
     /* Verify that the API version of the plugin matches our version. */
-    plug_apiversion = (unsigned char*)dlsym(handle_, "apiversion");
+    plug_apiversion = (unsigned char*)thDynLib::symbol(handle_, "apiversion");
 
     if (plug_apiversion == NULL) {
         fprintf(stderr, "thPlugin::ModuleLoad: API version symbol missing\n");
@@ -178,7 +168,7 @@ int thPlugin::moduleLoad (void)
         goto loaderr;
     }
     
-    callback_ = (Callback)dlsym(handle_,"module_callback");
+    callback_ = (Callback)thDynLib::symbol(handle_, "module_callback");
     
     /* Ensure that plugin's callback exists */
     
@@ -203,7 +193,7 @@ void thPlugin::moduleUnload (void)
     ModuleCleanup module_cleanup;
 
     /* Invoke the plugin's module_cleanup ... */
-    module_cleanup = (ModuleCleanup)dlsym (handle_, "module_cleanup");
+    module_cleanup = (ModuleCleanup)thDynLib::symbol(handle_, "module_cleanup");
     
     /* ... only if it exists */
     if (module_cleanup != NULL) {
@@ -211,5 +201,5 @@ void thPlugin::moduleUnload (void)
     }
 
     /* Finally, unload the plugin */
-    dlclose(handle_);
+    thDynLib::close(handle_);
 }
