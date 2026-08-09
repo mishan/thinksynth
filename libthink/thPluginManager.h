@@ -28,6 +28,25 @@ public:
     void unloadPlugin(const string &name);
 
     thPlugin *getPlugin (const string &name) { return plugins_[name]; };
+
+    /* Where plugins are actually being loaded from. Not necessarily what was
+       passed to the constructor -- see resolveRoot. */
+    const string &pluginPath (void) const { return plugin_path_; }
+
+    /* Picks a plugin directory that exists and has plugins in it.
+     *
+     * An uninstalled build has them in ./plugins, an installed one in
+     * $(libdir)/thinksynth, and someone running src/thinksynth from a
+     * different directory has them relative to the binary. Trying each in
+     * turn is the difference between the editor working from a fresh
+     * checkout and not.
+     *
+     * In order: $THINK_PLUGIN_PATH, `preferred', ./plugins, and the two
+     * places relative to the running executable. `preferred' is returned
+     * unchanged if none of them has anything, so an error still names the
+     * place the build expected. */
+    static string resolveRoot (const string &preferred);
+
 private:
     typedef map<string, thPlugin*> PluginMap;
     PluginMap plugins_;
