@@ -19,7 +19,9 @@
 #ifndef TH_MIDINOTE_H
 #define TH_MIDINOTE_H 1
 
-class thMidiNote {
+#include "thExport.h"
+
+class THINK_API thMidiNote {
 public:
     thMidiNote (thSynthTree *tree, float note, float velocity);
     thMidiNote (thSynthTree *tree);

@@ -26,7 +26,7 @@
 static const char desc[] = "Zeros the output if the input goes below a certain level";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

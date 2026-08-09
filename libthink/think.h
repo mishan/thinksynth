@@ -240,6 +240,7 @@ typedef list<thNode *> thNodeList;
 
 
 /* XXX: INCLUDES */
+#include "thExport.h"
 #include "thRing.h"
 #include "thSynthCommand.h"
 #include "thArg.h"

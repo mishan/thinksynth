@@ -32,7 +32,7 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "`INK Filter`  this algorithm was in my head when I woke up";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

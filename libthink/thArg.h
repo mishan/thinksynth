@@ -19,13 +19,15 @@
 #ifndef TH_ARG_H
 #define TH_ARG_H 1
 
+#include "thExport.h"
+
 #include <sigc++/sigc++.h>
 
 class thArg;
 
 typedef sigc::signal<void(thArg *)> type_signal_arg_changed;
 
-class thArg {
+class THINK_API thArg {
 public:
     thArg  (const string &name, float value);
     thArg  (const string &name, const float *value, int num);

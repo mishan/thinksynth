@@ -46,7 +46,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 const float SQRT2_2 = 2*sqrt(2);
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

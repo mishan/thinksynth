@@ -30,7 +30,7 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "Band-pass oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

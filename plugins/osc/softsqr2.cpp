@@ -31,7 +31,7 @@ enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_PW, IN_SW};
 
 int args[IN_SW + 1];
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

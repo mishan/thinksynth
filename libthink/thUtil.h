@@ -19,11 +19,13 @@
 #ifndef TH_UTIL_H
 #define TH_UTIL_H
 
+#include "thExport.h"
+
 using namespace std;
 
 #include <string>
 
-class thUtil {
+class THINK_API thUtil {
 public:
     thUtil (void) { }
     ~thUtil (void) { }

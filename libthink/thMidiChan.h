@@ -19,7 +19,9 @@
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
 
-class thMidiChan {
+#include "thExport.h"
+
+class THINK_API thMidiChan {
 public:
     /* Takes ownership of `mod' and destroys it. Each channel needs its own
        tree: assignChanArgPointers() caches raw thArg pointers into the tree's

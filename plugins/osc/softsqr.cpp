@@ -32,7 +32,7 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
 
 static const float M_PI2 = 2*M_PI;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

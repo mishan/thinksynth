@@ -31,7 +31,7 @@
 static const char desc[] = "Resonant 2-pole Chamberlin filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

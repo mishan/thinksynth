@@ -28,7 +28,7 @@ int args[OUT+1];
 static const char desc[] = "Fades between two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

@@ -19,26 +19,46 @@
 #ifndef TH_PLUGIN_H
 #define TH_PLUGIN_H 1
 
+#include "thExport.h"
+
 class thSynthTree;
 class thNode;
 
 #define MODULE_IFACE_VER 4
 
-/* We don't want this to exist unless we're using a plugin. */
+/* We don't want this to exist unless we're using a plugin.
+ *
+ * These four are what the host looks up by name, so they are the plugin's
+ * entire ABI and the only symbols it needs to export. Declaring them here
+ * with THINK_PLUGIN_API means all 66 plugins get the export attribute from
+ * the header rather than each having to say so -- on Windows the attribute
+ * on a prior declaration is what counts, and every plugin includes think.h
+ * before defining them.
+ *
+ * module_cleanup used to be declared `void module_cleanup(struct module *)'
+ * -- and `struct module' is a type that exists nowhere in the tree; it was
+ * being forward-declared into existence by that parameter list. Meanwhile
+ * thPlugin.cpp casts the looked-up symbol to ModuleCleanup, which is
+ * void (*)(thPlugin *), and calls it with `this'. So every plugin's cleanup
+ * hook was called through a function pointer of the wrong type on every
+ * unload. It survived only because all 66 bodies are empty. The declaration
+ * now matches the typedef and the call.
+ */
 #ifdef PLUGIN_BUILD
-unsigned char apiversion = MODULE_IFACE_VER;
+THINK_PLUGIN_API unsigned char apiversion = MODULE_IFACE_VER;
 class thPlugin;
 
 /* Provide the prototypes */
 extern "C" {
-    int  module_init (thPlugin *plugin);
-    int  module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
-                          unsigned int samples);
-    void module_cleanup (struct module *mod);
+    THINK_PLUGIN_API int  module_init (thPlugin *plugin);
+    THINK_PLUGIN_API int  module_callback (thNode *node, thSynthTree *mod,
+                                           unsigned int windowlen,
+                                           unsigned int samples);
+    THINK_PLUGIN_API void module_cleanup (thPlugin *plugin);
 }
 #endif
 
-class thPlugin {
+class THINK_API thPlugin {
 public:
     thPlugin (const string &path);
     ~thPlugin ();

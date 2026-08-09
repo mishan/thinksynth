@@ -26,7 +26,7 @@
 static const char desc[] = "Applies x^(1/y) saturation";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 
