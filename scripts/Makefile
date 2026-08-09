@@ -29,7 +29,9 @@ TOP := ..
 SIGC_CFLAGS := $(shell pkg-config --cflags sigc++-2.0)
 SIGC_LIBS := $(shell pkg-config --libs sigc++-2.0)
 
-CXXFLAGS := -g -O0 -Wall -I$(TOP) -I$(TOP)/libthink -I$(TOP)/src $(SIGC_CFLAGS)
+# -std matches configure.ac: think.h pulls in <atomic> by way of thRing.h.
+CXXFLAGS := -g -O0 -Wall -std=c++11 \
+	    -I$(TOP) -I$(TOP)/libthink -I$(TOP)/src $(SIGC_CFLAGS)
 LDFLAGS := -L$(TOP)/libthink -lthink $(SIGC_LIBS) -ldl
 
 # gthPatchfile.cpp lives in the binary rather than in libthink, so pull it in

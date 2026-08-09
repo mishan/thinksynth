@@ -96,7 +96,13 @@ AC_CXX_MT_BROKEN
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
-CXXFLAGS="-Wall -ffast-math"
+dnl The lock-free command queue puts <atomic> in thRing.h, which think.h
+dnl includes, so every translation unit in the tree now needs C++11. Nothing
+dnl said so: the build simply relied on the compiler defaulting to something
+dnl recent enough, which GCC has since 6 and older toolchains have not. Saying
+dnl it makes the failure a clear one at configure time rather than a wall of
+dnl errors from inside libstdc++.
+CXXFLAGS="-Wall -ffast-math -std=c++11"
 
 AC_CHECK_HEADERS([dlfcn.h])
 
