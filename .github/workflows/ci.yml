@@ -1,0 +1,181 @@
+# Three-platform CI. See PORTING.md section 10.
+#
+# Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm-3, which
+# has no MSVC build, and reinforced by the eleven files in the tree that use
+# variable-length arrays.
+#
+# STATUS: linux and asan are real gates and must stay green. macos and windows
+# are marked continue-on-error because the port has not reached them yet --
+# they run so the output shows how far it gets, without turning the workflow
+# red. Remove `continue-on-error' from each at PORTING.md section 8 steps 6
+# and 7 respectively.
+#
+# Hosted runners have no audio device, so the backends themselves are never
+# exercised here -- only that they compile and link. The gates are the
+# headless harnesses, which need neither a device nor (except on Linux, where
+# Gtk::Main is constructed before getopt) a display.
+
+name: ci
+
+on:
+  # `push' alone fires for every branch, and `pull_request' fires again for
+  # the same commits once a PR exists -- which is why every job ran twice.
+  # Pushes are only interesting on the trunk and the porting stack;
+  # everything else is covered by its PR.
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes the first; no point finishing a run nobody will
+# look at.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No UNBUILT_PLUGINS here any more: which DSPs are eligible is decided by
+# cmake/RunHarness.cmake, which reads each file rather than matching names.
+
+jobs:
+  linux:
+    name: linux (gcc)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      # Gtk::Main is constructed before getopt runs (src/main.cpp:292), so even
+      # -h needs a display. xvfb is the whole reason this is not a plain
+      # invocation.
+      - name: Smoke test
+        run: xvfb-run -a ./build/src/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  asan:
+    name: linux asan + ubsan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev
+
+      # THINK_SANITIZE applies the flags globally rather than per-target, so
+      # they reach libthink and all 62 plugins. An earlier round of
+      # measurements was worthless because they reached only the harness.
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTHINK_SANITIZE=address,undefined
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
+
+  macos:
+    name: macos (clang, arm64)
+    runs-on: macos-14
+    continue-on-error: true   # remove at PORTING.md section 8 step 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja pkg-config bison flex gtkmm3 jack
+
+      # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
+      # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
+      # put on PATH explicitly. This catches everyone exactly once.
+      - name: Put Homebrew bison and flex first
+        run: |
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin"  >> "$GITHUB_PATH"
+
+      - name: Check tool versions
+        run: |
+          bison --version | head -1
+          flex --version
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: windows (mingw-w64, ucrt64)
+    runs-on: windows-latest
+    continue-on-error: true   # remove at PORTING.md section 8 step 7
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          # bison and flex come from the msys repo; everything else is the
+          # ucrt64 toolchain.
+          install: >-
+            bison
+            flex
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            pkgconf:p
+            gtkmm3:p
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth.exe -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure

@@ -1,6 +1,10 @@
-# Stopgap CI: builds the tree as it stands today, with autotools, on Linux
-# only. Delete this file once CMakeLists.txt exists and ci.yml's linux job is
-# green -- see PORTING.md section 8, step 1.
+# CI for the autotools build, on Linux only.
+#
+# CMake is now the primary build (ci.yml) and produces byte-identical harness
+# results. This workflow stays only as long as configure.ac and build.mk do:
+# while two build systems exist, both need guarding or the unattended one
+# rots. Delete it in the same commit that deletes autotools -- PORTING.md
+# section 7, last paragraph.
 #
 # Three gates, all of them headless:
 #
