@@ -116,9 +116,13 @@ NodeWindow::NodeWindow (thSynth *synth)
     deleteBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeWindow::onDeleteNode));
 
-    /* The plugin path the synth was built with, so the palette offers exactly
-       what this synth can load. */
-    palette_.populate(PLUGIN_PATH, synth_ ? synth_->getPluginManager() : NULL);
+    /* Where the synth is actually loading plugins from, not where the build
+       expected them -- an uninstalled tree has them in ./plugins. Asking the
+       manager means the palette can only ever offer what this synth can
+       load. */
+    thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+
+    palette_.populate(pm ? pm->pluginPath() : string(PLUGIN_PATH), pm);
 
     params_.signal_param_edited().connect(
         sigc::mem_fun(*this, &NodeWindow::onParamEdited));

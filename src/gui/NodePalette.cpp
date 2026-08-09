@@ -77,7 +77,14 @@ int NodePalette::populate (const string &pluginPath, thPluginManager *pm)
     rebuild();
 
     if (n == 0)
-        detail_.set_markup("<i>No plugins found.</i>");
+    {
+        /* Naming the directory is the whole message: "no plugins found" sends
+           you looking at the palette, and the answer is always the path. */
+        detail_.set_markup("<i>No plugins in</i>\n<tt>" +
+                           Glib::Markup::escape_text(pluginPath) + "</tt>\n"
+                           "<small>Build them, or set "
+                           "THINK_PLUGIN_PATH.</small>");
+    }
 
     return n;
 }

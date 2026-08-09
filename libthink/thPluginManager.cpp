@@ -37,17 +37,134 @@
 
 #include <sys/types.h>
 #include <sys/stat.h>
+#include <stdlib.h>     /* getenv */
+#include <dirent.h>     /* the plugin-root search */
 
 #include "think.h"
 
 thPluginManager::thPluginManager (const string &path)
 {
-    plugin_path_ = path;
+    plugin_path_ = resolveRoot(path);
 }
 
 thPluginManager::~thPluginManager ()
 {
     unloadPlugins();
+}
+
+/* Does this directory hold plugins -- <root>/<category>/<something>.so? */
+static bool hasPlugins (const string &root)
+{
+    DIR *top = opendir(root.c_str());
+
+    if (top == NULL)
+        return false;
+
+    bool found = false;
+    struct dirent *de;
+
+    while (!found && (de = readdir(top)) != NULL)
+    {
+        const string cat = de->d_name;
+
+        if (cat == "." || cat == "..")
+            continue;
+
+        const string sub = root + cat;
+
+        struct stat st;
+
+        if (stat(sub.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
+            continue;
+
+        DIR *d = opendir(sub.c_str());
+
+        if (d == NULL)
+            continue;
+
+        struct dirent *pe;
+        const string suffix = PLUGIN_SUFFIX;
+
+        while ((pe = readdir(d)) != NULL)
+        {
+            const string f = pe->d_name;
+
+            if (f.size() > suffix.size() &&
+                f.compare(f.size() - suffix.size(), suffix.size(),
+                          suffix) == 0)
+            { found = true; break; }
+        }
+
+        closedir(d);
+    }
+
+    closedir(top);
+
+    return found;
+}
+
+/* The directory the running executable is in, with a trailing slash, or "". */
+static string exeDir (void)
+{
+    char buf[4096];
+
+    /* Linux only; everywhere else this candidate is simply skipped, which
+       costs nothing because the cwd-relative one usually covers it. */
+    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+
+    if (n <= 0)
+        return "";
+
+    buf[n] = 0;
+
+    string path = buf;
+
+    const string::size_type slash = path.rfind('/');
+
+    return (slash == string::npos) ? "" : path.substr(0, slash + 1);
+}
+
+string thPluginManager::resolveRoot (const string &preferred)
+{
+    vector<string> tries;
+
+    const char *env = getenv("THINK_PLUGIN_PATH");
+
+    if (env && *env)
+        tries.push_back(env);
+
+    tries.push_back(preferred);
+    tries.push_back("plugins");
+
+    const string exe = exeDir();
+
+    if (!exe.empty())
+    {
+        /* src/thinksynth run from anywhere: ../plugins from the binary. */
+        tries.push_back(exe + "../plugins");
+        tries.push_back(exe + "plugins");
+    }
+
+    for (size_t i = 0; i < tries.size(); i++)
+    {
+        string root = tries[i];
+
+        if (root.empty())
+            continue;
+
+        if (root[root.size() - 1] != '/')
+            root += '/';
+
+        if (hasPlugins(root))
+            return root;
+    }
+
+    string fallback = preferred;
+
+    if (!fallback.empty() && fallback[fallback.size() - 1] != '/')
+        fallback += '/';
+
+    return fallback;
 }
 
 const string thPluginManager::getPath (const string &name)

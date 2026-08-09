@@ -102,6 +102,28 @@ int main (int argc, char **argv)
 
     int failed = 0;
 
+    /* ---- where the plugins are ----
+     *
+     * The palette scans whatever the plugin manager resolved to, so this
+     * checks the resolution itself: an uninstalled tree keeps its plugins in
+     * ./plugins and `make install' has never been run on most checkouts. If
+     * this picks the wrong place the palette comes up empty, which is exactly
+     * what happened the first time it was run outside the build directory. */
+    {
+        thSynth probe(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        const string resolved = probe.getPluginManager()->pluginPath();
+
+        printf("plugin root: %s\n", resolved.c_str());
+
+        if (resolved != pluginPath &&
+            !(pluginPath.size() && resolved == pluginPath))
+            printf("  (asked for %s)\n", pluginPath.c_str());
+
+        pluginPath = resolved;
+    }
+
     /* ---- the catalogue ---- */
 
     NodeCatalog cat;
