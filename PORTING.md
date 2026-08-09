@@ -1,14 +1,20 @@
 # thinksynth — macOS and Windows
 
-Survey date: 2026-08-08. Written against `master` @ `a353f75`.
+Survey date: 2026-08-08. Written against `node-editor-layout` @ `6de3270`.
 
 Supersedes the old four-line `PORTING` status table.
 
 | OS | Toolchain | Audio | MIDI | Status |
 |---|---|---|---|---|
-| GNU/Linux | GCC, autotools | ALSA, JACK | ALSA seq | works |
+| GNU/Linux | GCC, CMake **or** autotools | ALSA, JACK | ALSA seq | works |
 | macOS | Clang + Homebrew | — | — | configure.ac has a Darwin branch; nothing has been built since ~2006 |
 | Windows | — | — | — | never attempted |
+
+> **Progress:** steps 1 and 2 of [section 8](#8-sequencing) are done. CMake
+> builds the tree on Linux and produces byte-identical `dspcheck` and
+> `dsplevel` output to the autotools build, and CI gates Linux plus a Linux
+> ASan/UBSan build on every push. Nothing in sections 3–6 has been touched
+> yet, deliberately — see [section 11](#11-what-has-landed).
 
 ## 1. The shape of the problem
 
@@ -408,10 +414,9 @@ Deliberately front-loaded on Linux: every step up to 5 is verifiable on the
 machine where you can actually hear whether you broke something, and by the
 time macOS and Windows arrive there is a working net under you.
 
-1. **CMake on Linux, byte-comparable to autotools.** Same binaries, same
-   `dspcheck` and `dsplevel` output. Nothing else changes.
-2. **Linux CI** — build, `dspcheck` over `dsp/` and `patches/`, `dsplevel`,
-   plus an ASan/UBSan job. Land the net before the work that needs it.
+1. ~~**CMake on Linux, byte-comparable to autotools.**~~ Done — section 11.
+2. ~~**Linux CI** — build, `dspcheck` over `dsp/` and `patches/`, `dsplevel`,
+   plus an ASan/UBSan job.~~ Done — section 11.
 3. **Platform-independent cleanups**, all on Linux: §6 in full, `std::filesystem`
    for the two directory walks and `thUtil`, C++17, `THINK_API` + `-lthink` on
    plugins + `-fvisibility=hidden`, delete `nsmodule_dl`, `Glib::get_user_config_dir()`,
@@ -498,6 +503,77 @@ A `dspstress` TSan job is deliberately left out of the default matrix: TSan
 cannot be combined with ASan so it needs its own build tree, and the run is
 slow. Worth adding as a nightly `schedule:` trigger once the rest is stable.
 
-Until CMake lands, `.github/workflows/ci-linux-autotools.yml` runs the same
-gates against the tree as it stands. It is a stopgap and should be deleted at
-step 1 of §8.
+`.github/workflows/ci-linux-autotools.yml` runs the same gates against the
+autotools build. It stays for as long as `configure.ac` and `build.mk` do —
+two build systems both need guarding, or the unattended one rots.
+
+## 11. What has landed
+
+### CMake (§8 step 1)
+
+```
+CMakeLists.txt              options, probes, config.h, install, the status banner
+cmake/config.h.in           replaces autoheader's config.h
+cmake/ThinkPlugin.cmake     think_add_plugin()
+cmake/RunHarness.cmake      the corpus sweeps, as a `cmake -P' script
+libthink/CMakeLists.txt     bison/flex targets, shared + static, SOVERSION
+plugins/CMakeLists.txt      62 plugins, explicit lists
+src/CMakeLists.txt          app, GUI, and the GTK-free node model as an object lib
+scripts/CMakeLists.txt      9 harnesses, 3 CTest gates
+```
+
+Verified against the autotools build on the same tree:
+
+| | autotools | CMake |
+|---|---|---|
+| `libthink` | `libthink.so.6.0` | `libthink.so.6.0` |
+| plugins built | 62 | 62 (identical set) |
+| harnesses | 9 | 9 |
+| `dspcheck` over 81 DSPs | 81/81, exit 0 | **byte-identical output** |
+| `dspcheck` over 99 patches | 99/99, exit 0 | **byte-identical output** |
+| `dsplevel -v 4` | exit 0 | **byte-identical output** |
+
+`-ffast-math` is kept, deliberately, behind `THINK_FAST_MATH=ON`. §6 wants it
+gone, but dropping it changes floating-point results, and doing that in the
+same change as a build-system swap would mean any difference had two possible
+causes. It is one flag flip when §8 step 3 gets there.
+
+Three things worth knowing:
+
+- **The soname changed, on purpose.** `build.mk` passed
+  `-Wl,-soname,libthink.so.6.0`, so the *minor* was part of the soname and
+  every minor bump was an ABI break — which contradicts `configure.ac`'s own
+  comment about what `lib_minor` means. CMake's `SOVERSION` gives
+  `libthink.so.6`. The filename is unchanged, so REVIVAL.md's warning about
+  stale `/usr/local/lib` copies still holds and is if anything less likely to
+  bite.
+- **Generated sources now go to the build tree.** `libthink/thinklang.{cpp,h}`
+  and `thinklex.cpp` stop being written into `libthink/`. The `.gitignore`
+  entries for them can go when autotools does. The header install had to learn
+  to exclude them from its source-dir glob, or a tree with an autotools build
+  lying around installs the stale copies.
+- **`RunHarness.cmake` computes the file lists at test time, not configure
+  time.** Which DSPs are eligible depends on what each file *references* —
+  eleven reference `input/wav`, `input/alsa` or `misc/wlan`, which are not in
+  the built set. Filtering by name would go stale the moment one is fixed;
+  filtering by content means building the missing plugin adds its DSPs to the
+  sweep by itself. Doing it in CMake script mode rather than shell is what
+  makes the same gates run on Windows later.
+
+What was deliberately **not** done, because it belongs to §8 step 3 and would
+have made this build non-comparable: plugins are still not linked against
+libthink, there is no `THINK_API` export macro, the tree is still C++11, and
+`nsmodule_dl` is still present (though it is not compiled — it was Darwin-only
+and is dead code either way).
+
+### CI (§8 step 2)
+
+`ci.yml` now runs four jobs. `linux` and `asan` are real gates. `macos` and
+`windows` are `continue-on-error` — they run so the log shows how far the port
+gets, without turning the workflow red before §8 steps 6 and 7 have happened.
+Remove the flag from each as it comes good.
+
+The ASan job was checked for the failure mode REVIVAL.md records: `nm -D` on
+`libthink.so.6.0` and on `plugins/osc/simple.so` both show `__asan` symbols, so
+the instrumentation genuinely reaches the library and the plugins rather than
+only the harness.
