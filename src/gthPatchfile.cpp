@@ -72,24 +72,20 @@ gthPatchManager *gthPatchManager::instance (void) {
 
 string gthPatchManager::resolveDsp (const string &dspName)
 {
-    std::error_code ec;
-
     if (dspName.empty())
         return dspName;
 
-    /* Was `dspName[0] == '/'', which reads "C:\patches\foo.dsp" and
-       "\\server\share\foo.dsp" as relative paths. is_absolute() knows the
-       platform's rules, including that "C:foo" is neither. */
-    if (std::filesystem::path(dspName).is_absolute() ||
-        std::filesystem::exists(dspName, ec))
-        return dspName;
+    /* A .patch names its DSP by bare filename -- `dsp ts1.dsp' -- so this has
+       to search. It used to try exactly two places, the name as given and
+       DSP_PATH, which meant a patch only loaded if you were standing in the
+       right directory or had run `make install'. That looked like it worked
+       for a long time on a machine with a stale /usr/local install on it. */
+    const string found =
+        thUtil::findDataFile(dspName, "dsp", "THINK_DSP_PATH", DSP_PATH);
 
-    const string inPath = DSP_PATH + dspName;
-
-    if (std::filesystem::exists(inPath, ec))
-        return inPath;
-
-    return dspName;
+    /* Hand back the original if nothing matched, so the error message names
+       what the patch actually asked for. */
+    return found.empty() ? dspName : found;
 }
 
 bool gthPatchManager::newPatch (const string &dspName, int chan)
