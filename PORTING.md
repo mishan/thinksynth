@@ -6,13 +6,16 @@ Supersedes the old four-line `PORTING` status table.
 
 | OS | Toolchain | Audio | MIDI | Status |
 |---|---|---|---|---|
-| GNU/Linux | GCC, CMake | ALSA, JACK | ALSA seq | works |
-| macOS | Clang + Homebrew | — | — | configure.ac has a Darwin branch; nothing has been built since ~2006 |
-| Windows | — | — | — | never attempted |
+| GNU/Linux | GCC, CMake | RtAudio | RtMidi | builds and runs; **not yet listened to** |
+| macOS | Clang + Homebrew | RtAudio (CoreAudio, JACK) | RtMidi (CoreMIDI) | not yet attempted |
+| Windows | MinGW-w64 / MSYS2 | RtAudio (WASAPI) | RtMidi (WinMM) | not yet attempted |
 
-> **Progress:** steps 1–3 of [section 8](#8-sequencing) are done — CMake, CI,
-> and the platform-independent cleanups. What is left before macOS and Windows
-> can be attempted is the audio and MIDI rework, §3. See
+> **Progress:** steps 1–5 of [section 8](#8-sequencing) are done — CMake, CI,
+> the platform-independent cleanups, and the audio and MIDI rework. All of it
+> is verified headlessly; **none of it has been heard or played through**,
+> because the machine it was built on has neither a sound server nor a
+> sequencer. That is the first thing to do on real hardware, and it gates
+> everything after it. macOS and Windows are next. See
 > [section 11](#11-what-has-landed).
 
 ## 1. The shape of the problem
