@@ -94,6 +94,8 @@ private:
     void drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr);
     void drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
                      const NodeGraph::Box &b);
+    void drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
+                       const NodeGraph::Box &b, bool highlit, bool selected);
 
     /* widget pixels -> graph coordinates */
     void toGraph (double sx, double sy, double &gx, double &gy) const;

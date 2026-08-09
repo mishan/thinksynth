@@ -38,6 +38,7 @@
 #define COL_PORT_IN   0.60, 0.75, 0.55
 #define COL_PORT_OUT  0.80, 0.72, 0.50
 #define COL_SELECT    0.95, 0.85, 0.45
+#define COL_ATTACH    0.27, 0.25, 0.33
 #define COL_CUT       0.90, 0.42, 0.38
 #define COL_CTL_HEAD  0.34, 0.30, 0.44
 #define COL_TRACK     0.16, 0.17, 0.19
@@ -376,9 +377,67 @@ bool NodeCanvas::on_scroll_event (GdkEventScroll *s)
     return true;
 }
 
+/* An attached control: label, track, number, on one line against its host.
+ *
+ * No title bar, no port, no outline to speak of -- it is not a node and
+ * should not look like one. The only chrome is a tab on the right edge, which
+ * is what says which box it belongs to now that no wire does. */
+void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
+                               const NodeGraph::Box &b, bool highlit,
+                               bool selected)
+{
+    cr->set_line_width(1.0);
+
+    cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
+    cr->set_source_rgb(COL_ATTACH);
+    cr->fill_preserve();
+
+    if (selected)
+    {
+        cr->set_source_rgb(COL_SELECT);
+        cr->set_line_width(2.0);
+        cr->stroke();
+        cr->set_line_width(1.0);
+    }
+    else if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->stroke();
+    }
+    else
+        cr->begin_new_path();
+
+    /* The tab: a short bar on the right edge, pointing at the host. */
+    cr->rectangle(b.x + b.w - 2.0, b.y + 3.0, 3.0, b.h - 6.0);
+    cr->set_source_rgb(COL_FILL);
+    cr->fill();
+
+    cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
+                         Cairo::FONT_WEIGHT_NORMAL);
+    cr->set_font_size(9.0);
+    cr->set_source_rgb(COL_TEXT);
+
+    /* The label, clipped to its share of the strip so a long one cannot run
+       under the track. */
+    cr->save();
+    cr->rectangle(b.x + 4.0, b.y, b.w * 0.42 - 8.0, b.h);
+    cr->clip();
+    cr->move_to(b.x + 5.0, b.y + b.h * 0.5 + 3.0);
+    cr->show_text(b.ctlLabel);
+    cr->restore();
+
+    drawSlider(cr, b);
+}
+
 void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
                           const NodeGraph::Box &b, bool highlit, bool selected)
 {
+    if (b.attachedTo >= 0)
+    {
+        drawAttached(cr, b, highlit, selected);
+        return;
+    }
+
     cr->set_line_width(1.0);
 
     /* body */
@@ -433,7 +492,28 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
            port loop rather than returning here. */
     }
 
-    const string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;
+    string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;
+
+    /* A control still drawn as a box is one that several nodes share -- the
+       rest are strips against the thing they drive. Saying how many says why
+       this one is different, instead of leaving it looking like a control
+       that failed to attach. */
+    if (b.isControl)
+    {
+        int consumers = 0;
+
+        for (size_t e = 0; e < graph_->edges().size(); e++)
+            if (graph_->edges()[e].fromBox == (int)(&b - &graph_->boxes()[0]))
+                consumers++;
+
+        if (consumers > 1)
+        {
+            char buf[32];
+
+            snprintf(buf, sizeof(buf), "  shared x%d", consumers);
+            corner += buf;
+        }
+    }
 
     if (!corner.empty())
     {
@@ -542,8 +622,6 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->set_source_rgb(COL_HANDLE);
     cr->fill();
 
-    /* The number, right-aligned under the track. Four significant figures is
-       enough for anything with a declared range and short enough to fit. */
     char buf[48];
 
     snprintf(buf, sizeof(buf), "%.4g", (double)b.ctlValue);
@@ -554,6 +632,20 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->set_source_rgb(COL_DIM);
 
     Cairo::TextExtents te;
+
+    if (b.attachedTo >= 0)
+    {
+        /* On one line: the number goes to the right of the track, where the
+           strip has room, and the range is dropped. A strip is for reading at
+           a glance and adjusting; the range is in the panel when wanted. */
+        cr->move_to(x1 + 6.0, y + 3.0);
+        cr->show_text(buf);
+
+        return;
+    }
+
+    /* The number, right-aligned under the track. Four significant figures is
+       enough for anything with a declared range and short enough to fit. */
     cr->get_text_extents(buf, te);
     cr->move_to(b.x + b.w - te.width - 6, b.y + b.h - 3);
     cr->show_text(buf);
@@ -676,7 +768,14 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     /* Wires first so boxes sit on top of them; a wire disappearing behind a
        box reads better than one crossing its face. */
     for (size_t e = 0; e < graph_->edges().size(); e++)
+    {
+        /* The join between a strip and its host: they are touching, so a
+           line between them would be a line to nowhere. */
+        if (graph_->edgeIsImplied((int)e))
+            continue;
+
         drawEdge(cr, (int)e, (int)e == hoverEdge_);
+    }
 
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 

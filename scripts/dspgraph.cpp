@@ -31,7 +31,11 @@
  *     position picks that port -- the two things a mouse does, checked
  *     without a mouse
  *   - every control's slider handle is where its value says, and clicking it
- *     finds that control
+ *     finds that control, whether it is a free-standing box or a strip
+ *     attached to the node it drives
+ *   - an attached control sits against its host and overlaps nothing
+ *   - a shared control -- one several nodes read -- is laid out before
+ *     everything it drives, rather than being stranded in layer 0
  *   - clicking the middle of a wire finds a wire, and the ends of every
  *     wire sit on the ports it claims to join
  *   - a saved layout comes back exactly, and saving changes nothing in the
@@ -134,7 +138,7 @@ int main (int argc, char **argv)
     int failed = 0, total = 0, skipped = 0;
     long boxTotal = 0, edgeTotal = 0, fbTotal = 0, fbFiles = 0;
     int maxLayers = 0, maxBoxes = 0;
-    long controls = 0;
+    long controls = 0, attached = 0, shared = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -227,8 +231,12 @@ int main (int argc, char **argv)
               problems++; }
 
             /* ...and at a port's drawn position picks that port. Boxes do not
-               overlap, so there is exactly one right answer. */
-            for (size_t k = 0; k < bx.ports.size() && problems < 5; k++)
+               overlap, so there is exactly one right answer.
+            
+               An attached control draws no ports, so there is nothing to
+               click and nothing to check. */
+            for (size_t k = 0; k < bx.ports.size() && problems < 5 &&
+                               bx.attachedTo < 0; k++)
             {
                 double px, py;
                 int hb = -1, hp = -1;
@@ -253,6 +261,11 @@ int main (int argc, char **argv)
          * finding nothing at all. */
         for (size_t e = 0; e < edges.size() && problems < 5; e++)
         {
+            /* An implied edge is not drawn -- it is the join between a strip
+               and the box it sits against -- so there is no curve to click. */
+            if (g.edgeIsImplied((int)e))
+                continue;
+
             double xs[4], ys[4];
 
             g.edgeCurve((int)e, xs, ys);
@@ -367,6 +380,76 @@ int main (int argc, char **argv)
             { printf("FAIL  %s: @%s track ends do not give its range\n",
                      argv[f], bx.ctlArg.c_str());
               problems++; }
+        }
+
+        /* attached controls sit where they say they do.
+         *
+         * The overlap check above already proves they do not collide with
+         * anything. This is the other half: that each one is actually beside
+         * the box it belongs to, rather than merely somewhere legal. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            if (bx.attachedTo < 0)
+                continue;
+
+            attached++;
+
+            const NodeGraph::Box &host = boxes[bx.attachedTo];
+
+            if (bx.x + bx.w > host.x)
+            { printf("FAIL  %s: @%s runs into %s\n", argv[f],
+                     bx.ctlArg.c_str(), host.name.c_str());
+              problems++; continue; }
+
+            if (host.x - (bx.x + bx.w) > 40.0)
+            { printf("FAIL  %s: @%s is %.0fpx from %s, not beside it\n",
+                     argv[f], bx.ctlArg.c_str(),
+                     host.x - (bx.x + bx.w), host.name.c_str());
+              problems++; continue; }
+
+            /* Vertically within the host's span, give or take the strip
+               stack being taller than the host. */
+            const double slack = 200.0;
+
+            if (bx.y + bx.h < host.y - slack || bx.y > host.y + host.h + slack)
+            { printf("FAIL  %s: @%s is not level with %s\n", argv[f],
+                     bx.ctlArg.c_str(), host.name.c_str());
+              problems++; }
+        }
+
+        /* a shared control comes before what it drives.
+         *
+         * It cannot attach to any one consumer, so it stays a box; the least
+         * it can do is sit near them rather than at the far left with wires
+         * across the whole patch. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            if (!bx.isControl || bx.attachedTo >= 0)
+                continue;
+
+            int consumers = 0;
+
+            for (size_t e = 0; e < edges.size(); e++)
+            {
+                if (edges[e].fromBox != (int)b)
+                    continue;
+
+                consumers++;
+
+                if (boxes[edges[e].toBox].layer <= bx.layer)
+                { printf("FAIL  %s: @%s is in layer %d, not before %s "
+                         "in layer %d\n", argv[f], bx.ctlArg.c_str(),
+                         bx.layer, boxes[edges[e].toBox].name.c_str(),
+                         boxes[edges[e].toBox].layer);
+                  problems++; break; }
+            }
+
+            if (consumers > 1)
+                shared++;
         }
 
         /* no plugin-internal state exposed.
@@ -578,10 +661,12 @@ int main (int argc, char **argv)
     printf("\n%d graphs built, %d failed, %d skipped (would not load)\n",
            total, failed, skipped);
     if (total)
-        printf("  %ld boxes (%ld of them controls), %ld wires; "
+        printf("  %ld boxes (%ld controls: %ld attached, %ld shared), "
+               "%ld wires; "
                "largest %d boxes, deepest %d layers\n"
                "  %ld feedback wires across %ld files\n",
-               boxTotal, controls, edgeTotal, maxBoxes, maxLayers,
+               boxTotal, controls, attached, shared, edgeTotal, maxBoxes,
+               maxLayers,
                fbTotal, fbFiles);
 
     return failed;

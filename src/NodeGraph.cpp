@@ -40,6 +40,14 @@
 #define CTL_INSET     14.0
 #define CTL_HANDLE     5.0
 
+/* An attached control: a strip against its host's left edge. Narrower and
+   much shorter than a node, because it carries a label, a track and a number
+   and nothing else -- no title bar, no ports. */
+#define ATTACH_W     120.0
+#define ATTACH_H      22.0
+#define ATTACH_GAP     3.0    /* between stacked strips           */
+#define ATTACH_PAD    10.0    /* between the strip and its host   */
+
 /* Orders box indices by the position layering gave them.
  *
  * A functor rather than a lambda. The build does now ask for C++11 -- see
@@ -753,6 +761,28 @@ void NodeGraph::placePorts (Box &b)
     if (b.isControl)
         b.h = BOX_HEAD + BOX_PAD * 2 + CTL_ROW;
 
+    /* An attached one is a strip instead: no title bar, no ports drawn, so
+       it only needs the height of a slider row. layout() sets its position;
+       the size has to be right before that, because the row heights it
+       stacks are computed from it. */
+    if (b.isControl && b.attachedTo >= 0)
+    {
+        b.w = ATTACH_W;
+        b.h = ATTACH_H;
+
+        /* The port keeps existing -- the edge is real and refers to it -- but
+           it moves to the middle of the right edge, where the strip meets its
+           host. The default placement puts it below a title bar this box does
+           not have, which left it outside its own bounds. */
+        for (size_t k = 0; k < b.ports.size(); k++)
+        {
+            b.ports[k].x = b.w;
+            b.ports[k].y = b.h * 0.5;
+        }
+
+        return;
+    }
+
     int i = 0, o = 0;
 
     for (size_t k = 0; k < b.ports.size(); k++)
@@ -774,6 +804,77 @@ void NodeGraph::placePorts (Box &b)
     }
 }
 
+/* Works out which controls hang off which box.
+ *
+ * A control with exactly one consumer belongs to that consumer and is drawn
+ * against it. One with several is shared and stays a node; one with none is
+ * not yet wired to anything and has nowhere to hang. */
+void NodeGraph::assignAttachments (void)
+{
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        boxes_[b].attachedTo = -1;
+        boxes_[b].attachSlot = 0;
+    }
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        if (!boxes_[b].isControl)
+            continue;
+
+        int consumers = 0;
+        int host = -1;
+
+        for (size_t e = 0; e < edges_.size(); e++)
+            if (edges_[e].fromBox == (int)b)
+            {
+                consumers++;
+                host = edges_[e].toBox;
+            }
+
+        /* Not itself, and not another control -- neither would give it
+           anywhere sensible to sit. */
+        if (consumers == 1 && host >= 0 && host != (int)b &&
+            !boxes_[host].isControl)
+            boxes_[b].attachedTo = host;
+    }
+
+    /* Slots, in box order, so the strip does not reshuffle between runs. */
+    vector<int> used(boxes_.size(), 0);
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+        if (boxes_[b].attachedTo >= 0)
+            boxes_[b].attachSlot = used[boxes_[b].attachedTo]++;
+}
+
+bool NodeGraph::edgeIsImplied (int edge) const
+{
+    if (edge < 0 || edge >= (int)edges_.size())
+        return false;
+
+    const Edge &e = edges_[edge];
+
+    if (e.fromBox < 0 || e.fromBox >= (int)boxes_.size())
+        return false;
+
+    return boxes_[e.fromBox].attachedTo == e.toBox;
+}
+
+/* The strip height for a host: its attached controls stacked. */
+static double stripHeight (const vector<NodeGraph::Box> &boxes, int host)
+{
+    int n = 0;
+
+    for (size_t b = 0; b < boxes.size(); b++)
+        if (boxes[b].attachedTo == host)
+            n++;
+
+    if (n == 0)
+        return 0;
+
+    return n * ATTACH_H + (n - 1) * ATTACH_GAP;
+}
+
 void NodeGraph::layout (void)
 {
     if (boxes_.empty())
@@ -783,18 +884,54 @@ void NodeGraph::layout (void)
         return;
     }
 
+    assignAttachments();
     assignLayers();
+
+    /* A control that several nodes share cannot attach to any one of them, so
+     * it stays a box -- but longest-path layering puts it in layer 0, because
+     * it has no inputs, which is as far from its consumers as the canvas
+     * goes. @waveform in organ0.dsp drives four nodes in the middle of the
+     * patch and was being drawn at the far left with four long wires crossing
+     * everything.
+     *
+     * Moved to just before its earliest consumer. Nothing points at it, so
+     * nothing can be made to point backwards by moving it right. */
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        if (!boxes_[b].isControl || boxes_[b].attachedTo >= 0)
+            continue;
+
+        int earliest = -1;
+
+        for (size_t e = 0; e < edges_.size(); e++)
+            if (edges_[e].fromBox == (int)b)
+            {
+                const int l = boxes_[edges_[e].toBox].layer;
+
+                if (earliest < 0 || l < earliest)
+                    earliest = l;
+            }
+
+        if (earliest > 0)
+            boxes_[b].layer = earliest - 1;
+    }
 
     for (size_t i = 0; i < boxes_.size(); i++)
         placePorts(boxes_[i]);
 
     orderWithinLayers();
 
-    /* Columns are as wide as their widest box; rows stack by height. */
+    /* Columns are as wide as their widest box; rows stack by height.
+     *
+     * An attached control is not a column member -- it rides along with its
+     * host and is positioned afterwards. Leaving it in was what put thirteen
+     * of them in a column down the left edge of ts1.dsp, taller than the
+     * signal path they belonged to. */
     vector< vector<int> > inLayer(layers_);
 
     for (size_t i = 0; i < boxes_.size(); i++)
-        inLayer[boxes_[i].layer].push_back((int)i);
+        if (boxes_[i].attachedTo < 0)
+            inLayer[boxes_[i].layer].push_back((int)i);
 
     for (int l = 0; l < layers_; l++)
         sort(inLayer[l].begin(), inLayer[l].end(), ByOrder(boxes_));
@@ -807,7 +944,8 @@ void NodeGraph::layout (void)
         double h = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
-            h += boxes_[inLayer[l][k]].h + ROW_GAP;
+            h += max(boxes_[inLayer[l][k]].h,
+                     stripHeight(boxes_, inLayer[l][k])) + ROW_GAP;
 
         tallest = max(tallest, h - ROW_GAP);
     }
@@ -819,7 +957,8 @@ void NodeGraph::layout (void)
         double h = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
-            h += boxes_[inLayer[l][k]].h + ROW_GAP;
+            h += max(boxes_[inLayer[l][k]].h,
+                     stripHeight(boxes_, inLayer[l][k])) + ROW_GAP;
 
         h -= ROW_GAP;
 
@@ -828,18 +967,52 @@ void NodeGraph::layout (void)
         double y = MARGIN + (tallest - h) / 2.0;
         double widest = 0;
 
+        /* The strip sits to the left of the host, inside the same column, so
+           the column has to be wide enough for both. Computed before placing
+           anything, or the first host would be flush against the previous
+           column and its strip would overlap it. */
+        double indent = 0;
+
+        for (size_t k = 0; k < inLayer[l].size(); k++)
+            if (stripHeight(boxes_, inLayer[l][k]) > 0)
+                indent = ATTACH_W + ATTACH_PAD;
+
         for (size_t k = 0; k < inLayer[l].size(); k++)
         {
             Box &b = boxes_[inLayer[l][k]];
 
-            b.x = x;
-            b.y = y;
+            const double rowH = max(b.h, stripHeight(boxes_, (int)(&b - &boxes_[0])));
 
-            y += b.h + ROW_GAP;
-            widest = max(widest, b.w);
+            b.x = x + indent;
+
+            /* Centre the box against its strip when the strip is taller, so
+               a node with five controls does not sit at the top of them. */
+            b.y = y + (rowH - b.h) / 2.0;
+
+            y += rowH + ROW_GAP;
+            widest = max(widest, indent + b.w);
         }
 
         x += widest + LAYER_GAP;
+    }
+
+    /* Now the strips, against the left edge of the host they belong to and
+       centred on it vertically. */
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        Box &c = boxes_[b];
+
+        if (c.attachedTo < 0)
+            continue;
+
+        const Box &host = boxes_[c.attachedTo];
+        const double sh = stripHeight(boxes_, c.attachedTo);
+
+        c.w = ATTACH_W;
+        c.h = ATTACH_H;
+        c.x = host.x - ATTACH_PAD - ATTACH_W;
+        c.y = host.y + (host.h - sh) / 2.0 +
+              c.attachSlot * (ATTACH_H + ATTACH_GAP);
     }
 
     width_ = x - LAYER_GAP + MARGIN;
@@ -920,6 +1093,13 @@ bool NodeGraph::portAt (double x, double y, int &box, int &port,
     for (int i = (int)boxes_.size() - 1; i >= 0; i--)
     {
         const Box &b = boxes_[i];
+
+        /* An attached control draws no port: it touches its host, and the
+           one edge it has is implied by that. Returning a port here would
+           offer a wire that cannot be made and would sit under the strip's
+           slider, which is what a click there actually means. */
+        if (b.attachedTo >= 0)
+            continue;
 
         /* A port handle sits on the box edge, so the search area has to
            straddle it rather than being clipped to the box. */
@@ -1021,6 +1201,11 @@ int NodeGraph::edgeAt (double x, double y, double slack) const
 
     for (size_t e = 0; e < edges_.size(); e++)
     {
+        /* Not drawn, so not clickable: an implied edge is the gap between a
+           strip and the box it touches, and there is nothing there to hit. */
+        if (edgeIsImplied((int)e))
+            continue;
+
         double xs[4], ys[4];
 
         edgeCurve((int)e, xs, ys);
@@ -1158,9 +1343,20 @@ bool NodeGraph::sliderGeometry (int box, double &x0, double &x1, double &y,
     if (!b.isControl)
         return false;
 
-    x0 = b.x + CTL_INSET;
-    x1 = b.x + b.w - CTL_INSET;
-    y = b.y + BOX_HEAD + BOX_PAD + CTL_ROW * 0.5;
+    if (b.attachedTo >= 0)
+    {
+        /* The strip is label, track, number on one line. The track takes the
+           middle, leaving room either side for the two pieces of text. */
+        x0 = b.x + ATTACH_W * 0.42;
+        x1 = b.x + ATTACH_W - 34.0;
+        y = b.y + ATTACH_H * 0.5;
+    }
+    else
+    {
+        x0 = b.x + CTL_INSET;
+        x1 = b.x + b.w - CTL_INSET;
+        y = b.y + BOX_HEAD + BOX_PAD + CTL_ROW * 0.5;
+    }
 
     const double span = (b.ctlMax > b.ctlMin)
                         ? (double)(b.ctlMax - b.ctlMin) : 1.0;
@@ -1190,8 +1386,11 @@ int NodeGraph::sliderAt (double x, double y) const
         /* The whole slider row is the target, not just the handle. Clicking
            anywhere on the track should jump the value there -- hunting for a
            five-pixel handle is unpleasant at any zoom. */
+        const double reach = (boxes_[i].attachedTo >= 0)
+                             ? ATTACH_H * 0.5 : CTL_ROW * 0.5;
+
         if (x >= x0 - CTL_HANDLE && x <= x1 + CTL_HANDLE &&
-            y >= ty - CTL_ROW * 0.5 && y <= ty + CTL_ROW * 0.5)
+            y >= ty - reach && y <= ty + reach)
             return i;
     }
 
