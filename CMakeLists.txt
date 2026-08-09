@@ -44,10 +44,12 @@ option(THINK_BUILD_HARNESSES "Build the scripts/ test harnesses" ON)
 option(THINK_BUILD_STATIC_LIB "Also build libthink as a static archive" ON)
 
 # configure.ac:108 put -ffast-math on every object *and* the link line, which
-# sets FTZ/DAZ process-wide including for the GUI. PORTING.md section 6 wants
-# it gone; it stays ON here only so that this build is comparable to the
-# autotools one. Flip the default in the cleanup pass and re-run dsplevel.
-option(THINK_FAST_MATH "Build with -ffast-math (as autotools did)" ON)
+# sets FTZ/DAZ process-wide -- including for the GUI, and including for the
+# link, which is where it pulls in crtfastmath.o and makes the setting a
+# property of the whole process rather than of the DSP code that might have
+# wanted it. Nothing in the tree depends on it; see the commit that flipped
+# this default for the measured effect on the corpus.
+option(THINK_FAST_MATH "Build with -ffast-math (as autotools did)" OFF)
 
 # Sanitizers are applied globally rather than per-target on purpose. An
 # earlier round of measurements was worthless because the flags reached only
@@ -61,7 +63,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "" FORCE)
 endif()
 
-set(CMAKE_CXX_STANDARD 11)
+# C++17 for std::filesystem, which replaces the dirent.h walks and the
+# strrchr('/') path arithmetic. thRing.h's <atomic> already required C++11.
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
