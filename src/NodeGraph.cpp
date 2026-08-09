@@ -34,6 +34,26 @@
 #define ROW_GAP       24.0
 #define MARGIN        20.0
 
+/* Orders box indices by the position layering gave them.
+ *
+ * A functor rather than a lambda: nothing in this tree asks for a standard --
+ * no -std anywhere in configure.ac, the Makefiles or scripts/Makefile -- so
+ * the whole build runs on whatever the compiler defaults to, and on an older
+ * toolchain that is C++98. The rest of the node editor is careful to stay
+ * inside that; this one line was not. */
+namespace {
+    struct ByOrder {
+        const vector<NodeGraph::Box> &boxes;
+
+        ByOrder (const vector<NodeGraph::Box> &b) : boxes(b) { }
+
+        bool operator() (int a, int b) const
+        {
+            return boxes[a].order < boxes[b].order;
+        }
+    };
+}
+
 NodeGraph::NodeGraph (void)
     : width_(0), height_(0), layers_(0)
 {
@@ -533,8 +553,7 @@ void NodeGraph::layout (void)
         inLayer[boxes_[i].layer].push_back((int)i);
 
     for (int l = 0; l < layers_; l++)
-        sort(inLayer[l].begin(), inLayer[l].end(),
-             [this](int a, int b){ return boxes_[a].order < boxes_[b].order; });
+        sort(inLayer[l].begin(), inLayer[l].end(), ByOrder(boxes_));
 
     /* tallest column first, so the rest can be centred against it */
     double tallest = 0;
