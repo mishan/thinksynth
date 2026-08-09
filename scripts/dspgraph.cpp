@@ -65,6 +65,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <set>
 
 static bool overlaps (const NodeGraph::Box &a, const NodeGraph::Box &b)
 {
@@ -273,6 +274,82 @@ int main (int argc, char **argv)
 
         /* Undo the shove so the checks below see the real layout. */
         g.layout();
+
+        /* the io node's two halves: every port earned, every arg reachable
+         *
+         * The io node has no plugin to say which way its args face, so the
+         * split between "audio out" and "midi in" is inferred. It was inferred
+         * wrongly once -- the sink was given a port for every arg, so a patch
+         * that parks its constants on the io node drew `res' and `waveform'
+         * and `note' as things the speakers consume. 1000 of the 1347 sink
+         * ports in this corpus were phantoms.
+         *
+         * Two properties catch a relapse. Every sink port is either something
+         * the engine reads or something this file wires up -- no port without
+         * a reason. And the io node's args are partitioned across the halves:
+         * present exactly once between them, so the fix can neither lose an
+         * arg nor show it twice. */
+        {
+            int sink = -1, source = -1;
+
+            for (size_t b = 0; b < boxes.size(); b++)
+            {
+                if (boxes[b].isIoSink) sink = (int)b;
+                if (boxes[b].isIoSource) source = (int)b;
+            }
+
+            if (sink >= 0)
+            {
+                set<int> fed;
+
+                for (size_t e = 0; e < edges.size(); e++)
+                    if (edges[e].toBox == sink)
+                        fed.insert(edges[e].toPort);
+
+                for (size_t k = 0; k < boxes[sink].ports.size(); k++)
+                {
+                    const string &nm = boxes[sink].ports[k].name;
+
+                    if (NodeGraph::isIoEngineInput(nm) || fed.count((int)k))
+                        continue;
+
+                    printf("FAIL  %s: audio out has a port nothing feeds and "
+                           "the engine never reads (%s)\n", argv[f], nm.c_str());
+                    problems++;
+                }
+            }
+
+            if (sink >= 0 && source >= 0)
+            {
+                map<string,int> seen;
+
+                for (size_t k = 0; k < boxes[sink].params.size(); k++)
+                    seen[boxes[sink].params[k].name]++;
+                for (size_t k = 0; k < boxes[source].params.size(); k++)
+                    seen[boxes[source].params[k].name]++;
+
+                for (map<string,int>::iterator i = seen.begin();
+                     i != seen.end(); ++i)
+                    if (i->second != 1)
+                    { printf("FAIL  %s: io arg %s appears on %d halves\n",
+                             argv[f], i->first.c_str(), i->second);
+                      problems++; }
+
+                /* and a param sits with its port, so panel and canvas cannot
+                   disagree about which way an arg faces */
+                set<string> sinkPorts;
+
+                for (size_t k = 0; k < boxes[sink].ports.size(); k++)
+                    sinkPorts.insert(boxes[sink].ports[k].name);
+
+                for (size_t k = 0; k < boxes[source].params.size(); k++)
+                    if (sinkPorts.count(boxes[source].params[k].name))
+                    { printf("FAIL  %s: io arg %s has a sink port but a source "
+                             "param\n", argv[f],
+                             boxes[source].params[k].name.c_str());
+                      problems++; }
+            }
+        }
 
         /* no overlapping boxes */
         for (size_t a = 0; a < boxes.size() && problems < 5; a++)

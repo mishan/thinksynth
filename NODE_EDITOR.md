@@ -759,3 +759,56 @@ patch ever turns up that is deep and *narrowly* connected, it is one call away.
 
 For everything else: the graph is as wide as the patch is deep, it scrolls, and
 Fit is there when an overview is what you want.
+
+## 16. Which way an io node arg faces
+
+The io node is the one node with no plugin, so nothing declares the direction
+of its args, and the editor has to work it out. It got this wrong: the sink
+half was given an input port for *every* arg, so `note`, `velocity`, `trigger`
+and `amp` were drawn as things the speakers consume.
+
+That was the visible part. The measurement was worse -- across the corpus,
+**1000 of the 1347 ports on the audio-out box were phantoms**, 312 distinct
+names, worst single box 35. The reason is that the io node is where authors
+park patch constants: `res = 0.3` sits in the io block and forty other nodes
+read `ionode->res`. Every one of those was drawn as an input to the output.
+
+The direction can be recovered, because the engine's own use of the io node is
+narrow and legible. `thMidiChan::process()` reads exactly three things off it:
+`OUTPUTPREFIX` plus a channel digit for the audio it mixes, `play` to learn the
+note has ended, and `channels` to size the mix. Everything else travels the
+other way -- `thMidiNote` writes note, velocity and trigger, `thMidiChan`
+creates amp, and the author's constants are read by whoever wants them.
+
+So an arg is an input to the audio-out half if
+
+  - the engine reads it -- `out<N>`, `play`, `channels`; or
+  - *this file wires something into it.*
+
+The second clause is not decoration. 23 args across the corpus are written by a
+node and read back by others -- the io node used as a relay -- and one test
+patch writes `hurr` and never reads it. A name-only rule would have silently
+dropped those wires, which is a worse bug than the one being fixed. The rule is
+spelled with `OUTPUTPREFIX` and `TH_MAX_CHANNELS` rather than a literal list,
+so it cannot drift from the engine it describes.
+
+The parameters follow the same split, for the same reason: the panel for a box
+labelled "audio out" should not offer to set `velocity`. Args with no port on
+either side -- a dozen dead constants, mostly typos like `inwav` for `inwave`
+-- go to the source half, where a value the io node offers belongs even when
+nothing takes it up. This happens after edge building, because the edge pass is
+what marks an arg as an output.
+
+**This is a correctness fix, not a layout one.** The audio-out box shrank from
+265px to 92px on average (worst 578px to 144px), but the drawn size of the
+whole graph barely moved -- 542px to 538px mean height -- because the io node
+was never the tallest column. It is worth being clear about that: the graph is
+not smaller, it is just no longer lying about what feeds the output.
+
+`dspgraph` now asserts two properties on every file. No port on the audio-out
+box without a reason: each is either an engine read or has a wire entering it.
+And the io node's args are *partitioned* -- present exactly once across the two
+halves, with each param on the same side as its port -- so the split can
+neither lose an arg nor show it twice. Reintroducing the old behaviour makes
+the check fail 1000 times, which is the number that says it is testing
+something.

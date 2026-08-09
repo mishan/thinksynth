@@ -154,6 +154,40 @@ static bool isStateArg (thNode *n, const string &name)
     return false;
 }
 
+/* Is `name' an arg the engine itself reads off the io node?
+ *
+ * The io node has no plugin, so nothing declares its directions and they have
+ * to be recovered from what the engine does with it. thMidiChan::process()
+ * reads exactly three things: OUTPUTPREFIX plus a channel digit for the audio
+ * it mixes, `play' to learn the note has finished, and `channels' to size the
+ * mix. Those are the io node's real inputs.
+ *
+ * Everything else on the io node goes the other way. thMidiNote writes note,
+ * velocity and trigger; thMidiChan creates amp; and -- by far the commonest
+ * case -- the author parks patch constants there for other nodes to read, 312
+ * distinct names of them across the corpus. None of those are things the
+ * audio sink consumes, and drawing them as its inputs was wrong.
+ *
+ * Spelled with the engine's own constants rather than a literal list, so that
+ * raising TH_MAX_CHANNELS or renaming OUTPUTPREFIX cannot leave this behind.
+ * The single digit is deliberate and matches thMidiChan: the comment on
+ * TH_MAX_CHANNELS notes that ten is where the naming would need two. */
+bool NodeGraph::isIoEngineInput (const string &name)
+{
+    if (name == "play" || name == "channels")
+        return true;
+
+    const string prefix = OUTPUTPREFIX;
+
+    if (name.size() != prefix.size() + 1 ||
+        name.compare(0, prefix.size(), prefix) != 0)
+        return false;
+
+    const char c = name[prefix.size()];
+
+    return c >= '0' && c < (char)('0' + TH_MAX_CHANNELS);
+}
+
 /* Snapshots a node's args into display parameters.
  *
  * Every arg is listed, including the ones bound to another node or to a
@@ -364,6 +398,21 @@ bool NodeGraph::build (thSynthTree *tree)
             for (thArgMap::const_iterator a = args.begin(); a != args.end(); ++a)
             {
                 if (a->second == NULL)
+                    continue;
+
+                /* Two ways to earn an input on the audio sink: the engine
+                   reads it, or this file wires something into it.
+
+                   The second case is what keeps the io node usable as a relay
+                   -- 23 args across the corpus are written by a node and read
+                   back by others, and one (`hurr' in a test patch) is written
+                   and never read at all. Those are inputs whatever their name,
+                   and a name-only rule would have dropped their wires. */
+                const bool wired =
+                    a->second->type() == thArg::ARG_POINTER ||
+                    a->second->type() == thArg::ARG_CHANNEL;
+
+                if (!isIoEngineInput(a->first) && !wired)
                     continue;
 
                 Port port;
@@ -607,6 +656,44 @@ bool NodeGraph::build (thSynthTree *tree)
 
             if (e.fromPort >= 0 && e.toPort >= 0)
                 edges_.push_back(e);
+        }
+    }
+
+    /* Pass 5: give the io node's parameters to whichever half owns them.
+     *
+     * Pass 1 hung all of them on the sink, because at that point the sink is
+     * simply the box named after the io node. That put `note', `velocity' and
+     * the author's patch constants in the panel for a box labelled "audio
+     * out", which is the same mistake the ports had: the split is not just a
+     * layout trick, the two halves genuinely face opposite directions.
+     *
+     * Split on the same rule, so a param sits beside its port when it has one
+     * and the two views cannot disagree. Args with no port either way -- a
+     * constant nothing reads, of which the corpus has a dozen, mostly typos
+     * like `inwav' for `inwave' -- go to the source half, which is where a
+     * value the io node offers belongs even when nothing takes it up.
+     *
+     * Done after the edges rather than in pass 2 because the loop above marks
+     * isOutput on the sink's copy, and moving them first would strand it. */
+    if (ionode)
+    {
+        map<string, int>::iterator sinkIt = byName_.find(ionode->name());
+        map<string, int>::iterator srcIt = sourceOfIo.find(ionode->name());
+
+        if (sinkIt != byName_.end() && srcIt != sourceOfIo.end())
+        {
+            Box &sink = boxes_[sinkIt->second];
+            Box &src = boxes_[srcIt->second];
+
+            vector<Param> keep;
+
+            for (size_t q = 0; q < sink.params.size(); q++)
+                if (findPort(sink, sink.params[q].name, true) >= 0)
+                    keep.push_back(sink.params[q]);
+                else
+                    src.params.push_back(sink.params[q]);
+
+            sink.params.swap(keep);
         }
     }
 
@@ -1516,6 +1603,38 @@ bool NodeGraph::connect (int fromBox, int fromPort, int toBox, int toPort,
             tb.params[k].source = src;
             tb.params[k].hasValue = false;
             return true;
+        }
+
+    /* Wiring into an io arg that was, until this moment, a constant other
+       nodes read: build() gave its param to the source half, and the wire has
+       just made it an input on the sink. Move it rather than letting the push
+       below make a second copy -- the panel would show the arg twice, once as
+       a value and once as a wire, until the next save and reparse. */
+    if (tb.isIoSink)
+        for (size_t b = 0; b < boxes_.size(); b++)
+        {
+            if (!boxes_[b].isIoSource || boxes_[b].name != tb.name)
+                continue;
+
+            Box &other = boxes_[b];
+
+            for (size_t k = 0; k < other.params.size(); k++)
+                if (other.params[k].name == tb.ports[toPort].name)
+                {
+                    Param moved = other.params[k];
+
+                    moved.kind = Param::POINTER;
+                    moved.source = src;
+                    moved.hasValue = false;
+                    moved.isPort = true;
+
+                    other.params.erase(other.params.begin() + k);
+                    tb.params.push_back(moved);
+
+                    return true;
+                }
+
+            break;
         }
 
     Param p;

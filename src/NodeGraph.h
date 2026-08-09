@@ -313,8 +313,15 @@ public:
     void setControlValue (int box, float value);
 
     /* Index of a box by node name, or -1. For the io node this is the sink
-       half, which is the one that owns the args. */
+       half; its args are split across both halves, so a caller after a
+       particular arg should search the params of both. */
     int boxByName (const string &name) const;
+
+    /* True if `name' is an arg the engine reads off the io node, and so an
+       input of the audio-out half rather than something the io node offers.
+       Public because it is the rule that decides which half an arg belongs
+       to, and the corpus check asserts against it rather than restating it. */
+    static bool isIoEngineInput (const string &name);
 
 private:
     static int findPort (const Box &b, const string &name, bool wantInput);
