@@ -54,8 +54,14 @@ done
 
 echo "== contents"
 
+# The tip is the last branch in STACK, not a name written out here. It was
+# written out here, and it was left at node-editor-controls while three more
+# branches were added on top -- so the whole contents check silently stopped
+# covering the newest work, which is exactly where mistakes are. dspnew and
+# dsplayout were committed as multi-megabyte binaries into that blind spot and
+# this script called the stack sound the entire time.
 base=$(git rev-parse master)
-tip=node-editor-controls
+for tip in $STACK; do :; done
 
 markers=0
 junk=0
@@ -80,6 +86,35 @@ for c in $(git rev-list "$base".."$tip"); do
         esac
     done
 done
+
+# Extensions are not enough to find a build product. The compiled harnesses
+# have no suffix at all, and two of them -- dspnew and dsplayout -- sat in the
+# history as multi-megabyte blobs while this script reported the stack sound.
+# What actually means "build product" is the ELF magic number, so read the
+# first four bytes.
+#
+# Over every blob in every commit that would be tens of thousands of probes,
+# so this walks unique blob hashes instead: commits in a stack share almost
+# all of their trees, and a blob only has to be judged once.
+echo "  ...scanning $(git rev-list --count "$base".."$tip") commits for binaries"
+
+for c in $(git rev-list "$base".."$tip"); do
+    git ls-tree -r "$c" | sed "s|^|$c |"
+done | awk '{ print $1, $4, $5 }' | sort -u -k2,2 | while read -r c sha path; do
+    [ "$(git cat-file -s "$sha")" -gt 4 ] || continue
+
+    if [ "$(git cat-file blob "$sha" | dd bs=1 count=4 2>/dev/null |
+            od -An -c | tr -d ' \n')" = "177ELF" ]; then
+        echo "  BINARY   $(git log -1 --format=%h "$c")  $path"
+    fi
+done > /tmp/stackcheck-elf.$$
+
+if [ -s /tmp/stackcheck-elf.$$ ]; then
+    cat /tmp/stackcheck-elf.$$
+    junk=$((junk + $(wc -l < /tmp/stackcheck-elf.$$)))
+fi
+
+rm -f /tmp/stackcheck-elf.$$
 
 [ "$markers" = 0 ] && echo "  ok  no conflict markers in any commit"
 [ "$junk" = 0 ] && echo "  ok  no build products or editor files tracked"
