@@ -196,11 +196,9 @@ bool NodeCatalog::describe (const string &spelling, thPluginManager *pm,
     return true;
 }
 
-string NodeCatalog::suggestName (const string &category, const string &plugin,
+string NodeCatalog::suggestName (const string &plugin,
                                  const vector<string> &taken)
 {
-    (void)category;
-
     /* The plugin's own name, then a number. The shipped DSPs name nodes this
        way -- osc, osc2, mixer, mixer2, map1, map2 -- so a graph the editor
        adds to goes on looking like one a person wrote. */

@@ -203,7 +203,7 @@ int main (int argc, char **argv)
 
             vector<string> taken;
             const string name =
-                NodeCatalog::suggestName(list[e].category, list[e].name, taken);
+                NodeCatalog::suggestName(list[e].name, taken);
 
             NodeEdit::Result r =
                 NodeEdit::addNode(scratch, name, list[e].spelling, why);
@@ -358,6 +358,77 @@ int main (int argc, char **argv)
 
         printf("ok    %d controls added and removed, file restored each "
                "time\n", controls);
+    }
+
+    /* ---- 4b. braces and hashes inside strings ----
+     *
+     * Every scanner in NodeEdit walks the raw text, and two lexer rules make
+     * that harder than it looks. A comment is `#.*$' and a string is
+     * `"[^"\n]*"', and flex takes the longest match -- so a `#' inside a
+     * string belongs to the string, and a brace inside one is just a
+     * character.
+     *
+     * The code got both wrong: it cut each line at the first `#', and counted
+     * every brace it saw. A name containing `{' therefore left findIoLine
+     * believing it was still inside a node block, so it never found the `io'
+     * line and put the new node *after* it -- a file that no longer parses,
+     * because the io node is then referenced before it is defined.
+     *
+     * No shipped .dsp does this, which is why nothing caught it. */
+    {
+        const string tricky = "/tmp/dspnew-tricky.dsp";
+
+        remove(tricky.c_str());
+
+        {
+            ofstream out(tricky.c_str());
+
+            /* These two lines have to be exactly this shape to be a test. An
+               unmatched `{' in the name pushes the naive scanner to depth 1,
+               and the `}' that would bring it back sits *after* a `#' in the
+               description -- so cutting at the first `#' throws that `}' away
+               and the depth never returns to 0. A `{' and a `}' in separate
+               strings would cancel out and pass either way. */
+            out << "# a patch with awkward strings\n"
+                << "name \"brace { in a name\";\n"
+                << "author \"hash # in an author\";\n"
+                << "description \"hash # and then a closing brace }\";\n"
+                << "\n"
+                << "node ionode {\n"
+                << "    channels = 2;\n"
+                << "};\n"
+                << "\n"
+                << "io ionode;\n";
+        }
+
+        if (NodeEdit::addNode(tricky, "osc1", "osc::simple", why) !=
+            NodeEdit::OK)
+        { printf("FAIL  addNode on a file with braces in strings: %s\n",
+                 why.c_str());
+          failed++; }
+        else
+        {
+            const string text = slurp(tricky);
+
+            const string::size_type node = text.find("node osc1");
+            const string::size_type io = text.find("\nio ionode;");
+
+            if (node == string::npos || io == string::npos || node > io)
+            { printf("FAIL  the new node was not placed before the io line\n");
+              failed++; }
+
+            int ports = -1;
+
+            if (!hasNode(synth, tricky, "osc1", ports))
+            { printf("FAIL  a file with braces in strings stopped parsing "
+                     "after addNode\n");
+              failed++; }
+            else
+                printf("ok    braces and hashes in strings do not confuse the "
+                       "writer\n");
+        }
+
+        remove(tricky.c_str());
     }
 
     /* ---- 5. a patch that actually makes a sound ---- */
