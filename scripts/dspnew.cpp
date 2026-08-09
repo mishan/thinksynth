@@ -27,7 +27,9 @@
  *      time confirming the file still parses and the node appears in the
  *      graph with the ports its plugin declares
  *   3. remove each one again and confirm the file comes back to what it was
- *   4. build one real patch -- oscillator into the output -- wire it up, and
+ *   4. add controls, confirming each becomes a control box with the range and
+ *      label it was given, and that removing one restores the file
+ *   5. build one real patch -- oscillator into the output -- wire it up, and
  *      render a note, checking something other than silence comes out
  *
  * (4) is the one that matters. Everything else can pass while the result is
@@ -174,7 +176,7 @@ int main (int argc, char **argv)
 
     /* ---- 2 and 3. every plugin, added and removed ---- */
 
-    int added = 0, restored = 0, unloadable = 0, portless = 0;
+    int added = 0, restored = 0, unloadable = 0, portless = 0, controls = 0;
 
     thPluginManager *pm = synth.getPluginManager();
 
@@ -251,7 +253,114 @@ int main (int argc, char **argv)
     if (portless)
         printf("      %d plugin(s) declare no ports at all\n", portless);
 
-    /* ---- 4. a patch that actually makes a sound ---- */
+    /* ---- 4. controls ---- */
+
+    {
+        struct { const char *name; double v, lo, hi; const char *label; }
+        cases[] = {
+            { "cutoff",  0.5,  0,    1,     "Cutoff"      },
+            { "wide",    3,   -10,   10,    "Wide Range"  },
+            { "nolabel", 1,    0,    2,     ""            },
+            { "tiny",    0.001, 0,   0.01,  "Tiny"        },
+            { NULL, 0, 0, 0, NULL }
+        };
+
+        for (int i = 0; cases[i].name; i++)
+        {
+            const string before = slurp(scratch);
+
+            if (NodeEdit::addControl(scratch, cases[i].name, cases[i].v,
+                                     cases[i].lo, cases[i].hi,
+                                     cases[i].label, why) != NodeEdit::OK)
+            { printf("FAIL  addControl(@%s): %s\n", cases[i].name, why.c_str());
+              failed++; continue; }
+
+            /* It has to come back as a control box, with its range -- a
+               chanarg without .widget is metadata, not a knob, and would show
+               up as nothing at all. */
+            thSynthTree *t = synth.parseTree(scratch);
+
+            if (t == NULL)
+            { printf("FAIL  @%s: the file no longer parses\n", cases[i].name);
+              failed++; continue; }
+
+            NodeGraph g;
+
+            g.build(t);
+            delete t;
+
+            bool seen = false;
+
+            for (size_t b = 0; b < g.boxes().size(); b++)
+            {
+                const NodeGraph::Box &bx = g.boxes()[b];
+
+                if (!bx.isControl || bx.ctlArg != cases[i].name)
+                    continue;
+
+                seen = true;
+
+                if (fabs((double)bx.ctlMin - cases[i].lo) > 1e-4 ||
+                    fabs((double)bx.ctlMax - cases[i].hi) > 1e-4)
+                { printf("FAIL  @%s: range came back %g-%g, not %g-%g\n",
+                         cases[i].name, (double)bx.ctlMin, (double)bx.ctlMax,
+                         cases[i].lo, cases[i].hi);
+                  failed++; }
+
+                if (fabs((double)bx.ctlValue - cases[i].v) > 1e-4)
+                { printf("FAIL  @%s: value came back %g, not %g\n",
+                         cases[i].name, (double)bx.ctlValue, cases[i].v);
+                  failed++; }
+
+                const string wanted =
+                    *cases[i].label ? cases[i].label : cases[i].name;
+
+                if (bx.ctlLabel != wanted)
+                { printf("FAIL  @%s: label came back `%s', not `%s'\n",
+                         cases[i].name, bx.ctlLabel.c_str(), wanted.c_str());
+                  failed++; }
+
+                break;
+            }
+
+            if (!seen)
+            { printf("FAIL  @%s: added but not a control box\n",
+                     cases[i].name);
+              failed++; continue; }
+
+            controls++;
+
+            int refs = 0;
+
+            if (NodeEdit::removeControl(scratch, cases[i].name, refs, why)
+                != NodeEdit::OK)
+            { printf("FAIL  removeControl(@%s): %s\n", cases[i].name,
+                     why.c_str());
+              failed++; continue; }
+
+            if (slurp(scratch) != before)
+            { printf("FAIL  @%s: add then remove did not restore the file\n",
+                     cases[i].name);
+              failed++; continue; }
+        }
+
+        /* A label the lexer could not read back must be refused, not written:
+           the string rule is `"[^"\n]*"' with no escapes at all. */
+        if (NodeEdit::addControl(scratch, "bad", 0, 0, 1, "say \"hi\"", why)
+            == NodeEdit::OK)
+        { printf("FAIL  a label containing a quote was accepted\n");
+          failed++; }
+
+        /* And an inverted range. */
+        if (NodeEdit::addControl(scratch, "bad2", 0, 1, 0, "", why)
+            == NodeEdit::OK)
+        { printf("FAIL  max below min was accepted\n"); failed++; }
+
+        printf("ok    %d controls added and removed, file restored each "
+               "time\n", controls);
+    }
+
+    /* ---- 5. a patch that actually makes a sound ---- */
 
     remove(scratch.c_str());
 
@@ -263,9 +372,19 @@ int main (int argc, char **argv)
         NodeEdit::addNode(scratch, "osc", "osc::simple", why) != NodeEdit::OK)
     { printf("FAIL  building the patch: %s\n", why.c_str()); return 1; }
 
+    /* And a control driving something, since that is the point of adding
+       one: a patch with a knob on it. */
+    if (NodeEdit::addControl(scratch, "level", 6000, 0, 12000, "Level", why)
+        != NodeEdit::OK)
+    { printf("FAIL  addControl: %s\n", why.c_str()); return 1; }
+
+    if (NodeEdit::connectControl(scratch, "osc", "amp", "level", why)
+        != NodeEdit::OK)
+    { printf("FAIL  wiring @level: %s\n", why.c_str()); return 1; }
+
     if (NodeEdit::connect(scratch, "freq", "note", "ionode", "note", why) != NodeEdit::OK ||
         NodeEdit::connect(scratch, "osc", "freq", "freq", "out", why) != NodeEdit::OK ||
-        NodeEdit::setValue(scratch, "osc", "amp", 8000, why) != NodeEdit::OK ||
+
         NodeEdit::connect(scratch, "ionode", "out0", "osc", "out", why) != NodeEdit::OK ||
         NodeEdit::connect(scratch, "ionode", "out1", "osc", "out", why) != NodeEdit::OK)
     { printf("FAIL  wiring the patch: %s\n", why.c_str()); return 1; }

@@ -136,6 +136,31 @@ public:
     /* True if `name' is something the lexer will read back as a node name. */
     static bool validName (const string &name);
 
+    /* Adds a control: the five-line `@name' block a .dsp uses to declare
+       something worth playing with.
+    
+           @blim = 0.5;
+           @blim.widget = 1;
+           @blim.min = 0;
+           @blim.max = 2;
+           @blim.label = "Band Limit";
+    
+       Written before the first node, which is where all 206 of them sit in
+       the shipped files. The label may be empty; it may not contain a quote,
+       because the lexer's string is `"[^"\n]*"' with no escapes at all. */
+    static Result addControl (const string &filename, const string &name,
+                              double value, double min, double max,
+                              const string &label, string &why);
+
+    /* Removes a control's whole block, and rewrites every `= @name' that
+       read from it. Same reasoning as removeNode: a dangling reference makes
+       the file load with the arg silently reading zero. */
+    static Result removeControl (const string &filename, const string &name,
+                                 int &removed, string &why);
+
+    /* True if `label' can be written as a .dsp string. */
+    static bool validLabel (const string &label);
+
     /* OK if the file has an explicit `<node> { <arg> = ...; }'. Distinguishes
        an arg the author wrote from one buildArgMap() invented, which is the
        difference between changing a line and adding one. */

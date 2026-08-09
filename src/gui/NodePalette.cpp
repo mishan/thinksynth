@@ -27,6 +27,10 @@
 #include "../NodeCatalog.h"
 #include "NodePalette.h"
 
+/* Stands in the spelling column where a plugin would put "osc::simple". Not
+   a legal plugin name, so it cannot collide with one. */
+#define CONTROL_SPELLING  "@control"
+
 NodePalette::NodePalette (void)
     : pm_(NULL), addBtn_("Add to graph")
 {
@@ -94,6 +98,24 @@ void NodePalette::rebuild (void)
     const Glib::ustring needle = filter_.get_text().lowercase();
 
     store_->clear();
+
+    /* The control goes first and on its own, above the plugin categories.
+       It is the one thing here that is not a plugin: `@blim' is a block in
+       the file, not something in plugins/. Filing it under a made-up
+       category would say otherwise. */
+    {
+        const Glib::ustring label = "Control (slider)";
+
+        if (needle.empty() ||
+            label.lowercase().find(needle) != Glib::ustring::npos ||
+            Glib::ustring("control").find(needle) != Glib::ustring::npos)
+        {
+            Gtk::TreeModel::Row row = *(store_->append());
+
+            row[cols_.label] = label;
+            row[cols_.spelling] = CONTROL_SPELLING;
+        }
+    }
 
     for (size_t c = 0; c < catalog_.categories().size(); c++)
     {
@@ -163,6 +185,14 @@ void NodePalette::onSelectionChanged (void)
         return;
     }
 
+    if (spelling == CONTROL_SPELLING)
+    {
+        detail_.set_markup("<b>Control</b>\n"
+                           "A slider wired into as many parameters as you "
+                           "like.\n<small>out: its value</small>");
+        return;
+    }
+
     NodeCatalog::Entry info;
 
     if (!catalog_.describe(spelling, pm_, info))
@@ -227,14 +257,19 @@ void NodePalette::onRowActivated (const Gtk::TreeModel::Path &path,
         return;
     }
 
-    m_signal_add_(s.raw());
+    if (s.raw() == CONTROL_SPELLING)
+        m_signal_add_control_();
+    else
+        m_signal_add_(s.raw());
 }
 
 void NodePalette::onAddClicked (void)
 {
     const string spelling = selectedSpelling();
 
-    if (!spelling.empty())
+    if (spelling == CONTROL_SPELLING)
+        m_signal_add_control_();
+    else if (!spelling.empty())
         m_signal_add_(spelling);
 }
 

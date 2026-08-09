@@ -1226,3 +1226,230 @@ NodeEdit::Result NodeEdit::createFile (const string &filename,
 
     return OK;
 }
+
+/* ---- controls ---------------------------------------------------------- */
+
+bool NodeEdit::validLabel (const string &label)
+{
+    /* The lexer's string is `"[^"\n]*"'. No escapes, so a quote or a newline
+       cannot be represented at all -- not "would look odd", cannot. */
+    for (string::size_type i = 0; i < label.size(); i++)
+        if (label[i] == '"' || label[i] == '\n' || label[i] == '\r')
+            return false;
+
+    return true;
+}
+
+/* The first `node ...' at brace depth zero, or lines.size(). */
+static size_t findFirstNodeLine (const vector<string> &lines)
+{
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string t = trim(codeOf(lines[i]));
+
+        if (t.compare(0, 5, "node ") == 0 || t.compare(0, 5, "node\t") == 0)
+            return i;
+    }
+
+    return lines.size();
+}
+
+NodeEdit::Result NodeEdit::addControl (const string &filename,
+                                       const string &name, double value,
+                                       double min, double max,
+                                       const string &label, string &why)
+{
+    why.clear();
+
+    if (!validName(name))
+    {
+        why = "`" + name + "' is not a usable control name";
+        return REFUSED;
+    }
+
+    if (!validLabel(label))
+    {
+        why = "a label cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (max <= min)
+    {
+        why = "the maximum must be above the minimum";
+        return REFUSED;
+    }
+
+    if (value < min) value = min;
+    if (value > max) value = max;
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    /* Already declared? Two `@blim = ...' lines would have the second quietly
+       win, which is not what anyone means by adding one. */
+    {
+        size_t line = 0;
+        string::size_type from = 0, to = 0;
+
+        if (findChanArg(lines, name, line, from, to))
+        {
+            why = "the file already has a control called `@" + name + "'";
+            return REFUSED;
+        }
+    }
+
+    string sv, smin, smax;
+
+    if (!format(value, sv) || !format(min, smin) || !format(max, smax))
+    {
+        why = "cannot write those numbers in a .dsp";
+        return UNWRITABLE;
+    }
+
+    vector<string> block;
+
+    block.push_back("    @" + name + " = " + sv + ";");
+    block.push_back("    @" + name + ".widget = 1;");
+    block.push_back("    @" + name + ".min = " + smin + ";");
+    block.push_back("    @" + name + ".max = " + smax + ";");
+
+    if (!label.empty())
+        block.push_back("    @" + name + ".label = \"" + label + "\";");
+
+    block.push_back("");
+
+    /* Before the first node, where every shipped file keeps them. The order
+       within the block matters too: `@x.min' before `@x' has nothing to
+       modify, and the parser says so and ignores it. */
+    lines.insert(lines.begin() + findFirstNodeLine(lines),
+                 block.begin(), block.end());
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}
+
+NodeEdit::Result NodeEdit::removeControl (const string &filename,
+                                          const string &name, int &removed,
+                                          string &why)
+{
+    why.clear();
+    removed = 0;
+
+    if (name.empty())
+    {
+        why = "no control named";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    {
+        size_t line = 0;
+        string::size_type from = 0, to = 0;
+
+        if (!findChanArg(lines, name, line, from, to))
+        {
+            why = "no `@" + name + "' in the file";
+            return NO_NODE;
+        }
+    }
+
+    /* Everything reading it stops reading it, for the same reason as
+       removeNode: left alone the arg resolves to nothing and silently reads
+       zero, which is a change to the sound nobody asked for. */
+    const string ref = "@" + name;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+        const string::size_type eq = code.find('=');
+
+        if (eq == string::npos)
+            continue;
+
+        const string::size_type at = code.find(ref, eq);
+
+        if (at == string::npos)
+            continue;
+
+        /* `@blim' and not `@blim2'. */
+        const string::size_type after = at + ref.size();
+
+        if (after < code.size() && isWordChar(code[after]))
+            continue;
+
+        const string::size_type semi = code.find(';', eq);
+
+        if (semi == string::npos || at > semi)
+            continue;
+
+        string::size_type from = code.find_first_not_of(" \t", eq + 1);
+        string::size_type to = semi;
+
+        while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
+            to--;
+
+        lines[i] = lines[i].substr(0, from) + "0" + lines[i].substr(to);
+        removed++;
+    }
+
+    /* The block itself: `@name = ...' and every `@name.something = ...'.
+       Collected first, erased after, so the indices stay valid. */
+    vector<size_t> drop;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string t = trim(codeOf(lines[i]));
+
+        if (t.compare(0, ref.size(), ref) != 0)
+            continue;
+
+        const char next = (t.size() > ref.size()) ? t[ref.size()] : 0;
+
+        /* `@blim = ', `@blim.min = ' -- but not `@blim2'. */
+        if (next != 0 && next != '.' && next != ' ' && next != '\t' &&
+            next != '=')
+            continue;
+
+        drop.push_back(i);
+    }
+
+    /* Plus a blank line left behind by the block. */
+    if (!drop.empty())
+    {
+        const size_t after = drop.back() + 1;
+
+        if (after < lines.size() &&
+            lines[after].find_first_not_of(" \t\r") == string::npos)
+            drop.push_back(after);
+    }
+
+    for (size_t i = drop.size(); i > 0; i--)
+        lines.erase(lines.begin() + drop[i - 1]);
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}

@@ -46,6 +46,14 @@ public:
     typedef sigc::signal<void(string)> type_signal_add;
     type_signal_add signal_add (void) { return m_signal_add_; }
 
+    /* Emitted when the Control entry is chosen. A control is not a plugin --
+       it is a `@name' block -- so it needs its own signal and its own row at
+       the top of the tree rather than a pretend category. */
+    typedef sigc::signal<void()> type_signal_add_control;
+    type_signal_add_control signal_add_control (void) {
+        return m_signal_add_control_;
+    }
+
     void setSensitive (bool s);
 
 protected:
@@ -81,6 +89,7 @@ private:
     Gtk::Button addBtn_;
 
     type_signal_add m_signal_add_;
+    type_signal_add_control m_signal_add_control_;
 };
 
 #endif /* NODE_PALETTE_H */
