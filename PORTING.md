@@ -10,11 +10,10 @@ Supersedes the old four-line `PORTING` status table.
 | macOS | Clang + Homebrew | — | — | configure.ac has a Darwin branch; nothing has been built since ~2006 |
 | Windows | — | — | — | never attempted |
 
-> **Progress:** steps 1 and 2 of [section 8](#8-sequencing) are done. CMake
-> builds the tree on Linux and produces byte-identical `dspcheck` and
-> `dsplevel` output to the autotools build, and CI gates Linux plus a Linux
-> ASan/UBSan build on every push. Nothing in sections 3–6 has been touched
-> yet, deliberately — see [section 11](#11-what-has-landed).
+> **Progress:** steps 1–3 of [section 8](#8-sequencing) are done — CMake, CI,
+> and the platform-independent cleanups. What is left before macOS and Windows
+> can be attempted is the audio and MIDI rework, §3. See
+> [section 11](#11-what-has-landed).
 
 ## 1. The shape of the problem
 
@@ -429,10 +428,7 @@ time macOS and Windows arrive there is a working net under you.
 1. ~~**CMake on Linux, byte-comparable to autotools.**~~ Done — section 11.
 2. ~~**Linux CI** — build, `dspcheck` over `dsp/` and `patches/`, `dsplevel`,
    plus an ASan/UBSan job.~~ Done — section 11.
-3. **Platform-independent cleanups**, all on Linux: §6 in full, `std::filesystem`
-   for the two directory walks and `thUtil`, C++17, `THINK_API` + `-lthink` on
-   plugins + `-fvisibility=hidden`, delete `nsmodule_dl`, `Glib::get_user_config_dir()`,
-   generalised path resolution.
+3. ~~**Platform-independent cleanups**, all on Linux.~~ Done — section 11.
 4. **The audio rework**, on Linux: reshape `gthAudio` to callback form, add the
    sample ring (§3b — this fixes the window/period bug that exists today), bring
    `gthRtAudio` up against ALSA and JACK. `scripts/dsplive` and `scripts/dspab`
@@ -588,3 +584,38 @@ The ASan job was checked for the failure mode REVIVAL.md records: `nm -D` on
 `libthink.so.6.0` and on `plugins/osc/simple.so` both show `__asan` symbols, so
 the instrumentation genuinely reaches the library and the plugins rather than
 only the harness.
+
+### The cleanups (§8 step 3)
+
+Five commits, each verified on both build systems against the 81 loadable DSPs
+and 99 loadable patches.
+
+| | What changed | Measured |
+|---|---|---|
+| C++17, no `-ffast-math` | `<filesystem>` needs C++17; `-ffast-math` on the *link* line pulls in `crtfastmath.o` and sets FTZ/DAZ for the whole process | `dspcheck` identical; 12 of 324 `dsplevel` measurements moved by 0.1pp, all on 4 already-diverging DSPs the limiter was holding up anyway |
+| `char *desc` | ill-formed since C++11 | 431 → 0 `-Wwrite-strings`. 62 were the plugins; the other 369 were `thinksynth.xpm`'s colour table |
+| `std::filesystem` | `thUtil`, both directory walks, the absolute-path test | `basename`/`dirname` checked against the old code over 12 inputs; 11 identical, 1 deliberate (`dirname("/a//b")` no longer keeps the doubled separator) |
+| `THINK_API` | export macro, hidden visibility, plugins link libthink | libthink's dynamic symbol table 207 → 158; all 62 plugins export exactly their 4 ABI symbols |
+| paths | `Glib::get_user_config_dir()`, `GetModuleFileNameW`, `_NSGetExecutablePath` | migration checked end-to-end under xvfb, including the HOME-unset case that used to be a null dereference |
+
+Two bugs fell out of that work rather than being looked for:
+
+- **`module_cleanup` was being called through the wrong function-pointer
+  type, on every plugin unload.** It was declared
+  `void module_cleanup(struct module *)` — and `struct module` is a type that
+  exists nowhere in the tree; the parameter list was forward-declaring it into
+  existence. `thPlugin.cpp:208` casts the looked-up symbol to
+  `void (*)(thPlugin *)` and calls it with `this`. It survived only because
+  all 66 bodies are empty.
+- **The autotools tree raced at `-j8`** once plugins started linking against
+  libthink, because nothing declared that dependency. It had been invisible
+  while plugins linked against nothing.
+
+And one process note: `scripts/Makefile` is hand-written rather than generated,
+so it missed the C++17 bump and only the CMake harnesses noticed. That is the
+tax on running two build systems, and it is an argument for retiring autotools
+sooner rather than later.
+
+Still outstanding from §5: DSP lookup goes through `DSP_PATH` with no
+executable-relative fallback, so an installed tree finds its plugins
+relocatably but not its DSPs. `PATCH_PATH` is defined and referenced nowhere.
