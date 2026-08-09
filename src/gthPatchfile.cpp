@@ -18,12 +18,14 @@
 
 #include "config.h"
 
-#include <sys/stat.h>
 #include <cassert>
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+
+#include <filesystem>
+#include <system_error>
 
 #include "think.h"
 
@@ -70,17 +72,21 @@ gthPatchManager *gthPatchManager::instance (void) {
 
 string gthPatchManager::resolveDsp (const string &dspName)
 {
-    struct stat st;
+    std::error_code ec;
 
     if (dspName.empty())
         return dspName;
 
-    if (dspName[0] == '/' || stat(dspName.c_str(), &st) == 0)
+    /* Was `dspName[0] == '/'', which reads "C:\patches\foo.dsp" and
+       "\\server\share\foo.dsp" as relative paths. is_absolute() knows the
+       platform's rules, including that "C:foo" is neither. */
+    if (std::filesystem::path(dspName).is_absolute() ||
+        std::filesystem::exists(dspName, ec))
         return dspName;
 
     const string inPath = DSP_PATH + dspName;
 
-    if (stat(inPath.c_str(), &st) == 0)
+    if (std::filesystem::exists(inPath, ec))
         return inPath;
 
     return dspName;
