@@ -60,6 +60,14 @@ static int criticalPath (const NodeGraph &g)
         {
             const NodeGraph::Edge &ed = g.edges()[e];
 
+            /* Both ends bounds-checked before indexing. An Edge's indices
+               start at -1 and are filled in later, so a partially built one
+               can exist, and a measurement harness is the last thing that
+               should segfault rather than report. */
+            if (ed.fromBox < 0 || ed.fromBox >= n ||
+                ed.toBox < 0 || ed.toBox >= n)
+                continue;
+
             if (ed.feedback || g.boxes()[ed.fromBox].attachedTo >= 0)
                 continue;
 
@@ -134,6 +142,10 @@ int main (int argc, char **argv)
             for (size_t e = 0; e < g.edges().size(); e++)
             {
                 const NodeGraph::Edge &ed = g.edges()[e];
+
+                if (ed.fromBox < 0 || ed.fromBox >= (int)g.boxes().size() ||
+                    ed.toBox < 0 || ed.toBox >= (int)g.boxes().size())
+                    continue;
 
                 if (g.boxes()[ed.fromBox].attachedTo >= 0)
                     continue;

@@ -99,7 +99,12 @@ bool NodeGraph::edgeWraps (int edge) const
 
     const Edge &e = edges_[edge];
 
-    if (e.fromBox < 0 || e.toBox < 0)
+    /* Both ends checked against the upper bound as well as for -1. An Edge
+       starts life with both indices at -1 and is filled in afterwards, so a
+       partially built one can exist; every other helper here guards both
+       sides and this guarded only the low one. */
+    if (e.fromBox < 0 || e.fromBox >= (int)boxes_.size() ||
+        e.toBox < 0 || e.toBox >= (int)boxes_.size())
         return false;
 
     return boxes_[e.fromBox].layer / bandSize_ !=
