@@ -25,7 +25,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <pthread.h>
 
 #include <algorithm>
 
@@ -36,8 +35,6 @@ thSynth *thSynth::instance_ = NULL;
 
 thSynth::thSynth (int windowlen, int samples)
 {
-    synthMutex_ = new pthread_mutex_t;
-    pthread_mutex_init(synthMutex_, NULL);
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
@@ -71,8 +68,6 @@ thSynth::thSynth (int windowlen, int samples)
 
 thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 {
-    synthMutex_ = new pthread_mutex_t;
-    pthread_mutex_init(synthMutex_, NULL);
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
@@ -160,9 +155,6 @@ thSynth::~thSynth (void)
 
     delete controllerHandler_;
     delete pluginmanager_;
-
-    pthread_mutex_destroy(synthMutex_);
-    delete synthMutex_;
 
     if (instance_ == this)
         instance_ = NULL;
@@ -300,7 +292,7 @@ void thSynth::removeChan (int channum)
     if ((channum < 0) || (channum >= midiChannelCnt_))
         return;
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     collectRetired();
 
     if (guiChannels_[channum] != NULL)
@@ -330,7 +322,7 @@ void thSynth::removeChan (int channum)
         }
     }
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 }
 
 /* Common tail for the loadTree() overloads.
@@ -430,7 +422,7 @@ thSynthTree * thSynth::loadTree (const string &filename)
         return NULL;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
 
     /* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
@@ -448,7 +440,7 @@ thSynthTree * thSynth::loadTree (const string &filename)
     /* No channel involved, so thSynth keeps this one. */
     thSynthTree *tree = finishParse(filename, parseResult, true);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 
     return tree;
 }
@@ -473,7 +465,7 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     /* Same mutex as loadTree: the parser's globals are shared, so two parses
        at once would interleave. */
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
 
     yyin = input;
 
@@ -490,7 +482,7 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     thSynthTree *tree = finishParse(filename, parseResult, false);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 
     return tree;
 }
@@ -500,7 +492,7 @@ thSynthTree * thSynth::loadTree (FILE *input)
     if (!input)
         return NULL;
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     
     yyin = input;
 
@@ -516,7 +508,7 @@ thSynthTree * thSynth::loadTree (FILE *input)
 
     thSynthTree *tree = finishParse("<stream>", parseResult, true);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 
     return tree;
 }
@@ -530,12 +522,12 @@ void thSynth::setChanArg (int channum, thArg *arg)
         return;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     collectRetired();
 
     if (!guiChannels_[channum])
     {
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
         delete arg;
         return;
     }
@@ -570,7 +562,7 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
         existing->setValue((*arg)[0]);
 
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
 
         delete arg;
         return;
@@ -588,7 +580,7 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
     postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 }
 
 /* GUI thread.
@@ -660,7 +652,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
          return NULL;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     collectRetired();
 
     /* XXX: do we re-allocate these everytime we read a new input file?? */
@@ -681,7 +673,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     if (tree == NULL)
     {
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
         return NULL;
     }
 
@@ -692,7 +684,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
         fprintf(stderr, "thSynth::loadTree: channel %d is beyond the %d "
                 "available channels\n", channum, midiChannelCnt_);
         delete tree;
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
         return NULL;
     }
 
@@ -714,7 +706,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     {
         /* postCommand deleted newchan, which owns the tree; the previous
            channel is untouched and still current. */
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
         return NULL;
     }
 
@@ -725,7 +717,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     /* make sure there are no midi controllers set up for this channel */
     controllerHandler_->clearByDestChan(channum);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 
     return tree;
 }
@@ -757,7 +749,7 @@ bool thSynth::addNote (int channum, float note, float velocity)
         return false;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     collectRetired();
 
     thMidiChan *chan = guiChannels_[channum];
@@ -765,7 +757,7 @@ bool thSynth::addNote (int channum, float note, float velocity)
     if (!chan)
     {
         debug("thSynth::addNote: no such channel %d", channum);
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
 
         return false;
     }
@@ -774,7 +766,7 @@ bool thSynth::addNote (int channum, float note, float velocity)
 
     if (newnote == NULL)
     {
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
         return false;
     }
 
@@ -786,7 +778,7 @@ bool thSynth::addNote (int channum, float note, float velocity)
 
     bool ok = postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 
     return ok;
 }
@@ -797,12 +789,12 @@ int thSynth::delNote (int channum, float note)
     if ((channum < 0) || (channum >= midiChannelCnt_))
         return 1;
 
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     collectRetired();
 
     if (!guiChannels_[channum])
     {
-        pthread_mutex_unlock(synthMutex_);
+        synthMutex_.unlock();
         return 1;
     }
 
@@ -817,14 +809,14 @@ int thSynth::delNote (int channum, float note)
 
     postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 
     return 0;
 }
 
 void thSynth::clearAll (void)
 {
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     collectRetired();
 
     /* This used to walk `while (*c) (*c++)->clearAll()', relying on a NULL
@@ -837,7 +829,7 @@ void thSynth::clearAll (void)
 
     postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 }
 
 /* Audio thread. */
@@ -933,10 +925,10 @@ void thSynth::setWindowlen (int windowlen)
 {
     /* XXX: fixme */
 #if 0
-    pthread_mutex_lock(synthMutex_);
+    synthMutex_.lock();
     windowlen_ = windowlen;
     delete [] output_;
     output_ = new float[channels_*windowlen_];
-    pthread_mutex_unlock(synthMutex_);
+    synthMutex_.unlock();
 #endif
 }

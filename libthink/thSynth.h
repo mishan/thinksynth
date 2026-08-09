@@ -19,6 +19,8 @@
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
 
+#include <mutex>
+
 #include "thExport.h"
 
 class thMidiNote;
@@ -203,8 +205,15 @@ private:
 
     /* Serialises GUI-thread callers against each other (the parser globals are
        not reentrant either). The audio thread does not take it -- that is the
-       whole point of the queues. */
-    pthread_mutex_t *synthMutex_;
+       whole point of the queues.
+     *
+     * std::mutex rather than pthread_mutex_t. This header never included
+     * <pthread.h>; on glibc the type arrived transitively through something
+     * else, which is exactly the sort of thing that only shows up when a
+     * second platform compiles it -- MinGW-w64 has winpthreads but does not
+     * leak the type, so every translation unit failed with "pthread_mutex_t
+     * does not name a type". */
+    std::mutex synthMutex_;
 
     static thSynth *instance_;
 };

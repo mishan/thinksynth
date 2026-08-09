@@ -6,17 +6,15 @@ Supersedes the old four-line `PORTING` status table.
 
 | OS | Toolchain | Audio | MIDI | Status |
 |---|---|---|---|---|
-| GNU/Linux | GCC, CMake | RtAudio | RtMidi | builds and runs; **not yet listened to** |
+| GNU/Linux | GCC, CMake | RtAudio | RtMidi | **works — audio confirmed on real hardware** |
 | macOS | Clang + Homebrew | RtAudio (CoreAudio, JACK) | RtMidi (CoreMIDI) | not yet attempted |
 | Windows | MinGW-w64 / MSYS2 | RtAudio (WASAPI) | RtMidi (WinMM) | not yet attempted |
 
-> **Progress:** steps 1–5 of [section 8](#8-sequencing) are done — CMake, CI,
-> the platform-independent cleanups, and the audio and MIDI rework. All of it
-> is verified headlessly; **none of it has been heard or played through**,
-> because the machine it was built on has neither a sound server nor a
-> sequencer. That is the first thing to do on real hardware, and it gates
-> everything after it. macOS and Windows are next. See
-> [section 11](#11-what-has-landed).
+> **Progress:** steps 1–5 of [section 8](#8-sequencing) are done, and **the
+> RtAudio path has been heard on Linux** — the rework sounds right on real
+> hardware, which was the open question everything else was waiting on. MIDI
+> input has still not been played through. Steps 6 and 7, macOS and Windows,
+> are in progress: see [section 12](#12-macos-and-windows).
 
 ## 1. The shape of the problem
 
@@ -744,3 +742,72 @@ does not have.
 sequencer on the build machine, so what is verified is the queue, the
 dispatch, and that the app starts and shuts down cleanly when RtMidi cannot
 open anything at all.
+
+## 12. macOS and Windows
+
+Both platforms now get as far as a real failure rather than a configuration
+one, which is progress: the failures below came from actual runners, not from
+guessing.
+
+### What the first real runs found
+
+**Windows: `'pthread_mutex_t' does not name a type`**, in every translation
+unit that includes `think.h`. `thSynth.h` declared a `pthread_mutex_t *` and
+never included `<pthread.h>`; on glibc the type arrived transitively through
+something else in the include graph. MinGW-w64 has winpthreads but does not
+leak the type, so the whole library failed to compile.
+
+Fixed by moving to `std::mutex`, which §6 had already flagged as the right
+answer — the mutex is a plain "serialise GUI-thread callers against each
+other" lock with no pthread-specific behaviour. That deletes the
+`new pthread_mutex_t` / `pthread_mutex_init` / `pthread_mutex_destroy`
+lifecycle and the `delete` that went with it, and turns twenty-eight
+`pthread_mutex_lock`/`unlock` calls into `.lock()`/`.unlock()`. Checked under
+ThreadSanitizer: `dspstress` is clean at all four levels, which is the harness
+that actually exercises the paths this lock guards.
+
+**macOS: `ld: library 'jack' not found`**, after everything had compiled.
+RtAudio, built from source, probes for what it can find; the runner had
+Homebrew JACK installed, so RtAudio enabled its JACK backend and exported a
+bare `-ljack` with no `-L` to go with it.
+
+Fixed by choosing RtAudio's and RtMidi's backends explicitly rather than
+letting them probe: CoreAudio and CoreMIDI on macOS, WASAPI and WinMM on
+Windows, ALSA/JACK/Pulse on Linux where JACK is the point. That also means the
+set of backends in a build no longer depends on what happened to be installed
+on the machine that produced it, which matters more for a shipped binary than
+the convenience does. ASIO stays off: its SDK is not redistributable.
+
+**Windows, next in line: `#error Need a dl implementation!`.** `thPlugin.cpp`
+guarded its `<dlfcn.h>` include with `HAVE_DLFCN_H` and had nothing behind the
+`#else` since `nsmodule_dl` was deleted. MinGW has no `dlfcn.h`.
+
+So the seam is back, as `thDynLib` — `open`, `symbol`, `close`, `lastError`,
+which is everything `thPlugin` uses. `dlopen`/`dlsym`/`dlclose` on Unix;
+`LoadLibraryExW`/`GetProcAddress`/`FreeLibrary` on Windows, going through
+`std::filesystem::path` for the widening so a plugin under a non-ASCII
+directory loads, and `LOAD_WITH_ALTERED_SEARCH_PATH` so a plugin's own
+directory is searched for its dependencies — the nearest equivalent to
+resolving against what is already loaded. There is a certain symmetry in
+deleting a twenty-year-dead portability shim and then needing one again two
+commits later, this time for a platform someone actually uses.
+
+### Still expected to fail
+
+Neither platform has been built here — there is no macOS or Windows to hand,
+so these are fixes for failures CI reported, verified only insofar as Linux
+can verify them (the tree still builds, all five gates pass, TSan is clean).
+The next round will find the next thing. Known candidates, in the order they
+are likely to bite:
+
+- **`getopt`** in `main.cpp`. MinGW-w64 provides it, so this should survive,
+  but it is not part of the C standard and is the sort of thing that differs.
+- **`gthPrefs`** uses `Glib::get_user_config_dir()`, which is right on all
+  three, but nothing has checked that the directory is creatable on Windows.
+- **Packaging.** gtkmm-3 drags roughly forty DLLs behind it on Windows and a
+  `.app` needs `install_name_tool` work on macOS. §8 step 8, untouched.
+- **The GUI itself.** gtkmm-3 on quartz will run and will not look native;
+  that is known and accepted, but nobody has seen it.
+
+`macos` and `windows` stay `continue-on-error` in CI until they pass. The
+point of running them red is to see how far each gets.
