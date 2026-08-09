@@ -24,6 +24,8 @@
 #include <math.h>
 #include <ctype.h>      /* isalnum, isdigit -- used by the RHS parsing */
 
+#include <sys/stat.h>   /* stat, chmod -- writeLines preserves the mode */
+
 #include <fstream>
 #include <vector>
 
@@ -52,13 +54,57 @@ static bool isWordChar (char c)
     return isalnum((unsigned char)c) || c == '_';
 }
 
-/* Everything up to an unquoted `#'. The lexer drops comments entirely, so a
-   `#' inside a value is not a thing that can happen. */
+/* The part of a line that is code: comment removed, string bodies blanked.
+ *
+ * The old comment here claimed "a `#' inside a value is not a thing that can
+ * happen". It is: the lexer's comment rule is `#.*$' and its string rule is
+ * `"[^"\n]*"', flex takes the longest match at each position, so a `#' inside
+ * a string belongs to the string and a `"' inside a comment belongs to the
+ * comment. Cutting the line at the first `#' therefore chops
+ * `name = "C# lead";' in half and loses whatever followed -- including any
+ * brace, which is how findIoLine came to miscount depth and place a new node
+ * after the `io' line, in a file that then would not parse.
+ *
+ * String bodies become spaces rather than disappearing, so that every offset
+ * into the result is still an offset into the original line: callers hand
+ * rhsFrom/rhsTo to the splicer, which slices the untouched line. Blanking also
+ * stops the scanners here finding `{', `@blim' or `osc->out' inside a label
+ * and acting on it.
+ *
+ * A string cannot span lines -- the pattern excludes `\n' -- so each line can
+ * be read on its own with no state carried in from the one before. */
 static string codeOf (const string &line)
 {
-    const string::size_type h = line.find('#');
+    string out;
 
-    return (h == string::npos) ? line : line.substr(0, h);
+    out.reserve(line.size());
+
+    bool inString = false;
+
+    for (string::size_type i = 0; i < line.size(); i++)
+    {
+        const char c = line[i];
+
+        if (inString)
+        {
+            out += (c == '"') ? '"' : ' ';
+
+            if (c == '"')
+                inString = false;
+
+            continue;
+        }
+
+        if (c == '#')
+            break;              /* a comment: the rest of the line is gone */
+
+        if (c == '"')
+            inString = true;
+
+        out += c;
+    }
+
+    return out;
 }
 
 static string trim (const string &s)
@@ -490,23 +536,62 @@ static bool readLines (const string &filename, vector<string> &lines,
     return true;
 }
 
+/* Into a temporary beside the target, then renamed over it.
+ *
+ * This used to open the real file with ios::trunc and write into it, so a full
+ * disk, a crash or a kill left a half-written .dsp -- and that is someone's
+ * patch, possibly the only copy. Every writer in this file goes through here,
+ * so all ten of them were destructive on failure. NodeLayout::write already
+ * worked this way; the two now agree.
+ *
+ * rename() is atomic within a directory, so the file ends up either the old
+ * one or the new one and never a prefix of the new one. The temporary sits
+ * beside the target because rename cannot cross a filesystem.
+ *
+ * The mode of an existing file is carried across: rename replaces the inode,
+ * so without this a .dsp that was group-writable would quietly come back with
+ * whatever the umask happened to say. */
 static bool writeLines (const string &filename, const vector<string> &lines,
                         bool endsWithNewline)
 {
-    ofstream out(filename.c_str(), ios::binary | ios::trunc);
+    const string tmp = filename + ".edit-tmp";
 
-    if (!out)
-        return false;
-
-    for (size_t i = 0; i < lines.size(); i++)
     {
-        out << lines[i];
+        ofstream out(tmp.c_str(), ios::binary | ios::trunc);
 
-        if (i + 1 < lines.size() || endsWithNewline)
-            out << "\n";
+        if (!out)
+            return false;
+
+        for (size_t i = 0; i < lines.size(); i++)
+        {
+            out << lines[i];
+
+            if (i + 1 < lines.size() || endsWithNewline)
+                out << "\n";
+        }
+
+        out.flush();
+
+        if (!out.good())
+        {
+            out.close();
+            remove(tmp.c_str());
+            return false;
+        }
     }
 
-    return out.good();
+    struct stat st;
+
+    if (stat(filename.c_str(), &st) == 0)
+        chmod(tmp.c_str(), st.st_mode & 07777);
+
+    if (rename(tmp.c_str(), filename.c_str()) != 0)
+    {
+        remove(tmp.c_str());
+        return false;
+    }
+
+    return true;
 }
 
 /* The indentation already used inside a block, so an inserted line looks like
@@ -1180,10 +1265,12 @@ NodeEdit::Result NodeEdit::removeNode (const string &filename,
 
 NodeEdit::Result NodeEdit::createFile (const string &filename,
                                        const string &name,
-                                       const string &author, string &why)
+                                       const string &author, bool replace,
+                                       string &why)
 {
     why.clear();
 
+    if (!replace)
     {
         ifstream probe(filename.c_str());
 
@@ -1192,6 +1279,17 @@ NodeEdit::Result NodeEdit::createFile (const string &filename,
             why = filename + " already exists";
             return REFUSED;
         }
+    }
+
+    /* The name goes inside `name "..."', and the lexer's string has no escape
+       for a quote -- `"[^"\n]*"' and nothing else. The GUI derives this from a
+       filename the user typed, and a quote is legal in one, so a file called
+       `my "best" patch.dsp' would produce a .dsp that does not parse. Refuse
+       rather than write it. */
+    if (!validLabel(name) || !validLabel(author))
+    {
+        why = "a name or author cannot contain a quote";
+        return UNWRITABLE;
     }
 
     /* The smallest file that loads.

@@ -321,6 +321,26 @@ void NodeWindow::onArrange (void)
  * Values first because NodeLayout::write rewrites the whole file to move its
  * comment block, and doing that between two value splices would mean the
  * second splice worked from a file the first had already reflowed. */
+/* Saves anything held in memory, for the operations that work on the file.
+ *
+ * Adding and deleting both edit the .dsp text and then reopen it, and the
+ * reopen throws away everything pending. So they have to flush first -- and,
+ * if the flush fails, not go ahead. Each of the three call sites wrote this
+ * out itself and each got it slightly wrong: two ignored the result entirely,
+ * and the third reported the failure into a status bar that the success
+ * message overwrote a moment later.
+ *
+ * Says nothing and returns true when there is nothing to write, so callers can
+ * ask unconditionally. */
+bool NodeWindow::flushPending (string &why)
+{
+    if (pending_.empty() && wires_.empty() && controls_.empty() &&
+        !layoutDirty_)
+        return true;
+
+    return writeAll(why);
+}
+
 bool NodeWindow::writeAll (string &why)
 {
     /* Wires before values: disconnecting puts a plain number in place of the
@@ -578,10 +598,23 @@ void NodeWindow::onPaletteAdd (string spelling)
     }
 
     const string name =
-        NodeCatalog::suggestName("", spelling.substr(spelling.find("::") + 2),
+        NodeCatalog::suggestName(spelling.substr(spelling.find("::") + 2),
                                  takenNames());
 
     string why;
+
+    /* Flush before touching the file, not after. Everything pending lives in
+       memory and the reopen below would drop it, so it has to go out first --
+       and if it cannot, the add must not happen either. Writing the node and
+       then failing to save would leave the file holding the new node and none
+       of the edits, which is a state the user never asked for and cannot
+       undo. */
+    if (!flushPending(why))
+    {
+        setStatus("Not adding " + spelling + ": the pending edits could not be "
+                  "saved first (" + why + ")");
+        return;
+    }
 
     NodeEdit::Result r = NodeEdit::addNode(filename_, name, spelling, why);
 
@@ -589,17 +622,6 @@ void NodeWindow::onPaletteAdd (string spelling)
     {
         setStatus("Could not add " + spelling + ": " + why);
         return;
-    }
-
-    /* Everything pending is already in memory and would be lost by the
-       reopen, so write it out first. */
-    if (!pending_.empty() || !wires_.empty() || !controls_.empty() ||
-        layoutDirty_)
-    {
-        string w2;
-
-        if (!writeAll(w2))
-            setStatus("Added " + name + ", but could not save the rest: " + w2);
     }
 
     const string f = filename_;
@@ -737,23 +759,24 @@ void NodeWindow::onPaletteAddControl (void)
         if (graph_.boxes()[b].isControl)
             taken.push_back(graph_.boxes()[b].ctlArg);
 
-    string name = NodeCatalog::suggestName("", "ctl", taken);
+    string name = NodeCatalog::suggestName("ctl", taken);
     string label;
     double value = 0.5, min = 0, max = 1;
 
     if (!askControl(name, value, min, max, label))
         return;
 
-    /* Everything pending would be lost by the reopen below. */
-    if (!pending_.empty() || !wires_.empty() || !controls_.empty() ||
-        layoutDirty_)
-    {
-        string w2;
-
-        writeAll(w2);
-    }
-
     string why;
+
+    /* Same order as adding a node: flush first, and give up if it fails,
+       rather than writing the control into a file that has lost every other
+       edit. */
+    if (!flushPending(why))
+    {
+        setStatus("Not adding @" + name + ": the pending edits could not be "
+                  "saved first (" + why + ")");
+        return;
+    }
 
     if (NodeEdit::addControl(filename_, name, value, min, max, label, why)
         != NodeEdit::OK)
@@ -803,12 +826,19 @@ void NodeWindow::onDeleteNode (void)
     string why;
     int refs = 0;
 
-    if (!pending_.empty() || !wires_.empty() || !controls_.empty() ||
-        layoutDirty_)
-    {
-        string w2;
+    /* Flush first, because remove works on the file and the pending edits are
+       not in it yet.
 
-        writeAll(w2);
+       If that write fails, stop. Going on would delete from a file missing
+       every edit since the last save, then reopen and report success -- the
+       edits gone and nothing said about it. A delete the user can retry after
+       fixing the disk is much better than one that quietly takes the wrong
+       file with it. */
+    if (!flushPending(why))
+    {
+        setStatus("Not deleting " + name + ": the pending edits could not be "
+                  "saved first (" + why + ")");
+        return;
     }
 
     const NodeEdit::Result r =
@@ -865,10 +895,6 @@ void NodeWindow::onNewFile (void)
 
     dlg.hide();
 
-    /* createFile refuses to overwrite; the chooser has already asked, so an
-       existing file is one the user meant to replace. */
-    ::remove(path.c_str());
-
     string base = thUtil::basename(path.c_str());
 
     const string::size_type dot = base.rfind(".dsp");
@@ -878,7 +904,16 @@ void NodeWindow::onNewFile (void)
 
     string why;
 
-    if (NodeEdit::createFile(path, base, "", why) != NodeEdit::OK)
+    /* The chooser has already confirmed the overwrite, so say so and let
+       createFile do the replacing.
+
+       This used to ::remove(path) first, to get past createFile's refusal to
+       overwrite. That deleted the user's existing .dsp before finding out
+       whether the new one could be written -- so a full disk or a read-only
+       directory took the old file with it and left nothing behind. createFile
+       writes a temporary and renames, so the old file is now replaced only
+       once the new one is complete. */
+    if (NodeEdit::createFile(path, base, "", true, why) != NodeEdit::OK)
     {
         Gtk::MessageDialog err(*this, "Could not create the file.", false,
                                Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);

@@ -131,7 +131,21 @@ public:
        finishParse rejects the file -- so "new" has to mean this rather than a
        blank page. Refuses to overwrite. */
     static Result createFile (const string &filename, const string &name,
-                              const string &author, string &why);
+                              const string &author, string &why)
+    {
+        return createFile(filename, name, author, false, why);
+    }
+
+    /* With `replace', writes over a file that is already there.
+
+       For a caller that has already asked -- the GUI's Save dialog does its
+       own overwrite confirmation. The point of the flag is that such a caller
+       no longer has to delete the file first to get past the refusal above:
+       doing that destroyed the user's .dsp before finding out whether the new
+       one could be written at all. writeLines renames a temporary into place,
+       so the old file survives until the new one is complete. */
+    static Result createFile (const string &filename, const string &name,
+                              const string &author, bool replace, string &why);
 
     /* True if `name' is something the lexer will read back as a node name. */
     static bool validName (const string &name);

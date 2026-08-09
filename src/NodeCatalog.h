@@ -79,10 +79,17 @@ public:
        a plugin that does not load is a plugin the palette must not offer. */
     bool describe (const string &spelling, thPluginManager *pm, Entry &out);
 
-    /* A name for a new node of this type that no existing name collides with:
-       "osc", then "osc2", "osc3"... Matches how the shipped DSPs name things
-       (osc, osc2, mixer2) rather than inventing a scheme. */
-    static string suggestName (const string &category, const string &plugin,
+    /* A name for a new node that nothing in `taken' collides with: `plugin',
+       then `plugin2', `plugin3'... The shipped DSPs name nodes this way --
+       osc, osc2, mixer, mixer2 -- so a graph the editor adds to goes on
+       looking like one a person wrote.
+
+       `plugin' is the bare plugin name, not the `cat::plugin' spelling. The
+       category used to be a parameter here and was ignored, which read as
+       though it had some say in the result; `osc::simple' comes back as
+       `simple'. Anything the lexer would not take in a WORD becomes an
+       underscore, and a leading digit gets an `n' put in front. */
+    static string suggestName (const string &plugin,
                                const vector<string> &taken);
 
 private:

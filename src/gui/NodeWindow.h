@@ -92,6 +92,11 @@ protected:
     /* Positions and pending values, written together. */
     bool writeAll (string &why);
 
+    /* writeAll, but a no-op success when there is nothing pending. What the
+       add and delete paths call before they touch the file: each of them
+       reopens afterwards, and the reopen discards anything still in memory. */
+    bool flushPending (string &why);
+
 private:
     thSynth *synth_;
     thSynthTree *tree_;     /* owned by this window */
