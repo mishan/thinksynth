@@ -68,6 +68,7 @@ add_test(NAME dspcheck.patch
                  -DHARNESS=$<TARGET_FILE:dspcheck>
                  -DCORPUS=${PROJECT_SOURCE_DIR}/patches
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DWORKING_DIR=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=patch
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
