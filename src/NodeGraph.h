@@ -203,6 +203,30 @@ public:
     /* Assigns layers, orders within layers, and pixel positions. */
     void layout (void);
 
+    /* Wrap the layer sequence into stacked bands once the drawing would be
+       wider than this. 0 leaves it in one row, which is the default.
+    
+       Not an alternative layering: the layering is already optimal. Longest
+       path puts every node at its critical-path depth, and that depth is the
+       least number of columns any left-to-right drawing can have -- 80 of the
+       81 shipped graphs are already at that minimum. Nothing reorders them
+       into fewer columns without sending some wire backwards.
+    
+       So the only way to narrow a deep patch is to stop drawing it in one
+       row. This cuts the column sequence into bands and stacks them, the way
+       a long circuit is drawn on several rows of a schematic. The cost is
+       real: the wire from the end of one band to the start of the next is a
+       long way round, and the eye has to make the jump. */
+    void setWrapWidth (double w) { wrapWidth_ = w; }
+    double wrapWidth (void) const { return wrapWidth_; }
+
+    /* How many bands the last layout used. 1 unless it wrapped. */
+    int bandCount (void) const { return bands_; }
+
+    /* True if this edge jumps from one band to the next -- the wire that has
+       to be drawn as a return rather than a hop. */
+    bool edgeWraps (int edge) const;
+
     const vector<Box> &boxes (void) const { return boxes_; }
     const vector<Edge> &edges (void) const { return edges_; }
 
@@ -308,6 +332,9 @@ private:
 
     double width_, height_;
     int layers_;
+    double wrapWidth_;
+    int bands_;
+    int bandSize_;      /* layers per band */
 };
 
 #endif /* NODE_GRAPH_H */
