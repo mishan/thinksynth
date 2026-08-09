@@ -39,7 +39,8 @@ NodeWindow::NodeWindow (thSynth *synth)
     : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), revertBtn_("Revert"),
-      zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1")
+      zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1"),
+      zoomFitBtn_("Fit")
 {
     set_title("thinksynth - Nodes");
     set_default_size(900, 600);
@@ -56,6 +57,7 @@ NodeWindow::NodeWindow (thSynth *synth)
     toolbar_.pack_end(zoomInBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_end(zoomResetBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_end(zoomOutBtn_, Gtk::PACK_SHRINK);
+    toolbar_.pack_end(zoomFitBtn_, Gtk::PACK_SHRINK);
 
     scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroller_.add(canvas_);
@@ -89,6 +91,8 @@ NodeWindow::NodeWindow (thSynth *synth)
         sigc::mem_fun(*this, &NodeWindow::onZoomOut));
     zoomResetBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeWindow::onZoomReset));
+    zoomFitBtn_.signal_clicked().connect(
+        sigc::mem_fun(*this, &NodeWindow::onZoomFit));
 
     canvas_.signal_box_moved().connect(
         sigc::mem_fun(*this, &NodeWindow::onBoxMoved));
@@ -277,6 +281,13 @@ bool NodeWindow::open (const string &filename, int chan)
     controls_.clear();
 
     canvas_.setGraph(&graph_);
+
+    /* Shown whole to begin with. A patch is as wide as its signal chain is
+       deep and the deepest here is 17 layers -- opening zoomed to 1:1 puts
+       most of it off the right-hand edge, and the first thing anyone would
+       do is zoom out. */
+    canvas_.zoomToFit();
+
     params_.setBox(NULL, -1);
     palette_.setSensitive(true);
     deleteBtn_.set_sensitive(false);
@@ -1078,4 +1089,9 @@ void NodeWindow::onZoomOut (void)
 void NodeWindow::onZoomReset (void)
 {
     canvas_.setZoom(1.0);
+}
+
+void NodeWindow::onZoomFit (void)
+{
+    canvas_.zoomToFit();
 }

@@ -57,6 +57,7 @@ protected:
     void onZoomIn (void);
     void onZoomOut (void);
     void onZoomReset (void);
+    void onZoomFit (void);
     void onBoxMoved (int box);
     void onSelected (int box);
     void onParamEdited (int box, string name, double value);
@@ -156,6 +157,7 @@ private:
     Gtk::Button zoomInBtn_;
     Gtk::Button zoomOutBtn_;
     Gtk::Button zoomResetBtn_;
+    Gtk::Button zoomFitBtn_;
 };
 
 #endif /* NODE_WINDOW_H */

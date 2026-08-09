@@ -30,7 +30,13 @@
 #define BOX_HEAD      20.0    /* title bar */
 #define PORT_PITCH    14.0
 #define BOX_PAD        6.0
-#define LAYER_GAP     70.0
+/* 70 before the controls were attached, when a column could have a long wire
+   from a control in layer 0 crossing it and needed the room. They are strips
+   on their hosts now, so the wires between columns are short, and 70 was
+   spending 26 pixels a layer on nothing. On a 17-layer patch that is 440
+   pixels of width, which is the difference between fitting on a screen and
+   not. */
+#define LAYER_GAP     44.0
 #define ROW_GAP       24.0
 #define MARGIN        20.0
 
@@ -40,13 +46,20 @@
 #define CTL_INSET     14.0
 #define CTL_HANDLE     5.0
 
-/* An attached control: a strip against its host's left edge. Narrower and
-   much shorter than a node, because it carries a label, a track and a number
-   and nothing else -- no title bar, no ports. */
-#define ATTACH_W     120.0
-#define ATTACH_H      22.0
-#define ATTACH_GAP     3.0    /* between stacked strips           */
-#define ATTACH_PAD    10.0    /* between the strip and its host   */
+/* An attached control: a strip stacked above its host. Much shorter than a
+   node, because it carries a label, a track and a number and nothing else --
+   no title bar, no ports.
+ 
+   Above rather than beside. Beside was the first attempt and it cost a column
+   its own width again -- ts1.dsp went from 2148 to 3058 pixels wide while
+   using only 352 of them vertically. A graph runs left to right, so width is
+   the axis that runs out first and height is the one going spare; stacking
+   upwards spends the free one. The strip is the same width as the box it sits
+   on, so a column is no wider than it ever was. */
+#define ATTACH_W     BOX_W
+#define ATTACH_H      20.0
+#define ATTACH_GAP     2.0    /* between stacked strips          */
+#define ATTACH_PAD     4.0    /* between the stack and its host  */
 
 /* Orders box indices by the position layering gave them.
  *
@@ -770,14 +783,14 @@ void NodeGraph::placePorts (Box &b)
         b.w = ATTACH_W;
         b.h = ATTACH_H;
 
-        /* The port keeps existing -- the edge is real and refers to it -- but
-           it moves to the middle of the right edge, where the strip meets its
-           host. The default placement puts it below a title bar this box does
-           not have, which left it outside its own bounds. */
+        /* The port sits on the bottom edge, near the left, because the host
+           is directly below and its inputs are down the left-hand side. The
+           default placement puts it under a title bar this box does not have,
+           which left it outside its own bounds. */
         for (size_t k = 0; k < b.ports.size(); k++)
         {
-            b.ports[k].x = b.w;
-            b.ports[k].y = b.h * 0.5;
+            b.ports[k].x = 10.0;
+            b.ports[k].y = b.h;
         }
 
         return;
@@ -944,8 +957,12 @@ void NodeGraph::layout (void)
         double h = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
-            h += max(boxes_[inLayer[l][k]].h,
-                     stripHeight(boxes_, inLayer[l][k])) + ROW_GAP;
+        {
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+
+            h += boxes_[inLayer[l][k]].h +
+                 (sh > 0 ? sh + ATTACH_PAD : 0) + ROW_GAP;
+        }
 
         tallest = max(tallest, h - ROW_GAP);
     }
@@ -957,8 +974,12 @@ void NodeGraph::layout (void)
         double h = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
-            h += max(boxes_[inLayer[l][k]].h,
-                     stripHeight(boxes_, inLayer[l][k])) + ROW_GAP;
+        {
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+
+            h += boxes_[inLayer[l][k]].h +
+                 (sh > 0 ? sh + ATTACH_PAD : 0) + ROW_GAP;
+        }
 
         h -= ROW_GAP;
 
@@ -967,37 +988,27 @@ void NodeGraph::layout (void)
         double y = MARGIN + (tallest - h) / 2.0;
         double widest = 0;
 
-        /* The strip sits to the left of the host, inside the same column, so
-           the column has to be wide enough for both. Computed before placing
-           anything, or the first host would be flush against the previous
-           column and its strip would overlap it. */
-        double indent = 0;
-
-        for (size_t k = 0; k < inLayer[l].size(); k++)
-            if (stripHeight(boxes_, inLayer[l][k]) > 0)
-                indent = ATTACH_W + ATTACH_PAD;
-
         for (size_t k = 0; k < inLayer[l].size(); k++)
         {
             Box &b = boxes_[inLayer[l][k]];
 
-            const double rowH = max(b.h, stripHeight(boxes_, (int)(&b - &boxes_[0])));
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+            const double rowH = b.h + (sh > 0 ? sh + ATTACH_PAD : 0);
 
-            b.x = x + indent;
+            b.x = x;
 
-            /* Centre the box against its strip when the strip is taller, so
-               a node with five controls does not sit at the top of them. */
-            b.y = y + (rowH - b.h) / 2.0;
+            /* The strips occupy the top of the row; the host sits under
+               them. */
+            b.y = y + (sh > 0 ? sh + ATTACH_PAD : 0);
 
             y += rowH + ROW_GAP;
-            widest = max(widest, indent + b.w);
+            widest = max(widest, b.w);
         }
 
         x += widest + LAYER_GAP;
     }
 
-    /* Now the strips, against the left edge of the host they belong to and
-       centred on it vertically. */
+    /* Now the strips, stacked directly above the host they belong to. */
     for (size_t b = 0; b < boxes_.size(); b++)
     {
         Box &c = boxes_[b];
@@ -1010,8 +1021,8 @@ void NodeGraph::layout (void)
 
         c.w = ATTACH_W;
         c.h = ATTACH_H;
-        c.x = host.x - ATTACH_PAD - ATTACH_W;
-        c.y = host.y + (host.h - sh) / 2.0 +
+        c.x = host.x;
+        c.y = host.y - ATTACH_PAD - sh +
               c.attachSlot * (ATTACH_H + ATTACH_GAP);
     }
 
@@ -1183,6 +1194,25 @@ void NodeGraph::edgeCurve (int edge, double *xs, double *ys) const
     portPos(e.fromBox, e.fromPort, x1, y1);
     portPos(e.toBox, e.toPort, x2, y2);
 
+    /* A strip drops to the port it drives on the box below it. Vertical
+       tangents, not horizontal: this wire goes down, and the standard curve
+       would swing it out sideways to no purpose.
+    
+       It matters that this is drawn at all. Sitting a strip on a node says it
+       belongs to that node, but a node has several inputs and adjacency does
+       not say which one -- that is exactly what the wire is for. */
+    if (boxes_[e.fromBox].attachedTo == e.toBox)
+    {
+        const double reach = max(12.0, (y2 - y1) * 0.6);
+
+        xs[0] = x1;  ys[0] = y1;
+        xs[1] = x1;  ys[1] = y1 + reach;
+        xs[2] = x2 - reach;  ys[2] = y2;
+        xs[3] = x2;  ys[3] = y2;
+
+        return;
+    }
+
     double reach = (x2 - x1) * 0.5;
 
     if (reach < 30.0)
@@ -1201,11 +1231,6 @@ int NodeGraph::edgeAt (double x, double y, double slack) const
 
     for (size_t e = 0; e < edges_.size(); e++)
     {
-        /* Not drawn, so not clickable: an implied edge is the gap between a
-           strip and the box it touches, and there is nothing there to hit. */
-        if (edgeIsImplied((int)e))
-            continue;
-
         double xs[4], ys[4];
 
         edgeCurve((int)e, xs, ys);
