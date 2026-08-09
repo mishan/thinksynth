@@ -45,6 +45,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <sys/stat.h>   /* chmod -- the read-only case */
 
 #include <fstream>
 #include <vector>
@@ -506,6 +507,79 @@ int main (int argc, char **argv)
         }
 
         remove(tricky.c_str());
+    }
+
+    /* ---- 4c. a .dsp you cannot write ----
+     *
+     * An installed patch is typically owned by root, and the editor has to be
+     * able to open and work on one. It could not: every structural edit went
+     * straight to the file the user opened, so a read-only .dsp was read-only
+     * in the editor too, with no way to keep the result.
+     *
+     * The window now copies the source to a scratch file and edits that. This
+     * checks the two halves that decide whether that works: the original
+     * really does refuse the edit, and the copy really does accept it and
+     * remain a loadable patch that can be saved somewhere else.
+     *
+     * The scratch file has to live somewhere writable, and that means a
+     * different directory, not just a different name. NodeEdit writes through
+     * a temporary alongside its target, so a file in a directory you cannot
+     * write cannot be edited even under another name -- which is exactly the
+     * case for an installed patch, and why the working copy goes to TMPDIR. */
+    {
+        const string ro = "/tmp/dspnew-readonly.dsp";
+        const string copy = "/tmp/dspnew-readonly-work.dsp";
+
+        remove(ro.c_str());
+        remove(copy.c_str());
+
+        if (NodeEdit::createFile(ro, "locked", "dspnew", why) != NodeEdit::OK)
+        { printf("FAIL  could not set up the read-only case\n"); failed++; }
+        else if (chmod(ro.c_str(), 0444) != 0)
+        { printf("FAIL  could not chmod the read-only case\n"); failed++; }
+        else
+        {
+            /* The premise: editing it in place is refused. If this ever starts
+               passing, the test below stops meaning anything. */
+            if (NodeEdit::addNode(ro, "osc1", "osc::simple", why) ==
+                NodeEdit::OK)
+            { printf("FAIL  a read-only .dsp accepted an edit in place\n");
+              failed++; }
+
+            /* And the working copy: same edit, on a copy, succeeds. */
+            {
+                ifstream in(ro.c_str(), ios::binary);
+                ofstream out(copy.c_str(), ios::binary | ios::trunc);
+
+                out << in.rdbuf();
+            }
+
+            if (NodeEdit::addNode(copy, "osc1", "osc::simple", why) !=
+                NodeEdit::OK)
+            { printf("FAIL  the working copy refused the edit: %s\n",
+                     why.c_str());
+              failed++; }
+            else
+            {
+                int ports = -1;
+
+                if (!hasNode(synth, copy, "osc1", ports))
+                { printf("FAIL  the edited working copy does not load\n");
+                  failed++; }
+                else if (NodeEdit::createFile(ro, "x", "", true, why) ==
+                         NodeEdit::OK)
+                { printf("FAIL  saving back over a read-only source "
+                         "succeeded\n");
+                  failed++; }
+                else
+                    printf("ok    a read-only .dsp is editable on a copy, and "
+                           "will not be written back over\n");
+            }
+        }
+
+        chmod(ro.c_str(), 0644);
+        remove(ro.c_str());
+        remove(copy.c_str());
     }
 
     /* ---- 5. a patch that actually makes a sound ---- */
