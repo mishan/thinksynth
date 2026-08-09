@@ -164,7 +164,19 @@ public:
        because the lexer's string is `"[^"\n]*"' with no escapes at all. */
     static Result addControl (const string &filename, const string &name,
                               double value, double min, double max,
-                              const string &label, string &why);
+                              const string &label, string &why)
+    {
+        return addControl(filename, name, value, min, max, label, "", why);
+    }
+
+    /* With a group: `@name.group = "Envelope"'. Controls sharing a group are
+       drawn as one titled block against the node they drive, which is how an
+       ADSR's four sliders are actually thought about. Same constraint as the
+       label -- no quote, the lexer has no escape for one. */
+    static Result addControl (const string &filename, const string &name,
+                              double value, double min, double max,
+                              const string &label, const string &group,
+                              string &why);
 
     /* Removes a control's whole block, and rewrites every `= @name' that
        read from it. Same reasoning as removeNode: a dangling reference makes

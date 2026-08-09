@@ -653,3 +653,56 @@ turned out to be a stale `NodeGraph.h` sitting next to the test source, so it
 compiled against the old `Box` and linked the new one. `#include "NodeGraph.h"`
 resolves relative to the including file first. Nothing wrong with the code, but
 it cost a debugging session and would cost another.
+
+## 13. Control groups
+
+An envelope's attack, decay, falloff and release are one control in the way
+anyone thinks about a patch and four in the way the file stores them. A `.dsp`
+can now say so:
+
+```
+@a = 5 ms;
+@a.widget = 1;
+@a.min = 0;
+@a.max = 2000ms;
+@a.label = "Attack";
+@a.group = "Envelope";
+```
+
+`.group` sits alongside `.label` and `.units` in the grammar — one more case in
+the rule that already handles string metadata, and `thArg` carries it. The
+engine never reads it; it exists so an editor can draw four sliders as one
+titled block rather than four unrelated rows against the same node.
+
+Two things the shipped patches forced:
+
+**A group is per host.** `ts1.dsp`'s "Filter" is a cutoff on one node, a
+resonance on another and an amount on a third. Those strips cannot be one block
+because they are not on one box. Each host shows its own slice.
+
+**Which means a heading only appears when a host shows more than one of the
+group.** Titling three separate single sliders "Filter" three times is noise
+where the label already says what each one is. So the four-slider Envelope on
+`env` gets a heading and the scattered Filter controls do not.
+
+The palette's control dialog does not ask for a group yet — that is the obvious
+next step, and the writer already takes one.
+
+## 14. What fitting on a screen actually costs
+
+An earlier revision fitted the graph to the window on opening. That was
+removed: shrinking every patch until it fits makes a wide one unreadable and
+disguises the fact that it is wide, which is a way of not fixing it. Fit is a
+button, for when an overview is what you want.
+
+The width that remains is the patch. `ts1.dsp` is an eleven-stage signal chain
+at 1888 pixels; the deepest in the corpus is seventeen layers at about 2900.
+Boxes are 128 wide and the gap between layers is 44, so a layer costs 172 and
+there is not much left to reclaim without making the port names unreadable.
+Twenty-five of the eighty-one graphs are wider than 1600.
+
+Genuinely narrowing those needs a different layering — the current one is
+longest-path, which maximises depth by construction. Something width-bounded
+(Coffman-Graham, or a simple "no more than N layers, spill into rows") would
+trade depth for the height that attaching the controls just freed up. That is
+the next real move on this, and it is a bigger one than tuning constants.

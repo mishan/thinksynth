@@ -137,8 +137,22 @@ public:
 
         string ctlArg;      /* the chanarg's name, without the @ */
         string ctlLabel;    /* .label, or the name again         */
+
+        /* `.group' from the .dsp: "Envelope" for an ADSR's four sliders.
+        
+           An envelope's attack, decay, falloff and release are one control
+           in the way anyone thinks about a patch, and four in the way the
+           file stores them. Saying so lets the strips be drawn as one titled
+           block rather than four unrelated rows against the same node. Empty
+           for an ungrouped control, which is most of them. */
+        string ctlGroup;
+
         float ctlValue;
         float ctlMin, ctlMax;
+
+        /* True if this strip is the first of its group on its host, so it is
+           the one that draws the group's heading. */
+        bool groupHead;
 
         /* For a control with exactly one consumer: the box it feeds. It is
            drawn as a strip against that box's left edge instead of as a node
@@ -156,7 +170,7 @@ public:
 
         Box (void) : x(0), y(0), w(0), h(0), layer(0), order(0),
                      isIoSource(false), isIoSink(false), isControl(false),
-                     ctlValue(0), ctlMin(0), ctlMax(1),
+                     ctlValue(0), ctlMin(0), ctlMax(1), groupHead(false),
                      attachedTo(-1), attachSlot(0) { }
     };
 

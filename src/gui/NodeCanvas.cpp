@@ -450,6 +450,23 @@ void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
 {
     cr->set_line_width(1.0);
 
+    /* The group's name above its first row, and a rule under it. Four sliders
+       titled "Envelope" read as one control; four untitled ones read as four
+       coincidences. */
+    if (b.groupHead && !b.ctlGroup.empty())
+    {
+        cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
+                             Cairo::FONT_WEIGHT_BOLD);
+        cr->set_font_size(8.0);
+        cr->set_source_rgb(COL_DIM);
+        cr->move_to(b.x + 4.0, b.y - 3.0);
+        cr->show_text(b.ctlGroup);
+
+        cr->rectangle(b.x, b.y - 1.5, b.w, 1.0);
+        cr->set_source_rgb(COL_ATTACH);
+        cr->fill();
+    }
+
     cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
     cr->set_source_rgb(COL_ATTACH);
     cr->fill_preserve();

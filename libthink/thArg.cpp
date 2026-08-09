@@ -125,6 +125,7 @@ thArg::thArg (const thArg *copyArg)
 
     comment_ = copyArg->comment_;
     label_ = copyArg->label_;
+    group_ = copyArg->group_;
     units_ = copyArg->units_;
     min_ = copyArg->min_;
     max_ = copyArg->max_;
