@@ -33,6 +33,26 @@ public:
     static int getNumLength (int num);
     static string basename (const char* path);
     static string dirname (const char* path);
+
+    /* The directory the running executable is in, or "" if that cannot be
+       determined. Linux, macOS and Windows each need a different call. */
+    static string exeDir (void);
+
+    /* Find a data file that something referred to by bare name.
+     *
+     * A .patch says `dsp ts1.dsp' and a .dsp says nothing about where it
+     * lives, so a bare name has to be looked for in several places: the
+     * environment override, the current directory, the source or build tree,
+     * next to the installed binary, and finally the path compiled in at
+     * configure time. Returns "" if nothing matched.
+     *
+     *   name     the bare filename, e.g. "ts1.dsp"
+     *   subdir   where files of this kind live, e.g. "dsp"
+     *   envVar   an override, e.g. "THINK_DSP_PATH", or NULL
+     *   fallback the compiled-in absolute path, e.g. DSP_PATH
+     */
+    static string findDataFile (const string &name, const string &subdir,
+                                const char *envVar, const string &fallback);
 };
 
 #endif /* TH_UTIL_H */

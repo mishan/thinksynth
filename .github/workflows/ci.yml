@@ -10,6 +10,13 @@
 # red. Remove `continue-on-error' from each at PORTING.md section 8 steps 6
 # and 7 respectively.
 #
+# RtAudio and RtMidi are NOT installed from the system package manager on any
+# platform here. Ubuntu 24.04 does not carry librtaudio-dev, 22.04 carries
+# RtAudio 5.2 (the wrong API), and the Homebrew and MSYS2 spellings are
+# different again -- guessing at all three is what broke this workflow in the
+# first place. CMake fetches and statically links known-good 6.x instead, the
+# same way on every runner. Roughly half a minute per job, and deterministic.
+#
 # Hosted runners have no audio device, so the backends themselves are never
 # exercised here -- only that they compile and link. The gates are the
 # headless harnesses, which need neither a device nor (except on Linux, where
@@ -52,7 +59,6 @@ jobs:
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-3.0-dev libsigc++-2.0-dev \
             libasound2-dev libjack-jackd2-dev \
-            librtaudio-dev librtmidi-dev \
             xvfb
 
       - name: Configure
@@ -83,8 +89,7 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-3.0-dev libsigc++-2.0-dev \
-            libasound2-dev libjack-jackd2-dev \
-            librtaudio-dev librtmidi-dev
+            libasound2-dev libjack-jackd2-dev
 
       # THINK_SANITIZE applies the flags globally rather than per-target, so
       # they reach libthink and all 62 plugins. An earlier round of
@@ -115,7 +120,7 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja pkg-config bison flex gtkmm3 jack rt-audio rtmidi
+          brew install cmake ninja pkg-config bison flex gtkmm3 jack
 
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
@@ -169,8 +174,6 @@ jobs:
             ninja:p
             pkgconf:p
             gtkmm3:p
-            rtaudio:p
-            rtmidi:p
 
       - name: Configure
         run: cmake -S . -B build -G Ninja

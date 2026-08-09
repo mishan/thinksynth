@@ -60,17 +60,24 @@ separate_arguments(extra NATIVE_COMMAND "${EXTRA_ARGS}")
 
 message(STATUS "${MODE}: ${count} files")
 
-# A .patch names its DSP by bare filename -- `dsp ts1.dsp' -- and
-# gthPatchManager::resolveDsp resolves that relative to the current directory
-# before falling back to the compiled-in DSP_PATH. ctest's working directory
-# is the build tree, where neither hits, so the sweep needs to run from where
-# the DSPs actually are.
+# A .patch names its DSP by bare filename -- `dsp ts1.dsp' -- and ctest runs
+# in the build tree, where nothing relative resolves. Two belts, because they
+# cover different things:
+#
+#   WORKING_DIR      runs the sweep from the source tree's dsp/, which is all
+#                    resolveDsp needs and works whatever it is looking in.
+#   THINK_DSP_PATH   the explicit override thUtil::findDataFile reads, which
+#                    also covers a DSP named from a subdirectory.
 #
 # This is why the patch gate passed locally and failed in CI for so long: a
 # stale /usr/local/share/thinksynth/dsp on the development machine was
-# quietly answering the DSP_PATH fallback.
+# quietly answering the compiled-in DSP_PATH fallback.
 if(WORKING_DIR)
   set(_wd WORKING_DIRECTORY "${WORKING_DIR}")
+endif()
+
+if(DSP_PATH)
+  set(ENV{THINK_DSP_PATH} "${DSP_PATH}")
 endif()
 
 execute_process(

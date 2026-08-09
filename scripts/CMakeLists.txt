@@ -68,6 +68,7 @@ add_test(NAME dspcheck.dsp
                  -DHARNESS=$<TARGET_FILE:dspcheck>
                  -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
@@ -78,6 +79,7 @@ add_test(NAME dspcheck.patch
                  -DCORPUS=${PROJECT_SOURCE_DIR}/patches
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
                  -DWORKING_DIR=${PROJECT_SOURCE_DIR}/dsp
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=patch
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
@@ -89,6 +91,7 @@ add_test(NAME dsplevel
                  -DHARNESS=$<TARGET_FILE:dsplevel>
                  -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
                  -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
                  -DMODE=dsp
                  "-DEXTRA_ARGS=-v 4"
                  -P "${_runner}")

@@ -617,9 +617,55 @@ so it missed the C++17 bump and only the CMake harnesses noticed. That is the
 tax on running two build systems, and it is an argument for retiring autotools
 sooner rather than later.
 
-Still outstanding from §5: DSP lookup goes through `DSP_PATH` with no
-executable-relative fallback, so an installed tree finds its plugins
-relocatably but not its DSPs. `PATCH_PATH` is defined and referenced nowhere.
+### What CI caught that local testing did not
+
+Three things, all of which had been reported here as working.
+
+**The `.patch` sweep had never actually passed.** A `.patch` names its DSP by
+bare filename (`dsp ts1.dsp`) and `resolveDsp` looked in exactly two places:
+the name as given, and `DSP_PATH`. Neither hits from a build tree. It appeared
+to pass on the development machine only because a years-old
+`/usr/local/share/thinksynth/dsp` was still sitting there from some previous
+`make install`, so every lookup quietly resolved against a stale system copy.
+CI, on a clean runner, got 63 of 99 failures and was right.
+
+`thUtil::findDataFile()` now does the same kind of search
+`thPluginManager::resolveRoot` already did — environment override, the name as
+given, `<subdir>/<name>` relative to the cwd, executable-relative including
+the macOS bundle layout, then the compiled-in default. That closes the §5 item
+about DSP lookup not being relocatable, which turned out to be load-bearing
+rather than cosmetic. Configuring with `-DCMAKE_INSTALL_PREFIX=/nonexistent`
+is now the way to check this honestly, because it removes any possibility of a
+stale install answering.
+
+**RtAudio and RtMidi cannot come from the distribution.** The first attempt
+made them `REQUIRED` pkg-config dependencies and all three platforms failed at
+once. The reason is worse than a naming mismatch: Ubuntu 24.04 does not carry
+`librtaudio-dev` at all, and 22.04 carries RtAudio **5.2** — and this code is
+written against 6, which reports errors by return code rather than by throwing
+and identifies devices by opaque id rather than by index. A system package
+would be missing on some runners and the wrong API on others.
+
+So the version floor is explicit (`rtaudio >= 6.0.0`) and a source build is the
+normal case. CMake fetches and statically links known-good 6.x on every
+platform; `-DTHINK_FETCH_RT=ON` forces that path on a machine that has the
+system packages, so the fallback is exercised rather than assumed. One wrinkle
+worth recording: both projects create a custom target called `uninstall`, which
+collide in a single build — both expose the name as a cache variable for
+exactly this reason.
+
+**Every job was running twice**, because `on: push` fires for every branch and
+`on: pull_request` fires again for the same commits. Pushes are now limited to
+`master` and the porting stack, with a `concurrency` group so a superseded run
+is cancelled.
+
+`configure.ac` has no FetchContent equivalent, so the autotools workflow now
+builds RtAudio and RtMidi from source into `/usr/local` before configuring.
+That step exists purely because two build systems are still alive, and it is a
+fair argument for retiring autotools sooner than §7 suggested: CMake does the
+same job in six lines.
+
+Still outstanding from §5: `PATCH_PATH` is defined and referenced nowhere.
 
 ### The audio rework (§8 step 4)
 
