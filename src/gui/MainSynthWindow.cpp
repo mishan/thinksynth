@@ -106,6 +106,11 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     aboutBox_ = NULL;
     kbWin_ = NULL;
 
+    /* Only assigned when the JACK menu is built, which does not happen for an
+       ALSA-only build -- and toggleConnects() reads them either way. */
+    jackConnect_ = NULL;
+    jackDisconnect_ = NULL;
+
     vals = prefs->Get("dspdir");
 
     if (vals != NULL)

@@ -140,7 +140,6 @@ Keyboard::Keyboard (void)
     /* clear previous key state */
     for (int i = 0; i < 128; i++)
     {
-        prv_active_keys_[i] = -2;
         active_keys_[i] = 0;
         active_veloc_[i] = 0;
     }
@@ -154,7 +153,6 @@ void Keyboard::resetKeys (void)
     /* clear previous key state */
     for (int i = 0; i < 128; i++)
     {
-        prv_active_keys_[i] = -2;
         
         if (active_keys_[i] == 1)
             m_signal_note_off_(channel_, i);
@@ -191,7 +189,6 @@ void Keyboard::releaseAllNotes (void)
 
         active_keys_[i] = 0;
         active_veloc_[i] = 0;
-        prv_active_keys_[i] = -1;
     }
 }
 
@@ -250,7 +247,6 @@ void Keyboard::SetTranspose (int transpose)
 
         active_keys_[i] = 0;
         active_veloc_[i] = 0;
-        prv_active_keys_[i] = -1;
     }
 
     transpose_ = transpose;
@@ -267,7 +263,6 @@ void Keyboard::SetTranspose (int transpose)
 
         active_keys_[notenum] = 1;
         active_veloc_[notenum] = heldVeloc[i];
-        prv_active_keys_[notenum] = -1;
     }
 
     /* keep the mouse's idea of what it is holding in step */
@@ -290,7 +285,6 @@ void Keyboard::SetNote (int note, bool state)
 {
     active_keys_[note] = state ? 1 : 0;
     active_veloc_[note] = state ? veloc3_ : 0;
-    prv_active_keys_[note] = -1;
 
     dispatchRedraw_();
 }
@@ -422,6 +416,11 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
     m_signal_note_on_(channel_, mouse_notnum_, veloc);
     active_keys_[mouse_notnum_] = 1;
 
+    /* SetTranspose re-triggers whatever is held, and reads the velocity from
+       here. Without this a mouse-held note came back at veloc3_ -- the
+       left-button velocity -- whichever button was actually down. */
+    active_veloc_[mouse_notnum_] = veloc;
+
     queue_draw();
 
     mouse_veloc_ = veloc;    /* save velocity */
@@ -435,6 +434,7 @@ bool Keyboard::on_button_release_event (GdkEventButton *b)
     if (mouse_notnum_ >= 0) {
         m_signal_note_off_(channel_, mouse_notnum_);
         active_keys_[mouse_notnum_] = 0;
+        active_veloc_[mouse_notnum_] = 0;
         queue_draw();
     }
 
@@ -525,8 +525,8 @@ void Keyboard::setColour (const Cairo::RefPtr<Cairo::Context> &cr,
  * the GdkWindow with a GdkGC whenever a key changed, and used `mode' to say
  * whether to repaint the borders and whether to repaint every key or only the
  * ones whose state had moved. Neither of those choices is ours to make now, so
- * the mode flag and prv_active_keys_ bookkeeping are gone: this paints the lot,
- * and the callers just queue a redraw.
+ * the mode flag and the per-key "what did it look like last time" bookkeeping
+ * are both gone: this paints the lot, and the callers just queue a redraw.
  *
  * That sounds wasteful and is not -- Cairo clips to the damaged region, so
  * repainting a key still only touches that key's pixels.

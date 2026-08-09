@@ -97,7 +97,6 @@ private:
 
     /* keyboard stuff */
     int img_width_, img_height_;
-    int prv_active_keys_[128];
     int active_keys_[128];
 
     /* Velocity each held note was started with, so a transpose can re-trigger

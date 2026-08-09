@@ -31,6 +31,17 @@
 MidiMap::MidiMap (thSynth *argsynth)
 {
     rebuilding_ = false;
+
+    /* All of these are read before anything necessarily sets them -- with no
+       patch loaded, fillDestArgCombo() finds no args and leaves selectedArg_
+       alone, and onAddButton() would then act on whatever was in the memory.
+       -1 for the channel so it cannot accidentally name channel 0. */
+    selectedDestChan_ = -1;
+    selectedArg_ = NULL;
+    selectedMin_ = 0;
+    selectedMax_ = 0;
+    selectedExp_ = 0;
+
     gthPatchManager *patchMgr = gthPatchManager::instance();
 
     synth_ = argsynth;
@@ -246,6 +257,11 @@ void MidiMap::fillDestArgCombo (int chan)
 {
     bool first = true;
 
+    /* Cleared before the rebuild, not after. Leaving it set meant a channel
+       with no visible args kept the arg from the channel before it, and every
+       control below went on editing something the combo no longer showed. */
+    selectedArg_ = NULL;
+
     rebuilding_ = true;
     destArgCombo_->remove_all();
 
@@ -279,6 +295,11 @@ void MidiMap::fillDestArgCombo (int chan)
         selectedMax_ = selectedArg_->max();
         setDestArgCombo(chan);
     }
+
+    /* The details and the Add button only mean anything with an arg selected.
+       They used to be disabled when the list came up empty and stopped being
+       so during the port, which left them live over a NULL selectedArg_. */
+    set_sensitive(selectedArg_ != NULL);
 }
 
 void MidiMap::setDestArgCombo (int chan)
