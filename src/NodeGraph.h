@@ -155,11 +155,16 @@ public:
         bool groupHead;
 
         /* For a control with exactly one consumer: the box it feeds. It is
-           drawn as a strip against that box's left edge instead of as a node
-           of its own, and the wire between them is not drawn -- being next to
-           something is a clearer way of saying "belongs to it" than a line
-           across the canvas.
-        
+           drawn as a strip stacked above that box instead of as a node of its
+           own.
+
+           The wire is still drawn, short and dropping straight down. Leaving
+           it out was the first attempt, on the reasoning that two things
+           touching need no line between them -- but a node has several inputs,
+           and adjacency only says which *node* a control belongs to. Which
+           parameter it drives is exactly what the wire says, and nothing else
+           on the canvas does.
+
            197 of the 206 controls in the corpus have exactly one consumer, so
            this is the ordinary case, not an optimisation. The other 9 stay
            free-standing boxes with visible wires, which turns out to be the
@@ -282,12 +287,6 @@ public:
 
     /* Sets a control's value, for dragging. Does not touch the file. */
     void setControlValue (int box, float value);
-
-    /* True if this edge runs from an attached control to the box it is
-       attached to. Such an edge is real -- the .dsp says so -- but drawing it
-       would be a line between two things already touching, so the canvas
-       skips it and so does hit-testing. */
-    bool edgeIsImplied (int edge) const;
 
     /* Index of a box by node name, or -1. For the io node this is the sink
        half, which is the one that owns the args. */

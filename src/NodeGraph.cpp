@@ -921,19 +921,6 @@ void NodeGraph::assignAttachments (void)
     }
 }
 
-bool NodeGraph::edgeIsImplied (int edge) const
-{
-    if (edge < 0 || edge >= (int)edges_.size())
-        return false;
-
-    const Edge &e = edges_[edge];
-
-    if (e.fromBox < 0 || e.fromBox >= (int)boxes_.size())
-        return false;
-
-    return boxes_[e.fromBox].attachedTo == e.toBox;
-}
-
 /* The strip height for a host: its attached controls stacked, plus a slim
    heading for each group among them. */
 static double stripHeight (const vector<NodeGraph::Box> &boxes, int host)
@@ -1126,13 +1113,38 @@ int NodeGraph::feedbackCount (void) const
     return n;
 }
 
+/* Moves a box, and brings its attached controls with it.
+ *
+ * A strip's position is not its own: layout() stacks it directly above the box
+ * it belongs to, and being there is most of what says which box that is. But
+ * strips are stored as ordinary boxes, so anything that moved a host on its
+ * own -- dragging it, or NodeLayout::apply restoring a saved position -- left
+ * its strips behind, floating over whatever was underneath.
+ *
+ * Done here rather than in the drag handler so it covers every caller,
+ * including the ones added later. */
 void NodeGraph::moveBox (int index, double x, double y)
 {
     if (index < 0 || index >= (int)boxes_.size())
         return;
 
+    /* A strip has no position of its own to set: it is wherever its host is.
+       Accepting the move would be the same bug seen from the other side. */
+    if (boxes_[index].attachedTo >= 0)
+        return;
+
+    const double dx = x - boxes_[index].x;
+    const double dy = y - boxes_[index].y;
+
     boxes_[index].x = x;
     boxes_[index].y = y;
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+        if (boxes_[b].attachedTo == index)
+        {
+            boxes_[b].x += dx;
+            boxes_[b].y += dy;
+        }
 }
 
 void NodeGraph::refreshExtent (void)
@@ -1190,10 +1202,14 @@ bool NodeGraph::portAt (double x, double y, int &box, int &port,
     {
         const Box &b = boxes_[i];
 
-        /* An attached control draws no port: it touches its host, and the
-           one edge it has is implied by that. Returning a port here would
-           offer a wire that cannot be made and would sit under the strip's
-           slider, which is what a click there actually means. */
+        /* A strip has no port *handle* to grab -- the wire it owns is still
+           drawn, but there is nowhere on the strip to start a new one.
+
+           It is one row tall and almost all of that row is the slider, so a
+           handle would sit underneath it and steal the click. Dragging on a
+           strip means moving the slider, which is the only thing anyone wants
+           to do there; a control that needs rewiring is rewired at the other
+           end, on the node whose input it drives. */
         if (b.attachedTo >= 0)
             continue;
 
