@@ -1,0 +1,135 @@
+# Stopgap CI: builds the tree as it stands today, with autotools, on Linux
+# only. Delete this file once CMakeLists.txt exists and ci.yml's linux job is
+# green -- see PORTING.md section 8, step 1.
+#
+# Three gates, all of them headless:
+#
+#   - the app links, loads its plugins and exits 0 on -h
+#   - dspcheck loads every shipped .dsp and .patch, plays a chord, overruns
+#     polyphony, reloads onto the same channel and tears down. Exit status is
+#     the number of files that failed.
+#   - dsplevel's exit status is the number of measurements over TH_MAX.
+#
+# The asan job runs the same dspcheck sweep with AddressSanitizer and
+# UndefinedBehaviorSanitizer through libthink and the plugins, which is where
+# it is worth anything -- see the note in scripts/Makefile.
+
+name: ci (linux, autotools)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # DSPs referencing plugins that compile but are deliberately not in
+  # PLUGIN_DIRS: input/wav, input/alsa, misc/wlan. Eleven files, all expected
+  # to fail to parse. Excluded by what they reference rather than by name, so
+  # the list cannot go stale.
+  UNBUILT_PLUGINS: 'input::|misc::wlan|fft::|test::'
+
+jobs:
+  build:
+    name: build and check
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential autoconf bison flex pkg-config make \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            xvfb
+
+      - name: Configure
+        run: |
+          ./autogen.sh --no-configure
+          ./configure --enable-debug
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Build harnesses
+        run: make -C scripts dspcheck dsplevel dspstress
+
+      # Gtk::Main is constructed before getopt runs (src/main.cpp:292), so even
+      # -h needs a display. xvfb is the whole reason this step is not a plain
+      # invocation.
+      - name: Smoke test
+        run: LD_LIBRARY_PATH=libthink xvfb-run -a ./src/thinksynth -h
+
+      - name: dspcheck over dsp/
+        run: |
+          files=$(find dsp -name '*.dsp' \
+            | xargs grep -LE "$UNBUILT_PLUGINS" | sort)
+          echo "$files" | wc -l | xargs echo "checking DSPs:"
+          LD_LIBRARY_PATH=libthink scripts/dspcheck -q -p plugins/ $files
+
+      - name: dspcheck over patches/
+        run: |
+          # Rythmic.patch and Rythmic-2.patch point at an absolute
+          # /usr/local/share//thinksynth/dsp/mfm03.dsp that is not in the tree
+          # -- leftovers from the "don't use absolute paths" cleanup. Remove
+          # this filter once they are fixed.
+          files=$(find patches -name '*.patch' \
+            | grep -v 'pads/Rythmic' | sort)
+          echo "$files" | wc -l | xargs echo "checking patches:"
+          LD_LIBRARY_PATH=libthink scripts/dspcheck -q -p plugins/ $files
+
+      - name: dsplevel over dsp/
+        run: |
+          files=$(find dsp -name '*.dsp' \
+            | xargs grep -LE "$UNBUILT_PLUGINS" | sort)
+          LD_LIBRARY_PATH=libthink scripts/dsplevel -p plugins/ -v 4 $files
+
+  asan:
+    name: asan + ubsan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential autoconf bison flex pkg-config make \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev
+
+      # configure.ac saves CXXFLAGS up front and re-appends them last, so these
+      # reach libthink and all 66 plugins rather than only the harness. That
+      # distinction is what made an earlier round of measurements worthless.
+      - name: Configure
+        run: |
+          ./autogen.sh --no-configure
+          ./configure --enable-debug \
+            CXXFLAGS="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Build harness
+        run: make -C scripts asan
+
+      - name: dspcheck under asan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          files=$(find dsp -name '*.dsp' \
+            | xargs grep -LE "$UNBUILT_PLUGINS" | sort)
+          LD_LIBRARY_PATH=libthink scripts/dspcheck-asan -q -p plugins/ $files
+
+      - name: dspcheck over patches/ under asan
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          files=$(find patches -name '*.patch' | grep -v 'pads/Rythmic' | sort)
+          LD_LIBRARY_PATH=libthink scripts/dspcheck-asan -q -p plugins/ $files

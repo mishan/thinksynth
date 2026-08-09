@@ -1,0 +1,199 @@
+# Three-platform CI. See PORTING.md section 10.
+#
+# The build jobs are gated on CMakeLists.txt existing, so this file can land
+# before the CMake migration does and will start doing work the moment step 1
+# of PORTING.md section 8 is finished. Until then every job skips and the
+# workflow is green but empty -- ci-linux-autotools.yml is what actually
+# guards the tree in the meantime.
+#
+# Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm-3, which
+# has no MSVC build, and reinforced by the eleven VLA sites in the tree.
+#
+# Hosted runners have no audio device, so the backends themselves are never
+# exercised here -- only that they compile and link. The gates below are the
+# headless harnesses, which need neither a device nor (except on Linux, where
+# Gtk::Main is constructed before getopt) a display.
+
+name: ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+env:
+  # DSPs referencing plugins that compile but are deliberately not built:
+  # input/wav, input/alsa, misc/wlan. Eleven files, all expected to fail.
+  UNBUILT_PLUGINS: 'input::|misc::wlan|fft::|test::'
+
+jobs:
+  gate:
+    name: has cmake?
+    runs-on: ubuntu-latest
+    outputs:
+      cmake: ${{ steps.check.outputs.cmake }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        run: |
+          if [ -f CMakeLists.txt ]; then
+            echo "cmake=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "cmake=no" >> "$GITHUB_OUTPUT"
+            echo "::notice::No CMakeLists.txt yet; build jobs skipped." \
+                 "See PORTING.md section 8."
+          fi
+
+  linux:
+    name: linux (gcc)
+    needs: gate
+    if: needs.gate.outputs.cmake == 'yes'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            librtaudio-dev librtmidi-dev \
+            xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: xvfb-run -a ./build/src/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  macos:
+    name: macos (clang, arm64)
+    needs: gate
+    if: needs.gate.outputs.cmake == 'yes'
+    runs-on: macos-14
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          brew install cmake ninja pkg-config bison flex gtkmm3 jack \
+                       rt-audio rtmidi
+
+      # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
+      # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
+      # put on PATH explicitly. This catches everyone exactly once.
+      - name: Put Homebrew bison and flex first
+        run: |
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin"  >> "$GITHUB_PATH"
+
+      - name: Check tool versions
+        run: |
+          bison --version | head -1
+          flex --version
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  windows:
+    name: windows (mingw-w64, ucrt64)
+    needs: gate
+    if: needs.gate.outputs.cmake == 'yes'
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          # bison and flex come from the msys (not mingw) repo; everything
+          # else is the ucrt64 toolchain.
+          install: >-
+            bison
+            flex
+            make
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            pkgconf:p
+            gtkmm3:p
+            rtaudio:p
+            rtmidi:p
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth.exe -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  asan:
+    name: linux asan + ubsan
+    needs: gate
+    if: needs.gate.outputs.cmake == 'yes'
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            librtaudio-dev librtmidi-dev
+
+      # The sanitizers have to reach libthink and all 66 plugins, not just the
+      # harness -- an earlier round of measurements was worthless because they
+      # did not.
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined" \
+            -DCMAKE_SHARED_LINKER_FLAGS="-fsanitize=address,undefined" \
+            -DCMAKE_MODULE_LINKER_FLAGS="-fsanitize=address,undefined"
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1:abort_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
