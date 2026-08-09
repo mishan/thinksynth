@@ -102,6 +102,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(SIGC   REQUIRED IMPORTED_TARGET sigc++-2.0)
 pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-3.0)
 pkg_check_modules(GTHREAD REQUIRED IMPORTED_TARGET gthread-2.0)
+pkg_check_modules(GLIBMM REQUIRED IMPORTED_TARGET glibmm-2.4)
 
 # The one audio backend. RtAudio covers ALSA/JACK/Pulse/OSS, CoreAudio, and
 # WASAPI/DirectSound/ASIO behind a single callback API.
@@ -123,7 +124,7 @@ set(THINK_RTAUDIO_VERSION 6.0.1)
 # Forces the fetch path even where pkg-config would have found something.
 # Exists so the fallback can be exercised on a machine that has the system
 # package -- an untested fallback is not a fallback.
-option(THINK_FETCH_RT "Always build RtAudio from source" OFF)
+option(THINK_FETCH_RT "Always build RtAudio and RtMidi from source" OFF)
 
 if(NOT THINK_FETCH_RT)
   pkg_check_modules(RTAUDIO IMPORTED_TARGET "rtaudio>=6.0.0")
@@ -182,13 +183,53 @@ else()
   set(THINK_RTAUDIO_ORIGIN "fetched ${THINK_RTAUDIO_VERSION}")
 endif()
 
-pkg_check_modules(ALSA IMPORTED_TARGET alsa)
+# MIDI input. Covers ALSA sequencer and JACK MIDI on Linux, CoreMIDI on
+# macOS and the Windows multimedia API, which has no file-descriptor story
+# at all -- hence the Dispatcher handoff in gthMidiQueue.
+#
+# Obtained the same way as RtAudio above, and for the same reason: the
+# distribution cannot be relied on to have 6.x.
+set(THINK_RTMIDI_VERSION 6.0.0)
 
-# ALSA is now only the MIDI sequencer; RtAudio does ALSA output. configure.ac
-# skipped the probe entirely on Darwin and so does this.
-if(ALSA_FOUND AND NOT APPLE)
-  set(HAVE_ALSA 1)
+if(NOT THINK_FETCH_RT)
+  pkg_check_modules(RTMIDI IMPORTED_TARGET "rtmidi>=6.0.0")
 endif()
+
+if(RTMIDI_FOUND)
+  set(THINK_RTMIDI_LIB PkgConfig::RTMIDI)
+  set(THINK_RTMIDI_ORIGIN "system ${RTMIDI_VERSION}")
+else()
+  message(STATUS "rtmidi not found via pkg-config; fetching ${THINK_RTMIDI_VERSION}")
+
+  set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(RTMIDI_BUILD_TESTING OFF CACHE BOOL "" FORCE)
+
+  # RtAudio and RtMidi both create a custom target called `uninstall', and two
+  # targets cannot share a name in one build. Both expose the name as a cache
+  # variable for exactly this; without it, fetching the second fails at
+  # configure time with CMP0002.
+  set(RTMIDI_TARGETNAME_UNINSTALL "rtmidi-uninstall" CACHE STRING "" FORCE)
+
+  if(APPLE)
+    set(RTMIDI_API_CORE ON  CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK OFF CACHE BOOL "" FORCE)
+  elseif(WIN32)
+    set(RTMIDI_API_WINMM ON  CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK  OFF CACHE BOOL "" FORCE)
+  endif()
+
+  FetchContent_Declare(rtmidi
+      GIT_REPOSITORY https://github.com/thestk/rtmidi.git
+      GIT_TAG ${THINK_RTMIDI_VERSION}
+      GIT_SHALLOW TRUE)
+
+  FetchContent_MakeAvailable(rtmidi)
+
+  set(THINK_RTMIDI_LIB rtmidi)
+  set(THINK_RTMIDI_ORIGIN "fetched ${THINK_RTMIDI_VERSION}")
+endif()
+
+pkg_check_modules(JACK IMPORTED_TARGET jack)
 
 # What -d selects when nothing says otherwise. Empty means "let RtAudio
 # choose", which is the right default now that one backend covers everything.
@@ -324,7 +365,7 @@ message(STATUS "${PROJECT_NAME} ${PROJECT_VERSION}")
 message(STATUS "  system ................: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  build type ............: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  RtAudio ...............: ${THINK_RTAUDIO_ORIGIN}")
-message(STATUS "  ALSA MIDI .............: ${HAVE_ALSA}")
+message(STATUS "  RtMidi ................: ${THINK_RTMIDI_ORIGIN}")
 message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")
 message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
 message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")

@@ -431,8 +431,8 @@ time macOS and Windows arrive there is a working net under you.
 3. ~~**Platform-independent cleanups**, all on Linux.~~ Done — section 11.
 4. ~~**The audio rework**, on Linux.~~ Done — section 11. **Not yet listened
    to**: it has been verified headlessly, and wants an ear on real hardware.
-5. **The MIDI rework**, on Linux: RtMidi + `thRing` + `Glib::Dispatcher`, delete
-   `gthALSAMidi`.
+5. ~~**The MIDI rework**, on Linux.~~ Done — section 11. Also **not yet played
+   through**: no MIDI device was available where this was built.
 6. **macOS.** By this point the genuinely new work is `_NSGetExecutablePath`,
    bundle-relative resources, and the Homebrew bison/flex trap (§9). Add the
    macOS CI job.
@@ -652,3 +652,46 @@ verified is that the samples are correct and that every `-d` selection starts,
 falls back to the dummy device when no hardware answers, and shuts down
 cleanly. Latency, underrun behaviour under load, and whether RtAudio's JACK
 path is as good as the hand-written one are all open, and want an ear.
+
+### The MIDI rework (§8 step 5)
+
+`gthALSAMidi` is gone. `gthRtMidi` opens a virtual port where the platform has
+them (ALSA sequencer, CoreMIDI, JACK MIDI) and falls back to opening a real
+input where it does not (Windows MM). `-m` selects a port by full or partial
+name; `-L` lists them.
+
+The interesting part is not the library, it is the thread. `gthALSAMidi` got
+its threading for free: it handed ALSA's poll descriptors to
+`Glib::signal_io()`, so MIDI arrived already on the GUI thread and
+`processmidi` could call `thSynth::addNote()` — which copy-constructs a whole
+synth tree. Preserving that property is the requirement. But it is built on
+file descriptors, which Windows has no MIDI equivalent of, and RtMidi delivers
+on a thread of its own regardless.
+
+So `gthMidiQueue` does the handoff: `thRing` for the messages,
+`Glib::Dispatcher` for the wake-up. It is deliberately a separate class from
+`gthRtMidi` so it can be tested without a MIDI device. `processmidi` became
+`dispatchmidi`, switching on the status nibble instead of `SND_SEQ_EVENT_*` —
+wire bytes being the one thing every MIDI API agrees on. Everything downstream
+is untouched.
+
+`scripts/dspmidi` runs a producer thread against a Glib main loop: a flood
+phase that fills the queue and exercises overflow, then a trickle phase where
+most drains end on an empty queue. 200,000 messages arrive once each, in
+order, with none lost, and it is clean under ThreadSanitizer.
+
+**One thing that test does not cover, and the code says so.**
+`gthMidiQueue::drain` clears its notify flag *before* the pop loop rather than
+after. Clearing after leaves a roughly two-instruction window in which a push
+sees the flag still set, skips its `emit()`, and strands a message until the
+next one arrives — live, a note that hangs. `dspmidi` was run against a
+deliberately inverted build and did **not** catch it, at 60,000 messages,
+because hitting two instructions from another thread on a 20 µs cadence
+essentially does not happen. That ordering is therefore argued in a comment,
+not tested, and `dspmidi`'s header says so rather than implying coverage it
+does not have.
+
+**Also not done: no MIDI has actually been played through it.** There is no
+sequencer on the build machine, so what is verified is the queue, the
+dispatch, and that the app starts and shuts down cleanly when RtMidi cannot
+open anything at all.

@@ -52,6 +52,7 @@ jobs:
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-3.0-dev libsigc++-2.0-dev \
             libasound2-dev libjack-jackd2-dev \
+            librtaudio-dev librtmidi-dev \
             xvfb
 
       - name: Configure
@@ -82,7 +83,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-3.0-dev libsigc++-2.0-dev \
-            libasound2-dev libjack-jackd2-dev
+            libasound2-dev libjack-jackd2-dev \
+            librtaudio-dev librtmidi-dev
 
       # THINK_SANITIZE applies the flags globally rather than per-target, so
       # they reach libthink and all 62 plugins. An earlier round of
@@ -113,7 +115,7 @@ jobs:
       - name: Install dependencies
         run: |
           brew update
-          brew install cmake ninja pkg-config bison flex gtkmm3 jack
+          brew install cmake ninja pkg-config bison flex gtkmm3 jack rt-audio rtmidi
 
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
@@ -167,6 +169,8 @@ jobs:
             ninja:p
             pkgconf:p
             gtkmm3:p
+            rtaudio:p
+            rtmidi:p
 
       - name: Configure
         run: cmake -S . -B build -G Ninja
