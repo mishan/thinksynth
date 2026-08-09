@@ -65,6 +65,9 @@ protected:
     void onZoomFit (void);
     void onBoxMoved (int box);
     void onSelected (int box);
+
+    /* A rubber band gathered several boxes; `n' of them. */
+    void onSelectionChanged (int n);
     void onParamEdited (int box, string name, double value);
     void onConnect (int fromBox, int fromPort, int toBox, int toPort);
     void onDisconnect (int edge);

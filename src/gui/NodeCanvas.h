@@ -61,8 +61,29 @@ public:
     typedef sigc::signal<void(int)> type_signal_selected;
     type_signal_selected signal_selected (void) { return m_signal_selected_; }
 
+    /* How many boxes a rubber band gathered. Separate from signal_selected,
+       which carries the one box the panel shows and is -1 for a group: the
+       toolbar still needs to know a group exists so Delete can offer to
+       remove all of it. */
+    typedef sigc::signal<void(int)> type_signal_selection;
+    type_signal_selection signal_selection (void) {
+        return m_signal_selection_;
+    }
+
+    /* The box the parameter panel is showing: the last one clicked, or the
+       only one in the selection. -1 when nothing or when a rubber band
+       gathered several, since a panel can only show one node's args. */
     int selected (void) const { return selBox_; }
     void setSelected (int box);
+
+    /* Every selected box, `selected()' among them. Empty or a single entry
+       for all the ordinary cases; more after a rubber band. */
+    const std::vector<int> &selection (void) const { return sel_; }
+
+    /* True if `box' is in the selection. */
+    bool isSelected (int box) const;
+
+    void clearSelection (void);
 
     /* Emitted when a wire is dragged between two ports, and when one is
        asked to be removed. The canvas does not change the graph itself --
@@ -123,7 +144,19 @@ private:
     double dragDX_, dragDY_;  /* grab point within that box      */
 
     int hoverBox_, hoverPort_;
+
+    /* The selection, and the one box within it the panel speaks for.
+     *
+     * A vector rather than a set: it is almost always empty or one long, the
+     * order is the order things were gathered in, and every use is a scan. */
+    std::vector<int> sel_;
     int selBox_;
+
+    /* Rubber band in progress: where the drag started and where the pointer
+       is now, both in graph coordinates. bandOn_ rather than a sentinel,
+       because a band of zero size at the origin is a real thing to draw. */
+    bool bandOn_;
+    double bandX0_, bandY0_, bandX1_, bandY1_;
 
     /* Wire being dragged: the port it started at, and where the loose end
        currently is, in graph coordinates. */
@@ -143,6 +176,7 @@ private:
 
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
+    type_signal_selection m_signal_selection_;
     type_signal_connect m_signal_connect_;
     type_signal_disconnect m_signal_disconnect_;
     type_signal_refused m_signal_refused_;

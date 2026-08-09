@@ -108,6 +108,9 @@ NodeWindow::NodeWindow (thSynth *synth)
     canvas_.signal_selected().connect(
         sigc::mem_fun(*this, &NodeWindow::onSelected));
 
+    canvas_.signal_selection().connect(
+        sigc::mem_fun(*this, &NodeWindow::onSelectionChanged));
+
     canvas_.signal_connect_requested().connect(
         sigc::mem_fun(*this, &NodeWindow::onConnect));
 
@@ -749,14 +752,14 @@ void NodeWindow::onBoxMoved (int box)
     updateDirty();
 }
 
+/* One box selected: the panel shows it, and Delete names what it would take.
+ *
+ * Controls are deletable now that they can be created. The io node is still
+ * not: a .dsp without one does not load. */
 void NodeWindow::onSelected (int box)
 {
     params_.setBox(&graph_, box);
 
-    /* A control is a `@name' block, not a node, and the io node is the one
-       thing the file cannot do without. Neither is deletable. */
-    /* Controls are deletable now that they can be created. The io node is
-       still not: a .dsp without one does not load. */
     const bool deletable =
         box >= 0 && box < (int)graph_.boxes().size() &&
         !graph_.boxes()[box].isIoSource && !graph_.boxes()[box].isIoSink;
@@ -766,6 +769,41 @@ void NodeWindow::onSelected (int box)
     if (box >= 0 && box < (int)graph_.boxes().size())
         deleteBtn_.set_label(graph_.boxes()[box].isControl ? "Delete control"
                                                            : "Delete node");
+}
+
+/* A rubber band gathered `n' boxes.
+ *
+ * onSelected has already run with -1 for anything but a single box, which
+ * emptied the panel and disabled Delete. This puts Delete back for a group and
+ * says how many it would take, so the count is visible before pressing it
+ * rather than only in the status bar afterwards. */
+void NodeWindow::onSelectionChanged (int n)
+{
+    if (n <= 1)
+        return;             /* onSelected has it */
+
+    /* Whether any of them can actually go. A band across the right-hand end
+       of a patch catches the audio output, and a selection of nothing but the
+       io halves has nothing to delete. */
+    int deletable = 0;
+
+    const vector<int> &sel = canvas_.selection();
+
+    for (size_t i = 0; i < sel.size(); i++)
+        if (sel[i] >= 0 && sel[i] < (int)graph_.boxes().size() &&
+            !graph_.boxes()[sel[i]].isIoSource &&
+            !graph_.boxes()[sel[i]].isIoSink)
+            deletable++;
+
+    deleteBtn_.set_sensitive(deletable > 0);
+
+    char buf[48];
+
+    snprintf(buf, sizeof(buf), "Delete %d", deletable);
+    deleteBtn_.set_label(buf);
+
+    snprintf(buf, sizeof(buf), "%d nodes selected.", (int)sel.size());
+    setStatus(buf);
 }
 
 vector<string> NodeWindow::takenNames (void) const
@@ -1008,20 +1046,46 @@ void NodeWindow::onPaletteAddControl (void)
               ".  Drag from its output to a parameter to use it.");
 }
 
+/* Deletes everything selected.
+ *
+ * Names are collected before anything is removed, because removing the first
+ * one reparses and every box index after it means something different. A name
+ * survives that; an index does not.
+ *
+ * The io halves are skipped rather than refused: a rubber band across the
+ * right-hand side of a patch will catch the audio output, and there is no
+ * reading of "delete these six nodes" under which the user meant to be told
+ * off about the one that cannot go. A .dsp without an io node does not load,
+ * so it simply stays. */
 void NodeWindow::onDeleteNode (void)
 {
-    const int box = canvas_.selected();
-
-    if (box < 0 || box >= (int)graph_.boxes().size() || work_.empty())
+    if (work_.empty())
         return;
 
-    const NodeGraph::Box &b = graph_.boxes()[box];
+    vector<pair<string, bool> > victims;   /* name, isControl */
+    int skipped = 0;
 
-    if (b.isIoSource || b.isIoSink)
+    const vector<int> &sel = canvas_.selection();
+
+    for (size_t i = 0; i < sel.size(); i++)
+    {
+        if (sel[i] < 0 || sel[i] >= (int)graph_.boxes().size())
+            continue;
+
+        const NodeGraph::Box &sb = graph_.boxes()[sel[i]];
+
+        if (sb.isIoSource || sb.isIoSink)
+        { skipped++; continue; }
+
+        victims.push_back(make_pair(sb.isControl ? sb.ctlArg : sb.name,
+                                    sb.isControl));
+    }
+
+    if (victims.empty())
         return;
 
-    const bool isControl = b.isControl;
-    const string name = isControl ? b.ctlArg : b.name;
+    const bool isControl = victims[0].second;
+    const string name = victims[0].first;
 
     string why;
     int refs = 0;
@@ -1041,34 +1105,66 @@ void NodeWindow::onDeleteNode (void)
         return;
     }
 
-    const NodeEdit::Result r =
-        isControl ? NodeEdit::removeControl(work_, name, refs, why)
-                  : NodeEdit::removeNode(work_, name, refs, why);
+    int done = 0, failedAt = -1;
 
-    if (r != NodeEdit::OK)
+    for (size_t i = 0; i < victims.size(); i++)
     {
-        setStatus("Could not delete " + name + ": " + why);
-        return;
+        int n = 0;
+
+        const NodeEdit::Result r =
+            victims[i].second
+                ? NodeEdit::removeControl(work_, victims[i].first, n, why)
+                : NodeEdit::removeNode(work_, victims[i].first, n, why);
+
+        if (r != NodeEdit::OK)
+        { failedAt = (int)i; break; }
+
+        refs += n;
+        done++;
     }
 
-    structuralDirty_ = true;
+    /* Anything removed at all is a change to the working copy, including a
+       run that stopped part way. Marking it dirty is what makes Revert able
+       to undo a half-finished delete -- which is the reason this can afford
+       to stop at the first failure rather than trying to unpick itself. */
+    if (done)
+        structuralDirty_ = true;
+
+    if (!done)
+    {
+        setStatus("Could not delete " + victims[0].first + ": " + why);
+        return;
+    }
 
     if (!reload())
         return;
 
-    char buf[192];
+    char buf[256];
+
+    const string shown = (isControl ? "@" : "") + name;
 
     /* The references are the part nobody asked for, so they are the part
        worth reporting. Left in place they would make the file load with
        "Node x not found" and read zero. */
-    const string shown = (isControl ? "@" : "") + name;
-
-    if (refs)
+    if (failedAt >= 0)
+        snprintf(buf, sizeof(buf),
+                 "Deleted %d of %d, then stopped at %s: %s.  Revert undoes "
+                 "the rest.",
+                 done, (int)victims.size(), victims[failedAt].first.c_str(),
+                 why.c_str());
+    else if (done == 1 && refs)
         snprintf(buf, sizeof(buf),
                  "Deleted %s, and disconnected %d input%s that read from it.",
                  shown.c_str(), refs, refs == 1 ? "" : "s");
+    else if (done == 1)
+        snprintf(buf, sizeof(buf), "Deleted %s.%s", shown.c_str(),
+                 skipped ? "  The io node stays." : "");
     else
-        snprintf(buf, sizeof(buf), "Deleted %s.", shown.c_str());
+        snprintf(buf, sizeof(buf),
+                 "Deleted %d nodes, and disconnected %d input%s that read "
+                 "from them.%s",
+                 done, refs, refs == 1 ? "" : "s",
+                 skipped ? "  The io node stays." : "");
 
     setStatus(buf);
 }
