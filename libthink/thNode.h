@@ -19,7 +19,9 @@
 #ifndef TH_NODE_H
 #define TH_NODE_H 1
 
-class thNode {
+#include "thExport.h"
+
+class THINK_API thNode {
 public:
     thNode (const string &name, thPlugin *thplug);
     thNode (const thNode &copyNode);

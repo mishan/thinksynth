@@ -22,14 +22,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* macOS has had a real dlopen(3) since 10.3; the NSModule shim that used
+   to sit behind USING_DARWIN here has been dead code for twenty years. */
 #ifdef HAVE_DLFCN_H
 #include <dlfcn.h>
 #else
-# ifdef USING_DARWIN
-#  include "nsmodule_dl.h"
-# else
-#  error Need a dl implementation!
-# endif
+# error Need a dl implementation!
 #endif
 
 #include "think.h"

@@ -42,6 +42,15 @@ target_include_directories(think_objects PUBLIC
 
 target_link_libraries(think_objects PUBLIC PkgConfig::SIGC)
 
+# THINK_API is dllexport while building the library, dllimport for everyone
+# else. Hidden-by-default makes a forgotten THINK_API fail here rather than
+# only on Windows -- see the comment in thExport.h.
+target_compile_definitions(think_objects PRIVATE THINK_BUILDING_LIB)
+
+set_target_properties(think_objects PROPERTIES
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN ON)
+
 add_library(think SHARED $<TARGET_OBJECTS:think_objects>)
 
 target_include_directories(think PUBLIC

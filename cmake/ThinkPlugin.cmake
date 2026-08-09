@@ -8,13 +8,11 @@
 # macOS and a plain .dll on Windows without a PLUGIN_SUFFIX variable having to
 # drive the link line.
 #
-# Note what is deliberately absent: the plugins are not linked against
-# libthink. They resolve thPlugin::regArg, thSynthTree::getArg and the rest
-# against the host process at dlopen time, exactly as the autotools build did
-# (configure.ac:180 links them with -lm and nothing else). That works on Linux
-# and cannot work on Windows; PORTING.md section 4a is where it gets fixed,
-# along with the THINK_API export macro it needs. Doing it here would make
-# this build no longer comparable to the one it replaces.
+# Plugins link against libthink like any other consumer. They used to link
+# against -lm and nothing else and resolve thPlugin::regArg, thSynthTree::getArg
+# and the rest against the host process at dlopen time -- which works on Linux,
+# worked on macOS only via -flat_namespace -undefined suppress, and cannot work
+# on Windows at all. See thExport.h.
 
 function(think_add_plugin category name)
   set(target "plugin_${category}_${name}")
@@ -34,7 +32,14 @@ function(think_add_plugin category name)
       "${PROJECT_SOURCE_DIR}/libthink"
       "${PROJECT_BINARY_DIR}/libthink")
 
-  target_link_libraries(${target} PRIVATE PkgConfig::SIGC m)
+  target_link_libraries(${target} PRIVATE think PkgConfig::SIGC m)
+
+  # A plugin's ABI is the four symbols the host looks up by name; thPlugin.h
+  # marks those with THINK_PLUGIN_API. Everything else -- desc, mystate, the
+  # args[] table -- is private, and hidden-by-default says so.
+  set_target_properties(${target} PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
 
   install(TARGETS ${target}
           LIBRARY DESTINATION

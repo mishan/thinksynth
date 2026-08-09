@@ -31,7 +31,7 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "12db IIR LPF";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

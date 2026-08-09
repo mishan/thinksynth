@@ -19,11 +19,13 @@
 #ifndef TH_SYNTH_TREE_H
 #define TH_SYNTH_TREE_H 1
 
+#include "thExport.h"
+
 #include "thNode.h"
 
 class thSynth;
 
-class thSynthTree {
+class THINK_API thSynthTree {
 public:
     thSynthTree(const string &name, thSynth *synth);
     thSynthTree(const thSynthTree &oldtree);  /* Copy constructor */

@@ -28,7 +28,7 @@ int args[OUT_ARG + 1];
 static const char desc[] = "Multiplies two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

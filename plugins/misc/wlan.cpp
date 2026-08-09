@@ -35,7 +35,7 @@ int args[OUT_ARG + 1];
 static const char desc[] = "Passes on a wireless interface's signal level";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

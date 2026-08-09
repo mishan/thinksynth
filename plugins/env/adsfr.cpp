@@ -36,7 +36,7 @@ static inline float SQR (float x)
 }
 
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

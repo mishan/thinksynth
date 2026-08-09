@@ -32,7 +32,7 @@ int args[INOUT_BUFFER + 1];
 static const char desc[] = "INK Filter ][";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

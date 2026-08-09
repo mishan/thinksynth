@@ -28,7 +28,7 @@ int args[OUT_ARG + 1];
 static const char desc[] = "Maps a stream to a new value range";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

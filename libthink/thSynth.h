@@ -19,10 +19,12 @@
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
 
+#include "thExport.h"
+
 class thMidiNote;
 class thMidiChan;
 
-class thSynth {
+class THINK_API thSynth {
 public:
     thSynth (int windowlen=TH_DEFAULT_WINDOW_LENGTH,
              int samples=TH_DEFAULT_SAMPLES);

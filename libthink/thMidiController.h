@@ -19,6 +19,8 @@
 #ifndef TH_MIDICONTROLLER_H
 #define TH_MIDICONTROLLER_H 1
 
+#include "thExport.h"
+
 /* The thMidiController class has an array of 16 * 128 pointers to midi
    controller event handlers.  A thMidiControllerConnection has a pointer to
    the thArg to modify, and some information like min/max value, exponential/
@@ -28,7 +30,7 @@
    class also has a pointer to optional addition thMidiControllerConnection
    classes, so one midi controller can control multiple parameters. */
 
-class thMidiController {
+class THINK_API thMidiController {
 public:
     thMidiController (void);
     ~thMidiController (void);
