@@ -27,6 +27,8 @@ set(THINKSYNTH_SOURCES
     gthDummyAudio.cpp
     gthSynthSource.cpp
     gthRtAudio.cpp
+    gthRtMidi.cpp
+    gthMidiQueue.cpp
     gui/AboutBox.cpp
     gui/ArgTable.cpp
     gui/Keyboard.cpp
@@ -38,12 +40,6 @@ set(THINKSYNTH_SOURCES
     gui/NodeParams.cpp
     gui/NodeWindow.cpp
     gui/PatchSelWindow.cpp)
-
-# Only the MIDI half of the ALSA backend is left; gthALSAAudio is gone,
-# replaced by RtAudio's ALSA support.
-if(HAVE_ALSA)
-  list(APPEND THINKSYNTH_SOURCES gthALSAMidi.cpp)
-endif()
 
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
@@ -57,11 +53,8 @@ target_link_libraries(thinksynth PRIVATE
     think
     PkgConfig::GTKMM
     PkgConfig::GTHREAD
-    ${THINK_RTAUDIO_LIB})
-
-if(HAVE_ALSA)
-  target_link_libraries(thinksynth PRIVATE PkgConfig::ALSA)
-endif()
+    ${THINK_RTAUDIO_LIB}
+    ${THINK_RTMIDI_LIB})
 
 # acinclude.m4's AC_LINKER_DYNAMIC put -Wl,-export-dynamic,--no-as-needed on
 # the link line so that a dlopen'd plugin can resolve against symbols in the

@@ -12,9 +12,6 @@
 #define PACKAGE_VERSION "@PROJECT_VERSION@"
 #define PACKAGE_STRING  "@PROJECT_NAME@ @PROJECT_VERSION@"
 
-/* ALSA is the MIDI sequencer only; RtAudio does ALSA output. */
-#cmakedefine HAVE_ALSA 1
-
 /* Which one main.cpp picks when -d is not given. */
 #define DEFAULT_OUTPUT "@THINK_DEFAULT_OUTPUT@"
 

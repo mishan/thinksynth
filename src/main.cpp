@@ -36,18 +36,11 @@ typedef void (*sighandler_t)(int);
 
 #include <gtkmm.h>
 
-#ifdef HAVE_ALSA
-#include <alsa/asoundlib.h>
-#endif /* HAVE_ALSA */
-
 #include "think.h"
 #include "gthAudio.h"
 #include "gthSynthSource.h"
 #include "gthRtAudio.h"
-
-#ifdef HAVE_ALSA
-#include "gthALSAMidi.h"
-#endif /* HAVE_ALSA */
+#include "gthRtMidi.h"
 
 #include "gthDummyAudio.h"
 
@@ -65,9 +58,7 @@ thSynth *Synth = NULL;
 gthAudio *aout = NULL;
 static gthSynthSource *asource = NULL;
 
-#ifdef HAVE_ALSA
-static gthALSAMidi *midi = NULL;
-#endif /* HAVE_ALSA */
+static gthRtMidi *midi = NULL;
 
 Gtk::Main *gtkMain = NULL;
 
@@ -86,7 +77,8 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-d [driver]\t\taudio API: alsa, jack, pulse, core, wasapi, asio,\n"
 "\t\t\tnone, or empty to let RtAudio choose\n"
 "  -o [device]\t\toutput device, by full or partial name\n"
-"-L\t\t\tlist the audio APIs and devices, then exit\n"
+"-m [port]\t\tMIDI input port, by full or partial name\n"
+"-L\t\t\tlist the audio and MIDI APIs, devices and ports, then exit\n"
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
 ;
@@ -165,115 +157,111 @@ static void listAudio (void)
 
     printf("\n\noutput devices on the default API:\n");
 
-    gthRtAudio probe;
-
-    if (!probe.valid())
     {
-        printf("  (none -- RtAudio would not start)\n");
+        gthRtAudio probe;
+
+        /* Deliberately scoped, and deliberately not an early return: a
+           machine with no working audio device is exactly the machine whose
+           owner wants to see the MIDI list. */
+        if (!probe.valid())
+            printf("  (none -- RtAudio would not start)\n");
+        else
+        {
+            const std::vector<gthAudioDevice> devs = probe.devices();
+
+            for (size_t i = 0; i < devs.size(); i++)
+                printf("  %-52s %u ch%s\n", devs[i].name.c_str(),
+                       devs[i].outputChannels,
+                       devs[i].isDefault ? "  (default)" : "");
+
+            if (devs.empty())
+                printf("  (none)\n");
+        }
+    }
+
+    printf("\nMIDI input ports:\n");
+
+    gthRtMidi mprobe(PACKAGE_NAME);
+
+    if (!mprobe.opened())
+    {
+        printf("  (none -- RtMidi would not start)\n");
         return;
     }
 
-    const std::vector<gthAudioDevice> devs = probe.devices();
+    const std::vector<std::string> mports = mprobe.ports();
 
-    for (size_t i = 0; i < devs.size(); i++)
-        printf("  %-52s %u ch%s\n", devs[i].name.c_str(),
-               devs[i].outputChannels, devs[i].isDefault ? "  (default)" : "");
+    for (size_t i = 0; i < mports.size(); i++)
+        printf("  %s\n", mports[i].c_str());
 
-    if (devs.empty())
+    if (mports.empty())
         printf("  (none)\n");
 }
 
-#ifdef HAVE_ALSA
-int processmidi (snd_seq_t *seq_handle, thSynth *synth)
+/* One MIDI message, on the GUI thread.
+ *
+ * This was processmidi(), which walked ALSA sequencer events off a poll
+ * descriptor. The event types are now the wire bytes, which is what every
+ * MIDI API on every platform agrees on -- so the switch is on the status
+ * nibble rather than on SND_SEQ_EVENT_*, and everything it calls is
+ * unchanged.
+ */
+static void dispatchmidi (const gthMidiEvent &ev, thSynth *synth)
 {
-    snd_seq_event_t *ev = NULL;
+    const unsigned char kind = ev.status & 0xf0;
+    const int chan = ev.status & 0x0f;
 
-    while (snd_seq_event_input_pending(seq_handle, 1))
+    switch (kind)
     {
-        /* The return value was discarded and `ev' dereferenced regardless. On
-           an input overrun (-ENOSPC) snd_seq_event_input never writes it. */
-        if (snd_seq_event_input(seq_handle, &ev) < 0 || ev == NULL)
-            break;
-
-        switch (ev->type)
+        case 0x90:   /* note on */
         {
-            case SND_SEQ_EVENT_NOTEON:
+            if (ev.data2)
             {
-                if ((unsigned int)ev->data.note.velocity)
-                {
-                    m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
-                                ev->data.note.velocity);
-                    
-                    synth->addNote(ev->data.note.channel, ev->data.note.note,
-                                   ev->data.note.velocity);
-                }
+                m_sigNoteOn(chan, ev.data1, ev.data2);
+                synth->addNote(chan, ev.data1, ev.data2);
+            }
+            else
+            {
                 /* a zero velocity can denote note off */
-                else 
-                {
-                    m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
-                    
-                    synth->delNote(ev->data.note.channel, ev->data.note.note);
-                }
-                break;
+                m_sigNoteOff(chan, ev.data1);
+                synth->delNote(chan, ev.data1);
             }
-            case SND_SEQ_EVENT_NOTEOFF:
-            {
-                m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
-                
-                synth->delNote(ev->data.note.channel, ev->data.note.note);
-                break;
-            }
-            case SND_SEQ_EVENT_TEMPO:
-            {
-                debug("TEMPO CHANGE:  %i\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_TICK:
-            {
-                debug("TICK CHANGE:  %i\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_PITCHBEND:
-            {
-                debug("PITCH BEND:  %i\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_PGMCHANGE:
-            {
-                debug("PGM CHANGE  %d\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_CONTROLLER:
-            {
-                synth->handleMidiController(ev->data.control.channel,
-                                            ev->data.control.param,
-                                            ev->data.control.value);
-                
-                break;
-            }
-            case SND_SEQ_EVENT_PORT_UNSUBSCRIBED:
-            {
-                synth->clearAll();
-                m_sigNoteClear();
-                break;
-            }
-            default:
-            {
-                debug("got unknown event %d\n", ev->type);
-                break;
-            }
+            break;
         }
-        
-        snd_seq_free_event(ev);
+        case 0x80:   /* note off */
+        {
+            m_sigNoteOff(chan, ev.data1);
+            synth->delNote(chan, ev.data1);
+            break;
+        }
+        case 0xb0:   /* controller */
+        {
+            synth->handleMidiController(chan, ev.data1, ev.data2);
+            break;
+        }
+        case 0xe0:   /* pitch bend */
+        {
+            debug("PITCH BEND: %d\n", (ev.data2 << 7) | ev.data1);
+            break;
+        }
+        case 0xc0:   /* program change */
+        {
+            debug("PGM CHANGE %d\n", ev.data1);
+            break;
+        }
+        default:
+        {
+            debug("got unknown MIDI status 0x%02x\n", ev.status);
+            break;
+        }
     }
-
-    return 0;
 }
-#endif /* HAVE_ALSA */
 
 int main (int argc, char *argv[])
 {
     string outputfname;
+    string midiport;
+    string midiapi;
     string driver = DEFAULT_OUTPUT;
     int havearg = -1;
     int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
@@ -308,7 +296,7 @@ int main (int argc, char *argv[])
      * its lexer, so anything embedding the library has to do the same. */
     setlocale(LC_NUMERIC, "C");
 
-    while ((havearg = getopt (argc, argv, "hLp:o:d:r:l:")) != -1)
+    while ((havearg = getopt (argc, argv, "hLp:o:d:m:r:l:")) != -1)
     {
         switch (havearg)
         {
@@ -335,6 +323,11 @@ int main (int argc, char *argv[])
             case 'o':
             {
                 outputfname = optarg;
+                break;
+            }
+            case 'm':
+            {
+                midiport = optarg;
                 break;
             }
             case 'h':
@@ -390,15 +383,13 @@ int main (int argc, char *argv[])
 
     try
     {
-#ifdef HAVE_ALSA
-        midi = new gthALSAMidi("thinksynth");
+        midi = new gthRtMidi(PACKAGE_NAME, midiapi, midiport);
 
-        if (midi->seq_opened())
+        if (midi->opened())
         {
-            midi->signal_midi_event().connect(
-                sigc::bind<thSynth *>(sigc::ptr_fun(&processmidi), Synth));
+            midi->signal_event().connect(
+                sigc::bind<thSynth *>(sigc::ptr_fun(&dispatchmidi), Synth));
         }
-#endif /* HAVE_ALSA */
 
         if (driver == "none")
         {
@@ -476,10 +467,8 @@ int main (int argc, char *argv[])
         aout->stop();
     }
 
-#ifdef HAVE_ALSA
     delete midi;
     midi = NULL;
-#endif /* HAVE_ALSA */
 
     printf("saving preferences\n");
     prefs->Save();

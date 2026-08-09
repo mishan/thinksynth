@@ -45,6 +45,11 @@ think_harness(dspstress THREADS)
 # is deliberately free of both gtkmm and RtAudio so this can link it directly.
 think_harness(dspblock EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
 
+# The MIDI thread handoff, without a MIDI device. gthMidiQueue needs glibmm
+# for Glib::Dispatcher but not gtkmm, so this stays headless.
+think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
+target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -91,11 +96,13 @@ add_test(NAME dsplevel
 # Rendering each patch eight times over is slow, so this runs on a
 # representative handful rather than the whole corpus: what is being tested is
 # gthSynthSource, not the DSPs.
+add_test(NAME dspmidi COMMAND dspmidi 200000)
+
 add_test(NAME dspblock
          COMMAND dspblock -q -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/anasync.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/mfm01.dsp")
 
-set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock
+set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      PROPERTIES TIMEOUT 900)
