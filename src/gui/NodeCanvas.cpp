@@ -55,6 +55,7 @@
 NodeCanvas::NodeCanvas (void)
     : graph_(NULL), zoom_(1.0), dragBox_(-1), dragDX_(0), dragDY_(0),
       hoverBox_(-1), hoverPort_(-1), selBox_(-1),
+      bandOn_(false), bandX0_(0), bandY0_(0), bandX1_(0), bandY1_(0),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
       hoverEdge_(-1), dragSlider_(-1), fitPending_(false)
@@ -75,6 +76,8 @@ void NodeCanvas::setGraph (NodeGraph *graph)
 {
     graph_ = graph;
     dragBox_ = hoverBox_ = hoverPort_ = selBox_ = -1;
+    sel_.clear();
+    bandOn_ = false;
     wireBox_ = wirePort_ = wireTargetBox_ = wireTargetPort_ = -1;
     hoverEdge_ = -1;
     dragSlider_ = -1;
@@ -85,10 +88,42 @@ void NodeCanvas::setGraph (NodeGraph *graph)
     queue_draw();
 }
 
+bool NodeCanvas::isSelected (int box) const
+{
+    for (size_t i = 0; i < sel_.size(); i++)
+        if (sel_[i] == box)
+            return true;
+
+    return false;
+}
+
+void NodeCanvas::clearSelection (void)
+{
+    if (sel_.empty() && selBox_ < 0)
+        return;
+
+    sel_.clear();
+    selBox_ = -1;
+
+    m_signal_selected_(-1);
+    queue_draw();
+}
+
+/* Selects exactly one box, which is what a plain click means.
+ *
+ * The early return on "already selected" is load-bearing beyond saving a
+ * redraw: it stops a click inside an existing multi-selection from collapsing
+ * it, so a drag that begins on one of several selected nodes moves them all.
+ * That only holds while the selection really is just this box. */
 void NodeCanvas::setSelected (int box)
 {
-    if (box == selBox_)
+    if (box == selBox_ && sel_.size() == (box < 0 ? 0u : 1u))
         return;
+
+    sel_.clear();
+
+    if (box >= 0)
+        sel_.push_back(box);
 
     selBox_ = box;
 
@@ -234,16 +269,42 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
 
     const int hit = graph_->boxAt(gx, gy);
 
-    /* Selecting on press rather than on release: a drag should show you what
-       you are dragging while you drag it. */
-    setSelected(hit);
-
-    if (hit >= 0)
+    /* Empty canvas: start a rubber band rather than doing nothing.
+     *
+     * Only from empty space, so it cannot be confused with anything else: a
+     * press on a box drags it, on a port draws a wire, on a slider moves it,
+     * on a wire cuts it. Nothing was left for a press on the background to
+     * mean, which is what makes the gesture free to take. */
+    if (hit < 0)
     {
-        dragBox_ = hit;
-        dragDX_ = gx - graph_->boxes()[hit].x;
-        dragDY_ = gy - graph_->boxes()[hit].y;
+        bandOn_ = true;
+        bandX0_ = bandX1_ = gx;
+        bandY0_ = bandY1_ = gy;
+
+        clearSelection();
+
+        return true;
     }
+
+    /* Selecting on press rather than on release: a drag should show you what
+       you are dragging while you drag it.
+
+       A press inside an existing selection leaves it alone, so several nodes
+       can be gathered and then dragged as a group. setSelected collapses to
+       the one box in every other case. */
+    if (!isSelected(hit))
+        setSelected(hit);
+    else if (hit != selBox_)
+    {
+        /* Still worth telling the panel which one was touched. */
+        selBox_ = hit;
+        m_signal_selected_(selBox_);
+        queue_draw();
+    }
+
+    dragBox_ = hit;
+    dragDX_ = gx - graph_->boxes()[hit].x;
+    dragDY_ = gy - graph_->boxes()[hit].y;
 
     return true;
 }
@@ -302,6 +363,31 @@ bool NodeCanvas::on_button_release_event (GdkEventButton *b)
         return true;
     }
 
+    if (bandOn_)
+    {
+        bandOn_ = false;
+
+        const double x0 = bandX0_ < bandX1_ ? bandX0_ : bandX1_;
+        const double x1 = bandX0_ < bandX1_ ? bandX1_ : bandX0_;
+        const double y0 = bandY0_ < bandY1_ ? bandY0_ : bandY1_;
+        const double y1 = bandY0_ < bandY1_ ? bandY1_ : bandY0_;
+
+        /* The geometry is NodeGraph's, so it can be checked without a
+           display -- see boxesIn, and dspgraph. */
+        graph_->boxesIn(x0, y0, x1, y1, sel_);
+
+        /* The panel can only speak for one node, so it gets the single box
+           when that is what was gathered and nothing otherwise. */
+        selBox_ = (sel_.size() == 1) ? sel_[0] : -1;
+
+        m_signal_selected_(selBox_);
+        m_signal_selection_((int)sel_.size());
+
+        queue_draw();
+
+        return true;
+    }
+
     if (dragBox_ >= 0)
     {
         /* A box dragged past the old bounds needs the scrollable area to grow
@@ -335,7 +421,42 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
         if (nx < 0) nx = 0;
         if (ny < 0) ny = 0;
 
-        graph_->moveBox(dragBox_, nx, ny);
+        /* The delta the grabbed box actually moved by, computed after the
+           clamp above so the rest of the selection follows what happened
+           rather than what was asked for -- otherwise dragging a group into
+           the top-left corner would squash it as the leader stopped and the
+           others kept going. */
+        const double dx = nx - graph_->boxes()[dragBox_].x;
+        const double dy = ny - graph_->boxes()[dragBox_].y;
+
+        if (sel_.size() > 1)
+        {
+            for (size_t i = 0; i < sel_.size(); i++)
+            {
+                const NodeGraph::Box &sb = graph_->boxes()[sel_[i]];
+
+                double bx = sb.x + dx;
+                double by = sb.y + dy;
+
+                if (bx < 0) bx = 0;
+                if (by < 0) by = 0;
+
+                graph_->moveBox(sel_[i], bx, by);
+            }
+        }
+        else
+            graph_->moveBox(dragBox_, nx, ny);
+
+        queue_draw();
+
+        return true;
+    }
+
+    if (bandOn_)
+    {
+        bandX1_ = gx;
+        bandY1_ = gy;
+
         queue_draw();
 
         return true;
@@ -855,10 +976,37 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
 
     for (size_t b = 0; b < boxes.size(); b++)
         drawBox(cr, boxes[b], (int)b == dragBox_ || (int)b == hoverBox_,
-                (int)b == selBox_);
+                isSelected((int)b));
 
     /* On top of everything: it is the thing being manipulated. */
     drawPendingWire(cr);
+
+    /* The rubber band, last of all and over the boxes it is gathering. Dashed
+       and unfilled: a translucent fill would tint every node under it, which
+       is the one thing the band must not do -- the point is to see what is
+       being caught. */
+    if (bandOn_)
+    {
+        const double x = bandX0_ < bandX1_ ? bandX0_ : bandX1_;
+        const double y = bandY0_ < bandY1_ ? bandY0_ : bandY1_;
+        const double w = bandX0_ < bandX1_ ? bandX1_ - bandX0_
+                                           : bandX0_ - bandX1_;
+        const double h = bandY0_ < bandY1_ ? bandY1_ - bandY0_
+                                           : bandY0_ - bandY1_;
+
+        vector<double> dashes;
+
+        dashes.push_back(4.0);
+        dashes.push_back(3.0);
+
+        cr->save();
+        cr->set_line_width(1.0 / zoom_);
+        cr->set_dash(dashes, 0.0);
+        cr->set_source_rgb(COL_SELECT);
+        cr->rectangle(x, y, w, h);
+        cr->stroke();
+        cr->restore();
+    }
 
     cr->restore();
 

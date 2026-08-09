@@ -1311,6 +1311,31 @@ int NodeGraph::feedbackCount (void) const
  *
  * Done here rather than in the drag handler so it covers every caller,
  * including the ones added later. */
+void NodeGraph::boxesIn (double x0, double y0, double x1, double y1,
+                         vector<int> &out) const
+{
+    out.clear();
+
+    /* Dragged in any direction, so normalise rather than trusting the order
+       the two corners arrived in. */
+    if (x1 < x0) { const double t = x0; x0 = x1; x1 = t; }
+    if (y1 < y0) { const double t = y0; y0 = y1; y1 = t; }
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        const Box &bx = boxes_[b];
+
+        if (bx.attachedTo >= 0)
+            continue;
+
+        if (bx.x + bx.w < x0 || bx.x > x1 ||
+            bx.y + bx.h < y0 || bx.y > y1)
+            continue;
+
+        out.push_back((int)b);
+    }
+}
+
 void NodeGraph::moveBox (int index, double x, double y)
 {
     if (index < 0 || index >= (int)boxes_.size())

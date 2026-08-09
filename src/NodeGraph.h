@@ -312,6 +312,23 @@ public:
     /* Sets a control's value, for dragging. Does not touch the file. */
     void setControlValue (int box, float value);
 
+    /* Every box the rectangle touches, in box order.
+     *
+     * Touching, not enclosing. A patch is wider than the window and a box is
+     * 128 pixels of it, so requiring a box to fit entirely inside the
+     * rectangle would mean scrolling out to catch anything near the edge.
+     * Touching is also the forgiving reading of a roughly dragged band.
+     *
+     * Attached controls are left out: a strip belongs to its host, moves with
+     * it and is deleted with it, so gathering one on its own would offer an
+     * independence it does not have.
+     *
+     * Here rather than in the canvas because it is geometry, and geometry is
+     * the part that can be checked without a display -- the same reason
+     * boxAt and portAt live here. */
+    void boxesIn (double x0, double y0, double x1, double y1,
+                  vector<int> &out) const;
+
     /* Index of a box by node name, or -1. For the io node this is the sink
        half; its args are split across both halves, so a caller after a
        particular arg should search the params of both. */

@@ -367,6 +367,70 @@ int main (int argc, char **argv)
             }
         }
 
+        /* rubber-band selection: the geometry, without a mouse
+         *
+         * Three properties. A band over the whole extent gathers every box
+         * that can be gathered -- which is every one that is not an attached
+         * strip, since a strip belongs to its host and is never selected
+         * apart from it. A band snapped to one box gathers exactly that box.
+         * And a band out beyond the extent gathers nothing, so a stray click
+         * and drag on empty canvas clears rather than selects.
+         *
+         * The middle one is the property that actually bites: "touching, not
+         * enclosing" is easy to write as "enclosing" by accident, and then
+         * nothing at the edge of a wide patch can be caught without scrolling
+         * off it. */
+        {
+            vector<int> got;
+            int selectable = 0;
+
+            for (size_t b = 0; b < boxes.size(); b++)
+                if (boxes[b].attachedTo < 0)
+                    selectable++;
+
+            g.boxesIn(-1e6, -1e6, 1e6, 1e6, got);
+
+            if ((int)got.size() != selectable)
+            { printf("FAIL  %s: a band over everything took %d of %d boxes\n",
+                     argv[f], (int)got.size(), selectable);
+              problems++; }
+
+            g.boxesIn(g.width() + 100, g.height() + 100,
+                      g.width() + 200, g.height() + 200, got);
+
+            if (!got.empty())
+            { printf("FAIL  %s: a band off the end of the graph took %d "
+                     "boxes\n", argv[f], (int)got.size());
+              problems++; }
+
+            for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+            {
+                if (boxes[b].attachedTo >= 0)
+                    continue;
+
+                /* Just inside the box, so no neighbour is touched: boxes do
+                   not overlap, which the check above has already run. */
+                g.boxesIn(boxes[b].x + 1, boxes[b].y + 1,
+                          boxes[b].x + boxes[b].w - 1,
+                          boxes[b].y + boxes[b].h - 1, got);
+
+                if (got.size() != 1 || got[0] != (int)b)
+                { printf("FAIL  %s: a band on %s took %d boxes\n", argv[f],
+                         boxes[b].name.c_str(), (int)got.size());
+                  problems++; }
+            }
+
+            /* Corners in the wrong order mean the same rectangle. */
+            vector<int> rev;
+
+            g.boxesIn(1e6, 1e6, -1e6, -1e6, rev);
+
+            if ((int)rev.size() != selectable)
+            { printf("FAIL  %s: a band dragged up-left took %d, not %d\n",
+                     argv[f], (int)rev.size(), selectable);
+              problems++; }
+        }
+
         /* no overlapping boxes */
         for (size_t a = 0; a < boxes.size() && problems < 5; a++)
             for (size_t b = a + 1; b < boxes.size(); b++)
