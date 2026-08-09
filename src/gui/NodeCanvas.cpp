@@ -441,9 +441,11 @@ bool NodeCanvas::on_scroll_event (GdkEventScroll *s)
 
 /* An attached control: label, track, number, on one line against its host.
  *
- * No title bar, no port, no outline to speak of -- it is not a node and
- * should not look like one. The only chrome is a tab on the right edge, which
- * is what says which box it belongs to now that no wire does. */
+ * No title bar, no port handle, no outline to speak of -- it is not a node and
+ * should not look like one. The chrome is a tab on the right edge, saying at a
+ * glance which box the strip belongs to; the short wire dropping from the
+ * strip to a port below says which of that box's inputs it drives, which
+ * neither the tab nor sitting on top of the box can. */
 void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
                                const NodeGraph::Box &b, bool highlit,
                                bool selected)

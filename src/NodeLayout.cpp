@@ -160,6 +160,14 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
         {
             const NodeGraph::Box &b = graph.boxes()[i];
 
+            /* Not the attached controls. A strip sits directly above the box
+               it belongs to; that is computed from the host every time, so
+               writing it down would record a position nothing reads and which
+               would be wrong the moment the host moved, or the control found a
+               second consumer and became a box of its own again. */
+            if (b.attachedTo >= 0)
+                continue;
+
             out << LAYOUT_TAG << keyFor(graph, (int)i) << " "
                 << (long)(b.x + 0.5) << " " << (long)(b.y + 0.5) << "\n";
         }

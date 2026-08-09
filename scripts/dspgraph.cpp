@@ -213,6 +213,56 @@ int main (int argc, char **argv)
                   problems++; }
         }
 
+        /* a strip stays with its host, however the host got where it is
+         *
+         * Attached controls are stored as ordinary boxes but their position is
+         * derived: layout() stacks them directly above the box they belong to,
+         * and sitting there is most of what says which box that is. Nothing
+         * enforced it afterwards, so dragging a node -- or NodeLayout::apply
+         * restoring a saved position -- moved the host and left its strips
+         * behind, over whatever happened to be underneath.
+         *
+         * Checked twice: as laid out, and again after moving every host, since
+         * the first passes on code that never maintains the invariant. */
+        for (int round = 0; round < 2 && problems < 5; round++)
+        {
+            if (round == 1)
+                for (size_t b = 0; b < boxes.size(); b++)
+                    if (boxes[b].attachedTo < 0)
+                        g.moveBox((int)b, boxes[b].x + 37.0,
+                                  boxes[b].y + 19.0);
+
+            for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+            {
+                const NodeGraph::Box &c = boxes[b];
+
+                if (c.attachedTo < 0)
+                    continue;
+
+                if (c.attachedTo >= (int)boxes.size())
+                { printf("FAIL  %s: %s attached to box %d, which does not "
+                         "exist\n", argv[f], c.ctlArg.c_str(), c.attachedTo);
+                  problems++; continue; }
+
+                const NodeGraph::Box &host = boxes[c.attachedTo];
+
+                if (c.x != host.x)
+                { printf("FAIL  %s: strip %s at x=%.1f, host %s at x=%.1f%s\n",
+                         argv[f], c.ctlArg.c_str(), c.x, host.name.c_str(),
+                         host.x, round ? " (after moving the host)" : "");
+                  problems++; }
+
+                if (c.y + c.h > host.y)
+                { printf("FAIL  %s: strip %s runs into host %s%s\n", argv[f],
+                         c.ctlArg.c_str(), host.name.c_str(),
+                         round ? " (after moving the host)" : "");
+                  problems++; }
+            }
+        }
+
+        /* Undo the shove so the checks below see the real layout. */
+        g.layout();
+
         /* no overlapping boxes */
         for (size_t a = 0; a < boxes.size() && problems < 5; a++)
             for (size_t b = a + 1; b < boxes.size(); b++)
@@ -646,18 +696,50 @@ int main (int argc, char **argv)
 
                     const int applied = NodeLayout::apply(g2, pos, g2);
 
-                    if (applied != (int)boxes.size())
+                    /* Attached controls are not among them: a strip's
+                       position comes from its host every time, so it is
+                       neither written nor restored. Counting them would demand
+                       a saved position for something that deliberately has
+                       none. */
+                    int expect = 0;
+
+                    for (size_t b = 0; b < boxes.size(); b++)
+                        if (boxes[b].attachedTo < 0)
+                            expect++;
+
+                    if (applied != expect)
                     { printf("FAIL  %s: restored %d of %d positions\n", argv[f],
-                             applied, (int)boxes.size());
+                             applied, expect);
                       problems++; }
                     else
                         for (size_t b = 0; b < boxes.size(); b++)
-                            if (g2.boxes()[b].x != 17.0 + b * 13.0 ||
-                                g2.boxes()[b].y != 23.0 + b * 7.0)
+                        {
+                            const NodeGraph::Box &r = g2.boxes()[b];
+
+                            /* A strip has to come back on its host, wherever
+                               apply() put that host -- the invariant survives
+                               a save and a reload, not just a fresh layout. */
+                            if (r.attachedTo >= 0)
+                            {
+                                const NodeGraph::Box &h =
+                                    g2.boxes()[r.attachedTo];
+
+                                if (r.x != h.x || r.y + r.h > h.y)
+                                { printf("FAIL  %s: strip %s did not come back "
+                                         "on %s\n", argv[f], r.ctlArg.c_str(),
+                                         h.name.c_str());
+                                  problems++; break; }
+
+                                continue;
+                            }
+
+                            if (r.x != 17.0 + b * 13.0 ||
+                                r.y != 23.0 + b * 7.0)
                             { printf("FAIL  %s: %s came back at (%.1f,%.1f)\n",
                                      argv[f], boxes[b].name.c_str(),
-                                     g2.boxes()[b].x, g2.boxes()[b].y);
+                                     r.x, r.y);
                               problems++; break; }
+                        }
                 }
             }
 
