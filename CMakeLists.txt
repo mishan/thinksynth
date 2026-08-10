@@ -167,24 +167,12 @@ else()
   set(THINK_RTAUDIO_ORIGIN "fetched ${THINK_RTAUDIO_VERSION}")
 endif()
 
-pkg_check_modules(JACK IMPORTED_TARGET jack)
 pkg_check_modules(ALSA IMPORTED_TARGET alsa)
 
 # ALSA is now only the MIDI sequencer; RtAudio does ALSA output. configure.ac
 # skipped the probe entirely on Darwin and so does this.
 if(ALSA_FOUND AND NOT APPLE)
   set(HAVE_ALSA 1)
-endif()
-
-# The hand-written JACK backend, superseded by RtAudio's JACK API. Off by
-# default; worth keeping buildable until someone has listened to the RtAudio
-# path under load and is happy with it, at which point delete gthJackAudio.
-cmake_dependent_option(THINK_WITH_LEGACY_JACK
-    "Also build the old in-tree JACK backend (-d legacy-jack)" OFF
-    "JACK_FOUND" OFF)
-
-if(THINK_WITH_LEGACY_JACK)
-  set(HAVE_LEGACY_JACK 1)
 endif()
 
 # What -d selects when nothing says otherwise. Empty means "let RtAudio
@@ -322,7 +310,6 @@ message(STATUS "  system ................: ${CMAKE_SYSTEM_NAME}")
 message(STATUS "  build type ............: ${CMAKE_BUILD_TYPE}")
 message(STATUS "  RtAudio ...............: ${THINK_RTAUDIO_ORIGIN}")
 message(STATUS "  ALSA MIDI .............: ${HAVE_ALSA}")
-message(STATUS "  legacy JACK backend ...: ${THINK_WITH_LEGACY_JACK}")
 message(STATUS "  default output ........: ${THINK_DEFAULT_OUTPUT}")
 message(STATUS "  debug .................: ${THINK_ENABLE_DEBUG}")
 message(STATUS "  -ffast-math ...........: ${THINK_FAST_MATH}")

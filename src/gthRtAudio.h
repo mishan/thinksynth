@@ -19,6 +19,8 @@
 #ifndef GTH_RTAUDIO_H
 #define GTH_RTAUDIO_H 1
 
+#include <atomic>
+
 #include <RtAudio.h>
 
 #include "gthAudio.h"
@@ -62,6 +64,14 @@ public:
     /* The API actually in use, for the status line and for prefs. */
     std::string apiName (void) const;
 
+    /* Callbacks that arrived with the device reporting an output underflow,
+       i.e. the previous callback did not return in time. Counted rather than
+       logged because the counting happens on the audio thread, where a
+       printf is precisely the wrong thing to do. Reported once at stop(). */
+    unsigned long underruns (void) const {
+        return underruns_.load(std::memory_order_relaxed);
+    }
+
     static std::vector<std::string> availableApis (void);
 
 private:
@@ -79,6 +89,8 @@ private:
     std::string deviceName_;
 
     unsigned deviceId_;
+
+    std::atomic<unsigned long> underruns_;
 };
 
 #endif /* GTH_RTAUDIO_H */

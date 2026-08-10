@@ -49,11 +49,6 @@ typedef void (*sighandler_t)(int);
 #include "gthALSAMidi.h"
 #endif /* HAVE_ALSA */
 
-#ifdef HAVE_LEGACY_JACK
-#include <jack/jack.h>
-#include "gthJackAudio.h"
-#endif /* HAVE_LEGACY_JACK */
-
 #include "gthDummyAudio.h"
 
 #include "gthSignal.h"
@@ -96,47 +91,47 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-l [window length]\tset the window length\n";
 ;
 
-void cleanup (int signum)
+/* Set by the signal handler, read by the GUI thread.
+ *
+ * The handler used to do the whole shutdown itself: printf, prefs->Save(),
+ * delete the audio device, exit(). Almost none of that is
+ * async-signal-safe -- printf takes a lock, Save() allocates, and with
+ * RtAudio the destructor joins the callback thread. Reached from a signal
+ * that interrupted any of those, it can deadlock or corrupt the heap, and
+ * "^C sometimes hangs" is a miserable thing to debug.
+ *
+ * So the handler now does the only two things it is allowed to do: write a
+ * flag and return. The real teardown happens on the GUI thread, from a
+ * timeout below, which is where every one of those calls is safe. */
+static volatile sig_atomic_t shutdownRequested = 0;
+
+extern "C" void cleanup (int signum)
 {
-    gthPrefs *prefs = gthPrefs::instance();
+    /* Both of these are async-signal-safe, and nothing else here is. */
+    signal(signum, SIG_DFL);
+    shutdownRequested = signum;
+}
 
-    signal(signum, SIG_IGN);
-    switch (signum)
-    {
-        case SIGINT:
-              printf("caught interrupt!\n");
-        
-        case SIGUSR1:
-            printf("thinksynth shutting down..\n");
-            
-            if (signum == SIGUSR1)
-            {
-                printf("saving preferences\n");
-                prefs->Save();
-                delete prefs;
-            }
-            
-            if (aout)
-            {
-                printf("closing audio devices...\n");
-                aout->stop();
-                delete aout;
-                aout = NULL;
-            }
+/* GUI thread, polled from a Glib timeout. */
+static bool checkShutdown (void)
+{
+    if (!shutdownRequested)
+        return true;   /* keep polling */
 
-            delete asource;
-            asource = NULL;
+    const int signum = (int)shutdownRequested;
 
-#ifdef HAVE_ALSA
-            if (midi)
-            {
-                delete midi;
-            }
-#endif /* HAVE_ALSA */
+    if (signum == SIGINT)
+        printf("caught interrupt!\n");
 
-            exit (0);
-            break;
-    }
+    printf("thinksynth shutting down..\n");
+
+    /* Ask the main loop to unwind. Everything below main()'s run() then
+       happens in the ordinary way, on this thread, with the audio device
+       stopped before anything it touches is freed. */
+    if (gtkMain)
+        gtkMain->quit();
+
+    return false;
 }
 
 void process_synth (void)
@@ -157,38 +152,6 @@ void process_synth (void)
  * copes with any block size. scripts/dspblock is the regression test.
  */
 
-#ifdef HAVE_LEGACY_JACK
-/* The old hand-written JACK callback, kept only so the in-tree JACK backend
-   can still be built for an A/B against RtAudio's. It has the window/period
-   bug described above; that is the point of keeping it. */
-int playback_callback (jack_nframes_t nframes, void *arg)
-{
-    gthJackAudio *jack = static_cast<gthJackAudio *>(arg);
-
-    int l = Synth->getWindowlen();
-    int chans = Synth->audioChannelCount();
-    int copy = ((int)nframes < l) ? (int)nframes : l;
-
-    for (int i = 0; i < chans; i++)
-    {
-        float *synthbuffer = Synth->getChanBuffer(i);
-        float *buf = static_cast<float *>(jack->GetOutBuf(i, nframes));
-
-        if (buf == NULL)
-            continue;
-
-        for (int k = 0; k < copy; k++)
-            buf[k] = thClampSample(synthbuffer[k]);
-
-        if ((int)nframes > copy)
-            memset(buf + copy, 0, ((int)nframes - copy) * sizeof(float));
-    }
-
-    process_synth ();
-
-    return 0;
-}
-#endif /* HAVE_LEGACY_JACK */
 
 /* -L */
 static void listAudio (void)
@@ -411,6 +374,10 @@ int main (int argc, char *argv[])
     signal(SIGUSR1, (sighandler_t)cleanup);
     signal(SIGINT, (sighandler_t)cleanup);
 
+    /* The handler only sets a flag; this is what notices. 200ms is
+       imperceptible for a ^C and costs nothing when idle. */
+    Glib::signal_timeout().connect(sigc::ptr_fun(&checkShutdown), 200);
+
     /* The source primes the synth in prepare(); no need to render a window
        here as well. */
     asource = new gthSynthSource(Synth);
@@ -433,14 +400,6 @@ int main (int argc, char *argv[])
         }
 #endif /* HAVE_ALSA */
 
-#ifdef HAVE_LEGACY_JACK
-        if (driver == "legacy-jack")
-        {
-            /* The in-tree JACK backend, for an A/B against RtAudio's. */
-            aout = new gthJackAudio(Synth, playback_callback);
-        }
-        else
-#endif /* HAVE_LEGACY_JACK */
         if (driver == "none")
         {
             puts("Using dummy audio device; no audio output will occur.");
@@ -500,35 +459,42 @@ int main (int argc, char *argv[])
 
     prefs->Load();
 
+    /* checkShutdown() needs this to unwind the loop from the timeout. */
+    gtkMain = &mymain;
+
     mymain.run(synthWindow);
+
+    gtkMain = NULL;
+
+    /* Silence the device first. Everything below this touches state the
+       audio callback reads -- saving preferences walks the patch manager,
+       which walks the synth -- and stop() does not return until the callback
+       has. */
+    if (aout)
+    {
+        printf("closing audio devices...\n");
+        aout->stop();
+    }
 
 #ifdef HAVE_ALSA
     delete midi;
+    midi = NULL;
 #endif /* HAVE_ALSA */
-    
+
     printf("saving preferences\n");
     prefs->Save();
 
     delete prefs;
 
-    if (aout)
-    {
-        printf("closing audio devices...\n");
-
-        /* Stop before anything the callback touches goes away. */
-        aout->stop();
-        delete aout;
-        aout = NULL;
-    }
+    delete aout;
+    aout = NULL;
 
     delete asource;
     asource = NULL;
 
-    /* Will not be reached if using 'alsa' driver */
-#if 0
     printf("deleting synth\n");
     delete Synth;
-#endif
+    Synth = NULL;
 
     return 0;
 }

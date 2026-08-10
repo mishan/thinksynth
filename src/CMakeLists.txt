@@ -45,10 +45,6 @@ if(HAVE_ALSA)
   list(APPEND THINKSYNTH_SOURCES gthALSAMidi.cpp)
 endif()
 
-if(HAVE_LEGACY_JACK)
-  list(APPEND THINKSYNTH_SOURCES gthJackAudio.cpp)
-endif()
-
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>)
@@ -65,10 +61,6 @@ target_link_libraries(thinksynth PRIVATE
 
 if(HAVE_ALSA)
   target_link_libraries(thinksynth PRIVATE PkgConfig::ALSA)
-endif()
-
-if(HAVE_LEGACY_JACK)
-  target_link_libraries(thinksynth PRIVATE PkgConfig::JACK)
 endif()
 
 # acinclude.m4's AC_LINKER_DYNAMIC put -Wl,-export-dynamic,--no-as-needed on

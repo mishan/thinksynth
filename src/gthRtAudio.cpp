@@ -35,7 +35,8 @@ static void errorCallback (RtAudioErrorType type, const std::string &text)
 }
 
 gthRtAudio::gthRtAudio (const std::string &api, const std::string &device)
-    : rt_(NULL), source_(NULL), wantDevice_(device), deviceId_(0)
+    : rt_(NULL), source_(NULL), wantDevice_(device), deviceId_(0),
+      underruns_(0)
 {
     fmt_.rate = 0;
     fmt_.channels = 0;
@@ -193,14 +194,13 @@ int gthRtAudio::trampoline (void *out, void *in, unsigned frames,
 
     gthRtAudio *self = static_cast<gthRtAudio *>(user);
 
+    /* Worth knowing about but not worth stopping for, and printing from the
+       audio thread is itself a bad idea -- so it is counted here and reported
+       once in stop(). An underrun means the callback did not return in time,
+       which with a whole synth window of work per boundary is the expected
+       way for this to fail on a slow machine. */
     if (status & RTAUDIO_OUTPUT_UNDERFLOW)
-    {
-        /* Worth knowing about but not worth stopping for, and printing from
-           the audio thread is itself a bad idea -- so it is counted rather
-           than reported. An underrun means the callback did not return in
-           time, which with a whole synth window of work per boundary is the
-           expected way for this to fail on a slow machine. */
-    }
+        self->underruns_.fetch_add(1, std::memory_order_relaxed);
 
     self->source_->render(static_cast<float *>(out), frames,
                           (unsigned)self->fmt_.channels);
@@ -298,6 +298,12 @@ void gthRtAudio::stop (void)
 
     if (rt_->isStreamRunning())
         rt_->stopStream();
+
+    const unsigned long lost = underruns();
+
+    if (lost)
+        fprintf(stderr, "audio: %lu underrun(s) -- the callback did not "
+                        "return in time\n", lost);
 }
 
 bool gthRtAudio::running (void) const

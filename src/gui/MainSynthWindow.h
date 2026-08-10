@@ -41,9 +41,6 @@ protected:
     void menuNodes (void);
     void menuQuit (void);
     void menuAbout (void);
-    void menuJackTry (void);
-    void menuJackDis (void);
-    void menuJackAuto (void);
 
     void append_tab (const string &tabName, int num, bool is_real);
     void populate (void);
@@ -58,12 +55,8 @@ protected:
     void onDspEntryActivate (void);
     void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
-    void jackCheck (void);
 
     Gtk::VBox vbox_;
-    /* Held rather than looked up by index -- see toggleConnects(). */
-    Gtk::MenuItem *jackConnect_;
-    Gtk::MenuItem *jackDisconnect_;
 
     Gtk::MenuItem *addMenuItem (Gtk::Menu &menu, const Glib::ustring &label,
                                 const sigc::slot<void> &handler,
@@ -71,7 +64,6 @@ protected:
 
     Gtk::MenuBar menuBar_;
     Gtk::Menu menuFile_;
-    Gtk::Menu menuJack_;
     Gtk::Menu menuHelp_;
 
     Gtk::Entry dspEntry_;
@@ -90,7 +82,6 @@ private:
     gthAudio *audio_;
     string prevDir_;
 
-    void toggleConnects(void);
 };
 
 #endif /* MAIN_SYNTH_WINDOW_H */
