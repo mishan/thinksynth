@@ -359,6 +359,38 @@ include_directories("${PROJECT_BINARY_DIR}")
 
 # ---------------------------------------------------------------------------
 
+# Windows has no rpath. A .exe finds a DLL next to itself or on PATH, and
+# nothing else -- so libthink.dll sitting in build/libthink/ is invisible to
+# build/src/thinksynth.exe. On Linux and macOS the build tree works because
+# CMake writes an rpath into every binary it links; there is no equivalent to
+# write here.
+#
+# The symptom is unhelpful: MSYS2's loader fails with ENOENT, so bash reports
+# "No such file or directory" and exits 127, for a file that plainly exists.
+#
+# $<TARGET_RUNTIME_DLLS> is CMake's answer -- the DLLs of the target's linked
+# dependencies, which it copies next to the executable after linking. It does
+# not cover the GTK stack, which comes from PATH under MSYS2 and from the
+# packaging step for a release, and it needs CMake 3.21.
+function(think_copy_runtime_dlls target)
+  if(NOT WIN32 OR CMAKE_VERSION VERSION_LESS 3.21)
+    return()
+  endif()
+
+  add_custom_command(TARGET ${target} POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "$<TARGET_RUNTIME_DLLS:${target}>" "$<TARGET_FILE_DIR:${target}>"
+      COMMAND_EXPAND_LISTS
+      VERBATIM)
+endfunction()
+
+if(WIN32 AND CMAKE_VERSION VERSION_LESS 3.21)
+  message(WARNING
+      "CMake ${CMAKE_VERSION} cannot copy runtime DLLs into the build tree "
+      "(3.21+ needed), so nothing built here will start without libthink.dll "
+      "on PATH.")
+endif()
+
 enable_testing()
 
 add_subdirectory(libthink)

@@ -30,6 +30,11 @@ function(think_harness name)
 
   set_target_properties(${name} PROPERTIES
       RUNTIME_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/scripts")
+
+  # The harnesses live in their own directory and link libthink, so on Windows
+  # each one needs its own copy of the DLL beside it for the same reason the
+  # application does.
+  think_copy_runtime_dlls(${name})
 endfunction()
 
 # gthPatchfile.cpp lives in the binary rather than in libthink, so dspcheck

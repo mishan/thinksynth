@@ -68,6 +68,9 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_options(thinksynth PRIVATE "LINKER:--no-as-needed")
 endif()
 
+# libthink.dll next to thinksynth.exe. See think_copy_runtime_dlls.
+think_copy_runtime_dlls(thinksynth)
+
 # The app dlopens plugins at parse time, so they have to exist before it is
 # worth running -- but not before it links.
 add_dependencies(thinksynth plugins)

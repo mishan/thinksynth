@@ -188,5 +188,16 @@ jobs:
       - name: Smoke test
         run: ./build/src/thinksynth.exe -h
 
+      # Exit 127 from a .exe that plainly exists means the loader could not
+      # resolve one of its imports: MSYS2 turns STATUS_DLL_NOT_FOUND into
+      # ENOENT, so bash reports "No such file or directory" for the .exe
+      # itself and returns 127. `ldd' names the DLL, which is the one thing
+      # the failure does not say.
+      - name: What could not be loaded
+        if: failure()
+        run: |
+          ls -l build/src build/libthink build/scripts
+          ldd build/src/thinksynth.exe || true
+
       - name: Test
         run: ctest --test-dir build --output-on-failure
