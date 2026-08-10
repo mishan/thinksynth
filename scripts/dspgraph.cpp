@@ -431,6 +431,63 @@ int main (int argc, char **argv)
               problems++; }
         }
 
+        /* a group drag is rigid, whichever box was grabbed
+         *
+         * Dragging several boxes into the top-left corner must not close the
+         * arrangement up. Clamping each box on its own does exactly that --
+         * the ones nearest the edge stop while the rest keep coming -- and
+         * the damage depends on which box the pointer had hold of, so it is
+         * easy to miss by testing with the leftmost one.
+         *
+         * Shoved far past the corner so the clamp certainly bites, then every
+         * pairwise offset is compared with what it was. */
+        {
+            vector<int> all;
+
+            g.boxesIn(-1e6, -1e6, 1e6, 1e6, all);
+
+            if (all.size() > 1)
+            {
+                vector<double> ox, oy;
+
+                for (size_t i = 0; i < all.size(); i++)
+                {
+                    ox.push_back(boxes[all[i]].x);
+                    oy.push_back(boxes[all[i]].y);
+                }
+
+                g.moveSelection(all, -1e5, -1e5);
+
+                double minX = boxes[all[0]].x, minY = boxes[all[0]].y;
+
+                for (size_t i = 1; i < all.size(); i++)
+                {
+                    if (boxes[all[i]].x < minX) minX = boxes[all[i]].x;
+                    if (boxes[all[i]].y < minY) minY = boxes[all[i]].y;
+                }
+
+                /* Hard against the edge, and not past it. */
+                if (minX != 0 || minY != 0)
+                { printf("FAIL  %s: a group shoved into the corner sits at "
+                         "(%.1f,%.1f)\n", argv[f], minX, minY);
+                  problems++; }
+
+                for (size_t i = 0; i < all.size() && problems < 5; i++)
+                {
+                    const double gotX = boxes[all[i]].x - boxes[all[0]].x;
+                    const double gotY = boxes[all[i]].y - boxes[all[0]].y;
+
+                    if (gotX != ox[i] - ox[0] || gotY != oy[i] - oy[0])
+                    { printf("FAIL  %s: %s moved relative to %s during a group "
+                             "drag\n", argv[f], boxes[all[i]].name.c_str(),
+                             boxes[all[0]].name.c_str());
+                      problems++; }
+                }
+
+                g.layout();
+            }
+        }
+
         /* no overlapping boxes */
         for (size_t a = 0; a < boxes.size() && problems < 5; a++)
             for (size_t b = a + 1; b < boxes.size(); b++)

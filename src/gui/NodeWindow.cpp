@@ -1176,7 +1176,13 @@ void NodeWindow::onDeleteNode (void)
 
     if (!done)
     {
-        setStatus("Could not delete " + victims[0].first + ": " + why);
+        /* With the @ back on, as the success path has it. Controls are
+           stored without one -- that is the spelling NodeEdit wants -- but a
+           control and a node can share a name, so a message naming a bare
+           `cutoff' does not say which of them would not go. */
+        setStatus("Could not delete " +
+                  string(victims[0].second ? "@" : "") + victims[0].first +
+                  ": " + why);
         return;
     }
 
@@ -1194,7 +1200,9 @@ void NodeWindow::onDeleteNode (void)
         snprintf(buf, sizeof(buf),
                  "Deleted %d of %d, then stopped at %s: %s.  Revert undoes "
                  "the rest.",
-                 done, (int)victims.size(), victims[failedAt].first.c_str(),
+                 done, (int)victims.size(),
+                 (string(victims[failedAt].second ? "@" : "") +
+                  victims[failedAt].first).c_str(),
                  why.c_str());
     else if (done == 1 && refs)
         snprintf(buf, sizeof(buf),

@@ -312,6 +312,19 @@ public:
     /* Sets a control's value, for dragging. Does not touch the file. */
     void setControlValue (int box, float value);
 
+    /* Moves a set of boxes together by (dx, dy), as one rigid thing.
+     *
+     * The clamp that keeps boxes out of negative space is applied once, to
+     * the group's own left and top edge, not to each box in turn. Per-box
+     * clamping looks equivalent and is not: the boxes nearest the edge stop
+     * while the rest keep going, so the arrangement closes up, and which
+     * boxes stick depends on which one the pointer had hold of.
+     *
+     * Here rather than in the canvas so it can be checked without a display,
+     * the same reason boxAt and boxesIn are here. Attached strips are carried
+     * along by moveBox as usual. */
+    void moveSelection (const vector<int> &sel, double dx, double dy);
+
     /* Every box the rectangle touches, in box order.
      *
      * Touching, not enclosing. A patch is wider than the window and a box is
