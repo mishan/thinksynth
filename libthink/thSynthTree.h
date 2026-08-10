@@ -49,6 +49,10 @@ public:
     void printIONode(void);
     thNode *IONode(void) const { return ionode_; }
 
+    /* Bounds-checked lookup into nodeindex_; NULL if id is out of range or the
+       index has not been built yet. */
+    thNode *nodeAt(int id) const;
+
     const string &name(void) const { return name_; }
     void setName(const string &name) { name_ = name; }
 
@@ -57,11 +61,19 @@ public:
 
     int nodeCount (void) const { return nodecount_; }
 
-    thArgMap chanArgs (void) { return chanargs_; } 
-    thArg *getChanArg (string argName) { return chanargs_[argName]; }
+    const thArgMap &chanArgs (void) const { return chanargs_; }
+
+    /* NB: deliberately not chanargs_[argName] -- map::operator[] inserts a NULL
+       entry on every miss, so a lookup for an undeclared chanarg both polluted
+       the map and handed the caller a NULL it then dereferenced. */
+    thArg *getChanArg (const string &argName) const {
+        const thArgMap::const_iterator i = chanargs_.find(argName);
+        if (i != chanargs_.end()) return i->second;
+        return NULL;
+    }
     void setChanArg (thArg *arg);
 
-    NodeMap nodes (void) { return nodes_; }
+    const NodeMap &nodes (void) const { return nodes_; }
 
     void process (unsigned int windowlen);
     void setActiveNodes(void);

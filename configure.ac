@@ -7,6 +7,13 @@ AC_PREREQ(2.50)
 AC_CANONICAL_BUILD
 AC_CANONICAL_HOST
 
+dnl Remember what the user asked for before anything here starts appending.
+dnl CXXFLAGS below is assigned, not appended to, so `./configure CXXFLAGS=...'
+dnl was silently discarded -- which quietly produced uninstrumented builds when
+dnl trying to configure with -fsanitize=... These are re-appended last, after
+dnl the -O2/-g3 logic, so the user's choices win.
+USER_CXXFLAGS="$CXXFLAGS"
+
 AC_PROG_CXX
 AC_PROG_CC
 
@@ -19,7 +26,15 @@ dnl	- Function /arguments/ have changed
 dnl	- Function /behaviors/ have changed such that users need to make
 dnl	  revisions to the calls to have them work the way they did before
 dnl	  (bad)
-lib_major=4
+dnl
+dnl 4 -> 5: the command-queue rework changed thSynth's layout (it gained the
+dnl two ring buffers and a second channel array) and changed signatures --
+dnl thSynth::addNote returns bool now, and thMidiChan::process/clearAll/setArg
+dnl take a retire queue. Accessors like thSynth::getChannel are inlined in the
+dnl headers and read members at new offsets, so a binary built against these
+dnl headers must not be able to resolve against an installed libthink.so.4 --
+dnl it links happily and then reads garbage.
+lib_major=5
 
 dnl Update this when:
 dnl	- The new library needs new supporting libraries, but nothing else
@@ -81,7 +96,13 @@ AC_CXX_MT_BROKEN
 AC_TYPE_SIGNAL
 AC_TYPE_SIZE_T
 
-CXXFLAGS="-Wall -ffast-math"
+dnl The lock-free command queue puts <atomic> in thRing.h, which think.h
+dnl includes, so every translation unit in the tree now needs C++11. Nothing
+dnl said so: the build simply relied on the compiler defaulting to something
+dnl recent enough, which GCC has since 6 and older toolchains have not. Saying
+dnl it makes the failure a clear one at configure time rather than a wall of
+dnl errors from inside libstdc++.
+CXXFLAGS="-Wall -ffast-math -std=c++11"
 
 AC_CHECK_HEADERS([dlfcn.h])
 
@@ -242,6 +263,10 @@ fi
 
 AC_SUBST(GTH_ALSA)
 AC_SUBST(GTH_JACK_AUDIO)
+
+dnl Last, so anything passed to configure overrides the defaults chosen above
+dnl (notably -O2/-g3, and sanitizer flags which must reach every object).
+CXXFLAGS="$CXXFLAGS $USER_CXXFLAGS"
 
 AC_SUBST(CXXFLAGS)
 AC_SUBST(LIBS)

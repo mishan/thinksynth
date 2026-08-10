@@ -51,9 +51,14 @@ gthPatchManager::~gthPatchManager (void)
     if (instance_ == this)
         instance_ = NULL;
 
-    /* XXX: do necessary cleanup here */
     for (int i = 0; i < numPatches_; i++)
+    {
         delete patches_[i];
+        patches_[i] = NULL;
+    }
+
+    delete [] patches_;   /* the array itself was never freed */
+    patches_ = NULL;
 }
 
 gthPatchManager *gthPatchManager::instance (void) {
@@ -176,9 +181,15 @@ bool gthPatchManager::parse (const string &filename, int chan)
     while (fgets(buffer, 256, prefsFile) != NULL)
     {
         trim_leadspc(buffer);
-        buffer[strlen(buffer)-1] = '\0';
 
-        if (buffer[0] == '\n' || buffer[0] == '#')
+        /* Strip the trailing newline -- but strlen can be 0 (a line starting
+           with a NUL byte), and buffer[-1] is not ours to write. */
+        size_t len_ = strlen(buffer);
+
+        if (len_ > 0 && buffer[len_ - 1] == '\n')
+            buffer[len_ - 1] = '\0';
+
+        if (buffer[0] == '\0' || buffer[0] == '#')
             continue;
 
         char *argPtr = strchr(buffer, ' ');
@@ -200,13 +211,27 @@ bool gthPatchManager::parse (const string &filename, int chan)
             {
                 /* first find the prop name */
                 char* p = strchr(argPtr, ' ');
+
+                /* An `info' line with no third field (`info foo') gave a NULL
+                   here and the write below went through it. */
+                if (p == NULL)
+                {
+                    goto owned;
+                }
+
                 *p++ = '\0';
 
                 if (*p)
                 {
                     /* Replace escaped newlines. */
                     string t = p;
-                    unsigned int i;
+
+                    /* NB: size_type, not unsigned int. find() returns a 64-bit
+                       size_t; truncating npos to 32 bits gives 0xFFFFFFFF,
+                       which compares unequal to npos, so the "not found" case
+                       entered the loop and replace() threw out_of_range. This
+                       worked in 2005 because size_t was 32 bits. */
+                    string::size_type i;
 
                     while ((i = t.find ("\\n")) != string::npos)
                         t.replace (i, 2, "\n");
@@ -227,7 +252,12 @@ bool gthPatchManager::parse (const string &filename, int chan)
                 len++;
             }
 
-            string **values = new string *[len+1];
+            /* Was a `new string*[len+1]' of individually `new'ed strings, freed
+               on no path at all -- one leak per comma-separated field per line
+               of every patch file, including the three `goto owned' exits. A
+               vector cleans up even when the goto jumps out of this block. */
+            vector<string> values;
+            values.reserve(len);
 
             for (int i = 0; i < len; i++)
             {
@@ -235,41 +265,47 @@ bool gthPatchManager::parse (const string &filename, int chan)
                 if (comPtr)
                     *comPtr = '\0';
 
-                values[i] = new string(argPtr);
+                values.push_back(string(argPtr));
 
-                argPtr = comPtr+1;
-
+                /* `argPtr = comPtr+1' ran before this check, so on the last
+                   field it formed NULL+1 (undefined) before bailing out. */
                 if (comPtr == NULL)
                 {
-                    len = i+1;
                     break;
                 }
+
+                argPtr = comPtr+1;
             }
 
-            values[len] = NULL;
-            arglist[key] = strtof(values[0]->c_str(), NULL);
+            if (values.empty())
+            {
+                /* erroneous directive ... */
+                goto owned;
+            }
+
+            arglist[key] = strtof(values[0].c_str(), NULL);
 
             /* XXX: handle specific cases here for now */
-            if (key == "dsp" && values[0])
+            if (key == "dsp")
             {
                 struct stat st;
-                const char *t = values[0]->c_str();
+                const char *t = values[0].c_str();
                 string f;
-                
-                patches_[chan]->dspFile = *values[0];
-            
+
+                patches_[chan]->dspFile = values[0];
+
                 /* check if we're in an absolute or relative path */
                 if (t[0] != '/' && stat(t, &st) == -1)
-                    f = DSP_PATH + *values[0];
+                    f = DSP_PATH + values[0];
                 else
-                    f = *values[0];
-                    
+                    f = values[0];
+
                 if (synth->loadTree(f.c_str(), chan, 0) == NULL)
                     goto owned;
-                
+
                 seen_dsp = true;
             }
-            else if (values[0])
+            else
             {
                 thArg *arg = synth->getChanArg(chan, key);
                 if (arg == NULL)
@@ -281,11 +317,6 @@ bool gthPatchManager::parse (const string &filename, int chan)
                 {
                     arg->setValue(arglist[key]);
                 }
-            }
-            else
-            {
-                /* erroneous directive ... */
-                goto owned;
             }
             }
         }
@@ -331,7 +362,9 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     {
         /* replace with \n */
         string t = k->second;
-        unsigned int i;
+
+        /* size_type, not unsigned int -- see the matching note in parse(). */
+        string::size_type i;
 
         if (t.size() > 0)
         {

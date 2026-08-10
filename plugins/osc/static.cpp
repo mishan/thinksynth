@@ -61,7 +61,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     inout_last = mod->getArg(node, args[INOUT_LAST]);
     position = (*inout_last)[0];
     last = (*inout_last)[1];
-    out_last = inout_last->allocate(1);
+    /* `last' carries two values across windows -- the position counter and the
+       held sample -- and both are written back below. This allocated room for
+       one, so out_last[1] wrote off the end of the buffer every window. */
+    out_last = inout_last->allocate(2);
     out = out_arg->allocate(windowlen);
 
     in_sample = mod->getArg(node, args[IN_SAMPLE]);

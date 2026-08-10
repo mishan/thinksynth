@@ -39,10 +39,22 @@ public:
     void setArgCount (int argcnt) { argCount_ = argcnt; };
     int argCount (void) const { return argCount_; };
 
-    thArgMap args (void) const { return args_; }
+    /* Returned by reference: these are walked once per node per window on the
+       audio thread, and copying the container there allocates. */
+    const thArgMap &args (void) const { return args_; }
 
-    thArg *getArg (const string &name) { return args_[name]; };
-    thArg *getArg (int index) { return argindex_[index]; };
+    /* NB: deliberately not args_[name] -- map::operator[] inserts a NULL entry
+       on every miss, which both allocates on the audio thread and pollutes the
+       map with NULLs that every iteration site then has to guard against. */
+    thArg *getArg (const string &name) const {
+        const thArgMap::const_iterator i = args_.find(name);
+        if (i != args_.end()) return i->second;
+        return NULL;
+    };
+    thArg *getArg (int index) const {
+        if (index < 0 || index >= argCount_) return NULL;
+        return argindex_[index];
+    };
 
     void printArgs (void);
 
@@ -55,8 +67,8 @@ public:
     void addChild(thNode *node) { children_.push_back(node); }
     void addParent(thNode *node) { parents_.push_back(node); }
 
-    thNodeList children (void) const { return children_; }
-    thNodeList parents(void) const { return parents_; }
+    const thNodeList &children (void) const { return children_; }
+    const thNodeList &parents (void) const { return parents_; }
 
     void setPlugin (thPlugin *plug) { plugin_ = plug; }
     thPlugin *plugin (void) const { return plugin_; }

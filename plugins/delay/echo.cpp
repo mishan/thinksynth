@@ -87,13 +87,25 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         unsigned int inOutLen = inout_buffer->len();
 
-        if(myBufpos > inOutLen) {
+        if(inOutLen == 0) {
+            out[i] = in;
+            continue;
+        }
+
+        /* was `>' -- valid indices run 0..len-1, so a bufpos equal to len fell
+           through and indexed one past the end. */
+        if(myBufpos >= inOutLen) {
             myBufpos = 0;
         }
         index = (int)(myBufpos - (*in_delay)[i]);
+
+        /* A negative delay walks index forward instead of back, so clamp both
+           ends rather than only wrapping negatives. */
         while(index < 0) {
             index += inOutLen;
         }
+        index %= (int)inOutLen;
+
         delay = buffer[index];
 
         buffer[myBufpos] = (feedback * delay) + ((1-feedback) * in);

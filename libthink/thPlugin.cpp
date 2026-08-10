@@ -53,6 +53,18 @@ thPlugin::thPlugin (const string &path)
 thPlugin::~thPlugin ()
 {
     moduleUnload();
+
+    /* Neither the registered arg names nor the array holding them were ever
+       freed. */
+    for (int i = 0; i < argcounter_; i++)
+    {
+        delete args_[i];
+    }
+
+    free(args_);
+    args_ = NULL;
+    argcounter_ = 0;
+    argsize_ = 0;
 }
 
 void thPlugin::fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
@@ -78,7 +90,10 @@ int thPlugin::regArg (const string &argname)
 {
     string **newargs;
 
-    if (argcounter_ > argsize_)
+    /* was `>' -- valid slots are 0..argsize_-1, so registering the arg that
+       lands exactly on argsize_ wrote one element past the array before the
+       grow check fired. */
+    if (argcounter_ >= argsize_)
     {
         /* make room for more args */
         newargs = (string **)calloc(argsize_ + ARGCHUNK, sizeof(string *));

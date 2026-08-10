@@ -46,7 +46,13 @@ public:
     void setArg(const string &name, const string &node, const string &value);
     void setArg(const string &name, const string &chanarg);
 
-    void setValue(float value); /* set a single float value */
+    /* Single-float writes are safe from the GUI thread while the audio thread
+       reads: no reallocation, and the store/load pair is atomic. This is how
+       sliders reach the graph. */
+    void setValue(float value);
+
+    /* NOT safe concurrently -- it can reallocate values_. Route through
+       thSynth::setChanArg, which queues the swap for the audio thread. */
     void setValue(float *values, int len); /* set a longer arg */
 
     void setIndex (int i) { index_ = i; };

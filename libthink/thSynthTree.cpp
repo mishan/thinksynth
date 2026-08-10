@@ -27,6 +27,7 @@
 thSynthTree::thSynthTree (const string &name, thSynth *synth)
 {
     ionode_ = NULL;
+    nodeindex_ = NULL;   /* the destructor delete[]s this */
     name_ = name;
     nodecount_ = 0;
 
@@ -35,34 +36,61 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
 
 thSynthTree::thSynthTree (const thSynthTree &oldtree)
 {
-    thNode *oldionode = oldtree.IONode();
-    thNode *newnode = new thNode(*oldionode);
-
     ionode_ = NULL;
+    nodeindex_ = NULL;   /* the destructor delete[]s this */
     nodecount_ = oldtree.nodeCount();
     name_ = oldtree.name();
+    desc_ = oldtree.desc();
+    synth_ = oldtree.synth();
+
+    thNode *oldionode = oldtree.IONode();
+
+    /* A tree whose .dsp never declared an `io' node, or whose parse failed
+       partway, has no ionode. Copying it yields an empty tree rather than a
+       NULL dereference; callers check IONode() before using the result. */
+    if (oldionode == NULL) {
+        fprintf(stderr,
+                "thSynthTree: cannot copy tree '%s': it has no io node\n",
+                name_.c_str());
+        return;
+    }
+
+    thNode *newnode = new thNode(*oldionode);
 
     newNode(newnode, false);
     ionode_ = newnode;
 
     copyHelper(oldionode);
-
-    synth_ = oldtree.synth();
 }
 
 thSynthTree::~thSynthTree ()
 {
-    if (nodeindex_) {
-        delete [] nodeindex_;
-    }
+    delete [] nodeindex_;   /* delete[] on NULL is a no-op */
+    nodeindex_ = NULL;
 
     DestroyMap(nodes_);
+
+    /* chanargs_ was never freed -- every `@foo = ...' in every .dsp leaked a
+       thArg, once per load. */
+    DestroyMap(chanargs_);
+}
+
+/* Bounds-checked accessor for the node index. Ids come out of parsed .dsp
+   files and out of arg pointers that may never have been resolved, so they
+   cannot be trusted as raw array subscripts. */
+thNode *thSynthTree::nodeAt (int id) const
+{
+    if (nodeindex_ == NULL || id < 0 || id >= nodecount_) {
+        return NULL;
+    }
+
+    return nodeindex_[id];
 }
 
 void thSynthTree::copyHelper (thNode *parentnode)
 {
     thNode *data, *newnode;
-    thNodeList children = parentnode->children();
+    const thNodeList &children = parentnode->children();
 
     if (children.empty() == false)
     {
@@ -70,6 +98,11 @@ void thSynthTree::copyHelper (thNode *parentnode)
              i != children.end(); i++)
         {
             data = *i;
+
+            if (data == NULL)
+            {
+                continue;
+            }
 
             if (findNode(data->name()) == NULL)
             {
@@ -83,7 +116,9 @@ void thSynthTree::copyHelper (thNode *parentnode)
 
 thArg *thSynthTree::getArg (const string &nodename, const string &argname)
 {
-    NodeMap::const_iterator i = nodes_.find(name_);
+    /* was nodes_.find(name_) -- looked up the tree's own name, so this overload
+       always resolved to the wrong node (or to none at all). */
+    NodeMap::const_iterator i = nodes_.find(nodename);
 
     if (i == nodes_.end())
     {
@@ -101,6 +136,11 @@ thArg *thSynthTree::getArg (thNode *node, const string &argname)
     thArg *args;
     string argpointname;
 
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
     args = node->getArg(argname);
 
     /* If the arg doesnt exist, make it a 0 */
@@ -112,28 +152,28 @@ thArg *thSynthTree::getArg (thNode *node, const string &argname)
     while (args && (args->type() == thArg::ARG_POINTER) && node)
     {
         /* Recurse through the list of pointers until we get a real value. */
-//        map <string, thNode*>::const_iterator i = modnodes.find(args->argPointNode);
-//        if (i != modnodes.end()) {
-//            node = i->second;
+        thNode *next = nodeAt(args->nodePtrId());
 
-        node = nodeindex_[args->nodePtrId()];
-        //printf("Arg Point: %s (%i)\n", args->argPointName.c_str(), args->argPointArgID);
-        //args = node->GetArg(args->argPointName);
+        if (next == NULL)
+        {
+            printf("WARNING!!  Arg %s in node %s points at node id %d, which "
+                   "does not exist\n", args->name().c_str(),
+                   node->name().c_str(), args->nodePtrId());
+            return NULL;
+        }
+
+        node = next;
+
         argpointname = args->argPtrName(); /* the arg this arg points to */
         args = node->getArg(args->argPtrId());
         /* If the arg doesnt exist, make it a 0 */
         if (args == NULL)
         {
             args = node->setArg(argpointname, 0);
-            //args->SetIndex(node->AddArgToIndex(args));
         }
-        /*}
-          else {
-          printf("WARNING!!  Pointer in %s to node (%s) that does not exist!\n", node->GetName().c_str(), args->argPointNode.c_str());
-          }*/
     }   /* Maybe also add some kind of infinite-loop checking thing? */
 
-    if (args->type() == thArg::ARG_CHANNEL)
+    if (args && args->type() == thArg::ARG_CHANNEL)
     {
         args = args->argPtr();
     }
@@ -146,16 +186,30 @@ thArg *thSynthTree::getArg (thNode *node, int argindex)
 {
     thArg *args;
 
+    if (node == NULL)
+    {
+        return NULL;
+    }
+
     args = node->getArg(argindex);
 
-    if (args->type() == thArg::ARG_CHANNEL)
+    if (args && args->type() == thArg::ARG_CHANNEL)
     {
         args = args->argPtr();
     }
 
     while (args && (args->type() == thArg::ARG_POINTER) && node)
     {
-        node = nodeindex_[args->nodePtrId()];
+        thNode *next = nodeAt(args->nodePtrId());
+
+        if (next == NULL)
+        {
+            printf("ERROR!  INDEXED ARG POINTS TO NODE ID %d, WHICH DOES NOT "
+                   "EXIST!\n", args->nodePtrId());
+            return NULL;
+        }
+
+        node = next;
         args = node->getArg(args->argPtrId());
 
         if (args == NULL)
@@ -190,12 +244,27 @@ void thSynthTree::setIONode (const string &name)
 
 void thSynthTree::printIONode (void)
 {
+    if (ionode_ == NULL) {
+        return;
+    }
+
     ionode_->printArgs();
 }
 
 void thSynthTree::setChanArg (thArg *arg)
 {
+    if (arg == NULL) {
+        return;
+    }
+
     thArg *oldArg = chanargs_[arg->name()];
+
+    /* Guard self-assignment: deleting oldArg and then storing it back would
+       leave a dangling pointer in the map. */
+    if (oldArg == arg)
+    {
+        return;
+    }
 
     if (oldArg)
     {
@@ -208,13 +277,18 @@ void thSynthTree::setChanArg (thArg *arg)
 void thSynthTree::process (unsigned int windowlen)
 {
     thPlugin *plug = NULL;
-    thNodeList children = ionode_->children();
+
+    if (ionode_ == NULL) {
+        return;
+    }
+
+    const thNodeList &children = ionode_->children();
 
     ionode_->setRecalc(false);
 
     for (thNodeList::const_iterator i = children.begin(); i != children.end();i++)
     {
-        if ((*i)->recalc() == true) {
+        if (*i && (*i)->recalc() == true) {
             processHelper(windowlen, *i);
         }
     }
@@ -226,19 +300,27 @@ void thSynthTree::process (unsigned int windowlen)
 
 void thSynthTree::processHelper (unsigned int windowlen, thNode *node)
 {
-    thNodeList children = node->children();
+    if (node == NULL) {
+        return;
+    }
+
+    const thNodeList &children = node->children();
 
     node->setRecalc(false);
 
     for (thNodeList::const_iterator i = children.begin(); i != children.end();i++)
     {
-        if ((*i)->recalc() == true) {
+        if (*i && (*i)->recalc() == true) {
             processHelper(windowlen, *i);
         }
     }
 
-    /* FIRE! */
-    node->plugin()->fire(node, this, windowlen, synth_->getSampleRate());
+    /* FIRE! -- the grammar permits nodes with no plugin, so this can be NULL */
+    thPlugin *plug = node->plugin();
+
+    if (plug) {
+        plug->fire(node, this, windowlen, synth_->getSampleRate());
+    }
 }
 
 /* reset the recalc flag for nodes with active plugins */
@@ -249,7 +331,7 @@ void thSynthTree::setActiveNodes(void)
     {
         thNode *data = *i;
 
-        if (data->recalc() == false)
+        if (data && data->recalc() == false)
         {
             data->setRecalc(true);
             setActiveNodesHelper(data);
@@ -259,14 +341,14 @@ void thSynthTree::setActiveNodes(void)
 
 void thSynthTree::setActiveNodesHelper(thNode *node)
 {
-    thNodeList parents = node->parents();
+    const thNodeList &parents = node->parents();
     thNode *data;
 
     for (thNodeList::const_iterator i = parents.begin(); i != parents.end(); i++)
     {
         data = *i;
 
-        if (data->recalc() == false)
+        if (data && data->recalc() == false)
         {
             data->setRecalc(true);
             setActiveNodesHelper(data);
@@ -285,8 +367,6 @@ void thSynthTree::buildArgMap (void)
 
     int k;
 
-    thArgMap argiterator;
-
     /* for every node in the thSynthTree */
     for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
     {
@@ -295,6 +375,7 @@ void thSynthTree::buildArgMap (void)
         if (!curnode)
         {
             fprintf(stderr, "thSynthTree::BuildArgMap: curnode points to NULL\n");
+            continue;
         }
 
 /* XXXXXXXXXXXXXX: RIGHT NOW the parser indexes the nodes as it reads them, it
@@ -334,7 +415,7 @@ to 0 here and set the index of each node to -1 when it is first created. */
             }
         }
 
-        argiterator = curnode->args();
+        const thArgMap &argiterator = curnode->args();
 
         /* We don't need any of this because now the index is assigned via SetArg */
         /* for each thArg inside each thNode inside the thSynthTree */
@@ -367,8 +448,6 @@ void thSynthTree::setPointers (void)
     thArg *arg;
     thArg *curarg;
 
-    thArgMap argiterator;
-
     /* for every node in the thSynthTree */
     for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
     {
@@ -377,9 +456,10 @@ void thSynthTree::setPointers (void)
         {
             fprintf(stderr,
                     "thSynthTree::setPointers: curnode points to NULL\n");
+            continue;
         }
 
-        argiterator = curnode->args();
+        const thArgMap &argiterator = curnode->args();
 
         /* for each thArg inside each thNode inside the thSynthTree */
         for (thArgMap::const_iterator j = argiterator.begin();
@@ -411,9 +491,10 @@ void thSynthTree::setPointers (void)
                     /* if the arg does not exist, set it to 0 */
                     if (arg == NULL)
                     {
+                        /* setArg() already inserts into the node's arg map and
+                           assigns an index. The old `node->args()[...] = arg'
+                           here wrote into a by-value copy and was a no-op. */
                         arg = node->setArg(argPtrName, 0);
-
-                        node->args()[arg->name()] = arg;
                     }
 
                     curarg->setNodePtrId(node->id());
@@ -428,8 +509,19 @@ void thSynthTree::buildNodeIndex (void)
 {
     thNode *curnode;
 
-//    nodeindex = (thNode **)calloc(nodecount, sizeof(thNode*));
-    nodeindex_ = new thNode*[nodecount_];
+    /* buildSynthTree() can run more than once over a tree's lifetime. */
+    delete [] nodeindex_;
+    nodeindex_ = NULL;
+
+    if (nodecount_ <= 0)
+    {
+        return;
+    }
+
+    /* Value-initialised: not every slot gets filled. The copy constructor only
+       walks nodes reachable from the ionode, so unreachable ids leave holes,
+       and those holes get dereferenced from the audio thread. */
+    nodeindex_ = new thNode*[nodecount_]();
 
     /* for every node in the thSynthTree */
     for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
@@ -439,7 +531,17 @@ void thSynthTree::buildNodeIndex (void)
         if (curnode == NULL)
         {
             fprintf(stderr,
-                    "thSynthTree::setPointers: curnode points to NULL\n");
+                    "thSynthTree::buildNodeIndex: curnode points to NULL\n");
+            continue;
+        }
+
+        if (curnode->id() < 0 || curnode->id() >= nodecount_)
+        {
+            fprintf(stderr,
+                    "thSynthTree::buildNodeIndex: node '%s' has id %d, outside "
+                    "the index of %d nodes\n", curnode->name().c_str(),
+                    curnode->id(), nodecount_);
+            continue;
         }
 
         /* set the index to point to the thNode */
@@ -451,6 +553,14 @@ void thSynthTree::buildSynthTree (void)
 {
     buildNodeIndex();  /* set up the index of thNodes */
 
+    if (ionode_ == NULL)
+    {
+        fprintf(stderr,
+                "thSynthTree::buildSynthTree: tree '%s' has no io node\n",
+                name_.c_str());
+        return;
+    }
+
     /* We don't want to recalc the root if something points here */
     ionode_->setRecalc(true);
 
@@ -459,7 +569,10 @@ void thSynthTree::buildSynthTree (void)
 
 int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
 {
-    thNode *currentnode = nodeindex_[nodeid];
+    thNode *currentnode = nodeAt(nodeid);
+
+    if (currentnode == NULL)
+        return 1;
 
     if (currentnode->recalc() == true)
         return(1);  /* This node has already been processed */
@@ -467,7 +580,10 @@ int thSynthTree::buildSynthTreeHelper(thNode *parent, int nodeid)
     /* This node has now been marked as processed */
     currentnode->setRecalc(true);
 
-    if (currentnode->plugin()->state() == thPlugin::ACTIVE)
+    /* The grammar permits nodes with no plugin, so this can be NULL. */
+    thPlugin *plug = currentnode->plugin();
+
+    if (plug && plug->state() == thPlugin::ACTIVE)
         activelist_.push_back(currentnode);
 
     buildSynthTreeHelper2(currentnode->args(), currentnode);
@@ -492,12 +608,17 @@ void thSynthTree::buildSynthTreeHelper2(const thArgMap &argtree,
 
         if (data && data->type() == thArg::ARG_POINTER)
         {
-            node = nodeindex_[data->nodePtrId()];
+            node = nodeAt(data->nodePtrId());
 
             if (node == NULL)
             {
-                printf("CRITICAL: Node %s not found!!\n",
-                       data->nodePtrName().c_str());
+                /* This used to print and then dereference anyway. An arg can
+                   point at a node that setPointers() failed to resolve, so the
+                   edge simply gets dropped. */
+                printf("CRITICAL: Node %s not found -- dropping the edge from "
+                       "%s->%s\n", data->nodePtrName().c_str(),
+                       currentnode->name().c_str(), data->name().c_str());
+                continue;
             }
 
             currentnode->addChild(node);
@@ -517,6 +638,10 @@ void thSynthTree::listNodes(void)
     for (NodeMap::const_iterator i = nodes_.begin();
         i != nodes_.end(); i++)
     {
+        if (i->second == NULL) {
+            continue;
+        }
+
         printf("%s:  %s\n", name_.c_str(), i->second->name().c_str());
     }
 }

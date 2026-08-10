@@ -117,9 +117,17 @@ void KeyboardWindow::keyboardResetKeys (void)
 
 KeyboardWindow::~KeyboardWindow (void)
 {
-    /* free dynamically-allocated widgets */
-    delete chanVal_;
-    delete transVal_;
+    /* Nothing to free here.
+     *
+     * chanVal_ and transVal_ are created with Gtk::manage(), which hands
+     * ownership to the SpinButtons that hold them; those die with the window.
+     * Deleting them again was a double free. MainSynthWindow destroys this
+     * window every time the keyboard is closed (onKeyboardHide) and builds a
+     * fresh one when it is reopened, so the heap got corrupted on the first
+     * close -- which is what left the channel spinner reading back nonsense
+     * like -733809408, the new adjustment having been handed memory the
+     * previous window already freed twice.
+     */
 }
 
 /* these are Keyboard widget-originated events */

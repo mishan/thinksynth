@@ -53,7 +53,7 @@ th_sample    { yylval.floatval = TH_SAMPLE; return NUMBER; }
 ";"        { return ENDSTATE; }
 "="        { return ASSIGN; }
 
-nil        { return NIL; }
+nil        { yylval.floatval = 0; return NIL; }
 node        { return NODE; }
 io        { return IO; }
 name        { return NAME; }
@@ -85,10 +85,14 @@ ms        { return MS; }
 "@"        { return ATSIGN; }    /* chan midi arg */
 "$"        { return DOLLAR; }  /* note midi arg */
 
-\".*\" {
-  yylval.str = (char *)malloc(strlen(yytext) - 1);
-  memcpy(yylval.str, yytext + 1, strlen(yytext)-2);
-  yylval.str[strlen(yytext) - 2] = 0;
+  /* [^"\n]* rather than .* : the greedy version swallowed everything between
+     the first and last quote on a line, merging two strings into one. */
+\"[^\"\n]*\" {
+  size_t len = strlen(yytext) - 2;   /* strip the surrounding quotes */
+
+  yylval.str = (char *)malloc(len + 1);
+  memcpy(yylval.str, yytext + 1, len);
+  yylval.str[len] = 0;
   return STRING;
 }
 

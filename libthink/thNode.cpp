@@ -29,6 +29,7 @@ thNode::thNode (const string &name, thPlugin *thplug)
     plugin_ = thplug;
     nodeName_ = name;
     recalc_ = false;
+    id_ = -1;  /* so we know newNode() has not assigned one yet */
 
     argindex_ = (thArg **)calloc(ARGCHUNK, sizeof(thArg *));
     argCount_ = 0;
@@ -52,6 +53,11 @@ thNode::thNode (const thNode &copyNode)
 thNode::~thNode (void)
 {
     DestroyMap(args_);
+
+    free(argindex_);
+    argindex_ = NULL;
+    argsize_ = 0;
+    argCount_ = 0;
 }
 
 thArg *thNode::setArg (const string &name, float value)
@@ -162,6 +168,11 @@ void thNode::copyArgs (const thArgMap &newargs)
     {
         data = i->second;
 
+        /* thArgMap is often populated via operator[], which inserts NULLs for
+           lookups that missed. Skip those rather than dereferencing them. */
+        if (data == NULL)
+            continue;
+
         if (data->type() == thArg::ARG_NOTE)
             continue;
 
@@ -170,7 +181,14 @@ void thNode::copyArgs (const thArgMap &newargs)
         args_[data->name()] = newarg;
 
         newarg->setIndex(data->index());
-        while (newarg->index() > argsize_)
+
+        /* An arg that was never indexed has index -1; it has no slot in the
+           index array and writing it would clobber memory before argindex_. */
+        if (newarg->index() < 0)
+            continue;
+
+        /* Valid slots are 0 .. argsize_-1, so grow while index >= argsize_. */
+        while (newarg->index() >= argsize_)
         {
             newindex = (thArg **)calloc(argsize_ + ARGCHUNK, sizeof(thArg *));
 
@@ -180,6 +198,9 @@ void thNode::copyArgs (const thArgMap &newargs)
             argsize_ += ARGCHUNK;
         }
         argindex_[newarg->index()] = newarg;
+
+        if (newarg->index() >= argCount_)
+            argCount_ = newarg->index() + 1;
     }
 }
 

@@ -40,22 +40,35 @@ public:
     void listTrees (void);
     thPluginManager *getPluginManager (void) { return pluginmanager_; };
 
-    thMidiNote *addNote(int channum, float note, float velocity);
+    /* ---- GUI thread ----
+     *
+     * These no longer touch the live graph. They allocate whatever is needed
+     * and queue the change; the audio thread applies it on its next window,
+     * within one window's latency. See thSynthCommand.h.
+     *
+     * addNote returned a thMidiNote* that no caller used, and handing back a
+     * pointer to an object the audio thread now owns would be a trap, so it
+     * returns success instead. */
+    bool addNote(int channum, float note, float velocity);
     int delNote (int channum, float note);
     void clearAll (void);
 
+    /* ---- audio thread ---- */
     void process(void);
+
     void printChan(int chan);
     void removeChan (int channum);
 
     int audioChannelCount (void) const { return channels_; }
 
+    /* GUI thread: reads the GUI's own view of the channels, never the audio
+       thread's array. */
     thArgMap getChanArgs (int chan) {
-        if ((chan < 0) || (chan >= midiChannelCnt_) || 
-            (midiChannels_[chan] == NULL))
+        if ((chan < 0) || (chan >= midiChannelCnt_) ||
+            (guiChannels_[chan] == NULL))
             return thArgMap();
 
-        return midiChannels_[chan]->args();
+        return guiChannels_[chan]->args();
     }
 
     int getWindowlen (void) const { return windowlen_; }
@@ -89,19 +102,56 @@ public:
         return controllerHandler_->getConnection(channel, param);
     }
 
+    /* GUI thread. Deliberately the GUI's view: the audio thread's array is
+       written by the audio thread and must not be read from here. */
     thMidiChan *getChannel (int chan) const
     {
         if ((chan < midiChannelCnt_) && (chan >= 0))
-            return midiChannels_[chan];
+            return guiChannels_[chan];
         else
             return NULL;
     }
 
+    /* GUI thread: frees whatever the audio thread has handed back. Called at
+       the top of every GUI-side entry point, so an idle GUI is the only way
+       for retired objects to sit around. */
+    void collectRetired (void);
+
 private:
+    /* Shared tail of the three loadTree() overloads: checks the parse result,
+       validates the tree, and resolves it. Returns NULL (having discarded the
+       half-built tree) if the .dsp did not parse into something usable.
+
+       registerTree: true puts the tree in treelist_ under thSynth's ownership;
+       false gives the caller an unowned tree to hand to a thMidiChan. */
+    thSynthTree *finishParse (const string &what, int parseResult,
+                              bool registerTree);
+
+    /* Applies one queued command. Audio thread. */
+    void applyCommand (const thSynthCommand &cmd);
+
+    /* Drains the command queue. Audio thread, at the top of process(). */
+    void drainCommands (void);
+
+    /* GUI thread: queue a command, cleaning up the payload if the ring is
+       full. Returns false if it was dropped. */
+    bool postCommand (const thSynthCommand &cmd);
+
     map<string, thSynthTree*> treelist_;
     map<int, string> patchlist_;
     thPluginManager *pluginmanager_;
-    thMidiChan **midiChannels_; /* MIDI channels */
+
+    /* Two views of the same channel objects.
+     *
+     * midiChannels_ is the audio thread's, written only by applyCommand().
+     * guiChannels_ is the GUI thread's, written only by the GUI. They agree
+     * except in the window between the GUI queueing a SET_CHANNEL and the
+     * audio thread applying it, during which both objects are alive and each
+     * thread is looking at one of them. Neither thread ever reads the other's
+     * array, which is what removes the race. */
+    thMidiChan **midiChannels_; /* MIDI channels -- audio thread */
+    thMidiChan **guiChannels_;  /* the same channels -- GUI thread */
+
     int midiChannelCnt_;
     float *output_;
     int channels_;  /* Number of channels (mono/stereo/etc) */
@@ -110,6 +160,12 @@ private:
 
     thMidiController *controllerHandler_;
 
+    thRing<thSynthCommand, TH_COMMAND_QUEUE_SIZE> commands_;  /* GUI -> audio */
+    thRing<thRetired, TH_RETIRE_QUEUE_SIZE> retired_;         /* audio -> GUI */
+
+    /* Serialises GUI-thread callers against each other (the parser globals are
+       not reentrant either). The audio thread does not take it -- that is the
+       whole point of the queues. */
     pthread_mutex_t *synthMutex_;
 
     static thSynth *instance_;

@@ -8,11 +8,12 @@ USING_GNU_CXX=@USING_GNU_CXX@
 CXX_MT_BROKEN=@CXX_MT_BROKEN@
 DEP_FLAGS=@DEP_FLAGS@
 
+# Ask bison for the header name we want up front. The old rule ran `bison -d'
+# and then renamed whichever of .hpp / .cpp.h it happened to produce, which
+# breaks on bison >= 3: the generated .cpp contains an #include of the header
+# under bison's own name, so renaming it afterwards leaves a dangling include.
 %.cpp: %.yy
-	@YACC@ -d -o $@ $<
-	if [ -f "$(<:.yy=.hpp)" ]; then mv $(<:.yy=.hpp) $(<:.yy=.h); \
-	elif [ -f "$(<:.yy=.cpp.h)" ]; then mv $(<:.yy=.cpp.h) $(<:.yy=.h); \
-	elif [ ! -f "$(<:.yy=.h)" ]; then exit 1; fi
+	@YACC@ --defines=$(<:.yy=.h) -o $@ $<
 
 %.cpp: %.ll
 	@LEX@ -o $@ $<

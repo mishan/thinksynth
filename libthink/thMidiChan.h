@@ -21,28 +21,60 @@
 
 class thMidiChan {
 public:
+    /* Takes ownership of `mod' and destroys it. Each channel needs its own
+       tree: assignChanArgPointers() caches raw thArg pointers into the tree's
+       nodes, so a tree shared between two channels has its pointers overwritten
+       by whichever was constructed last, and destroying either channel leaves
+       the other dereferencing freed args. */
     thMidiChan (thSynthTree *mod, float amp, int windowlen);
     ~thMidiChan (void);
 
     typedef map<int, thMidiNote*> NoteMap;
     typedef list<thMidiNote*> NoteList;
-    
-    thMidiNote *addNote (float note, float velocity);
-    void delNote (int note);
-    
-    void clearAll (void);
-    
+
+    typedef thRing<thRetired, TH_RETIRE_QUEUE_SIZE> RetireQueue;
+
+    /* ---- GUI thread ---- */
+
+    /* Allocates the note, which means copy-constructing the whole synth tree.
+       Deliberately separate from installing it: this is far too expensive to
+       do in an audio callback, so the GUI thread builds and thSynth hands the
+       finished object over through the command queue. */
+    thMidiNote *buildNote (float note, float velocity);
+
+    /* ---- audio thread ---- */
+
+    /* Installs a note built by buildNote(), applying the polyphony limit.
+       Anything displaced goes on `retire' for the GUI thread to free. */
+    void insertNote (thMidiNote *note, RetireQueue *retire);
+
+    /* Releases a sounding note (sustain pedal permitting). */
+    void releaseNote (int note);
+
+    void clearAll (RetireQueue *retire);
+
+    void process (RetireQueue *retire);
+
+    /* ---- either, with care ---- */
+
     thMidiNote *getNote (int note);
     int setNoteArg (int note, const string &name, float value);
     int setNoteArg (int note, const string &name, const float *value, int len);
-    
-    thArg *getArg (string argName) { return args_[argName]; }
-    void setArg (thArg *arg);
 
-    thArgMap args (void) { return args_; }
-    
-    void process (void);
-    
+    /* NB: deliberately not args_[argName] -- map::operator[] inserts a NULL on
+       every miss, which allocates on the audio thread and leaves NULLs behind
+       for every iteration site to trip over. */
+    thArg *getArg (const string &argName) const {
+        const thArgMap::const_iterator i = args_.find(argName);
+        if (i != args_.end()) return i->second;
+        return NULL;
+    }
+    /* Audio thread: replaces the arg of the same name and retires the old one
+       rather than deleting it under the GUI thread's feet. */
+    void setArg (thArg *arg, RetireQueue *retire);
+
+    const thArgMap &args (void) const { return args_; }
+
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
 
@@ -54,7 +86,12 @@ public:
     
 private:
     void assignChanArgPointers(thSynthTree *mod);
-    
+
+    /* Hands `note' to the GUI thread to destroy. Falls back to deleting it
+       here if the retire queue is full -- that costs RT-safety in a case that
+       should not arise, but never correctness. */
+    void retireNote (thMidiNote *note, RetireQueue *retire);
+
     bool dirty_;
     thSynthTree *modnode_;
     thArgMap args_;

@@ -28,11 +28,20 @@ static int RangeSize = sizeof(RangeArray)/sizeof(int);
 
 int thUtil::getNumLength (int num)
 {
-    num = abs(num);
+    /* abs(INT_MIN) is undefined -- there is no positive counterpart in int.
+       Widen first, then clamp back into the range the table covers. */
+    long long wide = num;
+
+    if (wide < 0)
+        wide = -wide;
+
+    if (wide > RangeArray[RangeSize - 1])
+        return RangeSize + 1;
+
     int i;
 
     for (i = 0; i < RangeSize; i++) {
-        if (num < RangeArray[i]) {
+        if (wide < RangeArray[i]) {
             return i+1;
         }
     }
