@@ -40,7 +40,7 @@
 
 NodeWindow::NodeWindow (thSynth *synth)
     : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
-      structuralDirty_(false),
+      structuralDirty_(false), selStatus_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),
       revertBtn_("Revert"),
@@ -168,6 +168,32 @@ NodeWindow::~NodeWindow (void)
 void NodeWindow::setStatus (const string &text)
 {
     status_.set_text(text);
+
+    /* Whatever this says now, it is not the selection count any more. */
+    selStatus_ = false;
+}
+
+/* The status bar is shared: it reports what just happened -- saved, deleted,
+ * could not parse -- and those messages are worth keeping on screen.
+ *
+ * "5 nodes selected" is a different kind of thing. It describes a state rather
+ * than an event, so it has to go when that state does, and it stayed put after
+ * deselecting because nothing owned it. These two make the ownership explicit:
+ * the count is cleared only if the count is still what is showing, so
+ * deselecting after a save does not wipe "Saved: 3 values". */
+void NodeWindow::setSelectionStatus (const string &text)
+{
+    status_.set_text(text);
+    selStatus_ = true;
+}
+
+void NodeWindow::clearSelectionStatus (void)
+{
+    if (!selStatus_)
+        return;
+
+    status_.set_text("");
+    selStatus_ = false;
 }
 
 /* Is there anything the source does not have?
@@ -760,15 +786,33 @@ void NodeWindow::onSelected (int box)
 {
     params_.setBox(&graph_, box);
 
+    /* A group is still a group when one of its members is pressed to drag it,
+       and this fires for that. So ask the canvas how many are actually held
+       rather than inferring it from `box' -- otherwise grabbing one node of
+       five would clear the count and relabel the button while all five stay
+       selected and Delete still takes all five.
+    
+       By the time this runs on a band release the selection is already the new
+       one, so the count is the right question to ask. */
+    if (canvas_.selection().size() > 1)
+        return;
+
+    clearSelectionStatus();
+
     const bool deletable =
         box >= 0 && box < (int)graph_.boxes().size() &&
         !graph_.boxes()[box].isIoSource && !graph_.boxes()[box].isIoSink;
 
     deleteBtn_.set_sensitive(deletable);
 
+    /* The label needs resetting when nothing is selected too. It was only set
+       for a real box, so after a group it stayed on "Delete 5" -- greyed out,
+       but still offering to remove five things nobody had chosen any more. */
     if (box >= 0 && box < (int)graph_.boxes().size())
         deleteBtn_.set_label(graph_.boxes()[box].isControl ? "Delete control"
                                                            : "Delete node");
+    else
+        deleteBtn_.set_label("Delete node");
 }
 
 /* A rubber band gathered `n' boxes.
@@ -803,7 +847,7 @@ void NodeWindow::onSelectionChanged (int n)
     deleteBtn_.set_label(buf);
 
     snprintf(buf, sizeof(buf), "%d nodes selected.", (int)sel.size());
-    setStatus(buf);
+    setSelectionStatus(buf);
 }
 
 vector<string> NodeWindow::takenNames (void) const

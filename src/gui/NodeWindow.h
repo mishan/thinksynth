@@ -125,6 +125,11 @@ protected:
     bool dirty (void) const;
 
     void setStatus (const string &text);
+
+    /* The selection count, which the selection owns and clears again. Kept
+       apart from setStatus so deselecting cannot wipe a real message. */
+    void setSelectionStatus (const string &text);
+    void clearSelectionStatus (void);
     void updateTitle (void);
     void updateDirty (void);
 
@@ -169,6 +174,10 @@ private:
        tracked separately below, because those are still held in memory; this
        is for the ones that are already in the working file. */
     bool structuralDirty_;
+
+    /* True while the status bar is showing the selection count rather than
+       something that happened. */
+    bool selStatus_;
 
     /* Edits typed into the panel but not yet written. Keyed by node name and
        arg name rather than by box index, so they survive the reparse that
