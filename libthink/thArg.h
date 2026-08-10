@@ -23,7 +23,7 @@
 
 class thArg;
 
-typedef sigc::signal1<void, thArg *> type_signal_arg_changed;
+typedef sigc::signal<void(thArg *)> type_signal_arg_changed;
 
 class thArg {
 public:

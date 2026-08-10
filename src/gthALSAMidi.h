@@ -21,7 +21,7 @@
 
 #define ALSA_DEFAULT_MIDI_DEVICE "default"
 
-typedef sigc::signal1<int, snd_seq_t *> sigMidiEvent_t;
+typedef sigc::signal<int(snd_seq_t *)> sigMidiEvent_t;
 
 /* sigc::trackable so the pollMidiEvent slot handed to Glib::signal_io() is
    disconnected on destruction instead of being left with a dangling `this'. */
