@@ -292,7 +292,7 @@ void thSynth::removeChan (int channum)
     if ((channum < 0) || (channum >= midiChannelCnt_))
         return;
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     if (guiChannels_[channum] != NULL)
@@ -322,7 +322,6 @@ void thSynth::removeChan (int channum)
         }
     }
 
-    synthMutex_.unlock();
 }
 
 /* Common tail for the loadTree() overloads.
@@ -422,7 +421,7 @@ thSynthTree * thSynth::loadTree (const string &filename)
         return NULL;
     }
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
 
     /* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
@@ -439,8 +438,6 @@ thSynthTree * thSynth::loadTree (const string &filename)
 
     /* No channel involved, so thSynth keeps this one. */
     thSynthTree *tree = finishParse(filename, parseResult, true);
-
-    synthMutex_.unlock();
 
     return tree;
 }
@@ -465,7 +462,7 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     /* Same mutex as loadTree: the parser's globals are shared, so two parses
        at once would interleave. */
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
 
     yyin = input;
 
@@ -482,8 +479,6 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     thSynthTree *tree = finishParse(filename, parseResult, false);
 
-    synthMutex_.unlock();
-
     return tree;
 }
 
@@ -492,7 +487,7 @@ thSynthTree * thSynth::loadTree (FILE *input)
     if (!input)
         return NULL;
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     
     yyin = input;
 
@@ -508,8 +503,6 @@ thSynthTree * thSynth::loadTree (FILE *input)
 
     thSynthTree *tree = finishParse("<stream>", parseResult, true);
 
-    synthMutex_.unlock();
-
     return tree;
 }
 
@@ -522,12 +515,11 @@ void thSynth::setChanArg (int channum, thArg *arg)
         return;
     }
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     if (!guiChannels_[channum])
     {
-        synthMutex_.unlock();
         delete arg;
         return;
     }
@@ -562,8 +554,6 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
         existing->setValue((*arg)[0]);
 
-        synthMutex_.unlock();
-
         delete arg;
         return;
     }
@@ -580,7 +570,6 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
     postCommand(cmd);
 
-    synthMutex_.unlock();
 }
 
 /* GUI thread.
@@ -652,7 +641,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
          return NULL;
     }
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     /* XXX: do we re-allocate these everytime we read a new input file?? */
@@ -673,7 +662,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     if (tree == NULL)
     {
-        synthMutex_.unlock();
         return NULL;
     }
 
@@ -684,7 +672,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
         fprintf(stderr, "thSynth::loadTree: channel %d is beyond the %d "
                 "available channels\n", channum, midiChannelCnt_);
         delete tree;
-        synthMutex_.unlock();
         return NULL;
     }
 
@@ -706,7 +693,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     {
         /* postCommand deleted newchan, which owns the tree; the previous
            channel is untouched and still current. */
-        synthMutex_.unlock();
         return NULL;
     }
 
@@ -716,8 +702,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     /* make sure there are no midi controllers set up for this channel */
     controllerHandler_->clearByDestChan(channum);
-
-    synthMutex_.unlock();
 
     return tree;
 }
@@ -749,7 +733,7 @@ bool thSynth::addNote (int channum, float note, float velocity)
         return false;
     }
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     thMidiChan *chan = guiChannels_[channum];
@@ -757,8 +741,6 @@ bool thSynth::addNote (int channum, float note, float velocity)
     if (!chan)
     {
         debug("thSynth::addNote: no such channel %d", channum);
-        synthMutex_.unlock();
-
         return false;
     }
 
@@ -766,7 +748,6 @@ bool thSynth::addNote (int channum, float note, float velocity)
 
     if (newnote == NULL)
     {
-        synthMutex_.unlock();
         return false;
     }
 
@@ -778,8 +759,6 @@ bool thSynth::addNote (int channum, float note, float velocity)
 
     bool ok = postCommand(cmd);
 
-    synthMutex_.unlock();
-
     return ok;
 }
 
@@ -789,12 +768,11 @@ int thSynth::delNote (int channum, float note)
     if ((channum < 0) || (channum >= midiChannelCnt_))
         return 1;
 
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     if (!guiChannels_[channum])
     {
-        synthMutex_.unlock();
         return 1;
     }
 
@@ -809,14 +787,12 @@ int thSynth::delNote (int channum, float note)
 
     postCommand(cmd);
 
-    synthMutex_.unlock();
-
     return 0;
 }
 
 void thSynth::clearAll (void)
 {
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     /* This used to walk `while (*c) (*c++)->clearAll()', relying on a NULL
@@ -829,7 +805,6 @@ void thSynth::clearAll (void)
 
     postCommand(cmd);
 
-    synthMutex_.unlock();
 }
 
 /* Audio thread. */
@@ -925,10 +900,9 @@ void thSynth::setWindowlen (int windowlen)
 {
     /* XXX: fixme */
 #if 0
-    synthMutex_.lock();
+    std::lock_guard<std::mutex> lock(synthMutex_);
     windowlen_ = windowlen;
     delete [] output_;
     output_ = new float[channels_*windowlen_];
-    synthMutex_.unlock();
 #endif
 }

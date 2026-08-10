@@ -22,12 +22,15 @@
 
 #if defined(_WIN32)
 
-# define WIN32_LEAN_AND_MEAN
-# define NOMINMAX
+# ifndef WIN32_LEAN_AND_MEAN
+#  define WIN32_LEAN_AND_MEAN
+# endif
+# ifndef NOMINMAX
+#  define NOMINMAX
+# endif
 # include <windows.h>
 
 # include <filesystem>
-# include <vector>
 
 namespace {
 
@@ -114,8 +117,13 @@ std::string thDynLib::lastError (void)
 #  error Need a dl implementation!
 # endif
 
+/* dlerror() both reports and clears. Clearing it first is what makes
+   lastError() describe the call just made rather than some earlier failure
+   that nobody read -- which is the contract the header states. */
 thDynLib::Handle thDynLib::open (const std::string &path)
 {
+    dlerror();
+
     return dlopen(path.c_str(), RTLD_NOW);
 }
 
@@ -123,6 +131,8 @@ void *thDynLib::symbol (Handle handle, const char *name)
 {
     if (handle == NULL || name == NULL)
         return NULL;
+
+    dlerror();
 
     return dlsym(handle, name);
 }

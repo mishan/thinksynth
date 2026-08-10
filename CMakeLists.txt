@@ -162,6 +162,21 @@ else()
     set(RTAUDIO_API_DS     OFF CACHE BOOL "" FORCE)
     set(RTAUDIO_API_ASIO   OFF CACHE BOOL "" FORCE)  # SDK is not redistributable
     set(RTAUDIO_API_JACK   OFF CACHE BOOL "" FORCE)
+  else()
+    # Linux, and said out loud rather than left to probing -- otherwise the
+    # argument above ("a build's backends should not depend on what happened
+    # to be installed") would hold everywhere except the platform this is
+    # mostly developed on. ALSA is always there; JACK and PulseAudio are only
+    # forced on if their development files are, so this pins the outcome
+    # without demanding either be present.
+    set(RTAUDIO_API_ALSA  ON CACHE BOOL "" FORCE)
+    set(RTAUDIO_API_OSS   OFF CACHE BOOL "" FORCE)
+
+    pkg_check_modules(THINK_PROBE_JACK QUIET jack)
+    pkg_check_modules(THINK_PROBE_PULSE QUIET libpulse-simple)
+
+    set(RTAUDIO_API_JACK  ${THINK_PROBE_JACK_FOUND}  CACHE BOOL "" FORCE)
+    set(RTAUDIO_API_PULSE ${THINK_PROBE_PULSE_FOUND} CACHE BOOL "" FORCE)
   endif()
 
   # EXCLUDE_FROM_ALL keeps RtAudio's own install() rules out of ours. They are
@@ -224,6 +239,9 @@ else()
   elseif(WIN32)
     set(RTMIDI_API_WINMM ON  CACHE BOOL "" FORCE)
     set(RTMIDI_API_JACK  OFF CACHE BOOL "" FORCE)
+  else()
+    set(RTMIDI_API_ALSA ON CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK ${THINK_PROBE_JACK_FOUND} CACHE BOOL "" FORCE)
   endif()
   set(RTMIDI_TARGETNAME_UNINSTALL "rtmidi-uninstall" CACHE STRING "" FORCE)
 
@@ -233,6 +251,9 @@ else()
   elseif(WIN32)
     set(RTMIDI_API_WINMM ON  CACHE BOOL "" FORCE)
     set(RTMIDI_API_JACK  OFF CACHE BOOL "" FORCE)
+  else()
+    set(RTMIDI_API_ALSA ON CACHE BOOL "" FORCE)
+    set(RTMIDI_API_JACK ${THINK_PROBE_JACK_FOUND} CACHE BOOL "" FORCE)
   endif()
 
   # Same as RtAudio above: its install rules are pointless for a statically
