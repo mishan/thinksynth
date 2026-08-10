@@ -77,7 +77,8 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-d [driver]\t\taudio API: alsa, jack, pulse, core, wasapi, asio,\n"
 "\t\t\tnone, or empty to let RtAudio choose\n"
 "  -o [device]\t\toutput device, by full or partial name\n"
-"-m [port]\t\tMIDI input port, by full or partial name\n"
+"-m [port]\t\tMIDI input port, by full or partial name; if it does\n"
+"\t\t\tnot match, MIDI is off rather than something else\n"
 "-L\t\t\tlist the audio and MIDI APIs, devices and ports, then exit\n"
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
@@ -181,15 +182,8 @@ static void listAudio (void)
 
     printf("\nMIDI input ports:\n");
 
-    gthRtMidi mprobe(PACKAGE_NAME);
-
-    if (!mprobe.opened())
-    {
-        printf("  (none -- RtMidi would not start)\n");
-        return;
-    }
-
-    const std::vector<std::string> mports = mprobe.ports();
+    /* Enumerated without opening anything -- see gthRtMidi::probePorts. */
+    const std::vector<std::string> mports = gthRtMidi::probePorts(PACKAGE_NAME);
 
     for (size_t i = 0; i < mports.size(); i++)
         printf("  %s\n", mports[i].c_str());
