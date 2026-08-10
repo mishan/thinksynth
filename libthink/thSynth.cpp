@@ -22,9 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
+#include <filesystem>
+#include <system_error>
 
 #include <algorithm>
 
@@ -396,15 +395,20 @@ thSynthTree *thSynth::finishParse (const string &what, int parseResult,
 
 thSynthTree * thSynth::loadTree (const string &filename)
 {
-    struct stat dspinfo;
+    std::error_code ec;
 
-    if (stat(filename.c_str(), &dspinfo) < 0)
+    if (!std::filesystem::exists(filename, ec))
     {
+        /* ec is only set when the query itself failed -- a permission problem
+           on a parent directory, say. A file that is simply not there is not
+           an error to fs::exists, so it reports nothing and the message has
+           to supply its own wording rather than reach for errno, which
+           nothing here has set. */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
-                 strerror(errno));
+                 ec ? ec.message().c_str() : "no such file or directory");
         return NULL;
     }
-    else if (S_ISDIR(dspinfo.st_mode))
+    else if (std::filesystem::is_directory(filename, ec))
     {
         fprintf(stderr, "%s is a directory\n", filename.c_str());
 
@@ -444,9 +448,10 @@ thSynthTree * thSynth::loadTree (const string &filename)
 
 thSynthTree * thSynth::parseTree (const string &filename)
 {
-    struct stat dspinfo;
+    std::error_code ec;
 
-    if (stat(filename.c_str(), &dspinfo) < 0 || S_ISDIR(dspinfo.st_mode))
+    if (!std::filesystem::exists(filename, ec) ||
+        std::filesystem::is_directory(filename, ec))
         return NULL;
 
     /* Opened into a local, and only handed to the parser once the mutex is
@@ -610,21 +615,26 @@ void thSynth::newMidiControllerConnection (unsigned char channel,
 
 thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 {
-    struct stat dspinfo;
-
     if (channum < 0)
     {
         fprintf(stderr, "thSynth::loadTree: negative channel %d\n", channum);
         return NULL;
     }
 
-    if (stat(filename.c_str(), &dspinfo) < 0)
+    std::error_code ec;
+
+    if (!std::filesystem::exists(filename, ec))
     {
+        /* ec is only set when the query itself failed -- a permission problem
+           on a parent directory, say. A file that is simply not there is not
+           an error to fs::exists, so it reports nothing and the message has
+           to supply its own wording rather than reach for errno, which
+           nothing here has set. */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
-                 strerror(errno));
+                 ec ? ec.message().c_str() : "no such file or directory");
         return NULL;
     }
-    else if (S_ISDIR(dspinfo.st_mode))
+    else if (std::filesystem::is_directory(filename, ec))
     {
         fprintf(stderr, "%s is a directory\n", filename.c_str());
 
