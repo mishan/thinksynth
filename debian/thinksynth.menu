@@ -1,5 +1,0 @@
-?package(thinksynth):needs="x11" \
-	command="/usr/bin/thinksynth" \
-	hints="JACK,ALSA,Synthesizer" \
-	section="Apps/Sound" \
-	title="Thinksynth"
