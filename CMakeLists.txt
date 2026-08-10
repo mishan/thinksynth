@@ -218,10 +218,13 @@ else()
     set(RTMIDI_API_JACK  OFF CACHE BOOL "" FORCE)
   endif()
 
+  # Same as RtAudio above: its install rules are pointless for a statically
+  # linked dependency and would land in ours.
   FetchContent_Declare(rtmidi
       GIT_REPOSITORY https://github.com/thestk/rtmidi.git
       GIT_TAG ${THINK_RTMIDI_VERSION}
-      GIT_SHALLOW TRUE)
+      GIT_SHALLOW TRUE
+      EXCLUDE_FROM_ALL)
 
   FetchContent_MakeAvailable(rtmidi)
 
