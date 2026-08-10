@@ -817,6 +817,12 @@ build.
   `.app` needs `install_name_tool` work on macOS. §8 step 8, untouched.
 - **The GUI itself.** gtkmm-3 on quartz will run and will not look native;
   that is known and accepted, but nobody has seen it.
+- **More deprecated glibmm.** `Glib::thread_init()` was an undefined reference
+  on Windows because MSYS2 builds glibmm with the deprecated API compiled out.
+  Anything else the tree calls that glibmm has since deprecated will fail the
+  same way, at link time rather than compile time. `Gtk::Main` is the obvious
+  candidate; MSYS2's gtkmm3 does keep its deprecated API, so it survives for
+  now.
 
 `macos` and `windows` stay `continue-on-error` in CI until they pass. The
 point of running them red is to see how far each gets.
