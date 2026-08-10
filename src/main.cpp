@@ -263,7 +263,12 @@ int main (int argc, char *argv[])
     /* seed the random number generator */
     srand(time(NULL));
 
-    Glib::thread_init();
+    /* Glib::thread_init() used to be here. glibmm's own header says it "is no
+       longer necessary and no longer has any effect" -- GLib has initialised
+       its threading itself since 2.32, in 2011 -- and MSYS2 builds glibmm
+       with the deprecated API compiled out, so on Windows it is not merely
+       pointless but an undefined reference at link time. */
+
     /* init Glib/Gtk args */
     Gtk::Main mymain(argc, argv);
 
