@@ -75,8 +75,18 @@ gthRtMidi::gthRtMidi (const std::string &clientName, const std::string &api,
             }
 
             if (!found)
-                fprintf(stderr, "midi: no input port matching '%s'\n",
+            {
+                /* Fail closed. Falling through to a virtual port or to port 0
+                   would connect to something other than what was asked for,
+                   which is worse than not connecting: the user would see MIDI
+                   working and not notice it was the wrong device. */
+                fprintf(stderr, "midi: no input port matching '%s'; MIDI is "
+                                "off. Try -L to see what is available.\n",
                         port.c_str());
+                delete midi_;
+                midi_ = NULL;
+                return;
+            }
         }
 
         if (portName_.empty())
@@ -159,6 +169,35 @@ std::vector<std::string> gthRtMidi::ports (void) const
 
     for (unsigned int i = 0; i < n; i++)
         out.push_back(m->getPortName(i));
+
+    return out;
+}
+
+/* Enumeration only: no port is opened and no callback is installed, so this
+   is safe to call for -L without side effects. */
+std::vector<std::string> gthRtMidi::probePorts (const std::string &clientName,
+                                                const std::string &api)
+{
+    std::vector<std::string> out;
+
+    RtMidi::Api which = RtMidi::UNSPECIFIED;
+
+    if (!api.empty())
+        which = RtMidi::getCompiledApiByName(api);
+
+    try
+    {
+        RtMidiIn probe(which, clientName);
+
+        const unsigned int n = probe.getPortCount();
+
+        for (unsigned int i = 0; i < n; i++)
+            out.push_back(probe.getPortName(i));
+    }
+    catch (RtMidiError &e)
+    {
+        fprintf(stderr, "midi: %s\n", e.getMessage().c_str());
+    }
 
     return out;
 }

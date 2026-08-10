@@ -68,6 +68,16 @@ public:
     std::string portName (void) const { return portName_; }
     std::string apiName (void) const;
 
+    /* Enumerate without opening anything.
+     *
+     * Constructing a gthRtMidi opens a port and installs a callback, which is
+     * the wrong thing to do just to print a list -- it has side effects, it
+     * prints, and on a platform without virtual ports it can fail outright
+     * and report "RtMidi would not start" when RtMidi is perfectly able to
+     * enumerate. RtMidiIn's constructor alone opens nothing. */
+    static std::vector<std::string> probePorts (const std::string &clientName,
+                                                const std::string &api = "");
+
     /* Messages dropped because the queue was full. Worth surfacing rather
        than silently losing notes. */
     unsigned long overflows (void) const { return queue_.overflows(); }

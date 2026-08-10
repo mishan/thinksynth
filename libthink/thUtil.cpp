@@ -147,16 +147,29 @@ string thUtil::exeDir (void)
 
 #else
 
-    char buf[4096];
+    /* readlink does not terminate, does not report the length it wanted, and
+       silently truncates -- so a fixed buffer can hand back a path that looks
+       plausible and names the wrong directory. Grow until it fits. */
+    std::vector<char> buf(1024);
 
-    const ssize_t n = readlink("/proc/self/exe", buf, sizeof(buf) - 1);
+    for (;;)
+    {
+        const ssize_t n = readlink("/proc/self/exe", buf.data(), buf.size());
 
-    if (n <= 0)
-        return "";
+        if (n <= 0)
+            return "";
 
-    buf[n] = 0;
+        if ((size_t)n < buf.size())
+        {
+            buf[n] = 0;
+            return fs::path(buf.data()).parent_path().string();
+        }
 
-    return fs::path(buf).parent_path().string();
+        if (buf.size() > (1u << 20))
+            return "";   /* absurd; something is wrong */
+
+        buf.resize(buf.size() * 2);
+    }
 
 #endif
 }
