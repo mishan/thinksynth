@@ -30,6 +30,18 @@
 
 MidiMap::MidiMap (thSynth *argsynth)
 {
+    rebuilding_ = false;
+
+    /* All of these are read before anything necessarily sets them -- with no
+       patch loaded, fillDestArgCombo() finds no args and leaves selectedArg_
+       alone, and onAddButton() would then act on whatever was in the memory.
+       -1 for the channel so it cannot accidentally name channel 0. */
+    selectedDestChan_ = -1;
+    selectedArg_ = NULL;
+    selectedMin_ = 0;
+    selectedMax_ = 0;
+    selectedExp_ = 0;
+
     gthPatchManager *patchMgr = gthPatchManager::instance();
 
     synth_ = argsynth;
@@ -50,27 +62,27 @@ MidiMap::MidiMap (thSynth *argsynth)
     buttonsHBox_ = manage(new Gtk::HBox(true, 0));
 
     channelLbl_ = manage(new Gtk::Label("Midi Channel"));
-    channelAdj_ = manage(new Gtk::Adjustment(1, 1, 16));
-    channelSpinBtn_ = manage(new Gtk::SpinButton(*channelAdj_, 1, 0));
+    channelAdj_ = Gtk::Adjustment::create(1, 1, 16);
+    channelSpinBtn_ = manage(new Gtk::SpinButton(channelAdj_, 1, 0));
     channelSpinBtn_->signal_value_changed().connect(
         sigc::mem_fun(*this,&MidiMap::onChannelChanged));
     selectedChan_ = 0;
 
     controllerLbl_ = manage(new Gtk::Label("Controller"));
-    controllerAdj_ = manage(new Gtk::Adjustment(0, 0, 127));
-    controllerSpinBtn_ = manage(new Gtk::SpinButton(*controllerAdj_, 1, 0));
+    controllerAdj_ = Gtk::Adjustment::create(0, 0, 127);
+    controllerSpinBtn_ = manage(new Gtk::SpinButton(controllerAdj_, 1, 0));
     controllerSpinBtn_->signal_value_changed().connect(
         sigc::mem_fun(*this,&MidiMap::onControllerChanged));
     selectedController_ = 0;
 
     minLbl_ = manage(new Gtk::Label("Minimum"));
-    minAdj_ = manage(new Gtk::Adjustment(0, 0, 0));
-    minSpinBtn_ = manage(new Gtk::SpinButton(*minAdj_, .1, 4));
+    minAdj_ = Gtk::Adjustment::create(0, 0, 0);
+    minSpinBtn_ = manage(new Gtk::SpinButton(minAdj_, .1, 4));
     minSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onMinChanged));
     maxLbl_ = manage(new Gtk::Label("Maximum"));
-    maxAdj_ = manage(new Gtk::Adjustment(0, 0, 0));
-    maxSpinBtn_ = manage(new Gtk::SpinButton(*maxAdj_, .1, 4));
+    maxAdj_ = Gtk::Adjustment::create(0, 0, 0);
+    maxSpinBtn_ = manage(new Gtk::SpinButton(maxAdj_, .1, 4));
     maxSpinBtn_->signal_value_changed().connect(sigc::mem_fun(
                                                 *this,&MidiMap::onMaxChanged));
 
@@ -88,10 +100,14 @@ MidiMap::MidiMap (thSynth *argsynth)
     buttonsHBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
     buttonsHBox_->pack_start(*delBtn_, Gtk::PACK_EXPAND_WIDGET);
 
-    destChanCombo_ = manage(new Gtk::Combo);
+    destChanCombo_ = manage(new Gtk::ComboBoxText);
+    destChanCombo_->signal_changed().connect(
+        sigc::mem_fun(*this, &MidiMap::onDestChanSelected));
     fillDestChanCombo();
 
-    destArgCombo_ = manage(new Gtk::Combo);
+    destArgCombo_ = manage(new Gtk::ComboBoxText);
+    destArgCombo_->signal_changed().connect(
+        sigc::mem_fun(*this, &MidiMap::onDestArgSelected));
     fillDestArgCombo(selectedDestChan_);
 
     add(*mainVBox_);
@@ -162,239 +178,156 @@ void MidiMap::set_sensitive (bool sensitive)
     expCheckBtn_->set_sensitive(sensitive);
 }
 
+/* The old Gtk::Combo held a list of arbitrary widgets, so each entry could
+ * carry its own button-press and focus handlers bound to the channel it stood
+ * for. Gtk::ComboBoxText is model-backed: entries are (id, text) pairs and the
+ * widget has a single signal_changed. The channel number therefore travels as
+ * the entry's id and is recovered on selection, rather than being baked into
+ * per-item signal bindings.
+ */
 void MidiMap::fillDestChanCombo (void)
 {
-    int first = 0;
-    Gtk::ComboDropDownItem *item;
-    Gtk::Label *namelabel;
-    Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
-        destChanCombo_->get_list()->children();
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int numPatches = patchMgr->numPatches();
+    bool first = true;
 
-    destChanComboStrings.clear();
+    /* Rebuilding the model fires signal_changed; suppress it or selecting a
+       channel would recurse back through here. */
+    rebuilding_ = true;
+
+    destChanCombo_->remove_all();
 
     for (int i = 0; i < numPatches; i++)
     {
-        std::ostringstream chanStr;
-        string name;
-
         if (patchMgr->isLoaded(i) == false)
             continue;
 
         gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
+        std::ostringstream chanStr, idStr;
 
         chanStr << i + 1 << ": ";
-        name = chanStr.str() + thUtil::basename((char*)patch->dspFile.c_str());
+        idStr << i;
 
-        item = Gtk::manage(new Gtk::ComboDropDownItem);
-        namelabel = Gtk::manage(new Gtk::Label(name));
+        destChanCombo_->append(idStr.str(), chanStr.str() +
+                thUtil::basename((char*)patch->dspFile.c_str()));
 
-        item->add(*namelabel);
-        item->signal_button_press_event().connect(
-            sigc::bind<int>(
-                sigc::mem_fun(*this,&MidiMap::onDestChanComboChanged), i));
-
-        item->signal_focus_in_event().connect(
-            sigc::bind<int>(
-                sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus), i));
-
-        item->show_all();
-        destChanComboStrings.push_back(*item);
-
-        if (first == 0)
+        if (first)
         {
-            first = 1;
+            first = false;
             selectedDestChan_ = i;
         }
     }
+
+    rebuilding_ = false;
+
+    setDestChanCombo();
 }
 
+/* Selects the current channel. Under Gtk::Combo this meant rebuilding the list
+   with the selection pushed to the front; now it is just set_active_id. */
 void MidiMap::setDestChanCombo (void)
 {
-    Gtk::ComboDropDownItem *item;
-    Gtk::Label *namelabel;
-    Gtk::ComboDropDown_Helpers::ComboDropDownList destChanComboStrings =
-        destChanCombo_->get_list()->children();
-    gthPatchManager *patchMgr = gthPatchManager::instance();
-    int numPatches = patchMgr->numPatches();
-    string selectedInstrument;
+    std::ostringstream idStr;
 
-    destChanComboStrings.clear();
+    idStr << selectedDestChan_;
 
-    if (patchMgr->isLoaded(selectedDestChan_))
-    {
-        gthPatchManager::PatchFile * patch =
-            patchMgr->getPatch(selectedDestChan_ + 1);
-        std::ostringstream chanStr;
-
-        chanStr << selectedDestChan_ + 1 << ": ";
-        /* maybe we should use filename, not dspFile */
-        selectedInstrument = chanStr.str() +
-            thUtil::basename((char*)patch->dspFile.c_str());
-
-        item = Gtk::manage(new Gtk::ComboDropDownItem);
-        namelabel = Gtk::manage(new Gtk::Label(selectedInstrument));
-        item->add(*namelabel);
-        item->signal_button_press_event().connect(
-            sigc::bind<int>(sigc::mem_fun(*this,
-                        &MidiMap::onDestChanComboChanged), selectedDestChan_));
-        item->signal_focus_in_event().connect(
-            sigc::bind<int>(sigc::mem_fun(*this,
-                        &MidiMap::onDestChanComboFocus), selectedDestChan_));
-        item->show_all();
-        destChanComboStrings.push_front(*item);
-    }
-
-    for (int i = 0; i < numPatches; i++)
-    {
-        if (patchMgr->isLoaded(i) == false)
-            continue;
-
-        gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
-        std::ostringstream chanStr;
-        string name;
-
-        chanStr << i + 1 << ": ";
-        name = chanStr.str() + thUtil::basename((char*)patch->dspFile.c_str());
-
-        item = Gtk::manage(new Gtk::ComboDropDownItem);
-        namelabel = Gtk::manage(new Gtk::Label(name));
-
-        item->add(*namelabel);
-        item->signal_button_press_event().connect(
-            sigc::bind<int>(
-                sigc::mem_fun(
-                    *this,&MidiMap::onDestChanComboChanged), i));
-
-        item->signal_focus_in_event().connect(
-            sigc::bind<int>(
-                sigc::mem_fun(*this,&MidiMap::onDestChanComboFocus),
-                i));
-
-        item->show_all();
-        destChanComboStrings.push_back(*item);
-    }
+    rebuilding_ = true;
+    destChanCombo_->set_active_id(idStr.str());
+    rebuilding_ = false;
 }
 
+/* signal_changed replaces the per-item button-press and focus handlers. */
+void MidiMap::onDestChanSelected (void)
+{
+    if (rebuilding_)
+        return;
+
+    Glib::ustring id = destChanCombo_->get_active_id();
+
+    if (id.empty())
+        return;
+
+    onDestChanComboChanged(NULL, atoi(id.c_str()));
+}
+
+/* Same treatment as the channel combo. thArg pointers cannot be ids, so the
+   arg name is the id and is looked back up on selection -- which is also safer
+   than holding a raw thArg* in a widget across a patch reload. */
 void MidiMap::fillDestArgCombo (int chan)
 {
-    int visibleArgs = 0;
-    Gtk::ComboDropDownItem *item;
-    Gtk::Label *namelabel;
-    Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
-        destArgCombo_->get_list()->children();
+    bool first = true;
+
+    /* Cleared before the rebuild, not after. Leaving it set meant a channel
+       with no visible args kept the arg from the channel before it, and every
+       control below went on editing something the combo no longer showed. */
+    selectedArg_ = NULL;
+
+    rebuilding_ = true;
+    destArgCombo_->remove_all();
 
     if (synth_->getChannel(chan))
     {
         gthPatchManager *patchMgr = gthPatchManager::instance();
         thArgMap argList = patchMgr->getChannelArgs(chan);
-        destArgComboStrings.clear();
-        
-        for (thArgMap::iterator i = argList.begin();
-             i != argList.end(); i++)
+
+        for (thArgMap::iterator i = argList.begin(); i != argList.end(); i++)
         {
-            if (i->second && i->second->widgetType() != thArg::HIDE) 
+            if (i->second == NULL || i->second->widgetType() == thArg::HIDE)
+                continue;
+
+            destArgCombo_->append(i->first,
+                                  (i->second->label().length() > 0) ?
+                                  i->second->label() : i->second->name());
+
+            if (first)
             {
-                item = Gtk::manage(new Gtk::ComboDropDownItem);
-                namelabel = Gtk::manage(new Gtk::Label(
-                                (i->second->label().length() > 0) ?
-                                i->second->label() : i->second->name()));
-
-                item->add(*namelabel);
-
-                item->signal_button_press_event().connect(
-                    sigc::bind<thArg *>(sigc::mem_fun(*this,
-                                &MidiMap::onDestArgComboChanged), i->second));
-                item->signal_focus_in_event().connect(
-                    sigc::bind<thArg *>(sigc::mem_fun(*this,
-                                &MidiMap::onDestArgComboFocus), i->second));
-
-                item->show_all();
-
-                destArgComboStrings.push_back(*item);
-
-                if (visibleArgs == 0)
-                {
-                    visibleArgs = 1;
-                    selectedArg_ = i->second;
-                }
+                first = false;
+                selectedArg_ = i->second;
             }
         }
-
-        if (visibleArgs)
-        {
-            set_sensitive(true);
-            selectedMin_ = selectedArg_->min();
-            selectedMax_ = selectedArg_->max();
-            minSpinBtn_->set_range(selectedMin_, selectedMax_);
-            maxSpinBtn_->set_range(selectedMin_, selectedMax_);
-            minSpinBtn_->set_value(selectedMin_);
-            maxSpinBtn_->set_value(selectedMax_);
-        }
-        else
-        {
-            set_sensitive(false);
-        }
     }
+
+    rebuilding_ = false;
+
+    if (selectedArg_)
+    {
+        selectedMin_ = selectedArg_->min();
+        selectedMax_ = selectedArg_->max();
+        setDestArgCombo(chan);
+    }
+
+    /* The details and the Add button only mean anything with an arg selected.
+       They used to be disabled when the list came up empty and stopped being
+       so during the port, which left them live over a NULL selectedArg_. */
+    set_sensitive(selectedArg_ != NULL);
 }
 
 void MidiMap::setDestArgCombo (int chan)
 {
-    Gtk::ComboDropDownItem *item;
-    Gtk::Label *namelabel;
-    Gtk::ComboDropDown_Helpers::ComboDropDownList destArgComboStrings =
-        destArgCombo_->get_list()->children();
+    if (selectedArg_ == NULL)
+        return;
+
+    rebuilding_ = true;
+    destArgCombo_->set_active_id(selectedArg_->name());
+    rebuilding_ = false;
+}
+
+void MidiMap::onDestArgSelected (void)
+{
+    if (rebuilding_)
+        return;
+
+    Glib::ustring id = destArgCombo_->get_active_id();
+
+    if (id.empty())
+        return;
+
     gthPatchManager *patchMgr = gthPatchManager::instance();
+    thArgMap argList = patchMgr->getChannelArgs(selectedDestChan_);
+    thArgMap::iterator i = argList.find(id);
 
-    if (patchMgr->isLoaded(chan))
-    {
-        thArgMap argList = patchMgr->getChannelArgs(chan);
-
-        destArgComboStrings.clear();
-
-        if (selectedArg_)
-        {
-            item = Gtk::manage(new Gtk::ComboDropDownItem);
-            namelabel = Gtk::manage(new Gtk::Label(selectedArg_->label()));
-            item->add(*namelabel);
-            item->signal_button_press_event().connect(
-                sigc::bind<thArg *>(sigc::mem_fun(*this,
-                            &MidiMap::onDestArgComboChanged), selectedArg_));
-            item->signal_focus_in_event().connect(
-                sigc::bind<thArg *>(sigc::mem_fun(*this,
-                            &MidiMap::onDestArgComboFocus), selectedArg_));
-            item->show_all();
-            destArgComboStrings.push_front(*item);
-        }
-
-        for (thArgMap::iterator i = argList.begin();
-             i != argList.end(); i++)
-        {
-            if (i->second && i->second->widgetType() != thArg::HIDE) {
-                item = Gtk::manage(new Gtk::ComboDropDownItem);
-                namelabel = Gtk::manage(new Gtk::Label(
-                                (i->second->label().length() > 0) ?
-                                i->second->label() : i->second->name()));
-                item->add(*namelabel);
-                item->signal_button_press_event().connect(
-                    sigc::bind<thArg *>(sigc::mem_fun(*this,
-                                &MidiMap::onDestArgComboChanged), i->second));
-                item->signal_focus_in_event().connect(
-                    sigc::bind<thArg *>(sigc::mem_fun(*this,
-                                &MidiMap::onDestArgComboFocus), i->second));
-
-                item->show_all();
-
-                destArgComboStrings.push_back(*item);
-            }
-        }
-        set_sensitive(true);
-    }
-    else
-    {
-        set_sensitive(false);
-    }
+    if (i != argList.end() && i->second)
+        onDestArgComboChanged(NULL, i->second);
 }
 
 void MidiMap::populateConnections (void)

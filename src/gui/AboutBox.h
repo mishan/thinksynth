@@ -44,8 +44,11 @@ protected:
     Gtk::Label          *txtMetaphonic_;
     
     Glib::RefPtr<Gtk::TextBuffer>     txtBuf_;
-    Glib::RefPtr<Gdk::Pixmap>         pixmap_;
-    Glib::RefPtr<Gdk::Bitmap>         mask_;
+
+    /* gtkmm-3 removed Gdk::Pixmap and Gdk::Bitmap along with the whole
+       server-side drawable API; a Pixbuf carries its own alpha, so the
+       separate mask is gone too. */
+    Glib::RefPtr<Gdk::Pixbuf>         logoPixbuf_;
 };
 
 #endif /* ABOUT_BOX_H */

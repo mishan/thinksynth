@@ -54,11 +54,11 @@ private:
 
     Gtk::Label *chanLbl_;
     Gtk::SpinButton *chanBtn_;
-    Gtk::Adjustment *chanVal_;
+    Glib::RefPtr<Gtk::Adjustment> chanVal_;
 
     Gtk::Label *transLbl_;
     Gtk::SpinButton *transBtn_;
-    Gtk::Adjustment *transVal_;
+    Glib::RefPtr<Gtk::Adjustment> transVal_;
 
     Gtk::Button *resetBtn_;
 };

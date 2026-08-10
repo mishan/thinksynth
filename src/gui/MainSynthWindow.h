@@ -51,13 +51,21 @@ protected:
     void onPatchSelHide (void);
     void onMidiMapHide (void);
     void onKeyboardHide (void);
-    void onSwitchPage (GtkNotebookPage *p, int pagenum);
+    void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onDspEntryActivate (void);
     void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
     void jackCheck (void);
 
     Gtk::VBox vbox_;
+    /* Held rather than looked up by index -- see toggleConnects(). */
+    Gtk::MenuItem *jackConnect_;
+    Gtk::MenuItem *jackDisconnect_;
+
+    Gtk::MenuItem *addMenuItem (Gtk::Menu &menu, const Glib::ustring &label,
+                                const sigc::slot<void> &handler,
+                                const char *accel = NULL);
+
     Gtk::MenuBar menuBar_;
     Gtk::Menu menuFile_;
     Gtk::Menu menuJack_;

@@ -32,3 +32,4 @@ config.h.in
 build.mk
 autom4te.cache
 aclocal.m4
+configure~
