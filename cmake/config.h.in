@@ -15,9 +15,6 @@
 /* ALSA is the MIDI sequencer only; RtAudio does ALSA output. */
 #cmakedefine HAVE_ALSA 1
 
-/* The superseded in-tree JACK backend, off unless asked for. */
-#cmakedefine HAVE_LEGACY_JACK 1
-
 /* Which one main.cpp picks when -d is not given. */
 #define DEFAULT_OUTPUT "@THINK_DEFAULT_OUTPUT@"
 
