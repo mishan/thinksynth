@@ -26,8 +26,8 @@
 #include <string.h>
 #include <errno.h>
 
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <filesystem>
+#include <system_error>
 #include <signal.h>
 
 #include <gtkmm.h>
@@ -221,13 +221,21 @@ void MainSynthWindow::menuNodes (void)
 
     /* resolveDsp only knows about the install path. If the file came from
        somewhere the user browsed to, that directory is the better guess. */
-    if (!typed.empty() && typed[0] != '/' && !prevDir_.empty())
+    if (!typed.empty() && !std::filesystem::path(typed).is_absolute() &&
+        !prevDir_.empty())
     {
-        struct stat st;
+        /* Was typed[0] != '/' with two stat() calls and a string
+           concatenation. is_absolute knows what "C:\\..." means, operator/
+           puts in a separator whether prevDir_ ended with one or not, and the
+           last stat in the tree goes with it. */
+        std::error_code ec;
 
-        if (stat(dspfile.c_str(), &st) != 0 &&
-            stat((prevDir_ + typed).c_str(), &st) == 0)
-            dspfile = prevDir_ + typed;
+        const std::filesystem::path browsed =
+            std::filesystem::path(prevDir_) / typed;
+
+        if (!std::filesystem::exists(dspfile, ec) &&
+            std::filesystem::exists(browsed, ec))
+            dspfile = browsed.string();
     }
 
     if (dspfile.empty())
