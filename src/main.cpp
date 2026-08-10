@@ -358,8 +358,16 @@ int main (int argc, char *argv[])
     Synth = new thSynth(plugin_path, windowlen, samples);
     gthPrefs *prefs = gthPrefs::instance();
 
-    signal(SIGUSR1, (sighandler_t)cleanup);
     signal(SIGINT, (sighandler_t)cleanup);
+
+    /* SIGUSR1 is "save preferences and exit", triggered from outside. Windows
+       has no such signal -- its signal() knows six, and the user-defined ones
+       are not among them -- so there is nothing to hook there and no obvious
+       equivalent worth inventing. SIGINT covers the ordinary case on all
+       three platforms. */
+#ifdef SIGUSR1
+    signal(SIGUSR1, (sighandler_t)cleanup);
+#endif
 
     /* The handler only sets a flag; this is what notices. 200ms is
        imperceptible for a ^C and costs nothing when idle. */
