@@ -267,7 +267,18 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
         return true;
     }
 
-    const int hit = graph_->boxAt(gx, gy);
+    int hit = graph_->boxAt(gx, gy);
+
+    /* A press on a strip is a press on the node it belongs to.
+     *
+     * The slider was handled above, so what is left is the label and the
+     * margins around it -- and a strip has no life of its own there. Taking it
+     * at face value collapsed a multi-selection down to the strip and then
+     * started a drag that went nowhere, because moveBox refuses to move an
+     * attached box. Both follow from treating as independent something the
+     * rest of the code is careful to say is not. */
+    if (hit >= 0 && graph_->boxes()[hit].attachedTo >= 0)
+        hit = graph_->boxes()[hit].attachedTo;
 
     /* Empty canvas: start a rubber band rather than doing nothing.
      *
@@ -416,36 +427,32 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
         double nx = gx - dragDX_;
         double ny = gy - dragDY_;
 
-        /* Keep boxes out of negative space: the canvas has no origin offset,
-           so anything dragged above or left of zero would be unreachable. */
-        if (nx < 0) nx = 0;
-        if (ny < 0) ny = 0;
-
-        /* The delta the grabbed box actually moved by, computed after the
-           clamp above so the rest of the selection follows what happened
-           rather than what was asked for -- otherwise dragging a group into
-           the top-left corner would squash it as the leader stopped and the
-           others kept going. */
-        const double dx = nx - graph_->boxes()[dragBox_].x;
-        const double dy = ny - graph_->boxes()[dragBox_].y;
-
         if (sel_.size() > 1)
         {
-            for (size_t i = 0; i < sel_.size(); i++)
-            {
-                const NodeGraph::Box &sb = graph_->boxes()[sel_[i]];
-
-                double bx = sb.x + dx;
-                double by = sb.y + dy;
-
-                if (bx < 0) bx = 0;
-                if (by < 0) by = 0;
-
-                graph_->moveBox(sel_[i], bx, by);
-            }
+            /* One delta for the whole group, clamped once against whichever
+               member is furthest left and furthest up.
+            
+               Clamping each box on its own looked equivalent and was not: if
+               the box you grabbed is not the leftmost, the ones to its left
+               hit zero first and stop while it keeps going, so the group
+               closes up. Which boxes move and which stick then depends on
+               which one you happened to grab. Deciding the delta once, from
+               the group's own edge, keeps the arrangement rigid -- the whole
+               selection stops together at the boundary. */
+            graph_->moveSelection(sel_,
+                                  nx - graph_->boxes()[dragBox_].x,
+                                  ny - graph_->boxes()[dragBox_].y);
         }
         else
+        {
+            /* Keep boxes out of negative space: the canvas has no origin
+               offset, so anything dragged above or left of zero would be
+               unreachable. */
+            if (nx < 0) nx = 0;
+            if (ny < 0) ny = 0;
+
             graph_->moveBox(dragBox_, nx, ny);
+        }
 
         queue_draw();
 

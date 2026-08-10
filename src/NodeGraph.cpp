@@ -1381,6 +1381,41 @@ int NodeGraph::feedbackCount (void) const
  *
  * Done here rather than in the drag handler so it covers every caller,
  * including the ones added later. */
+void NodeGraph::moveSelection (const vector<int> &sel, double dx, double dy)
+{
+    bool first = true;
+    double minX = 0, minY = 0;
+
+    for (size_t i = 0; i < sel.size(); i++)
+    {
+        if (sel[i] < 0 || sel[i] >= (int)boxes_.size())
+            continue;
+
+        const Box &b = boxes_[sel[i]];
+
+        if (first || b.x < minX) minX = b.x;
+        if (first || b.y < minY) minY = b.y;
+
+        first = false;
+    }
+
+    if (first)
+        return;             /* nothing selectable in the list */
+
+    if (minX + dx < 0) dx = -minX;
+    if (minY + dy < 0) dy = -minY;
+
+    for (size_t i = 0; i < sel.size(); i++)
+    {
+        if (sel[i] < 0 || sel[i] >= (int)boxes_.size())
+            continue;
+
+        const Box &b = boxes_[sel[i]];
+
+        moveBox(sel[i], b.x + dx, b.y + dy);
+    }
+}
+
 void NodeGraph::boxesIn (double x0, double y0, double x1, double y1,
                          vector<int> &out) const
 {
