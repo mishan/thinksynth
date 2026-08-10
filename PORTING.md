@@ -803,10 +803,14 @@ are likely to bite:
 - **`getopt`** in `main.cpp`. MinGW-w64 provides it, so this should survive,
   but it is not part of the C standard and is the sort of thing that differs.
 
-A sweep for the rest of this class found: `u_int32_t` (fixed), `SIGUSR1` and
-`SIGALRM` (fixed), `chmod` (fixed), and nothing else. `strdup`, `unistd.h`,
-`sys/stat.h` and `getopt` all exist on MinGW-w64. `src/old/` is full of OSS
-and `sys/soundcard.h` but is not in the build.
+Sweeps for the rest of this class have found, in order: `u_int32_t`,
+`SIGUSR1`, `SIGALRM`, `chmod`, and `S_ISLNK`. All fixed. The last of those is
+instructive — the earlier sweep looked for POSIX *functions and headers* and
+so walked straight past a macro. `stat` and the `S_IS*` family are gone from
+the built tree entirely now, replaced by `std::filesystem` as everything else
+already had been. `strdup`, `unistd.h`, `sys/stat.h` and `getopt` all exist on
+MinGW-w64. `src/old/` is full of OSS and `sys/soundcard.h` but is not in the
+build.
 - **`gthPrefs`** uses `Glib::get_user_config_dir()`, which is right on all
   three, but nothing has checked that the directory is creatable on Windows.
 - **Packaging.** gtkmm-3 drags roughly forty DLLs behind it on Windows and a
