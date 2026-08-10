@@ -159,6 +159,27 @@ static bool isStateArg (thNode *n, const string &name)
     return false;
 }
 
+/* Adds a port unless the box already has one by that name and direction.
+ *
+ * The io node's ports come from two places -- what the engine defines, and
+ * what this file happens to reference -- and the two overlap on almost every
+ * patch. Every shipped .dsp wires out0 and out1; 74 of 92 wire play; all 92
+ * set channels. Without this they would be listed twice. */
+static void addPortOnce (NodeGraph::Box &b, const string &name, bool isInput)
+{
+    for (size_t k = 0; k < b.ports.size(); k++)
+        if (b.ports[k].name == name && b.ports[k].isInput == isInput)
+            return;
+
+    NodeGraph::Port port;
+
+    port.name = name;
+    port.isInput = isInput;
+    port.x = port.y = 0;
+
+    b.ports.push_back(port);
+}
+
 /* Is `name' an arg the engine itself reads off the io node?
  *
  * The io node has no plugin, so nothing declares its directions and they have
@@ -429,13 +450,62 @@ bool NodeGraph::build (thSynthTree *tree)
                 sink.ports.push_back(port);
             }
 
-            /* The source half. Its ports are filled in during edge building,
-               as we discover which of the io node's args others read. */
+            /* The ports the engine defines, whether or not this file has got
+               round to using them yet.
+             *
+             * Discovering ports from what the file references works for every
+             * patch that already exists and fails completely for the one being
+             * written. A brand new .dsp holds `channels = 2' and nothing else,
+             * so the audio out had a single port and the midi in had none --
+             * nowhere to drag from, nowhere to drag to, and no way to build a
+             * working patch in the editor at all. The first wire has nothing
+             * to hang on.
+             *
+             * So the io node advertises what the engine will read and write
+             * regardless: thMidiChan::process reads OUTPUTPREFIX plus a digit,
+             * `play' and `channels'; thMidiNote writes note, velocity and
+             * trigger. Anything else the file mentions is still discovered as
+             * before.
+             *
+             * Not `amp': patches do read `ionode->amp', but every one of them
+             * declares it in the io block first. It is a convention among
+             * patch authors, not something the engine puts there, and the
+             * editor should not invent it. */
+            int channels = 2;
+
+            {
+                thArg *ch = ionode->getArg("channels");
+
+                if (ch != NULL && ch->len() > 0)
+                    channels = (int)(*ch)[0];
+
+                if (channels < 1) channels = 1;
+                if (channels > TH_MAX_CHANNELS) channels = TH_MAX_CHANNELS;
+            }
+
+            for (int c = 0; c < channels; c++)
+            {
+                char nm[32];
+
+                snprintf(nm, sizeof(nm), "%s%d", OUTPUTPREFIX, c);
+                addPortOnce(sink, nm, true);
+            }
+
+            addPortOnce(sink, "play", true);
+            addPortOnce(sink, "channels", true);
+
+            /* The source half. Its remaining ports are filled in during edge
+               building, as we discover which of the io node's args others
+               read. */
             Box src;
 
             src.name = ionode->name();
             src.plugin = "midi in";
             src.isIoSource = true;
+
+            addPortOnce(src, "note", false);
+            addPortOnce(src, "velocity", false);
+            addPortOnce(src, "trigger", false);
 
             boxes_.push_back(src);
             sourceOfIo[ionode->name()] = (int)boxes_.size() - 1;
