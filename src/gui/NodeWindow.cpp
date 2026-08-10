@@ -285,11 +285,20 @@ bool NodeWindow::copyFile (const string &from, const string &to)
 
     out << in.rdbuf();
 
-    /* An empty source makes rdbuf() set failbit with nothing wrong, so ask
-       the stream whether it is *bad* rather than whether it is good. */
+    /* Both ends checked, and for badbit rather than goodness.
+     *
+     * failbit is not an error here: an empty source sets it on the insert
+     * because rdbuf() extracted no characters, and an empty .dsp is a file
+     * like any other. badbit is the one that means the stream broke.
+     *
+     * The read side matters as much as the write side and was not being
+     * looked at. A source that fails part way through -- a disk giving up, a
+     * file on a network mount that went away -- leaves a short but perfectly
+     * well-formed working copy, and saying "copied" about it is how a patch
+     * gets silently truncated on the next Save. */
     out.flush();
 
-    return !out.bad();
+    return !in.bad() && !out.bad();
 }
 
 bool NodeWindow::sourceWritable (void) const
@@ -315,14 +324,43 @@ bool NodeWindow::startWorkingCopy (const string &source)
 {
     if (work_.empty())
     {
+        /* mkstemp, not a name built from the pid and this pointer.
+         *
+         * That name was predictable, and copyFile opens with ios::trunc: on a
+         * shared temp directory without the sticky bit, anyone able to guess
+         * it could put a symlink there first and have the editor truncate
+         * whatever it pointed at. mkstemp creates the file itself, O_EXCL and
+         * 0600, so there is nothing to guess and nothing to pre-empt.
+         *
+         * No .dsp on the end -- mkstemp wants the template to finish with the
+         * X's. Nothing cares: the parser is handed a path, not an extension,
+         * and this file is never shown to anyone. */
         const char *tmp = getenv("TMPDIR");
 
-        char buf[512];
+        string tpl = string(tmp && *tmp ? tmp : "/tmp");
 
-        snprintf(buf, sizeof(buf), "%s/thinksynth-edit-%ld-%p.dsp",
-                 tmp && *tmp ? tmp : "/tmp", (long)getpid(), (const void *)this);
+        tpl += "/thinksynth-edit-XXXXXX";
 
-        work_ = buf;
+        vector<char> buf(tpl.begin(), tpl.end());
+
+        buf.push_back('\0');
+
+        const int fd = mkstemp(&buf[0]);
+
+        if (fd < 0)
+            return false;
+
+        /* Closed rather than kept: everything downstream -- copyFile,
+           NodeEdit, NodeLayout -- works by path, and NodeEdit deliberately
+           writes through a temporary and renames, which replaces the inode
+           under any fd we held anyway. The file stays ours and 0600 until the
+           destructor removes it.
+
+           ::close, because Gtk::Window has a close() of its own and this is a
+           member function. */
+        ::close(fd);
+
+        work_ = &buf[0];
     }
 
     return copyFile(source, work_);
