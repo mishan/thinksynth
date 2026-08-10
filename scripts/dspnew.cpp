@@ -169,6 +169,85 @@ int main (int argc, char **argv)
         printf("ok    a new .dsp parses\n");
     }
 
+    /* ---- 1b. a new .dsp can actually be wired up in the editor ----
+     *
+     * Step 5 below builds a working patch and passed while the editor could
+     * not build one at all, because it wires with NodeEdit::connect, which
+     * takes node and arg names as text and never asks whether a port exists.
+     * The editor cannot do that: a wire starts and ends on a port you can drag
+     * from, and a brand new .dsp had one port in total -- `channels'. Nothing
+     * to drag from on the midi in, nothing to drag into on the audio out, so
+     * no first wire and no way to make a patch.
+     *
+     * So this asks the question the graph has to answer: are the engine's own
+     * ports there before anything references them? */
+    {
+        thSynthTree *t = synth.parseTree(scratch);
+
+        if (t == NULL)
+        { printf("FAIL  a new .dsp does not parse\n"); return 1; }
+
+        NodeGraph g;
+
+        g.build(t);
+        delete t;
+
+        int sink = -1, source = -1;
+
+        for (size_t b = 0; b < g.boxes().size(); b++)
+        {
+            if (g.boxes()[b].isIoSink) sink = (int)b;
+            if (g.boxes()[b].isIoSource) source = (int)b;
+        }
+
+        if (sink < 0 || source < 0)
+        { printf("FAIL  a new .dsp has no io halves\n"); failed++; }
+        else
+        {
+            /* What thMidiNote writes, and what thMidiChan::process reads. */
+            const char *outs[] = { "note", "velocity", "trigger", NULL };
+            const char *ins[]  = { "out0", "out1", "play", "channels", NULL };
+
+            int missing = 0;
+
+            for (int k = 0; outs[k]; k++)
+            {
+                bool have = false;
+
+                for (size_t q = 0; q < g.boxes()[source].ports.size(); q++)
+                    if (g.boxes()[source].ports[q].name == outs[k] &&
+                        !g.boxes()[source].ports[q].isInput)
+                        have = true;
+
+                if (!have)
+                { printf("FAIL  a new .dsp has no `%s' to drag from\n",
+                         outs[k]);
+                  missing++; }
+            }
+
+            for (int k = 0; ins[k]; k++)
+            {
+                bool have = false;
+
+                for (size_t q = 0; q < g.boxes()[sink].ports.size(); q++)
+                    if (g.boxes()[sink].ports[q].name == ins[k] &&
+                        g.boxes()[sink].ports[q].isInput)
+                        have = true;
+
+                if (!have)
+                { printf("FAIL  a new .dsp has no `%s' to drag into\n",
+                         ins[k]);
+                  missing++; }
+            }
+
+            failed += missing;
+
+            if (!missing)
+                printf("ok    a new .dsp has ports at both ends to wire "
+                       "from and to\n");
+        }
+    }
+
     /* Creating over an existing file must be refused. */
     if (NodeEdit::createFile(scratch, "again", "dspnew", why) == NodeEdit::OK)
     { printf("FAIL  createFile overwrote an existing file\n"); failed++; }
