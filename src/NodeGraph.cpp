@@ -21,6 +21,8 @@
 #include <stdio.h>
 #include <algorithm>
 
+#include <filesystem>
+
 #include "think.h"
 #include "NodeGraph.h"
 
@@ -367,18 +369,18 @@ bool NodeGraph::build (thSynthTree *tree)
                it, "misc::midi2freq", so the box matches the source. */
             string path = p->path();
 
-            string::size_type dot = path.rfind(".");
-            if (dot != string::npos)
-                path = path.substr(0, dot);
+            /* The last two components -- <category>/<name> -- become
+               "category::name". Done through fs::path rather than by hunting
+               for '/', because a plugin root derived from the executable's
+               own location carries native separators, which on Windows are
+               backslashes. */
+            const std::filesystem::path pp(path);
 
-            string::size_type slash = path.rfind('/');
-            string::size_type prev = (slash == string::npos)
-                                     ? string::npos
-                                     : path.rfind('/', slash - 1);
+            const std::string name = pp.stem().string();
+            const std::string category = pp.parent_path().filename().string();
 
-            if (slash != string::npos && prev != string::npos)
-                b.plugin = path.substr(prev + 1, slash - prev - 1) + "::" +
-                           path.substr(slash + 1);
+            if (!category.empty() && !name.empty())
+                b.plugin = category + "::" + name;
             else
                 b.plugin = path;
 
