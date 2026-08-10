@@ -156,10 +156,25 @@ else()
     set(RTAUDIO_API_JACK   OFF CACHE BOOL "" FORCE)
   endif()
 
+  # EXCLUDE_FROM_ALL keeps RtAudio's own install() rules out of ours. They are
+  # not merely redundant for a statically linked dependency -- they are
+  # broken: RtAudio writes RtAudioConfig.cmake into its own binary directory
+  # and its install script looks for it in the top-level one, so `cmake
+  # --install' and every cpack run fail with "cannot find
+  # .../RtAudioConfig.cmake". CMake honours this for install rules from 3.28.
   FetchContent_Declare(rtaudio
       GIT_REPOSITORY https://github.com/thestk/rtaudio.git
       GIT_TAG ${THINK_RTAUDIO_VERSION}
-      GIT_SHALLOW TRUE)
+      GIT_SHALLOW TRUE
+      EXCLUDE_FROM_ALL)
+
+  if(CMAKE_VERSION VERSION_LESS 3.28)
+    message(WARNING
+        "CMake ${CMAKE_VERSION} cannot suppress a fetched dependency's "
+        "install rules (3.28+ needed), so `cmake --install' and cpack will "
+        "fail on RtAudio's. Install rtaudio >= 6 system-wide, or upgrade "
+        "CMake, if you need to package this build.")
+  endif()
 
   FetchContent_MakeAvailable(rtaudio)
 
