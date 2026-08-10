@@ -180,6 +180,16 @@ int thPlugin::moduleLoad (void)
     return 0;
 
 loaderr:
+    /* Every failure below the open leaked the handle: state_ was set and the
+       function returned without closing. On Windows that also keeps the DLL
+       file locked until the process exits, so a plugin cannot be replaced
+       while thinksynth is running. */
+    if (handle_ != NULL)
+    {
+        thDynLib::close(handle_);
+        handle_ = NULL;
+    }
+
     state_ = NOTLOADED;
     return 1;
 }
@@ -202,4 +212,5 @@ void thPlugin::moduleUnload (void)
 
     /* Finally, unload the plugin */
     thDynLib::close(handle_);
+    handle_ = NULL;
 }

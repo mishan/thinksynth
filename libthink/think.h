@@ -19,9 +19,27 @@
 #ifndef THINK_H
 #define THINK_H
 
+/* Ask for the M_* constants before <math.h> is read. They are not in any C or
+   C++ standard, so a strict-conformance mode -- which -std=c++17 selects, as
+   opposed to -std=gnu++17 -- is entitled to hide them, and MinGW's headers
+   do exactly that. The tree uses M_PI in 27 places and M_E in 9. */
+#ifndef _USE_MATH_DEFINES
+# define _USE_MATH_DEFINES 1
+#endif
+
 #include <math.h>
 #include <stdint.h>
 #include <string.h>
+
+/* And a belt to go with the braces: a libc that offers neither spelling still
+   has to compile. */
+#ifndef M_PI
+# define M_PI 3.14159265358979323846
+#endif
+
+#ifndef M_E
+# define M_E 2.7182818284590452354
+#endif
 
 #include <map>
 #include <string>
