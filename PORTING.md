@@ -802,9 +802,11 @@ are likely to bite:
 
 - **`getopt`** in `main.cpp`. MinGW-w64 provides it, so this should survive,
   but it is not part of the C standard and is the sort of thing that differs.
-- **More BSD type names.** `u_int32_t` in `plugins/osc/simple.cpp` was the only
-  one in the tree, and it is fixed, but the same class of thing (`u_char`,
-  `u_long`) is what a 2004 codebase tends to be full of.
+
+A sweep for the rest of this class found: `u_int32_t` (fixed), `SIGUSR1` and
+`SIGALRM` (fixed), `chmod` (fixed), and nothing else. `strdup`, `unistd.h`,
+`sys/stat.h` and `getopt` all exist on MinGW-w64. `src/old/` is full of OSS
+and `sys/soundcard.h` but is not in the build.
 - **`gthPrefs`** uses `Glib::get_user_config_dir()`, which is right on all
   three, but nothing has checked that the directory is creatable on Windows.
 - **Packaging.** gtkmm-3 drags roughly forty DLLs behind it on Windows and a

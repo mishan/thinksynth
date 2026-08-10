@@ -39,7 +39,15 @@ think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(dspab)
-think_harness(dspstress THREADS)
+# dspstress runs each level in a forked child with an alarm(2) watchdog, so
+# that a level which segfaults or wedges does not take the run with it. That
+# is fork(), waitpid() and SIGALRM -- none of which Windows has, and the
+# obvious rewrite (threads, no isolation) would lose the property that makes
+# the harness useful. It is also a ThreadSanitizer harness, and there is no
+# TSan for MinGW. So it is simply not built there.
+if(NOT WIN32)
+  think_harness(dspstress THREADS)
+endif()
 
 # The audio path's block-size handling, without a sound card. gthSynthSource
 # is deliberately free of both gtkmm and RtAudio so this can link it directly.
