@@ -23,7 +23,7 @@ class gthAudio;
 class gthPrefs;
 class AboutBox;
 class MidiMap;
-class NodeWindow;
+class NodeEditor;
 
 using namespace std;
 
@@ -50,13 +50,16 @@ protected:
     /* A tab label that behaves in a vertical strip: left-aligned, and
        ellipsised rather than widening the strip to fit the longest name. */
     Gtk::Widget *makeTabLabel (const string &text, const string &tip);
+
+    /* Builds the node editor for a page the first time its tab is shown. */
+    void onSubTab (Gtk::Widget *page, guint num, Gtk::Widget *holder,
+                   string dspFile, int chan);
     void populate (void);
 
     void onPatchesChanged (void);
     void onAboutBoxHide (void);
     void onPatchSelHide (void);
     void onMidiMapHide (void);
-    void onNodeWinHide (void);
     void onKeyboardHide (void);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onDspEntryActivate (void);
@@ -84,7 +87,16 @@ protected:
     KeyboardWindow *kbWin_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
-    NodeWindow *nodeWin_;
+    /* The Overview/Nodes notebook on each patch page, indexed by channel, so
+       the menu item can switch the current page to its Nodes tab. NULL for a
+       channel with no patch. */
+    std::vector<Gtk::Notebook *> subTabs_;
+
+    /* The node editor on each page, built the first time its tab is looked
+       at. Building one scans the whole plugin directory for the palette, so
+       sixteen of them up front would be sixteen scans for the one you
+       wanted. */
+    std::map<Gtk::Widget *, NodeEditor *> editors_;
 private:
     gthAudio *audio_;
     string prevDir_;
