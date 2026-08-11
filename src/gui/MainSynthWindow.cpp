@@ -346,6 +346,12 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         
     Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
     Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
+
+    /* Room around and between the two frames. Everything sat flush against
+       the panel edge and against each other: the frame labels touched the
+       left border, and "Description:" ran into the line under it. */
+    tab_vbox->set_border_width(8);
+    tab_vbox->set_spacing(8);
     Gtk::Frame *info_frame = manage(new Gtk::Frame);
     Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
 
@@ -360,6 +366,10 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
 
     info_table->set_col_spacings(5);
     info_table->set_row_spacings(5);
+
+    /* Inside the frame as well as outside it, so the text is not against the
+       frame's own line. */
+    info_table->set_border_width(6);
 
     thArg *dspName = args["name"];
 
@@ -408,6 +418,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     ArgTable *dsp_table = manage(new ArgTable);
 
     dsp_frame->set_label("DSP Parameters");
+    dsp_table->set_border_width(6);
     dsp_frame->add(*dsp_table);
         
     tab_vbox->pack_start(*info_frame, Gtk::PACK_SHRINK);
