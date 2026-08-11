@@ -46,7 +46,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
       ampLabel("Amplitude"),
       fileLabel("Filename"),
       patchInfoExpander("Patch information"),
-      patchInfoTable(5, 2),
       patchRevisedLbl("Last revised:"),
       patchCategoryLbl("Patch category:"),
       patchAuthorLbl("Patch author:"),
@@ -65,26 +64,34 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
     patchInfoExpander.add(patchInfoTable);
 
-    patchInfoTable.attach(patchRevisedLbl,
-        0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
-    patchInfoTable.attach(patchRevised,
-        0, 1, 1, 2, Gtk::FILL, Gtk::FILL, 5, 0);
-    patchInfoTable.attach(patchCategoryLbl,
-        1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK);
-    patchInfoTable.attach(patchCategory,
-        1, 2, 1, 2, Gtk::FILL, Gtk::FILL, 5, 0);
-    patchInfoTable.attach(patchAuthorLbl,
-        0, 1, 2, 3, Gtk::SHRINK, Gtk::SHRINK);
-    patchInfoTable.attach(patchAuthor,
-        0, 1, 3, 4, Gtk::FILL, Gtk::FILL, 5, 0);
-    patchInfoTable.attach(patchTitleLbl,
-        1, 2, 2, 3, Gtk::SHRINK, Gtk::SHRINK);
-    patchInfoTable.attach(patchTitle,
-        1, 2, 3, 4, Gtk::FILL, Gtk::FILL, 5, 0);
-    patchInfoTable.attach(patchCommentsLbl,
-        0, 2, 4, 5, Gtk::SHRINK, Gtk::SHRINK);
-    patchInfoTable.attach(patchCommentsWin,
-        0, 2, 5, 7, Gtk::FILL, Gtk::FILL, 5, 0); 
+    /* Gtk::Table is gone in GTK4 and Grid has been its replacement since 3.2.
+       Grid::attach takes a span rather than two edges, and the flags and
+       padding that used to travel with the child are properties on the child
+       -- FILL is what a Grid child does anyway, SHRINK is simply not
+       expanding, and the padding is a margin. */
+    patchInfoTable.attach(patchRevisedLbl, 0, 0, 1, 1);
+    patchInfoTable.attach(patchRevised, 0, 1, 1, 1);
+    patchInfoTable.attach(patchCategoryLbl, 1, 0, 1, 1);
+    patchInfoTable.attach(patchCategory, 1, 1, 1, 1);
+    patchInfoTable.attach(patchAuthorLbl, 0, 2, 1, 1);
+    patchInfoTable.attach(patchAuthor, 0, 3, 1, 1);
+    patchInfoTable.attach(patchTitleLbl, 1, 2, 1, 1);
+    patchInfoTable.attach(patchTitle, 1, 3, 1, 1);
+    patchInfoTable.attach(patchCommentsLbl, 0, 4, 2, 1);
+    patchInfoTable.attach(patchCommentsWin, 0, 5, 2, 2);
+
+    /* The 5-pixel horizontal padding the four fields and the comment box
+       carried. */
+    {
+        Gtk::Widget *padded[] = { &patchRevised, &patchCategory, &patchAuthor,
+                                  &patchTitle, &patchCommentsWin };
+
+        for (size_t i = 0; i < sizeof(padded) / sizeof(padded[0]); i++)
+        {
+            padded[i]->set_margin_start(5);
+            padded[i]->set_margin_end(5);
+        }
+    }
         
     patchComments.set_wrap_mode(Gtk::WRAP_WORD_CHAR);
     patchCommentsWin.add(patchComments);
@@ -134,16 +141,33 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     vbox.pack_start(patchInfoExpander, Gtk::PACK_SHRINK);
     vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
 
-    controlTable.attach(ampLabel, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
-    controlTable.attach(dspAmp, 1, 2, 0, 1);
-    controlTable.attach(saveButton, 2, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 0);
-    controlTable.attach(fileLabel, 0, 1, 1, 2, Gtk::SHRINK,
-                        Gtk::SHRINK, 0, 5);
-    controlTable.attach(fileEntry, 1, 2, 1, 2, Gtk::FILL|Gtk::EXPAND,
-                        Gtk::FILL|Gtk::EXPAND, 0, 5);
-    controlTable.attach(browseButton, 2, 3, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5,
-                        0); 
-    controlTable.attach(unloadButton, 3, 4, 1, 2, Gtk::SHRINK, Gtk::SHRINK, 5, 0); 
+    ampLabel.set_margin_start(5);
+    ampLabel.set_margin_end(5);
+    saveButton.set_margin_start(5);
+    saveButton.set_margin_end(5);
+    browseButton.set_margin_start(5);
+    browseButton.set_margin_end(5);
+    unloadButton.set_margin_start(5);
+    unloadButton.set_margin_end(5);
+    fileLabel.set_margin_top(5);
+    fileLabel.set_margin_bottom(5);
+    fileEntry.set_margin_top(5);
+    fileEntry.set_margin_bottom(5);
+
+    /* The amplitude slider and the filename are the two that grow with the
+       window; everything else on this grid is a label or a button at its own
+       size. That was Gtk::FILL|Gtk::EXPAND, which is the attach default and
+       is why the two of them say nothing here about it. */
+    dspAmp.set_hexpand(true);
+    fileEntry.set_hexpand(true);
+
+    controlTable.attach(ampLabel, 0, 0, 1, 1);
+    controlTable.attach(dspAmp, 1, 0, 1, 1);
+    controlTable.attach(saveButton, 2, 0, 2, 1);
+    controlTable.attach(fileLabel, 0, 1, 1, 1);
+    controlTable.attach(fileEntry, 1, 1, 1, 1);
+    controlTable.attach(browseButton, 2, 1, 1, 1);
+    controlTable.attach(unloadButton, 3, 1, 1, 1);
     
     gthPatchManager *patchMgr = gthPatchManager::instance();
     patchMgr->signal_patches_changed().connect(

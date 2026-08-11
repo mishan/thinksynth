@@ -39,7 +39,7 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
 
     add(vbox_);
 
-    ctrlTable_ = manage(new Gtk::Table);
+    ctrlTable_ = manage(new Gtk::Grid);
     keyboard_ = manage(new Keyboard);
     ctrlFrame_ = manage(new Gtk::Frame("Keyboard Control"));
     chanLbl_ = manage(new Gtk::Label("Channel"));
@@ -61,13 +61,33 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
     transVal_ = Gtk::Adjustment::create(0, -72, 72);
     transBtn_ = manage(new Gtk::SpinButton(transVal_));
 
-    ctrlTable_->attach(*chanLbl_, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
-    ctrlTable_->attach(*chanBtn_, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+    chanLbl_->set_margin_start(5);
+    chanLbl_->set_margin_end(5);
+    chanLbl_->set_margin_top(5);
+    chanLbl_->set_margin_bottom(5);
+    ctrlTable_->attach(*chanLbl_, 0, 0, 1, 1);
+    chanBtn_->set_margin_start(5);
+    chanBtn_->set_margin_end(5);
+    chanBtn_->set_margin_top(5);
+    chanBtn_->set_margin_bottom(5);
+    ctrlTable_->attach(*chanBtn_, 1, 0, 1, 1);
 
-    ctrlTable_->attach(*transLbl_, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
-    ctrlTable_->attach(*transBtn_, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+    transLbl_->set_margin_start(5);
+    transLbl_->set_margin_end(5);
+    transLbl_->set_margin_top(5);
+    transLbl_->set_margin_bottom(5);
+    ctrlTable_->attach(*transLbl_, 2, 0, 1, 1);
+    transBtn_->set_margin_start(5);
+    transBtn_->set_margin_end(5);
+    transBtn_->set_margin_top(5);
+    transBtn_->set_margin_bottom(5);
+    ctrlTable_->attach(*transBtn_, 3, 0, 1, 1);
 
-    ctrlTable_->attach(*resetBtn_, 4, 5, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+    resetBtn_->set_margin_start(5);
+    resetBtn_->set_margin_end(5);
+    resetBtn_->set_margin_top(5);
+    resetBtn_->set_margin_bottom(5);
+    ctrlTable_->attach(*resetBtn_, 4, 0, 1, 1);
 
     chanVal_->signal_value_changed().connect(
         sigc::mem_fun(*this, &KeyboardWindow::changeChannel));

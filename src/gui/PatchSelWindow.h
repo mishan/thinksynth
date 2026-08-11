@@ -56,7 +56,7 @@ protected:
     virtual void on_realize (void);
 
     Gtk::Box vbox{Gtk::ORIENTATION_VERTICAL};
-    Gtk::Table controlTable;
+    Gtk::Grid controlTable;
 
     Gtk::Scale dspAmp{Gtk::ORIENTATION_HORIZONTAL};
     Gtk::Button setButton;
@@ -69,7 +69,7 @@ protected:
     Gtk::Entry fileEntry;
 
     Gtk::Expander patchInfoExpander;
-    Gtk::Table patchInfoTable;
+    Gtk::Grid patchInfoTable;
     Gtk::Label patchRevisedLbl;
     Gtk::Entry patchRevised;
     Gtk::Label patchCategoryLbl;
