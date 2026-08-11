@@ -80,7 +80,14 @@ if(THINK_BUILD_STATIC_LIB)
   set_target_properties(think_static PROPERTIES OUTPUT_NAME think)
 endif()
 
-install(TARGETS think LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
+# On Windows the DLL is the RUNTIME artifact and the import library is the
+# ARCHIVE one; naming only LIBRARY would package neither. ARCHIVE goes to the
+# ordinary libdir because it is only of interest to someone linking against
+# libthink, not to someone running thinksynth.
+install(TARGETS think
+        LIBRARY DESTINATION "${THINK_PKG_LIB_DIR}"
+        RUNTIME DESTINATION "${THINK_PKG_LIB_DIR}"
+        ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")
 
 if(THINK_BUILD_STATIC_LIB)
   install(TARGETS think_static ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}")

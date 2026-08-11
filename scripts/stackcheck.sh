@@ -2,9 +2,8 @@
 #
 # stackcheck -- is the branch stack sound?
 #
-# Checks, for the chain master -> revive-thinksynth -> gain-staging ->
-# gtkmm3-port -> node-editor -> interaction -> params -> writer -> wires ->
-# controls:
+# Checks, for the whole chain listed in STACK below -- master through the node
+# editor branches and on into the porting ones:
 #
 #   - each branch is a strict ancestor of the next, so the stack is linear
 #     and every branch can be reviewed as the diff against its parent
@@ -20,10 +19,23 @@
 
 set -e
 
-STACK="master revive-thinksynth gain-staging gtkmm3-port node-editor \
+# Every branch above master, in order. Merged ones drop off: revive-thinksynth,
+# gtkmm3-port and gtkmm4-scope are in master now, and gain-staging's three
+# commits ride along inside node-editor.
+#
+# Keeping this current is the whole job. The contents checks run over
+# master..<last entry>, so a branch missing from here is a branch nothing looks
+# at -- which is how three 190K shared libraries sat in `Delete autotools'
+# from the moment it was written. The tip used to be hardcoded and fell two
+# branches behind; now it is the last entry, and the list itself is the thing
+# that has to be kept honest.
+STACK="master node-editor \
        node-editor-interaction node-editor-params node-editor-writer \
        node-editor-wires node-editor-controls node-editor-authoring \
-       node-editor-attached node-editor-layout"
+       node-editor-attached node-editor-layout node-editor-workingcopy \
+       node-editor-multiselect \
+       porting-scope porting-cmake porting-cleanup porting-audio \
+       porting-midi porting-macwin porting-package"
 
 fail=0
 

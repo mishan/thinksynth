@@ -38,6 +38,7 @@ typedef void (*sighandler_t)(int);
 
 #include "think.h"
 #include "gthAudio.h"
+#include "gthGtkRuntime.h"
 #include "gthSynthSource.h"
 #include "gthRtAudio.h"
 #include "gthRtMidi.h"
@@ -80,6 +81,8 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "-m [port]\t\tMIDI input port, by full or partial name; if it does\n"
 "\t\t\tnot match, MIDI is off rather than something else\n"
 "-L\t\t\tlist the audio and MIDI APIs, devices and ports, then exit\n"
+"-G\t\t\treport whether GTK's schemas, icon theme and image loaders\n"
+"\t\t\tare reachable, then exit nonzero if any are not\n"
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
 ;
@@ -269,6 +272,12 @@ int main (int argc, char *argv[])
        with the deprecated API compiled out, so on Windows it is not merely
        pointless but an undefined reference at link time. */
 
+    /* Before Gtk::Main, and it has to be: GLib caches the system data
+       directories the first time anything asks for them, and Gtk::Main asks.
+       Does nothing unless the package shipped GTK's data alongside us, which
+       on Linux it does not. */
+    gthGtkRuntime::configure();
+
     /* init Glib/Gtk args */
     Gtk::Main mymain(argc, argv);
 
@@ -295,7 +304,7 @@ int main (int argc, char *argv[])
      * its lexer, so anything embedding the library has to do the same. */
     setlocale(LC_NUMERIC, "C");
 
-    while ((havearg = getopt (argc, argv, "hLp:o:d:m:r:l:")) != -1)
+    while ((havearg = getopt (argc, argv, "hLGp:o:d:m:r:l:")) != -1)
     {
         switch (havearg)
         {
@@ -303,6 +312,10 @@ int main (int argc, char *argv[])
             {
                 listAudio();
                 return 0;
+            }
+            case 'G':
+            {
+                return gthGtkRuntime::selfTest();
             }
             case 'r':
             {

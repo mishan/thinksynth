@@ -391,6 +391,10 @@ if(WIN32 AND CMAKE_VERSION VERSION_LESS 3.21)
       "on PATH.")
 endif()
 
+# Decides where plugins, DSPs and libthink go on each platform. Must precede
+# the subdirectories, whose install() rules use it.
+include(Layout)
+
 enable_testing()
 
 add_subdirectory(libthink)
@@ -401,9 +405,9 @@ if(THINK_BUILD_HARNESSES)
   add_subdirectory(scripts)
 endif()
 
-install(DIRECTORY dsp/     DESTINATION "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}/dsp"
+install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
         FILES_MATCHING PATTERN "*.dsp")
-install(DIRECTORY patches/ DESTINATION "${CMAKE_INSTALL_DATADIR}/${PROJECT_NAME}/patches"
+install(DIRECTORY patches/ DESTINATION "${THINK_PKG_DATA_DIR}/patches"
         FILES_MATCHING PATTERN "*.patch")
 
 # ---------------------------------------------------------------------------
@@ -425,11 +429,17 @@ set(PACKAGE_VERSION "${PROJECT_VERSION}")
 configure_file(etc/thinkrc.in        "${PROJECT_BINARY_DIR}/etc/thinkrc" @ONLY)
 configure_file(docs/thinksynth.1.in  "${PROJECT_BINARY_DIR}/docs/thinksynth.1" @ONLY)
 
-install(FILES "${PROJECT_BINARY_DIR}/etc/thinkrc"
-        DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}")
+# A system-wide config file and a man page are Unix notions; a .app and a
+# zip have nowhere sensible to put either.
+if(NOT APPLE AND NOT WIN32)
+  install(FILES "${PROJECT_BINARY_DIR}/etc/thinkrc"
+          DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}")
 
-install(FILES "${PROJECT_BINARY_DIR}/docs/thinksynth.1"
-        DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+  install(FILES "${PROJECT_BINARY_DIR}/docs/thinksynth.1"
+          DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
+endif()
+
+include(Packaging)
 
 # ---------------------------------------------------------------------------
 

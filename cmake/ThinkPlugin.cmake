@@ -41,9 +41,12 @@ function(think_add_plugin category name)
       CXX_VISIBILITY_PRESET hidden
       VISIBILITY_INLINES_HIDDEN ON)
 
+  # A MODULE is a LIBRARY artifact on Unix and a RUNTIME one on Windows, so
+  # naming only LIBRARY would install nothing there and leave a package whose
+  # plugin directory is empty.
   install(TARGETS ${target}
-          LIBRARY DESTINATION
-            "${CMAKE_INSTALL_LIBDIR}/${PROJECT_NAME}/plugins/${category}")
+          LIBRARY DESTINATION "${THINK_PKG_PLUGIN_DIR}/${category}"
+          RUNTIME DESTINATION "${THINK_PKG_PLUGIN_DIR}/${category}")
 
   # So `plugins' can be built on its own, and so the app can depend on the
   # whole set existing.
