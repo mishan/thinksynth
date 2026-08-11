@@ -66,6 +66,9 @@ protected:
     void onMidiMapHide (void);
     void onKeyboardHide (void);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
+
+    /* Bolds the current tab's label and unbolds the rest. */
+    void highlightTab (int pagenum);
     void onDspEntryActivate (void);
     void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
