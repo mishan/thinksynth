@@ -27,10 +27,17 @@
 
 #include "ArgTable.h"
 
+/* Columns to wrap at, at most. Not a width: how many actually appear is
+   whatever fits, and this only stops a very wide window laying thirty
+   parameters out in one unreadable row. */
+static const int MAXCOLS = 3;
+
 ArgTable::ArgTable (void)
-    : rows_(1), args_(0)
 {
     set_spacing(6);
+
+    nameWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
+    valueWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
 }
 
 ArgTable::~ArgTable (void)
@@ -99,26 +106,6 @@ int ArgTable::widthFor (double hi, int digits)
     return chars < 6 ? 6 : chars;
 }
 
-/* How many parameters go side by side.
- *
- * One column was the whole layout, and ts1 has thirteen parameters while
- * aspect2 has thirty-one -- a strip taller than any window, scrolled past to
- * reach the one you wanted. A slider needs width to be worth dragging, so the
- * columns are few and wide rather than many and thin; three is where a
- * 1200-pixel window still leaves each slider usable.
- *
- * Fixed thresholds rather than a measurement of the allocation: the panel is
- * built before it has been allocated a size, and a layout that reflows while
- * you are reaching for a slider is worse than one that is occasionally a
- * column short. */
-int ArgTable::columnsFor (int n)
-{
-    if (n <= 8)  return 1;
-    if (n <= 20) return 2;
-
-    return 3;
-}
-
 void ArgTable::insertArg (thArg *arg, const string &group)
 {
     if (arg == NULL)
@@ -176,13 +163,16 @@ void ArgTable::reflow (void)
         groups[g].push_back(pending_[i]);
     }
 
-    /* Each group is a block, and the blocks go side by side.
+    /* Each group is a block, and the blocks are stacked.
      *
-     * Stacking them was the obvious thing and it undid the columns: a group
-     * of five is five rows, and four groups stacked are the tall strip the
-     * columns existed to get rid of. Side by side, each group is a narrow
-     * block of its own -- which is also how a synth's front panel is laid
-     * out, one section per part of the signal path. */
+     * They used to be laid side by side, because stacking them undid the
+     * columns: a group of five was five rows, and four groups stacked were
+     * the tall strip the columns existed to get rid of. That was true while a
+     * block was one column wide. Now every block wraps to the width it is
+     * given, so a stack of them is a stack of wide rows and the argument has
+     * gone -- and side by side does not survive wrapping, because the first
+     * block will take all the width it is offered and leave the next one
+     * nothing to sit in. */
     std::vector<Gtk::Widget *> blocks;
 
     /* A group of one is not a group.
@@ -216,69 +206,76 @@ void ArgTable::reflow (void)
     }
 
     if (!loose.empty())
-        blocks.push_back(makeGrid(loose, columnsFor((int)loose.size())));
+        blocks.push_back(makeFlow(loose, MAXCOLS));
 
     for (size_t i = 0; i < order.size(); i++)
     {
         Gtk::Expander *exp = manage(new Gtk::Expander(order[i]));
 
-        /* One column inside a block: the block is narrow by design, and the
-           whole point is that the group reads as a single short list. */
+        /* Groups wrap like everything else. A group is a row of a front
+           panel -- attack, decay, sustain, release across -- and holding it
+           to one column so it read as a list only made sense while it had a
+           narrow block to itself. */
         exp->set_expanded(true);
-        exp->add(*makeGrid(groups[order[i]], 1));
+        exp->add(*makeFlow(groups[order[i]], MAXCOLS));
 
         blocks.push_back(exp);
     }
 
-    const int n = (int)blocks.size();
-    const int cols = (n <= 1) ? 1 : (n <= 4 ? 2 : 3);
-    const int rows = (n + cols - 1) / cols;
-
-    Gtk::Table *outer = manage(new Gtk::Table(rows, cols));
-
-    outer->set_col_spacings(12);
-    outer->set_row_spacings(8);
-
-    for (int i = 0; i < n; i++)
+    for (size_t i = 0; i < blocks.size(); i++)
     {
-        const int c = i % cols;
-        const int r = i / cols;
+        blocks[i]->set_valign(Gtk::ALIGN_START);
 
-        /* Top-aligned, so blocks of different heights line up along their
-           titles rather than floating in the middle of the tallest row. */
-        outer->attach(*blocks[i], c, c + 1, r, r + 1,
-                      Gtk::EXPAND|Gtk::FILL, Gtk::FILL);
+        pack_start(*blocks[i], Gtk::PACK_SHRINK);
     }
-
-    pack_start(*outer, Gtk::PACK_SHRINK);
 
     show_all_children();
 }
 
-/* A grid of these parameters, filled down each column and then across, so
-   reading top to bottom gives them in order. */
-Gtk::Table *ArgTable::makeGrid (const std::vector<thArg *> &args, int cols)
+/* These parameters, in as many columns as the width will take.
+ *
+ * The column count used to be worked out from how many there were: one up to
+ * eight, two up to twenty, three beyond. It was a guess at the width, made
+ * before the panel had been allocated one, and it was wrong in both
+ * directions -- three columns held their width whatever the window did, so a
+ * narrow window scrolled sideways past sliders squeezed to a nub instead of
+ * stacking them.
+ *
+ * A flow box asks the question at the time it can be answered. Each parameter
+ * is one child with a minimum width of its own -- a slider narrower than that
+ * is not draggable in any useful way -- so the wrapping falls out of how many
+ * of those fit, and the panel's own minimum is one of them. That is what lets
+ * the window be dragged down to a single column rather than stopping at
+ * whatever three columns needed.
+ *
+ * Homogeneous, so every column is the same width; combined with the two size
+ * groups it means the names, sliders and value boxes line up down the panel
+ * rather than each column being its own shape. */
+Gtk::FlowBox *ArgTable::makeFlow (const std::vector<thArg *> &args,
+                                  int maxPerLine)
 {
-    const int n = (int)args.size();
-    const int perCol = (n + cols - 1) / cols;
+    Gtk::FlowBox *flow = manage(new Gtk::FlowBox);
 
-    Gtk::Table *grid = manage(new Gtk::Table(perCol, cols * 3));
+    flow->set_selection_mode(Gtk::SELECTION_NONE);
+    flow->set_homogeneous(true);
+    flow->set_min_children_per_line(1);
+    flow->set_max_children_per_line(maxPerLine);
+    flow->set_column_spacing(12);
+    flow->set_row_spacing(2);
+    flow->set_border_width(4);
+    flow->set_valign(Gtk::ALIGN_START);
 
-    grid->set_col_spacings(8);
-    grid->set_row_spacings(2);
-    grid->set_border_width(4);
+    for (size_t i = 0; i < args.size(); i++)
+        flow->add(*makeRow(args[i]));
 
-    for (int i = 0; i < n; i++)
-        placeArg(grid, args[i], i / perCol, i % perCol);
-
-    return grid;
+    return flow;
 }
 
-void ArgTable::placeArg (Gtk::Table *grid, thArg *arg, int col, int row)
+Gtk::Widget *ArgTable::makeRow (thArg *arg)
 {
-    const int x = col * 3;
+    Gtk::HBox *row = manage(new Gtk::HBox);
 
-    args_++;
+    row->set_spacing(8);
 
     string text = (arg->label().length() > 0) ? arg->label() : arg->name();
 
@@ -336,9 +333,10 @@ void ArgTable::placeArg (Gtk::Table *grid, thArg *arg, int col, int row)
     valEntry->set_width_chars(widthFor(hi, digits));
 
     /* A slider narrower than this is not draggable in any useful way -- the
-       handle is most of it. Asking for the width means a window too narrow
-       for the columns scrolls, rather than silently squeezing every slider
-       down to a nub, which is what happened at 800 pixels. */
+       handle is most of it. Asking for the width is also what tells the flow
+       box how much a parameter costs, so it is the number the wrapping is
+       decided by, and the panel will drop to one column rather than squeeze
+       every slider down to a nub. */
     slider->set_size_request(140, -1);
 
     /* No ellipsis here.
@@ -352,13 +350,17 @@ void ArgTable::placeArg (Gtk::Table *grid, thArg *arg, int col, int row)
     label->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
     label->set_tooltip_text(arg->name());
 
-    grid->attach(*label, x, x + 1, row, row + 1, Gtk::FILL, Gtk::SHRINK);
-    grid->attach(*slider, x + 1, x + 2, row, row + 1,
-                 Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
-    grid->attach(*valEntry, x + 2, x + 3, row, row + 1,
-                 Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
+    nameWidth_->add_widget(*label);
+    valueWidth_->add_widget(*valEntry);
+
+    row->pack_start(*label, Gtk::PACK_SHRINK);
+    row->pack_start(*slider, Gtk::PACK_EXPAND_WIDGET);
+    row->pack_start(*valEntry, Gtk::PACK_SHRINK);
+
+    return row;
 }
-    
+
+
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
     arg->setValue(fromDisplay(slider->get_value(), arg->units()));

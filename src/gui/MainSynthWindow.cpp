@@ -360,10 +360,21 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
 
     tab_view->add(*tab_vbox);
-    /* Horizontal scrolling allowed now that the parameters sit in columns.
-       It was NEVER, which meant a window narrower than the layout crushed the
-       sliders instead of letting you scroll to them. */
-    tab_view->set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
+
+    /* No horizontal scrolling, and the parameter panel needs it that way.
+     *
+     * A scrolled window that may scroll gives its child the width the child
+     * asks for and scrolls to the rest; one that may not gives the child the
+     * viewport. The panel now decides its own column count from the width it
+     * is handed, so the first of those means it is asked how wide it would
+     * like to be, answers with the widest thing it can draw, and never wraps
+     * -- the sideways scrollbar appears instead.
+     *
+     * It was NEVER before the columns existed, then AUTOMATIC so a narrow
+     * window could scroll to sliders squeezed to a nub rather than crushing
+     * them. Wrapping is the better answer to that and this is what it needs.
+     * The panel's minimum is one column, so the window still goes narrow. */
+    tab_view->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
 
     info_frame->set_label("DSP Information");
     info_frame->add(*info_table);
