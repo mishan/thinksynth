@@ -22,14 +22,14 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <dirent.h>
-
 #include <algorithm>
+#include <filesystem>
+#include <system_error>
 
 #include "think.h"
 #include "NodeCatalog.h"
+
+namespace fs = std::filesystem;
 
 NodeCatalog::NodeCatalog (void)
 {
@@ -51,56 +51,39 @@ int NodeCatalog::scan (const string &path)
     categories_.clear();
     byCategory_.clear();
 
-    string root = path;
+    const fs::path root = path.empty() ? fs::path(".") : fs::path(path);
 
-    if (root.empty())
-        root = "./";
-    else if (root[root.size() - 1] != '/')
-        root += '/';
+    std::error_code ec;
 
-    DIR *top = opendir(root.c_str());
-
-    if (top == NULL)
+    /* A missing plugin root is ordinary -- the palette is empty and the
+       editor still opens -- so the non-throwing overloads throughout. */
+    if (!fs::is_directory(root, ec))
         return 0;
 
-    struct dirent *de;
-
-    while ((de = readdir(top)) != NULL)
+    for (const auto &catEntry : fs::directory_iterator(root, ec))
     {
-        const string cat = de->d_name;
+        if (ec)
+            break;
 
-        if (cat == "." || cat == "..")
+        if (!catEntry.is_directory(ec))
             continue;
 
-        const string catPath = root + cat;
-
-        struct stat st;
-
-        if (stat(catPath.c_str(), &st) != 0 || !S_ISDIR(st.st_mode))
-            continue;
-
-        DIR *sub = opendir(catPath.c_str());
-
-        if (sub == NULL)
-            continue;
+        const string cat = catEntry.path().filename().string();
 
         bool any = false;
-        struct dirent *pe;
 
-        while ((pe = readdir(sub)) != NULL)
+        for (const auto &f : fs::directory_iterator(catEntry.path(), ec))
         {
-            const string file = pe->d_name;
-            const string suffix = PLUGIN_SUFFIX;
+            if (ec)
+                break;
 
-            if (file.size() <= suffix.size() ||
-                file.compare(file.size() - suffix.size(),
-                             suffix.size(), suffix) != 0)
+            if (f.path().extension() != PLUGIN_SUFFIX)
                 continue;
 
             Entry e;
 
             e.category = cat;
-            e.name = file.substr(0, file.size() - suffix.size());
+            e.name = f.path().stem().string();
             e.spelling = cat + "::" + e.name;
 
             entries_.push_back(e);
@@ -109,13 +92,9 @@ int NodeCatalog::scan (const string &path)
             any = true;
         }
 
-        closedir(sub);
-
         if (any)
             categories_.push_back(cat);
     }
-
-    closedir(top);
 
     /* readdir order is whatever the filesystem feels like, and a palette that
        reorders itself between runs is unusable. */

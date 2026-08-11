@@ -596,10 +596,20 @@ static bool writeLines (const string &filename, const vector<string> &lines,
         }
     }
 
+    /* Carry the original's permissions onto the replacement, so saving a .dsp
+       does not quietly change who can read or write it.
+     *
+     * Unix only. Windows has no POSIX mode worth preserving -- st_mode there
+     * carries little beyond a read-only bit -- and chmod is declared in
+     * <io.h> rather than <sys/stat.h>, so this would not compile. Nothing is
+     * lost by skipping it: what governs access on Windows is the ACL the file
+     * inherits from its directory, which the rename below leaves alone. */
+#ifndef _WIN32
     struct stat st;
 
     if (stat(filename.c_str(), &st) == 0)
         chmod(tmp.c_str(), st.st_mode & 07777);
+#endif
 
     if (rename(tmp.c_str(), filename.c_str()) != 0)
     {

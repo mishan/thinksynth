@@ -24,14 +24,14 @@
 
 #include "think.h"
 
-char        *desc = "Square wave with sine-like transitions, proportional to the frequency";
+static const char desc[] = "Square wave with sine-like transitions, proportional to the frequency";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum {OUT_ARG, INOUT_LAST, IN_FREQ, IN_PW, IN_SW};
 
 int args[IN_SW + 1];
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

@@ -26,10 +26,10 @@
 
 #define SQR(x) ((x)*(x))
 
-char        *desc = "Multiple Parabola Waves";
+static const char desc[] = "Multiple Parabola Waves";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

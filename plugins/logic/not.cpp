@@ -22,10 +22,10 @@
 
 #include "think.h"
 
-char        *desc = "Logical Not";
+static const char desc[] = "Logical Not";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

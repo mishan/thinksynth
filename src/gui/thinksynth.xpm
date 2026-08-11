@@ -1,5 +1,5 @@
 /* XPM */
-static char *thinksynth[] = {
+static const char *thinksynth[] = {
 /* columns rows colors chars-per-pixel */
 "407 118 250 2",
 "   c #010101",

@@ -22,10 +22,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
-#include <sys/types.h>
-#include <sys/stat.h>
-#include <unistd.h>
-#include <pthread.h>
+#include <filesystem>
+#include <system_error>
 
 #include <algorithm>
 
@@ -36,8 +34,6 @@ thSynth *thSynth::instance_ = NULL;
 
 thSynth::thSynth (int windowlen, int samples)
 {
-    synthMutex_ = new pthread_mutex_t;
-    pthread_mutex_init(synthMutex_, NULL);
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
@@ -71,8 +67,6 @@ thSynth::thSynth (int windowlen, int samples)
 
 thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 {
-    synthMutex_ = new pthread_mutex_t;
-    pthread_mutex_init(synthMutex_, NULL);
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
@@ -160,9 +154,6 @@ thSynth::~thSynth (void)
 
     delete controllerHandler_;
     delete pluginmanager_;
-
-    pthread_mutex_destroy(synthMutex_);
-    delete synthMutex_;
 
     if (instance_ == this)
         instance_ = NULL;
@@ -300,7 +291,7 @@ void thSynth::removeChan (int channum)
     if ((channum < 0) || (channum >= midiChannelCnt_))
         return;
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     if (guiChannels_[channum] != NULL)
@@ -330,7 +321,6 @@ void thSynth::removeChan (int channum)
         }
     }
 
-    pthread_mutex_unlock(synthMutex_);
 }
 
 /* Common tail for the loadTree() overloads.
@@ -405,15 +395,20 @@ thSynthTree *thSynth::finishParse (const string &what, int parseResult,
 
 thSynthTree * thSynth::loadTree (const string &filename)
 {
-    struct stat dspinfo;
+    std::error_code ec;
 
-    if (stat(filename.c_str(), &dspinfo) < 0)
+    if (!std::filesystem::exists(filename, ec))
     {
+        /* ec is only set when the query itself failed -- a permission problem
+           on a parent directory, say. A file that is simply not there is not
+           an error to fs::exists, so it reports nothing and the message has
+           to supply its own wording rather than reach for errno, which
+           nothing here has set. */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
-                 strerror(errno));
+                 ec ? ec.message().c_str() : "no such file or directory");
         return NULL;
     }
-    else if (S_ISDIR(dspinfo.st_mode))
+    else if (std::filesystem::is_directory(filename, ec))
     {
         fprintf(stderr, "%s is a directory\n", filename.c_str());
 
@@ -430,7 +425,7 @@ thSynthTree * thSynth::loadTree (const string &filename)
         return NULL;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
 
     /* XXX: do we re-allocate these everytime we read a new input file?? */
      /* these are used by the parser */
@@ -448,16 +443,15 @@ thSynthTree * thSynth::loadTree (const string &filename)
     /* No channel involved, so thSynth keeps this one. */
     thSynthTree *tree = finishParse(filename, parseResult, true);
 
-    pthread_mutex_unlock(synthMutex_);
-
     return tree;
 }
 
 thSynthTree * thSynth::parseTree (const string &filename)
 {
-    struct stat dspinfo;
+    std::error_code ec;
 
-    if (stat(filename.c_str(), &dspinfo) < 0 || S_ISDIR(dspinfo.st_mode))
+    if (!std::filesystem::exists(filename, ec) ||
+        std::filesystem::is_directory(filename, ec))
         return NULL;
 
     /* Opened into a local, and only handed to the parser once the mutex is
@@ -473,7 +467,7 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     /* Same mutex as loadTree: the parser's globals are shared, so two parses
        at once would interleave. */
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
 
     yyin = input;
 
@@ -490,8 +484,6 @@ thSynthTree * thSynth::parseTree (const string &filename)
 
     thSynthTree *tree = finishParse(filename, parseResult, false);
 
-    pthread_mutex_unlock(synthMutex_);
-
     return tree;
 }
 
@@ -500,7 +492,7 @@ thSynthTree * thSynth::loadTree (FILE *input)
     if (!input)
         return NULL;
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     
     yyin = input;
 
@@ -516,8 +508,6 @@ thSynthTree * thSynth::loadTree (FILE *input)
 
     thSynthTree *tree = finishParse("<stream>", parseResult, true);
 
-    pthread_mutex_unlock(synthMutex_);
-
     return tree;
 }
 
@@ -530,12 +520,11 @@ void thSynth::setChanArg (int channum, thArg *arg)
         return;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     if (!guiChannels_[channum])
     {
-        pthread_mutex_unlock(synthMutex_);
         delete arg;
         return;
     }
@@ -570,8 +559,6 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
         existing->setValue((*arg)[0]);
 
-        pthread_mutex_unlock(synthMutex_);
-
         delete arg;
         return;
     }
@@ -588,7 +575,6 @@ void thSynth::setChanArg (int channum, thArg *arg)
 
     postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
 }
 
 /* GUI thread.
@@ -629,21 +615,26 @@ void thSynth::newMidiControllerConnection (unsigned char channel,
 
 thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 {
-    struct stat dspinfo;
-
     if (channum < 0)
     {
         fprintf(stderr, "thSynth::loadTree: negative channel %d\n", channum);
         return NULL;
     }
 
-    if (stat(filename.c_str(), &dspinfo) < 0)
+    std::error_code ec;
+
+    if (!std::filesystem::exists(filename, ec))
     {
+        /* ec is only set when the query itself failed -- a permission problem
+           on a parent directory, say. A file that is simply not there is not
+           an error to fs::exists, so it reports nothing and the message has
+           to supply its own wording rather than reach for errno, which
+           nothing here has set. */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
-                 strerror(errno));
+                 ec ? ec.message().c_str() : "no such file or directory");
         return NULL;
     }
-    else if (S_ISDIR(dspinfo.st_mode))
+    else if (std::filesystem::is_directory(filename, ec))
     {
         fprintf(stderr, "%s is a directory\n", filename.c_str());
 
@@ -660,7 +651,7 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
          return NULL;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     /* XXX: do we re-allocate these everytime we read a new input file?? */
@@ -681,7 +672,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     if (tree == NULL)
     {
-        pthread_mutex_unlock(synthMutex_);
         return NULL;
     }
 
@@ -692,7 +682,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
         fprintf(stderr, "thSynth::loadTree: channel %d is beyond the %d "
                 "available channels\n", channum, midiChannelCnt_);
         delete tree;
-        pthread_mutex_unlock(synthMutex_);
         return NULL;
     }
 
@@ -714,7 +703,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     {
         /* postCommand deleted newchan, which owns the tree; the previous
            channel is untouched and still current. */
-        pthread_mutex_unlock(synthMutex_);
         return NULL;
     }
 
@@ -724,8 +712,6 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     /* make sure there are no midi controllers set up for this channel */
     controllerHandler_->clearByDestChan(channum);
-
-    pthread_mutex_unlock(synthMutex_);
 
     return tree;
 }
@@ -757,7 +743,7 @@ bool thSynth::addNote (int channum, float note, float velocity)
         return false;
     }
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     thMidiChan *chan = guiChannels_[channum];
@@ -765,8 +751,6 @@ bool thSynth::addNote (int channum, float note, float velocity)
     if (!chan)
     {
         debug("thSynth::addNote: no such channel %d", channum);
-        pthread_mutex_unlock(synthMutex_);
-
         return false;
     }
 
@@ -774,7 +758,6 @@ bool thSynth::addNote (int channum, float note, float velocity)
 
     if (newnote == NULL)
     {
-        pthread_mutex_unlock(synthMutex_);
         return false;
     }
 
@@ -786,8 +769,6 @@ bool thSynth::addNote (int channum, float note, float velocity)
 
     bool ok = postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
-
     return ok;
 }
 
@@ -797,12 +778,11 @@ int thSynth::delNote (int channum, float note)
     if ((channum < 0) || (channum >= midiChannelCnt_))
         return 1;
 
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     if (!guiChannels_[channum])
     {
-        pthread_mutex_unlock(synthMutex_);
         return 1;
     }
 
@@ -817,14 +797,12 @@ int thSynth::delNote (int channum, float note)
 
     postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
-
     return 0;
 }
 
 void thSynth::clearAll (void)
 {
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
     /* This used to walk `while (*c) (*c++)->clearAll()', relying on a NULL
@@ -837,7 +815,6 @@ void thSynth::clearAll (void)
 
     postCommand(cmd);
 
-    pthread_mutex_unlock(synthMutex_);
 }
 
 /* Audio thread. */
@@ -933,10 +910,9 @@ void thSynth::setWindowlen (int windowlen)
 {
     /* XXX: fixme */
 #if 0
-    pthread_mutex_lock(synthMutex_);
+    std::lock_guard<std::mutex> lock(synthMutex_);
     windowlen_ = windowlen;
     delete [] output_;
     output_ = new float[channels_*windowlen_];
-    pthread_mutex_unlock(synthMutex_);
 #endif
 }

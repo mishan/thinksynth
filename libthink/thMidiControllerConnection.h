@@ -19,11 +19,13 @@
 #ifndef TH_MIDICONTROLLERCONNECTION_H
 #define TH_MIDICONTROLLERCONNECTION_H 1
 
+#include "thExport.h"
+
 /* This is the class that holds the actual data needed to set parameter values
    via midi controllers.  This includes minimum and maximum setting values,
    exponential/linear curve mapping and a pointer to the thArg being set. */
 
-class thMidiControllerConnection {
+class THINK_API thMidiControllerConnection {
 public:
     thMidiControllerConnection (thArg *arg, float min, float max, int scale,
                                 int chan, int controller, int dchan,

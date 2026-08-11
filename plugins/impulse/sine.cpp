@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Generates a sine impulse";
+static const char desc[] = "Generates a sine impulse";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

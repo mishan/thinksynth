@@ -22,10 +22,10 @@
 
 #include "think.h"
 
-char        *desc = "Amplifies and clips the stream";
+static const char desc[] = "Amplifies and clips the stream";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

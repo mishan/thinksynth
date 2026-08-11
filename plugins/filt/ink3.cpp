@@ -29,10 +29,10 @@ enum {IN_ARG, IN_CUTOFF, IN_RES, IN_SHAPE, OUT_ARG, OUT_BAND, OUT_HIGH,
       OUT_NOTCH, INOUT_LAST};
 int args[INOUT_LAST + 1];
 
-char        *desc = "`INK Filter`  this algorithm was in my head when I woke up";
+static const char desc[] = "`INK Filter`  this algorithm was in my head when I woke up";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

@@ -23,11 +23,18 @@
 #include <errno.h>
 #include <string.h>
 
+#include <filesystem>
+#include <system_error>
+
+#include <glibmm/miscutils.h>
+
 #include "think.h"
 
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
 #include "gui-util.h"
+
+namespace fs = std::filesystem;
 
 gthPrefs *gthPrefs::instance_ = NULL;
 
@@ -44,9 +51,39 @@ static void remove_string(char *line, int index, int numchars)
 }
 #endif
 
+/* Where the preferences live.
+ *
+ * This was `getenv("HOME") + "/" + ".thinkrc"', with the getenv result
+ * dereferenced unchecked -- HOME is not guaranteed to be set, and on Windows
+ * it usually is not. Glib::get_user_config_dir() is the portable answer and
+ * is already a dependency: it gives $XDG_CONFIG_HOME or ~/.config on Unix,
+ * ~/Library/Application Support on macOS, and %LOCALAPPDATA% on Windows.
+ *
+ * That does move the file, so legacyPrefsPath() below keeps the old location
+ * readable. Nothing writes there any more.
+ */
+string gthPrefs::prefsPath (void)
+{
+    return (fs::path(Glib::get_user_config_dir()) / PACKAGE_NAME / PREFS_FILE)
+           .string();
+}
+
+/* ~/.thinkrc, or "" if HOME is unset. Read-only, and only when the current
+   location has nothing in it -- otherwise a saved master gain, patch path and
+   MIDI map would silently vanish on upgrade. */
+string gthPrefs::legacyPrefsPath (void)
+{
+    const char *home = getenv("HOME");
+
+    if (home == NULL || *home == 0)
+        return "";
+
+    return (fs::path(home) / LEGACY_PREFS_FILE).string();
+}
+
 gthPrefs::gthPrefs (void)
 {
-    prefsPath_ = string(getenv("HOME")) + string("/") + PREFS_FILE;
+    prefsPath_ = prefsPath();
 
     if (instance_ == NULL)
         instance_ = this;
@@ -75,13 +112,23 @@ void gthPrefs::Load (void)
 
     if ((prefsFile = fopen(prefsPath_.c_str(), "r")) == NULL)
     {
-        fprintf(stderr, "could not open %s: %s\n", prefsPath_.c_str(),
-            strerror(errno));
-          if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
+        /* Nothing at the current location. Before falling back to the
+           system-wide defaults, look where preferences used to live -- a
+           saved master gain, patch path and MIDI map should survive the move
+           to the XDG directory rather than silently reverting. */
+        const string legacy = legacyPrefsPath();
+
+        if (!legacy.empty() &&
+            (prefsFile = fopen(legacy.c_str(), "r")) != NULL)
+        {
+            printf("migrating preferences from %s\n", legacy.c_str());
+            printf("  (they will be saved to %s)\n", prefsPath_.c_str());
+        }
+        else if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
         {
             /* just give up */
-            fprintf(stderr, "could not open " DEFAULT_THINKRC ": %s\n",
-                strerror(errno));
+            fprintf(stderr, "could not open %s or " DEFAULT_THINKRC "\n",
+                prefsPath_.c_str());
             return;
         }
         else
@@ -196,6 +243,11 @@ void gthPrefs::Save (void)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     FILE *prefsFile;
+
+    /* $HOME always existed; a per-application subdirectory of the config
+       directory may not, and fopen will not make one. */
+    std::error_code ec;
+    fs::create_directories(fs::path(prefsPath_).parent_path(), ec);
 
     if ((prefsFile = fopen(prefsPath_.c_str(), "w")) == NULL)
     {

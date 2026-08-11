@@ -18,32 +18,40 @@
 
 #include "config.h"
 
-#include "gthAudio.h"
 #include "gthDummyAudio.h"
 
-gthDummyAudio::gthDummyAudio (thSynth *synth)
+gthDummyAudio::gthDummyAudio (void) : running_(false)
 {
+    fmt_.rate = 0;
+    fmt_.channels = 0;
+    fmt_.frames = 0;
 }
 
 gthDummyAudio::~gthDummyAudio (void)
 {
 }
 
-int gthDummyAudio::Write (float *buf, int len)
+bool gthDummyAudio::open (const gthAudioFmt &want, gthAudioSource *source)
 {
-    return 0;
+    fmt_ = want;
+
+    /* The source still gets prepared. A patch that only misbehaves once the
+       renderer exists should misbehave under -d none too, rather than being
+       hidden by the dummy device doing nothing at all. */
+    if (source != NULL)
+        source->prepare(fmt_.frames ? fmt_.frames : 512,
+                        (unsigned)(fmt_.channels ? fmt_.channels : 2));
+
+    return true;
 }
 
-int gthDummyAudio::Read (void *buf, int len)
+bool gthDummyAudio::start (void)
 {
-    return 0;
+    running_ = true;
+    return true;
 }
 
-void gthDummyAudio::SetFormat (const gthAudioFmt *afmt)
+void gthDummyAudio::stop (void)
 {
-}
-
-bool gthDummyAudio::ProcessEvents (void)
-{
-    return false;
+    running_ = false;
 }

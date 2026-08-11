@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Generates a square wave impulse";
+static const char desc[] = "Generates a square wave impulse";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

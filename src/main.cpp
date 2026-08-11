@@ -36,22 +36,12 @@ typedef void (*sighandler_t)(int);
 
 #include <gtkmm.h>
 
-#ifdef HAVE_ALSA
-#include <alsa/asoundlib.h>
-#endif /* HAVE_ALSA */
-
 #include "think.h"
 #include "gthAudio.h"
-
-#ifdef HAVE_ALSA
-#include "gthALSAAudio.h"
-#include "gthALSAMidi.h"
-#endif /* HAVE_ALSA */
-
-#ifdef HAVE_JACK
-#include <jack/jack.h>
-#include "gthJackAudio.h"
-#endif /* HAVE_JACK */
+#include "gthGtkRuntime.h"
+#include "gthSynthSource.h"
+#include "gthRtAudio.h"
+#include "gthRtMidi.h"
 
 #include "gthDummyAudio.h"
 
@@ -67,10 +57,9 @@ typedef void (*sighandler_t)(int);
 /* XXX: globals */
 thSynth *Synth = NULL;
 gthAudio *aout = NULL;
+static gthSynthSource *asource = NULL;
 
-#ifdef HAVE_ALSA
-static gthALSAMidi *midi = NULL;
-#endif /* HAVE_ALSA */
+static gthRtMidi *midi = NULL;
 
 Gtk::Main *gtkMain = NULL;
 
@@ -86,48 +75,59 @@ PACKAGE_NAME " " PACKAGE_VERSION " by Leif M. Ames, Misha Nasledov, "
 "Usage: %s [options]\n"
 "-h\t\t\tdisplay this help screen\n"
 "-p [path]\t\tmodify the plugin search path\n"
-"-d [jack|alsa]\tchange output driver\n"
-"  -o [file|device]\tchange output dest\n"
+"-d [driver]\t\taudio API: alsa, jack, pulse, core, wasapi, asio,\n"
+"\t\t\tnone, or empty to let RtAudio choose\n"
+"  -o [device]\t\toutput device, by full or partial name\n"
+"-m [port]\t\tMIDI input port, by full or partial name; if it does\n"
+"\t\t\tnot match, MIDI is off rather than something else\n"
+"-L\t\t\tlist the audio and MIDI APIs, devices and ports, then exit\n"
+"-G\t\t\treport whether GTK's schemas, icon theme and image loaders\n"
+"\t\t\tare reachable, then exit nonzero if any are not\n"
 "-r [sample rate]\tset the sample rate\n"
 "-l [window length]\tset the window length\n";
 ;
 
-void cleanup (int signum)
+/* Set by the signal handler, read by the GUI thread.
+ *
+ * The handler used to do the whole shutdown itself: printf, prefs->Save(),
+ * delete the audio device, exit(). Almost none of that is
+ * async-signal-safe -- printf takes a lock, Save() allocates, and with
+ * RtAudio the destructor joins the callback thread. Reached from a signal
+ * that interrupted any of those, it can deadlock or corrupt the heap, and
+ * "^C sometimes hangs" is a miserable thing to debug.
+ *
+ * So the handler now does the only two things it is allowed to do: write a
+ * flag and return. The real teardown happens on the GUI thread, from a
+ * timeout below, which is where every one of those calls is safe. */
+static volatile sig_atomic_t shutdownRequested = 0;
+
+extern "C" void cleanup (int signum)
 {
-    gthPrefs *prefs = gthPrefs::instance();
+    /* Both of these are async-signal-safe, and nothing else here is. */
+    signal(signum, SIG_DFL);
+    shutdownRequested = signum;
+}
 
-    signal(signum, SIG_IGN);
-    switch (signum)
-    {
-        case SIGINT:
-              printf("caught interrupt!\n");
-        
-        case SIGUSR1:
-            printf("thinksynth shutting down..\n");
-            
-            if (signum == SIGUSR1)
-            {
-                printf("saving preferences\n");
-                prefs->Save();
-                delete prefs;
-            }
-            
-            if (aout)
-            {
-                printf("closing audio devices...\n");
-                delete aout;
-            }
+/* GUI thread, polled from a Glib timeout. */
+static bool checkShutdown (void)
+{
+    if (!shutdownRequested)
+        return true;   /* keep polling */
 
-#ifdef HAVE_ALSA
-            if (midi)
-            {
-                delete midi;
-            }
-#endif /* HAVE_ALSA */
+    const int signum = (int)shutdownRequested;
 
-            exit (0);
-            break;
-    }
+    if (signum == SIGINT)
+        printf("caught interrupt!\n");
+
+    printf("thinksynth shutting down..\n");
+
+    /* Ask the main loop to unwind. Everything below main()'s run() then
+       happens in the ordinary way, on this thread, with the audio device
+       stopped before anything it touches is freed. */
+    if (gtkMain)
+        gtkMain->quit();
+
+    return false;
 }
 
 void process_synth (void)
@@ -135,151 +135,130 @@ void process_synth (void)
     Synth->process();
 }
 
-#ifdef HAVE_ALSA
-/* ALSA callback */
-void audio_readywrite (gthAudio *audio, thSynth *synth)
+/* audio_readywrite() and playback_callback() used to be here.
+ *
+ * The first pushed a window at gthALSAAudio::Write() whenever a poll on
+ * ALSA's descriptors said there was room. The second was JACK's callback,
+ * reaching for the global Synth and copying min(nframes, windowlen) frames
+ * per channel -- which silently dropped or padded audio whenever those two
+ * disagreed, and only ever agreed because JACK's default period is 1024 and
+ * so is TH_DEFAULT_WINDOW_LENGTH.
+ *
+ * Both are now gthSynthSource, which every backend pulls from and which
+ * copes with any block size. scripts/dspblock is the regression test.
+ */
+
+
+/* -L */
+static void listAudio (void)
 {
-    int l = synth->getWindowlen();
-    float *synthbuffer = synth->getOutput();
+    const std::vector<std::string> apis = gthRtAudio::availableApis();
 
-    audio->Write(synthbuffer, l);
+    printf("audio APIs in this build:");
 
-    process_synth ();
-}
-#endif
+    for (size_t i = 0; i < apis.size(); i++)
+        printf(" %s", apis[i].c_str());
 
-#ifdef HAVE_JACK
-/* JACK callback */
-int playback_callback (jack_nframes_t nframes, void *arg)
-{
-    gthJackAudio *jack = static_cast<gthJackAudio *>(arg);
+    printf("\n\noutput devices on the default API:\n");
 
-    int l = Synth->getWindowlen();
-    int chans = Synth->audioChannelCount();
-
-    /* JACK's period and thinksynth's window length are independent; copying
-       `l' frames into an `nframes' buffer overran the port whenever JACK's
-       period was the smaller of the two. */
-    int copy = ((int)nframes < l) ? (int)nframes : l;
-
-    for (int i = 0; i < chans; i++)
     {
-        float *synthbuffer = Synth->getChanBuffer(i);
-        float *buf = static_cast<float *>(jack->GetOutBuf(i, nframes));
+        gthRtAudio probe;
 
-        if (buf == NULL)
-            continue;
-
-        /* Clamped rather than memcpy'd: a JACK port expects -1..1, and the mix
-           runs well past that with more than a voice or two held down. */
-        for (int k = 0; k < copy; k++)
-            buf[k] = thClampSample(synthbuffer[k]);
-
-        /* If JACK wants more than we produced, pad with silence rather than
-           leaving whatever was in the port buffer. */
-        if ((int)nframes > copy)
-            memset(buf + copy, 0, ((int)nframes - copy) * sizeof(float));
-    }
-
-    /* generate a new window; must make sure that everything herein is RT-safe.
-       this means no mutex locks or memory allocations */
-    process_synth ();
-
-    return 0;
-}
-#endif /* HAVE_JACK */
-
-#ifdef HAVE_ALSA
-int processmidi (snd_seq_t *seq_handle, thSynth *synth)
-{
-    snd_seq_event_t *ev = NULL;
-
-    while (snd_seq_event_input_pending(seq_handle, 1))
-    {
-        /* The return value was discarded and `ev' dereferenced regardless. On
-           an input overrun (-ENOSPC) snd_seq_event_input never writes it. */
-        if (snd_seq_event_input(seq_handle, &ev) < 0 || ev == NULL)
-            break;
-
-        switch (ev->type)
+        /* Deliberately scoped, and deliberately not an early return: a
+           machine with no working audio device is exactly the machine whose
+           owner wants to see the MIDI list. */
+        if (!probe.valid())
+            printf("  (none -- RtAudio would not start)\n");
+        else
         {
-            case SND_SEQ_EVENT_NOTEON:
-            {
-                if ((unsigned int)ev->data.note.velocity)
-                {
-                    m_sigNoteOn(ev->data.note.channel, ev->data.note.note,
-                                ev->data.note.velocity);
-                    
-                    synth->addNote(ev->data.note.channel, ev->data.note.note,
-                                   ev->data.note.velocity);
-                }
-                /* a zero velocity can denote note off */
-                else 
-                {
-                    m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
-                    
-                    synth->delNote(ev->data.note.channel, ev->data.note.note);
-                }
-                break;
-            }
-            case SND_SEQ_EVENT_NOTEOFF:
-            {
-                m_sigNoteOff(ev->data.note.channel, ev->data.note.note);
-                
-                synth->delNote(ev->data.note.channel, ev->data.note.note);
-                break;
-            }
-            case SND_SEQ_EVENT_TEMPO:
-            {
-                debug("TEMPO CHANGE:  %i\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_TICK:
-            {
-                debug("TICK CHANGE:  %i\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_PITCHBEND:
-            {
-                debug("PITCH BEND:  %i\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_PGMCHANGE:
-            {
-                debug("PGM CHANGE  %d\n", ev->data.control.value);
-                break;
-            }
-            case SND_SEQ_EVENT_CONTROLLER:
-            {
-                synth->handleMidiController(ev->data.control.channel,
-                                            ev->data.control.param,
-                                            ev->data.control.value);
-                
-                break;
-            }
-            case SND_SEQ_EVENT_PORT_UNSUBSCRIBED:
-            {
-                synth->clearAll();
-                m_sigNoteClear();
-                break;
-            }
-            default:
-            {
-                debug("got unknown event %d\n", ev->type);
-                break;
-            }
+            const std::vector<gthAudioDevice> devs = probe.devices();
+
+            for (size_t i = 0; i < devs.size(); i++)
+                printf("  %-52s %u ch%s\n", devs[i].name.c_str(),
+                       devs[i].outputChannels,
+                       devs[i].isDefault ? "  (default)" : "");
+
+            if (devs.empty())
+                printf("  (none)\n");
         }
-        
-        snd_seq_free_event(ev);
     }
 
-    return 0;
+    printf("\nMIDI input ports:\n");
+
+    /* Enumerated without opening anything -- see gthRtMidi::probePorts. */
+    const std::vector<std::string> mports = gthRtMidi::probePorts(PACKAGE_NAME);
+
+    for (size_t i = 0; i < mports.size(); i++)
+        printf("  %s\n", mports[i].c_str());
+
+    if (mports.empty())
+        printf("  (none)\n");
 }
-#endif /* HAVE_ALSA */
+
+/* One MIDI message, on the GUI thread.
+ *
+ * This was processmidi(), which walked ALSA sequencer events off a poll
+ * descriptor. The event types are now the wire bytes, which is what every
+ * MIDI API on every platform agrees on -- so the switch is on the status
+ * nibble rather than on SND_SEQ_EVENT_*, and everything it calls is
+ * unchanged.
+ */
+static void dispatchmidi (const gthMidiEvent &ev, thSynth *synth)
+{
+    const unsigned char kind = ev.status & 0xf0;
+    const int chan = ev.status & 0x0f;
+
+    switch (kind)
+    {
+        case 0x90:   /* note on */
+        {
+            if (ev.data2)
+            {
+                m_sigNoteOn(chan, ev.data1, ev.data2);
+                synth->addNote(chan, ev.data1, ev.data2);
+            }
+            else
+            {
+                /* a zero velocity can denote note off */
+                m_sigNoteOff(chan, ev.data1);
+                synth->delNote(chan, ev.data1);
+            }
+            break;
+        }
+        case 0x80:   /* note off */
+        {
+            m_sigNoteOff(chan, ev.data1);
+            synth->delNote(chan, ev.data1);
+            break;
+        }
+        case 0xb0:   /* controller */
+        {
+            synth->handleMidiController(chan, ev.data1, ev.data2);
+            break;
+        }
+        case 0xe0:   /* pitch bend */
+        {
+            debug("PITCH BEND: %d\n", (ev.data2 << 7) | ev.data1);
+            break;
+        }
+        case 0xc0:   /* program change */
+        {
+            debug("PGM CHANGE %d\n", ev.data1);
+            break;
+        }
+        default:
+        {
+            debug("got unknown MIDI status 0x%02x\n", ev.status);
+            break;
+        }
+    }
+}
 
 int main (int argc, char *argv[])
 {
     string outputfname;
+    string midiport;
+    string midiapi;
     string driver = DEFAULT_OUTPUT;
     int havearg = -1;
     int samples = TH_DEFAULT_SAMPLES, windowlen = TH_DEFAULT_WINDOW_LENGTH;
@@ -287,7 +266,18 @@ int main (int argc, char *argv[])
     /* seed the random number generator */
     srand(time(NULL));
 
-    Glib::thread_init();
+    /* Glib::thread_init() used to be here. glibmm's own header says it "is no
+       longer necessary and no longer has any effect" -- GLib has initialised
+       its threading itself since 2.32, in 2011 -- and MSYS2 builds glibmm
+       with the deprecated API compiled out, so on Windows it is not merely
+       pointless but an undefined reference at link time. */
+
+    /* Before Gtk::Main, and it has to be: GLib caches the system data
+       directories the first time anything asks for them, and Gtk::Main asks.
+       Does nothing unless the package shipped GTK's data alongside us, which
+       on Linux it does not. */
+    gthGtkRuntime::configure();
+
     /* init Glib/Gtk args */
     Gtk::Main mymain(argc, argv);
 
@@ -314,10 +304,19 @@ int main (int argc, char *argv[])
      * its lexer, so anything embedding the library has to do the same. */
     setlocale(LC_NUMERIC, "C");
 
-    while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1)
+    while ((havearg = getopt (argc, argv, "hLGp:o:d:m:r:l:")) != -1)
     {
         switch (havearg)
         {
+            case 'L':
+            {
+                listAudio();
+                return 0;
+            }
+            case 'G':
+            {
+                return gthGtkRuntime::selfTest();
+            }
             case 'r':
             {
                 samples = atoi(optarg);
@@ -336,6 +335,11 @@ int main (int argc, char *argv[])
             case 'o':
             {
                 outputfname = optarg;
+                break;
+            }
+            case 'm':
+            {
+                midiport = optarg;
                 break;
             }
             case 'h':
@@ -372,103 +376,134 @@ int main (int argc, char *argv[])
     Synth = new thSynth(plugin_path, windowlen, samples);
     gthPrefs *prefs = gthPrefs::instance();
 
-    signal(SIGUSR1, (sighandler_t)cleanup);
     signal(SIGINT, (sighandler_t)cleanup);
 
-    /* create a window first */
-    Synth->process();
+    /* SIGUSR1 is "save preferences and exit", triggered from outside. Windows
+       has no such signal -- its signal() knows six, and the user-defined ones
+       are not among them -- so there is nothing to hook there and no obvious
+       equivalent worth inventing. SIGINT covers the ordinary case on all
+       three platforms. */
+#ifdef SIGUSR1
+    signal(SIGUSR1, (sighandler_t)cleanup);
+#endif
 
-    /* all thAudio classes will work with floating point buffers, converting
-       to other formats internally, if necessary */
+    /* The handler only sets a flag; this is what notices. 200ms is
+       imperceptible for a ^C and costs nothing when idle. */
+    Glib::signal_timeout().connect(sigc::ptr_fun(&checkShutdown), 200);
+
+    /* The source primes the synth in prepare(); no need to render a window
+       here as well. */
+    asource = new gthSynthSource(Synth);
+
+    gthAudioFmt want;
+
+    want.rate = samples;
+    want.channels = Synth->audioChannelCount();
+    want.frames = 0;              /* let the device choose; see gthSynthSource */
+
     try
     {
-#ifdef HAVE_ALSA
-        midi = new gthALSAMidi("thinksynth");
+        midi = new gthRtMidi(PACKAGE_NAME, midiapi, midiport);
 
-        if (midi->seq_opened())
+        if (midi->opened())
         {
-            midi->signal_midi_event().connect(
-                sigc::bind<thSynth *>(sigc::ptr_fun(&processmidi), Synth));
+            midi->signal_event().connect(
+                sigc::bind<thSynth *>(sigc::ptr_fun(&dispatchmidi), Synth));
         }
-#endif /* HAVE_ALSA */
 
-        printf ("Trying the '%s' driver\n", driver.c_str());
-
-        if (driver == "alsa")
-        { 
-#ifdef HAVE_ALSA
-            if (outputfname.length() > 0)
-                aout = new gthALSAAudio(Synth, outputfname.c_str());
-            else
-                aout = new gthALSAAudio(Synth);
-
-            /* connect our audio out event handler and bind a synth to this
-               instance */
-            gthALSAAudio *aptr = static_cast<gthALSAAudio *>(aout);
-            aptr->signal_ready_write().connect(
-                sigc::bind<gthAudio *,thSynth *>(sigc::ptr_fun(&audio_readywrite),
-                                                 aout, Synth)); 
-#else
-            fprintf(stderr, "Sorry, ALSA is not supported in this build.\n");
-#endif /* HAVE_ALSA */
-        }
-         else if (driver == "jack")
+        if (driver == "none")
         {
-#ifdef HAVE_JACK
-            aout = new gthJackAudio(Synth, playback_callback);
-#else
-            fprintf(stderr, "Sorry, JACK is not supported in this build.\n");
-            return 1;
-#endif /* HAVE_JACK */
+            puts("Using dummy audio device; no audio output will occur.");
+            aout = new gthDummyAudio();
         }
         else
         {
-            if (driver != "none")
-                fprintf(stderr, "Unrecognized driver '%s'!\n", driver.c_str());
+            /* "alsa", "jack", "pulse", "core", "wasapi", "asio" all name an
+               RtAudio API now; an empty or unrecognised value lets RtAudio
+               pick. So -d jack and -d alsa still mean what they meant, but
+               the implementation behind them is no longer ours. */
+            printf("Trying the '%s' audio API\n",
+                   driver.empty() ? "(default)" : driver.c_str());
 
-            puts("Using dummy audio device; no audio output will occur.");
-            aout = new gthDummyAudio(Synth);
+            gthRtAudio *rt = new gthRtAudio(driver, outputfname);
+
+            if (rt->valid() && rt->open(want, asource) && rt->start())
+            {
+                aout = rt;
+            }
+            else
+            {
+                delete rt;
+
+                fprintf(stderr, "Could not open an audio device.\n");
+
+                if (driver == "jack")
+                    fprintf(stderr, "Perhaps you should start jackd? "
+                                    "Try jackd -d alsa.\n");
+
+                fprintf(stderr, "Falling back to dummy audio device; "
+                                "try -L to see what is available.\n");
+
+                aout = new gthDummyAudio();
+            }
         }
 
+        /* The dummy and legacy-JACK paths still need opening and starting;
+           the RtAudio one has already done both. */
+        if (aout != NULL && !aout->running())
+        {
+            aout->open(want, asource);
+            aout->start();
+        }
     }
     catch (thIOException e)
     {
         fprintf(stderr, "Error creating audio device: %s\n", strerror(e));
-
-        if (driver == "jack")
-            fprintf(stderr, "Perhaps you should start jackd? Try jackd -d alsa.\n");
-
         fprintf(stderr, "Falling back to dummy audio device\n");
 
-        aout = new gthDummyAudio(Synth);
+        aout = new gthDummyAudio();
+        aout->open(want, asource);
+        aout->start();
     }
 
     MainSynthWindow synthWindow(aout);
 
     prefs->Load();
 
+    /* checkShutdown() needs this to unwind the loop from the timeout. */
+    gtkMain = &mymain;
+
     mymain.run(synthWindow);
 
-#ifdef HAVE_ALSA
+    gtkMain = NULL;
+
+    /* Silence the device first. Everything below this touches state the
+       audio callback reads -- saving preferences walks the patch manager,
+       which walks the synth -- and stop() does not return until the callback
+       has. */
+    if (aout)
+    {
+        printf("closing audio devices...\n");
+        aout->stop();
+    }
+
     delete midi;
-#endif /* HAVE_ALSA */
-    
+    midi = NULL;
+
     printf("saving preferences\n");
     prefs->Save();
 
     delete prefs;
 
-    if (aout)
-    {
-        printf("closing audio devices...\n");
-        delete aout;
-    }
+    delete aout;
+    aout = NULL;
 
-    /* Will not be reached if using 'alsa' driver */
-#if 0
+    delete asource;
+    asource = NULL;
+
     printf("deleting synth\n");
     delete Synth;
-#endif
+    Synth = NULL;
 
     return 0;
 }

@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Converts a frequency to wavelength in samples";
+static const char desc[] = "Converts a frequency to wavelength in samples";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

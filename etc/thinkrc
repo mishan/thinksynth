@@ -1,0 +1,11 @@
+# This is the default Thinksynth configuration file.
+# Lines beginning with '#' are comments. The default is to give
+# you a few modest instruments at a modest volume. You should
+# edit this in the patch-selector.
+
+dspdir /usr/local/share/thinksynth/dsp/
+patchdir /usr/local/share/thinksynth/patches/
+channel 0,/usr/local/share/thinksynth/patches//leads/SuperRes.patch,20
+channel 1,/usr/local/share/thinksynth/patches//bass/FunkMachine.patch,20
+channel 2,/usr/local/share/thinksynth/patches//organs/Organ1.patch,20
+channel 3,/usr/local/share/thinksynth/patches//pads/SynString.patch,20

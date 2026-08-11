@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Sine Calculation";
+static const char desc[] = "Sine Calculation";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

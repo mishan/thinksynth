@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Converts dB to an amplitude value. Arg should be <= 0.";
+static const char desc[] = "Converts dB to an amplitude value. Arg should be <= 0.";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

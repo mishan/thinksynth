@@ -26,7 +26,7 @@
 enum {IN_A, IN_D, IN_S, IN_F, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
 int args[INOUT_POSITION + 1];
 
-char        *desc = "ADSR Envelope Generator";
+static const char desc[] = "ADSR Envelope Generator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 
@@ -36,7 +36,7 @@ static inline float SQR (float x)
 }
 
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

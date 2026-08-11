@@ -26,8 +26,8 @@
 #include <string.h>
 #include <errno.h>
 
-#include <sys/stat.h>
-#include <sys/types.h>
+#include <filesystem>
+#include <system_error>
 #include <signal.h>
 
 #include <gtkmm.h>
@@ -44,55 +44,11 @@
 #include "ArgTable.h"
 #include "NodeWindow.h"
 
-#ifdef HAVE_JACK
-# include "../gthJackAudio.h"
-#endif
 
 #include "../gthPrefs.h"
 #include "../gthPatchfile.h"
 
 bool chosen = false;
-
-void MainSynthWindow::toggleConnects (void)
-{
-    /* These used to be fished out of menuJack_.items() by index. gtkmm-3 has
-       no items() list, and indexing a menu by position was fragile anyway --
-       the two items are held directly now. */
-    if (jackConnect_ == NULL || jackDisconnect_ == NULL)
-        return;
-
-    bool c = jackConnect_->is_sensitive();
-
-    jackConnect_->set_sensitive(!c);
-    jackDisconnect_->set_sensitive(c);
-}
-
-#ifdef HAVE_JACK
-
-static void connectDialog (int error)
-{
-    string msg;
-    
-    switch (error)
-    {
-        case gthJackAudio::ERR_NO_PLAYBACK:
-            msg = "Could not find a playback target for JACK\n"
-                    "(alsa_pcm or oss.)";
-            break;
-        case gthJackAudio::ERR_HANDLE_NULL:
-            msg = "Can't connect to the JACK server because it no\n"
-                      "longer seems to be running.";
-            break;
-        default:
-            msg = "Could not (dis)connect JACK, errno = " + error;
-            break;
-    }
-
-    Gtk::MessageDialog errorDialog (msg.c_str(), false, Gtk::MESSAGE_ERROR);
-    errorDialog.run();
-}
-
-#endif /* HAVE_JACK */
 
 MainSynthWindow::MainSynthWindow (gthAudio *audio)
 {
@@ -110,11 +66,6 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     kbWin_ = NULL;
     nodeWin_ = NULL;
 
-    /* Only assigned when the JACK menu is built, which does not happen for an
-       ALSA-only build -- and toggleConnects() reads them either way. */
-    jackConnect_ = NULL;
-    jackDisconnect_ = NULL;
-
     vals = prefs->Get("dspdir");
 
     if (vals != NULL)
@@ -124,10 +75,6 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
     populateMenu();
 
-#ifdef HAVE_JACK
-    signal_realize().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::jackCheck));
-#endif
     
     add(vbox_);
 
@@ -225,40 +172,6 @@ void MainSynthWindow::populateMenu (void)
                 sigc::mem_fun(*this, &MainSynthWindow::menuQuit),
                 "<ctrl>q");
 
-#ifdef HAVE_JACK
-    /* JACK */
-    if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
-    {
-        gthPrefs *prefs = gthPrefs::instance();
-        string** vals;
-        bool sel;
-
-        jackConnect_ = addMenuItem(menuJack_, "_Connect to JACK now",
-                        sigc::mem_fun(*this, &MainSynthWindow::menuJackTry));
-
-        jackDisconnect_ = addMenuItem(menuJack_, "_Disconnect from JACK",
-                        sigc::mem_fun(*this, &MainSynthWindow::menuJackDis));
-
-        jackDisconnect_->set_sensitive(false);
-
-        menuJack_.append(*manage(new Gtk::SeparatorMenuItem()));
-
-        Gtk::CheckMenuItem *autoItem =
-            manage(new Gtk::CheckMenuItem("_Auto-connect to JACK", true));
-
-        vals = prefs->Get("autoconnect");
-        sel = !!(vals && *vals[0] == "true");
-
-        /* Set the state before connecting, or this would fire the handler and
-           write the preference straight back. */
-        autoItem->set_active(sel);
-
-        autoItem->signal_toggled().connect(
-            sigc::mem_fun(*this, &MainSynthWindow::menuJackAuto));
-
-        menuJack_.append(*autoItem);
-    }
-#endif /* HAVE_JACK */
 
     /* Help */
     addMenuItem(menuHelp_, "_About",
@@ -271,15 +184,6 @@ void MainSynthWindow::populateMenu (void)
         fileMenu->set_submenu(menuFile_);
         menuBar_.append(*fileMenu);
 
-#ifdef HAVE_JACK
-        if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
-        {
-            Gtk::MenuItem *jackMenu = manage(new Gtk::MenuItem("_JACK", true));
-
-            jackMenu->set_submenu(menuJack_);
-            menuBar_.append(*jackMenu);
-        }
-#endif
 
         Gtk::MenuItem *helpMenu = manage(new Gtk::MenuItem("_Help", true));
 
@@ -289,59 +193,6 @@ void MainSynthWindow::populateMenu (void)
     }
 }
 
-#ifdef HAVE_JACK
-
-void MainSynthWindow::menuJackDis (void)
-{
-    gthJackAudio *jaudio = (gthJackAudio*)audio_;
-    
-    if (jaudio)
-    {
-        jaudio->tryConnect(false);
-        toggleConnects();
-    }
-}
-
-void MainSynthWindow::menuJackTry (void)
-{
-    gthJackAudio *jaudio = (gthJackAudio*)audio_;
-
-    if (jaudio)
-    {
-        int error;
-        if ((error = jaudio->tryConnect()) == 0)
-            toggleConnects();
-        else
-            connectDialog(error);
-    }
-}
-
-void MainSynthWindow::menuJackAuto (void)
-{
-    gthPrefs *prefs = gthPrefs::instance();
-    string *val = new string;
-    string **vals = new string*[2];
-    
-    string **res = prefs->Get("autoconnect");
-
-    vals[0] = val;
-    vals[1] = NULL;
-
-    if (res && *res[0] == "true")
-    {
-        if (chosen == false) { chosen = true; return; }
-        *val = "false";
-    }
-    else
-    {
-        chosen = true;
-        *val = "true";
-    }
-    
-    prefs->Set("autoconnect", vals);
-}
-
-#endif /* HAVE_JACK */
 
 void MainSynthWindow::menuKeyboard (void)
 {
@@ -370,13 +221,21 @@ void MainSynthWindow::menuNodes (void)
 
     /* resolveDsp only knows about the install path. If the file came from
        somewhere the user browsed to, that directory is the better guess. */
-    if (!typed.empty() && typed[0] != '/' && !prevDir_.empty())
+    if (!typed.empty() && !std::filesystem::path(typed).is_absolute() &&
+        !prevDir_.empty())
     {
-        struct stat st;
+        /* Was typed[0] != '/' with two stat() calls and a string
+           concatenation. is_absolute knows what "C:\\..." means, operator/
+           puts in a separator whether prevDir_ ended with one or not, and the
+           last stat in the tree goes with it. */
+        std::error_code ec;
 
-        if (stat(dspfile.c_str(), &st) != 0 &&
-            stat((prevDir_ + typed).c_str(), &st) == 0)
-            dspfile = prevDir_ + typed;
+        const std::filesystem::path browsed =
+            std::filesystem::path(prevDir_) / typed;
+
+        if (!std::filesystem::exists(dspfile, ec) &&
+            std::filesystem::exists(browsed, ec))
+            dspfile = browsed.string();
     }
 
     if (dspfile.empty())
@@ -613,27 +472,6 @@ void MainSynthWindow::populate (void)
 
 }
 
-#ifdef HAVE_JACK
-void MainSynthWindow::jackCheck (void)
-{
-    gthPrefs *prefs = gthPrefs::instance();
-    string ** vals;
-
-    /* Not the best place to do it but we need to call toggleConnects */
-    if (dynamic_cast<gthJackAudio*>(audio_) != NULL)
-    {
-        vals = prefs->Get("autoconnect");
-        if (vals && *vals[0] == "true")
-        {
-            int error;
-            if ((error = ((gthJackAudio*)audio_)->tryConnect()) == 0)
-                toggleConnects();
-            else
-                connectDialog (error);
-        }
-    }
-}
-#endif
 
 void MainSynthWindow::onPatchesChanged (void)
 {

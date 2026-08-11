@@ -25,10 +25,10 @@
 
 #define SQR(a) ((a)*(a))
 
-char        *desc = "Resonant Difference Scaling Filter";
+static const char desc[] = "Resonant Difference Scaling Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

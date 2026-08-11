@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Allpass Filter";
+static const char desc[] = "Allpass Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

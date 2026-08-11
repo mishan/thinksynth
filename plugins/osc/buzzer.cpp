@@ -24,14 +24,14 @@
 
 #include "think.h"
 
-char        *desc = "Buzzer oscillator";
+static const char desc[] = "Buzzer oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 enum { OUT_ARG, IN_FREQ, IN_FACTOR, INOUT_LAST };
 
 int args[INOUT_LAST + 1];
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

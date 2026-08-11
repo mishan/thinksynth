@@ -24,10 +24,10 @@
 
 #include "think.h"
 
-char        *desc = "Resonant 1-pole LPF";
+static const char desc[] = "Resonant 1-pole LPF";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

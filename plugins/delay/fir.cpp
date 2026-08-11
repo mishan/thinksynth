@@ -22,10 +22,10 @@
 
 #include "think.h"
 
-char        *desc = "Applies an impulse response";
+static const char desc[] = "Applies an impulse response";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

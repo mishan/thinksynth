@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Applies tanh saturation";
+static const char desc[] = "Applies tanh saturation";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

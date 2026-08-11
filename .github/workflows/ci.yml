@@ -1,0 +1,374 @@
+# Three-platform CI. See PORTING.md section 10.
+#
+# Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm-3, which
+# has no MSVC build, and reinforced by the eleven files in the tree that use
+# variable-length arrays.
+#
+# STATUS: linux and asan are real gates and must stay green. macos and windows
+# are marked continue-on-error because the port has not reached them yet --
+# they run so the output shows how far it gets, without turning the workflow
+# red. Remove `continue-on-error' from each at PORTING.md section 8 steps 6
+# and 7 respectively.
+#
+# RtAudio and RtMidi are NOT installed from the system package manager on any
+# platform here. Ubuntu 24.04 does not carry librtaudio-dev, 22.04 carries
+# RtAudio 5.2 (the wrong API), and the Homebrew and MSYS2 spellings are
+# different again -- guessing at all three is what broke this workflow in the
+# first place. CMake fetches and statically links known-good 6.x instead, the
+# same way on every runner. Roughly half a minute per job, and deterministic.
+#
+# Hosted runners have no audio device, so the backends themselves are never
+# exercised here -- only that they compile and link. The gates are the
+# headless harnesses, which need neither a device nor (except on Linux, where
+# Gtk::Main is constructed before getopt) a display.
+
+name: ci
+
+on:
+  # Only master on push. `pull_request' already covers every topic branch,
+  # and listing them under `push' too is what made each job appear twice --
+  # once as (push) and once as (pull_request) -- since every branch in the
+  # porting stack has a PR open against the one below it.
+  push:
+    branches:
+      - master
+  pull_request:
+  workflow_dispatch:
+
+# A second push supersedes the first; no point finishing a run nobody will
+# look at.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# No UNBUILT_PLUGINS here any more: which DSPs are eligible is decided by
+# cmake/RunHarness.cmake, which reads each file rather than matching names.
+
+jobs:
+  linux:
+    name: linux (gcc)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      # Gtk::Main is constructed before getopt runs (src/main.cpp:292), so even
+      # -h needs a display. xvfb is the whole reason this is not a plain
+      # invocation.
+      - name: Smoke test
+        run: xvfb-run -a ./build/src/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-linux-x86_64
+          path: |
+            build/package/*.tar.gz
+            build/package/*.zip
+            build/package/*.dmg
+          if-no-files-found: error
+
+      # The bundled GTK data -- schemas, pixbuf loaders, icon themes -- exists
+      # for macOS and Windows, which are precisely the two platforms where it
+      # cannot be tested: CI has no machine without GTK on it, so a package
+      # that only works where it was built looks exactly like a good one.
+      #
+      # THINK_BUNDLE_GTK is therefore settable on Linux, where the mechanism
+      # is identical (Ubuntu's gdk-pixbuf is built -Drelocatable=false, the
+      # same as Homebrew's, so it takes the same substitution path as macOS),
+      # and this runs it with the system's own GTK data hidden.
+      - name: GTK runtime data
+        run: |
+          set -e
+          # THINK_PKG_DEPS as well, which on Linux is not what a package
+          # should be -- it drags the distribution's GTK in with it. It is on
+          # here because the dependency closure is otherwise code that only
+          # runs where nobody can watch it, and the thing it most recently got
+          # wrong was invisible on Linux for exactly that reason.
+          cmake -S . -B build -DTHINK_BUNDLE_GTK=ON -DTHINK_PKG_DEPS=ON \
+                              -DCMAKE_INSTALL_PREFIX="$PWD/stage"
+          cmake --build build
+          cmake --install build
+
+          # librsvg is reachable only through a pixbuf loader, which is
+          # dlopen'd and so is in no target's link graph. It went missing from
+          # the macOS .app for precisely that reason, and the bundle looked
+          # complete without it.
+          ls stage/lib/librsvg* >/dev/null 2>&1 || {
+            echo "librsvg is not in the package: the loader closure is not"
+            echo "reaching modules again."
+            exit 1
+          }
+
+          # The negative control comes first and on purpose. A check that
+          # cannot fail is worse than no check, and the last two of these
+          # could not: GTK carries fallback icons in its own gresource, and
+          # gdk-pixbuf finds the system loader cache by a compiled-in path.
+          # So: hide the bundle, and -G must fail.
+          mv stage/share/thinksynth/share /tmp/hidden
+          if xvfb-run -a env XDG_DATA_DIRS=/nonexistent ./stage/bin/thinksynth -G
+          then
+            echo "-G passed with no bundled data and the system's hidden."
+            echo "It is not testing what it claims to test."
+            exit 1
+          fi
+          mv /tmp/hidden stage/share/thinksynth/share
+
+          # And the real one, from a directory the package was not built for,
+          # because relocating is the entire point: an .app gets dragged and a
+          # .zip gets unpacked wherever the user likes.
+          mv stage /tmp/relocated
+          xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/relocated/bin/thinksynth -G
+
+      # The Homebrew shape, which is not the Linux or MSYS2 shape and is what
+      # broke macOS: a keg holding schema XML but no compiled blob, with the
+      # icons and the pixbuf loaders belonging to other formulae. Faked here
+      # by pointing THINK_GTK_DATA_ROOTS at a directory built to look like
+      # one, so the compile-the-XML-ourselves path has run somewhere before a
+      # Mac runs it.
+      - name: GTK runtime data (unlinked-keg layout)
+        run: |
+          set -e
+          keg="$PWD/keg"
+          mkdir -p "$keg/share/glib-2.0/schemas" "$keg/share/icons" \
+                   "$keg/lib/gdk-pixbuf-2.0/2.10.0"
+          cp /usr/share/glib-2.0/schemas/*.xml "$keg/share/glib-2.0/schemas/"
+          cp -r /usr/share/icons/Adwaita "$keg/share/icons/"
+          cp /usr/lib/*/gdk-pixbuf-2.0/2.10.0/loaders.cache \
+             "$keg/lib/gdk-pixbuf-2.0/2.10.0/"
+          # The MIME database too: without it gdk-pixbuf cannot identify an
+          # SVG, and the keg would fail the SVG check for a reason that is
+          # about this fixture rather than about the code under test.
+          cp -r /usr/share/mime "$keg/share/"
+          test ! -e "$keg/share/glib-2.0/schemas/gschemas.compiled"
+
+          cmake -S . -B build -DTHINK_BUNDLE_GTK=ON \
+                              -DTHINK_GTK_DATA_ROOTS="$keg" \
+                              -DCMAKE_INSTALL_PREFIX="$PWD/kegstage"
+          cmake --build build
+          cmake --install build
+
+          # The schema whose absence aborts the process, in the blob we built.
+          strings kegstage/share/thinksynth/share/glib-2.0/schemas/gschemas.compiled \
+            | grep -q org.gtk.Settings.FileChooser
+
+          mv kegstage /tmp/kegrelocated
+          xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/kegrelocated/bin/thinksynth -G
+
+  asan:
+    name: linux asan + ubsan
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libasound2-dev libjack-jackd2-dev
+
+      # THINK_SANITIZE applies the flags globally rather than per-target, so
+      # they reach libthink and all 62 plugins. An earlier round of
+      # measurements was worthless because they reached only the harness.
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DTHINK_SANITIZE=address,undefined
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          ASAN_OPTIONS: detect_leaks=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: ctest --test-dir build --output-on-failure
+
+  macos:
+    name: macos (clang, arm64)
+    runs-on: macos-14
+    continue-on-error: true   # remove at PORTING.md section 8 step 6
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          brew update
+          # No jack: RtAudio and RtMidi are built with CoreAudio/CoreMIDI
+          # only on macOS, and having Homebrew JACK present is what produced
+          # `ld: library jack not found' -- RtAudio detected it and exported a
+          # bare -ljack with no -L to go with it.
+          #
+          # adwaita-icon-theme and librsvg are named explicitly rather than
+          # left to come in behind gtkmm3. The first CI run to reach -G said
+          # "svg absent", which means no librsvg: without it the bundled
+          # Adwaita is a directory of SVGs nothing can read.
+          brew install cmake ninja pkg-config bison flex gtkmm3 \
+                       adwaita-icon-theme librsvg
+
+      # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
+      # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
+      # put on PATH explicitly. This catches everyone exactly once.
+      - name: Put Homebrew bison and flex first
+        run: |
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin"  >> "$GITHUB_PATH"
+
+      - name: Check tool versions
+        run: |
+          bison --version | head -1
+          flex --version
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth.app/Contents/MacOS/thinksynth -h
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      # Against the installed .app, not the build tree. The first run of this
+      # tested the build tree and duly reported "none (system GTK)", which is
+      # true and useless -- nothing is bundled until it is installed.
+      #
+      # This cannot show independence from Homebrew's GTK, because the runner
+      # has it and there is no machine here that does not. What it does show
+      # is that the .app carries the data and finds it after being moved,
+      # which is the half that is ours.
+      - name: GTK runtime data
+        run: |
+          set -e
+          cmake --install build --prefix "$PWD/stage"
+          mv stage /tmp/relocated
+          app=/tmp/relocated/thinksynth.app/Contents/MacOS/thinksynth
+          "$app" -G | tee /tmp/gtk.txt
+          if grep -q '^bundled GTK data: none' /tmp/gtk.txt; then
+            echo "the .app did not find the data installed into it"
+            exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-macos-arm64
+          path: |
+            build/package/*.tar.gz
+            build/package/*.zip
+            build/package/*.dmg
+          if-no-files-found: error
+
+  windows:
+    name: windows (mingw-w64, ucrt64)
+    runs-on: windows-latest
+    continue-on-error: true   # remove at PORTING.md section 8 step 7
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          # bison and flex come from the msys repo; everything else is the
+          # ucrt64 toolchain.
+          install: >-
+            bison
+            flex
+          #
+          # adwaita-icon-theme and librsvg named explicitly, for the reason
+          # given in the macOS job: without librsvg there is no SVG loader,
+          # and a bundled Adwaita is SVG.
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            pkgconf:p
+            gtkmm3:p
+            adwaita-icon-theme:p
+            librsvg:p
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Smoke test
+        run: ./build/src/thinksynth.exe -h
+
+
+      # Exit 127 from a .exe that plainly exists means the loader could not
+      # resolve one of its imports: MSYS2 turns STATUS_DLL_NOT_FOUND into
+      # ENOENT, so bash reports "No such file or directory" for the .exe
+      # itself and returns 127. `ldd' names the DLL, which is the one thing
+      # the failure does not say.
+      - name: What could not be loaded
+        if: failure()
+        run: |
+          ls -l build/src build/libthink build/scripts
+          ldd build/src/thinksynth.exe || true
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      # The installed tree, not the build tree -- see the macOS job.
+      - name: GTK runtime data
+        run: |
+          set -e
+          # pwd -W, not $PWD: CMake here is a native Windows build and does
+          # not know what /d/a/... means.
+          cmake --install build --prefix "$(pwd -W)/stage"
+          mv stage /tmp/relocated
+          /tmp/relocated/thinksynth.exe -G | tee /tmp/gtk.txt
+          if grep -q '^bundled GTK data: none' /tmp/gtk.txt; then
+            echo "the package did not find the data installed into it"
+            exit 1
+          fi
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-windows-x86_64
+          path: |
+            build/package/*.tar.gz
+            build/package/*.zip
+            build/package/*.dmg
+          if-no-files-found: error

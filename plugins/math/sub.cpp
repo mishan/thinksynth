@@ -25,10 +25,10 @@
 enum {IN_0, IN_1, OUT_ARG};
 int args[OUT_ARG + 1];
 
-char        *desc = "Subtracts two streams";
+static const char desc[] = "Subtracts two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

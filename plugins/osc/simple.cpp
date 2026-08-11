@@ -41,12 +41,12 @@ enum {IN_FREQ, IN_AMP, IN_PW, IN_WAVEFORM, IN_FM, IN_FMAMT, IN_RESET, IN_MUL,
 
 int args[INOUT_LAST + 1];
 
-char        *desc = "Complex Oscillator";
+static const char desc[] = "Complex Oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 const float SQRT2_2 = 2*sqrt(2);
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 
@@ -187,12 +187,38 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                 break;
             case 2:    /* SQUARE WAVE */
             {
-                // out[i] = amp_max if ratio > 0.5
-                // else out[i] = -amp_max
+                /* out[i] is amp_max with the sign bit of (ratio - 0.5) OR'd
+                   in, so the wave flips at the half-way point.
+                 *
+                 * Two things were wrong with how this was spelled. u_int32_t
+                 * is a BSD name that glibc happens to provide and MinGW does
+                 * not, so Windows would not compile the file at all; uint32_t
+                 * is the standard one and <stdint.h> is already in scope. And
+                 * reading a float through a uint32_t * breaks strict
+                 * aliasing -- GCC warns, and at -O2 it is entitled to assume
+                 * the two never name the same storage. memcpy is the
+                 * well-defined spelling and compiles to the same instruction.
+                 *
+                 * Left as an OR rather than rewritten to a ternary or to
+                 * copysignf(): those differ when amp_max is itself negative,
+                 * where an OR cannot clear the sign bit that is already set
+                 * and the output therefore stays negative for the whole
+                 * cycle. Whether that was intended is a question about the
+                 * oscillator, not about portability, so it is not changed
+                 * here. */
+                static_assert(sizeof(float) == sizeof(uint32_t),
+                              "the sign-bit trick assumes a 32-bit float");
+
                 float adjusted = ratio - 0.5;
-                u_int32_t level = (*((u_int32_t *)&amp_max)) |
-                                  ((*((u_int32_t *)&adjusted))&0x80000000);
-                out[i] = *((float*)&level);
+
+                uint32_t ampBits, adjBits, level;
+
+                memcpy(&ampBits, &amp_max, sizeof(ampBits));
+                memcpy(&adjBits, &adjusted, sizeof(adjBits));
+
+                level = ampBits | (adjBits & 0x80000000u);
+
+                memcpy(&out[i], &level, sizeof(out[i]));
                 break;
             }
             case 3:    /* TRIANGLE WAVE */

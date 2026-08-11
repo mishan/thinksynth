@@ -18,12 +18,14 @@
 
 #include "config.h"
 
-#include <sys/stat.h>
 #include <cassert>
 #include <stdlib.h>
 #include <stdio.h>
 #include <time.h>
 #include <string.h>
+
+#include <filesystem>
+#include <system_error>
 
 #include "think.h"
 
@@ -70,20 +72,20 @@ gthPatchManager *gthPatchManager::instance (void) {
 
 string gthPatchManager::resolveDsp (const string &dspName)
 {
-    struct stat st;
-
     if (dspName.empty())
         return dspName;
 
-    if (dspName[0] == '/' || stat(dspName.c_str(), &st) == 0)
-        return dspName;
+    /* A .patch names its DSP by bare filename -- `dsp ts1.dsp' -- so this has
+       to search. It used to try exactly two places, the name as given and
+       DSP_PATH, which meant a patch only loaded if you were standing in the
+       right directory or had run `make install'. That looked like it worked
+       for a long time on a machine with a stale /usr/local install on it. */
+    const string found =
+        thUtil::findDataFile(dspName, "dsp", "THINK_DSP_PATH", DSP_PATH);
 
-    const string inPath = DSP_PATH + dspName;
-
-    if (stat(inPath.c_str(), &st) == 0)
-        return inPath;
-
-    return dspName;
+    /* Hand back the original if nothing matched, so the error message names
+       what the patch actually asked for. */
+    return found.empty() ? dspName : found;
 }
 
 bool gthPatchManager::newPatch (const string &dspName, int chan)

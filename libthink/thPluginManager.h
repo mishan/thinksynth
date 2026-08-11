@@ -19,7 +19,9 @@
 #ifndef TH_PLUGIN_MANAGER_H
 #define TH_PLUGIN_MANAGER_H 1
 
-class thPluginManager {
+#include "thExport.h"
+
+class THINK_API thPluginManager {
 public:
     thPluginManager(const string &path);
     ~thPluginManager();

@@ -21,7 +21,8 @@
 #include <sstream>
 #include <iostream>
 
-#include <sys/stat.h>
+#include <filesystem>
+#include <system_error>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -261,12 +262,21 @@ void PatchSelWindow::BrowsePatch (void)
 
     if (fileSel.run() == Gtk::RESPONSE_OK)
     {
-        struct stat st;
-        stat(fileSel.get_filename().c_str(), &st);
+        /* S_ISLNK does not exist on Windows, which has no POSIX symlink to
+           test for -- and the stat() return value was being ignored here, so
+           a file that vanished between the chooser and this line was judged
+           on an uninitialised st_mode.
+         *
+         * fs::is_regular_file follows symlinks, so a link to a patch still
+           passes, which is what the original was reaching for by accepting
+           S_ISLNK unconditionally. It also answers false rather than
+           misbehaving when the path has gone. */
+        std::error_code ec;
 
-        if (!S_ISLNK(st.st_mode) && !S_ISREG(st.st_mode))
+        if (!std::filesystem::is_regular_file(fileSel.get_filename(), ec))
         {
-            fprintf(stderr,"error box...\n");
+            fprintf(stderr, "%s is not a file that can be loaded\n",
+                    fileSel.get_filename().c_str());
             return;
         }
 

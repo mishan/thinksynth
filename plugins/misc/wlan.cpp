@@ -32,10 +32,10 @@
 enum {OUT_ARG};
 int args[OUT_ARG + 1];
 
-char        *desc = "Passes on a wireless interface's signal level";
+static const char desc[] = "Passes on a wireless interface's signal level";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 
@@ -65,7 +65,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     static int wfd = -1;
     iwstats is;
-    char *dev = "eth1";
+    const char *dev = "eth1";
 
     if (wfd < 0)
         wfd = iw_sockets_open();

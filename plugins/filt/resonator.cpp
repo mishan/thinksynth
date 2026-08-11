@@ -23,10 +23,10 @@
 
 #include "think.h"
 
-char        *desc = "Resonator filter";
+static const char desc[] = "Resonator filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

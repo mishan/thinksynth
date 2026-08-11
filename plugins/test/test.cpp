@@ -22,10 +22,10 @@
 
 #include "think.h"
 
-char        *desc = "Test Plugin";
+static const char desc[] = "Test Plugin";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

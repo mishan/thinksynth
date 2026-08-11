@@ -22,10 +22,10 @@
 
 #include "think.h"
 
-char        *desc = "Logical And";
+static const char desc[] = "Logical And";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

@@ -25,10 +25,10 @@
 enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
 int args[OUT_ARG + 1];
 
-char        *desc = "Maps a stream to a new value range";
+static const char desc[] = "Maps a stream to a new value range";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

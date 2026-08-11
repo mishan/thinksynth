@@ -25,11 +25,11 @@
 //#include "thAudio.h"
 //#include "thWav.h"
 
-char        *desc = "Wav Input (BROKEN)";
+static const char desc[] = "Wav Input (BROKEN)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 //static thWav *thwav = NULL;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 

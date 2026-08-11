@@ -22,10 +22,10 @@
 
 #include "think.h"
 
-char        *desc = "Echo (echo echo echo)";
+static const char desc[] = "Echo (echo echo echo)";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
-void module_cleanup (struct module *mod)
+void module_cleanup (thPlugin *plugin)
 {
 }
 
