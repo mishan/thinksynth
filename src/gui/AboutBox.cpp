@@ -70,10 +70,10 @@ AboutBox::AboutBox (void)
     frame_->add(*logo_);
 
     /* Hack to get it to shrink down to our size */
-    framebox_ = manage(new Gtk::HBox);
+    framebox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
     framebox_->pack_start(*frame_, true, false);
     
-    vbmaster_ = manage (new Gtk::VBox);
+    vbmaster_ = manage (new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
     
     /* Too bad that Gtk::Labels lose their alignment if the label has >1
      * line in it. */
@@ -89,11 +89,11 @@ AboutBox::AboutBox (void)
     txtMetaphonic_ = manage(new Gtk::Label("Metaphonic Labs is...",
                                            Gtk::ALIGN_CENTER));
 
-    hcredits_ = manage(new Gtk::HBox);
+    hcredits_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
 
-    vbleft_ = manage(new Gtk::VBox);
-    vbright_ = manage(new Gtk::VBox);
-    spacer_ = manage(new Gtk::VBox);
+    vbleft_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+    vbright_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+    spacer_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
     
     spacer_->set_size_request(20, 120);
     vbleft_->set_size_request(208, 120);

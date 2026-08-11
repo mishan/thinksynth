@@ -66,7 +66,7 @@ protected:
        not about one view of it. */
     Gtk::Widget *makePatchBar (int chan);
 
-    void onAmpSlider (Gtk::HScale *scale, int chan);
+    void onAmpSlider (Gtk::Scale *scale, int chan);
     void onAmpArgChanged (thArg *arg, int chan);
 
     void onSavePatch (int chan);
@@ -114,7 +114,7 @@ protected:
     void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
 
-    Gtk::VBox vbox_;
+    Gtk::Box vbox_{Gtk::ORIENTATION_VERTICAL};
 
     Gtk::MenuItem *addMenuItem (Gtk::Menu &menu, const Glib::ustring &label,
                                 const sigc::slot<void> &handler,
@@ -127,7 +127,7 @@ protected:
     Gtk::Entry dspEntry_;
     Gtk::Label dspEntryLbl_;
     Gtk::Button dspBrowseBtn_;
-    Gtk::HBox dspEntryBox_;
+    Gtk::Box dspEntryBox_{Gtk::ORIENTATION_HORIZONTAL};
 
     Gtk::Notebook notebook_;
 
@@ -135,7 +135,7 @@ protected:
        engine has had setMasterGain since the gain-staging work; this is the
        first thing to offer it. */
     Gtk::Label masterLbl_;
-    Gtk::HScale masterScale_;
+    Gtk::Scale masterScale_{Gtk::ORIENTATION_HORIZONTAL};
 
     PatchSelWindow *patchSel_;
     KeyboardWindow *kbWin_;
@@ -156,7 +156,7 @@ protected:
      * the current slider up, rather than capturing one. The connections are
      * dropped in populate() so a session's worth of reloads does not leave a
      * subscription behind for every page that ever existed. */
-    std::map<int, Gtk::HScale *> ampScales_;
+    std::map<int, Gtk::Scale *> ampScales_;
     std::vector<sigc::connection> ampConns_;
 
     /* True while the notebook's pages are being taken away, and for good

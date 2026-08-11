@@ -25,7 +25,7 @@
  * groups -- `@a.group = "Envelope"' -- and each group is drawn as its own
  * titled, foldable block above the loose ones. So this holds a flow of the
  * ungrouped parameters and an expander per group, each with a flow inside. */
-class ArgTable : public Gtk::VBox
+class ArgTable : public Gtk::Box
 {
 public:
     ArgTable (void);
@@ -44,8 +44,8 @@ public:
     void reflow (void);
 
 private:
-    void sliderChanged (Gtk::HScale *, thArg *);
-    void argChanged (thArg *, Gtk::HScale *);
+    void sliderChanged (Gtk::Scale *, thArg *);
+    void argChanged (thArg *, Gtk::Scale *);
 
     /* One parameter: its name, a slider and a value box, side by side. */
     Gtk::Widget *makeRow (thArg *arg);

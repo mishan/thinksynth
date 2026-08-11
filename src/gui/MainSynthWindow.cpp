@@ -438,7 +438,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     }
         
     Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
-    Gtk::VBox *tab_vbox = manage(new Gtk::VBox);
+    Gtk::Box *tab_vbox = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
 
     /* Room around and between the two frames. Everything sat flush against
        the panel edge and against each other: the frame labels touched the
@@ -577,7 +577,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
        to reach the one page anyone opens would be sixteen scans wasted. The
        Nodes page holds an empty box until its tab is first looked at. */
     Gtk::Notebook *sub = manage(new Gtk::Notebook);
-    Gtk::Box *holder = manage(new Gtk::VBox);
+    Gtk::Box *holder = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
 
     sub->append_page(*tab_view, "Overview");
     sub->append_page(*holder, "Nodes");
@@ -594,7 +594,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
        facts about the patch; they should not go away because you switched to
        the graph, and they should not scroll off the top of the parameter
        panel. */
-    Gtk::VBox *page = manage(new Gtk::VBox);
+    Gtk::Box *page = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
 
     page->pack_start(*makePatchBar(num), Gtk::PACK_SHRINK);
     page->pack_start(*manage(new Gtk::Separator(Gtk::ORIENTATION_HORIZONTAL)),
@@ -624,7 +624,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
 
-    Gtk::HBox *bar = manage(new Gtk::HBox);
+    Gtk::Box *bar = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
 
     bar->set_spacing(6);
     bar->set_border_width(6);
@@ -652,7 +652,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     if (amp != NULL)
     {
         Gtk::Label *ampLbl = manage(new Gtk::Label("Amplitude:"));
-        Gtk::HScale *ampScale = manage(new Gtk::HScale);
+        Gtk::Scale *ampScale = manage(new Gtk::Scale(Gtk::ORIENTATION_HORIZONTAL));
 
         /* Deliberately the same shape as masterScale_: same range, same
            steps, value on the right. The two multiply together, so they
@@ -665,7 +665,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
         ampScale->set_value((*amp)[0]);
 
         ampScale->signal_value_changed().connect(
-            sigc::bind<Gtk::HScale *, int>(
+            sigc::bind<Gtk::Scale *, int>(
                 sigc::mem_fun(*this, &MainSynthWindow::onAmpSlider),
                 ampScale, chan));
 
@@ -712,7 +712,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
 /* Looked up rather than captured: the arg belongs to the thMidiChan, and
    loading a patch onto this channel replaces the channel. */
-void MainSynthWindow::onAmpSlider (Gtk::HScale *scale, int chan)
+void MainSynthWindow::onAmpSlider (Gtk::Scale *scale, int chan)
 {
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
 
@@ -722,7 +722,7 @@ void MainSynthWindow::onAmpSlider (Gtk::HScale *scale, int chan)
 
 void MainSynthWindow::onAmpArgChanged (thArg *arg, int chan)
 {
-    std::map<int, Gtk::HScale *>::iterator i = ampScales_.find(chan);
+    std::map<int, Gtk::Scale *>::iterator i = ampScales_.find(chan);
 
     if (i == ampScales_.end() || i->second == NULL)
         return;

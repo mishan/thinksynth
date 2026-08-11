@@ -28,7 +28,8 @@
 #include "NodeParams.h"
 
 NodeParams::NodeParams (void)
-    : graph_(NULL), box_(-1), grid_(NULL), loading_(false)
+    : Gtk::Box(Gtk::ORIENTATION_VERTICAL),
+      graph_(NULL), box_(-1), grid_(NULL), loading_(false)
 {
     set_size_request(240, -1);
 

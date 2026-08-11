@@ -33,12 +33,12 @@ protected:
     Gtk::Notebook       *notebook_;
     Gtk::Frame          *frame_;
     Gtk::Image          *logo_;
-    Gtk::VBox           *vbmaster_;
-    Gtk::VBox           *vbleft_;
-    Gtk::VBox           *vbright_;
-    Gtk::VBox           *spacer_;
-    Gtk::HBox           *hcredits_;
-    Gtk::HBox           *framebox_;
+    Gtk::Box            *vbmaster_;
+    Gtk::Box            *vbleft_;
+    Gtk::Box            *vbright_;
+    Gtk::Box            *spacer_;
+    Gtk::Box            *hcredits_;
+    Gtk::Box            *framebox_;
     Gtk::Label          *txtVersion_;
     Gtk::Label          *txtCopyright_;
     Gtk::Label          *txtMetaphonic_;

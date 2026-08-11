@@ -38,7 +38,8 @@
 #include "gthPatchfile.h"
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
-     : dspAmp (0, MIDIVALMAX, 1),
+     : dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
+              Gtk::ORIENTATION_HORIZONTAL),
       browseButton("Browse"),
       saveButton("Save As"),
       unloadButton("Unload"),
@@ -99,6 +100,11 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
         sigc::mem_fun(*this, &PatchSelWindow::CursorChanged));
 
     vbox.pack_start(patchScroll);
+
+    /* HScale(min, max, step) chose the displayed digits from the step, and it
+       is the constructor GTK4 does not have. So the scale now says for itself
+       what that was choosing: whole MIDI units. */
+    dspAmp.set_digits(0);
 
     /* this is not to be used unless a valid amp arg is found */
     dspAmp.set_sensitive(false);

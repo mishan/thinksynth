@@ -32,7 +32,8 @@
 #define CONTROL_SPELLING  "@control"
 
 NodePalette::NodePalette (void)
-    : pm_(NULL), addBtn_("Add to graph")
+    : Gtk::Box(Gtk::ORIENTATION_VERTICAL),
+      pm_(NULL), addBtn_("Add to graph")
 {
     set_size_request(210, -1);
 

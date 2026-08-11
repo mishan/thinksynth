@@ -55,10 +55,10 @@ protected:
     /* Overloaded GTK-- sighandler */
     virtual void on_realize (void);
 
-    Gtk::VBox vbox;
+    Gtk::Box vbox{Gtk::ORIENTATION_VERTICAL};
     Gtk::Table controlTable;
 
-    Gtk::HScale dspAmp;
+    Gtk::Scale dspAmp{Gtk::ORIENTATION_HORIZONTAL};
     Gtk::Button setButton;
     Gtk::Button browseButton;
     Gtk::Button saveButton;

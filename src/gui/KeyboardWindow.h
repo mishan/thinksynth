@@ -50,7 +50,7 @@ private:
     Keyboard *keyboard_;
 
     /* widgets */
-    Gtk::VBox vbox_;
+    Gtk::Box vbox_{Gtk::ORIENTATION_VERTICAL};
     Gtk::Frame *ctrlFrame_;
     Gtk::Table *ctrlTable_;
 
