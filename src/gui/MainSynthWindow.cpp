@@ -200,7 +200,10 @@ MainSynthWindow::~MainSynthWindow (void)
     midiMap_ = NULL;
     kbWin_ = NULL;
 
-    menuQuit();
+    /* Not shutdown(): the loop has already ended by the time this runs, and
+       asking a torn-down application to quit again is not a thing to do in a
+       destructor. Just off the screen. */
+    set_visible(false);
 }
 
 /* The size the window has now, while it still has one.
@@ -219,13 +222,40 @@ void MainSynthWindow::captureSize (void)
     }
 }
 
-/* False: the close goes ahead. This is only a look, taken at the last moment
-   the window is still on screen. */
-bool MainSynthWindow::onCloseRequest (void)
+/* The one way out of the program, reached from the close button and from
+ * Quit.
+ *
+ * Neither of them lets GTK do the obvious thing. Letting the close proceed
+ * destroys the window, and main deletes it a moment later, after the audio
+ * device has been stopped -- so the ordering that branch was careful about
+ * would depend on a destroyed widget still being safe to remove from the
+ * application and free. Hiding it instead keeps both the widget and the C++
+ * object intact until main is ready.
+ *
+ * And hiding alone is not enough either. The application holds the window
+ * because add_window() gave it to it, and hiding does not give it back --
+ * only destroying does. So a hidden window leaves the loop running with
+ * nothing on screen, which is what Quit would have done. The application is
+ * asked to stop explicitly.
+ */
+void MainSynthWindow::shutdown (void)
 {
     captureSize();
 
-    return false;
+    set_visible(false);
+
+    Glib::RefPtr<Gtk::Application> app = get_application();
+
+    if (app)
+        app->quit();
+}
+
+/* True: handled, so the window is hidden rather than destroyed. */
+bool MainSynthWindow::onCloseRequest (void)
+{
+    shutdown();
+
+    return true;
 }
 
 
@@ -441,12 +471,7 @@ void MainSynthWindow::menuMidiMap (void)
 
 void MainSynthWindow::menuQuit (void)
 {
-    /* Before hiding, for the same reason onCloseRequest exists: a hidden
-       window has no size to ask about. Quitting from the menu never sends a
-       close-request, so this path has to take it itself. */
-    captureSize();
-
-    hide();
+    shutdown();
 }
 
 void MainSynthWindow::menuAbout (void)
