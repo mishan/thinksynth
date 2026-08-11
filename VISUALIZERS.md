@@ -784,8 +784,37 @@ actually point a spectrogram at and a much harder case for the split-feed
 comparison. It draws as a straight diagonal, which is what an exponential sweep
 on a log axis should be.
 
+## 15. The enlarged view
+
+A panel is 128 pixels wide because a node box is, and a spectrogram at that
+size is a thumbnail. Double-clicking one opens a resizable window at 512×320,
+closed with Ctrl+W like every other secondary window here.
+
+**The same instance, drawn twice — not a second instance on the same point.**
+Two would each need feeding and would then diverge: different histories,
+different trigger points, a scope in the window showing a different cycle from
+the scope on the canvas. One instance is both cheaper and the only version that
+can be trusted to agree with the panel it came from.
+
+Everything about the window is keyed on the probe's node and arg name, like
+everything else about a probe. The first version bound each window's draw
+function to an index into the list, which meant closing one window renumbered
+the rest and every close had to rebind them — a loop that existed only to keep
+a number correct. Names need no such loop.
+
+The frame tick is what closes a window whose probe has gone, rather than
+`disarmProbe` doing it: a probe removed by a *reload* never goes through
+`disarmProbe`, and a window left drawing through a closed instance is a
+use-after-free rather than a cosmetic problem. The tick therefore keeps running
+while any window is open even with no probes left, so that something notices.
+
+`editorcheck` covers it, and the three ways it can go wrong were each broken on
+purpose first: opening the same panel twice opening two windows, a dead window
+never being closed, and the by-name lookup matching the wrong probe. All three
+fail exactly one check.
+
 ### Still ahead
 
-Nothing on the visualizers themselves. The obvious next things are the enlarged
-view — double-click a panel for a resizable window at a useful size — and
-whichever module turns out to be missing once these have been used in anger.
+Nothing outstanding. The next thing is whichever module turns out to be missing
+once these have been used in anger — which is a question that wants a session
+with the editor rather than another one with the corpus.

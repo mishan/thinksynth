@@ -164,6 +164,17 @@ public:
         return m_signal_context_;
     }
 
+    /* A probe panel was double-clicked: the box index.
+     *
+     * A panel is 128 pixels wide because that is what a node box is, and a
+     * spectrogram in 128x80 is a thumbnail. This is the way to a real one, and
+     * double-click is the gesture that already means "open this properly"
+     * everywhere else. */
+    typedef sigc::signal<void(int)> type_signal_activated;
+    type_signal_activated signal_probe_activated (void) {
+        return m_signal_activated_;
+    }
+
     /* The drawing itself, into any context.
      *
      * Public and separate from the draw callback for two reasons: the timing
@@ -267,6 +278,7 @@ private:
     type_signal_refused m_signal_refused_;
     type_signal_control m_signal_control_;
     type_signal_context m_signal_context_;
+    type_signal_activated m_signal_activated_;
 };
 
 #endif /* NODE_CANVAS_H */

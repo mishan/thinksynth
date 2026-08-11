@@ -221,6 +221,8 @@ NodeEditor::NodeEditor (thSynth *synth)
     canvas_.setProbePainter(sigc::mem_fun(*this, &NodeEditor::paintProbe));
     canvas_.signal_context_requested().connect(
         sigc::mem_fun(*this, &NodeEditor::onContextRequested));
+    canvas_.signal_probe_activated().connect(
+        sigc::mem_fun(*this, &NodeEditor::onProbeActivated));
 
     saveBtn_.set_sensitive(false);
     saveAsBtn_.set_sensitive(false);
@@ -337,6 +339,11 @@ NodeEditor::~NodeEditor (void)
        timer that fires during teardown would drain a tap into a closed
        instance. */
     probeTick_.disconnect();
+
+    /* Windows first: each one draws through an instance that disarmAllProbes
+       is about to close. */
+    closeAllEnlarged();
+
     disarmAllProbes();
 
     for (std::map<std::string, thVisual *>::iterator v = visuals_.begin();
@@ -2161,7 +2168,10 @@ void NodeEditor::reapplyProbes (void)
 
 void NodeEditor::updateProbeTick (void)
 {
-    const bool want = !probes_.empty();
+    /* Also while a window is open with no probes left: something has to notice
+       that its probe has gone and close it, and the tick is that something. It
+       stops on the next pass, once syncEnlarged has emptied the list. */
+    const bool want = !probes_.empty() || !enlarged_.empty();
 
     if (want == probeTick_.connected())
         return;
@@ -2221,6 +2231,11 @@ bool NodeEditor::onProbeTick (void)
        calling it per probe would only make the same frame more expensive. */
     if (anything || !probes_.empty())
         canvas_.queue_draw();
+
+    /* And the enlarged windows, which also drops the ones whose probe has
+       gone. Here rather than in disarmProbe so that a probe removed by a
+       reload -- which does not go through disarmProbe -- is caught too. */
+    syncEnlarged();
 
     return true;
 }
@@ -2338,4 +2353,145 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
 
     ctxPopover_.set_pointing_to(at);
     ctxPopover_.popup();
+}
+
+/* ------------------------------------------------------------------------
+ * The enlarged view. See the Enlarged struct in NodeEditor.h.
+ * ------------------------------------------------------------------------ */
+
+void NodeEditor::onProbeActivated (int box)
+{
+    const int i = probeForBox(box);
+
+    if (i < 0)
+        return;
+
+    const string node = probes_[i].node;
+    const string arg = probes_[i].arg;
+
+    /* Already open: raise it rather than opening a second window on the same
+       signal, which would be two views of one instance and no way to tell
+       them apart. */
+    for (size_t e = 0; e < enlarged_.size(); e++)
+        if (enlarged_[e].node == node && enlarged_[e].arg == arg)
+        {
+            enlarged_[e].win->present();
+            return;
+        }
+
+    Enlarged en;
+
+    en.node = node;
+    en.arg = arg;
+    en.win = new Gtk::Window();
+    en.area = Gtk::manage(new Gtk::DrawingArea());
+
+    en.win->set_title(node + "." + arg + " -- " + probes_[i].visual);
+
+    /* Four times the panel in each direction, which for a spectrogram is the
+       difference between a smudge and a picture. Resizable from there. */
+    en.win->set_default_size(512, 320);
+    en.win->set_child(*en.area);
+
+    en.area->set_draw_func(
+        sigc::bind(sigc::mem_fun(*this, &NodeEditor::paintEnlarged),
+                   node, arg));
+
+    /* Ctrl+W, the way every other secondary window in this application closes
+       -- a key controller in the capture phase rather than an application
+       accelerator, because these windows are deliberately not added to the
+       application and an accelerator registered there would never reach them.
+       See MainSynthWindow::addCloseAccel, which says it at length. */
+    {
+        Glib::RefPtr<Gtk::EventControllerKey> keys =
+            Gtk::EventControllerKey::create();
+
+        Gtk::Window *win = en.win;
+
+        keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+        keys->signal_key_pressed().connect(
+            [win](guint keyval, guint, Gdk::ModifierType state) -> bool {
+                if ((keyval == GDK_KEY_w || keyval == GDK_KEY_W) &&
+                    (state & Gdk::ModifierType::CONTROL_MASK) ==
+                        Gdk::ModifierType::CONTROL_MASK)
+                {
+                    win->set_visible(false);
+                    return true;
+                }
+
+                return false;
+            }, false);
+
+        en.win->add_controller(keys);
+    }
+
+    enlarged_.push_back(en);
+
+    /* The tick has to be running for syncEnlarged to notice this window's
+       probe going away. It already is -- a probe had to exist to get here --
+       but saying so keeps the invariant in one place. */
+    updateProbeTick();
+
+    en.win->present();
+
+    /* The tick may not be running: a probe can be armed on a patch that is not
+       playing, and there is nothing to drain. The window still has to be
+       drawn once. */
+    en.area->queue_draw();
+}
+
+void NodeEditor::paintEnlarged (const Cairo::RefPtr<Cairo::Context> &cr,
+                                int w, int h, string node, string arg)
+{
+    /* Looked up every frame. The probe list is rebuilt by every reload and
+       compacted by every disarm, so anything cached when the window opened
+       would be pointing at a different probe by now -- or at none. */
+    for (size_t i = 0; i < probes_.size(); i++)
+        if (probes_[i].node == node && probes_[i].arg == arg)
+        {
+            if (probes_[i].module && probes_[i].inst)
+                probes_[i].module->draw(probes_[i].inst, cr->cobj(), w, h);
+
+            return;
+        }
+
+    /* The probe has gone but the window has not caught up yet -- syncEnlarged
+       closes it on the next tick. Drawing nothing is better than drawing the
+       wrong signal for one frame. */
+}
+
+void NodeEditor::syncEnlarged (void)
+{
+    for (size_t e = 0; e < enlarged_.size(); )
+    {
+        bool alive = false;
+
+        for (size_t i = 0; i < probes_.size() && !alive; i++)
+            if (probes_[i].node == enlarged_[e].node &&
+                probes_[i].arg == enlarged_[e].arg)
+                alive = true;
+
+        /* A window the user closed counts as gone too: GTK hides it rather
+           than destroying it, so without this the list would grow a dead
+           entry per open and every one of them would be redrawn forever. */
+        if (!alive || !enlarged_[e].win->get_visible())
+        {
+            delete enlarged_[e].win;
+            enlarged_.erase(enlarged_.begin() + e);
+
+            /* Nothing to renumber: the draw functions are bound to names. */
+            continue;
+        }
+
+        enlarged_[e].area->queue_draw();
+        e++;
+    }
+}
+
+void NodeEditor::closeAllEnlarged (void)
+{
+    for (size_t e = 0; e < enlarged_.size(); e++)
+        delete enlarged_[e].win;
+
+    enlarged_.clear();
 }

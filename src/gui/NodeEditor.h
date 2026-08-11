@@ -266,6 +266,46 @@ protected:
 
     void onContextRequested (int box, int port, double x, double y);
 
+    /* ---- the enlarged view ----
+     *
+     * A panel is 128 pixels wide because a node box is, and a spectrogram at
+     * that size is a thumbnail. Double-clicking one opens a resizable window
+     * drawing the SAME instance, larger.
+     *
+     * The same instance, emphatically, and not a second one opened on the same
+     * point. Two instances would each need feeding and would then diverge --
+     * different histories, different trigger points, a scope in the window
+     * showing a different cycle from the scope on the canvas. One instance
+     * drawn twice is both cheaper and the only version that can be trusted to
+     * agree with the panel it came from. */
+    struct Enlarged {
+        string node, arg;       /* which probe, by the same key as everything */
+
+        Gtk::Window *win;
+        Gtk::DrawingArea *area;
+    };
+
+    void onProbeActivated (int box);
+
+    /* Draws the probe on `node.arg' into an enlarged window's area.
+     *
+     * By name rather than by an index into enlarged_, so that closing one
+     * window does not renumber the others' draw functions. An index would have
+     * to be rebound across the whole list on every close, which is a loop that
+     * exists only to keep a number correct -- and the name is what everything
+     * else about a probe is keyed on anyway. */
+    void paintEnlarged (const Cairo::RefPtr<Cairo::Context> &cr, int w, int h,
+                        string node, string arg);
+
+    /* Closes the windows whose probes have gone, and redraws the rest. Called
+       from the frame tick, so a disarm or a reload cannot leave a window
+       drawing an instance that has been closed. */
+    void syncEnlarged (void);
+
+    void closeAllEnlarged (void);
+
+    std::vector<Enlarged> enlarged_;
+
     /* Drains every tap, feeds the modules, and redraws once. */
     bool onProbeTick (void);
 
