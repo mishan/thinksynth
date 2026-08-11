@@ -82,6 +82,7 @@
 #include <cairo.h>
 
 #include "thVisual.h"
+#include "fftr.h"
 
 namespace fs = std::filesystem;
 
@@ -495,6 +496,120 @@ void checkOne (const string &path)
        visual.name().c_str());
 }
 
+/* ---- the shared FFT ----
+ *
+ * The one place in this work where "are the numbers right" is a question with
+ * an answer, so it gets asked. Everything else here is about survival and
+ * determinism, and the header says plainly that whether a *drawing* is correct
+ * is a matter of looking at it -- but a transform either puts the energy in
+ * the right bin at the right level or it does not.
+ *
+ * Worth having because both spectrum and spectrogram read off it, and because
+ * a wrong scale factor or an off-by-one in the bit reversal produces a picture
+ * that looks entirely plausible. A spectrum with every peak one bin low, or
+ * 6dB down, is not something anyone would catch by eye.
+ */
+void checkFFT (void)
+{
+    const unsigned int ORDER = 10;
+
+    thv::FFTR fft(ORDER);
+
+    ok(fft.ok(), "the FFT allocates");
+
+    if (!fft.ok())
+        return;
+
+    ok(fft.size() == 1024 && fft.bins() == 512,
+       "order 10 is 1024 points and 512 bins (%u, %u)", fft.size(),
+       fft.bins());
+
+    vector<float> in(fft.size());
+    vector<float> mag(fft.bins());
+
+    struct Straight {
+        const float *p;
+        float operator() (unsigned int i) const { return p[i]; }
+    };
+
+    /* A full-scale sine exactly on bin k. On the bin, so there is no leakage
+       to argue about and the level is unambiguous. */
+    for (unsigned int k = 4; k <= 256; k *= 4)
+    {
+        for (unsigned int i = 0; i < fft.size(); i++)
+            in[i] = (float)sin(2.0 * PI * (double)k * (double)i /
+                               (double)fft.size());
+
+        Straight at = { &in[0] };
+
+        fft.magnitude(at, &mag[0]);
+
+        unsigned int peak = 0;
+
+        for (unsigned int b = 1; b < fft.bins(); b++)
+            if (mag[b] > mag[peak])
+                peak = b;
+
+        ok(peak == k, "a sine on bin %u peaks at bin %u", k, peak);
+
+        /* Within a fiftieth of a dB. Hann's coherent gain is exactly 0.5 and
+           the scale factor undoes it, so this is not an approximation -- it is
+           the identity the scale factor exists to produce. */
+        ok(mag[peak] > 0.99f && mag[peak] < 1.01f,
+           "and reads %.4f, not 1.0", (double)mag[peak]);
+
+        /* And nothing else does. Two bins either side is the width of a Hann
+           main lobe; beyond that a correct transform is down in the noise. */
+        double worst = 0.0;
+
+        for (unsigned int b = 0; b < fft.bins(); b++)
+            if (b + 2 < peak || b > peak + 2)
+                if (mag[b] > worst)
+                    worst = mag[b];
+
+        ok(worst < 0.01,
+           "with everything outside the main lobe below -40dB (worst %.5f)",
+           worst);
+    }
+
+    /* DC belongs in bin 0 and nowhere else -- the case an off-by-one in the
+       bit reversal gets wrong in a way a sine does not. */
+    {
+        for (unsigned int i = 0; i < fft.size(); i++)
+            in[i] = 0.5f;
+
+        Straight at = { &in[0] };
+
+        fft.magnitude(at, &mag[0]);
+
+        unsigned int peak = 0;
+
+        for (unsigned int b = 1; b < fft.bins(); b++)
+            if (mag[b] > mag[peak])
+                peak = b;
+
+        ok(peak == 0, "DC peaks at bin 0, not %u", peak);
+    }
+
+    /* Silence in, silence out: no window leakage, no uninitialised bin. */
+    {
+        for (unsigned int i = 0; i < fft.size(); i++)
+            in[i] = 0.0f;
+
+        Straight at = { &in[0] };
+
+        fft.magnitude(at, &mag[0]);
+
+        double worst = 0.0;
+
+        for (unsigned int b = 0; b < fft.bins(); b++)
+            if (mag[b] > worst)
+                worst = mag[b];
+
+        ok(worst == 0.0, "silence transforms to silence (worst %.g)", worst);
+    }
+}
+
 } /* namespace */
 
 int main (int argc, char **argv)
@@ -530,6 +645,8 @@ int main (int argc, char **argv)
         printf("FAIL  no visual modules in %s\n", dir.c_str());
         return 1;
     }
+
+    checkFFT();
 
     printf("%d visual module(s) in %s\n", (int)modules.size(), dir.c_str());
 
