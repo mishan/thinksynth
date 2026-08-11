@@ -124,13 +124,38 @@ void gthPrefs::Load (void)
 
                 values[i] = new string(argPtr);
 
-                argPtr = comPtr+1;
+                /* No comma means this was the last value, and there is
+                   nothing after it to point at. `argPtr = comPtr + 1' ran
+                   anyway, which is arithmetic on a null pointer: undefined,
+                   and it produced a garbage pointer that the next strchr
+                   would have read had the loop not been about to end.
+                   `len' is the comma count plus one, so this is always the
+                   final iteration and no value is skipped.
+
+                   Not new -- every single-valued preference takes this path,
+                   dspdir and autoconnect included -- but mastergain is the
+                   one that made someone look. */
+                if (comPtr == NULL)
+                    break;
+
+                argPtr = comPtr + 1;
             }
 
             values[len] = NULL;
 
             /* XXX: handle specific cases here for now */
-            if (key == "channel" && values[0] && values[1])
+            bool consumed = false;
+
+            if (key == "mastergain" && values[0])
+            {
+                thSynth *s = thSynth::instance();
+
+                if (s)
+                    s->setMasterGain(atof(values[0]->c_str()));
+
+                consumed = true;
+            }
+            else if (key == "channel" && values[0] && values[1])
             {
                 int chan = atoi(values[0]->c_str());
                 gthPatchManager *patchMgr = gthPatchManager::instance();
@@ -144,7 +169,21 @@ void gthPrefs::Load (void)
 
                     s->setChanArg(chan, arg);
                 }
-            }    
+
+                consumed = true;
+            }
+
+            if (consumed)
+            {
+                /* Acted on rather than stored -- Save() writes mastergain
+                   back from the synth and channels from the patch manager.
+                   Nothing else owns the array, so it has to go here; both
+                   branches used to walk away from it. */
+                for (int i = 0; i < len; i++)
+                    delete values[i];
+
+                delete[] values;
+            }
             else
             {
                 prefs_[key] = values;
@@ -192,6 +231,14 @@ void gthPrefs::Save (void)
         fprintf(prefsFile, "\n");
     }
 
+    /* master output gain */
+    {
+        thSynth *synth = thSynth::instance();
+
+        if (synth)
+            fprintf(prefsFile, "mastergain %f\n", synth->masterGain());
+    }
+
     /* save channel mappings */
     {
         int chans = patchMgr->numPatches();
@@ -211,8 +258,11 @@ void gthPrefs::Save (void)
             if (file.length() > 0)
             {
                 thArg *amp = synth->getChanArg(i, "amp");
-                 fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
-                        (int)((*amp)[0]));
+
+                /* getChanArg returns NULL for a channel with no amp, and this
+                   runs on every exit including from the signal handler. */
+                fprintf(prefsFile, "channel %d,%s,%d\n", i, file.c_str(),
+                        amp ? (int)((*amp)[0]) : MIDIVALMAX);
             } 
         }
     }

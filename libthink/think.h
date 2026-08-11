@@ -19,6 +19,10 @@
 #ifndef THINK_H
 #define THINK_H
 
+#include <math.h>
+#include <stdint.h>
+#include <string.h>
+
 #include <map>
 #include <string>
 #include <list>
@@ -67,6 +71,103 @@ using namespace std;
    would need more than one digit. */
 #define TH_MAX_CHANNELS 10
 
+/* Where the output limiter stops being transparent.
+ *
+ * Below this a sample passes through bit-for-bit; above it the curve bends
+ * towards TH_MAX. The measured median .dsp peaks at 0.78 on a single voice, so
+ * a knee at 0.7 leaves most single notes entirely untouched and only starts
+ * working once voices sum. */
+#define TH_LIMIT_KNEE 0.7f
+
+/* Master gain range. The default is unity: the limiter, not a gain cut, is
+   what keeps the mix inside the rails, so existing patches keep the level they
+   were tuned at. Above unity is allowed for quiet DSPs. */
+#define TH_MASTER_GAIN_DEFAULT 1.0f
+#define TH_MASTER_GAIN_MAX     4.0f
+
+/* Is this sample an ordinary finite number?
+ *
+ * Deliberately done on the bit pattern rather than with isfinite()/isnan().
+ * The tree is built with -ffast-math, which implies -ffinite-math-only, under
+ * which the compiler is entitled to assume no NaNs or infinities exist and to
+ * fold those predicates to a constant. Inspecting the bits cannot be optimised
+ * away on that basis.
+ *
+ * memcpy rather than a union or a cast through float*: it is the only spelling
+ * that is not a strict-aliasing violation, and every compiler turns it into a
+ * register move.
+ */
+static inline bool thIsFinite (float sample)
+{
+    uint32_t bits;
+
+    memcpy(&bits, &sample, sizeof(bits));
+
+    /* exponent all ones => infinity (zero mantissa) or NaN (non-zero) */
+    return (bits & 0x7f800000u) != 0x7f800000u;
+}
+
+/* Soft limiter for the master output.
+ *
+ * thSynth::process sums voices with no headroom management -- and they sum
+ * coherently, because every envelope peaks together on the attack -- so across
+ * the shipped DSPs the median peak runs 0.78 / 1.53 / 2.34 / 3.12 for one to
+ * four voices. Hard clipping that is audible as buzz on every chord.
+ *
+ * This is a memoryless waveshaper rather than a compressor, deliberately:
+ *
+ *   - it has no envelope, so a held note does not change level when other
+ *     notes come and go, which is the thing that makes 1/N-style per-voice
+ *     scaling unpleasant to play;
+ *   - below the knee it is exactly the identity, so quiet material and single
+ *     notes are unaltered;
+ *   - above the knee it rounds peaks off with low-order harmonic distortion
+ *     instead of the discontinuity of a hard clip;
+ *   - it needs no lookahead, so it adds no latency and no state to make
+ *     RT-unsafe.
+ *
+ * The curve is continuous in value *and* slope at the knee: tanh'(0) == 1, so
+ * it leaves the linear region at unity gain, and tanh -> 1 gives an asymptote
+ * of exactly TH_MAX. A wildly diverging DSP (a few of the old ones reach 1e5)
+ * therefore saturates gracefully rather than needing a special case.
+ */
+static inline float thSoftLimit (float sample)
+{
+    const float knee = TH_LIMIT_KNEE;
+    const float range = (float)TH_MAX - knee;
+
+    /* Non-finite input has to be caught before the arithmetic, not after.
+     * A NaN fails `mag <= knee' (every comparison with NaN is false), so it
+     * would fall through to tanhf(NaN) = NaN, sail past thClampSample for the
+     * same reason, and reach the output stage -- where the ALSA path casts it
+     * to signed short, which is undefined, and the JACK path hands it to a
+     * port where it poisons every downstream client.
+     *
+     * A diverging DSP is the realistic source (a few of the old ones already
+     * reach 1e5), so silence is the right answer for NaN: there is no sensible
+     * sign to preserve. Infinities do have one, so they saturate. */
+    if (!thIsFinite(sample))
+    {
+        uint32_t bits;
+
+        memcpy(&bits, &sample, sizeof(bits));
+
+        if (bits & 0x007fffffu)         /* non-zero mantissa => NaN */
+            return 0.0f;
+
+        return (bits & 0x80000000u) ? (float)TH_MIN : (float)TH_MAX;
+    }
+
+    const float mag = (sample < 0.0f) ? -sample : sample;
+
+    if (mag <= knee)
+        return sample;
+
+    const float shaped = knee + range * tanhf((mag - knee) / range);
+
+    return (sample < 0.0f) ? -shaped : shaped;
+}
+
 /* Clamp one sample to the nominal output range.
  *
  * thSynth::process sums every sounding note into one buffer with no headroom
@@ -85,11 +186,16 @@ using namespace std;
  * hard clipping. Actually keeping the mix inside the rails (per-voice gain
  * staging, or a limiter) is a separate design question -- see REVIVAL.md.
  *
- * NB: written as two one-sided comparisons rather than fabs/isnan because the
- * tree is built with -ffast-math, under which the compiler may assume no NaNs.
+ * NaN is handled explicitly rather than left to the comparisons. Both of them
+ * are false for NaN, so it would pass straight through this function to the
+ * float-to-short cast, which is undefined for it. thSoftLimit normally catches
+ * that first, but this is the backstop and should not rely on being second.
  */
 static inline float thClampSample (float sample)
 {
+    if (!thIsFinite(sample))
+        return thSoftLimit(sample);
+
     if (sample > TH_MAX)
         return (float)TH_MAX;
 
@@ -98,6 +204,7 @@ static inline float thClampSample (float sample)
 
     return sample;
 }
+
 
 /* Handy debug function */
 

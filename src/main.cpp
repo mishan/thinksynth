@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <time.h>
+#include <locale.h>
 #include <signal.h>
 
 #ifdef USE_SIG_T
@@ -289,6 +290,29 @@ int main (int argc, char *argv[])
     Glib::thread_init();
     /* init Glib/Gtk args */
     Gtk::Main mymain(argc, argv);
+
+    /* Force the numeric locale back to C, and do it *after* Gtk::Main, which
+     * calls setlocale(LC_ALL, "") on our behalf.
+     *
+     * Every number thinksynth reads or writes goes through the C library's
+     * locale-sensitive conversions: atof() in the .dsp lexer, strtof() in the
+     * patch parser, atof() and "%f" in the preferences. Under a locale with a
+     * comma decimal separator -- de_DE, fr_FR, most of Europe -- `@pw1 = 0.3'
+     * in a .dsp parses as 0.0, because atof stops at the '.'. Every fractional
+     * parameter in every DSP and patch silently truncates, which does not fail
+     * loudly, it just makes the synth sound wrong.
+     *
+     * The preferences are worse still: "%f" would *write* "1,250000", and the
+     * prefs parser splits values on commas, so a saved master gain came back
+     * as two fields and lost its fraction on reload.
+     *
+     * Only LC_NUMERIC is pinned; LC_MESSAGES, LC_TIME and the rest stay as the
+     * user set them, so the interface is unaffected. This is the usual thing
+     * for applications with a numeric file format.
+     *
+     * NB this fixes the *application*. libthink itself still uses atof() in
+     * its lexer, so anything embedding the library has to do the same. */
+    setlocale(LC_NUMERIC, "C");
 
     while ((havearg = getopt (argc, argv, "hp:o:d:r:l:")) != -1)
     {
