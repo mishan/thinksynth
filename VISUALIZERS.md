@@ -420,3 +420,132 @@ the canvas plan survives contact.
 - **Probing changes timing, if not sound.** The tap is a read and cannot alter
   a buffer, but it does add work to the callback. Four probes across ten voices
   is not a plausible xrun, and `dspblock` exists to say so if it ever is.
+
+---
+
+## 10. Progress
+
+Steps 1–3 of §8 are done, on `node-visualizers` off `patch-selector`.
+
+| Step | State | Where |
+|---|---|---|
+| 1. `thSampleRing` | done | `libthink/thSampleRing.h`, `scripts/ringcheck` |
+| 2. The tap | done | `libthink/thProbe.{h,cpp}`, `thSynth::armProbe`, `scripts/dspprobe`, `dspstress` level 5 |
+| 3. The visual ABI and `visual/meter` | done | `src/thVisual.{h,cpp}`, `plugins/visual/meter.cpp`, `scripts/visualcheck` |
+| 4. The canvas | not started | the repaint measurement in §5 comes first |
+
+Three CTest gates added — `ringcheck`, `dspprobe`, `visualcheck` — bringing the
+suite to eight. All eight pass, and the ASan and TSan trees are clean.
+
+```
+dspprobe    2650 output ports across 81 files, 2667 checks, 0 failed
+ringcheck   45 checks, 0 failed
+visualcheck 39 checks, 0 failed
+dspstress   5/5 levels clean under ThreadSanitizer
+```
+
+### The claim in §2 held, and is not this work's to defend
+
+Node ids and arg indices do survive the per-note tree copy, so a probe really
+is two array subscripts per voice. What the harness found is that this is not a
+property anyone needs to preserve *for the tap*: the audio path resolves every
+pointer arg through the same ids and indices, so breaking either one segfaults
+`dspcheck` long before a probe could draw the wrong picture. The tap is riding
+on load-bearing structure. `dspprobe` says so rather than claiming credit for
+catching it.
+
+### Two things the corpus decided
+
+**The io node's `note`, `velocity` and `trigger` did not exist until a note
+did.** `thMidiNote` writes all three into its *copy* of the tree. In the 5 of
+92 files that never reference them, the arg existed only inside each copy —
+taking a fresh index out of `addArgToIndex`, agreeing between copies only
+because every copy starts from the same `argCount_`. Nothing outside a copy
+could name them, so a probe on `ionode.note` resolved against the prototype and
+found nothing while the node editor drew the port regardless. `finishParse` now
+declares them, which is what `buildArgMap` already does for a plugin arg a
+`.dsp` omitted.
+
+It has to happen *after* `setPointers()`. `buildArgMap` resets `argCount_` to
+zero and then indexes only args whose index is still negative, so the counter
+is not settled until `setPointers` has created args for the references it
+resolves — and a `.dsp` with a typo in one of those creates one. `harpsi0.dsp`
+reads `ionode->bandlo` where its io node declares `bandlow`; done any earlier,
+that typo and `note` shared index 21 and a probe on `ionode.bandlo` read back
+the note numbers. That was found by `dspprobe`, on its second run.
+
+**A channel serial, not a generation counter.** The first design had the audio
+thread bump a per-channel generation on `SET_CHANNEL` and the GUI read it when
+arming. It never matched: `loadTree` queues the swap, so the GUI reads the
+generation *before* the audio thread has applied the change, and every probe
+armed on a freshly loaded patch was stale from birth and published silence
+forever. The handle has to be something the GUI already holds, so it is a
+serial on the `thMidiChan` itself — monotonic, never reused, and therefore also
+immune to the replacement channel landing on the freed one's address.
+
+### What the tap cost
+
+Nothing measurable. Four probes across ten voices is 40 lookups and 40k float
+adds per 1024-sample window; `dsplevel`, `dspblock` and `dsplive` are unchanged
+across the corpus with probes compiled in.
+
+### On the ABI
+
+`thVisual` lives in `src/`, not `libthink/`. Putting it in the engine would put
+cairo behind every headless harness that links it, which is the opposite of the
+containment §4 promised. A visual module links neither `libthink` nor sigc++ —
+`meter.so`'s only shared dependency is `libcairo`, and it exports exactly the
+six entry points and the version byte.
+
+`thVisual::draw` clips to the panel and `save`/`restore`s around the call. A
+module that leaves the context dirty or draws outside its box is then a bug in
+that module rather than a smear across the canvas.
+
+`thDynLib`'s four calls are `THINK_API` now. They were `thPlugin`'s private
+business and `libthink` builds hidden-by-default; `thVisual` needs the same
+four, and a second dlopen shim is precisely what that header exists to avoid.
+
+### What the checks do not cover, stated rather than implied
+
+- `visualcheck` proves a module does not crash, does not depend on where the
+  feed was split, and draws the same thing twice. It does **not** prove the
+  numbers are right: a meter fed 1e5 is asserted to have drawn something, not
+  to have said +105 dB. Deleting `meter`'s guard against a sample rate of zero
+  passes — the decay constants collapse and the display is wrong but perfectly
+  deterministic. Whether a visualizer is *correct* is a matter of looking at it.
+- `dspprobe`'s reference goes blind the moment a note is retired, because
+  `thMidiChan` does that inside `process()`. The comparison stops at that
+  boundary rather than pretending to cover it. Releases are covered by
+  construction — the accumulate is inside both note loops — and by a separate
+  check that re-strikes a sounding note and counts the voices on
+  `ionode.note`: 60+64+67+60 = 251 with the decaying loop, 191 without.
+- The channel-serial belt is deliberately untested. Disarming on reload is what
+  actually keeps a probe off a replaced tree and that *is* tested; the serial
+  exists for a future caller who forgets, and there is no way to reach that
+  state through the public API — which is the point of it.
+
+### Portability, found by CI rather than by argument
+
+Three things, all in `visualcheck`, all worth recording because each was a
+guess that a second platform disproved:
+
+- A hand-rolled directory walk matching `.so` builds cleanly on macOS and then
+  reports "no visual modules": the suffix is `.dylib` there and `.dll` on
+  Windows. `config.h`'s `PLUGIN_SUFFIX` already knew.
+- `M_PI` is not in C++. glibc provides it from `<math.h>`; MinGW's UCRT runtime
+  does not without `_USE_MATH_DEFINES`. `think.h` does that dance for the 27
+  places in the engine that need it, and a harness deliberately free of
+  `think.h` does not inherit it.
+- `cairo_select_font_face` pulls in fontconfig, whose global pattern cache is
+  never freed — 4738 bytes in 68 allocations, and an ASan job that runs with
+  `detect_leaks=1` goes red. Suppressed by module through
+  `__lsan_default_suppressions`, the same way `dspstress` supplies
+  `__tsan_default_options`, so a real leak still fails: a deliberate 777-byte
+  leak in `visual_open` is reported.
+
+### Still ahead
+
+Step 4, and it opens with the measurement §5 called for rather than with code:
+30fps `queue_draw()` over `dsp/old/bd9.dsp`, the widest graph in the corpus, to
+find out whether per-probe image surfaces are enough or whether the overlay
+fallback is needed. That answer changes the canvas design, so it comes first.
