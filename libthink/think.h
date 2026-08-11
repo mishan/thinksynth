@@ -101,6 +101,12 @@ using namespace std;
    what keeps the mix inside the rails, so existing patches keep the level they
    were tuned at. Above unity is allowed for quiet DSPs. */
 #define TH_MASTER_GAIN_DEFAULT 1.0f
+
+/* What a channel's amplitude starts at, on the same 0..MIDIVALMAX scale the
+   engine mixes with. 100 is MIDI's idea of a default channel volume, and
+   leaves room above it. Loading used to pass 0, so a freshly loaded patch was
+   silent until someone went looking for the slider. */
+#define TH_DEFAULT_CHAN_AMP 100.0f
 #define TH_MASTER_GAIN_MAX     4.0f
 
 /* Is this sample an ordinary finite number?

@@ -104,7 +104,13 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 
     /* Load the resolved path but remember the name as given, so a patch saved
        afterwards still carries the short name it came with. */
-    thSynthTree *mod = synth->loadTree(resolveDsp(dspName).c_str(), chan, 0);
+    /* 100, not 0. The third argument is the channel's amplitude, and a patch
+       loaded at zero is a patch that makes no sound until you find the Patch
+       Selector and raise it -- which looked like a broken DSP rather than a
+       volume at the bottom of its range. 100 is what MIDI means by a default
+       channel volume, and the scale here is the same 0..127. */
+    thSynthTree *mod = synth->loadTree(resolveDsp(dspName).c_str(), chan,
+                                       TH_DEFAULT_CHAN_AMP);
 
     if (mod == NULL)
     {
@@ -314,7 +320,8 @@ bool gthPatchManager::parse (const string &filename, int chan)
 
                 const string f = resolveDsp(values[0]);
 
-                if (synth->loadTree(f.c_str(), chan, 0) == NULL)
+                if (synth->loadTree(f.c_str(), chan,
+                                    TH_DEFAULT_CHAN_AMP) == NULL)
                     goto owned;
 
                 seen_dsp = true;
