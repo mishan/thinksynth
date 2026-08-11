@@ -19,6 +19,8 @@
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
 
+#include <mutex>
+
 /* this widget's custom signals */
 typedef sigc::signal<void()>                  type_signal_note_clear;
 typedef sigc::signal<void(int, int, float)> type_signal_note_on;
@@ -86,7 +88,7 @@ private:
     type_signal_transpose_changed m_signal_transpose_changed_;
 
     /* lower-level widget stuff */
-    Glib::Mutex drawMutex_;
+    std::mutex drawMutex_;
     Glib::Dispatcher dispatchRedraw_;
 
     bool focus_box_;

@@ -19,6 +19,8 @@
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
 
+#include <mutex>
+
 class KeyboardWindow : public Gtk::Window
 {
 public:
@@ -43,7 +45,7 @@ protected:
 
     thSynth *synth_;
 private:
-    Glib::Mutex kbMutex_;
+    std::mutex kbMutex_;
 
     Keyboard *keyboard_;
 
