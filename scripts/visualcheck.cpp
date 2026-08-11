@@ -297,6 +297,40 @@ void listVisuals (const string &dir, vector<string> &out)
 
 /* ---- one module ---- */
 
+/* Where to write pictures, or empty. See the -o comment in main. */
+string pngDir;
+
+void writePng (thVisual &visual, void *inst, const string &what)
+{
+    if (pngDir.empty())
+        return;
+
+    /* Big, because the point is to look at it. A panel is 128 wide in the
+       editor and a module's bugs are not visible at that size -- this is the
+       same module drawn large, not a different one. */
+    const int W = 480, H = 200;
+
+    /* The C API, like the rest of this file: visualcheck deliberately does not
+       link cairomm, because the ABI it is testing takes a cairo_t. */
+    cairo_surface_t *surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
+                                                       W, H);
+    cairo_t *cr = cairo_create(surf);
+
+    visual.draw(inst, cr, W, H);
+
+    cairo_destroy(cr);
+
+    string name = pngDir + "/" + visual.name() + "-" + what + ".png";
+
+    for (size_t i = pngDir.size() + 1; i < name.size(); i++)
+        if (name[i] == ' ' || name[i] == '+' || name[i] == '(' ||
+            name[i] == ')')
+            name[i] = '_';
+
+    cairo_surface_write_to_png(surf, name.c_str());
+    cairo_surface_destroy(surf);
+}
+
 void checkOne (const string &path)
 {
     thVisual visual(path);
@@ -443,6 +477,8 @@ void checkOne (const string &path)
         ok(once == twice, "%s draws %s identically twice in a row",
            visual.name().c_str(), feeds[f].what);
 
+        writePng(visual, a, feeds[f].what);
+
         visual.close(a);
         visual.close(b);
     }
@@ -468,9 +504,14 @@ int main (int argc, char **argv)
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "-p")) { if (++i >= argc) return 2; pluginPath = argv[i]; }
+        /* Writes each module's drawing of each feed, at a size worth looking
+           at. Not a check and it asserts nothing -- the header above is clear
+           that whether a visualizer is *correct* is a matter of looking at it,
+           and this is what makes that possible without running the editor. */
+        else if (!strcmp(argv[i], "-o")) { if (++i >= argc) return 2; pngDir = argv[i]; }
         else
         {
-            printf("usage: %s [-p PLUGIN_PATH]\n", argv[0]);
+            printf("usage: %s [-p PLUGIN_PATH] [-o PNG_DIR]\n", argv[0]);
             return 2;
         }
     }
