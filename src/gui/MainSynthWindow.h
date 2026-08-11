@@ -51,6 +51,23 @@ protected:
        ellipsised rather than widening the strip to fit the longest name. */
     Gtk::Widget *makeTabLabel (const string &text, const string &tip);
 
+    /* The strip across the top of a patch page: which patch it is, its
+       amplitude, and what can be done with it. Above the Overview/Nodes
+       notebook rather than inside either, because it is about the patch and
+       not about one view of it. */
+    Gtk::Widget *makePatchBar (int chan);
+
+    void onAmpSlider (Gtk::HScale *scale, int chan);
+    void onAmpArgChanged (thArg *arg, int chan);
+
+    void onSavePatch (int chan);
+    void onSavePatchAs (int chan);
+
+    /* The write itself, run once the click that asked for it has returned.
+       Saving emits signal_patches_changed, which tears down and rebuilds every
+       page -- including the button being clicked. */
+    void doSavePatch (string file, int chan);
+
     /* Which node each control drives, keyed by control name. Controls read
        by more than one node are left out: they belong to no single node. */
     std::map<string, string> inferGroups (int chan);
@@ -115,6 +132,18 @@ protected:
        sixteen of them up front would be sixteen scans for the one you
        wanted. */
     std::map<Gtk::Widget *, NodeEditor *> editors_;
+
+    /* The amplitude slider on each patch page, and its subscription to the
+       arg behind it.
+     *
+     * The channel's `amp' outlives the page -- it belongs to the thMidiChan,
+     * and every patch load rebuilds all sixteen pages -- so the slot that
+     * follows it back to the slider goes through the channel number and looks
+     * the current slider up, rather than capturing one. The connections are
+     * dropped in populate() so a session's worth of reloads does not leave a
+     * subscription behind for every page that ever existed. */
+    std::map<int, Gtk::HScale *> ampScales_;
+    std::vector<sigc::connection> ampConns_;
 private:
     gthAudio *audio_;
     string prevDir_;
