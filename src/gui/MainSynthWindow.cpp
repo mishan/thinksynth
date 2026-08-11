@@ -42,7 +42,7 @@
 #include "AboutBox.h"
 #include "MidiMap.h"
 #include "ArgTable.h"
-#include "NodeWindow.h"
+#include "NodeEditor.h"
 
 
 #include "../gthPrefs.h"
@@ -64,7 +64,6 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     patchSel_ = NULL;
     aboutBox_ = NULL;
     kbWin_ = NULL;
-    nodeWin_ = NULL;
 
     vals = prefs->Get("dspdir");
 
@@ -222,67 +221,28 @@ void MainSynthWindow::menuKeyboard (void)
    parses its own copy of the file, so it neither sees nor disturbs the tree
    the channel is playing -- which also means it works before a patch has been
    loaded, as long as the entry names a readable file. */
+/* Show the node graph for the patch page you are on.
+ *
+ * It is a tab on that page now, so this is a switch rather than a window to
+ * open: the editor is built and the .dsp read the first time the tab is
+ * shown, by onSubTab. All the resolving that used to happen here went with
+ * it -- the page knows its own dspFile, so there is nothing to guess from the
+ * entry box and no way for the menu to show a different file from the tab. */
 void MainSynthWindow::menuNodes (void)
 {
-    /* The entry shows the patch's stored name, which is normally bare
-       ("ts1.dsp") -- resolving it is the patch manager's rule, not ours. */
-    const string typed = dspEntry_.get_text();
-    string dspfile = gthPatchManager::resolveDsp(typed);
-
-    /* resolveDsp only knows about the install path. If the file came from
-       somewhere the user browsed to, that directory is the better guess. */
-    if (!typed.empty() && !std::filesystem::path(typed).is_absolute() &&
-        !prevDir_.empty())
-    {
-        /* Was typed[0] != '/' with two stat() calls and a string
-           concatenation. is_absolute knows what "C:\\..." means, operator/
-           puts in a separator whether prevDir_ ended with one or not, and the
-           last stat in the tree goes with it. */
-        std::error_code ec;
-
-        const std::filesystem::path browsed =
-            std::filesystem::path(prevDir_) / typed;
-
-        if (!std::filesystem::exists(dspfile, ec) &&
-            std::filesystem::exists(browsed, ec))
-            dspfile = browsed.string();
-    }
-
-    if (dspfile.empty())
-    {
-        Gtk::MessageDialog dlg(*this, "No DSP file selected.", false,
-                               Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
-        dlg.set_secondary_text("Choose a DSP for this patch first; the node "
-                               "view shows the file named above.");
-        dlg.run();
-        return;
-    }
-
-    if (nodeWin_ == NULL)
-    {
-        nodeWin_ = new NodeWindow(thSynth::instance());
-        menuBar_.accelerate(*nodeWin_);
-        nodeWin_->signal_hide().connect(
-            sigc::mem_fun(*this, &MainSynthWindow::onNodeWinHide));
-    }
-
-    /* The tab being shown is the channel the file is loaded on, which is what
-       lets the node view push slider moves into the running synth. */
     const int chan = notebook_.get_current_page();
 
-    if (nodeWin_->filename() != dspfile && !nodeWin_->open(dspfile, chan))
+    if (chan < 0 || chan >= (int)subTabs_.size() || subTabs_[chan] == NULL)
     {
-        Gtk::MessageDialog dlg(*this, "Could not read that DSP.", false,
-                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
-        dlg.set_secondary_text(dspfile == typed ? dspfile
-                                                : typed + "  (" + dspfile + ")");
+        Gtk::MessageDialog dlg(*this, "No patch on this tab.", false,
+                               Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
+        dlg.set_secondary_text("Choose a DSP for this channel first; the node "
+                               "view shows the file that channel is playing.");
         dlg.run();
         return;
     }
 
-    nodeWin_->show_all_children();
-    nodeWin_->show();
-    nodeWin_->present();
+    subTabs_[chan]->set_current_page(1);
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -366,6 +326,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
         lbl->set_justify(Gtk::JUSTIFY_CENTER);
         notebook_.append_page(*lbl, *makeTabLabel(tabName, tip));
+        subTabs_.push_back(NULL);
         return;
     }
 
@@ -379,6 +340,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
         sorry->set_justify(Gtk::JUSTIFY_CENTER);
         notebook_.append_page(*sorry, *makeTabLabel(tabName, tip));
+        subTabs_.push_back(NULL);
         return;
     }
         
@@ -478,13 +440,76 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     /* Now that the count is known, the table can pick its column count. */
     dsp_table->reflow();
 
-    notebook_.append_page(*tab_view, *makeTabLabel(tabName, tip));
+    /* Two views of the same patch, side by side in the same window: the
+       sliders, and the graph they came from. The node editor used to be a
+       separate window opened from the menu, so the two could never be seen
+       together and each had its own idea of what was unsaved.
+    
+       The editor itself is not built yet. Building one scans the plugin
+       directory to fill its palette, and doing that sixteen times on startup
+       to reach the one page anyone opens would be sixteen scans wasted. The
+       Nodes page holds an empty box until its tab is first looked at. */
+    Gtk::Notebook *sub = manage(new Gtk::Notebook);
+    Gtk::Box *holder = manage(new Gtk::VBox);
 
+    sub->append_page(*tab_view, "Overview");
+    sub->append_page(*holder, "Nodes");
+
+    sub->signal_switch_page().connect(
+        sigc::bind<Gtk::Widget *, string, int>(
+            sigc::mem_fun(*this, &MainSynthWindow::onSubTab),
+            holder, patchMgr->getPatch(num) ? patchMgr->getPatch(num)->dspFile
+                                            : string(),
+            num));
+
+    notebook_.append_page(*sub, *makeTabLabel(tabName, tip));
+    subTabs_.push_back(sub);
+
+}
+
+/* The Nodes tab has been shown for the first time: build its editor.
+ *
+ * `page' and `num' are which sub-tab was switched to; `holder' is the empty
+ * box the Nodes page was given. Anything already built is left alone -- this
+ * fires on every switch, not only the first. */
+void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
+                                Gtk::Widget *holder, string dspFile, int chan)
+{
+    (void)page;
+
+    if (num != 1 || editors_.count(holder))
+        return;
+
+    Gtk::Box *box = dynamic_cast<Gtk::Box *>(holder);
+
+    if (box == NULL)
+        return;
+
+    NodeEditor *ed = manage(new NodeEditor(thSynth::instance()));
+
+    editors_[holder] = ed;
+
+    box->pack_start(*ed);
+    box->show_all_children();
+
+    if (dspFile.empty())
+    {
+        ed->setStatusPublic("This patch has no DSP file yet. Choose one above,"
+                            " or use New to start one.");
+        return;
+    }
+
+    /* The channel is passed so slider moves in the graph reach the running
+       synth, the same as they did when this was a window. */
+    if (!ed->open(dspFile, chan))
+        ed->setStatusPublic("Could not read " + dspFile);
 }
 
 void MainSynthWindow::populate (void)
 {
     /* populate notebook */
+    subTabs_.clear();
+    editors_.clear();
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int numPatches = patchMgr->numPatches();
 
@@ -573,11 +598,6 @@ void MainSynthWindow::onMidiMapHide (void)
     midiMap_ = NULL;
 }
 
-void MainSynthWindow::onNodeWinHide (void)
-{
-    delete nodeWin_;
-    nodeWin_ = NULL;
-}
 
 void MainSynthWindow::onKeyboardHide (void)
 {

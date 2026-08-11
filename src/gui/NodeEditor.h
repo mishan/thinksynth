@@ -16,8 +16,8 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-#ifndef NODE_WINDOW_H
-#define NODE_WINDOW_H 1
+#ifndef NODE_EDITOR_H
+#define NODE_EDITOR_H 1
 
 #include "../NodeGraph.h"
 #include "NodeCanvas.h"
@@ -27,19 +27,30 @@
 class thSynth;
 
 /*
- * Window around a NodeCanvas: opens a .dsp, shows its signal flow, remembers
- * where the boxes were put.
+ * The node editor: opens a .dsp, shows its signal flow, remembers where the
+ * boxes were put.
+ *
+ * A widget rather than a window. It was a window, opened from the menu and
+ * living beside the main one, so the graph and the parameter sliders for the
+ * same patch could never be looked at together, and the two could disagree
+ * about what was unsaved. It is packed into the patch page now, on a tab
+ * beside the overview.
+ *
+ * Being a widget costs it two things a window had for free: a title bar to
+ * put the filename and the dirty marker in, and a `this' that dialogs could
+ * be parented on. The first is a label in the toolbar now, the second a walk
+ * up to whatever window it has been packed into.
  *
  * The tree it parses is its own -- see thSynth::parseTree -- so nothing here
  * can disturb a channel that is playing. Read-only as far as the audio engine
  * is concerned: what this window writes, it writes to the .dsp on disk, and
  * only when asked.
  */
-class NodeWindow : public Gtk::Window
+class NodeEditor : public Gtk::VBox
 {
 public:
-    NodeWindow (thSynth *synth);
-    ~NodeWindow (void);
+    NodeEditor (thSynth *synth);
+    ~NodeEditor (void);
 
     /* Parses and displays a .dsp. Safe to call again to switch files.
      *
@@ -51,9 +62,14 @@ public:
      * is what everything here writes to -- see work_. */
     bool open (const string &filename, int chan = -1);
 
-    /* The .dsp this window is showing: where it was opened from and where
+    /* The .dsp this editor is showing: where it was opened from and where
        Save will put it back. Not the file being written to as you work. */
     const string &filename (void) const { return source_; }
+
+    /* Puts a line in the editor's own status bar. For the container to say
+       why it did not open anything -- the message belongs on the tab that is
+       empty, not in a dialog over a window the user was not looking at. */
+    void setStatusPublic (const string &text) { setStatus(text); }
 
 protected:
     void onArrange (void);
@@ -123,6 +139,10 @@ protected:
     /* True if anything here is not in the source yet -- pending edits, or a
        structural change already in the working copy. */
     bool dirty (void) const;
+
+    /* The window this has been packed into, for parenting a dialog on. NULL
+       before it is realised, which every caller has to allow for. */
+    Gtk::Window *topLevel (void);
 
     void setStatus (const string &text);
 
@@ -212,7 +232,7 @@ private:
     Gtk::Button newBtn_;
     Gtk::Button deleteBtn_;
 
-    Gtk::VBox vbox_;
+    Gtk::Label titleLbl_;   /* what the window title used to say */
     Gtk::HBox toolbar_;
     Gtk::HPaned outer_;     /* palette | the rest      */
     Gtk::HPaned split_;     /* canvas  | parameters    */
@@ -232,4 +252,4 @@ private:
     Gtk::Button zoomFitBtn_;
 };
 
-#endif /* NODE_WINDOW_H */
+#endif /* NODE_EDITOR_H */
