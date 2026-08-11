@@ -185,6 +185,36 @@ void ArgTable::reflow (void)
      * out, one section per part of the signal path. */
     std::vector<Gtk::Widget *> blocks;
 
+    /* A group of one is not a group.
+     *
+     * The inference is literal -- it groups by the node a control drives --
+     * and most controls drive a little math::mul of their own, so ts1 came up
+     * with eight groups of one beside the single real one. An expander around
+     * a lone slider costs a title row and a fold nobody wants and says
+     * nothing that the parameter's own label does not.
+     *
+     * It also hides the worst of the names. A node is called `cutcalc2' or
+     * `suscalc' because that is plumbing, not because it is what a person
+     * calls that knob; the ones that read well -- `env', `filt' -- are the
+     * ones that turn out to have several members anyway. */
+    for (size_t i = 0; i < order.size(); i++)
+        if (groups[order[i]].size() < 2)
+        {
+            loose.insert(loose.end(), groups[order[i]].begin(),
+                         groups[order[i]].end());
+            groups.erase(order[i]);
+        }
+
+    {
+        std::vector<string> kept;
+
+        for (size_t i = 0; i < order.size(); i++)
+            if (groups.count(order[i]))
+                kept.push_back(order[i]);
+
+        order.swap(kept);
+    }
+
     if (!loose.empty())
         blocks.push_back(makeGrid(loose, columnsFor((int)loose.size())));
 
