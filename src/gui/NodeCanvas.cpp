@@ -77,6 +77,15 @@ NodeCanvas::NodeCanvas (void)
         sigc::mem_fun(*this, &NodeCanvas::onReleased));
     add_controller(click_);
 
+    /* A second gesture rather than widening the first: GestureClick filters by
+       button, and asking one controller for both would mean every left-drag
+       path testing which button it was. */
+    rightClick_ = Gtk::GestureClick::create();
+    rightClick_->set_button(3);
+    rightClick_->signal_pressed().connect(
+        sigc::mem_fun(*this, &NodeCanvas::onRightPressed));
+    add_controller(rightClick_);
+
     motion_ = Gtk::EventControllerMotion::create();
     motion_->signal_motion().connect(
         sigc::mem_fun(*this, &NodeCanvas::onMotion));
@@ -240,6 +249,32 @@ void NodeCanvas::toGraph (double sx, double sy, double &gx, double &gy) const
 {
     gx = sx / zoom_;
     gy = sy / zoom_;
+}
+
+/* Right-click: says what is under the pointer and lets the editor decide what
+   that means. Deliberately without selecting or otherwise disturbing anything
+   -- a menu that moved the selection out from under you before opening would
+   be its own bug. */
+void NodeCanvas::onRightPressed (int nPress, double x, double y)
+{
+    (void)nPress;
+
+    if (graph_ == NULL)
+        return;
+
+    double gx, gy;
+
+    toGraph(x, y, gx, gy);
+
+    int pb = -1, pp = -1;
+
+    if (!graph_->portAt(gx, gy, pb, pp))
+    {
+        pb = graph_->boxAt(gx, gy);
+        pp = -1;
+    }
+
+    m_signal_context_(pb, pp, x, y);
 }
 
 void NodeCanvas::onPressed (int nPress, double x, double y)

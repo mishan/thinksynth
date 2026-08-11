@@ -93,6 +93,20 @@ think_harness(canvasbench NODEMODEL VISUALHOST
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp")
 target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 
+# editorcheck joins up what the other harnesses cover separately: the tap, the
+# module and the panel are three things, and NodeEditor is the only thing that
+# holds them together. It needs a display for the same reason canvasbench does
+# -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
+# list below, guarded by whether a display can be had.
+think_harness(editorcheck NODEMODEL VISUALHOST
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
+target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -168,6 +182,12 @@ add_test(NAME dspprobe
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
 
+# Skips itself, loudly, where there is no display -- see the comment in
+# editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
+add_test(NAME editorcheck
+         COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
+
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
-                     ringcheck visualcheck dspprobe
+                     ringcheck visualcheck dspprobe editorcheck
                      PROPERTIES TIMEOUT 900)

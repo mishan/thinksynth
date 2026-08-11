@@ -149,6 +149,21 @@ public:
         return m_signal_control_;
     }
 
+    /* A right-click asking what can be done here, with the box and port under
+       the pointer (port -1 for none) and the widget coordinates to put a menu
+       at.
+     *
+     * The canvas does not know what the answers are -- probing is the editor's
+     * business, since it owns the visual modules and the channel -- so this
+     * says where and on what, and nothing about the menu itself. Right-click
+     * rather than a modifier because it is the one gesture the canvas does not
+     * already spend: left is wire, drag and slider, and the wheel is scroll
+     * and zoom. */
+    typedef sigc::signal<void(int, int, double, double)> type_signal_context;
+    type_signal_context signal_context_requested (void) {
+        return m_signal_context_;
+    }
+
     /* The drawing itself, into any context.
      *
      * Public and separate from the draw callback for two reasons: the timing
@@ -171,12 +186,14 @@ protected:
        for, and is handed the coordinates rather than being asked to fetch
        them. */
     void onPressed (int nPress, double x, double y);
+    void onRightPressed (int nPress, double x, double y);
     void onReleased (int nPress, double x, double y);
     void onMotion (double x, double y);
     bool onScroll (double dx, double dy);
     void onLeave (void);
 
     Glib::RefPtr<Gtk::GestureClick> click_;
+    Glib::RefPtr<Gtk::GestureClick> rightClick_;
     Glib::RefPtr<Gtk::EventControllerMotion> motion_;
     Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
@@ -249,6 +266,7 @@ private:
     type_signal_disconnect m_signal_disconnect_;
     type_signal_refused m_signal_refused_;
     type_signal_control m_signal_control_;
+    type_signal_context m_signal_context_;
 };
 
 #endif /* NODE_CANVAS_H */

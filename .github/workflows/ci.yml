@@ -74,8 +74,13 @@ jobs:
       - name: Smoke test
         run: xvfb-run -a ./build/src/thinksynth -h
 
+      # Under xvfb because one gate -- editorcheck -- builds real widgets: a
+      # probe is a panel, a tap and a module instance at once, and NodeEditor
+      # is the only place the three meet. Everything else here is headless and
+      # does not care. editorcheck skips itself rather than failing where there
+      # is no display, so this is what makes it actually run.
       - name: Test
-        run: ctest --test-dir build --output-on-failure
+        run: xvfb-run -a ctest --test-dir build --output-on-failure
 
       - name: Package
         run: cpack --config build/CPackConfig.cmake -B build/package
@@ -191,7 +196,9 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
-            libasound2-dev libjack-jackd2-dev
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
 
       # THINK_SANITIZE applies the flags globally rather than per-target, so
       # they reach libthink and all 62 plugins. An earlier round of
@@ -209,7 +216,11 @@ jobs:
         env:
           ASAN_OPTIONS: detect_leaks=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build --output-on-failure
+        # Same reason as the linux job, and worth more here: editorcheck
+        # deliberately destroys the editor at the end, so the teardown order --
+        # stop the tick, close the instances, then unload the modules -- is
+        # exercised under ASan and nowhere else.
+        run: xvfb-run -a ctest --test-dir build --output-on-failure
 
   macos:
     name: macos (clang, arm64)

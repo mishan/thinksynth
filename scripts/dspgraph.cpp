@@ -671,6 +671,53 @@ int main (int argc, char **argv)
                 }
             }
 
+            /* (node name, output port) has to name exactly one box.
+             *
+             * This is the editor's lookup, checked here because it is the one
+             * piece of NodeEditor::reapplyProbes that can go quietly wrong.
+             * A probe is stored by node and arg name -- that is what survives
+             * a reload and what a `# @probe' line records -- and putting the
+             * panel back means finding the box again. But the io node is one
+             * node in the file and *two* boxes on screen, so a search by name
+             * alone has two candidates and would take whichever came first.
+             * Requiring the port narrows it to one; this asserts that it
+             * really does, for every point that can be probed. */
+            for (size_t b = 0; b < g.boxes().size() && problems < 5; b++)
+            {
+                if (g.boxes()[b].isControl || g.boxes()[b].isProbe)
+                    continue;
+
+                for (size_t p = 0; p < g.boxes()[b].ports.size() &&
+                                   problems < 5; p++)
+                {
+                    if (g.boxes()[b].ports[p].isInput)
+                        continue;
+
+                    const string node = g.boxes()[b].name;
+                    const string port = g.boxes()[b].ports[p].name;
+
+                    int found = 0;
+
+                    for (size_t k = 0; k < g.boxes().size(); k++)
+                    {
+                        if (g.boxes()[k].isControl || g.boxes()[k].isProbe ||
+                            g.boxes()[k].name != node)
+                            continue;
+
+                        for (size_t q = 0; q < g.boxes()[k].ports.size(); q++)
+                            if (!g.boxes()[k].ports[q].isInput &&
+                                g.boxes()[k].ports[q].name == port)
+                                found++;
+                    }
+
+                    if (found != 1)
+                    { printf("FAIL  %s: %s.%s names %d boxes, not one -- a "
+                             "probe could not be put back on the right one\n",
+                             argv[f], node.c_str(), port.c_str(), found);
+                      problems++; }
+                }
+            }
+
             /* Nothing above may have disturbed the graph the checks below
                measure. */
             g.layout();
