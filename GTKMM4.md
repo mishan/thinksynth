@@ -197,6 +197,27 @@ the screen becomes a `Gdk::Monitor` query. Assorted renames follow the enums.
 6. **Keyboard and NodeCanvas input to event controllers.** Last, because it is
    the riskiest and the hardest to verify.
 
+## Known-unfixed
+
+`gtk_css_node_insert_after: assertion 'previous_sibling == NULL ||
+previous_sibling->parent == parent' failed`, a Gtk-CRITICAL, on opening the
+Patch Selector. GTK recovers -- the window is drawn correctly and works -- but
+it is a real complaint about how the widget tree is being built and it should
+not be there.
+
+It does not reproduce on any single window. Opening the patch selector, the
+MIDI map or the keyboard on its own is clean; so is opening two of them, and
+so is closing one and opening it again. The sequence that produces it here is
+all three open, then close the patch selector and reopen it. That points at
+something about a window being presented while others exist rather than at
+that window's own construction, which is the opposite of where the message
+reads like it is pointing.
+
+Filling the patch selector's two grids before parenting them rather than after
+was the obvious candidate and did not stop it. What would settle it is a
+backtrace: `G_DEBUG=fatal-criticals` under a debugger, at the moment of the
+assertion.
+
 ## Is it worth doing?
 
 The honest answer has not changed, and it is worth keeping here even though
