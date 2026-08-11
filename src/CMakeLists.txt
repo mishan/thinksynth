@@ -26,6 +26,7 @@ set(THINKSYNTH_SOURCES
     gthPatchfile.cpp
     gthDummyAudio.cpp
     gthSynthSource.cpp
+    gthGtkRuntime.cpp
     gthRtAudio.cpp
     gthRtMidi.cpp
     gthMidiQueue.cpp
@@ -75,4 +76,9 @@ think_copy_runtime_dlls(thinksynth)
 # worth running -- but not before it links.
 add_dependencies(thinksynth plugins)
 
-install(TARGETS thinksynth RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# On macOS and Windows the app and its dependency closure are installed by
+# cmake/Packaging.cmake, which needs to name the same target in one
+# install(TARGETS) call as the RUNTIME_DEPENDENCY_SET.
+if(NOT APPLE AND NOT WIN32)
+  install(TARGETS thinksynth RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
+endif()
