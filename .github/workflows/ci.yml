@@ -319,7 +319,11 @@ jobs:
             cmake:p
             ninja:p
             pkgconf:p
-            gtkmm4:p
+            # gtkmm-4.0, not gtkmm4. The short name exists but is a virtual
+            # package -- pacman offers the providers and waits for a choice,
+            # which in CI means "Enter a selection (default=all): error:
+            # target not found".
+            gtkmm-4.0:p
             adwaita-icon-theme:p
             librsvg:p
 

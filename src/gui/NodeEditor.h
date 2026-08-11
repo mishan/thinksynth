@@ -157,6 +157,12 @@ protected:
     void onSaveAsResponse (int response, Gtk::FileChooserDialog *dlg,
                            sigc::slot<void ()> done, string ifRefused);
 
+    /* Past the overwrite confirmation, which a GTK4 chooser does not do for
+       us. One per path that writes to a file the user picked. */
+    void saveAsConfirmed (string path, sigc::slot<void ()> done,
+                          string ifRefused);
+    void createFileAt (string path);
+
     /* What follows a save that reached a file: reparse, restore the
        selection, say what happened. One per route, because they say
        different things. */

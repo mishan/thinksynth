@@ -47,6 +47,26 @@ void showError (Gtk::Window *parent, const Glib::ustring &text,
 void showWarning (Gtk::Window *parent, const Glib::ustring &text,
                   const Glib::ustring &secondary = Glib::ustring());
 
+/* The path a chooser settled on, or empty.
+ *
+ * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File, which
+ * may be nothing at all if the dialog was dismissed without one. This was a
+ * static in three different files; one copy, here with the rest of the
+ * chooser handling. */
+std::string chosenPath (Gtk::FileChooser &chooser);
+
+/* Asks before replacing an existing file, and runs `done' if the answer is
+ * yes -- or immediately, if there is nothing there to replace.
+ *
+ * GTK3's chooser did this itself, through
+ * set_do_overwrite_confirmation(true). GTK4 removed the property, and does
+ * not confirm in its place: a Save chooser hands back the path and says
+ * nothing. Rather than depend on a toolkit's behaviour for whether a file
+ * gets silently destroyed, the question is asked here.
+ */
+void confirmOverwrite (Gtk::Window *parent, const std::string &path,
+                       const sigc::slot<void ()> &done);
+
 /* Hides a dialog and frees it once the response that asked for it has
    finished being delivered.
  *

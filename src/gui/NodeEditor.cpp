@@ -39,17 +39,6 @@
 #include "NodeEditor.h"
 #include "Dialogs.h"
 
-/* The path the chooser settled on.
- *
- * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File now,
- * which may be nothing at all if the dialog was dismissed without one. Both
- * spellings exist in gtkmm-3, so this is the one that survives. */
-static string chosenPath (Gtk::FileChooser &chooser)
-{
-    const Glib::RefPtr<Gio::File> f = chooser.get_file();
-
-    return f ? f->get_path() : string();
-}
 
 NodeEditor::NodeEditor (thSynth *synth)
     : Gtk::Box(Gtk::Orientation::VERTICAL),
@@ -1526,6 +1515,14 @@ void NodeEditor::onSaveAsResponse (int response, Gtk::FileChooserDialog *dlg,
         return;
     }
 
+    confirmOverwrite(topLevel(), path,
+        sigc::bind(sigc::mem_fun(*this, &NodeEditor::saveAsConfirmed),
+                   path, done, ifRefused));
+}
+
+void NodeEditor::saveAsConfirmed (string path, sigc::slot<void ()> done,
+                                  string ifRefused)
+{
     if (!copyFile(work_, path))
     {
         showError(topLevel(), "Could not save there.", path);
@@ -1614,6 +1611,12 @@ void NodeEditor::onNewFileResponse (int response, Gtk::FileChooserDialog *dlg)
     if (path.empty())
         return;
 
+    confirmOverwrite(topLevel(), path,
+        sigc::bind(sigc::mem_fun(*this, &NodeEditor::createFileAt), path));
+}
+
+void NodeEditor::createFileAt (string path)
+{
     string base = thUtil::basename(path.c_str());
 
     const string::size_type dot = base.rfind(".dsp");

@@ -51,9 +51,9 @@ endif()
 # ---------------------------------------------------------------------------
 # Where the GTK installation keeps each of them
 #
-# "The gtk+-3.0 prefix" is not one directory, and assuming it was is what
-# broke macOS: Homebrew is keg-based, so pkg-config reports
-# /opt/homebrew/Cellar/gtk+3/3.24.52, which holds gtk's own files and nothing
+# "The gtk4 prefix" is not one directory, and assuming it was is what broke
+# macOS: Homebrew is keg-based, so pkg-config reports
+# /opt/homebrew/Cellar/gtk4/<version>, which holds gtk's own files and nothing
 # else. The schemas are compiled into the *linked* prefix by gtk+3's
 # post_install, the icon theme belongs to a different formula again, and
 # librsvg's pixbuf loader to a third. On MSYS2 and on Linux all of it really
@@ -62,7 +62,7 @@ endif()
 # So: a list of roots, searched in order, rather than a single prefix.
 # ---------------------------------------------------------------------------
 
-pkg_get_variable(_gtk_prefix       gtk+-3.0        prefix)
+pkg_get_variable(_gtk_prefix       gtk4            prefix)
 pkg_get_variable(_pixbuf_prefix    gdk-pixbuf-2.0  prefix)
 pkg_get_variable(_pixbuf_moduledir gdk-pixbuf-2.0  gdk_pixbuf_moduledir)
 pkg_get_variable(_pixbuf_cache     gdk-pixbuf-2.0  gdk_pixbuf_cache_file)
@@ -70,7 +70,7 @@ pkg_get_variable(_pixbuf_binver    gdk-pixbuf-2.0  gdk_pixbuf_binary_version)
 
 if(NOT _gtk_prefix)
   message(FATAL_ERROR
-      "THINK_BUNDLE_GTK is on but pkg-config cannot say where gtk+-3.0 is "
+      "THINK_BUNDLE_GTK is on but pkg-config cannot say where gtk4 is "
       "installed. Without that there is nothing to copy.")
 endif()
 

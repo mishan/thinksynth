@@ -38,17 +38,6 @@
 #include "gthPatchfile.h"
 #include "Dialogs.h"
 
-/* The path the chooser settled on.
- *
- * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File now,
- * which may be nothing at all if the dialog was dismissed without one. Both
- * spellings exist in gtkmm-3, so this is the one that survives. */
-static string chosenPath (Gtk::FileChooser &chooser)
-{
-    const Glib::RefPtr<Gio::File> f = chooser.get_file();
-
-    return f ? f->get_path() : string();
-}
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
      : dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
@@ -417,6 +406,15 @@ void PatchSelWindow::onSaveResponse (int response,
     if (file.empty())
         return;
 
+    /* GTK3's chooser asked before replacing a file; GTK4's does not, so it is
+       asked here. */
+    confirmOverwrite(this, file,
+        sigc::bind(sigc::mem_fun(*this, &PatchSelWindow::writePatch),
+                   file, chan));
+}
+
+void PatchSelWindow::writePatch (string file, int chan)
+{
     gthPatchManager *patchManager = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchManager->getPatch(chan);
 
