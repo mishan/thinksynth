@@ -51,7 +51,7 @@ private:
     static int columnsFor (int n);
 
     /* A grid of these parameters, in columns. */
-    Gtk::Table *makeGrid (const std::vector<thArg *> &args);
+    Gtk::Table *makeGrid (const std::vector<thArg *> &args, int cols);
     static double toDisplay (double raw, const string &units);
     static double fromDisplay (double shown, const string &units);
     static int decimalsFor (double hi);
