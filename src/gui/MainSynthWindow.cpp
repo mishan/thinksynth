@@ -634,7 +634,11 @@ void MainSynthWindow::populate (void)
         
         if (patch == NULL)
         {
-            tabName = chanStr.str() + "(Untitled)";
+            /* Nothing on this channel at all. Distinct from a channel with
+               a DSP loaded but no patch file saved for it yet, which keeps
+               "(Untitled)" below -- the two used to read the same, so an
+               empty channel and unsaved work looked alike. */
+            tabName = chanStr.str() + "(empty)";
             append_tab (tabName, "", i, false);
             continue;
         }
@@ -653,6 +657,7 @@ void MainSynthWindow::populate (void)
         }
         else
         {
+            /* A DSP is loaded; no patch file has been saved for it. */
             tabName = chanStr.str() + "(Untitled)";
         }
 
