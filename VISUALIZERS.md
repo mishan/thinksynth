@@ -693,9 +693,99 @@ the cause is that every plugin was already coming from the wrong place, and
 the fix is `THINK_PLUGIN_PATH` or deleting the leftovers. The editor now names
 the directory it searched, which turns that from a mystery into a sentence.
 
+## 14. The four modules
+
+All four are built. Each is one file in `plugins/visual/` that nothing else in
+the tree knows about, which was the point of making them plugins.
+
+| | what it answers | state |
+|---|---|---|
+| `meter` | how loud, and is it clipping | peak and RMS, dBFS, decaying peak |
+| `scope` | what shape | triggered on a rising zero crossing |
+| `spectrum` | what is in it | 1024-point FFT, log axis, dBFS |
+| `spectrogram` | what it does over time | 512-point, 4× overlap, 256 columns |
+
+### The scope's whole difficulty is one problem
+
+A scope that draws the newest N samples every frame shows a waveform sliding
+sideways at the beat between the signal and the refresh rate. It is unreadable,
+and it looks like a bug in the synth rather than in the display.
+
+The trigger is a rising zero crossing, searched **at draw time rather than
+remembered at feed time** — which is what keeps the picture independent of
+where the drain's boundaries fell. Searched oldest-to-newest keeping the newest
+hit, rather than backwards stopping at the first: backwards locks onto the last
+crossing before the window, which on anything but a pure tone jitters between
+harmonics. Zero rather than a level, because a level that suits an envelope's
+output suits nothing else, and a signal that never reaches it never triggers.
+
+Drawn as the min and max of each pixel column rather than a polyline through
+every other sample, which is what makes a square wave look square.
+
+### The FFT question, answered
+
+§4 left reusing `plugins/fft/dsp.c` as a twenty-minute question. Asked: it does
+hold a working radix-2 — Embree and Kimble's — and the answer is still no, for
+reasons about its shape rather than its arithmetic. Its twiddle table is a
+function-static keyed on the last size it was asked for, so two instances at
+different sizes rebuild each other's table on every call; and it calls
+`exit(1)` when a `calloc` fails, which is a library killing the host process —
+the exact pattern `REVIVAL.md` records removing from the parser. Every probe
+here is its own instance and there may be eight.
+
+So `plugins/visual/fftr.h`: eighty lines, one instance's worth of state, no
+globals, nothing that can fail after construction, and a scale factor that
+undoes Hann's coherent gain so a full-scale sine reads 1.0 and the dB axis
+means what it says. No dependency, because the reason to take one would be
+speed and 15k butterflies per frame is not a speed problem.
+
+**This is the one place in the whole of this work where "are the numbers right"
+has an answer, so it gets asked.** `visualcheck` now checks the transform
+numerically: a sine on bin *k* peaks at bin *k*, reads 1.0, and leaves nothing
+above −40 dB outside its main lobe; DC lands in bin 0; silence transforms to
+silence. Halving the scale factor fails 4 checks; an off-by-one in the bit
+reversal fails 13. A spectrum with every peak one bin low, or 6 dB down, is not
+something anyone would catch by eye.
+
+### The spectrogram transforms on sample count, not on frames
+
+The decision the module turns on. A spectrogram that transformed in `draw()`
+would produce columns at the *frame* rate — so a stall would compress a second
+of audio into one column, and the picture would be a record of the GUI's
+scheduling rather than of the sound. Hopping on sample count means the time
+axis belongs to the signal whatever the display does, and it is also what makes
+the module indifferent to where the drain split the audio.
+
+Drawn by building one image surface and painting it scaled, rather than 32768
+rectangle fills — that being the one thing in these four modules that would
+actually have shown up against the budget §11 measured.
+
+### What it costs
+
+Seventeen spectrogram panels on `ts1.dsp`, which is more than the engine's
+eight-probe limit allows:
+
+```
+meter        0.56 ms   (1.7% of a 33ms frame)
+spectrogram  2.40 ms   (7.3%)
+```
+
+So the most expensive module, at twice the number of panels anyone can have,
+is under a tenth of a 30fps budget. §11's conclusion holds and the surface
+cache is still not needed.
+
+### One thing the battery was missing
+
+Every feed in `visualcheck` was stationary, so a module that ignored the time
+axis entirely would have drawn all of them correctly — and the spectrogram is
+the one module whose whole purpose is that axis. There is a rising exponential
+sweep now, 16384 samples of 200 Hz to 8 kHz, which is both what anyone would
+actually point a spectrogram at and a much harder case for the split-feed
+comparison. It draws as a straight diagonal, which is what an exponential sweep
+on a log axis should be.
+
 ### Still ahead
 
-`visual/scope`, then `visual/spectrum` once the FFT question in §4 is settled,
-then `visual/spectrogram`. The ABI and everything behind it is done; what
-remains is modules, and each is a file in `plugins/visual/` that nothing else
-has to know about.
+Nothing on the visualizers themselves. The obvious next things are the enlarged
+view — double-click a panel for a resizable window at a useful size — and
+whichever module turns out to be missing once these have been used in anger.

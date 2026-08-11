@@ -61,3 +61,4 @@ think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
 think_add_visual(meter)
 think_add_visual(scope)
 think_add_visual(spectrum)
+think_add_visual(spectrogram)
