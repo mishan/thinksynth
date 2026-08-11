@@ -48,6 +48,11 @@
 #define COL_FILL      0.62, 0.55, 0.82
 #define COL_HANDLE    0.86, 0.83, 0.94
 
+/* A probe panel. Cooler and darker than a control strip (COL_ATTACH), because
+   the two sit in the same stack on the same node and the eye needs to tell a
+   thing you watch from a thing you turn without reading either. */
+#define COL_PROBE     0.20, 0.26, 0.30
+
 #define PORT_R  3.5
 
 #define ZOOM_MIN  0.25
@@ -672,9 +677,112 @@ void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
     drawSlider(cr, b);
 }
 
-void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
+/* The body of a probe panel: a title row saying which output is being watched,
+   and the rest handed to the visual module through the painter. */
+void NodeCanvas::drawProbe (const Cairo::RefPtr<Cairo::Context> &cr,
+                            int index, const NodeGraph::Box &b, bool highlit,
+                            bool selected)
+{
+    const double head = NodeGraph::probeHeadHeight();
+    const double bodyH = b.h - head;
+
+    cr->set_line_width(1.0);
+
+    cr->rectangle(b.x + 0.5, b.y + 0.5, b.w, b.h);
+    cr->set_source_rgb(COL_PROBE);
+    cr->fill_preserve();
+
+    if (selected)
+    {
+        cr->set_source_rgb(COL_SELECT);
+        cr->set_line_width(2.0);
+        cr->stroke();
+        cr->set_line_width(1.0);
+    }
+    else if (highlit)
+    {
+        cr->set_source_rgb(COL_WIRE);
+        cr->stroke();
+    }
+    else
+        cr->begin_new_path();
+
+    /* Which output. The host is directly below and a node can have several
+       outputs -- filt::moog has three -- so adjacency alone does not say which
+       one this is watching. A control strip cannot carry this because its text
+       is already the label and the value; a panel has a title row for it. */
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
+    cr->set_font_size(8.0);
+    cr->set_source_rgb(COL_DIM);
+
+    cr->save();
+    cr->rectangle(b.x + 3.0, b.y, b.w - 6.0, head);
+    cr->clip();
+    cr->move_to(b.x + 4.0, b.y + head - 3.0);
+    cr->show_text(b.probeArg);
+    cr->restore();
+
+    /* The module's name at the right, so a canvas carrying a scope and a meter
+       says which is which without either having to draw its own caption. */
+    Cairo::TextExtents ext;
+
+    cr->get_text_extents(b.probeVisual, ext);
+
+    cr->save();
+    cr->rectangle(b.x + b.w * 0.5, b.y, b.w * 0.5 - 3.0, head);
+    cr->clip();
+    cr->move_to(b.x + b.w - 4.0 - ext.width, b.y + head - 3.0);
+    cr->show_text(b.probeVisual);
+    cr->restore();
+
+    if (bodyH <= 0)
+        return;
+
+    /* Translated and clipped before the module sees it, so a plugin's box is
+       its own and a bug in one cannot smear across the canvas. thVisual::draw
+       clips again on its side; this one is about *where*, that one is about
+       *whether*, and neither is redundant -- the canvas is what knows the
+       panel's position and the host is what knows the module cannot be
+       trusted. */
+    cr->save();
+    cr->rectangle(b.x, b.y + head, b.w, bodyH);
+    cr->clip();
+    cr->translate(b.x, b.y + head);
+
+    if (probePainter_)
+        probePainter_(index, cr, (int)b.w, (int)bodyH);
+    else
+    {
+        /* Armed with nothing to show: a baseline through the middle, the way
+           a scope with no signal on it looks.
+         *
+         * The first attempt filled the body with COL_TRACK, which is the same
+           three numbers as COL_BG -- so an idle panel was a hole in the canvas
+           and read as a floating caption rather than a panel. The frame is
+           already filled with COL_PROBE; what this needs to add is evidence
+           that the body is a body. */
+        cr->set_source_rgb(COL_DIM);
+        cr->set_line_width(1.0);
+        cr->move_to(4.0, (double)(int)(bodyH * 0.5) + 0.5);
+        cr->line_to(b.w - 4.0, (double)(int)(bodyH * 0.5) + 0.5);
+        cr->stroke();
+    }
+
+    cr->restore();
+}
+
+void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
                           const NodeGraph::Box &b, bool highlit, bool selected)
 {
+    /* Before the attachment test, because a probe panel is attached too and
+       drawAttached would draw it as a slider strip with no slider. */
+    if (b.isProbe)
+    {
+        drawProbe(cr, index, b, highlit, selected);
+        return;
+    }
+
     if (b.attachedTo >= 0)
     {
         drawAttached(cr, b, highlit, selected);
@@ -1030,7 +1138,8 @@ void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
     const vector<NodeGraph::Box> &boxes = graph_->boxes();
 
     for (size_t b = 0; b < boxes.size(); b++)
-        drawBox(cr, boxes[b], (int)b == dragBox_ || (int)b == hoverBox_,
+        drawBox(cr, (int)b, boxes[b],
+                (int)b == dragBox_ || (int)b == hoverBox_,
                 isSelected((int)b));
 
     /* On top of everything: it is the thing being manipulated. */

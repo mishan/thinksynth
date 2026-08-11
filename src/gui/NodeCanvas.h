@@ -85,6 +85,27 @@ public:
 
     void clearSelection (void);
 
+    /* Draws the body of a probe panel.
+     *
+     * The canvas knows where a panel is; it does not know what goes in one.
+     * The visual modules, their instances and their sample rings all belong to
+     * the editor, which is also the thing that arms and disarms them -- so it
+     * supplies this, closing over whatever it needs, and the canvas calls it
+     * with the panel's box index and a context already translated to the
+     * body's origin and clipped to it.
+     *
+     * Without a painter a panel still draws its frame and its title. That is
+     * deliberate: an armed probe whose channel is not playing has nothing to
+     * show, and an empty panel says so where a missing one would look like the
+     * arming had failed. */
+    typedef sigc::slot<void(int, const Cairo::RefPtr<Cairo::Context> &,
+                            int, int)> ProbePainter;
+
+    void setProbePainter (const ProbePainter &painter)
+    {
+        probePainter_ = painter;
+    }
+
     /* How long this canvas has spent rasterising, and how many times.
      *
      * Here because live visualizers mean redrawing on a timer, and whether a
@@ -128,15 +149,22 @@ public:
         return m_signal_control_;
     }
 
+    /* The drawing itself, into any context.
+     *
+     * Public and separate from the draw callback for two reasons: the timing
+     * above wraps one call rather than every return path, and scripts/
+     * canvasbench can render a canvas straight into an image surface. That
+     * second one matters -- NODE_EDITOR.md §7 says the bugs that matter in
+     * this part of the tree are visual, and being able to produce a PNG of a
+     * real graph without a screenshot is the difference between looking at one
+     * and taking someone's word for it. */
+    void drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                    int height);
+
 protected:
     /* The draw callback: times drawGraph and keeps the counters. */
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
-
-    /* The drawing itself, separated only so the timing above wraps one call
-       rather than every return path. */
-    void drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
-                    int height);
     void onResize (int width, int height);
     /* Input, through controllers. There are no on_*_event vfuncs in GTK4 and
        no event mask to widen -- a controller receives the kind of thing it is
@@ -153,7 +181,7 @@ protected:
     Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
 private:
-    void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
+    void drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
                   const NodeGraph::Box &b, bool highlit, bool selected);
     void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
                    bool highlit);
@@ -162,6 +190,9 @@ private:
                      const NodeGraph::Box &b);
     void drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
                        const NodeGraph::Box &b, bool highlit, bool selected);
+    void drawProbe (const Cairo::RefPtr<Cairo::Context> &cr,
+                    int index, const NodeGraph::Box &b, bool highlit,
+                    bool selected);
 
     /* widget pixels -> graph coordinates */
     void toGraph (double sx, double sy, double &gx, double &gy) const;
@@ -208,6 +239,8 @@ private:
 
     unsigned long drawCount_;
     double drawMicros_;
+
+    ProbePainter probePainter_;
 
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
