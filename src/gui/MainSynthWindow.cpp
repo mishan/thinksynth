@@ -470,6 +470,13 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         if (arg == NULL)
             continue;
 
+        /* The channel amplitude is a slider like the rest, and it is drawn
+           once already -- pinned to the patch bar above, where it is in the
+           same place on every page. Twice would be two controls for one
+           value. */
+        if (argName == "amp")
+            continue;
+
         switch (arg->widgetType())
         {
             case thArg::HIDE:
@@ -510,9 +517,239 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
                                             : string(),
             num));
 
-    notebook_.append_page(*sub, *makeTabLabel(tabName, tip));
+    /* The patch bar sits above the two views rather than in either of them.
+       Which patch this is, how loud it is and whether it has been saved are
+       facts about the patch; they should not go away because you switched to
+       the graph, and they should not scroll off the top of the parameter
+       panel. */
+    Gtk::VBox *page = manage(new Gtk::VBox);
+
+    page->pack_start(*makePatchBar(num), Gtk::PACK_SHRINK);
+    page->pack_start(*manage(new Gtk::Separator(Gtk::ORIENTATION_HORIZONTAL)),
+                     Gtk::PACK_SHRINK);
+    page->pack_start(*sub);
+
+    notebook_.append_page(*page, *makeTabLabel(tabName, tip));
     subTabs_.push_back(sub);
 
+}
+
+/* The strip across the top of a patch page.
+ *
+ * Amplitude is here rather than down among the DSP Parameters because it is
+ * the one control every patch has. In the parameter grid it sorts in with
+ * whatever the .dsp happens to declare -- first for one patch, third for
+ * another, in a different column for a third -- so the control you reach for
+ * most often is the one you have to look for. Pinned here it is in the same
+ * place on every page, on the same 0..127 scale as the Master slider at the
+ * top of the window, which is the thing it is multiplied against.
+ *
+ * Save and Save As are here for the same reason. Saving a patch meant opening
+ * the Patch Selector, finding this channel's row in it and saving from there
+ * -- a second window to reach an operation that belongs to the page you are
+ * already looking at. */
+Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
+
+    Gtk::HBox *bar = manage(new Gtk::HBox);
+
+    bar->set_spacing(6);
+    bar->set_border_width(6);
+
+    const bool saved = (patch != NULL) && (patch->filename.length() > 0);
+
+    Gtk::Label *nameLbl = manage(new Gtk::Label);
+
+    /* The tab carries this too, but ellipsised to sixteen characters in a
+       narrow strip -- so it is often the end of the name that is missing, and
+       the end is what tells two versions of a patch apart. */
+    nameLbl->set_markup("<b>" + Glib::Markup::escape_text(
+                            saved
+                            ? thUtil::basename((char *)patch->filename.c_str())
+                            : string("(unsaved)")) + "</b>");
+    nameLbl->set_ellipsize(Pango::ELLIPSIZE_MIDDLE);
+
+    if (saved)
+        nameLbl->set_tooltip_text(patch->filename);
+
+    bar->pack_start(*nameLbl, Gtk::PACK_SHRINK);
+
+    thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
+
+    if (amp != NULL)
+    {
+        Gtk::Label *ampLbl = manage(new Gtk::Label("Amplitude:"));
+        Gtk::HScale *ampScale = manage(new Gtk::HScale);
+
+        /* Deliberately the same shape as masterScale_: same range, same
+           steps, value on the right. The two multiply together, so they
+           should not look like different kinds of control. */
+        ampScale->set_range(0, MIDIVALMAX);
+        ampScale->set_increments(1, 10);
+        ampScale->set_digits(0);
+        ampScale->set_value_pos(Gtk::POS_RIGHT);
+        ampScale->set_size_request(160, -1);
+        ampScale->set_value((*amp)[0]);
+
+        ampScale->signal_value_changed().connect(
+            sigc::bind<Gtk::HScale *, int>(
+                sigc::mem_fun(*this, &MainSynthWindow::onAmpSlider),
+                ampScale, chan));
+
+        /* MIDI volume, the Patch Selector and a patch load all write this arg
+           behind the slider's back. */
+        ampConns_.push_back(amp->signal_arg_changed().connect(
+            sigc::bind<int>(
+                sigc::mem_fun(*this, &MainSynthWindow::onAmpArgChanged),
+                chan)));
+
+        ampScales_[chan] = ampScale;
+
+        bar->pack_start(*manage(new Gtk::Separator(
+                                    Gtk::ORIENTATION_VERTICAL)),
+                        Gtk::PACK_SHRINK);
+        bar->pack_start(*ampLbl, Gtk::PACK_SHRINK);
+        bar->pack_start(*ampScale, Gtk::PACK_SHRINK);
+    }
+
+    /* Packed from the right, so Save As ends up outermost. */
+    Gtk::Button *saveAsBtn = manage(new Gtk::Button("Save _As...", true));
+    Gtk::Button *saveBtn = manage(new Gtk::Button("_Save", true));
+
+    saveAsBtn->signal_clicked().connect(
+        sigc::bind<int>(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
+                        chan));
+
+    saveBtn->signal_clicked().connect(
+        sigc::bind<int>(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch),
+                        chan));
+
+    /* Nothing to overwrite until the patch has a file of its own. */
+    saveBtn->set_sensitive(saved);
+    saveBtn->set_tooltip_text(saved
+                              ? "Write this patch back to " + patch->filename
+                              : string("This patch has not been saved yet -- "
+                                       "use Save As"));
+
+    bar->pack_end(*saveAsBtn, Gtk::PACK_SHRINK);
+    bar->pack_end(*saveBtn, Gtk::PACK_SHRINK);
+
+    return bar;
+}
+
+/* Looked up rather than captured: the arg belongs to the thMidiChan, and
+   loading a patch onto this channel replaces the channel. */
+void MainSynthWindow::onAmpSlider (Gtk::HScale *scale, int chan)
+{
+    thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
+
+    if (amp != NULL)
+        amp->setValue(scale->get_value());
+}
+
+void MainSynthWindow::onAmpArgChanged (thArg *arg, int chan)
+{
+    std::map<int, Gtk::HScale *>::iterator i = ampScales_.find(chan);
+
+    if (i == ampScales_.end() || i->second == NULL)
+        return;
+
+    i->second->set_value((*arg)[0]);
+}
+
+void MainSynthWindow::onSavePatch (int chan)
+{
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(chan);
+
+    if (patch == NULL || patch->filename.empty())
+        return;
+
+    Glib::signal_idle().connect_once(
+        sigc::bind<string, int>(
+            sigc::mem_fun(*this, &MainSynthWindow::doSavePatch),
+            patch->filename, chan));
+}
+
+void MainSynthWindow::onSavePatchAs (int chan)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
+
+    if (patch == NULL)
+        return;
+
+    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Save Patch",
+                                   Gtk::FILE_CHOOSER_ACTION_SAVE);
+
+    fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
+    fileSel.add_button(Gtk::Stock::SAVE, Gtk::RESPONSE_OK);
+    fileSel.set_do_overwrite_confirmation(true);
+
+    /* The same preference the Patch Selector keeps, so the two agree about
+       where patches live rather than each remembering separately. */
+    gthPrefs *prefs = gthPrefs::instance();
+    string **vals = prefs->Get("patchdir");
+
+    if (vals != NULL && vals[0] != NULL)
+        fileSel.set_current_folder(*(vals[0]));
+
+    if (patch->filename.length() > 0)
+    {
+        fileSel.set_filename(patch->filename);
+    }
+    else if (patch->dspFile.length() > 0)
+    {
+        /* A starting point rather than a guess at what it should be called:
+           the DSP's own name with the patch extension, which is at least in
+           the right family. */
+        string suggest = thUtil::basename((char *)patch->dspFile.c_str());
+        const string::size_type dot = suggest.rfind('.');
+
+        if (dot != string::npos)
+            suggest.erase(dot);
+
+        fileSel.set_current_name(suggest + ".patch");
+    }
+
+    if (fileSel.run() != Gtk::RESPONSE_OK)
+        return;
+
+    const string file = fileSel.get_filename();
+
+    {
+        string **dir = new string *[2];
+
+        dir[0] = new string(thUtil::dirname(file.c_str()));
+        dir[1] = NULL;
+
+        prefs->Set("patchdir", dir);
+    }
+
+    Glib::signal_idle().connect_once(
+        sigc::bind<string, int>(
+            sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
+}
+
+/* Deferred out of the click that asked for it.
+ *
+ * savePatch emits signal_patches_changed, and this window answers that by
+ * removing every notebook page and building them again -- so the button whose
+ * handler is on the stack, and the page holding it, would be destroyed
+ * underneath an emission that is still running. Writing from an idle callback
+ * means the click has returned first and nothing is left pointing into the
+ * page. */
+void MainSynthWindow::doSavePatch (string file, int chan)
+{
+    if (!gthPatchManager::instance()->savePatch(file, chan))
+    {
+        Gtk::MessageDialog err("Could not write " + file, false,
+                               Gtk::MESSAGE_ERROR);
+
+        err.run();
+    }
 }
 
 /* Which node each control drives, for grouping the panel by.
@@ -653,6 +890,17 @@ void MainSynthWindow::populate (void)
     /* populate notebook */
     subTabs_.clear();
     editors_.clear();
+
+    /* The sliders about to be discarded are subscribed to args that outlive
+       them. Dropping the subscriptions here rather than leaving them to find
+       a replaced widget keeps a session's worth of patch loads from
+       accumulating one per page per reload. */
+    for (size_t i = 0; i < ampConns_.size(); i++)
+        ampConns_[i].disconnect();
+
+    ampConns_.clear();
+    ampScales_.clear();
+
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int numPatches = patchMgr->numPatches();
 
