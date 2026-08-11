@@ -52,3 +52,4 @@ think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
 # are built and the "what is missing is load-bearing" warning above does not
 # apply to this list.
 think_add_visual(meter)
+think_add_visual(scope)

@@ -87,7 +87,8 @@ const int VIEW_H = 700;
 const int FRAMES = 120;
 
 bool benchOne (const string &pluginPath, const char *file, bool fit,
-               bool probeAll, const char *png, Result &out)
+               bool probeAll, const char *png, const char *visual,
+               Result &out)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
@@ -108,6 +109,16 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
     {
         const size_t nodes = graph.boxes().size();
 
+        /* Whatever the module asks for, so a scope gets a scope's height. */
+        double panelH = 24.0;
+
+        {
+            thVisual probe(pluginPath + "visual/" + visual + PLUGIN_SUFFIX);
+
+            if (probe.state() == thVisual::LOADED)
+                panelH = probe.preferredHeight();
+        }
+
         for (size_t b = 0; b < nodes; b++)
         {
             if (graph.boxes()[b].isControl || graph.boxes()[b].isProbe)
@@ -119,8 +130,7 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
                     continue;
 
                 graph.addProbe((int)b, graph.boxes()[b].ports[p].name,
-                               "meter",
-                               NodeGraph::probeHeadHeight() + 24.0);
+                               visual, NodeGraph::probeHeadHeight() + panelH);
             }
         }
     }
@@ -149,16 +159,23 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
      * it laid out. Everything between the probe ring and the pixels except the
      * ring itself, which dspprobe already covers, and none of it otherwise
      * visible without running the application. */
-    thVisual meter(pluginPath + "visual/meter" + PLUGIN_SUFFIX);
+    thVisual meter(pluginPath + "visual/" + visual + PLUGIN_SUFFIX);
     map<int, void *> instances;
 
     if (probeAll && meter.state() == thVisual::LOADED)
     {
-        vector<float> feed(2048);
+        vector<float> feed(8192);
 
+        /* A sawtooth rather than a sine: a sine tells you nothing about
+           whether the drawing has shape to it, and every waveform bug --
+           aliasing across the columns, a trigger that locks onto the wrong
+           edge -- is visible on a saw and invisible on a sine. */
         for (size_t i = 0; i < feed.size(); i++)
-            feed[i] = 0.45f * (float)sin(2.0 * 3.14159265358979 *
-                                         (double)i / 71.0);
+        {
+            const double phase = fmod((double)i / 71.0, 1.0);
+
+            feed[i] = (float)(0.7 * (2.0 * phase - 1.0));
+        }
 
         for (size_t b = 0; b < graph.boxes().size(); b++)
         {
@@ -170,7 +187,16 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
             if (inst == NULL)
                 continue;
 
-            meter.feed(inst, &feed[0], (unsigned int)feed.size());
+            /* In several pieces, at a size that divides nothing, because that
+               is how the drain delivers and a module that cared would draw
+               differently here than in the application. */
+            for (size_t at = 0; at < feed.size(); at += 373)
+            {
+                const size_t take = (feed.size() - at < 373)
+                                    ? feed.size() - at : 373;
+
+                meter.feed(inst, &feed[at], (unsigned int)take);
+            }
             instances[(int)b] = inst;
         }
 
@@ -327,6 +353,7 @@ int main (int argc, char **argv)
     bool fit = false;
     bool probeAll = false;
     const char *png = NULL;
+    const char *visual = "meter";
     int firstFile = -1;
 
     for (int i = 1; i < argc; i++)
@@ -335,6 +362,7 @@ int main (int argc, char **argv)
         else if (!strcmp(argv[i], "-f")) fit = true;
         else if (!strcmp(argv[i], "-P")) probeAll = true;
         else if (!strcmp(argv[i], "-o")) { if (++i >= argc) return 2; png = argv[i]; }
+        else if (!strcmp(argv[i], "-V")) { if (++i >= argc) return 2; visual = argv[i]; }
         else { firstFile = i; break; }
     }
 
@@ -345,6 +373,7 @@ int main (int argc, char **argv)
                "  -f  zoom to fit first, as the Fit button does\n"
                "  -P  arm a probe panel on every output port\n"
                "  -o  write a PNG of the first graph and stop\n"
+               "  -V  which visual module the panels use (default meter)\n"
                "\n"
                "Needs a display. Under CI or a headless box:\n"
                "  xvfb-run -a %s ...\n", argv[0], argv[0]);
@@ -376,7 +405,8 @@ int main (int argc, char **argv)
         {
             Result r;
 
-            if (!benchOne(pluginPath, argv[f], fit, probeAll, png, r))
+            if (!benchOne(pluginPath, argv[f], fit, probeAll, png, visual,
+                          r))
             {
                 printf("skip  %s\n", argv[f]);
                 continue;
