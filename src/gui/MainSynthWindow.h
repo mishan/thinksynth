@@ -42,7 +42,14 @@ protected:
     void menuQuit (void);
     void menuAbout (void);
 
-    void append_tab (const string &tabName, int num, bool is_real);
+    /* `tip' is the full path, shown on hover. The tab itself carries only the
+       basename -- see the comment where it is built. */
+    void append_tab (const string &tabName, const string &tip, int num,
+                     bool is_real);
+
+    /* A tab label that behaves in a vertical strip: left-aligned, and
+       ellipsised rather than widening the strip to fit the longest name. */
+    Gtk::Widget *makeTabLabel (const string &text, const string &tip);
     void populate (void);
 
     void onPatchesChanged (void);

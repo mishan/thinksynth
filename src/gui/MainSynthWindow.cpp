@@ -94,6 +94,16 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     vbox_.pack_start(dspEntryBox_, Gtk::PACK_SHRINK);
     vbox_.pack_start(notebook_, Gtk::PACK_EXPAND_WIDGET);
 
+    /* Tabs down the left rather than across the top.
+     *
+     * There is one per MIDI channel, so sixteen of them, and across the top
+     * they did not fit -- the notebook scrolled and most of the patches you
+     * had loaded were off the end, reachable only by paging. Stacked
+     * vertically they all fit in the height a patch panel needs anyway, and
+     * the list reads as what it is: the channels, in order.
+     *
+     * Still scrollable, because nothing guarantees the window is tall. */
+    notebook_.set_tab_pos(Gtk::POS_LEFT);
     notebook_.set_scrollable();
 
     notebook_.signal_switch_page().connect(
@@ -319,13 +329,37 @@ void MainSynthWindow::menuAbout (void)
         sigc::mem_fun(*this, &MainSynthWindow::onAboutBoxHide));
 }
 
-void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
+/* The tab strip runs down the side, so its width is the window's to spare.
+ *
+ * Left-aligned because a column of centred labels of different lengths has no
+ * edge to read down. Ellipsised at the end so one long name cannot widen the
+ * strip and take that space from the patch panel; the full path is on the
+ * tooltip either way. */
+Gtk::Widget *MainSynthWindow::makeTabLabel (const string &text,
+                                            const string &tip)
+{
+    Gtk::Label *lbl = manage(new Gtk::Label(text));
+
+    lbl->set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
+    lbl->set_ellipsize(Pango::ELLIPSIZE_END);
+    lbl->set_max_width_chars(22);
+
+    if (!tip.empty())
+        lbl->set_tooltip_text(tip);
+
+    lbl->show();
+
+    return lbl;
+}
+
+void MainSynthWindow::append_tab (const string &tabName, const string &tip,
+                                  int num, bool is_real)
 {
     if (is_real == false)
     {
         Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
         lbl->set_justify(Gtk::JUSTIFY_CENTER);
-        notebook_.append_page(*lbl, tabName);
+        notebook_.append_page(*lbl, *makeTabLabel(tabName, tip));
         return;
     }
 
@@ -338,7 +372,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
     {
         Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
         sorry->set_justify(Gtk::JUSTIFY_CENTER);
-        notebook_.append_page(*sorry, tabName);
+        notebook_.append_page(*sorry, *makeTabLabel(tabName, tip));
         return;
     }
         
@@ -432,7 +466,7 @@ void MainSynthWindow::append_tab (const string &tabName, int num, bool is_real)
         }
     }
 
-    notebook_.append_page(*tab_view, tabName);
+    notebook_.append_page(*tab_view, *makeTabLabel(tabName, tip));
 
 }
 
@@ -453,21 +487,28 @@ void MainSynthWindow::populate (void)
         if (patch == NULL)
         {
             tabName = chanStr.str() + "(Untitled)";
-            append_tab (tabName, i, false);
+            append_tab (tabName, "", i, false);
             continue;
         }
 
         if (patch->filename.length() > 0)
         {
-            /* display channel # */
-            tabName = chanStr.str() + patch->filename;
+            /* The basename, not the path.
+            
+               A tab read `3: /usr/local/share/thinksynth/dsp/old/analog03.dsp'
+               -- almost all of it identical to every other tab, and the part
+               that identifies it last, which is the part a narrow tab cuts
+               off. The full path is still worth having, so it moves to the
+               tooltip. */
+            tabName = chanStr.str() +
+                      thUtil::basename((char *)patch->filename.c_str());
         }
         else
         {
             tabName = chanStr.str() + "(Untitled)";
         }
 
-        append_tab (tabName, i, true);
+        append_tab (tabName, patch->filename, i, true);
     }
 
 }
