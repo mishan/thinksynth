@@ -357,7 +357,7 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
        came up as a column of dots. Parameter labels are short ("Pulse Width
        1" is the longest in the corpus at 13 characters), so they can simply
        be allowed their natural width. */
-    label->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
+    label->set_xalign(1.0);
     label->set_tooltip_text(arg->name());
 
     nameWidth_->add_widget(*label);

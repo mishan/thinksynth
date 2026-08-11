@@ -48,6 +48,18 @@
 #include "../gthPrefs.h"
 #include "../gthPatchfile.h"
 
+/* The path the chooser settled on.
+ *
+ * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File now,
+ * which may be nothing at all if the dialog was dismissed without one. Both
+ * spellings exist in gtkmm-3, so this is the one that survives. */
+static string chosenPath (Gtk::FileChooser &chooser)
+{
+    const Glib::RefPtr<Gio::File> f = chooser.get_file();
+
+    return f ? f->get_path() : string();
+}
+
 bool chosen = false;
 
 MainSynthWindow::MainSynthWindow (gthAudio *audio)
@@ -395,7 +407,7 @@ Gtk::Widget *MainSynthWindow::makeTabLabel (const string &text,
 {
     Gtk::Label *lbl = manage(new Gtk::Label(text));
 
-    lbl->set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
+    lbl->set_xalign(0.0);
     lbl->set_ellipsize(Pango::ELLIPSIZE_END);
 
     /* Both widths, and the minimum is the one that matters: an ellipsising
@@ -482,8 +494,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *lname_lbl = manage(new Gtk::Label("Name: "));
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspName->comment()));
 
-        lname_lbl->set_alignment(Gtk::ALIGN_END);
-        rname_lbl->set_alignment(Gtk::ALIGN_START);
+        lname_lbl->set_xalign(1.0);
+        rname_lbl->set_xalign(0.0);
 
         info_table->attach(*lname_lbl, 0, 0, 1, 1);
         info_table->attach(*rname_lbl, 1, 0, 1, 1);
@@ -496,8 +508,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *lname_lbl = manage(new Gtk::Label("Author: "));
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspAuthor->comment()));
 
-        lname_lbl->set_alignment(Gtk::ALIGN_END);
-        rname_lbl->set_alignment(Gtk::ALIGN_START);
+        lname_lbl->set_xalign(1.0);
+        rname_lbl->set_xalign(0.0);
 
         
         info_table->attach(*lname_lbl, 0, 1, 1, 1);
@@ -511,8 +523,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *lname_lbl = manage(new Gtk::Label("Description: "));
         Gtk::Label *rname_lbl = manage(new Gtk::Label(dspDesc->comment()));
 
-        lname_lbl->set_alignment(Gtk::ALIGN_END);
-        rname_lbl->set_alignment(Gtk::ALIGN_START);
+        lname_lbl->set_xalign(1.0);
+        rname_lbl->set_xalign(0.0);
         
         info_table->attach(*lname_lbl, 0, 2, 1, 1);
         info_table->attach(*rname_lbl, 1, 2, 1, 1);
@@ -755,8 +767,8 @@ void MainSynthWindow::onSavePatchAs (int chan)
     Gtk::FileChooserDialog fileSel(*this, "thinksynth - Save Patch",
                                    Gtk::FILE_CHOOSER_ACTION_SAVE);
 
-    fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-    fileSel.add_button(Gtk::Stock::SAVE, Gtk::RESPONSE_OK);
+    fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    fileSel.add_button("_Save", Gtk::RESPONSE_OK);
     fileSel.set_do_overwrite_confirmation(true);
 
     /* The same preference the Patch Selector keeps, so the two agree about
@@ -769,7 +781,7 @@ void MainSynthWindow::onSavePatchAs (int chan)
 
     if (patch->filename.length() > 0)
     {
-        fileSel.set_filename(patch->filename);
+        fileSel.set_file(Gio::File::create_for_path(patch->filename));
     }
     else if (patch->dspFile.length() > 0)
     {
@@ -788,7 +800,7 @@ void MainSynthWindow::onSavePatchAs (int chan)
     if (fileSel.run() != Gtk::RESPONSE_OK)
         return;
 
-    const string file = fileSel.get_filename();
+    const string file = chosenPath(fileSel);
 
     {
         string **dir = new string *[2];
@@ -1201,19 +1213,21 @@ void MainSynthWindow::onBrowseButton (void)
     Gtk::FileChooserDialog fileSel(*this, "thinksynth - Load DSP",
                                    Gtk::FILE_CHOOSER_ACTION_OPEN);
 
-    fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-    fileSel.add_button(Gtk::Stock::OPEN, Gtk::RESPONSE_OK);
+    fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    fileSel.add_button("_Open", Gtk::RESPONSE_OK);
 
     if (prevDir_ != "")
         fileSel.set_current_folder(prevDir_);
 
     if (fileSel.run() == Gtk::RESPONSE_OK)
     {
-        dspEntry_.set_text(fileSel.get_filename());
+        const string picked = chosenPath(fileSel);
 
-        if (patchMgr->newPatch(fileSel.get_filename(), pagenum))
+        dspEntry_.set_text(picked);
+
+        if (patchMgr->newPatch(picked, pagenum))
         {
-            string dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
+            string dn = thUtil::dirname((char*)picked.c_str());
 
             prevDir_ = dn + "/";
 
@@ -1234,7 +1248,7 @@ void MainSynthWindow::onBrowseButton (void)
         else
         {
             char *error = g_strdup_printf("Couldn't load DSP %s; syntax error, or does not exist",
-                fileSel.get_filename().c_str());
+                picked.c_str());
         
             Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
         

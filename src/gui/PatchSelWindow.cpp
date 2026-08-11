@@ -37,6 +37,18 @@
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
 
+/* The path the chooser settled on.
+ *
+ * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File now,
+ * which may be nothing at all if the dialog was dismissed without one. Both
+ * spellings exist in gtkmm-3, so this is the one that survives. */
+static string chosenPath (Gtk::FileChooser &chooser)
+{
+    const Glib::RefPtr<Gio::File> f = chooser.get_file();
+
+    return f ? f->get_path() : string();
+}
+
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
      : dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
               Gtk::ORIENTATION_HORIZONTAL),
@@ -284,8 +296,8 @@ void PatchSelWindow::BrowsePatch (void)
     Gtk::FileChooserDialog fileSel(*this, "thinksynth - Load Patch",
                                    Gtk::FILE_CHOOSER_ACTION_OPEN);
 
-    fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-    fileSel.add_button(Gtk::Stock::OPEN, Gtk::RESPONSE_OK);
+    fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+    fileSel.add_button("_Open", Gtk::RESPONSE_OK);
 
     if (prevDir != "")
         fileSel.set_current_folder(prevDir);
@@ -302,19 +314,20 @@ void PatchSelWindow::BrowsePatch (void)
            S_ISLNK unconditionally. It also answers false rather than
            misbehaving when the path has gone. */
         std::error_code ec;
+        const string picked = chosenPath(fileSel);
 
-        if (!std::filesystem::is_regular_file(fileSel.get_filename(), ec))
+        if (!std::filesystem::is_regular_file(picked, ec))
         {
             fprintf(stderr, "%s is not a file that can be loaded\n",
-                    fileSel.get_filename().c_str());
+                    picked.c_str());
             return;
         }
 
-        fileEntry.set_text(fileSel.get_filename());
+        fileEntry.set_text(picked);
 
         if (LoadPatch())
         {
-            string dn = thUtil::dirname((char*)fileSel.get_filename().c_str());
+            string dn = thUtil::dirname((char*)picked.c_str());
             string **vals = NULL;
             gthPrefs *prefs = gthPrefs::instance();
 
@@ -342,8 +355,8 @@ void PatchSelWindow::SavePatch (void)
         Gtk::TreeModel::iterator iter;
         iter = refSelection->get_selected();
 
-        fileSel.add_button(Gtk::Stock::CANCEL, Gtk::RESPONSE_CANCEL);
-        fileSel.add_button(Gtk::Stock::SAVE, Gtk::RESPONSE_OK);
+        fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
+        fileSel.add_button("_Save", Gtk::RESPONSE_OK);
         fileSel.set_do_overwrite_confirmation(true);
 
         if (prevDir != "")
@@ -353,7 +366,7 @@ void PatchSelWindow::SavePatch (void)
         {
             gthPatchManager::PatchFile *patch = NULL;
             gthPrefs *prefs = gthPrefs::instance();
-            string file = fileSel.get_filename();
+            string file = chosenPath(fileSel);
             string dn = thUtil::dirname(file.c_str());
             int chan = (*iter)[patchViewCols.chanNum]-1;
             string **vals = NULL;

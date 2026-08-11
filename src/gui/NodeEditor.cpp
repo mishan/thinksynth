@@ -38,6 +38,18 @@
 #include "../NodeCatalog.h"
 #include "NodeEditor.h"
 
+/* The path the chooser settled on.
+ *
+ * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File now,
+ * which may be nothing at all if the dialog was dismissed without one. Both
+ * spellings exist in gtkmm-3, so this is the one that survives. */
+static string chosenPath (Gtk::FileChooser &chooser)
+{
+    const Glib::RefPtr<Gio::File> f = chooser.get_file();
+
+    return f ? f->get_path() : string();
+}
+
 NodeEditor::NodeEditor (thSynth *synth)
     : Gtk::Box(Gtk::ORIENTATION_VERTICAL),
       synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
@@ -55,7 +67,7 @@ NodeEditor::NodeEditor (thSynth *synth)
     /* Where the window title used to be. A widget has no title bar, and the
        filename and the dirty marker still have to be somewhere -- they say
        which file every button on this bar would act on. */
-    titleLbl_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
+    titleLbl_.set_xalign(0.0);
     titleLbl_.set_ellipsize(Pango::ELLIPSIZE_START);
     titleLbl_.set_width_chars(18);
     titleLbl_.set_max_width_chars(40);
@@ -107,8 +119,11 @@ NodeEditor::NodeEditor (thSynth *synth)
     split_.signal_size_allocate().connect(
         sigc::mem_fun(*this, &NodeEditor::onSplitAllocate));
 
-    status_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
-    status_.set_padding(6, 2);
+    status_.set_xalign(0.0);
+    status_.set_margin_start(6);
+    status_.set_margin_end(6);
+    status_.set_margin_top(2);
+    status_.set_margin_bottom(2);
 
     pack_start(toolbar_, Gtk::PACK_SHRINK);
     pack_start(outer_);
@@ -1142,7 +1157,7 @@ bool NodeEditor::askControl (string &name, double &value, double &min,
     {
         Gtk::Label *l = manage(new Gtk::Label(labels[i]));
 
-        l->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
+        l->set_xalign(1.0);
 
         grid.attach(*l, 0, i, 1, 1);
         grid.attach(*fields[i], 1, i, 1, 1);
@@ -1152,7 +1167,7 @@ bool NodeEditor::askControl (string &name, double &value, double &min,
 
     hint.set_markup("<small>The name is what nodes read as "
                     "<tt>@name</tt>.</small>");
-    hint.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
+    hint.set_xalign(0.0);
     grid.attach(hint, 0, 5, 2, 1);
 
     dlg.get_content_area()->pack_start(grid);
@@ -1425,7 +1440,7 @@ bool NodeEditor::saveAsDialog (void)
     if (dlg.run() != Gtk::RESPONSE_OK)
         return false;
 
-    const string path = dlg.get_filename();
+    const string path = chosenPath(dlg);
 
     dlg.hide();
 
@@ -1497,7 +1512,7 @@ void NodeEditor::onNewFile (void)
     if (dlg.run() != Gtk::RESPONSE_OK)
         return;
 
-    const string path = dlg.get_filename();
+    const string path = chosenPath(dlg);
 
     dlg.hide();
 
