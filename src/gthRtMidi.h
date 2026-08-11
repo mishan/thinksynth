@@ -60,7 +60,7 @@ public:
     bool opened (void) const { return midi_ != NULL; }
 
     /* Emitted on the GUI thread, once per message. */
-    sigc::signal<void, const gthMidiEvent &> &signal_event (void) {
+    sigc::signal<void(const gthMidiEvent &)> &signal_event (void) {
         return queue_.signal_event();
     }
 

@@ -241,7 +241,7 @@ void Keyboard::SetTranspose (int transpose)
        sides is how a deadlock is spelled. So: snapshot under the lock, emit
        unlocked, write back under the lock. */
     {
-        Glib::Mutex::Lock lock(drawMutex_);
+        std::lock_guard<std::mutex> lock(drawMutex_);
 
         for (int i = 0; i < 128; i++)
         {
@@ -273,7 +273,7 @@ void Keyboard::SetTranspose (int transpose)
 
         m_signal_note_on_(channel_, notenum, heldVeloc[i]);
 
-        Glib::Mutex::Lock lock(drawMutex_);
+        std::lock_guard<std::mutex> lock(drawMutex_);
 
         active_keys_[notenum] = 1;
         active_veloc_[notenum] = heldVeloc[i];
@@ -308,7 +308,7 @@ void Keyboard::SetNote (int note, bool state)
         return;
 
     {
-        Glib::Mutex::Lock lock(drawMutex_);
+        std::lock_guard<std::mutex> lock(drawMutex_);
 
         active_keys_[note] = state ? 1 : 0;
         active_veloc_[note] = state ? veloc3_ : 0;
