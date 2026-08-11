@@ -30,8 +30,22 @@
  *   - clicking a box's centre picks that box, and clicking a port's drawn
  *     position picks that port -- the two things a mouse does, checked
  *     without a mouse
+ *   - every control's slider handle is where its value says, and clicking it
+ *     finds that control, whether it is a free-standing box or a strip
+ *     attached to the node it drives
+ *   - an attached control sits above its host, overlaps nothing, and its
+ *     wire still reaches the port it drives -- adjacency says which node a
+ *     control belongs to, only the wire says which parameter
+ *   - a shared control -- one several nodes read -- is laid out before
+ *     everything it drives, rather than being stranded in layer 0
+ *   - clicking the middle of a wire finds a wire, and the ends of every
+ *     wire sit on the ports it claims to join
  *   - a saved layout comes back exactly, and saving changes nothing in the
  *     file except `# @layout' lines
+ *   - the parameter list and the wires agree: every parameter driven by
+ *     another node has a wire to match, and every wire has a parameter. The
+ *     two are built by separate passes over separate data, so they disagreeing
+ *     means one of them is wrong
  *
  * Exit status is the number of files with a failure.
  *
@@ -51,6 +65,7 @@
 
 #include <fstream>
 #include <sstream>
+#include <set>
 
 static bool overlaps (const NodeGraph::Box &a, const NodeGraph::Box &b)
 {
@@ -100,6 +115,7 @@ int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
     bool quiet = false;
+    double wrapWidth = 0;
     int firstFile = -1;
 
     for (int i = 1; i < argc; i++)
@@ -111,6 +127,31 @@ int main (int argc, char **argv)
         }
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
             quiet = true;
+        else if (!strcmp(argv[i], "-w"))
+        {
+            /* Lay out wrapped into bands. Off in the shipped editor -- see
+               NODE_EDITOR.md -- but the code exists, so the invariants have
+               to hold under it too or it is untested code pretending
+               otherwise. */
+            if (++i >= argc) return 2;
+
+            /* strtod with the end pointer checked, not atof. atof returns 0
+               for anything it cannot read, and 0 is the value that means "do
+               not wrap" -- so `-w 150O' with a letter O would have run the
+               whole suite unwrapped and reported a clean pass for a mode it
+               never exercised. A missing argument already fails hard here; a
+               malformed one should too. */
+            char *end = NULL;
+
+            wrapWidth = strtod(argv[i], &end);
+
+            if (end == argv[i] || *end != '\0' || wrapWidth < 0)
+            {
+                fprintf(stderr, "-w wants a width in pixels, not \"%s\"\n",
+                        argv[i]);
+                return 2;
+            }
+        }
         else { firstFile = i; break; }
     }
 
@@ -126,6 +167,7 @@ int main (int argc, char **argv)
     int failed = 0, total = 0, skipped = 0;
     long boxTotal = 0, edgeTotal = 0, fbTotal = 0, fbFiles = 0;
     int maxLayers = 0, maxBoxes = 0;
+    long controls = 0, attached = 0, shared = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -146,6 +188,7 @@ int main (int argc, char **argv)
             continue;
         }
 
+        g.setWrapWidth(wrapWidth);
         g.layout();
 
         const vector<NodeGraph::Box> &boxes = g.boxes();
@@ -198,6 +241,253 @@ int main (int argc, char **argv)
                   problems++; }
         }
 
+        /* a strip stays with its host, however the host got where it is
+         *
+         * Attached controls are stored as ordinary boxes but their position is
+         * derived: layout() stacks them directly above the box they belong to,
+         * and sitting there is most of what says which box that is. Nothing
+         * enforced it afterwards, so dragging a node -- or NodeLayout::apply
+         * restoring a saved position -- moved the host and left its strips
+         * behind, over whatever happened to be underneath.
+         *
+         * Checked twice: as laid out, and again after moving every host, since
+         * the first passes on code that never maintains the invariant. */
+        for (int round = 0; round < 2 && problems < 5; round++)
+        {
+            if (round == 1)
+                for (size_t b = 0; b < boxes.size(); b++)
+                    if (boxes[b].attachedTo < 0)
+                        g.moveBox((int)b, boxes[b].x + 37.0,
+                                  boxes[b].y + 19.0);
+
+            for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+            {
+                const NodeGraph::Box &c = boxes[b];
+
+                if (c.attachedTo < 0)
+                    continue;
+
+                if (c.attachedTo >= (int)boxes.size())
+                { printf("FAIL  %s: %s attached to box %d, which does not "
+                         "exist\n", argv[f], c.ctlArg.c_str(), c.attachedTo);
+                  problems++; continue; }
+
+                const NodeGraph::Box &host = boxes[c.attachedTo];
+
+                if (c.x != host.x)
+                { printf("FAIL  %s: strip %s at x=%.1f, host %s at x=%.1f%s\n",
+                         argv[f], c.ctlArg.c_str(), c.x, host.name.c_str(),
+                         host.x, round ? " (after moving the host)" : "");
+                  problems++; }
+
+                if (c.y + c.h > host.y)
+                { printf("FAIL  %s: strip %s runs into host %s%s\n", argv[f],
+                         c.ctlArg.c_str(), host.name.c_str(),
+                         round ? " (after moving the host)" : "");
+                  problems++; }
+            }
+        }
+
+        /* Undo the shove so the checks below see the real layout. */
+        g.layout();
+
+        /* the io node's two halves: every port earned, every arg reachable
+         *
+         * The io node has no plugin to say which way its args face, so the
+         * split between "audio out" and "midi in" is inferred. It was inferred
+         * wrongly once -- the sink was given a port for every arg, so a patch
+         * that parks its constants on the io node drew `res' and `waveform'
+         * and `note' as things the speakers consume. 1000 of the 1347 sink
+         * ports in this corpus were phantoms.
+         *
+         * Two properties catch a relapse. Every sink port is either something
+         * the engine reads or something this file wires up -- no port without
+         * a reason. And the io node's args are partitioned across the halves:
+         * present exactly once between them, so the fix can neither lose an
+         * arg nor show it twice. */
+        {
+            int sink = -1, source = -1;
+
+            for (size_t b = 0; b < boxes.size(); b++)
+            {
+                if (boxes[b].isIoSink) sink = (int)b;
+                if (boxes[b].isIoSource) source = (int)b;
+            }
+
+            if (sink >= 0)
+            {
+                set<int> fed;
+
+                for (size_t e = 0; e < edges.size(); e++)
+                    if (edges[e].toBox == sink)
+                        fed.insert(edges[e].toPort);
+
+                for (size_t k = 0; k < boxes[sink].ports.size(); k++)
+                {
+                    const string &nm = boxes[sink].ports[k].name;
+
+                    if (NodeGraph::isIoEngineInput(nm) || fed.count((int)k))
+                        continue;
+
+                    printf("FAIL  %s: audio out has a port nothing feeds and "
+                           "the engine never reads (%s)\n", argv[f], nm.c_str());
+                    problems++;
+                }
+            }
+
+            if (sink >= 0 && source >= 0)
+            {
+                map<string,int> seen;
+
+                for (size_t k = 0; k < boxes[sink].params.size(); k++)
+                    seen[boxes[sink].params[k].name]++;
+                for (size_t k = 0; k < boxes[source].params.size(); k++)
+                    seen[boxes[source].params[k].name]++;
+
+                for (map<string,int>::iterator i = seen.begin();
+                     i != seen.end(); ++i)
+                    if (i->second != 1)
+                    { printf("FAIL  %s: io arg %s appears on %d halves\n",
+                             argv[f], i->first.c_str(), i->second);
+                      problems++; }
+
+                /* and a param sits with its port, so panel and canvas cannot
+                   disagree about which way an arg faces */
+                set<string> sinkPorts;
+
+                for (size_t k = 0; k < boxes[sink].ports.size(); k++)
+                    sinkPorts.insert(boxes[sink].ports[k].name);
+
+                for (size_t k = 0; k < boxes[source].params.size(); k++)
+                    if (sinkPorts.count(boxes[source].params[k].name))
+                    { printf("FAIL  %s: io arg %s has a sink port but a source "
+                             "param\n", argv[f],
+                             boxes[source].params[k].name.c_str());
+                      problems++; }
+            }
+        }
+
+        /* rubber-band selection: the geometry, without a mouse
+         *
+         * Three properties. A band over the whole extent gathers every box
+         * that can be gathered -- which is every one that is not an attached
+         * strip, since a strip belongs to its host and is never selected
+         * apart from it. A band snapped to one box gathers exactly that box.
+         * And a band out beyond the extent gathers nothing, so a stray click
+         * and drag on empty canvas clears rather than selects.
+         *
+         * The middle one is the property that actually bites: "touching, not
+         * enclosing" is easy to write as "enclosing" by accident, and then
+         * nothing at the edge of a wide patch can be caught without scrolling
+         * off it. */
+        {
+            vector<int> got;
+            int selectable = 0;
+
+            for (size_t b = 0; b < boxes.size(); b++)
+                if (boxes[b].attachedTo < 0)
+                    selectable++;
+
+            g.boxesIn(-1e6, -1e6, 1e6, 1e6, got);
+
+            if ((int)got.size() != selectable)
+            { printf("FAIL  %s: a band over everything took %d of %d boxes\n",
+                     argv[f], (int)got.size(), selectable);
+              problems++; }
+
+            g.boxesIn(g.width() + 100, g.height() + 100,
+                      g.width() + 200, g.height() + 200, got);
+
+            if (!got.empty())
+            { printf("FAIL  %s: a band off the end of the graph took %d "
+                     "boxes\n", argv[f], (int)got.size());
+              problems++; }
+
+            for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+            {
+                if (boxes[b].attachedTo >= 0)
+                    continue;
+
+                /* Just inside the box, so no neighbour is touched: boxes do
+                   not overlap, which the check above has already run. */
+                g.boxesIn(boxes[b].x + 1, boxes[b].y + 1,
+                          boxes[b].x + boxes[b].w - 1,
+                          boxes[b].y + boxes[b].h - 1, got);
+
+                if (got.size() != 1 || got[0] != (int)b)
+                { printf("FAIL  %s: a band on %s took %d boxes\n", argv[f],
+                         boxes[b].name.c_str(), (int)got.size());
+                  problems++; }
+            }
+
+            /* Corners in the wrong order mean the same rectangle. */
+            vector<int> rev;
+
+            g.boxesIn(1e6, 1e6, -1e6, -1e6, rev);
+
+            if ((int)rev.size() != selectable)
+            { printf("FAIL  %s: a band dragged up-left took %d, not %d\n",
+                     argv[f], (int)rev.size(), selectable);
+              problems++; }
+        }
+
+        /* a group drag is rigid, whichever box was grabbed
+         *
+         * Dragging several boxes into the top-left corner must not close the
+         * arrangement up. Clamping each box on its own does exactly that --
+         * the ones nearest the edge stop while the rest keep coming -- and
+         * the damage depends on which box the pointer had hold of, so it is
+         * easy to miss by testing with the leftmost one.
+         *
+         * Shoved far past the corner so the clamp certainly bites, then every
+         * pairwise offset is compared with what it was. */
+        {
+            vector<int> all;
+
+            g.boxesIn(-1e6, -1e6, 1e6, 1e6, all);
+
+            if (all.size() > 1)
+            {
+                vector<double> ox, oy;
+
+                for (size_t i = 0; i < all.size(); i++)
+                {
+                    ox.push_back(boxes[all[i]].x);
+                    oy.push_back(boxes[all[i]].y);
+                }
+
+                g.moveSelection(all, -1e5, -1e5);
+
+                double minX = boxes[all[0]].x, minY = boxes[all[0]].y;
+
+                for (size_t i = 1; i < all.size(); i++)
+                {
+                    if (boxes[all[i]].x < minX) minX = boxes[all[i]].x;
+                    if (boxes[all[i]].y < minY) minY = boxes[all[i]].y;
+                }
+
+                /* Hard against the edge, and not past it. */
+                if (minX != 0 || minY != 0)
+                { printf("FAIL  %s: a group shoved into the corner sits at "
+                         "(%.1f,%.1f)\n", argv[f], minX, minY);
+                  problems++; }
+
+                for (size_t i = 0; i < all.size() && problems < 5; i++)
+                {
+                    const double gotX = boxes[all[i]].x - boxes[all[0]].x;
+                    const double gotY = boxes[all[i]].y - boxes[all[0]].y;
+
+                    if (gotX != ox[i] - ox[0] || gotY != oy[i] - oy[0])
+                    { printf("FAIL  %s: %s moved relative to %s during a group "
+                             "drag\n", argv[f], boxes[all[i]].name.c_str(),
+                             boxes[all[0]].name.c_str());
+                      problems++; }
+                }
+
+                g.layout();
+            }
+        }
+
         /* no overlapping boxes */
         for (size_t a = 0; a < boxes.size() && problems < 5; a++)
             for (size_t b = a + 1; b < boxes.size(); b++)
@@ -218,8 +508,12 @@ int main (int argc, char **argv)
               problems++; }
 
             /* ...and at a port's drawn position picks that port. Boxes do not
-               overlap, so there is exactly one right answer. */
-            for (size_t k = 0; k < bx.ports.size() && problems < 5; k++)
+               overlap, so there is exactly one right answer.
+            
+               An attached control draws no ports, so there is nothing to
+               click and nothing to check. */
+            for (size_t k = 0; k < bx.ports.size() && problems < 5 &&
+                               bx.attachedTo < 0; k++)
             {
                 double px, py;
                 int hb = -1, hp = -1;
@@ -233,6 +527,348 @@ int main (int argc, char **argv)
                          px, py, hb, hp);
                   problems++; }
             }
+        }
+
+        /* wires: what is drawn is what can be clicked.
+         *
+         * edgeCurve() feeds both the canvas and edgeAt(), so this is really
+         * checking that the sampling in edgeAt is fine enough and that the
+         * curve ends where the ports are. Wires overlap, so the midpoint of
+         * one may legitimately find another -- what must not happen is
+         * finding nothing at all. */
+        for (size_t e = 0; e < edges.size() && problems < 5; e++)
+        {
+            double xs[4], ys[4];
+
+            g.edgeCurve((int)e, xs, ys);
+
+            double px, py;
+
+            g.portPos(edges[e].fromBox, edges[e].fromPort, px, py);
+
+            if (xs[0] != px || ys[0] != py)
+            { printf("FAIL  %s: wire %d does not start at its port\n",
+                     argv[f], (int)e);
+              problems++; continue; }
+
+            g.portPos(edges[e].toBox, edges[e].toPort, px, py);
+
+            if (xs[3] != px || ys[3] != py)
+            { printf("FAIL  %s: wire %d does not end at its port\n",
+                     argv[f], (int)e);
+              problems++; continue; }
+
+            /* the point at t = 0.5 on the cubic */
+            const double mx = 0.125 * (xs[0] + 3*xs[1] + 3*xs[2] + xs[3]);
+            const double my = 0.125 * (ys[0] + 3*ys[1] + 3*ys[2] + ys[3]);
+
+            if (g.edgeAt(mx, my) < 0)
+            { printf("FAIL  %s: the middle of wire %d finds no wire\n",
+                     argv[f], (int)e);
+              problems++; }
+        }
+
+        /* connect() and removeEdge() must keep the params and the wires in
+           step, the same way build() does. */
+        if (problems == 0 && !edges.empty())
+        {
+            NodeGraph g2;
+
+            g2.build(tree);
+            g2.layout();
+
+            const size_t before = g2.edges().size();
+
+            g2.removeEdge(0);
+
+            if (g2.edges().size() != before - 1)
+            { printf("FAIL  %s: removeEdge did not remove one\n", argv[f]);
+              problems++; }
+
+            const NodeGraph::Edge &e0 = edges[0];
+
+            string why;
+
+            if (!g2.connect(e0.fromBox, e0.fromPort, e0.toBox, e0.toPort, why))
+            { printf("FAIL  %s: cannot reconnect wire 0: %s\n", argv[f],
+                     why.c_str());
+              problems++; }
+            else if (g2.edges().size() != before)
+            { printf("FAIL  %s: reconnecting changed the wire count to %d\n",
+                     argv[f], (int)g2.edges().size());
+              problems++; }
+            else
+            {
+                /* connecting a second time must replace, not duplicate */
+                g2.connect(e0.fromBox, e0.fromPort, e0.toBox, e0.toPort, why);
+
+                if (g2.edges().size() != before)
+                { printf("FAIL  %s: connecting twice made %d wires, not %d\n",
+                         argv[f], (int)g2.edges().size(), (int)before);
+                  problems++; }
+            }
+        }
+
+        /* controls: the handle is where the value says, and it can be hit.
+         *
+         * Same reasoning as the wires -- sliderGeometry feeds the drawing and
+         * sliderAt/sliderValueAt both, so this checks the two directions
+         * agree: value -> handle position -> value. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            if (!bx.isControl)
+                continue;
+
+            controls++;
+
+            double x0, x1, y, hx;
+
+            if (!g.sliderGeometry((int)b, x0, x1, y, hx))
+            { printf("FAIL  %s: control @%s has no slider\n", argv[f],
+                     bx.ctlArg.c_str());
+              problems++; continue; }
+
+            if (g.sliderAt(hx, y) != (int)b)
+            { printf("FAIL  %s: the handle of @%s picks control %d, not %d\n",
+                     argv[f], bx.ctlArg.c_str(), g.sliderAt(hx, y), (int)b);
+              problems++; continue; }
+
+            /* The track is only about a hundred pixels wide, so a value
+               recovered from a handle position is quantised to roughly a
+               hundredth of the range. */
+            const double v = g.sliderValueAt((int)b, hx);
+            const double tol = (bx.ctlMax - bx.ctlMin) * 0.02 + 1e-6;
+
+            if (fabs(v - (double)bx.ctlValue) > tol)
+            { printf("FAIL  %s: @%s reads %g at its own handle, not %g\n",
+                     argv[f], bx.ctlArg.c_str(), v, (double)bx.ctlValue);
+              problems++; continue; }
+
+            /* Both ends of the track must give the declared limits. */
+            if (fabs(g.sliderValueAt((int)b, x0) - bx.ctlMin) > tol ||
+                fabs(g.sliderValueAt((int)b, x1) - bx.ctlMax) > tol)
+            { printf("FAIL  %s: @%s track ends do not give its range\n",
+                     argv[f], bx.ctlArg.c_str());
+              problems++; }
+        }
+
+        /* attached controls sit where they say they do.
+         *
+         * The overlap check above already proves they do not collide with
+         * anything. This is the other half: that each one is actually beside
+         * the box it belongs to, rather than merely somewhere legal. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            if (bx.attachedTo < 0)
+                continue;
+
+            attached++;
+
+            const NodeGraph::Box &host = boxes[bx.attachedTo];
+
+            /* Above the host, in the same column. */
+            if (bx.y + bx.h > host.y)
+            { printf("FAIL  %s: @%s runs into %s\n", argv[f],
+                     bx.ctlArg.c_str(), host.name.c_str());
+              problems++; continue; }
+
+            if (bx.x != host.x)
+            { printf("FAIL  %s: @%s is not in %s's column\n", argv[f],
+                     bx.ctlArg.c_str(), host.name.c_str());
+              problems++; continue; }
+
+            /* Close above it: the whole point is that it reads as part of
+               that node rather than as something nearby. */
+            if (host.y - (bx.y + bx.h) > 160.0)
+            { printf("FAIL  %s: @%s is %.0fpx above %s, not on it\n",
+                     argv[f], bx.ctlArg.c_str(),
+                     host.y - (bx.y + bx.h), host.name.c_str());
+              problems++; continue; }
+
+            /* And its wire still lands on a real port of the host, which is
+               the only thing that says which parameter it drives. */
+            bool wired = false;
+
+            for (size_t e = 0; e < edges.size(); e++)
+                if (edges[e].fromBox == (int)b && edges[e].toBox == bx.attachedTo)
+                {
+                    double xs[4], ys[4];
+
+                    g.edgeCurve((int)e, xs, ys);
+
+                    double px, py;
+
+                    g.portPos(edges[e].toBox, edges[e].toPort, px, py);
+
+                    if (xs[3] == px && ys[3] == py)
+                        wired = true;
+                }
+
+            if (!wired)
+            { printf("FAIL  %s: @%s has no wire to a port of %s\n", argv[f],
+                     bx.ctlArg.c_str(), host.name.c_str());
+              problems++; }
+        }
+
+        /* a shared control comes before what it drives.
+         *
+         * It cannot attach to any one consumer, so it stays a box; the least
+         * it can do is sit near them rather than at the far left with wires
+         * across the whole patch. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            if (!bx.isControl || bx.attachedTo >= 0)
+                continue;
+
+            int consumers = 0;
+
+            for (size_t e = 0; e < edges.size(); e++)
+            {
+                if (edges[e].fromBox != (int)b)
+                    continue;
+
+                consumers++;
+
+                if (boxes[edges[e].toBox].layer <= bx.layer)
+                { printf("FAIL  %s: @%s is in layer %d, not before %s "
+                         "in layer %d\n", argv[f], bx.ctlArg.c_str(),
+                         bx.layer, boxes[edges[e].toBox].name.c_str(),
+                         boxes[edges[e].toBox].layer);
+                  problems++; break; }
+            }
+
+            if (consumers > 1)
+                shared++;
+        }
+
+        /* no plugin-internal state exposed.
+         *
+         * The header comment has claimed this from the start and nothing
+         * checked it. INOUT_ args are delay ring buffers, envelope positions,
+         * filter history -- 69 of them across the plugins, none referenced by
+         * any .dsp -- and a port for one would invite wiring something that is
+         * not a signal. */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            thNode *n = tree->findNode(bx.name);
+            thPlugin *pl = n ? n->plugin() : NULL;
+
+            if (pl == NULL)
+                continue;
+
+            for (int k = 0; k < pl->argCount(); k++)
+            {
+                if (pl->getArgDir(k) != thPlugin::ARG_STATE)
+                    continue;
+
+                const string sname = pl->getArgName(k);
+
+                for (size_t q = 0; q < bx.ports.size(); q++)
+                    if (bx.ports[q].name == sname)
+                    { printf("FAIL  %s: %s exposes internal state %s as a "
+                             "port\n", argv[f], bx.name.c_str(), sname.c_str());
+                      problems++; break; }
+
+                for (size_t q = 0; q < bx.params.size(); q++)
+                    if (bx.params[q].name == sname)
+                    { printf("FAIL  %s: %s lists internal state %s as a "
+                             "parameter\n", argv[f], bx.name.c_str(),
+                             sname.c_str());
+                      problems++; break; }
+            }
+        }
+
+        /* parameters and wires must describe the same thing.
+         *
+         * Params come from each node's thArgMap; edges come from a separate
+         * pass resolving ARG_POINTER names to boxes. Nothing keeps them in
+         * step, so cross-checking them is close to free and would catch a
+         * whole class of "the panel says one thing, the canvas another". */
+        for (size_t b = 0; b < boxes.size() && problems < 5; b++)
+        {
+            const NodeGraph::Box &bx = boxes[b];
+
+            /* The io source half is a display artefact with no node behind
+               it, and a control box is a `@name' block rather than a node.
+               Neither has an arg map to cross-check. */
+            if (bx.isIoSource || bx.isControl)
+                continue;
+
+            int wiredParams = 0;
+
+            for (size_t k = 0; k < bx.params.size(); k++)
+            {
+                /* A chanarg reference is a wire now too -- it comes from the
+                   control box for that `@name'. */
+                if (bx.params[k].kind == NodeGraph::Param::CHANARG)
+                {
+                    bool found = false;
+
+                    for (size_t e = 0; e < edges.size() && !found; e++)
+                        if (edges[e].toBox == (int)b &&
+                            boxes[edges[e].toBox].ports[edges[e].toPort].name ==
+                                bx.params[k].name &&
+                            boxes[edges[e].fromBox].isControl)
+                            found = true;
+
+                    /* Reading a chanarg the file never declared leaves nothing
+                       to wire it to, and the parser has already complained. */
+                    if (found)
+                        wiredParams++;
+
+                    continue;
+                }
+
+                if (bx.params[k].kind == NodeGraph::Param::POINTER)
+                {
+                    /* A reference to a node that does not exist is the .dsp's
+                       bug, not the graph's -- old/firtest.dsp reads filt->out
+                       and env->out with neither node defined, and the parser
+                       already says so. There is correctly no wire, and the
+                       panel correctly still shows what the file asked for. */
+                    const string &src = bx.params[k].source;
+                    const string node = src.substr(0, src.find("->"));
+
+                    if (g.boxByName(node) < 0)
+                        continue;
+
+                    wiredParams++;
+
+                    bool found = false;
+
+                    for (size_t e = 0; e < edges.size() && !found; e++)
+                        if (edges[e].toBox == (int)b &&
+                            boxes[edges[e].toBox].ports[edges[e].toPort].name ==
+                                bx.params[k].name)
+                            found = true;
+
+                    if (!found)
+                    { printf("FAIL  %s: %s.%s says it is driven by %s, "
+                             "but there is no wire\n", argv[f],
+                             bx.name.c_str(), bx.params[k].name.c_str(),
+                             bx.params[k].source.c_str());
+                      problems++; }
+                }
+            }
+
+            int incoming = 0;
+
+            for (size_t e = 0; e < edges.size(); e++)
+                if (edges[e].toBox == (int)b)
+                    incoming++;
+
+            if (incoming != wiredParams)
+            { printf("FAIL  %s: %s has %d wires in but %d wired parameters\n",
+                     argv[f], bx.name.c_str(), incoming, wiredParams);
+              problems++; }
         }
 
         /* layout round-trip, on a copy so the corpus is never touched */
@@ -285,18 +921,50 @@ int main (int argc, char **argv)
 
                     const int applied = NodeLayout::apply(g2, pos, g2);
 
-                    if (applied != (int)boxes.size())
+                    /* Attached controls are not among them: a strip's
+                       position comes from its host every time, so it is
+                       neither written nor restored. Counting them would demand
+                       a saved position for something that deliberately has
+                       none. */
+                    int expect = 0;
+
+                    for (size_t b = 0; b < boxes.size(); b++)
+                        if (boxes[b].attachedTo < 0)
+                            expect++;
+
+                    if (applied != expect)
                     { printf("FAIL  %s: restored %d of %d positions\n", argv[f],
-                             applied, (int)boxes.size());
+                             applied, expect);
                       problems++; }
                     else
                         for (size_t b = 0; b < boxes.size(); b++)
-                            if (g2.boxes()[b].x != 17.0 + b * 13.0 ||
-                                g2.boxes()[b].y != 23.0 + b * 7.0)
+                        {
+                            const NodeGraph::Box &r = g2.boxes()[b];
+
+                            /* A strip has to come back on its host, wherever
+                               apply() put that host -- the invariant survives
+                               a save and a reload, not just a fresh layout. */
+                            if (r.attachedTo >= 0)
+                            {
+                                const NodeGraph::Box &h =
+                                    g2.boxes()[r.attachedTo];
+
+                                if (r.x != h.x || r.y + r.h > h.y)
+                                { printf("FAIL  %s: strip %s did not come back "
+                                         "on %s\n", argv[f], r.ctlArg.c_str(),
+                                         h.name.c_str());
+                                  problems++; break; }
+
+                                continue;
+                            }
+
+                            if (r.x != 17.0 + b * 13.0 ||
+                                r.y != 23.0 + b * 7.0)
                             { printf("FAIL  %s: %s came back at (%.1f,%.1f)\n",
                                      argv[f], boxes[b].name.c_str(),
-                                     g2.boxes()[b].x, g2.boxes()[b].y);
+                                     r.x, r.y);
                               problems++; break; }
+                        }
                 }
             }
 
@@ -320,9 +988,13 @@ int main (int argc, char **argv)
     printf("\n%d graphs built, %d failed, %d skipped (would not load)\n",
            total, failed, skipped);
     if (total)
-        printf("  %ld boxes, %ld wires; largest %d boxes, deepest %d layers\n"
+        printf("  %ld boxes (%ld controls: %ld attached, %ld shared), "
+               "%ld wires; "
+               "largest %d boxes, deepest %d layers\n"
                "  %ld feedback wires across %ld files\n",
-               boxTotal, edgeTotal, maxBoxes, maxLayers, fbTotal, fbFiles);
+               boxTotal, controls, attached, shared, edgeTotal, maxBoxes,
+               maxLayers,
+               fbTotal, fbFiles);
 
     return failed;
 }

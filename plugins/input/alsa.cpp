@@ -33,6 +33,10 @@ void module_cleanup (struct module *mod)
 {
 }
 
+enum { OUT_ARG,OUT_PLAY };
+
+int args[OUT_PLAY + 1];
+
 int module_init (thPlugin *plugin)
 {
 
@@ -57,9 +61,12 @@ int module_init (thPlugin *plugin)
     printf("input::alsa: set rate to %d\n", rate);
     snd_pcm_hw_params(cap_handle, hw_params);
 
-     plugin->setDesc (desc);
+    plugin->setDesc (desc);
     plugin->setState (mystate);
-    
+
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+
     return 0;
 }
 
@@ -67,8 +74,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
     int channels = 2;
-    thArg *out_arg = mod->getArg(node, "out");
-    thArg *out_play = mod->getArg(node, "play");
+    thArg *out_arg = mod->getArg(node, args[OUT_ARG]);
+    thArg *out_play = mod->getArg(node, args[OUT_PLAY]);
     signed short buf[windowlen * channels];
     float *out = out_arg->allocate(windowlen);
     float *play = out_play->allocate(windowlen);

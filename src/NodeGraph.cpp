@@ -30,17 +30,50 @@
 #define BOX_HEAD      20.0    /* title bar */
 #define PORT_PITCH    14.0
 #define BOX_PAD        6.0
-#define LAYER_GAP     70.0
+/* 70 before the controls were attached, when a column could have a long wire
+   from a control in layer 0 crossing it and needed the room. They are strips
+   on their hosts now, so the wires between columns are short, and 70 was
+   spending 26 pixels a layer on nothing. On a 17-layer patch that is 440
+   pixels of width, which is the difference between fitting on a screen and
+   not. */
+#define LAYER_GAP     44.0
 #define ROW_GAP       24.0
 #define MARGIN        20.0
 
+/* Controls: the height of the slider row, and how far the track is inset from
+   the box edges so the handle never overlaps the port. */
+#define CTL_ROW       26.0
+#define CTL_INSET     14.0
+#define CTL_HANDLE     5.0
+
+/* An attached control: a strip stacked above its host. Much shorter than a
+   node, because it carries a label, a track and a number and nothing else --
+   no title bar, no ports.
+ 
+   Above rather than beside. Beside was the first attempt and it cost a column
+   its own width again -- ts1.dsp went from 2148 to 3058 pixels wide while
+   using only 352 of them vertically. A graph runs left to right, so width is
+   the axis that runs out first and height is the one going spare; stacking
+   upwards spends the free one. The strip is the same width as the box it sits
+   on, so a column is no wider than it ever was. */
+#define ATTACH_W     BOX_W
+#define ATTACH_H      20.0
+#define ATTACH_GAP     2.0    /* between stacked strips          */
+#define ATTACH_PAD     4.0    /* between the stack and its host  */
+#define GROUP_HEAD    12.0    /* the heading above a group's rows */
+
+/* Between stacked bands when a graph is wrapped. Generous, because the wire
+   that comes back from the end of one band to the start of the next has to
+   read as a return rather than as a wire to the box above. */
+#define BAND_GAP      70.0
+
 /* Orders box indices by the position layering gave them.
  *
- * A functor rather than a lambda: nothing in this tree asks for a standard --
- * no -std anywhere in configure.ac, the Makefiles or scripts/Makefile -- so
- * the whole build runs on whatever the compiler defaults to, and on an older
- * toolchain that is C++98. The rest of the node editor is careful to stay
- * inside that; this one line was not. */
+ * A functor rather than a lambda. The build does now ask for C++11 -- see
+ * configure.ac -- but it asks for it because think.h needs <atomic>, not
+ * because anything wanted lambdas, and this file is the one piece of the node
+ * editor deliberately kept independent of the engine. No reason to spend a
+ * language feature on a three-line comparison. */
 namespace {
     struct ByOrder {
         const vector<NodeGraph::Box> &boxes;
@@ -55,8 +88,27 @@ namespace {
 }
 
 NodeGraph::NodeGraph (void)
-    : width_(0), height_(0), layers_(0)
+    : width_(0), height_(0), layers_(0), wrapWidth_(0), bands_(1), bandSize_(0)
 {
+}
+
+bool NodeGraph::edgeWraps (int edge) const
+{
+    if (bandSize_ <= 0 || edge < 0 || edge >= (int)edges_.size())
+        return false;
+
+    const Edge &e = edges_[edge];
+
+    /* Both ends checked against the upper bound as well as for -1. An Edge
+       starts life with both indices at -1 and is filled in afterwards, so a
+       partially built one can exist; every other helper here guards both
+       sides and this guarded only the low one. */
+    if (e.fromBox < 0 || e.fromBox >= (int)boxes_.size() ||
+        e.toBox < 0 || e.toBox >= (int)boxes_.size())
+        return false;
+
+    return boxes_[e.fromBox].layer / bandSize_ !=
+           boxes_[e.toBox].layer / bandSize_;
 }
 
 /* A port by name.
@@ -105,6 +157,172 @@ static bool isStateArg (thNode *n, const string &name)
             return p->getArgDir(k) == thPlugin::ARG_STATE;
 
     return false;
+}
+
+/* Adds a port unless the box already has one by that name and direction.
+ *
+ * The io node's ports come from two places -- what the engine defines, and
+ * what this file happens to reference -- and the two overlap on almost every
+ * patch. Every shipped .dsp wires out0 and out1; 74 of 92 wire play; all 92
+ * set channels. Without this they would be listed twice. */
+static void addPortOnce (NodeGraph::Box &b, const string &name, bool isInput)
+{
+    for (size_t k = 0; k < b.ports.size(); k++)
+        if (b.ports[k].name == name && b.ports[k].isInput == isInput)
+            return;
+
+    NodeGraph::Port port;
+
+    port.name = name;
+    port.isInput = isInput;
+    port.x = port.y = 0;
+
+    b.ports.push_back(port);
+}
+
+/* Is `name' an arg the engine itself reads off the io node?
+ *
+ * The io node has no plugin, so nothing declares its directions and they have
+ * to be recovered from what the engine does with it. thMidiChan::process()
+ * reads exactly three things: OUTPUTPREFIX plus a channel digit for the audio
+ * it mixes, `play' to learn the note has finished, and `channels' to size the
+ * mix. Those are the io node's real inputs.
+ *
+ * Everything else on the io node goes the other way. thMidiNote writes note,
+ * velocity and trigger; thMidiChan creates amp; and -- by far the commonest
+ * case -- the author parks patch constants there for other nodes to read, 312
+ * distinct names of them across the corpus. None of those are things the
+ * audio sink consumes, and drawing them as its inputs was wrong.
+ *
+ * Spelled with the engine's own constants rather than a literal list, so that
+ * raising TH_MAX_CHANNELS or renaming OUTPUTPREFIX cannot leave this behind.
+ * The single digit is deliberate and matches thMidiChan: the comment on
+ * TH_MAX_CHANNELS notes that ten is where the naming would need two. */
+bool NodeGraph::isIoEngineInput (const string &name)
+{
+    if (name == "play" || name == "channels")
+        return true;
+
+    const string prefix = OUTPUTPREFIX;
+
+    if (name.size() != prefix.size() + 1 ||
+        name.compare(0, prefix.size(), prefix) != 0)
+        return false;
+
+    const char c = name[prefix.size()];
+
+    return c >= '0' && c < (char)('0' + TH_MAX_CHANNELS);
+}
+
+/* Snapshots a node's args into display parameters.
+ *
+ * Every arg is listed, including the ones bound to another node or to a
+ * channel arg -- seeing that `cutoff' is driven by `env->out' rather than by a
+ * number is exactly what a panel is for, and hiding wired args would make the
+ * list change shape as things get connected. */
+void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
+{
+    thPlugin *p = n->plugin();
+
+    const thArgMap &args = n->args();
+
+    for (thArgMap::const_iterator a = args.begin(); a != args.end(); ++a)
+    {
+        thArg *arg = a->second;
+
+        if (arg == NULL)
+            continue;
+
+        /* Plugin-internal state -- a delay line's ring buffer, an envelope's
+           position. Not something anyone should be shown, let alone set. */
+        bool isPort = false;
+        bool isOutput = false;
+        bool isState = false;
+
+        if (p)
+        {
+            for (int k = 0; k < p->argCount(); k++)
+                if (p->getArgName(k) == a->first)
+                {
+                    isState = (p->getArgDir(k) == thPlugin::ARG_STATE);
+                    isPort = (p->getArgDir(k) == thPlugin::ARG_IN);
+                    isOutput = (p->getArgDir(k) == thPlugin::ARG_OUT);
+                    break;
+                }
+        }
+
+        if (isState)
+            continue;
+
+        Param prm;
+
+        prm.name = a->first;
+        prm.label = arg->label();
+        prm.units = arg->units();
+        prm.comment = arg->comment();
+        prm.min = arg->min();
+        prm.max = arg->max();
+        prm.isPort = isPort;
+        prm.isOutput = isOutput;
+
+        switch (arg->type())
+        {
+            case thArg::ARG_POINTER:
+                prm.kind = Param::POINTER;
+                prm.source = arg->nodePtrName() + "->" + arg->argPtrName();
+                break;
+
+            case thArg::ARG_CHANNEL:
+            {
+                prm.kind = Param::CHANARG;
+
+                /* The chanarg's name lives in argPtrName_, not nodePtrName_ --
+                   a channel arg has no node half. */
+                const string &chan = arg->argPtrName();
+
+                prm.source = "@" + chan;
+
+                /* In most DSPs every meaningful setting is a chanarg, so a
+                   panel that showed only "@cutoff" would be a list of names
+                   with no numbers in it. The tree knows what @cutoff is. */
+                thArg *ca = tree ? tree->getChanArg(chan) : NULL;
+
+                if (ca && ca->type() == thArg::ARG_VALUE && ca->len() > 0)
+                {
+                    prm.value = (*ca)[0];
+                    prm.hasValue = true;
+
+                    /* The range and label belong to the chanarg too. */
+                    if (ca->min() != 0 || ca->max() != 0)
+                    {
+                        prm.min = ca->min();
+                        prm.max = ca->max();
+                    }
+
+                    if (prm.label.empty())
+                        prm.label = ca->label();
+                }
+
+                break;
+            }
+
+            case thArg::ARG_NOTE:
+                prm.kind = Param::NOTE;
+                prm.source = "@" + arg->argPtrName();
+                break;
+
+            case thArg::ARG_VALUE:
+            default:
+                prm.kind = Param::VALUE;
+                /* A multi-sample arg has no single value to show; the first
+                   sample is a reasonable stand-in and len() says the rest. */
+                prm.value = (arg->len() > 0) ? (*arg)[0] : 0.0f;
+                prm.hasValue = true;
+                break;
+        }
+
+        b.params.push_back(prm);
+    }
 }
 
 bool NodeGraph::build (thSynthTree *tree)
@@ -179,6 +397,8 @@ bool NodeGraph::build (thSynthTree *tree)
             }
         }
 
+        collectParams(tree, n, b);
+
         boxes_.push_back(b);
         byName_[b.name] = (int)boxes_.size() - 1;
     }
@@ -206,6 +426,21 @@ bool NodeGraph::build (thSynthTree *tree)
                 if (a->second == NULL)
                     continue;
 
+                /* Two ways to earn an input on the audio sink: the engine
+                   reads it, or this file wires something into it.
+
+                   The second case is what keeps the io node usable as a relay
+                   -- 23 args across the corpus are written by a node and read
+                   back by others, and one (`hurr' in a test patch) is written
+                   and never read at all. Those are inputs whatever their name,
+                   and a name-only rule would have dropped their wires. */
+                const bool wired =
+                    a->second->type() == thArg::ARG_POINTER ||
+                    a->second->type() == thArg::ARG_CHANNEL;
+
+                if (!isIoEngineInput(a->first) && !wired)
+                    continue;
+
                 Port port;
 
                 port.name = a->first;
@@ -215,20 +450,133 @@ bool NodeGraph::build (thSynthTree *tree)
                 sink.ports.push_back(port);
             }
 
-            /* The source half. Its ports are filled in during edge building,
-               as we discover which of the io node's args others read. */
+            /* The ports the engine defines, whether or not this file has got
+               round to using them yet.
+             *
+             * Discovering ports from what the file references works for every
+             * patch that already exists and fails completely for the one being
+             * written. A brand new .dsp holds `channels = 2' and nothing else,
+             * so the audio out had a single port and the midi in had none --
+             * nowhere to drag from, nowhere to drag to, and no way to build a
+             * working patch in the editor at all. The first wire has nothing
+             * to hang on.
+             *
+             * So the io node advertises what the engine will read and write
+             * regardless: thMidiChan::process reads OUTPUTPREFIX plus a digit,
+             * `play' and `channels'; thMidiNote writes note, velocity and
+             * trigger. Anything else the file mentions is still discovered as
+             * before.
+             *
+             * Not `amp': patches do read `ionode->amp', but every one of them
+             * declares it in the io block first. It is a convention among
+             * patch authors, not something the engine puts there, and the
+             * editor should not invent it. */
+            int channels = 2;
+
+            {
+                thArg *ch = ionode->getArg("channels");
+
+                if (ch != NULL && ch->len() > 0)
+                    channels = (int)(*ch)[0];
+
+                if (channels < 1) channels = 1;
+                if (channels > TH_MAX_CHANNELS) channels = TH_MAX_CHANNELS;
+            }
+
+            for (int c = 0; c < channels; c++)
+            {
+                char nm[32];
+
+                snprintf(nm, sizeof(nm), "%s%d", OUTPUTPREFIX, c);
+                addPortOnce(sink, nm, true);
+            }
+
+            addPortOnce(sink, "play", true);
+            addPortOnce(sink, "channels", true);
+
+            /* The source half. Its remaining ports are filled in during edge
+               building, as we discover which of the io node's args others
+               read. */
             Box src;
 
             src.name = ionode->name();
             src.plugin = "midi in";
             src.isIoSource = true;
 
+            addPortOnce(src, "note", false);
+            addPortOnce(src, "velocity", false);
+            addPortOnce(src, "trigger", false);
+
             boxes_.push_back(src);
             sourceOfIo[ionode->name()] = (int)boxes_.size() - 1;
         }
     }
 
-    /* Pass 3: edges. An ARG_POINTER arg is a wire from another node's arg. */
+    /* Pass 3: a control box per top-level `@name' block.
+     *
+     * Created before edges so that pass 4 can wire chanarg references to them.
+     * Every one of the 206 declarations in the corpus carries .widget = 1,
+     * .min and .max, so there is no question of which ones deserve a slider --
+     * declaring a chanarg *is* declaring a control. */
+    map<string, int> controlOf;
+
+    {
+        const thArgMap &chan = tree->chanArgs();
+
+        for (thArgMap::const_iterator a = chan.begin(); a != chan.end(); ++a)
+        {
+            thArg *arg = a->second;
+
+            if (arg == NULL)
+                continue;
+
+            /* Only the ones declaring a widget.
+             *
+             * `name "TS-1"', `author' and `description' are stored as chanargs
+             * too -- 110 of the 316 in the corpus -- and they are strings, not
+             * knobs. Every one of the 206 real controls sets .widget; none of
+             * the metadata does. The format already draws this line, so there
+             * is no need to guess at it by name. */
+            if (arg->widgetType() == thArg::HIDE)
+                continue;
+
+            Box b;
+
+            b.isControl = true;
+            b.ctlArg = a->first;
+            b.name = "@" + a->first;
+            b.ctlLabel = arg->label().empty() ? a->first : arg->label();
+            b.ctlGroup = arg->group();
+            b.ctlValue = (arg->len() > 0) ? (*arg)[0] : 0.0f;
+            b.ctlMin = arg->min();
+            b.ctlMax = arg->max();
+
+            /* A range of nothing would make a slider that cannot move. Only
+               33 of the 206 omit a label; none omit a range, but a patch
+               written by hand might. */
+            if (b.ctlMax <= b.ctlMin)
+            {
+                b.ctlMin = 0;
+                b.ctlMax = (b.ctlValue > 1.0f) ? b.ctlValue * 2.0f : 1.0f;
+            }
+
+            b.plugin = "control";
+
+            Port port;
+
+            port.name = a->first;
+            port.isInput = false;
+            port.x = port.y = 0;
+
+            b.ports.push_back(port);
+
+            boxes_.push_back(b);
+            controlOf[a->first] = (int)boxes_.size() - 1;
+        }
+    }
+
+    /* Pass 4: edges. An ARG_POINTER arg is a wire from another node's arg;
+       an ARG_CHANNEL arg is a wire from a control. */
     for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
          i != nodes.end(); ++i)
     {
@@ -248,7 +596,47 @@ bool NodeGraph::build (thSynthTree *tree)
         {
             thArg *arg = a->second;
 
-            if (arg == NULL || arg->type() != thArg::ARG_POINTER)
+            if (arg == NULL)
+                continue;
+
+            /* `in1 = @blim' is a connection from the @blim control, and
+               drawing it as one is the whole point of having controls be
+               nodes. */
+            if (arg->type() == thArg::ARG_CHANNEL)
+            {
+                map<string, int>::iterator c =
+                    controlOf.find(arg->argPtrName());
+
+                if (c == controlOf.end())
+                    continue;       /* reads a chanarg the file never declared */
+
+                Edge ce;
+
+                ce.fromBox = c->second;
+                ce.fromPort = 0;
+                ce.toBox = dst->second;
+
+                Box &cb = boxes_[ce.toBox];
+
+                ce.toPort = findPort(cb, a->first, true);
+
+                if (ce.toPort < 0)
+                {
+                    Port port;
+
+                    port.name = a->first;
+                    port.isInput = true;
+                    port.x = port.y = 0;
+
+                    cb.ports.push_back(port);
+                    ce.toPort = (int)cb.ports.size() - 1;
+                }
+
+                edges_.push_back(ce);
+                continue;
+            }
+
+            if (arg->type() != thArg::ARG_POINTER)
                 continue;
 
             map<string, int>::iterator srcIt = byName_.find(arg->nodePtrName());
@@ -291,9 +679,12 @@ bool NodeGraph::build (thSynthTree *tree)
 
             e.fromPort = findPort(fb, arg->argPtrName(), false);
 
-            /* An output the plugin never registered still exists as far as
-               the .dsp is concerned -- and for the io source half, every one
-               of its outputs is discovered exactly this way. */
+            /* An output the plugin never registered still exists as far as the
+               .dsp is concerned, and dropping the wire would be worse than
+               showing a port that no registration backs. Three plugins create
+               their outputs by string lookup in the callback -- moog's out_low
+               among them -- and this is what keeps those wires drawn. The io
+               source half discovers every one of its outputs this way too. */
             if (e.fromPort < 0)
             {
                 Port port;
@@ -324,8 +715,60 @@ bool NodeGraph::build (thSynthTree *tree)
                 e.toPort = (int)tb.ports.size() - 1;
             }
 
+            /* An io node arg that something reads -- note, velocity, trigger
+               -- is an output of the MIDI source, whatever the io node's own
+               (nonexistent) plugin would say. Without this the panel would
+               cheerfully offer to set `ionode.note' to a number, which is not
+               a thing that can be done to incoming MIDI. */
+            if (ios != sourceOfIo.end())
+            {
+                Box &io = boxes_[srcIt->second];
+
+                for (size_t q = 0; q < io.params.size(); q++)
+                    if (io.params[q].name == arg->argPtrName())
+                        io.params[q].isOutput = true;
+            }
+
             if (e.fromPort >= 0 && e.toPort >= 0)
                 edges_.push_back(e);
+        }
+    }
+
+    /* Pass 5: give the io node's parameters to whichever half owns them.
+     *
+     * Pass 1 hung all of them on the sink, because at that point the sink is
+     * simply the box named after the io node. That put `note', `velocity' and
+     * the author's patch constants in the panel for a box labelled "audio
+     * out", which is the same mistake the ports had: the split is not just a
+     * layout trick, the two halves genuinely face opposite directions.
+     *
+     * Split on the same rule, so a param sits beside its port when it has one
+     * and the two views cannot disagree. Args with no port either way -- a
+     * constant nothing reads, of which the corpus has a dozen, mostly typos
+     * like `inwav' for `inwave' -- go to the source half, which is where a
+     * value the io node offers belongs even when nothing takes it up.
+     *
+     * Done after the edges rather than in pass 2 because the loop above marks
+     * isOutput on the sink's copy, and moving them first would strand it. */
+    if (ionode)
+    {
+        map<string, int>::iterator sinkIt = byName_.find(ionode->name());
+        map<string, int>::iterator srcIt = sourceOfIo.find(ionode->name());
+
+        if (sinkIt != byName_.end() && srcIt != sourceOfIo.end())
+        {
+            Box &sink = boxes_[sinkIt->second];
+            Box &src = boxes_[srcIt->second];
+
+            vector<Param> keep;
+
+            for (size_t q = 0; q < sink.params.size(); q++)
+                if (findPort(sink, sink.params[q].name, true) >= 0)
+                    keep.push_back(sink.params[q]);
+                else
+                    src.params.push_back(sink.params[q]);
+
+            sink.params.swap(keep);
         }
     }
 
@@ -509,6 +952,33 @@ void NodeGraph::placePorts (Box &b)
     b.w = BOX_W;
     b.h = BOX_HEAD + BOX_PAD * 2 + PORT_PITCH * max(max(ins, outs), 1);
 
+    /* A control needs room under the title for its slider and readout. Its one
+       port then sits beside the slider row rather than above it. */
+    if (b.isControl)
+        b.h = BOX_HEAD + BOX_PAD * 2 + CTL_ROW;
+
+    /* An attached one is a strip instead: no title bar, no ports drawn, so
+       it only needs the height of a slider row. layout() sets its position;
+       the size has to be right before that, because the row heights it
+       stacks are computed from it. */
+    if (b.isControl && b.attachedTo >= 0)
+    {
+        b.w = ATTACH_W;
+        b.h = ATTACH_H;
+
+        /* The port sits on the bottom edge, near the left, because the host
+           is directly below and its inputs are down the left-hand side. The
+           default placement puts it under a title bar this box does not have,
+           which left it outside its own bounds. */
+        for (size_t k = 0; k < b.ports.size(); k++)
+        {
+            b.ports[k].x = 10.0;
+            b.ports[k].y = b.h;
+        }
+
+        return;
+    }
+
     int i = 0, o = 0;
 
     for (size_t k = 0; k < b.ports.size(); k++)
@@ -530,6 +1000,129 @@ void NodeGraph::placePorts (Box &b)
     }
 }
 
+/* Works out which controls hang off which box.
+ *
+ * A control with exactly one consumer belongs to that consumer and is drawn
+ * against it. One with several is shared and stays a node; one with none is
+ * not yet wired to anything and has nowhere to hang. */
+void NodeGraph::assignAttachments (void)
+{
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        boxes_[b].attachedTo = -1;
+        boxes_[b].attachSlot = 0;
+    }
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        if (!boxes_[b].isControl)
+            continue;
+
+        int consumers = 0;
+        int host = -1;
+
+        for (size_t e = 0; e < edges_.size(); e++)
+            if (edges_[e].fromBox == (int)b)
+            {
+                consumers++;
+                host = edges_[e].toBox;
+            }
+
+        /* Not itself, and not another control -- neither would give it
+           anywhere sensible to sit. */
+        if (consumers == 1 && host >= 0 && host != (int)b &&
+            !boxes_[host].isControl)
+            boxes_[b].attachedTo = host;
+    }
+
+    /* Slots. Grouped controls are kept together and in the order the file
+       declares them, so an ADSR reads A, D, S, R rather than being scattered
+       through whatever else the node reads. Ungrouped ones follow. */
+    for (size_t h = 0; h < boxes_.size(); h++)
+    {
+        vector<int> mine;
+
+        for (size_t b = 0; b < boxes_.size(); b++)
+            if (boxes_[b].attachedTo == (int)h)
+                mine.push_back((int)b);
+
+        if (mine.empty())
+            continue;
+
+        vector<int> ordered;
+        vector<string> seen;
+
+        /* Groups first, each run contiguous, in order of first appearance. */
+        for (size_t i = 0; i < mine.size(); i++)
+        {
+            const string &g = boxes_[mine[i]].ctlGroup;
+
+            if (g.empty())
+                continue;
+
+            bool already = false;
+
+            for (size_t s = 0; s < seen.size(); s++)
+                if (seen[s] == g)
+                { already = true; break; }
+
+            if (already)
+                continue;
+
+            seen.push_back(g);
+
+            /* Only worth a heading if this host actually shows more than one
+               of the group. A group can span several nodes -- ts1's "Filter"
+               is a cutoff on one, a resonance on another -- and titling each
+               single slider "Filter" three times is noise where the label
+               already says what it is. */
+            int here = 0;
+
+            for (size_t j = 0; j < mine.size(); j++)
+                if (boxes_[mine[j]].ctlGroup == g)
+                    here++;
+
+            for (size_t j = 0; j < mine.size(); j++)
+                if (boxes_[mine[j]].ctlGroup == g)
+                {
+                    boxes_[mine[j]].groupHead =
+                        here > 1 && (ordered.empty() ||
+                                     boxes_[ordered.back()].ctlGroup != g);
+
+                    ordered.push_back(mine[j]);
+                }
+        }
+
+        for (size_t i = 0; i < mine.size(); i++)
+            if (boxes_[mine[i]].ctlGroup.empty())
+                ordered.push_back(mine[i]);
+
+        for (size_t i = 0; i < ordered.size(); i++)
+            boxes_[ordered[i]].attachSlot = (int)i;
+    }
+}
+
+/* The strip height for a host: its attached controls stacked, plus a slim
+   heading for each group among them. */
+static double stripHeight (const vector<NodeGraph::Box> &boxes, int host)
+{
+    int n = 0, heads = 0;
+
+    for (size_t b = 0; b < boxes.size(); b++)
+        if (boxes[b].attachedTo == host)
+        {
+            n++;
+
+            if (boxes[b].groupHead)
+                heads++;
+        }
+
+    if (n == 0)
+        return 0;
+
+    return n * ATTACH_H + (n - 1) * ATTACH_GAP + heads * GROUP_HEAD;
+}
+
 void NodeGraph::layout (void)
 {
     if (boxes_.empty())
@@ -539,18 +1132,54 @@ void NodeGraph::layout (void)
         return;
     }
 
+    assignAttachments();
     assignLayers();
+
+    /* A control that several nodes share cannot attach to any one of them, so
+     * it stays a box -- but longest-path layering puts it in layer 0, because
+     * it has no inputs, which is as far from its consumers as the canvas
+     * goes. @waveform in organ0.dsp drives four nodes in the middle of the
+     * patch and was being drawn at the far left with four long wires crossing
+     * everything.
+     *
+     * Moved to just before its earliest consumer. Nothing points at it, so
+     * nothing can be made to point backwards by moving it right. */
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        if (!boxes_[b].isControl || boxes_[b].attachedTo >= 0)
+            continue;
+
+        int earliest = -1;
+
+        for (size_t e = 0; e < edges_.size(); e++)
+            if (edges_[e].fromBox == (int)b)
+            {
+                const int l = boxes_[edges_[e].toBox].layer;
+
+                if (earliest < 0 || l < earliest)
+                    earliest = l;
+            }
+
+        if (earliest > 0)
+            boxes_[b].layer = earliest - 1;
+    }
 
     for (size_t i = 0; i < boxes_.size(); i++)
         placePorts(boxes_[i]);
 
     orderWithinLayers();
 
-    /* Columns are as wide as their widest box; rows stack by height. */
+    /* Columns are as wide as their widest box; rows stack by height.
+     *
+     * An attached control is not a column member -- it rides along with its
+     * host and is positioned afterwards. Leaving it in was what put thirteen
+     * of them in a column down the left edge of ts1.dsp, taller than the
+     * signal path they belonged to. */
     vector< vector<int> > inLayer(layers_);
 
     for (size_t i = 0; i < boxes_.size(); i++)
-        inLayer[boxes_[i].layer].push_back((int)i);
+        if (boxes_[i].attachedTo < 0)
+            inLayer[boxes_[i].layer].push_back((int)i);
 
     for (int l = 0; l < layers_; l++)
         sort(inLayer[l].begin(), inLayer[l].end(), ByOrder(boxes_));
@@ -563,43 +1192,172 @@ void NodeGraph::layout (void)
         double h = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
-            h += boxes_[inLayer[l][k]].h + ROW_GAP;
+        {
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+
+            h += boxes_[inLayer[l][k]].h +
+                 (sh > 0 ? sh + ATTACH_PAD : 0) + ROW_GAP;
+        }
 
         tallest = max(tallest, h - ROW_GAP);
     }
 
-    double x = MARGIN;
+    /* How many layers go in a band.
+     *
+     * Everything is the same width, so this is arithmetic rather than a
+     * packing problem: work out how many columns fit, then divide the layers
+     * evenly between that many bands so the last one is not a stub. */
+    bandSize_ = layers_;
+    bands_ = 1;
+
+    if (wrapWidth_ > 0)
+    {
+        const double perLayer = BOX_W + LAYER_GAP;
+        const double avail = wrapWidth_ - MARGIN * 2 + LAYER_GAP;
+
+        int fit = (int)(avail / perLayer);
+
+        if (fit < 1)
+            fit = 1;
+
+        if (fit < layers_)
+        {
+            bands_ = (layers_ + fit - 1) / fit;
+            bandSize_ = (layers_ + bands_ - 1) / bands_;
+        }
+    }
+
+    /* Each band is as tall as its tallest column, and they stack. */
+    vector<double> bandTop(bands_, 0.0);
+    vector<double> bandHigh(bands_, 0.0);
 
     for (int l = 0; l < layers_; l++)
     {
         double h = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
-            h += boxes_[inLayer[l][k]].h + ROW_GAP;
+        {
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+
+            h += boxes_[inLayer[l][k]].h +
+                 (sh > 0 ? sh + ATTACH_PAD : 0) + ROW_GAP;
+        }
+
+        h -= ROW_GAP;
+
+        const int band = l / bandSize_;
+
+        bandHigh[band] = max(bandHigh[band], h);
+    }
+
+    {
+        double top = MARGIN;
+
+        for (int i = 0; i < bands_; i++)
+        {
+            bandTop[i] = top;
+            top += bandHigh[i] + BAND_GAP;
+        }
+    }
+
+    double x = MARGIN;
+    double widest_ = 0;
+    int lastBand = 0;
+
+    for (int l = 0; l < layers_; l++)
+    {
+        const int band = l / bandSize_;
+
+        /* A new band starts back at the left margin, below the last. */
+        if (band != lastBand)
+        {
+            widest_ = max(widest_, x - LAYER_GAP + MARGIN);
+            x = MARGIN;
+            lastBand = band;
+        }
+
+        double h = 0;
+
+        for (size_t k = 0; k < inLayer[l].size(); k++)
+        {
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+
+            h += boxes_[inLayer[l][k]].h +
+                 (sh > 0 ? sh + ATTACH_PAD : 0) + ROW_GAP;
+        }
 
         h -= ROW_GAP;
 
         /* Centring keeps a one-box column beside the middle of a six-box one,
-           which shortens the wires and stops the drawing looking top-heavy. */
-        double y = MARGIN + (tallest - h) / 2.0;
+           which shortens the wires and stops the drawing looking top-heavy.
+           Within its own band, when wrapped. */
+        double y = bandTop[band] + (bandHigh[band] - h) / 2.0;
         double widest = 0;
 
         for (size_t k = 0; k < inLayer[l].size(); k++)
         {
             Box &b = boxes_[inLayer[l][k]];
 
-            b.x = x;
-            b.y = y;
+            const double sh = stripHeight(boxes_, inLayer[l][k]);
+            const double rowH = b.h + (sh > 0 ? sh + ATTACH_PAD : 0);
 
-            y += b.h + ROW_GAP;
+            b.x = x;
+
+            /* The strips occupy the top of the row; the host sits under
+               them. */
+            b.y = y + (sh > 0 ? sh + ATTACH_PAD : 0);
+
+            y += rowH + ROW_GAP;
             widest = max(widest, b.w);
         }
 
         x += widest + LAYER_GAP;
     }
 
-    width_ = x - LAYER_GAP + MARGIN;
-    height_ = tallest + MARGIN * 2;
+    /* Now the strips, stacked directly above the host they belong to. */
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        Box &c = boxes_[b];
+
+        if (c.attachedTo < 0)
+            continue;
+
+        const Box &host = boxes_[c.attachedTo];
+        const double sh = stripHeight(boxes_, c.attachedTo);
+
+        c.w = ATTACH_W;
+        c.h = ATTACH_H;
+        c.x = host.x;
+
+        /* Walk the stack rather than multiplying, because a group heading
+           pushes everything below it down by its own height. */
+        double dy = 0;
+
+        for (int slot = 0; slot < c.attachSlot; slot++)
+            for (size_t k = 0; k < boxes_.size(); k++)
+                if (boxes_[k].attachedTo == c.attachedTo &&
+                    boxes_[k].attachSlot == slot)
+                {
+                    if (boxes_[k].groupHead)
+                        dy += GROUP_HEAD;
+
+                    dy += ATTACH_H + ATTACH_GAP;
+                }
+
+        if (c.groupHead)
+            dy += GROUP_HEAD;
+
+        c.y = host.y - ATTACH_PAD - sh + dy;
+    }
+
+    width_ = max(widest_, x - LAYER_GAP + MARGIN);
+
+    if (bands_ > 1)
+    {
+        height_ = bandTop[bands_ - 1] + bandHigh[bands_ - 1] + MARGIN;
+    }
+    else
+        height_ = tallest + MARGIN * 2;
 }
 
 int NodeGraph::feedbackCount (void) const
@@ -613,13 +1371,98 @@ int NodeGraph::feedbackCount (void) const
     return n;
 }
 
+/* Moves a box, and brings its attached controls with it.
+ *
+ * A strip's position is not its own: layout() stacks it directly above the box
+ * it belongs to, and being there is most of what says which box that is. But
+ * strips are stored as ordinary boxes, so anything that moved a host on its
+ * own -- dragging it, or NodeLayout::apply restoring a saved position -- left
+ * its strips behind, floating over whatever was underneath.
+ *
+ * Done here rather than in the drag handler so it covers every caller,
+ * including the ones added later. */
+void NodeGraph::moveSelection (const vector<int> &sel, double dx, double dy)
+{
+    bool first = true;
+    double minX = 0, minY = 0;
+
+    for (size_t i = 0; i < sel.size(); i++)
+    {
+        if (sel[i] < 0 || sel[i] >= (int)boxes_.size())
+            continue;
+
+        const Box &b = boxes_[sel[i]];
+
+        if (first || b.x < minX) minX = b.x;
+        if (first || b.y < minY) minY = b.y;
+
+        first = false;
+    }
+
+    if (first)
+        return;             /* nothing selectable in the list */
+
+    if (minX + dx < 0) dx = -minX;
+    if (minY + dy < 0) dy = -minY;
+
+    for (size_t i = 0; i < sel.size(); i++)
+    {
+        if (sel[i] < 0 || sel[i] >= (int)boxes_.size())
+            continue;
+
+        const Box &b = boxes_[sel[i]];
+
+        moveBox(sel[i], b.x + dx, b.y + dy);
+    }
+}
+
+void NodeGraph::boxesIn (double x0, double y0, double x1, double y1,
+                         vector<int> &out) const
+{
+    out.clear();
+
+    /* Dragged in any direction, so normalise rather than trusting the order
+       the two corners arrived in. */
+    if (x1 < x0) { const double t = x0; x0 = x1; x1 = t; }
+    if (y1 < y0) { const double t = y0; y0 = y1; y1 = t; }
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+    {
+        const Box &bx = boxes_[b];
+
+        if (bx.attachedTo >= 0)
+            continue;
+
+        if (bx.x + bx.w < x0 || bx.x > x1 ||
+            bx.y + bx.h < y0 || bx.y > y1)
+            continue;
+
+        out.push_back((int)b);
+    }
+}
+
 void NodeGraph::moveBox (int index, double x, double y)
 {
     if (index < 0 || index >= (int)boxes_.size())
         return;
 
+    /* A strip has no position of its own to set: it is wherever its host is.
+       Accepting the move would be the same bug seen from the other side. */
+    if (boxes_[index].attachedTo >= 0)
+        return;
+
+    const double dx = x - boxes_[index].x;
+    const double dy = y - boxes_[index].y;
+
     boxes_[index].x = x;
     boxes_[index].y = y;
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+        if (boxes_[b].attachedTo == index)
+        {
+            boxes_[b].x += dx;
+            boxes_[b].y += dy;
+        }
 }
 
 void NodeGraph::refreshExtent (void)
@@ -677,6 +1520,17 @@ bool NodeGraph::portAt (double x, double y, int &box, int &port,
     {
         const Box &b = boxes_[i];
 
+        /* A strip has no port *handle* to grab -- the wire it owns is still
+           drawn, but there is nowhere on the strip to start a new one.
+
+           It is one row tall and almost all of that row is the slider, so a
+           handle would sit underneath it and steal the click. Dragging on a
+           strip means moving the slider, which is the only thing anyone wants
+           to do there; a control that needs rewiring is rewired at the other
+           end, on the node whose input it drives. */
+        if (b.attachedTo >= 0)
+            continue;
+
         /* A port handle sits on the box edge, so the search area has to
            straddle it rather than being clipped to the box. */
         if (x < b.x - slack || x > b.x + b.w + slack ||
@@ -700,4 +1554,369 @@ bool NodeGraph::portAt (double x, double y, int &box, int &port,
     }
 
     return found;
+}
+
+int NodeGraph::boxByName (const string &name) const
+{
+    map<string, int>::const_iterator f = byName_.find(name);
+
+    return (f == byName_.end()) ? -1 : f->second;
+}
+
+bool NodeGraph::canConnect (int fromBox, int fromPort, int toBox, int toPort,
+                            string &why) const
+{
+    why.clear();
+
+    if (fromBox < 0 || fromBox >= (int)boxes_.size() ||
+        toBox < 0 || toBox >= (int)boxes_.size())
+    { why = "no such node"; return false; }
+
+    const Box &fb = boxes_[fromBox];
+    const Box &tb = boxes_[toBox];
+
+    if (fromPort < 0 || fromPort >= (int)fb.ports.size() ||
+        toPort < 0 || toPort >= (int)tb.ports.size())
+    { why = "no such port"; return false; }
+
+    if (fb.ports[fromPort].isInput)
+    { why = "wires start at an output"; return false; }
+
+    if (!tb.ports[toPort].isInput)
+    { why = "wires end at an input"; return false; }
+
+    /* Box, not node: the io node's two halves share a name, and connecting
+       the MIDI source into the audio sink is exactly what a DSP does. The
+       message says "box" for the same reason -- phrased as a rule about nodes
+       it would read as forbidding something three shipped DSPs do. */
+    if (fromBox == toBox)
+    { why = "a box cannot feed itself"; return false; }
+
+    return true;
+}
+
+/* Horizontal-tangent cubic: wires leave an output rightwards and enter an
+   input from the left, which reads as flow even where one doubles back. The
+   control offset grows with distance so long wires bow more. */
+void NodeGraph::edgeCurve (int edge, double *xs, double *ys) const
+{
+    for (int i = 0; i < 4; i++)
+        xs[i] = ys[i] = 0;
+
+    if (edge < 0 || edge >= (int)edges_.size())
+        return;
+
+    const Edge &e = edges_[edge];
+
+    double x1, y1, x2, y2;
+
+    portPos(e.fromBox, e.fromPort, x1, y1);
+    portPos(e.toBox, e.toPort, x2, y2);
+
+    /* A strip drops to the port it drives on the box below it. Vertical
+       tangents, not horizontal: this wire goes down, and the standard curve
+       would swing it out sideways to no purpose.
+    
+       It matters that this is drawn at all. Sitting a strip on a node says it
+       belongs to that node, but a node has several inputs and adjacency does
+       not say which one -- that is exactly what the wire is for. */
+    if (boxes_[e.fromBox].attachedTo == e.toBox)
+    {
+        const double reach = max(12.0, (y2 - y1) * 0.6);
+
+        xs[0] = x1;  ys[0] = y1;
+        xs[1] = x1;  ys[1] = y1 + reach;
+        xs[2] = x2 - reach;  ys[2] = y2;
+        xs[3] = x2;  ys[3] = y2;
+
+        return;
+    }
+
+    double reach = (x2 - x1) * 0.5;
+
+    if (reach < 30.0)
+        reach = 30.0 + (x1 - x2) * 0.25;    /* a back edge needs a wider bow */
+
+    xs[0] = x1;          ys[0] = y1;
+    xs[1] = x1 + reach;  ys[1] = y1;
+    xs[2] = x2 - reach;  ys[2] = y2;
+    xs[3] = x2;          ys[3] = y2;
+}
+
+int NodeGraph::edgeAt (double x, double y, double slack) const
+{
+    int best = -1;
+    double bestD = slack * slack;
+
+    for (size_t e = 0; e < edges_.size(); e++)
+    {
+        double xs[4], ys[4];
+
+        edgeCurve((int)e, xs, ys);
+
+        /* A cubic stays inside the convex hull of its control points, so the
+           bounding box of those four -- grown by the slack -- is a sound
+           rejection test and costs four comparisons instead of 33 distance
+           calculations. This runs on every pointer motion over a graph with
+           up to 3094 wires, which is where it matters. */
+        double bx0 = xs[0], bx1 = xs[0], by0 = ys[0], by1 = ys[0];
+
+        for (int i = 1; i < 4; i++)
+        {
+            if (xs[i] < bx0) bx0 = xs[i];
+            if (xs[i] > bx1) bx1 = xs[i];
+            if (ys[i] < by0) by0 = ys[i];
+            if (ys[i] > by1) by1 = ys[i];
+        }
+
+        if (x < bx0 - slack || x > bx1 + slack ||
+            y < by0 - slack || y > by1 + slack)
+            continue;
+
+        /* Sampled rather than solved. Thirty-two points on a wire that is at
+           most a few hundred pixels long puts them within a few pixels of each
+           other, which is finer than the slack being tested against. */
+        for (int i = 0; i <= 32; i++)
+        {
+            const double t = i / 32.0;
+            const double u = 1.0 - t;
+
+            const double bx = u*u*u*xs[0] + 3*u*u*t*xs[1] +
+                              3*u*t*t*xs[2] + t*t*t*xs[3];
+            const double by = u*u*u*ys[0] + 3*u*u*t*ys[1] +
+                              3*u*t*t*ys[2] + t*t*t*ys[3];
+
+            const double dx = bx - x, dy = by - y;
+            const double d = dx * dx + dy * dy;
+
+            if (d < bestD)
+            {
+                bestD = d;
+                best = (int)e;
+            }
+        }
+    }
+
+    return best;
+}
+
+bool NodeGraph::connect (int fromBox, int fromPort, int toBox, int toPort,
+                         string &why)
+{
+    if (!canConnect(fromBox, fromPort, toBox, toPort, why))
+        return false;
+
+    /* One right-hand side per arg: a second wire into the same input is not
+       something the grammar can express, so this replaces rather than adds. */
+    for (size_t e = 0; e < edges_.size(); e++)
+        if (edges_[e].toBox == toBox && edges_[e].toPort == toPort)
+        {
+            edges_.erase(edges_.begin() + e);
+            break;
+        }
+
+    Edge e;
+
+    e.fromBox = fromBox;
+    e.fromPort = fromPort;
+    e.toBox = toBox;
+    e.toPort = toPort;
+
+    edges_.push_back(e);
+
+    /* Keep the parameter snapshot honest, so the panel agrees with the canvas
+       without waiting for a save and a reparse. */
+    Box &tb = boxes_[toBox];
+
+    const string src = boxes_[fromBox].name + "->" +
+                       boxes_[fromBox].ports[fromPort].name;
+
+    for (size_t k = 0; k < tb.params.size(); k++)
+        if (tb.params[k].name == tb.ports[toPort].name)
+        {
+            tb.params[k].kind = Param::POINTER;
+            tb.params[k].source = src;
+            tb.params[k].hasValue = false;
+            return true;
+        }
+
+    /* Wiring into an io arg that was, until this moment, a constant other
+       nodes read: build() gave its param to the source half, and the wire has
+       just made it an input on the sink. Move it rather than letting the push
+       below make a second copy -- the panel would show the arg twice, once as
+       a value and once as a wire, until the next save and reparse. */
+    if (tb.isIoSink)
+        for (size_t b = 0; b < boxes_.size(); b++)
+        {
+            if (!boxes_[b].isIoSource || boxes_[b].name != tb.name)
+                continue;
+
+            Box &other = boxes_[b];
+
+            for (size_t k = 0; k < other.params.size(); k++)
+                if (other.params[k].name == tb.ports[toPort].name)
+                {
+                    Param moved = other.params[k];
+
+                    moved.kind = Param::POINTER;
+                    moved.source = src;
+                    moved.hasValue = false;
+                    moved.isPort = true;
+
+                    other.params.erase(other.params.begin() + k);
+                    tb.params.push_back(moved);
+
+                    return true;
+                }
+
+            break;
+        }
+
+    Param p;
+
+    p.name = tb.ports[toPort].name;
+    p.kind = Param::POINTER;
+    p.source = src;
+    p.isPort = true;
+
+    tb.params.push_back(p);
+
+    return true;
+}
+
+void NodeGraph::removeEdge (int edge)
+{
+    if (edge < 0 || edge >= (int)edges_.size())
+        return;
+
+    const Edge e = edges_[edge];
+
+    edges_.erase(edges_.begin() + edge);
+
+    Box &tb = boxes_[e.toBox];
+
+    for (size_t k = 0; k < tb.params.size(); k++)
+        if (tb.params[k].name == tb.ports[e.toPort].name)
+        {
+            tb.params[k].kind = Param::VALUE;
+            tb.params[k].source.clear();
+            tb.params[k].value = 0;
+            tb.params[k].hasValue = true;
+            break;
+        }
+}
+
+bool NodeGraph::sliderGeometry (int box, double &x0, double &x1, double &y,
+                                double &handleX) const
+{
+    x0 = x1 = y = handleX = 0;
+
+    if (box < 0 || box >= (int)boxes_.size())
+        return false;
+
+    const Box &b = boxes_[box];
+
+    if (!b.isControl)
+        return false;
+
+    if (b.attachedTo >= 0)
+    {
+        /* The strip is label, track, number on one line. The track takes the
+           middle, leaving room either side for the two pieces of text. */
+        x0 = b.x + ATTACH_W * 0.42;
+        x1 = b.x + ATTACH_W - 34.0;
+        y = b.y + ATTACH_H * 0.5;
+    }
+    else
+    {
+        x0 = b.x + CTL_INSET;
+        x1 = b.x + b.w - CTL_INSET;
+        y = b.y + BOX_HEAD + BOX_PAD + CTL_ROW * 0.5;
+    }
+
+    const double span = (b.ctlMax > b.ctlMin)
+                        ? (double)(b.ctlMax - b.ctlMin) : 1.0;
+
+    double t = ((double)b.ctlValue - (double)b.ctlMin) / span;
+
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+
+    handleX = x0 + t * (x1 - x0);
+
+    return true;
+}
+
+int NodeGraph::sliderAt (double x, double y) const
+{
+    for (int i = (int)boxes_.size() - 1; i >= 0; i--)
+    {
+        if (!boxes_[i].isControl)
+            continue;
+
+        double x0, x1, ty, hx;
+
+        if (!sliderGeometry(i, x0, x1, ty, hx))
+            continue;
+
+        /* The whole slider row is the target, not just the handle. Clicking
+           anywhere on the track should jump the value there -- hunting for a
+           five-pixel handle is unpleasant at any zoom. */
+        const double reach = (boxes_[i].attachedTo >= 0)
+                             ? ATTACH_H * 0.5 : CTL_ROW * 0.5;
+
+        if (x >= x0 - CTL_HANDLE && x <= x1 + CTL_HANDLE &&
+            y >= ty - reach && y <= ty + reach)
+            return i;
+    }
+
+    return -1;
+}
+
+float NodeGraph::sliderValueAt (int box, double x) const
+{
+    double x0, x1, y, hx;
+
+    if (!sliderGeometry(box, x0, x1, y, hx))
+        return 0;
+
+    const Box &b = boxes_[box];
+
+    if (x1 <= x0)
+        return b.ctlMin;
+
+    double t = (x - x0) / (x1 - x0);
+
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+
+    return (float)((double)b.ctlMin + t * ((double)b.ctlMax - (double)b.ctlMin));
+}
+
+void NodeGraph::setControlValue (int box, float value)
+{
+    if (box < 0 || box >= (int)boxes_.size() || !boxes_[box].isControl)
+        return;
+
+    Box &b = boxes_[box];
+
+    if (value < b.ctlMin) value = b.ctlMin;
+    if (value > b.ctlMax) value = b.ctlMax;
+
+    b.ctlValue = value;
+
+    /* Everything reading this control shows the new number straight away.
+     *
+     * The name is built once. Inside the loop it was a fresh allocation per
+     * parameter inspected, on every motion event of a slider drag. */
+    const string source = "@" + b.ctlArg;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+        for (size_t k = 0; k < boxes_[i].params.size(); k++)
+            if (boxes_[i].params[k].kind == Param::CHANARG &&
+                boxes_[i].params[k].source == source)
+            {
+                boxes_[i].params[k].value = value;
+                boxes_[i].params[k].hasValue = true;
+            }
 }

@@ -44,7 +44,8 @@ SAN := -fsanitize=address,undefined -fno-omit-frame-pointer
 # its own build tree configured with -fsanitize=thread throughout.
 TSAN := -fsanitize=thread -fno-omit-frame-pointer
 
-all: dspcheck dspstress dsplevel dspgraph
+all: dspcheck dspstress dsplevel dspgraph dspab dspwrite dsplive dspnew \
+     dsplayout
 
 dspcheck: $(SRCS)
 	$(CXX) $(CXXFLAGS) -o $@ $(SRCS) $(LDFLAGS)
@@ -53,6 +54,29 @@ dsplevel: dsplevel.cpp
 	$(CXX) $(CXXFLAGS) -o $@ $< $(LDFLAGS)
 
 # NodeGraph is deliberately GTK-free so it can be exercised headlessly.
+# The writer, against every settable value in the corpus.
+dspwrite: dspwrite.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeEdit.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspwrite.cpp $(TOP)/src/NodeGraph.cpp \
+		$(TOP)/src/NodeEdit.cpp $(LDFLAGS)
+
+# What does a graph's shape cost, and would wrapping help? (It would not.)
+dsplayout: dsplayout.cpp $(TOP)/src/NodeGraph.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dsplayout.cpp $(TOP)/src/NodeGraph.cpp $(LDFLAGS)
+
+# Can the editor build a working .dsp from nothing?
+dspnew: dspnew.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeCatalog.cpp \
+	$(TOP)/src/NodeEdit.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspnew.cpp $(TOP)/src/NodeGraph.cpp \
+		$(TOP)/src/NodeCatalog.cpp $(TOP)/src/NodeEdit.cpp $(LDFLAGS)
+
+# Does moving a control change the sound of a note already ringing?
+dsplive: dsplive.cpp $(TOP)/src/NodeGraph.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dsplive.cpp $(TOP)/src/NodeGraph.cpp $(LDFLAGS)
+
+# A/B: same note through two plugin sets, compared bitwise.
+dspab: dspab.cpp
+	$(CXX) $(CXXFLAGS) -o $@ dspab.cpp $(LDFLAGS)
+
 dspgraph: dspgraph.cpp $(TOP)/src/NodeGraph.cpp $(TOP)/src/NodeLayout.cpp
 	$(CXX) $(CXXFLAGS) -o $@ dspgraph.cpp $(TOP)/src/NodeGraph.cpp \
 		$(TOP)/src/NodeLayout.cpp $(LDFLAGS)

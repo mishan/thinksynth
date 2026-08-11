@@ -305,6 +305,12 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
     {
         chanarg->setUnits($6.str);
     }
+    else if (strcmp($4.str, "group") == 0)
+    {
+        /* Presentation only. An editor draws a group's controls together;
+           the engine never looks at it. */
+        chanarg->setGroup($6.str);
+    }
     else
         printf("ERROR:  Invalid arg parameter '%s <string>'\n", $4.str);
 

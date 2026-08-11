@@ -40,13 +40,80 @@ public:
     double zoom (void) const { return zoom_; }
     void setZoom (double z);
 
+    /* Scales so the whole graph is visible, never magnifying past 1:1.
+    
+       A patch is as wide as its signal chain is deep -- 17 layers of ts1's
+       kind is about 2900 pixels -- and no amount of layout tuning changes
+       that. Being able to see all of it on opening, and zoom in to work, is
+       the answer to a graph wider than the screen.
+    
+       Deferred if the widget has no size yet: on the first open it is called
+       before GTK has allocated anything, and fitting to a zero-width canvas
+       would give a useless zoom. */
+    void zoomToFit (void);
+
     /* Emitted when a box has been dragged, so a host can mark the document
        dirty and eventually write the position out. */
     typedef sigc::signal<void(int)> type_signal_box_moved;
     type_signal_box_moved signal_box_moved (void) { return m_signal_box_moved_; }
 
+    /* Emitted when the selection changes, with the box index or -1. */
+    typedef sigc::signal<void(int)> type_signal_selected;
+    type_signal_selected signal_selected (void) { return m_signal_selected_; }
+
+    /* How many boxes a rubber band gathered. Separate from signal_selected,
+       which carries the one box the panel shows and is -1 for a group: the
+       toolbar still needs to know a group exists so Delete can offer to
+       remove all of it. */
+    typedef sigc::signal<void(int)> type_signal_selection;
+    type_signal_selection signal_selection (void) {
+        return m_signal_selection_;
+    }
+
+    /* The box the parameter panel is showing: the last one clicked, or the
+       only one in the selection. -1 when nothing or when a rubber band
+       gathered several, since a panel can only show one node's args. */
+    int selected (void) const { return selBox_; }
+    void setSelected (int box);
+
+    /* Every selected box, `selected()' among them. Empty or a single entry
+       for all the ordinary cases; more after a rubber band. */
+    const std::vector<int> &selection (void) const { return sel_; }
+
+    /* True if `box' is in the selection. */
+    bool isSelected (int box) const;
+
+    void clearSelection (void);
+
+    /* Emitted when a wire is dragged between two ports, and when one is
+       asked to be removed. The canvas does not change the graph itself --
+       the window owns that, because it also has to record the edit. */
+    typedef sigc::signal<void(int, int, int, int)> type_signal_connect;
+    type_signal_connect signal_connect_requested (void) {
+        return m_signal_connect_;
+    }
+
+    typedef sigc::signal<void(int)> type_signal_disconnect;
+    type_signal_disconnect signal_disconnect_requested (void) {
+        return m_signal_disconnect_;
+    }
+
+    /* Emitted with a reason when a drop is refused, so the window can say
+       why rather than the wire just vanishing. */
+    typedef sigc::signal<void(string)> type_signal_refused;
+    type_signal_refused signal_refused (void) { return m_signal_refused_; }
+
+    /* Emitted while a control's slider is dragged, and once more when it is
+       released -- the window shows the value live but only records the edit
+       on release, so a drag across the track is one change and not fifty. */
+    typedef sigc::signal<void(int, double, bool)> type_signal_control;
+    type_signal_control signal_control_changed (void) {
+        return m_signal_control_;
+    }
+
 protected:
     virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
+    virtual void on_size_allocate (Gtk::Allocation &alloc);
     virtual bool on_button_press_event (GdkEventButton *b);
     virtual bool on_button_release_event (GdkEventButton *b);
     virtual bool on_motion_notify_event (GdkEventMotion *m);
@@ -55,9 +122,14 @@ protected:
 
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
-                  const NodeGraph::Box &b, bool highlit);
-    void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr,
-                   const NodeGraph::Edge &e);
+                  const NodeGraph::Box &b, bool highlit, bool selected);
+    void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
+                   bool highlit);
+    void drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr);
+    void drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
+                     const NodeGraph::Box &b);
+    void drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
+                       const NodeGraph::Box &b, bool highlit, bool selected);
 
     /* widget pixels -> graph coordinates */
     void toGraph (double sx, double sy, double &gx, double &gy) const;
@@ -73,7 +145,42 @@ private:
 
     int hoverBox_, hoverPort_;
 
+    /* The selection, and the one box within it the panel speaks for.
+     *
+     * A vector rather than a set: it is almost always empty or one long, the
+     * order is the order things were gathered in, and every use is a scan. */
+    std::vector<int> sel_;
+    int selBox_;
+
+    /* Rubber band in progress: where the drag started and where the pointer
+       is now, both in graph coordinates. bandOn_ rather than a sentinel,
+       because a band of zero size at the origin is a real thing to draw. */
+    bool bandOn_;
+    double bandX0_, bandY0_, bandX1_, bandY1_;
+
+    /* Wire being dragged: the port it started at, and where the loose end
+       currently is, in graph coordinates. */
+    int wireBox_, wirePort_;
+    double wireX_, wireY_;
+    int wireTargetBox_, wireTargetPort_;
+    bool wireTargetOk_;
+
+    int hoverEdge_;
+
+    /* Control whose slider is being dragged, or -1. */
+    int dragSlider_;
+
+    /* Set by zoomToFit when there was no allocation to fit to; acted on by
+       the next size-allocate. */
+    bool fitPending_;
+
     type_signal_box_moved m_signal_box_moved_;
+    type_signal_selected m_signal_selected_;
+    type_signal_selection m_signal_selection_;
+    type_signal_connect m_signal_connect_;
+    type_signal_disconnect m_signal_disconnect_;
+    type_signal_refused m_signal_refused_;
+    type_signal_control m_signal_control_;
 };
 
 #endif /* NODE_CANVAS_H */

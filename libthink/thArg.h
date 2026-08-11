@@ -63,6 +63,12 @@ public:
 
     const string &name (void) const { return name_; };
     const string &label (void) const { return label_; }
+
+    /* An optional name for the group this control belongs to: "Envelope" for
+       an ADSR's four sliders. Purely for presentation -- the engine never
+       reads it -- but a patch's controls come in clumps and saying so lets an
+       editor draw them as one thing rather than four unrelated rows. */
+    const string &group (void) const { return group_; }
     const string &units (void) const { return units_; }
     const string &comment (void) const { return comment_; }
 
@@ -73,6 +79,7 @@ public:
     WidgetType widgetType (void) const { return widgetType_; }
 
     void setLabel (const string &label) { label_ = label; };
+    void setGroup (const string &group) { group_ = group; };
     void setUnits (const string &units) { units_ = units; };
     void setComment (const string &comment) { comment_ = comment; };
     void setMin (float min) { min_ = min; };
@@ -142,7 +149,8 @@ protected:
     float min_, max_;        /* for knobs and stuff, I'm sure it will be useful
                                 elsewhere, too */
     WidgetType widgetType_;  /* our widget type */
-    string label_;           /* This will be displayed in the UI */
+    string label_;
+    string group_;           /* This will be displayed in the UI */
     string units_;           /* This will be displayed too. ms, Hz, sec etc.*/
     string comment_;
 
