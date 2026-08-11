@@ -21,10 +21,18 @@
 
 #include <string>
 
+#include "thExport.h"
+
 /* Loading a plugin at run time.
  *
- * Four calls, because that is all thPlugin needs: open a file, look up a
- * symbol by name, close it, and say what went wrong.
+ * Four calls: open a file, look up a symbol by name, close it, and say what
+ * went wrong.
+ *
+ * THINK_API on all four. They began as thPlugin's private business and libthink
+ * builds hidden-by-default, so they were not exported -- which was fine until
+ * thVisual, which lives in src/ and loads the visual modules, needed the same
+ * four. There is no reason for a second dlopen shim, and the seam below is
+ * exactly the thing worth having only one of.
  *
  * There used to be a shim like this -- nsmodule_dl, implementing dlopen over
  * the NSModule API for Mac OS X before 10.3 -- selected by an #ifdef in
@@ -38,16 +46,16 @@ namespace thDynLib {
 typedef void *Handle;
 
 /* NULL on failure; lastError() then says why. */
-Handle open (const std::string &path);
+THINK_API Handle open (const std::string &path);
 
 /* NULL if the symbol is absent, which is not always an error -- module_cleanup
    is optional. */
-void *symbol (Handle handle, const char *name);
+THINK_API void *symbol (Handle handle, const char *name);
 
-void close (Handle handle);
+THINK_API void close (Handle handle);
 
 /* Only meaningful straight after a failed open() or symbol(). */
-std::string lastError (void);
+THINK_API std::string lastError (void);
 
 } /* namespace thDynLib */
 
