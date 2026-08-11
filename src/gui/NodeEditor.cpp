@@ -391,7 +391,7 @@ Gtk::Window *NodeEditor::topLevel (void)
 
 void NodeEditor::updateTitle (void)
 {
-    string base = thUtil::basename((char *)source_.c_str());
+    string base = thUtil::basename(source_.c_str());
 
     /* A read-only source is worth saying in the title rather than only when
        Save is pressed: it changes where the work is going to end up. */
@@ -1480,7 +1480,7 @@ void NodeEditor::saveAsDialog (const sigc::slot<void ()> &done,
 
     if (!source_.empty())
     {
-        dlg->set_current_name(thUtil::basename((char *)source_.c_str()));
+        dlg->set_current_name(thUtil::basename(source_.c_str()));
 
         /* Not the source's own folder as the starting point when it cannot be
            written -- offering the directory that just refused the write is
