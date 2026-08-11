@@ -39,8 +39,8 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[DB] = plugin->regArg("db");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[DB] = plugin->regArg("db", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     return 0;
 }
 

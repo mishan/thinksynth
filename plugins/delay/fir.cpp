@@ -38,12 +38,12 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_IMPULSE] = plugin->regArg("impulse");
-    args[IN_MIX] = plugin->regArg("mix");
-    args[INOUT_BUFFER] = plugin->regArg("buffer");
-    args[INOUT_BUFPOS] = plugin->regArg("bufpos");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_IMPULSE] = plugin->regArg("impulse", thPlugin::ARG_IN);
+    args[IN_MIX] = plugin->regArg("mix", thPlugin::ARG_IN);
+    args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
+    args[INOUT_BUFPOS] = plugin->regArg("bufpos", thPlugin::ARG_STATE);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     return 0;
 }
 

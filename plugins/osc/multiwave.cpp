@@ -44,17 +44,17 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_WAVES] = plugin->regArg("waves");
-    args[OUT_ARG] = plugin->regArg("out");
-    args[OUT_SYNC] = plugin->regArg("sync");
-    args[INOUT_LAST] = plugin->regArg("last");
-    args[INOUT_FREQ] = plugin->regArg("freqbuffer");
-    args[IN_FREQ] = plugin->regArg("freq");
-    args[IN_AMP] = plugin->regArg("amp");
-    args[IN_PITCHMUL] = plugin->regArg("pitchmul");
-    args[IN_PITCHADD] = plugin->regArg("pitchadd");
-    args[IN_AMPMUL] = plugin->regArg("ampmul");
-    args[IN_AMPADD] = plugin->regArg("ampadd");
+    args[IN_WAVES] = plugin->regArg("waves", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
+    args[INOUT_FREQ] = plugin->regArg("freqbuffer", thPlugin::ARG_STATE);
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    args[IN_PITCHMUL] = plugin->regArg("pitchmul", thPlugin::ARG_IN);
+    args[IN_PITCHADD] = plugin->regArg("pitchadd", thPlugin::ARG_IN);
+    args[IN_AMPMUL] = plugin->regArg("ampmul", thPlugin::ARG_IN);
+    args[IN_AMPADD] = plugin->regArg("ampadd", thPlugin::ARG_IN);
 
     return 0;
 }

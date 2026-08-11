@@ -5,7 +5,8 @@ include ../../build.mk
 PICFLAGS =
 LDFLAGS += @LIBS@ @GTKMM_LIBS@ @GTHREAD_LIBS@ -L../../libthink -lthink @JACK_LIBS@ @ALSA_LIBS@
 INCLUDES = -I../.. -I.. -I../../libthink @GTKMM_CFLAGS@ @JACK_CFLAGS@ @ALSA_CFLAGS@
-WIDGETOBJS = AboutBox.o ArgTable.o Keyboard.o KeyboardWindow.o MainSynthWindow.o MidiMap.o PatchSelWindow.o
+WIDGETOBJS = AboutBox.o ArgTable.o Keyboard.o KeyboardWindow.o MainSynthWindow.o MidiMap.o \
+	NodeCanvas.o PatchSelWindow.o
 
 gth.a: $(WIDGETOBJS)
 	ar crsv $@ $(WIDGETOBJS)

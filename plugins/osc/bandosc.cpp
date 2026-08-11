@@ -41,11 +41,11 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
     
-    args[IN_FREQ] = plugin->regArg("freq");
-    args[IN_BAND] = plugin->regArg("band");
-    args[IN_PW] = plugin->regArg("pw");
-    args[OUT_ARG] = plugin->regArg("out");
-    args[INOUT_LAST] = plugin->regArg("last");
+    args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    args[IN_BAND] = plugin->regArg("band", thPlugin::ARG_IN);
+    args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
     return 0;
 }

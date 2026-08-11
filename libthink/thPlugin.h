@@ -45,6 +45,25 @@ public:
 
     enum State { ACTIVE, PASSIVE, NOTLOADED };
 
+    /* Which way an arg faces.
+     *
+     * Every plugin has always encoded this in the enum it indexes args[] with
+     * -- IN_FREQ, OUT_ARG, INOUT_LAST -- but the information stopped at the
+     * enum and never reached anything that could use it. regArg() took only a
+     * name, so nothing outside a plugin could tell an input from an output,
+     * which is what appeared to block building a node editor.
+     *
+     * STATE is the INOUT_ case: scratch a plugin keeps between windows --
+     * delay rings, envelope positions, filter history. It is emphatically not
+     * a port. No .dsp in the shipped corpus references one, and an editor must
+     * not offer them for wiring.
+     *
+     * The default is ARG_IN so that a plugin built against the old header
+     * still compiles; its args will all read as inputs, which is wrong but
+     * harmless, and every in-tree plugin passes a direction explicitly.
+     */
+    enum ArgDir { ARG_IN = 0, ARG_OUT, ARG_STATE };
+
     typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
     typedef int (*ModuleInit)(thPlugin *);
     typedef void (*ModuleCleanup)(thPlugin *);
@@ -56,14 +75,24 @@ public:
     void setDesc(const string &desc) { desc_ = desc; }
     void setState(State state) { state_ = state; };
     
-    int regArg (const string &argname);
-    
+    int regArg (const string &argname, ArgDir dir = ARG_IN);
+
     int argCount (void) const { return argcounter_; };
     string getArgName (int index) { 
         if (index >= 0 && index < argcounter_)
             return *args_[index]; 
         return "";
     }
+
+    ArgDir getArgDir (int index) const {
+        if (index >= 0 && index < argcounter_)
+            return argdirs_[index];
+        return ARG_IN;
+    }
+
+    /* Convenience for the editor: a port is anything a .dsp may legitimately
+       wire, i.e. everything except plugin-internal state. */
+    bool argIsPort (int index) const { return getArgDir(index) != ARG_STATE; }
     
     void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
                unsigned int samples);
@@ -77,6 +106,7 @@ private:
     void *handle_;
 
     string **args_;
+    ArgDir *argdirs_;   /* parallel to args_ */
     int argcounter_; /* how many args are registered */
     int argsize_; /* length of the arg storage array */
 

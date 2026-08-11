@@ -40,8 +40,8 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_NOTE] = plugin->regArg("note");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[IN_NOTE] = plugin->regArg("note", thPlugin::ARG_IN);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
 
     return 0;
 }

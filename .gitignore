@@ -12,6 +12,7 @@ scripts/dspcheck-asan
 scripts/dspstress
 scripts/dspstress-tsan
 scripts/dsplevel
+scripts/dspgraph
 
 libthink/libthink.so.*
 libthink/thinklang.cpp

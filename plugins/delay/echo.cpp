@@ -38,14 +38,14 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_SIZE] = plugin->regArg("size");
-    args[IN_DELAY] = plugin->regArg("delay");
-    args[IN_FEEDBACK] = plugin->regArg("feedback");
-    args[IN_DRY] = plugin->regArg("dry");
-    args[INOUT_BUFFER] = plugin->regArg("buffer");
-    args[INOUT_BUFPOS] = plugin->regArg("bufpos");
-    args[OUT_ARG] = plugin->regArg("out");
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
+    args[IN_DELAY] = plugin->regArg("delay", thPlugin::ARG_IN);
+    args[IN_FEEDBACK] = plugin->regArg("feedback", thPlugin::ARG_IN);
+    args[IN_DRY] = plugin->regArg("dry", thPlugin::ARG_IN);
+    args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
+    args[INOUT_BUFPOS] = plugin->regArg("bufpos", thPlugin::ARG_STATE);
+    args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
 
     return 0;
 }

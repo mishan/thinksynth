@@ -41,10 +41,10 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
-    args[INOUT_BUFFER] = plugin->regArg("buffer");
-    args[IN_ARG] = plugin->regArg("in");
-    args[IN_CUTOFF] = plugin->regArg("cutoff");
-    args[IN_RES] = plugin->regArg("res");
+    args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
+    args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     return 0;
 }
 
