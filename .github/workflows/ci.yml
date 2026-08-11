@@ -314,15 +314,23 @@ jobs:
           # adwaita-icon-theme and librsvg named explicitly, for the reason
           # given in the macOS job: without librsvg there is no SVG loader,
           # and a bundled Adwaita is SVG.
+          #
+          # gtkmm-4.0, not gtkmm4. The short name exists but is a virtual
+          # package, so pacman offers the providers and waits for a choice --
+          # which in CI is "Enter a selection (default=all): error: target not
+          # found".
+          #
+          # Every comment here is outside the block below, and has to be. That
+          # `>-' makes what follows a folded scalar: it has no comment syntax,
+          # so a `#' line inside it is not a comment, it is more package names.
+          # pacboy duly asked for mingw-w64-ucrt-x86_64-The,
+          # mingw-w64-ucrt-x86_64-short, mingw-w64-ucrt-x86_64-name, and so on
+          # through the whole sentence.
           pacboy: >-
             toolchain:p
             cmake:p
             ninja:p
             pkgconf:p
-            # gtkmm-4.0, not gtkmm4. The short name exists but is a virtual
-            # package -- pacman offers the providers and waits for a choice,
-            # which in CI means "Enter a selection (default=all): error:
-            # target not found".
             gtkmm-4.0:p
             adwaita-icon-theme:p
             librsvg:p
