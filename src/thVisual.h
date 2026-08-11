@@ -38,6 +38,17 @@ using std::string;
 
 #define VISUAL_IFACE_VER 1
 
+/* An inline variable is emitted only if something odr-uses it, and nothing in
+   a plugin ever mentions its own version byte -- so `inline' alone made the
+   symbol vanish from meter.so and thVisual refused to load it. `used' is what
+   says "emit this anyway". __declspec(dllexport) already implies it, so this
+   is only needed on the ELF/Mach-O side. */
+#if defined(_WIN32) || defined(__CYGWIN__)
+#  define THINK_VISUAL_KEEP
+#else
+#  define THINK_VISUAL_KEEP __attribute__((used))
+#endif
+
 /* What a visual instance assumes if it is handed a sample rate of zero. A
    module has to have something to divide by, and every decay constant is
    per-sample, so this is not a nicety. */
@@ -100,9 +111,22 @@ using std::string;
 class thVisual;
 
 #ifdef VISUAL_PLUGIN_BUILD
-THINK_PLUGIN_API unsigned char visual_apiversion = VISUAL_IFACE_VER;
-
 extern "C" {
+    /* The version byte thVisual::moduleLoad looks up before anything else.
+     *
+     * `inline' rather than a plain definition: this is a header, and a plugin
+     * that ever grows past one translation unit would otherwise get a
+     * multiple-definition error at link time for including it twice. C++17
+     * inline variables are exactly the case, and the exported symbol name is
+     * unchanged.
+     *
+     * Inside the extern "C" block for the same reason the functions are: the
+     * host looks this up by its plain spelling. (thPlugin.h defines
+     * `apiversion' the same way and has the same latent hazard; every one of
+     * the 62 DSP plugins is a single .cpp, so it has never come up.) */
+    THINK_PLUGIN_API THINK_VISUAL_KEEP inline unsigned char
+        visual_apiversion = VISUAL_IFACE_VER;
+
     /* Once per module. Must call setName() and setDesc(); may call
        setPreferredSize(). Returns non-zero to refuse to load. */
     THINK_PLUGIN_API int visual_init (thVisual *visual);

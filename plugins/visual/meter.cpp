@@ -32,7 +32,10 @@
  * Everything here runs on the GUI thread. See src/thVisual.h.
  */
 
-#define VISUAL_PLUGIN_BUILD 1
+/* VISUAL_PLUGIN_BUILD comes from think_add_visual in cmake/ThinkPlugin.cmake,
+   which is also where the DSP plugins get PLUGIN_BUILD -- not one of the 62
+   defines it itself. Defining it here as well was redundant and would collide
+   the moment the two spellings drifted. */
 
 #include <math.h>
 #include <stdio.h>
