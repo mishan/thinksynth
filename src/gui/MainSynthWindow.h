@@ -51,6 +51,10 @@ protected:
        ellipsised rather than widening the strip to fit the longest name. */
     Gtk::Widget *makeTabLabel (const string &text, const string &tip);
 
+    /* A .dsp name as a patch stores it -- usually bare -- as a path that can
+       actually be opened. */
+    string resolveDspPath (const string &named);
+
     /* Builds the node editor for a page the first time its tab is shown. */
     void onSubTab (Gtk::Widget *page, guint num, Gtk::Widget *holder,
                    string dspFile, int chan);

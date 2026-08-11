@@ -467,6 +467,40 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
 
 }
 
+/* A .dsp name as a patch stores it, turned into a path that can be opened.
+ *
+ * A patch keeps the name it was given, normally bare -- `ts1.dsp'. Resolving
+ * that against the install path is the patch manager's rule, and resolveDsp
+ * knows only about the install path, so a file the user browsed to from
+ * somewhere else needs the directory they browsed from as well.
+ *
+ * This lived inside the menu handler that used to open the node window. When
+ * the editor moved onto a tab the handler became a one-line switch and this
+ * went with it -- so the tab opened the bare name, and every patch pointing at
+ * an installed .dsp failed with "Could not read ts1.dsp". It is a function
+ * now, because two callers need it and a third will. */
+string MainSynthWindow::resolveDspPath (const string &named)
+{
+    if (named.empty())
+        return named;
+
+    string path = gthPatchManager::resolveDsp(named);
+
+    if (!std::filesystem::path(named).is_absolute() && !prevDir_.empty())
+    {
+        std::error_code ec;
+
+        const std::filesystem::path browsed =
+            std::filesystem::path(prevDir_) / named;
+
+        if (!std::filesystem::exists(path, ec) &&
+            std::filesystem::exists(browsed, ec))
+            path = browsed.string();
+    }
+
+    return path;
+}
+
 /* The Nodes tab has been shown for the first time: build its editor.
  *
  * `page' and `num' are which sub-tab was switched to; `holder' is the empty
@@ -499,10 +533,13 @@ void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
         return;
     }
 
+    const string path = resolveDspPath(dspFile);
+
     /* The channel is passed so slider moves in the graph reach the running
        synth, the same as they did when this was a window. */
-    if (!ed->open(dspFile, chan))
-        ed->setStatusPublic("Could not read " + dspFile);
+    if (!ed->open(path, chan))
+        ed->setStatusPublic("Could not read " + dspFile +
+                            (path == dspFile ? "" : "  (" + path + ")"));
 }
 
 void MainSynthWindow::populate (void)
