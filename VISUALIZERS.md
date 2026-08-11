@@ -432,7 +432,7 @@ Steps 1–3 of §8 are done, on `node-visualizers` off `patch-selector`.
 | 1. `thSampleRing` | done | `libthink/thSampleRing.h`, `scripts/ringcheck` |
 | 2. The tap | done | `libthink/thProbe.{h,cpp}`, `thSynth::armProbe`, `scripts/dspprobe`, `dspstress` level 5 |
 | 3. The visual ABI and `visual/meter` | done | `src/thVisual.{h,cpp}`, `plugins/visual/meter.cpp`, `scripts/visualcheck` |
-| 4. The canvas | not started | the repaint measurement in §5 comes first |
+| 4. The canvas | measured, see below | `scripts/canvasbench` |
 
 Three CTest gates added — `ringcheck`, `dspprobe`, `visualcheck` — bringing the
 suite to eight. All eight pass, and the ASan and TSan trees are clean.
@@ -543,9 +543,58 @@ guess that a second platform disproved:
   `__tsan_default_options`, so a real leak still fails: a deliberate 777-byte
   leak in `visual_open` is reported.
 
+## 11. The repaint measurement, and what it settles
+
+§5 said the 30fps full-canvas repaint had to be measured before the canvas was
+designed, because the answer decides between caching each probe into an image
+surface and giving each one its own `DrawingArea` in an overlay. Measured, with
+`scripts/canvasbench`:
+
+```
+                              graph        mean     worst
+dsp/old/bd9.dsp    45 boxes  2920x576    0.80 ms   1.75 ms
+dsp/aspect2.dsp    53 boxes  1716x1048   0.63 ms   1.68 ms
+dsp/ts1.dsp        28 boxes  1888x490    0.36 ms   1.46 ms
+
+15 graphs, viewport 1200x700:  mean 0.39 ms, worst 0.61 ms
+```
+
+**A full repaint costs about 2% of a 33ms frame, and the worst graph in the
+corpus costs under 3%.** So the canvas can simply redraw, and the overlay
+fallback — with its repositioning on every scroll, zoom and relayout — is not
+needed and is dropped from the plan.
+
+The second column is zoomed to fit, so the whole graph rasterises rather than
+just the part inside the viewport; that is why `bd9` at 2920 pixels wide costs
+what it costs. The unzoomed numbers are lower because GTK clips to the window,
+which is also what actually happens in use.
+
+This changes the standing of the per-probe surface cache: it is now an
+optimisation rather than the thing that makes the design work. Worth keeping
+for the spectrogram, which does real work per frame, and not worth reaching for
+before that.
+
+`canvasbench` drives the real `NodeCanvas` in a real window rather than a
+stand-in drawing something of similar complexity — the same reasoning as §12 of
+`NODE_EDITOR.md`, where describing one cubic twice is how "clicking a wire
+selects a different wire" happened. That makes it the only harness in the tree
+that needs a display, so it is a measuring instrument rather than a gate and is
+not in the ctest list. Under a headless box it runs under `xvfb-run`.
+
+Two things it took a couple of tries to get right, both recorded because they
+made the first numbers meaningless rather than wrong-looking:
+
+- **A widget does not draw until it is realized and mapped.** Creating the
+  application and pumping the default main context measured every graph as zero
+  frames, correctly. It has to go through `activate()`.
+- **Non-blocking iteration never lets a frame happen.** Between `queue_draw()`
+  and the frame clock deciding to render, nothing is pending, so a
+  non-blocking spin returns immediately every time and the loop expires. The
+  pump blocks, with a deadline.
+
 ### Still ahead
 
-Step 4, and it opens with the measurement §5 called for rather than with code:
-30fps `queue_draw()` over `dsp/old/bd9.dsp`, the widest graph in the corpus, to
-find out whether per-probe image surfaces are enough or whether the overlay
-fallback is needed. That answer changes the canvas design, so it comes first.
+The canvas itself: probe panels, arming from a port, the frame tick and the
+drain. Then persistence, `# @probe` through `NodeLayout`, with the same
+idempotence and scramble-before-checking discipline §8 of `NODE_EDITOR.md`
+learned for `# @layout`.
