@@ -37,6 +37,14 @@
 #define LAYOUT_PFX  "# @layout"
 #define LAYOUT_TAG  LAYOUT_PFX " "
 
+/* The probes share the block and the discipline: stripped on the way in,
+   rewritten on the way out, so a save is idempotent. A separate prefix rather
+   than another `# @layout' field because a probe has no position -- a panel is
+   wherever its host is -- and a reader that expected three fields would have
+   to know to skip them. */
+#define PROBE_PFX   "# @probe"
+#define PROBE_TAG   PROBE_PFX " "
+
 string NodeLayout::keyFor (const NodeGraph &graph, int box)
 {
     if (box < 0 || box >= (int)graph.boxes().size())
@@ -107,6 +115,36 @@ int NodeLayout::apply (const NodeGraph &graph, const PosMap &pos,
     return applied;
 }
 
+bool NodeLayout::readProbes (const string &filename, vector<ProbeRef> &out)
+{
+    out.clear();
+
+    ifstream in(filename.c_str());
+
+    if (!in)
+        return false;
+
+    string line;
+
+    while (getline(in, line))
+    {
+        if (line.compare(0, strlen(PROBE_TAG), PROBE_TAG) != 0)
+            continue;
+
+        istringstream ss(line.substr(strlen(PROBE_TAG)));
+
+        ProbeRef p;
+
+        /* All three or nothing. A line with two fields is the block's own
+           prose, or a probe someone half-edited by hand; either way there is
+           no honest guess at the third. */
+        if (ss >> p.node >> p.arg >> p.visual)
+            out.push_back(p);
+    }
+
+    return true;
+}
+
 bool NodeLayout::write (const string &filename, const NodeGraph &graph)
 {
     /* Read the whole file, drop the old layout lines, append fresh ones.
@@ -126,7 +164,8 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
         string line;
 
         while (getline(in, line))
-            if (line.compare(0, strlen(LAYOUT_PFX), LAYOUT_PFX) != 0)
+            if (line.compare(0, strlen(LAYOUT_PFX), LAYOUT_PFX) != 0 &&
+                line.compare(0, strlen(PROBE_PFX), PROBE_PFX) != 0)
                 lines.push_back(line);
     }
 
@@ -170,6 +209,27 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
 
             out << LAYOUT_TAG << keyFor(graph, (int)i) << " "
                 << (long)(b.x + 0.5) << " " << (long)(b.y + 0.5) << "\n";
+        }
+
+        /* The probes, after the positions and in stacking order.
+         *
+         * Written from the graph rather than from a list passed in, because a
+         * panel is a Box and the graph is already where the editor keeps them
+         * -- two sources for the same thing is how they come to disagree.
+         *
+         * No position: a panel is wherever its host ended up, computed from it
+         * every time. Writing one down would record something nothing reads
+         * and which would be wrong the moment the host moved -- the same
+         * reasoning that keeps attached controls out of the block above. */
+        for (size_t i = 0; i < graph.boxes().size(); i++)
+        {
+            const NodeGraph::Box &b = graph.boxes()[i];
+
+            if (!b.isProbe || b.attachedTo < 0)
+                continue;
+
+            out << PROBE_TAG << graph.boxes()[b.attachedTo].name << " "
+                << b.probeArg << " " << b.probeVisual << "\n";
         }
 
         out.flush();

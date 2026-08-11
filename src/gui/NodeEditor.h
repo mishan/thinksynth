@@ -175,6 +175,11 @@ protected:
        editing it -- it only decides whether Save can put it back. */
     bool sourceWritable (void) const;
 
+    /* The scratch file everything is written to before a save puts it back.
+       Protected so scripts/editorcheck can drive the same save path the
+       button does. */
+    const string &work (void) const { return work_; }
+
     /* Every node name the file uses, so a new one can avoid them. */
     vector<string> takenNames (void) const;
 

@@ -52,6 +52,7 @@
 #include <string.h>
 
 #include <chrono>
+#include <fstream>
 #include <functional>
 #include <vector>
 
@@ -125,6 +126,18 @@ public:
     using NodeEditor::visuals_;
     using NodeEditor::graph;
     using NodeEditor::reload;
+
+    /* Save is a button handler with no return value; this is the same write
+       path, reporting whether it worked. */
+    bool save (void)
+    {
+        string why;
+
+        return writeAll(why) && copyFile(workFile(), sourceFile());
+    }
+
+    const string &sourceFile (void) const { return filename(); }
+    string workFile (void) const { return work(); }
 
     /* How many panels the graph is carrying. */
     int panels (void) const
@@ -305,6 +318,76 @@ int run (const string &pluginPath, const char *file)
     ok(ed->panels() == 1, "and so does its panel (%d)", ed->panels());
     ok(ed->probes_[0].slot >= 0,
        "and it has a tap again (%d, was %d)", ed->probes_[0].slot, slotBefore);
+
+    /* Save and reopen. This is the property anyone would actually notice:
+     * a probe put on a patch is still there tomorrow.
+     *
+     * Against a copy, so the corpus is never written to -- the editor saves to
+     * the file it was opened from, and dsp/ts1.dsp is not that file's to
+     * change. */
+    {
+        const string copy = "/tmp/editorcheck-save.dsp";
+
+        {
+            ifstream in(file, std::ios::binary);
+            ofstream out(copy.c_str(), std::ios::binary | std::ios::trunc);
+
+            out << in.rdbuf();
+        }
+
+        TestEditor *ed2 = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w2 = new Gtk::Window();
+
+        w2->set_child(*ed2);
+        w2->set_default_size(1000, 600);
+        w2->present();
+
+        pump(0.2);
+
+        ok(ed2->open(copy, -1), "a second editor opens the copy");
+        ok(ed2->armProbe(node, arg, visual), "and arms a probe on it");
+        ok(ed2->save(), "and saves");
+
+        pump(0.2);
+
+        TestEditor *ed3 = Gtk::manage(new TestEditor(&synth));
+        Gtk::Window *w3 = new Gtk::Window();
+
+        w3->set_child(*ed3);
+        w3->set_default_size(1000, 600);
+        w3->present();
+
+        pump(0.2);
+
+        ok(ed3->open(copy, -1), "a third editor opens the saved file");
+
+        ok(ed3->probes_.size() == 1,
+           "the probe came back from the file (%d)",
+           (int)ed3->probes_.size());
+        ok(ed3->panels() == 1, "and so did its panel (%d)", ed3->panels());
+
+        if (ed3->probes_.size() == 1)
+        {
+            ok(ed3->probes_[0].node == node && ed3->probes_[0].arg == arg &&
+               ed3->probes_[0].visual == visual,
+               "pointing where it did: %s.%s/%s",
+               ed3->probes_[0].node.c_str(), ed3->probes_[0].arg.c_str(),
+               ed3->probes_[0].visual.c_str());
+
+            /* Opened with no channel, so there is nothing to tap -- and the
+               panel has to be there regardless, or a probe would silently
+               vanish from any patch not currently playing. */
+            ok(ed3->probes_[0].slot < 0,
+               "and not tapping anything, since nothing is playing it");
+        }
+
+        w2->set_visible(false);
+        w3->set_visible(false);
+        delete w2;
+        delete w3;
+
+        ::remove(copy.c_str());
+    }
 
     /* And disarming really lets go of all three. */
     ed->disarmProbe(0);

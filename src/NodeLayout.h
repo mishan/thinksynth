@@ -26,12 +26,22 @@
  *
  *     # @layout freq 120 40
  *
+ * and so do the editor's probes, which are not part of the patch at all:
+ *
+ *     # @probe filt out meter
+ *
  * A comment, so the existing lexer discards it and every .dsp stays loadable
  * by anything that could load it before. An editor that is never used again
  * leaves nothing behind but a few extra comment lines.
  *
+ * A probe is a display, not a node: the engine never sees one and a .dsp with
+ * probes in it loads identically in a build that has never heard of them. That
+ * is the same bargain `# @layout' struck, and it is why these live here rather
+ * than anywhere the parser can reach.
+ *
  * This is the first, deliberately safest piece of the writer. It only ever
- * rewrites its own `# @layout' lines and appends a block if none exists;
+ * rewrites its own `# @layout' and `# @probe' lines and appends a block if
+ * none exists;
  * everything else in the file -- comments, formatting, units, the arithmetic
  * the lexer folds away -- is copied through untouched, because it is never
  * regenerated from the parsed model in the first place. NODE_EDITOR.md
@@ -41,17 +51,27 @@
 #include <string>
 #include <map>
 #include <utility>
+#include <vector>
 
 using std::string;
 using std::map;
 using std::pair;
 using std::make_pair;
+using std::vector;
 
 class NodeGraph;
 
 class NodeLayout {
 public:
     typedef map<string, pair<double, double> > PosMap;
+
+    /* One saved probe: which node's output, and what to draw it with. No
+       position -- a panel sits on its host, wherever that ended up. */
+    struct ProbeRef {
+        string node;
+        string arg;
+        string visual;
+    };
 
     /* Reads `# @layout <node> <x> <y>' lines out of a .dsp. Silently returns
        an empty map if the file has none, which is the normal case. */
@@ -66,10 +86,18 @@ public:
     static int apply (const NodeGraph &graph, const PosMap &pos,
                       NodeGraph &target);
 
+    /* Reads `# @probe <node> <arg> <visual>' lines. Order is preserved, since
+       it is the order the panels will stack in. */
+    static bool readProbes (const string &filename, vector<ProbeRef> &out);
+
     /* Rewrites the file's layout block.
 
-       Every non-layout line is preserved exactly, and nothing is regenerated
-       from the parsed model. Two things are normalised rather than preserved,
+       The probe panels in `graph' are written out alongside the positions, so
+       nothing else has to be passed in: a panel is a Box like any other and
+       the graph is where the editor keeps them.
+
+       Every line the block does not own is preserved exactly, and nothing is
+       regenerated from the parsed model. Two things are normalised rather than preserved,
        so "byte for byte" would overstate it: line endings come out as \n, and
        trailing blank lines are dropped -- otherwise the blank line before the
        block would accumulate one per save.
