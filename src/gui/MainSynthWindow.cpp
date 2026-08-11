@@ -83,6 +83,32 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     dspEntryBox_.pack_start(dspEntry_, Gtk::PACK_EXPAND_WIDGET);
     dspEntryBox_.pack_start(dspBrowseBtn_, Gtk::PACK_SHRINK);
 
+    /* Master level, on the row that already belongs to the whole window
+       rather than to one channel -- the same reason the DSP File entry is
+       here. Shown 0..127 like a channel's own amplitude, so the two read on
+       one scale; 100 is unity, which is where it starts, and there is room
+       above it because the engine allows gain over 1.
+    
+       The limiter downstream is what makes going above unity safe to offer;
+       see TH_LIMIT_KNEE. */
+    masterLbl_.set_text("Master:");
+
+    masterScale_.set_range(0, TH_MASTER_GAIN_MAX * 100.0);
+    masterScale_.set_increments(1, 10);
+    masterScale_.set_digits(0);
+    masterScale_.set_value_pos(Gtk::POS_RIGHT);
+    masterScale_.set_size_request(160, -1);
+    masterScale_.set_value(thSynth::instance()->masterGain() * 100.0);
+
+    masterScale_.signal_value_changed().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onMasterGain));
+
+    dspEntryBox_.pack_start(*manage(new Gtk::Separator(
+                                        Gtk::ORIENTATION_VERTICAL)),
+                            Gtk::PACK_SHRINK);
+    dspEntryBox_.pack_start(masterLbl_, Gtk::PACK_SHRINK);
+    dspEntryBox_.pack_start(masterScale_, Gtk::PACK_SHRINK);
+
     dspEntry_.signal_activate().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onDspEntryActivate));
 
@@ -762,6 +788,14 @@ void MainSynthWindow::highlightTab (int pagenum)
         else
             lbl->set_text(text);
     }
+}
+
+/* 100 on the slider is unity gain, so the number reads like a channel
+   amplitude rather than a multiplier. setMasterGain clamps and stores
+   atomically; the audio thread reads it every block. */
+void MainSynthWindow::onMasterGain (void)
+{
+    thSynth::instance()->setMasterGain(masterScale_.get_value() / 100.0);
 }
 
 void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
