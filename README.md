@@ -20,7 +20,7 @@ On Debian or Ubuntu:
 
 ```sh
 sudo apt install build-essential cmake ninja-build bison flex pkg-config \
-    libgtkmm-3.0-dev libsigc++-2.0-dev libasound2-dev libjack-jackd2-dev
+    libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev libjack-jackd2-dev
 ```
 
 Useful options:
