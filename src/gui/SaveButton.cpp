@@ -84,6 +84,13 @@ void SaveButton::setModified (bool modified)
     refresh();
 }
 
+void SaveButton::setFileName (const std::string &path)
+{
+    path_ = path;
+
+    refresh();
+}
+
 void SaveButton::setSensitive (bool sensitive)
 {
     sensitive_ = sensitive;
@@ -102,10 +109,18 @@ void SaveButton::refresh (void)
     save_.set_sensitive(canSave);
     more_.set_sensitive(sensitive_);
 
-    save_.set_tooltip_text(!hasFile_
-                           ? "This has not been saved yet -- Save will ask "
-                             "where to put it"
-                           : modified_ ? "Save the changes"
-                                       : "Nothing has changed since this was "
-                                         "saved");
+    /* Four states, and the tooltip says which one it is in. Nothing selected
+       came first: describing a file when there is no patch at all was the
+       one that could actively mislead. */
+    if (!sensitive_)
+        save_.set_tooltip_text("Nothing to save");
+    else if (!hasFile_)
+        save_.set_tooltip_text("This has not been saved yet -- Save will ask "
+                               "where to put it");
+    else if (!modified_)
+        save_.set_tooltip_text("Nothing has changed since this was saved");
+    else
+        save_.set_tooltip_text(path_.empty()
+                               ? std::string("Save the changes")
+                               : "Save the changes to " + path_);
 }

@@ -59,6 +59,11 @@ public:
      * perfectly good thing to want. */
     void setModified (bool modified);
 
+    /* Where Save would write, for the tooltip. Setting one on the SaveButton
+       itself does not work: a tooltip belongs to the widget under the pointer,
+       and that is the Save button inside, which has its own. */
+    void setFileName (const std::string &path);
+
     /* Both halves at once, for when there is no patch at all. */
     void setSensitive (bool sensitive);
 
@@ -78,6 +83,7 @@ protected:
     bool hasFile_;
     bool modified_;
     bool sensitive_;
+    std::string path_;
 
     sigc::signal<void ()> m_signal_save_;
     sigc::signal<void ()> m_signal_save_as_;

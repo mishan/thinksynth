@@ -764,7 +764,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
        the end is what tells two versions of a patch apart. */
     nameLbl->set_markup("<b>" + Glib::Markup::escape_text(
                             saved
-                            ? thUtil::basename((char *)patch->filename.c_str())
+                            ? thUtil::basename(patch->filename.c_str())
                             : string("(unsaved)")) + "</b>");
     nameLbl->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
 
@@ -833,8 +833,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
                    saveBtn, chan)));
 
     if (saved)
-        saveBtn->set_tooltip_text("Write this patch back to "
-                                  + patch->filename);
+        saveBtn->setFileName(patch->filename);
 
     {
         Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
@@ -940,7 +939,7 @@ void MainSynthWindow::onSavePatchAs (int chan)
         /* A starting point rather than a guess at what it should be called:
            the DSP's own name with the patch extension, which is at least in
            the right family. */
-        string suggest = thUtil::basename((char *)patch->dspFile.c_str());
+        string suggest = thUtil::basename(patch->dspFile.c_str());
         const string::size_type dot = suggest.rfind('.');
 
         if (dot != string::npos)
@@ -1195,7 +1194,7 @@ void MainSynthWindow::populate (void)
                off. The full path is still worth having, so it moves to the
                tooltip. */
             tabName = chanStr.str() +
-                      thUtil::basename((char *)patch->filename.c_str());
+                      thUtil::basename(patch->filename.c_str());
         }
         else
         {
@@ -1470,7 +1469,7 @@ void MainSynthWindow::onBrowseResponse (int response,
         return;
     }
 
-    prevDir_ = thUtil::dirname((char *)picked.c_str());
+    prevDir_ = thUtil::dirname(picked.c_str());
     prevDir_ += "/";
 
     {

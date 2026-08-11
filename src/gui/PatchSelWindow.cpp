@@ -156,8 +156,10 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     patchView.append_column("Patch", patchViewCols.dspName);
     patchView.append_column("Level", patchViewCols.amp);
 
-    /* The full path on hover; the column itself shows the basename. */
-    patchView.set_tooltip_column(3);
+    /* The full path on hover; the column itself shows the basename. Asked of
+       the column rather than written as a 3, so that inserting one above it
+       does not silently point this at the wrong data. */
+    patchView.set_tooltip_column(patchViewCols.path.index());
 
     /* The patch name takes the slack. Without this the last column does,
        which left Level a hand's width of empty and its number stranded at
@@ -426,7 +428,7 @@ void PatchSelWindow::onBrowseResponse (int response,
     if (!LoadPatch())
         return;
 
-    prevDir = thUtil::dirname((char *)picked.c_str());
+    prevDir = thUtil::dirname(picked.c_str());
 
     string **vals = new string *[2];
 
@@ -704,6 +706,7 @@ void PatchSelWindow::CursorChanged (void)
             /* Save means Save As until the patch has been written
                somewhere. */
             saveButton.setHasFile(loaded && patch->filename.length() > 0);
+            saveButton.setFileName(loaded ? patch->filename : string());
             saveButton.setModified(
                 gthPatchManager::instance()->isDirty(currchan));
         }
@@ -768,7 +771,7 @@ void PatchSelWindow::populate (void)
         row[patchViewCols.chanNum] = i + 1;
         row[patchViewCols.dspName] = filename.length() == 0
             ? "(Untitled)"
-            : thUtil::basename((char *)filename.c_str());
+            : thUtil::basename(filename.c_str());
         row[patchViewCols.path] = filename;
         row[patchViewCols.amp] = amp
             ? Glib::ustring::format((int)((*amp)[0] + 0.5f))

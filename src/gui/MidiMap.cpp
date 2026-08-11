@@ -230,7 +230,7 @@ void MidiMap::fillDestChanCombo (void)
         idStr << i;
 
         destChanCombo_->append(idStr.str(), chanStr.str() +
-                thUtil::basename((char*)patch->dspFile.c_str()));
+                thUtil::basename(patch->dspFile.c_str()));
 
         if (first)
         {
@@ -367,7 +367,7 @@ void MidiMap::populateConnections (void)
     {
         Gtk::TreeModel::Row row = *(connectModel_->append());
         connection = i->second;
-        instrument = thUtil::basename((char*)patchMgr->getPatch(
+        instrument = thUtil::basename(patchMgr->getPatch(
                                  connection->destChan())->filename.c_str());
         if (instrument.length() == 0)
         {
