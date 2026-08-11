@@ -25,10 +25,22 @@ public:
     ArgTable (void);
     ~ArgTable (void);
 
+    /* Records a parameter. Nothing is laid out until reflow(), because the
+       column count depends on how many there turn out to be. */
     void insertArg (thArg *arg);
+
+    /* Lays out everything recorded so far. Call once, after the last
+       insertArg. */
+    void reflow (void);
+
 private:
     void sliderChanged (Gtk::HScale *, thArg *);
     void argChanged (thArg *, Gtk::HScale *);
+
+    static int columnsFor (int n);
+    void placeArg (thArg *arg, int col, int row);
+
+    std::vector<thArg *> pending_;
 
     int rows_, args_;
 };

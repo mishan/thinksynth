@@ -30,11 +30,32 @@
 ArgTable::ArgTable (void)
     : Gtk::Table(1, 3), rows_(1), args_(0)
 {
-    
+    set_col_spacings(8);
+    set_row_spacings(2);
 }
 
 ArgTable::~ArgTable (void)
 {
+}
+
+/* How many parameters go side by side.
+ *
+ * One column was the whole layout, and ts1 has thirteen parameters while
+ * aspect2 has thirty-one -- a strip taller than any window, scrolled past to
+ * reach the one you wanted. A slider needs width to be worth dragging, so the
+ * columns are few and wide rather than many and thin; three is where a
+ * 1200-pixel window still leaves each slider usable.
+ *
+ * Fixed thresholds rather than a measurement of the allocation: the panel is
+ * built before it has been allocated a size, and a layout that reflows while
+ * you are reaching for a slider is worse than one that is occasionally a
+ * column short. */
+int ArgTable::columnsFor (int n)
+{
+    if (n <= 8)  return 1;
+    if (n <= 20) return 2;
+
+    return 3;
 }
 
 void ArgTable::insertArg (thArg *arg)
@@ -42,7 +63,41 @@ void ArgTable::insertArg (thArg *arg)
     if (arg == NULL)
         return;
 
-    int row = args_++;
+    pending_.push_back(arg);
+}
+
+/* Lays out everything handed to insertArg.
+ *
+ * Deferred to here because the column count depends on how many there are, and
+ * that is not known until the last one has arrived. */
+void ArgTable::reflow (void)
+{
+    const int n = (int)pending_.size();
+
+    if (n == 0)
+        return;
+
+    const int cols = columnsFor(n);
+
+    /* Down each column, then across -- so reading top to bottom gives the
+       parameters in order, the way a single column did. Across-then-down would
+       scatter alphabetical neighbours over three columns. */
+    const int perCol = (n + cols - 1) / cols;
+
+    resize(perCol, cols * 3);
+    rows_ = perCol;
+
+    for (int i = 0; i < n; i++)
+        placeArg(pending_[i], i / perCol, i % perCol);
+
+    show_all_children();
+}
+
+void ArgTable::placeArg (thArg *arg, int col, int row)
+{
+    const int x = col * 3;
+
+    args_++;
 
     Gtk::Label *label = manage(new Gtk::Label((arg->label().length() > 0) ?
                                               arg->label() : arg->name()));
@@ -69,20 +124,33 @@ void ArgTable::insertArg (thArg *arg)
     Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust, .0001,
                                                            4));
 
-    if (args_ > rows_)
-    {
-        resize(args_, 3);
-        rows_ = args_;
-    }
+    /* The value box was as wide as the slider had left over, which on a
+       single column was most of the window for a number four characters
+       long. Sized to its content now, so the width goes to the slider. */
+    valEntry->set_width_chars(9);
 
-    attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
-           Gtk::SHRINK);
-    attach(*slider, 1, 2, row, row+1,
-           Gtk::EXPAND|Gtk::FILL,
-           Gtk::EXPAND|Gtk::FILL);
-    attach(*valEntry, 2, 3, row, row+1,
-           Gtk::SHRINK|Gtk::FILL,
-           Gtk::SHRINK|Gtk::FILL);
+    /* A slider narrower than this is not draggable in any useful way -- the
+       handle is most of it. Asking for the width means a window too narrow
+       for the columns scrolls, rather than silently squeezing every slider
+       down to a nub, which is what happened at 800 pixels. */
+    slider->set_size_request(140, -1);
+
+    /* No ellipsis here.
+    
+       It was set with only a maximum width, and a label that can ellipsise
+       reports the width of "..." as its minimum -- so the table, asked for the
+       smallest layout that fits, gave every label exactly that and the panel
+       came up as a column of dots. Parameter labels are short ("Pulse Width
+       1" is the longest in the corpus at 13 characters), so they can simply
+       be allowed their natural width. */
+    label->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
+    label->set_tooltip_text(arg->name());
+
+    attach(*label, x, x + 1, row, row + 1, Gtk::FILL, Gtk::SHRINK);
+    attach(*slider, x + 1, x + 2, row, row + 1,
+           Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
+    attach(*valEntry, x + 2, x + 3, row, row + 1,
+           Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
 }
     
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)

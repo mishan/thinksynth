@@ -342,6 +342,12 @@ Gtk::Widget *MainSynthWindow::makeTabLabel (const string &text,
 
     lbl->set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
     lbl->set_ellipsize(Pango::ELLIPSIZE_END);
+
+    /* Both widths, and the minimum is the one that matters: an ellipsising
+       label reports "..." as its minimum size, so with only a maximum set the
+       notebook shrank every tab to three dots. width_chars reserves the room;
+       max_width_chars stops one long name widening the strip. */
+    lbl->set_width_chars(16);
     lbl->set_max_width_chars(22);
 
     if (!tip.empty())
@@ -382,7 +388,10 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
 
     tab_view->add(*tab_vbox);
-    tab_view->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    /* Horizontal scrolling allowed now that the parameters sit in columns.
+       It was NEVER, which meant a window narrower than the layout crushed the
+       sliders instead of letting you scroll to them. */
+    tab_view->set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
 
     info_frame->set_label("DSP Information");
     info_frame->add(*info_table);
@@ -465,6 +474,9 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
                 break;
         }
     }
+
+    /* Now that the count is known, the table can pick its column count. */
+    dsp_table->reflow();
 
     notebook_.append_page(*tab_view, *makeTabLabel(tabName, tip));
 
