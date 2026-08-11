@@ -408,7 +408,7 @@ int main (int argc, char *argv[])
         if (midi->opened())
         {
             midi->signal_event().connect(
-                sigc::bind<thSynth *>(sigc::ptr_fun(&dispatchmidi), Synth));
+                sigc::bind(sigc::ptr_fun(&dispatchmidi), Synth));
         }
 
         if (driver == "none")

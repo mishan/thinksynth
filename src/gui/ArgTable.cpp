@@ -314,12 +314,12 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     slider->set_draw_value(false);
 
     slider->signal_value_changed().connect(
-        sigc::bind<Gtk::Scale *, thArg *>(
+        sigc::bind(
             sigc::mem_fun(*this, &ArgTable::sliderChanged),
             slider, arg));
 
     arg->signal_arg_changed().connect(
-        sigc::bind<Gtk::Scale *>(
+        sigc::bind(
             sigc::mem_fun(*this, &ArgTable::argChanged),
             slider));
 
