@@ -118,11 +118,13 @@ simple_expression:
 unsigned_simple_expression
 {
     $$.floatval = $1.floatval;
+    $$.units = $1.units;
 }
 |
 SUB unsigned_simple_expression
 {
     $$.floatval = $2.floatval*-1;
+    $$.units = $2.units;    /* -5 ms is still milliseconds */
 }
 ;
 
@@ -130,16 +132,25 @@ unsigned_simple_expression:
 term
 {
     $$.floatval = $1.floatval;
+    $$.units = $1.units;
 }
 |
 term ADD unsigned_simple_expression
 {
     $$.floatval = $1.floatval + $3.floatval;
+
+    /* Cleared rather than guessed. `5 ms + 3' has no unit this grammar can
+       name, and calling the result milliseconds because the left side was
+       would put a wrong unit on a right number. No shipped .dsp does
+       arithmetic on a united value; if one ever does, it gets a bare
+       number, which is what it had before any of this. */
+    $$.units = NULL;
 }
 |
 term SUB unsigned_simple_expression
 {
     $$.floatval = $1.floatval - $3.floatval;
+    $$.units = NULL;
 }
 ;
 
@@ -149,26 +160,34 @@ factor
 factor MUL term
 {
     $$.floatval = $1.floatval * $3.floatval;
+    $$.units = NULL;
 }
 |
 factor DIV term
 {
     $$.floatval = $1.floatval / $3.floatval;
+    $$.units = NULL;
 }
 |
 factor MOD term
 {
     $$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
+    $$.units = NULL;
 }
 |
 factor MOD /* percentage of TH_MAX  (ex: somearg = 50%) */
 {
     $$.floatval = $1.floatval * TH_MAX / 100;
+
+    /* The fold is exactly invertible, so remembering what was folded is
+       enough to show the number back the way it was written. */
+    $$.units = "%";
 }
 |
 factor MS /* milliseconds */
 {
     $$.floatval = $1.floatval * TH_SAMPLE / 1000;
+    $$.units = "ms";
 }
 ;
 
@@ -176,11 +195,13 @@ factor:
 OPAREN expression CPAREN
 {
     $$.floatval = $2.floatval;
+    $$.units = $2.units;
 }
 |
 unsigned_constant
 {
     $$.floatval = $1.floatval;
+    $$.units = $1.units;
 }
 ;
 
@@ -195,6 +216,7 @@ NIL
     /* This had no action, so $$ kept whatever the lexer last left in yylval --
        an arbitrary float propagated into node args. */
     $$.floatval = 0;
+    $$.units = NULL;
 }
 ;
 
@@ -249,7 +271,17 @@ NODE WORD LCBRACK assignments RCBRACK
 paramsetup:
 ATSIGN WORD ASSIGN expression
 {
-    parsetree->setChanArg(new thArg($2.str, $4.floatval));
+    thArg *chanarg = new thArg($2.str, $4.floatval);
+
+    /* `@a = 5 ms' is stored as 220.5 samples, which is what the engine wants
+       and what every consumer of this value has always got. Recording that it
+       was written in milliseconds costs nothing and lets a display show it
+       back the way it was written. An explicit `@a.units = "Hz"' later still
+       overrides this -- the author knows better than the fold does. */
+    if ($4.units)
+        chanarg->setUnits($4.units);
+
+    parsetree->setChanArg(chanarg);
 
     free($2.str);
 }
@@ -270,10 +302,18 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
     else if (strcmp($4.str, "min") == 0)
     {
         chanarg->setMin($6.floatval);
+
+        /* `@a.max = 2000ms' says as much about the arg as `@a = 5 ms' does,
+           and some patches give the unit only on the range. */
+        if ($6.units && chanarg->units().empty())
+            chanarg->setUnits($6.units);
     }
     else if (strcmp($4.str, "max") == 0)
     {
         chanarg->setMax($6.floatval);
+
+        if ($6.units && chanarg->units().empty())
+            chanarg->setUnits($6.units);
     }
     else if (strcmp($4.str, "widget") == 0)
     {
