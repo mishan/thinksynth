@@ -280,14 +280,29 @@ void NodeCanvas::onRightPressed (int nPress, double x, double y)
 
 void NodeCanvas::onPressed (int nPress, double x, double y)
 {
-    (void)nPress;
-
     if (graph_ == NULL)
         return;
 
     double gx, gy;
 
     toGraph(x, y, gx, gy);
+
+    /* Double-click on a panel: open it properly.
+     *
+     * Before everything below, because a panel is a box and the first click of
+     * the pair has already selected it -- letting the second fall through
+     * would start a drag on a box that cannot be dragged, which does nothing,
+     * but only by accident. */
+    if (nPress == 2)
+    {
+        const int box = graph_->boxAt(gx, gy);
+
+        if (box >= 0 && graph_->boxes()[box].isProbe)
+        {
+            m_signal_activated_(box);
+            return;
+        }
+    }
 
     /* A slider takes precedence over the box it is drawn on, or a control
        could never be adjusted -- only dragged around. */

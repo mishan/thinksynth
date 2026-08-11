@@ -126,6 +126,19 @@ public:
     using NodeEditor::visuals_;
     using NodeEditor::graph;
     using NodeEditor::reload;
+    using NodeEditor::onProbeActivated;
+    using NodeEditor::paintEnlarged;
+    using NodeEditor::enlarged_;
+
+    /* The box index of the first probe panel, or -1. */
+    int firstPanel (void) const
+    {
+        for (size_t b = 0; b < graph().boxes().size(); b++)
+            if (graph().boxes()[b].isProbe)
+                return (int)b;
+
+        return -1;
+    }
 
     /* Save is a button handler with no return value; this is the same write
        path, reporting whether it worked. */
@@ -352,6 +365,60 @@ int run (const string &pluginPath, const char *file)
         }
     }
 
+    /* The enlarged view: the same instance, drawn bigger. */
+    {
+        const int panel = ed->firstPanel();
+
+        ok(panel >= 0, "there is a panel to enlarge");
+
+        if (panel >= 0)
+        {
+            ed->onProbeActivated(panel);
+
+            ok(ed->enlarged_.size() == 1, "double-clicking it opens a window "
+               "(%d)", (int)ed->enlarged_.size());
+
+            /* Twice must not open two windows on one signal: they would be
+               two views of one instance with no way to tell them apart. */
+            ed->onProbeActivated(panel);
+
+            ok(ed->enlarged_.size() == 1,
+               "and doing it again raises that one rather than opening a "
+               "second (%d)", (int)ed->enlarged_.size());
+
+            pump(0.2);
+
+            /* It has to reach the module. paintEnlarged looks the probe up by
+               name every frame, so what is being checked here is that lookup
+               -- an index cached when the window opened would still work
+               today and break after the next reload. */
+            if (ed->enlarged_.size() == 1)
+            {
+                Cairo::RefPtr<Cairo::ImageSurface> big =
+                    Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                                400, 200);
+                Cairo::RefPtr<Cairo::ImageSurface> blank =
+                    Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                                400, 200);
+
+                {
+                    Cairo::RefPtr<Cairo::Context> cr =
+                        Cairo::Context::create(big);
+
+                    ed->paintEnlarged(cr, 400, 200, node, arg);
+                }
+
+                big->flush();
+                blank->flush();
+
+                ok(memcmp(big->get_data(), blank->get_data(),
+                          (size_t)big->get_stride() * 200) != 0,
+                   "and it draws through the module rather than staying "
+                   "blank");
+            }
+        }
+    }
+
     /* Save and reopen. This is the property anyone would actually notice:
      * a probe put on a patch is still there tomorrow.
      *
@@ -427,6 +494,15 @@ int run (const string &pluginPath, const char *file)
 
     ok(ed->probes_.empty(), "disarming removes the probe");
     ok(ed->panels() == 0, "and its panel (%d)", ed->panels());
+
+    /* And the window that was drawing it. The tick is what notices, so this
+       has to let one run -- a window left open would keep calling into an
+       instance that has been closed. */
+    pump(0.3);
+
+    ok(ed->enlarged_.empty(),
+       "and the enlarged window that was showing it (%d left)",
+       (int)ed->enlarged_.size());
 
     {
         int armed = 0;
