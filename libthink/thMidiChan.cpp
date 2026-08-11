@@ -49,7 +49,21 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
         assignChanArgPointers(mod);
     }
 
-    args_[string("amp")] = new thArg(string("amp"), amp);
+    /* The channel's own level. Given a range, a label and a widget type so
+       it shows up as a slider wherever a channel's parameters are listed --
+       it is the one control every patch has, and it was the one control you
+       had to open another window to reach. 0..MIDIVALMAX because that is the
+       scale process() mixes with, dividing by it per sample. */
+    {
+        thArg *a = new thArg(string("amp"), amp);
+
+        a->setMin(0);
+        a->setMax(MIDIVALMAX);
+        a->setLabel("Amplitude");
+        a->setWidgetType(thArg::SLIDER);
+
+        args_[string("amp")] = a;
+    }
 
     if (modnode_) {
         chanarg = modnode_->getArg("channels");
