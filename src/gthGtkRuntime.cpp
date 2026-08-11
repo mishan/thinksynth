@@ -288,15 +288,22 @@ int gthGtkRuntime::selfTest (void)
 
     int failures = 0;
 
+    /* org.gtk.gtk4.*, not org.gtk.*. GTK4 namespaced its schemas so that it
+       could be installed beside GTK3, which means asking for the old name is
+       asking whether GTK3 is present.
+    
+       That is not a hypothetical: this check passed on Linux and macOS, where
+       the runners have both toolkits, and failed on Windows, where MSYS2 gave
+       us only the one we asked for. A test that reports on a library the
+       program does not use is worse than no test, because it is green. */
+    static const char *WANTED = "org.gtk.gtk4.Settings.FileChooser";
+
     GSettingsSchemaSource *source = g_settings_schema_source_get_default();
     GSettingsSchema *schema =
-        source ? g_settings_schema_source_lookup(source,
-                                                 "org.gtk.Settings.FileChooser",
-                                                 TRUE)
+        source ? g_settings_schema_source_lookup(source, WANTED, TRUE)
                : NULL;
 
-    printf("  %-22s %s\n", "settings schema",
-           schema ? "org.gtk.Settings.FileChooser" : "MISSING");
+    printf("  %-22s %s\n", "settings schema", schema ? WANTED : "MISSING");
 
     if (schema)
         g_settings_schema_unref(schema);
