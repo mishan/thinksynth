@@ -47,6 +47,8 @@ public:
 protected:
     void addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p);
     void onSpinActivate (Gtk::SpinButton *spin, string name);
+    bool onSpinKey (guint keyval, guint keycode, Gdk::ModifierType state,
+                    Gtk::SpinButton *spin, string name);
 
 private:
     const NodeGraph *graph_;
