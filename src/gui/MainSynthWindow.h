@@ -85,6 +85,10 @@ protected:
        page -- including the button being clicked. */
     void doSavePatch (string file, int chan);
 
+    /* Between confirmOverwrite and doSavePatch: something to hand the
+       confirmation that takes no arguments. */
+    void queueSavePatch (string file, int chan);
+
     /* Which node each control drives, keyed by control name. Controls read
        by more than one node are left out: they belong to no single node. */
     std::map<string, string> inferGroups (int chan);
@@ -103,9 +107,10 @@ protected:
        definition. */
     void clearPages (void);
 
-    /* The size the window had while it was on screen, and the other end of
+    /* The size the window had while it was on screen, and the two ends of
        remembering it. */
-    void onSizeChanged (void);
+    void captureSize (void);
+    bool onCloseRequest (void);
     void rememberGeometry (void);
 
     void onPatchesChanged (void);

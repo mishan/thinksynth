@@ -49,17 +49,6 @@
 #include "../gthPrefs.h"
 #include "../gthPatchfile.h"
 
-/* The path the chooser settled on.
- *
- * get_filename() is gone in GTK4 -- a chooser answers with a Gio::File now,
- * which may be nothing at all if the dialog was dismissed without one. Both
- * spellings exist in gtkmm-3, so this is the one that survives. */
-static string chosenPath (Gtk::FileChooser &chooser)
-{
-    const Glib::RefPtr<Gio::File> f = chooser.get_file();
-
-    return f ? f->get_path() : string();
-}
 
 bool chosen = false;
 
@@ -79,13 +68,17 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
        last one was left at. */
     set_default_size(1000, 700);
 
-    /* configure-event is gone with the rest of the GdkEvent structs. The
-       window's own size properties say the same thing and say it whoever
-       changed it. */
-    property_default_width().signal_changed().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onSizeChanged));
-    property_default_height().signal_changed().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onSizeChanged));
+    /* The size is taken while the window is still on screen, at the two
+       moments it is about to stop being: the close button, and Quit.
+    
+       configure-event went with the rest of the GdkEvent structs. The obvious
+       replacement was the window's own default-width and default-height
+       properties -- they are what GTK4's own documentation binds to GSettings
+       for this -- but they do not track a resize done by the window manager,
+       which is every resize there is. Tested: dragged to 1111x633, saved
+       1000x700, the default it was given at startup. */
+    signal_close_request().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onCloseRequest), false);
 
     midiMap_ = NULL;
     patchSel_ = NULL;
@@ -210,24 +203,29 @@ MainSynthWindow::~MainSynthWindow (void)
     menuQuit();
 }
 
-/* Every size the window is given while it is on screen.
+/* The size the window has now, while it still has one.
  *
- * Not read at the end instead, because by then the window has been hidden --
- * and while GTK will still answer for a hidden window, what it answers is the
- * size it intends to use next time, which is not the same question and is not
- * always the same number. */
-void MainSynthWindow::onSizeChanged (void)
+ * get_width() and get_height() answer for a realised window and answer zero
+ * for a hidden one, which is why this cannot wait until the destructor: by
+ * then it has been hidden and there is nothing left to ask. */
+void MainSynthWindow::captureSize (void)
 {
-    int w = get_width(), h = get_height();
-
-    if (w <= 0 || h <= 0)
-        get_default_size(w, h);
+    const int w = get_width(), h = get_height();
 
     if (w > 0 && h > 0)
     {
         width_ = w;
         height_ = h;
     }
+}
+
+/* False: the close goes ahead. This is only a look, taken at the last moment
+   the window is still on screen. */
+bool MainSynthWindow::onCloseRequest (void)
+{
+    captureSize();
+
+    return false;
 }
 
 
@@ -301,15 +299,15 @@ void MainSynthWindow::rememberGeometry (void)
     if (width_ <= 0 || height_ <= 0)
         return;
 
-    std::ostringstream ws, hs;
-
-    ws << width_;
-    hs << height_;
-
+    /* std::to_string, not a stringstream: a stream formats through the global
+       C++ locale, which is free to group thousands. main() pins LC_NUMERIC
+       for the C library and that does not reach iostreams, so a saved 1000
+       came back as "1,000" -- three preference fields where there should be
+       two, since the file separates values with commas. */
     string **vals = new string *[3];
 
-    vals[0] = new string(ws.str());
-    vals[1] = new string(hs.str());
+    vals[0] = new string(std::to_string(width_));
+    vals[1] = new string(std::to_string(height_));
     vals[2] = NULL;
 
     gthPrefs::instance()->Set("window", vals);
@@ -443,6 +441,11 @@ void MainSynthWindow::menuMidiMap (void)
 
 void MainSynthWindow::menuQuit (void)
 {
+    /* Before hiding, for the same reason onCloseRequest exists: a hidden
+       window has no size to ask about. Quitting from the menu never sends a
+       close-request, so this path has to take it itself. */
+    captureSize();
+
     hide();
 }
 
@@ -912,13 +915,16 @@ void MainSynthWindow::onSavePatchAsResponse (int response,
         gthPrefs::instance()->Set("patchdir", dir);
     }
 
-    /* Still deferred. The reason has changed -- there is no click on the
-       stack now, the response has already been delivered -- but savePatch
-       still rebuilds every page, and doing that from inside the chooser's own
-       response handler destroys widgets the emission is walking. */
-    Glib::signal_idle().connect_once(
-        sigc::bind(
-            sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
+    /* Asked here rather than by the chooser. GTK3's did it itself; GTK4
+       dropped the property and does not confirm in its place.
+    
+       The write is still deferred, and the reason has changed twice over:
+       there is no click on the stack any more, but savePatch rebuilds every
+       page, and doing that from inside a dialog's own response handler
+       destroys widgets the emission is walking. */
+    confirmOverwrite(this, file,
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::queueSavePatch),
+                   file, chan));
 }
 
 /* Deferred out of the click that asked for it.
@@ -1316,6 +1322,13 @@ void MainSynthWindow::onBrowseButton (void)
                    fileSel, notebook_.get_current_page()));
 
     fileSel->present();
+}
+
+void MainSynthWindow::queueSavePatch (string file, int chan)
+{
+    Glib::signal_idle().connect_once(
+        sigc::bind(
+            sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
 }
 
 void MainSynthWindow::onBrowseResponse (int response,

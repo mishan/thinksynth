@@ -50,6 +50,7 @@ protected:
     void onBrowseResponse (int response, Gtk::FileChooserDialog *fileSel);
     void onSaveResponse (int response, Gtk::FileChooserDialog *fileSel,
                          int chan);
+    void writePatch (string file, int chan);
     void SavePatch (void);
     void CursorChanged (void);
     void UnloadDSP (void);
