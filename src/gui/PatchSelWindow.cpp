@@ -46,53 +46,77 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
       saveButton("Save As"),
       unloadButton("Unload"),
       ampLabel("Amplitude"),
-      fileLabel("Filename"),
+      fileLabel("Patch"),
       patchInfoExpander("Patch information"),
-      patchRevisedLbl("Last revised:"),
-      patchCategoryLbl("Patch category:"),
-      patchAuthorLbl("Patch author:"),
-      patchTitleLbl("Patch name:"),
-      patchCommentsLbl("Patch description/comments:")
+      /* No "Patch " on every one of them. They are inside a section called
+         Patch information; saying it five more times is most of what made
+         the panel look crowded. */
+      patchRevisedLbl("Revised"),
+      patchCategoryLbl("Category"),
+      patchAuthorLbl("Author"),
+      patchTitleLbl("Name"),
+      patchCommentsLbl("Comments")
 {
     currchan = -1;
     
     synth = argsynth;
 
-    set_default_size(475, 400);
+    /* 475x400 cut the Amplitude column off the list and left the form below
+       it with no room to be a form. */
+    set_default_size(720, 620);
 
     set_title("thinksynth - Patch Selector");
 
     patchInfoExpander.set_child(patchInfoTable);
 
-    /* Gtk::Table is gone in GTK4 and Grid has been its replacement since 3.2.
-       Grid::attach takes a span rather than two edges, and the flags and
-       padding that used to travel with the child are properties on the child
-       -- FILL is what a Grid child does anyway, SHRINK is simply not
-       expanding, and the padding is a margin. */
-    patchInfoTable.attach(patchRevisedLbl, 0, 0, 1, 1);
-    patchInfoTable.attach(patchRevised, 0, 1, 1, 1);
-    patchInfoTable.attach(patchCategoryLbl, 1, 0, 1, 1);
-    patchInfoTable.attach(patchCategory, 1, 1, 1, 1);
-    patchInfoTable.attach(patchAuthorLbl, 0, 2, 1, 1);
-    patchInfoTable.attach(patchAuthor, 0, 3, 1, 1);
-    patchInfoTable.attach(patchTitleLbl, 1, 2, 1, 1);
-    patchInfoTable.attach(patchTitle, 1, 3, 1, 1);
-    patchInfoTable.attach(patchCommentsLbl, 0, 4, 2, 1);
-    patchInfoTable.attach(patchCommentsWin, 0, 5, 2, 2);
+    /* A form: the label beside what it labels, right-aligned against it, in
+       two columns of pairs.
+     *
+     * They used to sit centred *above* their fields, which is why the panel
+       read as a scatter of boxes -- a caption over a field reads as a title
+       for everything below it, and there were five of them doing that at
+       once. Beside and right-aligned, the eye follows one line from the name
+       to the value. */
+    patchInfoTable.set_row_spacing(6);
+    patchInfoTable.set_column_spacing(8);
+    patchInfoTable.set_margin_top(8);
+    patchInfoTable.set_margin_bottom(4);
+    patchInfoTable.set_margin_start(12);
 
-    /* The 5-pixel horizontal padding the four fields and the comment box
-       carried. */
     {
-        Gtk::Widget *padded[] = { &patchRevised, &patchCategory, &patchAuthor,
-                                  &patchTitle, &patchCommentsWin };
+        Gtk::Label *labels[] = { &patchTitleLbl, &patchCategoryLbl,
+                                 &patchAuthorLbl, &patchRevisedLbl,
+                                 &patchCommentsLbl };
 
-        for (size_t i = 0; i < sizeof(padded) / sizeof(padded[0]); i++)
-        {
-            padded[i]->set_margin_start(5);
-            padded[i]->set_margin_end(5);
-        }
+        for (size_t i = 0; i < sizeof(labels) / sizeof(labels[0]); i++)
+            labels[i]->set_xalign(1.0);
     }
-        
+
+    /* Comments is the one that wants the height, and it is aligned to the
+       top of it rather than floating in the middle. */
+    patchCommentsLbl.set_valign(Gtk::Align::START);
+    patchCommentsWin.set_size_request(-1, 96);
+    patchCommentsWin.set_has_frame(true);
+    patchCommentsWin.set_hexpand(true);
+
+    patchTitle.set_hexpand(true);
+    patchCategory.set_hexpand(true);
+    patchAuthor.set_hexpand(true);
+    patchRevised.set_hexpand(true);
+
+    /* Name and Author on the left, Category and Revised beside them: the two
+       a person searches by first, then the two that describe it. */
+    patchInfoTable.attach(patchTitleLbl,    0, 0, 1, 1);
+    patchInfoTable.attach(patchTitle,       1, 0, 1, 1);
+    patchInfoTable.attach(patchCategoryLbl, 2, 0, 1, 1);
+    patchInfoTable.attach(patchCategory,    3, 0, 1, 1);
+    patchInfoTable.attach(patchAuthorLbl,   0, 1, 1, 1);
+    patchInfoTable.attach(patchAuthor,      1, 1, 1, 1);
+    patchInfoTable.attach(patchRevisedLbl,  2, 1, 1, 1);
+    patchInfoTable.attach(patchRevised,     3, 1, 1, 1);
+    patchInfoTable.attach(patchCommentsLbl, 0, 2, 1, 1);
+    patchInfoTable.attach(patchCommentsWin, 1, 2, 3, 1);
+
     patchComments.set_wrap_mode(Gtk::WrapMode::WORD_CHAR);
     patchCommentsWin.set_child(patchComments);
     patchCommentsWin.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
@@ -116,6 +140,12 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
        what that was choosing: whole MIDI units. */
     dspAmp.set_digits(0);
 
+    /* And the number is shown, the way the master and per-patch levels in the
+       main window show theirs. A slider with no readout is a slider you have
+       to guess at. */
+    dspAmp.set_draw_value(true);
+    dspAmp.set_value_pos(Gtk::PositionType::RIGHT);
+
     /* this is not to be used unless a valid amp arg is found */
     dspAmp.set_sensitive(false);
 
@@ -123,8 +153,28 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     patchView.set_model(patchModel);
 
     patchView.append_column("Channel", patchViewCols.chanNum);
-    patchView.append_column("Filename", patchViewCols.dspName);
-    patchView.append_column("Amplitude", patchViewCols.amp);
+    patchView.append_column("Patch", patchViewCols.dspName);
+    patchView.append_column("Level", patchViewCols.amp);
+
+    /* The full path on hover; the column itself shows the basename. */
+    patchView.set_tooltip_column(3);
+
+    /* The patch name takes the slack. Without this the last column does,
+       which left Level a hand's width of empty and its number stranded at
+       the far right of the window. */
+    if (Gtk::TreeViewColumn *col = patchView.get_column(1))
+        col->set_expand(true);
+
+    /* A number belongs against the right of its column. */
+    if (Gtk::TreeViewColumn *col = patchView.get_column(2))
+    {
+        col->set_alignment(1.0);
+
+        std::vector<Gtk::CellRenderer *> cells = col->get_cells();
+
+        for (size_t i = 0; i < cells.size(); i++)
+            cells[i]->set_property("xalign", 1.0);
+    }
 
     dspAmp.signal_value_changed().connect(
         sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
@@ -140,34 +190,35 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
     unloadButton.signal_clicked().connect(
         sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
-    
-    ampLabel.set_margin_start(5);
-    ampLabel.set_margin_end(5);
-    saveButton.set_margin_start(5);
-    saveButton.set_margin_end(5);
-    browseButton.set_margin_start(5);
-    browseButton.set_margin_end(5);
-    unloadButton.set_margin_start(5);
-    unloadButton.set_margin_end(5);
-    fileLabel.set_margin_top(5);
-    fileLabel.set_margin_bottom(5);
-    fileEntry.set_margin_top(5);
-    fileEntry.set_margin_bottom(5);
 
-    /* The amplitude slider and the filename are the two that grow with the
-       window; everything else on this grid is a label or a button at its own
-       size. That was Gtk::FILL|Gtk::EXPAND, which is the attach default and
-       is why the two of them say nothing here about it. */
-    dspAmp.set_hexpand(true);
+    /* The three things you can do to the selected patch, together and in the
+       order they happen to it: find one, write it somewhere, take it off the
+       channel. They were spread over two rows with the filename between
+       them. */
+    actionBox.set_spacing(6);
+    actionBox.append(browseButton);
+    actionBox.append(saveButton);
+    actionBox.append(unloadButton);
+
+    fileLabel.set_xalign(1.0);
+    ampLabel.set_xalign(1.0);
+
     fileEntry.set_hexpand(true);
+    dspAmp.set_hexpand(true);
 
-    controlTable.attach(ampLabel, 0, 0, 1, 1);
-    controlTable.attach(dspAmp, 1, 0, 1, 1);
-    controlTable.attach(saveButton, 2, 0, 2, 1);
-    controlTable.attach(fileLabel, 0, 1, 1, 1);
-    controlTable.attach(fileEntry, 1, 1, 1, 1);
-    controlTable.attach(browseButton, 2, 1, 1, 1);
-    controlTable.attach(unloadButton, 3, 1, 1, 1);
+    controlTable.set_row_spacing(6);
+    controlTable.set_column_spacing(8);
+    controlTable.set_margin_start(12);
+    controlTable.set_margin_end(12);
+    controlTable.set_margin_top(10);
+    controlTable.set_margin_bottom(12);
+
+    controlTable.attach(fileLabel,         0, 0, 1, 1);
+    controlTable.attach(fileEntry,         1, 0, 1, 1);
+    controlTable.attach(actionBox,         2, 0, 1, 1);
+    controlTable.attach(ampLabel,          0, 1, 1, 1);
+    controlTable.attach(dspAmp,            1, 1, 2, 1);
+    controlTable.attach(patchInfoExpander, 0, 2, 3, 1);
 
     /* Filled first, parented second.
      *
@@ -178,7 +229,9 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
        gtk_css_node_insert_after's sibling assertion comes from. Building the
        grid before it has a parent means there is no list to thread onto
        yet. */
-    vbox.append(patchInfoExpander);
+    /* One separator between the list and the panel below it, so the two read
+       as two things rather than as a list that ran out. */
+    vbox.append(*Gtk::manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
     vbox.append(controlTable);
 
     set_child(vbox);
@@ -463,7 +516,8 @@ void PatchSelWindow::SetChannelAmp (void)
             int chanNum = (*iter)[patchViewCols.chanNum] - 1;
             thArg *arg = new thArg("amp", dspAmp.get_value());
 
-            (*iter)[patchViewCols.amp] = dspAmp.get_value();
+            (*iter)[patchViewCols.amp] =
+                Glib::ustring::format((int)(dspAmp.get_value() + 0.5));
 
             synth->setChanArg(chanNum, arg);
         } 
@@ -516,9 +570,8 @@ void PatchSelWindow::CursorChanged (void)
 
         if (iter)
         {
-            Glib::ustring filename = (*iter)[patchViewCols.dspName];
-            float amp = (*iter)[patchViewCols.amp];
             currchan = (*iter)[patchViewCols.chanNum] - 1;
+
             gthPatchManager::PatchFile *patch = patchMgr->getPatch(currchan);
 
             /* make these widgets usable now that a valid row is
@@ -526,23 +579,38 @@ void PatchSelWindow::CursorChanged (void)
             browseButton.set_sensitive(true);
             fileEntry.set_sensitive(true);
 
-            fileEntry.set_text(filename);
-            dspAmp.set_value((double)amp);
+            /* Asked of the patch manager and the synth rather than read back
+               out of the row. The row holds what the list shows -- a basename
+               and a rounded level -- and putting a basename in the filename
+               box would have been a path the Browse button could not
+               reopen. */
+            loaded = (patch != NULL);
 
-            /* if no DSP is loaded, then don't touch the amplitude,
-             * and gray out the unload button because there's nothing
-             * to unload (except in your face) */
-            loaded = (filename != "");
+            fileEntry.set_text(loaded ? patch->filename : string());
 
-            /* populate metadata fields */
-            if (loaded)
             {
-                patchRevised.set_text(patch->info["revised"]);
-                patchCategory.set_text(patch->info["category"]);
-                patchAuthor.set_text(patch->info["author"]);
-                patchTitle.set_text(patch->info["title"]);
-                patchComments.get_buffer()->set_text(patch->info["comments"]);
+                thArg *chanAmp = synth->getChanArg(currchan, "amp");
+
+                if (chanAmp)
+                    dspAmp.set_value((double)(*chanAmp)[0]);
             }
+
+            /* Populate the metadata fields, or empty them.
+             *
+             * Emptying them is the half that was missing: selecting a free
+               channel left the last patch's name and author sitting in the
+               form, which read as though that channel had them. It mattered
+               less when the panel was folded away and hard to look at. */
+            patchTitle.set_text(loaded ? patch->info["title"] : string());
+            patchCategory.set_text(loaded ? patch->info["category"] : string());
+            patchAuthor.set_text(loaded ? patch->info["author"] : string());
+            patchRevised.set_text(loaded ? patch->info["revised"] : string());
+            patchComments.get_buffer()->set_text(
+                loaded ? patch->info["comments"] : string());
+
+            /* And the fields themselves are only worth typing in when there
+               is a patch for them to describe. */
+            patchInfoTable.set_sensitive(loaded);
 
             dspAmp.set_sensitive(loaded);
             unloadButton.set_sensitive(loaded);
@@ -579,10 +647,13 @@ void PatchSelWindow::populate (void)
         Gtk::TreeModel::Row row = *(patchModel->append());
         gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
-        /* reset initial values */
+        /* A free channel: a number and two empty cells. It used to read
+           0.000000 under Amplitude, which looks like a level of zero rather
+           than like nothing being there. */
         row[patchViewCols.chanNum] = i + 1;
-        row[patchViewCols.amp] = 0;
+        row[patchViewCols.amp] = "";
         row[patchViewCols.dspName] = "";
+        row[patchViewCols.path] = "";
 
         if (patch == NULL)
             continue;
@@ -604,9 +675,13 @@ void PatchSelWindow::populate (void)
         }
 
         row[patchViewCols.chanNum] = i + 1;
-        row[patchViewCols.dspName] = filename.length() == 0 ? 
-            "(Untitled)" : filename;
-        row[patchViewCols.amp] = amp ? (*amp)[0] : 0;
+        row[patchViewCols.dspName] = filename.length() == 0
+            ? "(Untitled)"
+            : thUtil::basename((char *)filename.c_str());
+        row[patchViewCols.path] = filename;
+        row[patchViewCols.amp] = amp
+            ? Glib::ustring::format((int)((*amp)[0] + 0.5f))
+            : Glib::ustring();
     }
 
     if (selectedChan != -1)
