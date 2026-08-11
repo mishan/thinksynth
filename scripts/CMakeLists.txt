@@ -63,6 +63,10 @@ think_harness(dspblock EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
 think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
 target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
 
+# thSampleRing on its own, with no synth around it. Header-only, so this links
+# libthink only for the include path.
+think_harness(ringcheck THREADS)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -120,5 +124,10 @@ add_test(NAME dspblock
                  "${PROJECT_SOURCE_DIR}/dsp/anasync.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/mfm01.dsp")
 
+# Cheap and entirely self-contained, so it runs the full sweep rather than a
+# representative sample.
+add_test(NAME ringcheck COMMAND ringcheck 20000)
+
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
+                     ringcheck
                      PROPERTIES TIMEOUT 900)
