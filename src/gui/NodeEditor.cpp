@@ -23,6 +23,7 @@
 #include <string.h>
 #include <unistd.h>   /* access -- can the source be written back? */
 
+#include <filesystem>
 #include <fstream>
 
 #include <gtkmm.h>
@@ -212,6 +213,15 @@ NodeEditor::NodeEditor (thSynth *synth)
     params_.signal_param_edited().connect(
         sigc::mem_fun(*this, &NodeEditor::onParamEdited));
 
+    /* Probes. The modules are loaded once here and shared by every probe that
+       names one; the canvas is told how to get from a panel to the instance
+       that draws in it. */
+    scanVisuals();
+
+    canvas_.setProbePainter(sigc::mem_fun(*this, &NodeEditor::paintProbe));
+    canvas_.signal_context_requested().connect(
+        sigc::mem_fun(*this, &NodeEditor::onContextRequested));
+
     saveBtn_.set_sensitive(false);
     saveAsBtn_.set_sensitive(false);
     revertBtn_.set_sensitive(false);
@@ -322,6 +332,24 @@ void NodeEditor::onToggleParams (void)
 
 NodeEditor::~NodeEditor (void)
 {
+    /* Instances before modules: closing one calls into the .so that is about
+       to be dlclosed. The tick has to stop first for the same reason -- a
+       timer that fires during teardown would drain a tap into a closed
+       instance. */
+    probeTick_.disconnect();
+    disarmAllProbes();
+
+    for (std::map<std::string, thVisual *>::iterator v = visuals_.begin();
+         v != visuals_.end(); ++v)
+        delete v->second;
+
+    visuals_.clear();
+
+    /* A popover with a parent set outlives its parent otherwise, and GTK
+       complains loudly at teardown. */
+    if (ctxPopover_.get_parent())
+        ctxPopover_.unparent();
+
     /* parseTree() handed us a tree nobody else tracks. */
     delete tree_;
 
@@ -670,6 +698,11 @@ bool NodeEditor::reload (void)
     controls_.clear();
 
     canvas_.setGraph(&graph_);
+
+    /* The graph is new, so every panel in it is gone and every tap in the
+       engine refers to a tree that no longer exists. Both are rebuilt from the
+       probe list, which is keyed on names for exactly this reason. */
+    reapplyProbes();
 
     /* Deliberately not zoomToFit() here. Opening every patch shrunk to fit
        makes a wide one unreadable and disguises the fact that it is wide,
@@ -1803,4 +1836,456 @@ void NodeEditor::onZoomReset (void)
 void NodeEditor::onZoomFit (void)
 {
     canvas_.zoomToFit();
+}
+
+/* ------------------------------------------------------------------------
+ * Probes. See the Probe struct in NodeEditor.h for what one is made of.
+ * ------------------------------------------------------------------------ */
+
+void NodeEditor::scanVisuals (void)
+{
+    thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+
+    string root = pm ? pm->pluginPath() : string(PLUGIN_PATH);
+
+    if (root.empty() || root[root.size() - 1] != '/')
+        root += '/';
+
+    root += "visual/";
+
+    /* Kept so the menu can say where it looked.
+     *
+     * "No visual modules installed" on its own is a bad message, and it cost a
+     * real debugging session: thPluginManager::resolveRoot tries ./plugins
+     * before the directory next to the binary, so running an uninstalled build
+     * from the top of the source tree finds the *source* plugins/ -- which,
+     * in a tree that once had an autotools build, still holds 62 stale .so
+     * files and satisfies the "does this look like a plugin root" test. Every
+     * DSP plugin then loads from there too, silently, and visual/ has only a
+     * .cpp in it. Naming the directory turns that from a mystery into a
+     * sentence. */
+    visualRoot_ = root;
+
+    std::error_code ec;
+
+    /* A tree with no visual modules is not an error -- the editor works
+       exactly as it did before them, minus the menu entries. */
+    if (!std::filesystem::is_directory(root, ec))
+        return;
+
+    for (const auto &f : std::filesystem::directory_iterator(root, ec))
+    {
+        if (ec)
+            break;
+
+        if (f.path().extension() != PLUGIN_SUFFIX)
+            continue;
+
+        thVisual *v = new thVisual(f.path().string());
+
+        if (v->state() != thVisual::LOADED)
+        {
+            /* thVisual has already said why on stderr. */
+            delete v;
+            continue;
+        }
+
+        /* Keyed by the name the module gives itself rather than by its
+           filename. That is what a `# @probe' line records and what the menu
+           shows, and a module whose two disagreed would be findable by one
+           spelling and not the other. */
+        if (visuals_.find(v->name()) != visuals_.end())
+        {
+            fprintf(stderr, "NodeEditor: two visual modules both called '%s'; "
+                    "keeping %s\n", v->name().c_str(),
+                    visuals_[v->name()]->path().c_str());
+            delete v;
+            continue;
+        }
+
+        visuals_[v->name()] = v;
+    }
+}
+
+int NodeEditor::probeForBox (int box) const
+{
+    if (box < 0 || box >= (int)graph_.boxes().size())
+        return -1;
+
+    const NodeGraph::Box &b = graph_.boxes()[box];
+
+    if (!b.isProbe || b.attachedTo < 0)
+        return -1;
+
+    const string &host = graph_.boxes()[b.attachedTo].name;
+
+    for (size_t i = 0; i < probes_.size(); i++)
+        if (probes_[i].node == host && probes_[i].arg == b.probeArg)
+            return (int)i;
+
+    return -1;
+}
+
+bool NodeEditor::armProbe (const string &node, const string &arg,
+                           const string &visual)
+{
+    std::map<std::string, thVisual *>::iterator m = visuals_.find(visual);
+
+    if (m == visuals_.end())
+    {
+        setStatus("No visual module called '" + visual + "'");
+        return false;
+    }
+
+    /* Already watching this point: retarget rather than stack a second panel
+       on the same signal. */
+    for (size_t i = 0; i < probes_.size(); i++)
+        if (probes_[i].node == node && probes_[i].arg == arg)
+        {
+            if (probes_[i].visual == visual)
+                return true;
+
+            disarmProbe(i);
+            break;
+        }
+
+    if ((int)probes_.size() >= TH_MAX_PROBES)
+    {
+        char buf[128];
+
+        snprintf(buf, sizeof(buf), "All %d probes are in use -- remove one "
+                 "first", TH_MAX_PROBES);
+        setStatus(buf);
+        return false;
+    }
+
+    Probe p;
+
+    p.node = node;
+    p.arg = arg;
+    p.visual = visual;
+    p.module = m->second;
+    p.inst = NULL;
+    p.slot = -1;
+
+    probes_.push_back(p);
+
+    reapplyProbes();
+
+    setStatus("Watching " + node + "." + arg + " with " + visual +
+              (attached() ? "" : " -- nothing is playing this patch"));
+
+    return true;
+}
+
+/* Lets go of everything a probe holds outside probes_. Separate from erasing
+   it so that disarming several does not rebuild the graph once per probe --
+   and, at teardown, does not re-arm the ones not gone yet. */
+void NodeEditor::releaseProbe (Probe &p)
+{
+    if (p.module && p.inst)
+        p.module->close(p.inst);
+
+    p.inst = NULL;
+
+    if (synth_ && p.slot >= 0)
+        synth_->disarmProbe(p.slot);
+
+    p.slot = -1;
+}
+
+void NodeEditor::disarmProbe (size_t index)
+{
+    if (index >= probes_.size())
+        return;
+
+    releaseProbe(probes_[index]);
+
+    probes_.erase(probes_.begin() + index);
+
+    reapplyProbes();
+}
+
+void NodeEditor::disarmAllProbes (void)
+{
+    for (size_t i = 0; i < probes_.size(); i++)
+        releaseProbe(probes_[i]);
+
+    probes_.clear();
+
+    reapplyProbes();
+}
+
+/* Rebuilds everything a probe owns outside itself: its panel in the graph, its
+   instance, and its tap in the engine.
+ *
+ * Called whenever any of the three could have gone stale, which is after every
+ * reload and after every arm or disarm. Doing all of it every time rather than
+ * patching up the difference is deliberate -- there are at most eight, none of
+ * it is expensive, and the alternative is three kinds of partial update to get
+ * wrong. */
+void NodeEditor::reapplyProbes (void)
+{
+    /* Panels first, from the names. Any panel already in the graph belongs to
+       the graph that has just been thrown away. */
+    for (int b = (int)graph_.boxes().size() - 1; b >= 0; b--)
+        if (graph_.boxes()[b].isProbe)
+            graph_.removeProbe(b);
+
+    for (size_t i = 0; i < probes_.size(); i++)
+    {
+        Probe &p = probes_[i];
+
+        int host = -1;
+
+        for (size_t b = 0; b < graph_.boxes().size(); b++)
+            if (!graph_.boxes()[b].isProbe && !graph_.boxes()[b].isControl &&
+                graph_.boxes()[b].name == p.node)
+            {
+                /* The io node is one node in the file and two boxes on
+                   screen, and only the source half has outputs. Picking by
+                   name alone would find whichever came first. */
+                bool has = false;
+
+                for (size_t k = 0; k < graph_.boxes()[b].ports.size(); k++)
+                    if (!graph_.boxes()[b].ports[k].isInput &&
+                        graph_.boxes()[b].ports[k].name == p.arg)
+                        has = true;
+
+                if (has)
+                {
+                    host = (int)b;
+                    break;
+                }
+            }
+
+        if (host < 0)
+            continue;   /* the node or the port is gone; see below */
+
+        const double h = NodeGraph::probeHeadHeight() +
+                         (p.module ? p.module->preferredHeight() : 24);
+
+        graph_.addProbe(host, p.arg, p.visual, h);
+    }
+
+    graph_.layout();
+
+    /* Instances. One per probe, opened at the synth's rate. */
+    for (size_t i = 0; i < probes_.size(); i++)
+    {
+        Probe &p = probes_[i];
+
+        if (p.inst == NULL && p.module)
+            p.inst = p.module->open(synth_ ? (unsigned int)
+                                    synth_->getSampleRate() : 44100u);
+    }
+
+    /* Taps. Re-asked rather than kept, because loading a patch onto the
+       channel disarms every probe on it -- the ids a probe holds are only
+       meaningful against the tree they were measured on. */
+    for (size_t i = 0; i < probes_.size(); i++)
+    {
+        Probe &p = probes_[i];
+
+        if (!attached())
+        {
+            p.slot = -1;
+            continue;
+        }
+
+        if (p.slot >= 0 && synth_->probe(p.slot) != NULL)
+            continue;   /* still good */
+
+        string why;
+
+        p.slot = synth_->armProbe(channel_, p.node, p.arg, why);
+    }
+
+    if (probeDrain_.size() < (size_t)(synth_ ? synth_->getWindowlen() : 1024))
+        probeDrain_.resize((synth_ ? synth_->getWindowlen() : 1024) * 4);
+
+    updateProbeTick();
+
+    canvas_.queue_draw();
+}
+
+void NodeEditor::updateProbeTick (void)
+{
+    const bool want = !probes_.empty();
+
+    if (want == probeTick_.connected())
+        return;
+
+    if (want)
+    {
+        /* 30fps. Fast enough to read a meter and slow enough that the 0.8ms
+           repaint measured by canvasbench is under 3% of the budget. */
+        probeTick_ = Glib::signal_timeout().connect(
+            sigc::mem_fun(*this, &NodeEditor::onProbeTick), 33);
+    }
+    else
+        probeTick_.disconnect();
+}
+
+bool NodeEditor::onProbeTick (void)
+{
+    bool anything = false;
+
+    for (size_t i = 0; i < probes_.size(); i++)
+    {
+        Probe &p = probes_[i];
+
+        if (p.slot < 0 || p.inst == NULL || synth_ == NULL)
+            continue;
+
+        thProbe *tap = synth_->probe(p.slot);
+
+        if (tap == NULL)
+        {
+            /* The engine let it go -- a patch load on that channel. Ask again
+               on the next frame rather than here, so a reload does not
+               re-enter the graph rebuild from inside a timer. */
+            p.slot = -1;
+            continue;
+        }
+
+        /* Everything waiting, not one window: the tap publishes a window at a
+           time and this runs at a thirtieth of a second, so there are usually
+           one or two and occasionally more. A visual module must not care
+           where the boundaries fell, which is the property visualcheck
+           asserts. */
+        for (;;)
+        {
+            const unsigned int got =
+                tap->read(&probeDrain_[0], (unsigned int)probeDrain_.size());
+
+            if (got == 0)
+                break;
+
+            p.module->feed(p.inst, &probeDrain_[0], got);
+            anything = true;
+        }
+    }
+
+    /* One redraw for all of them. queue_draw invalidates the whole widget, so
+       calling it per probe would only make the same frame more expensive. */
+    if (anything || !probes_.empty())
+        canvas_.queue_draw();
+
+    return true;
+}
+
+void NodeEditor::paintProbe (int box, const Cairo::RefPtr<Cairo::Context> &cr,
+                             int w, int h)
+{
+    const int i = probeForBox(box);
+
+    if (i < 0)
+        return;
+
+    const Probe &p = probes_[i];
+
+    if (p.module && p.inst)
+        p.module->draw(p.inst, cr->cobj(), w, h);
+}
+
+/* Right-click: offer to watch this port, or to stop watching it. */
+void NodeEditor::onContextRequested (int box, int port, double x, double y)
+{
+    if (box < 0 || box >= (int)graph_.boxes().size())
+        return;
+
+    const NodeGraph::Box &b = graph_.boxes()[box];
+
+    Gtk::Box *menu = Gtk::manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+
+    menu->set_margin(4);
+
+    /* On a panel: the only thing to offer is removing it. */
+    if (b.isProbe)
+    {
+        Gtk::Button *btn =
+            Gtk::manage(new Gtk::Button("Stop watching " + b.probeArg));
+
+        /* By name, resolved when clicked. An index captured while the menu was
+           being built would be stale if anything disarmed a probe in between,
+           and "stop watching this" removing a different one is exactly the
+           sort of bug that gets blamed on the engine. */
+        const string node = graph_.boxes()[b.attachedTo].name;
+        const string arg = b.probeArg;
+
+        btn->set_has_frame(false);
+        btn->signal_clicked().connect([this, node, arg]() {
+            ctxPopover_.popdown();
+
+            for (size_t i = 0; i < probes_.size(); i++)
+                if (probes_[i].node == node && probes_[i].arg == arg)
+                {
+                    disarmProbe(i);
+                    setStatus("Stopped watching " + node + "." + arg);
+                    return;
+                }
+        });
+
+        menu->append(*btn);
+    }
+    else if (port >= 0 && port < (int)b.ports.size() &&
+             !b.ports[port].isInput)
+    {
+        const string node = b.name;
+        const string arg = b.ports[port].name;
+
+        if (visuals_.empty())
+        {
+            Gtk::Label *lbl = Gtk::manage(new Gtk::Label(
+                "No visual modules in " + visualRoot_));
+
+            lbl->set_margin(6);
+            lbl->set_wrap(true);
+            lbl->set_max_width_chars(48);
+            lbl->set_tooltip_text(
+                "Set THINK_PLUGIN_PATH to the plugins directory of the build "
+                "you are running, or remove stale .so files from the source "
+                "tree -- thinksynth looks in ./plugins before the directory "
+                "beside its own binary.");
+            menu->append(*lbl);
+        }
+
+        for (std::map<std::string, thVisual *>::iterator v = visuals_.begin();
+             v != visuals_.end(); ++v)
+        {
+            const string name = v->first;
+
+            Gtk::Button *btn =
+                Gtk::manage(new Gtk::Button("Watch " + arg + " with " + name));
+
+            btn->set_has_frame(false);
+            btn->set_tooltip_text(v->second->desc());
+            btn->signal_clicked().connect([this, node, arg, name]() {
+                ctxPopover_.popdown();
+                armProbe(node, arg, name);
+            });
+
+            menu->append(*btn);
+        }
+    }
+    else
+    {
+        /* Not a port and not a panel. Saying so is better than a menu that
+           silently does not appear, which reads as a broken right-click. */
+        Gtk::Label *lbl = Gtk::manage(
+            new Gtk::Label("Right-click an output port to watch it"));
+
+        lbl->set_margin(6);
+        menu->append(*lbl);
+    }
+
+    ctxPopover_.set_parent(canvas_);
+    ctxPopover_.set_child(*menu);
+    ctxPopover_.set_has_arrow(false);
+
+    Gdk::Rectangle at((int)x, (int)y, 1, 1);
+
+    ctxPopover_.set_pointing_to(at);
+    ctxPopover_.popup();
 }

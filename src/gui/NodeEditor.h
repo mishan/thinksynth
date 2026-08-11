@@ -20,6 +20,7 @@
 #define NODE_EDITOR_H 1
 
 #include "../NodeGraph.h"
+#include "../thVisual.h"
 #include "NodeCanvas.h"
 #include "NodeParams.h"
 #include "NodePalette.h"
@@ -202,6 +203,104 @@ protected:
     void clearSelectionStatus (void);
     void updateTitle (void);
     void updateDirty (void);
+
+    /* ---- probes ----
+     *
+     * A probe is three things at once and this is what holds them together: a
+     * panel on the canvas (a Box in graph_), a tap in the engine (a slot in
+     * thSynth), and an instance of a visual module that turns the samples into
+     * pixels. Only this class sees all three.
+     *
+     * Keyed by node and arg name rather than by box index or by slot, because
+     * both of those are reassigned by things the user does -- a reload
+     * renumbers the boxes, and disarming compacts nothing but does free a
+     * slot. The names are what the .dsp says and the only thing that survives
+     * a reparse. */
+    struct Probe {
+        string node;        /* the host node in the .dsp   */
+        string arg;         /* the output port being read  */
+        string visual;      /* the module's name           */
+
+        thVisual *module;   /* borrowed from visuals_, never owned */
+        void *inst;         /* the module's instance; ours to close */
+
+        int slot;           /* thSynth's probe slot, or -1 if not armed
+                               in the engine -- which is the ordinary state
+                               for an editor that is not attached to a
+                               channel. The panel still draws. */
+    };
+
+    /* Loads every module in <plugins>/visual once. Called from the
+       constructor; the modules outlive every probe. */
+    void scanVisuals (void);
+
+    /* Arms `visual' on `node.arg': adds the panel, opens an instance, and asks
+       the engine for a tap if there is a channel to tap. Returns false with a
+       reason in the status bar. */
+    bool armProbe (const string &node, const string &arg, const string &visual);
+
+    /* Closes the instance and gives back the engine's slot, without touching
+       probes_. What both disarm paths go through. */
+    void releaseProbe (Probe &p);
+
+    void disarmProbe (size_t index);
+    void disarmAllProbes (void);
+
+    /* Puts the panels back after the graph has been rebuilt, and re-asks the
+       engine for taps. A reload renumbers every box and, if the patch was
+       reloaded onto the channel, invalidates every tap -- so both have to be
+       redone from the names, which is the whole reason Probe is keyed on
+       them. */
+    void reapplyProbes (void);
+
+    /* Index into probes_ for the panel at box `box', or -1. The painter gets a
+       box index and has to get back to the instance; going through the box's
+       own node and arg names rather than caching indices is what makes it
+       survive a reload. */
+    int probeForBox (int box) const;
+
+    void onContextRequested (int box, int port, double x, double y);
+
+    /* Drains every tap, feeds the modules, and redraws once. */
+    bool onProbeTick (void);
+
+    /* Runs the tick only while there is something to animate. */
+    void updateProbeTick (void);
+
+    void paintProbe (int box, const Cairo::RefPtr<Cairo::Context> &cr,
+                     int w, int h);
+
+    /* Protected rather than private, and grouped here rather than with the
+       rest of the state, because scripts/editorcheck reaches them: a probe is
+       three things at once and this class is the only place they meet, so the
+       one thing worth testing about it cannot be tested from outside. A
+       subclass is the access level that already means "and anything that is a
+       NodeEditor", which the harness is. */
+
+    /* The visual modules, loaded once and shared by every probe that names
+       them. Owned here and destroyed last, after every instance is closed. */
+    std::map<std::string, thVisual *> visuals_;
+
+    std::vector<Probe> probes_;
+
+    /* Where scanVisuals looked, so an empty menu can say so rather than
+       leaving it to be guessed. */
+    string visualRoot_;
+
+    /* Read-only, for the same reason as above. */
+    const NodeGraph &graph (void) const { return graph_; }
+
+    /* The frame tick, connected only while at least one probe is armed. An
+       editor with no probes should cost exactly what it did before them. */
+    sigc::connection probeTick_;
+
+    /* Scratch for the drain, sized once. Reused every frame so the tick does
+       not allocate thirty times a second. */
+    std::vector<float> probeDrain_;
+
+    /* The right-click menu, kept alive between the click and the choice. A
+       Gtk::Popover destroyed while it is up takes the pointer grab with it. */
+    Gtk::Popover ctxPopover_;
 
     /* Positions and pending values, written together. */
     bool writeAll (string &why);
