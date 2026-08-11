@@ -579,6 +579,17 @@ bool NodeEditor::reload (void)
 {
     const string filename = work_;
 
+    /* The constructor already allows for this when it fills the palette; the
+       rest of the class did not, and a NULL synth reached parseTree as a NULL
+       `this' and a lock on a mutex at address 0x120b8. Nothing here works
+       without a synth to parse with -- the graph comes out of a thSynthTree
+       and only thSynth makes one. */
+    if (synth_ == NULL)
+    {
+        setStatus("No synth to parse " + source_ + " with");
+        return false;
+    }
+
     thSynthTree *tree = synth_->parseTree(filename);
 
     if (tree == NULL)

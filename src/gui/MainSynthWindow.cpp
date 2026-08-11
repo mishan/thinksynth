@@ -60,6 +60,8 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     set_title("thinksynth");
     set_default_size(520, 360);
 
+    tearingDown_ = false;
+
     midiMap_ = NULL;
     patchSel_ = NULL;
     aboutBox_ = NULL;
@@ -156,8 +158,14 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
 MainSynthWindow::~MainSynthWindow (void)
 {
+    /* The notebook is a member, so it is torn down after this body has run,
+       and taking its pages away asks for a node editor to be built on each of
+       them. Nothing about this window is worth building now. */
+    tearingDown_ = true;
+
     menuQuit();
 }
+
 
 /* Builds one activatable menu item: label with mnemonic, optional accelerator,
    and its callback. Gtk::Menu_Helpers::MenuElem did all of this in a single
@@ -836,7 +844,14 @@ void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
 {
     (void)page;
 
-    if (num != 1 || editors_.count(holder))
+    /* Not while the pages are being taken away: this fires as a side effect
+       of a sub-notebook losing its Overview page, and the Nodes page it is
+       switching to is on its way out with it. Building an editor there is a
+       plugin directory scanned and a .dsp parsed for a widget nobody will
+       see -- and at shutdown, when the window is destroyed after the synth,
+       it was a NULL thSynth::instance() handed to a node editor that then
+       parsed with it. */
+    if (tearingDown_ || num != 1 || editors_.count(holder))
         return;
 
     Gtk::Box *box = dynamic_cast<Gtk::Box *>(holder);
@@ -933,16 +948,33 @@ void MainSynthWindow::populate (void)
 }
 
 
-void MainSynthWindow::onPatchesChanged (void)
+/* Empties the notebook.
+ *
+ * gtkmm-3 dropped Notebook::pages() and Widget::hide_all(), so pages are
+ * removed one at a time and hide() covers the children.
+ *
+ * Removing a page destroys the Overview/Nodes notebook sitting on it, and a
+ * notebook that is losing pages switches to whichever one is left. That
+ * arrives at onSubTab as a request to build a node editor -- on a page that
+ * is being destroyed, which is at best a plugin directory scanned and a .dsp
+ * parsed for nothing. Hence the flag. */
+void MainSynthWindow::clearPages (void)
 {
-    int pagenum = notebook_.get_current_page();
+    tearingDown_ = true;
 
-    /* gtkmm-3 dropped Notebook::pages() and Widget::hide_all(); pages are
-       removed one at a time now, and hide() covers the children. */
     notebook_.hide();
 
     while (notebook_.get_n_pages() > 0)
         notebook_.remove_page(-1);
+
+    tearingDown_ = false;
+}
+
+void MainSynthWindow::onPatchesChanged (void)
+{
+    int pagenum = notebook_.get_current_page();
+
+    clearPages();
 
     populate();
     notebook_.show_all();
@@ -1073,12 +1105,7 @@ void MainSynthWindow::onDspEntryActivate (void)
         return;
     }
 
-    /* gtkmm-3 dropped Notebook::pages() and Widget::hide_all(); pages are
-       removed one at a time now, and hide() covers the children. */
-    notebook_.hide();
-
-    while (notebook_.get_n_pages() > 0)
-        notebook_.remove_page(-1);
+    clearPages();
 
     populate();
     notebook_.show_all();
@@ -1117,10 +1144,7 @@ void MainSynthWindow::onBrowseButton (void)
             prefs->Set("dspdir", vals);
 
             /* load up the patch file */
-            notebook_.hide();
-
-            while (notebook_.get_n_pages() > 0)
-                notebook_.remove_page(-1);
+            clearPages();
 
             populate();
             notebook_.show_all();
