@@ -34,12 +34,12 @@
 static const int MAXCOLS = 3;
 
 ArgTable::ArgTable (void)
-    : Gtk::Box(Gtk::ORIENTATION_VERTICAL)
+    : Gtk::Box(Gtk::Orientation::VERTICAL)
 {
     set_spacing(6);
 
-    nameWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
-    valueWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
+    nameWidth_ = Gtk::SizeGroup::create(Gtk::SizeGroup::Mode::HORIZONTAL);
+    valueWidth_ = Gtk::SizeGroup::create(Gtk::SizeGroup::Mode::HORIZONTAL);
 }
 
 ArgTable::~ArgTable (void)
@@ -219,19 +219,18 @@ void ArgTable::reflow (void)
            to one column so it read as a list only made sense while it had a
            narrow block to itself. */
         exp->set_expanded(true);
-        exp->add(*makeFlow(groups[order[i]], MAXCOLS));
+        exp->set_child(*makeFlow(groups[order[i]], MAXCOLS));
 
         blocks.push_back(exp);
     }
 
     for (size_t i = 0; i < blocks.size(); i++)
     {
-        blocks[i]->set_valign(Gtk::ALIGN_START);
+        blocks[i]->set_valign(Gtk::Align::START);
 
-        pack_start(*blocks[i], Gtk::PACK_SHRINK);
+        append(*blocks[i]);
     }
 
-    show_all_children();
 }
 
 /* These parameters, in as many columns as the width will take.
@@ -258,24 +257,27 @@ Gtk::FlowBox *ArgTable::makeFlow (const std::vector<thArg *> &args,
 {
     Gtk::FlowBox *flow = manage(new Gtk::FlowBox);
 
-    flow->set_selection_mode(Gtk::SELECTION_NONE);
+    flow->set_selection_mode(Gtk::SelectionMode::NONE);
     flow->set_homogeneous(true);
     flow->set_min_children_per_line(1);
     flow->set_max_children_per_line(maxPerLine);
     flow->set_column_spacing(12);
     flow->set_row_spacing(2);
-    flow->set_border_width(4);
-    flow->set_valign(Gtk::ALIGN_START);
+    flow->set_margin_start(4);
+    flow->set_margin_end(4);
+    flow->set_margin_top(4);
+    flow->set_margin_bottom(4);
+    flow->set_valign(Gtk::Align::START);
 
     for (size_t i = 0; i < args.size(); i++)
-        flow->add(*makeRow(args[i]));
+        flow->append(*makeRow(args[i]));
 
     return flow;
 }
 
 Gtk::Widget *ArgTable::makeRow (thArg *arg)
 {
-    Gtk::Box *row = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
     row->set_spacing(8);
 
@@ -303,7 +305,7 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
        Scale has no such constructor, so the adjustment is spelled out. */
     Gtk::Scale *slider = manage(new Gtk::Scale(
         Gtk::Adjustment::create(lo, lo, hi, .0001, .001, 0),
-        Gtk::ORIENTATION_HORIZONTAL));
+        Gtk::Orientation::HORIZONTAL));
 
     slider->set_digits(4);
 
@@ -363,9 +365,10 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     nameWidth_->add_widget(*label);
     valueWidth_->add_widget(*valEntry);
 
-    row->pack_start(*label, Gtk::PACK_SHRINK);
-    row->pack_start(*slider, Gtk::PACK_EXPAND_WIDGET);
-    row->pack_start(*valEntry, Gtk::PACK_SHRINK);
+    row->append(*label);
+    slider->set_hexpand(true);
+    row->append(*slider);
+    row->append(*valEntry);
 
     return row;
 }

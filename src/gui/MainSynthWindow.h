@@ -72,6 +72,14 @@ protected:
     void onSavePatch (int chan);
     void onSavePatchAs (int chan);
 
+    /* The other half of each of those: a GTK4 chooser is answered after the
+       function that opened it has returned, so everything that used to follow
+       run() lives here. Each owns the dialog it is handed. */
+    void onSavePatchAsResponse (int response, Gtk::FileChooserDialog *fileSel,
+                                int chan);
+    void onBrowseResponse (int response, Gtk::FileChooserDialog *fileSel,
+                           int pagenum);
+
     /* The write itself, run once the click that asked for it has returned.
        Saving emits signal_patches_changed, which tears down and rebuilds every
        page -- including the button being clicked. */
@@ -97,7 +105,7 @@ protected:
 
     /* The size the window had while it was on screen, and the other end of
        remembering it. */
-    bool onConfigure (GdkEventConfigure *ev);
+    void onSizeChanged (void);
     void rememberGeometry (void);
 
     void onPatchesChanged (void);
@@ -114,20 +122,33 @@ protected:
     void onBrowseButton (void);
     void onPatchLoadError (const char* failure);
 
-    Gtk::Box vbox_{Gtk::ORIENTATION_VERTICAL};
+    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
 
-    Gtk::MenuItem *addMenuItem (Gtk::Menu &menu, const Glib::ustring &label,
-                                const sigc::slot<void> &handler,
-                                const char *accel = NULL);
+    /* Names an action, gives it something to do, and optionally a key.
+     *
+     * GTK4 menus are a model plus a set of actions: the item carries a name
+     * like "win.keyboard" and the behaviour hangs off the window under that
+     * name, rather than a callback hanging off the item. Accelerators bind to
+     * the action too, so they work whether or not the menu was ever opened.
+     */
+    void addAction (const Glib::ustring &name,
+                    const sigc::slot<void ()> &handler,
+                    const char *accel = NULL);
 
-    Gtk::MenuBar menuBar_;
-    Gtk::Menu menuFile_;
-    Gtk::Menu menuHelp_;
+    /* Binds the accelerators once there is an application to bind them to.
+       They belong to it, not to the window, and the window is built before it
+       has one. */
+    void onApplicationSet (void);
+
+    Glib::RefPtr<Gio::SimpleActionGroup> actions_;
+    Gtk::PopoverMenuBar *menuBar_;
+
+    std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;
 
     Gtk::Entry dspEntry_;
     Gtk::Label dspEntryLbl_;
     Gtk::Button dspBrowseBtn_;
-    Gtk::Box dspEntryBox_{Gtk::ORIENTATION_HORIZONTAL};
+    Gtk::Box dspEntryBox_{Gtk::Orientation::HORIZONTAL};
 
     Gtk::Notebook notebook_;
 
@@ -135,7 +156,7 @@ protected:
        engine has had setMasterGain since the gain-staging work; this is the
        first thing to offer it. */
     Gtk::Label masterLbl_;
-    Gtk::Scale masterScale_{Gtk::ORIENTATION_HORIZONTAL};
+    Gtk::Scale masterScale_{Gtk::Orientation::HORIZONTAL};
 
     PatchSelWindow *patchSel_;
     KeyboardWindow *kbWin_;

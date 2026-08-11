@@ -49,16 +49,15 @@ protected:
     void onDelButton (void);
     void onChannelChanged (void);
     void onControllerChanged (void);
-    bool onDestChanComboChanged (GdkEventButton* b, int chan);
-    bool onDestArgComboChanged (GdkEventButton* b, thArg *arg);
-    bool onDestChanComboFocus (GdkEventFocus* f, int chan)
-        { return onDestChanComboChanged(NULL, chan); }
-    bool onDestArgComboFocus (GdkEventFocus* f, thArg *arg)
-        { return onDestArgComboChanged(NULL, arg); }
+    /* These took a GdkEventButton they never looked at -- they were bound to
+       a menu item's button-press in the days when the destination pickers
+       were menus. There is no event to take now. */
+    void onDestChanComboChanged (int chan);
+    void onDestArgComboChanged (thArg *arg);
     void onMinChanged (void);
     void onMaxChanged (void);
     void onExpToggled (void);
-    void onConnectionSelected (GdkEventButton *b);
+    void onConnectionSelected (void);
     void onConnectionMoved (void);
     void onPatchChanged (void);
 

@@ -317,23 +317,29 @@ int gthGtkRuntime::selfTest (void)
 
     if (!want.empty() && fs::is_directory(want, iec))
     {
-        gchar **paths = NULL;
-        gint    n     = 0;
         bool    found = false;
 
-        gtk_icon_theme_get_search_path(gtk_icon_theme_get_default(), &paths, &n);
+        /* GTK4 returns the list rather than filling in a pointer and a count,
+           and there is one icon theme per display rather than a default. */
+        gchar **paths = gtk_icon_theme_get_search_path(
+            gtk_icon_theme_get_for_display(gdk_display_get_default()));
 
         /* Compared as paths rather than as strings. On Windows the two spell
            the same directory differently -- our root arrives from
            GetModuleFileNameW with backslashes and picks up a forward slash
            from the "/share/icons" appended here -- and a string compare
            called a correctly configured bundle broken. */
-        for (gint i = 0; i < n && !found; i++)
+        for (gint i = 0; paths != NULL && paths[i] != NULL && !found; i++)
         {
             std::error_code pec;
             found = fs::exists(paths[i], pec)
                     && fs::equivalent(paths[i], want, pec);
         }
+
+        gint n = 0;
+
+        while (paths != NULL && paths[n] != NULL)
+            n++;
 
         printf("  %-22s %s (%d entries)\n", "icon search path",
                found ? "bundled icons present" : "BUNDLED ICONS NOT ON PATH", n);

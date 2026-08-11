@@ -28,7 +28,7 @@
 #include "NodeParams.h"
 
 NodeParams::NodeParams (void)
-    : Gtk::Box(Gtk::ORIENTATION_VERTICAL),
+    : Gtk::Box(Gtk::Orientation::VERTICAL),
       graph_(NULL), box_(-1), grid_(NULL), loading_(false)
 {
     set_size_request(240, -1);
@@ -43,11 +43,12 @@ NodeParams::NodeParams (void)
     subtitle_.set_margin_start(8);
     subtitle_.set_margin_end(8);
 
-    scroller_.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    scroller_.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
 
-    pack_start(title_, Gtk::PACK_SHRINK);
-    pack_start(subtitle_, Gtk::PACK_SHRINK);
-    pack_start(scroller_);
+    append(title_);
+    append(subtitle_);
+    scroller_.set_vexpand(true);
+    append(scroller_);
 
     setBox(NULL, -1);
 }
@@ -169,12 +170,16 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
         sigc::bind(sigc::mem_fun(*this, &NodeParams::onSpinActivate),
                    spin, p.name));
 
-    spin->signal_focus_out_event().connect(
-        sigc::bind_return(
-            sigc::hide(sigc::bind(
-                sigc::mem_fun(*this, &NodeParams::onSpinActivate),
-                spin, p.name)),
-            false));
+    /* Focus leaving used to be an event on the widget; it is a controller
+       now, and one has to be attached to the spin button to hear it. */
+    Glib::RefPtr<Gtk::EventControllerFocus> focus =
+        Gtk::EventControllerFocus::create();
+
+    focus->signal_leave().connect(
+        sigc::bind(sigc::mem_fun(*this, &NodeParams::onSpinActivate),
+                   spin, p.name));
+
+    spin->add_controller(focus);
 
     grid->attach(*spin, 1, row, 1, 1);
 }
@@ -198,7 +203,7 @@ void NodeParams::setBox (const NodeGraph *graph, int box)
 
     if (grid_)
     {
-        scroller_.remove();
+        scroller_.unset_child();
         delete grid_;
         grid_ = NULL;
     }
@@ -240,8 +245,7 @@ void NodeParams::setBox (const NodeGraph *graph, int box)
         grid_->attach(*none, 0, 0, 2, 1);
     }
 
-    scroller_.add(*grid_);
-    grid_->show_all();
+    scroller_.set_child(*grid_);
 
     loading_ = false;
 }

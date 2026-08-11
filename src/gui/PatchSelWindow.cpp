@@ -36,6 +36,7 @@
 
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
+#include "Dialogs.h"
 
 /* The path the chooser settled on.
  *
@@ -51,7 +52,7 @@ static string chosenPath (Gtk::FileChooser &chooser)
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
      : dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
-              Gtk::ORIENTATION_HORIZONTAL),
+              Gtk::Orientation::HORIZONTAL),
       browseButton("Browse"),
       saveButton("Save As"),
       unloadButton("Unload"),
@@ -72,9 +73,9 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
     set_title("thinksynth - Patch Selector");
 
-    add(vbox);
+    set_child(vbox);
 
-    patchInfoExpander.add(patchInfoTable);
+    patchInfoExpander.set_child(patchInfoTable);
 
     /* Gtk::Table is gone in GTK4 and Grid has been its replacement since 3.2.
        Grid::attach takes a span rather than two edges, and the flags and
@@ -105,20 +106,23 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
         }
     }
         
-    patchComments.set_wrap_mode(Gtk::WRAP_WORD_CHAR);
-    patchCommentsWin.add(patchComments);
-    patchCommentsWin.set_shadow_type(Gtk::SHADOW_IN);
-    patchCommentsWin.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    patchComments.set_wrap_mode(Gtk::WrapMode::WORD_CHAR);
+    patchCommentsWin.set_child(patchComments);
+    patchCommentsWin.set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
 
-    patchScroll.add(patchView);
-    patchScroll.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
+    patchScroll.set_child(patchView);
+    patchScroll.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
 
-    patchView.signal_button_press_event().connect_notify(
+    /* Whichever row is current, however it got there. This hung off
+       button-press, a signal a GTK4 TreeView does not have and which never
+       saw a row selected with the arrow keys. */
+    patchView.signal_cursor_changed().connect(
         sigc::mem_fun(*this, &PatchSelWindow::patchSelected));
     patchView.signal_cursor_changed().connect(
         sigc::mem_fun(*this, &PatchSelWindow::CursorChanged));
 
-    vbox.pack_start(patchScroll);
+    patchScroll.set_vexpand(true);
+    vbox.append(patchScroll);
 
     /* HScale(min, max, step) chose the displayed digits from the step, and it
        is the constructor GTK4 does not have. So the scale now says for itself
@@ -150,8 +154,8 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     unloadButton.signal_clicked().connect(
         sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
     
-    vbox.pack_start(patchInfoExpander, Gtk::PACK_SHRINK);
-    vbox.pack_start(controlTable, Gtk::PACK_SHRINK, 5);
+    vbox.append(patchInfoExpander);
+    vbox.append(controlTable);
 
     ampLabel.set_margin_start(5);
     ampLabel.set_margin_end(5);
@@ -292,111 +296,144 @@ bool PatchSelWindow::LoadPatch (void)
 void PatchSelWindow::BrowsePatch (void)
 {
     /* gtkmm-3 removed Gtk::FileSelection. FileChooserDialog has no buttons of
-       its own, so the action area has to be populated explicitly. */
-    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Load Patch",
-                                   Gtk::FILE_CHOOSER_ACTION_OPEN);
+       its own, so the action area has to be populated explicitly; GTK4 then
+       removed run(), so the dialog is shown here and answered in
+       onBrowseResponse. */
+    Gtk::FileChooserDialog *fileSel =
+        new Gtk::FileChooserDialog(*this, "thinksynth - Load Patch",
+                                   Gtk::FileChooser::Action::OPEN);
 
-    fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
-    fileSel.add_button("_Open", Gtk::RESPONSE_OK);
+    fileSel->set_modal(true);
+    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    fileSel->add_button("_Open", Gtk::ResponseType::OK);
 
     if (prevDir != "")
-        fileSel.set_current_folder(prevDir);
+        fileSel->set_current_folder(Gio::File::create_for_path(prevDir));
 
-    if (fileSel.run() == Gtk::RESPONSE_OK)
-    {
-        /* S_ISLNK does not exist on Windows, which has no POSIX symlink to
-           test for -- and the stat() return value was being ignored here, so
-           a file that vanished between the chooser and this line was judged
-           on an uninitialised st_mode.
-         *
-         * fs::is_regular_file follows symlinks, so a link to a patch still
-           passes, which is what the original was reaching for by accepting
-           S_ISLNK unconditionally. It also answers false rather than
-           misbehaving when the path has gone. */
-        std::error_code ec;
-        const string picked = chosenPath(fileSel);
+    fileSel->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &PatchSelWindow::onBrowseResponse),
+                   fileSel));
 
-        if (!std::filesystem::is_regular_file(picked, ec))
-        {
-            fprintf(stderr, "%s is not a file that can be loaded\n",
-                    picked.c_str());
-            return;
-        }
-
-        fileEntry.set_text(picked);
-
-        if (LoadPatch())
-        {
-            string dn = thUtil::dirname((char*)picked.c_str());
-            string **vals = NULL;
-            gthPrefs *prefs = gthPrefs::instance();
-
-            prevDir = dn;
-
-            vals = new string *[2];
-            vals[0] = new string(prevDir);
-            vals[1] = NULL;
-
-            prefs->Set("patchdir", vals);
-        }
-    }
+    fileSel->present();
 }
+
+void PatchSelWindow::onBrowseResponse (int response,
+                                       Gtk::FileChooserDialog *fileSel)
+{
+    const string picked = response == Gtk::ResponseType::OK
+                          ? chosenPath(*fileSel) : string();
+
+    closeDialog(fileSel);
+
+    if (picked.empty())
+        return;
+
+    /* S_ISLNK does not exist on Windows, which has no POSIX symlink to test
+       for -- and the stat() return value was being ignored here, so a file
+       that vanished between the chooser and this line was judged on an
+       uninitialised st_mode.
+     *
+     * fs::is_regular_file follows symlinks, so a link to a patch still
+       passes, which is what the original was reaching for by accepting
+       S_ISLNK unconditionally. It also answers false rather than misbehaving
+       when the path has gone. */
+    std::error_code ec;
+
+    if (!std::filesystem::is_regular_file(picked, ec))
+    {
+        showError(this, "That is not a file that can be loaded", picked);
+        return;
+    }
+
+    fileEntry.set_text(picked);
+
+    if (!LoadPatch())
+        return;
+
+    prevDir = thUtil::dirname((char *)picked.c_str());
+
+    string **vals = new string *[2];
+
+    vals[0] = new string(prevDir);
+    vals[1] = NULL;
+
+    gthPrefs::instance()->Set("patchdir", vals);
+}
+
 
 void PatchSelWindow::SavePatch (void)
 {
-    gthPatchManager *patchManager = gthPatchManager::instance();
-    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Save Patch",
-                                   Gtk::FILE_CHOOSER_ACTION_SAVE);
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
+    Glib::RefPtr<Gtk::TreeView::Selection> refSelection =
         patchView.get_selection();
 
-    if (refSelection)
-    {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
+    if (!refSelection)
+        return;
 
-        fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
-        fileSel.add_button("_Save", Gtk::RESPONSE_OK);
-        fileSel.set_do_overwrite_confirmation(true);
+    Gtk::TreeModel::iterator iter = refSelection->get_selected();
 
-        if (prevDir != "")
-            fileSel.set_current_folder(prevDir);
+    if (!iter)
+        return;
 
-        if (fileSel.run() == Gtk::RESPONSE_OK)
-        {
-            gthPatchManager::PatchFile *patch = NULL;
-            gthPrefs *prefs = gthPrefs::instance();
-            string file = chosenPath(fileSel);
-            string dn = thUtil::dirname(file.c_str());
-            int chan = (*iter)[patchViewCols.chanNum]-1;
-            string **vals = NULL;
+    /* Which channel, decided now. The chooser is answered later and the
+       selection can move in between -- it could not before, because run()
+       held the rest of the window still. */
+    const int chan = (*iter)[patchViewCols.chanNum] - 1;
 
-            /* cull metadata */
-            patch = patchManager->getPatch(chan);
+    Gtk::FileChooserDialog *fileSel =
+        new Gtk::FileChooserDialog(*this, "thinksynth - Save Patch",
+                                   Gtk::FileChooser::Action::SAVE);
 
-            patch->info["revised"] = patchRevised.get_text();
-            patch->info["category"] = patchCategory.get_text();
-            patch->info["author"] = patchAuthor.get_text();
-            patch->info["title"] = patchTitle.get_text();
-            patch->info["comments"] = patchComments.get_buffer()->get_text();
-            
-            patchManager->savePatch(file, chan);
+    fileSel->set_modal(true);
+    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    fileSel->add_button("_Save", Gtk::ResponseType::OK);
 
-            /* update prefs file "prevDir" info */
-            fileEntry.set_text(file);
+    if (prevDir != "")
+        fileSel->set_current_folder(Gio::File::create_for_path(prevDir));
 
-            /* update patch window with new name */
-            (*iter)[patchViewCols.dspName] = thUtil::basename(file.c_str());
+    fileSel->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &PatchSelWindow::onSaveResponse),
+                   fileSel, chan));
 
-            prevDir = dn;
+    fileSel->present();
+}
 
-            vals = new string *[2];
-            vals[0] = new string(prevDir);
-            vals[1] = NULL;
-        
-            prefs->Set("patchdir", vals);
-        }
-    }
+void PatchSelWindow::onSaveResponse (int response,
+                                     Gtk::FileChooserDialog *fileSel, int chan)
+{
+    const string file = response == Gtk::ResponseType::OK
+                        ? chosenPath(*fileSel) : string();
+
+    closeDialog(fileSel);
+
+    if (file.empty())
+        return;
+
+    gthPatchManager *patchManager = gthPatchManager::instance();
+    gthPatchManager::PatchFile *patch = patchManager->getPatch(chan);
+
+    if (patch == NULL)
+        return;
+
+    /* cull metadata */
+    patch->info["revised"] = patchRevised.get_text();
+    patch->info["category"] = patchCategory.get_text();
+    patch->info["author"] = patchAuthor.get_text();
+    patch->info["title"] = patchTitle.get_text();
+    patch->info["comments"] = patchComments.get_buffer()->get_text();
+
+    patchManager->savePatch(file, chan);
+
+    /* update prefs file "prevDir" info */
+    fileEntry.set_text(file);
+
+    prevDir = thUtil::dirname(file.c_str());
+
+    string **vals = new string *[2];
+
+    vals[0] = new string(prevDir);
+    vals[1] = NULL;
+
+    gthPrefs::instance()->Set("patchdir", vals);
 }
 
 void PatchSelWindow::fileEntryActivate (void)
@@ -426,9 +463,8 @@ void PatchSelWindow::SetChannelAmp (void)
     }
 }
 
-void PatchSelWindow::patchSelected (GdkEventButton *b)
+void PatchSelWindow::patchSelected (void)
 {
-    if (b && b->type == GDK_BUTTON_PRESS)
     {
         Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
             patchView.get_selection();
@@ -436,13 +472,10 @@ void PatchSelWindow::patchSelected (GdkEventButton *b)
         if (refSelection)
         {
             Gtk::TreeModel::iterator iter;
-            Gtk::TreeModel::Path path;
-            Gtk::TreeViewColumn *col;
-            int cell_x, cell_y; 
-
-            if (patchView.get_path_at_pos((int)b->x, (int)b->y, path, col, 
-                                      cell_x, cell_y))
-                refSelection->select(path);
+            /* Nothing to hit-test: the cursor has already
+               moved to the row, which is what this now hears
+               about. The old button-press binding had to work
+               out which row had been hit for itself. */
         }
     }
 }
