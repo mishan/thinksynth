@@ -424,6 +424,10 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     tab_vbox->pack_start(*info_frame, Gtk::PACK_SHRINK);
     tab_vbox->pack_start(*dsp_frame);
 
+    /* Which node drives each control, so the panel can gather them the way
+       the node editor does. */
+    std::map<string, string> groups = inferGroups(num);
+
     /* populate each tab */
     for (thArgMap::iterator j = args.begin();
          j != args.end(); j++)
@@ -440,7 +444,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
                 break;
             case thArg::SLIDER:
             {
-                dsp_table->insertArg(arg);
+                dsp_table->insertArg(arg, groups.count(argName)
+                                          ? groups[argName] : string());
                 break;                
             }
             default:
@@ -476,6 +481,64 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     notebook_.append_page(*sub, *makeTabLabel(tabName, tip));
     subTabs_.push_back(sub);
 
+}
+
+/* Which node each control drives, for grouping the panel by.
+ *
+ * Almost no patch declares `.group', but almost every patch groups its
+ * controls all the same -- by what they are wired to. `@a', `@d', `@s' and
+ * `@r' all feed the same env node, and that is the envelope, whether or not
+ * anyone wrote the word down. The node editor already draws them this way,
+ * stacked on the node they drive; this is the same rule, so the two views
+ * agree about what belongs together.
+ *
+ * Only controls with exactly one consumer are grouped. One read by several
+ * nodes belongs to no single one of them -- it is a patch-wide control, and
+ * the node editor leaves those as free-standing boxes for the same reason. */
+std::map<string, string> MainSynthWindow::inferGroups (int chan)
+{
+    std::map<string, string> host;
+    std::map<string, int> uses;
+
+    thMidiChan *channel = thSynth::instance()->getChannel(chan);
+
+    if (channel == NULL)
+        return host;
+
+    thSynthTree *tree = channel->modnode();
+
+    if (tree == NULL)
+        return host;
+
+    const thSynthTree::NodeMap &nodes = tree->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator n = nodes.begin();
+         n != nodes.end(); ++n)
+    {
+        if (n->second == NULL)
+            continue;
+
+        const thArgMap &args = n->second->args();
+
+        for (thArgMap::const_iterator a = args.begin(); a != args.end(); ++a)
+        {
+            if (a->second == NULL ||
+                a->second->type() != thArg::ARG_CHANNEL)
+                continue;
+
+            const string ctl = a->second->argPtrName();
+
+            uses[ctl]++;
+            host[ctl] = n->second->name();
+        }
+    }
+
+    for (std::map<string, int>::iterator u = uses.begin();
+         u != uses.end(); ++u)
+        if (u->second != 1)
+            host.erase(u->first);
+
+    return host;
 }
 
 /* A .dsp name as a patch stores it, turned into a path that can be opened.
