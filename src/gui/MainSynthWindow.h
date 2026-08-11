@@ -80,6 +80,11 @@ protected:
                    string dspFile, int chan);
     void populate (void);
 
+    /* Empties the notebook. Not inline at the three call sites any more,
+       because removing pages has a consequence worth naming once -- see the
+       definition. */
+    void clearPages (void);
+
     void onPatchesChanged (void);
     void onAboutBoxHide (void);
     void onPatchSelHide (void);
@@ -138,6 +143,15 @@ protected:
      * subscription behind for every page that ever existed. */
     std::map<int, Gtk::HScale *> ampScales_;
     std::vector<sigc::connection> ampConns_;
+
+    /* True while the notebook's pages are being taken away, and for good
+       once the window is being destroyed.
+     *
+     * Removing a page destroys the Overview/Nodes notebook on it, and a
+     * notebook losing pages switches to whichever is left -- which arrives
+     * here as a request to build a node editor into a page that is on its way
+     * out. */
+    bool tearingDown_;
 private:
     gthAudio *audio_;
     string prevDir_;

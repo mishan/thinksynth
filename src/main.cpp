@@ -466,14 +466,24 @@ int main (int argc, char *argv[])
         aout->start();
     }
 
-    MainSynthWindow synthWindow(aout);
+    /* On the heap, so it can be destroyed at a chosen point rather than at
+       the end of main.
+     *
+     * It was a local, which put its destructor after `delete Synth' -- and
+     * the window is made of things that point into the synth: sliders bound
+     * to a channel's args, a node editor holding the thSynth it parses with,
+     * a patch bar subscribed to a channel's amplitude. Tearing all that down
+     * after the synth had gone crashed on exit, by way of a node editor built
+     * against a NULL thSynth::instance() as the notebook came apart. The
+     * window has to go first. */
+    MainSynthWindow *synthWindow = new MainSynthWindow(aout);
 
     prefs->Load();
 
     /* checkShutdown() needs this to unwind the loop from the timeout. */
     gtkMain = &mymain;
 
-    mymain.run(synthWindow);
+    mymain.run(*synthWindow);
 
     gtkMain = NULL;
 
@@ -489,6 +499,10 @@ int main (int argc, char *argv[])
 
     delete midi;
     midi = NULL;
+
+    /* Long before the synth, which is the whole point. */
+    delete synthWindow;
+    synthWindow = NULL;
 
     printf("saving preferences\n");
     prefs->Save();
