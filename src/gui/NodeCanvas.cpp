@@ -23,6 +23,7 @@
 #include "think.h"
 
 #include <algorithm>
+#include <chrono>   /* onDraw times itself; see drawCount() in the header */
 
 #include "NodeCanvas.h"
 
@@ -58,7 +59,8 @@ NodeCanvas::NodeCanvas (void)
       bandOn_(false), bandX0_(0), bandY0_(0), bandX1_(0), bandY1_(0),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
-      hoverEdge_(-1), dragSlider_(-1), fitPending_(false)
+      hoverEdge_(-1), dragSlider_(-1), fitPending_(false),
+      drawCount_(0), drawMicros_(0.0)
 {
     set_draw_func(sigc::mem_fun(*this, &NodeCanvas::onDraw));
 
@@ -994,6 +996,21 @@ void NodeCanvas::drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr)
 
 void NodeCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                          int height)
+{
+    /* See drawCount() in the header. Not conditional: two counters and a clock
+       read per frame, against a function that rasterises hundreds of boxes. */
+    const std::chrono::steady_clock::time_point drawStart =
+        std::chrono::steady_clock::now();
+
+    drawGraph(cr, width, height);
+
+    drawMicros_ += std::chrono::duration<double, std::micro>(
+                       std::chrono::steady_clock::now() - drawStart).count();
+    drawCount_++;
+}
+
+void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                            int height)
 {
     cr->set_source_rgb(COL_BG);
     cr->rectangle(0, 0, width, height);

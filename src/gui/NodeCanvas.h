@@ -85,6 +85,23 @@ public:
 
     void clearSelection (void);
 
+    /* How long this canvas has spent rasterising, and how many times.
+     *
+     * Here because live visualizers mean redrawing on a timer, and whether a
+     * full-canvas repaint at 30fps is affordable is a question about *this*
+     * drawing code on a real graph -- 1514 boxes and 3094 wires across the
+     * corpus, the widest of them 2920 pixels. Measuring a stand-in that draws
+     * "something of similar complexity" would answer a different question, and
+     * describing the same scene twice is how NODE_EDITOR.md §12's "clicking a
+     * wire selects a different wire" happened.
+     *
+     * scripts/canvasbench is the consumer. Two counters and a clock read per
+     * frame is not a cost worth conditionalising away. */
+    unsigned long drawCount (void) const { return drawCount_; }
+    double drawMicros (void) const { return drawMicros_; }
+
+    void resetDrawStats (void) { drawCount_ = 0; drawMicros_ = 0.0; }
+
     /* Emitted when a wire is dragged between two ports, and when one is
        asked to be removed. The canvas does not change the graph itself --
        the window owns that, because it also has to record the edit. */
@@ -112,8 +129,14 @@ public:
     }
 
 protected:
+    /* The draw callback: times drawGraph and keeps the counters. */
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
+
+    /* The drawing itself, separated only so the timing above wraps one call
+       rather than every return path. */
+    void drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                    int height);
     void onResize (int width, int height);
     /* Input, through controllers. There are no on_*_event vfuncs in GTK4 and
        no event mask to widen -- a controller receives the kind of thing it is
@@ -182,6 +205,9 @@ private:
     /* Set by zoomToFit when there was no allocation to fit to; acted on by
        the next size-allocate. */
     bool fitPending_;
+
+    unsigned long drawCount_;
+    double drawMicros_;
 
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
