@@ -23,6 +23,7 @@
 #include "think.h"
 
 #include <algorithm>
+#include <chrono>   /* onDraw times itself; see drawCount() in the header */
 
 #include "NodeCanvas.h"
 

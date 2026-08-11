@@ -40,13 +40,20 @@ using std::string;
 
 /* An inline variable is emitted only if something odr-uses it, and nothing in
    a plugin ever mentions its own version byte -- so `inline' alone made the
-   symbol vanish from meter.so and thVisual refused to load it. `used' is what
-   says "emit this anyway". __declspec(dllexport) already implies it, so this
-   is only needed on the ELF/Mach-O side. */
-#if defined(_WIN32) || defined(__CYGWIN__)
-#  define THINK_VISUAL_KEEP
-#else
+   symbol vanish from the module and thVisual refused to load it. `used' is
+   what says "emit this anyway".
+ *
+ * Applied on every GCC-family compiler, Windows included. An earlier version
+ * left it off there on the reasoning that __declspec(dllexport) implies it:
+ * that is true of functions and not of inline variables, and MinGW dropped the
+ * symbol exactly as ELF had. The three platforms this builds for are GCC,
+ * Clang and MinGW-w64 -- all GCC-family -- so the fallback below is for a
+ * compiler that does not currently exist here, and a module built by one would
+ * fail visualcheck loudly rather than quietly. */
+#ifdef __GNUC__
 #  define THINK_VISUAL_KEEP __attribute__((used))
+#else
+#  define THINK_VISUAL_KEEP
 #endif
 
 /* What a visual instance assumes if it is handed a sample rate of zero. A
