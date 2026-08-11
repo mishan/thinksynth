@@ -35,7 +35,11 @@ STACK="master node-editor \
        node-editor-attached node-editor-layout node-editor-workingcopy \
        node-editor-multiselect \
        porting-scope porting-cmake porting-cleanup porting-audio \
-       porting-midi porting-macwin porting-package"
+       porting-midi porting-macwin porting-package \
+       ui-tabs patch-selector \
+       visualizers-scope visualizers-ring visualizers-tap visualizers-abi \
+       visualizers-canvas visualizers-editor visualizers-modules \
+       visualizers-enlarged"
 
 fail=0
 
