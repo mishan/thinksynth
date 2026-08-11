@@ -92,6 +92,21 @@ protected:
     void onPaletteAdd (string spelling);
     void onPaletteAddControl (void);
 
+    void onTogglePalette (void);
+    void onToggleParams (void);
+
+    /* Places the canvas/parameters split the first time it has a real width.
+       See the comment on the definition. */
+    void onSplitAllocate (Gtk::Allocation &alloc);
+
+    /* The width of the right-hand child of split_, and how to ask for one.
+       GtkPaned measures from the left, so this is the paned's own width less
+       the position and the handle. Worth going through rather than storing a
+       position: a collapse and a window resize can happen in either order,
+       and it is the panel's width that should survive both. */
+    int paramsWidth (void) const;
+    void setParamsWidth (int width);
+
     /* Asks for a control's name, range and label. False if cancelled. */
     bool askControl (string &name, double &value, double &min, double &max,
                      string &label);
@@ -250,6 +265,30 @@ private:
     Gtk::Button zoomOutBtn_;
     Gtk::Button zoomResetBtn_;
     Gtk::Button zoomFitBtn_;
+
+    /* Both panels are worth having and neither is worth having all the time:
+       the palette matters while you are building and not while you are
+       reading, and the parameter panel is the other way round. Collapsed,
+       their space goes to the canvas, which is the thing that always wants
+       more of it. */
+    Gtk::ToggleButton paletteBtn_;
+    Gtk::ToggleButton paramsBtn_;
+
+    /* Widths to come back to, remembered as each panel is collapsed. */
+    int paletteWidth_;
+    int paramsWidth_;
+
+    /* A width the parameter panel is owed, applied on the next allocation.
+     *
+     * Nothing can ask for a width directly, because the position that
+     * expresses one is measured against the paned's own width and that is
+     * stale for as long as a resize is outstanding -- which it always is at
+     * the moment a panel is shown or hidden. So the request is recorded and
+     * onSplitAllocate spends it, where the width is known to be current.
+     *
+     * -1 means "whatever it asks for", which is what it starts with; 0 means
+     * nothing is owed. */
+    int pendingParams_;
 };
 
 #endif /* NODE_EDITOR_H */
