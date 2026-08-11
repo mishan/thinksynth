@@ -33,11 +33,15 @@ NodeParams::NodeParams (void)
 {
     set_size_request(240, -1);
 
-    title_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
-    title_.set_padding(8, 4);
+    title_.set_xalign(0.0);
+    title_.set_margin_start(8);
+    title_.set_margin_end(8);
+    title_.set_margin_top(4);
+    title_.set_margin_bottom(4);
 
-    subtitle_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
-    subtitle_.set_padding(8, 0);
+    subtitle_.set_xalign(0.0);
+    subtitle_.set_margin_start(8);
+    subtitle_.set_margin_end(8);
 
     scroller_.set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
 
@@ -61,8 +65,11 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
 
     Gtk::Label *name = manage(new Gtk::Label(caption));
 
-    name->set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
-    name->set_padding(8, 2);
+    name->set_xalign(0.0);
+    name->set_margin_start(8);
+    name->set_margin_end(8);
+    name->set_margin_top(2);
+    name->set_margin_bottom(2);
 
     if (!p.label.empty() && p.label != p.name)
         name->set_tooltip_text(p.name);
@@ -116,8 +123,11 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
 
         Gtk::Label *src = manage(new Gtk::Label(text));
 
-        src->set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
-        src->set_padding(8, 2);
+        src->set_xalign(0.0);
+        src->set_margin_start(8);
+        src->set_margin_end(8);
+        src->set_margin_top(2);
+        src->set_margin_bottom(2);
         src->set_sensitive(false);
         src->set_tooltip_text(tip);
 
@@ -221,7 +231,10 @@ void NodeParams::setBox (const NodeGraph *graph, int box)
     {
         Gtk::Label *none = manage(new Gtk::Label("No parameters."));
 
-        none->set_padding(8, 8);
+        none->set_margin_start(8);
+        none->set_margin_end(8);
+        none->set_margin_top(8);
+        none->set_margin_bottom(8);
         none->set_sensitive(false);
 
         grid_->attach(*none, 0, 0, 2, 1);

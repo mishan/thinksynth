@@ -58,8 +58,12 @@ NodePalette::NodePalette (void)
     scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroller_.add(tree_);
 
-    detail_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_START);
-    detail_.set_padding(6, 4);
+    detail_.set_xalign(0.0);
+    detail_.set_yalign(0.0);
+    detail_.set_margin_start(6);
+    detail_.set_margin_end(6);
+    detail_.set_margin_top(4);
+    detail_.set_margin_bottom(4);
     detail_.set_line_wrap(true);
     detail_.set_size_request(200, -1);
 
