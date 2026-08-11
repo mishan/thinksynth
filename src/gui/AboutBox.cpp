@@ -80,8 +80,9 @@ AboutBox::AboutBox (void)
         Gdk::Pixbuf::create_from_xpm_data(thinksynth));
 
     logo_ = manage(new Gtk::Picture(logoTexture_));
+    /* set_can_shrink and nothing else: CONTAIN is already the default content
+       fit, and saying so would have meant requiring GTK 4.8 for no gain. */
     logo_->set_can_shrink(true);
-    logo_->set_content_fit(Gtk::ContentFit::CONTAIN);
     frame_->set_child(*logo_);
 
     /* Hack to get it to shrink down to our size */

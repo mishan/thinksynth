@@ -100,7 +100,12 @@ find_package(FLEX REQUIRED)
 find_package(PkgConfig REQUIRED)
 
 pkg_check_modules(SIGC   REQUIRED IMPORTED_TARGET sigc++-3.0)
-pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-4.0)
+# A floor, so a toolkit that is too old says so once instead of failing in
+# three hundred places. 4.6 is the oldest release the code knowingly uses
+# anything from (Gtk::ScrolledWindow::unset_child); CI exercises 4.14, which
+# is what Ubuntu 24.04 carries, and that is the version this is actually
+# tested against.
+pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-4.0>=4.6)
 pkg_check_modules(GTHREAD REQUIRED IMPORTED_TARGET gthread-2.0)
 pkg_check_modules(GLIBMM REQUIRED IMPORTED_TARGET glibmm-2.68)
 

@@ -164,14 +164,25 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
         spin->set_tooltip_text("in " + p.units);
 
     /* Commit on Enter or on focus leaving, not on every increment: a spin
-       button emits value_changed once per arrow click, and each of those would
-       otherwise become a separate edit to the file. */
-    spin->signal_activate().connect(
-        sigc::bind(sigc::mem_fun(*this, &NodeParams::onSpinActivate),
-                   spin, p.name));
+       button emits value_changed once per arrow click, and each of those
+       would otherwise become a separate edit to the file.
+     *
+     * Both halves are controllers now. Focus leaving was an event on the
+       widget; Enter came from Gtk::Entry, which a GTK4 spin button is not one
+       of any more -- it implements Gtk::Editable instead, and grew a
+       signal_activate() of its own only in gtkmm 4.14. Ubuntu 24.04 ships
+       exactly 4.14, so relying on that would have been relying on the newest
+       thing the oldest supported runner has. A key controller works on every
+       GTK4 and says plainly which key is meant. */
+    Glib::RefPtr<Gtk::EventControllerKey> keys =
+        Gtk::EventControllerKey::create();
 
-    /* Focus leaving used to be an event on the widget; it is a controller
-       now, and one has to be attached to the spin button to hear it. */
+    keys->signal_key_pressed().connect(
+        sigc::bind(sigc::mem_fun(*this, &NodeParams::onSpinKey), spin, p.name),
+        false);
+
+    spin->add_controller(keys);
+
     Glib::RefPtr<Gtk::EventControllerFocus> focus =
         Gtk::EventControllerFocus::create();
 
@@ -182,6 +193,22 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
     spin->add_controller(focus);
 
     grid->attach(*spin, 1, row, 1, 1);
+}
+
+/* Enter, and nothing else. False for every other key so the spin button's own
+   handling -- the arrows, digits, tab -- is untouched. */
+bool NodeParams::onSpinKey (guint keyval, guint keycode,
+                            Gdk::ModifierType state, Gtk::SpinButton *spin,
+                            string name)
+{
+    (void)keycode; (void)state;
+
+    if (keyval != GDK_KEY_Return && keyval != GDK_KEY_KP_Enter)
+        return false;
+
+    onSpinActivate(spin, name);
+
+    return true;
 }
 
 void NodeParams::onSpinActivate (Gtk::SpinButton *spin, string name)
