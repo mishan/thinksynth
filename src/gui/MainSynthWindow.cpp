@@ -439,6 +439,8 @@ void MainSynthWindow::menuKeyboard (void)
         kbWin_->signal_close_request().connect(
             sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                        (Gtk::Window *)kbWin_), false);
+
+        addCloseAccel(kbWin_);
     }
 
     kbWin_->present();
@@ -452,6 +454,8 @@ void MainSynthWindow::menuPatchSel (void)
         patchSel_->signal_close_request().connect(
             sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                        (Gtk::Window *)patchSel_), false);
+
+        addCloseAccel(patchSel_);
     }
     
     patchSel_->present();
@@ -465,6 +469,8 @@ void MainSynthWindow::menuMidiMap (void)
         midiMap_->signal_close_request().connect(
             sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                        (Gtk::Window *)midiMap_), false);
+
+        addCloseAccel(midiMap_);
     }
 
     midiMap_->present();
@@ -484,6 +490,8 @@ void MainSynthWindow::menuAbout (void)
     aboutBox_->signal_close_request().connect(
         sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                    (Gtk::Window *)aboutBox_), false);
+
+    addCloseAccel(aboutBox_);
     aboutBox_->present();
 }
 
@@ -1265,6 +1273,57 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
  *
  * They are deleted in the destructor now, which is also where they have to be:
  * every one of them points into the synth. */
+/* Ctrl+W closes a secondary window.
+ *
+ * A key controller rather than an application accelerator, which is how
+ * Ctrl+K and the rest are done. Those work because the main window is added
+ * to the application and "win.keyboard" resolves against it; these windows
+ * are deliberately not added -- the application quits when the last of its
+ * windows goes, and the shutdown ordering wants exactly one window deciding
+ * that. So an accelerator registered on the application would never reach
+ * them.
+ *
+ * In the capture phase, so the window hears the key before whatever has
+ * focus. Nothing in these windows binds Ctrl+W, but a text field one day
+ * might, and a window's own close key should not be the thing that loses.
+ */
+void MainSynthWindow::addCloseAccel (Gtk::Window *window)
+{
+    if (window == NULL)
+        return;
+
+    Glib::RefPtr<Gtk::EventControllerKey> keys =
+        Gtk::EventControllerKey::create();
+
+    keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    keys->signal_key_pressed().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowKey),
+                   window),
+        false);
+
+    window->add_controller(keys);
+}
+
+/* True to say the key has been dealt with; false for everything that is not
+   Ctrl+W, so the window carries on as before. */
+bool MainSynthWindow::onSubWindowKey (guint keyval, guint keycode,
+                                      Gdk::ModifierType state,
+                                      Gtk::Window *window)
+{
+    (void)keycode;
+
+    if ((keyval != GDK_KEY_w && keyval != GDK_KEY_W)
+        || (state & Gdk::ModifierType::CONTROL_MASK)
+           != Gdk::ModifierType::CONTROL_MASK)
+        return false;
+
+    /* close(), not hide(): it goes through the close-request handler, so
+       there is one place that decides what closing one of these means. */
+    window->close();
+
+    return true;
+}
+
 bool MainSynthWindow::onSubWindowClose (Gtk::Window *window)
 {
     if (window != NULL)

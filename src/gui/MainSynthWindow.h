@@ -125,6 +125,12 @@ protected:
     /* Hides a secondary window instead of letting it be destroyed, so it can
        be presented again. Returns true: the close is handled. */
     bool onSubWindowClose (Gtk::Window *window);
+
+    /* Gives a secondary window Ctrl+W. See the definition for why it is a
+       controller rather than an accelerator like the rest of them. */
+    void addCloseAccel (Gtk::Window *window);
+    bool onSubWindowKey (guint keyval, guint keycode, Gdk::ModifierType state,
+                         Gtk::Window *window);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onMasterGain (void);
 
