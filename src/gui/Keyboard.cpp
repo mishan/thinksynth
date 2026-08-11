@@ -129,11 +129,46 @@ Keyboard::Keyboard (void)
     img_width_  = key_sizes[cur_size_][2] * KB_WHITE_KEYS;
 
     set_size_request(img_width_, img_height_);
-    /* allow widget to receive mouse/keypress events */
-    add_events(Gdk::ALL_EVENTS_MASK);
+
+    /* A DrawingArea is told what to draw with rather than overriding a draw
+       vfunc, and it is told the size it has been given instead of reading its
+       own allocation. */
+    set_draw_func(sigc::mem_fun(*this, &Keyboard::onDraw));
+
+    /* One controller per kind of input, each attached to this widget. There
+       is no event mask any more -- a controller receives what it is for. */
+    click_ = Gtk::GestureClick::create();
+
+    /* Every button, not just the first: which one was pressed is what picks
+       the velocity. */
+    click_->set_button(0);
+    click_->signal_pressed().connect(
+        sigc::mem_fun(*this, &Keyboard::onPressed));
+    click_->signal_released().connect(
+        sigc::mem_fun(*this, &Keyboard::onReleased));
+    add_controller(click_);
+
+    keys_ = Gtk::EventControllerKey::create();
+    keys_->signal_key_pressed().connect(
+        sigc::mem_fun(*this, &Keyboard::onKeyPressed), false);
+    keys_->signal_key_released().connect(
+        sigc::mem_fun(*this, &Keyboard::onKeyReleased));
+    add_controller(keys_);
+
+    motion_ = Gtk::EventControllerMotion::create();
+    motion_->signal_motion().connect(
+        sigc::mem_fun(*this, &Keyboard::onMotion));
+    add_controller(motion_);
+
+    focus_ = Gtk::EventControllerFocus::create();
+    focus_->signal_enter().connect(
+        sigc::mem_fun(*this, &Keyboard::onFocusEnter));
+    focus_->signal_leave().connect(
+        sigc::mem_fun(*this, &Keyboard::onFocusLeave));
+    add_controller(focus_);
 
     /* allow the widget to grab focus and process keypress events */
-    set_can_focus(true);
+    set_focusable(true);
 
     focus_box_ = false;
 
@@ -367,21 +402,22 @@ type_signal_transpose_changed Keyboard::signal_transpose_changed (void)
    the GdkWindow and build a GdkGC; GTK3 has neither, and the drawing context
    arrives with on_draw instead. */
 
-bool Keyboard::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
+void Keyboard::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                       int height)
 {
     /* The layout below is written in the fixed pixel units of key_sizes[], so
        rather than reworking all of it for a resizable widget, the natural
-       drawing is scaled onto whatever allocation we were given. The widget
-       still requests its natural size as a minimum, so this only ever scales
-       up.
+       drawing is scaled onto whatever size we were given. The widget still
+       requests its natural size as a minimum, so this only ever scales up.
      *
      * scaleX_/scaleY_ are remembered because the mouse hit-testing has to undo
        exactly the same mapping -- otherwise clicks land on the wrong key as
-       soon as the window is resized. */
-    Gtk::Allocation alloc = get_allocation();
-
-    scaleX_ = (img_width_  > 0) ? alloc.get_width()  / (double)img_width_  : 1.0;
-    scaleY_ = (img_height_ > 0) ? alloc.get_height() / (double)img_height_ : 1.0;
+       soon as the window is resized.
+     *
+     * The size arrives as arguments now rather than being read back out of
+       the allocation, which is the same number by a shorter route. */
+    scaleX_ = (img_width_  > 0) ? width  / (double)img_width_  : 1.0;
+    scaleY_ = (img_height_ > 0) ? height / (double)img_height_ : 1.0;
 
     if (scaleX_ <= 0.0) scaleX_ = 1.0;
     if (scaleY_ <= 0.0) scaleY_ = 1.0;
@@ -392,46 +428,42 @@ bool Keyboard::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     drawKeyboard (cr);
 
     cr->restore();
-
-    return true;
 }
 
-bool Keyboard::on_focus_in_event (GdkEventFocus *f)
+void Keyboard::onFocusEnter (void)
 {
     focus_box_ = true;
 
     queue_draw();
-
-    return true;
 }
 
-bool Keyboard::on_focus_out_event (GdkEventFocus *f)
+void Keyboard::onFocusLeave (void)
 {
     focus_box_ = false;
 
     queue_draw();
-
-    return true;
 }
 
-bool Keyboard::on_button_press_event (GdkEventButton *b)
+void Keyboard::onPressed (int nPress, double x, double y)
 {
-    int    veloc;
+    int veloc;
+
+    (void)nPress;
 
     /* we want to steal focus on mouse-click */
-//    grab_focus ();
+    grab_focus();
 
     if (mouse_notnum_ >= 0) {    /* already active */
         m_signal_note_off_(channel_, mouse_notnum_);
         active_keys_[mouse_notnum_] = 0;
     }
-        
+
     /* get note number */
-    mouse_notnum_ = get_coord ();
-        
-    if (mouse_notnum_ < 0) return false;
-        
-    switch (b->button) 
+    mouse_notnum_ = noteAt(x, y);
+
+    if (mouse_notnum_ < 0) return;
+
+    switch (click_->get_current_button())
     {
         case 1:    veloc = veloc3_; break;
         case 2:    veloc = veloc2_; break;
@@ -452,12 +484,12 @@ bool Keyboard::on_button_press_event (GdkEventButton *b)
     queue_draw();
 
     mouse_veloc_ = veloc;    /* save velocity */
-
-    return true;
 }
 
-bool Keyboard::on_button_release_event (GdkEventButton *b)
+void Keyboard::onReleased (int nPress, double x, double y)
 {
+    (void)nPress; (void)x; (void)y;
+
     /* turn off if active */
     if (mouse_notnum_ >= 0) {
         m_signal_note_off_(channel_, mouse_notnum_);
@@ -467,57 +499,65 @@ bool Keyboard::on_button_release_event (GdkEventButton *b)
     }
 
     mouse_notnum_ = -1;
+}
+
+/* True to say the key has been dealt with and should go no further.
+ *
+ * This is where the vfunc's return value went: a controller claims a key by
+ * saying so, rather than by a widget deep in the hierarchy returning true.
+ * Anything that is not a note key is left alone, so the window's own
+ * accelerators and the spin buttons still see it. */
+bool Keyboard::onKeyPressed (guint keyval, guint keycode,
+                             Gdk::ModifierType state)
+{
+    (void)keycode; (void)state;
+
+    int notenum = keyval_to_notnum ((int)keyval);
+
+    if (notenum < 0)
+        return false;
+
+    /* Auto-repeat arrives as a run of presses with no release between them,
+       exactly as it did before. A note already sounding stays sounding. */
+    if (active_keys_[notenum])
+        return true;
+
+    m_signal_note_on_(channel_, notenum, veloc3_);
+
+    active_keys_[notenum] = 1;
+    active_veloc_[notenum] = veloc3_;
+
+    queue_draw();
 
     return true;
 }
 
-bool Keyboard::on_key_press_event (GdkEventKey *k)
+void Keyboard::onKeyReleased (guint keyval, guint keycode,
+                              Gdk::ModifierType state)
 {
-    /* other keys */
-    int notenum = keyval_to_notnum (k->keyval);
+    (void)keycode; (void)state;
 
-    if (notenum >= 0) {    /* note event */
-        if (active_keys_[notenum])
-        {
-            return true;
-        }
+    int notenum = keyval_to_notnum ((int)keyval);
 
-        m_signal_note_on_(channel_, notenum, veloc3_);
-
-        active_keys_[notenum] = 1;
-        active_veloc_[notenum] = veloc3_;
-        
-        queue_draw();
-    }
-
-    return true;
-}
-
-bool Keyboard::on_key_release_event (GdkEventKey *k)
-{
-    /* other keys */
-    int notenum = keyval_to_notnum (k->keyval);
     if (notenum >= 0) {    /* note event */
         m_signal_note_off_(channel_, notenum);
         active_keys_[notenum] = 0;
         queue_draw();
     }
-
-    return true;
 }
 
-bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
+void Keyboard::onMotion (double x, double y)
 {
     if (mouse_notnum_ == -1)
-        return true;
+        return;
 
-    int notenum = get_coord();
+    int notenum = noteAt(x, y);
 
     /* play only valid notes and only play a note once while the mouse is being
        moved over it */
-     if ((notenum >= 0) && (notenum != mouse_notnum_))
+    if ((notenum >= 0) && (notenum != mouse_notnum_))
     {
-         active_keys_[mouse_notnum_] = 0;
+        active_keys_[mouse_notnum_] = 0;
         m_signal_note_off_(channel_, mouse_notnum_);
 
         active_keys_[notenum] = 1;
@@ -528,15 +568,30 @@ bool Keyboard::on_motion_notify_event (GdkEventMotion *e)
 
         queue_draw();
     }
-
-    return true;
 }
+
 
 void Keyboard::drawKeyboardFocus (const Cairo::RefPtr<Cairo::Context> &cr)
 {
-    /* Gtk::Style and its paint_* methods went with GTK3's move to CSS; the
-       theme is asked to render through the style context now. */
-    get_style_context()->render_focus(cr, 0, 0, img_width_, img_height_);
+    /* Drawn here rather than asked of the theme. Gtk::Style and its paint_*
+       methods went in GTK3, and Gtk::StyleContext::render_focus went in GTK4
+       -- focus decoration is a CSS matter now, and a dashed rectangle drawn
+       by hand is a smaller thing than a stylesheet for one widget. */
+    cr->save();
+    cr->set_source_rgb(0.2, 0.2, 0.2);
+    cr->set_line_width(1.0);
+
+    {
+        std::vector<double> dashes;
+
+        dashes.push_back(1.0);
+        dashes.push_back(1.0);
+        cr->set_dash(dashes, 0.0);
+    }
+
+    cr->rectangle(0.5, 0.5, img_width_ - 1.0, img_height_ - 1.0);
+    cr->stroke();
+    cr->restore();
 }
 
 /* Sets a packed 0x00RRGGBB colour on the context. */
@@ -757,30 +812,15 @@ int    Keyboard::keyval_to_notnum (int key)
     return n;
 }
 
-/* get mouse pointer coordinates, and convert to key number */
-/* return -1 if pointer is not in keyboard area */
-int    Keyboard::get_coord (void)
+/* Which note is under a point, or -1 when the point is off the keyboard. */
+int Keyboard::noteAt (double px, double py) const
 {
-    int         x, y, m, n, o;
-    Gdk::ModifierType mask;
+    int x, y, m, n, o;
 
-    /* gdk_window_get_pointer is deprecated in GTK3 in favour of asking the
-       seat's pointer device where it is. */
-    Glib::RefPtr<Gdk::Window> win = get_window();
-
-    if (!win)
-        return -1;
-
-    win->get_device_position(
-        Gdk::Display::get_default()->get_default_seat()->get_pointer(),
-        x, y, mask);
-
-    /* Undo the on_draw scale so the arithmetic below still works in the fixed
+    /* Undo the draw scale so the arithmetic below still works in the fixed
        key_sizes[] units it was written for. */
-    if (scaleX_ > 0.0)
-        x = (int)(x / scaleX_);
-    if (scaleY_ > 0.0)
-        y = (int)(y / scaleY_);
+    x = (int)(px / (scaleX_ > 0.0 ? scaleX_ : 1.0));
+    y = (int)(py / (scaleY_ > 0.0 ? scaleY_ : 1.0));
 
     /* check for valid coordinates */
     if ((x < 0) || (x >= img_width_) || (y < 0) || (y >= img_height_))

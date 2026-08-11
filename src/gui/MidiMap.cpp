@@ -48,21 +48,21 @@ MidiMap::MidiMap (thSynth *argsynth)
 
     set_title("thinksynth - MIDI Controller Routing");
 
-    mainVBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
-    inputVBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL, 0));
+    mainVBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+    inputVBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 0));
     inputVBox_->set_size_request(700, 140);
     newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
     destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
     detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
     connectFrame_ = manage(new Gtk::Frame("Connections"));
-    srcDestHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 3));
+    srcDestHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 3));
     srcDestHBox_->set_homogeneous(true);
-    newConnectionHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
-    destinationHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 4));
+    newConnectionHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
+    destinationHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 4));
     destinationHBox_->set_homogeneous(true);
-    detailsHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
+    detailsHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
     detailsHBox_->set_homogeneous(true);
-    buttonsHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
+    buttonsHBox_ = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 0));
     buttonsHBox_->set_homogeneous(true);
 
     channelLbl_ = manage(new Gtk::Label("Midi Channel"));
@@ -101,8 +101,10 @@ MidiMap::MidiMap (thSynth *argsynth)
     delBtn_ = manage(new Gtk::Button("Remove Connection"));
     delBtn_->signal_clicked().connect(sigc::mem_fun(*this,
                                                    &MidiMap::onDelButton));
-    buttonsHBox_->pack_start(*addBtn_, Gtk::PACK_EXPAND_WIDGET);
-    buttonsHBox_->pack_start(*delBtn_, Gtk::PACK_EXPAND_WIDGET);
+    addBtn_->set_hexpand(true);
+    buttonsHBox_->append(*addBtn_);
+    delBtn_->set_hexpand(true);
+    buttonsHBox_->append(*delBtn_);
 
     destChanCombo_ = manage(new Gtk::ComboBoxText);
     destChanCombo_->signal_changed().connect(
@@ -114,38 +116,50 @@ MidiMap::MidiMap (thSynth *argsynth)
         sigc::mem_fun(*this, &MidiMap::onDestArgSelected));
     fillDestArgCombo(selectedDestChan_);
 
-    add(*mainVBox_);
+    set_child(*mainVBox_);
 
-    newConnectionHBox_->pack_start(*channelLbl_, Gtk::PACK_EXPAND_WIDGET);
-    newConnectionHBox_->pack_start(*channelSpinBtn_, Gtk::PACK_SHRINK);
-    newConnectionHBox_->pack_start(*controllerLbl_, Gtk::PACK_EXPAND_WIDGET);
-    newConnectionHBox_->pack_start(*controllerSpinBtn_, Gtk::PACK_SHRINK);
-    newConnectionFrame_->add(*newConnectionHBox_);
+    channelLbl_->set_hexpand(true);
+    newConnectionHBox_->append(*channelLbl_);
+    newConnectionHBox_->append(*channelSpinBtn_);
+    controllerLbl_->set_hexpand(true);
+    newConnectionHBox_->append(*controllerLbl_);
+    newConnectionHBox_->append(*controllerSpinBtn_);
+    newConnectionFrame_->set_child(*newConnectionHBox_);
 
-    destinationHBox_->pack_start(*destChanCombo_, Gtk::PACK_EXPAND_WIDGET);
-    destinationHBox_->pack_start(*destArgCombo_, Gtk::PACK_EXPAND_WIDGET);
-    destinationFrame_->add(*destinationHBox_);
+    destChanCombo_->set_hexpand(true);
+    destinationHBox_->append(*destChanCombo_);
+    destArgCombo_->set_hexpand(true);
+    destinationHBox_->append(*destArgCombo_);
+    destinationFrame_->set_child(*destinationHBox_);
 
-    srcDestHBox_->pack_start(*newConnectionFrame_, Gtk::PACK_EXPAND_WIDGET);
-    srcDestHBox_->pack_start(*destinationFrame_, Gtk::PACK_EXPAND_WIDGET);
+    newConnectionFrame_->set_hexpand(true);
+    srcDestHBox_->append(*newConnectionFrame_);
+    destinationFrame_->set_hexpand(true);
+    srcDestHBox_->append(*destinationFrame_);
 
-    detailsHBox_->pack_start(*minLbl_, Gtk::PACK_EXPAND_WIDGET);
-    detailsHBox_->pack_start(*minSpinBtn_, Gtk::PACK_SHRINK);
-    detailsHBox_->pack_start(*maxLbl_, Gtk::PACK_EXPAND_WIDGET);
-    detailsHBox_->pack_start(*maxSpinBtn_, Gtk::PACK_SHRINK);
-    detailsHBox_->pack_start(*expLbl_, Gtk::PACK_EXPAND_WIDGET);
-    detailsHBox_->pack_start(*expCheckBtn_, Gtk::PACK_SHRINK);
-    detailsFrame_->add(*detailsHBox_);
+    minLbl_->set_hexpand(true);
+    detailsHBox_->append(*minLbl_);
+    detailsHBox_->append(*minSpinBtn_);
+    maxLbl_->set_hexpand(true);
+    detailsHBox_->append(*maxLbl_);
+    detailsHBox_->append(*maxSpinBtn_);
+    expLbl_->set_hexpand(true);
+    detailsHBox_->append(*expLbl_);
+    detailsHBox_->append(*expCheckBtn_);
+    detailsFrame_->set_child(*detailsHBox_);
 
-    connectScroll_.add(connectView_);
-    connectScroll_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
+    connectScroll_.set_child(connectView_);
+    connectScroll_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     connectScroll_.set_size_request(700, 128);
 
-    connectView_.signal_button_press_event().connect_notify(
+    /* The row that is current, however it became current. This was bound to
+       button-press, which a GTK4 TreeView does not offer as a signal and which
+       missed keyboard selection anyway. */
+    connectView_.signal_cursor_changed().connect(
         sigc::mem_fun(*this, &MidiMap::onConnectionSelected));
-    connectView_.signal_cursor_changed().connect_notify(
+    connectView_.signal_cursor_changed().connect(
         sigc::mem_fun(*this, &MidiMap::onConnectionMoved));
-    connectFrame_->add(connectScroll_);
+    connectFrame_->set_child(connectScroll_);
 
     connectModel_ = Gtk::ListStore::create (connectViewCols_);
     connectView_.set_model(connectModel_);
@@ -156,14 +170,17 @@ MidiMap::MidiMap (thSynth *argsynth)
     connectView_.append_column("Instrument", connectViewCols_.instrument);
     connectView_.append_column("Parameter", connectViewCols_.argName);
 
-    inputVBox_->pack_start(*srcDestHBox_, Gtk::PACK_EXPAND_WIDGET);
-    inputVBox_->pack_start(*detailsFrame_, Gtk::PACK_EXPAND_WIDGET);
-    inputVBox_->pack_start(*buttonsHBox_, Gtk::PACK_EXPAND_WIDGET);
+    srcDestHBox_->set_vexpand(true);
+    inputVBox_->append(*srcDestHBox_);
+    detailsFrame_->set_vexpand(true);
+    inputVBox_->append(*detailsFrame_);
+    buttonsHBox_->set_vexpand(true);
+    inputVBox_->append(*buttonsHBox_);
 
-    mainVBox_->pack_start(*connectFrame_, Gtk::PACK_EXPAND_WIDGET);
-    mainVBox_->pack_start(*inputVBox_, Gtk::PACK_SHRINK);
+    connectFrame_->set_vexpand(true);
+    mainVBox_->append(*connectFrame_);
+    mainVBox_->append(*inputVBox_);
 
-    show_all_children();
 
     patchMgr->signal_patches_changed().connect(
         sigc::mem_fun(*this, &MidiMap::onPatchChanged));
@@ -251,7 +268,7 @@ void MidiMap::onDestChanSelected (void)
     if (id.empty())
         return;
 
-    onDestChanComboChanged(NULL, atoi(id.c_str()));
+    onDestChanComboChanged(atoi(id.c_str()));
 }
 
 /* Same treatment as the channel combo. thArg pointers cannot be ids, so the
@@ -331,7 +348,7 @@ void MidiMap::onDestArgSelected (void)
     thArgMap::iterator i = argList.find(id);
 
     if (i != argList.end() && i->second)
-        onDestArgComboChanged(NULL, i->second);
+        onDestArgComboChanged(i->second);
 }
 
 void MidiMap::populateConnections (void)
@@ -379,14 +396,13 @@ void MidiMap::onControllerChanged (void)
     selectedController_ = (int)controllerSpinBtn_->get_value();
 }
 
-bool MidiMap::onDestChanComboChanged (GdkEventButton* b, int chan)
+void MidiMap::onDestChanComboChanged (int chan)
 {
     fillDestArgCombo(chan);
     selectedDestChan_ = chan;
-    return true;
 }
 
-bool MidiMap::onDestArgComboChanged (GdkEventButton* b, thArg *arg)
+void MidiMap::onDestArgComboChanged (thArg *arg)
 {
     selectedArg_ = arg;
     selectedMin_ = arg->min();
@@ -395,8 +411,6 @@ bool MidiMap::onDestArgComboChanged (GdkEventButton* b, thArg *arg)
     maxSpinBtn_->set_range(selectedMin_, selectedMax_);
     minSpinBtn_->set_value(selectedMin_);
     maxSpinBtn_->set_value(selectedMax_);
-
-    return true;
 }
 
 void MidiMap::onMinChanged (void)
@@ -414,9 +428,8 @@ void MidiMap::onExpToggled (void)
     selectedExp_ = expCheckBtn_->get_active();
 }
 
-void MidiMap::onConnectionSelected (GdkEventButton *b)
+void MidiMap::onConnectionSelected (void)
 {
-    if (b && b->type == GDK_BUTTON_PRESS)
     {
         Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
             connectView_.get_selection();
@@ -424,13 +437,10 @@ void MidiMap::onConnectionSelected (GdkEventButton *b)
         if (refSelection)
         {
             Gtk::TreeModel::iterator iter;
-            Gtk::TreeModel::Path path;
-            Gtk::TreeViewColumn *col;
-            int cell_x, cell_y; 
-
-            if (connectView_.get_path_at_pos((int)b->x, (int)b->y, path, col, 
-                                      cell_x, cell_y))
-                refSelection->select(path);
+            /* Nothing to hit-test: the cursor has already
+               moved to the row, which is what this now hears
+               about. The old button-press binding had to work
+               out which row had been hit for itself. */
         }
     }
 }

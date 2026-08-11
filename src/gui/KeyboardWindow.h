@@ -41,7 +41,12 @@ protected:
     void keyboardReset (void);
     void keyboardResetKeys (void);
 
-    virtual bool on_scroll_event (GdkEventScroll *s);
+    /* Scrolling the window changes channel. A controller now, and one that
+       has to be asked for the kinds of scroll it wants -- there is no event
+       mask to widen. */
+    bool onScroll (double dx, double dy);
+
+    Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
     thSynth *synth_;
 private:
@@ -50,7 +55,7 @@ private:
     Keyboard *keyboard_;
 
     /* widgets */
-    Gtk::Box vbox_{Gtk::ORIENTATION_VERTICAL};
+    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
     Gtk::Frame *ctrlFrame_;
     Gtk::Grid *ctrlTable_;
 

@@ -97,7 +97,7 @@ protected:
 
     /* Places the canvas/parameters split the first time it has a real width.
        See the comment on the definition. */
-    void onSplitAllocate (Gtk::Allocation &alloc);
+    void onSplitAllocate (void);
 
     /* The width of the right-hand child of split_, and how to ask for one.
        GtkPaned measures from the left, so this is the paned's own width less
@@ -107,10 +107,26 @@ protected:
     int paramsWidth (void) const;
     void setParamsWidth (int width);
 
-    /* Asks for a control's name, range and label. False if cancelled. */
-    bool askControl (string &name, double &value, double &min, double &max,
-                     string &label);
+    /* The new-control form, alive between the asking and the answer.
+       Gtk::Dialog::run() used to keep these on the stack. */
+    struct ControlForm {
+        Gtk::Dialog *dlg;
+        Gtk::Entry *name;
+        Gtk::Entry *label;
+        Gtk::SpinButton *min;
+        Gtk::SpinButton *max;
+        Gtk::SpinButton *value;
+        sigc::slot<void (ControlForm *)> done;
+    };
+
+    /* Asks for a control's name, range and label, and calls `done' with the
+       form once the answer is one the .dsp grammar can hold. */
+    void askControl (const string &suggested,
+                     const sigc::slot<void (ControlForm *)> &done);
+    void onAskControlResponse (int response, ControlForm *form);
+    void addControlFromForm (ControlForm *form);
     void onNewFile (void);
+    void onNewFileResponse (int response, Gtk::FileChooserDialog *dlg);
     void onDeleteNode (void);
     void onSaveAs (void);
 
@@ -131,8 +147,21 @@ protected:
        why Revert can be open() and a structural edit cannot. */
     bool reload (void);
 
-    /* Asks where to put it, saves there, and adopts it as the source. */
-    bool saveAsDialog (void);
+    /* Asks where to put it, saves there, adopts it as the source, and then
+       runs `done'. Asynchronous: a GTK4 chooser is answered after this has
+       returned, so the rest of a save cannot be written below the call.
+       `ifRefused' is the status line for a cancel or a failed write, or empty
+       for none. */
+    void saveAsDialog (const sigc::slot<void ()> &done,
+                       const string &ifRefused);
+    void onSaveAsResponse (int response, Gtk::FileChooserDialog *dlg,
+                           sigc::slot<void ()> done, string ifRefused);
+
+    /* What follows a save that reached a file: reparse, restore the
+       selection, say what happened. One per route, because they say
+       different things. */
+    void finishSave (int n, int c, int w);
+    void finishSaveAs (void);
 
     /* True if the file this was opened from can be written. A .dsp installed
        with the package is typically not, and that must not stop anyone
@@ -248,9 +277,9 @@ private:
     Gtk::Button deleteBtn_;
 
     Gtk::Label titleLbl_;   /* what the window title used to say */
-    Gtk::Box toolbar_{Gtk::ORIENTATION_HORIZONTAL};
-    Gtk::Paned outer_{Gtk::ORIENTATION_HORIZONTAL};  /* palette | the rest   */
-    Gtk::Paned split_{Gtk::ORIENTATION_HORIZONTAL};  /* canvas  | parameters */
+    Gtk::Box toolbar_{Gtk::Orientation::HORIZONTAL};
+    Gtk::Paned outer_{Gtk::Orientation::HORIZONTAL};  /* palette | the rest   */
+    Gtk::Paned split_{Gtk::Orientation::HORIZONTAL};  /* canvas  | parameters */
     Gtk::ScrolledWindow scroller_;
     NodeCanvas canvas_;
     NodeParams params_;

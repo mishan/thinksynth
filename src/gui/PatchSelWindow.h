@@ -44,21 +44,27 @@ protected:
     bool LoadPatch (void);
     void SetChannelAmp (void);
     void BrowsePatch (void);
+
+    /* The other half of each chooser: GTK4 answers a dialog after the
+       function that opened it has returned. */
+    void onBrowseResponse (int response, Gtk::FileChooserDialog *fileSel);
+    void onSaveResponse (int response, Gtk::FileChooserDialog *fileSel,
+                         int chan);
     void SavePatch (void);
     void CursorChanged (void);
     void UnloadDSP (void);
 
-    void patchSelected (GdkEventButton *);
+    void patchSelected (void);
     void fileEntryActivate (void);
     void onPatchesChanged (void);
     
     /* Overloaded GTK-- sighandler */
     virtual void on_realize (void);
 
-    Gtk::Box vbox{Gtk::ORIENTATION_VERTICAL};
+    Gtk::Box vbox{Gtk::Orientation::VERTICAL};
     Gtk::Grid controlTable;
 
-    Gtk::Scale dspAmp{Gtk::ORIENTATION_HORIZONTAL};
+    Gtk::Scale dspAmp{Gtk::Orientation::HORIZONTAL};
     Gtk::Button setButton;
     Gtk::Button browseButton;
     Gtk::Button saveButton;

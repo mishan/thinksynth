@@ -43,6 +43,7 @@
 #include "MidiMap.h"
 #include "ArgTable.h"
 #include "NodeEditor.h"
+#include "Dialogs.h"
 
 
 #include "../gthPrefs.h"
@@ -78,8 +79,13 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
        last one was left at. */
     set_default_size(1000, 700);
 
-    signal_configure_event().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onConfigure), false);
+    /* configure-event is gone with the rest of the GdkEvent structs. The
+       window's own size properties say the same thing and say it whoever
+       changed it. */
+    property_default_width().signal_changed().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onSizeChanged));
+    property_default_height().signal_changed().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onSizeChanged));
 
     midiMap_ = NULL;
     patchSel_ = NULL;
@@ -88,16 +94,24 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
     prevDir_ = DSP_PATH;
 
+    /* "win.keyboard" and the rest resolve against this. */
+    actions_ = Gio::SimpleActionGroup::create();
+    insert_action_group("win", actions_);
+
     populateMenu();
 
+    property_application().signal_changed().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onApplicationSet));
+
     
-    add(vbox_);
+    set_child(vbox_);
 
     dspEntryLbl_.set_label("DSP File: ");
     dspBrowseBtn_.set_label("Browse");
-    dspEntryBox_.pack_start(dspEntryLbl_, Gtk::PACK_SHRINK);
-    dspEntryBox_.pack_start(dspEntry_, Gtk::PACK_EXPAND_WIDGET);
-    dspEntryBox_.pack_start(dspBrowseBtn_, Gtk::PACK_SHRINK);
+    dspEntryBox_.append(dspEntryLbl_);
+    dspEntry_.set_hexpand(true);
+    dspEntryBox_.append(dspEntry_);
+    dspEntryBox_.append(dspBrowseBtn_);
 
     /* Master level, on the row that already belongs to the whole window
        rather than to one channel -- the same reason the DSP File entry is
@@ -118,18 +132,20 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     masterScale_.set_range(0, MIDIVALMAX);
     masterScale_.set_increments(1, 10);
     masterScale_.set_digits(0);
-    masterScale_.set_value_pos(Gtk::POS_RIGHT);
+    /* GTK3 turned the number on when it was told where to put it; GTK4 keeps
+       the two apart, and a scale draws no value unless asked. */
+    masterScale_.set_draw_value(true);
+    masterScale_.set_value_pos(Gtk::PositionType::RIGHT);
     masterScale_.set_size_request(160, -1);
     masterScale_.set_value(thSynth::instance()->masterGain() * 100.0);
 
     masterScale_.signal_value_changed().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onMasterGain));
 
-    dspEntryBox_.pack_start(*manage(new Gtk::Separator(
-                                        Gtk::ORIENTATION_VERTICAL)),
-                            Gtk::PACK_SHRINK);
-    dspEntryBox_.pack_start(masterLbl_, Gtk::PACK_SHRINK);
-    dspEntryBox_.pack_start(masterScale_, Gtk::PACK_SHRINK);
+    dspEntryBox_.append(*manage(new Gtk::Separator(
+                                    Gtk::Orientation::VERTICAL)));
+    dspEntryBox_.append(masterLbl_);
+    dspEntryBox_.append(masterScale_);
 
     dspEntry_.signal_activate().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onDspEntryActivate));
@@ -137,9 +153,10 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     dspBrowseBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &MainSynthWindow::onBrowseButton));
 
-    vbox_.pack_start(menuBar_, Gtk::PACK_SHRINK);
-    vbox_.pack_start(dspEntryBox_, Gtk::PACK_SHRINK);
-    vbox_.pack_start(notebook_, Gtk::PACK_EXPAND_WIDGET);
+    vbox_.append(*menuBar_);
+    vbox_.append(dspEntryBox_);
+    notebook_.set_vexpand(true);
+    vbox_.append(notebook_);
 
     /* Tabs down the left rather than across the top.
      *
@@ -150,7 +167,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
      * the list reads as what it is: the channels, in order.
      *
      * Still scrollable, because nothing guarantees the window is tall. */
-    notebook_.set_tab_pos(Gtk::POS_LEFT);
+    notebook_.set_tab_pos(Gtk::PositionType::LEFT);
     notebook_.set_scrollable();
 
     notebook_.signal_switch_page().connect(
@@ -158,7 +175,6 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
 
     populate();
 
-    show_all_children();
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
     patchMgr->signal_patches_changed().connect(
@@ -184,23 +200,24 @@ MainSynthWindow::~MainSynthWindow (void)
 
 /* Every size the window is given while it is on screen.
  *
- * Returning false so this is only a look: the event still reaches the default
- * handler, which is the one that actually resizes anything.
- *
  * Not read at the end instead, because by then the window has been hidden --
- * and while GTK will still answer get_size() for a hidden window, what it
- * answers is the size it intends to use next time, which is not the same
- * question and is not always the same number. */
-bool MainSynthWindow::onConfigure (GdkEventConfigure *ev)
+ * and while GTK will still answer for a hidden window, what it answers is the
+ * size it intends to use next time, which is not the same question and is not
+ * always the same number. */
+void MainSynthWindow::onSizeChanged (void)
 {
-    if (ev != NULL && ev->width > 0 && ev->height > 0)
-    {
-        width_ = ev->width;
-        height_ = ev->height;
-    }
+    int w = get_width(), h = get_height();
 
-    return false;
+    if (w <= 0 || h <= 0)
+        get_default_size(w, h);
+
+    if (w > 0 && h > 0)
+    {
+        width_ = w;
+        height_ = h;
+    }
 }
+
 
 void MainSynthWindow::applyPrefs (void)
 {
@@ -227,10 +244,36 @@ void MainSynthWindow::applyPrefs (void)
        restored to 12x4 -- or to something larger than the screen it is now
        being opened on, which is what moving between a desktop and a laptop
        does -- is worse than one that ignores the file. */
-    Glib::RefPtr<Gdk::Screen> screen = Gdk::Screen::get_default();
+    /* Gdk::Screen is gone; a monitor's geometry is the thing to ask now, and
+       the monitor this window is on is not known before it has been shown --
+       so the first one the display lists is what this settles for. It is a
+       sanity check, not a placement decision. */
+    int maxw = 0, maxh = 0;
 
-    const int maxw = screen ? screen->get_width() : 0;
-    const int maxh = screen ? screen->get_height() : 0;
+    {
+        Glib::RefPtr<Gdk::Display> display = Gdk::Display::get_default();
+
+        if (display)
+        {
+            Glib::RefPtr<Gio::ListModel> monitors = display->get_monitors();
+
+            if (monitors && monitors->get_n_items() > 0)
+            {
+                Glib::RefPtr<Gdk::Monitor> mon =
+                    std::dynamic_pointer_cast<Gdk::Monitor>(
+                        monitors->get_object(0));
+
+                if (mon)
+                {
+                    Gdk::Rectangle area;
+
+                    mon->get_geometry(area);
+                    maxw = area.get_width();
+                    maxh = area.get_height();
+                }
+            }
+        }
+    }
 
     if (w < 320 || h < 240)
         return;
@@ -264,77 +307,86 @@ void MainSynthWindow::rememberGeometry (void)
    and its callback. Gtk::Menu_Helpers::MenuElem did all of this in a single
    expression; gtkmm-3 removed the whole helpers namespace along with
    Menu::items(), so items are constructed and appended individually. */
-Gtk::MenuItem *MainSynthWindow::addMenuItem (Gtk::Menu &menu,
-                                             const Glib::ustring &label,
-                                             const sigc::slot<void> &handler,
-                                             const char *accel)
+void MainSynthWindow::addAction (const Glib::ustring &name,
+                                 const sigc::slot<void ()> &handler,
+                                 const char *accel)
 {
-    Gtk::MenuItem *item = manage(new Gtk::MenuItem(label, true));
+    /* Gtk::Window is a Gio::ActionMap through Gtk::ApplicationWindow only;
+       a plain window carries its actions in a group of its own, inserted
+       under the "win" prefix that the menu items name. */
+    actions_->add_action(name, handler);
 
-    item->signal_activate().connect(handler);
-
+    /* Recorded rather than bound. An accelerator belongs to the application
+       -- it is what makes "win.keyboard" answer to Ctrl+K from any window the
+       application owns -- and the window is built before it has been given
+       one, so this waits for onApplicationSet. */
     if (accel != NULL)
-    {
-        Gtk::AccelKey key(accel);
-
-        item->add_accelerator("activate", get_accel_group(),
-                              key.get_key(), key.get_mod(),
-                              Gtk::ACCEL_VISIBLE);
-    }
-
-    menu.append(*item);
-
-    return item;
+        accels_.push_back(std::make_pair("win." + name, Glib::ustring(accel)));
 }
 
+void MainSynthWindow::onApplicationSet (void)
+{
+    Glib::RefPtr<Gtk::Application> app = get_application();
+
+    if (!app)
+        return;
+
+    for (size_t i = 0; i < accels_.size(); i++)
+        app->set_accel_for_action(accels_[i].first, accels_[i].second);
+}
+
+/* The menu, as a model and a set of actions.
+ *
+ * Gtk::MenuBar, Gtk::Menu and Gtk::MenuItem are all gone. What replaces them
+ * is a Gio::Menu -- a description of the menu with no widgets in it -- shown
+ * by a Gtk::PopoverMenuBar, with the behaviour attached separately as named
+ * actions on the window.
+ *
+ * The indirection earns its keep: an accelerator now binds to "win.keyboard"
+ * rather than to a widget, so it works before the menu has ever been opened
+ * and keeps working if the item moves. */
 void MainSynthWindow::populateMenu (void)
 {
-    /* The accelerators used to come along with each MenuElem; they need an
-       explicit group now. Gtk::Window::get_accel_group() hands back the
-       window's own, already attached -- calling add_accel_group() on it
-       attaches it a second time and trips an assertion in GTK. */
+    Glib::RefPtr<Gio::Menu> file = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> fileItems = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> quitItem = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> help = Gio::Menu::create();
 
-    /* File */
-    addMenuItem(menuFile_, "_Keyboard",
-                sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard),
-                "<ctrl>k");
-    addMenuItem(menuFile_, "_Patch Selector",
-                sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel),
-                "<ctrl>p");
-    addMenuItem(menuFile_, "_MIDI Controllers",
-                sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap),
-                "<ctrl>m");
+    addAction("keyboard",
+              sigc::mem_fun(*this, &MainSynthWindow::menuKeyboard), "<Control>k");
+    addAction("patchsel",
+              sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel), "<Control>p");
+    addAction("midimap",
+              sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap), "<Control>m");
+    addAction("quit",
+              sigc::mem_fun(*this, &MainSynthWindow::menuQuit), "<Control>q");
+    addAction("about", sigc::mem_fun(*this, &MainSynthWindow::menuAbout));
 
     /* No Node View item. It dates from when the editor was a window of its
        own; now that it is a tab on the patch page, the menu could only do
        what clicking the tab does -- and it had to explain itself with a
        dialog when the current channel had no patch on it. */
+    fileItems->append("_Keyboard", "win.keyboard");
+    fileItems->append("_Patch Selector", "win.patchsel");
+    fileItems->append("_MIDI Controllers", "win.midimap");
 
-    menuFile_.append(*manage(new Gtk::SeparatorMenuItem()));
+    /* A separator is a section boundary in a menu model rather than an item
+       of its own, so Quit goes in a section by itself. */
+    quitItem->append("_Quit", "win.quit");
 
-    addMenuItem(menuFile_, "_Quit",
-                sigc::mem_fun(*this, &MainSynthWindow::menuQuit),
-                "<ctrl>q");
+    file->append_section(fileItems);
+    file->append_section(quitItem);
 
+    help->append("_About", "win.about");
 
-    /* Help */
-    addMenuItem(menuHelp_, "_About",
-                sigc::mem_fun(*this, &MainSynthWindow::menuAbout));
+    Glib::RefPtr<Gio::Menu> bar = Gio::Menu::create();
 
-    /* add the menus to the menubar */
-    {
-        Gtk::MenuItem *fileMenu = manage(new Gtk::MenuItem("_File", true));
+    bar->append_submenu("_File", file);
+    bar->append_submenu("_Help", help);
 
-        fileMenu->set_submenu(menuFile_);
-        menuBar_.append(*fileMenu);
-
-
-        Gtk::MenuItem *helpMenu = manage(new Gtk::MenuItem("_Help", true));
-
-        helpMenu->set_submenu(menuHelp_);
-        helpMenu->set_right_justified();
-        menuBar_.append(*helpMenu);
-    }
+    /* Help no longer sits over on the right. set_right_justified went with
+       Gtk::MenuItem, and a menu model has no place to say it. */
+    menuBar_ = Gtk::manage(new Gtk::PopoverMenuBar(bar));
 }
 
 
@@ -343,12 +395,10 @@ void MainSynthWindow::menuKeyboard (void)
     if (kbWin_ == NULL)
     {
         kbWin_ = new KeyboardWindow (thSynth::instance());
-        menuBar_.accelerate(*kbWin_);
         kbWin_->signal_hide().connect(
             sigc::mem_fun(*this, &MainSynthWindow::onKeyboardHide));
     }
 
-    kbWin_->show_all_children();
     kbWin_->show();
 }
 
@@ -357,12 +407,10 @@ void MainSynthWindow::menuPatchSel (void)
     if (patchSel_ == NULL)
     {
         patchSel_ = new PatchSelWindow(thSynth::instance());
-        menuBar_.accelerate(*patchSel_);
         patchSel_->signal_hide().connect(
             sigc::mem_fun(*this, &MainSynthWindow::onPatchSelHide));
     }
     
-    patchSel_->show_all_children();
     patchSel_->show();
 }
 
@@ -371,12 +419,10 @@ void MainSynthWindow::menuMidiMap (void)
     if (midiMap_ == NULL)
     {
         midiMap_ = new MidiMap(thSynth::instance());
-        menuBar_.accelerate(*midiMap_);
         midiMap_->signal_hide().connect(
             sigc::mem_fun(*this, &MainSynthWindow::onMidiMapHide));
     }
 
-    midiMap_->show_all_children();
     midiMap_->show();
 }
 
@@ -408,7 +454,7 @@ Gtk::Widget *MainSynthWindow::makeTabLabel (const string &text,
     Gtk::Label *lbl = manage(new Gtk::Label(text));
 
     lbl->set_xalign(0.0);
-    lbl->set_ellipsize(Pango::ELLIPSIZE_END);
+    lbl->set_ellipsize(Pango::EllipsizeMode::END);
 
     /* Both widths, and the minimum is the one that matters: an ellipsising
        label reports "..." as its minimum size, so with only a maximum set the
@@ -431,7 +477,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     if (is_real == false)
     {
         Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
-        lbl->set_justify(Gtk::JUSTIFY_CENTER);
+        lbl->set_justify(Gtk::Justification::CENTER);
         notebook_.append_page(*lbl, *makeTabLabel(tabName, tip));
         return;
     }
@@ -444,23 +490,26 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     if (args.size() == 1)
     {
         Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
-        sorry->set_justify(Gtk::JUSTIFY_CENTER);
+        sorry->set_justify(Gtk::Justification::CENTER);
         notebook_.append_page(*sorry, *makeTabLabel(tabName, tip));
         return;
     }
         
     Gtk::ScrolledWindow *tab_view = manage(new Gtk::ScrolledWindow);
-    Gtk::Box *tab_vbox = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+    Gtk::Box *tab_vbox = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
     /* Room around and between the two frames. Everything sat flush against
        the panel edge and against each other: the frame labels touched the
        left border, and "Description:" ran into the line under it. */
-    tab_vbox->set_border_width(8);
+    tab_vbox->set_margin_start(8);
+    tab_vbox->set_margin_end(8);
+    tab_vbox->set_margin_top(8);
+    tab_vbox->set_margin_bottom(8);
     tab_vbox->set_spacing(8);
     Gtk::Frame *info_frame = manage(new Gtk::Frame);
     Gtk::Grid *info_table = manage(new Gtk::Grid);
 
-    tab_view->add(*tab_vbox);
+    tab_view->set_child(*tab_vbox);
 
     /* No horizontal scrolling, and the parameter panel needs it that way.
      *
@@ -475,17 +524,20 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
      * window could scroll to sliders squeezed to a nub rather than crushing
      * them. Wrapping is the better answer to that and this is what it needs.
      * The panel's minimum is one column, so the window still goes narrow. */
-    tab_view->set_policy(Gtk::POLICY_NEVER, Gtk::POLICY_AUTOMATIC);
+    tab_view->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
 
     info_frame->set_label("DSP Information");
-    info_frame->add(*info_table);
+    info_frame->set_child(*info_table);
 
     info_table->set_column_spacing(5);
     info_table->set_row_spacing(5);
 
     /* Inside the frame as well as outside it, so the text is not against the
        frame's own line. */
-    info_table->set_border_width(6);
+    info_table->set_margin_start(6);
+    info_table->set_margin_end(6);
+    info_table->set_margin_top(6);
+    info_table->set_margin_bottom(6);
 
     thArg *dspName = args["name"];
 
@@ -534,11 +586,15 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     ArgTable *dsp_table = manage(new ArgTable);
 
     dsp_frame->set_label("DSP Parameters");
-    dsp_table->set_border_width(6);
-    dsp_frame->add(*dsp_table);
+    dsp_table->set_margin_start(6);
+    dsp_table->set_margin_end(6);
+    dsp_table->set_margin_top(6);
+    dsp_table->set_margin_bottom(6);
+    dsp_frame->set_child(*dsp_table);
         
-    tab_vbox->pack_start(*info_frame, Gtk::PACK_SHRINK);
-    tab_vbox->pack_start(*dsp_frame);
+    tab_vbox->append(*info_frame);
+    dsp_frame->set_vexpand(true);
+    tab_vbox->append(*dsp_frame);
 
     /* Which node drives each control, so the panel can gather them the way
        the node editor does. */
@@ -589,7 +645,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
        to reach the one page anyone opens would be sixteen scans wasted. The
        Nodes page holds an empty box until its tab is first looked at. */
     Gtk::Notebook *sub = manage(new Gtk::Notebook);
-    Gtk::Box *holder = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+    Gtk::Box *holder = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
     sub->append_page(*tab_view, "Overview");
     sub->append_page(*holder, "Nodes");
@@ -606,12 +662,12 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
        facts about the patch; they should not go away because you switched to
        the graph, and they should not scroll off the top of the parameter
        panel. */
-    Gtk::Box *page = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+    Gtk::Box *page = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
 
-    page->pack_start(*makePatchBar(num), Gtk::PACK_SHRINK);
-    page->pack_start(*manage(new Gtk::Separator(Gtk::ORIENTATION_HORIZONTAL)),
-                     Gtk::PACK_SHRINK);
-    page->pack_start(*sub);
+    page->append(*makePatchBar(num));
+    page->append(*manage(new Gtk::Separator(Gtk::Orientation::HORIZONTAL)));
+    sub->set_vexpand(true);
+    page->append(*sub);
 
     notebook_.append_page(*page, *makeTabLabel(tabName, tip));
 
@@ -636,10 +692,13 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
 
-    Gtk::Box *bar = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
+    Gtk::Box *bar = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
     bar->set_spacing(6);
-    bar->set_border_width(6);
+    bar->set_margin_start(6);
+    bar->set_margin_end(6);
+    bar->set_margin_top(6);
+    bar->set_margin_bottom(6);
 
     const bool saved = (patch != NULL) && (patch->filename.length() > 0);
 
@@ -652,19 +711,19 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
                             saved
                             ? thUtil::basename((char *)patch->filename.c_str())
                             : string("(unsaved)")) + "</b>");
-    nameLbl->set_ellipsize(Pango::ELLIPSIZE_MIDDLE);
+    nameLbl->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
 
     if (saved)
         nameLbl->set_tooltip_text(patch->filename);
 
-    bar->pack_start(*nameLbl, Gtk::PACK_SHRINK);
+    bar->append(*nameLbl);
 
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
 
     if (amp != NULL)
     {
         Gtk::Label *ampLbl = manage(new Gtk::Label("Amplitude:"));
-        Gtk::Scale *ampScale = manage(new Gtk::Scale(Gtk::ORIENTATION_HORIZONTAL));
+        Gtk::Scale *ampScale = manage(new Gtk::Scale(Gtk::Orientation::HORIZONTAL));
 
         /* Deliberately the same shape as masterScale_: same range, same
            steps, value on the right. The two multiply together, so they
@@ -672,7 +731,8 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
         ampScale->set_range(0, MIDIVALMAX);
         ampScale->set_increments(1, 10);
         ampScale->set_digits(0);
-        ampScale->set_value_pos(Gtk::POS_RIGHT);
+        ampScale->set_draw_value(true);
+        ampScale->set_value_pos(Gtk::PositionType::RIGHT);
         ampScale->set_size_request(160, -1);
         ampScale->set_value((*amp)[0]);
 
@@ -690,14 +750,14 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
         ampScales_[chan] = ampScale;
 
-        bar->pack_start(*manage(new Gtk::Separator(
-                                    Gtk::ORIENTATION_VERTICAL)),
-                        Gtk::PACK_SHRINK);
-        bar->pack_start(*ampLbl, Gtk::PACK_SHRINK);
-        bar->pack_start(*ampScale, Gtk::PACK_SHRINK);
+        bar->append(*manage(new Gtk::Separator(
+                                Gtk::Orientation::VERTICAL)));
+        bar->append(*ampLbl);
+        bar->append(*ampScale);
     }
 
-    /* Packed from the right, so Save As ends up outermost. */
+    /* Over on the right, which a GTK4 box reaches by appending an expanding
+       nothing first: it packs one way now, and pack_end is gone. */
     Gtk::Button *saveAsBtn = manage(new Gtk::Button("Save _As...", true));
     Gtk::Button *saveBtn = manage(new Gtk::Button("_Save", true));
 
@@ -716,8 +776,15 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
                               : string("This patch has not been saved yet -- "
                                        "use Save As"));
 
-    bar->pack_end(*saveAsBtn, Gtk::PACK_SHRINK);
-    bar->pack_end(*saveBtn, Gtk::PACK_SHRINK);
+    {
+        Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+        gap->set_hexpand(true);
+        bar->append(*gap);
+    }
+
+    bar->append(*saveBtn);
+    bar->append(*saveAsBtn);
 
     return bar;
 }
@@ -764,24 +831,27 @@ void MainSynthWindow::onSavePatchAs (int chan)
     if (patch == NULL)
         return;
 
-    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Save Patch",
-                                   Gtk::FILE_CHOOSER_ACTION_SAVE);
+    /* On the heap and answered later. run() is gone, so a chooser cannot be a
+       question asked in the middle of a function any more -- everything below
+       the point this used to block has moved into onSavePatchAsResponse. */
+    Gtk::FileChooserDialog *fileSel =
+        new Gtk::FileChooserDialog(*this, "thinksynth - Save Patch",
+                                   Gtk::FileChooser::Action::SAVE);
 
-    fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
-    fileSel.add_button("_Save", Gtk::RESPONSE_OK);
-    fileSel.set_do_overwrite_confirmation(true);
+    fileSel->set_modal(true);
+    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    fileSel->add_button("_Save", Gtk::ResponseType::OK);
 
     /* The same preference the Patch Selector keeps, so the two agree about
        where patches live rather than each remembering separately. */
-    gthPrefs *prefs = gthPrefs::instance();
-    string **vals = prefs->Get("patchdir");
+    string **vals = gthPrefs::instance()->Get("patchdir");
 
     if (vals != NULL && vals[0] != NULL)
-        fileSel.set_current_folder(*(vals[0]));
+        fileSel->set_current_folder(Gio::File::create_for_path(*(vals[0])));
 
     if (patch->filename.length() > 0)
     {
-        fileSel.set_file(Gio::File::create_for_path(patch->filename));
+        fileSel->set_file(Gio::File::create_for_path(patch->filename));
     }
     else if (patch->dspFile.length() > 0)
     {
@@ -794,13 +864,28 @@ void MainSynthWindow::onSavePatchAs (int chan)
         if (dot != string::npos)
             suggest.erase(dot);
 
-        fileSel.set_current_name(suggest + ".patch");
+        fileSel->set_current_name(suggest + ".patch");
     }
 
-    if (fileSel.run() != Gtk::RESPONSE_OK)
-        return;
+    fileSel->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this,
+                                 &MainSynthWindow::onSavePatchAsResponse),
+                   fileSel, chan));
 
-    const string file = chosenPath(fileSel);
+    fileSel->present();
+}
+
+void MainSynthWindow::onSavePatchAsResponse (int response,
+                                             Gtk::FileChooserDialog *fileSel,
+                                             int chan)
+{
+    const string file = response == Gtk::ResponseType::OK
+                        ? chosenPath(*fileSel) : string();
+
+    closeDialog(fileSel);
+
+    if (file.empty())
+        return;
 
     {
         string **dir = new string *[2];
@@ -808,9 +893,13 @@ void MainSynthWindow::onSavePatchAs (int chan)
         dir[0] = new string(thUtil::dirname(file.c_str()));
         dir[1] = NULL;
 
-        prefs->Set("patchdir", dir);
+        gthPrefs::instance()->Set("patchdir", dir);
     }
 
+    /* Still deferred. The reason has changed -- there is no click on the
+       stack now, the response has already been delivered -- but savePatch
+       still rebuilds every page, and doing that from inside the chooser's own
+       response handler destroys widgets the emission is walking. */
     Glib::signal_idle().connect_once(
         sigc::bind(
             sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
@@ -827,12 +916,7 @@ void MainSynthWindow::onSavePatchAs (int chan)
 void MainSynthWindow::doSavePatch (string file, int chan)
 {
     if (!gthPatchManager::instance()->savePatch(file, chan))
-    {
-        Gtk::MessageDialog err("Could not write " + file, false,
-                               Gtk::MESSAGE_ERROR);
-
-        err.run();
-    }
+        showError(this, "Could not write " + file);
 }
 
 /* Which node each control drives, for grouping the panel by.
@@ -956,8 +1040,8 @@ void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
 
     editors_[holder] = ed;
 
-    box->pack_start(*ed);
-    box->show_all_children();
+    ed->set_vexpand(true);
+    box->append(*ed);
 
     if (dspFile.empty())
     {
@@ -1055,8 +1139,10 @@ void MainSynthWindow::clearPages (void)
 {
     tearingDown_ = true;
 
-    notebook_.hide();
-
+    /* Not hidden first any more. That was to spare the flicker of sixteen
+       pages going one at a time, and it depended on a show_all() afterwards
+       to undo it -- which GTK4 does not have, so the notebook stayed hidden
+       and the window came up empty below the toolbar. */
     while (notebook_.get_n_pages() > 0)
         notebook_.remove_page(-1);
 
@@ -1070,7 +1156,6 @@ void MainSynthWindow::onPatchesChanged (void)
     clearPages();
 
     populate();
-    notebook_.show_all();
 
     if (pagenum != -1)
         notebook_.set_current_page(pagenum);
@@ -1078,13 +1163,9 @@ void MainSynthWindow::onPatchesChanged (void)
 
 void MainSynthWindow::onPatchLoadError (const char* failure)
 {
-    char *error = g_strdup_printf("Couldn't load patchfile %s; syntax error, or DSP does not exist",
-        failure);
-        
-    Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
-    
-    errorDialog.run();
-    free(error);
+    showError(this, "Could not load the patch file",
+              Glib::ustring(failure) +
+              "\n\nA syntax error, or the DSP it names does not exist.");
 }
 
 void MainSynthWindow::onAboutBoxHide (void)
@@ -1186,14 +1267,8 @@ void MainSynthWindow::onDspEntryActivate (void)
     
     if (patchMgr->newPatch(dspfile, pagenum) == false)
     {
-        char *error = g_strdup_printf("Couldn't load DSP %s; syntax error, or does not exist",
-            dspfile.c_str());
-        
-        Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
-        
-        errorDialog.run();
-
-        free(error);
+        showError(this, "Could not load the DSP",
+                  dspfile + "\n\nA syntax error, or it does not exist.");
 
         return;
     }
@@ -1201,60 +1276,69 @@ void MainSynthWindow::onDspEntryActivate (void)
     clearPages();
 
     populate();
-    notebook_.show_all();
 
     notebook_.set_current_page(pagenum);
 }
 
 void MainSynthWindow::onBrowseButton (void)
 {
-    gthPatchManager *patchMgr = gthPatchManager::instance();
-    int pagenum = notebook_.get_current_page();
-    Gtk::FileChooserDialog fileSel(*this, "thinksynth - Load DSP",
-                                   Gtk::FILE_CHOOSER_ACTION_OPEN);
+    Gtk::FileChooserDialog *fileSel =
+        new Gtk::FileChooserDialog(*this, "thinksynth - Load DSP",
+                                   Gtk::FileChooser::Action::OPEN);
 
-    fileSel.add_button("_Cancel", Gtk::RESPONSE_CANCEL);
-    fileSel.add_button("_Open", Gtk::RESPONSE_OK);
+    fileSel->set_modal(true);
+    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    fileSel->add_button("_Open", Gtk::ResponseType::OK);
 
     if (prevDir_ != "")
-        fileSel.set_current_folder(prevDir_);
+        fileSel->set_current_folder(Gio::File::create_for_path(prevDir_));
 
-    if (fileSel.run() == Gtk::RESPONSE_OK)
+    /* The page is captured now rather than read in the handler: the chooser
+       is not modal to the notebook, and the tab that was current when Browse
+       was clicked is the one this is loading onto. */
+    fileSel->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onBrowseResponse),
+                   fileSel, notebook_.get_current_page()));
+
+    fileSel->present();
+}
+
+void MainSynthWindow::onBrowseResponse (int response,
+                                        Gtk::FileChooserDialog *fileSel,
+                                        int pagenum)
+{
+    const string picked = response == Gtk::ResponseType::OK
+                          ? chosenPath(*fileSel) : string();
+
+    closeDialog(fileSel);
+
+    if (picked.empty())
+        return;
+
+    dspEntry_.set_text(picked);
+
+    if (!gthPatchManager::instance()->newPatch(picked, pagenum))
     {
-        const string picked = chosenPath(fileSel);
-
-        dspEntry_.set_text(picked);
-
-        if (patchMgr->newPatch(picked, pagenum))
-        {
-            string dn = thUtil::dirname((char*)picked.c_str());
-
-            prevDir_ = dn + "/";
-
-            string **vals = new string *[2];
-            vals[0] = new string(prevDir_);
-            vals[1] = NULL;
-
-            gthPrefs *prefs = gthPrefs::instance();
-            prefs->Set("dspdir", vals);
-
-            /* load up the patch file */
-            clearPages();
-
-            populate();
-            notebook_.show_all();
-            notebook_.set_current_page(pagenum);
-        }
-        else
-        {
-            char *error = g_strdup_printf("Couldn't load DSP %s; syntax error, or does not exist",
-                picked.c_str());
-        
-            Gtk::MessageDialog errorDialog (error, false, Gtk::MESSAGE_ERROR);
-        
-            errorDialog.run();
-
-            free(error);
-        }
+        showError(this, "Could not load the DSP",
+                  picked + "\n\nA syntax error, or it does not exist.");
+        return;
     }
+
+    prevDir_ = thUtil::dirname((char *)picked.c_str());
+    prevDir_ += "/";
+
+    {
+        string **vals = new string *[2];
+
+        vals[0] = new string(prevDir_);
+        vals[1] = NULL;
+
+        gthPrefs::instance()->Set("dspdir", vals);
+    }
+
+    /* load up the patch file */
+    clearPages();
+
+    populate();
+    notebook_.set_current_page(pagenum);
 }

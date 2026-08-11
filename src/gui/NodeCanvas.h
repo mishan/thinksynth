@@ -112,13 +112,22 @@ public:
     }
 
 protected:
-    virtual bool on_draw (const Cairo::RefPtr<Cairo::Context> &cr);
-    virtual void on_size_allocate (Gtk::Allocation &alloc);
-    virtual bool on_button_press_event (GdkEventButton *b);
-    virtual bool on_button_release_event (GdkEventButton *b);
-    virtual bool on_motion_notify_event (GdkEventMotion *m);
-    virtual bool on_scroll_event (GdkEventScroll *s);
-    virtual bool on_leave_notify_event (GdkEventCrossing *c);
+    void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                 int height);
+    void onResize (int width, int height);
+    /* Input, through controllers. There are no on_*_event vfuncs in GTK4 and
+       no event mask to widen -- a controller receives the kind of thing it is
+       for, and is handed the coordinates rather than being asked to fetch
+       them. */
+    void onPressed (int nPress, double x, double y);
+    void onReleased (int nPress, double x, double y);
+    void onMotion (double x, double y);
+    bool onScroll (double dx, double dy);
+    void onLeave (void);
+
+    Glib::RefPtr<Gtk::GestureClick> click_;
+    Glib::RefPtr<Gtk::EventControllerMotion> motion_;
+    Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,

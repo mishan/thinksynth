@@ -37,6 +37,7 @@
 #include "NodePalette.h"
 #include "../NodeCatalog.h"
 #include "NodeEditor.h"
+#include "Dialogs.h"
 
 /* The path the chooser settled on.
  *
@@ -51,7 +52,7 @@ static string chosenPath (Gtk::FileChooser &chooser)
 }
 
 NodeEditor::NodeEditor (thSynth *synth)
-    : Gtk::Box(Gtk::ORIENTATION_VERTICAL),
+    : Gtk::Box(Gtk::Orientation::VERTICAL),
       synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
       structuralDirty_(false), selStatus_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
@@ -63,60 +64,87 @@ NodeEditor::NodeEditor (thSynth *synth)
       paletteWidth_(210), paramsWidth_(240), pendingParams_(-1)
 {
     toolbar_.set_spacing(4);
-    toolbar_.set_border_width(4);
+    toolbar_.set_margin_start(4);
+    toolbar_.set_margin_end(4);
+    toolbar_.set_margin_top(4);
+    toolbar_.set_margin_bottom(4);
     /* Where the window title used to be. A widget has no title bar, and the
        filename and the dirty marker still have to be somewhere -- they say
        which file every button on this bar would act on. */
     titleLbl_.set_xalign(0.0);
-    titleLbl_.set_ellipsize(Pango::ELLIPSIZE_START);
+    titleLbl_.set_ellipsize(Pango::EllipsizeMode::START);
     titleLbl_.set_width_chars(18);
     titleLbl_.set_max_width_chars(40);
 
-    toolbar_.pack_start(titleLbl_, Gtk::PACK_SHRINK);
-    toolbar_.pack_start(*manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL)),
-                        Gtk::PACK_SHRINK);
-    toolbar_.pack_start(newBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_start(deleteBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_start(arrangeBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_start(saveBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_start(saveAsBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_start(revertBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_end(zoomInBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_end(zoomResetBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_end(zoomOutBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_end(zoomFitBtn_, Gtk::PACK_SHRINK);
+    /* A box packs in one direction now -- there is no pack_end -- so the
+       right-hand group is reached by appending everything in the order it is
+       read and putting an expanding nothing between the two halves. That is
+       the widget GTK4 leaves you for the job, and it is at least honest about
+       what pack_end was doing. */
+    toolbar_.append(titleLbl_);
+    toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
+    toolbar_.append(newBtn_);
+    toolbar_.append(deleteBtn_);
+    toolbar_.append(arrangeBtn_);
+    toolbar_.append(saveBtn_);
+    toolbar_.append(saveAsBtn_);
+    toolbar_.append(revertBtn_);
+
+    {
+        Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+        gap->set_hexpand(true);
+        toolbar_.append(*gap);
+    }
 
     /* Grouped with the zoom buttons rather than with the editing ones: what
        is on screen and how big it is are the same kind of decision, and none
        of them change the file. */
-    toolbar_.pack_end(*manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL)),
-                      Gtk::PACK_SHRINK);
-    toolbar_.pack_end(paramsBtn_, Gtk::PACK_SHRINK);
-    toolbar_.pack_end(paletteBtn_, Gtk::PACK_SHRINK);
+    toolbar_.append(paletteBtn_);
+    toolbar_.append(paramsBtn_);
+    toolbar_.append(*manage(new Gtk::Separator(Gtk::Orientation::VERTICAL)));
+    toolbar_.append(zoomFitBtn_);
+    toolbar_.append(zoomOutBtn_);
+    toolbar_.append(zoomResetBtn_);
+    toolbar_.append(zoomInBtn_);
 
     paletteBtn_.set_active(true);
     paramsBtn_.set_active(true);
     paletteBtn_.set_tooltip_text("Show or hide the plugin palette");
     paramsBtn_.set_tooltip_text("Show or hide the parameter panel");
 
-    scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
-    scroller_.add(canvas_);
+    scroller_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
+    scroller_.set_child(canvas_);
 
     /* Palette on the left, canvas in the middle, parameters on the right --
        the order things are used in: pick, place, adjust. */
-    outer_.pack1(palette_, false, false);
-    outer_.pack2(split_, true, false);
+    /* pack1/pack2 with their resize and shrink flags are gone; a GTK4 paned
+       takes a child for each side and the two flags are properties on it.
+       resize=false, shrink=false for the palette is set_resize_start_child
+       and set_shrink_start_child both off. */
+    outer_.set_start_child(palette_);
+    outer_.set_resize_start_child(false);
+    outer_.set_shrink_start_child(false);
+    outer_.set_end_child(split_);
+    outer_.set_resize_end_child(true);
+    outer_.set_shrink_end_child(false);
     outer_.set_position(paletteWidth_);
 
-    split_.pack1(scroller_, true, false);
-    split_.pack2(params_, false, false);
+    split_.set_start_child(scroller_);
+    split_.set_resize_start_child(true);
+    split_.set_shrink_start_child(false);
+    split_.set_end_child(params_);
+    split_.set_resize_end_child(false);
+    split_.set_shrink_end_child(false);
 
     /* No starting position here. It used to be 520 -- measured from the left,
        so it said "the canvas gets 520 pixels" and handed the parameter panel
        everything else, which on a wide window was most of it. What it should
        say is that the panel gets the width it asks for; that needs the paned's
        own width, so it waits for the first allocation. */
-    split_.signal_size_allocate().connect(
+    split_.property_position().signal_changed().connect(
+        sigc::mem_fun(*this, &NodeEditor::onSplitAllocate));
+    split_.signal_map().connect(
         sigc::mem_fun(*this, &NodeEditor::onSplitAllocate));
 
     status_.set_xalign(0.0);
@@ -125,9 +153,10 @@ NodeEditor::NodeEditor (thSynth *synth)
     status_.set_margin_top(2);
     status_.set_margin_bottom(2);
 
-    pack_start(toolbar_, Gtk::PACK_SHRINK);
-    pack_start(outer_);
-    pack_start(status_, Gtk::PACK_SHRINK);
+    append(toolbar_);
+    outer_.set_vexpand(true);
+    append(outer_);
+    append(status_);
 
     arrangeBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onArrange));
@@ -200,27 +229,26 @@ NodeEditor::NodeEditor (thSynth *synth)
     deleteBtn_.set_sensitive(false);
     palette_.setSensitive(false);
 
-    show_all_children();
 }
 
 /* GtkPaned's position is the width of its *left* child, so everything about
    the right one has to be expressed the long way round. */
+/* The handle between the two children.
+ *
+ * It was a style property, which GTK4 removed along with the rest of them --
+ * widget geometry comes from CSS now and there is no getter for it. The value
+ * is the same one GTK3 defaulted to, and being a few pixels out only moves
+ * the panel edge by that much. */
+static const int PANED_HANDLE = 5;
+
 int NodeEditor::paramsWidth (void) const
 {
-    int handle = 5;
-
-    split_.get_style_property("handle-size", handle);
-
-    return split_.get_allocated_width() - split_.get_position() - handle;
+    return split_.get_width() - split_.get_position() - PANED_HANDLE;
 }
 
 void NodeEditor::setParamsWidth (int width)
 {
-    int handle = 5;
-
-    split_.get_style_property("handle-size", handle);
-
-    split_.set_position(split_.get_allocated_width() - width - handle);
+    split_.set_position(split_.get_width() - width - PANED_HANDLE);
 }
 
 /* Hands the parameter panel whatever width it is owed, now that there is a
@@ -243,18 +271,22 @@ void NodeEditor::setParamsWidth (int width)
  *
  * Afterwards position_set is on and the panel stays where it is put --
  * including where the user drags it to. */
-void NodeEditor::onSplitAllocate (Gtk::Allocation &alloc)
+void NodeEditor::onSplitAllocate (void)
 {
     int want = pendingParams_;
 
-    if (want == 0 || alloc.get_width() < 2)
+    if (want == 0 || split_.get_width() < 2)
         return;
 
     if (want < 0)
     {
-        int nat = 0;
+        /* get_preferred_width() is gone; measure() answers the same question
+           for either orientation, and wants somewhere to put the baselines it
+           has no opinion about here. */
+        int nat = 0, minBaseline = 0, natBaseline = 0;
 
-        params_.get_preferred_width(want, nat);
+        params_.measure(Gtk::Orientation::HORIZONTAL, -1, want, nat,
+                        minBaseline, natBaseline);
         paramsWidth_ = want;
     }
 
@@ -362,7 +394,10 @@ bool NodeEditor::dirty (void) const
  * parent rather than a wrong one. */
 Gtk::Window *NodeEditor::topLevel (void)
 {
-    return dynamic_cast<Gtk::Window *>(get_toplevel());
+    /* get_toplevel() is gone; the root of the widget tree is what it was
+       reaching for, and it answers NULL rather than the widget itself when
+       there is not one yet -- which is the check this wanted. */
+    return dynamic_cast<Gtk::Window *>(get_root());
 }
 
 void NodeEditor::updateTitle (void)
@@ -804,11 +839,7 @@ void NodeEditor::onSave (void)
 
     if (!writeAll(why))
     {
-        Gtk::Window *top = topLevel();
-        Gtk::MessageDialog dlg(*top, "Could not save.", false,
-                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
-        dlg.set_secondary_text(why);
-        dlg.run();
+        showError(topLevel(), "Could not save.", why);
 
         setStatus("Not saved: " + why);
         return;
@@ -820,17 +851,26 @@ void NodeEditor::onSave (void)
        medium, someone else's file.
 
        Offer Save As rather than an error. The work is safe either way; all
-       that is in question is where it lands. */
+       that is in question is where it lands.
+
+       That offer used to be a question asked here and answered before this
+       line finished. A GTK4 chooser is answered later, so the rest of the
+       save is handed over as something to do afterwards. */
     if (!sourceWritable() || !copyFile(work_, source_))
     {
-        if (!saveAsDialog())
-        {
-            setStatus("Not saved: " + source_ + " cannot be written. "
-                      "Use Save As to put it somewhere else.");
-            return;
-        }
+        saveAsDialog(sigc::bind(sigc::mem_fun(*this, &NodeEditor::finishSave),
+                                n, c, w),
+                     "Not saved: " + source_ + " cannot be written. "
+                     "Use Save As to put it somewhere else.");
+        return;
     }
 
+    finishSave(n, c, w);
+}
+
+/* What follows a save that got as far as a file, from either route. */
+void NodeEditor::finishSave (int n, int c, int w)
+{
     structuralDirty_ = false;
 
     /* Reparse rather than trusting the in-memory graph. The file is now the
@@ -863,6 +903,7 @@ void NodeEditor::onSave (void)
 
     setStatus(buf);
 }
+
 
 void NodeEditor::onRevert (void)
 {
@@ -1105,53 +1146,59 @@ void NodeEditor::onPaletteAdd (string spelling)
     setStatus("Added " + name + " (" + spelling + ").  Wire it up, then Save.");
 }
 
-/* Name, range and label for a new control.
+/* The new-control form.
  *
- * A control needs more than a click: unlike a plugin, nothing about it is
- * implied by what was chosen. The range in particular has no sensible default
- * -- 0 to 1 is right for a mix and useless for a filter cutoff -- and getting
- * it wrong means a slider that cannot reach the value you want. */
-bool NodeEditor::askControl (string &name, double &value, double &min,
-                             double &max, string &label)
+ * It used to be a stack of widgets and a `while (dlg.run() == OK)' loop: ask,
+ * validate, complain and ask again without losing what had been typed. GTK4
+ * has no run(), so the widgets outlive the call that built them -- hence the
+ * form struct -- and the loop becomes the dialog simply not closing when the
+ * answer will not do.
+ *
+ * `done' is what to do with a good answer. */
+void NodeEditor::askControl (const string &suggested,
+                             const sigc::slot<void (ControlForm *)> &done)
 {
     Gtk::Window *top = topLevel();
 
     if (top == NULL)
-        return false;
+        return;
 
-    Gtk::Dialog dlg("New control", *top, true);
+    ControlForm *form = new ControlForm;
 
-    dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-    dlg.add_button("Add", Gtk::RESPONSE_OK);
-    dlg.set_default_response(Gtk::RESPONSE_OK);
+    form->done = done;
+    form->dlg = new Gtk::Dialog("New control", *top, true);
 
-    Gtk::Grid grid;
+    form->dlg->add_button("Cancel", Gtk::ResponseType::CANCEL);
+    form->dlg->add_button("Add", Gtk::ResponseType::OK);
+    form->dlg->set_default_response(Gtk::ResponseType::OK);
 
-    grid.set_row_spacing(4);
-    grid.set_column_spacing(8);
-    grid.set_border_width(8);
+    Gtk::Grid *grid = manage(new Gtk::Grid);
 
-    Gtk::Entry nameEntry, labelEntry;
+    grid->set_row_spacing(4);
+    grid->set_column_spacing(8);
+    grid->set_margin_start(8);
+    grid->set_margin_end(8);
+    grid->set_margin_top(8);
+    grid->set_margin_bottom(8);
 
-    nameEntry.set_text(name);
-    nameEntry.set_activates_default(true);
-    labelEntry.set_activates_default(true);
-    labelEntry.set_placeholder_text("optional");
+    form->name = manage(new Gtk::Entry);
+    form->label = manage(new Gtk::Entry);
 
-    Glib::RefPtr<Gtk::Adjustment> minAdj =
-        Gtk::Adjustment::create(0, -1000000, 1000000, 0.1, 1);
-    Glib::RefPtr<Gtk::Adjustment> maxAdj =
-        Gtk::Adjustment::create(1, -1000000, 1000000, 0.1, 1);
-    Glib::RefPtr<Gtk::Adjustment> valAdj =
-        Gtk::Adjustment::create(0.5, -1000000, 1000000, 0.1, 1);
+    form->name->set_text(suggested);
+    form->name->set_activates_default(true);
+    form->label->set_activates_default(true);
+    form->label->set_placeholder_text("optional");
 
-    Gtk::SpinButton minSpin(minAdj, 0.1, 4);
-    Gtk::SpinButton maxSpin(maxAdj, 0.1, 4);
-    Gtk::SpinButton valSpin(valAdj, 0.1, 4);
+    form->min = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(0, -1000000, 1000000, 0.1, 1), 0.1, 4));
+    form->max = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(1, -1000000, 1000000, 0.1, 1), 0.1, 4));
+    form->value = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(0.5, -1000000, 1000000, 0.1, 1), 0.1, 4));
 
     const char *labels[] = { "Name", "Label", "Minimum", "Maximum", "Value" };
-    Gtk::Widget *fields[] = { &nameEntry, &labelEntry, &minSpin, &maxSpin,
-                              &valSpin };
+    Gtk::Widget *fields[] = { form->name, form->label, form->min, form->max,
+                              form->value };
 
     for (int i = 0; i < 5; i++)
     {
@@ -1159,52 +1206,63 @@ bool NodeEditor::askControl (string &name, double &value, double &min,
 
         l->set_xalign(1.0);
 
-        grid.attach(*l, 0, i, 1, 1);
-        grid.attach(*fields[i], 1, i, 1, 1);
+        grid->attach(*l, 0, i, 1, 1);
+        grid->attach(*fields[i], 1, i, 1, 1);
     }
 
-    Gtk::Label hint;
+    Gtk::Label *hint = manage(new Gtk::Label);
 
-    hint.set_markup("<small>The name is what nodes read as "
-                    "<tt>@name</tt>.</small>");
-    hint.set_xalign(0.0);
-    grid.attach(hint, 0, 5, 2, 1);
+    hint->set_markup("<small>The name is what nodes read as "
+                     "<tt>@name</tt>.</small>");
+    hint->set_xalign(0.0);
+    grid->attach(*hint, 0, 5, 2, 1);
 
-    dlg.get_content_area()->pack_start(grid);
-    dlg.show_all_children();
+    grid->set_hexpand(true);
+    form->dlg->get_content_area()->append(*grid);
 
-    /* Looped rather than validated once, so a rejected name can be corrected
-       instead of throwing the whole dialog away. */
-    while (dlg.run() == Gtk::RESPONSE_OK)
-    {
-        name = nameEntry.get_text();
-        label = labelEntry.get_text();
-        min = minSpin.get_value();
-        max = maxSpin.get_value();
-        value = valSpin.get_value();
+    form->dlg->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &NodeEditor::onAskControlResponse),
+                   form));
 
-        string complaint;
-
-        if (!NodeEdit::validName(name))
-            complaint = "A control name must start with a letter or "
-                        "underscore and contain only letters, digits and "
-                        "underscores.";
-        else if (!NodeEdit::validLabel(label))
-            complaint = "A label cannot contain a quote -- the .dsp string "
-                        "syntax has no way to escape one.";
-        else if (max <= min)
-            complaint = "The maximum must be above the minimum.";
-
-        if (complaint.empty())
-            return true;
-
-        Gtk::MessageDialog err(dlg, complaint, false, Gtk::MESSAGE_WARNING,
-                               Gtk::BUTTONS_OK, true);
-        err.run();
-    }
-
-    return false;
+    form->dlg->present();
 }
+
+void NodeEditor::onAskControlResponse (int response, ControlForm *form)
+{
+    if (response != Gtk::ResponseType::OK)
+    {
+        closeDialog(form->dlg);
+        delete form;
+        return;
+    }
+
+    string complaint;
+
+    if (!NodeEdit::validName(form->name->get_text()))
+        complaint = "A control name must start with a letter or underscore "
+                    "and contain only letters, digits and underscores.";
+    else if (!NodeEdit::validLabel(form->label->get_text()))
+        complaint = "A label cannot contain a quote -- the .dsp string syntax "
+                    "has no way to escape one.";
+    else if (form->max->get_value() <= form->min->get_value())
+        complaint = "The maximum must be above the minimum.";
+
+    /* Left open, which is what the loop was for: a rejected name can be
+       corrected rather than the whole form being thrown away. */
+    if (!complaint.empty())
+    {
+        showWarning(form->dlg, complaint);
+        return;
+    }
+
+    const sigc::slot<void (ControlForm *)> done = form->done;
+
+    done(form);
+
+    closeDialog(form->dlg);
+    delete form;
+}
+
 
 void NodeEditor::onPaletteAddControl (void)
 {
@@ -1221,12 +1279,17 @@ void NodeEditor::onPaletteAddControl (void)
         if (graph_.boxes()[b].isControl)
             taken.push_back(graph_.boxes()[b].ctlArg);
 
-    string name = NodeCatalog::suggestName("ctl", taken);
-    string label;
-    double value = 0.5, min = 0, max = 1;
+    askControl(NodeCatalog::suggestName("ctl", taken),
+               sigc::mem_fun(*this, &NodeEditor::addControlFromForm));
+}
 
-    if (!askControl(name, value, min, max, label))
-        return;
+void NodeEditor::addControlFromForm (ControlForm *form)
+{
+    const string name = form->name->get_text();
+    const string label = form->label->get_text();
+    const double value = form->value->get_value();
+    const double min = form->min->get_value();
+    const double max = form->max->get_value();
 
     string why;
 
@@ -1409,54 +1472,75 @@ void NodeEditor::onDeleteNode (void)
  *
  * Adopting the new path matters: after saving a read-only patch somewhere of
  * your own, the next Save should go there without asking again. */
-bool NodeEditor::saveAsDialog (void)
+void NodeEditor::saveAsDialog (const sigc::slot<void ()> &done,
+                               const string &ifRefused)
 {
     Gtk::Window *top = topLevel();
 
     if (top == NULL)
-        return false;   /* not in a window yet; nothing to parent on */
+        return;   /* not in a window yet; nothing to parent on */
 
-    Gtk::FileChooserDialog dlg(*top, "Save DSP As",
-                               Gtk::FILE_CHOOSER_ACTION_SAVE);
+    Gtk::FileChooserDialog *dlg =
+        new Gtk::FileChooserDialog(*top, "Save DSP As",
+                                   Gtk::FileChooser::Action::SAVE);
 
-    dlg.set_transient_for(*top);
-    dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-    dlg.add_button("Save", Gtk::RESPONSE_OK);
-    dlg.set_do_overwrite_confirmation(true);
+    dlg->set_modal(true);
+    dlg->set_transient_for(*top);
+    dlg->add_button("Cancel", Gtk::ResponseType::CANCEL);
+    dlg->add_button("Save", Gtk::ResponseType::OK);
 
     if (!source_.empty())
     {
-        dlg.set_current_name(thUtil::basename((char *)source_.c_str()));
+        dlg->set_current_name(thUtil::basename((char *)source_.c_str()));
 
         /* Not the source's own folder as the starting point when it cannot be
            written -- offering the directory that just refused the write is
            not much of a suggestion. */
         if (sourceWritable())
-            dlg.set_current_folder(thUtil::dirname(source_.c_str()));
+            dlg->set_current_folder(
+                Gio::File::create_for_path(thUtil::dirname(source_.c_str())));
     }
     else
-        dlg.set_current_name("untitled.dsp");
+        dlg->set_current_name("untitled.dsp");
 
-    if (dlg.run() != Gtk::RESPONSE_OK)
-        return false;
+    dlg->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &NodeEditor::onSaveAsResponse),
+                   dlg, done, ifRefused));
 
-    const string path = chosenPath(dlg);
+    dlg->present();
+}
 
-    dlg.hide();
+void NodeEditor::onSaveAsResponse (int response, Gtk::FileChooserDialog *dlg,
+                                   sigc::slot<void ()> done, string ifRefused)
+{
+    const string path = response == Gtk::ResponseType::OK
+                        ? chosenPath(*dlg) : string();
+
+    closeDialog(dlg);
+
+    if (path.empty())
+    {
+        if (!ifRefused.empty())
+            setStatus(ifRefused);
+
+        return;
+    }
 
     if (!copyFile(work_, path))
     {
-        Gtk::MessageDialog err(*top, "Could not save there.", false,
-                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
-        err.set_secondary_text(path);
-        err.run();
+        showError(topLevel(), "Could not save there.", path);
 
-        return false;
+        if (!ifRefused.empty())
+            setStatus(ifRefused);
+
+        return;
     }
 
+    /* Adopting the new path matters: after saving a read-only patch somewhere
+       of your own, the next Save should go there without asking again. */
     source_ = path;
 
-    return true;
+    done();
 }
 
 void NodeEditor::onSaveAs (void)
@@ -1474,9 +1558,11 @@ void NodeEditor::onSaveAs (void)
         return;
     }
 
-    if (!saveAsDialog())
-        return;
+    saveAsDialog(sigc::mem_fun(*this, &NodeEditor::finishSaveAs), string());
+}
 
+void NodeEditor::finishSaveAs (void)
+{
     structuralDirty_ = false;
 
     const int sel = canvas_.selected();
@@ -1490,6 +1576,7 @@ void NodeEditor::onSaveAs (void)
     setStatus("Saved as " + source_ + ".");
 }
 
+
 void NodeEditor::onNewFile (void)
 {
     Gtk::Window *top = topLevel();
@@ -1497,24 +1584,35 @@ void NodeEditor::onNewFile (void)
     if (top == NULL)
         return;
 
-    Gtk::FileChooserDialog dlg(*top, "New DSP",
-                               Gtk::FILE_CHOOSER_ACTION_SAVE);
+    Gtk::FileChooserDialog *dlg =
+        new Gtk::FileChooserDialog(*top, "New DSP",
+                                   Gtk::FileChooser::Action::SAVE);
 
-    dlg.set_transient_for(*top);
-    dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
-    dlg.add_button("Create", Gtk::RESPONSE_OK);
-    dlg.set_do_overwrite_confirmation(true);
-    dlg.set_current_name("untitled.dsp");
+    dlg->set_modal(true);
+    dlg->set_transient_for(*top);
+    dlg->add_button("Cancel", Gtk::ResponseType::CANCEL);
+    dlg->add_button("Create", Gtk::ResponseType::OK);
+    dlg->set_current_name("untitled.dsp");
 
     if (!source_.empty())
-        dlg.set_current_folder(thUtil::dirname(source_.c_str()));
+        dlg->set_current_folder(
+            Gio::File::create_for_path(thUtil::dirname(source_.c_str())));
 
-    if (dlg.run() != Gtk::RESPONSE_OK)
+    dlg->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this, &NodeEditor::onNewFileResponse), dlg));
+
+    dlg->present();
+}
+
+void NodeEditor::onNewFileResponse (int response, Gtk::FileChooserDialog *dlg)
+{
+    const string path = response == Gtk::ResponseType::OK
+                        ? chosenPath(*dlg) : string();
+
+    closeDialog(dlg);
+
+    if (path.empty())
         return;
-
-    const string path = chosenPath(dlg);
-
-    dlg.hide();
 
     string base = thUtil::basename(path.c_str());
 
@@ -1536,10 +1634,7 @@ void NodeEditor::onNewFile (void)
        once the new one is complete. */
     if (NodeEdit::createFile(path, base, "", true, why) != NodeEdit::OK)
     {
-        Gtk::MessageDialog err(*top, "Could not create the file.", false,
-                               Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
-        err.set_secondary_text(why);
-        err.run();
+        showError(topLevel(), "Could not create the file.", why);
         return;
     }
 
@@ -1549,6 +1644,7 @@ void NodeEditor::onNewFile (void)
                   ".dsp -- an io node and nothing else. Add nodes from the "
                   "palette.");
 }
+
 
 /* Records an edit. Nothing reaches the file until Save.
  *
