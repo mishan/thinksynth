@@ -596,6 +596,11 @@ void MainSynthWindow::populate (void)
         append_tab (tabName, patch->filename, i, true);
     }
 
+    /* The first page is current without a switch ever happening, so it would
+       otherwise be the one tab never marked. */
+    const int cur = notebook_.get_current_page();
+
+    highlightTab(cur < 0 ? 0 : cur);
 }
 
 
@@ -655,8 +660,46 @@ void MainSynthWindow::onKeyboardHide (void)
 
 /* gtkmm-3 passes the page widget itself rather than the opaque GtkNotebookPage
    struct, which no longer exists. */
+/* Make it obvious which tab is the current one.
+ *
+ * Across the top a selected tab is unmistakable -- it joins the page below
+ * it. Down the side that join is a one-pixel edge, and with the labels
+ * left-aligned in a tall strip the only other mark was the dotted focus
+ * rectangle, which is about having keyboard focus and not about which patch
+ * you are looking at.
+ *
+ * Bold rather than a colour or a background: it reads on every theme, light
+ * or dark, without this having an opinion about the palette. get_text()
+ * returns the label's plain text whether or not markup was applied to it, so
+ * the name survives being marked up and unmarked repeatedly. */
+void MainSynthWindow::highlightTab (int pagenum)
+{
+    for (int i = 0; i < notebook_.get_n_pages(); i++)
+    {
+        Gtk::Widget *w = notebook_.get_nth_page(i);
+
+        if (w == NULL)
+            continue;
+
+        Gtk::Label *lbl =
+            dynamic_cast<Gtk::Label *>(notebook_.get_tab_label(*w));
+
+        if (lbl == NULL)
+            continue;
+
+        const string text = lbl->get_text();
+
+        if (i == pagenum)
+            lbl->set_markup("<b>" + Glib::Markup::escape_text(text) + "</b>");
+        else
+            lbl->set_text(text);
+    }
+}
+
 void MainSynthWindow::onSwitchPage (Gtk::Widget *page, guint pagenum)
 {
+    highlightTab((int)pagenum);
+
     gthPatchManager *patchMgr = gthPatchManager::instance();
     gthPatchManager::PatchFile *patch = patchMgr->getPatch(pagenum);
 
