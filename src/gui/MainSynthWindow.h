@@ -110,6 +110,11 @@ protected:
     /* The size the window had while it was on screen, and the two ends of
        remembering it. */
     void captureSize (void);
+
+    /* Takes the size, hides the window and stops the application. Both ways
+       out of the program go through it; see the definition for why neither
+       lets GTK close the window itself. */
+    void shutdown (void);
     bool onCloseRequest (void);
     void rememberGeometry (void);
 
