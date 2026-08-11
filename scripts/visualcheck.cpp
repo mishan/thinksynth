@@ -206,6 +206,38 @@ void makeFeeds (vector<Feed> &out, unsigned int n)
     f.what = "a single sample";
     f.samples.assign(1, 0.25f);
     out.push_back(f);
+
+    /* Deliberately much longer than the rest, and the only feed here whose
+       content changes over time.
+     *
+     * Everything above is stationary, so a module that ignored the time axis
+     * entirely would draw all of them correctly -- and the spectrogram is the
+     * one module whose whole purpose is that axis. A sweep is also what anyone
+     * would actually point one at: a filter opening is this shape.
+     *
+     * 16384 samples is 128 hops at the spectrogram's hop size, which is a
+     * picture rather than a handful of columns. The extra length makes the
+     * split-feed comparison meaningfully harder too. */
+    f.what = "a rising sweep";
+    f.samples.resize(16384);
+    {
+        double phase = 0.0;
+
+        for (size_t i = 0; i < f.samples.size(); i++)
+        {
+            const double u = (double)i / (double)f.samples.size();
+
+            /* 200Hz to 8kHz, exponentially -- a sweep that is linear in
+               frequency spends nearly all of itself in the top octave and
+               looks like a step. */
+            const double hz = 200.0 * pow(40.0, u);
+
+            phase += 2.0 * PI * hz / 44100.0;
+
+            f.samples[i] = (float)(0.8 * sin(phase));
+        }
+    }
+    out.push_back(f);
 }
 
 /* ---- drawing ---- */
