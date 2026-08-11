@@ -453,6 +453,48 @@ thSynthTree * thSynth::loadTree (const string &filename)
     return tree;
 }
 
+thSynthTree * thSynth::parseTree (const string &filename)
+{
+    struct stat dspinfo;
+
+    if (stat(filename.c_str(), &dspinfo) < 0 || S_ISDIR(dspinfo.st_mode))
+        return NULL;
+
+    /* Opened into a local, and only handed to the parser once the mutex is
+       held. Assigning the global yyin first left a window in which a second
+       parse could overwrite it -- or close it out from under this one -- and
+       taking a lock immediately afterwards does nothing about that: by then
+       the damage is a store that already happened. The other parser globals
+       (parsetree, parsenode) are set inside the lock for the same reason. */
+    FILE *input = fopen(filename.c_str(), "r");
+
+    if (input == NULL)
+        return NULL;
+
+    /* Same mutex as loadTree: the parser's globals are shared, so two parses
+       at once would interleave. */
+    pthread_mutex_lock(synthMutex_);
+
+    yyin = input;
+
+    parsetree = new thSynthTree("newmod", this);
+    parsenode = new thNode("newnode", NULL);
+
+    int parseResult = YYPARSE(this);
+
+    fclose(yyin);
+    yyin = NULL;
+
+    delete parsenode;
+    parsenode = NULL;
+
+    thSynthTree *tree = finishParse(filename, parseResult, false);
+
+    pthread_mutex_unlock(synthMutex_);
+
+    return tree;
+}
+
 thSynthTree * thSynth::loadTree (FILE *input)
 {
     if (!input)

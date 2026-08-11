@@ -621,3 +621,83 @@ void NodeGraph::moveBox (int index, double x, double y)
     boxes_[index].x = x;
     boxes_[index].y = y;
 }
+
+void NodeGraph::refreshExtent (void)
+{
+    double w = 0, h = 0;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        w = max(w, boxes_[i].x + boxes_[i].w);
+        h = max(h, boxes_[i].y + boxes_[i].h);
+    }
+
+    width_ = w + MARGIN;
+    height_ = h + MARGIN;
+}
+
+int NodeGraph::boxAt (double x, double y) const
+{
+    /* Backwards: the canvas draws in order, so the last box drawn is the one
+       on top and should be the one picked. */
+    for (int i = (int)boxes_.size() - 1; i >= 0; i--)
+    {
+        const Box &b = boxes_[i];
+
+        if (x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h)
+            return i;
+    }
+
+    return -1;
+}
+
+void NodeGraph::portPos (int box, int port, double &x, double &y) const
+{
+    x = y = 0;
+
+    if (box < 0 || box >= (int)boxes_.size())
+        return;
+
+    const Box &b = boxes_[box];
+
+    if (port < 0 || port >= (int)b.ports.size())
+        return;
+
+    x = b.x + b.ports[port].x;
+    y = b.y + b.ports[port].y;
+}
+
+bool NodeGraph::portAt (double x, double y, int &box, int &port,
+                        double slack) const
+{
+    double best = slack * slack;
+    bool found = false;
+
+    for (int i = (int)boxes_.size() - 1; i >= 0; i--)
+    {
+        const Box &b = boxes_[i];
+
+        /* A port handle sits on the box edge, so the search area has to
+           straddle it rather than being clipped to the box. */
+        if (x < b.x - slack || x > b.x + b.w + slack ||
+            y < b.y - slack || y > b.y + b.h + slack)
+            continue;
+
+        for (size_t k = 0; k < b.ports.size(); k++)
+        {
+            const double dx = x - (b.x + b.ports[k].x);
+            const double dy = y - (b.y + b.ports[k].y);
+            const double d2 = dx * dx + dy * dy;
+
+            if (d2 <= best)
+            {
+                best = d2;
+                box = i;
+                port = (int)k;
+                found = true;
+            }
+        }
+    }
+
+    return found;
+}

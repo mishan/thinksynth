@@ -23,6 +23,7 @@ class gthAudio;
 class gthPrefs;
 class AboutBox;
 class MidiMap;
+class NodeWindow;
 
 using namespace std;
 
@@ -37,6 +38,7 @@ protected:
     void menuKeyboard (void);
     void menuPatchSel (void);
     void menuMidiMap (void);
+    void menuNodes (void);
     void menuQuit (void);
     void menuAbout (void);
     void menuJackTry (void);
@@ -50,6 +52,7 @@ protected:
     void onAboutBoxHide (void);
     void onPatchSelHide (void);
     void onMidiMapHide (void);
+    void onNodeWinHide (void);
     void onKeyboardHide (void);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onDspEntryActivate (void);
@@ -82,6 +85,7 @@ protected:
     KeyboardWindow *kbWin_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
+    NodeWindow *nodeWin_;
 private:
     gthAudio *audio_;
     string prevDir_;

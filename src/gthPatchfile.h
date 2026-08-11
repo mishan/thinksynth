@@ -47,6 +47,14 @@ public:
 
     thArgMap getChannelArgs (int chan);
 
+    /* A patch stores whatever name it was given -- usually a bare "ts1.dsp",
+       since that is what the file selector and the .patch files carry. Turns
+       one into a path that can actually be opened: absolute names and names
+       that resolve from the cwd are left alone, anything else is looked for
+       in DSP_PATH. Returns the input unchanged if nothing works, so callers
+       can report the name the user typed. */
+    static string resolveDsp (const string &dspName);
+
     typedef map<string, float> PatchFileArgs;
     typedef map<string, string> PatchFileInfo;
     struct PatchFile {
