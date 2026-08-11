@@ -93,7 +93,13 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
        see TH_LIMIT_KNEE. */
     masterLbl_.set_text("Master:");
 
-    masterScale_.set_range(0, TH_MASTER_GAIN_MAX * 100.0);
+    /* 0..127, not 0..TH_MASTER_GAIN_MAX*100. That constant is 4.0, so
+       scaling it put 400 on a volume control -- four times unity, a number
+       nobody wants to see there and not the scale this claims to be on. The
+       engine still permits gain up to 4 for anything that needs it; what the
+       master offers is the channel scale, 100 for unity and a little above
+       it to lift a quiet patch. */
+    masterScale_.set_range(0, MIDIVALMAX);
     masterScale_.set_increments(1, 10);
     masterScale_.set_digits(0);
     masterScale_.set_value_pos(Gtk::POS_RIGHT);
