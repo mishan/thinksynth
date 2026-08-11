@@ -36,6 +36,10 @@
  *   - an attached control sits above its host, overlaps nothing, and its
  *     wire still reaches the port it drives -- adjacency says which node a
  *     control belongs to, only the wire says which parameter
+ *   - a probe panel armed on any output port sits above its host at the height
+ *     its visual module asked for, overlaps nothing, hit-tests where it is
+ *     drawn, cannot be dragged off, is idempotent to arm twice, and leaves no
+ *     trace when removed
  *   - a shared control -- one several nodes read -- is laid out before
  *     everything it drives, rather than being stranded in layer 0
  *   - clicking the middle of a wire finds a wire, and the ends of every
@@ -168,6 +172,7 @@ int main (int argc, char **argv)
     long boxTotal = 0, edgeTotal = 0, fbTotal = 0, fbFiles = 0;
     int maxLayers = 0, maxBoxes = 0;
     long controls = 0, attached = 0, shared = 0;
+    long probes = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -527,6 +532,148 @@ int main (int argc, char **argv)
                          px, py, hb, hp);
                   problems++; }
             }
+        }
+
+        /* probe panels.
+         *
+         * These are not in the .dsp -- the editor arms them -- so this arms
+         * one on every output port of every node box and checks the panel
+         * behaves like the attached control whose machinery it borrows: flush
+         * against its host, overlapping nothing, hit-testable where it is
+         * drawn, undraggable, and gone without trace when removed.
+         *
+         * The panel is deliberately taller than a control strip. The stack
+         * used to be walked by multiplying by ATTACH_H, and with that multiply
+         * restored the overlap check below fails on any node carrying both a
+         * probe and a control -- which is what makes the height worth
+         * asserting rather than assuming. */
+        {
+            const double PROBE_H = 64.0;
+
+            for (size_t b = 0; b < g.boxes().size() && problems < 5; b++)
+            {
+                if (g.boxes()[b].isControl || g.boxes()[b].isProbe ||
+                    g.boxes()[b].attachedTo >= 0)
+                    continue;
+
+                /* By name and index taken afresh each time: addProbe and
+                   removeProbe both reshape boxes_, so a reference taken before
+                   the loop would dangle. */
+                const string hostName = g.boxes()[b].name;
+
+                for (size_t p = 0; p < g.boxes()[b].ports.size() &&
+                                   problems < 5; p++)
+                {
+                    if (g.boxes()[b].ports[p].isInput)
+                        continue;
+
+                    const size_t before = g.boxes().size();
+                    const string port = g.boxes()[b].ports[p].name;
+
+                    const int panel = g.addProbe((int)b, port, "meter",
+                                                 PROBE_H);
+
+                    if (panel < 0)
+                    { printf("FAIL  %s: cannot probe %s.%s, an output port\n",
+                             argv[f], hostName.c_str(), port.c_str());
+                      problems++; continue; }
+
+                    /* Twice is once: two panels on one signal is never what
+                       was meant, and a menu makes it easy to ask for. */
+                    if (g.addProbe((int)b, port, "meter", PROBE_H) != panel)
+                    { printf("FAIL  %s: probing %s.%s twice made two panels\n",
+                             argv[f], hostName.c_str(), port.c_str());
+                      problems++; }
+
+                    g.layout();
+
+                    {
+                        const vector<NodeGraph::Box> &nb = g.boxes();
+                        const NodeGraph::Box &pnl = nb[panel];
+
+                        /* Checked rather than assumed: layout() reassigns
+                           attachments, and an earlier version of
+                           assignAttachments cleared every box's host before
+                           reassigning -- which detached each panel and turned
+                           this into a subscript of -1. A harness that
+                           segfaults instead of saying what went wrong is a
+                           worse harness. */
+                        if (pnl.attachedTo != (int)b)
+                        { printf("FAIL  %s: panel on %s.%s came back attached "
+                                 "to %d, not %d\n", argv[f], hostName.c_str(),
+                                 port.c_str(), pnl.attachedTo, (int)b);
+                          problems++;
+                          g.removeProbe(panel);
+                          g.layout();
+                          continue; }
+
+                        const NodeGraph::Box &host = nb[pnl.attachedTo];
+
+                        if (pnl.x != host.x)
+                        { printf("FAIL  %s: panel on %s.%s at x=%.1f, host at "
+                                 "%.1f\n", argv[f], hostName.c_str(),
+                                 port.c_str(), pnl.x, host.x);
+                          problems++; }
+
+                        if (pnl.y + pnl.h > host.y)
+                        { printf("FAIL  %s: panel on %s.%s runs into its "
+                                 "host\n", argv[f], hostName.c_str(),
+                                 port.c_str());
+                          problems++; }
+
+                        if (pnl.h != PROBE_H)
+                        { printf("FAIL  %s: panel on %s.%s is %.1f tall, "
+                                 "asked for %.1f\n", argv[f], hostName.c_str(),
+                                 port.c_str(), pnl.h, PROBE_H);
+                          problems++; }
+
+                        for (size_t a = 0; a < nb.size() && problems < 5; a++)
+                            if (a != (size_t)panel && overlaps(nb[a], pnl))
+                            { printf("FAIL  %s: panel on %s.%s overlaps %s\n",
+                                     argv[f], hostName.c_str(), port.c_str(),
+                                     nb[a].name.c_str());
+                              problems++; break; }
+
+                        if (g.boxAt(pnl.x + pnl.w / 2,
+                                    pnl.y + pnl.h / 2) != panel)
+                        { printf("FAIL  %s: the middle of the panel on %s.%s "
+                                 "does not pick it\n", argv[f],
+                                 hostName.c_str(), port.c_str());
+                          problems++; }
+
+                        /* A panel is not a node: it must not be draggable off
+                           its host. Enforced by attachedTo rather than by
+                           anything probe-specific, which is why it is worth
+                           checking from this side too. */
+                        const double px = pnl.x, py = pnl.y;
+
+                        g.moveBox(panel, px + 50, py + 50);
+
+                        if (g.boxes()[panel].x != px ||
+                            g.boxes()[panel].y != py)
+                        { printf("FAIL  %s: the panel on %s.%s can be dragged "
+                                 "off its host\n", argv[f], hostName.c_str(),
+                                 port.c_str());
+                          problems++; }
+                    }
+
+                    g.removeProbe(panel);
+                    g.layout();
+
+                    if (g.boxes().size() != before)
+                    { printf("FAIL  %s: removing the panel on %s.%s left %d "
+                             "boxes, not %d\n", argv[f], hostName.c_str(),
+                             port.c_str(), (int)g.boxes().size(),
+                             (int)before);
+                      problems++; }
+
+                    probes++;
+                }
+            }
+
+            /* Nothing above may have disturbed the graph the checks below
+               measure. */
+            g.layout();
         }
 
         /* wires: what is drawn is what can be clicked.
@@ -995,6 +1142,9 @@ int main (int argc, char **argv)
                boxTotal, controls, attached, shared, edgeTotal, maxBoxes,
                maxLayers,
                fbTotal, fbFiles);
+    if (total)
+        printf("  %ld probe panels armed and removed, one per output port\n",
+               probes);
 
     return failed;
 }
