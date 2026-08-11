@@ -38,6 +38,36 @@ ArgTable::~ArgTable (void)
 {
 }
 
+/* Decimal places worth showing for a control whose range runs to `hi'.
+ *
+ * The resolution that matters is relative: a filter cutoff between 0 and 1
+ * needs four places, an envelope time in samples between 0 and 882000 needs
+ * none. Anything finer is noise the slider cannot address anyway. */
+int ArgTable::decimalsFor (double hi)
+{
+    const double m = fabs(hi);
+
+    if (m >= 1000) return 0;
+    if (m >= 100)  return 1;
+    if (m >= 10)   return 2;
+
+    return 4;
+}
+
+/* Characters the widest value in this range needs, so nothing is cut off. */
+int ArgTable::widthFor (double hi, int digits)
+{
+    double m = fabs(hi);
+    int intDigits = 1;
+
+    while (m >= 10) { m /= 10; intDigits++; }
+
+    /* integer part, the point and its decimals, and one for a minus sign */
+    int chars = intDigits + (digits ? digits + 1 : 0) + 1;
+
+    return chars < 6 ? 6 : chars;
+}
+
 /* How many parameters go side by side.
  *
  * One column was the whole layout, and ts1 has thirteen parameters while
@@ -121,13 +151,22 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
 
     slider->set_value((*arg)[0]);
     
+    /* Decimals to suit the range, and a box wide enough for the result.
+     *
+     * Four decimals on everything meant `288000.0312' -- eleven characters of
+     * which the last four are noise, in a box sized for nine, so it was cut
+     * off mid-number. Four places are right for a 0..1 control, where they are
+     * the whole resolution; they are meaningless on a range that runs to
+     * hundreds of thousands. */
+    const int digits = decimalsFor(arg->max());
+
     Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust, .0001,
-                                                           4));
+                                                           digits));
 
     /* The value box was as wide as the slider had left over, which on a
        single column was most of the window for a number four characters
        long. Sized to its content now, so the width goes to the slider. */
-    valEntry->set_width_chars(9);
+    valEntry->set_width_chars(widthFor(arg->max(), digits));
 
     /* A slider narrower than this is not draggable in any useful way -- the
        handle is most of it. Asking for the width means a window too narrow
