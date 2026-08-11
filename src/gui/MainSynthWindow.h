@@ -70,6 +70,7 @@ protected:
     void onMidiMapHide (void);
     void onKeyboardHide (void);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
+    void onMasterGain (void);
 
     /* Bolds the current tab's label and unbolds the rest. */
     void highlightTab (int pagenum);
@@ -93,6 +94,12 @@ protected:
     Gtk::HBox dspEntryBox_;
 
     Gtk::Notebook notebook_;
+
+    /* Master output level, for the whole synth rather than one channel. The
+       engine has had setMasterGain since the gain-staging work; this is the
+       first thing to offer it. */
+    Gtk::Label masterLbl_;
+    Gtk::HScale masterScale_;
 
     PatchSelWindow *patchSel_;
     KeyboardWindow *kbWin_;
