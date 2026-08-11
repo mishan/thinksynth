@@ -699,6 +699,46 @@ bool NodeEditor::reload (void)
 
     canvas_.setGraph(&graph_);
 
+    /* Probes recorded in the file, the first time it is read.
+     *
+     * Only when nothing is armed: a reload happens after every structural edit
+     * as well as on open, and re-reading the block then would resurrect a
+     * probe that had just been removed. What is in memory is the live answer
+     * once there is one; the file is only ever the starting point. */
+    if (probes_.empty())
+    {
+        vector<NodeLayout::ProbeRef> saved;
+
+        if (NodeLayout::readProbes(filename, saved))
+            for (size_t i = 0; i < saved.size(); i++)
+            {
+                if (visuals_.find(saved[i].visual) == visuals_.end())
+                {
+                    /* The .dsp names a module this build does not have. Worth
+                       saying rather than dropping quietly -- the panel simply
+                       not appearing reads as the file having lost it. */
+                    setStatus("No visual module '" + saved[i].visual +
+                              "' for the probe on " + saved[i].node + "." +
+                              saved[i].arg);
+                    continue;
+                }
+
+                if ((int)probes_.size() >= TH_MAX_PROBES)
+                    break;
+
+                Probe p;
+
+                p.node = saved[i].node;
+                p.arg = saved[i].arg;
+                p.visual = saved[i].visual;
+                p.module = visuals_[saved[i].visual];
+                p.inst = NULL;
+                p.slot = -1;
+
+                probes_.push_back(p);
+            }
+    }
+
     /* The graph is new, so every panel in it is gone and every tap in the
        engine refers to a tree that no longer exists. Both are rebuilt from the
        probe list, which is keyed on names for exactly this reason. */
@@ -1970,7 +2010,14 @@ bool NodeEditor::armProbe (const string &node, const string &arg,
 
     probes_.push_back(p);
 
+    /* A probe is written into the file's layout block, so arming one is an
+       unsaved change like moving a box. Set here rather than in
+       reapplyProbes, which also runs on open -- a patch that came with probes
+       in it is not dirty for having them. */
+    layoutDirty_ = true;
+
     reapplyProbes();
+    updateDirty();
 
     setStatus("Watching " + node + "." + arg + " with " + visual +
               (attached() ? "" : " -- nothing is playing this patch"));
@@ -2003,7 +2050,10 @@ void NodeEditor::disarmProbe (size_t index)
 
     probes_.erase(probes_.begin() + index);
 
+    layoutDirty_ = true;
+
     reapplyProbes();
+    updateDirty();
 }
 
 void NodeEditor::disarmAllProbes (void)

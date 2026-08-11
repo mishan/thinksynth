@@ -432,7 +432,8 @@ Steps 1–3 of §8 are done, on `node-visualizers` off `patch-selector`.
 | 1. `thSampleRing` | done | `libthink/thSampleRing.h`, `scripts/ringcheck` |
 | 2. The tap | done | `libthink/thProbe.{h,cpp}`, `thSynth::armProbe`, `scripts/dspprobe`, `dspstress` level 5 |
 | 3. The visual ABI and `visual/meter` | done | `src/thVisual.{h,cpp}`, `plugins/visual/meter.cpp`, `scripts/visualcheck` |
-| 4. The canvas | measured, see below | `scripts/canvasbench` |
+| 4. The canvas | done | `NodeGraph` probe boxes, `NodeCanvas::drawProbe`, `NodeEditor` |
+| 5. Persistence | done | `# @probe` through `NodeLayout` |
 
 Three CTest gates added — `ringcheck`, `dspprobe`, `visualcheck` — bringing the
 suite to eight. All eight pass, and the ASan and TSan trees are clean.
@@ -592,9 +593,109 @@ made the first numbers meaningless rather than wrong-looking:
   non-blocking spin returns immediately every time and the loop expires. The
   pump blocks, with a deadline.
 
+## 12. The canvas, and what a probe turns out to be
+
+Three things at once, and `NodeEditor` is the only place they meet: a `Box` in
+the graph, a slot in the engine, and an instance of a visual module. It holds
+them keyed on **node and arg name**, because those are the only part that
+survives what the user does — a reload renumbers every box and drops every
+tap, so both are rebuilt from the names on every reparse.
+
+Right-click an output port to pick a module; right-click a panel to stop
+watching. Right-click because it is the one gesture the canvas does not
+already spend: left is wire, drag and slider, and the wheel is scroll and zoom.
+
+The panel is a `Box` rather than a structure of its own, so it inherits the
+attachment stacking, the overlap invariants and the hit-testing `dspgraph`
+already asserts over every box. Two things in the stack had to generalise: its
+height was rows × `ATTACH_H`, which is fine while every row is a slider and
+wrong the moment a 24-pixel meter and a 96-pixel spectrogram join it; and
+`assignAttachments` cleared every host before working them out, which is right
+for a control — its host is whichever node turns out to be its only consumer —
+and wrong for a probe, which knows its host from the moment it is armed.
+
+### A panel is not joined to its host by a wire
+
+§12 of `NODE_EDITOR.md` argued that a control needs its wire drawn because
+adjacency cannot say which of several inputs it drives. The same argument does
+not carry: an `Edge` would appear in `edges()`, which every consumer reads as
+"a connection in the `.dsp`" and which `NodeEdit` would try to write. A probe
+is not in the file's graph at all. The panel says which output it reads in its
+own title row instead — which a slider strip could not do, because its text is
+already the label and the value.
+
+### Persistence
+
+```
+# @probe adsr out meter
+# @probe adsr play meter
+# @probe mixer out meter
+```
+
+In the block `# @layout` already owns, stripped and rewritten with it, so a
+save stays idempotent — that is §8's lesson and it applies unchanged. No
+position: a panel is wherever its host ended up, computed every time, for the
+same reason attached controls are not written either.
+
+A probe names a module the running build may not have. That is reported rather
+than dropped: a panel simply not appearing reads as the file having lost it.
+
+## 13. What the checks cover now
+
+Nine CTest gates. The three that are new to this work:
+
+```
+dspprobe    2650 output ports across 81 files, 2667 checks
+dspgraph    2650 panels armed and removed; 374 probes written and read back,
+            and every file still writes none when it has none
+editorcheck 25 checks, end to end
+visualcheck 39 checks, ten pathological feeds at six sizes
+ringcheck   45 checks
+```
+
+`editorcheck` is the one worth explaining. The others each cover one link —
+`dspprobe` the tap, `visualcheck` the module, `dspgraph` the panel — and none
+of them says the three are joined up. So it opens a patch on a live channel,
+arms through the same call the menu makes, plays a chord, and asserts the
+module draws **differently from one that has been fed nothing**. Against a
+fresh instance rather than against a blank image, because the frame, the knee
+tick and the text are drawn whatever the signal is, and comparing to blank
+would pass on silence. Then it saves, reopens, and checks the probe came back.
+
+It needs a display, so it skips itself loudly where there is none and CI runs
+the suite under `xvfb-run`. It is worth most on the ASan job, where it is the
+only thing that exercises the teardown order — stop the tick, close the
+instances, then unload the modules. A deliberately unclosed instance is a
+48-byte leak and fails the run; fontconfig's and Mesa's 1.8MB of global caches
+are suppressed by module so that it can.
+
+Every new check was confirmed to fail first:
+
+| break | caught by |
+|---|---|
+| the stack walked by multiplying `ATTACH_H` | `dspgraph`, 15 files on overlap |
+| `assignAttachments` clearing probe hosts | `dspgraph`, every panel |
+| the tick never feeding the module | `editorcheck` |
+| a reload not putting the panels back | `editorcheck` |
+| the file's probes never read on open | `editorcheck` |
+| `# @probe` lines not stripped before rewriting | `dspgraph`, doubling per save |
+| probes never written | `dspgraph` |
+| an instance left open | `editorcheck` under ASan |
+
+### One thing worth knowing about running an uninstalled build
+
+`thPluginManager::resolveRoot` tries `./plugins` before the directory beside
+the binary. A tree that once had an autotools build still has 62 stale `.so`
+files in the *source* `plugins/`, which is enough to pass for a plugin root —
+so running from the top of the tree loads every DSP plugin from there, and
+`plugins/visual/` has only a `.cpp` in it. The symptom is "no visual modules",
+the cause is that every plugin was already coming from the wrong place, and
+the fix is `THINK_PLUGIN_PATH` or deleting the leftovers. The editor now names
+the directory it searched, which turns that from a mystery into a sentence.
+
 ### Still ahead
 
-The canvas itself: probe panels, arming from a port, the frame tick and the
-drain. Then persistence, `# @probe` through `NodeLayout`, with the same
-idempotence and scramble-before-checking discipline §8 of `NODE_EDITOR.md`
-learned for `# @layout`.
+`visual/scope`, then `visual/spectrum` once the FFT question in §4 is settled,
+then `visual/spectrogram`. The ABI and everything behind it is done; what
+remains is modules, and each is a file in `plugins/visual/` that nothing else
+has to know about.

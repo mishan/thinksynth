@@ -46,6 +46,9 @@
  *     wire sit on the ports it claims to join
  *   - a saved layout comes back exactly, and saving changes nothing in the
  *     file except `# @layout' lines
+ *   - probes survive the same round trip through `# @probe' lines, in order,
+ *     and a graph carrying none writes none -- otherwise every save of every
+ *     patch would start growing a block
  *   - the parameter list and the wires agree: every parameter driven by
  *     another node has a wire to match, and every wire has a parameter. The
  *     two are built by separate passes over separate data, so they disagreeing
@@ -77,8 +80,14 @@ static bool overlaps (const NodeGraph::Box &a, const NodeGraph::Box &b)
              a.y + a.h <= b.y || b.y + b.h <= a.y);
 }
 
-/* Every line of a file except its `# @layout' comments. Two files agreeing on
-   this are the same file as far as the parser is concerned. */
+/* Every line of a file except the ones the editor's block owns. Two files
+   agreeing on this are the same file as far as the parser is concerned.
+ *
+ * Both prefixes, because probes share the block. Leaving `# @probe' out of the
+ * strip would make the "writing the layout changed N other lines" check below
+ * fire on every file that has one -- correctly, since they would then be
+ * accumulating a line per save, which is precisely the bug §8 of
+ * NODE_EDITOR.md records the layout block already having had once. */
 static bool nonLayoutLines (const string &path, vector<string> &out)
 {
     ifstream in(path.c_str());
@@ -91,7 +100,8 @@ static bool nonLayoutLines (const string &path, vector<string> &out)
     out.clear();
 
     while (getline(in, line))
-        if (line.compare(0, 9, "# @layout") != 0)
+        if (line.compare(0, 9, "# @layout") != 0 &&
+            line.compare(0, 8, "# @probe") != 0)
             out.push_back(line);
 
     /* write() drops trailing blank lines, so ignore them on both sides. */
@@ -173,6 +183,7 @@ int main (int argc, char **argv)
     int maxLayers = 0, maxBoxes = 0;
     long controls = 0, attached = 0, shared = 0;
     long probes = 0;
+    long probeLines = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -1065,6 +1076,126 @@ int main (int argc, char **argv)
               problems++; }
         }
 
+        /* probe round-trip, on a copy so the corpus is never touched.
+         *
+         * The properties are the layout block's, because probes live in it and
+         * inherit its hazards: a save must not disturb any other line, saving
+         * twice must equal saving once, and what comes back must be what went
+         * in. Plus one of its own -- a probe carries no position, so what has
+         * to survive is the (node, arg, visual) triple and the order.
+         *
+         * The no-op case is checked separately and is the one that matters
+         * most: a file with no probes must come back with none, or every save
+         * of every patch in the corpus would start growing a block. */
+        if (problems == 0)
+        {
+            const string tmp = "/tmp/dspgraph-probe.dsp";
+
+            vector<string> before, after;
+
+            if (!copyFile(argv[f], tmp) || !nonLayoutLines(tmp, before))
+            { printf("FAIL  %s: could not copy for the probe round-trip\n",
+                     argv[f]);
+              problems++; }
+            else
+            {
+                NodeGraph pg;
+
+                pg.build(tree);
+
+                /* One panel on every output port of the first three node
+                   boxes: enough to cover several on one host, several hosts,
+                   and the ordering between them, without writing a block
+                   longer than some of the files. */
+                vector<string> wantNode, wantArg;
+                int hosts = 0;
+
+                for (size_t b = 0; b < pg.boxes().size() && hosts < 3; b++)
+                {
+                    if (pg.boxes()[b].isControl || pg.boxes()[b].isProbe)
+                        continue;
+
+                    bool any = false;
+
+                    for (size_t k = 0; k < pg.boxes()[b].ports.size(); k++)
+                    {
+                        if (pg.boxes()[b].ports[k].isInput)
+                            continue;
+
+                        const string node = pg.boxes()[b].name;
+                        const string arg = pg.boxes()[b].ports[k].name;
+
+                        if (pg.addProbe((int)b, arg, "meter", 36.0) < 0)
+                            continue;
+
+                        wantNode.push_back(node);
+                        wantArg.push_back(arg);
+                        any = true;
+                    }
+
+                    if (any)
+                        hosts++;
+                }
+
+                pg.layout();
+
+                vector<NodeLayout::ProbeRef> got;
+
+                if (!NodeLayout::write(tmp, pg))
+                { printf("FAIL  %s: could not write the probe block\n",
+                         argv[f]);
+                  problems++; }
+                else if (!nonLayoutLines(tmp, after) || before != after)
+                { printf("FAIL  %s: writing probes changed %d other line(s)\n",
+                         argv[f], (int)after.size() - (int)before.size());
+                  problems++; }
+                else if (!NodeLayout::write(tmp, pg) ||
+                         !nonLayoutLines(tmp, after) || before != after)
+                { printf("FAIL  %s: saving probes twice differs from once\n",
+                         argv[f]);
+                  problems++; }
+                else if (!NodeLayout::readProbes(tmp, got))
+                { printf("FAIL  %s: could not read the probe block back\n",
+                         argv[f]);
+                  problems++; }
+                else if (got.size() != wantNode.size())
+                { printf("FAIL  %s: wrote %d probes, read back %d\n", argv[f],
+                         (int)wantNode.size(), (int)got.size());
+                  problems++; }
+                else
+                {
+                    for (size_t i = 0; i < got.size() && problems < 5; i++)
+                        if (got[i].node != wantNode[i] ||
+                            got[i].arg != wantArg[i] ||
+                            got[i].visual != "meter")
+                        { printf("FAIL  %s: probe %d came back as %s.%s/%s, "
+                                 "not %s.%s/meter\n", argv[f], (int)i,
+                                 got[i].node.c_str(), got[i].arg.c_str(),
+                                 got[i].visual.c_str(), wantNode[i].c_str(),
+                                 wantArg[i].c_str());
+                          problems++; }
+
+                    probeLines += (long)got.size();
+
+                    /* And a graph with no probes writes no probe lines. */
+                    NodeGraph clean;
+
+                    clean.build(tree);
+                    clean.layout();
+
+                    vector<NodeLayout::ProbeRef> none;
+
+                    if (!NodeLayout::write(tmp, clean) ||
+                        !NodeLayout::readProbes(tmp, none) || !none.empty())
+                    { printf("FAIL  %s: a graph with no probes wrote %d probe "
+                             "line(s)\n", argv[f], (int)none.size());
+                      problems++; }
+                }
+
+                remove(tmp.c_str());
+            }
+        }
+
         /* layout round-trip, on a copy so the corpus is never touched */
         if (problems == 0)
         {
@@ -1192,6 +1323,9 @@ int main (int argc, char **argv)
     if (total)
         printf("  %ld probe panels armed and removed, one per output port\n",
                probes);
+    if (total)
+        printf("  %ld probes written and read back, and every file still "
+               "writes none when it has none\n", probeLines);
 
     return failed;
 }
