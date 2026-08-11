@@ -19,20 +19,19 @@
 #ifndef ARGTABLE_H
 #define ARGTABLE_H
 
-/* The parameter panel: a grid of label/slider/value rows, in columns.
+/* The parameter panel: label/slider/value rows, in as many columns as fit.
  *
  * A box rather than a grid, because a patch can put its parameters in named
  * groups -- `@a.group = "Envelope"' -- and each group is drawn as its own
- * titled, foldable block above the loose ones. So this holds a grid for the
- * ungrouped parameters and an expander per group, each with a grid inside. */
+ * titled, foldable block above the loose ones. So this holds a flow of the
+ * ungrouped parameters and an expander per group, each with a flow inside. */
 class ArgTable : public Gtk::VBox
 {
 public:
     ArgTable (void);
     ~ArgTable (void);
 
-    /* Records a parameter. Nothing is laid out until reflow(), because the
-       column count depends on how many there turn out to be. */
+    /* Records a parameter. Nothing is laid out until reflow(). */
     void insertArg (thArg *arg) { insertArg(arg, ""); }
 
     /* With a group the caller worked out. A patch may declare `.group'
@@ -41,27 +40,34 @@ public:
     void insertArg (thArg *arg, const string &group);
 
     /* Lays out everything recorded so far. Call once, after the last
-       insertArg. */
+       insertArg. The column count is not decided here -- see makeFlow. */
     void reflow (void);
 
 private:
     void sliderChanged (Gtk::HScale *, thArg *);
     void argChanged (thArg *, Gtk::HScale *);
 
-    static int columnsFor (int n);
+    /* One parameter: its name, a slider and a value box, side by side. */
+    Gtk::Widget *makeRow (thArg *arg);
 
-    /* A grid of these parameters, in columns. */
-    Gtk::Table *makeGrid (const std::vector<thArg *> &args, int cols);
+    /* These parameters, wrapped into however many columns the width allows. */
+    Gtk::FlowBox *makeFlow (const std::vector<thArg *> &args, int maxPerLine);
+
     static double toDisplay (double raw, const string &units);
     static double fromDisplay (double shown, const string &units);
     static int decimalsFor (double hi);
     static int widthFor (double hi, int digits);
-    void placeArg (Gtk::Table *grid, thArg *arg, int col, int row);
 
     std::vector<thArg *> pending_;
     std::map<thArg *, string> inferred_;
 
-    int rows_, args_;
+    /* Every name shares a width and every value box shares a width, across
+       the whole panel and not merely within one block. Each row is its own
+       little box now, so without this there are no columns to line up in --
+       and lining them up across the groups as well is better than the grids
+       managed, where each block worked its widths out alone. */
+    Glib::RefPtr<Gtk::SizeGroup> nameWidth_;
+    Glib::RefPtr<Gtk::SizeGroup> valueWidth_;
 };
 
 #endif /* ARGTABLE_H */
