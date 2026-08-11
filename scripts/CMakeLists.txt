@@ -67,6 +67,11 @@ target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
 # libthink only for the include path.
 think_harness(ringcheck THREADS)
 
+# dspprobe uses NodeGraph to enumerate output ports, so that what it checks is
+# what the editor would offer rather than a second opinion about which args are
+# outputs.
+think_harness(dspprobe  NODEMODEL)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -128,6 +133,16 @@ add_test(NAME dspblock
 # representative sample.
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 
+add_test(NAME dspprobe
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspprobe>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -DEXTRA_ARGS=-q
+                 -P "${_runner}")
+
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
-                     ringcheck
+                     ringcheck dspprobe
                      PROPERTIES TIMEOUT 900)

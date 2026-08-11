@@ -19,6 +19,8 @@
 #ifndef TH_MIDICHAN_H
 #define TH_MIDICHAN_H 1
 
+#include <atomic>
+
 #include "thExport.h"
 
 class THINK_API thMidiChan {
@@ -55,7 +57,15 @@ public:
 
     void clearAll (RetireQueue *retire);
 
-    void process (RetireQueue *retire);
+    /* `probes' are the armed probes pointing at this channel, already filtered
+       by thSynth, and already zeroed for this window. They are accumulated
+       inside the note loops rather than after process() returns, because a
+       note whose envelope ended this window is retired before this call is
+       over -- tapping afterwards would clip the last window off every release,
+       which is exactly the part of a sound anyone is looking at a scope to
+       see. */
+    void process (RetireQueue *retire, thProbe *const *probes = NULL,
+                  int nprobes = 0);
 
     /* ---- either, with care ---- */
 
@@ -82,6 +92,21 @@ public:
 
     thSynthTree *modnode (void) { return modnode_; }
 
+    /* A number no other channel object has ever had.
+     *
+     * Probes resolve a node to an id against the tree a particular channel is
+     * playing, and ids are assigned in parse order -- so the same id in the
+     * next patch loaded onto that slot names a different node. The audio
+     * thread checks this before accumulating, and a probe whose serial no
+     * longer matches contributes nothing.
+     *
+     * Monotonic rather than a pointer comparison because the replacement
+     * channel is routinely allocated at the address the old one was freed
+     * from, and rather than a per-slot generation because the GUI resolves
+     * against a channel object it holds, not against a counter the audio
+     * thread has or has not caught up with yet. */
+    unsigned long serial (void) const { return serial_; }
+
     thArg *sustainPedal (void) { return argSustain_; }
 
     void copyChanArgs (thSynthTree *mod);
@@ -107,6 +132,10 @@ private:
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
     thArg *argSustain_; /* for the sustain pedal */
+
+    unsigned long serial_;
+
+    static std::atomic<unsigned long> nextSerial_;
 };
 
 #endif /* TH_MIDICHAN_H */

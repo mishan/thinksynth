@@ -19,6 +19,7 @@
 #ifndef TH_SYNTH_H
 #define TH_SYNTH_H
 
+#include <atomic>
 #include <mutex>
 
 #include "thExport.h"
@@ -156,6 +157,44 @@ public:
        for retired objects to sit around. */
     void collectRetired (void);
 
+    /* ---- probes ----
+     *
+     * A tap on one node's arg on one channel, summed across every sounding
+     * voice and published a window at a time. See thProbe.h for why the
+     * address of a node survives the per-note tree copy, which is what makes
+     * this affordable inside the callback.
+     *
+     * armProbe resolves `node' and `arg' against the channel's current tree on
+     * the GUI thread, allocates the probe there, and queues the install.
+     * Returns the slot, or -1 with `why' set. Re-arming a slot that is already
+     * in use is how a probe is retargeted.
+     *
+     * The resolution is only meaningful for the tree the channel is playing
+     * *now*: ids are assigned in parse order, so adding or removing a node
+     * shifts every later one. Loading a patch therefore disarms every probe on
+     * that channel (see applyCommand), and the caller re-arms by name. */
+    int armProbe (int channum, const string &node, const string &arg,
+                  string &why);
+    int armProbe (int channum, const string &node, const string &arg)
+    {
+        string why;
+        return armProbe(channum, node, arg, why);
+    }
+
+    void disarmProbe (int slot);
+
+    /* GUI thread: the GUI's own view, for the same reason getChannel() is.
+       NULL for a slot that is not armed. */
+    thProbe *probe (int slot) const
+    {
+        if ((slot < 0) || (slot >= TH_MAX_PROBES))
+            return NULL;
+
+        return guiProbes_[slot];
+    }
+
+    int probeCount (void) const { return TH_MAX_PROBES; }
+
 private:
     /* Shared tail of the three loadTree() overloads: checks the parse result,
        validates the tree, and resolves it. Returns NULL (having discarded the
@@ -176,6 +215,16 @@ private:
        full. Returns false if it was dropped. */
     bool postCommand (const thSynthCommand &cmd);
 
+    /* Audio thread: retires whatever is in `probes_[slot]' and installs
+       `probe' (which may be NULL). */
+    void installProbe (int slot, thProbe *probe);
+
+    /* GUI thread: disarms every probe pointing at `channum'. Called before
+       queueing a SET_CHANNEL, so that the disarm is applied first -- the queue
+       is FIFO, which is what makes the ordering a guarantee rather than a
+       hope. Assumes synthMutex_ is already held. */
+    void disarmProbesOn (int channum);
+
     map<string, thSynthTree*> treelist_;
     map<int, string> patchlist_;
     thPluginManager *pluginmanager_;
@@ -190,6 +239,14 @@ private:
      * array, which is what removes the race. */
     thMidiChan **midiChannels_; /* MIDI channels -- audio thread */
     thMidiChan **guiChannels_;  /* the same channels -- GUI thread */
+
+    /* Two views of the same probes, for exactly the reason the channel arrays
+       are two: probes_ is written only by applyCommand() on the audio thread,
+       guiProbes_ only by the GUI. Both name the same object, and it is the
+       audio thread's release of a slot -- through retired_ -- that says the
+       GUI may destroy it. */
+    thProbe *probes_[TH_MAX_PROBES];     /* audio thread */
+    thProbe *guiProbes_[TH_MAX_PROBES];  /* the same probes -- GUI thread */
 
     int midiChannelCnt_;
     float *output_;

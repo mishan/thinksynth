@@ -24,6 +24,7 @@ set(THINK_SOURCES
     thMidiNote.cpp
     thSynthTree.cpp
     thNode.cpp
+    thProbe.cpp
     thPlugin.cpp
     thPluginManager.cpp
     thMidiControllerConnection.cpp
