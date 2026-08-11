@@ -48,18 +48,22 @@ MidiMap::MidiMap (thSynth *argsynth)
 
     set_title("thinksynth - MIDI Controller Routing");
 
-    mainVBox_ = manage(new Gtk::VBox);
-    inputVBox_ = manage(new Gtk::VBox(false, 0));
+    mainVBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL));
+    inputVBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_VERTICAL, 0));
     inputVBox_->set_size_request(700, 140);
     newConnectionFrame_ = manage(new Gtk::Frame("Connection Source"));
     destinationFrame_ = manage(new Gtk::Frame("Connection Destination"));
     detailsFrame_ = manage(new Gtk::Frame("Connection Details"));
     connectFrame_ = manage(new Gtk::Frame("Connections"));
-    srcDestHBox_ = manage(new Gtk::HBox(true, 3));
-    newConnectionHBox_ = manage(new Gtk::HBox(false, 0));
-    destinationHBox_ = manage(new Gtk::HBox(true, 4));
-    detailsHBox_ = manage(new Gtk::HBox(true, 0));
-    buttonsHBox_ = manage(new Gtk::HBox(true, 0));
+    srcDestHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 3));
+    srcDestHBox_->set_homogeneous(true);
+    newConnectionHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
+    destinationHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 4));
+    destinationHBox_->set_homogeneous(true);
+    detailsHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
+    detailsHBox_->set_homogeneous(true);
+    buttonsHBox_ = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL, 0));
+    buttonsHBox_->set_homogeneous(true);
 
     channelLbl_ = manage(new Gtk::Label("Midi Channel"));
     channelAdj_ = Gtk::Adjustment::create(1, 1, 16);

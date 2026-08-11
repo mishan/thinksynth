@@ -34,6 +34,7 @@
 static const int MAXCOLS = 3;
 
 ArgTable::ArgTable (void)
+    : Gtk::Box(Gtk::ORIENTATION_VERTICAL)
 {
     set_spacing(6);
 
@@ -274,7 +275,7 @@ Gtk::FlowBox *ArgTable::makeFlow (const std::vector<thArg *> &args,
 
 Gtk::Widget *ArgTable::makeRow (thArg *arg)
 {
-    Gtk::HBox *row = manage(new Gtk::HBox);
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::ORIENTATION_HORIZONTAL));
 
     row->set_spacing(8);
 
@@ -296,7 +297,15 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     const double lo = toDisplay(arg->min(), units);
     const double hi = toDisplay(arg->max(), units);
 
-    Gtk::HScale *slider = manage(new Gtk::HScale(lo, hi, .0001));
+    /* What HScale(min, max, step) built for us: the value starts at the
+       bottom of the range, the page step is ten times the step, and the scale
+       rounds to as many digits as the step has. HScale is gone in GTK4 and
+       Scale has no such constructor, so the adjustment is spelled out. */
+    Gtk::Scale *slider = manage(new Gtk::Scale(
+        Gtk::Adjustment::create(lo, lo, hi, .0001, .001, 0),
+        Gtk::ORIENTATION_HORIZONTAL));
+
+    slider->set_digits(4);
 
     /* gtkmm-3: Gtk::Adjustment is refcounted and its constructor is protected,
        so it is handed out as a RefPtr rather than a raw pointer. */
@@ -305,12 +314,12 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     slider->set_draw_value(false);
 
     slider->signal_value_changed().connect(
-        sigc::bind<Gtk::HScale *, thArg *>(
+        sigc::bind<Gtk::Scale *, thArg *>(
             sigc::mem_fun(*this, &ArgTable::sliderChanged),
             slider, arg));
 
     arg->signal_arg_changed().connect(
-        sigc::bind<Gtk::HScale *>(
+        sigc::bind<Gtk::Scale *>(
             sigc::mem_fun(*this, &ArgTable::argChanged),
             slider));
 
@@ -362,12 +371,12 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
 }
 
 
-void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
+void ArgTable::sliderChanged (Gtk::Scale *slider, thArg *arg)
 {
     arg->setValue(fromDisplay(slider->get_value(), arg->units()));
 }
 
-void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)
+void ArgTable::argChanged (thArg *arg, Gtk::Scale *slider)
 {
     slider->set_value(toDisplay((*arg)[0], arg->units()));
 }

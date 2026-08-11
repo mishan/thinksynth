@@ -39,7 +39,8 @@
 #include "NodeEditor.h"
 
 NodeEditor::NodeEditor (thSynth *synth)
-    : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
+    : Gtk::Box(Gtk::ORIENTATION_VERTICAL),
+      synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
       structuralDirty_(false), selStatus_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),

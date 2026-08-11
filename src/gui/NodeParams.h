@@ -30,7 +30,7 @@
  * .dsp text -- there is no live thArg to poke. The window owns that decision;
  * this widget only knows what was typed.
  */
-class NodeParams : public Gtk::VBox
+class NodeParams : public Gtk::Box
 {
 public:
     NodeParams (void);

@@ -67,16 +67,16 @@ protected:
     Glib::RefPtr<Gtk::Adjustment> minAdj_;
     Glib::RefPtr<Gtk::Adjustment> maxAdj_;
 
-    Gtk::VBox *mainVBox_;
-    Gtk::VBox *inputVBox_;
-    Gtk::HBox *srcDestHBox_;
-    Gtk::HBox *newConnectionHBox_;
+    Gtk::Box *mainVBox_;
+    Gtk::Box *inputVBox_;
+    Gtk::Box *srcDestHBox_;
+    Gtk::Box *newConnectionHBox_;
     Gtk::Frame *newConnectionFrame_;
-    Gtk::HBox *destinationHBox_;
+    Gtk::Box *destinationHBox_;
     Gtk::Frame *destinationFrame_;
-    Gtk::HBox *detailsHBox_;
+    Gtk::Box *detailsHBox_;
     Gtk::Frame *detailsFrame_;
-    Gtk::HBox *buttonsHBox_;
+    Gtk::Box *buttonsHBox_;
     Gtk::Label *channelLbl_;
     Gtk::SpinButton *channelSpinBtn_;
     Gtk::Label *controllerLbl_;

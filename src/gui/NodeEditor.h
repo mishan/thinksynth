@@ -46,7 +46,7 @@ class thSynth;
  * is concerned: what this window writes, it writes to the .dsp on disk, and
  * only when asked.
  */
-class NodeEditor : public Gtk::VBox
+class NodeEditor : public Gtk::Box
 {
 public:
     NodeEditor (thSynth *synth);
@@ -248,9 +248,9 @@ private:
     Gtk::Button deleteBtn_;
 
     Gtk::Label titleLbl_;   /* what the window title used to say */
-    Gtk::HBox toolbar_;
-    Gtk::HPaned outer_;     /* palette | the rest      */
-    Gtk::HPaned split_;     /* canvas  | parameters    */
+    Gtk::Box toolbar_{Gtk::ORIENTATION_HORIZONTAL};
+    Gtk::Paned outer_{Gtk::ORIENTATION_HORIZONTAL};  /* palette | the rest   */
+    Gtk::Paned split_{Gtk::ORIENTATION_HORIZONTAL};  /* canvas  | parameters */
     Gtk::ScrolledWindow scroller_;
     NodeCanvas canvas_;
     NodeParams params_;
