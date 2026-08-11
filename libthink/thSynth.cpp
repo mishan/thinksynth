@@ -511,6 +511,35 @@ thSynthTree * thSynth::loadTree (FILE *input)
     return tree;
 }
 
+/* Carry a parameter's description -- widget type, range, label, units, group
+ * -- from the arg being updated onto the one replacing it.
+ *
+ * A description belongs to whoever declared the parameter: the .dsp for a
+ * `@chanarg', thMidiChan for the channel's own `amp'. Everything that reaches
+ * setChanArg from outside libthink is expressing a *value*: the patch parser
+ * reading `cutoff 8.809662', the preferences restoring a saved channel
+ * amplitude, the Patch Selector's amplitude spinner. They all build a bare
+ * `new thArg(name, value)', which by construction carries the defaults --
+ * widget type HIDE, range 0..MIDIVALMAX, no label.
+ *
+ * So the incoming description was never a description. setChanArg used to
+ * copy it across anyway, which meant the channel amplitude -- the one arg
+ * libthink itself describes -- was declared a slider by thMidiChan and then
+ * quietly reset to HIDE by the first thing to set its value. Restoring a
+ * saved session does exactly that for every channel, so the control vanished
+ * from the panel for precisely the patches you had loaded last time.
+ *
+ * None of this is read by the audio thread. */
+static void describeLike (thArg *arg, const thArg *like)
+{
+    arg->setWidgetType(like->widgetType());
+    arg->setMin(like->min());
+    arg->setMax(like->max());
+    arg->setLabel(like->label());
+    arg->setUnits(like->units());
+    arg->setGroup(like->group());
+}
+
 /* GUI thread. Takes ownership of `arg'. */
 void thSynth::setChanArg (int channum, thArg *arg)
 {
@@ -542,21 +571,11 @@ void thSynth::setChanArg (int channum, thArg *arg)
      * GUI show the pre-restore value. Patch loading does the same for every
      * `name value' line it parses.
      *
-     * The metadata carried across is GUI-only state (widget type, range,
-     * label); the audio thread never reads it. */
+     * The description is not touched. See describeLike() below. */
     if (existing != NULL
         && existing->type() == thArg::ARG_VALUE && existing->len() == 1
         && arg->type() == thArg::ARG_VALUE && arg->len() == 1)
     {
-        existing->setWidgetType(arg->widgetType());
-        existing->setMin(arg->min());
-        existing->setMax(arg->max());
-
-        if (!arg->label().empty())
-            existing->setLabel(arg->label());
-        if (!arg->units().empty())
-            existing->setUnits(arg->units());
-
         existing->setValue((*arg)[0]);
 
         delete arg;
@@ -566,7 +585,13 @@ void thSynth::setChanArg (int channum, thArg *arg)
     /* Anything else really is a replacement -- a new arg, or one changing
        length -- and installing it deletes the arg it displaces while live note
        trees still point at that one until the channel re-resolves them. That
-       has to happen on the audio thread. */
+       has to happen on the audio thread.
+
+       The replacement inherits the description first, on this thread, while
+       the arg it is displacing is still ours to read. */
+    if (existing != NULL)
+        describeLike(arg, existing);
+
     thSynthCommand cmd;
 
     cmd.type = thSynthCommand::SET_CHAN_ARG;
