@@ -43,3 +43,12 @@ think_add_plugin_category(mixer    add fade mul)
 
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
                                    bandosc shapeo multiwave multisined window)
+
+# Visualizers. Not DSP plugins: a different ABI, loaded by the GUI rather than
+# by the parser, drawing with cairo and linking neither libthink nor sigc++.
+# See src/thVisual.h and think_add_visual in cmake/ThinkPlugin.cmake.
+#
+# A .dsp cannot name one of these, so nothing in the corpus depends on which
+# are built and the "what is missing is load-bearing" warning above does not
+# apply to this list.
+think_add_visual(meter)

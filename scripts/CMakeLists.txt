@@ -7,12 +7,16 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS" "" "EXTRA" ${ARGN})
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST" "" "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
 
   if(H_NODEMODEL)
     list(APPEND sources $<TARGET_OBJECTS:think_nodemodel>)
+  endif()
+
+  if(H_VISUALHOST)
+    list(APPEND sources $<TARGET_OBJECTS:think_visualhost>)
   endif()
 
   add_executable(${name} ${sources})
@@ -22,6 +26,11 @@ function(think_harness name)
       "${PROJECT_SOURCE_DIR}/src")
 
   target_link_libraries(${name} PRIVATE think)
+
+  if(H_VISUALHOST)
+    target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+    target_link_libraries(${name} PRIVATE PkgConfig::CAIRO)
+  endif()
 
   if(H_THREADS)
     find_package(Threads REQUIRED)
@@ -66,6 +75,11 @@ target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
 # thSampleRing on its own, with no synth around it. Header-only, so this links
 # libthink only for the include path.
 think_harness(ringcheck THREADS)
+
+# The visual plugins, drawn to a cairo image surface. No toolkit and no
+# display, which is the practical reason the visual ABI takes a cairo_t rather
+# than a widget -- it means these gate on all three CI runners.
+think_harness(visualcheck VISUALHOST)
 
 # dspprobe uses NodeGraph to enumerate output ports, so that what it checks is
 # what the editor would offer rather than a second opinion about which args are
@@ -133,6 +147,10 @@ add_test(NAME dspblock
 # representative sample.
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 
+# Needs no corpus and no display -- it draws to an image surface.
+add_test(NAME visualcheck
+         COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
 add_test(NAME dspprobe
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspprobe>
@@ -144,5 +162,5 @@ add_test(NAME dspprobe
                  -P "${_runner}")
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
-                     ringcheck dspprobe
+                     ringcheck visualcheck dspprobe
                      PROPERTIES TIMEOUT 900)

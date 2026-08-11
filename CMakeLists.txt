@@ -109,6 +109,12 @@ pkg_check_modules(GTKMM  REQUIRED IMPORTED_TARGET gtkmm-4.0>=4.6)
 pkg_check_modules(GTHREAD REQUIRED IMPORTED_TARGET gthread-2.0)
 pkg_check_modules(GLIBMM REQUIRED IMPORTED_TARGET glibmm-2.68)
 
+# Named on its own rather than taken transitively through gtkmm, because the
+# visual plugins link cairo *without* linking gtkmm -- and because visualcheck
+# draws to an image surface with no toolkit and no display at all. Nothing in
+# libthink or in the 62 DSP plugins sees this. See src/thVisual.h.
+pkg_check_modules(CAIRO  REQUIRED IMPORTED_TARGET cairo)
+
 # The one audio backend. RtAudio covers ALSA/JACK/Pulse/OSS, CoreAudio, and
 # WASAPI/DirectSound/ASIO behind a single callback API.
 #
