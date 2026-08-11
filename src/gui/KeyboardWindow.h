@@ -52,7 +52,7 @@ private:
     /* widgets */
     Gtk::Box vbox_{Gtk::ORIENTATION_VERTICAL};
     Gtk::Frame *ctrlFrame_;
-    Gtk::Table *ctrlTable_;
+    Gtk::Grid *ctrlTable_;
 
     Gtk::Label *chanLbl_;
     Gtk::SpinButton *chanBtn_;

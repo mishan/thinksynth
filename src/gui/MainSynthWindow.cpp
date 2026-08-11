@@ -446,7 +446,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     tab_vbox->set_border_width(8);
     tab_vbox->set_spacing(8);
     Gtk::Frame *info_frame = manage(new Gtk::Frame);
-    Gtk::Table *info_table = manage(new Gtk::Table(3, 2));
+    Gtk::Grid *info_table = manage(new Gtk::Grid);
 
     tab_view->add(*tab_vbox);
 
@@ -468,8 +468,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     info_frame->set_label("DSP Information");
     info_frame->add(*info_table);
 
-    info_table->set_col_spacings(5);
-    info_table->set_row_spacings(5);
+    info_table->set_column_spacing(5);
+    info_table->set_row_spacing(5);
 
     /* Inside the frame as well as outside it, so the text is not against the
        frame's own line. */
@@ -485,8 +485,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         lname_lbl->set_alignment(Gtk::ALIGN_END);
         rname_lbl->set_alignment(Gtk::ALIGN_START);
 
-        info_table->attach(*lname_lbl, 0, 1, 0, 1, Gtk::FILL, Gtk::FILL);
-        info_table->attach(*rname_lbl, 1, 2, 0, 1, Gtk::FILL, Gtk::FILL);
+        info_table->attach(*lname_lbl, 0, 0, 1, 1);
+        info_table->attach(*rname_lbl, 1, 0, 1, 1);
     }
 
     thArg *dspAuthor = args["author"];
@@ -500,8 +500,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         rname_lbl->set_alignment(Gtk::ALIGN_START);
 
         
-        info_table->attach(*lname_lbl, 0, 1, 1, 2, Gtk::FILL, Gtk::FILL);
-        info_table->attach(*rname_lbl, 1, 2, 1, 2, Gtk::FILL, Gtk::FILL);
+        info_table->attach(*lname_lbl, 0, 1, 1, 1);
+        info_table->attach(*rname_lbl, 1, 1, 1, 1);
     }
 
     thArg *dspDesc = args["desc"];
@@ -514,8 +514,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         lname_lbl->set_alignment(Gtk::ALIGN_END);
         rname_lbl->set_alignment(Gtk::ALIGN_START);
         
-        info_table->attach(*lname_lbl, 0, 1, 2, 3, Gtk::FILL, Gtk::FILL);
-        info_table->attach(*rname_lbl, 1, 2, 2, 3, Gtk::FILL, Gtk::FILL);
+        info_table->attach(*lname_lbl, 0, 2, 1, 1);
+        info_table->attach(*rname_lbl, 1, 2, 1, 1);
     }
 
     Gtk::Frame *dsp_frame = manage(new Gtk::Frame);
