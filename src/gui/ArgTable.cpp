@@ -38,6 +38,38 @@ ArgTable::~ArgTable (void)
 {
 }
 
+/* Samples <-> the unit the value was written in.
+ *
+ * The engine works in samples and in fractions of TH_MAX, and that is what is
+ * stored; these only decide what the panel puts on screen. Both folds the
+ * grammar performs are exact and exactly invertible, so a value written
+ * `7000 ms' comes back as 7000 and not 6999.97.
+ *
+ * A unit the author declared rather than wrote as a suffix -- `@x.units =
+ * "Hz"' -- passes through untouched. Nothing folded it, so there is nothing
+ * to unfold; it is a label. */
+double ArgTable::toDisplay (double raw, const string &units)
+{
+    if (units == "ms")
+        return raw * 1000.0 / TH_SAMPLE;
+
+    if (units == "%")
+        return raw * 100.0 / TH_MAX;
+
+    return raw;
+}
+
+double ArgTable::fromDisplay (double shown, const string &units)
+{
+    if (units == "ms")
+        return shown * TH_SAMPLE / 1000.0;
+
+    if (units == "%")
+        return shown * TH_MAX / 100.0;
+
+    return shown;
+}
+
 /* Decimal places worth showing for a control whose range runs to `hi'.
  *
  * The resolution that matters is relative: a filter cutoff between 0 and 1
@@ -129,9 +161,25 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
 
     args_++;
 
-    Gtk::Label *label = manage(new Gtk::Label((arg->label().length() > 0) ?
-                                              arg->label() : arg->name()));
-    Gtk::HScale *slider = manage(new Gtk::HScale(arg->min(),arg->max(),.0001));
+    string text = (arg->label().length() > 0) ? arg->label() : arg->name();
+
+    /* The unit belongs with the name, not beside the number: it is a property
+       of the parameter, the same on every row of it, and it costs no width in
+       the value column here. */
+    if (!arg->units().empty())
+        text += " (" + arg->units() + ")";
+
+    Gtk::Label *label = manage(new Gtk::Label(text));
+    /* Slider and box both work in display units, so an envelope time runs
+       0..20000 ms rather than 0..882000 samples -- the same travel, over a
+       number that means something. Only the display converts; what reaches
+       thArg::setValue is samples, exactly as before. */
+    const string units = arg->units();
+
+    const double lo = toDisplay(arg->min(), units);
+    const double hi = toDisplay(arg->max(), units);
+
+    Gtk::HScale *slider = manage(new Gtk::HScale(lo, hi, .0001));
 
     /* gtkmm-3: Gtk::Adjustment is refcounted and its constructor is protected,
        so it is handed out as a RefPtr rather than a raw pointer. */
@@ -149,8 +197,8 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
             sigc::mem_fun(*this, &ArgTable::argChanged),
             slider));
 
-    slider->set_value((*arg)[0]);
-    
+    slider->set_value(toDisplay((*arg)[0], units));
+
     /* Decimals to suit the range, and a box wide enough for the result.
      *
      * Four decimals on everything meant `288000.0312' -- eleven characters of
@@ -158,7 +206,7 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
      * off mid-number. Four places are right for a 0..1 control, where they are
      * the whole resolution; they are meaningless on a range that runs to
      * hundreds of thousands. */
-    const int digits = decimalsFor(arg->max());
+    const int digits = decimalsFor(hi);
 
     Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust, .0001,
                                                            digits));
@@ -166,7 +214,7 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
     /* The value box was as wide as the slider had left over, which on a
        single column was most of the window for a number four characters
        long. Sized to its content now, so the width goes to the slider. */
-    valEntry->set_width_chars(widthFor(arg->max(), digits));
+    valEntry->set_width_chars(widthFor(hi, digits));
 
     /* A slider narrower than this is not draggable in any useful way -- the
        handle is most of it. Asking for the width means a window too narrow
@@ -194,10 +242,10 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
     
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
-    arg->setValue(slider->get_value());
+    arg->setValue(fromDisplay(slider->get_value(), arg->units()));
 }
 
 void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)
 {
-    slider->set_value((*arg)[0]);
+    slider->set_value(toDisplay((*arg)[0], arg->units()));
 }
