@@ -22,6 +22,9 @@
 #define NUM_PATCHES 16
 
 typedef sigc::signal<void()> type_signal_patches_changed;
+
+/* Which channel's patch changed, or stopped being changed. */
+typedef sigc::signal<void(int)> type_signal_patch_dirty;
 typedef sigc::signal<void(const char*)> type_signal_patch_load_error;
 
 class thArg;
@@ -63,6 +66,15 @@ public:
 
         string dspFile;
         string filename;
+
+        /* Anything changed since it was loaded or last written.
+         *
+         * Nothing here saves by itself -- a .patch is only ever written by
+         * someone clicking Save -- so this is what stands between a session's
+         * work and losing it. It is also what Save is for: with nothing
+         * changed there is nothing to write, and a Save button that is always
+         * live says nothing about whether it is worth pressing. */
+        bool dirty;
     };
 
     PatchFile *getPatch (int chan)
@@ -72,6 +84,17 @@ public:
 
         return patches_[chan];
     }
+
+    /* Says a patch has been edited, or has just been saved and so has not.
+       Both windows show a Save button and neither owns the patch. */
+    type_signal_patch_dirty signal_patch_dirty (void) {
+        return m_signal_patch_dirty;
+    }
+
+    /* Marks a channel's patch as edited. Cheap and idempotent: it emits only
+       on the change, so a slider drag does not fire per pixel. */
+    void markDirty (int chan);
+    bool isDirty (int chan);
 
     type_signal_patches_changed signal_patches_changed (void) {
         return m_signal_patches_changed;
@@ -87,6 +110,7 @@ private:
     PatchFile **patches_;
     static gthPatchManager *instance_;
     type_signal_patches_changed m_signal_patches_changed;
+    type_signal_patch_dirty m_signal_patch_dirty;
     type_signal_patch_load_error m_signal_patch_load_error;
 };
 

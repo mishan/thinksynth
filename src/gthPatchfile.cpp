@@ -121,6 +121,10 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
         patches_[chan] = new PatchFile;
         patches_[chan]->dspFile = dspName;
 
+        /* A patch that has only just been given a DSP has been changed by
+           definition: there is no file holding what is on screen. */
+        patches_[chan]->dirty = true;
+
         if (amparg != NULL)
             synth->setChanArg(chan, amparg); 
     }
@@ -205,6 +209,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
 
     patches_[chan] = new PatchFile;
     patches_[chan]->filename = filename;
+    patches_[chan]->dirty = false;
 
     while (fgets(buffer, 256, prefsFile) != NULL)
     {
@@ -406,8 +411,31 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     fclose(prefsFile);
 
     patches_[chan]->filename = filename;
+    patches_[chan]->dirty = false;
 
+    m_signal_patch_dirty(chan);
     m_signal_patches_changed();
 
     return true;
+}
+
+void gthPatchManager::markDirty (int chan)
+{
+    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
+        return;
+
+    if (patches_[chan]->dirty)
+        return;
+
+    patches_[chan]->dirty = true;
+
+    m_signal_patch_dirty(chan);
+}
+
+bool gthPatchManager::isDirty (int chan)
+{
+    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
+        return false;
+
+    return patches_[chan]->dirty;
 }

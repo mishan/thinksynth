@@ -24,6 +24,7 @@ class gthPrefs;
 class AboutBox;
 class MidiMap;
 class NodeEditor;
+class SaveButton;
 
 using namespace std;
 
@@ -67,6 +68,7 @@ protected:
     Gtk::Widget *makePatchBar (int chan);
 
     void onAmpSlider (Gtk::Scale *scale, int chan);
+    void onPatchDirty (int chan, SaveButton *button, int mine);
     void onAmpArgChanged (thArg *arg, int chan);
 
     void onSavePatch (int chan);
@@ -189,6 +191,7 @@ protected:
      * subscription behind for every page that ever existed. */
     std::map<int, Gtk::Scale *> ampScales_;
     std::vector<sigc::connection> ampConns_;
+    std::vector<sigc::connection> saveConns_;
 
     /* True while the notebook's pages are being taken away, and for good
        once the window is being destroyed.

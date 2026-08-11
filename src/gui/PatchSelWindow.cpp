@@ -43,7 +43,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
      : dspAmp (Gtk::Adjustment::create(0, 0, MIDIVALMAX, 1, 10, 0),
               Gtk::Orientation::HORIZONTAL),
       browseButton("Browse"),
-      saveButton("Save As"),
       unloadButton("Unload"),
       ampLabel("Amplitude"),
       fileLabel("Patch"),
@@ -58,7 +57,8 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
       patchCommentsLbl("Comments")
 {
     currchan = -1;
-    
+    loading_ = false;
+
     synth = argsynth;
 
     /* 475x400 cut the Amplitude column off the list and left the form below
@@ -185,11 +185,30 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     browseButton.signal_clicked().connect(
         sigc::mem_fun(*this, &PatchSelWindow::BrowsePatch));
 
-    saveButton.signal_clicked().connect(
+    saveButton.signal_save().connect(
+        sigc::mem_fun(*this, &PatchSelWindow::SaveOverPatch));
+    saveButton.signal_save_as().connect(
         sigc::mem_fun(*this, &PatchSelWindow::SavePatch));
 
     unloadButton.signal_clicked().connect(
         sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
+
+    /* Typing in the information form is editing the patch as much as moving a
+       slider is; it is what Save writes out. */
+    {
+        Gtk::Entry *fields[] = { &patchTitle, &patchCategory, &patchAuthor,
+                                 &patchRevised };
+
+        for (size_t i = 0; i < sizeof(fields) / sizeof(fields[0]); i++)
+            fields[i]->signal_changed().connect(
+                sigc::mem_fun(*this, &PatchSelWindow::onInfoEdited));
+    }
+
+    patchComments.get_buffer()->signal_changed().connect(
+        sigc::mem_fun(*this, &PatchSelWindow::onInfoEdited));
+
+    gthPatchManager::instance()->signal_patch_dirty().connect(
+        sigc::mem_fun(*this, &PatchSelWindow::onPatchDirty));
 
     /* The three things you can do to the selected patch, together and in the
        order they happen to it: find one, write it somewhere, take it off the
@@ -205,6 +224,12 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
     fileEntry.set_hexpand(true);
     dspAmp.set_hexpand(true);
+
+    /* The path is longer than any width this box will get, so which end is
+       cut off is a choice. The end that names the patch is the end worth
+       keeping; the leading directories are the same for every patch in a
+       library. */
+    fileEntry.set_tooltip_text("The file this patch was loaded from");
 
     controlTable.set_row_spacing(6);
     controlTable.set_column_spacing(8);
@@ -396,7 +421,7 @@ void PatchSelWindow::onBrowseResponse (int response,
         return;
     }
 
-    fileEntry.set_text(picked);
+    showPath(picked);
 
     if (!LoadPatch())
         return;
@@ -448,6 +473,52 @@ void PatchSelWindow::SavePatch (void)
     fileSel->present();
 }
 
+/* Save: back to where it came from, no questions except the overwrite one --
+ * and that one is answered by definition, so it is not asked. */
+/* A field changed. Filling the form counts as a change too, unless it is this
+ * window doing the filling -- which is what loading_ is for: selecting a row
+ * writes all five fields, and every one of them would otherwise report the
+ * patch as edited the moment it was looked at. */
+void PatchSelWindow::onInfoEdited (void)
+{
+    if (loading_ || currchan < 0)
+        return;
+
+    gthPatchManager::instance()->markDirty(currchan);
+}
+
+/* The selected patch was edited or saved. */
+void PatchSelWindow::onPatchDirty (int chan)
+{
+    if (chan == currchan)
+        saveButton.setModified(gthPatchManager::instance()->isDirty(chan));
+}
+
+void PatchSelWindow::SaveOverPatch (void)
+{
+    if (currchan < 0)
+        return;
+
+    gthPatchManager::PatchFile *patch =
+        gthPatchManager::instance()->getPatch(currchan);
+
+    if (patch == NULL || patch->filename.empty())
+        return;
+
+    writePatch(patch->filename, currchan);
+}
+
+/* Shows a path with its end visible.
+ *
+ * An entry scrolls to wherever the cursor is, and putting the cursor past the
+ * last character puts the end of the text in view. Left alone it shows the
+ * beginning, which for these is a run of directories every patch shares. */
+void PatchSelWindow::showPath (const string &path)
+{
+    fileEntry.set_text(path);
+    fileEntry.set_position(-1);
+}
+
 void PatchSelWindow::onSaveResponse (int response,
                                      Gtk::FileChooserDialog *fileSel, int chan)
 {
@@ -484,7 +555,7 @@ void PatchSelWindow::writePatch (string file, int chan)
     patchManager->savePatch(file, chan);
 
     /* update prefs file "prevDir" info */
-    fileEntry.set_text(file);
+    showPath(file);
 
     prevDir = thUtil::dirname(file.c_str());
 
@@ -514,10 +585,20 @@ void PatchSelWindow::SetChannelAmp (void)
         if (iter)
         {
             int chanNum = (*iter)[patchViewCols.chanNum] - 1;
+
+            /* Only when it is a move rather than the slider being filled in
+               from the patch that was just selected. */
+            thArg *current = synth->getChanArg(chanNum, "amp");
+
+            if (current && (double)(*current)[0] == dspAmp.get_value())
+                return;
+
             thArg *arg = new thArg("amp", dspAmp.get_value());
 
             (*iter)[patchViewCols.amp] =
                 Glib::ustring::format((int)(dspAmp.get_value() + 0.5));
+
+            gthPatchManager::instance()->markDirty(chanNum);
 
             synth->setChanArg(chanNum, arg);
         } 
@@ -586,7 +667,7 @@ void PatchSelWindow::CursorChanged (void)
                reopen. */
             loaded = (patch != NULL);
 
-            fileEntry.set_text(loaded ? patch->filename : string());
+            showPath(loaded ? patch->filename : string());
 
             {
                 thArg *chanAmp = synth->getChanArg(currchan, "amp");
@@ -601,6 +682,8 @@ void PatchSelWindow::CursorChanged (void)
                channel left the last patch's name and author sitting in the
                form, which read as though that channel had them. It mattered
                less when the panel was folded away and hard to look at. */
+            loading_ = true;
+
             patchTitle.set_text(loaded ? patch->info["title"] : string());
             patchCategory.set_text(loaded ? patch->info["category"] : string());
             patchAuthor.set_text(loaded ? patch->info["author"] : string());
@@ -608,13 +691,21 @@ void PatchSelWindow::CursorChanged (void)
             patchComments.get_buffer()->set_text(
                 loaded ? patch->info["comments"] : string());
 
+            loading_ = false;
+
             /* And the fields themselves are only worth typing in when there
                is a patch for them to describe. */
             patchInfoTable.set_sensitive(loaded);
 
             dspAmp.set_sensitive(loaded);
             unloadButton.set_sensitive(loaded);
-            saveButton.set_sensitive(loaded);
+            saveButton.setSensitive(loaded);
+
+            /* Save means Save As until the patch has been written
+               somewhere. */
+            saveButton.setHasFile(loaded && patch->filename.length() > 0);
+            saveButton.setModified(
+                gthPatchManager::instance()->isDirty(currchan));
         }
     }
     else
@@ -664,7 +755,7 @@ void PatchSelWindow::populate (void)
         /* populate the controls with the data from the first row */
         if (i == 0)
         {
-            fileEntry.set_text(filename);
+            showPath(filename);
 
             if (amp)
             {

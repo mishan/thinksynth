@@ -41,6 +41,7 @@ set(THINKSYNTH_SOURCES
     gui/NodePalette.cpp
     gui/NodeParams.cpp
     gui/NodeEditor.cpp
+    gui/SaveButton.cpp
     gui/PatchSelWindow.cpp)
 
 add_executable(thinksynth
