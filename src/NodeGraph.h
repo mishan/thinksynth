@@ -257,6 +257,16 @@ public:
     /* The panel on `host' reading `arg', or -1. */
     int probeAt (int host, const string &arg) const;
 
+    /* The title row at the top of a probe panel, above the area the visual
+       module draws in.
+     *
+       Public because the two ends have to agree: the editor sizes a panel as
+       the module's preferred height plus this, and the canvas splits it back
+       apart to decide where the module's box starts. If they disagreed the
+       plugin would draw outside the panel or leave a gap in it, and neither is
+       visible in a screenshot until you go looking. */
+    static double probeHeadHeight (void) { return 12.0; }
+
     /* Wrap the layer sequence into stacked bands once the drawing would be
        wider than this. 0 leaves it in one row, which is the default.
     

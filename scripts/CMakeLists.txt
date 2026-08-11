@@ -89,7 +89,7 @@ think_harness(dspprobe  NODEMODEL)
 # The one harness here that needs a display, because what it measures is a real
 # widget's real draw path. A measuring instrument rather than a gate, so it is
 # not in the ctest list below -- run it by hand, under xvfb-run if need be.
-think_harness(canvasbench NODEMODEL
+think_harness(canvasbench NODEMODEL VISUALHOST
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp")
 target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 

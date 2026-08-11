@@ -53,6 +53,8 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
+#include <map>
 #include <functional>
 #include <vector>
 
@@ -61,6 +63,7 @@
 #include "think.h"
 #include "NodeGraph.h"
 #include "gui/NodeCanvas.h"
+#include "thVisual.h"
 
 namespace {
 
@@ -84,7 +87,7 @@ const int VIEW_H = 700;
 const int FRAMES = 120;
 
 bool benchOne (const string &pluginPath, const char *file, bool fit,
-               Result &out)
+               bool probeAll, const char *png, Result &out)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
@@ -96,6 +99,32 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
     NodeGraph graph;
 
     graph.build(tree);
+
+    /* Arm a panel on every output port. The point is not that anyone would --
+       eight probes is the engine's limit and the useful number is one or two
+       -- but that it is the worst case for both the layout and the repaint,
+       and a picture of it shows every panel at once. */
+    if (probeAll)
+    {
+        const size_t nodes = graph.boxes().size();
+
+        for (size_t b = 0; b < nodes; b++)
+        {
+            if (graph.boxes()[b].isControl || graph.boxes()[b].isProbe)
+                continue;
+
+            for (size_t p = 0; p < graph.boxes()[b].ports.size(); p++)
+            {
+                if (graph.boxes()[b].ports[p].isInput)
+                    continue;
+
+                graph.addProbe((int)b, graph.boxes()[b].ports[p].name,
+                               "meter",
+                               NodeGraph::probeHeadHeight() + 24.0);
+            }
+        }
+    }
+
     graph.layout();
     delete tree;
 
@@ -110,6 +139,48 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
     NodeCanvas &canvas = *canvasp;
 
     canvas.setGraph(&graph);
+
+    /* Give every panel a real visual module, fed real samples.
+     *
+     * The point is the whole chain in one picture: thVisual dlopens the
+     * module, the module draws with cairo, the canvas clips it into the panel
+     * it laid out. Everything between the probe ring and the pixels except the
+     * ring itself, which dspprobe already covers, and none of it otherwise
+     * visible without running the application. */
+    thVisual meter(pluginPath + "visual/meter" + PLUGIN_SUFFIX);
+    map<int, void *> instances;
+
+    if (probeAll && meter.state() == thVisual::LOADED)
+    {
+        vector<float> feed(2048);
+
+        for (size_t i = 0; i < feed.size(); i++)
+            feed[i] = 0.45f * (float)sin(2.0 * 3.14159265358979 *
+                                         (double)i / 71.0);
+
+        for (size_t b = 0; b < graph.boxes().size(); b++)
+        {
+            if (!graph.boxes()[b].isProbe)
+                continue;
+
+            void *inst = meter.open(TH_DEFAULT_SAMPLES);
+
+            if (inst == NULL)
+                continue;
+
+            meter.feed(inst, &feed[0], (unsigned int)feed.size());
+            instances[(int)b] = inst;
+        }
+
+        canvas.setProbePainter([&](int box,
+                                   const Cairo::RefPtr<Cairo::Context> &cr,
+                                   int w, int h) {
+            map<int, void *>::iterator i = instances.find(box);
+
+            if (i != instances.end())
+                meter.draw(i->second, cr->cobj(), w, h);
+        });
+    }
 
     scroller->set_child(canvas);
     window.set_child(*scroller);
@@ -173,6 +244,36 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
             worst = took;
     }
 
+    /* A PNG of the real canvas, drawn by the real drawing code.
+     *
+     * NODE_EDITOR.md §7 is right that the bugs that matter here are visual and
+     * that nothing headless catches them -- but "nothing headless catches
+     * them" is not the same as "there is nothing to look at". This renders the
+     * whole graph at 1:1 into an image surface, which is a picture of what the
+     * canvas would show. It is not a check and it asserts nothing; it is a way
+     * to look. */
+    if (png)
+    {
+        Cairo::RefPtr<Cairo::ImageSurface> surf =
+            Cairo::ImageSurface::create(Cairo::Surface::Format::ARGB32,
+                                        (int)graph.width(),
+                                        (int)graph.height());
+
+        Cairo::RefPtr<Cairo::Context> cr = Cairo::Context::create(surf);
+
+        canvas.setZoom(1.0);
+        canvas.drawGraph(cr, (int)graph.width(), (int)graph.height());
+
+        surf->write_to_png(png);
+
+        printf("      wrote %s (%dx%d)\n", png, (int)graph.width(),
+               (int)graph.height());
+    }
+
+    for (map<int, void *>::iterator i = instances.begin();
+         i != instances.end(); ++i)
+        meter.close(i->second);
+
     out.file = file;
     out.boxes = (int)graph.boxes().size();
     out.wires = (int)graph.edges().size();
@@ -198,12 +299,16 @@ int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
     bool fit = false;
+    bool probeAll = false;
+    const char *png = NULL;
     int firstFile = -1;
 
     for (int i = 1; i < argc; i++)
     {
         if (!strcmp(argv[i], "-p")) { if (++i >= argc) return 2; pluginPath = argv[i]; }
         else if (!strcmp(argv[i], "-f")) fit = true;
+        else if (!strcmp(argv[i], "-P")) probeAll = true;
+        else if (!strcmp(argv[i], "-o")) { if (++i >= argc) return 2; png = argv[i]; }
         else { firstFile = i; break; }
     }
 
@@ -211,6 +316,8 @@ int main (int argc, char **argv)
     {
         printf("usage: %s [-p PATH] [-f] file.dsp ...\n"
                "  -f  zoom to fit first, as the Fit button does\n"
+               "  -P  arm a probe panel on every output port\n"
+               "  -o  write a PNG of the first graph and stop\n"
                "\n"
                "Needs a display. Under CI or a headless box:\n"
                "  xvfb-run -a %s ...\n", argv[0], argv[0]);
@@ -237,7 +344,7 @@ int main (int argc, char **argv)
         {
             Result r;
 
-            if (!benchOne(pluginPath, argv[f], fit, r))
+            if (!benchOne(pluginPath, argv[f], fit, probeAll, png, r))
             {
                 printf("skip  %s\n", argv[f]);
                 continue;
