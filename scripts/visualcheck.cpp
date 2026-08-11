@@ -74,21 +74,40 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <algorithm>
+#include <filesystem>
 #include <string>
 #include <vector>
 
 #include <cairo.h>
 
-#ifdef _WIN32
-#  include <windows.h>
-#else
-#  include <dirent.h>
-#endif
-
 #include "thVisual.h"
+
+namespace fs = std::filesystem;
 
 using std::string;
 using std::vector;
+
+/* Picked up automatically by LeakSanitizer, the same way dspstress supplies
+ * __tsan_default_options -- so the check stays a real gate instead of needing
+ * an environment variable nobody will remember, and CI's ASAN_OPTIONS of
+ * detect_leaks=1 keeps meaning something here.
+ *
+ * cairo_select_font_face pulls in fontconfig, which builds a global pattern
+ * cache and never frees it: 4738 bytes in 68 allocations, every one of them
+ * inside libfontconfig, and none of them reachable from anything in this tree.
+ * Suppressing by module rather than turning leak detection off means a real
+ * leak in thVisual or in a visual plugin still fails the run -- which is the
+ * whole reason this harness exists in a sanitizer build at all.
+ */
+extern "C" const char *__lsan_default_suppressions (void)
+{
+    return "leak:libfontconfig\n"
+           "leak:FcInit\n"
+           "leak:FcConfig\n"
+           "leak:FcPattern\n"
+           "leak:FcValueSave\n";
+}
 
 namespace {
 
@@ -121,6 +140,13 @@ void ok (bool cond, const char *fmt, ...)
 
 /* ---- the inputs ---- */
 
+/* Not M_PI. It is not in C++'s <cmath> at all -- POSIX puts it in <math.h> and
+   glibc obliges, MinGW's UCRT runtime does not unless _USE_MATH_DEFINES was
+   defined first, and the Windows CI job duly failed here. think.h does that
+   dance for the 27 places in the engine that need it, but this harness is
+   deliberately free of think.h, so it carries its own. */
+const double PI = 3.14159265358979323846;
+
 struct Feed {
     const char *what;
     vector<float> samples;
@@ -141,7 +167,7 @@ void makeFeeds (vector<Feed> &out, unsigned int n)
     f.what = "a sine at full scale";
     f.samples.resize(n);
     for (unsigned int i = 0; i < n; i++)
-        f.samples[i] = (float)sin(2.0 * M_PI * (double)i / 64.0);
+        f.samples[i] = (float)sin(2.0 * PI * (double)i / 64.0);
     out.push_back(f);
 
     f.what = "a square at +-1";
@@ -167,7 +193,7 @@ void makeFeeds (vector<Feed> &out, unsigned int n)
     f.what = "one NaN in a sine";
     f.samples.resize(n);
     for (unsigned int i = 0; i < n; i++)
-        f.samples[i] = (float)sin(2.0 * M_PI * (double)i / 64.0);
+        f.samples[i] = (float)sin(2.0 * PI * (double)i / 64.0);
     if (n > 3)
         f.samples[3] = (float)NAN;
     out.push_back(f);
@@ -241,42 +267,32 @@ bool anyInk (const vector<unsigned char> &px)
 
 /* ---- finding the modules ---- */
 
+/* std::filesystem and config.h's PLUGIN_SUFFIX, which is what NodeCatalog::scan
+   already does -- and for the reason that harness found the hard way. A
+   hand-rolled dirent walk matching ".so" builds fine on macOS and then reports
+   "no visual modules", because CMakeLists.txt sets the suffix to .dylib there
+   and .dll on Windows. There is one place that knows the extension; ask it. */
 void listVisuals (const string &dir, vector<string> &out)
 {
-#ifdef _WIN32
-    WIN32_FIND_DATAA fd;
-    const string pattern = dir + "*";
-    HANDLE h = FindFirstFileA(pattern.c_str(), &fd);
+    std::error_code ec;
 
-    if (h == INVALID_HANDLE_VALUE)
+    if (!fs::is_directory(dir, ec))
         return;
 
-    do {
-        const string name = fd.cFileName;
-
-        if (name.size() > 4 && name.compare(name.size() - 4, 4, ".dll") == 0)
-            out.push_back(dir + name);
-    } while (FindNextFileA(h, &fd));
-
-    FindClose(h);
-#else
-    DIR *d = opendir(dir.c_str());
-
-    if (d == NULL)
-        return;
-
-    struct dirent *e;
-
-    while ((e = readdir(d)) != NULL)
+    for (const auto &f : fs::directory_iterator(dir, ec))
     {
-        const string name = e->d_name;
+        if (ec)
+            break;
 
-        if (name.size() > 3 && name.compare(name.size() - 3, 3, ".so") == 0)
-            out.push_back(dir + name);
+        if (f.path().extension() != PLUGIN_SUFFIX)
+            continue;
+
+        out.push_back(f.path().string());
     }
 
-    closedir(d);
-#endif
+    /* Directory order is whatever the filesystem feels like, and a check whose
+       output reorders itself between runs is a nuisance to diff. */
+    std::sort(out.begin(), out.end());
 }
 
 /* ---- one module ---- */
