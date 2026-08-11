@@ -80,6 +80,10 @@ think_harness(ringcheck THREADS)
 # display, which is the practical reason the visual ABI takes a cairo_t rather
 # than a widget -- it means these gate on all three CI runners.
 think_harness(visualcheck VISUALHOST)
+# plugins/visual for fftr.h: visualcheck checks the shared FFT numerically,
+# which is the one place in the visualizer work where "are the numbers right"
+# has an answer.
+target_include_directories(visualcheck PRIVATE "${PROJECT_SOURCE_DIR}/plugins/visual")
 
 # dspprobe uses NodeGraph to enumerate output ports, so that what it checks is
 # what the editor would offer rather than a second opinion about which args are
