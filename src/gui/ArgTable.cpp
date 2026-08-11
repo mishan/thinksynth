@@ -28,10 +28,9 @@
 #include "ArgTable.h"
 
 ArgTable::ArgTable (void)
-    : Gtk::Table(1, 3), rows_(1), args_(0)
+    : rows_(1), args_(0)
 {
-    set_col_spacings(8);
-    set_row_spacings(2);
+    set_spacing(6);
 }
 
 ArgTable::~ArgTable (void)
@@ -120,42 +119,100 @@ int ArgTable::columnsFor (int n)
     return 3;
 }
 
-void ArgTable::insertArg (thArg *arg)
+void ArgTable::insertArg (thArg *arg, const string &group)
 {
     if (arg == NULL)
         return;
 
     pending_.push_back(arg);
+
+    if (!group.empty())
+        inferred_[arg] = group;
 }
 
 /* Lays out everything handed to insertArg.
  *
- * Deferred to here because the column count depends on how many there are, and
- * that is not known until the last one has arrived. */
+ * Deferred to here because the column count depends on how many there are,
+ * and that is not known until the last one has arrived.
+ *
+ * Parameters that declare a group are gathered under a titled expander, in
+ * the order the groups were first seen; the ungrouped ones stay in a plain
+ * grid above them. An envelope's attack, decay, sustain and release are one
+ * control in the way anyone thinks about a patch and four in the way the file
+ * stores them, and saying so lets them be folded away when you are working on
+ * something else.
+ *
+ * Expanded to begin with. A parameter you cannot see is a parameter you will
+ * not remember the patch has, so folding is something to reach for rather
+ * than something to undo on every open. */
 void ArgTable::reflow (void)
 {
-    const int n = (int)pending_.size();
-
-    if (n == 0)
+    if (pending_.empty())
         return;
 
-    const int cols = columnsFor(n);
+    std::vector<thArg *> loose;
+    std::vector<string> order;
+    std::map<string, std::vector<thArg *> > groups;
 
-    /* Down each column, then across -- so reading top to bottom gives the
-       parameters in order, the way a single column did. Across-then-down would
-       scatter alphabetical neighbours over three columns. */
-    const int perCol = (n + cols - 1) / cols;
+    for (size_t i = 0; i < pending_.size(); i++)
+    {
+        /* What the patch declared, or failing that what the caller inferred
+           from the graph. A declared group is the author saying so and wins;
+           an inferred one is a good guess at the same thing. */
+        string g = pending_[i]->group();
 
-    resize(perCol, cols * 3);
-    rows_ = perCol;
+        if (g.empty() && inferred_.count(pending_[i]))
+            g = inferred_[pending_[i]];
 
-    for (int i = 0; i < n; i++)
-        placeArg(pending_[i], i / perCol, i % perCol);
+        if (g.empty())
+        {
+            loose.push_back(pending_[i]);
+            continue;
+        }
+
+        if (!groups.count(g))
+            order.push_back(g);
+
+        groups[g].push_back(pending_[i]);
+    }
+
+    if (!loose.empty())
+        pack_start(*makeGrid(loose), Gtk::PACK_SHRINK);
+
+    for (size_t i = 0; i < order.size(); i++)
+    {
+        Gtk::Expander *exp = manage(new Gtk::Expander(order[i]));
+
+        exp->set_expanded(true);
+        exp->add(*makeGrid(groups[order[i]]));
+
+        pack_start(*exp, Gtk::PACK_SHRINK);
+    }
 
     show_all_children();
 }
 
-void ArgTable::placeArg (thArg *arg, int col, int row)
+/* A grid of these parameters, filled down each column and then across, so
+   reading top to bottom gives them in order. */
+Gtk::Table *ArgTable::makeGrid (const std::vector<thArg *> &args)
+{
+    const int n = (int)args.size();
+    const int cols = columnsFor(n);
+    const int perCol = (n + cols - 1) / cols;
+
+    Gtk::Table *grid = manage(new Gtk::Table(perCol, cols * 3));
+
+    grid->set_col_spacings(8);
+    grid->set_row_spacings(2);
+    grid->set_border_width(4);
+
+    for (int i = 0; i < n; i++)
+        placeArg(grid, args[i], i / perCol, i % perCol);
+
+    return grid;
+}
+
+void ArgTable::placeArg (Gtk::Table *grid, thArg *arg, int col, int row)
 {
     const int x = col * 3;
 
@@ -233,11 +290,11 @@ void ArgTable::placeArg (thArg *arg, int col, int row)
     label->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
     label->set_tooltip_text(arg->name());
 
-    attach(*label, x, x + 1, row, row + 1, Gtk::FILL, Gtk::SHRINK);
-    attach(*slider, x + 1, x + 2, row, row + 1,
-           Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
-    attach(*valEntry, x + 2, x + 3, row, row + 1,
-           Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
+    grid->attach(*label, x, x + 1, row, row + 1, Gtk::FILL, Gtk::SHRINK);
+    grid->attach(*slider, x + 1, x + 2, row, row + 1,
+                 Gtk::EXPAND|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
+    grid->attach(*valEntry, x + 2, x + 3, row, row + 1,
+                 Gtk::SHRINK|Gtk::FILL, Gtk::SHRINK|Gtk::FILL);
 }
     
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
