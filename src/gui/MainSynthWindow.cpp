@@ -595,7 +595,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     sub->append_page(*holder, "Nodes");
 
     sub->signal_switch_page().connect(
-        sigc::bind<Gtk::Widget *, string, int>(
+        sigc::bind(
             sigc::mem_fun(*this, &MainSynthWindow::onSubTab),
             holder, patchMgr->getPatch(num) ? patchMgr->getPatch(num)->dspFile
                                             : string(),
@@ -677,14 +677,14 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
         ampScale->set_value((*amp)[0]);
 
         ampScale->signal_value_changed().connect(
-            sigc::bind<Gtk::Scale *, int>(
+            sigc::bind(
                 sigc::mem_fun(*this, &MainSynthWindow::onAmpSlider),
                 ampScale, chan));
 
         /* MIDI volume, the Patch Selector and a patch load all write this arg
            behind the slider's back. */
         ampConns_.push_back(amp->signal_arg_changed().connect(
-            sigc::bind<int>(
+            sigc::bind(
                 sigc::mem_fun(*this, &MainSynthWindow::onAmpArgChanged),
                 chan)));
 
@@ -702,11 +702,11 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     Gtk::Button *saveBtn = manage(new Gtk::Button("_Save", true));
 
     saveAsBtn->signal_clicked().connect(
-        sigc::bind<int>(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
                         chan));
 
     saveBtn->signal_clicked().connect(
-        sigc::bind<int>(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch),
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch),
                         chan));
 
     /* Nothing to overwrite until the patch has a file of its own. */
@@ -751,7 +751,7 @@ void MainSynthWindow::onSavePatch (int chan)
         return;
 
     Glib::signal_idle().connect_once(
-        sigc::bind<string, int>(
+        sigc::bind(
             sigc::mem_fun(*this, &MainSynthWindow::doSavePatch),
             patch->filename, chan));
 }
@@ -812,7 +812,7 @@ void MainSynthWindow::onSavePatchAs (int chan)
     }
 
     Glib::signal_idle().connect_once(
-        sigc::bind<string, int>(
+        sigc::bind(
             sigc::mem_fun(*this, &MainSynthWindow::doSavePatch), file, chan));
 }
 
