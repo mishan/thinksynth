@@ -176,28 +176,60 @@ void ArgTable::reflow (void)
         groups[g].push_back(pending_[i]);
     }
 
+    /* Each group is a block, and the blocks go side by side.
+     *
+     * Stacking them was the obvious thing and it undid the columns: a group
+     * of five is five rows, and four groups stacked are the tall strip the
+     * columns existed to get rid of. Side by side, each group is a narrow
+     * block of its own -- which is also how a synth's front panel is laid
+     * out, one section per part of the signal path. */
+    std::vector<Gtk::Widget *> blocks;
+
     if (!loose.empty())
-        pack_start(*makeGrid(loose), Gtk::PACK_SHRINK);
+        blocks.push_back(makeGrid(loose, columnsFor((int)loose.size())));
 
     for (size_t i = 0; i < order.size(); i++)
     {
         Gtk::Expander *exp = manage(new Gtk::Expander(order[i]));
 
+        /* One column inside a block: the block is narrow by design, and the
+           whole point is that the group reads as a single short list. */
         exp->set_expanded(true);
-        exp->add(*makeGrid(groups[order[i]]));
+        exp->add(*makeGrid(groups[order[i]], 1));
 
-        pack_start(*exp, Gtk::PACK_SHRINK);
+        blocks.push_back(exp);
     }
+
+    const int n = (int)blocks.size();
+    const int cols = (n <= 1) ? 1 : (n <= 4 ? 2 : 3);
+    const int rows = (n + cols - 1) / cols;
+
+    Gtk::Table *outer = manage(new Gtk::Table(rows, cols));
+
+    outer->set_col_spacings(12);
+    outer->set_row_spacings(8);
+
+    for (int i = 0; i < n; i++)
+    {
+        const int c = i % cols;
+        const int r = i / cols;
+
+        /* Top-aligned, so blocks of different heights line up along their
+           titles rather than floating in the middle of the tallest row. */
+        outer->attach(*blocks[i], c, c + 1, r, r + 1,
+                      Gtk::EXPAND|Gtk::FILL, Gtk::FILL);
+    }
+
+    pack_start(*outer, Gtk::PACK_SHRINK);
 
     show_all_children();
 }
 
 /* A grid of these parameters, filled down each column and then across, so
    reading top to bottom gives them in order. */
-Gtk::Table *ArgTable::makeGrid (const std::vector<thArg *> &args)
+Gtk::Table *ArgTable::makeGrid (const std::vector<thArg *> &args, int cols)
 {
     const int n = (int)args.size();
-    const int cols = columnsFor(n);
     const int perCol = (n + cols - 1) / cols;
 
     Gtk::Table *grid = manage(new Gtk::Table(perCol, cols * 3));
