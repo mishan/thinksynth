@@ -6,8 +6,9 @@
 # then dies:
 #
 #   1. share/glib-2.0/schemas/gschemas.compiled
-#      GTK reads org.gtk.Settings.FileChooser during init. If the schema is
-#      not installed GSettings does not degrade, it aborts the process.
+#      GTK reads org.gtk.gtk4.Settings.FileChooser during init -- GTK4
+#      namespaces its schemas so it can sit beside GTK3. If the schema is not
+#      installed GSettings does not degrade, it aborts the process.
 #
 #   2. lib/gdk-pixbuf-2.0/<ver>/loaders{,.cache}
 #      Every icon in the theme is a PNG or an SVG, and gdk-pixbuf loads
