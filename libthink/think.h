@@ -266,6 +266,8 @@ typedef list<thNode *> thNodeList;
 /* XXX: INCLUDES */
 #include "thExport.h"
 #include "thRing.h"
+#include "thSampleRing.h"
+#include "thProbe.h"
 #include "thSynthCommand.h"
 #include "thArg.h"
 #include "thEndian.h"

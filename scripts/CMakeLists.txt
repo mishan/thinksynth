@@ -67,6 +67,11 @@ target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
 # libthink only for the include path.
 think_harness(ringcheck THREADS)
 
+# dspprobe uses NodeGraph to enumerate output ports, so that what it checks is
+# what the editor would offer rather than a second opinion about which args are
+# outputs.
+think_harness(dspprobe  NODEMODEL)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
