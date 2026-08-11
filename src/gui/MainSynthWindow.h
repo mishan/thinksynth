@@ -109,10 +109,10 @@ protected:
     void rememberGeometry (void);
 
     void onPatchesChanged (void);
-    void onAboutBoxHide (void);
-    void onPatchSelHide (void);
-    void onMidiMapHide (void);
-    void onKeyboardHide (void);
+
+    /* Hides a secondary window instead of letting it be destroyed, so it can
+       be presented again. Returns true: the close is handled. */
+    bool onSubWindowClose (Gtk::Window *window);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onMasterGain (void);
 

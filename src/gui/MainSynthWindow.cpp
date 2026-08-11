@@ -195,6 +195,18 @@ MainSynthWindow::~MainSynthWindow (void)
 
     rememberGeometry();
 
+    /* These are kept rather than destroyed when they close, so this is where
+       they go -- before the synth, which they all reach into. */
+    delete aboutBox_;
+    delete patchSel_;
+    delete midiMap_;
+    delete kbWin_;
+
+    aboutBox_ = NULL;
+    patchSel_ = NULL;
+    midiMap_ = NULL;
+    kbWin_ = NULL;
+
     menuQuit();
 }
 
@@ -395,11 +407,12 @@ void MainSynthWindow::menuKeyboard (void)
     if (kbWin_ == NULL)
     {
         kbWin_ = new KeyboardWindow (thSynth::instance());
-        kbWin_->signal_hide().connect(
-            sigc::mem_fun(*this, &MainSynthWindow::onKeyboardHide));
+        kbWin_->signal_close_request().connect(
+            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
+                       (Gtk::Window *)kbWin_), false);
     }
 
-    kbWin_->show();
+    kbWin_->present();
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -407,11 +420,12 @@ void MainSynthWindow::menuPatchSel (void)
     if (patchSel_ == NULL)
     {
         patchSel_ = new PatchSelWindow(thSynth::instance());
-        patchSel_->signal_hide().connect(
-            sigc::mem_fun(*this, &MainSynthWindow::onPatchSelHide));
+        patchSel_->signal_close_request().connect(
+            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
+                       (Gtk::Window *)patchSel_), false);
     }
     
-    patchSel_->show();
+    patchSel_->present();
 }
 
 void MainSynthWindow::menuMidiMap (void)
@@ -419,11 +433,12 @@ void MainSynthWindow::menuMidiMap (void)
     if (midiMap_ == NULL)
     {
         midiMap_ = new MidiMap(thSynth::instance());
-        midiMap_->signal_hide().connect(
-            sigc::mem_fun(*this, &MainSynthWindow::onMidiMapHide));
+        midiMap_->signal_close_request().connect(
+            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
+                       (Gtk::Window *)midiMap_), false);
     }
 
-    midiMap_->show();
+    midiMap_->present();
 }
 
 void MainSynthWindow::menuQuit (void)
@@ -437,9 +452,10 @@ void MainSynthWindow::menuAbout (void)
         return;
 
     aboutBox_ = new AboutBox;
-    aboutBox_->show();
-    aboutBox_->signal_hide().connect(
-        sigc::mem_fun(*this, &MainSynthWindow::onAboutBoxHide));
+    aboutBox_->signal_close_request().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
+                   (Gtk::Window *)aboutBox_), false);
+    aboutBox_->present();
 }
 
 /* The tab strip runs down the side, so its width is the window's to spare.
@@ -1168,29 +1184,28 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
               "\n\nA syntax error, or the DSP it names does not exist.");
 }
 
-void MainSynthWindow::onAboutBoxHide (void)
+/* Closing one of the secondary windows.
+ *
+ * They used to be deleted when they hid, and rebuilt on the next open. That
+ * cannot work in GTK4: closing a window destroys it rather than hiding it, so
+ * the hide never arrived, the pointer was still set, and the next open called
+ * present() on a destroyed window -- "A window is shown after it has been
+ * destroyed. This will leave the window in an inconsistent state."
+ *
+ * Returning true keeps the window: GTK asks whether it may close, and this
+ * says no and hides it instead. So it survives to be presented again, which
+ * is both simpler and cheaper than rebuilding it -- the patch selector and
+ * the MIDI map are subscribed to the patch manager and keep themselves
+ * current whether they are on screen or not.
+ *
+ * They are deleted in the destructor now, which is also where they have to be:
+ * every one of them points into the synth. */
+bool MainSynthWindow::onSubWindowClose (Gtk::Window *window)
 {
-    delete aboutBox_;
-    aboutBox_ = NULL;
-}
+    if (window != NULL)
+        window->set_visible(false);
 
-void MainSynthWindow::onPatchSelHide (void)
-{
-    delete patchSel_;
-    patchSel_ = NULL;
-}
-
-void MainSynthWindow::onMidiMapHide (void)
-{
-    delete midiMap_;
-    midiMap_ = NULL;
-}
-
-
-void MainSynthWindow::onKeyboardHide (void)
-{
-    delete kbWin_;
-    kbWin_ = NULL;
+    return true;
 }
 
 /* gtkmm-3 passes the page widget itself rather than the opaque GtkNotebookPage
