@@ -38,6 +38,8 @@ private:
     void argChanged (thArg *, Gtk::HScale *);
 
     static int columnsFor (int n);
+    static int decimalsFor (double hi);
+    static int widthFor (double hi, int digits);
     void placeArg (thArg *arg, int col, int row);
 
     std::vector<thArg *> pending_;
