@@ -38,7 +38,6 @@ protected:
     void menuKeyboard (void);
     void menuPatchSel (void);
     void menuMidiMap (void);
-    void menuNodes (void);
     void menuQuit (void);
     void menuAbout (void);
 
@@ -122,11 +121,6 @@ protected:
     KeyboardWindow *kbWin_;
     AboutBox *aboutBox_;
     MidiMap *midiMap_;
-    /* The Overview/Nodes notebook on each patch page, indexed by channel, so
-       the menu item can switch the current page to its Nodes tab. NULL for a
-       channel with no patch. */
-    std::vector<Gtk::Notebook *> subTabs_;
-
     /* The node editor on each page, built the first time its tab is looked
        at. Building one scans the whole plugin directory for the palette, so
        sixteen of them up front would be sixteen scans for the one you

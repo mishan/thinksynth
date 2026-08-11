@@ -203,9 +203,11 @@ void MainSynthWindow::populateMenu (void)
     addMenuItem(menuFile_, "_MIDI Controllers",
                 sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap),
                 "<ctrl>m");
-    addMenuItem(menuFile_, "_Node View",
-                sigc::mem_fun(*this, &MainSynthWindow::menuNodes),
-                "<ctrl>n");
+
+    /* No Node View item. It dates from when the editor was a window of its
+       own; now that it is a tab on the patch page, the menu could only do
+       what clicking the tab does -- and it had to explain itself with a
+       dialog when the current channel had no patch on it. */
 
     menuFile_.append(*manage(new Gtk::SeparatorMenuItem()));
 
@@ -247,34 +249,6 @@ void MainSynthWindow::menuKeyboard (void)
 
     kbWin_->show_all_children();
     kbWin_->show();
-}
-
-/* Opens the node view on whatever .dsp the current tab names. The window
-   parses its own copy of the file, so it neither sees nor disturbs the tree
-   the channel is playing -- which also means it works before a patch has been
-   loaded, as long as the entry names a readable file. */
-/* Show the node graph for the patch page you are on.
- *
- * It is a tab on that page now, so this is a switch rather than a window to
- * open: the editor is built and the .dsp read the first time the tab is
- * shown, by onSubTab. All the resolving that used to happen here went with
- * it -- the page knows its own dspFile, so there is nothing to guess from the
- * entry box and no way for the menu to show a different file from the tab. */
-void MainSynthWindow::menuNodes (void)
-{
-    const int chan = notebook_.get_current_page();
-
-    if (chan < 0 || chan >= (int)subTabs_.size() || subTabs_[chan] == NULL)
-    {
-        Gtk::MessageDialog dlg(*this, "No patch on this tab.", false,
-                               Gtk::MESSAGE_INFO, Gtk::BUTTONS_OK, true);
-        dlg.set_secondary_text("Choose a DSP for this channel first; the node "
-                               "view shows the file that channel is playing.");
-        dlg.run();
-        return;
-    }
-
-    subTabs_[chan]->set_current_page(1);
 }
 
 void MainSynthWindow::menuPatchSel (void)
@@ -358,7 +332,6 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *lbl = manage(new Gtk::Label("Please select a DSP file to associate with this patch."));
         lbl->set_justify(Gtk::JUSTIFY_CENTER);
         notebook_.append_page(*lbl, *makeTabLabel(tabName, tip));
-        subTabs_.push_back(NULL);
         return;
     }
 
@@ -372,7 +345,6 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         Gtk::Label *sorry = manage(new Gtk::Label("Sorry, this DSP does not have modifiable settings."));
         sorry->set_justify(Gtk::JUSTIFY_CENTER);
         notebook_.append_page(*sorry, *makeTabLabel(tabName, tip));
-        subTabs_.push_back(NULL);
         return;
     }
         
@@ -530,7 +502,6 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     page->pack_start(*sub);
 
     notebook_.append_page(*page, *makeTabLabel(tabName, tip));
-    subTabs_.push_back(sub);
 
 }
 
@@ -888,7 +859,6 @@ void MainSynthWindow::onSubTab (Gtk::Widget *page, guint num,
 void MainSynthWindow::populate (void)
 {
     /* populate notebook */
-    subTabs_.clear();
     editors_.clear();
 
     /* The sliders about to be discarded are subscribed to args that outlive
