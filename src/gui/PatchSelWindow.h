@@ -19,6 +19,8 @@
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
 
+#include "SaveButton.h"
+
 class PatchSelColumns : public Gtk::TreeModel::ColumnRecord
 {
 public:
@@ -63,10 +65,19 @@ protected:
                          int chan);
     void writePatch (string file, int chan);
     void SavePatch (void);
+
+    /* Save, as opposed to Save As: straight back to the file the patch came
+       from. */
+    void SaveOverPatch (void);
+
+    /* The filename box, scrolled so the end of the path is what shows. */
+    void showPath (const string &path);
     void CursorChanged (void);
     void UnloadDSP (void);
 
     void patchSelected (void);
+    void onInfoEdited (void);
+    void onPatchDirty (int chan);
     void fileEntryActivate (void);
     void onPatchesChanged (void);
     
@@ -84,7 +95,7 @@ protected:
     Gtk::Scale dspAmp{Gtk::Orientation::HORIZONTAL};
     Gtk::Button setButton;
     Gtk::Button browseButton;
-    Gtk::Button saveButton;
+    SaveButton saveButton;
     Gtk::Button unloadButton;
     Gtk::Label ampLabel;
 
@@ -114,6 +125,10 @@ private:
     void populate (void);
 
     thSynth *synth;
+
+    /* True while this window is filling the form from a patch, so that doing
+       so is not mistaken for someone typing in it. */
+    bool loading_;
     string prevDir;
 
     int currchan;

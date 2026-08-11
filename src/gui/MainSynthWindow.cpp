@@ -44,6 +44,7 @@
 #include "ArgTable.h"
 #include "NodeEditor.h"
 #include "Dialogs.h"
+#include "SaveButton.h"
 
 
 #include "../gthPrefs.h"
@@ -676,6 +677,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         }
     }
 
+    dsp_table->setChannel(num);
+
     /* Now that the count is known, the table can pick its column count. */
     dsp_table->reflow();
 
@@ -802,23 +805,28 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
     /* Over on the right, which a GTK4 box reaches by appending an expanding
        nothing first: it packs one way now, and pack_end is gone. */
-    Gtk::Button *saveAsBtn = manage(new Gtk::Button("Save _As...", true));
-    Gtk::Button *saveBtn = manage(new Gtk::Button("_Save", true));
+    SaveButton *saveBtn = manage(new SaveButton);
 
-    saveAsBtn->signal_clicked().connect(
+    saveBtn->signal_save().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch), chan));
+    saveBtn->signal_save_as().connect(
         sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
-                        chan));
+                   chan));
 
-    saveBtn->signal_clicked().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch),
-                        chan));
+    /* Nothing to overwrite until the patch has a file of its own -- which
+       makes Save mean Save As rather than making it dead. */
+    saveBtn->setHasFile(saved);
+    saveBtn->setModified(patchMgr->isDirty(chan));
 
-    /* Nothing to overwrite until the patch has a file of its own. */
-    saveBtn->set_sensitive(saved);
-    saveBtn->set_tooltip_text(saved
-                              ? "Write this patch back to " + patch->filename
-                              : string("This patch has not been saved yet -- "
-                                       "use Save As"));
+    /* The button outlives this call and the patch's state changes under it,
+       so it listens rather than being told once. */
+    saveConns_.push_back(patchMgr->signal_patch_dirty().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onPatchDirty),
+                   saveBtn, chan)));
+
+    if (saved)
+        saveBtn->set_tooltip_text("Write this patch back to "
+                                  + patch->filename);
 
     {
         Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
@@ -828,19 +836,41 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     }
 
     bar->append(*saveBtn);
-    bar->append(*saveAsBtn);
 
     return bar;
 }
 
 /* Looked up rather than captured: the arg belongs to the thMidiChan, and
    loading a patch onto this channel replaces the channel. */
+/* One of the sixteen patches changed; if it is this button's, say so. */
+void MainSynthWindow::onPatchDirty (int chan, SaveButton *button, int mine)
+{
+    if (chan == mine)
+        button->setModified(gthPatchManager::instance()->isDirty(mine));
+}
+
 void MainSynthWindow::onAmpSlider (Gtk::Scale *scale, int chan)
 {
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
 
-    if (amp != NULL)
-        amp->setValue(scale->get_value());
+    if (amp == NULL)
+        return;
+
+    const double want = scale->get_value();
+
+    /* Nothing to do, and nothing to report, when the slider is only catching
+       up with the arg.
+     *
+     * The two follow each other -- onAmpArgChanged moves the slider when
+       anything else moves the arg -- so without this, restoring a saved
+       amplitude at startup arrived here as though someone had dragged it, and
+       every patch came up already modified. */
+    if ((double)(*amp)[0] == want)
+        return;
+
+    amp->setValue(want);
+
+    gthPatchManager::instance()->markDirty(chan);
 }
 
 void MainSynthWindow::onAmpArgChanged (thArg *arg, int chan)
@@ -1118,7 +1148,11 @@ void MainSynthWindow::populate (void)
     for (size_t i = 0; i < ampConns_.size(); i++)
         ampConns_[i].disconnect();
 
+    for (size_t i = 0; i < saveConns_.size(); i++)
+        saveConns_[i].disconnect();
+
     ampConns_.clear();
+    saveConns_.clear();
     ampScales_.clear();
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
