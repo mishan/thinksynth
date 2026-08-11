@@ -70,9 +70,18 @@ AboutBox::AboutBox (void)
 
     /* create_from_xpm needed a colormap and produced a server-side pixmap plus
        a 1-bit mask. Gdk::Pixbuf reads the same inline XPM data directly and
-       keeps the transparency as an alpha channel. */
-    logoPixbuf_ = Gdk::Pixbuf::create_from_xpm_data(thinksynth);
-    logo_ = manage(new Gtk::Image(logoPixbuf_));
+       keeps the transparency as an alpha channel.
+     *
+     * A Picture, not an Image. In GTK4 Gtk::Image is for icons and sizes
+       whatever it is given to an icon size -- which is why the logo came up
+       as a 16-pixel smudge in the middle of a 415x135 frame. Gtk::Picture is
+       the widget for a picture, and it draws at the natural size. */
+    logoTexture_ = Gdk::Texture::create_for_pixbuf(
+        Gdk::Pixbuf::create_from_xpm_data(thinksynth));
+
+    logo_ = manage(new Gtk::Picture(logoTexture_));
+    logo_->set_can_shrink(true);
+    logo_->set_content_fit(Gtk::ContentFit::CONTAIN);
     frame_->set_child(*logo_);
 
     /* Hack to get it to shrink down to our size */

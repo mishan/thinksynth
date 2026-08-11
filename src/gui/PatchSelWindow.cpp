@@ -73,8 +73,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
 
     set_title("thinksynth - Patch Selector");
 
-    set_child(vbox);
-
     patchInfoExpander.set_child(patchInfoTable);
 
     /* Gtk::Table is gone in GTK4 and Grid has been its replacement since 3.2.
@@ -154,9 +152,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     unloadButton.signal_clicked().connect(
         sigc::mem_fun(*this, &PatchSelWindow::UnloadDSP));
     
-    vbox.append(patchInfoExpander);
-    vbox.append(controlTable);
-
     ampLabel.set_margin_start(5);
     ampLabel.set_margin_end(5);
     saveButton.set_margin_start(5);
@@ -184,7 +179,21 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     controlTable.attach(fileEntry, 1, 1, 1, 1);
     controlTable.attach(browseButton, 2, 1, 1, 1);
     controlTable.attach(unloadButton, 3, 1, 1, 1);
-    
+
+    /* Filled first, parented second.
+     *
+     * These two used to be appended to the box above and populated
+       afterwards, which GTK3 did not mind. GTK4 builds a CSS node per widget
+       and threads them onto the parent's list as children arrive, and adding
+       to a container that is already in a realised hierarchy is where
+       gtk_css_node_insert_after's sibling assertion comes from. Building the
+       grid before it has a parent means there is no list to thread onto
+       yet. */
+    vbox.append(patchInfoExpander);
+    vbox.append(controlTable);
+
+    set_child(vbox);
+
     gthPatchManager *patchMgr = gthPatchManager::instance();
     patchMgr->signal_patches_changed().connect(
         sigc::mem_fun(*this, &PatchSelWindow::onPatchesChanged));
