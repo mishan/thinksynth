@@ -480,6 +480,12 @@ int main (int argc, char *argv[])
 
     prefs->Load();
 
+    /* Loading has to come after the window exists -- it puts patches onto
+       channels, and the window is what notices -- so the parts of the file
+       that are about the window itself are handed over here, before it is
+       shown. */
+    synthWindow->applyPrefs();
+
     /* checkShutdown() needs this to unwind the loop from the timeout. */
     gtkMain = &mymain;
 
@@ -500,7 +506,8 @@ int main (int argc, char *argv[])
     delete midi;
     midi = NULL;
 
-    /* Long before the synth, which is the whole point. */
+    /* Before the preferences are written, because the window puts its size
+       into them as it goes, and long before the synth. */
     delete synthWindow;
     synthWindow = NULL;
 

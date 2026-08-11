@@ -52,27 +52,29 @@ bool chosen = false;
 
 MainSynthWindow::MainSynthWindow (gthAudio *audio)
 {
-    gthPrefs *prefs = gthPrefs::instance();
-    string **vals;
-
     audio_ = audio;
 
     set_title("thinksynth");
-    set_default_size(520, 360);
 
     tearingDown_ = false;
+    width_ = 0;
+    height_ = 0;
+
+    /* 520x360 until now, which predates the channel strip down the left and
+       the parameter columns -- the window opened too small to show either.
+       This is what a first run gets; applyPrefs replaces it with the size the
+       last one was left at. */
+    set_default_size(1000, 700);
+
+    signal_configure_event().connect(
+        sigc::mem_fun(*this, &MainSynthWindow::onConfigure), false);
 
     midiMap_ = NULL;
     patchSel_ = NULL;
     aboutBox_ = NULL;
     kbWin_ = NULL;
 
-    vals = prefs->Get("dspdir");
-
-    if (vals != NULL)
-        prevDir_ = *(vals[0]);
-    else
-        prevDir_ = DSP_PATH;
+    prevDir_ = DSP_PATH;
 
     populateMenu();
 
@@ -163,9 +165,88 @@ MainSynthWindow::~MainSynthWindow (void)
        them. Nothing about this window is worth building now. */
     tearingDown_ = true;
 
+    rememberGeometry();
+
     menuQuit();
 }
 
+/* Every size the window is given while it is on screen.
+ *
+ * Returning false so this is only a look: the event still reaches the default
+ * handler, which is the one that actually resizes anything.
+ *
+ * Not read at the end instead, because by then the window has been hidden --
+ * and while GTK will still answer get_size() for a hidden window, what it
+ * answers is the size it intends to use next time, which is not the same
+ * question and is not always the same number. */
+bool MainSynthWindow::onConfigure (GdkEventConfigure *ev)
+{
+    if (ev != NULL && ev->width > 0 && ev->height > 0)
+    {
+        width_ = ev->width;
+        height_ = ev->height;
+    }
+
+    return false;
+}
+
+void MainSynthWindow::applyPrefs (void)
+{
+    gthPrefs *prefs = gthPrefs::instance();
+
+    /* The directory the DSP browser opens in. This was read in the
+       constructor, where the preferences have not been loaded yet, so it
+       always fell through to the install path however many times you had
+       browsed somewhere else. */
+    string **vals = prefs->Get("dspdir");
+
+    if (vals != NULL && vals[0] != NULL)
+        prevDir_ = *(vals[0]);
+
+    vals = prefs->Get("window");
+
+    if (vals == NULL || vals[0] == NULL || vals[1] == NULL)
+        return;
+
+    const int w = atoi(vals[0]->c_str());
+    const int h = atoi(vals[1]->c_str());
+
+    /* A saved size is only worth honouring if it can be seen. A window
+       restored to 12x4 -- or to something larger than the screen it is now
+       being opened on, which is what moving between a desktop and a laptop
+       does -- is worse than one that ignores the file. */
+    Glib::RefPtr<Gdk::Screen> screen = Gdk::Screen::get_default();
+
+    const int maxw = screen ? screen->get_width() : 0;
+    const int maxh = screen ? screen->get_height() : 0;
+
+    if (w < 320 || h < 240)
+        return;
+
+    if ((maxw > 0 && w > maxw) || (maxh > 0 && h > maxh))
+        return;
+
+    set_default_size(w, h);
+}
+
+void MainSynthWindow::rememberGeometry (void)
+{
+    if (width_ <= 0 || height_ <= 0)
+        return;
+
+    std::ostringstream ws, hs;
+
+    ws << width_;
+    hs << height_;
+
+    string **vals = new string *[3];
+
+    vals[0] = new string(ws.str());
+    vals[1] = new string(hs.str());
+    vals[2] = NULL;
+
+    gthPrefs::instance()->Set("window", vals);
+}
 
 /* Builds one activatable menu item: label with mnemonic, optional accelerator,
    and its callback. Gtk::Menu_Helpers::MenuElem did all of this in a single

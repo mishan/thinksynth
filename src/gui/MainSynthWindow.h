@@ -33,6 +33,16 @@ public:
     MainSynthWindow (gthAudio *);
     ~MainSynthWindow (void);
 
+    /* Takes what the preferences say about the window itself.
+     *
+     * Separate from the constructor because the file has not been read when
+     * that runs, and cannot have been: loading it puts patches on channels,
+     * and that wants a window already there to notice. So main builds the
+     * window, reads the preferences, and then hands over the part of them
+     * that is about the window. Call before showing it -- the size is a
+     * default size, which a window that is already on screen ignores. */
+    void applyPrefs (void);
+
 protected:
     void populateMenu (void);
     void menuKeyboard (void);
@@ -84,6 +94,11 @@ protected:
        because removing pages has a consequence worth naming once -- see the
        definition. */
     void clearPages (void);
+
+    /* The size the window had while it was on screen, and the other end of
+       remembering it. */
+    bool onConfigure (GdkEventConfigure *ev);
+    void rememberGeometry (void);
 
     void onPatchesChanged (void);
     void onAboutBoxHide (void);
@@ -155,6 +170,12 @@ protected:
 private:
     gthAudio *audio_;
     string prevDir_;
+
+    /* Last size seen on screen, for the preferences. Tracked as it changes
+       rather than read at the end: by the time the window is being destroyed
+       it has been hidden, and a hidden window's size is not a question with a
+       reliable answer. */
+    int width_, height_;
 
 };
 
