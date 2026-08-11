@@ -45,7 +45,9 @@ NodeEditor::NodeEditor (thSynth *synth)
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),
       revertBtn_("Revert"),
       zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1"),
-      zoomFitBtn_("Fit")
+      zoomFitBtn_("Fit"),
+      paletteBtn_("Palette"), paramsBtn_("Parameters"),
+      paletteWidth_(210), paramsWidth_(240), pendingParams_(-1)
 {
     toolbar_.set_spacing(4);
     toolbar_.set_border_width(4);
@@ -71,6 +73,19 @@ NodeEditor::NodeEditor (thSynth *synth)
     toolbar_.pack_end(zoomOutBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_end(zoomFitBtn_, Gtk::PACK_SHRINK);
 
+    /* Grouped with the zoom buttons rather than with the editing ones: what
+       is on screen and how big it is are the same kind of decision, and none
+       of them change the file. */
+    toolbar_.pack_end(*manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL)),
+                      Gtk::PACK_SHRINK);
+    toolbar_.pack_end(paramsBtn_, Gtk::PACK_SHRINK);
+    toolbar_.pack_end(paletteBtn_, Gtk::PACK_SHRINK);
+
+    paletteBtn_.set_active(true);
+    paramsBtn_.set_active(true);
+    paletteBtn_.set_tooltip_text("Show or hide the plugin palette");
+    paramsBtn_.set_tooltip_text("Show or hide the parameter panel");
+
     scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroller_.add(canvas_);
 
@@ -78,11 +93,18 @@ NodeEditor::NodeEditor (thSynth *synth)
        the order things are used in: pick, place, adjust. */
     outer_.pack1(palette_, false, false);
     outer_.pack2(split_, true, false);
-    outer_.set_position(210);
+    outer_.set_position(paletteWidth_);
 
     split_.pack1(scroller_, true, false);
     split_.pack2(params_, false, false);
-    split_.set_position(520);
+
+    /* No starting position here. It used to be 520 -- measured from the left,
+       so it said "the canvas gets 520 pixels" and handed the parameter panel
+       everything else, which on a wide window was most of it. What it should
+       say is that the panel gets the width it asks for; that needs the paned's
+       own width, so it waits for the first allocation. */
+    split_.signal_size_allocate().connect(
+        sigc::mem_fun(*this, &NodeEditor::onSplitAllocate));
 
     status_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
     status_.set_padding(6, 2);
@@ -140,6 +162,11 @@ NodeEditor::NodeEditor (thSynth *synth)
     deleteBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodeEditor::onDeleteNode));
 
+    paletteBtn_.signal_toggled().connect(
+        sigc::mem_fun(*this, &NodeEditor::onTogglePalette));
+    paramsBtn_.signal_toggled().connect(
+        sigc::mem_fun(*this, &NodeEditor::onToggleParams));
+
     /* Where the synth is actually loading plugins from, not where the build
        expected them -- an uninstalled tree has them in ./plugins. Asking the
        manager means the palette can only ever offer what this synth can
@@ -158,6 +185,102 @@ NodeEditor::NodeEditor (thSynth *synth)
     palette_.setSensitive(false);
 
     show_all_children();
+}
+
+/* GtkPaned's position is the width of its *left* child, so everything about
+   the right one has to be expressed the long way round. */
+int NodeEditor::paramsWidth (void) const
+{
+    int handle = 5;
+
+    split_.get_style_property("handle-size", handle);
+
+    return split_.get_allocated_width() - split_.get_position() - handle;
+}
+
+void NodeEditor::setParamsWidth (int width)
+{
+    int handle = 5;
+
+    split_.get_style_property("handle-size", handle);
+
+    split_.set_position(split_.get_allocated_width() - width - handle);
+}
+
+/* Hands the parameter panel whatever width it is owed, now that there is a
+ * real one to measure against.
+ *
+ * What it is owed at startup is its own minimum: what it needs to show the
+ * node that is selected, a name column and a value column, with nothing in it
+ * wanting to be wider than its contents. That minimum is also the narrowest
+ * the splitter can be dragged to, and it is the right place to start, because
+ * anything beyond it is width taken off the canvas to show blank panel. The
+ * position used to be a fixed 520 measured from the left, which said how much
+ * the canvas got and gave the panel all the rest.
+ *
+ * The minimum rather than the natural width, deliberately. Both are honoured
+ * by the paned, but the natural width is what a widget would like if space
+ * were free, and here it is not -- it comes out of the graph. Selecting a node
+ * whose parameters genuinely need more room still widens the panel, because
+ * GtkPaned will not allocate a child less than its minimum. That is the one
+ * case where taking the space is warranted, and it happens by itself.
+ *
+ * Afterwards position_set is on and the panel stays where it is put --
+ * including where the user drags it to. */
+void NodeEditor::onSplitAllocate (Gtk::Allocation &alloc)
+{
+    int want = pendingParams_;
+
+    if (want == 0 || alloc.get_width() < 2)
+        return;
+
+    if (want < 0)
+    {
+        int nat = 0;
+
+        params_.get_preferred_width(want, nat);
+        paramsWidth_ = want;
+    }
+
+    pendingParams_ = 0;
+
+    setParamsWidth(want);
+}
+
+/* Collapsing either panel gives its space to the canvas: a paned with one
+   visible child allocates all of itself to that child, so there is nothing to
+   do beyond hiding it. Expanding has to put back a width, which is why one is
+   remembered on the way out. */
+void NodeEditor::onTogglePalette (void)
+{
+    if (paletteBtn_.get_active())
+    {
+        palette_.show();
+        outer_.set_position(paletteWidth_);
+    }
+    else
+    {
+        paletteWidth_ = outer_.get_position();
+        palette_.hide();
+    }
+}
+
+void NodeEditor::onToggleParams (void)
+{
+    if (paramsBtn_.get_active())
+    {
+        params_.show();
+
+        /* Not set here: showing the panel is itself a resize, so the paned's
+           width is about to change and the position that expresses this width
+           would be computed against the old one. */
+        pendingParams_ = paramsWidth_;
+    }
+    else
+    {
+        paramsWidth_ = paramsWidth();
+        params_.hide();
+    }
 }
 
 NodeEditor::~NodeEditor (void)
