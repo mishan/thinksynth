@@ -12,11 +12,3 @@ TODO before the Thinksynth alpha
 ]
 
 * remove or fix (argify) obsolete DSPs
-- better descriptions in debian/control
-- make a spec file for RH based distros?
-
-OS X port
----------
-- CoreAudio MIDI backend.
-- Test JACK output.
-- Installation instructions. Getting it set up was a real bitch.
