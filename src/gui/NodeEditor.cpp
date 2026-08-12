@@ -2151,8 +2151,20 @@ void NodeEditor::reapplyProbes (void)
         p.slot = synth_->armProbe(channel_, p.node, p.arg, why);
     }
 
-    if (probeDrain_.size() < (size_t)(synth_ ? synth_->getWindowlen() : 1024))
-        probeDrain_.resize((synth_ ? synth_->getWindowlen() : 1024) * 4);
+    /* Four windows at a time, so a drain that has fallen a frame or two behind
+       catches up in one read rather than four.
+
+       Compared against the size actually wanted rather than against one
+       window: with the old test a buffer sized for a 1024-sample window stayed
+       at 4096 after the window grew to 2048, which is not wrong but quietly
+       costs twice the reads it should. */
+    {
+        const size_t want =
+            (size_t)(synth_ ? synth_->getWindowlen() : 1024) * 4;
+
+        if (probeDrain_.size() < want)
+            probeDrain_.resize(want);
+    }
 
     updateProbeTick();
 
@@ -2161,7 +2173,14 @@ void NodeEditor::reapplyProbes (void)
 
 void NodeEditor::updateProbeTick (void)
 {
-    const bool want = !probes_.empty();
+    /* Only when something can actually change.
+     *
+     * A probe on a patch nothing is playing has no tap and never will until
+     * the channel is loaded, so thirty wake-ups a second would redraw an
+     * unchanging panel forever. An editor looking at a .dsp that is not loaded
+     * -- which is most of them, most of the time -- should cost what it did
+     * before probes existed. */
+    const bool want = attached() && !probes_.empty();
 
     if (want == probeTick_.connected())
         return;
@@ -2185,16 +2204,39 @@ bool NodeEditor::onProbeTick (void)
     {
         Probe &p = probes_[i];
 
-        if (p.slot < 0 || p.inst == NULL || synth_ == NULL)
+        if (p.inst == NULL || synth_ == NULL)
             continue;
+
+        /* No tap: ask for one.
+         *
+         * This is how a probe recovers from the engine dropping its tap, which
+         * a patch load on its channel does to every probe on that channel. The
+         * first version set slot to -1 here and then skipped anything with a
+         * negative slot at the top of this loop, so the comment promising to
+         * ask again on the next frame described something that could never
+         * happen -- once dropped, a probe was silent for good.
+         *
+         * The engine's armProbe rather than the editor's: the panel already
+         * exists and the slot is the only thing missing, and the editor's
+         * would rebuild the graph from inside a timer. */
+        if (p.slot < 0)
+        {
+            if (!attached())
+                continue;
+
+            string why;
+
+            p.slot = synth_->armProbe(channel_, p.node, p.arg, why);
+
+            if (p.slot < 0)
+                continue;
+        }
 
         thProbe *tap = synth_->probe(p.slot);
 
         if (tap == NULL)
         {
-            /* The engine let it go -- a patch load on that channel. Ask again
-               on the next frame rather than here, so a reload does not
-               re-enter the graph rebuild from inside a timer. */
+            /* Dropped between that arm and now. Try again next frame. */
             p.slot = -1;
             continue;
         }

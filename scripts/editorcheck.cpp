@@ -319,6 +319,39 @@ int run (const string &pluginPath, const char *file)
     ok(ed->probes_[0].slot >= 0,
        "and it has a tap again (%d, was %d)", ed->probes_[0].slot, slotBefore);
 
+    /* A probe whose tap the engine dropped gets another one.
+     *
+     * The engine disarms every probe on a channel when a patch is loaded onto
+     * it -- the node ids a probe holds are only meaningful against the tree
+     * they were measured on. The editor is supposed to notice and re-arm on
+     * the next frame. It could not: the tick skipped anything with no slot
+     * before it reached the code that would have asked for one, so a probe
+     * that lost its tap was silent for good and only a reload of the *editor*
+     * brought it back.
+     *
+     * Provoked directly rather than by loading a patch, because a reload also
+     * rebuilds the graph and would hide the thing being tested behind the
+     * re-arm that reapplyProbes does anyway. */
+    {
+        ok(!ed->probes_.empty(), "a probe to drop the tap of");
+
+        if (!ed->probes_.empty() && ed->probes_[0].slot >= 0)
+        {
+            const int had = ed->probes_[0].slot;
+
+            synth.disarmProbe(had);
+            synth.process();      /* let the audio side apply it */
+
+            ok(synth.probe(had) == NULL, "the engine dropped the tap");
+
+            pump(0.3);            /* several frame ticks */
+
+            ok(!ed->probes_.empty() && ed->probes_[0].slot >= 0,
+               "and the editor asked for another one (slot %d)",
+               ed->probes_.empty() ? -1 : ed->probes_[0].slot);
+        }
+    }
+
     /* Save and reopen. This is the property anyone would actually notice:
      * a probe put on a patch is still there tomorrow.
      *
