@@ -206,8 +206,19 @@ public:
 
     /* NULL if the module did not load or refuses. */
     void *open (unsigned int samplerate);
-    void feed (void *inst, const float *samples, unsigned int n);
-    void draw (void *inst, cairo_t *cr, int w, int h);
+
+    /* Both return whatever the module returned, or 0 if it was not called.
+     *
+     * The ABI declares these int and the host has nothing useful to do with a
+     * failure -- a probe panel cannot un-draw itself -- but dropping the value
+     * silently would mean a module could report an error every frame and
+     * nobody would ever know. So the first non-zero from each is reported to
+     * stderr, naming the module, and then the module is left alone: a
+     * complaint repeated thirty times a second is not a diagnostic, it is a
+     * denial of service on the log. */
+    int feed (void *inst, const float *samples, unsigned int n);
+    int draw (void *inst, cairo_t *cr, int w, int h);
+
     void close (void *inst);
 
 private:
@@ -226,6 +237,11 @@ private:
     void *handle_;
 
     int prefW_, prefH_;
+
+    /* Whether the first non-zero return from feed and from draw has been
+       reported. See feed() and draw(). */
+    bool feedComplained_;
+    bool drawComplained_;
 
     VisualOpen open_;
     VisualFeed feed_;

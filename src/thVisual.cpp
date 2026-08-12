@@ -24,6 +24,7 @@
 thVisual::thVisual (const string &path)
     : path_(path), state_(NOTLOADED), handle_(NULL),
       prefW_(128), prefH_(64),
+      feedComplained_(false), drawComplained_(false),
       open_(NULL), feed_(NULL), draw_(NULL), close_(NULL), cleanup_(NULL)
 {
     if (moduleLoad() == 0)
@@ -95,11 +96,21 @@ int thVisual::moduleLoad (void)
     }
 
     /* A module that names itself nothing cannot be offered in a palette, and
-       finding that out at load time is better than drawing a blank row. */
+       finding that out at load time is better than drawing a blank row. The
+       description is checked too: the ABI says visual_init must set both, and
+       a module that sets neither should fail here rather than reach a menu
+       and draw an empty tooltip. */
     if (name_.empty())
     {
         fprintf(stderr, "thVisual: %s: visual_init did not set a name\n",
                 path_.c_str());
+        goto loaderr;
+    }
+
+    if (desc_.empty())
+    {
+        fprintf(stderr, "thVisual: %s: visual_init did not set a "
+                "description\n", path_.c_str());
         goto loaderr;
     }
 
@@ -145,25 +156,34 @@ void *thVisual::open (unsigned int samplerate)
     return open_(this, samplerate);
 }
 
-void thVisual::feed (void *inst, const float *samples, unsigned int n)
+int thVisual::feed (void *inst, const float *samples, unsigned int n)
 {
     if (inst == NULL || feed_ == NULL || samples == NULL || n == 0)
-        return;
+        return 0;
 
-    feed_(inst, samples, n);
+    const int rc = feed_(inst, samples, n);
+
+    if (rc != 0 && !feedComplained_)
+    {
+        fprintf(stderr, "thVisual: %s: visual_feed returned %d\n",
+                path_.c_str(), rc);
+        feedComplained_ = true;
+    }
+
+    return rc;
 }
 
-void thVisual::draw (void *inst, cairo_t *cr, int w, int h)
+int thVisual::draw (void *inst, cairo_t *cr, int w, int h)
 {
     if (inst == NULL || draw_ == NULL || cr == NULL)
-        return;
+        return 0;
 
     /* A zero-sized box is not an error -- a collapsed panel or a canvas mid
        resize produces one -- but handing it to every plugin means every plugin
        has to remember to divide carefully. Refusing here is one check instead
        of one per module. */
     if (w <= 0 || h <= 0)
-        return;
+        return 0;
 
     /* The plugin draws inside the box and nowhere else. Doing this here rather
        than trusting each module is the difference between a bug in a
@@ -175,9 +195,18 @@ void thVisual::draw (void *inst, cairo_t *cr, int w, int h)
     cairo_rectangle(cr, 0, 0, w, h);
     cairo_clip(cr);
 
-    draw_(inst, cr, w, h);
+    const int rc = draw_(inst, cr, w, h);
 
     cairo_restore(cr);
+
+    if (rc != 0 && !drawComplained_)
+    {
+        fprintf(stderr, "thVisual: %s: visual_draw returned %d\n",
+                path_.c_str(), rc);
+        drawComplained_ = true;
+    }
+
+    return rc;
 }
 
 void thVisual::close (void *inst)

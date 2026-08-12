@@ -223,6 +223,12 @@ const Sizes SIZES[] = {
 const int NUM_SIZES = (int)(sizeof(SIZES) / sizeof(SIZES[0]));
 
 /* Draws into a fresh surface and hands back its pixels. */
+/* Set by render() and feedAll() when a module reports a failure through the
+   ABI's return value. The host prints the first one; this is what turns it
+   into a check rather than a line in the log. */
+bool drawFailed = false;
+bool feedFailed = false;
+
 bool render (thVisual &visual, void *inst, int w, int h, vector<unsigned char> &px)
 {
     cairo_surface_t *surf = cairo_image_surface_create(CAIRO_FORMAT_ARGB32,
@@ -236,7 +242,21 @@ bool render (thVisual &visual, void *inst, int w, int h, vector<unsigned char> &
 
     cairo_t *cr = cairo_create(surf);
 
-    visual.draw(inst, cr, w, h);
+    /* Cleared to a known value first.
+     *
+     * cairo_image_surface_create does document that a new surface starts as
+     * transparent black, so today this changes nothing -- but every property
+     * below is a comparison of raw pixel bytes, and "a module that painted
+     * nothing leaves no ink" is only true while that guarantee holds and is
+     * remembered. One fill is cheaper than the assumption. */
+    cairo_save(cr);
+    cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+    cairo_set_source_rgba(cr, 0, 0, 0, 0);
+    cairo_paint(cr);
+    cairo_restore(cr);
+
+    if (visual.draw(inst, cr, w, h) != 0)
+        drawFailed = true;
 
     /* A plugin that left the context in an error state -- an unbalanced
        restore, a bad matrix -- would otherwise show up much later as a blank
@@ -299,6 +319,8 @@ void listVisuals (const string &dir, vector<string> &out)
 
 void checkOne (const string &path)
 {
+    feedFailed = drawFailed = false;
+
     thVisual visual(path);
 
     ok(visual.state() == thVisual::LOADED, "%s loads", path.c_str());
@@ -400,13 +422,15 @@ void checkOne (const string &path)
            must not care where the window boundaries fell -- the tap publishes
            one window at a time but the GUI drains as many as are waiting, so
            the same audio arrives differently split on every frame. */
-        visual.feed(a, s, n);
+        if (visual.feed(a, s, n) != 0)
+            feedFailed = true;
 
         for (unsigned int at = 0; at < n; at += 37)
         {
             const unsigned int take = (n - at < 37) ? n - at : 37;
 
-            visual.feed(b, s + at, take);
+            if (visual.feed(b, s + at, take) != 0)
+                feedFailed = true;
         }
 
         bool drewEverywhere = true, sameEverywhere = true;
@@ -446,6 +470,12 @@ void checkOne (const string &path)
         visual.close(a);
         visual.close(b);
     }
+
+    /* The ABI's return values, which the host only reports once each -- so
+       this is the thing that makes them a gate. A module that refuses every
+       frame would otherwise be one line in a log nobody reads. */
+    ok(!feedFailed, "%s: no feed reported a failure", visual.name().c_str());
+    ok(!drawFailed, "%s: no draw reported a failure", visual.name().c_str());
 
     /* Closing NULL, and closing twice is not offered: the host owns the
        pointer and never hands one back after closing it. NULL is worth
