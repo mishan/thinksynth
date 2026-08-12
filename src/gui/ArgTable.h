@@ -31,6 +31,10 @@ public:
     ArgTable (void);
     ~ArgTable (void);
 
+    /* Which channel these parameters belong to, so that moving one can say
+       the patch has been edited. -1 for none. */
+    void setChannel (int chan) { chan_ = chan; }
+
     /* Records a parameter. Nothing is laid out until reflow(). */
     void insertArg (thArg *arg) { insertArg(arg, ""); }
 
@@ -57,6 +61,8 @@ private:
     static double fromDisplay (double shown, const string &units);
     static int decimalsFor (double hi);
     static int widthFor (double hi, int digits);
+
+    int chan_;
 
     std::vector<thArg *> pending_;
     std::map<thArg *, string> inferred_;

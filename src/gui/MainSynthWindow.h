@@ -24,6 +24,7 @@ class gthPrefs;
 class AboutBox;
 class MidiMap;
 class NodeEditor;
+class SaveButton;
 
 using namespace std;
 
@@ -67,6 +68,7 @@ protected:
     Gtk::Widget *makePatchBar (int chan);
 
     void onAmpSlider (Gtk::Scale *scale, int chan);
+    void onPatchDirty (int chan, SaveButton *button, int mine);
     void onAmpArgChanged (thArg *arg, int chan);
 
     void onSavePatch (int chan);
@@ -123,6 +125,12 @@ protected:
     /* Hides a secondary window instead of letting it be destroyed, so it can
        be presented again. Returns true: the close is handled. */
     bool onSubWindowClose (Gtk::Window *window);
+
+    /* Gives a secondary window Ctrl+W. See the definition for why it is a
+       controller rather than an accelerator like the rest of them. */
+    void addCloseAccel (Gtk::Window *window);
+    bool onSubWindowKey (guint keyval, guint keycode, Gdk::ModifierType state,
+                         Gtk::Window *window);
     void onSwitchPage (Gtk::Widget *page, guint pagenum);
     void onMasterGain (void);
 
@@ -189,6 +197,7 @@ protected:
      * subscription behind for every page that ever existed. */
     std::map<int, Gtk::Scale *> ampScales_;
     std::vector<sigc::connection> ampConns_;
+    std::vector<sigc::connection> saveConns_;
 
     /* True while the notebook's pages are being taken away, and for good
        once the window is being destroyed.

@@ -20,6 +20,25 @@ target_include_directories(think_nodemodel PUBLIC
 
 target_link_libraries(think_nodemodel PUBLIC think)
 
+# The host side of the visual plugin ABI: dlopen, look up six symbols, clip and
+# call. Its own object library rather than a member of think_nodemodel because
+# it needs cairo and the node model does not -- and "GTK-free" above is a claim
+# worth keeping narrow enough to stay true.
+#
+# It links libthink only for thDynLib, the dlopen shim -- there is no reason
+# for a second one of those, and PORTING.md records why the first one exists.
+# The dependency that matters is the other direction: nothing in libthink and
+# none of the 62 DSP plugins sees cairo, and a visual *module* links neither
+# libthink nor sigc++, which is what stops a visualizer reaching into the graph
+# it is drawing.
+add_library(think_visualhost OBJECT thVisual.cpp)
+
+target_include_directories(think_visualhost PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
+
 set(THINKSYNTH_SOURCES
     main.cpp
     gthPrefs.cpp
@@ -41,11 +60,13 @@ set(THINKSYNTH_SOURCES
     gui/NodePalette.cpp
     gui/NodeParams.cpp
     gui/NodeEditor.cpp
+    gui/SaveButton.cpp
     gui/PatchSelWindow.cpp)
 
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
-    $<TARGET_OBJECTS:think_nodemodel>)
+    $<TARGET_OBJECTS:think_nodemodel>
+    $<TARGET_OBJECTS:think_visualhost>)
 
 target_include_directories(thinksynth PRIVATE
     "${PROJECT_SOURCE_DIR}"
@@ -55,6 +76,7 @@ target_link_libraries(thinksynth PRIVATE
     think
     PkgConfig::GTKMM
     PkgConfig::GTHREAD
+    PkgConfig::CAIRO
     ${THINK_RTAUDIO_LIB}
     ${THINK_RTMIDI_LIB})
 

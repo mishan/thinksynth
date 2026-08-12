@@ -173,10 +173,40 @@ public:
         int attachedTo;
         int attachSlot;     /* its row in the host's strip */
 
+        /* How tall this box is when attached. The control strips are all one
+           height; a probe panel is whatever its visual module asked for. The
+           stack is walked by summing these rather than by multiplying, because
+           a spectrogram is not the height of a meter and neither is the height
+           of a slider. */
+        double attachH;
+
+        /* A probe: a live display of one of the host node's outputs, drawn as
+           a panel stacked above it.
+         *
+         * A Box rather than a structure of its own, so that it inherits the
+         * stacking, the overlap invariants and the hit-testing that dspgraph
+         * already asserts over every box. It differs from a control strip in
+         * which way it faces: a control feeds one of the host's *inputs*, a
+         * probe reads one of its outputs.
+         *
+         * Deliberately NOT joined to its host by an Edge. §12 of
+         * NODE_EDITOR.md argued that a control needs its wire drawn because
+         * adjacency cannot say which of several inputs it drives -- but an
+         * Edge here would appear in edges(), which every consumer reads as "a
+         * connection in the .dsp" and which NodeEdit would try to write. A
+         * probe is not in the file at all. The panel says which output it
+         * reads in its own text instead, which a slider strip could not do
+         * because its text is already the label and the value. */
+        bool isProbe;
+
+        string probeArg;    /* the host's output port being read */
+        string probeVisual; /* "meter"; the visual module's name */
+
         Box (void) : x(0), y(0), w(0), h(0), layer(0), order(0),
                      isIoSource(false), isIoSink(false), isControl(false),
                      ctlValue(0), ctlMin(0), ctlMax(1), groupHead(false),
-                     attachedTo(-1), attachSlot(0) { }
+                     attachedTo(-1), attachSlot(0), attachH(0),
+                     isProbe(false) { }
     };
 
     struct Edge {
@@ -202,6 +232,48 @@ public:
 
     /* Assigns layers, orders within layers, and pixel positions. */
     void layout (void);
+
+    /* ---- probes ----
+     *
+     * A live display of one node output, drawn as a panel above the node.
+     * These are not in the .dsp and build() does not create them; the editor
+     * adds them after building and re-adds them after a reload, because it is
+     * the thing that knows which are armed.
+     *
+     * addProbe returns the new box index, or -1 if `host' is not a node box or
+     * has no output port called `arg'.
+     *
+     * `height' is the height of the WHOLE PANEL, title row included -- not the
+     * module's preferred height. A caller works it out as probeHeadHeight()
+     * plus whatever the module asked for; passing the module's figure alone
+     * gives a panel a dozen pixels short and a body a dozen pixels short of
+     * that. Zero or negative falls back to one control strip's height.
+     *
+     * Arming the same point twice returns the existing panel rather than
+     * stacking two, which is also what thSynth::armProbe does with slots. A
+     * second arm with a different module retargets that panel.
+     *
+     * The caller lays out again afterwards. */
+    int addProbe (int host, const string &arg, const string &visual,
+                  double height);
+
+    /* Removes a probe panel and every index above it shifts down, so any box
+       index the caller was holding is stale afterwards -- the same contract
+       as removing a node. Does nothing if `box' is not a probe. */
+    void removeProbe (int box);
+
+    /* The panel on `host' reading `arg', or -1. */
+    int probeAt (int host, const string &arg) const;
+
+    /* The title row at the top of a probe panel, above the area the visual
+       module draws in.
+     *
+       Public because the two ends have to agree: the editor sizes a panel as
+       the module's preferred height plus this, and the canvas splits it back
+       apart to decide where the module's box starts. If they disagreed the
+       plugin would draw outside the panel or leave a gap in it, and neither is
+       visible in a screenshot until you go looking. */
+    static double probeHeadHeight (void) { return 12.0; }
 
     /* Wrap the layer sequence into stacked bands once the drawing would be
        wider than this. 0 leaves it in one row, which is the default.

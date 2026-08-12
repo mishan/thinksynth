@@ -54,6 +54,12 @@ thSynth::thSynth (int windowlen, int samples)
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
+    for (int i = 0; i < TH_MAX_PROBES; i++)
+    {
+        probes_[i] = NULL;
+        guiProbes_[i] = NULL;
+    }
+
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
 
     /* default path */
@@ -87,6 +93,12 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
 
+    for (int i = 0; i < TH_MAX_PROBES; i++)
+    {
+        probes_[i] = NULL;
+        guiProbes_[i] = NULL;
+    }
+
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
 
     pluginmanager_ = new thPluginManager(plugin_path);
@@ -110,6 +122,11 @@ thSynth::~thSynth (void)
      * deleting per-slot double-freed any channel that was still in flight. */
     vector<thMidiChan *> doomed;
 
+    /* Probes have the same three-places problem as channels, for the same
+       reason: an unapplied SET_PROBE, guiProbes_ and probes_ can all name one
+       object. */
+    vector<thProbe *> doomedProbes;
+
     thSynthCommand cmd;
 
     while (commands_.pop(cmd))
@@ -119,9 +136,34 @@ thSynth::~thSynth (void)
 
         if (cmd.channel)
             doomed.push_back(cmd.channel);
+
+        if (cmd.probe)
+            doomedProbes.push_back(cmd.probe);
     }
 
     collectRetired();
+
+    for (int i = 0; i < TH_MAX_PROBES; i++)
+    {
+        if (probes_[i])
+            doomedProbes.push_back(probes_[i]);
+
+        if (guiProbes_[i])
+            doomedProbes.push_back(guiProbes_[i]);
+
+        probes_[i] = NULL;
+        guiProbes_[i] = NULL;
+    }
+
+    sort(doomedProbes.begin(), doomedProbes.end());
+    doomedProbes.erase(unique(doomedProbes.begin(), doomedProbes.end()),
+                       doomedProbes.end());
+
+    for (vector<thProbe *>::iterator i = doomedProbes.begin();
+         i != doomedProbes.end(); ++i)
+    {
+        delete *i;
+    }
 
     /* The channels were never destroyed here at all -- each one leaked its
        args, its notes and (now) its tree. */
@@ -178,6 +220,7 @@ bool thSynth::postCommand (const thSynthCommand &cmd)
     delete cmd.note;
     delete cmd.channel;
     delete cmd.arg;
+    delete cmd.probe;
 
     return false;
 }
@@ -194,7 +237,46 @@ void thSynth::collectRetired (void)
             case thRetired::NOTE:    delete item.note;    break;
             case thRetired::CHANNEL: delete item.channel; break;
             case thRetired::ARG:     delete item.arg;     break;
+            case thRetired::PROBE:   delete item.probe;   break;
         }
+    }
+}
+
+/* Audio thread. Retires whatever is in the slot and installs `probe', which
+   may be NULL. */
+void thSynth::installProbe (int slot, thProbe *probe)
+{
+    if (slot < 0 || slot >= TH_MAX_PROBES)
+    {
+        /* Cannot install it and must not leak it. */
+        if (probe)
+        {
+            thRetired item;
+
+            item.kind = thRetired::PROBE;
+            item.probe = probe;
+
+            if (!retired_.push(item))
+                delete probe;
+        }
+
+        return;
+    }
+
+    thProbe *old = probes_[slot];
+
+    probes_[slot] = probe;
+
+    /* Unreachable from probes_ now, so the GUI thread may destroy it. */
+    if (old)
+    {
+        thRetired item;
+
+        item.kind = thRetired::PROBE;
+        item.probe = old;
+
+        if (!retired_.push(item))
+            delete old;
     }
 }
 
@@ -202,6 +284,15 @@ void thSynth::collectRetired (void)
 void thSynth::applyCommand (const thSynthCommand &cmd)
 {
     thRetired item;
+
+    /* SET_PROBE addresses a probe slot rather than a channel, so it has to be
+       handled before the channel bounds check below -- which would otherwise
+       reject a disarm of a probe whose channel has already gone. */
+    if (cmd.type == thSynthCommand::SET_PROBE)
+    {
+        installProbe(cmd.probeSlot, cmd.probe);
+        return;
+    }
 
     if (cmd.chan < 0 || cmd.chan >= midiChannelCnt_)
     {
@@ -250,7 +341,15 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         case thSynthCommand::SET_CHANNEL:
             midiChannels_[cmd.chan] = cmd.channel;
 
-            /* The old channel is now unreachable from this array, so it is
+            /* Nothing to do about probes here. A probe on this channel was
+               resolved against the outgoing thMidiChan's serial, which the new
+               one does not share, so process() stops accumulating it of its
+               own accord -- see the check there. The GUI disarms properly
+               before queueing this (disarmProbesOn); the serial is the belt to
+               those braces, and it fails towards silence rather than towards a
+               display confidently drawing the wrong node.
+             *
+             * The old channel is now unreachable from this array, so it is
                safe for the GUI thread to destroy. */
             if (chan)
             {
@@ -259,6 +358,12 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
                 if (!retired_.push(item))
                     delete chan;
             }
+            break;
+
+        case thSynthCommand::SET_PROBE:
+            /* Handled above, before the channel bounds check. Listed so that
+               adding a command type keeps failing to compile here until it is
+               dealt with, which is how this switch has stayed honest. */
             break;
 
         case thSynthCommand::SET_CHAN_ARG:
@@ -274,6 +379,190 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
                     delete cmd.arg;
             }
             break;
+    }
+}
+
+/* ------------------------------------------------------------------------
+ * Probes. See thProbe.h.
+ * ------------------------------------------------------------------------ */
+
+/* GUI thread.
+ *
+ * Resolving here rather than on the audio thread is the whole point: this
+ * walks maps, looks things up by name, and allocates the ring and the
+ * accumulator. What crosses to the audio thread is a finished object addressed
+ * by two integers.
+ */
+int thSynth::armProbe (int channum, const string &node, const string &arg,
+                       string &why)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    if ((channum < 0) || (channum >= midiChannelCnt_))
+    {
+        why = "no such channel";
+        return -1;
+    }
+
+    thMidiChan *chan = guiChannels_[channum];
+
+    if (chan == NULL)
+    {
+        why = "nothing loaded on that channel";
+        return -1;
+    }
+
+    thSynthTree *tree = chan->modnode();
+
+    if (tree == NULL)
+    {
+        why = "that channel has no tree";
+        return -1;
+    }
+
+    thNode *n = tree->findNode(node);
+
+    if (n == NULL)
+    {
+        why = "no node called '" + node + "'";
+        return -1;
+    }
+
+    thArg *a = n->getArg(arg);
+
+    if (a == NULL)
+    {
+        why = "node '" + node + "' has no arg '" + arg + "'";
+        return -1;
+    }
+
+    const int argIndex = a->index();
+
+    if (argIndex < 0)
+    {
+        /* buildArgMap indexes every arg it sees, so this means the tree was
+           never resolved -- not that the arg is unusual. */
+        why = "'" + node + "." + arg + "' was never indexed";
+        return -1;
+    }
+
+    /* Plugin-internal state is not a signal. delay::echo's ring buffer and
+       every filter's `last' are allocated and read across windows by the
+       plugin and referenced by no .dsp in the corpus; drawing one would be
+       drawing an implementation detail, and NodeGraph already refuses to wire
+       them for the same reason. The io node has no plugin and so declares no
+       directions, which is why this only rejects what a plugin positively
+       says is state. */
+    thPlugin *plug = n->plugin();
+
+    if (plug && argIndex < plug->argCount() &&
+        plug->getArgDir(argIndex) == thPlugin::ARG_STATE)
+    {
+        why = "'" + node + "." + arg + "' is plugin state, not a signal";
+        return -1;
+    }
+
+    /* Retargeting an existing probe reuses its slot; otherwise take a free
+       one. Matching on node and arg means arming the same point twice is
+       idempotent rather than burning two of the eight. */
+    int slot = -1;
+
+    for (int i = 0; i < TH_MAX_PROBES; i++)
+    {
+        if (guiProbes_[i] && guiProbes_[i]->chan() == channum &&
+            guiProbes_[i]->nodeName() == node && guiProbes_[i]->argName() == arg)
+        {
+            slot = i;
+            break;
+        }
+    }
+
+    if (slot < 0)
+    {
+        for (int i = 0; i < TH_MAX_PROBES; i++)
+        {
+            if (guiProbes_[i] == NULL)
+            {
+                slot = i;
+                break;
+            }
+        }
+    }
+
+    if (slot < 0)
+    {
+        why = "all probe slots are in use";
+        return -1;
+    }
+
+    thProbe *probe = new thProbe(channum, chan->serial(), n->id(), argIndex,
+                                 node, arg, (unsigned int)windowlen_,
+                                 (unsigned int)windowlen_ *
+                                     TH_PROBE_RING_WINDOWS + 1);
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SET_PROBE;
+    cmd.chan = channum;
+    cmd.probeSlot = slot;
+    cmd.probe = probe;
+
+    if (!postCommand(cmd))
+    {
+        /* postCommand has already destroyed the probe. Leave guiProbes_ alone:
+           if this was a retarget, the old probe is still the one installed. */
+        why = "the command queue is full";
+        return -1;
+    }
+
+    /* Whatever was here is now the audio thread's to hand back. */
+    guiProbes_[slot] = probe;
+
+    return slot;
+}
+
+/* GUI thread. */
+void thSynth::disarmProbe (int slot)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    if ((slot < 0) || (slot >= TH_MAX_PROBES) || (guiProbes_[slot] == NULL))
+        return;
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SET_PROBE;
+    cmd.chan = guiProbes_[slot]->chan();
+    cmd.probeSlot = slot;
+    cmd.probe = NULL;
+
+    /* Only forget it if the audio thread has actually been told to drop it --
+       the same reasoning as removeChan. Clearing guiProbes_ against a full
+       queue would leave the callback publishing into a probe nothing would
+       ever free. */
+    if (postCommand(cmd))
+        guiProbes_[slot] = NULL;
+}
+
+/* GUI thread, with synthMutex_ held. */
+void thSynth::disarmProbesOn (int channum)
+{
+    for (int i = 0; i < TH_MAX_PROBES; i++)
+    {
+        if (guiProbes_[i] == NULL || guiProbes_[i]->chan() != channum)
+            continue;
+
+        thSynthCommand cmd;
+
+        cmd.type = thSynthCommand::SET_PROBE;
+        cmd.chan = channum;
+        cmd.probeSlot = i;
+        cmd.probe = NULL;
+
+        if (postCommand(cmd))
+            guiProbes_[i] = NULL;
     }
 }
 
@@ -303,6 +592,11 @@ void thSynth::removeChan (int channum)
            retire queue once it is unreachable, and collectRetired() frees it.
            The delete used to be commented out entirely, so every removed
            channel leaked its notes, args and tree. */
+        /* Before the channel goes, not after: the queue is FIFO, so a disarm
+           posted first is applied first, and the probe never sees the tree it
+           was resolved against being torn down. */
+        disarmProbesOn(channum);
+
         cmd.type = thSynthCommand::SET_CHANNEL;
         cmd.chan = channum;
         cmd.channel = NULL;
@@ -373,6 +667,43 @@ thSynthTree *thSynth::finishParse (const string &what, int parseResult,
 
     tree->buildArgMap(); /* build the index of args */
     tree->setPointers();
+
+    /* The three args every note writes into its io node, declared here so that
+       the tree owns them whether or not the .dsp mentioned them.
+     *
+     * thMidiNote's constructor does setArg("note"/"velocity"/"trigger") on its
+     * copy of the tree. Where the .dsp never referenced them -- 5 of the 92
+     * shipped files -- that *created* the arg in each copy, taking a fresh
+     * index out of addArgToIndex. The indices happened to agree between copies
+     * because every copy starts from the same argCount_, which is a
+     * coincidence rather than a guarantee; and nothing outside a copy could
+     * name them at all, so a probe on `ionode.note' resolved against the
+     * prototype and found nothing while the node editor cheerfully drew the
+     * port. This is the same thing buildArgMap already does for a plugin arg a
+     * .dsp omitted: the engine knows the arg exists, so the tree should say so.
+     *
+     * After setPointers(), not before. buildArgMap() begins by resetting
+     * argCount_ to zero and then only indexes args whose index is still
+     * negative, so the counter is not settled until setPointers() has finished
+     * creating args for the references it resolves -- and a .dsp with a typo in
+     * one of those references creates one. `harpsi0.dsp' reads
+     * `ionode->bandlo' where the io node declares `bandlow'; done any earlier,
+     * that typo and `note' ended up sharing index 21, and a probe on
+     * `ionode.bandlo' read back the note numbers. */
+    if (tree->IONode())
+    {
+        thNode *io = tree->IONode();
+
+        if (io->getArg("note") == NULL)
+            io->setArg("note", 0);
+
+        if (io->getArg("velocity") == NULL)
+            io->setArg("velocity", 0);
+
+        if (io->getArg("trigger") == NULL)
+            io->setArg("trigger", 0);
+    }
+
     tree->buildSynthTree();
 
     if (registerTree)
@@ -715,6 +1046,12 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
        inside it; the audio thread hands it back once it is unreachable. */
     thMidiChan *newchan = new thMidiChan(tree, amp, windowlen_);
 
+    /* Before the swap, not after. A probe's node id was measured against the
+       tree that is about to be replaced, and ids are assigned in parse order,
+       so the same id in the new tree is a different node. Re-arming by name is
+       the caller's job -- only it knows whether the node still exists. */
+    disarmProbesOn(channum);
+
     thSynthCommand cmd;
 
     cmd.type = thSynthCommand::SET_CHANNEL;
@@ -856,9 +1193,48 @@ void thSynth::process (void)
 
     memset(output_, 0, channels_ * windowlen_ * sizeof(float));
 
+    /* Probes are zeroed before any channel runs and published after all of
+       them, rather than around the channel they belong to, so that a probe on
+       a channel with nothing loaded -- or on one whose process() bails out
+       early because it has no output buffer -- still publishes a window of
+       silence. A display that froze on its last content instead of going quiet
+       would be lying about the signal. */
+    int probeCount = 0;
+
+    for (int p = 0; p < TH_MAX_PROBES; p++)
+    {
+        if (probes_[p] == NULL)
+            continue;
+
+        probes_[p]->beginWindow();
+        probeCount++;
+    }
+
     for (int i = 0; i < midiChannelCnt_; i++)
     {
+        /* Gathered per channel, so thMidiChan is handed only the probes that
+           concern it and its note loops carry no test beyond the count. Eight
+           slots, so this is a fixed eight-iteration scan and not worth
+           caching. */
+        thProbe *taps[TH_MAX_PROBES];
+        int ntaps = 0;
+
         chan = midiChannels_[i];
+
+        if (probeCount && chan)
+        {
+            for (int p = 0; p < TH_MAX_PROBES; p++)
+            {
+                /* The serial is what makes a probe stop rather than start
+                   reading a different node when the patch on this channel is
+                   replaced. See thMidiChan::serial(). */
+                if (probes_[p] && probes_[p]->chan() == i &&
+                    probes_[p]->chanSerial() == chan->serial())
+                {
+                    taps[ntaps++] = probes_[p];
+                }
+            }
+        }
 
         if (chan)
         {
@@ -869,7 +1245,7 @@ void thSynth::process (void)
                 mixchannels = channels_;
             }
             
-            chan->process(&retired_);
+            chan->process(&retired_, taps, ntaps);
             chanoutput = chan->output();
 
             if (chanoutput == NULL || mixchannels <= 0) {
@@ -909,6 +1285,16 @@ void thSynth::process (void)
 
     for (int i = 0; i < samples; i++)
         output_[i] = thSoftLimit(output_[i] * gain);
+
+    /* Deliberately after the mix and deliberately untouched by the gain or the
+       limiter: a probe reports the signal at a point inside the graph, and
+       bending it by a master-stage decision made downstream would make the
+       display disagree with the patch it is describing. */
+    for (int p = 0; p < TH_MAX_PROBES; p++)
+    {
+        if (probes_[p])
+            probes_[p]->publish();
+    }
 }
 
 void thSynth::printChan(int chan)

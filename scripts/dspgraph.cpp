@@ -36,12 +36,19 @@
  *   - an attached control sits above its host, overlaps nothing, and its
  *     wire still reaches the port it drives -- adjacency says which node a
  *     control belongs to, only the wire says which parameter
+ *   - a probe panel armed on any output port sits above its host at the height
+ *     its visual module asked for, overlaps nothing, hit-tests where it is
+ *     drawn, cannot be dragged off, is idempotent to arm twice, and leaves no
+ *     trace when removed
  *   - a shared control -- one several nodes read -- is laid out before
  *     everything it drives, rather than being stranded in layer 0
  *   - clicking the middle of a wire finds a wire, and the ends of every
  *     wire sit on the ports it claims to join
  *   - a saved layout comes back exactly, and saving changes nothing in the
  *     file except `# @layout' lines
+ *   - probes survive the same round trip through `# @probe' lines, in order,
+ *     and a graph carrying none writes none -- otherwise every save of every
+ *     patch would start growing a block
  *   - the parameter list and the wires agree: every parameter driven by
  *     another node has a wire to match, and every wire has a parameter. The
  *     two are built by separate passes over separate data, so they disagreeing
@@ -73,8 +80,14 @@ static bool overlaps (const NodeGraph::Box &a, const NodeGraph::Box &b)
              a.y + a.h <= b.y || b.y + b.h <= a.y);
 }
 
-/* Every line of a file except its `# @layout' comments. Two files agreeing on
-   this are the same file as far as the parser is concerned. */
+/* Every line of a file except the ones the editor's block owns. Two files
+   agreeing on this are the same file as far as the parser is concerned.
+ *
+ * Both prefixes, because probes share the block. Leaving `# @probe' out of the
+ * strip would make the "writing the layout changed N other lines" check below
+ * fire on every file that has one -- correctly, since they would then be
+ * accumulating a line per save, which is precisely the bug §8 of
+ * NODE_EDITOR.md records the layout block already having had once. */
 static bool nonLayoutLines (const string &path, vector<string> &out)
 {
     ifstream in(path.c_str());
@@ -87,7 +100,8 @@ static bool nonLayoutLines (const string &path, vector<string> &out)
     out.clear();
 
     while (getline(in, line))
-        if (line.compare(0, 9, "# @layout") != 0)
+        if (line.compare(0, 9, "# @layout") != 0 &&
+            line.compare(0, 8, "# @probe") != 0)
             out.push_back(line);
 
     /* write() drops trailing blank lines, so ignore them on both sides. */
@@ -168,6 +182,8 @@ int main (int argc, char **argv)
     long boxTotal = 0, edgeTotal = 0, fbTotal = 0, fbFiles = 0;
     int maxLayers = 0, maxBoxes = 0;
     long controls = 0, attached = 0, shared = 0;
+    long probes = 0;
+    long probeLines = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -529,6 +545,195 @@ int main (int argc, char **argv)
             }
         }
 
+        /* probe panels.
+         *
+         * These are not in the .dsp -- the editor arms them -- so this arms
+         * one on every output port of every node box and checks the panel
+         * behaves like the attached control whose machinery it borrows: flush
+         * against its host, overlapping nothing, hit-testable where it is
+         * drawn, undraggable, and gone without trace when removed.
+         *
+         * The panel is deliberately taller than a control strip. The stack
+         * used to be walked by multiplying by ATTACH_H, and with that multiply
+         * restored the overlap check below fails on any node carrying both a
+         * probe and a control -- which is what makes the height worth
+         * asserting rather than assuming. */
+        {
+            const double PROBE_H = 64.0;
+
+            for (size_t b = 0; b < g.boxes().size() && problems < 5; b++)
+            {
+                if (g.boxes()[b].isControl || g.boxes()[b].isProbe ||
+                    g.boxes()[b].attachedTo >= 0)
+                    continue;
+
+                /* By name and index taken afresh each time: addProbe and
+                   removeProbe both reshape boxes_, so a reference taken before
+                   the loop would dangle. */
+                const string hostName = g.boxes()[b].name;
+
+                for (size_t p = 0; p < g.boxes()[b].ports.size() &&
+                                   problems < 5; p++)
+                {
+                    if (g.boxes()[b].ports[p].isInput)
+                        continue;
+
+                    const size_t before = g.boxes().size();
+                    const string port = g.boxes()[b].ports[p].name;
+
+                    const int panel = g.addProbe((int)b, port, "meter",
+                                                 PROBE_H);
+
+                    if (panel < 0)
+                    { printf("FAIL  %s: cannot probe %s.%s, an output port\n",
+                             argv[f], hostName.c_str(), port.c_str());
+                      problems++; continue; }
+
+                    /* Twice is once: two panels on one signal is never what
+                       was meant, and a menu makes it easy to ask for. */
+                    if (g.addProbe((int)b, port, "meter", PROBE_H) != panel)
+                    { printf("FAIL  %s: probing %s.%s twice made two panels\n",
+                             argv[f], hostName.c_str(), port.c_str());
+                      problems++; }
+
+                    g.layout();
+
+                    {
+                        const vector<NodeGraph::Box> &nb = g.boxes();
+                        const NodeGraph::Box &pnl = nb[panel];
+
+                        /* Checked rather than assumed: layout() reassigns
+                           attachments, and an earlier version of
+                           assignAttachments cleared every box's host before
+                           reassigning -- which detached each panel and turned
+                           this into a subscript of -1. A harness that
+                           segfaults instead of saying what went wrong is a
+                           worse harness. */
+                        if (pnl.attachedTo != (int)b)
+                        { printf("FAIL  %s: panel on %s.%s came back attached "
+                                 "to %d, not %d\n", argv[f], hostName.c_str(),
+                                 port.c_str(), pnl.attachedTo, (int)b);
+                          problems++;
+                          g.removeProbe(panel);
+                          g.layout();
+                          continue; }
+
+                        const NodeGraph::Box &host = nb[pnl.attachedTo];
+
+                        if (pnl.x != host.x)
+                        { printf("FAIL  %s: panel on %s.%s at x=%.1f, host at "
+                                 "%.1f\n", argv[f], hostName.c_str(),
+                                 port.c_str(), pnl.x, host.x);
+                          problems++; }
+
+                        if (pnl.y + pnl.h > host.y)
+                        { printf("FAIL  %s: panel on %s.%s runs into its "
+                                 "host\n", argv[f], hostName.c_str(),
+                                 port.c_str());
+                          problems++; }
+
+                        if (pnl.h != PROBE_H)
+                        { printf("FAIL  %s: panel on %s.%s is %.1f tall, "
+                                 "asked for %.1f\n", argv[f], hostName.c_str(),
+                                 port.c_str(), pnl.h, PROBE_H);
+                          problems++; }
+
+                        for (size_t a = 0; a < nb.size() && problems < 5; a++)
+                            if (a != (size_t)panel && overlaps(nb[a], pnl))
+                            { printf("FAIL  %s: panel on %s.%s overlaps %s\n",
+                                     argv[f], hostName.c_str(), port.c_str(),
+                                     nb[a].name.c_str());
+                              problems++; break; }
+
+                        if (g.boxAt(pnl.x + pnl.w / 2,
+                                    pnl.y + pnl.h / 2) != panel)
+                        { printf("FAIL  %s: the middle of the panel on %s.%s "
+                                 "does not pick it\n", argv[f],
+                                 hostName.c_str(), port.c_str());
+                          problems++; }
+
+                        /* A panel is not a node: it must not be draggable off
+                           its host. Enforced by attachedTo rather than by
+                           anything probe-specific, which is why it is worth
+                           checking from this side too. */
+                        const double px = pnl.x, py = pnl.y;
+
+                        g.moveBox(panel, px + 50, py + 50);
+
+                        if (g.boxes()[panel].x != px ||
+                            g.boxes()[panel].y != py)
+                        { printf("FAIL  %s: the panel on %s.%s can be dragged "
+                                 "off its host\n", argv[f], hostName.c_str(),
+                                 port.c_str());
+                          problems++; }
+                    }
+
+                    g.removeProbe(panel);
+                    g.layout();
+
+                    if (g.boxes().size() != before)
+                    { printf("FAIL  %s: removing the panel on %s.%s left %d "
+                             "boxes, not %d\n", argv[f], hostName.c_str(),
+                             port.c_str(), (int)g.boxes().size(),
+                             (int)before);
+                      problems++; }
+
+                    probes++;
+                }
+            }
+
+            /* (node name, output port) has to name exactly one box.
+             *
+             * This is the editor's lookup, checked here because it is the one
+             * piece of NodeEditor::reapplyProbes that can go quietly wrong.
+             * A probe is stored by node and arg name -- that is what survives
+             * a reload and what a `# @probe' line records -- and putting the
+             * panel back means finding the box again. But the io node is one
+             * node in the file and *two* boxes on screen, so a search by name
+             * alone has two candidates and would take whichever came first.
+             * Requiring the port narrows it to one; this asserts that it
+             * really does, for every point that can be probed. */
+            for (size_t b = 0; b < g.boxes().size() && problems < 5; b++)
+            {
+                if (g.boxes()[b].isControl || g.boxes()[b].isProbe)
+                    continue;
+
+                for (size_t p = 0; p < g.boxes()[b].ports.size() &&
+                                   problems < 5; p++)
+                {
+                    if (g.boxes()[b].ports[p].isInput)
+                        continue;
+
+                    const string node = g.boxes()[b].name;
+                    const string port = g.boxes()[b].ports[p].name;
+
+                    int found = 0;
+
+                    for (size_t k = 0; k < g.boxes().size(); k++)
+                    {
+                        if (g.boxes()[k].isControl || g.boxes()[k].isProbe ||
+                            g.boxes()[k].name != node)
+                            continue;
+
+                        for (size_t q = 0; q < g.boxes()[k].ports.size(); q++)
+                            if (!g.boxes()[k].ports[q].isInput &&
+                                g.boxes()[k].ports[q].name == port)
+                                found++;
+                    }
+
+                    if (found != 1)
+                    { printf("FAIL  %s: %s.%s names %d boxes, not one -- a "
+                             "probe could not be put back on the right one\n",
+                             argv[f], node.c_str(), port.c_str(), found);
+                      problems++; }
+                }
+            }
+
+            /* Nothing above may have disturbed the graph the checks below
+               measure. */
+            g.layout();
+        }
+
         /* wires: what is drawn is what can be clicked.
          *
          * edgeCurve() feeds both the canvas and edgeAt(), so this is really
@@ -871,6 +1076,126 @@ int main (int argc, char **argv)
               problems++; }
         }
 
+        /* probe round-trip, on a copy so the corpus is never touched.
+         *
+         * The properties are the layout block's, because probes live in it and
+         * inherit its hazards: a save must not disturb any other line, saving
+         * twice must equal saving once, and what comes back must be what went
+         * in. Plus one of its own -- a probe carries no position, so what has
+         * to survive is the (node, arg, visual) triple and the order.
+         *
+         * The no-op case is checked separately and is the one that matters
+         * most: a file with no probes must come back with none, or every save
+         * of every patch in the corpus would start growing a block. */
+        if (problems == 0)
+        {
+            const string tmp = "/tmp/dspgraph-probe.dsp";
+
+            vector<string> before, after;
+
+            if (!copyFile(argv[f], tmp) || !nonLayoutLines(tmp, before))
+            { printf("FAIL  %s: could not copy for the probe round-trip\n",
+                     argv[f]);
+              problems++; }
+            else
+            {
+                NodeGraph pg;
+
+                pg.build(tree);
+
+                /* One panel on every output port of the first three node
+                   boxes: enough to cover several on one host, several hosts,
+                   and the ordering between them, without writing a block
+                   longer than some of the files. */
+                vector<string> wantNode, wantArg;
+                int hosts = 0;
+
+                for (size_t b = 0; b < pg.boxes().size() && hosts < 3; b++)
+                {
+                    if (pg.boxes()[b].isControl || pg.boxes()[b].isProbe)
+                        continue;
+
+                    bool any = false;
+
+                    for (size_t k = 0; k < pg.boxes()[b].ports.size(); k++)
+                    {
+                        if (pg.boxes()[b].ports[k].isInput)
+                            continue;
+
+                        const string node = pg.boxes()[b].name;
+                        const string arg = pg.boxes()[b].ports[k].name;
+
+                        if (pg.addProbe((int)b, arg, "meter", 36.0) < 0)
+                            continue;
+
+                        wantNode.push_back(node);
+                        wantArg.push_back(arg);
+                        any = true;
+                    }
+
+                    if (any)
+                        hosts++;
+                }
+
+                pg.layout();
+
+                vector<NodeLayout::ProbeRef> got;
+
+                if (!NodeLayout::write(tmp, pg))
+                { printf("FAIL  %s: could not write the probe block\n",
+                         argv[f]);
+                  problems++; }
+                else if (!nonLayoutLines(tmp, after) || before != after)
+                { printf("FAIL  %s: writing probes changed %d other line(s)\n",
+                         argv[f], (int)after.size() - (int)before.size());
+                  problems++; }
+                else if (!NodeLayout::write(tmp, pg) ||
+                         !nonLayoutLines(tmp, after) || before != after)
+                { printf("FAIL  %s: saving probes twice differs from once\n",
+                         argv[f]);
+                  problems++; }
+                else if (!NodeLayout::readProbes(tmp, got))
+                { printf("FAIL  %s: could not read the probe block back\n",
+                         argv[f]);
+                  problems++; }
+                else if (got.size() != wantNode.size())
+                { printf("FAIL  %s: wrote %d probes, read back %d\n", argv[f],
+                         (int)wantNode.size(), (int)got.size());
+                  problems++; }
+                else
+                {
+                    for (size_t i = 0; i < got.size() && problems < 5; i++)
+                        if (got[i].node != wantNode[i] ||
+                            got[i].arg != wantArg[i] ||
+                            got[i].visual != "meter")
+                        { printf("FAIL  %s: probe %d came back as %s.%s/%s, "
+                                 "not %s.%s/meter\n", argv[f], (int)i,
+                                 got[i].node.c_str(), got[i].arg.c_str(),
+                                 got[i].visual.c_str(), wantNode[i].c_str(),
+                                 wantArg[i].c_str());
+                          problems++; }
+
+                    probeLines += (long)got.size();
+
+                    /* And a graph with no probes writes no probe lines. */
+                    NodeGraph clean;
+
+                    clean.build(tree);
+                    clean.layout();
+
+                    vector<NodeLayout::ProbeRef> none;
+
+                    if (!NodeLayout::write(tmp, clean) ||
+                        !NodeLayout::readProbes(tmp, none) || !none.empty())
+                    { printf("FAIL  %s: a graph with no probes wrote %d probe "
+                             "line(s)\n", argv[f], (int)none.size());
+                      problems++; }
+                }
+
+                remove(tmp.c_str());
+            }
+        }
+
         /* layout round-trip, on a copy so the corpus is never touched */
         if (problems == 0)
         {
@@ -995,6 +1320,12 @@ int main (int argc, char **argv)
                boxTotal, controls, attached, shared, edgeTotal, maxBoxes,
                maxLayers,
                fbTotal, fbFiles);
+    if (total)
+        printf("  %ld probe panels armed and removed, one per output port\n",
+               probes);
+    if (total)
+        printf("  %ld probes written and read back, and every file still "
+               "writes none when it has none\n", probeLines);
 
     return failed;
 }

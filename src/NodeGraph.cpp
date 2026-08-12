@@ -967,6 +967,7 @@ void NodeGraph::placePorts (Box &b)
     {
         b.w = ATTACH_W;
         b.h = ATTACH_H;
+        b.attachH = ATTACH_H;
 
         /* The port sits on the bottom edge, near the left, because the host
            is directly below and its inputs are down the left-hand side. The
@@ -1011,6 +1012,13 @@ void NodeGraph::assignAttachments (void)
 {
     for (size_t b = 0; b < boxes_.size(); b++)
     {
+        /* A probe knows its host from the moment it is armed -- there is
+           nothing to work out, unlike a control, whose host is whichever node
+           turns out to be its only consumer. Clearing it here would detach
+           every panel on the next layout. */
+        if (boxes_[b].isProbe)
+            continue;
+
         boxes_[b].attachedTo = -1;
         boxes_[b].attachSlot = 0;
     }
@@ -1096,11 +1104,28 @@ void NodeGraph::assignAttachments (void)
         }
 
         for (size_t i = 0; i < mine.size(); i++)
-            if (boxes_[mine[i]].ctlGroup.empty())
+            if (boxes_[mine[i]].ctlGroup.empty() && !boxes_[mine[i]].isProbe)
                 ordered.push_back(mine[i]);
 
+        /* Probes topmost, above every control.
+         *
+         * Slot 0 is the top of the stack, so this puts them furthest from the
+         * host. They read as a separate thing from the knobs, which they are:
+         * a control is something you turn and a probe is something you watch.
+         * Interleaving them by declaration order would put a scope between two
+         * sliders of the same envelope, which §13 went to some trouble to keep
+         * together. */
+        vector<int> withProbes;
+
+        for (size_t i = 0; i < mine.size(); i++)
+            if (boxes_[mine[i]].isProbe)
+                withProbes.push_back(mine[i]);
+
         for (size_t i = 0; i < ordered.size(); i++)
-            boxes_[ordered[i]].attachSlot = (int)i;
+            withProbes.push_back(ordered[i]);
+
+        for (size_t i = 0; i < withProbes.size(); i++)
+            boxes_[withProbes[i]].attachSlot = (int)i;
     }
 }
 
@@ -1108,21 +1133,27 @@ void NodeGraph::assignAttachments (void)
    heading for each group among them. */
 static double stripHeight (const vector<NodeGraph::Box> &boxes, int host)
 {
-    int n = 0, heads = 0;
+    int n = 0;
+    double total = 0;
 
+    /* Summed rather than counted and multiplied by ATTACH_H, because a probe
+       panel is as tall as its visual module asked for -- 24 for a meter, 96
+       for a spectrogram -- and a stack that assumed one height would draw them
+       on top of each other. */
     for (size_t b = 0; b < boxes.size(); b++)
         if (boxes[b].attachedTo == host)
         {
             n++;
+            total += boxes[b].attachH;
 
             if (boxes[b].groupHead)
-                heads++;
+                total += GROUP_HEAD;
         }
 
     if (n == 0)
         return 0;
 
-    return n * ATTACH_H + (n - 1) * ATTACH_GAP + heads * GROUP_HEAD;
+    return total + (n - 1) * ATTACH_GAP;
 }
 
 void NodeGraph::layout (void)
@@ -1328,11 +1359,12 @@ void NodeGraph::layout (void)
         const double sh = stripHeight(boxes_, c.attachedTo);
 
         c.w = ATTACH_W;
-        c.h = ATTACH_H;
+        c.h = c.attachH;
         c.x = host.x;
 
-        /* Walk the stack rather than multiplying, because a group heading
-           pushes everything below it down by its own height. */
+        /* Walk the stack rather than multiplying: a group heading pushes
+           everything below it down by its own height, and since probe panels
+           joined the stack the rows are no longer all one height either. */
         double dy = 0;
 
         for (int slot = 0; slot < c.attachSlot; slot++)
@@ -1343,7 +1375,7 @@ void NodeGraph::layout (void)
                     if (boxes_[k].groupHead)
                         dy += GROUP_HEAD;
 
-                    dy += ATTACH_H + ATTACH_GAP;
+                    dy += boxes_[k].attachH + ATTACH_GAP;
                 }
 
         if (c.groupHead)
@@ -1441,6 +1473,103 @@ void NodeGraph::boxesIn (double x0, double y0, double x1, double y1,
 
         out.push_back((int)b);
     }
+}
+
+/* ------------------------------------------------------------------------
+ * Probes. See the Box comment in NodeGraph.h for why these are boxes.
+ * ------------------------------------------------------------------------ */
+
+int NodeGraph::probeAt (int host, const string &arg) const
+{
+    for (size_t b = 0; b < boxes_.size(); b++)
+        if (boxes_[b].isProbe && boxes_[b].attachedTo == host &&
+            boxes_[b].probeArg == arg)
+            return (int)b;
+
+    return -1;
+}
+
+int NodeGraph::addProbe (int host, const string &arg, const string &visual,
+                         double height)
+{
+    if (host < 0 || host >= (int)boxes_.size())
+        return -1;
+
+    /* Not on a control and not on another probe: neither has an output worth
+       watching, and a panel on a panel has nowhere to sit. */
+    if (boxes_[host].isControl || boxes_[host].isProbe)
+        return -1;
+
+    /* The port has to exist and has to be an output. Probing an input would
+       show whatever is arriving rather than what this node produces, which is
+       the neighbouring node's business and is where its own panel would go. */
+    bool found = false;
+
+    for (size_t p = 0; p < boxes_[host].ports.size() && !found; p++)
+        if (!boxes_[host].ports[p].isInput && boxes_[host].ports[p].name == arg)
+            found = true;
+
+    if (!found)
+        return -1;
+
+    /* Idempotent, like thSynth::armProbe reusing a slot. Arming the same point
+       twice from a menu is an easy thing to do and two panels showing the same
+       signal is never what was meant. */
+    /* One height rule, applied on both paths. Re-arming with a different
+       module used to take its height straight, so a caller that got the
+       arithmetic wrong produced a panel nothing could see -- and it left
+       `plugin' and `h' describing the module that had just been replaced,
+       which the canvas draws from. */
+    const double panelH = height > 0 ? height : ATTACH_H;
+
+    const int existing = probeAt(host, arg);
+
+    if (existing >= 0)
+    {
+        boxes_[existing].plugin = visual;
+        boxes_[existing].probeVisual = visual;
+        boxes_[existing].attachH = panelH;
+        boxes_[existing].h = panelH;
+
+        return existing;
+    }
+
+    Box p;
+
+    p.name = boxes_[host].name;
+    p.plugin = visual;
+    p.isProbe = true;
+    p.probeArg = arg;
+    p.probeVisual = visual;
+    p.attachedTo = host;
+    p.attachH = panelH;
+    p.w = ATTACH_W;
+    p.h = panelH;
+
+    boxes_.push_back(p);
+
+    return (int)boxes_.size() - 1;
+}
+
+void NodeGraph::removeProbe (int box)
+{
+    if (box < 0 || box >= (int)boxes_.size() || !boxes_[box].isProbe)
+        return;
+
+    boxes_.erase(boxes_.begin() + box);
+
+    /* Every box index above the hole moved down, and edges and attachments
+       hold indices. A probe has no edges of its own, but the boxes after it
+       certainly do. */
+    for (size_t e = 0; e < edges_.size(); e++)
+    {
+        if (edges_[e].fromBox > box) edges_[e].fromBox--;
+        if (edges_[e].toBox > box)   edges_[e].toBox--;
+    }
+
+    for (size_t b = 0; b < boxes_.size(); b++)
+        if (boxes_[b].attachedTo > box)
+            boxes_[b].attachedTo--;
 }
 
 void NodeGraph::moveBox (int index, double x, double y)

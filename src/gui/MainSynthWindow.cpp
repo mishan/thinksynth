@@ -44,6 +44,7 @@
 #include "ArgTable.h"
 #include "NodeEditor.h"
 #include "Dialogs.h"
+#include "SaveButton.h"
 
 
 #include "../gthPrefs.h"
@@ -438,6 +439,8 @@ void MainSynthWindow::menuKeyboard (void)
         kbWin_->signal_close_request().connect(
             sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                        (Gtk::Window *)kbWin_), false);
+
+        addCloseAccel(kbWin_);
     }
 
     kbWin_->present();
@@ -451,6 +454,8 @@ void MainSynthWindow::menuPatchSel (void)
         patchSel_->signal_close_request().connect(
             sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                        (Gtk::Window *)patchSel_), false);
+
+        addCloseAccel(patchSel_);
     }
     
     patchSel_->present();
@@ -464,6 +469,8 @@ void MainSynthWindow::menuMidiMap (void)
         midiMap_->signal_close_request().connect(
             sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                        (Gtk::Window *)midiMap_), false);
+
+        addCloseAccel(midiMap_);
     }
 
     midiMap_->present();
@@ -483,6 +490,8 @@ void MainSynthWindow::menuAbout (void)
     aboutBox_->signal_close_request().connect(
         sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
                    (Gtk::Window *)aboutBox_), false);
+
+    addCloseAccel(aboutBox_);
     aboutBox_->present();
 }
 
@@ -676,6 +685,8 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
         }
     }
 
+    dsp_table->setChannel(num);
+
     /* Now that the count is known, the table can pick its column count. */
     dsp_table->reflow();
 
@@ -753,7 +764,7 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
        the end is what tells two versions of a patch apart. */
     nameLbl->set_markup("<b>" + Glib::Markup::escape_text(
                             saved
-                            ? thUtil::basename((char *)patch->filename.c_str())
+                            ? thUtil::basename(patch->filename.c_str())
                             : string("(unsaved)")) + "</b>");
     nameLbl->set_ellipsize(Pango::EllipsizeMode::MIDDLE);
 
@@ -802,23 +813,27 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
 
     /* Over on the right, which a GTK4 box reaches by appending an expanding
        nothing first: it packs one way now, and pack_end is gone. */
-    Gtk::Button *saveAsBtn = manage(new Gtk::Button("Save _As...", true));
-    Gtk::Button *saveBtn = manage(new Gtk::Button("_Save", true));
+    SaveButton *saveBtn = manage(new SaveButton);
 
-    saveAsBtn->signal_clicked().connect(
+    saveBtn->signal_save().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch), chan));
+    saveBtn->signal_save_as().connect(
         sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatchAs),
-                        chan));
+                   chan));
 
-    saveBtn->signal_clicked().connect(
-        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSavePatch),
-                        chan));
+    /* Nothing to overwrite until the patch has a file of its own -- which
+       makes Save mean Save As rather than making it dead. */
+    saveBtn->setHasFile(saved);
+    saveBtn->setModified(patchMgr->isDirty(chan));
 
-    /* Nothing to overwrite until the patch has a file of its own. */
-    saveBtn->set_sensitive(saved);
-    saveBtn->set_tooltip_text(saved
-                              ? "Write this patch back to " + patch->filename
-                              : string("This patch has not been saved yet -- "
-                                       "use Save As"));
+    /* The button outlives this call and the patch's state changes under it,
+       so it listens rather than being told once. */
+    saveConns_.push_back(patchMgr->signal_patch_dirty().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onPatchDirty),
+                   saveBtn, chan)));
+
+    if (saved)
+        saveBtn->setFileName(patch->filename);
 
     {
         Gtk::Box *gap = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
@@ -828,19 +843,41 @@ Gtk::Widget *MainSynthWindow::makePatchBar (int chan)
     }
 
     bar->append(*saveBtn);
-    bar->append(*saveAsBtn);
 
     return bar;
 }
 
 /* Looked up rather than captured: the arg belongs to the thMidiChan, and
    loading a patch onto this channel replaces the channel. */
+/* One of the sixteen patches changed; if it is this button's, say so. */
+void MainSynthWindow::onPatchDirty (int chan, SaveButton *button, int mine)
+{
+    if (chan == mine)
+        button->setModified(gthPatchManager::instance()->isDirty(mine));
+}
+
 void MainSynthWindow::onAmpSlider (Gtk::Scale *scale, int chan)
 {
     thArg *amp = thSynth::instance()->getChanArg(chan, "amp");
 
-    if (amp != NULL)
-        amp->setValue(scale->get_value());
+    if (amp == NULL)
+        return;
+
+    const double want = scale->get_value();
+
+    /* Nothing to do, and nothing to report, when the slider is only catching
+       up with the arg.
+     *
+     * The two follow each other -- onAmpArgChanged moves the slider when
+       anything else moves the arg -- so without this, restoring a saved
+       amplitude at startup arrived here as though someone had dragged it, and
+       every patch came up already modified. */
+    if ((double)(*amp)[0] == want)
+        return;
+
+    amp->setValue(want);
+
+    gthPatchManager::instance()->markDirty(chan);
 }
 
 void MainSynthWindow::onAmpArgChanged (thArg *arg, int chan)
@@ -902,7 +939,7 @@ void MainSynthWindow::onSavePatchAs (int chan)
         /* A starting point rather than a guess at what it should be called:
            the DSP's own name with the patch extension, which is at least in
            the right family. */
-        string suggest = thUtil::basename((char *)patch->dspFile.c_str());
+        string suggest = thUtil::basename(patch->dspFile.c_str());
         const string::size_type dot = suggest.rfind('.');
 
         if (dot != string::npos)
@@ -1118,7 +1155,11 @@ void MainSynthWindow::populate (void)
     for (size_t i = 0; i < ampConns_.size(); i++)
         ampConns_[i].disconnect();
 
+    for (size_t i = 0; i < saveConns_.size(); i++)
+        saveConns_[i].disconnect();
+
     ampConns_.clear();
+    saveConns_.clear();
     ampScales_.clear();
 
     gthPatchManager *patchMgr = gthPatchManager::instance();
@@ -1153,7 +1194,7 @@ void MainSynthWindow::populate (void)
                off. The full path is still worth having, so it moves to the
                tooltip. */
             tabName = chanStr.str() +
-                      thUtil::basename((char *)patch->filename.c_str());
+                      thUtil::basename(patch->filename.c_str());
         }
         else
         {
@@ -1231,6 +1272,57 @@ void MainSynthWindow::onPatchLoadError (const char* failure)
  *
  * They are deleted in the destructor now, which is also where they have to be:
  * every one of them points into the synth. */
+/* Ctrl+W closes a secondary window.
+ *
+ * A key controller rather than an application accelerator, which is how
+ * Ctrl+K and the rest are done. Those work because the main window is added
+ * to the application and "win.keyboard" resolves against it; these windows
+ * are deliberately not added -- the application quits when the last of its
+ * windows goes, and the shutdown ordering wants exactly one window deciding
+ * that. So an accelerator registered on the application would never reach
+ * them.
+ *
+ * In the capture phase, so the window hears the key before whatever has
+ * focus. Nothing in these windows binds Ctrl+W, but a text field one day
+ * might, and a window's own close key should not be the thing that loses.
+ */
+void MainSynthWindow::addCloseAccel (Gtk::Window *window)
+{
+    if (window == NULL)
+        return;
+
+    Glib::RefPtr<Gtk::EventControllerKey> keys =
+        Gtk::EventControllerKey::create();
+
+    keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
+    keys->signal_key_pressed().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowKey),
+                   window),
+        false);
+
+    window->add_controller(keys);
+}
+
+/* True to say the key has been dealt with; false for everything that is not
+   Ctrl+W, so the window carries on as before. */
+bool MainSynthWindow::onSubWindowKey (guint keyval, guint keycode,
+                                      Gdk::ModifierType state,
+                                      Gtk::Window *window)
+{
+    (void)keycode;
+
+    if ((keyval != GDK_KEY_w && keyval != GDK_KEY_W)
+        || (state & Gdk::ModifierType::CONTROL_MASK)
+           != Gdk::ModifierType::CONTROL_MASK)
+        return false;
+
+    /* close(), not hide(): it goes through the close-request handler, so
+       there is one place that decides what closing one of these means. */
+    window->close();
+
+    return true;
+}
+
 bool MainSynthWindow::onSubWindowClose (Gtk::Window *window)
 {
     if (window != NULL)
@@ -1377,7 +1469,7 @@ void MainSynthWindow::onBrowseResponse (int response,
         return;
     }
 
-    prevDir_ = thUtil::dirname((char *)picked.c_str());
+    prevDir_ = thUtil::dirname(picked.c_str());
     prevDir_ += "/";
 
     {

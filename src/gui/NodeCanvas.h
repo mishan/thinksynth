@@ -85,6 +85,44 @@ public:
 
     void clearSelection (void);
 
+    /* Draws the body of a probe panel.
+     *
+     * The canvas knows where a panel is; it does not know what goes in one.
+     * The visual modules, their instances and their sample rings all belong to
+     * the editor, which is also the thing that arms and disarms them -- so it
+     * supplies this, closing over whatever it needs, and the canvas calls it
+     * with the panel's box index and a context already translated to the
+     * body's origin and clipped to it.
+     *
+     * Without a painter a panel still draws its frame and its title. That is
+     * deliberate: an armed probe whose channel is not playing has nothing to
+     * show, and an empty panel says so where a missing one would look like the
+     * arming had failed. */
+    typedef sigc::slot<void(int, const Cairo::RefPtr<Cairo::Context> &,
+                            int, int)> ProbePainter;
+
+    void setProbePainter (const ProbePainter &painter)
+    {
+        probePainter_ = painter;
+    }
+
+    /* How long this canvas has spent rasterising, and how many times.
+     *
+     * Here because live visualizers mean redrawing on a timer, and whether a
+     * full-canvas repaint at 30fps is affordable is a question about *this*
+     * drawing code on a real graph -- 1514 boxes and 3094 wires across the
+     * corpus, the widest of them 2920 pixels. Measuring a stand-in that draws
+     * "something of similar complexity" would answer a different question, and
+     * describing the same scene twice is how NODE_EDITOR.md §12's "clicking a
+     * wire selects a different wire" happened.
+     *
+     * scripts/canvasbench is the consumer. Two counters and a clock read per
+     * frame is not a cost worth conditionalising away. */
+    unsigned long drawCount (void) const { return drawCount_; }
+    double drawMicros (void) const { return drawMicros_; }
+
+    void resetDrawStats (void) { drawCount_ = 0; drawMicros_ = 0.0; }
+
     /* Emitted when a wire is dragged between two ports, and when one is
        asked to be removed. The canvas does not change the graph itself --
        the window owns that, because it also has to record the edit. */
@@ -111,7 +149,46 @@ public:
         return m_signal_control_;
     }
 
+    /* A right-click asking what can be done here, with the box and port under
+       the pointer (port -1 for none) and the widget coordinates to put a menu
+       at.
+     *
+     * The canvas does not know what the answers are -- probing is the editor's
+     * business, since it owns the visual modules and the channel -- so this
+     * says where and on what, and nothing about the menu itself. Right-click
+     * rather than a modifier because it is the one gesture the canvas does not
+     * already spend: left is wire, drag and slider, and the wheel is scroll
+     * and zoom. */
+    typedef sigc::signal<void(int, int, double, double)> type_signal_context;
+    type_signal_context signal_context_requested (void) {
+        return m_signal_context_;
+    }
+
+    /* A probe panel was double-clicked: the box index.
+     *
+     * A panel is 128 pixels wide because that is what a node box is, and a
+     * spectrogram in 128x80 is a thumbnail. This is the way to a real one, and
+     * double-click is the gesture that already means "open this properly"
+     * everywhere else. */
+    typedef sigc::signal<void(int)> type_signal_activated;
+    type_signal_activated signal_probe_activated (void) {
+        return m_signal_activated_;
+    }
+
+    /* The drawing itself, into any context.
+     *
+     * Public and separate from the draw callback for two reasons: the timing
+     * above wraps one call rather than every return path, and scripts/
+     * canvasbench can render a canvas straight into an image surface. That
+     * second one matters -- NODE_EDITOR.md §7 says the bugs that matter in
+     * this part of the tree are visual, and being able to produce a PNG of a
+     * real graph without a screenshot is the difference between looking at one
+     * and taking someone's word for it. */
+    void drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                    int height);
+
 protected:
+    /* The draw callback: times drawGraph and keeps the counters. */
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
     void onResize (int width, int height);
@@ -120,17 +197,19 @@ protected:
        for, and is handed the coordinates rather than being asked to fetch
        them. */
     void onPressed (int nPress, double x, double y);
+    void onRightPressed (int nPress, double x, double y);
     void onReleased (int nPress, double x, double y);
     void onMotion (double x, double y);
     bool onScroll (double dx, double dy);
     void onLeave (void);
 
     Glib::RefPtr<Gtk::GestureClick> click_;
+    Glib::RefPtr<Gtk::GestureClick> rightClick_;
     Glib::RefPtr<Gtk::EventControllerMotion> motion_;
     Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
 private:
-    void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
+    void drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
                   const NodeGraph::Box &b, bool highlit, bool selected);
     void drawEdge (const Cairo::RefPtr<Cairo::Context> &cr, int edge,
                    bool highlit);
@@ -139,6 +218,9 @@ private:
                      const NodeGraph::Box &b);
     void drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
                        const NodeGraph::Box &b, bool highlit, bool selected);
+    void drawProbe (const Cairo::RefPtr<Cairo::Context> &cr,
+                    int index, const NodeGraph::Box &b, bool highlit,
+                    bool selected);
 
     /* widget pixels -> graph coordinates */
     void toGraph (double sx, double sy, double &gx, double &gy) const;
@@ -183,6 +265,11 @@ private:
        the next size-allocate. */
     bool fitPending_;
 
+    unsigned long drawCount_;
+    double drawMicros_;
+
+    ProbePainter probePainter_;
+
     type_signal_box_moved m_signal_box_moved_;
     type_signal_selected m_signal_selected_;
     type_signal_selection m_signal_selection_;
@@ -190,6 +277,8 @@ private:
     type_signal_disconnect m_signal_disconnect_;
     type_signal_refused m_signal_refused_;
     type_signal_control m_signal_control_;
+    type_signal_context m_signal_context_;
+    type_signal_activated m_signal_activated_;
 };
 
 #endif /* NODE_CANVAS_H */

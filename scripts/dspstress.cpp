@@ -45,6 +45,20 @@
  *   2 clear     + clearAll
  *   3 chanargs  + setChanArg and slider-style setValue
  *   4 reload    + loadTree onto a live channel, removeChan
+ *   5 probes    + armProbe / disarmProbe, and draining the rings
+ *
+ * Level 5 is where the visualizer tap gets looked at, and it deliberately sits
+ * on top of level 4 rather than beside it: arming and disarming on a quiet
+ * synth proves very little, and the interesting collision is a probe being
+ * armed or drained while the channel it points at is being replaced. Draining
+ * is part of it because the ring's consumer side is the GUI thread's, and a
+ * ring that is written but never read exercises half of what it is for.
+ *
+ * Confirmed to fail before it was trusted to pass: relaxing thSampleRing's
+ * release store to memory_order_relaxed makes level 5 report a data race at
+ * the memcpy in read() within a second and a half. That is the edge the whole
+ * handoff rests on, and this is what watches it -- ringcheck can only find an
+ * ordering bug by volume, on hardware that will not reorder the stores itself.
  *
  * Exit status is the number of levels that failed (crashed, or reported a race
  * when TSAN_OPTIONS sets exitcode/halt_on_error).
@@ -62,6 +76,7 @@
 #include <atomic>
 #include <chrono>
 #include <thread>
+#include <vector>
 
 #include "think.h"
 
@@ -79,7 +94,8 @@ enum {
     LVL_CLEAR,
     LVL_CHANARG,
     LVL_RELOAD,
-    LVL_MAX = LVL_RELOAD
+    LVL_PROBE,
+    LVL_MAX = LVL_PROBE
 };
 
 static const char *levelName (int level)
@@ -90,6 +106,7 @@ static const char *levelName (int level)
         case LVL_CLEAR:   return "clear    (+ clearAll)";
         case LVL_CHANARG: return "chanargs (+ setChanArg/setValue)";
         case LVL_RELOAD:  return "reload   (+ loadTree/removeChan)";
+        case LVL_PROBE:   return "probes   (+ arm/disarm/drain)";
         default:          return "?";
     }
 }
@@ -128,6 +145,49 @@ static void audioThread (thSynth *synth, std::atomic<bool> *running,
     }
 }
 
+struct ProbePoint { string node; string arg; };
+
+/* Every arg a plugin declared as an output, off an unowned parse.
+ *
+ * Read straight from the plugin tables rather than through NodeGraph: this
+ * harness is not linked against the node model, and what is wanted here is
+ * somewhere legitimate to point a probe, not the editor's opinion of which
+ * ports are worth showing. */
+static void collectProbePoints (thSynth &synth, const char *file,
+                                vector<ProbePoint> &out)
+{
+    thSynthTree *tree = synth.parseTree(file);
+
+    if (tree == NULL)
+        return;
+
+    const thSynthTree::NodeMap &nodes = tree->nodes();
+
+    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
+         i != nodes.end(); ++i)
+    {
+        thNode *n = i->second;
+
+        if (n == NULL || n->plugin() == NULL)
+            continue;
+
+        for (int k = 0; k < n->plugin()->argCount(); k++)
+        {
+            if (n->plugin()->getArgDir(k) != thPlugin::ARG_OUT)
+                continue;
+
+            ProbePoint p;
+
+            p.node = n->name();
+            p.arg = n->plugin()->getArgName(k);
+
+            out.push_back(p);
+        }
+    }
+
+    delete tree;
+}
+
 /* Runs one level to completion. Called in a forked child. */
 static int runLevel (const string &pluginPath, const char *file, int level,
                      int milliseconds)
@@ -143,6 +203,22 @@ static int runLevel (const string &pluginPath, const char *file, int level,
     /* A second channel so the reload level has something to swap against
        without the first channel going quiet. */
     synth.loadTree(file, 1, 100);
+
+    vector<ProbePoint> points;
+    vector<float> drain;
+
+    if (level >= LVL_PROBE)
+    {
+        collectProbePoints(synth, file, points);
+        drain.resize(synth.getWindowlen() * 2);
+
+        if (points.empty())
+        {
+            fprintf(stderr, "dspstress: %s declares no output ports to probe\n",
+                    file);
+            return 2;
+        }
+    }
 
     StressCounters counters;
     std::atomic<bool> running(true);
@@ -162,6 +238,39 @@ static int runLevel (const string &pluginPath, const char *file, int level,
         /* Weighted towards notes: that is what actually happens most, and the
            rarer operations still come round often in a few seconds. */
         unsigned int pick = (r >> 8) % 100;
+
+        /* Probe work runs alongside the pick below rather than as another
+           slice of it, for two reasons. Taking a share would thin out the
+           reloads, and reloading while a probe is armed is the collision worth
+           having. And draining wants to happen constantly -- a ring that is
+           read once in a hundred windows spends its life full, so the wrap
+           that the release/acquire pair exists to protect never happens.
+         *
+         * The drain is not decoration. Between the audio thread's write and
+         * this read there is nothing but thSampleRing's release/acquire pair,
+         * and the whole reason a probe hands over a window at a time instead
+         * of a pointer is that this read has to be safe while the callback is
+         * inside the same buffer. */
+        if (level >= LVL_PROBE)
+        {
+            for (int s = 0; s < synth.probeCount(); s++)
+            {
+                thProbe *probe = synth.probe(s);
+
+                if (probe)
+                    probe->read(&drain[0], (unsigned int)drain.size());
+            }
+
+            if ((pick & 7) == 0)
+            {
+                const ProbePoint &pt = points[(r >> 20) % points.size()];
+
+                synth.armProbe(chan, pt.node, pt.arg);
+            }
+
+            if ((pick & 15) == 3)
+                synth.disarmProbe((int)((r >> 24) % TH_MAX_PROBES));
+        }
 
         if (pick < 55)
         {

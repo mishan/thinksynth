@@ -25,9 +25,14 @@
 #include "think.h"
 #include "thUtil.h"
 
+/* Never reset, never reused. See thMidiChan::serial(). */
+std::atomic<unsigned long> thMidiChan::nextSerial_(1);
+
 thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
 {
     const thArg *chanarg = NULL;
+
+    serial_ = nextSerial_.fetch_add(1, std::memory_order_relaxed);
 
     modnode_ = mod;
     windowlength_ = windowlen;
@@ -346,7 +351,8 @@ void thMidiChan::copyChanArgs (thSynthTree *tree)
     }
 }
 
-void thMidiChan::process (RetireQueue *retire)
+void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
+                          int nprobes)
 {
     if (output_ == NULL || windowlength_ <= 0)
     {
@@ -425,6 +431,10 @@ void thMidiChan::process (RetireQueue *retire)
         data->process(windowlength_);
 
         tree = data->synthTree();
+
+        for (int p = 0; p < nprobes; p++)
+            probes[p]->accumulate(tree);
+
         play = tree ? tree->getArg("play") : NULL;
         trigger = tree ? tree->getArg("trigger") : NULL;
 
@@ -477,6 +487,13 @@ void thMidiChan::process (RetireQueue *retire)
         dirty_ = 1;
         data->process(windowlength_);
         tree = data->synthTree();
+
+        /* Both loops, not just the held one. A note in release is still
+           sounding, and a display that went blank the instant a key came up
+           would be wrong in the most visible way available. */
+        for (int p = 0; p < nprobes; p++)
+            probes[p]->accumulate(tree);
+
         play = tree ? tree->getArg("play") : NULL;
         trigger = tree ? tree->getArg("trigger") : NULL;
 

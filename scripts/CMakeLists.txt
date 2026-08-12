@@ -7,12 +7,16 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS" "" "EXTRA" ${ARGN})
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST" "" "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
 
   if(H_NODEMODEL)
     list(APPEND sources $<TARGET_OBJECTS:think_nodemodel>)
+  endif()
+
+  if(H_VISUALHOST)
+    list(APPEND sources $<TARGET_OBJECTS:think_visualhost>)
   endif()
 
   add_executable(${name} ${sources})
@@ -22,6 +26,11 @@ function(think_harness name)
       "${PROJECT_SOURCE_DIR}/src")
 
   target_link_libraries(${name} PRIVATE think)
+
+  if(H_VISUALHOST)
+    target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+    target_link_libraries(${name} PRIVATE PkgConfig::CAIRO)
+  endif()
 
   if(H_THREADS)
     find_package(Threads REQUIRED)
@@ -62,6 +71,45 @@ think_harness(dspblock EXTRA "${PROJECT_SOURCE_DIR}/src/gthSynthSource.cpp")
 # for Glib::Dispatcher but not gtkmm, so this stays headless.
 think_harness(dspmidi THREADS EXTRA "${PROJECT_SOURCE_DIR}/src/gthMidiQueue.cpp")
 target_link_libraries(dspmidi PRIVATE PkgConfig::GLIBMM)
+
+# thSampleRing on its own, with no synth around it. Header-only, so this links
+# libthink only for the include path.
+think_harness(ringcheck THREADS)
+
+# The visual plugins, drawn to a cairo image surface. No toolkit and no
+# display, which is the practical reason the visual ABI takes a cairo_t rather
+# than a widget -- it means these gate on all three CI runners.
+think_harness(visualcheck VISUALHOST)
+# plugins/visual for fftr.h: visualcheck checks the shared FFT numerically,
+# which is the one place in the visualizer work where "are the numbers right"
+# has an answer.
+target_include_directories(visualcheck PRIVATE "${PROJECT_SOURCE_DIR}/plugins/visual")
+
+# dspprobe uses NodeGraph to enumerate output ports, so that what it checks is
+# what the editor would offer rather than a second opinion about which args are
+# outputs.
+think_harness(dspprobe  NODEMODEL)
+
+# The one harness here that needs a display, because what it measures is a real
+# widget's real draw path. A measuring instrument rather than a gate, so it is
+# not in the ctest list below -- run it by hand, under xvfb-run if need be.
+think_harness(canvasbench NODEMODEL VISUALHOST
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp")
+target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
+
+# editorcheck joins up what the other harnesses cover separately: the tap, the
+# module and the panel are three things, and NodeEditor is the only thing that
+# holds them together. It needs a display for the same reason canvasbench does
+# -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
+# list below, guarded by whether a display can be had.
+think_harness(editorcheck NODEMODEL VISUALHOST
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
+target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
@@ -120,5 +168,30 @@ add_test(NAME dspblock
                  "${PROJECT_SOURCE_DIR}/dsp/anasync.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/mfm01.dsp")
 
+# Cheap and entirely self-contained, so it runs the full sweep rather than a
+# representative sample.
+add_test(NAME ringcheck COMMAND ringcheck 20000)
+
+# Needs no corpus and no display -- it draws to an image surface.
+add_test(NAME visualcheck
+         COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
+add_test(NAME dspprobe
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspprobe>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -DEXTRA_ARGS=-q
+                 -P "${_runner}")
+
+# Skips itself, loudly, where there is no display -- see the comment in
+# editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
+add_test(NAME editorcheck
+         COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
+
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
+                     ringcheck visualcheck dspprobe editorcheck
                      PROPERTIES TIMEOUT 900)

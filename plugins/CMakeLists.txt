@@ -6,7 +6,14 @@
 #   - input/ (wav, alsa) and test/ are not in configure.ac's PLUGIN_DIRS.
 #     wav.cpp's own description string reads "Wav Input (BROKEN)", and
 #     test.cpp still calls SetState/SetDesc, renamed years ago.
-#   - fft/ has no sources at all.
+#   - fft/ holds one .c file that is not a plugin: no module_init, no
+#     module_callback, just fir_filter/iir_filter/gaussian/fft lifted from
+#     Embree & Kimble's C Language Algorithms for DSP. Nothing in the tree
+#     references it. VISUALIZERS.md §14 says why the visualizers did not
+#     reuse its FFT: it keeps its twiddle table in a function-static keyed on
+#     the last size asked for, and it calls exit(1) when a calloc fails --
+#     which is a library killing the host process, the exact pattern
+#     REVIVAL.md removed from the parser.
 #   - misc/wlan is in the directory but not in misc/Makefile's PLUGIN_NAMES;
 #     it needs libiw.
 #
@@ -43,3 +50,15 @@ think_add_plugin_category(mixer    add fade mul)
 
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
                                    bandosc shapeo multiwave multisined window)
+
+# Visualizers. Not DSP plugins: a different ABI, loaded by the GUI rather than
+# by the parser, drawing with cairo and linking neither libthink nor sigc++.
+# See src/thVisual.h and think_add_visual in cmake/ThinkPlugin.cmake.
+#
+# A .dsp cannot name one of these, so nothing in the corpus depends on which
+# are built and the "what is missing is load-bearing" warning above does not
+# apply to this list.
+think_add_visual(meter)
+think_add_visual(scope)
+think_add_visual(spectrum)
+think_add_visual(spectrogram)

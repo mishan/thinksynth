@@ -60,3 +60,50 @@ function(think_add_plugin_category category)
     think_add_plugin("${category}" "${name}")
   endforeach()
 endfunction()
+
+
+# think_add_visual(<name>)
+#
+# A visualizer: fed samples, draws with cairo. See src/thVisual.h for why this
+# is a separate ABI rather than an extra entry point on a DSP plugin.
+#
+# A separate function rather than a flag on think_add_plugin because almost
+# nothing is shared. A visual module does NOT link libthink -- it has no node,
+# no arg and no tree, and keeping the engine out means a visualizer cannot
+# accidentally reach into the graph it is drawing. What it does link is cairo,
+# and containing that is the whole reason this function exists: libthink and
+# the 62 DSP plugins stay free of it.
+#
+# It lands in <root>/plugins/visual/ alongside the DSP categories, so one
+# THINK_PLUGIN_PATH still finds everything.
+function(think_add_visual name)
+  set(target "visual_${name}")
+
+  add_library(${target} MODULE "visual/${name}.cpp")
+
+  set_target_properties(${target} PROPERTIES
+      OUTPUT_NAME "${name}"
+      PREFIX ""
+      SUFFIX "${THINK_PLUGIN_SUFFIX}"
+      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/plugins/visual")
+
+  target_compile_definitions(${target} PRIVATE VISUAL_PLUGIN_BUILD)
+
+  # src/ for thVisual.h, libthink/ for thExport.h and nothing else.
+  target_include_directories(${target} PRIVATE
+      "${PROJECT_SOURCE_DIR}"
+      "${PROJECT_SOURCE_DIR}/src"
+      "${PROJECT_SOURCE_DIR}/libthink")
+
+  target_link_libraries(${target} PRIVATE PkgConfig::CAIRO m)
+
+  set_target_properties(${target} PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
+
+  install(TARGETS ${target}
+          LIBRARY DESTINATION "${THINK_PKG_PLUGIN_DIR}/visual"
+          RUNTIME DESTINATION "${THINK_PKG_PLUGIN_DIR}/visual")
+
+  add_dependencies(plugins ${target})
+endfunction()

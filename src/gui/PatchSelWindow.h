@@ -19,6 +19,8 @@
 #ifndef PATCHSEL_WINDOW_H
 #define PATCHSEL_WINDOW_H
 
+#include "SaveButton.h"
+
 class PatchSelColumns : public Gtk::TreeModel::ColumnRecord
 {
 public:
@@ -27,11 +29,22 @@ public:
         add (chanNum);
         add (dspName);
         add (amp);
+        add (path);
     }
 
     Gtk::TreeModelColumn <unsigned int> chanNum;
     Gtk::TreeModelColumn <Glib::ustring> dspName;
-    Gtk::TreeModelColumn <float> amp;
+
+    /* Text, not a number. A free channel has no amplitude, and a column of
+       0.000000 down thirteen empty rows is noise that reads like data. Empty
+       means empty; a loaded channel gets a whole number, which is what the
+       0..127 scale is in. */
+    Gtk::TreeModelColumn <Glib::ustring> amp;
+
+    /* The full path, for the row's tooltip. The column shows the basename --
+       every patch in a library shares its directory, so the part that
+       identifies one is the part a narrow column cuts off. */
+    Gtk::TreeModelColumn <Glib::ustring> path;
 };
 
 class PatchSelWindow : public Gtk::Window
@@ -52,10 +65,19 @@ protected:
                          int chan);
     void writePatch (string file, int chan);
     void SavePatch (void);
+
+    /* Save, as opposed to Save As: straight back to the file the patch came
+       from. */
+    void SaveOverPatch (void);
+
+    /* The filename box, scrolled so the end of the path is what shows. */
+    void showPath (const string &path);
     void CursorChanged (void);
     void UnloadDSP (void);
 
     void patchSelected (void);
+    void onInfoEdited (void);
+    void onPatchDirty (int chan);
     void fileEntryActivate (void);
     void onPatchesChanged (void);
     
@@ -63,12 +85,17 @@ protected:
     virtual void on_realize (void);
 
     Gtk::Box vbox{Gtk::Orientation::VERTICAL};
+
+    /* One grid for everything below the list: the patch, its level, and the
+       information panel. It was three strips stacked up, each with its own
+       idea of alignment and spacing. */
     Gtk::Grid controlTable;
+    Gtk::Box actionBox{Gtk::Orientation::HORIZONTAL};
 
     Gtk::Scale dspAmp{Gtk::Orientation::HORIZONTAL};
     Gtk::Button setButton;
     Gtk::Button browseButton;
-    Gtk::Button saveButton;
+    SaveButton saveButton;
     Gtk::Button unloadButton;
     Gtk::Label ampLabel;
 
@@ -98,6 +125,10 @@ private:
     void populate (void);
 
     thSynth *synth;
+
+    /* True while this window is filling the form from a patch, so that doing
+       so is not mistaken for someone typing in it. */
+    bool loading_;
     string prevDir;
 
     int currchan;

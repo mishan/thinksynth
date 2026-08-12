@@ -27,6 +27,7 @@
 #include "think.h"
 
 #include "ArgTable.h"
+#include "../gthPatchfile.h"
 
 /* Columns to wrap at, at most. Not a width: how many actually appear is
    whatever fits, and this only stops a very wide window laying thirty
@@ -34,7 +35,7 @@
 static const int MAXCOLS = 3;
 
 ArgTable::ArgTable (void)
-    : Gtk::Box(Gtk::Orientation::VERTICAL)
+    : Gtk::Box(Gtk::Orientation::VERTICAL), chan_(-1)
 {
     set_spacing(6);
 
@@ -315,6 +316,15 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
 
     slider->set_draw_value(false);
 
+    /* The value goes in before anything is listening.
+     *
+     * The other way round, building the panel moved every slider from its
+       adjustment's default to the patch's value, each of which arrived at
+       sliderChanged and reported the patch as edited -- so a patch was
+       modified the moment it was looked at, and Save lit up for a patch
+       nobody had touched. */
+    slider->set_value(toDisplay((*arg)[0], units));
+
     slider->signal_value_changed().connect(
         sigc::bind(
             sigc::mem_fun(*this, &ArgTable::sliderChanged),
@@ -324,8 +334,6 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
         sigc::bind(
             sigc::mem_fun(*this, &ArgTable::argChanged),
             slider));
-
-    slider->set_value(toDisplay((*arg)[0], units));
 
     /* Decimals to suit the range, and a box wide enough for the result.
      *
@@ -377,6 +385,10 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
 void ArgTable::sliderChanged (Gtk::Scale *slider, thArg *arg)
 {
     arg->setValue(fromDisplay(slider->get_value(), arg->units()));
+
+    /* Moving a slider is editing the patch. Nothing writes it to disk, so
+       this is the whole of the record that it happened. */
+    gthPatchManager::instance()->markDirty(chan_);
 }
 
 void ArgTable::argChanged (thArg *arg, Gtk::Scale *slider)

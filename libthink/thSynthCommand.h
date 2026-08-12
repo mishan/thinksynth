@@ -22,6 +22,7 @@
 class thMidiNote;
 class thMidiChan;
 class thArg;
+class thProbe;
 
 /* GUI thread -> audio thread.
  *
@@ -38,20 +39,23 @@ struct thSynthCommand {
         NOTE_OFF,       /* release `noteId' on `chan'                      */
         ALL_NOTES_OFF,  /* every channel                                   */
         SET_CHANNEL,    /* install `channel' (may be NULL) on `chan'       */
-        SET_CHAN_ARG    /* install `arg' on `chan', replacing by name      */
+        SET_CHAN_ARG,   /* install `arg' on `chan', replacing by name      */
+        SET_PROBE       /* install `probe' (may be NULL) in `probeSlot'    */
     };
 
     Type type;
     int chan;
     int noteId;
+    int probeSlot;
 
     thMidiNote *note;
     thMidiChan *channel;
     thArg *arg;
+    thProbe *probe;
 
     thSynthCommand (void)
-        : type(NOTE_OFF), chan(0), noteId(0),
-          note(NULL), channel(NULL), arg(NULL) { }
+        : type(NOTE_OFF), chan(0), noteId(0), probeSlot(-1),
+          note(NULL), channel(NULL), arg(NULL), probe(NULL) { }
 };
 
 /* Audio thread -> GUI thread.
@@ -67,15 +71,17 @@ struct thSynthCommand {
  * epoch to track: whatever comes out of this queue is safe to delete.
  */
 struct thRetired {
-    enum Kind { NOTE, CHANNEL, ARG };
+    enum Kind { NOTE, CHANNEL, ARG, PROBE };
 
     Kind kind;
 
     thMidiNote *note;
     thMidiChan *channel;
     thArg *arg;
+    thProbe *probe;
 
-    thRetired (void) : kind(NOTE), note(NULL), channel(NULL), arg(NULL) { }
+    thRetired (void)
+        : kind(NOTE), note(NULL), channel(NULL), arg(NULL), probe(NULL) { }
 };
 
 /* Usable capacity is one less than this. Sized for a burst of note-ons and for
