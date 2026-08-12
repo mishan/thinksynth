@@ -1,0 +1,332 @@
+# thinksynth release / snapshot artifacts.
+#
+# Builds a distributable package for every ship target and, on a version tag,
+# attaches them to a GitHub Release:
+#
+#   * Linux    — .tar.gz against the distribution's own GTK
+#   * macOS    — .app in a .dmg, per arch (arm64 and Intel), GTK bundled
+#   * Windows  — portable .zip (MSYS2 UCRT64), GTK bundled
+#
+# Triggers:
+#   * push a tag matching v*     → build everything, and open a draft Release
+#     for the tag. Draft, so the assets can be looked at before anyone else
+#     sees them.
+#   * workflow_dispatch (manual) → build the targets whose boxes are ticked
+#     (all on by default). Artifacts are attached to the run either way and
+#     can be downloaded from the Actions tab; tick create_release as well to
+#     publish a "snapshot" pre-release at the current commit.
+#
+# The build recipes are the ones from ci.yml, because a package built
+# differently from the thing that was tested is not the thing that was tested.
+#
+# Each job runs ctest before packaging, which looks like duplication of ci.yml
+# and is not: ci.yml triggers on pushes to master and on pull requests, so a
+# tag push runs none of it. Without this a release would be the one build
+# nothing had tested. It is also worth the couple of minutes for the artifact
+# to be self-verifying -- there is no way to get a package out of a tree that
+# fails its own harnesses.
+#
+# macOS is built twice rather than as one universal binary. Two arch-specific
+# packages are what CPack produces without being asked (the file name carries
+# CMAKE_SYSTEM_PROCESSOR), and a universal build would mean lipo-ing not just
+# thinksynth but 62 plugins and the whole bundled GTK closure, for which
+# Homebrew ships no fat libraries anyway.
+#
+# Intel is here and not in ci.yml, deliberately: an Intel-only break shows up
+# when a release is cut rather than on the PR that caused it. That is the
+# trade that was chosen -- macOS runners bill at ten times the Linux rate.
+# GitHub's x86_64 images end in August 2027, at which point this target goes
+# away rather than moving.
+
+name: release
+
+permissions:
+  contents: write        # create releases and upload assets on a tag
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      build_linux:
+        description: 'Build the Linux tarball'
+        type: boolean
+        default: true
+      build_macos:
+        description: 'Build the macOS packages (arm64 and Intel)'
+        type: boolean
+        default: true
+      build_windows:
+        description: 'Build the Windows package'
+        type: boolean
+        default: true
+      create_release:
+        description: 'Publish a snapshot pre-release from this run (otherwise the run just leaves downloadable artifacts)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Linux tarball
+  #
+  # No bundled GTK here, unlike the other two: a Linux package is expected to
+  # use the distribution's, which is what THINK_BUNDLE_GTK and THINK_PKG_DEPS
+  # default to off outside macOS and Windows for.
+  # ---------------------------------------------------------------------
+  linux-package:
+    name: package (linux x86_64)
+    if: github.event_name != 'workflow_dispatch' || inputs.build_linux
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev \
+            adwaita-icon-theme librsvg2-common \
+            xvfb
+
+      # RelWithDebInfo is already CMakeLists.txt's default. Spelled out
+      # anyway, so that a release does not quietly change if that changes.
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build
+
+      # xvfb, as in ci.yml: editorcheck constructs real widgets and fails with
+      # "Failed to open display" on a headless runner. macOS and Windows always
+      # have one, so only Linux needs the wrapper.
+      - name: Test
+        run: xvfb-run -a ctest --test-dir build --output-on-failure
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - name: Name the artifacts for this version
+        run: sh .github/name-artifacts.sh build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-linux-x86_64
+          path: build/package/thinksynth-*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # macOS .app in a .dmg, both arches
+  # ---------------------------------------------------------------------
+  macos-package:
+    name: package (${{ matrix.label }})
+    if: github.event_name != 'workflow_dispatch' || inputs.build_macos
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      # One arch failing should not cancel the other: which of the two broke
+      # is the useful information, and Homebrew's two prefixes are different
+      # enough (/opt/homebrew against /usr/local) that one failing says
+      # little about the other.
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+            label: macos arm64
+          - os: macos-15-intel
+            label: macos x86_64
+
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: 1
+      HOMEBREW_NO_INSTALL_CLEANUP: 1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          # The same list as ci.yml, for the same reasons: no jack, because
+          # RtAudio finds it and emits a bare -ljack; adwaita-icon-theme and
+          # librsvg by name, because without librsvg there is no SVG loader
+          # and the bundled Adwaita is SVG.
+          brew install cmake ninja pkg-config bison flex gtkmm4 \
+                       adwaita-icon-theme librsvg
+
+      # Apple ships bison 2.3 in /usr/bin and the grammar needs bison 3.
+      # Homebrew's is keg-only, so it has to be put on PATH by hand.
+      - name: Put Homebrew bison and flex first
+        run: |
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin"  >> "$GITHUB_PATH"
+
+      # RelWithDebInfo is already CMakeLists.txt's default. Spelled out
+      # anyway, so that a release does not quietly change if that changes.
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      # A .dmg whose GTK data cannot be found is not worth attaching to a
+      # release, and this is the same check ci.yml makes.
+      - name: Check the bundle finds its own GTK data
+        run: |
+          set -e
+          cmake --install build --prefix "$PWD/stage"
+          mv stage /tmp/relocated
+          app=/tmp/relocated/thinksynth.app/Contents/MacOS/thinksynth
+          "$app" -G | tee /tmp/gtk.txt
+          if grep -q '^bundled GTK data: none' /tmp/gtk.txt; then
+            echo "the .app did not find the data installed into it"
+            exit 1
+          fi
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - name: Name the artifacts for this version
+        run: sh .github/name-artifacts.sh build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          # One name per arch: upload-artifact v4 refuses to merge two
+          # uploads under one name, and the two would collide.
+          name: thinksynth-${{ matrix.os }}
+          path: build/package/thinksynth-*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Windows portable zip
+  # ---------------------------------------------------------------------
+  windows-package:
+    name: package (windows x86_64)
+    if: github.event_name != 'workflow_dispatch' || inputs.build_windows
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            bison
+            flex
+          # gtkmm-4.0 rather than gtkmm4: the short name is a virtual package,
+          # so pacman stops to ask which provider to use and CI has nobody to
+          # answer. Comments cannot go inside the folded scalar below -- it has
+          # no comment syntax, and a `#' line there becomes more package names.
+          pacboy: >-
+            toolchain:p
+            cmake:p
+            ninja:p
+            pkgconf:p
+            gtkmm-4.0:p
+            adwaita-icon-theme:p
+            librsvg:p
+
+      # RelWithDebInfo is already CMakeLists.txt's default. Spelled out
+      # anyway, so that a release does not quietly change if that changes.
+      - name: Build
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Check the package finds its own GTK data
+        run: |
+          set -e
+          # pwd -W, not $PWD: this CMake is a native Windows build and does
+          # not know what /d/a/... means.
+          cmake --install build --prefix "$(pwd -W)/stage"
+          mv stage /tmp/relocated
+          /tmp/relocated/thinksynth.exe -G | tee /tmp/gtk.txt
+          if grep -q '^bundled GTK data: none' /tmp/gtk.txt; then
+            echo "the package did not find the data installed into it"
+            exit 1
+          fi
+
+      - name: Package
+        run: cpack --config build/CPackConfig.cmake -B build/package
+
+      - name: Name the artifacts for this version
+        run: sh .github/name-artifacts.sh build/package
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-windows-x86_64
+          path: build/package/thinksynth-*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Publish
+  #
+  #   tag push (v*)              -> a draft Release for that tag
+  #   manual + create_release    -> a published snapshot pre-release
+  #   manual without it          -> nothing here; the artifacts are on the run
+  # ---------------------------------------------------------------------
+  release:
+    name: publish release
+    needs: [linux-package, macos-package, windows-package]
+
+    # !failure() && !cancelled() so a run with some targets deliberately
+    # deselected still publishes -- but one where a selected target actually
+    # failed does not, because a release that is quietly missing a platform is
+    # worse than no release.
+    if: >-
+      !failure() && !cancelled() &&
+      ((github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
+       (github.event_name == 'workflow_dispatch' && inputs.create_release))
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download every package
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: What is about to be released
+        run: ls -lR artifacts
+
+      - name: Draft release for the tag
+        if: github.event_name == 'push'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: true
+          generate_release_notes: true
+
+      - name: Snapshot version
+        if: github.event_name == 'workflow_dispatch'
+        id: snap
+        run: echo "sha=${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+
+      # The tag matches the artifact file names and is created at this commit,
+      # so re-running on the same commit updates the same release rather than
+      # accumulating them.
+      - name: Snapshot pre-release
+        if: github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          tag_name: snapshot-${{ steps.snap.outputs.sha }}
+          name: Snapshot ${{ steps.snap.outputs.sha }}
+          prerelease: true
+          generate_release_notes: true
