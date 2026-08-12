@@ -248,8 +248,13 @@ designed. GTK4's `queue_draw()` invalidates the whole widget, so animating a
 128×64 panel repaints the entire graph. The widest graph in the corpus —
 `dsp/old/bd9.dsp`, 2920 px — repaints in **0.80 ms**, under 3% of a 30fps
 budget, zoomed to fit so the whole thing rasterises. Seventeen spectrogram
-panels on `ts1.dsp` cost 2.40 ms, at twice the number of probes the engine
-allows. `scripts/canvasbench` is that measurement, and it can be re-run.
+panels on `ts1.dsp` — twice the number of probes the engine allows — bring it
+to **1.15 ms**. Both are mean frames; the worst single frame in the panelled
+run is around 2.4 ms, but that number moves by ±0.2 ms between runs and is not
+one to quote. `scripts/canvasbench` is that measurement, and it can be re-run:
+
+    xvfb-run -a ./scripts/canvasbench -p ./plugins/ -f dsp/old/bd9.dsp
+    xvfb-run -a ./scripts/canvasbench -p ./plugins/ -f -P -V spectrogram dsp/ts1.dsp
 
 **Why cairo, rather than a pixel buffer or a fixed data model?** Both avoid the
 dependency, and both mean a module cannot produce a look the canvas did not
