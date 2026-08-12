@@ -129,6 +129,7 @@ public:
     using NodeEditor::onProbeActivated;
     using NodeEditor::paintEnlarged;
     using NodeEditor::enlarged_;
+    using NodeEditor::probeTick_;
 
     /* The box index of the first probe panel, or -1. */
     int firstPanel (void) const
@@ -416,6 +417,34 @@ int run (const string &pluginPath, const char *file)
                    "and it draws through the module rather than staying "
                    "blank");
             }
+
+            /* The title bar's close button, which is what close() sends.
+             *
+             * The lifecycle, not a crash: closing a window must leave it in
+             * the list until a tick reaps it, and reopening must then work.
+             * Deliberately not claimed as a use-after-free guard -- removing
+             * the close-request handler passes this and passes under ASan
+             * too, because gtkmm's wrapper holds its own reference and the
+             * window survives GTK destroying it. The handler is there so the
+             * list decides when a window goes; see NodeEditor.cpp. */
+            if (ed->enlarged_.size() == 1)
+            {
+                ed->enlarged_[0].win->close();
+
+                ok(ed->enlarged_.size() == 1,
+                   "the close button hides the window rather than destroying "
+                   "it under us");
+
+                pump(0.3);
+
+                ok(ed->enlarged_.empty(),
+                   "and the next tick reaps it (%d left)",
+                   (int)ed->enlarged_.size());
+
+                /* Reopened, so the checks after this still have one. */
+                ed->onProbeActivated(panel);
+                pump(0.1);
+            }
         }
     }
 
@@ -503,6 +532,11 @@ int run (const string &pluginPath, const char *file)
     ok(ed->enlarged_.empty(),
        "and the enlarged window that was showing it (%d left)",
        (int)ed->enlarged_.size());
+
+    /* And nothing is left ticking. An editor with no probes and no windows
+       should cost exactly what it did before probes existed. */
+    ok(!ed->probeTick_.connected(),
+       "with no probes and no windows, the frame tick has stopped");
 
     {
         int armed = 0;

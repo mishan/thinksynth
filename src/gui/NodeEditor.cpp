@@ -2441,16 +2441,41 @@ void NodeEditor::onProbeActivated (int box)
         sigc::bind(sigc::mem_fun(*this, &NodeEditor::paintEnlarged),
                    node, arg));
 
-    /* Ctrl+W, the way every other secondary window in this application closes
-       -- a key controller in the capture phase rather than an application
-       accelerator, because these windows are deliberately not added to the
-       application and an accelerator registered there would never reach them.
-       See MainSynthWindow::addCloseAccel, which says it at length. */
+    /* Closing hides; it does not destroy.
+     *
+     * The same shape as every other secondary window here -- see
+     * MainSynthWindow::onSubWindowClose -- and worth stating precisely, since
+     * the obvious reason for it turns out not to be the reason.
+     *
+     * GTK4's default close-request handler calls gtk_window_destroy, and the
+     * fear is that this frees a window allocated with `new' and leaves
+     * enlarged_ holding a dangling pointer. Measured: it does not. gtkmm's
+     * wrapper holds its own reference, so after a default close the C++ object
+     * and its child are both still alive and syncEnlarged reaps them safely.
+     * There is no use-after-free here to fix.
+     *
+     * What it does buy: the list, not the window manager, decides when one of
+     * these goes -- so a window that has been closed is hidden rather than
+     * destroyed, and onProbeActivated can raise it again with present()
+     * without relying on GTK tolerating present-after-destroy, which is not
+     * something it promises. And Ctrl+W goes through close() rather than
+     * hiding directly, so the title bar's button and the key take one path;
+     * two ways to close one window that do different things is how one of them
+     * ends up untested. */
     {
+        Gtk::Window *win = en.win;
+
+        en.win->signal_close_request().connect([win]() -> bool {
+            win->set_visible(false);
+            return true;
+        }, false);
+
+        /* A key controller in the capture phase rather than an application
+           accelerator, because these windows are deliberately not added to the
+           application and an accelerator registered there would never reach
+           them. See MainSynthWindow::addCloseAccel, which says it at length. */
         Glib::RefPtr<Gtk::EventControllerKey> keys =
             Gtk::EventControllerKey::create();
-
-        Gtk::Window *win = en.win;
 
         keys->set_propagation_phase(Gtk::PropagationPhase::CAPTURE);
         keys->signal_key_pressed().connect(
@@ -2459,7 +2484,7 @@ void NodeEditor::onProbeActivated (int box)
                     (state & Gdk::ModifierType::CONTROL_MASK) ==
                         Gdk::ModifierType::CONTROL_MASK)
                 {
-                    win->set_visible(false);
+                    win->close();
                     return true;
                 }
 
@@ -2530,6 +2555,13 @@ void NodeEditor::syncEnlarged (void)
         enlarged_[e].area->queue_draw();
         e++;
     }
+
+    /* The tick may have just lost its last reason to run: an editor that is
+       not attached keeps it going only for the windows, so closing the last
+       one has to stop it. Without this the timer ran forever on an editor with
+       no probes and no windows, since updateProbeTick was reached from nowhere
+       else once the list was empty. */
+    updateProbeTick();
 }
 
 void NodeEditor::closeAllEnlarged (void)
