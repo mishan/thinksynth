@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=thinksynth
+GenericName=Modular Synthesizer
+Comment=Build synthesizer patches from a graph of DSP nodes
+Exec=thinksynth
+Icon=org.thinksynth.thinksynth
+Terminal=false
+Categories=AudioVideo;Audio;Music;
+StartupNotify=true
+StartupWMClass=thinksynth
+Keywords=synthesizer;synth;DSP;MIDI;audio;modular;

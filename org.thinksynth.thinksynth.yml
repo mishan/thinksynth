@@ -1,0 +1,215 @@
+# thinksynth — Flatpak manifest, GNOME 49 runtime, local-source variant.
+#
+# Build a bundle:
+#   scripts/build-flatpak-bundle.sh
+#
+# Build and install straight into the user installation:
+#   flatpak-builder --user --install --force-clean build-flatpak \
+#                   org.thinksynth.thinksynth.yml
+#   flatpak run org.thinksynth.thinksynth
+#
+# The app-id matches MACOSX_BUNDLE_GUI_IDENTIFIER in cmake/Packaging.cmake, so
+# all three platforms agree on one identifier. Note for any future Flathub
+# submission: Flathub requires the id to be a domain you control (or an
+# io.github.* id backed by the repo), so org.thinksynth.* would need
+# thinksynth.org to exist. That is a decision for the day someone submits, not
+# a problem for a downloadable bundle.
+#
+# ---------------------------------------------------------------------------
+# Why this manifest is long: the runtime has no C++
+# ---------------------------------------------------------------------------
+#
+# org.gnome.Platform ships GTK, glib, pango and cairo. It does not ship any of
+# their C++ bindings -- gnome-build-meta keeps gtkmm and friends under
+# elements/core-deps/, which is used to build GNOME OS, not the Flatpak SDK.
+# Every C++ GTK app on Flathub therefore carries the binding stack itself;
+# Inkscape's manifest does exactly this. So do we, in dependency order:
+#
+#     mm-common -> libsigc++ -> glibmm -> cairomm -> pangomm -> gtkmm
+#
+# Versions are the set that shipped alongside GNOME 49, and they are pinned to
+# what each one actually requires rather than to the newest published. That
+# distinction is not academic: gtkmm 4.22.0 declares gtk_req '>= 4.22.0' and
+# GNOME 49 ships GTK 4.20, so 4.22 cannot build here at all. gtkmm 4.20.0 asks
+# for '>= 4.19.4' and is the right pairing. Checked by reading each tarball's
+# meson.build, not by taking the latest version number.
+#
+# RtAudio and RtMidi are likewise absent from the runtime and from Flathub's
+# shared-modules, and the CMake build's FetchContent fallback cannot run in the
+# build sandbox, which has no network. So they are modules too.
+#
+# alsa-lib is NOT a module: freedesktop-sdk puts libasound in the Platform and
+# its headers in the Sdk. Bundling a second copy would be worse than useless.
+
+app-id: org.thinksynth.thinksynth
+runtime: org.gnome.Platform
+runtime-version: "49"
+sdk: org.gnome.Sdk
+command: thinksynth
+
+# Modules install into /app/lib; the SDK does not have that on the default
+# search path for a later module's pkg-config.
+build-options:
+  append-pkg-config-path: /app/lib/pkgconfig
+
+finish-args:
+  # GTK 4 prefers Wayland; fallback-x11 keeps X11 sessions working.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+
+  # GTK 4 renders through Vulkan/OpenGL. Without /dev/dri it falls back to
+  # software rendering and logs about it on every frame.
+  - --device=dri
+
+  # Audio out. RtAudio is built with its ALSA backend only (see the module
+  # below); the runtime's alsa-lib routes its default PCM at the pulse socket,
+  # which on any modern desktop is pipewire-pulse. The native PipeWire socket
+  # is exposed as well, the same shape every audio app on Flathub uses.
+  - --socket=pulseaudio
+  - --filesystem=xdg-run/pipewire-0
+
+  # MIDI in. RtMidi's ALSA sequencer backend talks to /dev/snd/seq directly,
+  # and there is no portal for that -- a synth that cannot see a keyboard is
+  # not much of a synth. This is the permission Flathub reviewers ask about,
+  # and the honest answer is that it is what MIDI hardware costs today.
+  - --device=all
+
+  # Loading and saving patches. src/gui/PatchSelWindow.cpp uses
+  # Gtk::FileChooserDialog, which runs in-process and can only see what the
+  # sandbox can see -- unlike GTK 4's portal-backed Gtk::FileDialog, which
+  # would need no permission at all. Until that is ported, the chooser needs
+  # real access or Load Patch shows an empty home directory.
+  #
+  # Narrowing this to portals is a code change, not a manifest change.
+  - --filesystem=home
+
+modules:
+  # Build-time only: m4 macros and the skeleton makefiles the *mm packages
+  # expect. use-network=false stops it trying to fetch documentation, which
+  # the build sandbox has no network for anyway.
+  - name: mm-common
+    buildsystem: meson
+    config-opts:
+      - -Duse-network=false
+    cleanup:
+      - '*'
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/mm-common/1.0/mm-common-1.0.8.tar.xz
+        sha256: b189ee636e839d12c00dabefae099fd488ab2358dec24d264761c011950b02a9
+
+  - name: libsigc++
+    buildsystem: meson
+    config-opts:
+      - -Dbuild-documentation=false
+      - -Dbuild-examples=false
+      - -Dbuild-tests=false
+      - -Dvalidation=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/libsigc++/3.6/libsigc++-3.6.0.tar.xz
+        sha256: c3d23b37dfd6e39f2e09f091b77b1541fbfa17c4f0b6bf5c89baef7229080e17
+
+  # glibmm 2.86 is the 2.68 API series, which is the one thinksynth's
+  # pkg_check_modules asks for. It wants glib >= 2.85.2; GNOME 49 has 2.86.
+  - name: glibmm
+    buildsystem: meson
+    config-opts:
+      - -Dbuild-documentation=false
+      - -Dbuild-examples=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/glibmm/2.86/glibmm-2.86.0.tar.xz
+        sha256: 39c0e9f6da046d679390774efdb9ad564436236736dc2f7825e614b2d4087826
+
+  # cairomm 1.18 installs the cairomm-1.16 API, which is what gtkmm 4 wants.
+  # The 1.14 and 1.12 series are the GTK 2/3 ones.
+  - name: cairomm
+    buildsystem: meson
+    config-opts:
+      - -Dbuild-documentation=false
+      - -Dbuild-examples=false
+      - -Dbuild-tests=false
+    sources:
+      - type: archive
+        url: https://www.cairographics.org/releases/cairomm-1.18.1.tar.xz
+        sha256: e0e996a979ee52c840dca3ee74f5d005e3259b94ddce58f255d3b6f47c8cb41d
+
+  - name: pangomm
+    buildsystem: meson
+    config-opts:
+      - -Dbuild-documentation=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/pangomm/2.56/pangomm-2.56.2.tar.xz
+        sha256: f1e984c85a85b6a0e61616366521f51dd8282a072bb45d15b5084762b62f4c0e
+
+  # 4.20.0, not the newest. See the header: 4.22.0 requires GTK >= 4.22 and
+  # this runtime has 4.20.
+  - name: gtkmm
+    buildsystem: meson
+    config-opts:
+      - -Dbuild-documentation=false
+      - -Dbuild-demos=false
+      - -Dbuild-tests=false
+    sources:
+      - type: archive
+        url: https://download.gnome.org/sources/gtkmm/4.20/gtkmm-4.20.0.tar.xz
+        sha256: daad9bf9b70f90975f91781fc7a656c923a91374261f576c883cd3aebd59c833
+
+  # ALSA only, deliberately. The runtime's alsa-lib already forwards its
+  # default PCM to the pulse socket exposed in finish-args, so the ALSA
+  # backend reaches PipeWire without RtAudio needing its own pulse or jack
+  # backend -- and neither libpulse nor libjack is guaranteed in the Sdk, so
+  # enabling them would make the build depend on something unpinned.
+  - name: rtaudio
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DBUILD_SHARED_LIBS=ON
+      - -DRTAUDIO_API_ALSA=ON
+      - -DRTAUDIO_API_PULSE=OFF
+      - -DRTAUDIO_API_JACK=OFF
+      - -DRTAUDIO_API_OSS=OFF
+    sources:
+      - type: archive
+        url: https://github.com/thestk/rtaudio/archive/refs/tags/6.0.1.tar.gz
+        sha256: 7206c8b6cee43b474f43d64988fefaadfdcfc4264ed38d8de5f5d0e6ddb0a123
+
+  - name: rtmidi
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      - -DBUILD_SHARED_LIBS=ON
+      - -DRTMIDI_API_ALSA=ON
+      - -DRTMIDI_API_JACK=OFF
+      - -DRTMIDI_BUILD_TESTING=OFF
+    sources:
+      - type: archive
+        url: https://github.com/thestk/rtmidi/archive/refs/tags/6.0.0.tar.gz
+        sha256: ef7bcda27fee6936b651c29ebe9544c74959d0b1583b716ce80a1c6fea7617f0
+
+  - name: thinksynth
+    buildsystem: cmake-ninja
+    config-opts:
+      - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+
+      # Not decoration. thPluginManager::resolveRoot looks for plugins at
+      # <exe>/../lib/thinksynth/plugins with "lib" spelled out, so that an
+      # installed tree stays relocatable rather than being tied to whatever
+      # ${libdir} the build picked. If GNUInstallDirs decided on lib64 or on
+      # lib/x86_64-linux-gnu here, the plugins would install somewhere the
+      # binary never looks and every patch would fail to load.
+      - -DCMAKE_INSTALL_LIBDIR=lib
+
+      # The harnesses are a test-suite thing; nothing installs them.
+      - -DTHINK_BUILD_HARNESSES=OFF
+
+      # THINK_BUNDLE_GTK and THINK_PKG_DEPS stay at their Linux defaults, which
+      # is off. The runtime already provides the schemas, the pixbuf loaders,
+      # the MIME database and Adwaita -- bundling a second copy inside a
+      # Flatpak would be the one place it is definitely wrong.
+    sources:
+      - type: dir
+        path: .

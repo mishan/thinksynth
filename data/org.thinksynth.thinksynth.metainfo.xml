@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  AppStream metainfo for thinksynth.
+
+  This is what software centres (GNOME Software, KDE Discover) and Flathub's
+  review tooling read. Validate it with:
+
+      appstreamcli validate data/org.thinksynth.thinksynth.metainfo.xml
+
+  Two fields are easy to get wrong:
+
+    - <id> must match the Flatpak app-id and the <launchable> desktop-id
+      exactly. Mismatches are rejected rather than warned about.
+
+    - <metadata_license> is the licence of THIS FILE, not of the program.
+      CC0-1.0 is the convention. <project_license> below is thinksynth's own.
+
+  <screenshots> is required for a Flathub submission and is deliberately
+  absent here: this manifest builds a downloadable bundle, and inventing URLs
+  that resolve to nothing would be worse than leaving the element out until
+  there is somewhere real to point it.
+-->
+<component type="desktop-application">
+  <id>org.thinksynth.thinksynth</id>
+
+  <name>thinksynth</name>
+  <summary>Modular software synthesizer</summary>
+
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-2.0-or-later</project_license>
+
+  <developer id="org.thinksynth">
+    <name>Metaphonic Labs</name>
+  </developer>
+
+  <description>
+    <p>
+      thinksynth builds sounds out of a graph of DSP nodes — oscillators,
+      filters, envelopes, delays and arithmetic — described in a small
+      language and rendered in real time. Patches assign those graphs to MIDI
+      channels, so one instrument can layer several voices.
+    </p>
+    <p>
+      Every node is a plugin, and the set that ships covers subtractive and
+      FM synthesis, resonators, waveshaping and a range of filters. New ones
+      are ordinary shared libraries dropped into the plugin directory.
+    </p>
+    <p>
+      Audio goes out through ALSA and MIDI comes in through the ALSA
+      sequencer, so hardware controllers and other applications can drive it.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">org.thinksynth.thinksynth.desktop</launchable>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+  </categories>
+
+  <url type="homepage">https://github.com/mishan/thinksynth</url>
+  <url type="bugtracker">https://github.com/mishan/thinksynth/issues</url>
+
+  <!--
+    Required even when every category is "none": it drives the age rating
+    badge and parental-control filtering, and its absence is a hard rejection
+    rather than a warning.
+  -->
+  <content_rating type="oars-1.1" />
+
+  <releases>
+    <release version="0.1" date="2026-08-12">
+      <description>
+        <p>
+          The revival release: CMake in place of the hand-rolled build, a
+          callback-driven audio path on RtAudio, MIDI on RtMidi, a gtkmm 4
+          interface, and packages for Linux, macOS and Windows.
+        </p>
+      </description>
+    </release>
+  </releases>
+</component>

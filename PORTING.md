@@ -1024,6 +1024,25 @@ has no such machine, so a package that only works where it was built still
 looks identical to a good one. The bundling is now exercised; the *closure* it
 sits on top of is not.
 
+**Linux also gets a Flatpak** — `org.thinksynth.thinksynth.yml`, built by
+`scripts/build-flatpak-bundle.sh`. It is not a second copy of the tarball: the
+tarball links against whatever gtkmm the machine has, and the Flatpak carries
+its own on the GNOME runtime, which is the difference between "works if you
+already have gtkmm-4" and "works".
+
+Most of that manifest is C++ bindings. `org.gnome.Platform` ships GTK, glib,
+pango and cairo but none of gtkmm, glibmm, pangomm, cairomm or libsigc++ —
+gnome-build-meta keeps those under `elements/core-deps/`, which builds GNOME
+OS rather than the Flatpak SDK. So the manifest builds all six, plus RtAudio
+and RtMidi, which are absent from the runtime and from Flathub's
+shared-modules, and whose CMake FetchContent fallback cannot run in a build
+sandbox with no network.
+
+Version pinning there is done by reading each tarball's `meson.build` rather
+than by taking the newest release: gtkmm 4.22.0 declares `gtk_req '>= 4.22.0'`
+and this runtime has GTK 4.20, so 4.22 cannot build against it at all. 4.20.0
+asks for `>= 4.19.4` and is the pairing that works.
+
 Deliberately not done: no `.pkg`, no MSI, no NSIS, no code signing or
 notarisation. An unpacked directory that runs is worth more than an installer
 nobody has tested, and macOS will refuse an unsigned `.app` downloaded from
