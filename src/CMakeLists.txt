@@ -39,7 +39,7 @@ set(THINKSYNTH_SOURCES
     gui/NodeCanvas.cpp
     gui/NodePalette.cpp
     gui/NodeParams.cpp
-    gui/NodeWindow.cpp
+    gui/NodeEditor.cpp
     gui/PatchSelWindow.cpp)
 
 add_executable(thinksynth

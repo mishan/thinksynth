@@ -36,24 +36,32 @@
 #include "NodeParams.h"
 #include "NodePalette.h"
 #include "../NodeCatalog.h"
-#include "NodeWindow.h"
+#include "NodeEditor.h"
 
-NodeWindow::NodeWindow (thSynth *synth)
+NodeEditor::NodeEditor (thSynth *synth)
     : synth_(synth), tree_(NULL), channel_(-1), layoutDirty_(false),
       structuralDirty_(false), selStatus_(false),
       newBtn_("New..."), deleteBtn_("Delete node"),
       arrangeBtn_("Auto-arrange"), saveBtn_("Save"), saveAsBtn_("Save As..."),
       revertBtn_("Revert"),
       zoomInBtn_("+"), zoomOutBtn_("-"), zoomResetBtn_("1:1"),
-      zoomFitBtn_("Fit")
+      zoomFitBtn_("Fit"),
+      paletteBtn_("Palette"), paramsBtn_("Parameters"),
+      paletteWidth_(210), paramsWidth_(240), pendingParams_(-1)
 {
-    set_title("thinksynth - Nodes");
-    set_default_size(900, 600);
-
-    add(vbox_);
-
     toolbar_.set_spacing(4);
     toolbar_.set_border_width(4);
+    /* Where the window title used to be. A widget has no title bar, and the
+       filename and the dirty marker still have to be somewhere -- they say
+       which file every button on this bar would act on. */
+    titleLbl_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
+    titleLbl_.set_ellipsize(Pango::ELLIPSIZE_START);
+    titleLbl_.set_width_chars(18);
+    titleLbl_.set_max_width_chars(40);
+
+    toolbar_.pack_start(titleLbl_, Gtk::PACK_SHRINK);
+    toolbar_.pack_start(*manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL)),
+                        Gtk::PACK_SHRINK);
     toolbar_.pack_start(newBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(deleteBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_start(arrangeBtn_, Gtk::PACK_SHRINK);
@@ -65,6 +73,19 @@ NodeWindow::NodeWindow (thSynth *synth)
     toolbar_.pack_end(zoomOutBtn_, Gtk::PACK_SHRINK);
     toolbar_.pack_end(zoomFitBtn_, Gtk::PACK_SHRINK);
 
+    /* Grouped with the zoom buttons rather than with the editing ones: what
+       is on screen and how big it is are the same kind of decision, and none
+       of them change the file. */
+    toolbar_.pack_end(*manage(new Gtk::Separator(Gtk::ORIENTATION_VERTICAL)),
+                      Gtk::PACK_SHRINK);
+    toolbar_.pack_end(paramsBtn_, Gtk::PACK_SHRINK);
+    toolbar_.pack_end(paletteBtn_, Gtk::PACK_SHRINK);
+
+    paletteBtn_.set_active(true);
+    paramsBtn_.set_active(true);
+    paletteBtn_.set_tooltip_text("Show or hide the plugin palette");
+    paramsBtn_.set_tooltip_text("Show or hide the parameter panel");
+
     scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
     scroller_.add(canvas_);
 
@@ -72,67 +93,79 @@ NodeWindow::NodeWindow (thSynth *synth)
        the order things are used in: pick, place, adjust. */
     outer_.pack1(palette_, false, false);
     outer_.pack2(split_, true, false);
-    outer_.set_position(210);
+    outer_.set_position(paletteWidth_);
 
     split_.pack1(scroller_, true, false);
     split_.pack2(params_, false, false);
-    split_.set_position(520);
+
+    /* No starting position here. It used to be 520 -- measured from the left,
+       so it said "the canvas gets 520 pixels" and handed the parameter panel
+       everything else, which on a wide window was most of it. What it should
+       say is that the panel gets the width it asks for; that needs the paned's
+       own width, so it waits for the first allocation. */
+    split_.signal_size_allocate().connect(
+        sigc::mem_fun(*this, &NodeEditor::onSplitAllocate));
 
     status_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_CENTER);
     status_.set_padding(6, 2);
 
-    vbox_.pack_start(toolbar_, Gtk::PACK_SHRINK);
-    vbox_.pack_start(outer_);
-    vbox_.pack_start(status_, Gtk::PACK_SHRINK);
+    pack_start(toolbar_, Gtk::PACK_SHRINK);
+    pack_start(outer_);
+    pack_start(status_, Gtk::PACK_SHRINK);
 
     arrangeBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onArrange));
+        sigc::mem_fun(*this, &NodeEditor::onArrange));
     saveBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onSave));
+        sigc::mem_fun(*this, &NodeEditor::onSave));
     saveAsBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onSaveAs));
+        sigc::mem_fun(*this, &NodeEditor::onSaveAs));
     revertBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onRevert));
+        sigc::mem_fun(*this, &NodeEditor::onRevert));
     zoomInBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onZoomIn));
+        sigc::mem_fun(*this, &NodeEditor::onZoomIn));
     zoomOutBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onZoomOut));
+        sigc::mem_fun(*this, &NodeEditor::onZoomOut));
     zoomResetBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onZoomReset));
+        sigc::mem_fun(*this, &NodeEditor::onZoomReset));
     zoomFitBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onZoomFit));
+        sigc::mem_fun(*this, &NodeEditor::onZoomFit));
 
     canvas_.signal_box_moved().connect(
-        sigc::mem_fun(*this, &NodeWindow::onBoxMoved));
+        sigc::mem_fun(*this, &NodeEditor::onBoxMoved));
 
     canvas_.signal_selected().connect(
-        sigc::mem_fun(*this, &NodeWindow::onSelected));
+        sigc::mem_fun(*this, &NodeEditor::onSelected));
 
     canvas_.signal_selection().connect(
-        sigc::mem_fun(*this, &NodeWindow::onSelectionChanged));
+        sigc::mem_fun(*this, &NodeEditor::onSelectionChanged));
 
     canvas_.signal_connect_requested().connect(
-        sigc::mem_fun(*this, &NodeWindow::onConnect));
+        sigc::mem_fun(*this, &NodeEditor::onConnect));
 
     canvas_.signal_disconnect_requested().connect(
-        sigc::mem_fun(*this, &NodeWindow::onDisconnect));
+        sigc::mem_fun(*this, &NodeEditor::onDisconnect));
 
     canvas_.signal_refused().connect(
-        sigc::mem_fun(*this, &NodeWindow::onRefused));
+        sigc::mem_fun(*this, &NodeEditor::onRefused));
 
     canvas_.signal_control_changed().connect(
-        sigc::mem_fun(*this, &NodeWindow::onControlChanged));
+        sigc::mem_fun(*this, &NodeEditor::onControlChanged));
 
     palette_.signal_add().connect(
-        sigc::mem_fun(*this, &NodeWindow::onPaletteAdd));
+        sigc::mem_fun(*this, &NodeEditor::onPaletteAdd));
 
     palette_.signal_add_control().connect(
-        sigc::mem_fun(*this, &NodeWindow::onPaletteAddControl));
+        sigc::mem_fun(*this, &NodeEditor::onPaletteAddControl));
 
     newBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onNewFile));
+        sigc::mem_fun(*this, &NodeEditor::onNewFile));
     deleteBtn_.signal_clicked().connect(
-        sigc::mem_fun(*this, &NodeWindow::onDeleteNode));
+        sigc::mem_fun(*this, &NodeEditor::onDeleteNode));
+
+    paletteBtn_.signal_toggled().connect(
+        sigc::mem_fun(*this, &NodeEditor::onTogglePalette));
+    paramsBtn_.signal_toggled().connect(
+        sigc::mem_fun(*this, &NodeEditor::onToggleParams));
 
     /* Where the synth is actually loading plugins from, not where the build
        expected them -- an uninstalled tree has them in ./plugins. Asking the
@@ -143,7 +176,7 @@ NodeWindow::NodeWindow (thSynth *synth)
     palette_.populate(pm ? pm->pluginPath() : string(PLUGIN_PATH), pm);
 
     params_.signal_param_edited().connect(
-        sigc::mem_fun(*this, &NodeWindow::onParamEdited));
+        sigc::mem_fun(*this, &NodeEditor::onParamEdited));
 
     saveBtn_.set_sensitive(false);
     saveAsBtn_.set_sensitive(false);
@@ -154,7 +187,103 @@ NodeWindow::NodeWindow (thSynth *synth)
     show_all_children();
 }
 
-NodeWindow::~NodeWindow (void)
+/* GtkPaned's position is the width of its *left* child, so everything about
+   the right one has to be expressed the long way round. */
+int NodeEditor::paramsWidth (void) const
+{
+    int handle = 5;
+
+    split_.get_style_property("handle-size", handle);
+
+    return split_.get_allocated_width() - split_.get_position() - handle;
+}
+
+void NodeEditor::setParamsWidth (int width)
+{
+    int handle = 5;
+
+    split_.get_style_property("handle-size", handle);
+
+    split_.set_position(split_.get_allocated_width() - width - handle);
+}
+
+/* Hands the parameter panel whatever width it is owed, now that there is a
+ * real one to measure against.
+ *
+ * What it is owed at startup is its own minimum: what it needs to show the
+ * node that is selected, a name column and a value column, with nothing in it
+ * wanting to be wider than its contents. That minimum is also the narrowest
+ * the splitter can be dragged to, and it is the right place to start, because
+ * anything beyond it is width taken off the canvas to show blank panel. The
+ * position used to be a fixed 520 measured from the left, which said how much
+ * the canvas got and gave the panel all the rest.
+ *
+ * The minimum rather than the natural width, deliberately. Both are honoured
+ * by the paned, but the natural width is what a widget would like if space
+ * were free, and here it is not -- it comes out of the graph. Selecting a node
+ * whose parameters genuinely need more room still widens the panel, because
+ * GtkPaned will not allocate a child less than its minimum. That is the one
+ * case where taking the space is warranted, and it happens by itself.
+ *
+ * Afterwards position_set is on and the panel stays where it is put --
+ * including where the user drags it to. */
+void NodeEditor::onSplitAllocate (Gtk::Allocation &alloc)
+{
+    int want = pendingParams_;
+
+    if (want == 0 || alloc.get_width() < 2)
+        return;
+
+    if (want < 0)
+    {
+        int nat = 0;
+
+        params_.get_preferred_width(want, nat);
+        paramsWidth_ = want;
+    }
+
+    pendingParams_ = 0;
+
+    setParamsWidth(want);
+}
+
+/* Collapsing either panel gives its space to the canvas: a paned with one
+   visible child allocates all of itself to that child, so there is nothing to
+   do beyond hiding it. Expanding has to put back a width, which is why one is
+   remembered on the way out. */
+void NodeEditor::onTogglePalette (void)
+{
+    if (paletteBtn_.get_active())
+    {
+        palette_.show();
+        outer_.set_position(paletteWidth_);
+    }
+    else
+    {
+        paletteWidth_ = outer_.get_position();
+        palette_.hide();
+    }
+}
+
+void NodeEditor::onToggleParams (void)
+{
+    if (paramsBtn_.get_active())
+    {
+        params_.show();
+
+        /* Not set here: showing the panel is itself a resize, so the paned's
+           width is about to change and the position that expresses this width
+           would be computed against the old one. */
+        pendingParams_ = paramsWidth_;
+    }
+    else
+    {
+        paramsWidth_ = paramsWidth();
+        params_.hide();
+    }
+}
+
+NodeEditor::~NodeEditor (void)
 {
     /* parseTree() handed us a tree nobody else tracks. */
     delete tree_;
@@ -165,7 +294,7 @@ NodeWindow::~NodeWindow (void)
         ::remove(work_.c_str());
 }
 
-void NodeWindow::setStatus (const string &text)
+void NodeEditor::setStatus (const string &text)
 {
     status_.set_text(text);
 
@@ -181,13 +310,13 @@ void NodeWindow::setStatus (const string &text)
  * deselecting because nothing owned it. These two make the ownership explicit:
  * the count is cleared only if the count is still what is showing, so
  * deselecting after a save does not wipe "Saved: 3 values". */
-void NodeWindow::setSelectionStatus (const string &text)
+void NodeEditor::setSelectionStatus (const string &text)
 {
     status_.set_text(text);
     selStatus_ = true;
 }
 
-void NodeWindow::clearSelectionStatus (void)
+void NodeEditor::clearSelectionStatus (void)
 {
     if (!selStatus_)
         return;
@@ -204,13 +333,23 @@ void NodeWindow::clearSelectionStatus (void)
  * structuralDirty_ makes them count the same. Before the working copy they
  * were in the user's file the moment they happened, so there was nothing to
  * track and Save could not be offered for them. */
-bool NodeWindow::dirty (void) const
+bool NodeEditor::dirty (void) const
 {
     return layoutDirty_ || structuralDirty_ || !pending_.empty() ||
            !wires_.empty() || !controls_.empty();
 }
 
-void NodeWindow::updateTitle (void)
+/* The window this is packed into.
+ *
+ * get_toplevel() returns the widget itself when it has no parent yet, so the
+ * cast is the check: a dialog asked for before this is in a window gets no
+ * parent rather than a wrong one. */
+Gtk::Window *NodeEditor::topLevel (void)
+{
+    return dynamic_cast<Gtk::Window *>(get_toplevel());
+}
+
+void NodeEditor::updateTitle (void)
 {
     string base = thUtil::basename((char *)source_.c_str());
 
@@ -219,10 +358,17 @@ void NodeWindow::updateTitle (void)
     const string ro = (!source_.empty() && !sourceWritable())
                       ? "  [read-only]" : "";
 
-    set_title("thinksynth - Nodes - " + base + (dirty() ? " *" : "") + ro);
+    if (source_.empty())
+        titleLbl_.set_markup("<i>no file</i>");
+    else
+        titleLbl_.set_markup("<b>" + Glib::Markup::escape_text(base) + "</b>" +
+                             (dirty() ? " *" : "") +
+                             Glib::Markup::escape_text(ro));
+
+    titleLbl_.set_tooltip_text(source_);
 }
 
-void NodeWindow::updateDirty (void)
+void NodeEditor::updateDirty (void)
 {
     const bool dirty = this->dirty();
 
@@ -242,7 +388,7 @@ void NodeWindow::updateDirty (void)
     updateTitle();
 }
 
-bool NodeWindow::attached (void) const
+bool NodeEditor::attached (void) const
 {
     return synth_ != NULL && channel_ >= 0 &&
            synth_->getChannel(channel_) != NULL;
@@ -256,7 +402,7 @@ bool NodeWindow::attached (void) const
  * thArg::setValue(float) is the route the keyboard's own sliders use: a single
  * atomic store, no reallocation, safe to call from here while the audio thread
  * reads. */
-const char *NodeWindow::applyControlLive (const string &name, double value)
+const char *NodeEditor::applyControlLive (const string &name, double value)
 {
     if (!attached())
         return "";
@@ -275,7 +421,7 @@ const char *NodeWindow::applyControlLive (const string &name, double value)
  * whole tree at note-on, so changing the channel's template changes what the
  * *next* note will sound like and leaves ringing notes alone. Saying so is
  * better than implying an immediacy that is not there. */
-const char *NodeWindow::applyValueLive (const string &node, const string &arg,
+const char *NodeEditor::applyValueLive (const string &node, const string &arg,
                                         double value)
 {
     if (!attached())
@@ -300,7 +446,7 @@ const char *NodeWindow::applyValueLive (const string &node, const string &arg,
     return "  (next note)";
 }
 
-bool NodeWindow::copyFile (const string &from, const string &to)
+bool NodeEditor::copyFile (const string &from, const string &to)
 {
     ifstream in(from.c_str(), ios::binary);
 
@@ -330,7 +476,7 @@ bool NodeWindow::copyFile (const string &from, const string &to)
     return !in.bad() && !out.bad();
 }
 
-bool NodeWindow::sourceWritable (void) const
+bool NodeEditor::sourceWritable (void) const
 {
     if (source_.empty())
         return false;
@@ -349,7 +495,7 @@ bool NodeWindow::sourceWritable (void) const
  *
  * One scratch file per window, reused for the life of it and removed in the
  * destructor. */
-bool NodeWindow::startWorkingCopy (const string &source)
+bool NodeEditor::startWorkingCopy (const string &source)
 {
     if (work_.empty())
     {
@@ -395,7 +541,7 @@ bool NodeWindow::startWorkingCopy (const string &source)
     return copyFile(source, work_);
 }
 
-bool NodeWindow::open (const string &filename, int chan)
+bool NodeEditor::open (const string &filename, int chan)
 {
     /* Take the copy before anything else: from here on the window only ever
        looks at the copy, so a failure to make one has to stop the open. */
@@ -429,9 +575,20 @@ bool NodeWindow::open (const string &filename, int chan)
     return true;
 }
 
-bool NodeWindow::reload (void)
+bool NodeEditor::reload (void)
 {
     const string filename = work_;
+
+    /* The constructor already allows for this when it fills the palette; the
+       rest of the class did not, and a NULL synth reached parseTree as a NULL
+       `this' and a lock on a mutex at address 0x120b8. Nothing here works
+       without a synth to parse with -- the graph comes out of a thSynthTree
+       and only thSynth makes one. */
+    if (synth_ == NULL)
+    {
+        setStatus("No synth to parse " + source_ + " with");
+        return false;
+    }
 
     thSynthTree *tree = synth_->parseTree(filename);
 
@@ -502,7 +659,7 @@ bool NodeWindow::reload (void)
     return true;
 }
 
-void NodeWindow::onArrange (void)
+void NodeEditor::onArrange (void)
 {
     if (tree_ == NULL)
         return;
@@ -533,7 +690,7 @@ void NodeWindow::onArrange (void)
  *
  * Says nothing and returns true when there is nothing to write, so callers can
  * ask unconditionally. */
-bool NodeWindow::flushPending (string &why)
+bool NodeEditor::flushPending (string &why)
 {
     if (pending_.empty() && wires_.empty() && controls_.empty() &&
         !layoutDirty_)
@@ -542,7 +699,7 @@ bool NodeWindow::flushPending (string &why)
     return writeAll(why);
 }
 
-bool NodeWindow::writeAll (string &why)
+bool NodeEditor::writeAll (string &why)
 {
     /* Wires before values: disconnecting puts a plain number in place of the
        connection, and a value edit on that same arg should land on top of it
@@ -618,7 +775,7 @@ bool NodeWindow::writeAll (string &why)
     return true;
 }
 
-void NodeWindow::onSave (void)
+void NodeEditor::onSave (void)
 {
     if (work_.empty())
         return;
@@ -631,7 +788,8 @@ void NodeWindow::onSave (void)
 
     if (!writeAll(why))
     {
-        Gtk::MessageDialog dlg(*this, "Could not save.", false,
+        Gtk::Window *top = topLevel();
+        Gtk::MessageDialog dlg(*top, "Could not save.", false,
                                Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
         dlg.set_secondary_text(why);
         dlg.run();
@@ -690,7 +848,7 @@ void NodeWindow::onSave (void)
     setStatus(buf);
 }
 
-void NodeWindow::onRevert (void)
+void NodeEditor::onRevert (void)
 {
     if (work_.empty())
         return;
@@ -767,7 +925,7 @@ void NodeWindow::onRevert (void)
     setStatus(buf);
 }
 
-void NodeWindow::onBoxMoved (int box)
+void NodeEditor::onBoxMoved (int box)
 {
     (void)box;
 
@@ -782,7 +940,7 @@ void NodeWindow::onBoxMoved (int box)
  *
  * Controls are deletable now that they can be created. The io node is still
  * not: a .dsp without one does not load. */
-void NodeWindow::onSelected (int box)
+void NodeEditor::onSelected (int box)
 {
     params_.setBox(&graph_, box);
 
@@ -821,7 +979,7 @@ void NodeWindow::onSelected (int box)
  * emptied the panel and disabled Delete. This puts Delete back for a group and
  * says how many it would take, so the count is visible before pressing it
  * rather than only in the status bar afterwards. */
-void NodeWindow::onSelectionChanged (int n)
+void NodeEditor::onSelectionChanged (int n)
 {
     if (n <= 1)
         return;             /* onSelected has it */
@@ -850,7 +1008,7 @@ void NodeWindow::onSelectionChanged (int n)
     setSelectionStatus(buf);
 }
 
-vector<string> NodeWindow::takenNames (void) const
+vector<string> NodeEditor::takenNames (void) const
 {
     vector<string> names;
 
@@ -870,7 +1028,7 @@ vector<string> NodeWindow::takenNames (void) const
  * What it is written to is the working copy, not the user's .dsp. That is what
  * makes the claim in the next sentence true, which it was not before: Revert
  * undoes this like anything else, by taking a fresh copy of the source. */
-void NodeWindow::onPaletteAdd (string spelling)
+void NodeEditor::onPaletteAdd (string spelling)
 {
     if (work_.empty())
     {
@@ -937,10 +1095,15 @@ void NodeWindow::onPaletteAdd (string spelling)
  * implied by what was chosen. The range in particular has no sensible default
  * -- 0 to 1 is right for a mix and useless for a filter cutoff -- and getting
  * it wrong means a slider that cannot reach the value you want. */
-bool NodeWindow::askControl (string &name, double &value, double &min,
+bool NodeEditor::askControl (string &name, double &value, double &min,
                              double &max, string &label)
 {
-    Gtk::Dialog dlg("New control", *this, true);
+    Gtk::Window *top = topLevel();
+
+    if (top == NULL)
+        return false;
+
+    Gtk::Dialog dlg("New control", *top, true);
 
     dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
     dlg.add_button("Add", Gtk::RESPONSE_OK);
@@ -1027,7 +1190,7 @@ bool NodeWindow::askControl (string &name, double &value, double &min,
     return false;
 }
 
-void NodeWindow::onPaletteAddControl (void)
+void NodeEditor::onPaletteAddControl (void)
 {
     if (work_.empty())
     {
@@ -1101,7 +1264,7 @@ void NodeWindow::onPaletteAddControl (void)
  * reading of "delete these six nodes" under which the user meant to be told
  * off about the one that cannot go. A .dsp without an io node does not load,
  * so it simply stays. */
-void NodeWindow::onDeleteNode (void)
+void NodeEditor::onDeleteNode (void)
 {
     if (work_.empty())
         return;
@@ -1230,12 +1393,17 @@ void NodeWindow::onDeleteNode (void)
  *
  * Adopting the new path matters: after saving a read-only patch somewhere of
  * your own, the next Save should go there without asking again. */
-bool NodeWindow::saveAsDialog (void)
+bool NodeEditor::saveAsDialog (void)
 {
-    Gtk::FileChooserDialog dlg(*this, "Save DSP As",
+    Gtk::Window *top = topLevel();
+
+    if (top == NULL)
+        return false;   /* not in a window yet; nothing to parent on */
+
+    Gtk::FileChooserDialog dlg(*top, "Save DSP As",
                                Gtk::FILE_CHOOSER_ACTION_SAVE);
 
-    dlg.set_transient_for(*this);
+    dlg.set_transient_for(*top);
     dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
     dlg.add_button("Save", Gtk::RESPONSE_OK);
     dlg.set_do_overwrite_confirmation(true);
@@ -1262,7 +1430,7 @@ bool NodeWindow::saveAsDialog (void)
 
     if (!copyFile(work_, path))
     {
-        Gtk::MessageDialog err(*this, "Could not save there.", false,
+        Gtk::MessageDialog err(*top, "Could not save there.", false,
                                Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
         err.set_secondary_text(path);
         err.run();
@@ -1275,7 +1443,7 @@ bool NodeWindow::saveAsDialog (void)
     return true;
 }
 
-void NodeWindow::onSaveAs (void)
+void NodeEditor::onSaveAs (void)
 {
     if (work_.empty())
         return;
@@ -1306,11 +1474,17 @@ void NodeWindow::onSaveAs (void)
     setStatus("Saved as " + source_ + ".");
 }
 
-void NodeWindow::onNewFile (void)
+void NodeEditor::onNewFile (void)
 {
-    Gtk::FileChooserDialog dlg(*this, "New DSP", Gtk::FILE_CHOOSER_ACTION_SAVE);
+    Gtk::Window *top = topLevel();
 
-    dlg.set_transient_for(*this);
+    if (top == NULL)
+        return;
+
+    Gtk::FileChooserDialog dlg(*top, "New DSP",
+                               Gtk::FILE_CHOOSER_ACTION_SAVE);
+
+    dlg.set_transient_for(*top);
     dlg.add_button("Cancel", Gtk::RESPONSE_CANCEL);
     dlg.add_button("Create", Gtk::RESPONSE_OK);
     dlg.set_do_overwrite_confirmation(true);
@@ -1346,7 +1520,7 @@ void NodeWindow::onNewFile (void)
        once the new one is complete. */
     if (NodeEdit::createFile(path, base, "", true, why) != NodeEdit::OK)
     {
-        Gtk::MessageDialog err(*this, "Could not create the file.", false,
+        Gtk::MessageDialog err(*top, "Could not create the file.", false,
                                Gtk::MESSAGE_ERROR, Gtk::BUTTONS_OK, true);
         err.set_secondary_text(why);
         err.run();
@@ -1364,7 +1538,7 @@ void NodeWindow::onNewFile (void)
  *
  * Keyed by node and arg name rather than by box index so it survives the
  * reparse a save does. */
-void NodeWindow::onParamEdited (int box, string name, double value)
+void NodeEditor::onParamEdited (int box, string name, double value)
 {
     if (box < 0 || box >= (int)graph_.boxes().size())
         return;
@@ -1403,7 +1577,7 @@ void NodeWindow::onParamEdited (int box, string name, double value)
  * Applied immediately rather than only on Save so the canvas shows what was
  * just drawn -- a wiring gesture that produced no visible wire until a save
  * would be unusable. The file is still untouched until Save. */
-void NodeWindow::onConnect (int fromBox, int fromPort, int toBox, int toPort)
+void NodeEditor::onConnect (int fromBox, int fromPort, int toBox, int toPort)
 {
     string why;
 
@@ -1436,7 +1610,7 @@ void NodeWindow::onConnect (int fromBox, int fromPort, int toBox, int toPort)
                                     : "@" + e.srcControl));
 }
 
-void NodeWindow::onDisconnect (int edge)
+void NodeEditor::onDisconnect (int edge)
 {
     if (edge < 0 || edge >= (int)graph_.edges().size())
         return;
@@ -1465,7 +1639,7 @@ void NodeWindow::onDisconnect (int edge)
  * refresh what else is showing the number and, on release, record the edit.
  * Recording only on release means a drag across the track is one change
  * rather than one per pixel. */
-void NodeWindow::onControlChanged (int box, double value, bool commit)
+void NodeEditor::onControlChanged (int box, double value, bool commit)
 {
     if (box < 0 || box >= (int)graph_.boxes().size())
         return;
@@ -1491,27 +1665,27 @@ void NodeWindow::onControlChanged (int box, double value, bool commit)
     updateDirty();
 }
 
-void NodeWindow::onRefused (string why)
+void NodeEditor::onRefused (string why)
 {
     setStatus("Cannot connect: " + why);
 }
 
-void NodeWindow::onZoomIn (void)
+void NodeEditor::onZoomIn (void)
 {
     canvas_.setZoom(canvas_.zoom() * 1.25);
 }
 
-void NodeWindow::onZoomOut (void)
+void NodeEditor::onZoomOut (void)
 {
     canvas_.setZoom(canvas_.zoom() / 1.25);
 }
 
-void NodeWindow::onZoomReset (void)
+void NodeEditor::onZoomReset (void)
 {
     canvas_.setZoom(1.0);
 }
 
-void NodeWindow::onZoomFit (void)
+void NodeEditor::onZoomFit (void)
 {
     canvas_.zoomToFit();
 }

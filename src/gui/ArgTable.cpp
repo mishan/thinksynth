@@ -18,6 +18,7 @@
 
 #include "config.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -27,26 +28,275 @@
 
 #include "ArgTable.h"
 
+/* Columns to wrap at, at most. Not a width: how many actually appear is
+   whatever fits, and this only stops a very wide window laying thirty
+   parameters out in one unreadable row. */
+static const int MAXCOLS = 3;
+
 ArgTable::ArgTable (void)
-    : Gtk::Table(1, 3), rows_(1), args_(0)
 {
-    
+    set_spacing(6);
+
+    nameWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
+    valueWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
 }
 
 ArgTable::~ArgTable (void)
 {
 }
 
-void ArgTable::insertArg (thArg *arg)
+/* Samples <-> the unit the value was written in.
+ *
+ * The engine works in samples and in fractions of TH_MAX, and that is what is
+ * stored; these only decide what the panel puts on screen. Both folds the
+ * grammar performs are exact and exactly invertible, so a value written
+ * `7000 ms' comes back as 7000 and not 6999.97.
+ *
+ * A unit the author declared rather than wrote as a suffix -- `@x.units =
+ * "Hz"' -- passes through untouched. Nothing folded it, so there is nothing
+ * to unfold; it is a label. */
+double ArgTable::toDisplay (double raw, const string &units)
+{
+    if (units == "ms")
+        return raw * 1000.0 / TH_SAMPLE;
+
+    if (units == "%")
+        return raw * 100.0 / TH_MAX;
+
+    return raw;
+}
+
+double ArgTable::fromDisplay (double shown, const string &units)
+{
+    if (units == "ms")
+        return shown * TH_SAMPLE / 1000.0;
+
+    if (units == "%")
+        return shown * TH_MAX / 100.0;
+
+    return shown;
+}
+
+/* Decimal places worth showing for a control whose range runs to `hi'.
+ *
+ * The resolution that matters is relative: a filter cutoff between 0 and 1
+ * needs four places, an envelope time in samples between 0 and 882000 needs
+ * none. Anything finer is noise the slider cannot address anyway. */
+int ArgTable::decimalsFor (double hi)
+{
+    const double m = fabs(hi);
+
+    if (m >= 1000) return 0;
+    if (m >= 100)  return 1;
+    if (m >= 10)   return 2;
+
+    return 4;
+}
+
+/* Characters the widest value in this range needs, so nothing is cut off. */
+int ArgTable::widthFor (double hi, int digits)
+{
+    double m = fabs(hi);
+    int intDigits = 1;
+
+    while (m >= 10) { m /= 10; intDigits++; }
+
+    /* integer part, the point and its decimals, and one for a minus sign */
+    int chars = intDigits + (digits ? digits + 1 : 0) + 1;
+
+    return chars < 6 ? 6 : chars;
+}
+
+void ArgTable::insertArg (thArg *arg, const string &group)
 {
     if (arg == NULL)
         return;
 
-    int row = args_++;
+    pending_.push_back(arg);
 
-    Gtk::Label *label = manage(new Gtk::Label((arg->label().length() > 0) ?
-                                              arg->label() : arg->name()));
-    Gtk::HScale *slider = manage(new Gtk::HScale(arg->min(),arg->max(),.0001));
+    if (!group.empty())
+        inferred_[arg] = group;
+}
+
+/* Lays out everything handed to insertArg.
+ *
+ * Deferred to here because the column count depends on how many there are,
+ * and that is not known until the last one has arrived.
+ *
+ * Parameters that declare a group are gathered under a titled expander, in
+ * the order the groups were first seen; the ungrouped ones stay in a plain
+ * grid above them. An envelope's attack, decay, sustain and release are one
+ * control in the way anyone thinks about a patch and four in the way the file
+ * stores them, and saying so lets them be folded away when you are working on
+ * something else.
+ *
+ * Expanded to begin with. A parameter you cannot see is a parameter you will
+ * not remember the patch has, so folding is something to reach for rather
+ * than something to undo on every open. */
+void ArgTable::reflow (void)
+{
+    if (pending_.empty())
+        return;
+
+    std::vector<thArg *> loose;
+    std::vector<string> order;
+    std::map<string, std::vector<thArg *> > groups;
+
+    for (size_t i = 0; i < pending_.size(); i++)
+    {
+        /* What the patch declared, or failing that what the caller inferred
+           from the graph. A declared group is the author saying so and wins;
+           an inferred one is a good guess at the same thing. */
+        string g = pending_[i]->group();
+
+        if (g.empty() && inferred_.count(pending_[i]))
+            g = inferred_[pending_[i]];
+
+        if (g.empty())
+        {
+            loose.push_back(pending_[i]);
+            continue;
+        }
+
+        if (!groups.count(g))
+            order.push_back(g);
+
+        groups[g].push_back(pending_[i]);
+    }
+
+    /* Each group is a block, and the blocks are stacked.
+     *
+     * They used to be laid side by side, because stacking them undid the
+     * columns: a group of five was five rows, and four groups stacked were
+     * the tall strip the columns existed to get rid of. That was true while a
+     * block was one column wide. Now every block wraps to the width it is
+     * given, so a stack of them is a stack of wide rows and the argument has
+     * gone -- and side by side does not survive wrapping, because the first
+     * block will take all the width it is offered and leave the next one
+     * nothing to sit in. */
+    std::vector<Gtk::Widget *> blocks;
+
+    /* A group of one is not a group.
+     *
+     * The inference is literal -- it groups by the node a control drives --
+     * and most controls drive a little math::mul of their own, so ts1 came up
+     * with eight groups of one beside the single real one. An expander around
+     * a lone slider costs a title row and a fold nobody wants and says
+     * nothing that the parameter's own label does not.
+     *
+     * It also hides the worst of the names. A node is called `cutcalc2' or
+     * `suscalc' because that is plumbing, not because it is what a person
+     * calls that knob; the ones that read well -- `env', `filt' -- are the
+     * ones that turn out to have several members anyway. */
+    for (size_t i = 0; i < order.size(); i++)
+        if (groups[order[i]].size() < 2)
+        {
+            loose.insert(loose.end(), groups[order[i]].begin(),
+                         groups[order[i]].end());
+            groups.erase(order[i]);
+        }
+
+    {
+        std::vector<string> kept;
+
+        for (size_t i = 0; i < order.size(); i++)
+            if (groups.count(order[i]))
+                kept.push_back(order[i]);
+
+        order.swap(kept);
+    }
+
+    if (!loose.empty())
+        blocks.push_back(makeFlow(loose, MAXCOLS));
+
+    for (size_t i = 0; i < order.size(); i++)
+    {
+        Gtk::Expander *exp = manage(new Gtk::Expander(order[i]));
+
+        /* Groups wrap like everything else. A group is a row of a front
+           panel -- attack, decay, sustain, release across -- and holding it
+           to one column so it read as a list only made sense while it had a
+           narrow block to itself. */
+        exp->set_expanded(true);
+        exp->add(*makeFlow(groups[order[i]], MAXCOLS));
+
+        blocks.push_back(exp);
+    }
+
+    for (size_t i = 0; i < blocks.size(); i++)
+    {
+        blocks[i]->set_valign(Gtk::ALIGN_START);
+
+        pack_start(*blocks[i], Gtk::PACK_SHRINK);
+    }
+
+    show_all_children();
+}
+
+/* These parameters, in as many columns as the width will take.
+ *
+ * The column count used to be worked out from how many there were: one up to
+ * eight, two up to twenty, three beyond. It was a guess at the width, made
+ * before the panel had been allocated one, and it was wrong in both
+ * directions -- three columns held their width whatever the window did, so a
+ * narrow window scrolled sideways past sliders squeezed to a nub instead of
+ * stacking them.
+ *
+ * A flow box asks the question at the time it can be answered. Each parameter
+ * is one child with a minimum width of its own -- a slider narrower than that
+ * is not draggable in any useful way -- so the wrapping falls out of how many
+ * of those fit, and the panel's own minimum is one of them. That is what lets
+ * the window be dragged down to a single column rather than stopping at
+ * whatever three columns needed.
+ *
+ * Homogeneous, so every column is the same width; combined with the two size
+ * groups it means the names, sliders and value boxes line up down the panel
+ * rather than each column being its own shape. */
+Gtk::FlowBox *ArgTable::makeFlow (const std::vector<thArg *> &args,
+                                  int maxPerLine)
+{
+    Gtk::FlowBox *flow = manage(new Gtk::FlowBox);
+
+    flow->set_selection_mode(Gtk::SELECTION_NONE);
+    flow->set_homogeneous(true);
+    flow->set_min_children_per_line(1);
+    flow->set_max_children_per_line(maxPerLine);
+    flow->set_column_spacing(12);
+    flow->set_row_spacing(2);
+    flow->set_border_width(4);
+    flow->set_valign(Gtk::ALIGN_START);
+
+    for (size_t i = 0; i < args.size(); i++)
+        flow->add(*makeRow(args[i]));
+
+    return flow;
+}
+
+Gtk::Widget *ArgTable::makeRow (thArg *arg)
+{
+    Gtk::HBox *row = manage(new Gtk::HBox);
+
+    row->set_spacing(8);
+
+    string text = (arg->label().length() > 0) ? arg->label() : arg->name();
+
+    /* The unit belongs with the name, not beside the number: it is a property
+       of the parameter, the same on every row of it, and it costs no width in
+       the value column here. */
+    if (!arg->units().empty())
+        text += " (" + arg->units() + ")";
+
+    Gtk::Label *label = manage(new Gtk::Label(text));
+    /* Slider and box both work in display units, so an envelope time runs
+       0..20000 ms rather than 0..882000 samples -- the same travel, over a
+       number that means something. Only the display converts; what reaches
+       thArg::setValue is samples, exactly as before. */
+    const string units = arg->units();
+
+    const double lo = toDisplay(arg->min(), units);
+    const double hi = toDisplay(arg->max(), units);
+
+    Gtk::HScale *slider = manage(new Gtk::HScale(lo, hi, .0001));
 
     /* gtkmm-3: Gtk::Adjustment is refcounted and its constructor is protected,
        so it is handed out as a RefPtr rather than a raw pointer. */
@@ -64,33 +314,60 @@ void ArgTable::insertArg (thArg *arg)
             sigc::mem_fun(*this, &ArgTable::argChanged),
             slider));
 
-    slider->set_value((*arg)[0]);
-    
+    slider->set_value(toDisplay((*arg)[0], units));
+
+    /* Decimals to suit the range, and a box wide enough for the result.
+     *
+     * Four decimals on everything meant `288000.0312' -- eleven characters of
+     * which the last four are noise, in a box sized for nine, so it was cut
+     * off mid-number. Four places are right for a 0..1 control, where they are
+     * the whole resolution; they are meaningless on a range that runs to
+     * hundreds of thousands. */
+    const int digits = decimalsFor(hi);
+
     Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust, .0001,
-                                                           4));
+                                                           digits));
 
-    if (args_ > rows_)
-    {
-        resize(args_, 3);
-        rows_ = args_;
-    }
+    /* The value box was as wide as the slider had left over, which on a
+       single column was most of the window for a number four characters
+       long. Sized to its content now, so the width goes to the slider. */
+    valEntry->set_width_chars(widthFor(hi, digits));
 
-    attach(*label, 0, 1, row, row+1, Gtk::SHRINK,
-           Gtk::SHRINK);
-    attach(*slider, 1, 2, row, row+1,
-           Gtk::EXPAND|Gtk::FILL,
-           Gtk::EXPAND|Gtk::FILL);
-    attach(*valEntry, 2, 3, row, row+1,
-           Gtk::SHRINK|Gtk::FILL,
-           Gtk::SHRINK|Gtk::FILL);
-}
+    /* A slider narrower than this is not draggable in any useful way -- the
+       handle is most of it. Asking for the width is also what tells the flow
+       box how much a parameter costs, so it is the number the wrapping is
+       decided by, and the panel will drop to one column rather than squeeze
+       every slider down to a nub. */
+    slider->set_size_request(140, -1);
+
+    /* No ellipsis here.
     
+       It was set with only a maximum width, and a label that can ellipsise
+       reports the width of "..." as its minimum -- so the table, asked for the
+       smallest layout that fits, gave every label exactly that and the panel
+       came up as a column of dots. Parameter labels are short ("Pulse Width
+       1" is the longest in the corpus at 13 characters), so they can simply
+       be allowed their natural width. */
+    label->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
+    label->set_tooltip_text(arg->name());
+
+    nameWidth_->add_widget(*label);
+    valueWidth_->add_widget(*valEntry);
+
+    row->pack_start(*label, Gtk::PACK_SHRINK);
+    row->pack_start(*slider, Gtk::PACK_EXPAND_WIDGET);
+    row->pack_start(*valEntry, Gtk::PACK_SHRINK);
+
+    return row;
+}
+
+
 void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
 {
-    arg->setValue(slider->get_value());
+    arg->setValue(fromDisplay(slider->get_value(), arg->units()));
 }
 
 void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)
 {
-    slider->set_value((*arg)[0]);
+    slider->set_value(toDisplay((*arg)[0], arg->units()));
 }
