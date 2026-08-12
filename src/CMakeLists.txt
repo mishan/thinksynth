@@ -32,6 +32,7 @@ set(THINKSYNTH_SOURCES
     gthMidiQueue.cpp
     gui/AboutBox.cpp
     gui/ArgTable.cpp
+    gui/Dialogs.cpp
     gui/Keyboard.cpp
     gui/KeyboardWindow.cpp
     gui/MainSynthWindow.cpp

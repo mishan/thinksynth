@@ -1,7 +1,7 @@
 # Three-platform CI. See PORTING.md section 10.
 #
-# Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm-3, which
-# has no MSVC build, and reinforced by the eleven files in the tree that use
+# Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm, which has
+# no MSVC build, and reinforced by the eleven files in the tree that use
 # variable-length arrays.
 #
 # STATUS: linux and asan are real gates and must stay green. macos and windows
@@ -57,7 +57,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
-            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev \
             adwaita-icon-theme librsvg2-common \
             xvfb
@@ -68,9 +68,9 @@ jobs:
       - name: Build
         run: cmake --build build
 
-      # Gtk::Main is constructed before getopt runs (src/main.cpp:292), so even
-      # -h needs a display. xvfb is the whole reason this is not a plain
-      # invocation.
+      # The Gtk::Application is created before getopt runs, so even -h needs a
+      # display. xvfb is the whole reason this is not a plain invocation. It
+      # was Gtk::Main before the gtkmm-4 port; the constraint is the same one.
       - name: Smoke test
         run: xvfb-run -a ./build/src/thinksynth -h
 
@@ -170,8 +170,10 @@ jobs:
           cmake --install build
 
           # The schema whose absence aborts the process, in the blob we built.
+          # org.gtk.gtk4.*: GTK4 namespaces its schemas, and grepping for the
+          # GTK3 name finds GTK3 on a machine that has both.
           strings kegstage/share/thinksynth/share/glib-2.0/schemas/gschemas.compiled \
-            | grep -q org.gtk.Settings.FileChooser
+            | grep -q org.gtk.gtk4.Settings.FileChooser
 
           mv kegstage /tmp/kegrelocated
           xvfb-run -a env XDG_DATA_DIRS=/nonexistent /tmp/kegrelocated/bin/thinksynth -G
@@ -188,7 +190,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
-            libgtkmm-3.0-dev libsigc++-2.0-dev \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
             libasound2-dev libjack-jackd2-dev
 
       # THINK_SANITIZE applies the flags globally rather than per-target, so
@@ -226,10 +228,10 @@ jobs:
           # bare -ljack with no -L to go with it.
           #
           # adwaita-icon-theme and librsvg are named explicitly rather than
-          # left to come in behind gtkmm3. The first CI run to reach -G said
+          # left to come in behind gtkmm. The first CI run to reach -G said
           # "svg absent", which means no librsvg: without it the bundled
           # Adwaita is a directory of SVGs nothing can read.
-          brew install cmake ninja pkg-config bison flex gtkmm3 \
+          brew install cmake ninja pkg-config bison flex gtkmm4 \
                        adwaita-icon-theme librsvg
 
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
@@ -314,12 +316,24 @@ jobs:
           # adwaita-icon-theme and librsvg named explicitly, for the reason
           # given in the macOS job: without librsvg there is no SVG loader,
           # and a bundled Adwaita is SVG.
+          #
+          # gtkmm-4.0, not gtkmm4. The short name exists but is a virtual
+          # package, so pacman offers the providers and waits for a choice --
+          # which in CI is "Enter a selection (default=all): error: target not
+          # found".
+          #
+          # Every comment here is outside the block below, and has to be. That
+          # `>-' makes what follows a folded scalar: it has no comment syntax,
+          # so a `#' line inside it is not a comment, it is more package names.
+          # pacboy duly asked for mingw-w64-ucrt-x86_64-The,
+          # mingw-w64-ucrt-x86_64-short, mingw-w64-ucrt-x86_64-name, and so on
+          # through the whole sentence.
           pacboy: >-
             toolchain:p
             cmake:p
             ninja:p
             pkgconf:p
-            gtkmm3:p
+            gtkmm-4.0:p
             adwaita-icon-theme:p
             librsvg:p
 

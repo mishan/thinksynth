@@ -32,13 +32,13 @@ protected:
     Gtk::Button         *btnClose_;
     Gtk::Notebook       *notebook_;
     Gtk::Frame          *frame_;
-    Gtk::Image          *logo_;
-    Gtk::VBox           *vbmaster_;
-    Gtk::VBox           *vbleft_;
-    Gtk::VBox           *vbright_;
-    Gtk::VBox           *spacer_;
-    Gtk::HBox           *hcredits_;
-    Gtk::HBox           *framebox_;
+    Gtk::Picture        *logo_;
+    Gtk::Box            *vbmaster_;
+    Gtk::Box            *vbleft_;
+    Gtk::Box            *vbright_;
+    Gtk::Box            *spacer_;
+    Gtk::Box            *hcredits_;
+    Gtk::Box            *framebox_;
     Gtk::Label          *txtVersion_;
     Gtk::Label          *txtCopyright_;
     Gtk::Label          *txtMetaphonic_;
@@ -47,8 +47,9 @@ protected:
 
     /* gtkmm-3 removed Gdk::Pixmap and Gdk::Bitmap along with the whole
        server-side drawable API; a Pixbuf carries its own alpha, so the
-       separate mask is gone too. */
-    Glib::RefPtr<Gdk::Pixbuf>         logoPixbuf_;
+       separate mask is gone too. GTK4 wants a paintable rather than a pixbuf,
+       and the pixbuf is only the thing the XPM is read into on the way. */
+    Glib::RefPtr<Gdk::Texture>        logoTexture_;
 };
 
 #endif /* ABOUT_BOX_H */

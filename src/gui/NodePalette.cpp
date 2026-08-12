@@ -32,7 +32,8 @@
 #define CONTROL_SPELLING  "@control"
 
 NodePalette::NodePalette (void)
-    : pm_(NULL), addBtn_("Add to graph")
+    : Gtk::Box(Gtk::Orientation::VERTICAL),
+      pm_(NULL), addBtn_("Add to graph")
 {
     set_size_request(210, -1);
 
@@ -54,22 +55,27 @@ NodePalette::NodePalette (void)
     tree_.signal_row_activated().connect(
         sigc::mem_fun(*this, &NodePalette::onRowActivated));
 
-    scroller_.set_policy(Gtk::POLICY_AUTOMATIC, Gtk::POLICY_AUTOMATIC);
-    scroller_.add(tree_);
+    scroller_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
+    scroller_.set_child(tree_);
 
-    detail_.set_alignment(Gtk::ALIGN_START, Gtk::ALIGN_START);
-    detail_.set_padding(6, 4);
-    detail_.set_line_wrap(true);
+    detail_.set_xalign(0.0);
+    detail_.set_yalign(0.0);
+    detail_.set_margin_start(6);
+    detail_.set_margin_end(6);
+    detail_.set_margin_top(4);
+    detail_.set_margin_bottom(4);
+    detail_.set_wrap(true);
     detail_.set_size_request(200, -1);
 
     addBtn_.signal_clicked().connect(
         sigc::mem_fun(*this, &NodePalette::onAddClicked));
     addBtn_.set_sensitive(false);
 
-    pack_start(filter_, Gtk::PACK_SHRINK);
-    pack_start(scroller_);
-    pack_start(detail_, Gtk::PACK_SHRINK);
-    pack_start(addBtn_, Gtk::PACK_SHRINK);
+    append(filter_);
+    scroller_.set_vexpand(true);
+    append(scroller_);
+    append(detail_);
+    append(addBtn_);
 }
 
 int NodePalette::populate (const string &pluginPath, thPluginManager *pm)

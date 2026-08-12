@@ -19,6 +19,8 @@
 #ifndef KEYBOARD_WINDOW_H
 #define KEYBOARD_WINDOW_H
 
+#include <mutex>
+
 class KeyboardWindow : public Gtk::Window
 {
 public:
@@ -39,18 +41,23 @@ protected:
     void keyboardReset (void);
     void keyboardResetKeys (void);
 
-    virtual bool on_scroll_event (GdkEventScroll *s);
+    /* Scrolling the window changes channel. A controller now, and one that
+       has to be asked for the kinds of scroll it wants -- there is no event
+       mask to widen. */
+    bool onScroll (double dx, double dy);
+
+    Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
     thSynth *synth_;
 private:
-    Glib::Mutex kbMutex_;
+    std::mutex kbMutex_;
 
     Keyboard *keyboard_;
 
     /* widgets */
-    Gtk::VBox vbox_;
+    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
     Gtk::Frame *ctrlFrame_;
-    Gtk::Table *ctrlTable_;
+    Gtk::Grid *ctrlTable_;
 
     Gtk::Label *chanLbl_;
     Gtk::SpinButton *chanBtn_;

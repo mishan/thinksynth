@@ -19,6 +19,8 @@
 #ifndef KEYBOARD_H
 #define KEYBOARD_H
 
+#include <mutex>
+
 /* this widget's custom signals */
 typedef sigc::signal<void()>                  type_signal_note_clear;
 typedef sigc::signal<void(int, int, float)> type_signal_note_on;
@@ -63,21 +65,43 @@ protected:
     /* Dispatcher target: redraws happen through the widget now. */
     void queueRedraw (void) { queue_draw(); }
     
-    /* overridden signal handlers */
-    virtual bool on_draw                 (const Cairo::RefPtr<Cairo::Context> &cr);
-     virtual bool on_focus_in_event       (GdkEventFocus  *f);
-    virtual bool on_focus_out_event      (GdkEventFocus  *f);
-    virtual bool on_button_press_event   (GdkEventButton *b);
-    virtual bool on_button_release_event (GdkEventButton *b);
-    virtual bool on_key_press_event      (GdkEventKey    *k);
-    virtual bool on_key_release_event    (GdkEventKey    *k);
-    virtual bool on_motion_notify_event  (GdkEventMotion *e);
+    /* Input, as GTK4 delivers it.
+     *
+     * The on_*_event vfuncs are gone -- every one of them -- and a widget no
+     * longer decides what happens by returning true or false from an
+     * override. Input arrives at controllers attached to the widget, each
+     * handling one kind of thing, and the coordinates come with the event
+     * rather than being fetched from the pointer afterwards. That last part
+     * is the improvement: see noteAt(). */
+    void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                 int height);
+    void onPressed (int nPress, double x, double y);
+    void onReleased (int nPress, double x, double y);
+    bool onKeyPressed (guint keyval, guint keycode, Gdk::ModifierType state);
+    void onKeyReleased (guint keyval, guint keycode, Gdk::ModifierType state);
+    void onMotion (double x, double y);
+    void onFocusEnter (void);
+    void onFocusLeave (void);
 
     int channel_;
     int transpose_;
 private:
-    int get_coord ();
+    /* Which note is under (x, y), or -1.
+     *
+     * This used to be get_coord(), which asked the pointer where it was
+     * rather than being told -- a GTK3 habit that GTK4 makes unnecessary and
+     * awkward, since Gdk::Window is gone along with get_device_position. The
+     * coordinates are the ones the controller was handed, so they are the
+     * coordinates of the event being handled rather than of wherever the
+     * mouse has got to by now. */
+    int noteAt (double x, double y) const;
     int keyval_to_notnum (int key);
+
+    /* Held because a controller lives only as long as its RefPtr does. */
+    Glib::RefPtr<Gtk::GestureClick> click_;
+    Glib::RefPtr<Gtk::EventControllerKey> keys_;
+    Glib::RefPtr<Gtk::EventControllerMotion> motion_;
+    Glib::RefPtr<Gtk::EventControllerFocus> focus_;
 
     type_signal_note_clear        m_signal_note_clear_;
     type_signal_note_on           m_signal_note_on_;
@@ -86,7 +110,7 @@ private:
     type_signal_transpose_changed m_signal_transpose_changed_;
 
     /* lower-level widget stuff */
-    Glib::Mutex drawMutex_;
+    std::mutex drawMutex_;
     Glib::Dispatcher dispatchRedraw_;
 
     bool focus_box_;

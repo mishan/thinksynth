@@ -34,11 +34,12 @@
 static const int MAXCOLS = 3;
 
 ArgTable::ArgTable (void)
+    : Gtk::Box(Gtk::Orientation::VERTICAL)
 {
     set_spacing(6);
 
-    nameWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
-    valueWidth_ = Gtk::SizeGroup::create(Gtk::SIZE_GROUP_HORIZONTAL);
+    nameWidth_ = Gtk::SizeGroup::create(Gtk::SizeGroup::Mode::HORIZONTAL);
+    valueWidth_ = Gtk::SizeGroup::create(Gtk::SizeGroup::Mode::HORIZONTAL);
 }
 
 ArgTable::~ArgTable (void)
@@ -218,19 +219,18 @@ void ArgTable::reflow (void)
            to one column so it read as a list only made sense while it had a
            narrow block to itself. */
         exp->set_expanded(true);
-        exp->add(*makeFlow(groups[order[i]], MAXCOLS));
+        exp->set_child(*makeFlow(groups[order[i]], MAXCOLS));
 
         blocks.push_back(exp);
     }
 
     for (size_t i = 0; i < blocks.size(); i++)
     {
-        blocks[i]->set_valign(Gtk::ALIGN_START);
+        blocks[i]->set_valign(Gtk::Align::START);
 
-        pack_start(*blocks[i], Gtk::PACK_SHRINK);
+        append(*blocks[i]);
     }
 
-    show_all_children();
 }
 
 /* These parameters, in as many columns as the width will take.
@@ -257,24 +257,27 @@ Gtk::FlowBox *ArgTable::makeFlow (const std::vector<thArg *> &args,
 {
     Gtk::FlowBox *flow = manage(new Gtk::FlowBox);
 
-    flow->set_selection_mode(Gtk::SELECTION_NONE);
+    flow->set_selection_mode(Gtk::SelectionMode::NONE);
     flow->set_homogeneous(true);
     flow->set_min_children_per_line(1);
     flow->set_max_children_per_line(maxPerLine);
     flow->set_column_spacing(12);
     flow->set_row_spacing(2);
-    flow->set_border_width(4);
-    flow->set_valign(Gtk::ALIGN_START);
+    flow->set_margin_start(4);
+    flow->set_margin_end(4);
+    flow->set_margin_top(4);
+    flow->set_margin_bottom(4);
+    flow->set_valign(Gtk::Align::START);
 
     for (size_t i = 0; i < args.size(); i++)
-        flow->add(*makeRow(args[i]));
+        flow->append(*makeRow(args[i]));
 
     return flow;
 }
 
 Gtk::Widget *ArgTable::makeRow (thArg *arg)
 {
-    Gtk::HBox *row = manage(new Gtk::HBox);
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
 
     row->set_spacing(8);
 
@@ -296,7 +299,15 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     const double lo = toDisplay(arg->min(), units);
     const double hi = toDisplay(arg->max(), units);
 
-    Gtk::HScale *slider = manage(new Gtk::HScale(lo, hi, .0001));
+    /* What HScale(min, max, step) built for us: the value starts at the
+       bottom of the range, the page step is ten times the step, and the scale
+       rounds to as many digits as the step has. HScale is gone in GTK4 and
+       Scale has no such constructor, so the adjustment is spelled out. */
+    Gtk::Scale *slider = manage(new Gtk::Scale(
+        Gtk::Adjustment::create(lo, lo, hi, .0001, .001, 0),
+        Gtk::Orientation::HORIZONTAL));
+
+    slider->set_digits(4);
 
     /* gtkmm-3: Gtk::Adjustment is refcounted and its constructor is protected,
        so it is handed out as a RefPtr rather than a raw pointer. */
@@ -305,12 +316,12 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     slider->set_draw_value(false);
 
     slider->signal_value_changed().connect(
-        sigc::bind<Gtk::HScale *, thArg *>(
+        sigc::bind(
             sigc::mem_fun(*this, &ArgTable::sliderChanged),
             slider, arg));
 
     arg->signal_arg_changed().connect(
-        sigc::bind<Gtk::HScale *>(
+        sigc::bind(
             sigc::mem_fun(*this, &ArgTable::argChanged),
             slider));
 
@@ -348,26 +359,27 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
        came up as a column of dots. Parameter labels are short ("Pulse Width
        1" is the longest in the corpus at 13 characters), so they can simply
        be allowed their natural width. */
-    label->set_alignment(Gtk::ALIGN_END, Gtk::ALIGN_CENTER);
+    label->set_xalign(1.0);
     label->set_tooltip_text(arg->name());
 
     nameWidth_->add_widget(*label);
     valueWidth_->add_widget(*valEntry);
 
-    row->pack_start(*label, Gtk::PACK_SHRINK);
-    row->pack_start(*slider, Gtk::PACK_EXPAND_WIDGET);
-    row->pack_start(*valEntry, Gtk::PACK_SHRINK);
+    row->append(*label);
+    slider->set_hexpand(true);
+    row->append(*slider);
+    row->append(*valEntry);
 
     return row;
 }
 
 
-void ArgTable::sliderChanged (Gtk::HScale *slider, thArg *arg)
+void ArgTable::sliderChanged (Gtk::Scale *slider, thArg *arg)
 {
     arg->setValue(fromDisplay(slider->get_value(), arg->units()));
 }
 
-void ArgTable::argChanged (thArg *arg, Gtk::HScale *slider)
+void ArgTable::argChanged (thArg *arg, Gtk::Scale *slider)
 {
     slider->set_value(toDisplay((*arg)[0], arg->units()));
 }

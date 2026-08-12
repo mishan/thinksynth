@@ -61,7 +61,12 @@ static gthSynthSource *asource = NULL;
 
 static gthRtMidi *midi = NULL;
 
-Gtk::Main *gtkMain = NULL;
+/* The application, for the signal handler to unwind the loop with.
+ *
+ * Gtk::Main is gone in GTK4. Gtk::Application replaces it, and it is not a
+ * thing you construct on the stack and run -- it owns the loop, and quitting
+ * is asking it to stop rather than popping a nesting level. */
+Glib::RefPtr<Gtk::Application> gtkApp;
 
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
@@ -124,10 +129,20 @@ static bool checkShutdown (void)
     /* Ask the main loop to unwind. Everything below main()'s run() then
        happens in the ordinary way, on this thread, with the audio device
        stopped before anything it touches is freed. */
-    if (gtkMain)
-        gtkMain->quit();
+    if (gtkApp)
+        gtkApp->quit();
 
     return false;
+}
+
+/* Puts the window on screen, once the application is ready to be given one. */
+static void presentWindow (MainSynthWindow *window)
+{
+    if (gtkApp && window != NULL)
+    {
+        gtkApp->add_window(*window);
+        window->present();
+    }
 }
 
 void process_synth (void)
@@ -272,17 +287,22 @@ int main (int argc, char *argv[])
        with the deprecated API compiled out, so on Windows it is not merely
        pointless but an undefined reference at link time. */
 
-    /* Before Gtk::Main, and it has to be: GLib caches the system data
-       directories the first time anything asks for them, and Gtk::Main asks.
-       Does nothing unless the package shipped GTK's data alongside us, which
-       on Linux it does not. */
+    /* Before the application is created, and it has to be: GLib caches the
+       system data directories the first time anything asks for them, and
+       creating a Gtk::Application asks. Does nothing unless the package
+       shipped GTK's data alongside us, which on Linux it does not. */
     gthGtkRuntime::configure();
 
-    /* init Glib/Gtk args */
-    Gtk::Main mymain(argc, argv);
+    /* Created without argc and argv on purpose. Gio::Application parses a
+       command line it is handed, and ours is not its -- getopt below owns it,
+       and -d, -p and -o mean nothing to GTK. NON_UNIQUE because two
+       thinksynths on two MIDI ports is a reasonable thing to want, and the
+       default would hand the second one's arguments to the first. */
+    gtkApp = Gtk::Application::create("org.metaphoniclabs.thinksynth",
+                                      Gio::Application::Flags::NON_UNIQUE);
 
-    /* Force the numeric locale back to C, and do it *after* Gtk::Main, which
-     * calls setlocale(LC_ALL, "") on our behalf.
+    /* Force the numeric locale back to C, and do it *after* the application
+     * exists, which calls setlocale(LC_ALL, "") on our behalf.
      *
      * Every number thinksynth reads or writes goes through the C library's
      * locale-sensitive conversions: atof() in the .dsp lexer, strtof() in the
@@ -408,7 +428,7 @@ int main (int argc, char *argv[])
         if (midi->opened())
         {
             midi->signal_event().connect(
-                sigc::bind<thSynth *>(sigc::ptr_fun(&dispatchmidi), Synth));
+                sigc::bind(sigc::ptr_fun(&dispatchmidi), Synth));
         }
 
         if (driver == "none")
@@ -486,12 +506,22 @@ int main (int argc, char *argv[])
        shown. */
     synthWindow->applyPrefs();
 
-    /* checkShutdown() needs this to unwind the loop from the timeout. */
-    gtkMain = &mymain;
+    /* Not make_window_and_run(), and not run(window) either: both of them own
+       the window and destroy it when the loop ends, and this window has to
+       outlive the loop by exactly as long as it takes to stop the audio
+       device. Adding it by hand keeps that in view.
+    
+       On activate rather than here, because an application will not accept a
+       window before it has started up -- "New application windows must be
+       added after the GApplication::startup signal has been emitted", and it
+       means it: added early, the window is refused and nothing appears.
+    
+       The application quits when its last window closes, so the loop still
+       ends the way it always did. */
+    gtkApp->signal_activate().connect(
+        sigc::bind(sigc::ptr_fun(&presentWindow), synthWindow));
 
-    mymain.run(*synthWindow);
-
-    gtkMain = NULL;
+    gtkApp->run();
 
     /* Silence the device first. Everything below this touches state the
        audio callback reads -- saving preferences walks the patch manager,
@@ -508,6 +538,8 @@ int main (int argc, char *argv[])
 
     /* Before the preferences are written, because the window puts its size
        into them as it goes, and long before the synth. */
+    gtkApp->remove_window(*synthWindow);
+
     delete synthWindow;
     synthWindow = NULL;
 
@@ -521,6 +553,8 @@ int main (int argc, char *argv[])
 
     delete asource;
     asource = NULL;
+
+    gtkApp.reset();
 
     printf("deleting synth\n");
     delete Synth;

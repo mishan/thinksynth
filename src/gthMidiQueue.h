@@ -73,7 +73,7 @@ public:
     bool push (const gthMidiEvent &ev);
 
     /* Emitted on the thread that constructed this object, once per message. */
-    sigc::signal<void, const gthMidiEvent &> &signal_event (void) {
+    sigc::signal<void(const gthMidiEvent &)> &signal_event (void) {
         return sigEvent_;
     }
 
@@ -93,7 +93,7 @@ private:
     std::atomic<bool> notified_;
     std::atomic<unsigned long> overflows_;
 
-    sigc::signal<void, const gthMidiEvent &> sigEvent_;
+    sigc::signal<void(const gthMidiEvent &)> sigEvent_;
 };
 
 #endif /* GTH_MIDIQUEUE_H */

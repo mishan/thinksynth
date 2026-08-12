@@ -34,7 +34,7 @@ class thPluginManager;
  * That is a dlopen per selection rather than 62 at startup, which is the only
  * reason the palette opens instantly.
  */
-class NodePalette : public Gtk::VBox
+class NodePalette : public Gtk::Box
 {
 public:
     NodePalette (void);

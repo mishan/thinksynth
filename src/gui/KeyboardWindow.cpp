@@ -37,19 +37,26 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
 
     set_title("thinksynth - Keyboard");
 
-    add(vbox_);
+    set_child(vbox_);
 
-    ctrlTable_ = manage(new Gtk::Table);
+    scroll_ = Gtk::EventControllerScroll::create();
+    scroll_->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
+    scroll_->signal_scroll().connect(
+        sigc::mem_fun(*this, &KeyboardWindow::onScroll), false);
+    add_controller(scroll_);
+
+    ctrlTable_ = manage(new Gtk::Grid);
     keyboard_ = manage(new Keyboard);
     ctrlFrame_ = manage(new Gtk::Frame("Keyboard Control"));
     chanLbl_ = manage(new Gtk::Label("Channel"));
     transLbl_ = manage(new Gtk::Label("Transpose"));
     resetBtn_ = manage(new Gtk::Button("Reset"));
 
-    vbox_.pack_start(*ctrlFrame_, Gtk::PACK_SHRINK, 5);
-    vbox_.pack_start(*keyboard_);
+    vbox_.append(*ctrlFrame_);
+    keyboard_->set_vexpand(true);
+    vbox_.append(*keyboard_);
 
-    ctrlFrame_->add(*ctrlTable_);
+    ctrlFrame_->set_child(*ctrlTable_);
 
     /* gtkmm-3: Adjustment is refcounted with a protected constructor, so it is
        created through the factory and held by RefPtr rather than manage()d.
@@ -61,13 +68,33 @@ KeyboardWindow::KeyboardWindow (thSynth *synth)
     transVal_ = Gtk::Adjustment::create(0, -72, 72);
     transBtn_ = manage(new Gtk::SpinButton(transVal_));
 
-    ctrlTable_->attach(*chanLbl_, 0, 1, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
-    ctrlTable_->attach(*chanBtn_, 1, 2, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+    chanLbl_->set_margin_start(5);
+    chanLbl_->set_margin_end(5);
+    chanLbl_->set_margin_top(5);
+    chanLbl_->set_margin_bottom(5);
+    ctrlTable_->attach(*chanLbl_, 0, 0, 1, 1);
+    chanBtn_->set_margin_start(5);
+    chanBtn_->set_margin_end(5);
+    chanBtn_->set_margin_top(5);
+    chanBtn_->set_margin_bottom(5);
+    ctrlTable_->attach(*chanBtn_, 1, 0, 1, 1);
 
-    ctrlTable_->attach(*transLbl_, 2, 3, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
-    ctrlTable_->attach(*transBtn_, 3, 4, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+    transLbl_->set_margin_start(5);
+    transLbl_->set_margin_end(5);
+    transLbl_->set_margin_top(5);
+    transLbl_->set_margin_bottom(5);
+    ctrlTable_->attach(*transLbl_, 2, 0, 1, 1);
+    transBtn_->set_margin_start(5);
+    transBtn_->set_margin_end(5);
+    transBtn_->set_margin_top(5);
+    transBtn_->set_margin_bottom(5);
+    ctrlTable_->attach(*transBtn_, 3, 0, 1, 1);
 
-    ctrlTable_->attach(*resetBtn_, 4, 5, 0, 1, Gtk::SHRINK, Gtk::SHRINK, 5, 5);
+    resetBtn_->set_margin_start(5);
+    resetBtn_->set_margin_end(5);
+    resetBtn_->set_margin_top(5);
+    resetBtn_->set_margin_bottom(5);
+    ctrlTable_->attach(*resetBtn_, 4, 0, 1, 1);
 
     chanVal_->signal_value_changed().connect(
         sigc::mem_fun(*this, &KeyboardWindow::changeChannel));
@@ -192,11 +219,16 @@ void KeyboardWindow::changeTranspose (void)
     kbMutex_.unlock();
 }
 
-bool KeyboardWindow::on_scroll_event (GdkEventScroll *s)
+/* dy is negative upwards, and a smooth device reports fractions of a step.
+   Only the sign is wanted here: one channel per notch, as before. */
+bool KeyboardWindow::onScroll (double dx, double dy)
 {
-    float channel = chanVal_->get_value();
+    (void)dx;
 
-    channel += (s->direction == GDK_SCROLL_UP ? 1 : -1);
+    if (dy == 0.0)
+        return false;
+
+    float channel = chanVal_->get_value() + (dy < 0.0 ? 1 : -1);
 
     if ((channel < 1) || (channel > synth_->midiChanCount()))
         return true;

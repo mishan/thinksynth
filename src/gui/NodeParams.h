@@ -30,7 +30,7 @@
  * .dsp text -- there is no live thArg to poke. The window owns that decision;
  * this widget only knows what was typed.
  */
-class NodeParams : public Gtk::VBox
+class NodeParams : public Gtk::Box
 {
 public:
     NodeParams (void);
@@ -47,6 +47,8 @@ public:
 protected:
     void addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p);
     void onSpinActivate (Gtk::SpinButton *spin, string name);
+    bool onSpinKey (guint keyval, guint keycode, Gdk::ModifierType state,
+                    Gtk::SpinButton *spin, string name);
 
 private:
     const NodeGraph *graph_;

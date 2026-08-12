@@ -394,7 +394,9 @@ What it replaces and what it buys:
 - `add_library(<plugin> MODULE)` is exactly right: `-bundle` on macOS, a plain
   `.dll` on Windows, `.so` on Linux, without a `PLUGIN_SUFFIX` variable at all.
 - `pkg_check_modules(GTKMM REQUIRED IMPORTED_TARGET gtkmm-3.0)` works on all
-  three (MSYS2 ships pkgconf; Homebrew ships pkg-config).
+  three (MSYS2 ships pkgconf; Homebrew ships pkg-config). *That module name is
+  `gtkmm-4.0` since the gtkmm-4 port; the point about pkg-config being
+  available everywhere is what mattered and still holds.*
 - The per-file `.dt` dependency hack and `AC_CXX_MT_BROKEN` disappear.
 - `install()` + CPack gives `.tar.gz`, a `.dmg` and an NSIS installer later
   without a second packaging system.
@@ -487,9 +489,9 @@ bug, remove a deprecated macOS linker hack, and delete a thousand lines.
 
 | Job | Runner | Toolchain | Deps |
 |---|---|---|---|
-| `linux` | `ubuntu-latest` | GCC | apt: `cmake ninja-build bison flex libgtkmm-3.0-dev libsigc++-2.0-dev libasound2-dev libjack-jackd2-dev` |
-| `macos` | `macos-14` (arm64) | Clang | brew: `cmake ninja bison flex pkg-config gtkmm3 jack` — **bison and flex on `PATH` first** |
-| `windows` | `windows-latest` | MinGW-w64 UCRT64 | `msys2/setup-msys2@v2`, pacman: `mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,gtkmm3,rtaudio,rtmidi} bison flex` |
+| `linux` | `ubuntu-latest` | GCC | apt: `cmake ninja-build bison flex libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev libjack-jackd2-dev` |
+| `macos` | `macos-14` (arm64) | Clang | brew: `cmake ninja bison flex pkg-config gtkmm4 jack` — **bison and flex on `PATH` first** |
+| `windows` | `windows-latest` | MinGW-w64 UCRT64 | `msys2/setup-msys2@v2`, pacman: `mingw-w64-ucrt-x86_64-{gcc,cmake,ninja,pkgconf,gtkmm4,rtaudio,rtmidi} bison flex` |
 | `asan` | `ubuntu-latest` | GCC + ASan/UBSan | as `linux` |
 
 Every job runs the same three gates after building:

@@ -60,9 +60,31 @@ NodeCanvas::NodeCanvas (void)
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
       hoverEdge_(-1), dragSlider_(-1), fitPending_(false)
 {
-    add_events(Gdk::BUTTON_PRESS_MASK | Gdk::BUTTON_RELEASE_MASK |
-               Gdk::POINTER_MOTION_MASK | Gdk::SCROLL_MASK |
-               Gdk::SMOOTH_SCROLL_MASK | Gdk::LEAVE_NOTIFY_MASK);
+    set_draw_func(sigc::mem_fun(*this, &NodeCanvas::onDraw));
+
+    /* Only the first button is wanted: everything here is a left-drag. */
+    click_ = Gtk::GestureClick::create();
+    click_->set_button(1);
+    click_->signal_pressed().connect(
+        sigc::mem_fun(*this, &NodeCanvas::onPressed));
+    click_->signal_released().connect(
+        sigc::mem_fun(*this, &NodeCanvas::onReleased));
+    add_controller(click_);
+
+    motion_ = Gtk::EventControllerMotion::create();
+    motion_->signal_motion().connect(
+        sigc::mem_fun(*this, &NodeCanvas::onMotion));
+    motion_->signal_leave().connect(
+        sigc::mem_fun(*this, &NodeCanvas::onLeave));
+    add_controller(motion_);
+
+    scroll_ = Gtk::EventControllerScroll::create();
+    scroll_->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
+    scroll_->signal_scroll().connect(
+        sigc::mem_fun(*this, &NodeCanvas::onScroll), false);
+    add_controller(scroll_);
+
+    signal_resize().connect(sigc::mem_fun(*this, &NodeCanvas::onResize));
 }
 
 void NodeCanvas::updateSize (void)
@@ -183,9 +205,15 @@ void NodeCanvas::zoomToFit (void)
     setZoom(z);
 }
 
-void NodeCanvas::on_size_allocate (Gtk::Allocation &alloc)
+/* A deferred Fit, taken the moment the canvas has a size to fit to.
+ *
+ * on_size_allocate is not overridable in GTK4 -- the vfunc is size_allocate
+ * with a different signature and overriding it means taking responsibility
+ * for allocating the children too. signal_resize says the same thing and asks
+ * for nothing. */
+void NodeCanvas::onResize (int width, int height)
 {
-    Gtk::DrawingArea::on_size_allocate(alloc);
+    (void)width; (void)height;
 
     if (fitPending_)
         zoomToFit();
@@ -208,14 +236,16 @@ void NodeCanvas::toGraph (double sx, double sy, double &gx, double &gy) const
     gy = sy / zoom_;
 }
 
-bool NodeCanvas::on_button_press_event (GdkEventButton *b)
+void NodeCanvas::onPressed (int nPress, double x, double y)
 {
-    if (graph_ == NULL || b->button != 1)
-        return false;
+    (void)nPress;
+
+    if (graph_ == NULL)
+        return;
 
     double gx, gy;
 
-    toGraph(b->x, b->y, gx, gy);
+    toGraph(x, y, gx, gy);
 
     /* A slider takes precedence over the box it is drawn on, or a control
        could never be adjusted -- only dragged around. */
@@ -233,7 +263,7 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
         m_signal_control_(slider, v, false);
         queue_draw();
 
-        return true;
+        return;
     }
 
     /* A port takes precedence over the box it sits on: the handles straddle
@@ -252,7 +282,7 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
         setSelected(pb);
         queue_draw();
 
-        return true;
+        return;
     }
 
     /* Clicking a wire and pressing Delete is one interaction too many for
@@ -264,7 +294,7 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
     if (edge >= 0 && graph_->boxAt(gx, gy) < 0)
     {
         m_signal_disconnect_(edge);
-        return true;
+        return;
     }
 
     int hit = graph_->boxAt(gx, gy);
@@ -294,7 +324,7 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
 
         clearSelection();
 
-        return true;
+        return;
     }
 
     /* Selecting on press rather than on release: a drag should show you what
@@ -317,12 +347,13 @@ bool NodeCanvas::on_button_press_event (GdkEventButton *b)
     dragDX_ = gx - graph_->boxes()[hit].x;
     dragDY_ = gy - graph_->boxes()[hit].y;
 
-    return true;
+    return;
 }
 
-bool NodeCanvas::on_button_release_event (GdkEventButton *b)
+void NodeCanvas::onReleased (int nPress, double x, double y)
 {
-    (void)b;    /* which button came up does not matter here */
+    /* Which button came up does not matter: the gesture only watches one. */
+    (void)nPress; (void)x; (void)y;
 
     if (dragSlider_ >= 0)
     {
@@ -335,7 +366,7 @@ bool NodeCanvas::on_button_release_event (GdkEventButton *b)
 
         queue_draw();
 
-        return true;
+        return;
     }
 
     if (wireBox_ >= 0)
@@ -349,7 +380,7 @@ bool NodeCanvas::on_button_release_event (GdkEventButton *b)
         queue_draw();
 
         if (toBox < 0)
-            return true;        /* dropped on nothing; no complaint needed */
+            return;             /* dropped on nothing; no complaint needed */
 
         /* Dragging output-to-input and input-to-output are the same gesture,
            so whichever end is the input becomes the destination. */
@@ -366,12 +397,12 @@ bool NodeCanvas::on_button_release_event (GdkEventButton *b)
         if (!graph_->canConnect(a, ap, z, zp, why))
         {
             m_signal_refused_(why);
-            return true;
+            return;
         }
 
         m_signal_connect_(a, ap, z, zp);
 
-        return true;
+        return;
     }
 
     if (bandOn_)
@@ -396,7 +427,7 @@ bool NodeCanvas::on_button_release_event (GdkEventButton *b)
 
         queue_draw();
 
-        return true;
+        return;
     }
 
     if (dragBox_ >= 0)
@@ -410,17 +441,17 @@ bool NodeCanvas::on_button_release_event (GdkEventButton *b)
         dragBox_ = -1;
     }
 
-    return true;
+    return;
 }
 
-bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
+void NodeCanvas::onMotion (double x, double y)
 {
     if (graph_ == NULL)
-        return false;
+        return;
 
     double gx, gy;
 
-    toGraph(m->x, m->y, gx, gy);
+    toGraph(x, y, gx, gy);
 
     if (dragBox_ >= 0)
     {
@@ -456,7 +487,7 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
 
         queue_draw();
 
-        return true;
+        return;
     }
 
     if (bandOn_)
@@ -466,7 +497,7 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
 
         queue_draw();
 
-        return true;
+        return;
     }
 
     if (dragSlider_ >= 0)
@@ -478,7 +509,7 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
         m_signal_control_(dragSlider_, v, false);
         queue_draw();
 
-        return true;
+        return;
     }
 
     if (wireBox_ >= 0)
@@ -512,7 +543,7 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
 
         queue_draw();
 
-        return true;
+        return;
     }
 
     /* Hover feedback: ports, so the wire handles are discoverable, and wires,
@@ -534,35 +565,36 @@ bool NodeCanvas::on_motion_notify_event (GdkEventMotion *m)
         queue_draw();
     }
 
-    return true;
+    return;
 }
 
-bool NodeCanvas::on_leave_notify_event (GdkEventCrossing *c)
+void NodeCanvas::onLeave (void)
 {
-    (void)c;
-
     if (hoverBox_ >= 0 || hoverPort_ >= 0 || hoverEdge_ >= 0)
     {
         hoverBox_ = hoverPort_ = hoverEdge_ = -1;
         queue_draw();
     }
-
-    return true;
 }
 
-bool NodeCanvas::on_scroll_event (GdkEventScroll *s)
+bool NodeCanvas::onScroll (double dx, double dy)
 {
+    (void)dx;
+
     /* Ctrl+wheel zooms; a bare wheel is left to the scrolled window, which is
-       what people expect of a large canvas. */
-    if ((s->state & GDK_CONTROL_MASK) == 0)
+       what people expect of a large canvas.
+     *
+     * The modifier comes off the controller's current event rather than out
+       of a struct member -- and a controller reports every wheel as a delta,
+       so the discrete up/down cases and the smooth one are now one case. */
+    if ((scroll_->get_current_event_state() & Gdk::ModifierType::CONTROL_MASK)
+        != Gdk::ModifierType::CONTROL_MASK)
         return false;
 
-    if (s->direction == GDK_SCROLL_UP)
-        setZoom(zoom_ * 1.1);
-    else if (s->direction == GDK_SCROLL_DOWN)
-        setZoom(zoom_ / 1.1);
-    else if (s->direction == GDK_SCROLL_SMOOTH && s->delta_y != 0)
-        setZoom(zoom_ * (s->delta_y < 0 ? 1.1 : 1.0 / 1.1));
+    if (dy == 0.0)
+        return false;
+
+    setZoom(dy < 0.0 ? zoom_ * 1.1 : zoom_ / 1.1);
 
     return true;
 }
@@ -585,8 +617,8 @@ void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
        coincidences. */
     if (b.groupHead && !b.ctlGroup.empty())
     {
-        cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
-                             Cairo::FONT_WEIGHT_BOLD);
+        cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                             Cairo::ToyFontFace::Weight::BOLD);
         cr->set_font_size(8.0);
         cr->set_source_rgb(COL_DIM);
         cr->move_to(b.x + 4.0, b.y - 3.0);
@@ -621,8 +653,8 @@ void NodeCanvas::drawAttached (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->set_source_rgb(COL_FILL);
     cr->fill();
 
-    cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
-                         Cairo::FONT_WEIGHT_NORMAL);
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
     cr->set_font_size(9.0);
     cr->set_source_rgb(COL_TEXT);
 
@@ -680,8 +712,8 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
         cr->set_source_rgb(COL_HEAD);
     cr->fill();
 
-    cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
-                         Cairo::FONT_WEIGHT_BOLD);
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::BOLD);
     cr->set_font_size(10.0);
     cr->set_source_rgb(COL_TEXT);
     cr->move_to(b.x + 6, b.y + 14);
@@ -726,8 +758,8 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
 
     if (!corner.empty())
     {
-        cr->select_font_face("sans", Cairo::FONT_SLANT_ITALIC,
-                             Cairo::FONT_WEIGHT_NORMAL);
+        cr->select_font_face("sans", Cairo::ToyFontFace::Slant::ITALIC,
+                             Cairo::ToyFontFace::Weight::NORMAL);
         cr->set_font_size(8.0);
         cr->set_source_rgb(COL_DIM);
 
@@ -738,8 +770,8 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     }
 
     /* ports */
-    cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
-                         Cairo::FONT_WEIGHT_NORMAL);
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
     cr->set_font_size(9.0);
 
     for (size_t k = 0; k < b.ports.size(); k++)
@@ -810,7 +842,7 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
         return;
 
     cr->set_line_width(3.0);
-    cr->set_line_cap(Cairo::LINE_CAP_ROUND);
+    cr->set_line_cap(Cairo::Context::LineCap::ROUND);
 
     cr->move_to(x0, y);
     cr->line_to(x1, y);
@@ -825,7 +857,7 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
         cr->stroke();
     }
 
-    cr->set_line_cap(Cairo::LINE_CAP_BUTT);
+    cr->set_line_cap(Cairo::Context::LineCap::BUTT);
 
     cr->arc(hx, y, (index == dragSlider_) ? 6.0 : 5.0, 0, 2 * M_PI);
     cr->set_source_rgb(COL_HANDLE);
@@ -835,8 +867,8 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
 
     snprintf(buf, sizeof(buf), "%.4g", (double)b.ctlValue);
 
-    cr->select_font_face("sans", Cairo::FONT_SLANT_NORMAL,
-                         Cairo::FONT_WEIGHT_NORMAL);
+    cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
+                         Cairo::ToyFontFace::Weight::NORMAL);
     cr->set_font_size(8.0);
     cr->set_source_rgb(COL_DIM);
 
@@ -960,16 +992,15 @@ void NodeCanvas::drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr)
     }
 }
 
-bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
+void NodeCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                         int height)
 {
-    Gtk::Allocation alloc = get_allocation();
-
     cr->set_source_rgb(COL_BG);
-    cr->rectangle(0, 0, alloc.get_width(), alloc.get_height());
+    cr->rectangle(0, 0, width, height);
     cr->fill();
 
     if (graph_ == NULL)
-        return true;
+        return;
 
     cr->save();
     cr->scale(zoom_, zoom_);
@@ -1016,6 +1047,4 @@ bool NodeCanvas::on_draw (const Cairo::RefPtr<Cairo::Context> &cr)
     }
 
     cr->restore();
-
-    return true;
 }

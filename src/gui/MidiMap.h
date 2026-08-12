@@ -49,16 +49,15 @@ protected:
     void onDelButton (void);
     void onChannelChanged (void);
     void onControllerChanged (void);
-    bool onDestChanComboChanged (GdkEventButton* b, int chan);
-    bool onDestArgComboChanged (GdkEventButton* b, thArg *arg);
-    bool onDestChanComboFocus (GdkEventFocus* f, int chan)
-        { return onDestChanComboChanged(NULL, chan); }
-    bool onDestArgComboFocus (GdkEventFocus* f, thArg *arg)
-        { return onDestArgComboChanged(NULL, arg); }
+    /* These took a GdkEventButton they never looked at -- they were bound to
+       a menu item's button-press in the days when the destination pickers
+       were menus. There is no event to take now. */
+    void onDestChanComboChanged (int chan);
+    void onDestArgComboChanged (thArg *arg);
     void onMinChanged (void);
     void onMaxChanged (void);
     void onExpToggled (void);
-    void onConnectionSelected (GdkEventButton *b);
+    void onConnectionSelected (void);
     void onConnectionMoved (void);
     void onPatchChanged (void);
 
@@ -67,16 +66,16 @@ protected:
     Glib::RefPtr<Gtk::Adjustment> minAdj_;
     Glib::RefPtr<Gtk::Adjustment> maxAdj_;
 
-    Gtk::VBox *mainVBox_;
-    Gtk::VBox *inputVBox_;
-    Gtk::HBox *srcDestHBox_;
-    Gtk::HBox *newConnectionHBox_;
+    Gtk::Box *mainVBox_;
+    Gtk::Box *inputVBox_;
+    Gtk::Box *srcDestHBox_;
+    Gtk::Box *newConnectionHBox_;
     Gtk::Frame *newConnectionFrame_;
-    Gtk::HBox *destinationHBox_;
+    Gtk::Box *destinationHBox_;
     Gtk::Frame *destinationFrame_;
-    Gtk::HBox *detailsHBox_;
+    Gtk::Box *detailsHBox_;
     Gtk::Frame *detailsFrame_;
-    Gtk::HBox *buttonsHBox_;
+    Gtk::Box *buttonsHBox_;
     Gtk::Label *channelLbl_;
     Gtk::SpinButton *channelSpinBtn_;
     Gtk::Label *controllerLbl_;
