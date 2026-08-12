@@ -312,7 +312,10 @@ is a matter of looking at it — which is what `-o` is for.
 
 ## 6. Adding a module: the short version
 
-1. Copy `plugins/visual/meter.cpp` to `plugins/visual/yours.cpp`.
+1. Copy `plugins/visual/meter.cpp` to `plugins/visual/yours.cpp`, and change the
+   `setName` in its `visual_init`. The name in there is what the menu shows, not
+   the filename — leave it and you get a second entry called "meter", which
+   nothing will complain about.
 2. Add `think_add_visual(yours)` to `plugins/CMakeLists.txt`.
 3. Build, then run `visualcheck -p build/plugins/` until it is green.
 4. Run `visualcheck -p build/plugins/ -o /tmp/pics` and look at the pictures.

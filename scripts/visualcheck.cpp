@@ -353,6 +353,10 @@ void listVisuals (const string &dir, vector<string> &out)
 /* Where to write pictures, or empty. See the -o comment in main. */
 string pngDir;
 
+/* Whether a write has already failed, so a broken -o says so once rather than
+   once per picture. Forty-four identical lines is its own kind of silence. */
+bool pngFailed = false;
+
 void writePng (thVisual &visual, void *inst, const string &what)
 {
     if (pngDir.empty())
@@ -380,7 +384,20 @@ void writePng (thVisual &visual, void *inst, const string &what)
             name[i] == ')')
             name[i] = '_';
 
-    cairo_surface_write_to_png(surf, name.c_str());
+    /* Checked, because the failure is otherwise perfectly quiet: cairo returns
+       a status and writes nothing, visualcheck goes on to report its checks
+       green, and the only sign that -o did nothing is an empty directory the
+       reader has to think to look in. That is exactly how this was found --
+       by following §6 step 4 with a path that did not exist yet. */
+    const cairo_status_t st = cairo_surface_write_to_png(surf, name.c_str());
+
+    if (st != CAIRO_STATUS_SUCCESS && !pngFailed)
+    {
+        pngFailed = true;
+        printf("  note: cannot write %s (%s) -- no pictures will be written\n",
+               name.c_str(), cairo_status_to_string(st));
+    }
+
     cairo_surface_destroy(surf);
 }
 
@@ -685,7 +702,20 @@ int main (int argc, char **argv)
            at. Not a check and it asserts nothing -- the header above is clear
            that whether a visualizer is *correct* is a matter of looking at it,
            and this is what makes that possible without running the editor. */
-        else if (!strcmp(argv[i], "-o")) { if (++i >= argc) return 2; pngDir = argv[i]; }
+        else if (!strcmp(argv[i], "-o"))
+        {
+            if (++i >= argc)
+                return 2;
+
+            pngDir = argv[i];
+
+            /* Made rather than required. `-o /tmp/pics' is the documented
+               invocation and /tmp/pics does not exist on a machine that has
+               not run this before; asking the reader to mkdir first is a step
+               that exists only because the tool declined to. */
+            std::error_code ec;
+            std::filesystem::create_directories(pngDir, ec);
+        }
         else
         {
             printf("usage: %s [-p PLUGIN_PATH] [-o PNG_DIR]\n", argv[0]);
