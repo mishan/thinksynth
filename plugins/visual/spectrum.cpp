@@ -164,7 +164,16 @@ void *visual_open (thVisual *visual, unsigned int samplerate)
 {
     (void)visual;
 
-    Spectrum *s = new Spectrum(samplerate);
+    /* std::nothrow, because this is a C ABI boundary.
+     *
+     * thVisual::open calls this through a function pointer. A bad_alloc thrown
+     * here would unwind across that -- out of a dlopen'd module and into a host
+     * that has no catch anywhere near it -- and terminate the process. A
+     * visualizer failing to allocate should cost a panel, not the synth. */
+    Spectrum *s = new (std::nothrow) Spectrum(samplerate);
+
+    if (s == NULL)
+        return NULL;
 
     if (!s->ok())
     {
