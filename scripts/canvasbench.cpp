@@ -195,7 +195,20 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
      * A non-blocking iteration returns immediately when nothing is pending,
      * and between queue_draw() and GTK's frame clock deciding to render there
      * is a stretch where nothing is pending -- so spinning non-blocking never
-     * let a single frame happen and every graph measured as zero. */
+     * let a single frame happen and every graph measured as zero.
+     *
+     * But a blocking iteration returns when a source is ready and not before,
+     * so on a context where nothing ever becomes ready -- a display that went
+     * away, a frame clock that never starts -- it waits forever and the
+     * deadline below is never reached. A harness whose failure mode is a hang
+     * is a bad harness: it stops CI without saying anything.
+     *
+     * Hence the heartbeat. A 10ms timeout source does nothing except make the
+     * context ready, which bounds how long any one iteration can block and so
+     * turns "wait forever" back into "give up after `seconds' and say so".
+     * Cheaper than the alternative of polling with a sleep, which would have
+     * to sleep short enough to keep the frame rate honest and would then spin
+     * for most of the run. */
     struct Pump {
         static bool until (const std::function<bool()> &done, double seconds)
         {
@@ -203,15 +216,25 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
                 std::chrono::steady_clock::now() +
                 std::chrono::milliseconds((int)(seconds * 1000));
 
+            sigc::connection heartbeat = Glib::signal_timeout().connect(
+                []() -> bool { return true; }, 10);
+
+            bool reached = true;
+
             while (!done())
             {
                 if (std::chrono::steady_clock::now() > deadline)
-                    return false;
+                {
+                    reached = false;
+                    break;
+                }
 
                 Glib::MainContext::get_default()->iteration(true);
             }
 
-            return true;
+            heartbeat.disconnect();
+
+            return reached;
         }
     };
 
