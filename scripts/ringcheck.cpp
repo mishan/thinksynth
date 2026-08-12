@@ -36,6 +36,11 @@
  * ordering; read it as proof of the arithmetic, and let ThreadSanitizer (via
  * dspstress) speak to the ordering.
  *
+ * The ramp has a period, and the run is clamped to it -- see clampWindows.
+ * Past 2^24 samples two positions carry the same value and the gap classifier
+ * starts finding coincidences, which quietly weakens the one check this exists
+ * for. The default of 20000 windows was over that line.
+ *
  * Deliberately not covered: multiple producers or multiple consumers. The
  * structure cannot survive either and does not claim to -- the copy
  * constructor is private so that a second producer cannot be created by
@@ -75,11 +80,30 @@ void ok (bool cond, const char *what)
 
 /* A value that identifies its own position in the stream, so a sample that
    arrives out of place is recognisable on sight rather than merely counted.
-   float holds 24 bits of integer exactly, so this is exact up to 16.7M
-   samples -- well past what any run here produces. */
+   float holds 24 bits of integer exactly, so a position is exact up to
+   RAMP_PERIOD and ambiguous after it. */
+const unsigned long RAMP_PERIOD = 1ul << 24;
+
 float rampAt (unsigned long i)
 {
-    return (float)(i & 0xffffffu);
+    return (float)(i % RAMP_PERIOD);
+}
+
+/* The most windows that can be run before the ramp repeats.
+ *
+ * Past RAMP_PERIOD samples two different positions carry the same value, and
+ * the gap classifier below -- which asks "is this sample the one k windows
+ * ahead?" -- starts finding coincidences. The default of 20000 windows at 1024
+ * samples is 20.5M, comfortably over the 16.7M a float can index exactly, so
+ * this is not a hypothetical: it was silently weakening the very check the
+ * harness exists for. Clamped rather than made an error, because the useful
+ * knob is "run it for longer" and the right answer to that is more shapes
+ * rather than a longer ramp. */
+unsigned long clampWindows (unsigned long windows, unsigned int window)
+{
+    const unsigned long most = RAMP_PERIOD / (window ? window : 1);
+
+    return windows > most ? most : windows;
 }
 
 /* ---- single-threaded ---- */
@@ -258,7 +282,6 @@ Threaded threaded (unsigned int capacity, unsigned int window,
 
     std::vector<float> out(window * 4);
 
-    bool started = false;
     unsigned long expect = 0;
 
     for (;;)
@@ -278,11 +301,16 @@ Threaded threaded (unsigned int capacity, unsigned int window,
         {
             const float want = rampAt(expect);
 
-            if (!started)
-            {
-                started = true;
-            }
-            else if (out[i] != want)
+            /* The first sample is checked like every other one.
+             *
+             * It used to be waved through on the reasoning that there was
+             * nothing before it to be discontinuous from -- but there is: the
+             * stream starts at position 0, and if the producer's first windows
+             * were dropped the first sample the consumer sees is legitimately
+             * a whole number of windows in, which the classifier below already
+             * knows how to say. Skipping it let a corrupt first sample through
+             * as neither a gap nor a misplacement. */
+            if (out[i] != want)
             {
                 /* A gap is legitimate only if it lands on a window boundary:
                    write() is all-or-nothing, so a drop can never leave the
@@ -356,11 +384,14 @@ int main (int argc, char **argv)
 
     for (unsigned int s = 0; s < sizeof(shapes) / sizeof(shapes[0]); s++)
     {
-        const Threaded t = threaded(shapes[s].cap, shapes[s].win, windows);
+        const unsigned long runs = clampWindows(windows, shapes[s].win);
+
+        const Threaded t = threaded(shapes[s].cap, shapes[s].win, runs);
 
         printf("   %-38s  %lu produced, %lu dropped, %lu consumed, "
-               "%lu gap(s)\n", shapes[s].what, t.produced, t.dropped,
-               t.consumed, t.gaps);
+               "%lu gap(s)%s\n", shapes[s].what, t.produced, t.dropped,
+               t.consumed, t.gaps,
+               runs < windows ? "  (windows clamped: see clampWindows)" : "");
 
         char msg[256];
 
