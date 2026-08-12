@@ -125,6 +125,8 @@ pkg_check_modules(GLIBMM REQUIRED IMPORTED_TARGET glibmm-2.68)
 include(FetchContent)
 
 set(THINK_RTAUDIO_VERSION 6.0.1)
+# We use the commit SHA in case the tag ever gets forced push maliciously
+set(THINK_RTAUDIO_VERSION_TAG b4f04903312e0e0efffbe77655172e0f060dc085)
 
 # Forces the fetch path even where pkg-config would have found something.
 # Exists so the fallback can be exercised on a machine that has the system
@@ -198,7 +200,7 @@ else()
 
   FetchContent_Declare(rtaudio
       GIT_REPOSITORY https://github.com/thestk/rtaudio.git
-      GIT_TAG ${THINK_RTAUDIO_VERSION}
+      GIT_TAG ${THINK_RTAUDIO_VERSION_TAG}
       GIT_SHALLOW TRUE
       EXCLUDE_FROM_ALL)
 
@@ -223,6 +225,8 @@ endif()
 # Obtained the same way as RtAudio above, and for the same reason: the
 # distribution cannot be relied on to have 6.x.
 set(THINK_RTMIDI_VERSION 6.0.0)
+# We use the commit SHA in case the tag ever gets forced push maliciously
+set(THINK_RTMIDI_VERSION_TAG 1e5b49925aa60065db52de44c366d446a902547b)
 
 if(NOT THINK_FETCH_RT)
   pkg_check_modules(RTMIDI IMPORTED_TARGET "rtmidi>=6.0.0")
@@ -265,7 +269,7 @@ else()
   # linked dependency and would land in ours.
   FetchContent_Declare(rtmidi
       GIT_REPOSITORY https://github.com/thestk/rtmidi.git
-      GIT_TAG ${THINK_RTMIDI_VERSION}
+      GIT_TAG ${THINK_RTMIDI_VERSION_TAG}
       GIT_SHALLOW TRUE
       EXCLUDE_FROM_ALL)
 
