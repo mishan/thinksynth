@@ -241,9 +241,17 @@ public:
      * the thing that knows which are armed.
      *
      * addProbe returns the new box index, or -1 if `host' is not a node box or
-     * has no output port called `arg'. `height' is what the visual module asked
-     * for. Arming the same point twice returns the existing panel rather than
-     * stacking two, which is also what thSynth::armProbe does with slots.
+     * has no output port called `arg'.
+     *
+     * `height' is the height of the WHOLE PANEL, title row included -- not the
+     * module's preferred height. A caller works it out as probeHeadHeight()
+     * plus whatever the module asked for; passing the module's figure alone
+     * gives a panel a dozen pixels short and a body a dozen pixels short of
+     * that. Zero or negative falls back to one control strip's height.
+     *
+     * Arming the same point twice returns the existing panel rather than
+     * stacking two, which is also what thSynth::armProbe does with slots. A
+     * second arm with a different module retargets that panel.
      *
      * The caller lays out again afterwards. */
     int addProbe (int host, const string &arg, const string &visual,

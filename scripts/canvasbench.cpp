@@ -128,9 +128,11 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
     graph.layout();
     delete tree;
 
-    /* On the heap and deliberately never freed: a Gtk::Window destroyed while
-       its surface is still being torn down takes the process with it, and this
-       is a measuring instrument that exits in a second. */
+    /* On the heap, hidden and destroyed once the measuring is done. It used to
+       be leaked on the reasoning that a window torn down under its own surface
+       is trouble and the process was about to exit anyway -- but a run over the
+       corpus is 81 of them, and a harness that leaks a window per file is not a
+       harness anyone can put under a leak checker. */
     Gtk::Window *windowp = new Gtk::Window();
     Gtk::ScrolledWindow *scroller = Gtk::manage(new Gtk::ScrolledWindow());
     NodeCanvas *canvasp = Gtk::manage(new NodeCanvas());
@@ -284,6 +286,7 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
     out.worstMicros = worst;
 
     window.set_visible(false);
+    delete windowp;
 
     return out.frames > 0;
 }
@@ -314,7 +317,8 @@ int main (int argc, char **argv)
 
     if (firstFile < 0)
     {
-        printf("usage: %s [-p PATH] [-f] file.dsp ...\n"
+        printf("usage: %s [-p PATH] [-f] [-P] [-o PNG] file.dsp ...\n"
+               "  -p  where to find the plugins\n"
                "  -f  zoom to fit first, as the Fit button does\n"
                "  -P  arm a probe panel on every output port\n"
                "  -o  write a PNG of the first graph and stop\n"
@@ -332,7 +336,12 @@ int main (int argc, char **argv)
        happens once the application is running and has a display. An earlier
        version created the Application and pumped the default context, which
        measured every graph as zero frames -- correctly, since nothing had
-       drawn. */
+       drawn.
+     *
+     * The handler quits explicitly at the end. It used to rely on run()
+       returning because no window was left held, which it did -- but by
+       accident rather than by saying so, and one held window anywhere would
+       have hung the harness with no clue why. */
     Glib::RefPtr<Gtk::Application> app =
         Gtk::Application::create("org.metaphonic.thinksynth.canvasbench",
                                  Gio::Application::Flags::NON_UNIQUE);
@@ -357,7 +366,15 @@ int main (int argc, char **argv)
                    r.graphW, r.graphH, r.meanMicros / 1000.0,
                    r.worstMicros / 1000.0);
             fflush(stdout);
+
+            /* -o is one picture, of the first graph that renders. Carrying on
+               through the rest would overwrite it once per file and leave
+               whichever came last, which is not what anyone asked for. */
+            if (png)
+                break;
         }
+
+        app->quit();
     });
 
     /* No arguments: they have already been parsed, and GApplication would

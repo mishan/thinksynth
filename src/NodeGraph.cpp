@@ -1515,12 +1515,22 @@ int NodeGraph::addProbe (int host, const string &arg, const string &visual,
     /* Idempotent, like thSynth::armProbe reusing a slot. Arming the same point
        twice from a menu is an easy thing to do and two panels showing the same
        signal is never what was meant. */
+    /* One height rule, applied on both paths. Re-arming with a different
+       module used to take its height straight, so a caller that got the
+       arithmetic wrong produced a panel nothing could see -- and it left
+       `plugin' and `h' describing the module that had just been replaced,
+       which the canvas draws from. */
+    const double panelH = height > 0 ? height : ATTACH_H;
+
     const int existing = probeAt(host, arg);
 
     if (existing >= 0)
     {
+        boxes_[existing].plugin = visual;
         boxes_[existing].probeVisual = visual;
-        boxes_[existing].attachH = height;
+        boxes_[existing].attachH = panelH;
+        boxes_[existing].h = panelH;
+
         return existing;
     }
 
@@ -1532,9 +1542,9 @@ int NodeGraph::addProbe (int host, const string &arg, const string &visual,
     p.probeArg = arg;
     p.probeVisual = visual;
     p.attachedTo = host;
-    p.attachH = height > 0 ? height : ATTACH_H;
+    p.attachH = panelH;
     p.w = ATTACH_W;
-    p.h = p.attachH;
+    p.h = panelH;
 
     boxes_.push_back(p);
 
