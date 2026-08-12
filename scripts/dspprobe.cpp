@@ -326,10 +326,35 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
             if (memcmp(&tapped[0], &reference[0],
                        windowlen * sizeof(float)) != 0)
             {
+                /* Located with the same comparison memcmp used, not with ==.
+                 *
+                 * +0.0f and -0.0f compare equal and differ bitwise, and so do
+                 * two NaNs -- both of which this corpus produces, since four
+                 * DSPs diverge and mixer.out on bd1 reaches -inf. With == the
+                 * scan could pass every sample and leave `at' at windowlen,
+                 * which is one past the end of both buffers and was read
+                 * anyway to print the values. */
                 int at = 0;
 
-                while (at < windowlen && tapped[at] == reference[at])
+                while (at < windowlen &&
+                       memcmp(&tapped[at], &reference[at], sizeof(float)) == 0)
                     at++;
+
+                if (at >= windowlen)
+                {
+                    /* memcmp said they differ and a per-float memcmp cannot
+                       disagree with it, so this is unreachable -- but printing
+                       a sample past the end to say so would be worse than
+                       saying it plainly. */
+                    printf("FAIL  %s: %s.%s differs from the reference sum at "
+                           "window %d, but no single sample does\n", file,
+                           ports[p].first.c_str(), ports[p].second.c_str(), w);
+                    mismatch = true;
+                    r.bad++;
+                    checks++;
+                    failures++;
+                    break;
+                }
 
                 printf("FAIL  %s: %s.%s differs from the reference sum at "
                        "window %d sample %d (%g vs %g)\n", file,

@@ -166,8 +166,15 @@ public:
      *
      * armProbe resolves `node' and `arg' against the channel's current tree on
      * the GUI thread, allocates the probe there, and queues the install.
-     * Returns the slot, or -1 with `why' set. Re-arming a slot that is already
-     * in use is how a probe is retargeted.
+     * Returns the slot it took, or -1 with `why' set.
+     *
+     * The slot is an output, not an input: there is no way to ask for a
+     * particular one. Arming a point that is already armed returns the slot it
+     * already has, which makes arming twice idempotent rather than a way to
+     * burn two of the eight; anything else takes the lowest free slot and
+     * fails when there is none. So a slot number is only good until the probe
+     * holding it is disarmed -- callers should hold the node and arg names,
+     * which is what everything else about a probe is keyed on.
      *
      * The resolution is only meaningful for the tree the channel is playing
      * *now*: ids are assigned in parse order, so adding or removing a node
