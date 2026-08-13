@@ -65,6 +65,47 @@ set(THINKSYNTH_SOURCES
     gui/SaveButton.cpp
     gui/PatchSelWindow.cpp)
 
+# ---------------------------------------------------------------------------
+# Windows resources: icon, manifest, version block
+#
+# A MinGW binary has none of these by default -- no icon in Explorer, nothing
+# behind File -> Properties -> Details, and no manifest, which means Windows
+# assumes the program predates high-DPI displays and bitmap-stretches its
+# window on one.
+#
+# To be clear about what this is not: it is metadata, not a signature. An
+# unsigned executable stays unsigned and SmartScreen will still say so.
+# ---------------------------------------------------------------------------
+
+if(WIN32)
+  # project(VERSION 0.1) leaves PROJECT_VERSION_PATCH empty, and an empty
+  # field in a FILEVERSION is a windres syntax error rather than a zero.
+  set(THINK_VER_MAJOR "${PROJECT_VERSION_MAJOR}")
+  set(THINK_VER_MINOR "${PROJECT_VERSION_MINOR}")
+  set(THINK_VER_PATCH "${PROJECT_VERSION_PATCH}")
+
+  foreach(_f THINK_VER_MAJOR THINK_VER_MINOR THINK_VER_PATCH)
+    if(NOT ${_f})
+      set(${_f} 0)
+    endif()
+  endforeach()
+
+  enable_language(RC)
+
+  # The script names the .ico and the .manifest by absolute path, because the
+  # configured copy lives in the build tree while both of those are in the
+  # source tree, and windres resolves a bare filename against its include path
+  # rather than against the script that named it. Forward slashes: both windres
+  # and rc.exe accept them, and a backslash inside an RC string literal is an
+  # escape.
+  set(THINK_RC_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+
+  configure_file(thinksynth.rc.in
+                 "${CMAKE_CURRENT_BINARY_DIR}/thinksynth.rc" @ONLY)
+
+  list(APPEND THINKSYNTH_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/thinksynth.rc")
+endif()
+
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>

@@ -1,0 +1,63 @@
+/* Windows resource script for thinksynth.exe.
+ *
+ * Configured by CMake -- the @...@ placeholders come from project(VERSION)
+ * and from THINK_APP_* in CMakeLists.txt -- then compiled by windres and
+ * linked into the executable. It supplies three things a bare MinGW binary
+ * does not have:
+ *
+ * Everything in the version block is plain ASCII on purpose. windres decodes
+ * the script using codepage 1252 unless told otherwise, so an em dash -- as a
+ * literal UTF-8 byte sequence or as the \342\200\224 octal escape -- arrives in
+ * Explorer's Details pane as three accented characters. A hyphen always reads
+ * as a hyphen.
+ *
+ *   the icon Explorer and the taskbar draw,
+ *   the application manifest (DPI awareness, long paths, no UAC prompt),
+ *   and the version block behind File -> Properties -> Details, which is
+ *   where Windows expects to be told who published a program.
+ *
+ * None of it is a code signature. An unsigned binary is still unsigned, and
+ * SmartScreen will still say so; this is the metadata, not the trust.
+ */
+
+#include <windows.h>
+
+/* Explorer, the taskbar and Alt-Tab. Multi-resolution, 16 to 256 px; see
+   scripts/make-windows-icon.py. The lowest-numbered icon resource is the one
+   Windows uses for the executable itself, so this stays 1. */
+1 ICON "@THINK_RC_DIR@/thinksynth.ico"
+
+/* CREATEPROCESS_MANIFEST_RESOURCE_ID (1), RT_MANIFEST (24). */
+1 24 "@THINK_RC_DIR@/thinksynth.manifest"
+
+VS_VERSION_INFO VERSIONINFO
+  FILEVERSION     @THINK_VER_MAJOR@,@THINK_VER_MINOR@,@THINK_VER_PATCH@,0
+  PRODUCTVERSION  @THINK_VER_MAJOR@,@THINK_VER_MINOR@,@THINK_VER_PATCH@,0
+  FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+  FILEFLAGS       0x0L
+  FILEOS          VOS__WINDOWS32
+  FILETYPE        VFT_APP
+  FILESUBTYPE     0x0L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    /* 0409 is U.S. English, 04b0 is codepage 1200 (Unicode). The pair has to
+       match the Translation value at the bottom or Explorer shows nothing. */
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName",      "@THINK_APP_VENDOR@"
+      VALUE "FileDescription",  "thinksynth - a modular software synthesizer"
+      VALUE "FileVersion",      "@PROJECT_VERSION@"
+      VALUE "InternalName",     "thinksynth"
+      VALUE "LegalCopyright",   "Copyright (C) 2004-2026 @THINK_APP_VENDOR@. GPL-2.0-or-later."
+      VALUE "OriginalFilename", "thinksynth.exe"
+      VALUE "ProductName",      "thinksynth"
+      VALUE "ProductVersion",   "@PROJECT_VERSION@"
+      VALUE "Comments",         "@THINK_APP_URL@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END
