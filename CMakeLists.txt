@@ -429,6 +429,17 @@ include(Layout)
 
 enable_testing()
 
+# Outside the THINK_BUILD_HARNESSES gate below, and outside any platform test,
+# because it guards two committed files that every checkout contains whichever
+# platform it is on: src/thinksynth.ico for Windows and src/thinksynth.icns for
+# the macOS bundle are both rendered from the shared SVG ahead of time, and
+# nothing about editing that SVG makes a stale render stop working. Costs one
+# file hash, and needs neither a build nor a renderer.
+add_test(NAME icon-stamp
+         COMMAND "${CMAKE_COMMAND}"
+                 "-DTHINK_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+                 -P "${PROJECT_SOURCE_DIR}/cmake/CheckIconStamp.cmake")
+
 add_subdirectory(libthink)
 add_subdirectory(plugins)
 add_subdirectory(src)

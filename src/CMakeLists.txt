@@ -106,6 +106,35 @@ if(WIN32)
   list(APPEND THINKSYNTH_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/thinksynth.rc")
 endif()
 
+# ---------------------------------------------------------------------------
+# macOS bundle icon
+#
+# Finder draws thinksynth.app with whatever Contents/Resources file the
+# Info.plist names in CFBundleIconFile. That is two separate things, and they
+# are set in two places on purpose:
+#
+#   the plist key is a target property, MACOSX_BUNDLE_ICON_FILE, and lives in
+#   cmake/Packaging.cmake with the rest of the bundle metadata;
+#
+#   getting the file itself into Contents/Resources is a *source file*
+#   property, and source file properties are scoped to the directory that
+#   defines the target -- which is this one. Setting it next to its sibling in
+#   Packaging.cmake would be tidier and would silently do nothing.
+#
+# Like the .ico above, the .icns is committed rather than rendered here, so a
+# macOS build needs no rasteriser. scripts/make-icons.py produces both from
+# data/org.thinksynth.thinksynth.svg.
+# ---------------------------------------------------------------------------
+
+if(APPLE)
+  set(THINK_ICNS "${CMAKE_CURRENT_SOURCE_DIR}/thinksynth.icns")
+
+  set_source_files_properties("${THINK_ICNS}" PROPERTIES
+                              MACOSX_PACKAGE_LOCATION Resources)
+
+  list(APPEND THINKSYNTH_SOURCES "${THINK_ICNS}")
+endif()
+
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>

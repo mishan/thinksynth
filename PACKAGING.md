@@ -152,6 +152,55 @@ already on the machine. No font files, and no `etc/fonts/fonts.conf` either —
 fontconfig is linked but never consulted. Setting `PANGOCAIRO_BACKEND=fc` would
 change that; nothing does.
 
+## The application icon: one SVG, three containers
+
+`data/org.thinksynth.thinksynth.svg` is the icon. Linux installs it into
+`hicolor/scalable` and the Flatpak takes it from there. Neither of the other two
+can use an SVG, so `scripts/make-icons.py` renders it into the containers they
+want: `src/thinksynth.ico`, which `src/thinksynth.rc.in` embeds in the
+executable, and `src/thinksynth.icns`, which CMake copies into
+`thinksynth.app/Contents/Resources`.
+
+The macOS half is two properties in two files, and both are needed — either one
+alone leaves the generic icon. `MACOSX_BUNDLE_ICON_FILE` names the file in the
+`Info.plist` and sits in `cmake/Packaging.cmake` with the rest of the bundle
+metadata; getting the file into `Contents/Resources` is `MACOSX_PACKAGE_LOCATION`,
+a *source file* property, and source file properties are scoped to the directory
+that defines the target, so it has to be in `src/CMakeLists.txt`. Setting it
+beside its sibling would be tidier and would silently do nothing.
+
+**The renderer is gdk-pixbuf's SVG loader, which is librsvg**, reached through
+PyGObject — the same library GTK would use to draw the icon, and already present
+anywhere this builds. ImageMagick is the obvious alternative and the wrong one:
+its built-in SVG renderer ignores the `url(#bg)` gradient and fills the
+background flat black. The first version of this script worked around that by
+redrawing the icon's geometry by hand in Pillow calls, which meant two files
+describing one icon; the workaround was unnecessary, and librsvg had been
+reachable the whole time.
+
+**Both renders are committed**, so building for Windows or macOS needs no
+rasteriser on the machine doing it. That leaves them able to drift silently —
+nothing about editing the SVG makes a stale render stop working — so the
+generator writes `src/thinksynth-icon.stamp` with the hash of the SVG it read,
+and the `icon-stamp` ctest case compares that against the SVG in the tree. It is
+a file hash, so it runs on every platform and needs neither Python nor a
+renderer.
+
+The stamp hashes the *input*, not the outputs. Byte-comparing a fresh render
+against the committed one would be stricter and unusable: librsvg's antialiasing
+differs between versions, so it would fail on whichever machine had a different
+one, which is not the mistake worth catching.
+
+**It hashes the SVG with line endings normalised**, which the first version did
+not, and it failed on Windows for a file nobody had touched. GitHub's Windows
+runners set `core.autocrlf`, so the SVG arrives there byte-for-byte different
+from the commit while describing the same drawing. Hashing raw bytes asks "have
+these bytes changed?"; the question worth asking is "has the artwork changed?",
+and the answer must not depend on which platform is asking. Both the generator
+and the check strip `\r\n` first. `.gitattributes` also pins `*.svg` to LF, but
+that only helps a fresh checkout — the normalising hash is what covers a working
+tree that predates it.
+
 ## How any of this is tested without a Mac or a Windows box
 
 `thinksynth -G` reports whether GTK can reach a schema, our icons and a pixbuf
@@ -220,3 +269,11 @@ one. The bundling is exercised; the *closure* it sits on top of is not.
 CI runs `cpack` on all three platforms and uploads the result as an artefact.
 The Linux and Windows packages have been downloaded and run; the macOS `.app`
 has not.
+
+**That either platform icon looks right where it is drawn.** Both containers
+have been checked structurally — every frame present, correct sizes, the `.icns`
+chunk table and declared length parsed back — and the rendering has been looked
+at as an image. Neither has been seen in Explorer or in the Finder. The `.icns`
+carries no 16x16 @1x chunk, since Pillow's writer emits none; macOS reduces the
+32px `ic11` for that slot, which should be indistinguishable, but that is a
+prediction and not an observation.

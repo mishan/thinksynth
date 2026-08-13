@@ -16,6 +16,13 @@ if(APPLE)
       MACOSX_BUNDLE_GUI_IDENTIFIER "${THINK_APP_ID}"
       MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
+
+      # Names the file, and nothing more -- getting thinksynth.icns into
+      # Contents/Resources is a source file property, and those are scoped to
+      # the directory defining the target, so it is done in src/CMakeLists.txt.
+      # Both halves are needed; either one alone leaves a generic icon.
+      MACOSX_BUNDLE_ICON_FILE "thinksynth.icns"
+
       INSTALL_RPATH "@executable_path/../Frameworks")
 
   set_target_properties(think PROPERTIES
