@@ -37,18 +37,6 @@ Never heard
   audience that will notice.
 
 
-Defects
--------
-
-(The gtk_css_node_insert_after critical is gone from the patch selector and
-the MIDI map. It was never our widget tree: a backtrace put it in
-gtk_tree_view_ensure_interactive_directory, GtkTreeView building its
-interactive-search popover on a keypress and parenting it in a way GTK's own
-CSS machinery rejects. Both windows are Gtk::ColumnViews now, which have no
-such popover. NodePalette is still a TreeView and still guarded -- see the
-node editor section.)
-
-
 The corpus
 ----------
 
@@ -108,10 +96,3 @@ Node editor
 
 - The palette's control dialog does not ask for a group. The writer already
   takes one.
-
-- NodePalette is the last GtkTreeView. PatchSelWindow and MidiMap are
-  Gtk::ColumnViews, which have no interactive search and so cannot hit the
-  gtk_css_node_insert_after critical at all. The palette is a tree rather than
-  a list, so it needs Gtk::TreeListModel and Gtk::TreeExpander rather than the
-  same pattern again. src/gui/TreeSearch.h is the workaround holding the line
-  until then, and goes with it.
