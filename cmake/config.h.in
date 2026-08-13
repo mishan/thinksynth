@@ -44,4 +44,8 @@
 #define PATCH_PATH       "@THINK_PATCH_PATH@"
 #define DEFAULT_THINKRC  "@THINK_DEFAULT_THINKRC@"
 
+/* The application identity: GApplication id, desktop entry stem, macOS bundle
+   identifier and Flatpak app-id, all one string. See CMakeLists.txt. */
+#define THINK_APP_ID     "@THINK_APP_ID@"
+
 #endif /* THINK_CONFIG_H */

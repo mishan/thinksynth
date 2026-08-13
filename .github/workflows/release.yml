@@ -3,7 +3,8 @@
 # Builds a distributable package for every ship target and, on a version tag,
 # attaches them to a GitHub Release:
 #
-#   * Linux    — .tar.gz against the distribution's own GTK
+#   * Linux    — .tar.gz against the distribution's own GTK, and a .flatpak
+#                bundle carrying its own C++ stack on the GNOME runtime
 #   * macOS    — .app in a .dmg, per arch (arm64 and Intel), GTK bundled
 #   * Windows  — portable .zip (MSYS2 UCRT64), GTK bundled
 #
@@ -59,6 +60,10 @@ on:
         default: true
       build_windows:
         description: 'Build the Windows package'
+        type: boolean
+        default: true
+      build_flatpak:
+        description: 'Build the Linux Flatpak bundle'
         type: boolean
         default: true
       create_release:
@@ -119,6 +124,70 @@ jobs:
         with:
           name: thinksynth-linux-x86_64
           path: build/package/thinksynth-*
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------
+  # Linux Flatpak bundle
+  #
+  # A different thing from the tarball above, not a second copy of it: the
+  # tarball links against whatever GTK the machine has, and the Flatpak brings
+  # its own on top of the GNOME runtime. The tarball is for someone who
+  # already has gtkmm-4 installed; the Flatpak is for everyone else.
+  #
+  # The runtime has no C++ bindings, so the manifest builds six of them plus
+  # RtAudio and RtMidi. That is most of the job's runtime -- expect it to be
+  # much the slowest of the four.
+  # ---------------------------------------------------------------------
+  linux-flatpak:
+    name: package (linux flatpak)
+    if: github.event_name != 'workflow_dispatch' || inputs.build_flatpak
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      # Restore the runtime and flatpak-builder's own download cache before
+      # installing, so a warm cache skips the ~1 GB GNOME runtime pull and the
+      # eight source tarballs.
+      - name: Cache flatpak
+        uses: actions/cache@v4
+        with:
+          path: |
+            .flatpak-builder
+            ~/.local/share/flatpak
+          key: flatpak-${{ hashFiles('org.thinksynth.thinksynth.yml') }}
+          restore-keys: flatpak-
+
+      # User-scoped throughout: adding a system remote needs root and polkit,
+      # which the CI user does not have.
+      - name: Flathub remote and the runtime
+        run: |
+          flatpak remote-add --user --if-not-exists flathub \
+            https://flathub.org/repo/flathub.flatpakrepo
+          flatpak-builder --user --install-deps-from=flathub \
+            --install-deps-only --force-clean build-flatpak \
+            org.thinksynth.thinksynth.yml
+
+      - name: Build the bundle
+        run: scripts/build-flatpak-bundle.sh -o thinksynth.flatpak
+
+      - name: Name the artifact for this version
+        run: |
+          case "$GITHUB_REF" in
+            refs/tags/*) ver="$GITHUB_REF_NAME" ;;
+            *)           ver="snapshot-${GITHUB_SHA:0:7}" ;;
+          esac
+          mv thinksynth.flatpak "thinksynth-${ver}-x86_64.flatpak"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: thinksynth-linux-flatpak
+          path: '*.flatpak'
           if-no-files-found: error
 
   # ---------------------------------------------------------------------
@@ -282,7 +351,7 @@ jobs:
   # ---------------------------------------------------------------------
   release:
     name: publish release
-    needs: [linux-package, macos-package, windows-package]
+    needs: [linux-package, linux-flatpak, macos-package, windows-package]
 
     # !failure() && !cancelled() so a run with some targets deliberately
     # deselected still publishes -- but one where a selected target actually

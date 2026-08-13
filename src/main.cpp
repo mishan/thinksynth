@@ -298,7 +298,7 @@ int main (int argc, char *argv[])
        and -d, -p and -o mean nothing to GTK. NON_UNIQUE because two
        thinksynths on two MIDI ports is a reasonable thing to want, and the
        default would hand the second one's arguments to the first. */
-    gtkApp = Gtk::Application::create("org.metaphoniclabs.thinksynth",
+    gtkApp = Gtk::Application::create(THINK_APP_ID,
                                       Gio::Application::Flags::NON_UNIQUE);
 
     /* Force the numeric locale back to C, and do it *after* the application
