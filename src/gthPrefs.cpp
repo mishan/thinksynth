@@ -179,9 +179,14 @@ void gthPrefs::Load (void)
                with sixteen empty channels and a keyboard that does nothing --
                which looks exactly like a broken install -- put a few patches
                on and write the file, so what happened is visible and editable
-               rather than magic. */
-            LoadDefaults();
-            Save();
+               rather than magic.
+
+               Only written if something was actually loaded. A file saved
+               from a failed attempt would record the failure permanently:
+               it exists, so the next run reads it instead of trying again. */
+            if (LoadDefaults())
+                Save();
+
             return;
         }
     }
@@ -297,16 +302,27 @@ void gthPrefs::Load (void)
  * A patch that will not load is reported and skipped: a missing or broken one
  * should cost its channel, not the other three.
  */
-void gthPrefs::LoadDefaults (void)
+bool gthPrefs::LoadDefaults (void)
 {
     gthPatchManager *patchMgr = gthPatchManager::instance();
     thSynth *synth = thSynth::instance();
 
-    if (patchMgr == NULL)
-        return;
+    /* Both, and the synth is the one that matters: loadPatch reaches
+       gthPatchManager::parse, which calls thSynth::loadTree without checking
+       first. main() builds the synth before the preferences, so this does not
+       happen today -- but "does not happen today" is what an ordering
+       assumption always is, and the cost of being wrong here is a crash on
+       first run, which is the run where nobody has anything to go back to. */
+    if (patchMgr == NULL || synth == NULL)
+    {
+        fprintf(stderr, "no synth yet; skipping the default configuration\n");
+        return false;
+    }
 
     const size_t n =
         sizeof(thinkDefaultChannels) / sizeof(thinkDefaultChannels[0]);
+
+    size_t loaded = 0;
 
     for (size_t i = 0; i < n; i++)
     {
@@ -319,12 +335,25 @@ void gthPrefs::LoadDefaults (void)
             continue;
         }
 
-        if (synth)
-            synth->setChanArg(chan, new thArg("amp", TH_DEFAULT_CHAN_AMP));
+        synth->setChanArg(chan, new thArg("amp", TH_DEFAULT_CHAN_AMP));
+        loaded++;
+    }
+
+    /* Nothing loaded means no corpus -- an install missing its patches, or a
+       build run from somewhere it cannot find them. Saying so is useful;
+       writing a configuration file with no channels in it is not, because on
+       the next run that file exists and this never runs again. */
+    if (loaded == 0)
+    {
+        fprintf(stderr, "no default patches could be loaded; "
+                "not writing a configuration file\n");
+        return false;
     }
 
     printf("no configuration found; starting with defaults\n");
     printf("  (writing %s)\n", prefsPath_.c_str());
+
+    return true;
 }
 
 void gthPrefs::Save (void)

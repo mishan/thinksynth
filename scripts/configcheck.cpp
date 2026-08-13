@@ -147,9 +147,36 @@ int main (int argc, char **argv)
 
     const string cfg = (fs::path(tmp) / "thinkrc").string();
 
+    /* ---- no synth yet ------------------------------------------------ */
+
+    /* Before anything is constructed. loadPatch reaches
+       gthPatchManager::parse, which calls thSynth::loadTree without checking
+       it has one, so a first run that happened before the synth did would
+       take the crash on the one run where the user has nothing to fall back
+       to. Ordering makes that unreachable today; this is here so it stays
+       unreachable. */
+    {
+        const string early = (fs::path(tmp) / "early-thinkrc").string();
+
+        gthPrefs prefs(early);
+
+        ok(!prefs.LoadDefaults(), "defaults decline to run with no synth");
+
+        prefs.Load();
+
+        ok(!fs::exists(early),
+           "and a first run with no synth writes no configuration file");
+    }
+
     thSynth *synth = new thSynth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
                                  TH_DEFAULT_SAMPLES);
-    gthPatchManager *patchMgr = new gthPatchManager;
+
+    /* instance(), not `new'. gthPatchManager's constructor only claims the
+       singleton slot if it is empty, and the block above already filled it:
+       LoadDefaults asks for instance(), which creates one on demand. A second
+       manager here would be a different object from the one Load() goes on to
+       populate, and every later check would read an empty one. */
+    gthPatchManager *patchMgr = gthPatchManager::instance();
 
     /* ---- resolution ------------------------------------------------- */
 
@@ -284,7 +311,6 @@ int main (int argc, char **argv)
            expectedCount, lines.size());
     }
 
-    delete patchMgr;
     delete synth;
 
     std::error_code ec;
