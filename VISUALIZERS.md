@@ -327,25 +327,3 @@ is a matter of looking at it — which is what `-o` is for.
 5. Try it in the editor: right-click an output port on a patch that is playing.
 
 Nothing else in the tree needs to know it exists.
-
----
-
-## 7. If the menu is empty
-
-`thPluginManager::resolveRoot` tries `./plugins` before the directory beside the
-binary. A tree that once had an autotools build still has stale `.so` files in
-the *source* `plugins/`, which is enough to pass for a plugin root — so running
-from the top of the tree loads every DSP plugin from there, and
-`plugins/visual/` has only `.cpp` files in it. Either
-
-```sh
-THINK_PLUGIN_PATH=build/plugins ./build/src/thinksynth
-```
-
-or delete the leftovers, which nothing writes any more:
-
-```sh
-find plugins -name '*.so' -delete
-```
-
-The editor names the directory it searched, so the menu says which one it is.

@@ -20,9 +20,6 @@ ctest --test-dir build
 ./build/src/thinksynth
 ```
 
-There is no `./configure`. The autotools build was retired in favour of CMake
-during the macOS/Windows port; see `PORTING.md` for why.
-
 On Debian or Ubuntu:
 
 ```sh
@@ -41,9 +38,6 @@ Useful options:
 
 Running an uninstalled build works: thinksynth tries `./plugins` first and then
 the directories around its own binary, and `THINK_PLUGIN_PATH` overrides both.
-
-That order has a sharp edge if the tree ever had an autotools build — see
-[VISUALIZERS.md](VISUALIZERS.md#7-if-the-menu-is-empty).
 
 Audio and MIDI
 --------------
