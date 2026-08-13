@@ -1,7 +1,14 @@
 thinksynth
 ==========
 
-thinksynth is a modular software synthesizer written in C++
+thinksynth builds sounds out of a graph of DSP nodes — oscillators,
+filters, envelopes, delays and arithmetic — described in a small
+language and rendered in real time. Patches assign those graphs to MIDI
+channels, so one instrument can layer several voices.
+
+Every node is a plugin, and the set that ships covers subtractive and
+FM synthesis, resonators, waveshaping and a range of filters. New ones
+are ordinary shared libraries dropped into the plugin directory.
 
 Building
 --------
