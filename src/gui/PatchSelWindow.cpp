@@ -728,8 +728,47 @@ void PatchSelWindow::CursorChanged (void)
                 gthPatchManager::instance()->isDirty(currchan));
         }
         else
-            currchan = -1;
+            showNoChannel();
     }
+}
+
+/* No row is selected: say so with the whole form, not just with currchan.
+ *
+ * There was nowhere for this to go before, because a GTK4 TreeView selection
+ * could not be empty once it had been set. A SingleSelection starts empty and
+ * goes back to empty whenever populate() replaces the model -- which happens
+ * on every patch load -- so leaving the form alone meant the previous
+ * channel's name, author and comments sat there describing nothing, over
+ * buttons that were still willing to act on it. */
+void PatchSelWindow::showNoChannel (void)
+{
+    currchan = -1;
+
+    showPath(string());
+
+    browseButton.set_sensitive(false);
+    fileEntry.set_sensitive(false);
+
+    /* loading_ so the entries' own change handlers do not read this as the
+       user editing the metadata of a patch that is not selected. */
+    loading_ = true;
+
+    patchTitle.set_text(string());
+    patchCategory.set_text(string());
+    patchAuthor.set_text(string());
+    patchRevised.set_text(string());
+    patchComments.get_buffer()->set_text(string());
+
+    loading_ = false;
+
+    patchInfoTable.set_sensitive(false);
+    dspAmp.set_sensitive(false);
+    unloadButton.set_sensitive(false);
+
+    saveButton.setSensitive(false);
+    saveButton.setHasFile(false);
+    saveButton.setFileName(string());
+    saveButton.setModified(false);
 }
 
 void PatchSelWindow::populate (void)

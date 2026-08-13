@@ -102,6 +102,11 @@ MidiMap::MidiMap (thSynth *argsynth)
     delBtn_ = manage(new Gtk::Button("Remove Connection"));
     delBtn_->signal_clicked().connect(sigc::mem_fun(*this,
                                                    &MidiMap::onDelButton));
+
+    /* Nothing is selected yet, and Remove is the one button that only means
+       something against a selected connection. onConnectionMoved turns it on
+       and off from there. */
+    delBtn_->set_sensitive(false);
     addBtn_->set_hexpand(true);
     buttonsHBox_->append(*addBtn_);
     delBtn_->set_hexpand(true);
@@ -178,8 +183,11 @@ MidiMap::MidiMap (thSynth *argsynth)
 
     populateConnections();
 
-    /* +1 on the two numbers, here rather than in the model: MIDI channels and
-       controllers are counted from one by everyone except the protocol. */
+    /* +1 on the channel, here rather than in the model: MIDI numbers channels
+       from zero and everything a user reads numbers them from one. The
+       controller is *not* shifted -- controller 0 is called 0 everywhere,
+       including in every MIDI reference -- which is what the previous list
+       showed and what this keeps. */
     connectView_.append_column(gthTextColumn("Channel",
         [](const Glib::RefPtr<Glib::ObjectBase> &o) {
             Glib::RefPtr<MidiMapRow> r =
@@ -481,11 +489,22 @@ void MidiMap::onConnectionMoved (void)
             std::dynamic_pointer_cast<MidiMapRow>(
                 connectSelection_->get_selected_item());
 
-        if (row)
+        /* Nothing selected -- the model was just replaced, or the user
+           cleared it. There is no connection to show, so the one thing that
+           only makes sense against a selected one goes insensitive and the
+           editor is left alone: channel, controller, destination and details
+           are also how a *new* connection is composed, and blanking them
+           would take the Add button's inputs away with them. */
+        if (!row)
         {
-            /* Straight off the row. The ListStore this replaces held the
-               display numbers, so this had to undo the +1 that had been added
-               for the user's benefit. */
+            delBtn_->set_sensitive(false);
+            return;
+        }
+
+        delBtn_->set_sensitive(true);
+
+        {
+            /* Straight off the row, in the engine's own numbering. */
             selectedChan_ = row->chan();
             selectedController_ = row->controller();
             channelSpinBtn_->set_value(selectedChan_ + 1);
@@ -493,6 +512,13 @@ void MidiMap::onConnectionMoved (void)
             selectedConnection = synth_->getMidiControllerConnection(
                 (unsigned char)selectedChan_,
                 (unsigned int)selectedController_);
+
+            /* The list and the controller map can disagree: a connection is
+               looked up by channel and controller, and thMidiController now
+               refuses an out-of-range pair rather than indexing past its
+               array. Every field below reads through this pointer. */
+            if (selectedConnection == NULL)
+                return;
 
             selectedArg_ = selectedConnection->arg();
             selectedDestChan_ = selectedConnection->destChan();

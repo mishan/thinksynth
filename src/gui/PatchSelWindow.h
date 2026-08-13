@@ -143,6 +143,10 @@ protected:
        lines of "is there a selection, and what is in it". */
     Glib::RefPtr<PatchSelRow> selectedRow (void) const;
 
+    /* Put the form back to "no channel selected": empty, and nothing
+       enabled that would act on a channel. */
+    void showNoChannel (void);
+
 private:
     void populate (void);
 
