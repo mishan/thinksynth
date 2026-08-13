@@ -41,18 +41,58 @@ NodePalette::NodePalette (void)
     filter_.signal_changed().connect(
         sigc::mem_fun(*this, &NodePalette::onFilterChanged));
 
-    store_ = Gtk::TreeStore::create(cols_);
+    store_ = Gio::ListStore<PaletteRow>::create();
 
-    tree_.set_model(store_);
-    tree_.append_column("Node", cols_.label);
-    tree_.set_headers_visible(false);
-    tree_.set_enable_search(false);     /* the filter box does this better */
+    /* Each row is drawn as an expander wrapping a label. The expander is what
+       draws the arrow and the indent, and it needs the Gtk::TreeListRow --
+       not our PaletteRow -- because depth and expanded state live there. */
+    Glib::RefPtr<Gtk::SignalListItemFactory> factory =
+        Gtk::SignalListItemFactory::create();
 
-    tree_.get_selection()->signal_changed().connect(
-        sigc::mem_fun(*this, &NodePalette::onSelectionChanged));
+    factory->signal_setup().connect(
+        [](const Glib::RefPtr<Gtk::ListItem> &item)
+        {
+            Gtk::TreeExpander *expander =
+                Gtk::make_managed<Gtk::TreeExpander>();
+            Gtk::Label *label = Gtk::make_managed<Gtk::Label>();
 
-    /* Double-click adds, because that is what a palette does. */
-    tree_.signal_row_activated().connect(
+            label->set_halign(Gtk::Align::START);
+            label->set_ellipsize(Pango::EllipsizeMode::END);
+
+            expander->set_child(*label);
+            item->set_child(*expander);
+        });
+
+    factory->signal_bind().connect(
+        [](const Glib::RefPtr<Gtk::ListItem> &item)
+        {
+            Gtk::TreeExpander *expander =
+                dynamic_cast<Gtk::TreeExpander *>(item->get_child());
+
+            if (expander == NULL)
+                return;
+
+            Glib::RefPtr<Gtk::TreeListRow> treeRow =
+                std::dynamic_pointer_cast<Gtk::TreeListRow>(item->get_item());
+
+            expander->set_list_row(treeRow);
+
+            Gtk::Label *label =
+                dynamic_cast<Gtk::Label *>(expander->get_child());
+
+            Glib::RefPtr<PaletteRow> row =
+                treeRow ? std::dynamic_pointer_cast<PaletteRow>(
+                              treeRow->get_item())
+                        : Glib::RefPtr<PaletteRow>();
+
+            if (label)
+                label->set_text(row ? row->label() : Glib::ustring());
+        });
+
+    tree_.set_factory(factory);
+
+    /* Double-click, or Enter, adds -- because that is what a palette does. */
+    tree_.signal_activate().connect(
         sigc::mem_fun(*this, &NodePalette::onRowActivated));
 
     scroller_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
@@ -103,7 +143,7 @@ void NodePalette::rebuild (void)
 {
     const Glib::ustring needle = filter_.get_text().lowercase();
 
-    store_->clear();
+    store_->remove_all();
 
     /* The control goes first and on its own, above the plugin categories.
        It is the one thing here that is not a plugin: `@blim' is a block in
@@ -115,12 +155,7 @@ void NodePalette::rebuild (void)
         if (needle.empty() ||
             label.lowercase().find(needle) != Glib::ustring::npos ||
             Glib::ustring("control").find(needle) != Glib::ustring::npos)
-        {
-            Gtk::TreeModel::Row row = *(store_->append());
-
-            row[cols_.label] = label;
-            row[cols_.spelling] = CONTROL_SPELLING;
-        }
+            store_->append(PaletteRow::create(label, CONTROL_SPELLING));
     }
 
     for (size_t c = 0; c < catalog_.categories().size(); c++)
@@ -128,8 +163,7 @@ void NodePalette::rebuild (void)
         const string &cat = catalog_.categories()[c];
         const vector<NodeCatalog::Entry> &list = catalog_.inCategory(cat);
 
-        Gtk::TreeModel::Row catRow;
-        bool haveCat = false;
+        Glib::RefPtr<PaletteRow> catRow;
 
         for (size_t e = 0; e < list.size(); e++)
         {
@@ -142,24 +176,54 @@ void NodePalette::rebuild (void)
                     continue;
             }
 
-            if (!haveCat)
-            {
-                catRow = *(store_->append());
-                catRow[cols_.label] = cat;
-                catRow[cols_.spelling] = "";
-                haveCat = true;
-            }
+            if (!catRow)
+                catRow = PaletteRow::create(cat, "");
 
-            Gtk::TreeModel::Row row = *(store_->append(catRow.children()));
-
-            row[cols_.label] = list[e].name;
-            row[cols_.spelling] = list[e].spelling;
+            catRow->addChild(PaletteRow::create(list[e].name,
+                                                list[e].spelling));
         }
+
+        /* Appended once it has its children, the way the patch selector fills
+           a row before the model sees it: a category handed over empty is a
+           category Gtk::TreeListModel is told has nothing to expand. */
+        if (catRow)
+            store_->append(catRow);
     }
 
-    /* Filtering with everything collapsed hides the results. */
-    if (!filter_.get_text().empty())
-        tree_.expand_all();
+    /* A fresh model each time, so expanded state starts from nothing rather
+       than from whatever the last filter left behind.
+
+       autoexpand while filtering, because filtering with everything collapsed
+       hides the results -- which is what expand_all() was for. */
+    treeModel_ = Gtk::TreeListModel::create(
+        store_,
+        [](const Glib::RefPtr<Glib::ObjectBase> &item)
+            -> Glib::RefPtr<Gio::ListModel>
+        {
+            Glib::RefPtr<PaletteRow> row =
+                std::dynamic_pointer_cast<PaletteRow>(item);
+
+            /* Null means "a leaf": no arrow, nothing to expand. */
+            if (!row || !row->children())
+                return Glib::RefPtr<Gio::ListModel>();
+
+            return row->children();
+        },
+        false,                              /* passthrough */
+        !filter_.get_text().empty());       /* autoexpand */
+
+    selection_ = Gtk::SingleSelection::create(treeModel_);
+
+    /* Nothing chosen until the user chooses; otherwise selecting row 0 on
+       every rebuild would dlopen a plugin nobody asked about. */
+    selection_->set_autoselect(false);
+    selection_->set_can_unselect(true);
+    selection_->set_selected(GTK_INVALID_LIST_POSITION);
+
+    selection_->property_selected().signal_changed().connect(
+        sigc::mem_fun(*this, &NodePalette::onSelectionChanged));
+
+    tree_.set_model(selection_);
 }
 
 void NodePalette::onFilterChanged (void)
@@ -167,16 +231,37 @@ void NodePalette::onFilterChanged (void)
     rebuild();
 }
 
+/* The PaletteRow at `position', unwrapped from the Gtk::TreeListRow the view
+   actually holds. Null for a position that is not there. */
+Glib::RefPtr<PaletteRow> NodePalette::rowAt (guint position) const
+{
+    if (!treeModel_)
+        return Glib::RefPtr<PaletteRow>();
+
+    Glib::RefPtr<Gtk::TreeListRow> treeRow = treeModel_->get_row(position);
+
+    if (!treeRow)
+        return Glib::RefPtr<PaletteRow>();
+
+    return std::dynamic_pointer_cast<PaletteRow>(treeRow->get_item());
+}
+
 string NodePalette::selectedSpelling (void)
 {
-    Gtk::TreeModel::iterator i = tree_.get_selection()->get_selected();
-
-    if (!i)
+    if (!selection_)
         return "";
 
-    Glib::ustring s = (*i)[cols_.spelling];
+    Glib::RefPtr<Gtk::TreeListRow> treeRow =
+        std::dynamic_pointer_cast<Gtk::TreeListRow>(
+            selection_->get_selected_item());
 
-    return s.raw();
+    if (!treeRow)
+        return "";
+
+    Glib::RefPtr<PaletteRow> row =
+        std::dynamic_pointer_cast<PaletteRow>(treeRow->get_item());
+
+    return row ? row->spelling() : "";
 }
 
 void NodePalette::onSelectionChanged (void)
@@ -240,33 +325,34 @@ void NodePalette::onSelectionChanged (void)
     detail_.set_markup(text);
 }
 
-void NodePalette::onRowActivated (const Gtk::TreeModel::Path &path,
-                                  Gtk::TreeViewColumn *col)
+void NodePalette::onRowActivated (guint position)
 {
-    (void)col;
-
-    Gtk::TreeModel::iterator i = store_->get_iter(path);
-
-    if (!i)
+    if (!treeModel_)
         return;
 
-    Glib::ustring s = (*i)[cols_.spelling];
+    Glib::RefPtr<Gtk::TreeListRow> treeRow = treeModel_->get_row(position);
 
-    /* A category row toggles rather than adding anything. */
-    if (s.empty())
+    if (!treeRow)
+        return;
+
+    Glib::RefPtr<PaletteRow> row =
+        std::dynamic_pointer_cast<PaletteRow>(treeRow->get_item());
+
+    if (!row)
+        return;
+
+    /* A category row toggles rather than adding anything. Expanded state
+       belongs to the Gtk::TreeListRow, not to ours. */
+    if (row->isCategory())
     {
-        if (tree_.row_expanded(path))
-            tree_.collapse_row(path);
-        else
-            tree_.expand_row(path, false);
-
+        treeRow->set_expanded(!treeRow->get_expanded());
         return;
     }
 
-    if (s.raw() == CONTROL_SPELLING)
+    if (row->spelling() == CONTROL_SPELLING)
         m_signal_add_control_();
     else
-        m_signal_add_(s.raw());
+        m_signal_add_(row->spelling());
 }
 
 void NodePalette::onAddClicked (void)

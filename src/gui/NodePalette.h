@@ -23,6 +23,49 @@
 
 class thPluginManager;
 
+/* One row: a category, or something that can be added.
+ *
+ * `spelling' is what a .dsp would call it -- "osc::simple" -- and is empty for
+ * a category, which is how everything here tells the two apart. `children' is
+ * the category's contents and is null for a leaf; Gtk::TreeListModel asks for
+ * it and takes null to mean "nothing to expand".
+ */
+class PaletteRow : public Glib::Object
+{
+public:
+    static Glib::RefPtr<PaletteRow> create (const Glib::ustring &label,
+                                            const string &spelling)
+    {
+        return Glib::make_refptr_for_instance(new PaletteRow(label, spelling));
+    }
+
+    Glib::ustring label (void) const { return label_; }
+    string spelling (void) const { return spelling_; }
+    bool isCategory (void) const { return spelling_.empty(); }
+
+    const Glib::RefPtr<Gio::ListStore<PaletteRow> > &children (void) const {
+        return children_;
+    }
+
+    void addChild (const Glib::RefPtr<PaletteRow> &child)
+    {
+        if (!children_)
+            children_ = Gio::ListStore<PaletteRow>::create();
+
+        children_->append(child);
+    }
+
+protected:
+    PaletteRow (const Glib::ustring &label, const string &spelling)
+        : Glib::ObjectBase(typeid(PaletteRow)),
+          label_(label), spelling_(spelling) { }
+
+private:
+    Glib::ustring label_;
+    string spelling_;
+    Glib::RefPtr<Gio::ListStore<PaletteRow> > children_;
+};
+
 /*
  * The list of things that can be added to a graph, by category.
  *
@@ -58,8 +101,7 @@ public:
 
 protected:
     void onSelectionChanged (void);
-    void onRowActivated (const Gtk::TreeModel::Path &path,
-                         Gtk::TreeViewColumn *col);
+    void onRowActivated (guint position);
     void onAddClicked (void);
     void onFilterChanged (void);
 
@@ -69,22 +111,25 @@ protected:
     void rebuild (void);
 
 private:
-    struct Columns : public Gtk::TreeModel::ColumnRecord {
-        Gtk::TreeModelColumn<Glib::ustring> label;
-        Gtk::TreeModelColumn<Glib::ustring> spelling;   /* "" for a category */
-
-        Columns (void) { add(label); add(spelling); }
-    };
-
-    Columns cols_;
-
     NodeCatalog catalog_;
     thPluginManager *pm_;
 
     Gtk::Entry filter_;
     Gtk::ScrolledWindow scroller_;
-    Gtk::TreeView tree_;
-    Glib::RefPtr<Gtk::TreeStore> store_;
+    /* A ListView rather than a ColumnView, unlike the patch selector and the
+       MIDI map: this is one unnamed column and a ColumnView always shows a
+       header, which GTK4 gives no way to hide. The old TreeView called
+       set_headers_visible(false). */
+    Gtk::ListView tree_;
+
+    Glib::RefPtr<Gio::ListStore<PaletteRow> > store_;
+    Glib::RefPtr<Gtk::TreeListModel> treeModel_;
+    Glib::RefPtr<Gtk::SingleSelection> selection_;
+
+    /* The Gtk::TreeListRow at `position', or the selected one. The list the
+       view shows is rows-of-rows: each wraps a PaletteRow and carries its
+       expanded state and its depth. */
+    Glib::RefPtr<PaletteRow> rowAt (guint position) const;
     Gtk::Label detail_;
     Gtk::Button addBtn_;
 

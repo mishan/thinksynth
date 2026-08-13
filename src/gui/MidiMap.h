@@ -19,20 +19,44 @@
 #ifndef MIDI_MAP_H
 #define MIDI_MAP_H
 
-class MidiMapColumns : public Gtk::TreeModel::ColumnRecord
+/* One row of the connection list.
+ *
+ * A Gtk::ColumnView's model holds objects rather than a record of typed
+ * columns, so a row is a small GObject and the columns are functions of it.
+ * The engine's own numbering is kept -- channel and controller as the
+ * connection reports them -- and the +1 for display happens where it is
+ * displayed, which is the opposite way round from the ListStore this replaces.
+ * onConnectionMoved wants the real numbers back, and it used to get them by
+ * subtracting one from what had been written for the user's benefit.
+ */
+class MidiMapRow : public Glib::Object
 {
 public:
-    MidiMapColumns (void)
-        {
-            add (midiChan);
-            add (midiController);
-            add (instrument);
-            add (argName);
-        }
-    Gtk::TreeModelColumn <int> midiChan;
-    Gtk::TreeModelColumn <int> midiController;
-    Gtk::TreeModelColumn <string> instrument;
-    Gtk::TreeModelColumn <string> argName;
+    static Glib::RefPtr<MidiMapRow> create (int chan, int controller,
+                                            const Glib::ustring &instrument,
+                                            const Glib::ustring &argName)
+    {
+        return Glib::make_refptr_for_instance(
+            new MidiMapRow(chan, controller, instrument, argName));
+    }
+
+    int chan (void) const { return chan_; }
+    int controller (void) const { return controller_; }
+    Glib::ustring instrument (void) const { return instrument_; }
+    Glib::ustring argName (void) const { return argName_; }
+
+protected:
+    MidiMapRow (int chan, int controller, const Glib::ustring &instrument,
+                const Glib::ustring &argName)
+        : Glib::ObjectBase(typeid(MidiMapRow)),
+          chan_(chan), controller_(controller),
+          instrument_(instrument), argName_(argName) { }
+
+private:
+    int chan_;
+    int controller_;
+    Glib::ustring instrument_;
+    Glib::ustring argName_;
 };
 
 
@@ -97,9 +121,9 @@ protected:
 
     Gtk::Frame *connectFrame_;
     Gtk::ScrolledWindow connectScroll_;
-    Gtk::TreeView connectView_;
-    Glib::RefPtr<Gtk::ListStore> connectModel_;
-    MidiMapColumns connectViewCols_;
+    Gtk::ColumnView connectView_;
+    Glib::RefPtr<Gio::ListStore<MidiMapRow> > connectModel_;
+    Glib::RefPtr<Gtk::SingleSelection> connectSelection_;
 
 private:
     void onDestChanSelected (void);
