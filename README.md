@@ -109,6 +109,11 @@ what lets the file survive the install moving — a `.app`, a Windows zip and a
 Flatpak all live somewhere the build never knew about. `THINK_PATCH_PATH`
 overrides where they are searched for.
 
+On Windows, launching thinksynth does not open a terminal alongside it — it is
+a GUI-subsystem program. Run it *from* a terminal and it prints there anyway,
+so `-h`, `-G` and every diagnostic still work when you want them; redirection
+(`thinksynth.exe -h > log.txt`) works whether or not a terminal is involved.
+
 For MIDI, connect an external sequencer or keyboard to thinksynth's input port
 using whatever your platform uses for that (`aconnect` or a patchbay on Linux,
 Audio MIDI Setup on macOS). Assign a DSP to each channel the MIDI uses and turn

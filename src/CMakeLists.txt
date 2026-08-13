@@ -52,6 +52,7 @@ set(THINKSYNTH_SOURCES
     gthRtMidi.cpp
     gthMidiQueue.cpp
     gui/AboutBox.cpp
+    gthConsole.cpp
     gui/ArgTable.cpp
     gui/ColumnUtil.cpp
     gui/Dialogs.cpp
@@ -140,6 +141,20 @@ add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>
     $<TARGET_OBJECTS:think_visualhost>)
+
+# The GUI subsystem on Windows, so launching this does not also open a
+# terminal. Without it the linker defaults to the console subsystem and
+# Windows gives every run a console window whether it wants one or not.
+#
+# Output is not given up for it: gthAttachConsole() reconnects stdout and
+# stderr to the terminal when a terminal is what launched us. See
+# src/gthConsole.cpp.
+#
+# main() still works -- MinGW's runtime provides the WinMain that calls it --
+# so this is a link-time change and not a source-level one.
+if(WIN32)
+  set_target_properties(thinksynth PROPERTIES WIN32_EXECUTABLE TRUE)
+endif()
 
 target_include_directories(thinksynth PRIVATE
     "${PROJECT_SOURCE_DIR}"
