@@ -62,9 +62,40 @@ int main (void)
     std::error_code ec;
 
     /* A tree shaped like an unpacked package, somewhere neither the build nor
-       the compiled-in paths know about. */
-    const fs::path root =
-        fs::temp_directory_path(ec) / "thinksynth-pathcheck";
+       the compiled-in paths know about.
+     *
+     * The temporary directory is checked before anything is built under it,
+     * and its own error_code is used rather than the shared one, because the
+     * failure is quiet and the consequence is not: temp_directory_path returns
+     * an empty path when it cannot work out where /tmp is -- a TMPDIR pointing
+     * at a directory that does not exist is enough -- and an empty path makes
+     * "thinksynth-pathcheck" relative. The test then builds its fixture in
+     * whatever directory it was run from and, at the end, remove_all's it.
+     * Checked by pointing TMPDIR at nothing: it duly created and deleted a
+     * tree in the working directory. */
+    std::error_code tec;
+
+    const fs::path tmp = fs::temp_directory_path(tec);
+
+    if (tec || tmp.empty())
+    {
+        fprintf(stderr, "pathcheck: no usable temporary directory (%s).\n"
+                        "  TMPDIR names one that does not exist, most likely.\n",
+                tec ? tec.message().c_str() : "it came back empty");
+        return 2;
+    }
+
+    const fs::path root = tmp / "thinksynth-pathcheck";
+
+    /* Belt and braces: everything below deletes this tree, so refusing to
+       proceed on anything but an absolute path costs nothing and rules out
+       the whole class. */
+    if (!root.is_absolute())
+    {
+        fprintf(stderr, "pathcheck: %s is not absolute; refusing to build and "
+                        "delete a fixture there\n", root.string().c_str());
+        return 2;
+    }
 
     fs::remove_all(root, ec);
     fs::create_directories(root / "dsp", ec);
