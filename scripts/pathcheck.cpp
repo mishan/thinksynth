@@ -41,6 +41,7 @@
 #include "thUtil.h"
 
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 
@@ -156,6 +157,74 @@ int main (void)
     check(fs::is_directory(dir, ec), "the directory does too", dir);
 
     fs::remove_all(root, ec);
+
+    /* thUtil::tempFile.
+     *
+     * The property that matters is the one Windows did not have: the file
+     * goes in the directory *this platform* uses for temporary files, rather
+     * than one spelled out in the source. The node editor built its own
+     * template from TMPDIR with "/tmp" as the fallback, and since Windows
+     * sets TEMP and TMP but never TMPDIR, every attempt landed on a path
+     * Windows does not have -- so the working copy was never made and the
+     * editor said it could not read a file it had not opened.
+     *
+     * Checked here by pointing the temporary directory somewhere specific and
+     * requiring the file to appear there, which is what "wherever this
+     * platform keeps them" means on a machine that can only run one of the
+     * three. */
+    printf("\n");
+
+    const fs::path tdir = root.parent_path() / "thinksynth-pathcheck-tmp";
+
+    fs::remove_all(tdir, ec);
+    fs::create_directories(tdir, ec);
+
+#ifdef _WIN32
+    _putenv_s("TMP", tdir.string().c_str());
+    _putenv_s("TEMP", tdir.string().c_str());
+#else
+    setenv("TMPDIR", tdir.string().c_str(), 1);
+#endif
+
+    const std::string t1 = thUtil::tempFile("pathcheck-");
+    const std::string t2 = thUtil::tempFile("pathcheck-");
+
+    check(!t1.empty(), "tempFile made a file", t1);
+    check(fs::path(t1).is_absolute(), "its path is absolute", t1);
+    check(fs::exists(t1, ec), "and the file is really there", t1);
+
+    /* Two calls must not collide: the editor makes one per open. */
+    check(!t2.empty() && t1 != t2, "a second call gets a different name", t2);
+
+    /* The point of the exercise. */
+    check(fs::path(t1).parent_path() == tdir,
+          "it landed in this platform's temp dir", fs::path(t1).parent_path().string());
+
+    fs::remove(t1, ec);
+    fs::remove(t2, ec);
+
+    /* And the case that actually distinguishes the fix from the bug.
+     *
+     * The old code read TMPDIR and fell back to a literal "/tmp". On Linux
+     * that honours TMPDIR, so everything above would have passed against it
+     * and caught nothing. Windows is different only in that it sets TEMP and
+     * TMP and never TMPDIR -- so here TMPDIR is removed and TMP left set,
+     * which is the shape Windows has. The old code goes to /tmp; anything
+     * asking the platform goes to TMP. */
+#ifndef _WIN32
+    unsetenv("TMPDIR");
+    setenv("TMP", tdir.string().c_str(), 1);
+
+    const std::string t3 = thUtil::tempFile("pathcheck-");
+
+    check(!t3.empty() && fs::path(t3).parent_path() == tdir,
+          "TMP is honoured when TMPDIR is unset",
+          t3.empty() ? "(none)" : fs::path(t3).parent_path().string());
+
+    fs::remove(t3, ec);
+#endif
+
+    fs::remove_all(tdir, ec);
 
     printf("\n%s\n", failures ? "pathcheck FAILED" : "pathcheck ok");
 

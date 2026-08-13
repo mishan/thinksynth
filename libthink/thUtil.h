@@ -72,6 +72,22 @@ public:
      */
     static string findDataDir (const string &subdir, const char *envVar,
                                const string &fallback);
+
+    /* Create an empty file with a name nobody can predict, in whatever
+     * directory this platform uses for temporary files, and return its
+     * absolute path. Returns "" if one cannot be made.
+     *
+     * The file exists, is empty, and belongs to this user when this returns:
+     * the point is that the name is taken atomically rather than chosen and
+     * then opened, so nothing can be waiting at it.
+     *
+     * `prefix' goes at the front of the name, to make the file recognisable
+     * in a directory listing. Nothing is appended -- no extension -- because
+     * the name is never shown to anyone and callers pass paths, not suffixes.
+     *
+     * The caller owns the file and should remove it.
+     */
+    static string tempFile (const string &prefix);
 };
 
 #endif /* TH_UTIL_H */

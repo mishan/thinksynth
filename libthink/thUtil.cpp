@@ -25,6 +25,13 @@
 #include <system_error>
 #include <vector>
 
+/* tempFile: mkstemp and close on POSIX, GetTempFileNameW on Windows. */
+#if defined(_WIN32)
+# include <windows.h>
+#else
+# include <unistd.h>
+#endif
+
 #if defined(_WIN32)
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
@@ -272,6 +279,78 @@ string thUtil::findDataFile (const string &name, const string &subdir,
 /* The directories the above searches, in the same order and for the same
    reasons. Kept beside it deliberately: two search orders that are supposed
    to agree and are written out separately do not stay agreeing. */
+/* An empty file with an unguessable name, in the right directory for this
+ * platform.
+ *
+ * The directory is the reason this exists. The node editor used to build the
+ * template itself:
+ *
+ *     const char *tmp = getenv("TMPDIR");
+ *     string tpl = string(tmp && *tmp ? tmp : "/tmp");
+ *
+ * TMPDIR is a POSIX convention. Windows sets TEMP and TMP and never TMPDIR,
+ * so that fell through to "/tmp" -- a directory Windows does not have.
+ * mkstemp failed, the working copy was never made, and the editor reported
+ * "Could not read <file>" about a file it had not tried to read.
+ * temp_directory_path knows the answer on all three platforms.
+ */
+string thUtil::tempFile (const string &prefix)
+{
+    std::error_code ec;
+
+    const fs::path dir = fs::temp_directory_path(ec);
+
+    if (ec || dir.empty())
+        return "";
+
+#if defined(_WIN32)
+
+    /* GetTempFileName is the Win32 equivalent: it invents a name in the
+       directory given, creates the file, and hands back the path -- and the
+       per-user temp directory is already private, which is what mkstemp's
+       0600 buys on a shared /tmp. */
+    const std::wstring wdir = dir.wstring();
+    const std::wstring wpre(prefix.begin(), prefix.end());
+
+    wchar_t out[MAX_PATH + 1];
+
+    /* Only the first three characters of the prefix are used, which is a
+       documented limit of the API rather than a choice. */
+    if (GetTempFileNameW(wdir.c_str(), wpre.c_str(), 0, out) == 0)
+        return "";
+
+    return fs::path(out).string();
+
+#else
+
+    /* mkstemp rather than a name built from the pid: it creates the file
+       itself, O_EXCL and 0600, so on a shared temp directory without the
+       sticky bit there is nothing to guess and nothing to pre-empt.
+
+       The template has to end in the X's, so nothing may be appended. */
+    const fs::path tpl = dir / (prefix + "XXXXXX");
+
+    const string t = tpl.string();
+
+    std::vector<char> buf(t.begin(), t.end());
+
+    buf.push_back('\0');
+
+    const int fd = mkstemp(&buf[0]);
+
+    if (fd < 0)
+        return "";
+
+    /* Closed rather than kept: everything downstream works by path, and the
+       writer deliberately writes through a temporary and renames, which
+       replaces the inode under any descriptor we held anyway. */
+    close(fd);
+
+    return string(&buf[0]);
+
+#endif
+}
+
 string thUtil::findDataDir (const string &subdir, const char *envVar,
                             const string &fallback)
 {

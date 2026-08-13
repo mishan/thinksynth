@@ -38,6 +38,8 @@
 #include "NodePalette.h"
 #include "../NodeCatalog.h"
 #include "NodeEditor.h"
+
+#include "thUtil.h"
 #include "Dialogs.h"
 
 
@@ -574,43 +576,16 @@ bool NodeEditor::startWorkingCopy (const string &source)
 {
     if (work_.empty())
     {
-        /* mkstemp, not a name built from the pid and this pointer.
-         *
-         * That name was predictable, and copyFile opens with ios::trunc: on a
-         * shared temp directory without the sticky bit, anyone able to guess
-         * it could put a symlink there first and have the editor truncate
-         * whatever it pointed at. mkstemp creates the file itself, O_EXCL and
-         * 0600, so there is nothing to guess and nothing to pre-empt.
-         *
-         * No .dsp on the end -- mkstemp wants the template to finish with the
-         * X's. Nothing cares: the parser is handed a path, not an extension,
-         * and this file is never shown to anyone. */
-        const char *tmp = getenv("TMPDIR");
+        /* The name has to be unguessable and the directory has to be the one
+           this platform actually uses -- see thUtil::tempFile, which is where
+           both of those live now. It used to be built here from TMPDIR with
+           "/tmp" as the fallback, which is how Windows ended up looking for a
+           directory it does not have and reporting that it could not read a
+           file it had never opened. */
+        work_ = thUtil::tempFile("thinksynth-edit-");
 
-        string tpl = string(tmp && *tmp ? tmp : "/tmp");
-
-        tpl += "/thinksynth-edit-XXXXXX";
-
-        vector<char> buf(tpl.begin(), tpl.end());
-
-        buf.push_back('\0');
-
-        const int fd = mkstemp(&buf[0]);
-
-        if (fd < 0)
+        if (work_.empty())
             return false;
-
-        /* Closed rather than kept: everything downstream -- copyFile,
-           NodeEdit, NodeLayout -- works by path, and NodeEdit deliberately
-           writes through a temporary and renames, which replaces the inode
-           under any fd we held anyway. The file stays ours and 0600 until the
-           destructor removes it.
-
-           ::close, because Gtk::Window has a close() of its own and this is a
-           member function. */
-        ::close(fd);
-
-        work_ = &buf[0];
     }
 
     return copyFile(source, work_);
