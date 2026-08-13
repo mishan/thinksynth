@@ -757,35 +757,42 @@ void PatchSelWindow::populate (void)
            than like nothing being there. */
         Glib::RefPtr<PatchSelRow> row = PatchSelRow::create(i);
 
-        patchModel->append(row);
-
         gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
-        if (patch == NULL)
-            continue;
-
-        string filename = patch->filename;
-        thArg *amp = synth->getChanArg(i, "amp");
-
-        /* populate the controls with the data from the first row */
-        if (i == 0)
+        if (patch != NULL)
         {
-            showPath(filename);
+            string filename = patch->filename;
+            thArg *amp = synth->getChanArg(i, "amp");
 
-            if (amp)
+            /* populate the controls with the data from the first row */
+            if (i == 0)
             {
-                /* make the slider sensitive since there is an amp arg */
-                dspAmp.set_sensitive(true);
-                dspAmp.set_value((double)(*amp)[0]);
+                showPath(filename);
+
+                if (amp)
+                {
+                    /* make the slider sensitive since there is an amp arg */
+                    dspAmp.set_sensitive(true);
+                    dspAmp.set_value((double)(*amp)[0]);
+                }
             }
+
+            row->setDspName(filename.length() == 0
+                            ? "(Untitled)"
+                            : thUtil::basename(filename.c_str()));
+            row->setPath(filename);
+            row->setAmp(amp ? Glib::ustring::format((int)((*amp)[0] + 0.5f))
+                            : Glib::ustring());
         }
 
-        row->setDspName(filename.length() == 0
-                        ? "(Untitled)"
-                        : thUtil::basename(filename.c_str()));
-        row->setPath(filename);
-        row->setAmp(amp ? Glib::ustring::format((int)((*amp)[0] + 0.5f))
-                        : Glib::ustring());
+        /* Appended only once it is complete.
+         *
+         * Appending first and filling in afterwards left Patch and Level
+         * blank: a ColumnView binds a row as soon as the model says it exists,
+         * and binding is the only time it reads. The setters then ran against
+         * an object nothing would look at again, so Channel -- set in the
+         * constructor -- was the only column with anything in it. */
+        patchModel->append(row);
     }
 
     if (selectedChan != -1)
