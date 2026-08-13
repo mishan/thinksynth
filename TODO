@@ -40,20 +40,13 @@ Never heard
 Defects
 -------
 
-- A Gtk-CRITICAL on reopening the Patch Selector:
-  gtk_css_node_insert_after: assertion 'previous_sibling == NULL ||
-  previous_sibling->parent == parent' failed.
-  GTK recovers and the window is drawn correctly, but it is a real complaint
-  about how the widget tree is being built.
-  It does not reproduce on any single window. Opening the patch selector, the
-  MIDI map or the keyboard alone is clean; so is opening two of them, and so is
-  closing one and reopening it. The sequence that produces it is all three
-  open, then close the patch selector and reopen it -- which points at a window
-  being presented while others exist rather than at that window's own
-  construction. Filling the selector's two grids before parenting them rather
-  than after was the obvious candidate and did not stop it. What would settle
-  it is a backtrace: G_DEBUG=fatal-criticals under a debugger, at the moment of
-  the assertion.
+(The gtk_css_node_insert_after critical is gone from the patch selector and
+the MIDI map. It was never our widget tree: a backtrace put it in
+gtk_tree_view_ensure_interactive_directory, GtkTreeView building its
+interactive-search popover on a keypress and parenting it in a way GTK's own
+CSS machinery rejects. Both windows are Gtk::ColumnViews now, which have no
+such popover. NodePalette is still a TreeView and still guarded -- see the
+node editor section.)
 
 
 The corpus
