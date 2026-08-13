@@ -1,15 +1,15 @@
-# Is src/thinksynth.ico still the icon that data/org.thinksynth.thinksynth.svg
-# describes?
+# Are the committed icons still the icon that
+# data/org.thinksynth.thinksynth.svg describes?
 #
-# The Windows executable embeds a .ico, which Windows cannot substitute for an
-# SVG, so that file is rendered from the SVG and committed -- committed so that
-# building for Windows needs no rasteriser on the machine doing it.  The cost
-# of committing it is that the two can drift, and the drift is silent: nothing
-# about editing the SVG makes the stale .ico stop working.
+# Neither Windows nor macOS can use an SVG: the executable embeds a .ico and
+# the bundle carries a .icns, and both are rendered from that SVG ahead of time
+# and committed, so that building for either needs no rasteriser on the machine
+# doing it.  The cost of committing them is that they can drift, and the drift
+# is silent -- nothing about editing the SVG makes a stale render stop working.
 #
-# So the generator records the SVG's hash beside the icon, and this compares it
-# against the SVG as it stands now.  It hashes the input rather than the output
-# on purpose; see the note in scripts/make-windows-icon.py.
+# So the generator records the SVG's hash beside them, and this compares it
+# against the SVG as it stands now.  It hashes the input rather than the
+# outputs on purpose; see the note in scripts/make-icons.py.
 #
 # Run by ctest on every platform, since it is a file comparison and needs
 # neither Python nor a renderer.
@@ -23,7 +23,14 @@ endif()
 set(_svg "${THINK_SOURCE_DIR}/data/org.thinksynth.thinksynth.svg")
 set(_stamp "${THINK_SOURCE_DIR}/src/thinksynth-icon.stamp")
 
-foreach(_f "${_svg}" "${_stamp}")
+# The renders themselves are checked only for existence. Whether they are the
+# right *content* is what the hash below answers, indirectly; what this catches
+# is one of them having been deleted or never committed, which would otherwise
+# surface as a link error on Windows or a generic icon on macOS.
+set(_ico "${THINK_SOURCE_DIR}/src/thinksynth.ico")
+set(_icns "${THINK_SOURCE_DIR}/src/thinksynth.icns")
+
+foreach(_f "${_svg}" "${_stamp}" "${_ico}" "${_icns}")
   if(NOT EXISTS "${_f}")
     message(FATAL_ERROR "missing ${_f}")
   endif()
@@ -52,21 +59,23 @@ endforeach()
 if(_recorded STREQUAL "")
   message(FATAL_ERROR
     "no sha256 found in ${_stamp} -- regenerate it with\n"
-    "    python3 scripts/make-windows-icon.py")
+    "    python3 scripts/make-icons.py")
 endif()
 
 if(NOT _recorded STREQUAL _actual)
   message(FATAL_ERROR
-    "src/thinksynth.ico is stale: it was rendered from a different version of\n"
-    "data/org.thinksynth.thinksynth.svg than the one in the tree.\n"
+    "The committed icons are stale: they were rendered from a different\n"
+    "version of data/org.thinksynth.thinksynth.svg than the one in the tree.\n"
     "\n"
     "  recorded: ${_recorded}\n"
     "  actual:   ${_actual}\n"
     "\n"
-    "The .ico is committed rather than built, so editing the SVG does not\n"
-    "update it. Re-render and commit both:\n"
+    "src/thinksynth.ico and src/thinksynth.icns are committed rather than\n"
+    "built, so editing the SVG does not update them. Re-render and commit\n"
+    "all three together:\n"
     "\n"
-    "    python3 scripts/make-windows-icon.py\n")
+    "    python3 scripts/make-icons.py\n")
 endif()
 
-message(STATUS "thinksynth.ico is current with the SVG (${_actual})")
+message(STATUS "thinksynth.ico and thinksynth.icns are current with the SVG "
+               "(${_actual})")

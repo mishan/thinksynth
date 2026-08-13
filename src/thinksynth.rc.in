@@ -23,7 +23,7 @@
 #include <windows.h>
 
 /* Explorer, the taskbar and Alt-Tab. Multi-resolution, 16 to 256 px; see
-   scripts/make-windows-icon.py. The lowest-numbered icon resource is the one
+   scripts/make-icons.py. The lowest-numbered icon resource is the one
    Windows uses for the executable itself, so this stays 1. */
 1 ICON "@THINK_RC_DIR@/thinksynth.ico"
 
