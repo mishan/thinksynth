@@ -576,9 +576,17 @@ void Keyboard::drawKeyboardFocus (const Cairo::RefPtr<Cairo::Context> &cr)
     /* Drawn here rather than asked of the theme. Gtk::Style and its paint_*
        methods went in GTK3, and Gtk::StyleContext::render_focus went in GTK4
        -- focus decoration is a CSS matter now, and a dashed rectangle drawn
-       by hand is a smaller thing than a stylesheet for one widget. */
+       by hand is a smaller thing than a stylesheet for one widget.
+     *
+     * The colour does come from the theme, though. It was a fixed 0.2 grey,
+     * which is all but invisible against a dark background -- and with the
+     * Appearance menu the background can now be dark on any platform. The
+     * style context's foreground colour is light or dark as the theme is, so
+     * the rectangle stays visible either way. */
+    const Gdk::RGBA fg = get_style_context()->get_color();
+
     cr->save();
-    cr->set_source_rgb(0.2, 0.2, 0.2);
+    cr->set_source_rgb(fg.get_red(), fg.get_green(), fg.get_blue());
     cr->set_line_width(1.0);
 
     {

@@ -42,6 +42,8 @@ target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 set(THINKSYNTH_SOURCES
     main.cpp
     gthPrefs.cpp
+    gthTheme.cpp
+    gthThemePolicy.cpp
     gthPatchfile.cpp
     gthDummyAudio.cpp
     gthSynthSource.cpp
@@ -72,13 +74,21 @@ target_include_directories(thinksynth PRIVATE
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")
 
+# gthTheme.cpp reads AppleInterfaceStyle and subscribes to the distributed
+# notification centre, which is CoreFoundation. Nothing else in the tree needs
+# a framework, so it is named here rather than anywhere more general.
+if(APPLE)
+  find_library(THINK_COREFOUNDATION CoreFoundation REQUIRED)
+endif()
+
 target_link_libraries(thinksynth PRIVATE
     think
     PkgConfig::GTKMM
     PkgConfig::GTHREAD
     PkgConfig::CAIRO
     ${THINK_RTAUDIO_LIB}
-    ${THINK_RTMIDI_LIB})
+    ${THINK_RTMIDI_LIB}
+    ${THINK_COREFOUNDATION})
 
 # acinclude.m4's AC_LINKER_DYNAMIC put -Wl,-export-dynamic,--no-as-needed on
 # the link line so that a dlopen'd plugin can resolve against symbols in the

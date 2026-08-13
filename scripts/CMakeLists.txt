@@ -57,6 +57,13 @@ endfunction()
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
 
+# The light/dark decision. Only the Linux half of the platform readers can be
+# run here at all, so what gets pinned is the part that is the same on all
+# three -- and that part lives in its own file precisely so this harness needs
+# neither gtkmm nor, on macOS, CoreFoundation. Compiling all of gthTheme.cpp
+# to reach it is what broke the macOS build.
+think_harness(themecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp")
+
 think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
@@ -181,6 +188,8 @@ add_test(NAME dspblock
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 
 add_test(NAME pathcheck COMMAND pathcheck)
+
+add_test(NAME themecheck COMMAND themecheck)
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
