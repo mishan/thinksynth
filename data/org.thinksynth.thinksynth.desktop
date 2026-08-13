@@ -9,5 +9,5 @@ Icon=org.thinksynth.thinksynth
 Terminal=false
 Categories=AudioVideo;Audio;Music;
 StartupNotify=true
-StartupWMClass=thinksynth
+StartupWMClass=org.thinksynth.thinksynth
 Keywords=synthesizer;synth;DSP;MIDI;audio;modular;

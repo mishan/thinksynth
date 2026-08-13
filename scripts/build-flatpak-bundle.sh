@@ -36,14 +36,19 @@ cd "$REPO_ROOT"
 MANIFEST="org.thinksynth.thinksynth.yml"
 
 # Parsed out of the manifest rather than repeated here, so the two cannot
-# drift apart.
+# drift apart. Both are checked: an unparsed RUNTIME_VER would otherwise reach
+# the `flatpak info' below as an empty version, which does not fail -- it asks
+# about a ref like "org.gnome.Sdk/x86_64/" and reports it missing, so the
+# script would warn that the SDK is not installed on a machine where it is.
 APP_ID=$(awk '/^app-id:/ {print $2; exit}' "$MANIFEST")
 RUNTIME_VER=$(awk '/^runtime-version:/ {gsub(/"/,"",$2); print $2; exit}' "$MANIFEST")
 
-if [ -z "${APP_ID:-}" ]; then
-    echo "error: no app-id in $MANIFEST" >&2
-    exit 1
-fi
+for pair in "app-id:$APP_ID" "runtime-version:$RUNTIME_VER"; do
+    if [ -z "${pair#*:}" ]; then
+        echo "error: could not parse ${pair%%:*} from $MANIFEST" >&2
+        exit 1
+    fi
+done
 
 BUILD_DIR="build-flatpak"
 REPO_DIR="repo"

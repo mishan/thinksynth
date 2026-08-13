@@ -33,3 +33,12 @@ src/thinksynth
 .\#*
 *~
 .*.swp
+
+# Flatpak. flatpak-builder puts a multi-gigabyte object cache in
+# .flatpak-builder/ and an OSTree repo in repo/, and the bundle itself is a
+# build artefact -- none of it belongs in the tree. Left out of .gitignore,
+# the first `git add -A' after a local flatpak build commits the lot.
+.flatpak-builder/
+build-flatpak/
+repo/
+*.flatpak

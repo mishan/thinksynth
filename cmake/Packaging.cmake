@@ -13,7 +13,7 @@ if(APPLE)
   set_target_properties(thinksynth PROPERTIES
       MACOSX_BUNDLE TRUE
       MACOSX_BUNDLE_BUNDLE_NAME "thinksynth"
-      MACOSX_BUNDLE_GUI_IDENTIFIER "org.thinksynth.thinksynth"
+      MACOSX_BUNDLE_GUI_IDENTIFIER "${THINK_APP_ID}"
       MACOSX_BUNDLE_BUNDLE_VERSION "${PROJECT_VERSION}"
       MACOSX_BUNDLE_SHORT_VERSION_STRING "${PROJECT_VERSION}"
       INSTALL_RPATH "@executable_path/../Frameworks")

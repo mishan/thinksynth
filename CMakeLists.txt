@@ -367,6 +367,17 @@ set(THINK_DSP_PATH    "${CMAKE_INSTALL_FULL_DATADIR}/${PROJECT_NAME}/dsp/")
 set(THINK_PATCH_PATH  "${CMAKE_INSTALL_FULL_DATADIR}/${PROJECT_NAME}/patches/")
 set(THINK_DEFAULT_THINKRC "${CMAKE_INSTALL_FULL_SYSCONFDIR}/thinkrc")
 
+# The application ID: the GApplication id, the desktop entry and metainfo
+# stems, the macOS bundle identifier, and the Flatpak app-id are all this one
+# string. They have to agree -- a GApplication id that differs from the
+# Flatpak app-id fails to own its name on the session bus, which takes
+# desktop integration and the portals with it -- and the way to make them
+# agree is to have one of them.
+#
+# Compiled in rather than read from FLATPAK_ID at run time, because it is
+# equally the identity outside a sandbox, where there is no FLATPAK_ID.
+set(THINK_APP_ID "org.thinksynth.thinksynth")
+
 configure_file(cmake/config.h.in "${PROJECT_BINARY_DIR}/config.h")
 
 # Every translation unit does #include "config.h", unqualified.
@@ -443,8 +454,6 @@ install(DIRECTORY patches/ DESTINATION "${THINK_PKG_DATA_DIR}/patches"
 # ---------------------------------------------------------------------------
 
 if(NOT APPLE AND NOT WIN32)
-  set(THINK_APP_ID "org.thinksynth.thinksynth")
-
   install(FILES "data/${THINK_APP_ID}.desktop"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
 
