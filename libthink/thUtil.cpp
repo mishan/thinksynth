@@ -25,13 +25,17 @@
 #include <system_error>
 #include <vector>
 
-/* tempFile: mkstemp and close on POSIX, GetTempFileNameW on Windows. */
-#if defined(_WIN32)
-# include <windows.h>
-#else
-# include <unistd.h>
-#endif
-
+/* One platform block, and it has to stay one.
+ *
+ * WIN32_LEAN_AND_MEAN and NOMINMAX only do anything if they are defined
+ * before the first <windows.h> in the translation unit. A second include
+ * block added above this one -- for tempFile -- pulled <windows.h> in ahead
+ * of them and quietly turned both off.
+ *
+ * exeDir needs GetModuleFileNameW, _NSGetExecutablePath or readlink;
+ * tempFile needs GetTempFileNameW or mkstemp and close. unistd.h covers
+ * readlink and close together, so macOS takes it as well as dyld.h -- close()
+ * is otherwise undeclared there. */
 #if defined(_WIN32)
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
@@ -39,11 +43,12 @@
 # ifndef NOMINMAX
 #  define NOMINMAX
 # endif
-# include <windows.h>
-#elif defined(__APPLE__)
-# include <mach-o/dyld.h>   /* _NSGetExecutablePath */
+# include <windows.h>       /* GetModuleFileNameW, GetTempFileNameW */
 #else
-# include <unistd.h>        /* readlink */
+# include <unistd.h>        /* readlink, close */
+# if defined(__APPLE__)
+#  include <mach-o/dyld.h>  /* _NSGetExecutablePath */
+# endif
 #endif
 
 #include "thUtil.h"
@@ -309,13 +314,31 @@ string thUtil::tempFile (const string &prefix)
        directory given, creates the file, and hands back the path -- and the
        per-user temp directory is already private, which is what mkstemp's
        0600 buys on a shared /tmp. */
-    const std::wstring wdir = dir.wstring();
-    const std::wstring wpre(prefix.begin(), prefix.end());
+    /* The directory, with a separator on the end. temp_directory_path does
+       not put one there and GetTempFileName is documented against paths that
+       have one, so it is added rather than hoped about. */
+    std::wstring wdir = dir.wstring();
 
-    wchar_t out[MAX_PATH + 1];
+    if (!wdir.empty() && wdir.back() != L'\\' && wdir.back() != L'/')
+        wdir += L'\\';
 
-    /* Only the first three characters of the prefix are used, which is a
-       documented limit of the API rather than a choice. */
+    /* At most the first three characters of the prefix are used -- a limit of
+       the API, not a choice here -- so a long caller prefix is truncated
+       rather than passed whole, and an empty one gets something rather than
+       nothing. */
+    std::wstring wpre;
+
+    for (size_t i = 0; i < prefix.size() && wpre.size() < 3; i++)
+        wpre += (wchar_t)(unsigned char)prefix[i];
+
+    if (wpre.empty())
+        wpre = L"ths";
+
+    /* The buffer must be MAX_PATH characters; the call fails rather than
+       truncating if the directory leaves no room, which the empty return
+       reports to the caller. */
+    wchar_t out[MAX_PATH];
+
     if (GetTempFileNameW(wdir.c_str(), wpre.c_str(), 0, out) == 0)
         return "";
 

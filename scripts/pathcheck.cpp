@@ -215,13 +215,29 @@ int main (void)
     unsetenv("TMPDIR");
     setenv("TMP", tdir.string().c_str(), 1);
 
-    const std::string t3 = thUtil::tempFile("pathcheck-");
+    /* Which variables temp_directory_path consults is implementation-defined.
+       libstdc++ reads TMPDIR, TMP, TEMP and TEMPDIR; another library need not,
+       and asserting on it regardless would make this harness fail on a
+       platform where nothing is wrong. So the precondition is checked rather
+       than assumed: if the library does not honour TMP here, there is nothing
+       this case can prove and it says so instead of failing. */
+    std::error_code pec;
 
-    check(!t3.empty() && fs::path(t3).parent_path() == tdir,
-          "TMP is honoured when TMPDIR is unset",
-          t3.empty() ? "(none)" : fs::path(t3).parent_path().string());
+    if (fs::temp_directory_path(pec) == tdir && !pec)
+    {
+        const std::string t3 = thUtil::tempFile("pathcheck-");
 
-    fs::remove(t3, ec);
+        check(!t3.empty() && fs::path(t3).parent_path() == tdir,
+              "TMP is honoured when TMPDIR is unset",
+              t3.empty() ? "(none)" : fs::path(t3).parent_path().string());
+
+        fs::remove(t3, ec);
+    }
+    else
+    {
+        printf("%-46s %s\n", "TMP when TMPDIR is unset",
+               "skipped; this library does not consult TMP");
+    }
 #endif
 
     fs::remove_all(tdir, ec);
