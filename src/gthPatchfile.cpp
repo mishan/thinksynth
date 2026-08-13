@@ -88,6 +88,18 @@ string gthPatchManager::resolveDsp (const string &dspName)
     return found.empty() ? dspName : found;
 }
 
+string gthPatchManager::resolvePatch (const string &patchName)
+{
+    if (patchName.empty())
+        return patchName;
+
+    const string found =
+        thUtil::findDataFile(patchName, "patches", "THINK_PATCH_PATH",
+                             PATCH_PATH);
+
+    return found.empty() ? patchName : found;
+}
+
 bool gthPatchManager::newPatch (const string &dspName, int chan)
 {
     /* The same guard loadPatch, unloadPatch, isLoaded and getChannelArgs all
@@ -111,11 +123,11 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 
     /* Load the resolved path but remember the name as given, so a patch saved
        afterwards still carries the short name it came with. */
-    /* 100, not 0. The third argument is the channel's amplitude, and a patch
+    /* Not 0. The third argument is the channel's amplitude, and a patch
        loaded at zero is a patch that makes no sound until you find the Patch
        Selector and raise it -- which looked like a broken DSP rather than a
-       volume at the bottom of its range. 100 is what MIDI means by a default
-       channel volume, and the scale here is the same 0..127. */
+       volume at the bottom of its range. The scale here is MIDI's 0..127; why
+       TH_DEFAULT_CHAN_AMP sits where it does is argued where it is defined. */
     thSynthTree *mod = synth->loadTree(resolveDsp(dspName).c_str(), chan,
                                        TH_DEFAULT_CHAN_AMP);
 
@@ -206,7 +218,11 @@ bool gthPatchManager::parse (const string &filename, int chan)
     thSynth *synth = thSynth::instance();
     PatchFileArgs arglist;
 
-    if ((prefsFile = fopen(filename.c_str(), "r")) == NULL)
+    /* Opened by the resolved path, recorded by the name as given -- see
+       resolvePatch. A thinkrc that says "leads/SuperRes.patch" stays saying
+       that across a save rather than being rewritten to wherever this
+       particular install happens to keep its patches. */
+    if ((prefsFile = fopen(resolvePatch(filename).c_str(), "r")) == NULL)
     {
         return false;
     }

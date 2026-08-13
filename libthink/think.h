@@ -120,10 +120,19 @@ using namespace std;
 #define TH_MASTER_GAIN_DEFAULT 1.0f
 
 /* What a channel's amplitude starts at, on the same 0..MIDIVALMAX scale the
-   engine mixes with. 100 is MIDI's idea of a default channel volume, and
-   leaves room above it. Loading used to pass 0, so a freshly loaded patch was
-   silent until someone went looking for the slider. */
-#define TH_DEFAULT_CHAN_AMP 100.0f
+   engine mixes with.
+
+   Loading used to pass 0, so a freshly loaded patch was silent until someone
+   went looking for the slider -- which read as a broken DSP rather than as a
+   volume at the bottom of its range. That is the failure this number exists
+   to avoid, and any value clear of the bottom avoids it.
+
+   30 rather than MIDI's nominal 100 because channels are played together, not
+   one at a time: a first run comes up with four patches loaded and the
+   shipped DSPs are calibrated to peak near full scale at one voice, so four
+   of them at 100 arrives at the limiter rather than at the mix. Audible
+   immediately, with the headroom left where the user can spend it. */
+#define TH_DEFAULT_CHAN_AMP 30.0f
 #define TH_MASTER_GAIN_MAX     4.0f
 
 /* Is this sample an ordinary finite number?

@@ -57,6 +57,14 @@ endfunction()
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
 
+# The first-run configuration. Needs gthPrefs and gthPatchfile, which live in
+# the binary rather than in libthink, and glibmm for the config directory --
+# but not gtkmm: none of this draws anything.
+think_harness(configcheck
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthPrefs.cpp")
+target_link_libraries(configcheck PRIVATE PkgConfig::GLIBMM PkgConfig::SIGC)
+
 # The light/dark decision. Only the Linux half of the platform readers can be
 # run here at all, so what gets pinned is the part that is the same on all
 # three -- and that part lives in its own file precisely so this harness needs
@@ -188,6 +196,12 @@ add_test(NAME dspblock
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 
 add_test(NAME pathcheck COMMAND pathcheck)
+
+# Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
+# its own config directory and points HOME at it, so it neither reads nor
+# writes the preferences of whoever runs it.
+add_test(NAME configcheck
+         COMMAND configcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
 add_test(NAME themecheck COMMAND themecheck)
 

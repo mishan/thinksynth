@@ -47,6 +47,12 @@ public:
 
     void Load (void);
     void Save (void);
+
+    /* The built-in first-run configuration: a few channels with patches on
+       them, named relatively and resolved through the patch search path.
+       Called by Load() when there is no configuration file anywhere. Public
+       so a harness can ask for it without arranging a config directory. */
+    void LoadDefaults (void);
 private:
     map <string, string**> prefs_;
     string prefsPath_;

@@ -87,6 +87,28 @@ Support/thinksynth/thinkrc` on macOS, `%LOCALAPPDATA%\thinksynth\thinkrc` on
 Windows. A `~/.thinkrc` from an older version is still read if no current one
 exists, but is never written back to.
 
+First run
+---------
+
+There is nothing to set up. With no configuration file anywhere, thinksynth
+writes one and starts with four channels already loaded:
+
+```
+channel 0,leads/SuperRes.patch,30
+channel 1,bass/FunkMachine.patch,30
+channel 2,organs/Organ1.patch,30
+channel 3,pads/SynString.patch,30
+```
+
+So the on-screen keyboard makes a sound immediately, and the channel spinner
+moves between four different ones. Edit or delete lines to change that; delete
+the whole file to get the defaults back.
+
+The patches are named relatively and looked up the same way DSPs are, which is
+what lets the file survive the install moving — a `.app`, a Windows zip and a
+Flatpak all live somewhere the build never knew about. `THINK_PATCH_PATH`
+overrides where they are searched for.
+
 For MIDI, connect an external sequencer or keyboard to thinksynth's input port
 using whatever your platform uses for that (`aconnect` or a patchbay on Linux,
 Audio MIDI Setup on macOS). Assign a DSP to each channel the MIDI uses and turn

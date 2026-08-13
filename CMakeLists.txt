@@ -364,7 +364,6 @@ endif()
 set(THINK_PLUGIN_PATH "${CMAKE_INSTALL_FULL_LIBDIR}/${PROJECT_NAME}/plugins/")
 set(THINK_DSP_PATH    "${CMAKE_INSTALL_FULL_DATADIR}/${PROJECT_NAME}/dsp/")
 set(THINK_PATCH_PATH  "${CMAKE_INSTALL_FULL_DATADIR}/${PROJECT_NAME}/patches/")
-set(THINK_DEFAULT_THINKRC "${CMAKE_INSTALL_FULL_SYSCONFDIR}/thinkrc")
 
 # The application ID: the GApplication id, the desktop entry and metainfo
 # stems, the macOS bundle identifier, and the Flatpak app-id are all this one
@@ -493,19 +492,16 @@ endif()
 set(dsp_path       "${THINK_DSP_PATH}")
 set(patch_path     "${THINK_PATCH_PATH}")
 set(plugin_path    "${THINK_PLUGIN_PATH}")
-set(thinkrc        "${THINK_DEFAULT_THINKRC}")
 set(DEFAULT_OUTPUT "${THINK_DEFAULT_OUTPUT}")
 set(PACKAGE_VERSION "${PROJECT_VERSION}")
 
-configure_file(etc/thinkrc.in        "${PROJECT_BINARY_DIR}/etc/thinkrc" @ONLY)
 configure_file(docs/thinksynth.1.in  "${PROJECT_BINARY_DIR}/docs/thinksynth.1" @ONLY)
 
-# A system-wide config file and a man page are Unix notions; a .app and a
-# zip have nowhere sensible to put either.
+# A man page is a Unix notion; a .app and a zip have nowhere sensible to put
+# one. There is no config file to install any more -- the defaults a first run
+# gets are built into the binary, because a configure_file'd one carried the
+# absolute paths of the machine that ran cmake and was wrong everywhere else.
 if(NOT APPLE AND NOT WIN32)
-  install(FILES "${PROJECT_BINARY_DIR}/etc/thinkrc"
-          DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}")
-
   install(FILES "${PROJECT_BINARY_DIR}/docs/thinksynth.1"
           DESTINATION "${CMAKE_INSTALL_MANDIR}/man1")
 endif()
