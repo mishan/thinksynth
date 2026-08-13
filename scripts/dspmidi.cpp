@@ -34,7 +34,7 @@
  *
  * No MIDI device is needed or used.
  *
- * Copyright (C) 2004-2014 Metaphonic Labs. GPL 2 or later.
+ * Copyright (C) 2004-2026 Metaphonic Labs. GPL 2 or later.
  */
 
 #include "config.h"

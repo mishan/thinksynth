@@ -505,7 +505,7 @@ int yy_flex_debug = 0;
 char *yytext;
 #line 1 "thinklex.ll"
 /*
- * Copyright (C) 2004-2014 Metaphonic Labs
+ * Copyright (C) 2004-2026 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
