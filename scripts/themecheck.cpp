@@ -129,6 +129,43 @@ int main (void)
     expectRoundTrip("",           gthThemeChoice::Auto);
     expectRoundTrip("Dark",       gthThemeChoice::Auto);   /* case matters */
 
+    /* The dark suffix.
+     *
+     * This is the part that was missing when the feature was first written,
+     * and the symptom was that Light did nothing whatever: a desktop set to
+     * dark hands over gtk-theme-name="Adwaita-dark", and
+     * gtk-application-prefer-dark-theme cannot lighten a theme that is dark
+     * by name -- it only chooses the variant of a theme that ships one. So an
+     * explicit choice has to move to the base theme first. */
+    printf("\nthe dark suffix:\n");
+
+    static const struct { const char *in; const char *out; } themes[] = {
+        { "Adwaita-dark",  "Adwaita" },
+        { "Yaru-dark",     "Yaru"    },
+        { "Breeze-Dark",   "Breeze"  },
+        { "Adwaita:dark",  "Adwaita" },
+
+        /* Left alone: no suffix, and nothing that merely contains the word. */
+        { "Adwaita",       "Adwaita" },
+        { "Darkly",        "Darkly"  },
+        { "",              ""        },
+
+        /* Not a suffix to strip down to nothing. */
+        { "-dark",         "-dark"   },
+    };
+
+    for (size_t i = 0; i < sizeof(themes) / sizeof(themes[0]); i++)
+    {
+        const std::string got = gthTheme::baseThemeName(themes[i].in);
+        const bool ok = (got == themes[i].out);
+
+        printf("  %-14s -> %-10s %s\n", themes[i].in, got.c_str(),
+               ok ? "ok" : "FAILED");
+
+        if (!ok)
+            failures++;
+    }
+
     printf("\n%s\n", failures ? "themecheck FAILED" : "themecheck ok");
 
     return failures ? 1 : 0;

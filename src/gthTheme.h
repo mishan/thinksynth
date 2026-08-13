@@ -86,6 +86,19 @@ namespace gthTheme
     /* The choice currently in force. */
     gthThemeChoice current (void);
 
+    /* The name of a theme with any dark suffix taken off: "Adwaita-dark"
+     * becomes "Adwaita", "Yaru-dark" becomes "Yaru".
+     *
+     * Needed because gtk-application-prefer-dark-theme selects the dark
+     * *variant* of a theme that has one, and cannot do anything at all about
+     * a theme that is dark by name -- which is what a desktop set to dark
+     * usually hands us. Setting the property to false against Adwaita-dark
+     * leaves the application exactly as dark as it was.
+     *
+     * Public so it can be tested; there is no other reason.
+     */
+    std::string baseThemeName (const std::string &name);
+
     /* thinkrc spelling, both ways. Unknown text reads as Auto rather than
      * failing: a preferences file from a newer version should not stop an
      * older one from starting. */

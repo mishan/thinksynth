@@ -56,6 +56,10 @@ namespace
 
     bool watching_ = false;
 
+    /* The theme name the desktop had before any of this touched it. */
+    Glib::ustring systemThemeName_;
+    bool          haveSystemTheme_ = false;
+
 }
 
 /* ------------------------------------------------------------------------
@@ -442,6 +446,23 @@ void gthTheme::startWatching (void)
     startPlatformWatch();
 }
 
+/* "Adwaita-dark" -> "Adwaita". Left alone if there is no such suffix. */
+std::string gthTheme::baseThemeName (const std::string &name)
+{
+    static const char *suffixes[] = { "-dark", "-Dark", "-DARK", ":dark" };
+
+    for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
+    {
+        const std::string suffix = suffixes[i];
+
+        if (name.size() > suffix.size() &&
+            name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
+            return name.substr(0, name.size() - suffix.size());
+    }
+
+    return name;
+}
+
 void gthTheme::apply (gthThemeChoice choice)
 {
     currentChoice_ = choice;
@@ -450,6 +471,33 @@ void gthTheme::apply (gthThemeChoice choice)
 
     if (!settings)
         return;   /* no display; nothing to theme */
+
+    /* The desktop's own theme, taken the first time through and before
+       anything here has changed it, because Auto has to put it back. */
+    if (!haveSystemTheme_)
+    {
+        systemThemeName_ = settings->property_gtk_theme_name();
+        haveSystemTheme_ = true;
+    }
+
+    /* Setting the property alone is not enough, and this is the whole reason
+       the theme name is touched at all.
+     *
+     * gtk-application-prefer-dark-theme selects the dark *variant* of a theme
+     * that ships one. It has no power over a theme that is dark by name -- and
+     * a desktop set to dark commonly sets gtk-theme-name to exactly that:
+     * Adwaita-dark, Yaru-dark, Breeze-Dark. Against one of those, asking for
+     * light changed nothing at all; the application stayed dark and the menu
+     * looked broken. Measured rather than guessed: with gtk-theme-name set to
+     * Adwaita-dark, prefer-dark=false still gives 0.93 foreground text.
+     *
+     * So an explicit choice moves to the base theme, where the variant
+     * property means something. Auto puts the desktop's own name back, since
+     * on Auto the desktop is the one deciding. */
+    if (choice == gthThemeChoice::Auto)
+        settings->property_gtk_theme_name() = systemThemeName_;
+    else
+        settings->property_gtk_theme_name() = baseThemeName(systemThemeName_);
 
     settings->property_gtk_application_prefer_dark_theme() =
         wantsDark(choice, systemScheme());
