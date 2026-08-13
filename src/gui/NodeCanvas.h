@@ -113,7 +113,7 @@ public:
      * drawing code on a real graph -- 1514 boxes and 3094 wires across the
      * corpus, the widest of them 2920 pixels. Measuring a stand-in that draws
      * "something of similar complexity" would answer a different question, and
-     * describing the same scene twice is how NODE_EDITOR.md §12's "clicking a
+     * describing the same scene twice is how NODE_EDITOR.md's "clicking a
      * wire selects a different wire" happened.
      *
      * scripts/canvasbench is the consumer. Two counters and a clock read per
@@ -180,7 +180,7 @@ public:
      * Public and separate from the draw callback for two reasons: the timing
      * above wraps one call rather than every return path, and scripts/
      * canvasbench can render a canvas straight into an image surface. That
-     * second one matters -- NODE_EDITOR.md §7 says the bugs that matter in
+     * second one matters -- NODE_EDITOR.md says the bugs that matter in
      * this part of the tree are visual, and being able to produce a PNG of a
      * real graph without a screenshot is the difference between looking at one
      * and taking someone's word for it. */

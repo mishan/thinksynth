@@ -1,4 +1,5 @@
-# The GTK runtime data files -- PORTING.md section 13.
+# The GTK runtime data files -- PACKAGING.md, "The data files the closure
+# cannot see".
 #
 # file(GET_RUNTIME_DEPENDENCIES) walks the *link* graph, so it collects DLLs
 # and dylibs and stops there. GTK also needs three things that no linker ever

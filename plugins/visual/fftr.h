@@ -26,7 +26,7 @@
  *
  * plugins/fft/dsp.c has a working radix-2 -- Embree & Kimble's, from C
  * Language Algorithms for DSP. It is not built, nothing references it, and
- * VISUALIZERS.md §4 said finding out whether it could be reused was a
+ * VISUALIZERS.md said finding out whether it could be reused was a
  * twenty-minute question. The answer is no, for two reasons that are about the
  * shape of it rather than the arithmetic:
  *
@@ -36,8 +36,8 @@
  *   Every probe here is its own instance and there may be eight.
  *
  *   It calls exit(1) when a calloc fails -- a library killing the host
- *   process, which is exactly the pattern REVIVAL.md records removing from the
- *   parser.
+ *   process, which is exactly the pattern that was removed from the parser
+ *   years ago.
  *
  * So: this. About eighty lines, one instance's worth of state, no globals, and
  * nothing to fail after construction.
@@ -47,8 +47,8 @@
  * kissfft or FFTW would both do, and both are more than a display needs. A
  * spectrum at 1024 bins thirty times a second is 15k butterflies per frame,
  * which is nothing; the reason to take a dependency would be speed, and there
- * is no speed problem to solve. §4 called it and this is that call carried
- * out.
+ * is no speed problem to solve. VISUALIZERS.md called it and this is that
+ * call carried out.
  *
  * Everything here runs on the GUI thread, like the rest of a visual module.
  */

@@ -1,15 +1,14 @@
 # thinksynth
 #
-# Replaces autotools + the hand-rolled build.mk. See PORTING.md section 7.
+# Replaces autotools + the hand-rolled build.mk. See PORTING.md, "CMake".
 #
-# This is deliberately a faithful reproduction of what configure.ac and
-# build.mk did, not an improvement on it: the point of step 1 is that the
-# CMake build and the autotools build produce the same artefacts and the same
-# dspcheck/dsplevel results, so that anything that breaks later is
-# attributable to one change rather than two. The cleanups PORTING.md section
-# 6 calls for -- dropping -ffast-math, linking plugins against libthink,
-# C++17, visibility -- are deliberately NOT done here. Each is flagged below
-# with the section that will do it.
+# It began as a deliberately faithful reproduction of what configure.ac and
+# build.mk did rather than an improvement on it, so that the two builds
+# produced the same artefacts and the same dspcheck/dsplevel results and
+# anything that broke later was attributable to one change rather than two.
+# Autotools is gone now, and the cleanups that reproduction was holding back
+# -- dropping -ffast-math, linking plugins against libthink, C++17,
+# visibility -- have all landed.
 
 cmake_minimum_required(VERSION 3.16)
 
@@ -28,8 +27,8 @@ include(TestBigEndian)
 # ---------------------------------------------------------------------------
 # Library version
 #
-# Straight from configure.ac. Bump lib_major when libthink's ABI changes; the
-# comment block in configure.ac records why it is at 6.
+# Bump lib_major when libthink's ABI changes. ARCHITECTURE.md records what goes
+# wrong when a stale copy with an older soname is left in /usr/local/lib.
 # ---------------------------------------------------------------------------
 
 set(THINK_LIB_MAJOR 6)
@@ -53,8 +52,8 @@ option(THINK_FAST_MATH "Build with -ffast-math (as autotools did)" OFF)
 
 # Sanitizers are applied globally rather than per-target on purpose. An
 # earlier round of measurements was worthless because the flags reached only
-# the harness and not libthink or the plugins -- see REVIVAL.md, "The queue
-# rework, and a bad measurement".
+# the harness and not libthink or the plugins -- see AUDIO.md, "The
+# harnesses".
 set(THINK_SANITIZE "" CACHE STRING
     "Sanitizers to build everything with, e.g. address,undefined or thread")
 

@@ -71,8 +71,8 @@
 
 /* Orders box indices by the position layering gave them.
  *
- * A functor rather than a lambda. The build does now ask for C++11 -- see
- * configure.ac -- but it asks for it because think.h needs <atomic>, not
+ * A functor rather than a lambda. The build does now ask for a modern C++ --
+ * see CMakeLists.txt -- but it asks for it because think.h needs <atomic>, not
  * because anything wanted lambdas, and this file is the one piece of the node
  * editor deliberately kept independent of the engine. No reason to spend a
  * language feature on a three-line comparison. */
@@ -1113,7 +1113,7 @@ void NodeGraph::assignAttachments (void)
          * host. They read as a separate thing from the knobs, which they are:
          * a control is something you turn and a probe is something you watch.
          * Interleaving them by declaration order would put a scope between two
-         * sliders of the same envelope, which §13 went to some trouble to keep
+         * sliders of the same envelope, which control groups went to some trouble to keep
          * together. */
         vector<int> withProbes;
 

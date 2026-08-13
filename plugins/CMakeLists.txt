@@ -3,19 +3,18 @@
 # Lists are explicit, one name per plugin, and deliberately not file(GLOB).
 # What is *missing* here is load-bearing:
 #
-#   - input/ (wav, alsa) and test/ are not in configure.ac's PLUGIN_DIRS.
-#     wav.cpp's own description string reads "Wav Input (BROKEN)", and
-#     test.cpp still calls SetState/SetDesc, renamed years ago.
+#   - input/ (wav, alsa) and test/ were excluded by the old build too, and
+#     stay excluded here. wav.cpp's own description string reads "Wav Input
+#     (BROKEN)", and test.cpp still calls SetState/SetDesc, renamed years ago.
 #   - fft/ holds one .c file that is not a plugin: no module_init, no
 #     module_callback, just fir_filter/iir_filter/gaussian/fft lifted from
 #     Embree & Kimble's C Language Algorithms for DSP. Nothing in the tree
-#     references it. VISUALIZERS.md §14 says why the visualizers did not
+#     references it. VISUALIZERS.md says why the visualizers did not
 #     reuse its FFT: it keeps its twiddle table in a function-static keyed on
 #     the last size asked for, and it calls exit(1) when a calloc fails --
 #     which is a library killing the host process, the exact pattern
-#     REVIVAL.md removed from the parser.
-#   - misc/wlan is in the directory but not in misc/Makefile's PLUGIN_NAMES;
-#     it needs libiw.
+#     that was removed from the parser years ago.
+#   - misc/wlan is in the directory but has never been built: it needs libiw.
 #
 # Eleven of the 92 shipped DSPs reference those plugins and are expected to
 # fail to parse. A glob would silently start building them and change what

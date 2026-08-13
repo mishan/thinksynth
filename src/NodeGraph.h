@@ -189,8 +189,8 @@ public:
          * which way it faces: a control feeds one of the host's *inputs*, a
          * probe reads one of its outputs.
          *
-         * Deliberately NOT joined to its host by an Edge. §12 of
-         * NODE_EDITOR.md argued that a control needs its wire drawn because
+         * Deliberately NOT joined to its host by an Edge. NODE_EDITOR.md
+         * argues under "Controls" that a control needs its wire drawn because
          * adjacency cannot say which of several inputs it drives -- but an
          * Edge here would appear in edges(), which every consumer reads as "a
          * connection in the .dsp" and which NodeEdit would try to write. A

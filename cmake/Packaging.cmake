@@ -1,4 +1,4 @@
-# Packaging -- PORTING.md section 8 step 8. The layout itself is decided in
+# Packaging -- see PACKAGING.md. The layout itself is decided in
 # cmake/Layout.cmake, which has to run before the subdirectories so their
 # install() calls can use it; this half needs the targets to exist, so it runs
 # last.

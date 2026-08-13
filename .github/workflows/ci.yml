@@ -1,14 +1,14 @@
-# Three-platform CI. See PORTING.md section 10.
+# Three-platform CI. See PORTING.md section 4.
 #
 # Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm, which has
 # no MSVC build, and reinforced by the eleven files in the tree that use
 # variable-length arrays.
 #
-# STATUS: linux and asan are real gates and must stay green. macos and windows
-# are marked continue-on-error because the port has not reached them yet --
-# they run so the output shows how far it gets, without turning the workflow
-# red. Remove `continue-on-error' from each at PORTING.md section 8 steps 6
-# and 7 respectively.
+# STATUS: all four jobs are real gates and must stay green. What CI does not
+# cover is that hosted runners have no audio device, so the backends are only
+# compiled and linked here, never opened. macOS has additionally never been
+# run on a real desktop -- it builds and the harnesses pass, and nobody has
+# seen the GUI.
 #
 # RtAudio and RtMidi are NOT installed from the system package manager on any
 # platform here. Ubuntu 24.04 does not carry librtaudio-dev, 22.04 carries
@@ -225,7 +225,6 @@ jobs:
   macos:
     name: macos (clang, arm64)
     runs-on: macos-14
-    continue-on-error: true   # remove at PORTING.md section 8 step 6
 
     steps:
       - uses: actions/checkout@v4
@@ -305,7 +304,6 @@ jobs:
   windows:
     name: windows (mingw-w64, ucrt64)
     runs-on: windows-latest
-    continue-on-error: true   # remove at PORTING.md section 8 step 7
 
     defaults:
       run:

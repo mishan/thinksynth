@@ -1,586 +1,105 @@
-# Scoping the DSP node editor
-
-Measured against the 92 shipped `.dsp` files and the 62 built plugins, on
-`node-editor-scope` off `gtkmm4-scope`.
-
-The headline: **the thing I called the blocker in the original survey turns out
-to be already solved, and nobody noticed.** The rest is real work but
-unremarkable — a canvas widget, a graph model, and a `.dsp` writer.
-
-## 1. Port direction: already there
-
-`REVIVAL.md` §4a says the editor is blocked because `plugin->regArg("a")` and
-`plugin->regArg("out")` are identical calls, so nothing in the plugin API says
-which args are inputs and which are outputs, and that fixing it means a plugin
-API v5 touching all 66 plugins.
-
-That is true of the *API*. It is not true of the *code*. Every plugin already
-declares direction, in the enum it indexes `args[]` with:
-
-```c
-enum {IN_A, IN_D, IN_S, IN_R, IN_P, IN_TRIGGER, IN_RESET,
-      OUT_ARG, OUT_PLAY, INOUT_POSITION};
-```
-
-Cross-checking that convention against what each plugin actually *does* —
-whether it calls `allocate()` on an arg (writes it) or `getBuffer()`/`operator[]`
-(reads it):
-
-```
-enum-prefix convention vs behaviour:  302 agree, 0 disagree
-args not following the convention:    3
-```
-
-**302 of 305 args, zero disagreements.** The three stragglers are
-`logic::not`'s `IN`, `misc::decibel`'s `DB` and `mixer::fade`'s `OUT` — the
-convention without the underscore suffix, obvious on sight.
-
-So the metadata does not need inventing, only exposing. Two ways:
-
-- **Generate it.** A script reads the enums and emits a table the editor loads.
-  No plugin changes at all. Fastest, and the cross-check above is the proof it
-  is safe.
-- **API v5 properly.** `regArg(name, thPlugin::IN|OUT|STATE)`, mechanically
-  applied from the same extraction, three by hand. Better long-term — the
-  direction lives with the plugin, and the same call can carry a description
-  and a sane range for the UI.
-
-The second is barely more work than the first because the first does the
-analysis anyway. It wants an `lib_major` bump.
-
-### The `INOUT_` args are not ports
-
-69 args are internal state — `delay::echo`'s ring `buffer` and `bufpos`,
-`env::adsr`'s `position`, every filter's `last`. They are allocated and read
-by the plugin across windows, and **no `.dsp` in the corpus ever references
-one**. They must not appear on the canvas: nobody wants to wire a delay line's
-internal buffer, and letting them try invites exactly the kind of divergence
-that makes `old/test.dsp` peak at 1.75e5.
-
-The `INOUT_` prefix identifies them exactly.
-
-## 2. What the graphs actually look like
-
-| | median | max |
-|---|---|---|
-| nodes | 13 | 56 |
-| edges | 30 | 134 |
-| layers (longest chain) | 8 | 17 |
-
-Small. No layout algorithm is going to struggle, and no canvas is going to
-need virtualisation or level-of-detail.
-
-**87 of 92 are acyclic** — but only once the `io` node is split. That node is
-both the MIDI source (`note`, `velocity`, `trigger` are read by other nodes)
-and the audio sink (`out0`, `out1`, `play` are written to it). Treated as one
-vertex it appears in a cycle in 89 of 92 files, which is an artefact. The
-editor's model should split it into a source box and a sink box; that is also
-how it reads best on screen — signal flowing left to right from MIDI in to
-audio out.
-
-The remaining **5 have genuine feedback**: `effects/reverb01`,
-`effects/whistlesynth01`, `noargs/dfb` (the name is a clue), `noargs/smoothie`,
-`old/randompw`. Real audio feedback loops, entirely legitimate. Layered layout
-handles them the usual way — pick a feedback arc set, reverse those edges for
-layering, draw them as back-edges.
-
-## 3. Modulation is already how these work
-
-The "well beyond initial scope" item is mostly already built.
-
-The language draws no distinction between a constant parameter and a signal.
-A node input can be bound to a literal, to a `@chanarg`, or to another node's
-output, and the last of those is used constantly. From `ts1.dsp`:
-
-```
-node map1 env::map {
-    in     = env->out;          # envelope drives the mapping
-    outmin = cutcalc->out;      # and the range is itself computed
-    outmax = cutcalc2->out;
-};
-node filt filt::res2pole2 {
-    cutoff = map1->out;         # filter cutoff modulated by the envelope
-};
-```
-
-That *is* parameter modulation, in the engine, today. Dragging a wire from an
-oscillator's output onto an input that currently reads `@cutoff` needs no
-engine change whatsoever — it changes that arg from `ARG_CHANNEL` to
-`ARG_POINTER`, which the parser, the graph builder and the audio path all
-already handle.
-
-The one thing genuinely *not* supported: a `@chanarg` itself being driven by a
-node. Chanargs are declared `@x = <constant>` and written by the GUI and MIDI
-controllers, and nothing can drive one from the graph. So "the knob moves on
-its own" would need engine work; "this parameter varies with an LFO" would not.
-Worth knowing which of the two you meant, because they are very different
-amounts of work.
-
-## 4. Round-tripping: the awkward part
-
-The editor has to write `.dsp` files back, and the parser throws away things a
-naive re-emit would not restore:
-
-- **Comments.** 59 of 92 files have them, 391 in total, and they are the
-  author's notes — `# multiply the filter start by famt`, attribution headers,
-  dates. Losing them on first save would be vandalism.
-- **Units.** 283 values are written `5 ms` or `90%`. The lexer folds these to
-  raw floats, so `a = 5 ms` comes back as `a = 220.5`. Correct, unreadable.
-- **Synthesised args.** `buildArgMap()` calls `setArg(name, 0)` for every arg a
-  plugin registered but the `.dsp` did not mention. Re-emitting the in-memory
-  model would write out dozens of `reset = 0;` lines nobody authored.
-- **Arithmetic.** Only 8 right-hand sides across the corpus use it, so this one
-  barely matters.
-
-Two workable approaches:
-
-- **Edit the text, not the model.** Keep the source and splice changes into it,
-  preserving everything untouched. Fiddly, but comments survive and diffs stay
-  small and reviewable — which matters a lot for files under version control.
-- **Re-emit, but track provenance.** Mark each arg as authored or defaulted, and
-  keep comments and units on the parsed nodes. More invasive to `thArg` and the
-  grammar, but the editor then owns the file properly.
-
-I would start with splicing. It is less satisfying but it cannot lose data, and
-losing someone's `.dsp` comments is the kind of thing that stops them using the
-editor entirely.
-
-**Node positions** want storing too. A structured comment — `# @layout freq 120
-40` — keeps files loadable by the current parser and by every existing tool,
-and degrades to a harmless comment if the editor is never used again.
-
-## 5. Where it should live
-
-In-app, as a gtkmm-3 `DrawingArea`. That answer changed with the gtkmm-3 port:
-the Cairo drawing path is now proven in this tree, the `Keyboard` widget is a
-working precedent for custom drawing plus mouse hit-testing, and the real
-payoff of an in-app editor is hearing a change the moment you make it.
-
-A separate web tool would be nicer to build and would need a second parser and
-a process boundary, for a worse result.
-
-## 6. Suggested order
-
-1. **Port metadata.** Extract directions, hide `INOUT_`. Either the generated
-   table or API v5. Nothing else can start without it.
-2. **Graph model and layout.** Build a display graph from `thSynthTree` — split
-   the `io` node, layer it, break feedback arcs. Testable headlessly against all
-   92 files: every node placed, no overlaps, back-edges identified.
-3. **Read-only canvas.** Draw nodes, ports and edges. No interaction. This is
-   the point at which it is worth looking at, and where the layout gets judged.
-4. **Interaction.** Drag nodes, pan and zoom, hit-test ports.
-5. **The `.dsp` writer**, with position comments. Round-trip every shipped file
-   and diff — a file with no edits must come back byte-identical.
-6. **Editing.** Create and delete edges, add and remove nodes. Only now does it
-   need the writer to be trustworthy.
-7. **Parameter controls.** Chanargs already carry `widget`, `min`, `max` and
-   `label` from the `.dsp`, and `ArgTable` already renders exactly that — the
-   panel largely exists.
-
-Steps 1–3 are the ones worth doing first regardless: they are independently
-useful, they are all headlessly testable, and step 3 answers the question that
-actually matters, which is whether an auto-arranged thinksynth graph is legible.
-
-## 7. Risks
-
-- **Layout quality is subjective and cannot be unit-tested.** 17 layers of 56
-  nodes may still look like spaghetti when correctly laid out. Step 3 exists to
-  find that out cheaply.
-- **The editor can produce graphs the engine mishandles.** Feedback loops
-  already exist in 5 files, and `thSynthTree::buildSynthTree` walks the graph
-  recursively with a `recalc` flag rather than a proper topological order. An
-  editor makes it easy to build pathological graphs; `dspcheck` should grow a
-  "load this and process it" check for anything the editor writes.
-- **Verification needs you.** As with the keyboard, the bugs that matter here
-  will be visual and interactive. Both real bugs in the gtkmm-3 port came from
-  you using it, not from anything catchable headlessly.
-
----
-
-## 8. Progress
-
-Implemented on `node-editor` off `gtkmm3-port`. Steps refer to §6 above.
-
-| Step | State | Where |
-|---|---|---|
-| 1. Port metadata | done | `thPlugin::ArgDir`, `regArg(name, dir)`, `argIsPort()` |
-| 2. Graph model and layout | done | `src/NodeGraph.{h,cpp}` |
-| 3. Read-only canvas | done | `src/gui/NodeCanvas.{h,cpp}` |
-| 4. Interaction | done | drag, Ctrl+wheel zoom, hover; hit-testing in `NodeGraph` |
-| 5. The `.dsp` writer | positions and values | `src/NodeLayout.{h,cpp}`, `src/NodeEdit.{h,cpp}` |
-| 6. Editing | done | wires, and nodes via the palette |
-| 7. Parameter controls | done | `NodeParams`, plus control nodes on the canvas |
-
-Reachable from **File → Node View** (Ctrl+N). `NodeWindow` parses its own tree
-through `thSynth::parseTree()`, which neither registers nor owns the result, so
-looking at a DSP cannot disturb the tree a channel is playing.
-
-Verified headlessly by `scripts/dspgraph` over all 92 files (81 build, 11 do not
-load at all): every wire attached to a correctly-facing port, no double fan-in,
-no overlapping boxes, no `ARG_STATE` exposed, clicking a box's centre picks that
-box, clicking a port's drawn position picks that port, and positions surviving a
-write/read/apply cycle without changing any other line.
-
-### On the writer
-
-§4 recommended splicing over regenerating, and that has held up. `NodeLayout`
-writes only `# @layout` comments: it reads the file, drops its own lines, copies
-everything else through untouched and appends a fresh block. Nothing is ever
-reconstructed from the parsed model, so the 391 comments, the 283 unit-suffixed
-values and the folded arithmetic cannot be lost by it.
-
-Two things that only showed up in practice:
-
-- **The block has to be idempotent.** Its own header comments did not match the
-  prefix being stripped, so every save added two more lines. Anchoring the whole
-  block — prose included — on one prefix fixed it. The round-trip check caught
-  this on its first run.
-- **Scramble before checking.** Asserting that positions survive a round-trip is
-  worthless if the test writes out the positions `layout()` just computed, since
-  a save that silently did nothing still passes. The check now moves every box
-  somewhere arbitrary first.
-
-Rewriting node definitions — the writer step 6 actually needs — is still ahead,
-and remains the highest-risk piece of this work.
-
-### Deviation from the suggested order
-
-Doing step 7 before step 6. Parameter editing needs only a narrow splice into
-one line — the right-hand side of a single `arg = value` — where edge editing
-needs the full node-definition writer up front. Since step 6 needs that same
-splicer anyway, building it against the smaller problem first is the cheaper way
-to find out where the writer is wrong.
-
-### What the grammar actually allows
-
-Writing values turned out to be constrained in ways reading never revealed:
-
-- The lexer's number pattern is `[0-9]+(\.[0-9]*)?`. **No exponent.** A value
-  that needs one cannot be written at all — `NodeEdit` refuses rather than
-  emitting something that will not parse.
-- **Negatives** exist only as a unary-minus rule over that. Eight in the corpus.
-- `5 ms` is `5 * TH_SAMPLE / 1000` and `50%` is `50 * TH_MAX / 100`. Both are
-  exactly invertible, so a value written with a unit keeps it.
-- **229 uses of `th_max` and `th_min`**, plus `th_range`, `th_midimax` and
-  `th_sample`. A writer that did not recognise these would turn `inmax =
-  th_max` into `inmax = 1` on the first save of any file containing one.
-- Eight right-hand sides are arithmetic. `NodeEdit` refuses those too — an
-  editor that silently replaced someone's `a * 2` with a constant would be
-  doing exactly the damage splicing exists to prevent.
-
-Two things fell out of building it that are worth recording:
-
-**Exact float equality does not work.** libthink is built with `-ffast-math`,
-which lets the compiler turn the grammar's `× TH_SAMPLE / 1000` into a multiply
-by the reciprocal. So `0.5 ms` is held as 22.0500011 where honest arithmetic
-gives 22.0499992 — a couple of ULP apart, and enough that re-deriving the
-literal exactly is impossible. Demanding it rewrote `0.5 ms` as
-`0.50000003 ms`. The comparison is now four ULP wide. `REVIVAL.md` lists
-dropping the global `-ffast-math` as outstanding; this is one concrete thing it
-costs.
-
-**The guarantee is about untouched values, not about round trips.** Once a
-value has genuinely been changed and changed back, `th_max` comes back as `1` —
-the writer has no memory of how a number used to be spelled, only of when it
-does not need to touch one at all. So `scripts/dspwrite` asserts the property
-that matters: a write of the value already there changes no byte of the file.
-1942 of those across the corpus, every one byte-identical.
-
-### Args that no plugin declared
-
-The panel and the canvas are built by separate passes, so `dspgraph` now
-cross-checks them — and they disagreed. `filt::moog` produces `out_low`,
-`out_high` and `out_bandpass` and registered none of them; they existed only as
-string lookups inside the callback. `math::sin` registered nothing at all.
-`input::alsa` likewise. Six wires were being silently dropped. All three now
-register properly, verified sound-identical by the new `scripts/dspab`.
-
-This qualifies §1: "302 of 305 args agree, zero disagree" was measured over
-*registered* args, so args conjured at callback time were never in the sample.
-
-### Wiring
-
-Drag from a port to another port. The rubber band snaps to the port it would
-land on and turns red when the drop would be refused, so the refusal is visible
-before the button comes up rather than after. Dragging output-to-input and
-input-to-output are the same gesture. Clicking a wire removes it.
-
-Wire edits apply to the on-screen graph immediately but reach the file only on
-Save, alongside the pending values — a wiring gesture that produced no visible
-wire until a save would be unusable, and a file rewritten on every gesture
-would be alarming.
-
-Two things this settled:
-
-**"A node cannot feed itself" is false for this format.** It was in the writer
-first, and three shipped DSPs failed the round trip on it: `jp420`, `organ2`
-and `jp420-B` all contain `ionode.fade78 = ionode->velocity`. The io node is one
-node in the file and two boxes on screen, so the rule only makes sense phrased
-over boxes. It lives in `NodeGraph::canConnect` now; `NodeEdit` writes what it
-is told and judges nothing.
-
-**The curve is in the model, not the canvas.** `NodeGraph::edgeCurve` feeds both
-the drawing and `edgeAt`, so what is drawn and what can be clicked are the same
-shape by construction. Describing the same cubic twice is how "clicking a wire
-selects a different wire" happens.
-
-`scripts/dspwrite` now cuts and restores every wire in the corpus:
-
-```
-2877 wires cut and restored, 2877 reconnects to where they already
-went, all byte-identical
-```
-
-The reconnect being byte-identical is what makes it safe: all 3476 connections
-in the corpus are spelled `name->port` with no spaces, so rewriting one
-reproduces the original text exactly. That is also why `disconnect` rewrites the
-line to `= 0` rather than deleting it — to the engine the two are the same, but
-only the rewrite keeps the line's position, indentation and trailing comment,
-and only the rewrite makes a reconnect restore the file.
-
-### Still ahead
-
-Adding and removing whole nodes, which needs the plugin list and a way to name
-things. And chanarg editing: most DSPs keep every setting worth touching in the
-channel block, and the panel shows those values but will not yet change them —
-that means writing the `@name = ...` block rather than a node block.
-
-## 9. Controls as nodes
-
-A DSP keeps the settings meant to be played with in top-level `@name` blocks:
-
-```
-@blim = 0.5;
-@blim.widget = 1;
-@blim.min = 0;
-@blim.max = 2;
-@blim.label = "Band Limit";
-```
-
-and nodes read them as `in1 = @blim`. Showing that as greyed-out text on
-whichever node happened to read it buried the most interesting part of the
-patch. Each block is now a node of its own — a box with a slider, one output,
-and a wire to every arg that reads it. `in1 = @blim` is a wire like any other.
-
-Three things the corpus decided:
-
-**Which chanargs are controls.** All 206 declarations carry `.widget = 1`,
-`.min` and `.max`; 173 also give `.label`. So there is no judgement to make —
-declaring a chanarg *is* declaring a control. But the parser also stores
-`name`, `author` and `description` as chanargs, 110 of them, and those are
-strings rather than knobs. `.widget` is exactly the line the format already
-draws between the two, so that is the filter: 316 chanargs, 206 controls.
-
-**`@name` is a connection, so it has to be cuttable.** `disconnect` only
-recognised `node->port`. Once controls became nodes, `a = @a` is a wire and
-cutting it has to work the same way.
-
-**A control source is spelled differently.** `@blim`, not `blim->blim`. That is
-`NodeEdit::connectControl`, separate from `connect` rather than inferred from a
-name starting with `@` — guessing would fail on the one `.dsp` that names a node
-oddly, and the caller always knows which it has.
-
-Writing them found one more thing about the format. `unitsOf` required a
-non-word character before `ms`, so `80ms` did not read as a unit while `5 ms`
-did — 33 and 65 occurrences respectively. What actually distinguishes a unit
-from the tail of an identifier is a number in front of it. Fixing that also
-cleared the last three values the writer had called unwritable.
-
-The rewrite now preserves the original spacing too: `80ms` stays `80ms` rather
-than becoming `80 ms`.
-
-```
-1945 values rewritten and restored, 1211 inserted, 0 unwritable
-1945 no-op writes, every one byte-identical
-3094 wires cut and restored, 3094 reconnects to where they already went
- 206 controls moved and restored (4 respelt), 206 no-op writes,
-     every one byte-identical
-```
-
-### Still ahead
-
-Adding and removing whole nodes, which needs the plugin list and a way to name
-things. And `.min`/`.max`/`.label` are read but not editable — changing a
-control's *range* means rewriting three more lines, which is the same splice
-applied three times rather than anything new.
-
-## 10. Hearing the change
-
-Moving a control pushes the value straight into the running synth, so it is
-audible on notes already sounding — the same `thArg::setValue(float)` the
-keyboard's sliders have always used: a single atomic store, no reallocation,
-safe to call from the GUI thread while the audio thread reads.
-
-The window has to be attached to a channel for this, so **File → Node View**
-now opens on the channel of the tab you are looking at, and the status bar says
-`live on channel 3` or `not attached to a channel`.
-
-Two kinds of edit, and they behave differently:
-
-- **Controls** are channel args, shared by every note on the channel. Changing
-  one is heard immediately, mid-note.
-- **A node's own value** is copied into each note at note-on, so changing it
-  changes the *next* note and leaves ringing ones alone. The status bar says
-  `(next note)` rather than pretending otherwise.
-- **Wire changes** are not applied live at all; they need the graph rebuilt.
-
-`scripts/dsplive` is the check, and it is the only one in this project that
-tests the actual sound. It renders the same note twice — once untouched, once
-with a control moved halfway through — and asserts the halves before the move
-are bitwise identical while the halves after differ:
-
-```
-81 files, 0 failed
-151 controls changed the sound of a ringing note, 55 had no effect on it
-```
-
-The 55 are not failures. `@a`, `@d` and `@r` on a typical patch are envelope
-times: by the time the change lands the note is in sustain, so there is
-correctly nothing to hear. Reporting them separately rather than as errors
-keeps the check honest about what it can prove.
-
-## 11. Authoring
-
-A palette of every plugin on disk, grouped by category, and a New action that
-writes a `.dsp` from nothing.
+# The node editor
+
+A visual editor for `.dsp` files: nodes, typed ports, wires, and the controls
+that drive them. Reachable from **File → Node View** (Ctrl+N), and as a tab on
+the patch page.
+
+The format rules a writer has to obey — the grammar's constraints, what the
+parser discards, why edits are spliced rather than re-emitted — are in
+[DSP_FORMAT.md](DSP_FORMAT.md). This document is the editor's own model,
+behaviour and layout.
+
+## 1. The pieces
+
+| Piece | Where |
+|---|---|
+| Arg direction in the plugin API | `thPlugin::ArgDir`, `regArg(name, dir)`, `argIsPort()` |
+| Graph model, layout, hit-testing | `src/NodeGraph.{h,cpp}` |
+| Canvas | `src/gui/NodeCanvas.{h,cpp}` |
+| Position writer | `src/NodeLayout.{h,cpp}` |
+| Everything-else writer | `src/NodeEdit.{h,cpp}` |
+| Parameter panel | `src/gui/NodeParams.{h,cpp}` |
+| Plugin palette | `NodeCatalog`, `src/gui/NodePalette.{h,cpp}` |
+
+`NodeWindow` parses its own tree through `thSynth::parseTree()`, which neither
+registers nor owns the result, so looking at a DSP cannot disturb the tree a
+channel is playing.
 
 `thPluginManager` loads plugins by name and cannot enumerate them, so
-`NodeCatalog` walks the plugin directory instead: 62 plugins across 11
-categories. Names come from the filesystem, which is instant. A plugin is only
-dlopened when it is selected, to show its description and ports — loading all
-62 to draw a list would make the palette the slowest thing in the window.
+`NodeCatalog` walks the plugin directory instead — 62 plugins across 11
+categories. Names come from the filesystem, which is instant; a plugin is only
+`dlopen`ed when it is selected, to show its description and ports. Loading all 62
+to draw a list would make the palette the slowest thing in the window.
 
-The grouping is not an invention: a `.dsp` spells a plugin `osc::simple`, so
-category-then-name is how the format already thinks about it.
+## 2. The graph model
 
-### What "new" means
+The corpus is small, and that shapes everything: median 13 nodes, 30 edges and 8
+layers; worst 56, 134 and 17. No layout algorithm is going to struggle and no
+canvas needs virtualisation.
 
-There is no such thing as a valid empty `.dsp`. `finishParse` rejects any file
-without an io node, so New writes the smallest thing that loads: the three info
-strings, `node ionode { channels = 2; };` and `io ionode;`. Adding
-`misc::midi2freq` and `osc::simple` and wiring three connections gives:
+**The io node is split into a source box and a sink box.** Treated as one vertex
+it appears in a cycle in 89 of 92 files, which is an artefact; split, 87 of 92
+are acyclic. It also reads better — signal flowing left to right from MIDI in to
+audio out. Which arg goes to which half is
+[a correctness question with a real answer](DSP_FORMAT.md#the-io-node), not a
+display preference: before it was worked out, 1000 of the 1347 ports on the
+audio-out box were phantoms.
 
-```
-name "demo";
-author "Misha";
-description "";
+**Five files have genuine feedback**: `effects/reverb01`,
+`effects/whistlesynth01`, `noargs/dfb`, `noargs/smoothie`, `old/randompw`. Real
+audio feedback loops, entirely legitimate. Layered layout handles them the usual
+way — pick a feedback arc set, reverse those edges for layering, draw them as
+back-edges.
 
-node ionode {
-    channels = 2;
-    out0 = osc->out;
-};
+**`ARG_STATE` args never appear.** 69 args are internal plugin state and no
+shipped `.dsp` references one. Wiring a delay line's internal buffer invites
+exactly the kind of divergence that makes `old/test.dsp` peak at 1.75e5.
 
-node freq misc::midi2freq {
-    note = ionode->note;
-};
+Two invariants worth not breaking:
 
-node osc osc::simple {
-    freq = freq->out;
-};
+- **`NodeGraph::canConnect` owns the connection rules; `NodeEdit` writes what it
+  is told and judges nothing.** The rules are phrased over *boxes*, not over
+  nodes — which is what makes "a node cannot feed itself" expressible at all,
+  given that the io node is one node and two boxes.
+- **`NodeGraph::edgeCurve` feeds both the drawing and `edgeAt`**, so what is
+  drawn and what can be clicked are the same shape by construction. Describing
+  the same cubic twice is how "clicking a wire selects a different wire" happens.
 
-io ionode;
-```
+## 3. Interaction
 
-which is indistinguishable from a hand-written file, because it is built by the
-same splicer that edits one.
+Drag boxes, Ctrl+wheel to zoom, hover for detail.
 
-### Nodes are written immediately, unlike everything else
+**Wiring.** Drag from a port to another port. The rubber band snaps to the port
+it would land on and turns red when the drop would be refused, so the refusal is
+visible before the button comes up rather than after. Output-to-input and
+input-to-output are the same gesture. Clicking a wire removes it.
 
-Values, wires and control positions are held until Save. Adding a node is not:
-a node's ports come from its plugin, the only thing that knows them is a parse,
-and a node that exists on the canvas but not on disk has no honest way to be
-drawn. So add and delete write and reopen. Revert still undoes them.
+**When edits reach the file.** Values, wires and positions apply to the on-screen
+graph immediately and reach disk only on Save — a wiring gesture that produced no
+visible wire until a save would be unusable, and a file rewritten on every
+gesture would be alarming.
 
-Deleting a node also rewrites every `= <node>->...` that referred to it. Left
-alone those make the file load with `setPointers: Node x not found!!` and read
-zero — a delete that quietly breaks three other nodes is worse than one that
-says it disconnected them, so the count is reported.
+**Adding and deleting nodes is the exception: those write immediately and
+reopen.** A node's ports come from its plugin, the only thing that knows them is
+a parse, and a node that exists on the canvas but not on disk has no honest way
+to be drawn. Revert still undoes them.
 
-### The check
+**Fit is a button, not a behaviour.** An earlier revision fitted the graph to the
+window on opening; that was removed, because shrinking every patch until it fits
+makes a wide one unreadable and disguises the fact that it is wide. Fit never
+magnifies past 1:1 — a four-node patch blown up to fill the window looks broken,
+and the point is only to bring an oversized one down.
 
-`scripts/dspnew` builds files rather than reading them. It creates a `.dsp`,
-adds and removes **one node of every plugin in the catalogue**, confirming each
-time that the file still parses and that the node arrives with exactly the
-ports its plugin declares — then that removing it restores the file byte for
-byte. Finally it builds an oscillator patch, wires it, renders a note and
-checks the output is not silence:
+## 4. Controls
 
-```
-catalogue: 62 plugins in 11 categories
-ok    a new .dsp parses
-ok    62 plugins added and removed, file restored each time
-ok    a patch built from nothing renders audio (peak 1.0000)
-```
+A DSP keeps the settings meant to be played with in top-level `@name` blocks, and
+nodes read them as `in1 = @blim`. Showing that as greyed-out text on whichever
+node happened to read it buried the most interesting part of the patch, so **each
+block is a node of its own** — a box with a slider, one output, and a wire to
+every arg that reads it. `in1 = @blim` is a wire like any other, and cutting it
+works like any other.
 
-That last one is the point. Everything above it can pass while the result is a
-file that loads and makes no sound, which is not authoring.
-
-### Controls
-
-The palette's first entry, above the plugin categories and on its own, because
-a control is the one thing there that is not a plugin: `@blim` is a block in
-the file, not something in `plugins/`. Filing it under a made-up category would
-say otherwise.
-
-Adding one asks for a name, range and label, because unlike a plugin nothing
-about a control is implied by picking it. The range especially has no sensible
-default — 0 to 1 is right for a mix and useless for a filter cutoff — and
-getting it wrong means a slider that cannot reach the value you want. The
-dialog loops rather than validating once, so a rejected name can be corrected
-instead of throwing the whole thing away.
-
-Two constraints the format imposes, both enforced rather than discovered later:
-
-- **A label cannot contain a quote.** The lexer's string is `"[^"\n]*"` with no
-  escapes at all, so there is no spelling for one.
-- **`@x.min` before `@x` has nothing to modify** — the parser says so and
-  ignores it. The block is written value, widget, min, max, label, in that
-  order, before the first `node`, which is where all 206 of the shipped ones
-  sit.
-
-Deleting a control removes its whole block and rewrites every `= @name` that
-read from it, for the same reason deleting a node does: left alone the arg
-resolves to nothing and silently reads zero.
-
-`scripts/dspnew` covers four controls including a negative range, a tiny range
-and one with no label, checks each comes back as a control box with the range
-and label it was given, and checks that a label containing a quote and an
-inverted range are both refused. The demo patch it builds now has a knob on it:
-
-```
-    @level = 6000;
-    @level.widget = 1;
-    @level.min = 0;
-    @level.max = 12000;
-    @level.label = "Level";
-...
-node osc osc::simple {
-    freq = freq->out;
-    amp = @level;
-};
-```
-
-### Still ahead
-
-Nothing outstanding on authoring itself. See §12 for how the controls stopped
-crowding the canvas.
-
-## 12. Controls as attachments
-
-Thirteen controls in `ts1.dsp` all landed in layer 0 — they have no inputs, so
-longest-path layering has nowhere else to put them — making a column down the
-left edge taller than the signal path it belonged to. `aspect2.dsp` was worse:
-31 controls, 2656 pixels tall.
-
-The fix is to stop treating a control as a node when it behaves like a property
-of one. Measured first, because the whole design turns on it:
-
-```
-parameters driven   controls
-          1            197
-          2              8
-          4              1
-```
+### Attached, not free-standing
 
 **197 of 206 controls drive exactly one parameter**, and no control anywhere
 drives two parameters on the same node. So the ordinary case is a control that
@@ -588,33 +107,33 @@ belongs to precisely one box, and it is drawn as a strip stacked on top of that
 box — label, track, value on one line, no title bar. A host carries between one
 and five, median one.
 
-**Above, not beside.** Beside was the first attempt and it cost every column
-its own width again: `ts1.dsp` went from 2148 pixels wide to 3058 while using
-only 352 of them vertically. A graph runs left to right, so width is the axis
-that runs out and height is the one going spare. A strip the same width as the
-box it sits on costs no width at all.
+**Above, not beside.** Beside was the first attempt and it cost every column its
+own width again: `ts1.dsp` went from 2148 pixels wide to 3058 while using only
+352 of them vertically. A graph runs left to right, so width is the axis that
+runs out and height is the one going spare. A strip the same width as the box it
+sits on costs no width at all.
 
-**And the wire is still drawn.** Dropping it was a mistake: sitting a strip on
-a node says which node a control belongs to, but a node has several inputs and
-adjacency cannot say which one. That is precisely what the wire is for. It gets
-a vertical-tangent curve rather than the usual horizontal one, because it drops
-a short distance rather than crossing the canvas.
+**The wire is still drawn.** Dropping it was a mistake: sitting a strip on a node
+says which node a control belongs to, but a node has several inputs and adjacency
+cannot say which one. That is precisely what the wire is for. It gets a
+vertical-tangent curve rather than the usual horizontal one, because it drops a
+short distance rather than crossing the canvas.
 
 ### The nine that are shared
 
 A control read by several nodes cannot attach to any one of them. Those stay
-boxes with visible wires — and that turns out to be the useful reading rather
-than a fallback: **a control still drawn as a box is one that several things
-share.** The corner says `@waveform  shared x4` so it is clear that is the
-reason, not a failure to attach.
+boxes with visible wires — and that is the useful reading rather than a fallback:
+**a control still drawn as a box is one that several things share.** The corner
+says `@waveform  shared x4` so it is clear that is the reason, not a failure to
+attach.
 
 They were also being stranded. Layering gives an input-less box layer 0, so
-`@waveform` in `organ0.dsp` sat at the far left with four long wires crossing
-the patch to reach nodes in the middle. A free-standing control is now placed
-just before its earliest consumer; nothing points at it, so moving it right
-cannot make any edge run backwards.
+`@waveform` in `organ0.dsp` sat at the far left with four long wires crossing the
+patch to reach nodes in the middle. A free-standing control is now placed just
+before its earliest consumer; nothing points at it, so moving it right cannot
+make any edge run backwards.
 
-### What it bought
+### What that bought
 
 ```
                        mean         tallest         widest
@@ -624,114 +143,86 @@ attached above     1703 x 542    1486                3336
 plus a tighter gap 1502 x 542    1486                2920
 ```
 
-Attaching above is strictly better than where this started: 18% shorter for
-exactly the same width. Attaching beside was shorter still and much wider,
-which was the wrong trade.
+18% shorter for exactly the same width. `LAYER_GAP` then came down from 70 to 44:
+it was 70 because a control in layer 0 could have a long wire crossing a column,
+and they are strips on their hosts now. On a 17-layer patch that is 440 pixels.
 
-`LAYER_GAP` then came down from 70 to 44. It was 70 because a control in layer
-0 could have a long wire crossing a column; they are strips on their hosts now,
-so the wires between columns are short and 26 pixels a layer was being spent on
-nothing. On a 17-layer patch that is 440 pixels.
+### Groups
 
-### Width is a property of the patch
+`.group` lets four envelope sliders draw as one titled block. Two things the
+shipped patches forced:
 
-None of this makes a deep patch narrow. `ts1.dsp` has an eleven-stage signal
-chain and 25 of the 81 graphs are still wider than 1600 pixels; the deepest is
-seventeen layers and about 2900. That is what the patch *is*.
+- **A group is per host.** `ts1.dsp`'s "Filter" is a cutoff on one node, a
+  resonance on another and an amount on a third. Those strips cannot be one block
+  because they are not on one box. Each host shows its own slice.
+- **So a heading only appears when a host shows more than one member of the
+  group.** Titling three separate single sliders "Filter" three times is noise
+  where the label already says what each one is.
 
-So the node view fits the graph to the window when it opens, and there is a Fit
-button. It never magnifies past 1:1 — a four-node patch blown up to fill the
-window looks broken, and the point is only to bring an oversized one down.
+## 5. Authoring
 
-`scripts/dspgraph` checks that each attached control sits against its host and
-overlaps nothing, that its slider still hit-tests, that implied edges are
-neither drawn nor clickable, and that every shared control is laid out before
-everything it drives.
+The palette lists every plugin on disk grouped by category, which is not an
+invention — a `.dsp` spells a plugin `osc::simple`, so category-then-name is how
+the format already thinks about it.
 
-One thing worth recording from building this: a crash in a throwaway harness
-turned out to be a stale `NodeGraph.h` sitting next to the test source, so it
-compiled against the old `Box` and linked the new one. `#include "NodeGraph.h"`
-resolves relative to the including file first. Nothing wrong with the code, but
-it cost a debugging session and would cost another.
+**Controls are the palette's first entry, above the plugin categories and on
+their own**, because a control is the one thing there that is not a plugin:
+`@blim` is a block in the file, not something in `plugins/`. Filing it under a
+made-up category would say otherwise.
 
-## 13. Control groups
+Adding one asks for a name, range and label, because unlike a plugin nothing
+about a control is implied by picking it. The range especially has no sensible
+default — 0 to 1 is right for a mix and useless for a filter cutoff — and getting
+it wrong means a slider that cannot reach the value you want. The dialog loops
+rather than validating once, so a rejected name can be corrected instead of
+throwing the whole thing away.
 
-An envelope's attack, decay, falloff and release are one control in the way
-anyone thinks about a patch and four in the way the file stores them. A `.dsp`
-can now say so:
+**New** writes the smallest file that loads and builds up from there; the result
+is indistinguishable from a hand-written file because it is produced by the same
+splicer that edits one.
 
-```
-@a = 5 ms;
-@a.widget = 1;
-@a.min = 0;
-@a.max = 2000ms;
-@a.label = "Attack";
-@a.group = "Envelope";
-```
+## 6. Live editing
 
-`.group` sits alongside `.label` and `.units` in the grammar — one more case in
-the rule that already handles string metadata, and `thArg` carries it. The
-engine never reads it; it exists so an editor can draw four sliders as one
-titled block rather than four unrelated rows against the same node.
+Moving a control pushes the value straight into the running synth, so it is
+audible on notes already sounding — the same `thArg::setValue(float)` the
+keyboard's sliders have always used: a single atomic store, no reallocation, safe
+to call from the GUI thread while the audio thread reads.
 
-Two things the shipped patches forced:
+The window has to be attached to a channel for this, so File → Node View opens on
+the channel of the tab you are looking at, and the status bar says `live on
+channel 3` or `not attached to a channel`.
 
-**A group is per host.** `ts1.dsp`'s "Filter" is a cutoff on one node, a
-resonance on another and an amount on a third. Those strips cannot be one block
-because they are not on one box. Each host shows its own slice.
+Three kinds of edit, and they behave differently:
 
-**Which means a heading only appears when a host shows more than one of the
-group.** Titling three separate single sliders "Filter" three times is noise
-where the label already says what each one is. So the four-slider Envelope on
-`env` gets a heading and the scattered Filter controls do not.
+- **Controls** are channel args, shared by every note on the channel. Changing
+  one is heard immediately, mid-note.
+- **A node's own value** is copied into each note at note-on, so changing it
+  changes the *next* note and leaves ringing ones alone. The status bar says
+  `(next note)` rather than pretending otherwise.
+- **Wire changes** are not applied live at all; they need the graph rebuilt.
 
-The palette's control dialog does not ask for a group yet — that is the obvious
-next step, and the writer already takes one.
+## 7. Why the layout will not get much narrower
 
-## 14. What fitting on a screen actually costs
-
-An earlier revision fitted the graph to the window on opening. That was
-removed: shrinking every patch until it fits makes a wide one unreadable and
-disguises the fact that it is wide, which is a way of not fixing it. Fit is a
-button, for when an overview is what you want.
-
-The width that remains is the patch. `ts1.dsp` is an eleven-stage signal chain
-at 1888 pixels; the deepest in the corpus is seventeen layers at about 2900.
-Boxes are 128 wide and the gap between layers is 44, so a layer costs 172 and
-there is not much left to reclaim without making the port names unreadable.
-Twenty-five of the eighty-one graphs are wider than 1600.
-
-Genuinely narrowing those looked like it needed a different layering. It does
-not — see §15, which measures that claim and finds it wrong.
-
-## 15. Why the layout is not going to get much narrower
-
-The previous section said a width-bounded layering would trade depth for
-height. That was wrong, and measuring it was the first thing worth doing.
+`ts1.dsp` is an eleven-stage signal chain at 1888 pixels; the deepest in the
+corpus is seventeen layers at about 2900. Twenty-five of the eighty-one graphs
+are wider than 1600. That is what the patches *are*, and three separate levers
+were measured and found nearly exhausted.
 
 **The layering is already optimal.** Longest-path puts every node at its
 critical-path depth, and no drawing in which every wire goes forwards can have
-fewer columns than the critical path. `scripts/dsplayout` checks this against
-the corpus:
+fewer columns than the critical path. `scripts/dsplayout` checks it: 80 of 81
+graphs are already at the floor. Coffman-Graham and friends bound the number of
+nodes *per layer*, which makes a graph taller and can make it deeper — the
+opposite of what is wanted here.
 
-```
-81 graphs, 1 above the minimum layer count
-```
+**Boxes cannot shrink much either.** A box must fit its longest input and output
+port names on the same row. Worst in the corpus is 18 characters together, median
+6 to 9, and the header carries the node name plus the plugin name, which already
+clips. Perhaps 12% is available, on a 172-pixel layer of which 128 is the box.
 
-Eighty of eighty-one are already at the floor. Coffman-Graham and friends bound
-the number of nodes *per layer*, which makes a graph taller and can make it
-deeper — the opposite of what is wanted here.
-
-**Boxes cannot shrink much either.** A box must fit its longest input and
-output port names on the same row. Worst in the corpus is 18 characters
-together, median 6 to 9, and the header carries the node name plus the plugin
-name, which already clips. Perhaps 12% is available, on a 172-pixel layer of
-which 128 is the box.
-
-**So the only real lever left is not drawing the graph in one row.** That is
-implemented — `NodeGraph::setWrapWidth` cuts the column sequence into bands and
-stacks them, the way a long circuit is drawn on several rows of a schematic. It
-works, and it hits the target exactly:
+**Wrapping works and is off anyway.** `NodeGraph::setWrapWidth` cuts the column
+sequence into bands and stacks them, the way a long circuit is drawn on several
+rows of a schematic, and it hits the target exactly:
 
 ```
   wrap 0      mean 1502 x  542   widest 2920   25 over 1600   0 wrapped
@@ -739,76 +230,79 @@ works, and it hits the target exactly:
   wrap 1500   mean 1058 x  752   widest 1372    0 over 1600  41 wrapped, 462 jumps
 ```
 
-**And it is off, because the cut profile says it is a bad trade.** Every wire
-crossing a band boundary becomes a long return from the right edge to the left,
-one band down. `dsplayout` counts them per boundary:
+But every wire crossing a band boundary becomes a long return from the right edge
+to the left, one band down, and the cut profile says that is a bad trade:
 
 ```
 dsp/ts1.dsp       11 layers  cuts: 4 6 7 7 6 7 5 4 3 3
 dsp/old/bd9.dsp   17 layers  cuts: 44 42 38 35 33 29 25 23 18 16 12 11 9 7 5 3
 ```
 
-`bd9.dsp` is the widest graph in the corpus at 2920 pixels and therefore the
-one that most needs wrapping — and splitting it in half costs **23 long return
-wires**. These patches are not chains; they are broad fans, dozens of parallel
-paths from the input to the mixer. Wrapping trades a scrollbar for a tangle.
+`bd9.dsp` is the widest graph in the corpus and therefore the one that most needs
+wrapping — and splitting it in half costs 23 long return wires. These patches are
+not chains; they are broad fans, dozens of parallel paths from the input to the
+mixer. Wrapping trades a scrollbar for a tangle.
 
-The code stays, defaulted off, and `dspgraph -w 1500` runs every layout
-invariant against it so it is not untested code pretending otherwise. If a
-patch ever turns up that is deep and *narrowly* connected, it is one call away.
+The code stays, defaulted off, and `dspgraph -w 1500` runs every layout invariant
+against it so it is not untested code pretending otherwise. If a patch ever turns
+up that is deep and *narrowly* connected, it is one call away.
 
-For everything else: the graph is as wide as the patch is deep, it scrolls, and
-Fit is there when an overview is what you want.
+## 8. The checks
 
-## 16. Which way an io node arg faces
+None of these are CTest gates — they all take a corpus argument, so they are run
+by hand rather than by `ctest`.
 
-The io node is the one node with no plugin, so nothing declares the direction
-of its args, and the editor has to work it out. It got this wrong: the sink
-half was given an input port for *every* arg, so `note`, `velocity`, `trigger`
-and `amp` were drawn as things the speakers consume.
+| Harness | Covers |
+|---|---|
+| `dspgraph` | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
+| `dspwrite` | values and wires cut and restored across the corpus, byte-identical |
+| `dspnew` | builds files from nothing: adds and removes one node of every plugin in the catalogue, then renders audio from what it built |
+| `dsplayout` | layer counts against the critical-path floor, and the wrap-mode cut profile |
+| `dsplive` | that moving a control changes the sound of a ringing note |
+| `dspab` | two renders compared bitwise, for changes meant to be inaudible |
 
-That was the visible part. The measurement was worse -- across the corpus,
-**1000 of the 1347 ports on the audio-out box were phantoms**, 312 distinct
-names, worst single box 35. The reason is that the io node is where authors
-park patch constants: `res = 0.3` sits in the io block and forty other nodes
-read `ionode->res`. Every one of those was drawn as an input to the output.
+Three things worth repeating about how these are written:
 
-The direction can be recovered, because the engine's own use of the io node is
-narrow and legible. `thMidiChan::process()` reads exactly three things off it:
-`OUTPUTPREFIX` plus a channel digit for the audio it mixes, `play` to learn the
-note has ended, and `channels` to size the mix. Everything else travels the
-other way -- `thMidiNote` writes note, velocity and trigger, `thMidiChan`
-creates amp, and the author's constants are read by whoever wants them.
+- **A round-trip check must scramble first.** Asserting that positions survive a
+  save is worthless if the test writes out the positions `layout()` just
+  computed, since a save that silently did nothing still passes.
+- **`dspnew`'s last assertion is the point.** Everything above it can pass while
+  the result is a file that loads and makes no sound, which is not authoring.
+- **`dsplive` reports its non-effects separately rather than as errors.** 151
+  controls change the sound of a ringing note and 55 do not — `@a`, `@d` and `@r`
+  are envelope times, so by the time the change lands the note is in sustain and
+  there is correctly nothing to hear.
 
-So an arg is an input to the audio-out half if
+**Layout quality is subjective and cannot be unit-tested**, and neither can the
+feel of a gesture. The bugs that matter here are visual and interactive, and
+finding them means sitting in front of it.
 
-  - the engine reads it -- `out<N>`, `play`, `channels`; or
-  - *this file wires something into it.*
+## 9. Still ahead
 
-The second clause is not decoration. 23 args across the corpus are written by a
-node and read back by others -- the io node used as a relay -- and one test
-patch writes `hurr` and never reads it. A name-only rule would have silently
-dropped those wires, which is a worse bug than the one being fixed. The rule is
-spelled with `OUTPUTPREFIX` and `TH_MAX_CHANNELS` rather than a literal list,
-so it cannot drift from the engine it describes.
+- **A control's `.min`/`.max`/`.label` are read but not editable.** Changing a
+  control's range means rewriting three more lines, which is the same splice
+  applied three times rather than anything new.
+- **The palette's control dialog does not ask for a group.** The writer already
+  takes one.
+- **`dspcheck` should grow a "load this and process it" check** for anything the
+  editor writes.
+- **`thSynthTree::buildSynthTree` walks the graph recursively with a `recalc`
+  flag rather than a proper topological order.** An editor makes it easy to build
+  pathological graphs.
+- **A `@chanarg` cannot be driven by a node.** "The knob moves on its own" needs
+  engine work; see [DSP_FORMAT.md](DSP_FORMAT.md#modulation-is-not-a-special-case).
 
-The parameters follow the same split, for the same reason: the panel for a box
-labelled "audio out" should not offer to set `velocity`. Args with no port on
-either side -- a dozen dead constants, mostly typos like `inwav` for `inwave`
--- go to the source half, where a value the io node offers belongs even when
-nothing takes it up. This happens after edge building, because the edge pass is
-what marks an arg as an output.
+## 10. Two things that cost a day each
 
-**This is a correctness fix, not a layout one.** The audio-out box shrank from
-265px to 92px on average (worst 578px to 144px), but the drawn size of the
-whole graph barely moved -- 542px to 538px mean height -- because the io node
-was never the tallest column. It is worth being clear about that: the graph is
-not smaller, it is just no longer lying about what feeds the output.
+**Args that no plugin declared.** The panel and the canvas are built by separate
+passes, so `dspgraph` cross-checks them — and they disagreed. `filt::moog`
+produces `out_low`, `out_high` and `out_bandpass` and registered none of them;
+they existed only as string lookups inside the callback. `math::sin` registered
+nothing at all, and `input::alsa` likewise. Six wires were being silently
+dropped. If you are measuring anything over "all args", registered is not the
+same set as used.
 
-`dspgraph` now asserts two properties on every file. No port on the audio-out
-box without a reason: each is either an engine read or has a wire entering it.
-And the io node's args are *partitioned* -- present exactly once across the two
-halves, with each param on the same side as its port -- so the split can
-neither lose an arg nor show it twice. Reintroducing the old behaviour makes
-the check fail 1000 times, which is the number that says it is testing
-something.
+**A stale header next to a test source.** A crash in a throwaway harness turned
+out to be an old `NodeGraph.h` sitting beside the test, so it compiled against
+the old `Box` and linked the new one. `#include "NodeGraph.h"` resolves relative
+to the including file first.

@@ -208,7 +208,7 @@ static inline float thSoftLimit (float sample)
  *
  * Clamping is the floor, not the ceiling: it turns wraparound into ordinary
  * hard clipping. Actually keeping the mix inside the rails (per-voice gain
- * staging, or a limiter) is a separate design question -- see REVIVAL.md.
+ * staging, or a limiter) is a separate design question -- see AUDIO.md.
  *
  * NaN is handled explicitly rather than left to the comparisons. Both of them
  * are false for NaN, so it would pass straight through this function to the

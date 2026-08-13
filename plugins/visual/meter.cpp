@@ -24,7 +24,7 @@
  * the ABI wrong is much cheaper to discover against a hundred lines than
  * against a waterfall.
  *
- * It also earns its place. REVIVAL.md §6 is an account of a static that was
+ * It also earns its place. AUDIO.md is an account of a static that was
  * ultimately a headroom problem -- voices summing coherently past full scale
  * -- diagnosed by measuring peaks offline with scripts/dsplevel. This is that
  * measurement at an arbitrary node, live.
@@ -81,7 +81,7 @@ struct Meter {
           meanSquare(0), seen(0), sawNonFinite(false) { }
 };
 
-/* A NaN reaching a display is not hypothetical: REVIVAL.md records four DSPs
+/* A NaN reaching a display is not hypothetical: AUDIO.md records four DSPs
    whose filters diverge, and mixer.out on dsp/noargs/bd1.dsp reads -inf within
    seven windows. Comparing a NaN never yields true, so peak tracking would
    silently ignore it and the meter would read a confident 0.0 for a signal
