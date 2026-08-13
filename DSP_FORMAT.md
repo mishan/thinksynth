@@ -233,13 +233,19 @@ Both are invisible to everything that is not the editor. See
 
 ## 5. Known-bad files
 
-- **11 of the 92 shipped DSPs do not load at all.** They reference `input/wav`,
-  `input/alsa` or `misc/wlan` — plugins that compile but are deliberately not in
-  the build, `wav.cpp`'s own description string being `"Wav Input (BROKEN)"`.
-- **2 of the 101 patches are broken.** `patches/pads/Rythmic.patch` and
-  `Rythmic-2.patch` point at `/usr/local/share//thinksynth/dsp/mfm03.dsp`, which
-  does not exist — leftovers from the "don't use absolute paths" cleanup.
+**11 of the 92 shipped DSPs do not load at all.** They reference `input/wav`,
+`input/alsa` or `misc/wlan` — plugins that compile but are deliberately not in
+the build, `wav.cpp`'s own description string being `"Wav Input (BROKEN)"`.
 
-The CI gates therefore run over 81 DSPs and 99 patches. `cmake/RunHarness.cmake`
-filters by what a file *references* rather than by name, so the exclusion cannot
-go stale. Fix the two patches and the filter shrinks by itself.
+**All 101 patches load.** Two of them did not until recently:
+`patches/pads/Rythmic.patch` and `Rythmic-2.patch` named an absolute
+`/usr/local/share//thinksynth/dsp/mfm03.dsp` that was never in the tree, and
+now name `mfm01.dsp`, which declares exactly the chanargs they set.
+
+The CI gates therefore run over 81 DSPs and all 101 patches.
+`cmake/RunHarness.cmake` filters DSPs by what a file *references* rather than
+by name, so the exclusion cannot go stale. The patch side once filtered by
+name, on `Rythmic` — which also caught `ThickRythmic.patch` and
+`ThickRythmic-2.patch`, two healthy patches on `ts2.dsp`, and dropped them from
+the gate for as long as it stood. That is the argument for matching on content
+in one line.

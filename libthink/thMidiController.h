@@ -46,14 +46,30 @@ public:
 
     ConnectionMap *connectionMap (void) { return &connectionMap_; }
 
-    thMidiControllerConnection *getConnection (unsigned char channel, 
+    /* Off the wire both of these are in range by construction: a channel is
+       the low nibble of a status byte and a controller number is seven bits.
+       They do not all come off the wire. MidiMap builds connections from spin
+       buttons, and a restored .thinkrc carries whatever was in the file. An
+       out-of-range subscript into a 2048-pointer member array is a silent read
+       or write past the end of the object, so it is checked here rather than
+       assumed at each of the four call sites. */
+    static bool validAddress (unsigned int channel, unsigned int param)
+    {
+        return channel < TH_MIDI_CHANNELS && param < TH_MIDI_CONTROLLERS;
+    }
+
+    thMidiControllerConnection *getConnection (unsigned char channel,
                                                unsigned int param)
-    { 
+    {
+        if (!validAddress(channel, param))
+            return NULL;
+
         return connections_[channel][param];
     }
 
 private:
-    thMidiControllerConnection *connections_[16][128];
+    thMidiControllerConnection *connections_[TH_MIDI_CHANNELS]
+                                            [TH_MIDI_CONTROLLERS];
     ConnectionMap connectionMap_;
 };
 

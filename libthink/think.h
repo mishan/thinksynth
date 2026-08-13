@@ -74,6 +74,11 @@ using namespace std;
  * NUM_PATCHES (16) as well. A fixed array removes the race outright. */
 #define TH_MIDI_CHANNELS 16
 
+/* Controller numbers are seven bits, so thMidiController's per-channel array
+   is this wide. Here rather than in thMidiController.h so it sits beside the
+   channel count it is always paired with. */
+#define TH_MIDI_CONTROLLERS 128
+
 /* number of node argument references allocated at a time */
 #define ARGCHUNK 16
 
@@ -249,12 +254,21 @@ static inline float thClampSample (float sample)
 # endif
 #endif
 
+/* By reference, and emptied afterwards.
+ *
+ * Taking the map by value deleted the copy's pointers and left the caller's
+ * map holding every one of them, dangling. In the five destructors that call
+ * this the map dies immediately afterwards, so it never showed. In
+ * thPluginManager::unloadPlugins it does not: the manager outlives the call
+ * and would go on answering lookups out of plugins_ with freed thPlugins. */
 template <typename T, typename U>
-void DestroyMap (map<T,U> themap)
+void DestroyMap (map<T,U> &themap)
 {
     for (typename map<T,U>::iterator i=themap.begin(); i!=themap.end(); i++)
         delete i->second;
-};
+
+    themap.clear();
+}
 
 /* DATATYPES */
 class thArg;

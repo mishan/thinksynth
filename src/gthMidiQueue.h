@@ -81,8 +81,30 @@ public:
         return overflows_.load(std::memory_order_relaxed);
     }
 
+    /* A test seam, and the only reason it exists is that the ordering in
+       drain() cannot be tested any other way.
+     *
+     * The hook is called at the end of drain(), after the last failed pop --
+     * which is exactly the window that clearing notified_ *after* the pop loop
+     * would leave open. scripts/dspmidi pushes from another thread from inside
+     * the hook and then requires the message to arrive. Racing for that window
+     * does not work: it is about two instructions wide, and dspmidi's flood
+     * phase failed to hit it in 60,000 messages against a deliberately
+     * inverted build. Standing in it deliberately does work.
+     *
+     * NULL everywhere but the harness, and one predictable branch per drain. */
+    typedef void (*DrainHook) (void *user);
+
+    void setDrainHook (DrainHook hook, void *user) {
+        drainHook_ = hook;
+        drainHookUser_ = user;
+    }
+
 private:
     void drain (void);
+
+    DrainHook drainHook_;
+    void *drainHookUser_;
 
     Queue queue_;
     Glib::Dispatcher dispatcher_;

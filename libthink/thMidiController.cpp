@@ -26,7 +26,7 @@
 thMidiController::thMidiController (void)
 {
     /* zero the pointer list */
-    memset(connections_, 0, 16 * 128 * sizeof(thMidiControllerConnection*));
+    memset(connections_, 0, sizeof(connections_));
     connectionMap_.clear();
 }
 
@@ -38,6 +38,9 @@ thMidiController::~thMidiController (void)
 void thMidiController::handleMidi (unsigned char channel, unsigned int param,
                                    unsigned int value)
 {
+    if (!validAddress(channel, param))
+        return;
+
     thMidiControllerConnection *connectionptr = connections_[channel][param];
 
     if (connectionptr)
@@ -54,15 +57,18 @@ void thMidiController::newConnection (unsigned char channel,
     /* XXX: Do a NULL-check, and if there is something here, tack it on
        the linked list */
 
+    if (!validAddress(channel, param))
+        return;
+
     if (connection == NULL)
     {
         connections_[channel][param] = 0;
-        connectionMap_.erase(channel * 128 + param);
+        connectionMap_.erase(channel * TH_MIDI_CONTROLLERS + param);
     }
     else
     {
         connections_[channel][param] = connection;
-        connectionMap_[channel * 128 + param] = connection;
+        connectionMap_[channel * TH_MIDI_CONTROLLERS + param] = connection;
     }
 }
 
@@ -82,7 +88,14 @@ void thMidiController::clearByDestChan (unsigned int chan)
             int chan = connection->chan(),
                 controller = connection->controller();
 
-            connections_[chan][controller] = NULL;
+            /* The connection carries its own address back, so this is only
+               in range if it was in range when the connection was made.
+               newConnection now refuses out-of-range ones, but a connection
+               built before this check existed is still in a saved .thinkrc. */
+            if (chan >= 0 && controller >= 0 &&
+                validAddress((unsigned int)chan, (unsigned int)controller))
+                connections_[chan][controller] = NULL;
+
             connectionMap_.erase(j);
         }
     }

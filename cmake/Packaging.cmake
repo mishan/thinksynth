@@ -33,7 +33,7 @@ endif()
 # ---------------------------------------------------------------------------
 # The dependency closure
 #
-# gtkmm-3 drags roughly forty libraries behind it, and on Windows and macOS
+# gtkmm drags roughly forty libraries behind it, and on Windows and macOS
 # there is no system package manager to have put them there. CMake can walk
 # the closure itself since 3.21; on anything older the packaging still works
 # but produces something that only runs where it was built, so say so rather
@@ -111,7 +111,7 @@ if(THINK_PKG_DEPS)
 
     # For a MinGW that is not MSYS2, where GTK may live under its own prefix.
     # Harmless when it duplicates the above or does not exist.
-    pkg_get_variable(_think_gtkmm_prefix gtkmm-3.0 prefix)
+    pkg_get_variable(_think_gtkmm_prefix gtkmm-4.0 prefix)
     if(_think_gtkmm_prefix)
       list(APPEND _think_dep_dirs "${_think_gtkmm_prefix}/bin")
     endif()
