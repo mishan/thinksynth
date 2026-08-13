@@ -46,6 +46,7 @@ typedef void (*sighandler_t)(int);
 #include "gthDummyAudio.h"
 
 #include "gthSignal.h"
+#include "gthConsole.h"
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
 
@@ -271,6 +272,12 @@ static void dispatchmidi (const gthMidiEvent &ev, thSynth *synth)
 
 int main (int argc, char *argv[])
 {
+    /* First, before anything can print. On Windows this is a GUI-subsystem
+       program with no console of its own; if a terminal launched it, this is
+       what puts stdout and stderr back in that terminal. Nothing anywhere
+       else. */
+    gthAttachConsole();
+
     string outputfname;
     string midiport;
     string midiapi;

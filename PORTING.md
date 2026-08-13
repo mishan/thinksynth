@@ -213,6 +213,13 @@ limited to `master` and a `concurrency` group cancels superseded runs.
   work; it will not look like a Mac application. That is a separate project, and
   note that the node editor is by now a substantial investment in gtkmm
   specifically.
+- **A GUI program on Windows has to ask for its console.** The subsystem is a
+  link-time flag: console gives every launch a terminal window, GUI gives it
+  none and takes stdout and stderr with it. thinksynth links GUI and calls
+  `AttachConsole(ATTACH_PARENT_PROCESS)` at the top of `main`, so a terminal
+  that launched it gets the output and Explorer does not get a terminal. See
+  `src/gthConsole.cpp`. The trap underneath: a redirected stream already has a
+  valid handle, and reopening it on `CONOUT$` throws the redirection away.
 - **glibmm's deprecated API is compiled out on MSYS2.** `Glib::thread_init()`
   was an undefined reference on Windows for that reason — at link time, not
   compile time. Anything else the tree calls that glibmm has since deprecated

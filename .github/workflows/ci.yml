@@ -358,8 +358,20 @@ jobs:
       - name: Build
         run: cmake --build build
 
+      # Redirected, and the output checked rather than just the exit status.
+      # thinksynth.exe is a GUI-subsystem program now -- so that launching it
+      # does not open a terminal -- and a GUI-subsystem program prints into
+      # nothing unless it attaches to a console or is redirected. `-h' exiting
+      # 0 while printing nowhere would look exactly like success.
+      #
+      # Redirection is the case that works either way: the shell hands over a
+      # real handle, so gthAttachConsole leaves it alone and stdio goes to the
+      # file whether or not a console was there to attach to.
       - name: Smoke test
-        run: ./build/src/thinksynth.exe -h
+        run: |
+          ./build/src/thinksynth.exe -h > smoke.txt 2>&1
+          cat smoke.txt
+          grep -q "Usage:" smoke.txt
 
 
       # Exit 127 from a .exe that plainly exists means the loader could not
