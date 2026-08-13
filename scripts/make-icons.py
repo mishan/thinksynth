@@ -30,7 +30,7 @@ One source, three platforms.
 
     python3 scripts/make-icons.py
 
-Three things about how it does that are worth knowing.
+Four things about how it does that are worth knowing.
 
 Rasteriser.  gdk-pixbuf's SVG loader, which is librsvg, reached through
 PyGObject -- so the icon is rendered by the same library GTK itself would use
@@ -51,6 +51,10 @@ go stale silently -- nothing about editing the SVG makes an out-of-date render
 stop working -- so this also writes src/thinksynth-icon.stamp recording the
 hash of the SVG they came from, and ctest fails if the SVG has moved on.  See
 cmake/CheckIconStamp.cmake.
+
+Checked, not assumed.  The render is sampled before anything is written, and
+the script refuses to produce icons from a drawing whose corners are opaque or
+whose background has no gradient -- see check() for why that particular pair.
 
 The stamp deliberately hashes the input rather than the outputs.  Byte-comparing
 a freshly rendered icon against the committed one would be a stricter check and
@@ -94,35 +98,83 @@ ICNS_SIZES = [32, 64, 128, 256, 512, 1024]
 RENDER = 1024
 
 
-def render (path, size):
+def render(path, size):
     """The SVG at `size' square, as an RGBA image, by way of librsvg."""
 
     try:
         import gi
         gi.require_version("GdkPixbuf", "2.0")
-        from gi.repository import GdkPixbuf
+        from gi.repository import GdkPixbuf, GLib
     except (ImportError, ValueError) as e:
         sys.exit("this needs PyGObject and gdk-pixbuf's SVG loader "
                  "(Debian: python3-gi, librsvg2-common): %s" % e)
 
-    pb = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
-
-    if pb is None:
-        sys.exit("could not render %s" % path)
-
-    # An SVG loader that silently declined the gradient would still hand back a
-    # pixbuf, so check the one property that distinguishes a real render:
-    # transparent outside the rounded rectangle.
-    if not pb.get_has_alpha():
-        sys.exit("%s rendered without an alpha channel -- the SVG loader in "
-                 "use is not librsvg" % path)
+    try:
+        pb = GdkPixbuf.Pixbuf.new_from_file_at_size(path, size, size)
+    except GLib.Error as e:
+        sys.exit("could not render %s -- is gdk-pixbuf's SVG loader "
+                 "installed? (Debian: librsvg2-common): %s" % (path, e))
 
     return Image.frombytes("RGBA", (pb.get_width(), pb.get_height()),
                            bytes(pb.get_pixels()), "raw", "RGBA",
                            pb.get_rowstride(), 1)
 
 
-def svg_digest (path):
+def check(img):
+    """Refuse to write icons from a render that is visibly not the drawing.
+
+    Worth doing because the failure this guards against does not look like a
+    failure.  ImageMagick renders this SVG at the right size, with an alpha
+    channel, and every shape in the right place -- and fills the background
+    flat black, because it ignores the `url(#bg)' gradient.  Nothing about the
+    file says so; you have to look at it.  The icon was wrong for a while on
+    that basis.
+
+    So it samples three points and asks the two questions that separate a
+    correct render from that one: are the corners outside the rounded
+    rectangle transparent, and is the background a gradient rather than one
+    flat colour.
+
+    Points are given as fractions of the image, so the same three work at any
+    render size, and they are read off the SVG's 128-unit grid: a corner
+    outside the rounded rect, and two background points near the top and
+    bottom of it, both on the centre line where neither the waveform nor the
+    patch cord crosses.
+
+    Deliberately not checked: the specific colours.  Testing against #3b4ca8
+    and #241c3a would catch more, and would also mean that recolouring the
+    artwork breaks this script for no reason.  What is caught is a renderer
+    that flattens or drops the gradient, which is the mistake that actually
+    happened.
+    """
+
+    w, h = img.size
+
+    def at(fx, fy):
+        return img.getpixel((int(w * fx), int(h * fy)))
+
+    corner = at(0.02, 0.02)
+    top = at(0.5, 0.078)
+    bottom = at(0.5, 0.922)
+
+    if corner[3] != 0:
+        sys.exit("render is opaque at the corner %s -- the rounded rectangle "
+                 "did not clip, so this is not the drawing" % (corner,))
+
+    # One test rather than two: a renderer that dropped the gradient filled the
+    # background with something flat, and whether that something was black is
+    # beside the point.  An earlier draft also checked for near-black, which
+    # only fired for a gradient that was itself almost black -- a branch with
+    # no plausible way to reach it.
+    spread = sum(abs(a - b) for a, b in zip(top[:3], bottom[:3]))
+
+    if spread < 30:
+        sys.exit("render has a flat background (top %s, bottom %s) -- the "
+                 "renderer ignored the gradient"
+                 % (top[:3], bottom[:3]))
+
+
+def svg_digest(path):
     """The SVG's hash, with line endings normalised first.
 
     Normalised because the SVG is a text file and git is entitled to rewrite
@@ -141,11 +193,11 @@ def svg_digest (path):
         return hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest()
 
 
-def frames (big, sizes):
+def frames(big, sizes):
     return [big.resize((s, s), Image.LANCZOS) for s in sizes]
 
 
-def write_ico (big):
+def write_ico(big):
     f = frames(big, ICO_SIZES)
 
     # Pillow's ICO writer will happily reduce a single image to every size
@@ -157,7 +209,7 @@ def write_ico (big):
                append_images=f[:-1])
 
 
-def write_icns (big):
+def write_icns(big):
     # Pillow matches append_images to its chunk table by width, and resizes the
     # base image itself for any size it was not given.
     f = frames(big, ICNS_SIZES)
@@ -165,7 +217,7 @@ def write_icns (big):
     f[-1].save(ICNS, format="ICNS", append_images=f[:-1])
 
 
-def main ():
+def main():
     root = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.pardir)
     os.chdir(os.path.normpath(root))
 
@@ -174,6 +226,7 @@ def main ():
                  "intact" % SVG)
 
     big = render(SVG, RENDER)
+    check(big)
 
     write_ico(big)
     write_icns(big)
