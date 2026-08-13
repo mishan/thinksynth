@@ -377,6 +377,13 @@ set(THINK_DEFAULT_THINKRC "${CMAKE_INSTALL_FULL_SYSCONFDIR}/thinkrc")
 # equally the identity outside a sandbox, where there is no FLATPAK_ID.
 set(THINK_APP_ID "org.thinksynth.thinksynth")
 
+# Who published this, and where it lives. Named here because more than one
+# thing wants them: the Windows version block behind File -> Properties, and
+# CPACK_PACKAGE_VENDOR further down, which used to carry the vendor string on
+# its own.
+set(THINK_APP_VENDOR "Metaphonic Labs")
+set(THINK_APP_URL    "https://github.com/mishan/thinksynth")
+
 configure_file(cmake/config.h.in "${PROJECT_BINARY_DIR}/config.h")
 
 # Every translation unit does #include "config.h", unqualified.
