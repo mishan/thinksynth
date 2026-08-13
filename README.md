@@ -24,8 +24,33 @@ On Debian or Ubuntu:
 
 ```sh
 sudo apt install build-essential cmake ninja-build bison flex pkg-config \
-    libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev libjack-jackd2-dev
+    libgtkmm-4.0-dev libsigc++-3.0-dev libasound2-dev
 ```
+
+Optional, and each one buys something specific:
+
+```sh
+sudo apt install libjack-jackd2-dev libpulse-dev \
+    adwaita-icon-theme librsvg2-common xvfb
+```
+
+`libasound2-dev` and `libjack-jackd2-dev` are there for **RtAudio**, not for
+thinksynth: no source in this tree includes an ALSA or a JACK header. RtAudio
+and RtMidi are the single audio and MIDI API the whole program talks to, and
+they are normally *built from source* as part of the build — a system copy is
+used only when pkg-config reports 6.0.0 or newer, which Ubuntu does not ship
+(24.04 has no `librtaudio-dev` at all and 22.04 has 5.2, which is a different
+API). So building RtAudio's Linux backends is part of building thinksynth, and
+those headers are what it needs.
+
+Which is also why the JACK and PulseAudio ones are optional: CMake probes for
+them and compiles those backends in only if they are there. ALSA is always on.
+The configure summary says what you ended up with, including whether RtAudio
+came from the system or from source.
+
+The rest are runtime or test-time. `adwaita-icon-theme` and `librsvg2-common`
+give the icons their intended look, and `xvfb` is needed by `ctest` because one
+gate builds real widgets.
 
 Useful options:
 

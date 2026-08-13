@@ -327,14 +327,18 @@ static int runLevel (const string &pluginPath, const char *file, int level,
 
 static void usage (const char *argv0)
 {
+    /* PLUGIN_PATH is an argument rather than part of the format. It is a
+       compile-time install path, so it is data: a prefix with a `%' in it
+       would otherwise be read as a conversion and eat an argument that was
+       never passed. */
     printf("usage: %s [-p PATH] [-t MS] [-l LEVEL] [-s SEED] file.dsp\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
-           "                          (default: " PLUGIN_PATH ")\n"
+           "                          (default: %s)\n"
            "  -t, --time MS           milliseconds per level (default 2000)\n"
            "  -l, --level N           run only level N (default: 1..%d)\n"
            "  -s, --seed N            RNG seed (default 0x1234567)\n",
-           argv0, LVL_MAX);
+           argv0, PLUGIN_PATH, LVL_MAX);
 }
 
 int main (int argc, char **argv)

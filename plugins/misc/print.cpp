@@ -48,11 +48,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 {
     thArg *in_arg;
     unsigned int i;
-    const char *nodename = node->name().c_str();
+
+    /* Held by value. thNode::name() returns a string rather than a reference
+       to one, so the temporary dies at the end of its own statement and a
+       `const char *' taken from it dangles before the next line runs. It
+       reads like a plain accessor, which is what made this easy to miss. */
+    const string nodename = node->name();
 
     in_arg = mod->getArg(node, args[IN_ARG]);
 
-    printf("Printing Node %s:\n", nodename); 
+    printf("Printing Node %s:\n", nodename.c_str());
 
     for(i = 0; i < windowlen; i++)
     {

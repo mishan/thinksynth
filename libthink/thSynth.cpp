@@ -32,12 +32,27 @@
 
 thSynth *thSynth::instance_ = NULL;
 
+/* `-l N' reaches windowlen through atoi(), which has no opinion about what a
+   sensible window is: it will hand back 0, a negative, or two billion just as
+   readily as 1024. All three of those size an allocation further down. */
+static int clampWindowlen (int windowlen)
+{
+    if (windowlen >= 1 && windowlen <= TH_MAX_WINDOW_LENGTH)
+        return windowlen;
+
+    fprintf(stderr, "thSynth: window length %d out of range (1..%d), "
+            "using %d\n", windowlen, TH_MAX_WINDOW_LENGTH,
+            TH_DEFAULT_WINDOW_LENGTH);
+
+    return TH_DEFAULT_WINDOW_LENGTH;
+}
+
 thSynth::thSynth (int windowlen, int samples)
 {
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
-    windowlen_ = windowlen;
+    windowlen_ = clampWindowlen(windowlen);
 
     channels_ = 2;  /* mono / stereo / etc */
 
@@ -46,7 +61,7 @@ thSynth::thSynth (int windowlen, int samples)
 
     /* We should make a function to allocate this, so we can easily change
        thChans and thWindowlen */
-    output_ = new float[channels_*windowlen_];
+    output_ = new float[thOutputSamples(channels_, windowlen_)];
 
     /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
        thread can iterate it without racing a resize. */
@@ -76,7 +91,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 
     /* XXX: these should all be arguments and we should have corresponding
        accessor/mutator methods for these arguments */
-    windowlen_ = windowlen;
+    windowlen_ = clampWindowlen(windowlen);
 
     channels_ = 2;  /* mono / stereo / etc */
 
@@ -85,7 +100,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 
     /* We should make a function to allocate this, so we can easily change
        thChans and thWindowlen */
-    output_ = new float[channels_*windowlen_];
+    output_ = new float[thOutputSamples(channels_, windowlen_)];
 
     /* Fixed capacity -- see TH_MIDI_CHANNELS. Never reallocated, so the audio
        thread can iterate it without racing a resize. */
@@ -1191,7 +1206,8 @@ void thSynth::process (void)
        the mutex the old code had commented out here unnecessary. */
     drainCommands();
 
-    memset(output_, 0, channels_ * windowlen_ * sizeof(float));
+    memset(output_, 0,
+           thOutputSamples(channels_, windowlen_) * sizeof(float));
 
     /* Probes are zeroed before any channel runs and published after all of
        them, rather than around the channel they belong to, so that a probe on
@@ -1281,9 +1297,9 @@ void thSynth::process (void)
      * The clamps in the ALSA and JACK paths stay as a backstop for anything
      * the limiter cannot tame (a NaN out of a diverging DSP, say). */
     const float gain = masterGain();
-    const int samples = channels_ * windowlen_;
+    const size_t samples = thOutputSamples(channels_, windowlen_);
 
-    for (int i = 0; i < samples; i++)
+    for (size_t i = 0; i < samples; i++)
         output_[i] = thSoftLimit(output_[i] * gain);
 
     /* Deliberately after the mix and deliberately untouched by the gain or the
@@ -1322,8 +1338,8 @@ void thSynth::setWindowlen (int windowlen)
     /* XXX: fixme */
 #if 0
     std::lock_guard<std::mutex> lock(synthMutex_);
-    windowlen_ = windowlen;
+    windowlen_ = clampWindowlen(windowlen);
     delete [] output_;
-    output_ = new float[channels_*windowlen_];
+    output_ = new float[thOutputSamples(channels_, windowlen_)];
 #endif
 }
