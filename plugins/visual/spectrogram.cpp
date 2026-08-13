@@ -24,7 +24,7 @@
  * filter sweep actually goes, whether the attack has the click you can hear,
  * whether a "decaying" partial decays: none of that is one frame of anything.
  *
- * §4 called this the most expensive of the four, and it is the only one that
+ * This is the most expensive of the four modules, and the only one that
  * does real work per hop rather than per frame. It is also the only one that
  * has to be careful about *when* it works: a display drawn at 30fps that
  * transformed on demand would show a different number of columns depending on
@@ -397,7 +397,7 @@ int visual_draw (void *inst, cairo_t *cr, int w, int h)
      *
      * Rather than a rectangle per cell: at 256 columns by 128 rows that is
      * 32768 fills, which is the one thing in these four modules that would
-     * actually show up against the 0.8ms budget §11 measured. One surface and
+     * actually show up against the 0.8ms budget canvasbench measured. One surface and
      * one paint is a blit.
      *
      * Rebuilt every frame rather than kept and scrolled. Keeping it would mean

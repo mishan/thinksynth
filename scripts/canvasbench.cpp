@@ -21,7 +21,7 @@
  *
  * Live visualizers mean redrawing on a timer, and GTK4's queue_draw()
  * invalidates the whole widget. So animating a 128x64 panel repaints the
- * entire graph, and VISUALIZERS.md §5 says plainly that this measurement comes
+ * entire graph, and VISUALIZERS.md says plainly that this measurement comes
  * before the canvas design rather than after it: if a full repaint is cheap,
  * probe panels can cache into image surfaces and let the canvas redraw
  * normally; if it is not, each panel needs its own small DrawingArea in an
@@ -29,7 +29,7 @@
  *
  * This drives the real NodeCanvas over real graphs. Not a stand-in that draws
  * "something of similar complexity" -- that answers a different question, and
- * describing the same scene twice is exactly how NODE_EDITOR.md §12's "clicking
+ * describing the same scene twice is exactly how NODE_EDITOR.md's "clicking
  * a wire selects a different wire" happened.
  *
  * UNLIKE EVERY OTHER HARNESS HERE, THIS ONE NEEDS A DISPLAY. It builds a real
@@ -297,7 +297,7 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
 
     /* A PNG of the real canvas, drawn by the real drawing code.
      *
-     * NODE_EDITOR.md §7 is right that the bugs that matter here are visual and
+     * NODE_EDITOR.md is right that the bugs that matter here are visual and
      * that nothing headless catches them -- but "nothing headless catches
      * them" is not the same as "there is nothing to look at". This renders the
      * whole graph at 1:1 into an image surface, which is a picture of what the

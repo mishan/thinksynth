@@ -247,7 +247,7 @@ measures.
 designed. GTK4's `queue_draw()` invalidates the whole widget, so animating a
 128×64 panel repaints the entire graph. The widest graph in the corpus —
 `dsp/old/bd9.dsp`, 2920 px — repaints in **0.80 ms**, under 3% of a 30fps
-budget, zoomed to fit so the whole thing rasterises. Seventeen spectrogram
+budget, zoomed to fit so the whole thing rasterises. Sixteen spectrogram
 panels on `ts1.dsp` — twice the number of probes the engine allows — bring it
 to **1.15 ms**. Both are mean frames; the worst single frame in the panelled
 run is around 2.4 ms, but that number moves by ±0.2 ms between runs and is not
@@ -277,20 +277,25 @@ record of the scheduler rather than of the sound.
 
 ## 5. The checks
 
-Nine CTest gates; five of them are this feature's.
+Nine CTest gates over eight harness binaries, and four of those binaries are
+this feature's:
 
-| harness | covers |
-|---|---|
-| `ringcheck` | `thSampleRing`: wrap, overrun, ordering, threaded |
-| `dspprobe` | the tap, against a reference built by name in each voice's own tree |
-| `dspstress` level 5 | arming and draining while the patch underneath is replaced, under TSan |
-| `visualcheck` | every module, ten feeds, six sizes; and the FFT numerically |
-| `editorcheck` | the three ends joined up: tap, module and panel, end to end |
-| `dspgraph` | panels laid out, hit-tested, and round-tripped through `# @probe` |
+| harness | CTest gate | covers |
+|---|---|---|
+| `ringcheck` | yes | `thSampleRing`: wrap, overrun, ordering, threaded |
+| `dspprobe` | yes | the tap, against a reference built by name in each voice's own tree |
+| `visualcheck` | yes | every module, ten feeds, six sizes; and the FFT numerically |
+| `editorcheck` | yes | the three ends joined up: tap, module and panel, end to end |
+| `dspstress` level 5 | no | arming and draining while the patch underneath is replaced, under TSan |
+| `dspgraph` | no | panels laid out, hit-tested, and round-tripped through `# @probe` |
 
-`canvasbench` is a measuring instrument rather than a gate, and is not in the
-list. It and `editorcheck` need a display; `editorcheck` skips itself loudly
-without one, and CI runs the suite under `xvfb-run`.
+`dspstress` and `dspgraph` are run by hand: the first needs its own TSan build
+tree and the second takes a corpus argument. `canvasbench` is a measuring
+instrument rather than a check at all.
+
+`editorcheck` and `canvasbench` need a display. `editorcheck` skips itself loudly
+without one, and CI runs the Linux suite under `xvfb-run` for exactly that
+reason.
 
 Every check here was **confirmed to fail before it was trusted to pass** — that
 is the house style, and the deliberate breaks are recorded in each harness's

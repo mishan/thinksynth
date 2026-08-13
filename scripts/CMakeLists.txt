@@ -1,9 +1,13 @@
 # The headless harnesses.
 #
-# These need no audio backend, no display and no plugins beyond the ones in
-# the build tree, which is what makes them usable as CI gates on all three
-# platforms. scripts/Makefile stays for now as a standalone fallback; it goes
-# when autotools does.
+# These need no audio backend and no plugins beyond the ones in the build
+# tree, which is what makes them usable as CI gates on all three platforms.
+# Nine are registered with add_test below; the rest take a corpus argument or
+# their own build tree and are run by hand.
+#
+# editorcheck is the one exception to "no display": it builds real widgets and
+# skips itself loudly without one, which is why CI runs the Linux suite under
+# xvfb-run.
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)

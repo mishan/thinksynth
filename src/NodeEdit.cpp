@@ -211,8 +211,8 @@ static string suffixTextOf (const string &rhs)
  * `0.5 ms' as `0.50000003 ms' every time anyone saved.
  *
  * Four ULP is comfortably more than that gap and comfortably less than any
- * edit a person could mean. (REVIVAL.md lists dropping the global -ffast-math
- * as outstanding work; this is one concrete thing it costs.) */
+ * edit a person could mean. (DSP_FORMAT.md records this as one concrete thing
+ * the global -ffast-math costs.) */
 static bool sameValue (double a, double b)
 {
     const float x = (float)a, y = (float)b;

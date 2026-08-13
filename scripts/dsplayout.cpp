@@ -33,7 +33,7 @@
  * Written to answer "why not use a different layering algorithm to make wide
  * graphs narrower". The answer is in the numbers: the layering is already
  * optimal, and the cut profile says wrapping would trade a scrollbar for a
- * tangle. See NODE_EDITOR.md section 15.
+ * tangle. See NODE_EDITOR.md, "Why the layout will not get much narrower".
  *
  *   make -C scripts
  *   LD_LIBRARY_PATH=libthink scripts/dsplayout -p plugins/ dsp/ts1.dsp

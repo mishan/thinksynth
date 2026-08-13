@@ -4,8 +4,8 @@
 # bison_target/flex_target replace the whole build.mk dance, including the
 # `--defines=' fix and the .SECONDARY that stopped make deleting the generated
 # sources on every build. Generated output goes to the build tree, so the
-# source tree stays clean -- libthink/thinklang.{cpp,h} and thinklex.cpp can
-# come out of .gitignore once autotools is gone.
+# source tree stays clean -- nothing writes libthink/thinklang.{cpp,h} or
+# thinklex.cpp there any more.
 
 bison_target(ThinkParser
              thinklang.yy
@@ -65,8 +65,8 @@ if(THINK_DL_LIBRARY)
   target_link_libraries(think PUBLIC ${THINK_DL_LIBRARY})
 endif()
 
-# libthink.so.6.0 with an soname of libthink.so.6, as configure.ac's
-# lib_revision produced.
+# libthink.so.6.0 with an soname of libthink.so.6, which is what the old
+# lib_revision scheme produced.
 set_target_properties(think PROPERTIES
     OUTPUT_NAME think
     VERSION   "${THINK_LIB_MAJOR}.${THINK_LIB_MINOR}"

@@ -7,7 +7,7 @@
 # those sources directly without wanting gtkmm.
 
 # Deliberately GTK-free so the harnesses can exercise it headlessly -- see the
-# comment in scripts/Makefile.
+# comment in the harnesses.
 add_library(think_nodemodel OBJECT
     NodeGraph.cpp
     NodeEdit.cpp

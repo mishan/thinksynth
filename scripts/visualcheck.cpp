@@ -31,7 +31,7 @@
  *                      2650 ports dspprobe measures are exactly this
  *   DC                 a constant arg, which is what a length-1 arg reads as
  *   full scale         a square at +-1
- *   1e5                dsp/old/test.dsp peaks at 1.75e5 (REVIVAL.md §6)
+ *   1e5                dsp/old/test.dsp peaks at 1.75e5 (AUDIO.md)
  *   -inf and NaN       mixer.out on dsp/noargs/bd1.dsp reaches -inf in seven
  *                      windows; four shipped DSPs have diverging filters
  *   one sample         the smallest thing a feed can be

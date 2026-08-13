@@ -1,4 +1,4 @@
-# Packaging -- PORTING.md section 8 step 8.
+# Packaging -- see PACKAGING.md.
 #
 # Three shapes, one rule: the binary has to find its plugins, DSPs and patches
 # without anything being configured, because on macOS and Windows there is no
