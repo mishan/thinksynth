@@ -46,6 +46,13 @@ public:
      * next to the installed binary, and finally the path compiled in at
      * configure time. Returns "" if nothing matched.
      *
+     * The answer is always absolute. It used to be whichever candidate
+     * matched, which for the current-directory candidates meant handing back
+     * something like "dsp/amb01.dsp" -- correct only for as long as the
+     * working directory stays where it was. The synth loads a patch's DSP
+     * immediately and the node editor opens the same file later, so a
+     * relative answer worked in the first place and failed in the second.
+     *
      *   name     the bare filename, e.g. "ts1.dsp"
      *   subdir   where files of this kind live, e.g. "dsp"
      *   envVar   an override, e.g. "THINK_DSP_PATH", or NULL
@@ -53,6 +60,18 @@ public:
      */
     static string findDataFile (const string &name, const string &subdir,
                                 const char *envVar, const string &fallback);
+
+    /* Where files of a given kind live: the same search as findDataFile, for
+     * the directory rather than for a file in it, and "" if none exists.
+     *
+     * This is what a file chooser should open at. The compiled-in DSP_PATH
+     * and PATCH_PATH cannot do that job on their own -- they are the install
+     * prefix of the machine that did the *build*, which on a relocatable
+     * package (a Windows zip, a macOS .app) is a directory the user has never
+     * had.
+     */
+    static string findDataDir (const string &subdir, const char *envVar,
+                               const string &fallback);
 };
 
 #endif /* TH_UTIL_H */

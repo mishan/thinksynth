@@ -49,6 +49,10 @@ endfunction()
 # gthPatchfile.cpp lives in the binary rather than in libthink, so dspcheck
 # pulls it in directly to cover the .patch path. It needs sigc++ but not
 # gtkmm.
+# Data-file lookup: the answers have to stay true after the working directory
+# moves. See the header of pathcheck.cpp for the bug that was not caught.
+think_harness(pathcheck)
+
 think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
@@ -171,6 +175,8 @@ add_test(NAME dspblock
 # Cheap and entirely self-contained, so it runs the full sweep rather than a
 # representative sample.
 add_test(NAME ringcheck COMMAND ringcheck 20000)
+
+add_test(NAME pathcheck COMMAND pathcheck)
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
