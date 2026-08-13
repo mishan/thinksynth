@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2004-2014 Metaphonic Labs
+ * Copyright (C) 2004-2026 Metaphonic Labs
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by the
@@ -98,12 +98,12 @@ AboutBox::AboutBox (void)
 #if 0
     header = manage(new Gtk::Label(
           "Version " PACKAGE_VERSION "\n"
-          "Copyright (C) 2004-2014 Metaphonic Labs\n\n"
+          "Copyright (C) 2004-2026 Metaphonic Labs\n\n"
           "Metaphonic Labs is..."));
 #endif
     txtVersion_ = manage(new Gtk::Label("Version " PACKAGE_VERSION, 0.5));
     txtCopyright_ = manage(
-        new Gtk::Label("Copyright (C) 2004-2014 Metaphonic Labs\n", 0.5));
+        new Gtk::Label("Copyright (C) 2004-2026 Metaphonic Labs\n", 0.5));
     txtMetaphonic_ = manage(new Gtk::Label("Metaphonic Labs is...",
                                            Gtk::Align::CENTER));
 
