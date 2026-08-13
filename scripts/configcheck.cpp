@@ -153,6 +153,20 @@ int main (int argc, char **argv)
 
     /* ---- resolution ------------------------------------------------- */
 
+    /* Say where we are looking before saying what we could not find.
+     *
+     * Registered without THINK_PATCH_PATH this passed on a machine with a
+     * stale /usr/local/share/thinksynth answering the compiled-in fallback,
+     * and failed on every clean runner with fourteen failures that named the
+     * patches and not the reason. One line up front is the difference between
+     * "the corpus is missing" and "the defaults are wrong". */
+    {
+        const char *env = getenv("THINK_PATCH_PATH");
+
+        printf("patches: THINK_PATCH_PATH=%s, fallback %s\n",
+               (env && *env) ? env : "(unset)", PATCH_PATH);
+    }
+
     for (size_t i = 0; i < expectedCount; i++)
     {
         const string got = gthPatchManager::resolvePatch(expected[i]);

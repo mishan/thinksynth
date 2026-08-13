@@ -200,8 +200,18 @@ add_test(NAME pathcheck COMMAND pathcheck)
 # Needs the plugins, because "the channel loaded" means its DSP parsed. Makes
 # its own config directory and points HOME at it, so it neither reads nor
 # writes the preferences of whoever runs it.
+#
+# THINK_PATCH_PATH and THINK_DSP_PATH for the reason RunHarness.cmake gives at
+# length: without them the only thing left pointing at a corpus is the
+# compiled-in PATCH_PATH, and on a development machine that is answered by
+# whatever was last installed to /usr/local. This test was registered without
+# them and passed here and failed on every clean runner, which is the same way
+# round the patch gate got it wrong before.
 add_test(NAME configcheck
          COMMAND configcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
+set_tests_properties(configcheck PROPERTIES
+    ENVIRONMENT "THINK_PATCH_PATH=${PROJECT_SOURCE_DIR}/patches;THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 add_test(NAME themecheck COMMAND themecheck)
 
