@@ -258,6 +258,25 @@ jobs:
             exit 1
           fi
 
+      # The install step signs the bundle and verifies it, so cpack fails if
+      # signing failed. This says it again on the staged copy, out loud,
+      # because "thinksynth.app is damaged" was the first anyone knew that
+      # the bundle had no valid signature -- and it reached a tester.
+      - name: Check the bundle is signed and would launch
+        run: |
+          set -e
+          app=/tmp/relocated/thinksynth.app
+          codesign --verify --strict --deep --verbose=2 "$app"
+          codesign --display --verbose=2 "$app" 2>&1 | grep -E "Signature|Identifier"
+
+          # Reported, not gated. spctl asks whether *Gatekeeper* would accept
+          # it, and for an ad-hoc signature with no Developer ID the answer is
+          # no -- which is expected, is why README-macOS.txt is in the .dmg,
+          # and would otherwise look like a regression to whoever reads this
+          # log next.
+          spctl --assess --type exec --verbose=4 "$app" 2>&1 || \
+            echo "(rejected by Gatekeeper, as an unnotarised build always is)"
+
       - name: Package
         run: cpack --config build/CPackConfig.cmake -B build/package
 

@@ -169,6 +169,100 @@ endif()
 include(GtkRuntime)
 
 # ---------------------------------------------------------------------------
+# Ad-hoc code signature, macOS only, and it has to be last
+#
+# "thinksynth.app is damaged and can't be opened" is what a tester got from
+# the arm64 .dmg, and the app was not damaged: it was unsigned in the one way
+# Apple Silicon does not tolerate.
+#
+# Every Mach-O the linker produces on arm64 is ad-hoc signed by the linker
+# itself, because the kernel refuses to execute an arm64 binary with no
+# signature at all. But the signature covers the file as it was linked, and
+# this build modifies every one of them afterwards: CMAKE_BUILD_WITH_INSTALL_RPATH
+# is OFF, so install_name_tool rewrites the rpath of the executable and the
+# install name of libthink at *install* time, and file(GET_RUNTIME_DEPENDENCIES)
+# copies forty-odd dylibs in. A binary whose load commands changed after it was
+# signed has a signature that no longer matches its contents, which is
+# precisely what "damaged" means here.
+#
+# So: re-sign, after every other install rule has run. Nested code first and
+# the bundle last, because signing a bundle seals what is inside it and
+# anything signed afterwards invalidates the seal.
+#
+# This does NOT make the download open on someone else's Mac by itself -- see
+# PACKAGING.md. An ad-hoc signature has no Developer ID behind it, and a
+# quarantined app without one is still refused. It is the difference between a
+# package that cannot work and a package that needs the quarantine flag
+# cleared, which is a thing a user can actually do.
+# ---------------------------------------------------------------------------
+
+# Beside the .app in the .dmg, so the person who hits the Gatekeeper dialog
+# has the answer in the window they are already looking at rather than in a
+# repository they have never seen.
+if(APPLE)
+  install(FILES "${PROJECT_SOURCE_DIR}/data/README-macOS.txt" DESTINATION ".")
+endif()
+
+if(APPLE)
+  install(CODE "
+    set(_app \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/thinksynth.app\")
+
+    if(NOT IS_DIRECTORY \"\${_app}\")
+      message(FATAL_ERROR \"no bundle at \${_app} to sign\")
+    endif()
+
+    # Everything with code in it that is not the bundle itself.
+    file(GLOB_RECURSE _nested
+         \"\${_app}/Contents/Frameworks/*.dylib\"
+         \"\${_app}/Contents/Resources/plugins/*${THINK_PLUGIN_SUFFIX}\")
+
+    set(_signed 0)
+
+    foreach(_f IN LISTS _nested)
+      # Skip the version symlinks a dylib install leaves behind: codesign
+      # follows them and would sign the same file several times, and the
+      # second attempt on an already-signed file is an error rather than a
+      # no-op.
+      if(NOT IS_SYMLINK \"\${_f}\")
+        execute_process(
+            COMMAND codesign --force --sign - --timestamp=none \"\${_f}\"
+            RESULT_VARIABLE _rc ERROR_VARIABLE _err)
+
+        if(NOT _rc EQUAL 0)
+          message(FATAL_ERROR \"codesign failed on \${_f}: \${_err}\")
+        endif()
+
+        math(EXPR _signed \"\${_signed} + 1\")
+      endif()
+    endforeach()
+
+    execute_process(
+        COMMAND codesign --force --sign - --timestamp=none \"\${_app}\"
+        RESULT_VARIABLE _rc ERROR_VARIABLE _err)
+
+    if(NOT _rc EQUAL 0)
+      message(FATAL_ERROR \"codesign failed on the bundle: \${_err}\")
+    endif()
+
+    # Checked rather than assumed. --strict makes codesign apply the same
+    # rules the loader will, and --deep walks the nested code, so a bundle
+    # that would be refused at launch is refused here instead -- while
+    # somebody is still watching the build.
+    execute_process(
+        COMMAND codesign --verify --strict --deep --verbose=2 \"\${_app}\"
+        RESULT_VARIABLE _rc ERROR_VARIABLE _err)
+
+    if(NOT _rc EQUAL 0)
+      message(FATAL_ERROR
+          \"the signed bundle does not verify, so it would not launch:\n\${_err}\")
+    endif()
+
+    message(STATUS
+        \"ad-hoc signed \${_signed} nested binaries and the bundle; verified\")
+  ")
+endif()
+
+# ---------------------------------------------------------------------------
 # CPack
 # ---------------------------------------------------------------------------
 
