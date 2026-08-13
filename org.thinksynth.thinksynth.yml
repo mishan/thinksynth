@@ -47,10 +47,22 @@ runtime-version: "49"
 sdk: org.gnome.Sdk
 command: thinksynth
 
-# Modules install into /app/lib; the SDK does not have that on the default
-# search path for a later module's pkg-config.
+# Where a module's own .pc files end up, so that the next module can find
+# them. This SDK's meson installs into /app/lib64, not /app/lib, and neither
+# is on the default PKG_CONFIG_PATH -- GtkHx's manifest says so in as many
+# words about the same runtime, and I copied the shape of that file while
+# getting this line wrong. Both are listed rather than picking one, because
+# the cmake modules and the meson ones need not agree with each other and a
+# path that is not there costs nothing.
+#
+# The failure this caused is worth recording, because it did not look like a
+# search-path problem at all: glibmm could not find sigc++-3.0, so meson fell
+# back to its wrap for it and tried to git clone libsigcplusplus -- inside a
+# build sandbox with no network. The error was "Could not resolve host:
+# github.com", three modules deep, for a library that had been built and
+# installed correctly ten seconds earlier.
 build-options:
-  append-pkg-config-path: /app/lib/pkgconfig
+  append-pkg-config-path: /app/lib/pkgconfig:/app/lib64/pkgconfig
 
 finish-args:
   # GTK 4 prefers Wayland; fallback-x11 keeps X11 sessions working.
@@ -91,6 +103,7 @@ modules:
   - name: mm-common
     buildsystem: meson
     config-opts:
+      - --wrap-mode=nodownload
       - -Duse-network=false
     cleanup:
       - '*'
@@ -102,6 +115,7 @@ modules:
   - name: libsigc++
     buildsystem: meson
     config-opts:
+      - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-examples=false
       - -Dbuild-tests=false
@@ -116,6 +130,7 @@ modules:
   - name: glibmm
     buildsystem: meson
     config-opts:
+      - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-examples=false
     sources:
@@ -128,6 +143,7 @@ modules:
   - name: cairomm
     buildsystem: meson
     config-opts:
+      - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-examples=false
       - -Dbuild-tests=false
@@ -139,6 +155,7 @@ modules:
   - name: pangomm
     buildsystem: meson
     config-opts:
+      - --wrap-mode=nodownload
       - -Dbuild-documentation=false
     sources:
       - type: archive
@@ -150,6 +167,7 @@ modules:
   - name: gtkmm
     buildsystem: meson
     config-opts:
+      - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-demos=false
       - -Dbuild-tests=false
@@ -167,6 +185,10 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      # lib, not whatever GNUInstallDirs decides: thinksynth pins the same
+      # below, so all three cmake modules agree and everything they install
+      # is in one directory that is certainly on the loader's path.
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DBUILD_SHARED_LIBS=ON
       - -DRTAUDIO_API_ALSA=ON
       - -DRTAUDIO_API_PULSE=OFF
@@ -181,6 +203,10 @@ modules:
     buildsystem: cmake-ninja
     config-opts:
       - -DCMAKE_BUILD_TYPE=RelWithDebInfo
+      # lib, not whatever GNUInstallDirs decides: thinksynth pins the same
+      # below, so all three cmake modules agree and everything they install
+      # is in one directory that is certainly on the loader's path.
+      - -DCMAKE_INSTALL_LIBDIR=lib
       - -DBUILD_SHARED_LIBS=ON
       - -DRTMIDI_API_ALSA=ON
       - -DRTMIDI_API_JACK=OFF
