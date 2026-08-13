@@ -188,6 +188,27 @@ string thUtil::exeDir (void)
  * which is precisely the kind of false pass that makes CI look wrong when it
  * is right.
  */
+/* Absolute, and tidied where that is possible.
+ *
+ * weakly_canonical also folds away "." and ".." and follows symlinks, which
+ * makes the path the user is shown in an error message the path the file
+ * actually has. It can fail on a filesystem that refuses to be walked, so
+ * absolute() -- which only prepends the working directory -- is the fallback,
+ * and the raw candidate the fallback's fallback. */
+static string absolutePath (const fs::path &p)
+{
+    std::error_code ec;
+
+    const fs::path canon = fs::weakly_canonical(p, ec);
+
+    if (!ec && !canon.empty())
+        return canon.string();
+
+    const fs::path abs = fs::absolute(p, ec);
+
+    return ec ? p.string() : abs.string();
+}
+
 string thUtil::findDataFile (const string &name, const string &subdir,
                              const char *envVar, const string &fallback)
 {
@@ -199,7 +220,7 @@ string thUtil::findDataFile (const string &name, const string &subdir,
     /* An absolute path means what it says, found or not: reporting "cannot
        open /what/you/asked/for" is more use than silently substituting. */
     if (fs::path(name).is_absolute())
-        return name;
+        return absolutePath(name);
 
     std::vector<fs::path> tries;
 
@@ -243,7 +264,52 @@ string thUtil::findDataFile (const string &name, const string &subdir,
 
     for (size_t i = 0; i < tries.size(); i++)
         if (fs::exists(tries[i], ec))
-            return tries[i].string();
+            return absolutePath(tries[i]);
+
+    return "";
+}
+
+/* The directories the above searches, in the same order and for the same
+   reasons. Kept beside it deliberately: two search orders that are supposed
+   to agree and are written out separately do not stay agreeing. */
+string thUtil::findDataDir (const string &subdir, const char *envVar,
+                            const string &fallback)
+{
+    std::error_code ec;
+
+    std::vector<fs::path> tries;
+
+    if (envVar != NULL)
+    {
+        const char *env = getenv(envVar);
+
+        if (env != NULL && *env != 0)
+        {
+            tries.push_back(env);
+            tries.push_back(fs::path(env) / subdir);
+        }
+    }
+
+    tries.push_back(subdir);
+
+    const string exe = exeDir();
+
+    if (!exe.empty())
+    {
+        const fs::path bin(exe);
+
+        tries.push_back(bin.parent_path() / "share" / PACKAGE_NAME / subdir);
+        tries.push_back(bin.parent_path() / "Resources" / subdir);
+        tries.push_back(bin / subdir);
+        tries.push_back(bin.parent_path() / subdir);
+    }
+
+    if (!fallback.empty())
+        tries.push_back(fallback);
+
+    for (size_t i = 0; i < tries.size(); i++)
+        if (fs::is_directory(tries[i], ec))
+            return absolutePath(tries[i]);
 
     return "";
 }

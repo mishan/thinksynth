@@ -798,20 +798,27 @@ void PatchSelWindow::on_realize(void)
         string **vals = prefs->Get("patchdir");
 
         if (vals)
-        {
             prevDir = *vals[0];
-        }
-        else
-        {
-            prevDir = DSP_PATH;
-            prevDir += "/patches";
-        }
     }
-    else
-    {
-        prevDir = DSP_PATH;
-        prevDir += "/patches";
-    }
+
+    /* Where the browser opens when there is nothing remembered, and when what
+       was remembered is gone.
+     *
+     * This was DSP_PATH + "/patches", which is wrong twice over. DSP_PATH
+     * already ends in .../thinksynth/dsp/, so the result named a "patches"
+     * directory *inside* the DSP one, which has never existed. And DSP_PATH is
+     * the install prefix of the machine that built the package -- on Windows
+     * something like C:/Program Files/thinksynth from a GitHub runner -- so on
+     * a user's machine the chooser was handed a path that was not there and
+     * opened wherever it liked instead.
+     *
+     * findDataDir does the same search the patches themselves are found by,
+     * so the browser opens where the patches actually are. */
+    std::error_code ec;
+
+    if (prevDir.empty() || !std::filesystem::is_directory(prevDir, ec))
+        prevDir = thUtil::findDataDir("patches", "THINK_PATCH_PATH",
+                                      PATCH_PATH);
     
     populate();
 }

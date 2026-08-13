@@ -86,7 +86,10 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     aboutBox_ = NULL;
     kbWin_ = NULL;
 
-    prevDir_ = DSP_PATH;
+    /* Likewise the DSP browser: DSP_PATH is the *build* machine's install
+       prefix, so on a relocatable package it names a directory the user has
+       never had. findDataDir finds the one that is actually there. */
+    prevDir_ = thUtil::findDataDir("dsp", "THINK_DSP_PATH", DSP_PATH);
 
     /* "win.keyboard" and the rest resolve against this. */
     actions_ = Gio::SimpleActionGroup::create();
