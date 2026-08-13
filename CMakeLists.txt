@@ -429,6 +429,16 @@ include(Layout)
 
 enable_testing()
 
+# Outside the THINK_BUILD_HARNESSES gate below, and outside any if(WIN32),
+# because it guards a committed file that every checkout contains: the Windows
+# icon is rendered from the shared SVG ahead of time, and nothing about editing
+# that SVG makes the stale render stop working. Costs one file hash, and needs
+# neither a build nor a renderer.
+add_test(NAME icon-stamp
+         COMMAND "${CMAKE_COMMAND}"
+                 "-DTHINK_SOURCE_DIR=${PROJECT_SOURCE_DIR}"
+                 -P "${PROJECT_SOURCE_DIR}/cmake/CheckIconStamp.cmake")
+
 add_subdirectory(libthink)
 add_subdirectory(plugins)
 add_subdirectory(src)

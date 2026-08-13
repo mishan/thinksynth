@@ -1,0 +1,9 @@
+# sha256 of data/org.thinksynth.thinksynth.svg, the source src/thinksynth.ico was rendered from.
+#
+# If ctest reports this as stale, the icon has not been
+# regenerated since the SVG changed:
+#
+#     python3 scripts/make-windows-icon.py
+#
+# and commit both files together.
+ddcd4f77e9ef3ca5aec907d72822ffecf5aeff483f78d8ed3bf6d12532e7fdcf
