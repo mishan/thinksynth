@@ -47,6 +47,15 @@ public:
 
     void Load (void);
     void Save (void);
+
+    /* The built-in first-run configuration: a few channels with patches on
+       them, named relatively and resolved through the patch search path.
+       Called by Load() when there is no configuration file anywhere. Public
+       so a harness can ask for it without arranging a config directory.
+
+       False if nothing was applied -- no synth yet, or no patch would load --
+       in which case the caller should not write a file either. */
+    bool LoadDefaults (void);
 private:
     map <string, string**> prefs_;
     string prefsPath_;

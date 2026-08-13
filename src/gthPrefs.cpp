@@ -38,6 +38,35 @@ namespace fs = std::filesystem;
 
 gthPrefs *gthPrefs::instance_ = NULL;
 
+/* What a first run gets.
+ *
+ * Built in rather than shipped as a file. The file this replaces was
+ * configure_file'd with absolute paths, which made it correct only on a
+ * machine installed to the prefix the build was configured with -- not a
+ * relocatable tarball, not a .app, not a Windows zip, and not a Flatpak. The
+ * paths here are relative and go through gthPatchManager::resolvePatch, which
+ * is the same search the rest of the program already uses to find its data.
+ *
+ * Four channels, not sixteen: enough that the first few channels anyone tries
+ * make a sound, few enough that starting up is not several seconds of parsing
+ * DSPs nobody asked for. One of each obvious kind, so the keyboard demonstrates
+ * that channels differ.
+ *
+ * TH_DEFAULT_CHAN_AMP because that is what loading a patch by hand gives it;
+ * a channel that came from here and a channel the user loaded should not sit
+ * at different volumes for no reason a user can see. Four channels at once is
+ * the case that number is chosen for -- see where it is defined.
+ */
+static const struct {
+    int chan;
+    const char *patch;
+} thinkDefaultChannels[] = {
+    { 0, "leads/SuperRes.patch"   },
+    { 1, "bass/FunkMachine.patch" },
+    { 2, "organs/Organ1.patch"    },
+    { 3, "pads/SynString.patch"   },
+};
+
 #if 0
 static void remove_string(char *line, int index, int numchars)
 {
@@ -144,15 +173,22 @@ void gthPrefs::Load (void)
             printf("migrating preferences from %s\n", legacy.c_str());
             printf("  (they will be saved to %s)\n", prefsPath_.c_str());
         }
-        else if ((prefsFile = fopen(DEFAULT_THINKRC, "r")) == NULL)
+        else
         {
-            /* just give up */
-            fprintf(stderr, "could not open %s or " DEFAULT_THINKRC "\n",
-                prefsPath_.c_str());
+            /* Nothing anywhere: this is a first run. Rather than starting
+               with sixteen empty channels and a keyboard that does nothing --
+               which looks exactly like a broken install -- put a few patches
+               on and write the file, so what happened is visible and editable
+               rather than magic.
+
+               Only written if something was actually loaded. A file saved
+               from a failed attempt would record the failure permanently:
+               it exists, so the next run reads it instead of trying again. */
+            if (LoadDefaults())
+                Save();
+
             return;
         }
-        else
-            printf("opened default configuration " DEFAULT_THINKRC "\n");
     }
 
     while (fgets(buffer, 256, prefsFile) != NULL)
@@ -257,6 +293,67 @@ void gthPrefs::Load (void)
             }
         }
     }
+}
+
+/* Applies the built-in defaults, as though they had been read from a file.
+ *
+ * Deliberately the same route a thinkrc's own `channel' lines take -- loadPatch
+ * and setChanArg -- so there is one way a channel gets populated and not two.
+ * A patch that will not load is reported and skipped: a missing or broken one
+ * should cost its channel, not the other three.
+ */
+bool gthPrefs::LoadDefaults (void)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    thSynth *synth = thSynth::instance();
+
+    /* Both, and the synth is the one that matters: loadPatch reaches
+       gthPatchManager::parse, which calls thSynth::loadTree without checking
+       first. main() builds the synth before the preferences, so this does not
+       happen today -- but "does not happen today" is what an ordering
+       assumption always is, and the cost of being wrong here is a crash on
+       first run, which is the run where nobody has anything to go back to. */
+    if (patchMgr == NULL || synth == NULL)
+    {
+        fprintf(stderr, "no synth yet; skipping the default configuration\n");
+        return false;
+    }
+
+    const size_t n =
+        sizeof(thinkDefaultChannels) / sizeof(thinkDefaultChannels[0]);
+
+    size_t loaded = 0;
+
+    for (size_t i = 0; i < n; i++)
+    {
+        const int chan = thinkDefaultChannels[i].chan;
+
+        if (!patchMgr->loadPatch(thinkDefaultChannels[i].patch, chan))
+        {
+            fprintf(stderr, "could not load default patch %s\n",
+                    thinkDefaultChannels[i].patch);
+            continue;
+        }
+
+        synth->setChanArg(chan, new thArg("amp", TH_DEFAULT_CHAN_AMP));
+        loaded++;
+    }
+
+    /* Nothing loaded means no corpus -- an install missing its patches, or a
+       build run from somewhere it cannot find them. Saying so is useful;
+       writing a configuration file with no channels in it is not, because on
+       the next run that file exists and this never runs again. */
+    if (loaded == 0)
+    {
+        fprintf(stderr, "no default patches could be loaded; "
+                "not writing a configuration file\n");
+        return false;
+    }
+
+    printf("no configuration found; starting with defaults\n");
+    printf("  (writing %s)\n", prefsPath_.c_str());
+
+    return true;
 }
 
 void gthPrefs::Save (void)

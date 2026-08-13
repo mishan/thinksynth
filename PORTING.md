@@ -1,7 +1,7 @@
 # Porting to macOS and Windows
 
-All three platforms build and all three are real CI gates. Linux and Windows
-have been run and heard; macOS has not.
+All three platforms build, all three are real CI gates, and all three have
+been run and heard on real hardware. The port is done.
 
 This document is the decisions, the build system and the traps. The engine-side
 consequences of the port — the audio ring, the MIDI thread hop, plugin linkage
@@ -11,9 +11,12 @@ are how the program works now rather than how it was changed. Packaging is in
 
 | Platform | State |
 |---|---|
-| Linux | Builds, runs, audio heard. MIDI not played through. |
+| Linux | Builds, runs, audio heard. |
 | Windows | Builds, runs, GUI seen, audio heard. |
-| macOS | Builds, harnesses pass. Never run on a desktop; nobody has seen the GUI. |
+| macOS | Builds, runs, audio heard. |
+
+What is still unheard is not a platform: no MIDI has been played through the
+RtMidi path anywhere, and nothing has listened to the audio path under load.
 
 ## 1. Why it was shaped this way
 
@@ -80,14 +83,15 @@ cmake/
 libthink/CMakeLists.txt     bison/flex targets, SHARED lib, export header
 plugins/CMakeLists.txt      one think_add_plugin_category() line per category
 src/CMakeLists.txt          app + gui
-scripts/CMakeLists.txt      the harnesses; eight registered as nine CTest gates
+scripts/CMakeLists.txt      the harnesses, and which of them are CTest gates
 ```
 
-Not every harness is a gate. `add_test` covers nine (eight binaries — `dspcheck`
-is registered twice, once for `dsp/` and once for `patches/`); `dspgraph`, `dsplayout`,
-`dsplive`, `dspnew`, `dspwrite`, `dspab`, `dspstress` and `canvasbench` are
-built but run by hand, because they are slow, need a corpus argument, or are
-measuring instruments rather than pass/fail checks.
+Not every harness is a gate, and the split is worth knowing rather than
+counting: `add_test` in `scripts/CMakeLists.txt` is the list, and `dspcheck`
+appears in it twice, once for `dsp/` and once for `patches/`. `dspgraph`,
+`dsplayout`, `dsplive`, `dspnew`, `dspwrite`, `dspab`, `dspstress` and
+`canvasbench` are built and run by hand, because they are slow, need a corpus
+argument, or are measuring instruments rather than pass/fail checks.
 
 Three rules worth keeping:
 
@@ -101,10 +105,16 @@ Three rules worth keeping:
 - **`RunHarness.cmake` filters the corpus by file *content*, not by name**, so
   the known-bad exclusions cannot go stale.
 
-`etc/thinkrc` and `docs/thinksynth.1` are `configure_file`d, and their templates
-keep the old `@dsp_path@` spelling with the variables aliased in
-`CMakeLists.txt`, because reformatting data files to suit a build system is the
-wrong way round.
+`docs/thinksynth.1` is `configure_file`d, and its template keeps the old
+`@dsp_path@` spelling with the variables aliased in `CMakeLists.txt`, because
+reformatting data files to suit a build system is the wrong way round.
+
+There is no longer an `etc/thinkrc` beside it. It was `configure_file`d the
+same way, which baked the configuring machine's absolute dsp and patch
+directories into a file that a relocatable package then shipped to someone who
+had never had those directories. The defaults a first run gets are built into
+the binary instead, named relatively and resolved at runtime -- see
+[ARCHITECTURE.md](ARCHITECTURE.md#preferences-and-the-first-run).
 
 ### RtAudio and RtMidi cannot come from the distribution
 
@@ -213,10 +223,14 @@ limited to `master` and a `concurrency` group cancels superseded runs.
 
 ## 6. What is left
 
-1. **Run it on a Mac.** It builds and the harnesses pass, but nobody has seen
-   the GUI and no sound has come out of it. Quartz is the backend most likely to
-   disagree with the layout.
-2. **Play MIDI through it** on any platform, and listen to the audio path under
-   load. See [ARCHITECTURE.md](ARCHITECTURE.md#audio-and-midi).
-3. **Verify a package on a machine with no GTK.** See
+Nothing platform-shaped. Three things the port never covered:
+
+1. **Play MIDI through it**, on any platform. The headless checks pass and no
+   device has ever been plugged in. See
+   [ARCHITECTURE.md](ARCHITECTURE.md#audio-and-midi).
+2. **Listen to the audio path under load** — latency, underruns, and whether
+   RtAudio's JACK path holds up against the hand-written one it replaced.
+3. **Run the macOS `.app` on a Mac that has never had GTK.** That is what
+   bundling GTK into it is for, and a CI runner cannot check it — it had to
+   have GTK to build. Windows has passed this; macOS has not. See
    [PACKAGING.md](PACKAGING.md#what-is-not-yet-verified).

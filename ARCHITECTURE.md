@@ -231,10 +231,31 @@ the development machine while failing 63 of 99 on a clean runner. Configuring
 with `-DCMAKE_INSTALL_PREFIX=/nonexistent` is the way to check this honestly,
 because it removes any possibility of a stale install answering.
 
+## Preferences and the first run
+
 `gthPrefs` uses `Glib::get_user_config_dir()`, which gets `~/.config`,
 `~/Library/Application Support` and `%LOCALAPPDATA%` right, and writes
 `<config>/thinksynth/thinkrc`. A `~/.thinkrc` left by an older version is read
 as a fallback when no current file exists, and never written back to.
+
+When neither exists, `gthPrefs::LoadDefaults()` puts four patches on four
+channels and `Save()` writes the file. So a fresh install starts with a
+keyboard that makes a sound, and what it did is an editable file rather than
+hidden state.
+
+The defaults are a table in `gthPrefs.cpp`, not a shipped config file. A file
+was what this used to be, `configure_file`d with absolute paths -- correct only
+on an installation matching the prefix the build was configured with, and wrong
+on every relocatable one. The table names patches relatively and
+`gthPatchManager::resolvePatch` finds them through the same search everything
+else uses, so the same four lines are right in a build tree, an installed
+prefix, a `.app` and a Flatpak.
+
+That resolution is also why the generated file stays portable. A patch is
+resolved for *opening* and recorded by the name as given, exactly as
+`resolveDsp` already did for DSPs -- so a saved `thinkrc` still says
+`leads/SuperRes.patch` and still works after the install moves. `configcheck`
+holds that down, because it is invisible until the day it matters.
 
 ## If you have thinksynth installed in /usr/local
 

@@ -58,6 +58,21 @@ public:
        can report the name the user typed. */
     static string resolveDsp (const string &dspName);
 
+    /* The same, for the .patch itself.
+     *
+     * A patch used to be fopen()'d exactly as named, which is why thinkrc had
+     * to spell its channels out absolutely: a relative name only worked from
+     * whichever directory it happened to be relative to. Searching means a
+     * config file can say "leads/SuperRes.patch" and still be right after the
+     * install moves -- which for a .app, a Windows zip or a Flatpak is not a
+     * hypothetical, since the path the build was configured with is a
+     * directory the user has never had.
+     *
+     * As with resolveDsp, the name is resolved for *opening* and the name as
+     * given is what gets recorded, so a portable config stays portable
+     * across a save. */
+    static string resolvePatch (const string &patchName);
+
     typedef map<string, float> PatchFileArgs;
     typedef map<string, string> PatchFileInfo;
     struct PatchFile {

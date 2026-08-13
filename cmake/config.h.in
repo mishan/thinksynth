@@ -42,7 +42,6 @@
 #define PLUGIN_PATH      "@THINK_PLUGIN_PATH@"
 #define DSP_PATH         "@THINK_DSP_PATH@"
 #define PATCH_PATH       "@THINK_PATCH_PATH@"
-#define DEFAULT_THINKRC  "@THINK_DEFAULT_THINKRC@"
 
 /* The application identity: GApplication id, desktop entry stem, macOS bundle
    identifier and Flatpak app-id, all one string. See CMakeLists.txt. */

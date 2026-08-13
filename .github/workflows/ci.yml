@@ -6,9 +6,8 @@
 #
 # STATUS: all four jobs are real gates and must stay green. What CI does not
 # cover is that hosted runners have no audio device, so the backends are only
-# compiled and linked here, never opened. macOS has additionally never been
-# run on a real desktop -- it builds and the harnesses pass, and nobody has
-# seen the GUI.
+# compiled and linked here, never opened. All three platforms have been run
+# and heard on real hardware; none of that happened here.
 #
 # RtAudio and RtMidi are NOT installed from the system package manager on any
 # platform here. Ubuntu 24.04 does not carry librtaudio-dev, 22.04 carries
@@ -17,10 +16,9 @@
 # first place. CMake fetches and statically links known-good 6.x instead, the
 # same way on every runner. Roughly half a minute per job, and deterministic.
 #
-# Hosted runners have no audio device, so the backends themselves are never
-# exercised here -- only that they compile and link. The gates are the
-# headless harnesses, which need neither a device nor (except on Linux, where
-# Gtk::Main is constructed before getopt) a display.
+# The gates are the headless harnesses, which need neither an audio device nor
+# (except on Linux, where the Gtk::Application is constructed before getopt) a
+# display.
 
 name: ci
 

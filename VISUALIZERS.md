@@ -277,8 +277,7 @@ record of the scheduler rather than of the sound.
 
 ## 5. The checks
 
-Nine CTest gates over eight harness binaries, and four of those binaries are
-this feature's:
+Four of the harnesses `ctest` runs are this feature's:
 
 | harness | CTest gate | covers |
 |---|---|---|

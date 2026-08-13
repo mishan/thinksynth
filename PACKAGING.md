@@ -58,8 +58,9 @@ That one is invisible on Linux, where a bundled loader finds librsvg from
 `/usr/lib` whatever the package contains — so `THINK_PKG_DEPS` is an option
 rather than a fact about the platform, and CI turns it on for Linux and requires
 librsvg to be *in the package*. A Linux build with it on is not a Linux package
-anyone should ship; it is the only way to watch the closure work before macOS
-does.
+anyone should ship; it was the only way to watch the closure work before a real
+machine did. The Windows zip has since been run on one with no GTK, which is
+the closure's first end-to-end result.
 
 ## The data files the closure cannot see
 
@@ -262,9 +263,30 @@ wants a developer certificate, which is a decision rather than a task.
 
 ## What is not yet verified
 
-**That a package runs on a machine with no GTK at all.** CI has no such machine,
-so a package that only works where it was built still looks identical to a good
-one. The bundling is exercised; the *closure* it sits on top of is not.
+**That the macOS `.app` works on a machine that has never had GTK installed.**
+
+Which is every ordinary Mac, and is the whole point of the bundling above:
+nobody is going to `brew install gtk4` to run a synth, so `THINK_BUNDLE_GTK`
+and `THINK_PKG_DEPS` both default ON for macOS and Windows and the package is
+meant to carry its own GTK entire.
+
+**Windows is done.** The zip has been unpacked and run on a machine that has
+never had GTK on it, which is the real test and the one CI cannot perform:
+building at all means MSYS2 put GTK on the runner, so a bundle that quietly
+resolved against the runner's copy would look exactly like one that carried its
+own. That result covers the closure, the schemas, the pixbuf loaders and the
+icon theme in one go, on the platform where `GET_RUNTIME_DEPENDENCIES` had the
+most to get wrong.
+
+macOS has not had the same treatment. It runs — built from source on a Mac,
+against the GTK it needed to build in the first place — which says nothing
+about the `.app`. Homebrew's keg symlinks and the two-prefix problem are macOS
+only, so Windows going green does not carry over.
+
+None of this applies to Linux, where both options default OFF and the package
+is expected to use the distribution's GTK. A Linux tarball requires gtkmm
+installed and always did; `THINK_BUNDLE_GTK=ON` there exists to exercise the
+mechanism, not to produce a package anyone should ship.
 
 CI runs `cpack` on all three platforms and uploads the result as an artefact.
 The Linux and Windows packages have been downloaded and run; the macOS `.app`
