@@ -25,6 +25,17 @@
 #include <system_error>
 #include <vector>
 
+/* One platform block, and it has to stay one.
+ *
+ * WIN32_LEAN_AND_MEAN and NOMINMAX only do anything if they are defined
+ * before the first <windows.h> in the translation unit. A second include
+ * block added above this one -- for tempFile -- pulled <windows.h> in ahead
+ * of them and quietly turned both off.
+ *
+ * exeDir needs GetModuleFileNameW, _NSGetExecutablePath or readlink;
+ * tempFile needs GetTempFileNameW or mkstemp and close. unistd.h covers
+ * readlink and close together, so macOS takes it as well as dyld.h -- close()
+ * is otherwise undeclared there. */
 #if defined(_WIN32)
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
@@ -32,11 +43,12 @@
 # ifndef NOMINMAX
 #  define NOMINMAX
 # endif
-# include <windows.h>
-#elif defined(__APPLE__)
-# include <mach-o/dyld.h>   /* _NSGetExecutablePath */
+# include <windows.h>       /* GetModuleFileNameW, GetTempFileNameW */
 #else
-# include <unistd.h>        /* readlink */
+# include <unistd.h>        /* readlink, close */
+# if defined(__APPLE__)
+#  include <mach-o/dyld.h>  /* _NSGetExecutablePath */
+# endif
 #endif
 
 #include "thUtil.h"
@@ -272,6 +284,96 @@ string thUtil::findDataFile (const string &name, const string &subdir,
 /* The directories the above searches, in the same order and for the same
    reasons. Kept beside it deliberately: two search orders that are supposed
    to agree and are written out separately do not stay agreeing. */
+/* An empty file with an unguessable name, in the right directory for this
+ * platform.
+ *
+ * The directory is the reason this exists. The node editor used to build the
+ * template itself:
+ *
+ *     const char *tmp = getenv("TMPDIR");
+ *     string tpl = string(tmp && *tmp ? tmp : "/tmp");
+ *
+ * TMPDIR is a POSIX convention. Windows sets TEMP and TMP and never TMPDIR,
+ * so that fell through to "/tmp" -- a directory Windows does not have.
+ * mkstemp failed, the working copy was never made, and the editor reported
+ * "Could not read <file>" about a file it had not tried to read.
+ * temp_directory_path knows the answer on all three platforms.
+ */
+string thUtil::tempFile (const string &prefix)
+{
+    std::error_code ec;
+
+    const fs::path dir = fs::temp_directory_path(ec);
+
+    if (ec || dir.empty())
+        return "";
+
+#if defined(_WIN32)
+
+    /* GetTempFileName is the Win32 equivalent: it invents a name in the
+       directory given, creates the file, and hands back the path -- and the
+       per-user temp directory is already private, which is what mkstemp's
+       0600 buys on a shared /tmp. */
+    /* The directory, with a separator on the end. temp_directory_path does
+       not put one there and GetTempFileName is documented against paths that
+       have one, so it is added rather than hoped about. */
+    std::wstring wdir = dir.wstring();
+
+    if (!wdir.empty() && wdir.back() != L'\\' && wdir.back() != L'/')
+        wdir += L'\\';
+
+    /* At most the first three characters of the prefix are used -- a limit of
+       the API, not a choice here -- so a long caller prefix is truncated
+       rather than passed whole, and an empty one gets something rather than
+       nothing. */
+    std::wstring wpre;
+
+    for (size_t i = 0; i < prefix.size() && wpre.size() < 3; i++)
+        wpre += (wchar_t)(unsigned char)prefix[i];
+
+    if (wpre.empty())
+        wpre = L"ths";
+
+    /* The buffer must be MAX_PATH characters; the call fails rather than
+       truncating if the directory leaves no room, which the empty return
+       reports to the caller. */
+    wchar_t out[MAX_PATH];
+
+    if (GetTempFileNameW(wdir.c_str(), wpre.c_str(), 0, out) == 0)
+        return "";
+
+    return fs::path(out).string();
+
+#else
+
+    /* mkstemp rather than a name built from the pid: it creates the file
+       itself, O_EXCL and 0600, so on a shared temp directory without the
+       sticky bit there is nothing to guess and nothing to pre-empt.
+
+       The template has to end in the X's, so nothing may be appended. */
+    const fs::path tpl = dir / (prefix + "XXXXXX");
+
+    const string t = tpl.string();
+
+    std::vector<char> buf(t.begin(), t.end());
+
+    buf.push_back('\0');
+
+    const int fd = mkstemp(&buf[0]);
+
+    if (fd < 0)
+        return "";
+
+    /* Closed rather than kept: everything downstream works by path, and the
+       writer deliberately writes through a temporary and renames, which
+       replaces the inode under any descriptor we held anyway. */
+    close(fd);
+
+    return string(&buf[0]);
+
+#endif
+}
+
 string thUtil::findDataDir (const string &subdir, const char *envVar,
                             const string &fallback)
 {
