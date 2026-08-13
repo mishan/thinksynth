@@ -1,0 +1,26 @@
+# Deliberately narrow. There is no `* text=auto' here: this repository has gone
+# its whole life without a .gitattributes, every text file is committed with LF
+# already, and a blanket rule would renormalise files nobody is looking at as a
+# side effect of a change about icons.
+#
+# What is pinned is the artwork and its renders, because a check depends on
+# their bytes.
+
+# cmake/CheckIconStamp.cmake hashes this file to decide whether the committed
+# .ico and .icns are still current. GitHub's Windows runners set core.autocrlf,
+# so without this the checkout there differs byte-for-byte from the commit
+# while describing exactly the same drawing -- which is how the check first
+# failed on Windows for a file nobody had touched.
+#
+# The check normalises line endings before hashing, so this is the belt and
+# that is the braces. Either alone would do; the reason for both is that they
+# fail differently. This keeps working trees identical across platforms, but
+# only after a fresh checkout or a `git add --renormalize'. The normalising
+# hash needs neither, and covers a tree that predates this file.
+*.svg text eol=lf
+
+# Renders of the above, and never text. Git's own binary detection would reach
+# the same conclusion from the NUL bytes; saying so means it is not left to a
+# heuristic, and that a future blanket `text=auto' cannot corrupt them.
+*.ico  binary
+*.icns binary

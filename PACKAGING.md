@@ -191,6 +191,16 @@ against the committed one would be stricter and unusable: librsvg's antialiasing
 differs between versions, so it would fail on whichever machine had a different
 one, which is not the mistake worth catching.
 
+**It hashes the SVG with line endings normalised**, which the first version did
+not, and it failed on Windows for a file nobody had touched. GitHub's Windows
+runners set `core.autocrlf`, so the SVG arrives there byte-for-byte different
+from the commit while describing the same drawing. Hashing raw bytes asks "have
+these bytes changed?"; the question worth asking is "has the artwork changed?",
+and the answer must not depend on which platform is asking. Both the generator
+and the check strip `\r\n` first. `.gitattributes` also pins `*.svg` to LF, but
+that only helps a fresh checkout — the normalising hash is what covers a working
+tree that predates it.
+
 ## How any of this is tested without a Mac or a Windows box
 
 `thinksynth -G` reports whether GTK can reach a schema, our icons and a pixbuf

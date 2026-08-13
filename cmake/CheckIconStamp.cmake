@@ -36,7 +36,14 @@ foreach(_f "${_svg}" "${_stamp}" "${_ico}" "${_icns}")
   endif()
 endforeach()
 
-file(SHA256 "${_svg}" _actual)
+# Not file(SHA256), which hashes the bytes on disk. The SVG is a text file and
+# git is entitled to rewrite its line endings on checkout -- GitHub's Windows
+# runners set core.autocrlf, and the first version of this check failed there
+# for a file nobody had touched. Normalise first, so the hash describes the
+# drawing rather than the checkout. scripts/make-icons.py does the same.
+file(READ "${_svg}" _content)
+string(REPLACE "\r\n" "\n" _content "${_content}")
+string(SHA256 _actual "${_content}")
 
 # The stamp is mostly a comment explaining itself to whoever this check fails
 # on; the hash is the one line that is bare hex.

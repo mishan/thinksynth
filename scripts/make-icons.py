@@ -122,6 +122,25 @@ def render (path, size):
                            pb.get_rowstride(), 1)
 
 
+def svg_digest (path):
+    """The SVG's hash, with line endings normalised first.
+
+    Normalised because the SVG is a text file and git is entitled to rewrite
+    its line endings on checkout -- GitHub's Windows runners set
+    core.autocrlf, so the file that arrives there is byte-for-byte different
+    from the one committed while describing exactly the same drawing.  Hashing
+    the raw bytes asks "have these bytes changed?"; the question worth asking
+    is "has the artwork changed?", and the answer must not depend on which
+    platform is asking.
+
+    cmake/CheckIconStamp.cmake does the same replacement before hashing, and
+    the two are checked against each other.
+    """
+
+    with open(path, "rb") as f:
+        return hashlib.sha256(f.read().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def frames (big, sizes):
     return [big.resize((s, s), Image.LANCZOS) for s in sizes]
 
@@ -159,8 +178,7 @@ def main ():
     write_ico(big)
     write_icns(big)
 
-    with open(SVG, "rb") as f:
-        digest = hashlib.sha256(f.read()).hexdigest()
+    digest = svg_digest(SVG)
 
     with open(STAMP, "w") as f:
         f.write("# sha256 of %s, the source these were rendered from:\n"
