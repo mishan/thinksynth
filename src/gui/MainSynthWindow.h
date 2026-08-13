@@ -19,6 +19,9 @@
 #ifndef MAIN_SYNTH_WINDOW_H
 #define MAIN_SYNTH_WINDOW_H
 
+/* For gthThemeChoice, which the Appearance menu handlers below take. */
+#include "../gthTheme.h"
+
 class gthAudio;
 class gthPrefs;
 class AboutBox;
@@ -43,6 +46,12 @@ public:
      * that is about the window. Call before showing it -- the size is a
      * default size, which a window that is already on screen ignores. */
     void applyPrefs (void);
+
+    /* Appearance: the menu, the preference and the live system-theme
+       notification all funnel through setTheme. */
+    void setTheme (gthThemeChoice choice);
+    void menuTheme (const Glib::ustring &target);
+    void onSystemThemeChanged (void);
 
 protected:
     void populateMenu (void);
@@ -159,6 +168,8 @@ protected:
     void onApplicationSet (void);
 
     Glib::RefPtr<Gio::SimpleActionGroup> actions_;
+
+    Glib::RefPtr<Gio::SimpleAction> themeAction_;
     Gtk::PopoverMenuBar *menuBar_;
 
     std::vector<std::pair<Glib::ustring, Glib::ustring> > accels_;

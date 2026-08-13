@@ -42,6 +42,7 @@ target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 set(THINKSYNTH_SOURCES
     main.cpp
     gthPrefs.cpp
+    gthTheme.cpp
     gthPatchfile.cpp
     gthDummyAudio.cpp
     gthSynthSource.cpp

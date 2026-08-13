@@ -53,6 +53,13 @@ endfunction()
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
 
+# The light/dark decision. Only the Linux half of gthTheme can be run here at
+# all, so the part that is the same on all three platforms is the part that
+# gets pinned. gthTheme.cpp pulls in gtkmm for Gtk::Settings, so this harness
+# needs it too even though it touches no widget.
+think_harness(themecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthTheme.cpp")
+target_link_libraries(themecheck PRIVATE PkgConfig::GTKMM)
+
 think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
@@ -177,6 +184,8 @@ add_test(NAME dspblock
 add_test(NAME ringcheck COMMAND ringcheck 20000)
 
 add_test(NAME pathcheck COMMAND pathcheck)
+
+add_test(NAME themecheck COMMAND themecheck)
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck

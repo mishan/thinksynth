@@ -39,6 +39,8 @@
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
 #include "MainSynthWindow.h"
+
+#include "../gthTheme.h"
 #include "AboutBox.h"
 #include "MidiMap.h"
 #include "ArgTable.h"
@@ -263,9 +265,62 @@ bool MainSynthWindow::onCloseRequest (void)
 }
 
 
+/* A choice from the Appearance menu. */
+void MainSynthWindow::onSystemThemeChanged (void)
+{
+    /* Re-apply rather than assume: apply() ignores the system scheme unless
+       the choice is Auto, so this is a no-op for someone who picked Light or
+       Dark explicitly. */
+    gthTheme::apply(gthTheme::current());
+}
+
+void MainSynthWindow::menuTheme (const Glib::ustring &target)
+{
+    setTheme(gthTheme::fromString(target));
+}
+
+/* One way in for the menu, the preferences file and the startup path, so the
+   action state, the stored value and what the toolkit is actually doing
+   cannot drift apart. */
+void MainSynthWindow::setTheme (gthThemeChoice choice)
+{
+    gthTheme::apply(choice);
+
+    if (themeAction_)
+        themeAction_->set_state(
+            Glib::Variant<Glib::ustring>::create(gthTheme::toString(choice)));
+
+    string **vals = new string *[2];
+
+    vals[0] = new string(gthTheme::toString(choice));
+    vals[1] = NULL;
+
+    gthPrefs::instance()->Set("theme", vals);
+}
+
 void MainSynthWindow::applyPrefs (void)
 {
     gthPrefs *prefs = gthPrefs::instance();
+
+    /* Appearance first: it costs nothing and it means the window is never
+       briefly the wrong colour on the way up. */
+    {
+        string **tvals = prefs->Get("theme");
+
+        setTheme(tvals != NULL && tvals[0] != NULL
+                 ? gthTheme::fromString(*(tvals[0]))
+                 : gthThemeChoice::Auto);
+
+        /* Auto has to keep following after startup, and the only way to know
+           the desktop has changed its mind is to be told. Connected
+           unconditionally: which choice is in force can change while the
+           program runs, and apply() is what decides whether the system's
+           opinion matters. */
+        gthTheme::signalSystemSchemeChanged().connect(
+            sigc::mem_fun(*this, &MainSynthWindow::onSystemThemeChanged));
+
+        gthTheme::startWatching();
+    }
 
     /* The directory the DSP browser opens in. This was read in the
        constructor, where the preferences have not been loaded yet, so it
@@ -406,6 +461,14 @@ void MainSynthWindow::populateMenu (void)
               sigc::mem_fun(*this, &MainSynthWindow::menuQuit), "<Control>q");
     addAction("about", sigc::mem_fun(*this, &MainSynthWindow::menuAbout));
 
+    /* Appearance. A radio action rather than three separate items, so the
+       menu shows which one is in force -- and stateful, so the state is the
+       preference rather than something shadowing it. */
+    themeAction_ = actions_->add_action_radio_string(
+        "theme",
+        sigc::mem_fun(*this, &MainSynthWindow::menuTheme),
+        gthTheme::toString(gthTheme::current()));
+
     /* No Node View item. It dates from when the editor was a window of its
        own; now that it is a tab on the patch page, the menu could only do
        what clicking the tab does -- and it had to explain itself with a
@@ -423,9 +486,23 @@ void MainSynthWindow::populateMenu (void)
 
     help->append("_About", "win.about");
 
+    Glib::RefPtr<Gio::Menu> appearance = Gio::Menu::create();
+
+    /* The target is the string the preference file stores, so the action, the
+       menu and thinkrc all spell it the same way and there is no third
+       mapping to keep in step. */
+    appearance->append("_Auto (follow the system)", "win.theme::auto");
+    appearance->append("_Light", "win.theme::light");
+    appearance->append("_Dark",  "win.theme::dark");
+
+    Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
+
+    view->append_submenu("_Appearance", appearance);
+
     Glib::RefPtr<Gio::Menu> bar = Gio::Menu::create();
 
     bar->append_submenu("_File", file);
+    bar->append_submenu("_View", view);
     bar->append_submenu("_Help", help);
 
     /* Help no longer sits over on the right. set_right_justified went with
