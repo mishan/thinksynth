@@ -27,6 +27,7 @@
 #include "think.h"
 #include "gthPatchfile.h"
 #include "MidiMap.h"
+#include "ColumnUtil.h"
 
 MidiMap::MidiMap (thSynth *argsynth)
 {
@@ -152,23 +153,60 @@ MidiMap::MidiMap (thSynth *argsynth)
     connectScroll_.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
     connectScroll_.set_size_request(700, 128);
 
-    /* The row that is current, however it became current. This was bound to
-       button-press, which a GTK4 TreeView does not offer as a signal and which
-       missed keyboard selection anyway. */
-    connectView_.signal_cursor_changed().connect(
-        sigc::mem_fun(*this, &MidiMap::onConnectionSelected));
-    connectView_.signal_cursor_changed().connect(
-        sigc::mem_fun(*this, &MidiMap::onConnectionMoved));
     connectFrame_->set_child(connectScroll_);
 
-    connectModel_ = Gtk::ListStore::create (connectViewCols_);
-    connectView_.set_model(connectModel_);
+    connectModel_ = Gio::ListStore<MidiMapRow>::create();
+    connectSelection_ = Gtk::SingleSelection::create(connectModel_);
+
+    /* Nothing selected until the user picks something. SingleSelection
+       otherwise selects row 0 as soon as the model is filled, which would fire
+       the handlers below and load a connection into the editor that the user
+       never asked for. */
+    connectSelection_->set_autoselect(false);
+    connectSelection_->set_can_unselect(true);
+    connectSelection_->set_selected(GTK_INVALID_LIST_POSITION);
+
+    connectView_.set_model(connectSelection_);
+
+    /* The row that is current, however it became current -- mouse or
+       keyboard. The TreeView spelling was signal_cursor_changed; the
+       ColumnView equivalent is the selection model saying so. */
+    connectSelection_->property_selected().signal_changed().connect(
+        sigc::mem_fun(*this, &MidiMap::onConnectionSelected));
+    connectSelection_->property_selected().signal_changed().connect(
+        sigc::mem_fun(*this, &MidiMap::onConnectionMoved));
 
     populateConnections();
-    connectView_.append_column("Channel", connectViewCols_.midiChan);
-    connectView_.append_column("Controller", connectViewCols_.midiController);
-    connectView_.append_column("Instrument", connectViewCols_.instrument);
-    connectView_.append_column("Parameter", connectViewCols_.argName);
+
+    /* +1 on the two numbers, here rather than in the model: MIDI channels and
+       controllers are counted from one by everyone except the protocol. */
+    connectView_.append_column(gthTextColumn("Channel",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<MidiMapRow> r =
+                std::dynamic_pointer_cast<MidiMapRow>(o);
+            return r ? Glib::ustring::format(r->chan() + 1) : Glib::ustring();
+        }, Gtk::Align::END));
+
+    connectView_.append_column(gthTextColumn("Controller",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<MidiMapRow> r =
+                std::dynamic_pointer_cast<MidiMapRow>(o);
+            return r ? Glib::ustring::format(r->controller()) : Glib::ustring();
+        }, Gtk::Align::END));
+
+    connectView_.append_column(gthTextColumn("Instrument",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<MidiMapRow> r =
+                std::dynamic_pointer_cast<MidiMapRow>(o);
+            return r ? r->instrument() : Glib::ustring();
+        }));
+
+    connectView_.append_column(gthTextColumn("Parameter",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<MidiMapRow> r =
+                std::dynamic_pointer_cast<MidiMapRow>(o);
+            return r ? r->argName() : Glib::ustring();
+        }));
 
     srcDestHBox_->set_vexpand(true);
     inputVBox_->append(*srcDestHBox_);
@@ -357,15 +395,14 @@ void MidiMap::populateConnections (void)
     thMidiControllerConnection *connection;
     string instrument;
     
-    connectModel_->clear();
+    connectModel_->remove_all();
 
     thMidiController::ConnectionMap *connectionMap =
         synth_->getMidiConnectionMap();
-    
+
     for (thMidiController::ConnectionMap::iterator i =
              connectionMap->begin(); i != connectionMap->end(); i++)
     {
-        Gtk::TreeModel::Row row = *(connectModel_->append());
         connection = i->second;
         instrument = thUtil::basename(patchMgr->getPatch(
                                  connection->destChan())->filename.c_str());
@@ -378,10 +415,10 @@ void MidiMap::populateConnections (void)
         chanStr << connection->destChan() + 1 << ": ";
         instrument = chanStr.str() + instrument;
 
-        row[connectViewCols_.midiChan] = connection->chan() + 1;
-        row[connectViewCols_.midiController] = connection->controller();
-        row[connectViewCols_.instrument] = instrument;
-        row[connectViewCols_.argName] = connection->argName();
+        connectModel_->append(MidiMapRow::create(connection->chan(),
+                                                connection->controller(),
+                                                instrument,
+                                                connection->argName()));
     }
 }
 
@@ -430,36 +467,27 @@ void MidiMap::onExpToggled (void)
 
 void MidiMap::onConnectionSelected (void)
 {
-    {
-        Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
-            connectView_.get_selection();
-        
-        if (refSelection)
-        {
-            Gtk::TreeModel::iterator iter;
-            /* Nothing to hit-test: the cursor has already
-               moved to the row, which is what this now hears
-               about. The old button-press binding had to work
-               out which row had been hit for itself. */
-        }
-    }
+    /* Nothing to hit-test: the selection has already moved to the row, which
+       is what this hears about. The old button-press binding had to work out
+       which row had been hit for itself. */
 }
 
 void MidiMap::onConnectionMoved (void)
 {
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
-        connectView_.get_selection();
     thMidiControllerConnection *selectedConnection;
 
-    if (refSelection)
     {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
-        
-        if (iter)
+        Glib::RefPtr<MidiMapRow> row =
+            std::dynamic_pointer_cast<MidiMapRow>(
+                connectSelection_->get_selected_item());
+
+        if (row)
         {
-            selectedChan_ = (*iter)[connectViewCols_.midiChan] - 1;
-            selectedController_ = (*iter)[connectViewCols_.midiController];
+            /* Straight off the row. The ListStore this replaces held the
+               display numbers, so this had to undo the +1 that had been added
+               for the user's benefit. */
+            selectedChan_ = row->chan();
+            selectedController_ = row->controller();
             channelSpinBtn_->set_value(selectedChan_ + 1);
             controllerSpinBtn_->set_value(selectedController_);
             selectedConnection = synth_->getMidiControllerConnection(

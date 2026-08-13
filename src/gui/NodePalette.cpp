@@ -26,6 +26,7 @@
 
 #include "../NodeCatalog.h"
 #include "NodePalette.h"
+#include "TreeSearch.h"
 
 /* Stands in the spelling column where a plugin would put "osc::simple". Not
    a legal plugin name, so it cannot collide with one. */
@@ -46,7 +47,9 @@ NodePalette::NodePalette (void)
     tree_.set_model(store_);
     tree_.append_column("Node", cols_.label);
     tree_.set_headers_visible(false);
-    tree_.set_enable_search(false);     /* the filter box does this better */
+    /* The filter box does this better, and GTK's own popover is broken --
+       see TreeSearch.h. */
+    gthDisableTreeSearch(tree_);
 
     tree_.get_selection()->signal_changed().connect(
         sigc::mem_fun(*this, &NodePalette::onSelectionChanged));

@@ -21,30 +21,48 @@
 
 #include "SaveButton.h"
 
-class PatchSelColumns : public Gtk::TreeModel::ColumnRecord
+/* One channel's row.
+ *
+ * `chan' is zero-based, the way the engine counts, and the column adds one for
+ * display. The ListStore this replaces held the display number and every
+ * reader subtracted one back off it -- six places to get a fencepost wrong
+ * instead of one.
+ */
+class PatchSelRow : public Glib::Object
 {
 public:
-    PatchSelColumns (void)
+    static Glib::RefPtr<PatchSelRow> create (int chan)
     {
-        add (chanNum);
-        add (dspName);
-        add (amp);
-        add (path);
+        return Glib::make_refptr_for_instance(new PatchSelRow(chan));
     }
 
-    Gtk::TreeModelColumn <unsigned int> chanNum;
-    Gtk::TreeModelColumn <Glib::ustring> dspName;
+    int chan (void) const { return chan_; }
+
+    Glib::ustring dspName (void) const { return dspName_; }
+    void setDspName (const Glib::ustring &s) { dspName_ = s; }
 
     /* Text, not a number. A free channel has no amplitude, and a column of
        0.000000 down thirteen empty rows is noise that reads like data. Empty
        means empty; a loaded channel gets a whole number, which is what the
        0..127 scale is in. */
-    Gtk::TreeModelColumn <Glib::ustring> amp;
+    Glib::ustring amp (void) const { return amp_; }
+    void setAmp (const Glib::ustring &s) { amp_ = s; }
 
     /* The full path, for the row's tooltip. The column shows the basename --
        every patch in a library shares its directory, so the part that
        identifies one is the part a narrow column cuts off. */
-    Gtk::TreeModelColumn <Glib::ustring> path;
+    Glib::ustring path (void) const { return path_; }
+    void setPath (const Glib::ustring &s) { path_ = s; }
+
+protected:
+    PatchSelRow (int chan)
+        : Glib::ObjectBase(typeid(PatchSelRow)), chan_(chan) { }
+
+private:
+    int chan_;
+    Glib::ustring dspName_;
+    Glib::ustring amp_;
+    Glib::ustring path_;
 };
 
 class PatchSelWindow : public Gtk::Window
@@ -117,9 +135,13 @@ protected:
     Gtk::TextView patchComments;
 
     Gtk::ScrolledWindow patchScroll;
-    Gtk::TreeView patchView;
-    Glib::RefPtr<Gtk::ListStore> patchModel;
-    PatchSelColumns patchViewCols;
+    Gtk::ColumnView patchView;
+    Glib::RefPtr<Gio::ListStore<PatchSelRow> > patchModel;
+    Glib::RefPtr<Gtk::SingleSelection> patchSelection;
+
+    /* The row the user is on, or NULL. Every caller wanted the same three
+       lines of "is there a selection, and what is in it". */
+    Glib::RefPtr<PatchSelRow> selectedRow (void) const;
 
 private:
     void populate (void);

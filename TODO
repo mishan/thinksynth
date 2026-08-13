@@ -115,3 +115,10 @@ Node editor
 
 - The palette's control dialog does not ask for a group. The writer already
   takes one.
+
+- NodePalette is the last GtkTreeView. PatchSelWindow and MidiMap are
+  Gtk::ColumnViews, which have no interactive search and so cannot hit the
+  gtk_css_node_insert_after critical at all. The palette is a tree rather than
+  a list, so it needs Gtk::TreeListModel and Gtk::TreeExpander rather than the
+  same pattern again. src/gui/TreeSearch.h is the workaround holding the line
+  until then, and goes with it.

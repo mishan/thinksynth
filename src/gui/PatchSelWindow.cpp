@@ -37,6 +37,7 @@
 #include "gthPrefs.h"
 #include "gthPatchfile.h"
 #include "Dialogs.h"
+#include "ColumnUtil.h"
 
 
 PatchSelWindow::PatchSelWindow (thSynth *argsynth)
@@ -124,13 +125,6 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     patchScroll.set_child(patchView);
     patchScroll.set_policy(Gtk::PolicyType::AUTOMATIC, Gtk::PolicyType::AUTOMATIC);
 
-    /* Whichever row is current, however it got there. This hung off
-       button-press, a signal a GTK4 TreeView does not have and which never
-       saw a row selected with the arrow keys. */
-    patchView.signal_cursor_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::patchSelected));
-    patchView.signal_cursor_changed().connect(
-        sigc::mem_fun(*this, &PatchSelWindow::CursorChanged));
 
     patchScroll.set_vexpand(true);
     vbox.append(patchScroll);
@@ -149,34 +143,76 @@ PatchSelWindow::PatchSelWindow (thSynth *argsynth)
     /* this is not to be used unless a valid amp arg is found */
     dspAmp.set_sensitive(false);
 
-    patchModel = Gtk::ListStore::create (patchViewCols);
-    patchView.set_model(patchModel);
+    patchModel = Gio::ListStore<PatchSelRow>::create();
+    patchSelection = Gtk::SingleSelection::create(patchModel);
 
-    patchView.append_column("Channel", patchViewCols.chanNum);
-    patchView.append_column("Patch", patchViewCols.dspName);
-    patchView.append_column("Level", patchViewCols.amp);
+    /* Nothing selected to begin with. SingleSelection otherwise takes row 0
+       the moment the model is filled, and every handler below would run for a
+       channel the user has not looked at. populate() puts the selection back
+       where it was, which is the only thing that should move it on its own. */
+    patchSelection->set_autoselect(false);
+    patchSelection->set_can_unselect(true);
+    patchSelection->set_selected(GTK_INVALID_LIST_POSITION);
 
-    /* The full path on hover; the column itself shows the basename. Asked of
-       the column rather than written as a 3, so that inserting one above it
-       does not silently point this at the wrong data. */
-    patchView.set_tooltip_column(patchViewCols.path.index());
+    patchView.set_model(patchSelection);
+
+    /* Whichever row is current, however it got there. This hung off
+       button-press once, a signal that never saw a row selected with the
+       arrow keys; the ColumnView spelling is the selection model saying so. */
+    patchSelection->property_selected().signal_changed().connect(
+        sigc::mem_fun(*this, &PatchSelWindow::patchSelected));
+    patchSelection->property_selected().signal_changed().connect(
+        sigc::mem_fun(*this, &PatchSelWindow::CursorChanged));
+
+    /* +1 for display: the row counts channels the way the engine does. */
+    patchView.append_column(gthTextColumn("Channel",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<PatchSelRow> r =
+                std::dynamic_pointer_cast<PatchSelRow>(o);
+            return r ? Glib::ustring::format(r->chan() + 1) : Glib::ustring();
+        }, Gtk::Align::END));
+
+    /* The full path on hover; the column shows the basename. A ColumnView has
+       no tooltip-column property, so the tooltip goes on the widget that
+       shows the shortened name -- which is where a user would point anyway. */
+    Glib::RefPtr<Gtk::ColumnViewColumn> nameCol = gthTextColumn("Patch",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<PatchSelRow> r =
+                std::dynamic_pointer_cast<PatchSelRow>(o);
+            return r ? r->dspName() : Glib::ustring();
+        });
+
+    {
+        Glib::RefPtr<Gtk::SignalListItemFactory> f =
+            std::dynamic_pointer_cast<Gtk::SignalListItemFactory>(
+                nameCol->get_factory());
+
+        if (f)
+            f->signal_bind().connect(
+                [](const Glib::RefPtr<Gtk::ListItem> &item)
+                {
+                    Gtk::Widget *w = item->get_child();
+                    Glib::RefPtr<PatchSelRow> r =
+                        std::dynamic_pointer_cast<PatchSelRow>(item->get_item());
+
+                    if (w)
+                        w->set_tooltip_text(r ? r->path() : Glib::ustring());
+                });
+    }
 
     /* The patch name takes the slack. Without this the last column does,
        which left Level a hand's width of empty and its number stranded at
        the far right of the window. */
-    if (Gtk::TreeViewColumn *col = patchView.get_column(1))
-        col->set_expand(true);
+    nameCol->set_expand(true);
+    patchView.append_column(nameCol);
 
     /* A number belongs against the right of its column. */
-    if (Gtk::TreeViewColumn *col = patchView.get_column(2))
-    {
-        col->set_alignment(1.0);
-
-        std::vector<Gtk::CellRenderer *> cells = col->get_cells();
-
-        for (size_t i = 0; i < cells.size(); i++)
-            cells[i]->set_property("xalign", 1.0);
-    }
+    patchView.append_column(gthTextColumn("Level",
+        [](const Glib::RefPtr<Glib::ObjectBase> &o) {
+            Glib::RefPtr<PatchSelRow> r =
+                std::dynamic_pointer_cast<PatchSelRow>(o);
+            return r ? r->amp() : Glib::ustring();
+        }, Gtk::Align::END));
 
     dspAmp.signal_value_changed().connect(
         sigc::mem_fun(*this, &PatchSelWindow::SetChannelAmp));
@@ -272,22 +308,31 @@ PatchSelWindow::~PatchSelWindow (void)
 {
 }
 
+/* The row the user is on, or NULL.
+ *
+ * Every caller wanted the same three lines -- is there a selection, is there
+ * an iterator in it, what is in the iterator -- and got them slightly
+ * differently each time. */
+Glib::RefPtr<PatchSelRow> PatchSelWindow::selectedRow (void) const
+{
+    if (!patchSelection)
+        return Glib::RefPtr<PatchSelRow>();
+
+    return std::dynamic_pointer_cast<PatchSelRow>(
+        patchSelection->get_selected_item());
+}
+
 void PatchSelWindow::UnloadDSP (void)
 {
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection =
-        patchView.get_selection();
-
-    if (refSelection)
     {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
+        Glib::RefPtr<PatchSelRow> row = selectedRow();
 
-        if (iter)
+        if (row)
         {
 #if 0
               /* Delete the thMidiChan + modnode */
-            thMidiChan *c = synth->getChannel((*iter)[patchViewCols.chanNum] - 1);
-            synth->removeChan ((*iter)[patchViewCols.chanNum] - 1);
+            thMidiChan *c = synth->getChannel(row->chan());
+            synth->removeChan (row->chan());
 
             if (c)
             {
@@ -301,7 +346,7 @@ void PatchSelWindow::UnloadDSP (void)
 
             /* the subsequent signal emitted by patchMgr ought to cause
                this object to repopulate itself */
-             patchMgr->unloadPatch((*iter)[patchViewCols.chanNum]-1);
+             patchMgr->unloadPatch(row->chan());
 
             /* After deletion, nothing will be highlighted, so disable
              * and clear things */
@@ -324,17 +369,12 @@ void PatchSelWindow::UnloadDSP (void)
 
 bool PatchSelWindow::LoadPatch (void)
 {
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
-        patchView.get_selection();
-
-    if (refSelection)
     {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
+        Glib::RefPtr<PatchSelRow> row = selectedRow();
 
-        if (iter)
+        if (row)
         {
-            int chanNum = (*iter)[patchViewCols.chanNum]-1;
+            int chanNum = row->chan();
             gthPatchManager *patchMgr = gthPatchManager::instance();
 
             /* the patchMgr should subsequently emit a signal that will cause
@@ -342,12 +382,8 @@ bool PatchSelWindow::LoadPatch (void)
              if (patchMgr->loadPatch(fileEntry.get_text(), chanNum))
             {
                 /* focus the new channel */
-                std::ostringstream s;
-                s << chanNum;
-
                 gthPatchManager::PatchFile *patch =patchMgr->getPatch(chanNum);
-                Gtk::TreeModel::Path p(s.str());
-                patchView.set_cursor(p);
+                patchSelection->set_selected(chanNum);
 
                 /* load up metadata */
                 patchRevised.set_text(patch->info["revised"]);
@@ -441,21 +477,15 @@ void PatchSelWindow::onBrowseResponse (int response,
 
 void PatchSelWindow::SavePatch (void)
 {
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection =
-        patchView.get_selection();
+    Glib::RefPtr<PatchSelRow> row = selectedRow();
 
-    if (!refSelection)
-        return;
-
-    Gtk::TreeModel::iterator iter = refSelection->get_selected();
-
-    if (!iter)
+    if (!row)
         return;
 
     /* Which channel, decided now. The chooser is answered later and the
        selection can move in between -- it could not before, because run()
        held the rest of the window still. */
-    const int chan = (*iter)[patchViewCols.chanNum] - 1;
+    const int chan = row->chan();
 
     Gtk::FileChooserDialog *fileSel =
         new Gtk::FileChooserDialog(*this, "thinksynth - Save Patch",
@@ -576,17 +606,12 @@ void PatchSelWindow::fileEntryActivate (void)
 
 void PatchSelWindow::SetChannelAmp (void)
 {
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
-        patchView.get_selection();
-
-    if (refSelection)
     {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
+        Glib::RefPtr<PatchSelRow> row = selectedRow();
 
-        if (iter)
+        if (row)
         {
-            int chanNum = (*iter)[patchViewCols.chanNum] - 1;
+            int chanNum = row->chan();
 
             /* Only when it is a move rather than the slider being filled in
                from the patch that was just selected. */
@@ -597,8 +622,14 @@ void PatchSelWindow::SetChannelAmp (void)
 
             thArg *arg = new thArg("amp", dspAmp.get_value());
 
-            (*iter)[patchViewCols.amp] =
-                Glib::ustring::format((int)(dspAmp.get_value() + 0.5));
+            row->setAmp(Glib::ustring::format(
+                            (int)(dspAmp.get_value() + 0.5)));
+
+            /* A ListStore row redrew itself when written to; a Gio::ListStore
+               holds objects it knows nothing about, so the view has to be told
+               this one changed. Same position, same item -- only its contents
+               moved. */
+            patchModel->splice(chanNum, 1, { row });
 
             gthPatchManager::instance()->markDirty(chanNum);
 
@@ -609,25 +640,13 @@ void PatchSelWindow::SetChannelAmp (void)
 
 void PatchSelWindow::patchSelected (void)
 {
-    {
-        Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
-            patchView.get_selection();
-
-        if (refSelection)
-        {
-            Gtk::TreeModel::iterator iter;
-            /* Nothing to hit-test: the cursor has already
-               moved to the row, which is what this now hears
-               about. The old button-press binding had to work
-               out which row had been hit for itself. */
-        }
-    }
+    /* Nothing to hit-test: the selection has already moved to the row, which
+       is what this hears about. The old button-press binding had to work out
+       which row had been hit for itself. */
 }
 
 void PatchSelWindow::CursorChanged (void)
 {
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection = 
-        patchView.get_selection();
     gthPatchManager *patchMgr = gthPatchManager::instance();
     /* This is the OLD patch from the previously selected channel */
     gthPatchManager::PatchFile *oldpatch = NULL;
@@ -636,10 +655,8 @@ void PatchSelWindow::CursorChanged (void)
     if (currchan > 0)
         oldpatch = patchMgr->getPatch(currchan);
 
-    if (refSelection)
     {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
+        Glib::RefPtr<PatchSelRow> row = selectedRow();
 
         /* save metadata from old patch */
         if (oldpatch)
@@ -651,9 +668,9 @@ void PatchSelWindow::CursorChanged (void)
             oldpatch->info["comments"] = patchComments.get_buffer()->get_text();
         }
 
-        if (iter)
+        if (row)
         {
-            currchan = (*iter)[patchViewCols.chanNum] - 1;
+            currchan = row->chan();
 
             gthPatchManager::PatchFile *patch = patchMgr->getPatch(currchan);
 
@@ -710,9 +727,9 @@ void PatchSelWindow::CursorChanged (void)
             saveButton.setModified(
                 gthPatchManager::instance()->isDirty(currchan));
         }
+        else
+            currchan = -1;
     }
-    else
-        currchan = -1;
 }
 
 void PatchSelWindow::populate (void)
@@ -722,32 +739,27 @@ void PatchSelWindow::populate (void)
     gthPatchManager *patchMgr = gthPatchManager::instance();
     int chancount = patchMgr->numPatches();
     int selectedChan = -1;
-    Glib::RefPtr<Gtk::TreeView::Selection> refSelection = patchView.get_selection();
 
     /* save currently selected channel, if applicable */
-    if (refSelection)
     {
-        Gtk::TreeModel::iterator iter;
-        iter = refSelection->get_selected();
+        Glib::RefPtr<PatchSelRow> row = selectedRow();
 
-        if (iter)
-            selectedChan = (*iter)[patchViewCols.chanNum]-1;
+        if (row)
+            selectedChan = row->chan();
     }
-    
-    patchModel->clear();
+
+    patchModel->remove_all();
 
     for (int i = 0; i < chancount; i++)
     {
-        Gtk::TreeModel::Row row = *(patchModel->append());
-        gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
-
         /* A free channel: a number and two empty cells. It used to read
            0.000000 under Amplitude, which looks like a level of zero rather
            than like nothing being there. */
-        row[patchViewCols.chanNum] = i + 1;
-        row[patchViewCols.amp] = "";
-        row[patchViewCols.dspName] = "";
-        row[patchViewCols.path] = "";
+        Glib::RefPtr<PatchSelRow> row = PatchSelRow::create(i);
+
+        patchModel->append(row);
+
+        gthPatchManager::PatchFile *patch = patchMgr->getPatch(i);
 
         if (patch == NULL)
             continue;
@@ -768,23 +780,16 @@ void PatchSelWindow::populate (void)
             }
         }
 
-        row[patchViewCols.chanNum] = i + 1;
-        row[patchViewCols.dspName] = filename.length() == 0
-            ? "(Untitled)"
-            : thUtil::basename(filename.c_str());
-        row[patchViewCols.path] = filename;
-        row[patchViewCols.amp] = amp
-            ? Glib::ustring::format((int)((*amp)[0] + 0.5f))
-            : Glib::ustring();
+        row->setDspName(filename.length() == 0
+                        ? "(Untitled)"
+                        : thUtil::basename(filename.c_str()));
+        row->setPath(filename);
+        row->setAmp(amp ? Glib::ustring::format((int)((*amp)[0] + 0.5f))
+                        : Glib::ustring());
     }
 
     if (selectedChan != -1)
-    {
-        std::ostringstream s;
-        s << selectedChan;
-        Gtk::TreeModel::Path p(s.str());
-        patchView.set_cursor(p);
-    }
+        patchSelection->set_selected(selectedChan);
 }
 
 void PatchSelWindow::on_realize(void)
