@@ -99,6 +99,26 @@ gthPrefs::gthPrefs (const string &path)
 
 gthPrefs::~gthPrefs (void)
 {
+    /* The map owns every array in it -- Set() and Load() both hand ownership
+       over -- so this is where they end. Not strictly necessary for a
+       singleton that dies with the process, but leaving it out means the
+       ownership rule is true everywhere except the one place that would
+       demonstrate it, and it puts noise in front of anyone running this under
+       LeakSanitizer. */
+    for (map<string, string**>::iterator it = prefs_.begin();
+         it != prefs_.end(); ++it)
+    {
+        if (it->second == NULL)
+            continue;
+
+        for (int i = 0; it->second[i] != NULL; i++)
+            delete it->second[i];
+
+        delete [] it->second;
+    }
+
+    prefs_.clear();
+
     if (instance_ == this)
         instance_ = NULL;
 }
@@ -327,7 +347,31 @@ string **gthPrefs::Get (const string &key)
     return prefs_[key];
 }
 
+/* Takes ownership of `vals', and lets go of whatever was under that key.
+ *
+ * It always took ownership -- nothing else keeps a pointer to the array -- but
+ * it used to overwrite the entry and leak the old one. Harmless for a key set
+ * once at exit; not harmless for the ones set over and over while the program
+ * runs. "window" is written on every resize, "patchdir" and "dspdir" on every
+ * browse, and "theme" on every pick from the Appearance menu, which is what
+ * made someone look.
+ *
+ * Fixed here rather than at the six call sites: they would all have needed the
+ * same few lines, and the next one added would have been the next leak.
+ */
 void gthPrefs::Set (const string &key, string **vals)
 {
+    map<string, string**>::iterator it = prefs_.find(key);
+
+    /* Guarded against a caller handing back the array it was already given,
+       which would otherwise free what it is about to store. */
+    if (it != prefs_.end() && it->second != NULL && it->second != vals)
+    {
+        for (int i = 0; it->second[i] != NULL; i++)
+            delete it->second[i];
+
+        delete [] it->second;
+    }
+
     prefs_[key] = vals;
 }

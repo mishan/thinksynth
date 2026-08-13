@@ -265,7 +265,7 @@ bool MainSynthWindow::onCloseRequest (void)
 }
 
 
-/* A choice from the Appearance menu. */
+/* The desktop changed its light/dark setting underneath us. */
 void MainSynthWindow::onSystemThemeChanged (void)
 {
     /* Re-apply rather than assume: apply() ignores the system scheme unless
@@ -274,6 +274,7 @@ void MainSynthWindow::onSystemThemeChanged (void)
     gthTheme::apply(gthTheme::current());
 }
 
+/* A choice from the Appearance menu. */
 void MainSynthWindow::menuTheme (const Glib::ustring &target)
 {
     setTheme(gthTheme::fromString(target));

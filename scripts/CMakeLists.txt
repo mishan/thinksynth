@@ -53,12 +53,12 @@ endfunction()
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
 
-# The light/dark decision. Only the Linux half of gthTheme can be run here at
-# all, so the part that is the same on all three platforms is the part that
-# gets pinned. gthTheme.cpp pulls in gtkmm for Gtk::Settings, so this harness
-# needs it too even though it touches no widget.
-think_harness(themecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthTheme.cpp")
-target_link_libraries(themecheck PRIVATE PkgConfig::GTKMM)
+# The light/dark decision. Only the Linux half of the platform readers can be
+# run here at all, so what gets pinned is the part that is the same on all
+# three -- and that part lives in its own file precisely so this harness needs
+# neither gtkmm nor, on macOS, CoreFoundation. Compiling all of gthTheme.cpp
+# to reach it is what broke the macOS build.
+think_harness(themecheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthThemePolicy.cpp")
 
 think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 

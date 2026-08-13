@@ -66,26 +66,6 @@ namespace
  * The decision
  * ------------------------------------------------------------------------ */
 
-bool gthTheme::wantsDark (gthThemeChoice choice, gthColorScheme system)
-{
-    switch (choice)
-    {
-        case gthThemeChoice::Light:
-            return false;
-
-        case gthThemeChoice::Dark:
-            return true;
-
-        case gthThemeChoice::Auto:
-            /* NoPreference means the desktop has not said, which is not the
-               same as saying light -- but light is what GTK does by default,
-               so it is the honest answer to "no opinion". */
-            return system == gthColorScheme::Dark;
-    }
-
-    return false;
-}
-
 /* ------------------------------------------------------------------------
  * Linux: the freedesktop appearance portal
  *
@@ -446,23 +426,6 @@ void gthTheme::startWatching (void)
     startPlatformWatch();
 }
 
-/* "Adwaita-dark" -> "Adwaita". Left alone if there is no such suffix. */
-std::string gthTheme::baseThemeName (const std::string &name)
-{
-    static const char *suffixes[] = { "-dark", "-Dark", "-DARK", ":dark" };
-
-    for (size_t i = 0; i < sizeof(suffixes) / sizeof(suffixes[0]); i++)
-    {
-        const std::string suffix = suffixes[i];
-
-        if (name.size() > suffix.size() &&
-            name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
-            return name.substr(0, name.size() - suffix.size());
-    }
-
-    return name;
-}
-
 void gthTheme::apply (gthThemeChoice choice)
 {
     currentChoice_ = choice;
@@ -499,34 +462,18 @@ void gthTheme::apply (gthThemeChoice choice)
     else
         settings->property_gtk_theme_name() = baseThemeName(systemThemeName_);
 
+    /* Asked only when the answer is used. On Linux this is a synchronous
+       D-Bus round trip to the portal, and for an explicit Light or Dark the
+       result is discarded -- so an explicit choice does no I/O at all. */
+    const gthColorScheme system = (choice == gthThemeChoice::Auto)
+                                  ? systemScheme()
+                                  : gthColorScheme::NoPreference;
+
     settings->property_gtk_application_prefer_dark_theme() =
-        wantsDark(choice, systemScheme());
+        wantsDark(choice, system);
 }
 
 gthThemeChoice gthTheme::current (void)
 {
     return currentChoice_;
-}
-
-gthThemeChoice gthTheme::fromString (const std::string &s)
-{
-    if (s == "light")
-        return gthThemeChoice::Light;
-
-    if (s == "dark")
-        return gthThemeChoice::Dark;
-
-    return gthThemeChoice::Auto;
-}
-
-std::string gthTheme::toString (gthThemeChoice choice)
-{
-    switch (choice)
-    {
-        case gthThemeChoice::Light: return "light";
-        case gthThemeChoice::Dark:  return "dark";
-        case gthThemeChoice::Auto:  break;
-    }
-
-    return "auto";
 }
