@@ -184,8 +184,10 @@ all portable.
 flag *before* the pop loop rather than after. Clearing after leaves a roughly
 two-instruction window in which a push sees the flag still set, skips its
 `emit()`, and strands a message until the next one arrives — live, that is a
-note that hangs. The ordering is argued in a comment and is not covered by a
-test.
+note that hangs. `dspmidi`'s third phase holds this down: rather than racing
+for a two-instruction window, it uses a drain hook to stand in it and pushes
+from another thread from there. Move the store below the pop loop and that
+check fails every run.
 
 ## Plugin linkage
 

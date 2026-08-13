@@ -90,6 +90,13 @@ string gthPatchManager::resolveDsp (const string &dspName)
 
 bool gthPatchManager::newPatch (const string &dspName, int chan)
 {
+    /* The same guard loadPatch, unloadPatch, isLoaded and getChannelArgs all
+       carry, and the one place it was missing. Nothing reaches here with a bad
+       channel now the notebook always holds sixteen pages, but the first thing
+       below is `delete patches_[chan]'. */
+    if ((chan < 0) || (chan >= numPatches_))
+        return false;
+
     thSynth *synth = thSynth::instance();
     thArg *amparg = NULL;
     bool r = true;

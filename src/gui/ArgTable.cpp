@@ -45,6 +45,20 @@ ArgTable::ArgTable (void)
 
 ArgTable::~ArgTable (void)
 {
+    dropArgConns();
+}
+
+/* The sliders are about to go; the args they subscribed to are not.
+ *
+ * Called from the destructor and from the top of reflow(), so that a panel
+ * laid out twice does not leave the first set of slots behind pointing at
+ * widgets the second set replaced. */
+void ArgTable::dropArgConns (void)
+{
+    for (size_t i = 0; i < argConns_.size(); i++)
+        argConns_[i].disconnect();
+
+    argConns_.clear();
 }
 
 /* Samples <-> the unit the value was written in.
@@ -137,6 +151,8 @@ void ArgTable::insertArg (thArg *arg, const string &group)
  * than something to undo on every open. */
 void ArgTable::reflow (void)
 {
+    dropArgConns();
+
     if (pending_.empty())
         return;
 
@@ -328,12 +344,16 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     slider->signal_value_changed().connect(
         sigc::bind(
             sigc::mem_fun(*this, &ArgTable::sliderChanged),
-            slider, arg));
+            slider, arg->name()));
 
-    arg->signal_arg_changed().connect(
+    /* The other direction: MIDI controllers and the node editor both write
+       these args behind the panel's back. The arg is handed to the slot by
+       the signal, so only the slider is bound -- and it dies with this
+       panel, which is what argConns_ makes sure of. */
+    argConns_.push_back(arg->signal_arg_changed().connect(
         sigc::bind(
             sigc::mem_fun(*this, &ArgTable::argChanged),
-            slider));
+            slider)));
 
     /* Decimals to suit the range, and a box wide enough for the result.
      *
@@ -382,9 +402,29 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
 }
 
 
-void ArgTable::sliderChanged (Gtk::Scale *slider, thArg *arg)
+/* Looked up rather than captured: the arg belongs to the thMidiChan, and
+   loading a patch onto this channel replaces the channel. */
+void ArgTable::sliderChanged (Gtk::Scale *slider, string name)
 {
-    arg->setValue(fromDisplay(slider->get_value(), arg->units()));
+    if (chan_ < 0)
+        return;
+
+    thArg *arg = thSynth::instance()->getChanArg(chan_, name);
+
+    if (arg == NULL)
+        return;
+
+    const double want = fromDisplay(slider->get_value(), arg->units());
+
+    /* Nothing to do, and nothing to report, when the slider is only catching
+       up with the arg. argChanged moves the slider whenever anything else
+       moves the arg, so without this a MIDI controller or a node-editor edit
+       came back through here as though someone had dragged the slider, and
+       reported the patch as modified. The same guard onAmpSlider carries. */
+    if ((double)(*arg)[0] == want)
+        return;
+
+    arg->setValue(want);
 
     /* Moving a slider is editing the patch. Nothing writes it to disk, so
        this is the whole of the record that it happened. */

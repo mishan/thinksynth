@@ -32,18 +32,11 @@ if(MODE STREQUAL "dsp")
   endforeach()
 
 elseif(MODE STREQUAL "patch")
-  file(GLOB_RECURSE candidates "${CORPUS}/*.patch")
-
-  # Rythmic.patch and Rythmic-2.patch point at an absolute
-  # /usr/local/share//thinksynth/dsp/mfm03.dsp that is not in the tree --
-  # leftovers from the "don't use absolute paths for patch files" cleanup.
-  # Remove this filter once they are repointed.
-  set(files "")
-  foreach(f IN LISTS candidates)
-    if(NOT f MATCHES "Rythmic")
-      list(APPEND files "${f}")
-    endif()
-  endforeach()
+  # No filter. Rythmic.patch and Rythmic-2.patch used to be excluded by name:
+  # they pointed at an absolute /usr/local/share//thinksynth/dsp/mfm03.dsp
+  # that was never in the tree. They now name mfm01.dsp, which declares
+  # exactly the chanargs they set, so the whole corpus loads.
+  file(GLOB_RECURSE files "${CORPUS}/*.patch")
 
 else()
   message(FATAL_ERROR "RunHarness.cmake: unknown MODE '${MODE}'")

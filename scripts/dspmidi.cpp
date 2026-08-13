@@ -14,18 +14,20 @@
  * different things -- a flood that fills the queue, then a trickle where most
  * drains end on an empty queue and each wake-up has to stand on its own.
  *
- * What this does NOT cover, stated plainly rather than implied: the ordering
- * inside gthMidiQueue::drain, which clears notified_ *before* the pop loop
- * rather than after. Clearing after leaves a window -- between the pop loop's
- * last failed pop and the store -- in which a push sees notified_ still set,
- * skips its emit(), and strands a message until the next one arrives. That
- * window is about two instructions wide. This harness was run against a
- * deliberately inverted build and did not catch it, at 60,000 messages,
- * because hitting two instructions from another thread on a 20us cadence
- * essentially does not happen.
+ * A third phase covers the ordering inside gthMidiQueue::drain, which clears
+ * notified_ *before* the pop loop rather than after. Clearing after leaves a
+ * window -- between the pop loop's last failed pop and the store -- in which a
+ * push sees notified_ still set, skips its emit(), and strands a message until
+ * the next one arrives.
  *
- * So that ordering is argued in the comment in gthMidiQueue::drain, not
- * tested here. Saying so is more useful than a test that appears to cover it.
+ * That window is about two instructions wide, and racing for it does not work:
+ * the flood phase was run against a deliberately inverted build and did not
+ * catch it in 60,000 messages, because hitting two instructions from another
+ * thread on a 20us cadence essentially does not happen. So phase 3 does not
+ * race. gthMidiQueue::setDrainHook calls into the harness at precisely that
+ * point, and the harness pushes from another thread while standing there.
+ * Deterministic in both directions: it passes every run as the code stands,
+ * and fails every run with the store moved below the pop loop.
  *
  * No MIDI device is needed or used.
  *
@@ -84,6 +86,94 @@ struct Checker {
             loop->quit();
     }
 };
+
+/* Phase 3: the drain-window ordering, deliberately rather than by racing.
+ *
+ * gthMidiQueue::drain clears notified_ before the pop loop. Cleared after, a
+ * push landing between the last failed pop and the store sees the flag still
+ * set, skips its emit(), and the message sits in the queue until some later
+ * one happens to wake the loop.
+ *
+ * The queue's drain hook is called at exactly that point, so instead of hoping
+ * another thread lands in a two-instruction window, this stands in it: push
+ * one message from a second thread from inside the hook, then require it to
+ * arrive. Correct, notified_ is already false, so the push emits and the
+ * message lands on the next iteration. Inverted, the push is silent and
+ * nothing ever wakes the loop again.
+ *
+ * A second thread and not this one, because push() from inside the hook would
+ * be the same thread that is mid-drain -- which is not the situation, and
+ * would be delivered by the very pop loop that is finishing. */
+struct WindowCheck {
+    gthMidiQueue queue;
+    Glib::RefPtr<Glib::MainLoop> loop;
+
+    unsigned long seen;
+    bool fired;
+
+    WindowCheck (void) : seen(0), fired(false) { }
+
+    void onEvent (const gthMidiEvent &) {
+        if (++seen >= 2)
+            loop->quit();
+    }
+
+    /* Called at the end of drain(), once. */
+    static void hook (void *user)
+    {
+        WindowCheck *self = (WindowCheck *)user;
+
+        if (self->fired)
+            return;
+
+        self->fired = true;
+
+        gthMidiEvent ev;
+        ev.status = 0x90; ev.data1 = 60; ev.data2 = 64; ev.len = 3;
+
+        /* Joined before the hook returns, so the push has definitely happened
+           inside the window rather than after drain() has moved on. */
+        std::thread t([self, ev]() { self->queue.push(ev); });
+        t.join();
+    }
+};
+
+static int checkDrainWindow (void)
+{
+    WindowCheck w;
+
+    w.loop = Glib::MainLoop::create();
+    w.queue.signal_event().connect(sigc::mem_fun(w, &WindowCheck::onEvent));
+    w.queue.setDrainHook(&WindowCheck::hook, &w);
+
+    gthMidiEvent first;
+    first.status = 0x90; first.data1 = 60; first.data2 = 100; first.len = 3;
+
+    w.queue.push(first);
+
+    bool timedOut = false;
+    sigc::connection watchdog = Glib::signal_timeout().connect(
+        [&w, &timedOut]() -> bool {
+            timedOut = true;
+            w.loop->quit();
+            return false;
+        }, 2000);
+
+    w.loop->run();
+    watchdog.disconnect();
+
+    if (timedOut || w.seen < 2)
+    {
+        printf("FAIL  a message pushed inside the drain window was never "
+               "delivered (%lu of 2) -- notified_ is being cleared after the "
+               "pop loop, not before\n", w.seen);
+        return 1;
+    }
+
+    printf("ok    a push inside the drain window still wakes the loop\n");
+
+    return 0;
+}
 
 } /* namespace */
 
@@ -213,6 +303,8 @@ int main (int argc, char **argv)
        producer, never silently swallowed. */
     if (!bad)
         printf("ok    every queued message arrived once, in order\n");
+
+    bad += checkDrainWindow();
 
     return bad;
 }

@@ -20,7 +20,8 @@
 
 #include "gthMidiQueue.h"
 
-gthMidiQueue::gthMidiQueue (void) : notified_(false), overflows_(0)
+gthMidiQueue::gthMidiQueue (void)
+    : drainHook_(NULL), drainHookUser_(NULL), notified_(false), overflows_(0)
 {
     /* A Glib::Dispatcher must be constructed on the thread that will receive
        from it. Constructing this object on the GUI thread is therefore part
@@ -56,11 +57,21 @@ void gthMidiQueue::drain (void)
      *
      * Clearing first means the worst case is a redundant wake-up on an empty
      * queue, which costs one pipe write and a loop iteration that finds
-     * nothing. */
+     * nothing.
+     *
+     * dspmidi's phase 3 holds this down: it pushes from another thread from
+     * inside the hook below, which is the instant this store protects. Move
+     * the store beneath the hook and that check fails every run. */
     notified_.store(false, std::memory_order_release);
 
     gthMidiEvent ev;
 
     while (queue_.pop(ev))
         sigEvent_(ev);
+
+    /* The window, for anyone standing in it deliberately: after the last
+       failed pop, where a push must still find notified_ clear and emit.
+       NULL in every build but the harness's -- see setDrainHook. */
+    if (drainHook_)
+        drainHook_(drainHookUser_);
 }

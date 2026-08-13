@@ -20,12 +20,6 @@ platforms are real CI gates. What is left is macOS on an actual desktop.
   identical to a good one. The bundling is exercised; the closure under it is
   not.  (PACKAGING.md)
 
-- cmake/Packaging.cmake:114 still queries gtkmm-3.0 for its prefix, and the
-  comment at :36 still says gtkmm-3. The tree is on gtkmm-4, so that lookup
-  returns nothing -- which shows up as a missing dependency on a machine you do
-  not have. Windows working does not clear this: MSYS2 keeps the whole stack in
-  one prefix, so the closure finds the libraries by another route there.
-
 
 Never heard
 -----------
@@ -40,23 +34,6 @@ Never heard
 
 Defects
 -------
-
-- DestroyMap takes its map by value (libthink/think.h:253). Six call sites, so
-  unloadPlugins() and five others leave dangling pointers in the caller's map.
-  One '&'.
-
-- thMidiController::connections_[16][128] is indexed by raw MIDI bytes with no
-  clamping (libthink/thMidiController.h:52).
-
-- gthPatchManager::newPatch indexes patches_[chan] with no bounds check
-  (src/gthPatchfile.cpp:91) -- the first thing it does is delete patches_[chan].
-  Latent rather than live now the notebook always holds sixteen pages.
-
-- ArgTable binds a raw thArg* into its slider callbacks and a raw slider
-  pointer into the arg's own signal (the sigc::bind calls in ArgTable::makeRow,
-  src/gui/ArgTable.cpp:328). The patch bar's amplitude slider deliberately does
-  neither -- it goes through the channel number and drops its subscriptions in
-  populate() -- so the pattern to copy is already in the tree, next door.
 
 - A Gtk-CRITICAL on reopening the Patch Selector:
   gtk_css_node_insert_after: assertion 'previous_sibling == NULL ||
@@ -73,20 +50,6 @@ Defects
   it is a backtrace: G_DEBUG=fatal-criticals under a debugger, at the moment of
   the assertion.
 
-- PATCH_PATH is defined and referenced nowhere. Set in CMakeLists.txt:366,
-  emitted by cmake/config.h.in:44, used by no source file.
-
-- gthMidiQueue::drain clears its notify flag before the pop loop rather than
-  after. Clearing after leaves a roughly two-instruction window in which a push
-  sees the flag still set, skips its emit(), and strands a message until the
-  next one arrives -- live, a note that hangs. The ordering is argued in a
-  comment, not tested.
-
-- patches/pads/Rythmic.patch and Rythmic-2.patch both point at
-  /usr/local/share//thinksynth/dsp/mfm03.dsp, which does not exist. These two
-  are why the CI gates run over 99 of 101 patches; fixing them shrinks the
-  exclusion filter by itself.
-
 
 The corpus
 ----------
@@ -94,7 +57,8 @@ The corpus
 - 11 of the 92 shipped DSPs do not load at all. They reference input/wav,
   input/alsa or misc/wlan -- plugins that compile but are deliberately not in
   the build, wav.cpp's own description string being "Wav Input (BROKEN)".
-  Remove or fix (argify) the obsolete ones.
+  Remove or fix (argify) the obsolete ones. All 101 patches load, so the
+  patch gate no longer filters anything.
 
 - Four DSPs have numerically unstable filters and are being saved by the
   limiter rather than fixed: old/test.dsp diverges to 1.75e5, old/bd10.dsp to
@@ -146,13 +110,3 @@ Node editor
 
 - The palette's control dialog does not ask for a group. The writer already
   takes one.
-
-
-Housekeeping
-------------
-
-- An untracked autotools-era config.h sits in the tree root ("Generated from
-  config.h.in by configure"). It is in .gitignore, so it is invisible to git
-  status while shadowing the generated one on any include path that reaches the
-  source root. Delete it.
-

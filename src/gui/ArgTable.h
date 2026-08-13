@@ -48,8 +48,19 @@ public:
     void reflow (void);
 
 private:
-    void sliderChanged (Gtk::Scale *, thArg *);
+    /* Both take the parameter's *name*, not a thArg *.
+     *
+     * Loading a patch onto this channel replaces the channel and frees every
+     * arg on it, and the panel is rebuilt from the same signal -- so a bound
+     * thArg * is a pointer this panel does not own, cannot be told about, and
+     * has no way to check. The patch bar's amplitude slider has always looked
+     * its arg up through the channel number for this reason; this is the same
+     * move applied to the rest of them. */
+    void sliderChanged (Gtk::Scale *, string name);
     void argChanged (thArg *, Gtk::Scale *);
+
+    /* Drops every subscription in argConns_. */
+    void dropArgConns (void);
 
     /* One parameter: its name, a slider and a value box, side by side. */
     Gtk::Widget *makeRow (thArg *arg);
@@ -66,6 +77,13 @@ private:
 
     std::vector<thArg *> pending_;
     std::map<thArg *, string> inferred_;
+
+    /* The args outlive the sliders subscribed to them. Glib::ObjectBase is a
+       sigc::trackable so the slot would be dropped when this panel dies
+       anyway, but that is a property of the base class rather than something
+       this file says, and it does not cover a reflow() that runs twice.
+       Held and dropped explicitly instead. */
+    std::vector<sigc::connection> argConns_;
 
     /* Every name shares a width and every value box shares a width, across
        the whole panel and not merely within one block. Each row is its own
