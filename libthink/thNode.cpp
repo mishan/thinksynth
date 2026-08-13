@@ -31,16 +31,18 @@ thNode::thNode (const string &name, thPlugin *thplug)
     recalc_ = false;
     id_ = -1;  /* so we know newNode() has not assigned one yet */
 
-    argindex_ = (thArg **)calloc(ARGCHUNK, sizeof(thArg *));
+    /* Grown on demand by growArgIndex(). A node that registers no args costs
+       no allocation, and there is one place that can fail rather than four. */
+    argindex_ = NULL;
     argCount_ = 0;
-    argsize_ = ARGCHUNK;
+    argsize_ = 0;
 }
 
 thNode::thNode (const thNode &copyNode)
 {
     recalc_ = false;
-    argsize_ = ARGCHUNK;
-    argindex_ = (thArg **)calloc(ARGCHUNK, sizeof(thArg *));
+    argindex_ = NULL;
+    argsize_ = 0;
 
     nodeName_ = copyNode.name();
     plugin_ = copyNode.plugin();
@@ -133,19 +135,51 @@ thArg *thNode::setArg (const string &name, const string &chanarg)
     return arg;
 }
 
+/* Makes `slots' a valid subscript count for argindex_.
+ *
+ * This was written out by hand in four places, and every one of them assigned
+ * calloc()'s result and freed the old array before checking it. On a failed
+ * allocation that freed the live index, stored NULL over it, and left the
+ * caller to subscript NULL on the next line.
+ *
+ * ARGCHUNK at a time rather than doubling, because these stay small -- the
+ * widest node in the corpus registers a couple of dozen args. */
+bool thNode::growArgIndex (int slots)
+{
+    if (slots <= argsize_)
+        return true;
+
+    int newsize = argsize_;
+
+    while (newsize < slots)
+        newsize += ARGCHUNK;
+
+    thArg **newindex = (thArg **)calloc(newsize, sizeof(thArg *));
+
+    if (newindex == NULL)
+        return false;
+
+    /* argsize_, not argCount_: copyArgs() writes slots by index and can leave
+       occupied ones above argCount_, so the whole old array travels. */
+    if (argindex_ != NULL)
+    {
+        memcpy(newindex, argindex_, argsize_ * sizeof(thArg *));
+        free(argindex_);
+    }
+
+    argindex_ = newindex;
+    argsize_ = newsize;
+
+    return true;
+}
+
 int thNode::addArgToIndex (thArg *arg)
 {
-    thArg **newindex;
-
-    if (argCount_ >= argsize_)
-    {
-        newindex = (thArg **)calloc(argsize_ + ARGCHUNK, sizeof(thArg *));
-
-        memcpy(newindex, argindex_, argCount_ * sizeof(thArg*));
-        free(argindex_);
-        argindex_ = newindex;
-        argsize_ += ARGCHUNK;
-    }
+    /* -1 is already what "this arg has no slot in the index" is spelled as --
+       getArg(int) and copyArgs() both check for it -- so a failed growth has
+       somewhere honest to go. */
+    if (!growArgIndex(argCount_ + 1))
+        return -1;
 
     argindex_[argCount_++] = arg;
 
@@ -162,7 +196,6 @@ void thNode::copyArgs (const thArgMap &newargs)
 {
     thArg *newarg;
     thArg *data;
-    thArg **newindex;
 
     for (thArgMap::const_iterator i = newargs.begin(); i != newargs.end(); i++)
     {
@@ -187,16 +220,16 @@ void thNode::copyArgs (const thArgMap &newargs)
         if (newarg->index() < 0)
             continue;
 
-        /* Valid slots are 0 .. argsize_-1, so grow while index >= argsize_. */
-        while (newarg->index() >= argsize_)
+        /* Valid slots are 0 .. argsize_-1, so index+1 has to fit. */
+        if (!growArgIndex(newarg->index() + 1))
         {
-            newindex = (thArg **)calloc(argsize_ + ARGCHUNK, sizeof(thArg *));
-
-            memcpy(newindex, argindex_, argsize_ * sizeof(thArg*));
-            free(argindex_);
-            argindex_ = newindex;
-            argsize_ += ARGCHUNK;
+            /* Out of memory. The arg is in args_ and will be freed with the
+               node; it simply has no index, which is a state the rest of this
+               file already knows how to read. */
+            newarg->setIndex(-1);
+            continue;
         }
+
         argindex_[newarg->index()] = newarg;
 
         if (newarg->index() >= argCount_)

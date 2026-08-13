@@ -116,13 +116,17 @@ static bool checkDeterminism (const string &pluginPath, const char *file,
 
 static void usage (const char *argv0)
 {
+    /* PLUGIN_PATH is an argument rather than part of the format. It is a
+       compile-time install path, so it is data: a prefix with a `%' in it
+       would otherwise be read as a conversion and eat an argument that was
+       never passed. */
     printf("usage: %s [-p|--plugin-path PATH] [-w WINDOWS] file.dsp ...\n"
            "\n"
            "  -p, --plugin-path PATH  where to find plugin .so files\n"
-           "                          (default: " PLUGIN_PATH ")\n"
+           "                          (default: %s)\n"
            "  -w, --windows N         process N windows per file (default 8)\n"
            "  -q, --quiet             only report failures\n",
-           argv0);
+           argv0, PLUGIN_PATH);
 }
 
 int main (int argc, char **argv)

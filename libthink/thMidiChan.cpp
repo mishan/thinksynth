@@ -86,8 +86,9 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
         channels_ = 1;
     }
 
-    output_ = new float[channels_*windowlen];
-    memset(output_, 0, channels_ * windowlen * sizeof(float));
+    output_ = new float[thOutputSamples(channels_, windowlength_)];
+    memset(output_, 0,
+           thOutputSamples(channels_, windowlength_) * sizeof(float));
     outputnamelen_ = strlen(OUTPUTPREFIX) + thUtil::getNumLength(channels_);
 
     argSustain_ = new thArg(string("SusPedal"), 0);
@@ -361,7 +362,8 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
     if (dirty_)
     {
-        memset (output_, 0, windowlength_*channels_*sizeof(float));
+        memset(output_, 0,
+               thOutputSamples(channels_, windowlength_) * sizeof(float));
     }
     dirty_ = false;
 

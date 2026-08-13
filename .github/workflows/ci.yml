@@ -24,6 +24,14 @@
 
 name: ci
 
+# Nothing here writes anything back: the jobs check out, build, test, and
+# upload artefacts, and upload-artifact does not go through GITHUB_TOKEN.
+# Declared at the workflow level so a job added later starts read-only and
+# has to ask, rather than inheriting whatever the repository default is.
+# release.yml needs contents: write and says so on its own.
+permissions:
+  contents: read
+
 on:
   # Only master on push. `pull_request' already covers every topic branch,
   # and listing them under `push' too is what made each job appear twice --

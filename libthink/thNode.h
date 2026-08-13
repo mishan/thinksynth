@@ -53,8 +53,14 @@ public:
         if (i != args_.end()) return i->second;
         return NULL;
     };
+    /* Bounded by argsize_ as well as argCount_. They agree in every ordinary
+       run, but growArgIndex() can fail and leave argCount_ ahead of the array
+       it counts, and a copied node sets argCount_ before copyArgs() has
+       rebuilt the index at all. Reading a slot that does not exist is not
+       worth saving a comparison over. */
     thArg *getArg (int index) const {
-        if (index < 0 || index >= argCount_) return NULL;
+        if (index < 0 || index >= argCount_ || index >= argsize_) return NULL;
+        if (argindex_ == NULL) return NULL;
         return argindex_[index];
     };
 
@@ -78,6 +84,11 @@ public:
     void copyArgs (const thArgMap &args);
     void process (void);
 private:
+    /* Makes `slots' a valid subscript count for argindex_, growing it in
+       ARGCHUNK steps. Returns false, and leaves the array exactly as it was,
+       if the allocation fails. */
+    bool growArgIndex (int slots);
+
     thArgMap args_;
 
     thArg **argindex_;

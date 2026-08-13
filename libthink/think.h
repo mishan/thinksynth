@@ -55,6 +55,18 @@ using namespace std;
 #define TH_DEFAULT_SAMPLES 44100
 #define TH_DEFAULT_WINDOW_LENGTH 1024
 
+/* A ceiling on the window, because `-l' is an atoi() away from the command
+   line and the output buffer is sized channels * windowlen. In int arithmetic
+   that product overflows somewhere above 2^31 / channels, and an overflowed
+   `new float[n]' allocates a small buffer that the memset beside it -- which
+   widens to size_t correctly -- then writes past.
+
+   16384 rather than something rounder because thMidiChan::process() puts two
+   VLAs of this many floats on the stack, so the cap is also a bound on 128kB
+   of stack per call. No device period comes anywhere near it; JACK and
+   CoreAudio top out in the low thousands. */
+#define TH_MAX_WINDOW_LENGTH 16384
+
 /* Signal Range */
 #define TH_MAX 1
 #define TH_MIN -1
@@ -160,6 +172,21 @@ static inline bool thIsFinite (float sample)
  * of exactly TH_MAX. A wildly diverging DSP (a few of the old ones reach 1e5)
  * therefore saturates gracefully rather than needing a special case.
  */
+/* How many floats an interleaved output buffer of this shape holds.
+ *
+ * In size_t, deliberately. Written as `channels * windowlen' the product is
+ * int arithmetic that overflows before it is widened for `new float[]' or for
+ * a memset's size argument -- and the two do not overflow the same way, so an
+ * allocation and the memset that clears it could disagree about how big the
+ * buffer is. Both callers now ask this. */
+static inline size_t thOutputSamples (int channels, int windowlen)
+{
+    if (channels < 1 || windowlen < 1)
+        return 0;
+
+    return (size_t)channels * (size_t)windowlen;
+}
+
 static inline float thSoftLimit (float sample)
 {
     const float knee = TH_LIMIT_KNEE;
