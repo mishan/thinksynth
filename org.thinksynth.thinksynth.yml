@@ -47,22 +47,41 @@ runtime-version: "49"
 sdk: org.gnome.Sdk
 command: thinksynth
 
-# Where a module's own .pc files end up, so that the next module can find
-# them. This SDK's meson installs into /app/lib64, not /app/lib, and neither
-# is on the default PKG_CONFIG_PATH -- GtkHx's manifest says so in as many
-# words about the same runtime, and I copied the shape of that file while
-# getting this line wrong. Both are listed rather than picking one, because
-# the cmake modules and the meson ones need not agree with each other and a
-# path that is not there costs nothing.
+# Where things land, and where the next module looks for them.
 #
-# The failure this caused is worth recording, because it did not look like a
-# search-path problem at all: glibmm could not find sigc++-3.0, so meson fell
-# back to its wrap for it and tried to git clone libsigcplusplus -- inside a
-# build sandbox with no network. The error was "Could not resolve host:
-# github.com", three modules deep, for a library that had been built and
-# installed correctly ten seconds earlier.
+# This took three rounds, each time by adding one more search path, and each
+# time something else was looking somewhere I had not thought of:
+#
+#   1. glibmm could not find sigc++-3.0 by pkg-config, fell back to meson's
+#      wrap, and tried to git clone libsigcplusplus inside a sandbox with no
+#      network. "Could not resolve host: github.com", three modules deep, for
+#      a library built correctly ten seconds earlier.
+#   2. pangomm could not find glibmm's generate_extra_defs helper, because
+#      cpp_compiler.find_library() searches the compiler's paths and not
+#      pkg-config's.
+#
+# The cause underneath both is that this SDK's meson defaults to installing
+# in /app/lib64 while every default flatpak-builder sets up -- PKG_CONFIG_PATH,
+# LDFLAGS, LD_LIBRARY_PATH -- points at /app/lib. So the fix is --libdir=lib on
+# every meson module, below, which puts everything where the defaults already
+# look instead of teaching each new consumer about a second directory.
+#
+# These two lists stay anyway, naming both directories. They cost nothing, and
+# a module that ignores --libdir would otherwise start the cycle over.
 build-options:
   append-pkg-config-path: /app/lib/pkgconfig:/app/lib64/pkgconfig
+
+  # And the linker's own search path, which is a different mechanism again.
+  #
+  # pangomm's tools/extra_defs_gen does
+  #
+  #     cpp_compiler.find_library('glibmm_generate_extra_defs-2.68')
+  #
+  # with no dirs: argument, so it searches the compiler's default library
+  # paths and nothing else. pkg-config finding glibmm is no help at all --
+  # this is not pkg-config. Naming both directories means the helper is found
+  # wherever the module before it decided to put it.
+  ldflags: -L/app/lib -L/app/lib64
 
 finish-args:
   # GTK 4 prefers Wayland; fallback-x11 keeps X11 sessions working.
@@ -103,6 +122,7 @@ modules:
   - name: mm-common
     buildsystem: meson
     config-opts:
+      - --libdir=lib
       - --wrap-mode=nodownload
       - -Duse-network=false
     cleanup:
@@ -115,6 +135,7 @@ modules:
   - name: libsigc++
     buildsystem: meson
     config-opts:
+      - --libdir=lib
       - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-examples=false
@@ -130,6 +151,7 @@ modules:
   - name: glibmm
     buildsystem: meson
     config-opts:
+      - --libdir=lib
       - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-examples=false
@@ -143,6 +165,7 @@ modules:
   - name: cairomm
     buildsystem: meson
     config-opts:
+      - --libdir=lib
       - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-examples=false
@@ -155,6 +178,7 @@ modules:
   - name: pangomm
     buildsystem: meson
     config-opts:
+      - --libdir=lib
       - --wrap-mode=nodownload
       - -Dbuild-documentation=false
     sources:
@@ -167,6 +191,7 @@ modules:
   - name: gtkmm
     buildsystem: meson
     config-opts:
+      - --libdir=lib
       - --wrap-mode=nodownload
       - -Dbuild-documentation=false
       - -Dbuild-demos=false
