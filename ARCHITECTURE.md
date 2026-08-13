@@ -186,7 +186,7 @@ two-instruction window in which a push sees the flag still set, skips its
 `emit()`, and strands a message until the next one arrives — live, that is a
 note that hangs. `dspmidi`'s third phase holds this down: rather than racing
 for a two-instruction window, it uses a drain hook to stand in it and pushes
-from another thread from there. Move the store below the pop loop and that
+from another thread from there. Move the store down past that hook and the
 check fails every run.
 
 ## Plugin linkage

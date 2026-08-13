@@ -27,7 +27,10 @@
  * race. gthMidiQueue::setDrainHook calls into the harness at precisely that
  * point, and the harness pushes from another thread while standing there.
  * Deterministic in both directions: it passes every run as the code stands,
- * and fails every run with the store moved below the pop loop.
+ * and fails every run with the store moved down past the hook. Past the pop
+ * loop but still above the hook is not the same edit and does not fail --
+ * the window this stands in is the gap between the last failed pop and the
+ * store, so the store has to end up on the far side of it.
  *
  * No MIDI device is needed or used.
  *
