@@ -40,6 +40,8 @@ thArg::thArg(const string &name, float value)
     widgetType_ = HIDE;
     min_ = 0;
     max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
 }
 
 thArg::thArg(const string &name, const float *value, int len)
@@ -66,6 +68,8 @@ thArg::thArg(const string &name, const float *value, int len)
     widgetType_ = HIDE;
     min_ = 0;
     max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
 }
 
 thArg::thArg(const string &name, const string &node, const string &value)
@@ -86,6 +90,8 @@ thArg::thArg(const string &name, const string &node, const string &value)
     widgetType_ = HIDE;
     min_ = 0;
     max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
 }
 
 thArg::thArg(const string &name, const string &chanarg)
@@ -105,6 +111,8 @@ thArg::thArg(const string &name, const string &chanarg)
     widgetType_ = HIDE;
     min_ = 0;
     max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
 }
 
 
@@ -130,6 +138,9 @@ thArg::thArg (const thArg *copyArg)
     min_ = copyArg->min_;
     max_ = copyArg->max_;
     widgetType_ = copyArg->widgetType_;
+    step_ = copyArg->step_;
+    valueNames_ = copyArg->valueNames_;
+    typedByFile_ = copyArg->typedByFile_;
 
     nodePtrName_ = copyArg->nodePtrName_;
     argPtrName_ = copyArg->argPtrName_;
@@ -149,6 +160,8 @@ thArg::thArg (void)
     widgetType_ = HIDE;
     min_ = 0;
     max_ = MIDIVALMAX;
+    step_ = 0;
+    typedByFile_ = false;
     nodePtrId_ = -1;   /* so we know it has not been set yet */
     argPtrId_ = -1;   /* so we know it has not been set yet */
     argPtr_ = NULL;
@@ -160,6 +173,54 @@ thArg::~thArg(void)
     if (values_) {
         delete[] values_;
     }
+}
+
+/* "Sine, Sawtooth, Square" -> three names. See the header for why an empty
+   entry is meaningful rather than a typo to skip over. */
+void thArg::setValueNames (const string &commaList, bool fromFile)
+{
+    vector<string> names;
+
+    string::size_type at = 0;
+
+    /* A trailing comma would otherwise be dropped, and "Sine," is a two-value
+       list whose second value has no name -- exactly the case this spelling
+       exists for. So the loop runs once more than there are commas. */
+    for (;;)
+    {
+        const string::size_type comma = commaList.find(',', at);
+        const string::size_type end =
+            (comma == string::npos) ? commaList.size() : comma;
+
+        string one = commaList.substr(at, end - at);
+
+        const string::size_type a = one.find_first_not_of(" \t");
+
+        if (a == string::npos)
+            one.clear();
+        else
+            one = one.substr(a, one.find_last_not_of(" \t") - a + 1);
+
+        names.push_back(one);
+
+        if (comma == string::npos)
+            break;
+
+        at = comma + 1;
+    }
+
+    /* A list of nothing but empty names says nothing at all, and would
+       otherwise imply a step of 1 and a range of 0..0. */
+    bool anyNamed = false;
+
+    for (size_t i = 0; i < names.size(); i++)
+        if (!names[i].empty())
+            anyNamed = true;
+
+    if (!anyNamed)
+        names.clear();
+
+    setValueNames(names, fromFile);
 }
 
 /* Returns a buffer of `elements' floats, zeroed if it had to be (re)allocated.

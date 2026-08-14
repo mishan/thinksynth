@@ -294,10 +294,6 @@ Gtk::FlowBox *ArgTable::makeFlow (const std::vector<thArg *> &args,
 
 Gtk::Widget *ArgTable::makeRow (thArg *arg)
 {
-    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
-
-    row->set_spacing(8);
-
     string text = (arg->label().length() > 0) ? arg->label() : arg->name();
 
     /* The unit belongs with the name, not beside the number: it is a property
@@ -307,6 +303,101 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
         text += " (" + arg->units() + ")";
 
     Gtk::Label *label = manage(new Gtk::Label(text));
+
+    /* No ellipsis here.
+
+       It was set with only a maximum width, and a label that can ellipsise
+       reports the width of "..." as its minimum -- so the table, asked for the
+       smallest layout that fits, gave every label exactly that and the panel
+       came up as a column of dots. Parameter labels are short ("Pulse Width
+       1" is the longest in the corpus at 13 characters), so they can simply
+       be allowed their natural width. */
+    label->set_xalign(1.0);
+    label->set_tooltip_text(arg->name());
+
+    nameWidth_->add_widget(*label);
+
+    /* Named values are a list, not a scale. Six waveforms have no order worth
+       dragging through and five sixths of the travel between them means
+       nothing, so a slider is the wrong shape for the question. */
+    if (!arg->valueNames().empty())
+        return makeChoiceRow(arg, label);
+
+    return makeSliderRow(arg, label);
+}
+
+/* A parameter whose plugin named its values: `waveform' and nothing else in the
+ * shipped corpus, but that is the plugin's business rather than this panel's.
+ *
+ * The rows are only the *named* values. osc::window implements waveforms 0, 2
+ * and 3, leaves 1, 4 and 5 commented out, and has no default: case -- so a row
+ * for value 1 would offer a choice that leaves the output buffer unwritten. The
+ * mapping from row to value is therefore not the identity, and is carried
+ * alongside rather than assumed.
+ */
+Gtk::Widget *ArgTable::makeChoiceRow (thArg *arg, Gtk::Label *label)
+{
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+    row->set_spacing(8);
+
+    const vector<string> &names = arg->valueNames();
+
+    std::vector<Glib::ustring> shown;
+    std::vector<int> values;
+
+    for (size_t i = 0; i < names.size(); i++)
+    {
+        if (names[i].empty())
+            continue;
+
+        shown.push_back(names[i]);
+        values.push_back((int)i);
+    }
+
+    Gtk::DropDown *choice = manage(new Gtk::DropDown(shown));
+
+    /* Nearest, not exact. A .dsp is free to store 3.4 in an arg the plugin
+       reads as a selector -- the engine truncates it and so does this -- and
+       every one of the thirteen shipped waveform controls happens to hold a
+       whole number already, so this is about what the format allows rather than
+       about what it currently contains. */
+    {
+        const int want = (int)(*arg)[0];
+
+        for (size_t i = 0; i < values.size(); i++)
+            if (values[i] == want)
+            {
+                choice->set_selected((guint)i);
+                break;
+            }
+    }
+
+    /* Connected after the initial selection, for the reason spelled out on the
+       slider below: setting it while anything is listening reports the patch as
+       edited by the act of looking at it. */
+    choice->property_selected().signal_changed().connect(
+        sigc::bind(sigc::mem_fun(*this, &ArgTable::choiceChanged),
+                   choice, arg->name(), values));
+
+    argConns_.push_back(arg->signal_arg_changed().connect(
+        sigc::bind(sigc::mem_fun(*this, &ArgTable::argChangedChoice),
+                   choice, values)));
+
+    choice->set_hexpand(true);
+
+    row->append(*label);
+    row->append(*choice);
+
+    return row;
+}
+
+Gtk::Widget *ArgTable::makeSliderRow (thArg *arg, Gtk::Label *label)
+{
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+    row->set_spacing(8);
+
     /* Slider and box both work in display units, so an envelope time runs
        0..20000 ms rather than 0..882000 samples -- the same travel, over a
        number that means something. Only the display converts; what reaches
@@ -316,15 +407,28 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
     const double lo = toDisplay(arg->min(), units);
     const double hi = toDisplay(arg->max(), units);
 
+    /* A parameter its plugin reads as a whole number steps by one and shows no
+       decimals -- and, more to the point, cannot be left between two of them.
+       `waveform' is read `switch ((int)x)', so 3.4 is a triangle spelled
+       misleadingly, and a slider that can produce it is a slider most of whose
+       travel does nothing.
+
+       round_digits as well as digits, explicitly. set_digits() does round the
+       adjustment as a side effect, but only while round-digits has not been set
+       to anything, which is a subtlety to rely on rather than a rule. */
+    const bool whole = (arg->step() == 1);
+
     /* What HScale(min, max, step) built for us: the value starts at the
        bottom of the range, the page step is ten times the step, and the scale
        rounds to as many digits as the step has. HScale is gone in GTK4 and
        Scale has no such constructor, so the adjustment is spelled out. */
     Gtk::Scale *slider = manage(new Gtk::Scale(
-        Gtk::Adjustment::create(lo, lo, hi, .0001, .001, 0),
+        Gtk::Adjustment::create(lo, lo, hi, whole ? 1 : .0001,
+                                whole ? 10 : .001, 0),
         Gtk::Orientation::HORIZONTAL));
 
-    slider->set_digits(4);
+    slider->set_digits(whole ? 0 : 4);
+    slider->set_round_digits(whole ? 0 : 4);
 
     /* gtkmm-3: Gtk::Adjustment is refcounted and its constructor is protected,
        so it is handed out as a RefPtr rather than a raw pointer. */
@@ -362,9 +466,10 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
      * off mid-number. Four places are right for a 0..1 control, where they are
      * the whole resolution; they are meaningless on a range that runs to
      * hundreds of thousands. */
-    const int digits = decimalsFor(hi);
+    const int digits = whole ? 0 : decimalsFor(hi);
 
-    Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust, .0001,
+    Gtk::SpinButton *valEntry = manage(new Gtk::SpinButton(argAdjust,
+                                                           whole ? 1 : .0001,
                                                            digits));
 
     /* The value box was as wide as the slider had left over, which on a
@@ -379,18 +484,6 @@ Gtk::Widget *ArgTable::makeRow (thArg *arg)
        every slider down to a nub. */
     slider->set_size_request(140, -1);
 
-    /* No ellipsis here.
-    
-       It was set with only a maximum width, and a label that can ellipsise
-       reports the width of "..." as its minimum -- so the table, asked for the
-       smallest layout that fits, gave every label exactly that and the panel
-       came up as a column of dots. Parameter labels are short ("Pulse Width
-       1" is the longest in the corpus at 13 characters), so they can simply
-       be allowed their natural width. */
-    label->set_xalign(1.0);
-    label->set_tooltip_text(arg->name());
-
-    nameWidth_->add_widget(*label);
     valueWidth_->add_widget(*valEntry);
 
     row->append(*label);
@@ -434,4 +527,56 @@ void ArgTable::sliderChanged (Gtk::Scale *slider, string name)
 void ArgTable::argChanged (thArg *arg, Gtk::Scale *slider)
 {
     slider->set_value(toDisplay((*arg)[0], arg->units()));
+}
+
+/* The same pair as above for a list of named values, and looked up by name for
+   the same reason: loading a patch replaces the channel and frees every arg on
+   it. No unit conversion -- a parameter with named values is a selector, and
+   `Square' is not 2 milliseconds of anything. */
+void ArgTable::choiceChanged (Gtk::DropDown *choice, string name,
+                              std::vector<int> values)
+{
+    if (chan_ < 0)
+        return;
+
+    const guint row = choice->get_selected();
+
+    if (row == GTK_INVALID_LIST_POSITION || row >= values.size())
+        return;
+
+    thArg *arg = thSynth::instance()->getChanArg(chan_, name);
+
+    if (arg == NULL)
+        return;
+
+    const double want = values[row];
+
+    /* The same guard sliderChanged carries: argChangedChoice moves the list
+       whenever anything else moves the arg, and without this a MIDI controller
+       or a node-editor edit came back through here as though someone had picked
+       from the list, and reported the patch as modified. */
+    if ((double)(*arg)[0] == want)
+        return;
+
+    arg->setValue(want);
+
+    gthPatchManager::instance()->markDirty(chan_);
+}
+
+void ArgTable::argChangedChoice (thArg *arg, Gtk::DropDown *choice,
+                                 std::vector<int> values)
+{
+    const int have = (int)(*arg)[0];
+
+    for (size_t i = 0; i < values.size(); i++)
+        if (values[i] == have)
+        {
+            choice->set_selected((guint)i);
+            return;
+        }
+
+    /* A value with no row: something set the arg to a number this plugin does
+       not implement, which the list cannot show and must not silently correct
+       to a neighbour. Leaving the selection alone at least does not change the
+       sound behind the person's back. */
 }

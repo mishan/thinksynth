@@ -152,13 +152,65 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
     if (p.value < lo) lo = p.value;
     if (p.value > hi) hi = p.value;
 
-    Glib::RefPtr<Gtk::Adjustment> adj =
-        Gtk::Adjustment::create(p.value, lo, hi, 0.01, 1.0);
+    /* A parameter the plugin reads as a whole number steps by one and takes no
+       decimals. `waveform' is `switch ((int)x)': a spin button offering 3.4
+       offers a triangle spelled in a way that suggests it is not one. */
+    const bool whole = (p.step == 1);
 
-    Gtk::SpinButton *spin = manage(new Gtk::SpinButton(adj, 0.01, 4));
+    if (whole)
+    {
+        /* And where every value has a name, the range is the list rather than
+           whatever the .dsp declared. Eight shipped patches say `.max = 5.1'
+           for six waveforms -- padding for a slider that could not otherwise
+           reach the last one -- and honouring that here would offer a seventh
+           position that does nothing. */
+        if (!p.valueNames.empty())
+        {
+            lo = 0;
+            hi = (double)p.valueNames.size() - 1;
+
+            if (p.value < lo) lo = p.value;
+            if (p.value > hi) hi = p.value;
+        }
+    }
+
+    Glib::RefPtr<Gtk::Adjustment> adj =
+        Gtk::Adjustment::create(p.value, lo, hi, whole ? 1 : 0.01, 1.0);
+
+    Gtk::SpinButton *spin = manage(new Gtk::SpinButton(adj, whole ? 1 : 0.01,
+                                                       whole ? 0 : 4));
 
     spin->set_numeric(true);
     spin->set_hexpand(true);
+
+    /* The name beside the number rather than instead of it.
+     *
+     * A dropdown would be the better widget, and it is what the overview panel
+     * and the canvas strip both use -- but this column is a grid of spin
+     * buttons whose edits commit on Enter or on focus leaving, and one row
+     * behaving differently is a worse trade here than a tooltip. The number is
+     * also the thing being written to the .dsp, so seeing it is not useless. */
+    if (!p.valueNames.empty())
+    {
+        string tip;
+
+        for (size_t i = 0; i < p.valueNames.size(); i++)
+        {
+            if (p.valueNames[i].empty())
+                continue;       /* a value the plugin does not implement */
+
+            char n[16];
+
+            snprintf(n, sizeof(n), "%d = ", (int)i);
+
+            if (!tip.empty())
+                tip += "\n";
+
+            tip += n + p.valueNames[i];
+        }
+
+        spin->set_tooltip_text(tip);
+    }
 
     if (!p.units.empty())
         spin->set_tooltip_text("in " + p.units);

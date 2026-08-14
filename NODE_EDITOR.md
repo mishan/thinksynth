@@ -192,6 +192,37 @@ both come from a parse — a range that had changed in the file and not on the
 canvas would be a slider lying about where its own ends are. Revert still
 undoes it.
 
+### Controls that are not scales
+
+A parameter whose plugin reads it `switch ((int)x)` is a list, not a range.
+`waveform` has six cases, so five sixths of a continuous slider's travel picks a
+waveform that is already picked, and the eight shipped patches that drive one
+declare `.max = 5.1` or `5.5` — padding, so that a slider which could not
+reliably land on 5 could still truncate to it.
+
+Where a control is typed — see [ARCHITECTURE.md](ARCHITECTURE.md#arg-type) for
+where the type comes from — the strip changes in three ways. The track carries a
+tick per value, so it is visibly steppy before it is touched rather than merely
+stiff once it is. A drag snaps, in `setControlValue` rather than in the drag
+path, because a control that snaps when dragged and not when typed into is worse
+than one that never snaps. And it reads `Triangle` rather than `3`, with `4 of
+6` where the range would go.
+
+**The drawn range is not always the declared range.** A list of names is its own
+range, `0..count-1`, so a `.max` of 5.1 is drawn over 0..5. That is deliberately
+*not* done by fixing up `ctlMin`/`ctlMax` when the box is built:
+`NodeEdit::setControlMeta` writes those numbers back into the file, so a derived
+range there means opening a patch and saving it silently rewrites `.max = 5.1`
+to `5` — a change to a line nobody touched. `dspwrite` failed on exactly that,
+which is why `Box` carries the declared numbers and `ctlDrawMin`/`ctlDrawMax`
+alongside them.
+
+The parameter panel keeps a spin button rather than a list, with the names in
+its tooltip. That column commits on Enter or on focus leaving, and one row
+behaving differently is the worse trade — and the number is what gets written to
+the `.dsp`, so seeing it is not useless. The overview panel, which has no such
+constraint, uses a dropdown.
+
 ### Groups
 
 `.group` lets four envelope sliders draw as one titled block. Two things the
@@ -300,17 +331,21 @@ up that is deep and *narrowly* connected, it is one call away.
 
 ## 8. The checks
 
-None of these are CTest gates — they all take a corpus argument, so they are run
-by hand rather than by `ctest`.
+One of these is a CTest gate. `argtype` builds its own `.dsp` files and needs
+neither a corpus nor a display, which is the whole reason it can be one: the
+cases that matter — a control two nodes disagree about, a value list with a hole
+in it, a `.dsp` overriding its plugin — are ones no shipped file contains. The
+rest take a corpus argument and are run by hand.
 
-| Harness | Covers |
-|---|---|
-| `dspgraph` | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
-| `dspwrite` | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
-| `dspnew` | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
-| `dsplayout` | layer counts against the critical-path floor, and the wrap-mode cut profile |
-| `dsplive` | that moving a control changes the sound of a ringing note |
-| `dspab` | two renders compared bitwise, for changes meant to be inaudible |
+| Harness | Gate | Covers |
+|---|---|---|
+| `argtype` | yes | a plugin's step and value names; the pass that carries them to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; a drag that cannot land between two values |
+| `dspgraph` | no | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
+| `dspwrite` | no | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
+| `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
+| `dsplayout` | no | layer counts against the critical-path floor, and the wrap-mode cut profile |
+| `dsplive` | no | that moving a control changes the sound of a ringing note |
+| `dspab` | no | two renders compared bitwise, for changes meant to be inaudible |
 
 Three things worth repeating about how these are written:
 

@@ -44,6 +44,20 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "Complex Oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* Three of the six, and the gap is the point.
+ *
+ * The comment above the switch in module_callback() lists all six waveforms
+ * osc::simple has, but only 0, 2 and 3 have live cases -- 1, 4 and 5 are
+ * commented out, and there is no default:, so those values leave out[i] holding
+ * whatever was in the buffer. An empty name is how this list says "nothing here
+ * to offer", and a control drawn from it shows three choices rather than six.
+ *
+ * Written from the cases rather than from the comment above them. The comment
+ * is what the file hoped for; the switch is what it does. */
+static const char *const waveforms[] = {
+    "Sine", "", "Square", "Triangle"
+};
+
 const float SQRT2_2 = 2*sqrt(2);
 
 void module_cleanup (thPlugin *plugin)
@@ -60,6 +74,10 @@ int module_init (thPlugin *plugin)
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
     args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+
+    plugin->setArgValues(args[IN_WAVEFORM], waveforms,
+                         (int)(sizeof(waveforms) / sizeof(waveforms[0])));
+
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);

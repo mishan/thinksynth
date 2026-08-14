@@ -74,6 +74,35 @@ public:
     const string &units (void) const { return units_; }
     const string &comment (void) const { return comment_; }
 
+    /* 0 for a continuous parameter, 1 for one that means a whole number.
+     *
+     * Presentation, like label and group: nothing in the audio path rounds
+     * anything, and a .dsp is still free to store 3.4 in an arg with a step of
+     * 1. What it buys is a control that cannot *produce* 3.4 for a parameter
+     * whose plugin reads it as `switch ((int)x)' and therefore cannot tell 3.4
+     * from 3.
+     *
+     * Two ways in. A plugin declares it about its own arg through
+     * thPlugin::setArgStep, and thSynthTree::typeChanArgs carries it from there
+     * to whichever control drives it; or the .dsp says `@x.step = 1' itself. */
+    float step (void) const { return step_; }
+
+    /* The names of this arg's values, from 0 up, or empty for the ordinary case
+       of a number that is just a number. An entry may be empty where a value
+       exists in the range but means nothing -- osc::window implements waveforms
+       0, 2 and 3 and not 1, and offering the gap would produce silence at best.
+
+       A non-empty list implies a step of 1 and a range of 0..size()-1. */
+    const vector<string> &valueNames (void) const { return valueNames_; }
+
+    /* True if the .dsp itself said `@x.step' or `@x.values', in which case
+       nothing may retype it on the author's behalf.
+
+       Without this a file cannot say "leave this one continuous": a step of 0
+       is the default, so an explicit refusal and having said nothing at all
+       would be the same state. */
+    bool typedByFile (void) const { return typedByFile_; }
+
     float min (void) const { return min_; }
     float max (void) const { return max_; }
 
@@ -87,6 +116,29 @@ public:
     void setMin (float min) { min_ = min; };
     void setMax (float max) { max_ = max; };
     void setWidgetType (WidgetType widgetType) { widgetType_ = widgetType; };
+
+    /* `fromFile' distinguishes the parser saying so from the tree working it
+       out. Only the parser passes true, and only the parser may. */
+    void setStep (float step, bool fromFile = false) {
+        step_ = step;
+        if (fromFile) typedByFile_ = true;
+    };
+
+    void setValueNames (const vector<string> &names, bool fromFile = false) {
+        valueNames_ = names;
+        if (!names.empty()) step_ = 1;
+        if (fromFile) typedByFile_ = true;
+    };
+
+    /* The `@x.values = "Sine,Sawtooth,Square"' spelling, split on commas with
+       surrounding space trimmed. An empty entry is a value with no name, so
+       "Sine,,Square" names 0 and 2 and leaves 1 unnamed -- which is what a
+       plugin implementing some of a range and not the rest needs to say.
+
+       Here rather than in the grammar action because the node editor's writer
+       has to produce this string as well as read it, and one spelling wants one
+       definition. */
+    void setValueNames (const string &commaList, bool fromFile = false);
 
     float *allocate (unsigned int elements);
 
@@ -151,6 +203,15 @@ protected:
     float min_, max_;        /* for knobs and stuff, I'm sure it will be useful
                                 elsewhere, too */
     WidgetType widgetType_;  /* our widget type */
+
+    /* See step() and valueNames(). A vector rather than a count and a pointer
+       because a thArg is copy-constructed once per note per arg, and the
+       copy has to own its strings; empty is the overwhelming majority and
+       costs no allocation. */
+    float step_;
+    vector<string> valueNames_;
+    bool typedByFile_;
+
     string label_;
     string group_;           /* This will be displayed in the UI */
     string units_;           /* This will be displayed too. ms, Hz, sec etc.*/

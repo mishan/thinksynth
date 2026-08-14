@@ -24,7 +24,26 @@
 class thSynthTree;
 class thNode;
 
-#define MODULE_IFACE_VER 4
+/* Bumped from 4 when arg metadata grew a step and a set of value names.
+ *
+ * Direction did not need a bump: regArg() gained a defaulted parameter and
+ * nothing about thPlugin's shape changed, so a plugin built against the older
+ * header still loaded and simply reported every arg as an input. This one is
+ * different. The three parallel arrays behind regArg() became one vector, which
+ * moves every member after them -- and a plugin calls setDesc() and setState(),
+ * which are inlined into the plugin from this header and reach their members by
+ * offset.
+ *
+ * As it happens those two sit *before* what moved, so the mismatch would
+ * probably go unnoticed. "Probably" is the problem: that is precisely the shape
+ * of the stale-libthink bug ARCHITECTURE.md describes, where a binary linked
+ * against the wrong library read every header-inlined accessor at the wrong
+ * offset and returned garbage without a diagnostic. This check exists to make
+ * that loud, and a layout change is what it is for. Stale plugin .so files left
+ * in a source tree are a thing that actually happens here -- NodePalette's own
+ * tooltip tells people to go and delete them.
+ */
+#define MODULE_IFACE_VER 5
 
 /* We don't want this to exist unless we're using a plugin.
  *
@@ -84,10 +103,42 @@ public:
      */
     enum ArgDir { ARG_IN = 0, ARG_OUT, ARG_STATE };
 
+    /* Everything a plugin can say about one of its args.
+     *
+     * Direction was the first field and for a long time the only one. This is
+     * the rest of the proposal ARCHITECTURE.md deferred, and the two new fields
+     * answer the same question at different resolutions.
+     *
+     * `step' is 0 for an ordinary continuous parameter and 1 for one that means
+     * a whole number. That is not a display preference: `waveform' is read
+     * `switch ((int)buf_waveform[i])', so 3.4 *is* 3, and a control that can
+     * produce 3.4 is a control most of whose travel does nothing. The eight
+     * shipped patches that drive a waveform all declare `.max = 5.1' or `5.5'
+     * rather than 5, which is an author working around exactly that -- padding
+     * the top of a continuous slider so it can still truncate to the last
+     * waveform.
+     *
+     * `values' names the whole numbers when they mean something sayable:
+     * "Sine", "Sawtooth", "Square". It implies a step of 1 and a range of
+     * 0..values.size()-1, because a name for every value is a stronger
+     * statement than either.
+     *
+     * Both are advice to whatever draws the control. Nothing in the audio path
+     * reads them, and a plugin that says nothing gets what it always got.
+     */
+    struct ArgInfo {
+        string name;
+        ArgDir dir;
+        float step;
+        vector<string> values;
+
+        ArgInfo (const string &n, ArgDir d) : name(n), dir(d), step(0) {}
+    };
+
     typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
     typedef int (*ModuleInit)(thPlugin *);
     typedef void (*ModuleCleanup)(thPlugin *);
-    
+
     const string &path (void) const { return path_; };
     const string &desc (void) const { return desc_; };
     State state (void) const { return state_; };
@@ -97,23 +148,47 @@ public:
     
     int regArg (const string &argname, ArgDir dir = ARG_IN);
 
-    int argCount (void) const { return argcounter_; };
-    string getArgName (int index) { 
-        if (index >= 0 && index < argcounter_)
-            return *args_[index]; 
+    /* Says the arg means a whole number. Separate from regArg() rather than
+       another defaulted parameter on it, because the overwhelming majority of
+       args are continuous and a call site that says nothing should look like
+       one that has nothing to say. */
+    void setArgStep (int index, float step);
+
+    /* Names the arg's values, from 0 upwards. Implies setArgStep(index, 1).
+       `names' is copied. */
+    void setArgValues (int index, const char *const *names, int count);
+
+    int argCount (void) const { return (int)args_.size(); };
+    string getArgName (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].name;
         return "";
     }
 
     ArgDir getArgDir (int index) const {
-        if (index >= 0 && index < argcounter_)
-            return argdirs_[index];
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].dir;
         return ARG_IN;
+    }
+
+    float getArgStep (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].step;
+        return 0;
+    }
+
+    /* Empty when the arg's values have no names, which is almost all of them.
+       By reference: the editor asks per redraw. */
+    const vector<string> &getArgValues (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].values;
+        return noValues_;
     }
 
     /* Convenience for the editor: a port is anything a .dsp may legitimately
        wire, i.e. everything except plugin-internal state. */
     bool argIsPort (int index) const { return getArgDir(index) != ARG_STATE; }
-    
+
     void fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
                unsigned int samples);
 private:
@@ -125,10 +200,16 @@ private:
     State state_;
     void *handle_;
 
-    string **args_;
-    ArgDir *argdirs_;   /* parallel to args_ */
-    int argcounter_; /* how many args are registered */
-    int argsize_; /* length of the arg storage array */
+    /* Was three parallel arrays -- `string **', `ArgDir *', a count and a
+       capacity -- grown by hand in ARGCHUNK steps with calloc and memcpy, and
+       the grow check was off by one for years. A fourth and a fifth array for
+       the step and the value names is not a thing worth writing; a vector of
+       one struct is the same data with the bookkeeping deleted. */
+    vector<ArgInfo> args_;
+
+    /* What getArgValues() hands back for an index that has none, so it can
+       return by reference without every caller checking. */
+    static const vector<string> noValues_;
 
     Callback callback_;
 };

@@ -60,8 +60,67 @@ Three directions matter:
   shipped `.dsp` references one. They must never appear on the canvas: nobody
   wants to wire a delay line's internal buffer.
 
-The rest of the arg-metadata proposal — a description, a sane range and a
-default per arg — is not done. That is what would improve the parameter panel.
+## Arg type
+
+`regArg` says which way an arg faces. Two more things a plugin can say about
+one, through `setArgStep` and `setArgValues`:
+
+- **step** — 0 for an ordinary continuous parameter, 1 for one that means a
+  whole number.
+- **values** — the names of those whole numbers, where they have any. A list
+  implies a step of 1 and a range of `0..count-1`.
+
+Neither is read anywhere in the audio path. They exist because `osc::simple`
+reads `waveform` as `switch ((int)buf[i])`, so 3.4 *is* 3 — and a control that
+can produce 3.4 is a control most of whose travel does nothing. The eight
+shipped patches that drive a waveform all declare `.max = 5.1` or `5.5` rather
+than 5, which is an author working around exactly that: padding the top of a
+continuous slider so it can still truncate to the last waveform.
+
+Two plugins have a selector to declare, both spelled `waveform`. `osc::simple`
+implements six cases; `osc::window` implements three and leaves 1, 4 and 5
+commented out with no `default:`, so those values leave the output buffer
+unwritten. Its list names the three and leaves a *gap* — an empty name is how
+the format says "a value exists here and means nothing", and a control drawn
+from that list offers three choices rather than six.
+
+### Getting it to the control
+
+A control is a `@chanarg`, and a chanarg is not a plugin arg — the two are
+joined only by the wire between them, `in1 = @blim`. So
+`thSynthTree::typeChanArgs` walks the tree after `buildArgMap` and carries the
+type along that wire. It rides on the same correspondence every plugin already
+depends on: a node arg's index equals the plugin's registration index for it,
+which is what makes `mod->getArg(node, args[IN_FREQ])` find anything.
+
+**A control is typed only by unanimous agreement.** 197 of the 206 controls in
+the corpus drive exactly one parameter, but nine drive several, and a control
+feeding both a waveform selector and a mixer gain cannot become a list of six
+names without losing the ability to say 0.35 to the mixer. A consumer that says
+nothing disagrees with one that does — "no opinion" is the opinion that this is
+an ordinary number, and it is held by every arg of every plugin that has not
+been taught otherwise.
+
+A `.dsp` can also say it directly, with `@x.step` and `@x.values`, and the file
+wins. That needs `thArg::typedByFile` to be a separate flag rather than being
+inferred: a step of 0 is the default, so without it an author saying "leave
+this one continuous" and an author saying nothing would be the same state.
+
+The rest of the proposal — a description and a default per arg — is still not
+done.
+
+**This bumped `MODULE_IFACE_VER` to 5.** Direction did not need one: `regArg`
+gained a defaulted parameter and nothing about `thPlugin`'s shape moved, so a
+plugin built against the older header still loaded and reported every arg as an
+input. This time the three parallel arrays behind `regArg` became one vector,
+which moves every member after them — and `setDesc` and `setState` are inlined
+*into the plugin* from the header and reach their members by offset. As it
+happens both sit before what moved, so a stale plugin would probably survive.
+"Probably" is the problem: that is the shape of the stale-`libthink` bug below,
+where a mismatched library made every header-inlined accessor read at the wrong
+offset and return garbage silently. The version check exists to make that loud,
+and stale plugin `.so` files in a source tree are a thing that actually happens
+here — `NodePalette`'s own tooltip tells people to go and delete them.
 
 ## Threading
 
