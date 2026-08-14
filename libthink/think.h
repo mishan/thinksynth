@@ -102,8 +102,9 @@ using namespace std;
 
 /* Upper bound on a DSP's `channels' setting. The value is read straight out of
    a .dsp file and used to size an allocation, so it needs a sanity limit. Ten
-   is also the point at which the out0..out9 naming in thMidiChan::process()
-   would need more than one digit. */
+   is also the point at which the out0..out9 naming in
+   thMidiChan::indexIOArgs() would need more than one digit, and the size of the
+   arg index that function fills in. */
 #define TH_MAX_CHANNELS 10
 
 /* Where the output limiter stops being transparent.

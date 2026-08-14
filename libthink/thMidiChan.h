@@ -114,6 +114,29 @@ public:
 private:
     void assignChanArgPointers(thSynthTree *mod);
 
+    /* Resolves the io-node args process() reads, and creates any this .dsp did
+       not write. Constructor only: it allocates, and it is what stops the
+       audio thread having to. */
+    void indexIOArgs (void);
+
+    /* thSynthTree::getArg(node, int), plus the ARG_CHANNEL dereference the
+       by-name overload does at the end of its pointer chase and the indexed one
+       does only at the start. Same answer as the name lookup this replaced --
+       without the lookup, and without the insert it performs on a miss.
+
+       Not folded into thSynthTree::getArg(node, int) itself: every plugin's
+       `mod->getArg(node, args[OUT_ARG])' goes through that overload and then
+       *writes* to what comes back, so teaching it to follow a chanarg pointer
+       would let a plugin write into a chanarg. Here the result is only read. */
+    static thArg *resolveIOArg (thSynthTree *tree, int index);
+
+    /* Audio thread. The part of process() the held and the decaying loop have
+       in common: run the note, tap it, apply the pedal, mix it. Returns the
+       note's `play' arg, since deciding what to do about it is the only thing
+       the two loops do differently. */
+    thArg *mixNote (thMidiNote *note, int sustain, thProbe *const *probes,
+                    int nprobes);
+
     /* Hands `note' to the GUI thread to destroy. Falls back to deleting it
        here if the retire queue is full -- that costs RT-safety in a case that
        should not arise, but never correctness. */
@@ -127,7 +150,32 @@ private:
     NoteList noteorder_; /* order of the notes for polyphony limits */
     int channels_, windowlength_;
     float *output_;
-    int outputnamelen_;
+
+    /* Scratch for the mix loop, sized once. These were VLAs declared inside
+       process(), so every call moved the stack pointer by twice the window
+       length -- 8k at the default window, unbounded in principle, and on the
+       one thread that cannot afford to find out. */
+    float *bufmix_, *bufamp_;
+
+    /* Where the io node keeps out0..outN-1 and play, as arg indices.
+     *
+     * process() used to spell these out per channel per note per window:
+     * `argname = OUTPUTPREFIX; argname += (char)(i + '0')', then a lookup by
+     * that string. Three separate things wrong with it on an audio thread --
+     * it builds a std::string, it searches a std::map, and
+     * thSynthTree::getArg() *creates* the arg when it does not find one, which
+     * allocates a thArg and inserts it. That last one fired on the first
+     * window of every note of any .dsp whose io node declares more channels
+     * than it wires up.
+     *
+     * An index instead, because both halves of an arg's address survive the
+     * per-note tree copy -- the property thProbe documents and rides on, and
+     * the one every plugin's `mod->getArg(node, args[IN_FREQ])' already uses.
+     * -1 where the arg is genuinely absent. */
+    int outindex_[TH_MAX_CHANNELS];
+    int playindex_;
+    int triggerindex_;
+
     int polymax_;  /* maximum polyphony */
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
