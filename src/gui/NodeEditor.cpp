@@ -2465,7 +2465,8 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
            which is the one thing about it the canvas can neither show nor
            change. */
         Gtk::Button *btn = Gtk::manage(
-            new Gtk::Button("Range and label of @" + b.ctlArg + "\xe2\x80\xa6"));
+            new Gtk::Button("Range, label and group of @" + b.ctlArg +
+                            "\xe2\x80\xa6"));
 
         /* By name, like the probe entry above and for the same reason: a box
            index captured while the menu was open would be stale if anything
@@ -2474,8 +2475,8 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
 
         btn->set_has_frame(false);
         btn->set_tooltip_text(
-            "The minimum and maximum the slider runs between, and how it is "
-            "labelled.");
+            "The minimum and maximum the slider runs between, what it is "
+            "labelled, and which titled block it is drawn in.");
         btn->signal_clicked().connect([this, ctl]() {
             ctxPopover_.popdown();
             onEditControl(graph_.boxByName("@" + ctl));

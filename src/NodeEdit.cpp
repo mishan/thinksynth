@@ -1548,35 +1548,93 @@ static string leadingSpaceOf (const string &line)
     return line.substr(0, n);
 }
 
-/* Rewrites `@<name>.<field> = <text>;', adding the line if the file has none.
-   Works on `lines' in memory so that a caller changing three of them writes the
-   file once. Returns false only for a right-hand side it will not touch. */
-static bool spliceControlField (vector<string> &lines, const string &name,
-                                const string &field, const string &text,
-                                const string &indent, size_t &blockEnd)
+/* Adds `@<name>.<field> = <text>;' at the end of the block.
+ *
+ * Split out because inserting a line is the half the numeric and the string
+ * case do identically, and rewriting one is the half where they differ. */
+static void addControlField (vector<string> &lines, const string &name,
+                             const string &field, const string &text,
+                             const string &indent, size_t &blockEnd)
+{
+    lines.insert(lines.begin() + blockEnd + 1,
+                 indent + "@" + name + "." + field + " = " + text + ";");
+
+    blockEnd++;
+}
+
+/* Rewrites `@<name>.<field> = <text>;' where the field holds a *number* --
+ * `.min' and `.max' -- adding the line if the file has none.
+ *
+ * Compared by value and not by spelling, which is the whole reason this is not
+ * the string case with a different argument. `@x.max = th_max' means 1, so a
+ * no-op write of 1 has to leave those six characters alone; comparing the text
+ * would replace them with `1' the first time anyone opened the dialog and
+ * pressed Apply. That is precisely the damage splicing exists to prevent, and
+ * it is the same rule setChanArg already follows for a value -- the reason 229
+ * uses of th_max and th_min across the corpus survive a save.
+ *
+ * Returns false for a right-hand side parseRhs will not read: arithmetic, or a
+ * name it does not know. Refusing is the point rather than a limitation. An
+ * editor that quietly replaced someone's `th_max * 2' with the constant it
+ * currently evaluates to would be doing the same damage the other way round.
+ *
+ * Works on `lines' in memory, so a caller changing four fields writes the file
+ * once.
+ */
+static bool spliceControlNumber (vector<string> &lines, const string &name,
+                                 const string &field, double value,
+                                 const string &text, const string &indent,
+                                 size_t &blockEnd)
 {
     const string want = "@" + name + "." + field;
 
     size_t line = 0;
     string::size_type from = 0, to = 0;
 
-    if (findDecl(lines, want, line, from, to))
+    if (!findDecl(lines, want, line, from, to))
     {
-        if (lines[line].compare(from, to - from, text) == 0)
-            return true;        /* already says that: leave the byte alone */
-
-        lines[line] = lines[line].substr(0, from) + text +
-                      lines[line].substr(to);
-
+        addControlField(lines, name, field, text, indent, blockEnd);
         return true;
     }
 
-    lines.insert(lines.begin() + blockEnd + 1,
-                 indent + want + " = " + text + ";");
+    const string rhs = lines[line].substr(from, to - from);
 
-    blockEnd++;
+    double old;
+
+    if (!parseRhs(rhs, old))
+        return false;
+
+    if (sameValue(old, value))
+        return true;            /* already that number: leave the bytes alone */
+
+    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
 
     return true;
+}
+
+/* The same for a field holding a *string* -- `.label' and `.group'. Compared by
+   spelling, because for these the spelling is the value; and it cannot fail,
+   because there is no right-hand side here that means something this does not
+   understand. Hence void: a caller has nothing to check. */
+static void spliceControlString (vector<string> &lines, const string &name,
+                                 const string &field, const string &text,
+                                 const string &indent, size_t &blockEnd)
+{
+    const string want = "@" + name + "." + field;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findDecl(lines, want, line, from, to))
+    {
+        addControlField(lines, name, field, text, indent, blockEnd);
+        return;
+    }
+
+    if (lines[line].compare(from, to - from, text) == 0)
+        return;                 /* already says that: leave the bytes alone */
+
+    lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
 }
 
 /* Deletes `@<name>.<field> = ...;' if it is there. For a label being cleared:
@@ -1706,20 +1764,32 @@ NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
         return UNWRITABLE;
     }
 
-    spliceControlField(lines, name, "min", minText, indent, blockEnd);
-    spliceControlField(lines, name, "max", maxText, indent, blockEnd);
+    /* An unwritable `.max' takes the `.min' down with it. The splice above has
+       already edited `lines' by the time this one refuses, but `lines' is a
+       copy and the file is written once at the end -- so returning here leaves
+       the .dsp exactly as it was, rather than with a new minimum against an old
+       maximum it was never meant to pair with. */
+    if (!spliceControlNumber(lines, name, "min", min, minText, indent,
+                             blockEnd) ||
+        !spliceControlNumber(lines, name, "max", max, maxText, indent,
+                             blockEnd))
+    {
+        why = "@" + name + "'s range is written with arithmetic or a name this "
+              "editor will not rewrite.";
+        return UNWRITABLE;
+    }
 
     if (label.empty())
         dropControlField(lines, name, "label", blockEnd);
     else
-        spliceControlField(lines, name, "label", "\"" + label + "\"", indent,
-                           blockEnd);
+        spliceControlString(lines, name, "label", "\"" + label + "\"", indent,
+                            blockEnd);
 
     if (group.empty())
         dropControlField(lines, name, "group", blockEnd);
     else
-        spliceControlField(lines, name, "group", "\"" + group + "\"", indent,
-                           blockEnd);
+        spliceControlString(lines, name, "group", "\"" + group + "\"", indent,
+                            blockEnd);
 
     /* The value last, and only if the new range no longer contains it.
      *

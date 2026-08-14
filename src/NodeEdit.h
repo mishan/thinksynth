@@ -183,10 +183,15 @@ public:
 
        The same splice as setChanArg, applied four times and written once, so a
        range change is one rename-into-place rather than four. Everything the
-       single-value case obeys applies here too: a `.max' spelled `2000ms'
+       single-value case obeys applies here too. A `.max' spelled `2000ms'
        keeps its unit, because the grammar's conversion is exactly invertible
        and handing back the folded sample count would be correct and
-       unreadable; and writing the values already there changes no byte.
+       unreadable. A range is compared by value rather than by spelling, so a
+       `.max' of `th_max' survives a write of 1 with its six characters intact.
+       And a range written with arithmetic, or with a name this cannot read, is
+       UNWRITABLE rather than quietly replaced by the number it happens to
+       evaluate to today -- both halves of the range, since half a range this
+       editor cannot read back is worse than none of it.
 
        A line the file does not have is added at the end of the control's
        block. The parser only requires that `@x.min' follow `@x' -- before it

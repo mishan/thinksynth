@@ -171,6 +171,16 @@ changed, which is the moment it can be understood. It is one-way, and a
 round-trip check has to know that: a range widened and put back leaves the file
 byte for byte, and a range narrowed and put back cannot.
 
+**A range is a number like any other**, and gets the treatment
+[DSP_FORMAT.md](DSP_FORMAT.md#splice-do-not-re-emit) already describes for one.
+It is compared by value rather than by spelling, so `@lvl.max = th_max` survives
+a write of 1 with its six characters intact — the same reason 229 uses of
+`th_max` and `th_min` survive a save anywhere else. Arithmetic is refused
+outright rather than folded to whatever it evaluates to today, and refusing the
+maximum refuses the minimum with it: half a range this editor cannot read back
+is worse than none of it. No shipped `.dsp` spells a range either way — all 412
+range lines are literals — so `dspnew` writes the files that do.
+
 **The name is not editable here.** Renaming would have to rewrite every
 `in1 = @old` in the file as well as the block, which is `removeControl` and
 `addControl` and a different thing to offer. The field is shown and
@@ -297,7 +307,7 @@ by hand rather than by `ctest`.
 |---|---|
 | `dspgraph` | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
 | `dspwrite` | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
-| `dspnew` | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, then renders audio from what it built |
+| `dspnew` | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |
 | `dsplayout` | layer counts against the critical-path floor, and the wrap-mode cut profile |
 | `dsplive` | that moving a control changes the sound of a ringing note |
 | `dspab` | two renders compared bitwise, for changes meant to be inaudible |

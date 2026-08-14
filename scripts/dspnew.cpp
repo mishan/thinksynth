@@ -622,6 +622,97 @@ int main (int argc, char **argv)
             remove(g.c_str());
         }
 
+        /* A range spelled with something other than a plain number.
+         *
+         * No shipped .dsp does this -- all 412 range lines are literals, 67 of
+         * them with a millisecond unit -- so the corpus cannot catch either of
+         * these, and dspwrite therefore cannot either. Both matter because the
+         * value case has always taken them seriously: 229 uses of th_max and
+         * th_min survive a save precisely because setChanArg compares by value
+         * and not by spelling, and arithmetic is refused outright rather than
+         * folded to the constant it currently evaluates to.
+         *
+         * A range is a number in a .dsp like any other, and had no reason to be
+         * treated as less than one.
+         */
+        {
+            const string k = "/tmp/dspnew-constants.dsp";
+
+            /* `th_max' means 1. Writing 1 over it must leave the six characters
+               alone -- comparing the text would replace them the first time
+               anyone opened the dialog and pressed Apply, having changed
+               nothing. */
+            remove(k.c_str());
+
+            {
+                ofstream out(k.c_str());
+
+                out << "name \"constants\";\n"
+                    << "\n"
+                    << "@lvl = 0.5;\n"
+                    << "@lvl.widget = 1;\n"
+                    << "@lvl.min = th_min;\n"
+                    << "@lvl.max = th_max;\n"
+                    << "\n"
+                    << "node ionode {\n"
+                    << "    channels = 2;\n"
+                    << "};\n"
+                    << "\n"
+                    << "io ionode;\n";
+            }
+
+            const string before = slurp(k);
+
+            if (NodeEdit::setControlMeta(k, "lvl", -1, 1, "", "", why) !=
+                NodeEdit::OK)
+            { printf("FAIL  setControlMeta on a th_min..th_max range: %s\n",
+                     why.c_str());
+              failed++; }
+            else if (slurp(k) != before)
+            { printf("FAIL  writing th_min..th_max back over itself respelt "
+                     "it as numbers\n");
+              failed++; }
+            else
+                printf("ok    a range spelled th_min..th_max survives a write "
+                       "of the numbers it means\n");
+
+            /* And arithmetic is refused, both halves of it: a file left with a
+               new minimum against an arithmetic maximum would be a range this
+               editor produced and cannot read back. */
+            remove(k.c_str());
+
+            {
+                ofstream out(k.c_str());
+
+                out << "name \"constants\";\n"
+                    << "\n"
+                    << "@lvl = 0.5;\n"
+                    << "@lvl.widget = 1;\n"
+                    << "@lvl.min = 0;\n"
+                    << "@lvl.max = th_max * 2;\n"
+                    << "\n"
+                    << "node ionode {\n"
+                    << "    channels = 2;\n"
+                    << "};\n"
+                    << "\n"
+                    << "io ionode;\n";
+            }
+
+            const string arith = slurp(k);
+
+            if (NodeEdit::setControlMeta(k, "lvl", 3, 9, "", "", why) !=
+                NodeEdit::UNWRITABLE)
+            { printf("FAIL  an arithmetic .max was not refused\n"); failed++; }
+            else if (slurp(k) != arith)
+            { printf("FAIL  a refused range change still wrote to the file\n");
+              failed++; }
+            else
+                printf("ok    an arithmetic range is refused, and the refusal "
+                       "writes nothing\n");
+
+            remove(k.c_str());
+        }
+
         /* A group name has the same constraint as a label. */
         if (NodeEdit::addControl(scratch, "bad3", 0, 0, 1, "", "no \"quotes\"",
                                  why) == NodeEdit::OK)
