@@ -46,6 +46,7 @@ int module_init (thPlugin *plugin)
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_SHAPE] = plugin->regArg("shape", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SHAPE], "Shape Variable");
 
     return 0;
 }

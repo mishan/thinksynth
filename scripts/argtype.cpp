@@ -56,6 +56,8 @@
 
 #include "think.h"
 #include "NodeGraph.h"
+#include "NodeCatalog.h"
+#include "NodeEdit.h"
 
 static int failed = 0;
 
@@ -160,6 +162,37 @@ static Typing typingOf (thSynth &synth, const string &name)
     return t;
 }
 
+/* One note through one file. A fresh synth each time, and srand reseeded, for
+   the reason dspcheck spells out: twelve DSPs are built on osc::static and are
+   deterministic only because both renders start from the same seed. */
+static bool render (const string &pluginPath, const char *file,
+                    vector<float> &out)
+{
+    srand(1);
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    if (synth.loadTree(file, 0, 100) == NULL)
+        return false;
+
+    synth.addNote(0, 60, 100);
+
+    const int frame = synth.audioChannelCount() * synth.getWindowlen();
+
+    out.clear();
+
+    for (int w = 0; w < 4; w++)
+    {
+        synth.process();
+
+        const float *buf = synth.getOutput();
+
+        out.insert(out.end(), buf, buf + frame);
+    }
+
+    return true;
+}
+
 static string joined (const vector<string> &v)
 {
     string s;
@@ -233,13 +266,122 @@ int main (int argc, char **argv)
             if (freq < 0 || p->getArgStep(freq) != 0 ||
                 !p->getArgValues(freq).empty())
                 fail("an undeclared arg stays continuous", "");
+            else if (!p->getArgDesc(freq).empty() || p->argHasDefault(freq))
+                fail("an undeclared arg has no description and no default",
+                     p->getArgDesc(freq));
             else
-                ok("an arg the plugin says nothing about stays continuous");
+                ok("an arg the plugin says nothing about stays continuous, "
+                   "undescribed and without a default");
+
+            /* The description is the plugin author's own trailing comment,
+               moved somewhere a panel can read it. Checked against the text
+               rather than merely for non-emptiness: the point of harvesting
+               these instead of writing them is that they say what the author
+               said. */
+            int mul = -1;
+
+            for (int k = 0; k < p->argCount(); k++)
+                if (p->getArgName(k) == "mul")
+                    mul = k;
+
+            if (mul < 0)
+                fail("osc::simple registers mul", "");
+            else if (p->getArgDesc(mul) != "Multiply the wavelength by this")
+                fail("mul carries the comment the plugin already had",
+                     p->getArgDesc(mul));
+            else
+                ok("an arg's description is the one its author wrote");
+
+            /* And the default is the plugin's own zero-case: osc::simple does
+               `if (amp_max == 0) amp_max = TH_MAX;', so its amp already had a
+               default and it was written where nothing could read it. */
+            int amp = -1;
+
+            for (int k = 0; k < p->argCount(); k++)
+                if (p->getArgName(k) == "amp")
+                    amp = k;
+
+            if (amp < 0 || !p->argHasDefault(amp))
+                fail("osc::simple declares a default for amp", "");
+            else if (p->getArgDefault(amp) != TH_MAX)
+                fail("amp defaults to what the callback substitutes for 0", "");
+            else
+                ok("a default is the plugin's own zero-case, not a taste "
+                   "judgement");
         }
 
         /* The plugin outlives this -- thPluginManager owns it and the synth
            owns that -- but the tree does not. */
         delete tree;
+    }
+
+    /* ---- an arg cast to int is a whole number -------------------------- */
+
+    /* Eight args across six plugins are read `(int)(*in_x)[0]' and used as a
+       length or a count. None is a selector, so none has names -- a delay line
+       of 220 samples has nothing to call itself.
+     *
+     * Worth checking rather than assuming: this is the one part of the sweep
+     * where the shipped corpus can say nothing at all. No .dsp drives any of
+     * these from a control, and every one of them is bound to a whole number
+     * already, so nothing here changes any existing patch. It changes what
+     * happens when someone builds the next one. */
+    {
+        static const struct { const char *node; const char *arg; } cases[] = {
+            { "delay::echo",        "size"  },
+            { "filt::comb",         "size"  },
+            { "impulse::blackman",  "len"   },
+            { "impulse::parabola",  "len"   },
+            { "impulse::sine",      "len"   },
+            { "impulse::square",    "len"   },
+            { "osc::multiwave",     "waves" },
+            { "osc::multisined",    "waves" },
+            { NULL, NULL }
+        };
+
+        int whole = 0;
+
+        for (int i = 0; cases[i].node; i++)
+        {
+            char nodes[256];
+
+            snprintf(nodes, sizeof(nodes),
+                     "node n %s {\n    freq = ionode->note;\n};\n",
+                     cases[i].node);
+
+            writeOrFail(wrap("", nodes));
+
+            thSynthTree *t = synth.parseTree(scratch);
+
+            thNode *n = t ? t->findNode("n") : NULL;
+
+            thPlugin *p = n ? n->plugin() : NULL;
+
+            if (p == NULL)
+            { fail("a plugin loads", cases[i].node); delete t; continue; }
+
+            int idx = -1;
+
+            for (int k = 0; k < p->argCount(); k++)
+                if (p->getArgName(k) == cases[i].arg)
+                    idx = k;
+
+            if (idx < 0)
+                fail("registers its length arg", cases[i].node);
+            else if (p->getArgStep(idx) != 1)
+                fail("is read as a whole number",
+                     string(cases[i].node) + "." + cases[i].arg);
+            else if (!p->getArgValues(idx).empty())
+                fail("a length has no value names", cases[i].node);
+            else
+                whole++;
+
+            delete t;
+        }
+
+        if (whole == 8)
+            ok("eight args their plugins cast to int read as whole numbers, "
+               "and none pretends to be a selector");
     }
 
     /* ---- and it reaches the control wired to it ------------------------- */
@@ -654,6 +796,93 @@ int main (int argc, char **argv)
 
             delete tree;
         }
+    }
+
+    /* ---- writing a default changes the file, not the sound -------------- */
+
+    /* The claim NodeEdit::addNode's comment makes, checked rather than
+     * asserted. A declared default is the value the plugin already substitutes
+     * for 0, so a node that spells it out and a node that leaves it at the zero
+     * buildArgMap() invents must render the same samples. If that ever stops
+     * being true, the defaults have stopped being transcriptions and become
+     * somebody's opinion.
+     */
+    {
+        const string plain = scratchPath("argtype-plain.dsp");
+        const string spelt = scratchPath("argtype-spelt.dsp");
+
+        vector<pair<string, double> > none, initial;
+
+        NodeCatalog::Entry e;
+        NodeCatalog cat;
+
+        cat.scan(pluginPath);
+
+        if (!cat.describe("osc::simple", synth.getPluginManager(), e))
+            fail("the catalog describes osc::simple", "");
+        else if (e.defaults.empty())
+            fail("osc::simple declares at least one default", "");
+        else
+        {
+            for (size_t i = 0; i < e.defaults.size(); i++)
+                initial.push_back(make_pair(e.defaults[i].name,
+                                            e.defaults[i].value));
+
+            string why;
+            bool built = true;
+
+            for (int which = 0; which < 2 && built; which++)
+            {
+                const string f = which ? spelt : plain;
+
+                remove(f.c_str());
+
+                if (NodeEdit::createFile(f.c_str(), "argtype", "argtype", why)
+                        != NodeEdit::OK ||
+                    NodeEdit::addNode(f.c_str(), "osc", "osc::simple",
+                                      which ? initial : none, why)
+                        != NodeEdit::OK ||
+                    NodeEdit::connect(f.c_str(), "osc", "freq", "ionode", "note", why)
+                        != NodeEdit::OK ||
+                    NodeEdit::connect(f.c_str(), "ionode", "out0", "osc", "out", why)
+                        != NodeEdit::OK)
+                { fail("building a file to render", why); built = false; }
+            }
+
+            if (built)
+            {
+                vector<float> a, b;
+
+                if (!render(pluginPath, plain.c_str(), a) ||
+                    !render(pluginPath, spelt.c_str(), b))
+                    fail("both files render", "");
+                else if (a.empty())
+                    fail("the rendered note is not empty", "");
+                else if (a != b)
+                    fail("spelling out a plugin's own defaults changed the "
+                         "sound", "");
+                else
+                {
+                    /* And it did put them in the file, or the comparison above
+                       is comparing a file with itself. */
+                    string text;
+
+                    ifstream in(spelt.c_str());
+
+                    text.assign((istreambuf_iterator<char>(in)),
+                                istreambuf_iterator<char>());
+
+                    if (text.find("mul = 1;") == string::npos)
+                        fail("the defaults were actually written", text);
+                    else
+                        ok("a node written with its plugin's defaults renders "
+                           "identically to one written without them");
+                }
+            }
+        }
+
+        remove(plain.c_str());
+        remove(spelt.c_str());
     }
 
     remove(scratch.c_str());

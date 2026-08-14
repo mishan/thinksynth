@@ -40,6 +40,8 @@ int module_init (thPlugin *plugin)
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
+    /* `(int)(*in_size)[i]' -- a delay line is a whole number of samples. */
+    plugin->setArgStep(args[IN_SIZE], 1);
     args[IN_DELAY] = plugin->regArg("delay", thPlugin::ARG_IN);
     args[IN_FEEDBACK] = plugin->regArg("feedback", thPlugin::ARG_IN);
     args[IN_DRY] = plugin->regArg("dry", thPlugin::ARG_IN);

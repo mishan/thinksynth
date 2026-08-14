@@ -86,6 +86,11 @@ public:
         float step;
         vector<string> valueNames;
 
+        /* What the arg is for, in the plugin author's words, or empty. 33 args
+           across 11 plugins have one; the other 281 do not, and an empty
+           tooltip is a better answer than one this tree invented. */
+        string desc;
+
         /* For POINTER, "env->out"; for CHANARG, "@cutoff". Empty otherwise. */
         string source;
 
