@@ -62,6 +62,61 @@ static string slurp (const string &path)
     return string((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
 }
 
+/* True if every line beginning `<ref>' -- `@cut', `@cut.min', `@cut.label' --
+ * sits in one unbroken run.
+ *
+ * A control's block is five or six adjacent lines in every shipped file, and a
+ * writer that adds a line in the wrong place still produces something that
+ * parses: the grammar cares only that `@x.min' comes after `@x', so a `.group'
+ * that landed past the block's blank separator reads back correctly and looks
+ * wrong. The parse cannot tell; this can.
+ */
+static bool contiguousBlock (const string &text, const string &ref)
+{
+    int first = -1, last = -1, n = 0, line = 0;
+
+    for (size_t i = 0; i <= text.size(); i++)
+    {
+        if (i < text.size() && text[i] != '\n')
+            continue;
+
+        /* the line that just ended */
+        size_t begin = (size_t)(text.rfind('\n', i ? i - 1 : 0) + 1);
+
+        if (i == 0)
+            begin = 0;
+
+        string t = text.substr(begin, i - begin);
+
+        const size_t a = t.find_first_not_of(" \t\r");
+
+        if (a != string::npos)
+        {
+            t = t.substr(a);
+
+            if (t.compare(0, ref.size(), ref) == 0)
+            {
+                const char next = (t.size() > ref.size()) ? t[ref.size()] : 0;
+
+                if (next == 0 || next == '.' || next == ' ' || next == '\t' ||
+                    next == '=')
+                {
+                    if (first < 0) first = line;
+                    last = line;
+                    n++;
+                }
+            }
+        }
+
+        line++;
+    }
+
+    if (n == 0)
+        return false;
+
+    return (last - first + 1) == n;
+}
+
 /* Parses, and reports whether a named node is present with the expected
    number of ports. */
 static bool hasNode (thSynth &synth, const string &path, const string &node,
@@ -493,6 +548,169 @@ int main (int argc, char **argv)
             }
 
             remove(g.c_str());
+        }
+
+        /* Retyping a control that a file has just been given: adding the line a
+         * field needs and removing the line one no longer does, in one write.
+         *
+         * dspwrite covers this across the corpus, but only ever restores a
+         * control to what it was -- so it never drops a line and adds another
+         * in the same call. Here the label goes away and a group arrives, and
+         * the label was the last line of the block: an insertion point that did
+         * not notice the deletion puts the group outside the block. */
+        {
+            const string g = "/tmp/dspnew-retype.dsp";
+
+            remove(g.c_str());
+
+            if (NodeEdit::createFile(g, "retype", "dspnew", why) !=
+                    NodeEdit::OK ||
+                NodeEdit::addControl(g, "cut", 0.5, 0, 1, "Cutoff", why) !=
+                    NodeEdit::OK)
+            { printf("FAIL  retype setup: %s\n", why.c_str()); failed++; }
+            else if (NodeEdit::setControlMeta(g, "cut", 20, 20000, "", "Filter",
+                                              why) != NodeEdit::OK)
+            { printf("FAIL  setControlMeta: %s\n", why.c_str()); failed++; }
+            else
+            {
+                thSynthTree *t = synth.parseTree(g);
+
+                if (t == NULL)
+                { printf("FAIL  a retyped control does not parse\n"); failed++; }
+                else
+                {
+                    thArg *ca = t->getChanArg("cut");
+
+                    const double lo = ca ? ca->min() : -1;
+                    const double hi = ca ? ca->max() : -1;
+                    const string lab = ca ? ca->label() : "?";
+                    const string grp = ca ? ca->group() : "?";
+
+                    /* The value was 0.5 and the range is now 20..20000, so the
+                       clamp has to have moved it to 20. */
+                    const double v = (ca && ca->len() > 0) ? (*ca)[0] : -1;
+
+                    delete t;
+
+                    if (ca == NULL)
+                    { printf("FAIL  @cut is no longer a chanarg\n"); failed++; }
+                    else if (lo != 20 || hi != 20000)
+                    { printf("FAIL  @cut range came back %g-%g, not 20-20000\n",
+                             lo, hi);
+                      failed++; }
+                    else if (!lab.empty())
+                    { printf("FAIL  @cut kept the label \"%s\" after it was "
+                             "cleared\n", lab.c_str());
+                      failed++; }
+                    else if (grp != "Filter")
+                    { printf("FAIL  @cut group came back \"%s\", not "
+                             "\"Filter\"\n", grp.c_str());
+                      failed++; }
+                    else if (v != 20)
+                    { printf("FAIL  @cut = %g after a range that starts at 20\n",
+                             v);
+                      failed++; }
+                    else if (!contiguousBlock(slurp(g), "@cut"))
+                    { printf("FAIL  @cut's block is no longer contiguous\n");
+                      failed++; }
+                    else
+                        printf("ok    a control retyped: range, label dropped, "
+                               "group added, value clamped\n");
+                }
+            }
+
+            remove(g.c_str());
+        }
+
+        /* A range spelled with something other than a plain number.
+         *
+         * No shipped .dsp does this -- all 412 range lines are literals, 67 of
+         * them with a millisecond unit -- so the corpus cannot catch either of
+         * these, and dspwrite therefore cannot either. Both matter because the
+         * value case has always taken them seriously: 229 uses of th_max and
+         * th_min survive a save precisely because setChanArg compares by value
+         * and not by spelling, and arithmetic is refused outright rather than
+         * folded to the constant it currently evaluates to.
+         *
+         * A range is a number in a .dsp like any other, and had no reason to be
+         * treated as less than one.
+         */
+        {
+            const string k = "/tmp/dspnew-constants.dsp";
+
+            /* `th_max' means 1. Writing 1 over it must leave the six characters
+               alone -- comparing the text would replace them the first time
+               anyone opened the dialog and pressed Apply, having changed
+               nothing. */
+            remove(k.c_str());
+
+            {
+                ofstream out(k.c_str());
+
+                out << "name \"constants\";\n"
+                    << "\n"
+                    << "@lvl = 0.5;\n"
+                    << "@lvl.widget = 1;\n"
+                    << "@lvl.min = th_min;\n"
+                    << "@lvl.max = th_max;\n"
+                    << "\n"
+                    << "node ionode {\n"
+                    << "    channels = 2;\n"
+                    << "};\n"
+                    << "\n"
+                    << "io ionode;\n";
+            }
+
+            const string before = slurp(k);
+
+            if (NodeEdit::setControlMeta(k, "lvl", -1, 1, "", "", why) !=
+                NodeEdit::OK)
+            { printf("FAIL  setControlMeta on a th_min..th_max range: %s\n",
+                     why.c_str());
+              failed++; }
+            else if (slurp(k) != before)
+            { printf("FAIL  writing th_min..th_max back over itself respelt "
+                     "it as numbers\n");
+              failed++; }
+            else
+                printf("ok    a range spelled th_min..th_max survives a write "
+                       "of the numbers it means\n");
+
+            /* And arithmetic is refused, both halves of it: a file left with a
+               new minimum against an arithmetic maximum would be a range this
+               editor produced and cannot read back. */
+            remove(k.c_str());
+
+            {
+                ofstream out(k.c_str());
+
+                out << "name \"constants\";\n"
+                    << "\n"
+                    << "@lvl = 0.5;\n"
+                    << "@lvl.widget = 1;\n"
+                    << "@lvl.min = 0;\n"
+                    << "@lvl.max = th_max * 2;\n"
+                    << "\n"
+                    << "node ionode {\n"
+                    << "    channels = 2;\n"
+                    << "};\n"
+                    << "\n"
+                    << "io ionode;\n";
+            }
+
+            const string arith = slurp(k);
+
+            if (NodeEdit::setControlMeta(k, "lvl", 3, 9, "", "", why) !=
+                NodeEdit::UNWRITABLE)
+            { printf("FAIL  an arithmetic .max was not refused\n"); failed++; }
+            else if (slurp(k) != arith)
+            { printf("FAIL  a refused range change still wrote to the file\n");
+              failed++; }
+            else
+                printf("ok    an arithmetic range is refused, and the refusal "
+                       "writes nothing\n");
+
+            remove(k.c_str());
         }
 
         /* A group name has the same constraint as a label. */

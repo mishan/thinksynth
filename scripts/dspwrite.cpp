@@ -37,6 +37,19 @@
  *   8. move it, reparse, confirm the value took
  *   9. put it back, confirm at most one line differs, and confirm a write of
  *      the value already there changes nothing at all
+ *  10. write its *existing* range, label and group back over itself, and
+ *      confirm no byte of the file moved
+ *  11. widen the range and give it a label and a group whether or not it had
+ *      them, reparse, and confirm all four took -- and that the value is still
+ *      inside the range the file now declares
+ *  12. put the metadata back, and confirm the file is byte identical. Stronger
+ *      than (9) can be: every line involved either existed and was rewritten
+ *      in place, or did not and is deleted again, so a label the file never
+ *      had must leave no trace of having been added
+ *  13. narrow the range past the value, and confirm the value moved into it.
+ *      Separate from (11) because a clamp is one-way: a range widened and put
+ *      back leaves the file as it was, and a range narrowed and put back
+ *      cannot
  *
  * And for every wire:
  *
@@ -223,6 +236,7 @@ int main (int argc, char **argv)
     int unwritable = 0, noops = 0, respelt = 0;
     int wiresCut = 0, wireNoops = 0;
     int controlsMoved = 0, controlNoops = 0, controlsRespelt = 0;
+    int metaNoops = 0, metaChanged = 0, metaRestored = 0, metaClamped = 0;
 
     for (int f = firstFile; f < argc; f++)
     {
@@ -512,6 +526,199 @@ int main (int argc, char **argv)
             controlNoops++;
         }
 
+        /* ---- control metadata: .min, .max, .label, .group ---- */
+
+        for (size_t b = 0; b < g.boxes().size() && problems < 4; b++)
+        {
+            const NodeGraph::Box &bx = g.boxes()[b];
+
+            if (!bx.isControl)
+                continue;
+
+            /* From the tree rather than from the Box: Box::ctlLabel falls back
+               to the control's name when the .dsp gives no .label, so it cannot
+               say whether the line is there -- and writing a label the file
+               never had is not a no-op. */
+            string label0, group0;
+
+            {
+                thSynthTree *t0 = synth.parseTree(argv[f]);
+
+                if (t0 == NULL)
+                { printf("FAIL  %s: will not reparse\n", argv[f]);
+                  problems++; break; }
+
+                const thArg *ca = t0->getChanArg(bx.ctlArg);
+
+                if (ca) { label0 = ca->label(); group0 = ca->group(); }
+
+                delete t0;
+            }
+
+            if (!spit(tmp, original))
+            { printf("FAIL  %s: could not stage a copy\n", argv[f]);
+              problems++; break; }
+
+            string why;
+
+            /* 10. the strong one, and the same one (3) makes for values:
+                   writing the metadata already there changes no byte. This is
+                   what an editor that opens a file and saves it does. */
+            NodeEdit::Result r =
+                NodeEdit::setControlMeta(tmp, bx.ctlArg, bx.ctlMin, bx.ctlMax,
+                                         label0, group0, why);
+
+            {
+                string back;
+
+                slurp(tmp, back);
+
+                if (r != NodeEdit::OK)
+                { printf("FAIL  %s: setControlMeta(@%s) -> %s (%s)\n", argv[f],
+                         bx.ctlArg.c_str(), NodeEdit::resultText(r),
+                         why.c_str());
+                  problems++; continue; }
+
+                if (back != original)
+                { printf("FAIL  %s: a no-op metadata write to @%s changed the "
+                         "file\n", argv[f], bx.ctlArg.c_str());
+                  showFirstDiff(original, back);
+                  problems++; continue; }
+            }
+
+            metaNoops++;
+
+            /* 11. a real change: widen the range, and give it a label and a
+                   group whether or not it had them.
+             *
+             * Strictly *containing* the old range, deliberately. Narrowing is
+             * covered separately below, because it can move the value -- and a
+             * clamp is one-way, so a test that narrows and then expects the
+             * file back byte for byte is asserting something untrue. Eight
+             * controls in the corpus have a negative minimum, and an earlier
+             * version of this that clamped `bx.ctlMin - 1' at zero narrowed
+             * exactly those and blamed the writer for it. */
+            const double newMin = bx.ctlMin - 1.0;
+            const double newMax = bx.ctlMax + 7.5;
+
+            const string newLabel = "Test Label";
+            const string newGroup = "Test Group";
+
+            r = NodeEdit::setControlMeta(tmp, bx.ctlArg, newMin, newMax,
+                                         newLabel, newGroup, why);
+
+            if (r != NodeEdit::OK)
+            { printf("FAIL  %s: setControlMeta(@%s) -> %s (%s)\n", argv[f],
+                     bx.ctlArg.c_str(), NodeEdit::resultText(r), why.c_str());
+              problems++; continue; }
+
+            {
+                thSynthTree *t2 = synth.parseTree(tmp);
+
+                if (t2 == NULL)
+                { printf("FAIL  %s: will not parse after retyping @%s\n",
+                         argv[f], bx.ctlArg.c_str());
+                  problems++; continue; }
+
+                thArg *ca = t2->getChanArg(bx.ctlArg);
+
+                if (ca == NULL)
+                { printf("FAIL  %s: @%s is no longer a chanarg after "
+                         "retyping\n", argv[f], bx.ctlArg.c_str());
+                  delete t2; problems++; continue; }
+
+                const double gotMin = ca->min(), gotMax = ca->max();
+                const string gotLabel = ca->label(), gotGroup = ca->group();
+                const double gotValue = (ca->len() > 0) ? (*ca)[0] : 0;
+
+                delete t2;
+
+                const double tol = fabs(newMax) * 1e-5 + 1e-6;
+
+                if (fabs(gotMin - newMin) > tol || fabs(gotMax - newMax) > tol)
+                { printf("FAIL  %s: @%s range written as %g..%g, read back as "
+                         "%g..%g\n", argv[f], bx.ctlArg.c_str(), newMin, newMax,
+                         gotMin, gotMax);
+                  problems++; continue; }
+
+                if (gotLabel != newLabel || gotGroup != newGroup)
+                { printf("FAIL  %s: @%s label/group written as \"%s\"/\"%s\", "
+                         "read back as \"%s\"/\"%s\"\n", argv[f],
+                         bx.ctlArg.c_str(), newLabel.c_str(), newGroup.c_str(),
+                         gotLabel.c_str(), gotGroup.c_str());
+                  problems++; continue; }
+
+                /* The clamp: the value must always be inside the range the
+                   file declares, whatever the range was moved to. */
+                if (gotValue < gotMin - tol || gotValue > gotMax + tol)
+                { printf("FAIL  %s: @%s = %g is outside its own %g..%g\n",
+                         argv[f], bx.ctlArg.c_str(), gotValue, gotMin, gotMax);
+                  problems++; continue; }
+            }
+
+            metaChanged++;
+
+            /* 12. and back. Byte-identical this time, unlike the value case:
+                   every line involved either existed and was rewritten in
+                   place, or did not and is deleted again. A label the file
+                   never had must leave no trace of having been added. */
+            r = NodeEdit::setControlMeta(tmp, bx.ctlArg, bx.ctlMin, bx.ctlMax,
+                                         label0, group0, why);
+
+            {
+                string back;
+
+                slurp(tmp, back);
+
+                if (r != NodeEdit::OK || back != original)
+                { printf("FAIL  %s: restoring the metadata of @%s did not "
+                         "restore the file\n", argv[f], bx.ctlArg.c_str());
+                  showFirstDiff(original, back);
+                  problems++; continue; }
+            }
+
+            metaRestored++;
+
+            /* 13. narrowing to a range the value is not in must move the
+                   value, not leave a slider that cannot reach what the file
+                   says. Above the value on purpose, so the expected answer is
+                   the new minimum and not a coincidence. */
+            {
+                const double lo = (double)bx.ctlValue + 1.0;
+                const double hi = lo + 1.0;
+
+                r = NodeEdit::setControlMeta(tmp, bx.ctlArg, lo, hi, label0,
+                                             group0, why);
+
+                if (r != NodeEdit::OK)
+                { printf("FAIL  %s: narrowing @%s -> %s (%s)\n", argv[f],
+                         bx.ctlArg.c_str(), NodeEdit::resultText(r),
+                         why.c_str());
+                  problems++; continue; }
+
+                thSynthTree *t3 = synth.parseTree(tmp);
+
+                if (t3 == NULL)
+                { printf("FAIL  %s: will not parse after narrowing @%s\n",
+                         argv[f], bx.ctlArg.c_str());
+                  problems++; continue; }
+
+                thArg *ca = t3->getChanArg(bx.ctlArg);
+
+                const double got = (ca && ca->len() > 0) ? (*ca)[0] : 0;
+
+                delete t3;
+
+                if (fabs(got - lo) > fabs(lo) * 1e-5 + 1e-6)
+                { printf("FAIL  %s: @%s was %g and the range moved to %g..%g, "
+                         "but the value is %g\n", argv[f], bx.ctlArg.c_str(),
+                         (double)bx.ctlValue, lo, hi, got);
+                  problems++; continue; }
+
+                metaClamped++;
+            }
+        }
+
         /* ---- wires ---- */
 
         for (size_t e = 0; e < g.edges().size() && problems < 4; e++)
@@ -621,6 +828,13 @@ int main (int argc, char **argv)
     printf("  %d controls moved and restored (%d respelt), %d no-op writes, "
            "every one byte-identical\n", controlsMoved, controlsRespelt,
            controlNoops);
+    printf("  %d control ranges retyped and restored byte-identically, "
+           "%d no-op metadata writes, every one byte-identical\n",
+           metaRestored, metaNoops);
+    printf("  %d values clamped by a range narrowed past them\n", metaClamped);
+
+    if (metaChanged != metaRestored)
+        printf("  (%d retyped but not restored)\n", metaChanged - metaRestored);
 
     return failed;
 }

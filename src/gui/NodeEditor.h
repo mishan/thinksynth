@@ -108,24 +108,51 @@ protected:
     int paramsWidth (void) const;
     void setParamsWidth (int width);
 
-    /* The new-control form, alive between the asking and the answer.
-       Gtk::Dialog::run() used to keep these on the stack. */
+    /* The control form, alive between the asking and the answer.
+       Gtk::Dialog::run() used to keep these on the stack.
+
+       `value' is NULL when the form is retyping a control that already exists:
+       a control's value is what the slider on its own box is for, and offering
+       a second way to set it in a dialog about its range would be two controls
+       for one number. */
     struct ControlForm {
         Gtk::Dialog *dlg;
         Gtk::Entry *name;
         Gtk::Entry *label;
+        Gtk::Entry *group;
         Gtk::SpinButton *min;
         Gtk::SpinButton *max;
         Gtk::SpinButton *value;
         sigc::slot<void (ControlForm *)> done;
     };
 
-    /* Asks for a control's name, range and label, and calls `done' with the
-       form once the answer is one the .dsp grammar can hold. */
-    void askControl (const string &suggested,
+    /* What the form starts out holding.
+     *
+     * A struct rather than a longer argument list because adding a control and
+     * retyping one disagree about six of these and agree about the validation,
+     * and the validation is the part worth having in one place -- a name the
+     * lexer will not read back, a label with a quote in it and an inverted
+     * range are refusals whichever operation asked. */
+    struct ControlFormSetup {
+        string title;       /* the dialog's title                          */
+        string okText;      /* what the accepting button says              */
+        string name;
+        bool nameFixed;     /* retyping: renaming is a different operation */
+        bool askValue;      /* adding: nothing else has said what it is    */
+        double value, min, max;
+        string label, group;
+    };
+
+    /* Asks for a control's name, range, label and group, and calls `done' with
+       the form once the answer is one the .dsp grammar can hold. */
+    void askControl (const ControlFormSetup &setup,
                      const sigc::slot<void (ControlForm *)> &done);
     void onAskControlResponse (int response, ControlForm *form);
     void addControlFromForm (ControlForm *form);
+
+    /* Right-click on a control box: retype its range, label and group. */
+    void onEditControl (int box);
+    void editControlFromForm (ControlForm *form);
     void onNewFile (void);
     void onNewFileResponse (int response, Gtk::FileChooserDialog *dlg);
     void onDeleteNode (void);

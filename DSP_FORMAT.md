@@ -177,6 +177,15 @@ Two things that only showed up in practice:
 - **`@x.min` before `@x` has nothing to modify** — the parser says so and
   ignores it. A control block is written value, widget, min, max, label, in that
   order, before the first `node`, which is where all 206 of the shipped ones sit.
+  That order is the *only* constraint, so a metadata line added to a block that
+  never had one goes at the end rather than in its canonical slot: reshuffling
+  someone's file into the order this writer happens to prefer is an edit nobody
+  asked for. A `.min` or a `.max` is a number like any other and every rule
+  above applies to it: all 67 units on a range sit on a `.max` and are kept; a
+  range spelled `th_max` is compared by value, so writing the 1 it means leaves
+  it spelled `th_max`; and an arithmetic range is refused. No shipped file
+  exercises the last two — all 412 range lines are plain literals — which is why
+  `dspnew` writes the files that do.
 - **A unit is distinguished by a number in front of it**, not by a non-word
   character before it. `80ms` (33 occurrences) and `5 ms` (65) are both units.
   The original spacing is preserved: `80ms` stays `80ms`.
