@@ -959,12 +959,17 @@ NodeEdit::Result NodeEdit::find (const string &filename, const string &node,
  * means a node's `freq = @filt1' -- which mentions the same name -- cannot be
  * mistaken for the declaration.
  */
-static bool findChanArg (const vector<string> &lines, const string &name,
-                         size_t &line, string::size_type &rhsFrom,
-                         string::size_type &rhsTo)
-{
-    const string want = "@" + name;
+/* A top-level `<want> = <rhs>;', where `want' is the whole spelling: `@blim'
+   for the declaration, `@blim.min' for one of its metadata lines.
 
+   Taking the spelling rather than the control name is what lets the metadata
+   share this. The guard below is `not a word character', so `@blim' declines to
+   match `@blim2' -- and also declines to match `@blim.min', because what
+   follows `@blim' there is a `.' and then no `='. */
+static bool findDecl (const vector<string> &lines, const string &want,
+                      size_t &line, string::size_type &rhsFrom,
+                      string::size_type &rhsTo)
+{
     int depth = 0;
 
     for (size_t i = 0; i < lines.size(); i++)
@@ -977,7 +982,6 @@ static bool findChanArg (const vector<string> &lines, const string &name,
 
             if (t.compare(0, want.size(), want) == 0)
             {
-                /* `@blim' and not `@blim2' or `@blim.min' */
                 string::size_type p = want.size();
 
                 if (p >= t.size() || !isWordChar(t[p]))
@@ -1027,6 +1031,13 @@ static bool findChanArg (const vector<string> &lines, const string &name,
     }
 
     return false;
+}
+
+static bool findChanArg (const vector<string> &lines, const string &name,
+                         size_t &line, string::size_type &rhsFrom,
+                         string::size_type &rhsTo)
+{
+    return findDecl(lines, "@" + name, line, rhsFrom, rhsTo);
 }
 
 NodeEdit::Result NodeEdit::setChanArg (const string &filename,
@@ -1463,6 +1474,285 @@ NodeEdit::Result NodeEdit::addControl (const string &filename,
        modify, and the parser says so and ignores it. */
     lines.insert(lines.begin() + findFirstNodeLine(lines),
                  block.begin(), block.end());
+
+    if (!writeLines(filename, lines, endsWithNewline))
+    {
+        why = "could not write " + filename;
+        return IO_ERROR;
+    }
+
+    return OK;
+}
+
+/* ---- editing a control's metadata -------------------------------------- */
+
+/* The last line at depth zero belonging to `@name' -- the declaration itself or
+   any `@name.something'. Where a metadata line the file does not have goes.
+ *
+ * The end of the block rather than a particular slot in it, because the only
+ * ordering the parser cares about is that `@x.min' comes after `@x': before it
+ * there is nothing to modify, and the parser says so and ignores the line. The
+ * canonical order addControl() writes -- value, widget, min, max, label -- is
+ * for a reader's benefit, and reordering someone else's file to match it would
+ * be a change they did not ask for. */
+static bool findControlBlockEnd (const vector<string> &lines,
+                                 const string &name, size_t &last)
+{
+    const string ref = "@" + name;
+
+    bool found = false;
+    int depth = 0;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        const string code = codeOf(lines[i]);
+
+        if (depth == 0)
+        {
+            const string t = trim(code);
+
+            if (t.compare(0, ref.size(), ref) == 0)
+            {
+                const char next = (t.size() > ref.size()) ? t[ref.size()] : 0;
+
+                /* `@blim = ', `@blim.min = ' -- but not `@blim2'. */
+                if (next == 0 || next == '.' || next == ' ' || next == '\t' ||
+                    next == '=')
+                {
+                    last = i;
+                    found = true;
+                }
+            }
+        }
+
+        for (size_t k = 0; k < code.size(); k++)
+        {
+            if (code[k] == '{') depth++;
+            else if (code[k] == '}' && depth > 0) depth--;
+        }
+    }
+
+    return found;
+}
+
+/* The leading whitespace of `line'. A control block is indented in most of the
+   shipped files and flush left in some; a line added to one should look like
+   the lines around it rather than like this function's opinion. */
+static string leadingSpaceOf (const string &line)
+{
+    const string::size_type n = line.find_first_not_of(" \t");
+
+    if (n == string::npos)
+        return "";
+
+    return line.substr(0, n);
+}
+
+/* Rewrites `@<name>.<field> = <text>;', adding the line if the file has none.
+   Works on `lines' in memory so that a caller changing three of them writes the
+   file once. Returns false only for a right-hand side it will not touch. */
+static bool spliceControlField (vector<string> &lines, const string &name,
+                                const string &field, const string &text,
+                                const string &indent, size_t &blockEnd)
+{
+    const string want = "@" + name + "." + field;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (findDecl(lines, want, line, from, to))
+    {
+        if (lines[line].compare(from, to - from, text) == 0)
+            return true;        /* already says that: leave the byte alone */
+
+        lines[line] = lines[line].substr(0, from) + text +
+                      lines[line].substr(to);
+
+        return true;
+    }
+
+    lines.insert(lines.begin() + blockEnd + 1,
+                 indent + want + " = " + text + ";");
+
+    blockEnd++;
+
+    return true;
+}
+
+/* Deletes `@<name>.<field> = ...;' if it is there. For a label being cleared:
+   writing `""' would parse, but the file would then carry a declaration of
+   nothing, and a control that never had a label would stop matching one whose
+   label was removed. */
+static void dropControlField (vector<string> &lines, const string &name,
+                              const string &field, size_t &blockEnd)
+{
+    const string want = "@" + name + "." + field;
+
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+
+    if (!findDecl(lines, want, line, from, to))
+        return;
+
+    lines.erase(lines.begin() + line);
+
+    /* `>=', not `>': dropping the line the block currently ends on leaves the
+       block one shorter, and an insertion after a blockEnd that had not moved
+       would land past the block rather than in it. */
+    if (blockEnd >= line)
+        blockEnd--;
+}
+
+/* Formats `value' the way `@<name>.<field>' is already spelled: same unit, same
+ * spacing.
+ *
+ * All 67 units on a range in the corpus are on a `.max', and every one of them
+ * is a millisecond envelope time. `@a.max = 20000ms' is written that way
+ * because twenty seconds is what the author meant; the lexer folds it to
+ * 882000 and re-deriving the literal is only possible because the grammar's
+ * conversion is exactly invertible. Writing the folded number back would be
+ * correct and unreadable, and would do it to a line nobody asked to change.
+ */
+static bool formatLikeField (const vector<string> &lines, const string &name,
+                             const string &field, double value, string &out)
+{
+    size_t line = 0;
+    string::size_type from = 0, to = 0;
+    string units, suffix;
+
+    if (findDecl(lines, "@" + name + "." + field, line, from, to))
+    {
+        const string rhs = lines[line].substr(from, to - from);
+
+        units = NodeEdit::unitsOf(rhs);
+        suffix = suffixTextOf(rhs);
+    }
+
+    string body;
+
+    if (!formatLiteral(value, units, body))
+        return false;
+
+    out = body + suffix;
+
+    return true;
+}
+
+NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
+                                           const string &name, double min,
+                                           double max, const string &label,
+                                           const string &group, string &why)
+{
+    why.clear();
+
+    if (!validLabel(label))
+    {
+        why = "a label cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (!validLabel(group))
+    {
+        why = "a group name cannot contain a quote or a newline";
+        return REFUSED;
+    }
+
+    if (max <= min)
+    {
+        why = "the maximum must be above the minimum";
+        return REFUSED;
+    }
+
+    vector<string> lines;
+    bool endsWithNewline = true;
+
+    if (!readLines(filename, lines, endsWithNewline))
+    {
+        why = "could not open " + filename;
+        return IO_ERROR;
+    }
+
+    size_t declLine = 0;
+    string::size_type declFrom = 0, declTo = 0;
+
+    if (!findChanArg(lines, name, declLine, declFrom, declTo))
+    {
+        why = "no `@" + name + " = ...' line in the file";
+        return NO_NODE;
+    }
+
+    size_t blockEnd = declLine;
+
+    findControlBlockEnd(lines, name, blockEnd);
+
+    const string indent = leadingSpaceOf(lines[declLine]);
+
+    /* Units first, from whatever the file already says. `@a.max = 2000ms' is
+       written that way because 2000 milliseconds is what the author meant; the
+       lexer folds it to 88200 and re-deriving the literal is only possible
+       because the conversion is exactly invertible. Handing back a raw sample
+       count would be correct and unreadable. */
+    string minText, maxText;
+
+    if (!formatLikeField(lines, name, "min", min, minText))
+    {
+        why = "cannot write that minimum in a .dsp";
+        return UNWRITABLE;
+    }
+
+    if (!formatLikeField(lines, name, "max", max, maxText))
+    {
+        why = "cannot write that maximum in a .dsp";
+        return UNWRITABLE;
+    }
+
+    spliceControlField(lines, name, "min", minText, indent, blockEnd);
+    spliceControlField(lines, name, "max", maxText, indent, blockEnd);
+
+    if (label.empty())
+        dropControlField(lines, name, "label", blockEnd);
+    else
+        spliceControlField(lines, name, "label", "\"" + label + "\"", indent,
+                           blockEnd);
+
+    if (group.empty())
+        dropControlField(lines, name, "group", blockEnd);
+    else
+        spliceControlField(lines, name, "group", "\"" + group + "\"", indent,
+                           blockEnd);
+
+    /* The value last, and only if the new range no longer contains it.
+     *
+     * Narrowing a range around a value outside it leaves a slider that cannot
+     * reach the number the file says, and moves it the instant it is touched --
+     * a change to the sound that looks like it came from nowhere. Clamping here
+     * makes it happen at the moment the range was changed, which is the moment
+     * it can be understood. A range that still contains the value changes
+     * nothing, which is what keeps a no-op write a no-op. */
+    {
+        /* findChanArg again: the splices above may have moved the line. */
+        if (findChanArg(lines, name, declLine, declFrom, declTo))
+        {
+            const string rhs = lines[declLine].substr(declFrom,
+                                                      declTo - declFrom);
+
+            double value;
+
+            if (parseRhs(rhs, value) && (value < min || value > max))
+            {
+                const double clamped = (value < min) ? min : max;
+
+                string text;
+
+                if (formatLiteral(clamped, unitsOf(rhs), text))
+                {
+                    lines[declLine] = lines[declLine].substr(0, declFrom) +
+                                      text + suffixTextOf(rhs) +
+                                      lines[declLine].substr(declTo);
+                }
+            }
+        }
+    }
 
     if (!writeLines(filename, lines, endsWithNewline))
     {

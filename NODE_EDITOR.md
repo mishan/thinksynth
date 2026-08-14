@@ -147,6 +147,41 @@ plus a tighter gap 1502 x 542    1486                2920
 it was 70 because a control in layer 0 could have a long wire crossing a column,
 and they are strips on their hosts now. On a 17-layer patch that is 440 pixels.
 
+### Retyping one
+
+Right-click a control — its box, or the strip it is drawn as — for its range,
+label and group. The range is the thing a slider can neither show nor change: a
+cutoff declared `0..1` has a slider that reaches a tenth of the filter, and
+nothing on the canvas says so or offers to fix it.
+
+Four lines, one write. `.min`, `.max`, `.label` and `.group` are spliced
+together and the file renamed into place once, so a range change is not four
+chances to leave a half-edited file behind. A line the file does not have is
+added at the end of the block: the parser only requires that `@x.min` come
+*after* `@x`, so the canonical order `addControl` writes is for a reader rather
+than a requirement, and reordering someone's file to match it would be an edit
+they did not ask for. An empty label or group **removes** the line rather than
+writing `""` — a control that never had a label and one whose label was cleared
+should be the same file.
+
+**Narrowing a range clamps the value.** Otherwise the slider cannot reach what
+the file says and moves the instant it is touched, which reads as a change to
+the sound coming from nowhere; clamping makes it happen at the moment the range
+changed, which is the moment it can be understood. It is one-way, and a
+round-trip check has to know that: a range widened and put back leaves the file
+byte for byte, and a range narrowed and put back cannot.
+
+**The name is not editable here.** Renaming would have to rewrite every
+`in1 = @old` in the file as well as the block, which is `removeControl` and
+`addControl` and a different thing to offer. The field is shown and
+insensitive, so the dialog still says which control it is about.
+
+Like adding a node, this writes immediately and reopens rather than waiting for
+Save. A range decides how the strip is drawn and what the slider can reach, and
+both come from a parse — a range that had changed in the file and not on the
+canvas would be a slider lying about where its own ends are. Revert still
+undoes it.
+
 ### Groups
 
 `.group` lets four envelope sliders draw as one titled block. Two things the
@@ -170,12 +205,18 @@ their own**, because a control is the one thing there that is not a plugin:
 `@blim` is a block in the file, not something in `plugins/`. Filing it under a
 made-up category would say otherwise.
 
-Adding one asks for a name, range and label, because unlike a plugin nothing
-about a control is implied by picking it. The range especially has no sensible
-default — 0 to 1 is right for a mix and useless for a filter cutoff — and getting
-it wrong means a slider that cannot reach the value you want. The dialog loops
-rather than validating once, so a rejected name can be corrected instead of
-throwing the whole thing away.
+Adding one asks for a name, range, label and group, because unlike a plugin
+nothing about a control is implied by picking it. The range especially has no
+sensible default — 0 to 1 is right for a mix and useless for a filter cutoff —
+and getting it wrong means a slider that cannot reach the value you want. The
+dialog loops rather than validating once, so a rejected name can be corrected
+instead of throwing the whole thing away.
+
+It is the same dialog that retypes an existing control, with the name fixed and
+the value left out: the two disagree about which fields to show and agree about
+what makes an answer unusable, and the validation is the half worth having in
+one place. A name the lexer will not read back, a label with a quote in it and
+an inverted range are refusals whichever operation asked.
 
 **New** writes the smallest file that loads and builds up from there; the result
 is indistinguishable from a hand-written file because it is produced by the same
@@ -255,8 +296,8 @@ by hand rather than by `ctest`.
 | Harness | Covers |
 |---|---|
 | `dspgraph` | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
-| `dspwrite` | values and wires cut and restored across the corpus, byte-identical |
-| `dspnew` | builds files from nothing: adds and removes one node of every plugin in the catalogue, then renders audio from what it built |
+| `dspwrite` | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
+| `dspnew` | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, then renders audio from what it built |
 | `dsplayout` | layer counts against the critical-path floor, and the wrap-mode cut profile |
 | `dsplive` | that moving a control changes the sound of a ringing note |
 | `dspab` | two renders compared bitwise, for changes meant to be inaudible |
@@ -266,6 +307,12 @@ Three things worth repeating about how these are written:
 - **A round-trip check must scramble first.** Asserting that positions survive a
   save is worthless if the test writes out the positions `layout()` just
   computed, since a save that silently did nothing still passes.
+- **A parse cannot tell you a line went in the wrong place.** The grammar cares
+  only that `@x.min` follows `@x`, so a `.group` that landed past the block's
+  blank separator reads back perfectly and looks wrong. `dspnew` asserts the
+  block is contiguous, which is the only way that break shows up — it was
+  written, confirmed to pass with the bug in, and the assertion added because
+  of it.
 - **`dspnew`'s last assertion is the point.** Everything above it can pass while
   the result is a file that loads and makes no sound, which is not authoring.
 - **`dsplive` reports its non-effects separately rather than as errors.** 151
@@ -279,11 +326,6 @@ finding them means sitting in front of it.
 
 ## 9. Still ahead
 
-- **A control's `.min`/`.max`/`.label` are read but not editable.** Changing a
-  control's range means rewriting three more lines, which is the same splice
-  applied three times rather than anything new.
-- **The palette's control dialog does not ask for a group.** The writer already
-  takes one.
 - **`dspcheck` should grow a "load this and process it" check** for anything the
   editor writes.
 - **`thSynthTree::buildSynthTree` walks the graph recursively with a `recalc`
