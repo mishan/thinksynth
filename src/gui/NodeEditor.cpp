@@ -1199,7 +1199,7 @@ void NodeEditor::onPaletteAdd (string spelling)
  * answer will not do.
  *
  * `done' is what to do with a good answer. */
-void NodeEditor::askControl (const string &suggested,
+void NodeEditor::askControl (const ControlFormSetup &setup,
                              const sigc::slot<void (ControlForm *)> &done)
 {
     Gtk::Window *top = topLevel();
@@ -1210,10 +1210,10 @@ void NodeEditor::askControl (const string &suggested,
     ControlForm *form = new ControlForm;
 
     form->done = done;
-    form->dlg = new Gtk::Dialog("New control", *top, true);
+    form->dlg = new Gtk::Dialog(setup.title, *top, true);
 
     form->dlg->add_button("Cancel", Gtk::ResponseType::CANCEL);
-    form->dlg->add_button("Add", Gtk::ResponseType::OK);
+    form->dlg->add_button(setup.okText, Gtk::ResponseType::OK);
     form->dlg->set_default_response(Gtk::ResponseType::OK);
 
     Gtk::Grid *grid = manage(new Gtk::Grid);
@@ -1227,39 +1227,78 @@ void NodeEditor::askControl (const string &suggested,
 
     form->name = manage(new Gtk::Entry);
     form->label = manage(new Gtk::Entry);
+    form->group = manage(new Gtk::Entry);
 
-    form->name->set_text(suggested);
+    form->name->set_text(setup.name);
     form->name->set_activates_default(true);
+    form->label->set_text(setup.label);
     form->label->set_activates_default(true);
     form->label->set_placeholder_text("optional");
+    form->group->set_text(setup.group);
+    form->group->set_activates_default(true);
+    form->group->set_placeholder_text("optional");
+
+    /* Renaming would have to rewrite every `in1 = @old' in the file as well as
+       the block, which is removeControl and addControl and a different thing to
+       offer. Insensitive rather than absent, so the dialog still says which
+       control it is about. */
+    if (setup.nameFixed)
+    {
+        form->name->set_sensitive(false);
+        form->name->set_tooltip_text(
+            "A control cannot be renamed here: every node reading @" +
+            setup.name + " would have to be rewritten too.");
+    }
 
     form->min = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0, -1000000, 1000000, 0.1, 1), 0.1, 4));
+        Gtk::Adjustment::create(setup.min, -1000000, 1000000, 0.1, 1), 0.1, 4));
     form->max = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(1, -1000000, 1000000, 0.1, 1), 0.1, 4));
-    form->value = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0.5, -1000000, 1000000, 0.1, 1), 0.1, 4));
+        Gtk::Adjustment::create(setup.max, -1000000, 1000000, 0.1, 1), 0.1, 4));
 
-    const char *labels[] = { "Name", "Label", "Minimum", "Maximum", "Value" };
-    Gtk::Widget *fields[] = { form->name, form->label, form->min, form->max,
-                              form->value };
+    form->value = NULL;
 
-    for (int i = 0; i < 5; i++)
+    if (setup.askValue)
+        form->value = manage(new Gtk::SpinButton(
+            Gtk::Adjustment::create(setup.value, -1000000, 1000000, 0.1, 1),
+            0.1, 4));
+
+    const char *labels[] = { "Name", "Label", "Group", "Minimum", "Maximum",
+                             "Value" };
+    Gtk::Widget *fields[] = { form->name, form->label, form->group, form->min,
+                              form->max, form->value };
+
+    int row = 0;
+
+    for (int i = 0; i < 6; i++)
     {
+        if (fields[i] == NULL)
+            continue;
+
         Gtk::Label *l = manage(new Gtk::Label(labels[i]));
 
         l->set_xalign(1.0);
 
-        grid->attach(*l, 0, i, 1, 1);
-        grid->attach(*fields[i], 1, i, 1, 1);
+        grid->attach(*l, 0, row, 1, 1);
+        grid->attach(*fields[i], 1, row, 1, 1);
+
+        row++;
     }
 
     Gtk::Label *hint = manage(new Gtk::Label);
 
-    hint->set_markup("<small>The name is what nodes read as "
-                     "<tt>@name</tt>.</small>");
+    /* The group is the one field nothing about the canvas explains, so the
+       hint says what it buys: four sliders sharing one draw as a titled block
+       against the node they drive rather than as four unrelated rows. */
+    hint->set_markup(
+        setup.nameFixed
+            ? "<small>Sliders sharing a <i>group</i> are drawn as one titled "
+              "block.</small>"
+            : "<small>The name is what nodes read as <tt>@name</tt>.  Sliders "
+              "sharing a <i>group</i> are drawn as one titled block.</small>");
     hint->set_xalign(0.0);
-    grid->attach(*hint, 0, 5, 2, 1);
+    hint->set_wrap(true);
+    hint->set_max_width_chars(44);
+    grid->attach(*hint, 0, row, 2, 1);
 
     grid->set_hexpand(true);
     form->dlg->get_content_area()->append(*grid);
@@ -1288,6 +1327,9 @@ void NodeEditor::onAskControlResponse (int response, ControlForm *form)
     else if (!NodeEdit::validLabel(form->label->get_text()))
         complaint = "A label cannot contain a quote -- the .dsp string syntax "
                     "has no way to escape one.";
+    else if (!NodeEdit::validLabel(form->group->get_text()))
+        complaint = "A group name cannot contain a quote -- the .dsp string "
+                    "syntax has no way to escape one.";
     else if (form->max->get_value() <= form->min->get_value())
         complaint = "The maximum must be above the minimum.";
 
@@ -1323,14 +1365,25 @@ void NodeEditor::onPaletteAddControl (void)
         if (graph_.boxes()[b].isControl)
             taken.push_back(graph_.boxes()[b].ctlArg);
 
-    askControl(NodeCatalog::suggestName("ctl", taken),
-               sigc::mem_fun(*this, &NodeEditor::addControlFromForm));
+    ControlFormSetup setup;
+
+    setup.title = "New control";
+    setup.okText = "Add";
+    setup.name = NodeCatalog::suggestName("ctl", taken);
+    setup.nameFixed = false;
+    setup.askValue = true;
+    setup.value = 0.5;
+    setup.min = 0;
+    setup.max = 1;
+
+    askControl(setup, sigc::mem_fun(*this, &NodeEditor::addControlFromForm));
 }
 
 void NodeEditor::addControlFromForm (ControlForm *form)
 {
     const string name = form->name->get_text();
     const string label = form->label->get_text();
+    const string group = form->group->get_text();
     const double value = form->value->get_value();
     const double min = form->min->get_value();
     const double max = form->max->get_value();
@@ -1347,7 +1400,7 @@ void NodeEditor::addControlFromForm (ControlForm *form)
         return;
     }
 
-    if (NodeEdit::addControl(work_, name, value, min, max, label, why)
+    if (NodeEdit::addControl(work_, name, value, min, max, label, group, why)
         != NodeEdit::OK)
     {
         setStatus("Could not add @" + name + ": " + why);
@@ -1374,6 +1427,96 @@ void NodeEditor::addControlFromForm (ControlForm *form)
 
     setStatus("Added @" + name +
               ".  Drag from its output to a parameter to use it.");
+}
+
+/* Right-click on a control box, or on the strip it is drawn as.
+ *
+ * The range is the one thing about a control that a slider cannot tell you and
+ * cannot change: a cutoff declared 0..1 has a slider that reaches a tenth of
+ * the filter, and nothing on the canvas says so or offers to fix it. */
+void NodeEditor::onEditControl (int box)
+{
+    if (box < 0 || box >= (int)graph_.boxes().size())
+        return;
+
+    const NodeGraph::Box &b = graph_.boxes()[box];
+
+    if (!b.isControl)
+        return;
+
+    ControlFormSetup setup;
+
+    setup.title = "Control @" + b.ctlArg;
+    setup.okText = "Apply";
+    setup.name = b.ctlArg;
+    setup.nameFixed = true;
+    setup.askValue = false;
+    setup.value = b.ctlValue;
+    setup.min = b.ctlMin;
+    setup.max = b.ctlMax;
+    setup.group = b.ctlGroup;
+
+    /* Box::ctlLabel falls back to the control's name when the .dsp declares no
+       .label, so handing it back as the label would turn every unlabelled
+       control into one labelled with its own name the first time this dialog
+       was opened and accepted. The arg is where the empty string lives. */
+    {
+        thArg *ca = tree_ ? tree_->getChanArg(b.ctlArg) : NULL;
+
+        if (ca)
+            setup.label = ca->label();
+    }
+
+    askControl(setup, sigc::mem_fun(*this, &NodeEditor::editControlFromForm));
+}
+
+void NodeEditor::editControlFromForm (ControlForm *form)
+{
+    const string name = form->name->get_text();
+    const string label = form->label->get_text();
+    const string group = form->group->get_text();
+    const double min = form->min->get_value();
+    const double max = form->max->get_value();
+
+    string why;
+
+    /* Same order as adding: flush the pending edits first, so a range change
+       does not land in a file that has lost the wires drawn before it. */
+    if (!flushPending(why))
+    {
+        setStatus("Not retyping @" + name + ": the pending edits could not be "
+                  "saved first (" + why + ")");
+        return;
+    }
+
+    if (NodeEdit::setControlMeta(work_, name, min, max, label, group, why)
+        != NodeEdit::OK)
+    {
+        setStatus("Could not retype @" + name + ": " + why);
+        return;
+    }
+
+    /* Immediate and reopened, like adding a node rather than like moving a
+       slider. A control's range decides how its strip is drawn and what its
+       slider can reach, and both come from a parse -- so a range that had
+       changed in the file and not on the canvas would be a slider lying about
+       where its own ends are. Revert still undoes it. */
+    structuralDirty_ = true;
+
+    if (!reload())
+        return;
+
+    const int box = graph_.boxByName("@" + name);
+
+    if (box >= 0)
+        canvas_.setSelected(box);
+
+    string lo, hi;
+
+    if (!NodeEdit::format(min, lo)) lo = "?";
+    if (!NodeEdit::format(max, hi)) hi = "?";
+
+    setStatus("@" + name + " now runs " + lo + " to " + hi + ".");
 }
 
 /* Deletes everything selected.
@@ -2309,6 +2452,33 @@ void NodeEditor::onContextRequested (int box, int port, double x, double y)
                     setStatus("Stopped watching " + node + "." + arg);
                     return;
                 }
+        });
+
+        menu->append(*btn);
+    }
+    else if (b.isControl && (port < 0 || port >= (int)b.ports.size() ||
+                             b.ports[port].isInput))
+    {
+        /* Not on the output port: that still offers to watch it, since a
+           control is a signal like any other. Anywhere else on a control --
+           its strip, its slider, its frame -- the useful answer is its range,
+           which is the one thing about it the canvas can neither show nor
+           change. */
+        Gtk::Button *btn = Gtk::manage(
+            new Gtk::Button("Range and label of @" + b.ctlArg + "\xe2\x80\xa6"));
+
+        /* By name, like the probe entry above and for the same reason: a box
+           index captured while the menu was open would be stale if anything
+           rebuilt the graph in between. */
+        const string ctl = b.ctlArg;
+
+        btn->set_has_frame(false);
+        btn->set_tooltip_text(
+            "The minimum and maximum the slider runs between, and how it is "
+            "labelled.");
+        btn->signal_clicked().connect([this, ctl]() {
+            ctxPopover_.popdown();
+            onEditControl(graph_.boxByName("@" + ctl));
         });
 
         menu->append(*btn);

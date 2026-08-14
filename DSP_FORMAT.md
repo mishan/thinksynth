@@ -177,6 +177,12 @@ Two things that only showed up in practice:
 - **`@x.min` before `@x` has nothing to modify** — the parser says so and
   ignores it. A control block is written value, widget, min, max, label, in that
   order, before the first `node`, which is where all 206 of the shipped ones sit.
+  That order is the *only* constraint, so a metadata line added to a block that
+  never had one goes at the end rather than in its canonical slot: reshuffling
+  someone's file into the order this writer happens to prefer is an edit nobody
+  asked for. All 67 units on a range in the corpus sit on a `.max` and every one
+  is a millisecond envelope time, so a range rewrite keeps the unit for the same
+  reason a value does.
 - **A unit is distinguished by a number in front of it**, not by a non-word
   character before it. `80ms` (33 occurrences) and `5 ms` (65) are both units.
   The original spacing is preserved: `80ms` stays `80ms`.

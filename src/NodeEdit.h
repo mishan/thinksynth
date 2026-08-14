@@ -178,6 +178,34 @@ public:
                               const string &label, const string &group,
                               string &why);
 
+    /* Changes a control's range, label and group -- the `@name.min', `.max',
+       `.label' and `.group' lines around a declaration that already exists.
+
+       The same splice as setChanArg, applied four times and written once, so a
+       range change is one rename-into-place rather than four. Everything the
+       single-value case obeys applies here too: a `.max' spelled `2000ms'
+       keeps its unit, because the grammar's conversion is exactly invertible
+       and handing back the folded sample count would be correct and
+       unreadable; and writing the values already there changes no byte.
+
+       A line the file does not have is added at the end of the control's
+       block. The parser only requires that `@x.min' follow `@x' -- before it
+       there is nothing to modify -- so the canonical order addControl() writes
+       is for a reader rather than a requirement, and reordering someone's file
+       to match it would be an edit they did not ask for.
+
+       An empty label or group *removes* that line rather than writing `""'. A
+       control that never had a label and one whose label was cleared should be
+       the same file.
+
+       If the new range no longer contains the control's value, the value is
+       clamped into it. Narrowing a range around a value outside it otherwise
+       leaves a slider that cannot reach what the file says and that moves the
+       instant it is touched. */
+    static Result setControlMeta (const string &filename, const string &name,
+                                  double min, double max, const string &label,
+                                  const string &group, string &why);
+
     /* Removes a control's whole block, and rewrites every `= @name' that
        read from it. Same reasoning as removeNode: a dangling reference makes
        the file load with the arg silently reading zero. */

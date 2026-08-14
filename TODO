@@ -90,9 +90,8 @@ Engine
 Node editor
 -----------
 
-- A control's .min/.max/.label are read but not editable. Changing a control's
-  range means rewriting three more lines -- the same splice applied three
-  times.
-
-- The palette's control dialog does not ask for a group. The writer already
-  takes one.
+- Renaming a control. Right-click gives its range, label and group; the name is
+  shown and insensitive, because renaming has to rewrite every `in1 = @old' in
+  the file as well as the block. That is removeControl plus addControl plus a
+  rename of every reference, and it wants deciding on rather than bolting to a
+  dialog about ranges.
