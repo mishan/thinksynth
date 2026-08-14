@@ -44,12 +44,19 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_A] = plugin->regArg("a", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_A], "Attack");
     args[IN_D] = plugin->regArg("d", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_D], "Decay");
     args[IN_S] = plugin->regArg("s", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_S], "Sustain");
     args[IN_R] = plugin->regArg("r", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_R], "Release");
     args[IN_P] = plugin->regArg("p", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_P], "Peak");
     args[IN_TRIGGER] = plugin->regArg("trigger", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_TRIGGER], "Note Trigger");
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RESET], "Reset to A phase");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);

@@ -43,7 +43,13 @@ int module_init (thPlugin *plugin)
        slow way" warning on every load, and a box with no ports on it. */
     args[IN_INDEX] = plugin->regArg("index", thPlugin::ARG_IN);
     args[IN_WAVELENGTH] = plugin->regArg("wavelength", thPlugin::ARG_IN);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (wavelength == 0) wavelength = 1;' */
+    plugin->setArgDefault(args[IN_WAVELENGTH], 1);
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (amp == 0) amp = 1;' */
+    plugin->setArgDefault(args[IN_AMP], 1);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
 
     return 0;

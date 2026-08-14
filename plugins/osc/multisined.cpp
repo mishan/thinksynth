@@ -45,12 +45,17 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_WAVES] = plugin->regArg("waves", thPlugin::ARG_IN);
+    /* `(int)(*in_waves)[0]' -- a count of oscillators. */
+    plugin->setArgStep(args[IN_WAVES], 1);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[INOUT_FREQ] = plugin->regArg("freqbuffer", thPlugin::ARG_STATE);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (amp_max == 0) amp_max = TH_MAX;' */
+    plugin->setArgDefault(args[IN_AMP], TH_MAX);
     args[IN_DETUNEFREQ] = plugin->regArg("detunefreq", thPlugin::ARG_IN);
     args[IN_DETUNEAMT] = plugin->regArg("detuneamt", thPlugin::ARG_IN);
     args[IN_AMPMUL] = plugin->regArg("ampmul", thPlugin::ARG_IN);

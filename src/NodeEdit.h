@@ -44,8 +44,12 @@
  */
 
 #include <string>
+#include <utility>
+#include <vector>
 
+using std::pair;
 using std::string;
+using std::vector;
 
 class NodeEdit {
 public:
@@ -113,7 +117,27 @@ public:
        .dsp puts its last node. Refuses a name the file already uses, and a
        name the lexer would not accept as a WORD. */
     static Result addNode (const string &filename, const string &node,
-                           const string &plugin, string &why);
+                           const string &plugin, string &why)
+    {
+        return addNode(filename, node, plugin,
+                       vector<pair<string, double> >(), why);
+    }
+
+    /* With initial values -- the defaults the plugin declares for its own args.
+    
+       Several plugins special-case a zero in their callback: osc::simple reads
+       `amp = 0' as full scale and `mul = 0' as multiply by one. Those are
+       defaults that were written where nothing could read them, so a node the
+       editor added came out saying `amp = 0' and left the reader to know what
+       that meant. Writing them changes no sound -- they are the plugin's own
+       zero-cases -- and makes the file say what it does.
+    
+       A value this writer cannot spell is skipped, not fatal: the node is a
+       valid node without the line. */
+    static Result addNode (const string &filename, const string &node,
+                           const string &plugin,
+                           const vector<pair<string, double> > &initial,
+                           string &why);
 
     /* Removes a node's block, and every `= <node>->...' that referred to it.
     

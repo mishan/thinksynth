@@ -42,6 +42,16 @@ class thNode;
  * that loud, and a layout change is what it is for. Stale plugin .so files left
  * in a source tree are a thing that actually happens here -- NodePalette's own
  * tooltip tells people to go and delete them.
+ *
+ * Still 5 after the description and the default were added, and the rule above
+ * is why. Those went inside ArgInfo, which lives in a vector -- so thPlugin is
+ * the same size and every member is where it was. A plugin touches setDesc,
+ * setState and the setArg* calls, and nothing it can reach moved. Adding
+ * methods is not a layout change, and the version is for layout changes.
+ *
+ * (The other direction -- a plugin built against *this* header loaded by an
+ * older libthink -- fails at the link, or at the first call, with an undefined
+ * symbol. That is already loud, and no version number would improve it.)
  */
 #define MODULE_IFACE_VER 5
 
@@ -137,7 +147,34 @@ public:
         float step;
         vector<string> values;
 
-        ArgInfo (const string &n, ArgDir d) : name(n), dir(d), step(0) {}
+        /* What the arg is for, in the plugin author's words.
+         *
+         * A sentence fragment, not a sentence: it goes in a tooltip beside a
+         * spin button. "Multiply the wavelength by this", "Reset position to 0
+         * when this goes to 1".
+         *
+         * Empty for most args, and that is the honest state rather than a gap
+         * to be filled in. The ones that carry text carry text somebody wrote
+         * about their own DSP; inventing the other 280 from reading the
+         * arithmetic would produce confident descriptions of what the code
+         * appears to do, which is worse than none. */
+        string desc;
+
+        /* The value the plugin behaves as though the arg held when it is 0.
+         *
+         * Not "a sensible starting point" -- that would be invention again.
+         * Several plugins special-case zero in their own callback:
+         * osc::simple's `if (amp_max == 0) amp_max = TH_MAX;' and
+         * `if (mul) freq *= mul;', math::sin's two. Those plugins already have
+         * a default; it was just written where nothing could read it.
+         *
+         * `has' rather than a sentinel, because 0 is a perfectly good default
+         * for an arg that has one. */
+        float def;
+        bool hasDefault;
+
+        ArgInfo (const string &n, ArgDir d)
+            : name(n), dir(d), step(0), def(0), hasDefault(false) {}
     };
 
     typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
@@ -162,6 +199,13 @@ public:
     /* Names the arg's values, from 0 upwards. Implies setArgStep(index, 1).
        `names' is copied. */
     void setArgValues (int index, const char *const *names, int count);
+
+    /* What the arg is for. A fragment, for a tooltip. */
+    void setArgDesc (int index, const string &desc);
+
+    /* The value this plugin treats a 0 in that arg as meaning. Only for a
+       plugin that genuinely does so -- see ArgInfo::def. */
+    void setArgDefault (int index, float value);
 
     int argCount (void) const { return (int)args_.size(); };
     string getArgName (int index) const {
@@ -190,6 +234,24 @@ public:
         return noValues_;
     }
 
+    const string &getArgDesc (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].desc;
+        return noDesc_;
+    }
+
+    bool argHasDefault (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].hasDefault;
+        return false;
+    }
+
+    float getArgDefault (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].def;
+        return 0;
+    }
+
     /* Convenience for the editor: a port is anything a .dsp may legitimately
        wire, i.e. everything except plugin-internal state. */
     bool argIsPort (int index) const { return getArgDir(index) != ARG_STATE; }
@@ -212,9 +274,10 @@ private:
        one struct is the same data with the bookkeeping deleted. */
     vector<ArgInfo> args_;
 
-    /* What getArgValues() hands back for an index that has none, so it can
-       return by reference without every caller checking. */
+    /* What getArgValues() and getArgDesc() hand back for an index that has
+       none, so they can return by reference without every caller checking. */
     static const vector<string> noValues_;
+    static const string noDesc_;
 
     Callback callback_;
 };

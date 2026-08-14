@@ -27,6 +27,7 @@
 #include "think.h"
 
 const vector<string> thPlugin::noValues_;
+const string thPlugin::noDesc_;
 
 thPlugin::thPlugin (const string &path)
 {
@@ -111,6 +112,23 @@ void thPlugin::setArgValues (int index, const char *const *names, int count)
     /* Naming every value says more than a step of 1 does, so it implies one
        rather than needing to be paired with one at every call site. */
     args_[index].step = 1;
+}
+
+void thPlugin::setArgDesc (int index, const string &desc)
+{
+    if (index < 0 || index >= (int)args_.size())
+        return;
+
+    args_[index].desc = desc;
+}
+
+void thPlugin::setArgDefault (int index, float value)
+{
+    if (index < 0 || index >= (int)args_.size())
+        return;
+
+    args_[index].def = value;
+    args_[index].hasDefault = true;
 }
 
 int thPlugin::moduleLoad (void)

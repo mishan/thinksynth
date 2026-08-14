@@ -153,9 +153,22 @@ bool NodeCatalog::describe (const string &spelling, thPluginManager *pm,
 
     out.desc = p->desc();
     out.ports.clear();
+    out.defaults.clear();
 
     for (int k = 0; k < p->argCount(); k++)
     {
+        /* A default on an output or on internal state would be written into the
+           file and then overwritten on the first window, so only inputs. */
+        if (p->argHasDefault(k) && p->getArgDir(k) == thPlugin::ARG_IN)
+        {
+            Default d;
+
+            d.name = p->getArgName(k);
+            d.value = p->getArgDefault(k);
+
+            out.defaults.push_back(d);
+        }
+
         /* Internal state is not a port, here for the same reason it is not one
            on the canvas: a delay line's ring buffer is not something to wire,
            and offering it in a palette preview would suggest otherwise. */

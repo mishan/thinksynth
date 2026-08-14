@@ -243,6 +243,7 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
 
         float step = 0;
         vector<string> valueNames;
+        string desc;
 
         if (p)
         {
@@ -258,6 +259,7 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
                        follow and nobody else to disagree with. */
                     step = p->getArgStep(k);
                     valueNames = p->getArgValues(k);
+                    desc = p->getArgDesc(k);
                     break;
                 }
         }
@@ -275,6 +277,7 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
         prm.max = arg->max();
         prm.step = step;
         prm.valueNames = valueNames;
+        prm.desc = desc;
         prm.isPort = isPort;
         prm.isOutput = isOutput;
 

@@ -40,8 +40,12 @@ int module_init (thPlugin *plugin)
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Delay length spacing");
     args[IN_FEEDBACK] = plugin->regArg("feedback", thPlugin::ARG_IN);
     args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
+    /* `allocate((int)buf_size[0])' -- it sizes a buffer. */
+    plugin->setArgStep(args[IN_SIZE], 1);
+    plugin->setArgDesc(args[IN_SIZE], "Buffer size");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
 

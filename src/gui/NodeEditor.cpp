@@ -1156,7 +1156,25 @@ void NodeEditor::onPaletteAdd (string spelling)
         return;
     }
 
-    NodeEdit::Result r = NodeEdit::addNode(work_, name, spelling, why);
+    /* Whatever the plugin declares a default for, written into the new block.
+     *
+     * describe() has to load the plugin to answer, which is the same load the
+     * palette already does to show a plugin's ports when it is selected -- so
+     * by the time anything can be added, this is a lookup. A plugin that will
+     * not load has no defaults and gets none; the add itself is unaffected,
+     * since it is a text splice that never needed the plugin. */
+    vector<pair<string, double> > initial;
+
+    {
+        NodeCatalog::Entry e;
+
+        if (palette_.describe(spelling, e))
+            for (size_t i = 0; i < e.defaults.size(); i++)
+                initial.push_back(make_pair(e.defaults[i].name,
+                                            e.defaults[i].value));
+    }
+
+    NodeEdit::Result r = NodeEdit::addNode(work_, name, spelling, initial, why);
 
     if (r != NodeEdit::OK)
     {

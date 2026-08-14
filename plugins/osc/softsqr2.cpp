@@ -46,7 +46,9 @@ int module_init (thPlugin *plugin)
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PW], "Pulse Width");
     args[IN_SW] = plugin->regArg("sw", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SW], "Sine Width");
     
     return 0;
 }
