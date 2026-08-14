@@ -100,13 +100,39 @@ read of one float. That is what most synths live with; the honest fix is an
 atomic or a smoothed parameter rather than a queue. The `setValue(float*, int)`
 overload *can* reallocate and does go through the queue.
 
-### It is not hard-RT-safe
+### It is not hard-RT-safe yet
 
-`process()` still builds `std::string`s in its inner loop (`argname =
-OUTPUTPREFIX; argname += ...`), uses VLAs sized by window length, and inserts
-into `std::map`. What the queue design buys is *race freedom* — no torn
-containers, no use-after-free. RT purity is a separate item and it wants the
-same command-queue plumbing underneath it.
+The per-window path is, now. `thMidiChan::process` used to spell `out0`, `play`
+and `trigger` out as `std::string`s and look each one up in a `std::map` — per
+channel, per note, per window — and `thSynthTree::getArg` *creates* an arg it
+cannot find, so a `.dsp` declaring more channels than it wires up allocated a
+`thArg` and inserted it on the first window of every note. Those args are
+resolved to indices once, when the channel is built, and any the file did not
+write is created there; reaching one in a voice's own tree is now two array
+subscripts, because both halves of an arg's address survive the per-note tree
+copy. That is the property [thProbe already rides
+on](VISUALIZERS.md#the-tap) and the one every plugin's `mod->getArg(node,
+args[IN_FREQ])` already uses. The two VLAs sized by window length went the same
+way, into buffers allocated with the channel.
+
+`scripts/dsplevel` and a bitwise A/B over the corpus both say the sound did not
+move: 81 DSPs, three voices, eight windows, byte for byte.
+
+What is left is real but narrower, and none of it is per window:
+
+- **Plugins allocate on a note's first window.** A note's args are copied from
+  the channel's prototype holding a single placeholder value, so the first
+  window resizes each of them from 1 to `windowlen` — see [AUDIO.md](AUDIO.md)
+  on why that is also where a twenty-year-old noise bug lived. One burst per
+  note. Fixing it means sizing a note's args when it is built, on the GUI
+  thread, rather than when it is first processed.
+- **Note events still look up by name.** `insertNote` and `releaseNote` reach
+  `trigger` through a string. Per key press.
+- **`thSynthTree::buildSynthTree` walks recursively with a `recalc` flag**
+  rather than in topological order.
+
+What the queue design buys is *race freedom* — no torn containers, no
+use-after-free — and none of the above is a race.
 
 ## Audio and MIDI
 

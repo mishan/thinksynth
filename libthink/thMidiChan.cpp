@@ -23,7 +23,6 @@
 #include <string.h>
 
 #include "think.h"
-#include "thUtil.h"
 
 /* Never reset, never reused. See thMidiChan::serial(). */
 std::atomic<unsigned long> thMidiChan::nextSerial_(1);
@@ -39,7 +38,16 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     dirty_ = 1;
     channels_ = 1;
     output_ = NULL;
-    outputnamelen_ = 0;
+    bufmix_ = NULL;
+    bufamp_ = NULL;
+    playindex_ = -1;
+    triggerindex_ = -1;
+
+    for (int i = 0; i < TH_MAX_CHANNELS; i++)
+    {
+        outindex_[i] = -1;
+    }
+
     polymax_ = 10;
     notecount_ = 0;
     notecount_decay_ = 0;
@@ -89,7 +97,20 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     output_ = new float[thOutputSamples(channels_, windowlength_)];
     memset(output_, 0,
            thOutputSamples(channels_, windowlength_) * sizeof(float));
-    outputnamelen_ = strlen(OUTPUTPREFIX) + thUtil::getNumLength(channels_);
+
+    /* windowlength_ never changes for a given channel -- a window-length change
+       builds new channels -- so the mix loop's scratch is allocated here rather
+       than grown on the stack of every call. Value-initialised for the same
+       reason thArg::allocate() is: getBuffer() leaves the buffer alone when the
+       arg it was handed is not a plain value, and a window of stale stack is
+       not something to hand to an output mixer. */
+    if (windowlength_ > 0)
+    {
+        bufmix_ = new float[windowlength_]();
+        bufamp_ = new float[windowlength_]();
+    }
+
+    indexIOArgs();
 
     argSustain_ = new thArg(string("SusPedal"), 0);
     argSustain_->setWidgetType(thArg::CHANARG);
@@ -116,6 +137,112 @@ thMidiChan::~thMidiChan (void)
 
     delete[] output_;
     output_ = NULL;
+
+    delete[] bufmix_;
+    bufmix_ = NULL;
+
+    delete[] bufamp_;
+    bufamp_ = NULL;
+}
+
+/* GUI thread, once, at construction.
+ *
+ * Two jobs, and the second is the one that matters. It records where the io
+ * node keeps out0..outN-1 and play so process() can reach them by subscript;
+ * and where the .dsp did not write one, it creates it *here*, so that every
+ * note copied from this tree already has it.
+ *
+ * That second half is not tidiness. thSynthTree::getArg(node, name) invents a
+ * zero-valued arg for a name it cannot find, which allocates and inserts into a
+ * std::map -- and process() called it by name, on the note's own tree. So a
+ * .dsp whose io node declares `channels = 2' and only ever assigns out0 had the
+ * first window of every note allocate and insert, on the audio thread. It is
+ * the same argument finishParse() already makes for note, velocity and trigger,
+ * one layer down.
+ *
+ * On the channel's prototype and not in finishParse() with those three,
+ * deliberately: the node editor parses its own tree through the same call, and
+ * an out1 the author never wrote is exactly the phantom port that
+ * NodeGraph::ioArgIsSink exists to keep off the audio-out box. The engine's
+ * copy is where an arg the engine invents belongs.
+ */
+void thMidiChan::indexIOArgs (void)
+{
+    if (modnode_ == NULL || modnode_->IONode() == NULL)
+    {
+        return;
+    }
+
+    thNode *io = modnode_->IONode();
+
+    /* One digit: TH_MAX_CHANNELS is ten for exactly this reason. */
+    string name;
+
+    for (int i = 0; i < channels_ && i < TH_MAX_CHANNELS; i++)
+    {
+        name = OUTPUTPREFIX;
+        name += (char)(i + '0');
+
+        thArg *arg = io->getArg(name);
+
+        if (arg == NULL)
+        {
+            arg = io->setArg(name, 0);
+        }
+
+        if (arg)
+        {
+            outindex_[i] = arg->index();
+        }
+    }
+
+    /* play and trigger by the same rule. trigger is already guaranteed by
+       finishParse(); asking for it here costs nothing and means this function
+       does not depend on that staying true. */
+    thArg *play = io->getArg("play");
+
+    if (play == NULL)
+    {
+        play = io->setArg("play", 0);
+    }
+
+    if (play)
+    {
+        playindex_ = play->index();
+    }
+
+    thArg *trigger = io->getArg("trigger");
+
+    if (trigger == NULL)
+    {
+        trigger = io->setArg("trigger", 0);
+    }
+
+    if (trigger)
+    {
+        triggerindex_ = trigger->index();
+    }
+}
+
+/* Audio thread. */
+thArg *thMidiChan::resolveIOArg (thSynthTree *tree, int index)
+{
+    if (tree == NULL || index < 0)
+    {
+        return NULL;
+    }
+
+    thArg *arg = tree->getArg(tree->IONode(), index);
+
+    /* See the header: the indexed overload dereferences a chanarg before its
+       pointer chase and not after, so a chase that ends on one comes back
+       undereferenced. The by-name overload this replaced did it at the end. */
+    if (arg && arg->type() == thArg::ARG_CHANNEL)
+    {
+        arg = arg->argPtr();
+    }
+
+    return arg;
 }
 
 void thMidiChan::retireNote (thMidiNote *note, RetireQueue *retire)
@@ -355,7 +482,8 @@ void thMidiChan::copyChanArgs (thSynthTree *tree)
 void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
                           int nprobes)
 {
-    if (output_ == NULL || windowlength_ <= 0)
+    if (output_ == NULL || bufmix_ == NULL || bufamp_ == NULL ||
+        windowlength_ <= 0)
     {
         return;
     }
@@ -369,13 +497,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
 
     thMidiNote *data;
-    thArg *arg, *amp, *play, *trigger;
-    thSynthTree *tree;
-    int i, j, index;
-    float buf_mix[windowlength_];
-    float buf_amp[windowlength_];
-
-    string argname;
+    thArg *amp, *play;
 
     int sustain = argSustain_ ? (int)(*argSustain_)[0] : 0;
 
@@ -385,6 +507,11 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
     {
         return;
     }
+
+    /* Once, rather than per channel per note. amp is the channel's own arg, not
+       the note's: it was the same buffer every time round both loops, fetched
+       afresh each time. */
+    amp->getBuffer(bufamp_, windowlength_);
 
     /* Before any processing, we shall do a polyphony test. */
     if (notecount_ + notecount_decay_ > polymax_ && polymax_ > 0) 
@@ -428,42 +555,7 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
         data = iter->second;
 
-        dirty_ = true;
-        
-        data->process(windowlength_);
-
-        tree = data->synthTree();
-
-        for (int p = 0; p < nprobes; p++)
-            probes[p]->accumulate(tree);
-
-        play = tree ? tree->getArg("play") : NULL;
-        trigger = tree ? tree->getArg("trigger") : NULL;
-
-        if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
-            trigger->setValue(0);
-
-        for (i = 0; tree && i < channels_; i++)
-        {
-            argname = OUTPUTPREFIX;
-            argname += (char)(i+'0');
-            arg = tree->getArg(argname);
-
-            /* A DSP whose io node declares more channels than it wires up has
-               no outN arg for the missing ones. */
-            if (arg == NULL)
-                continue;
-
-            arg->getBuffer(buf_mix, windowlength_);
-            amp->getBuffer(buf_amp, windowlength_);
-
-            index = i;
-            for (j = 0; j < windowlength_; j++)
-            {
-                output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
-                index += channels_;
-            }
-        }
+        play = mixNote(data, sustain, probes, nprobes);
 
         NoteMap::iterator olditer = iter++;  /* a copy of the
                                                 old iterator to erase */
@@ -479,49 +571,18 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
         }
     }
 
-    /* Now, the [almost] exact same thing for the list of decaying notes */
+    /* Now, the [almost] exact same thing for the list of decaying notes -- the
+       `almost' being only the bookkeeping below, which is why the rest of it is
+       mixNote() rather than a second copy. */
     NoteList::iterator diter = decaying_.begin();
 
     while (diter != decaying_.end())
     {
         notecount_decay_++;
         data = *diter;
-        dirty_ = 1;
-        data->process(windowlength_);
-        tree = data->synthTree();
 
-        /* Both loops, not just the held one. A note in release is still
-           sounding, and a display that went blank the instant a key came up
-           would be wrong in the most visible way available. */
-        for (int p = 0; p < nprobes; p++)
-            probes[p]->accumulate(tree);
+        play = mixNote(data, sustain, probes, nprobes);
 
-        play = tree ? tree->getArg("play") : NULL;
-        trigger = tree ? tree->getArg("trigger") : NULL;
-
-        if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
-            trigger->setValue(0);
-
-        for (i = 0; tree && i < channels_; i++)
-        {
-            argname = OUTPUTPREFIX;
-            argname += (char)(i+'0');
-            arg = tree->getArg(argname);
-
-            if (arg == NULL)
-                continue;
-
-            arg->getBuffer(buf_mix, windowlength_);
-            amp->getBuffer(buf_amp, windowlength_);
-
-            index = i;
-            for (j = 0; j < windowlength_; j++)
-            {
-                output_[index] += buf_mix[j]*(buf_amp[j]/MIDIVALMAX);
-                index += channels_;
-            }
-        }
-        
         if (play && (*play)[windowlength_ - 1] == 0)
         {
             diter = decaying_.erase(diter);
@@ -533,6 +594,80 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
             diter++;
         }
     }
+}
+
+/* Audio thread. One note: run it, tap it, apply the pedal, and mix its channels
+ * into output_. Returns the note's `play' arg, which is the only thing the two
+ * loops in process() do differently with -- one erases from a map and a list,
+ * the other from a list.
+ *
+ * Nothing here looks anything up by name. Every arg it needs was resolved to an
+ * index at construction (see indexIOArgs), and both halves of an arg's address
+ * survive the per-note tree copy, so reaching the same arg in this voice's own
+ * tree is a subscript.
+ */
+thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
+                            thProbe *const *probes, int nprobes)
+{
+    if (note == NULL)
+    {
+        return NULL;
+    }
+
+    dirty_ = true;
+
+    note->process(windowlength_);
+
+    thSynthTree *tree = note->synthTree();
+
+    if (tree == NULL)
+    {
+        return NULL;
+    }
+
+    /* Called for held and decaying notes alike, not just the held ones. A note
+       in release is still sounding, and a display that went blank the instant a
+       key came up would be wrong in the most visible way available. */
+    for (int p = 0; p < nprobes; p++)
+    {
+        probes[p]->accumulate(tree);
+    }
+
+    thArg *play = resolveIOArg(tree, playindex_);
+    thArg *trigger = resolveIOArg(tree, triggerindex_);
+
+    /* 2 means "released but held by the pedal". */
+    if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
+    {
+        trigger->setValue(0);
+    }
+
+    /* channels_ is clamped to TH_MAX_CHANNELS in the constructor, which is what
+       makes outindex_ big enough. */
+    for (int i = 0; i < channels_; i++)
+    {
+        thArg *arg = resolveIOArg(tree, outindex_[i]);
+
+        /* A DSP whose io node declares more channels than it wires up now has a
+           zero-valued out<i> put there by indexIOArgs(), so reaching this means
+           the pointer chase itself failed. */
+        if (arg == NULL)
+        {
+            continue;
+        }
+
+        arg->getBuffer(bufmix_, windowlength_);
+
+        int index = i;
+
+        for (int j = 0; j < windowlength_; j++)
+        {
+            output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX);
+            index += channels_;
+        }
+    }
+
+    return play;
 }
 
 /* XXX: the tree this walks is shared between every channel that loaded the same

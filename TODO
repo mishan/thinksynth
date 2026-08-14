@@ -65,14 +65,32 @@ Coverage
   rather than a proper topological order. An editor makes it easy to build
   pathological graphs.
 
+- Nothing gated compares rendered audio against a reference. dspcheck asserts
+  a render is deterministic and dsplevel asserts it is inside the rails;
+  neither notices it becoming a *different* sound. Found by accident: making
+  every channel of the mix read out0 passed all thirteen ctest gates, and a
+  bitwise dump of the corpus caught it in one line. dspab does this across two
+  sets of plugins, and cannot do it across two builds of libthink, which is
+  where a change to the mix loop lives. That wants either a dspab that takes
+  two library paths or a small dump-and-cmp harness.
+
 
 Engine
 ------
 
-- RT-safety. thSynth::process() still builds std::strings in its inner loop
-  (argname = OUTPUTPREFIX; argname += ...), uses VLAs sized by window length,
-  and inserts into std::map. The command queue bought race freedom, not RT
-  purity; this wants the same plumbing underneath it.  (ARCHITECTURE.md)
+- RT-safety, what is left of it. The per-window path is clear: thMidiChan no
+  longer builds an std::string per channel per note per window, no longer
+  searches a std::map for it, and no longer lets thSynthTree::getArg invent
+  and insert the arg it could not find; the two VLAs are buffers owned by the
+  channel. Audio is bit-identical across the corpus. Still outstanding, and
+  none of it per window:
+
+    * A note's args are resized from 1 to windowlen on its first window, so
+      every plugin holding state allocates once per note, on the audio
+      thread. Sizing them when the note is built would move that to the GUI
+      thread, where the rest of a note's allocation already happens.
+    * insertNote and releaseNote reach `trigger' by name. Per key press.
+    * buildSynthTree's recursive recalc walk, above.  (ARCHITECTURE.md)
 
 - Slider values can be torn-read. Deliberate -- routing every drag through the
   queue would be silly -- but the honest fix is an atomic or a smoothed
