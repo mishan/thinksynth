@@ -21,7 +21,7 @@ description "2 oscs and lots of envelopes";
     @waveform = 3;
     @waveform.widget = 1;
     @waveform.min = 0;
-    @waveform.max = 5.5;
+    @waveform.max = 5;
 
 # pulse width
     @pw1 = 0.25;
