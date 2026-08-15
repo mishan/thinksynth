@@ -120,8 +120,13 @@ public:
      *
      * `values' names the whole numbers when they mean something sayable:
      * "Sine", "Sawtooth", "Square". It implies a step of 1 and a range of
-     * 0..values.size()-1, because a name for every value is a stronger
-     * statement than either.
+     * its first named entry to its last, because a name for every value is a
+     * stronger statement than either.
+     *
+     * The length is a statement in its own right: it says how many indices the
+     * arg has, which is not always how many are worth offering. osc::window's
+     * switch spans six and implements three, so its list is six long with three
+     * holes -- shortening it to four would quietly redefine what a 5 means.
      *
      * Both are advice to whatever draws the control. Nothing in the audio path
      * reads them, and a plugin that says nothing gets what it always got.

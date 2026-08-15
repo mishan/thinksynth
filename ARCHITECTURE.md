@@ -68,7 +68,8 @@ one, through `setArgStep` and `setArgValues`:
 - **step** — 0 for an ordinary continuous parameter, 1 for one that means a
   whole number.
 - **values** — the names of those whole numbers, where they have any. A list
-  implies a step of 1 and a range of `0..count-1`.
+  implies a step of 1, and a range running from its first named entry to its
+  last.
 
 Neither is read anywhere in the audio path. They exist because `osc::simple`
 reads `waveform` as `switch ((int)buf[i])`, so 3.4 *is* 3 — and a control that
@@ -80,9 +81,15 @@ continuous slider so it can still truncate to the last waveform.
 Two plugins have a selector to declare, both spelled `waveform`. `osc::simple`
 implements six cases; `osc::window` implements three and leaves 1, 4 and 5
 commented out with no `default:`, so those values leave the output buffer
-unwritten. Its list names the three and leaves a *gap* — an empty name is how
-the format says "a value exists here and means nothing", and a control drawn
-from that list offers three choices rather than six.
+unwritten. Its list is six long and names three — an empty name is how the
+format says "an index exists here and does nothing".
+
+Six rather than four, because **the length of the list is a statement about the
+arg's range**: stopping after the last implemented entry would quietly redefine
+what a 5 in a `.dsp` means. What gets offered is decided by the named entries
+instead, so the list says six and the control still shows three. A step is
+measured from zero, not from the bottom of the range, because the thing being
+stepped to is what `(int)x` can distinguish.
 
 ### Getting it to the control
 

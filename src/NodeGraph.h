@@ -181,12 +181,13 @@ public:
         /* The range to *draw* over, which is not always the range the file
            declares.
          *
-         * A list of value names carries its own range: it is 0..count-1 by
-         * construction. Eight shipped patches declare `.max = 5.1' or `5.5' for
-         * six waveforms, which is padding -- with a continuous slider, a
-         * declared maximum of exactly 5 is hard to actually land on, so the top
-         * was pushed past it and left to truncate. Drawing a stepped track over
-         * 0..5.1 puts a seventh position on it that does nothing.
+         * A list of value names carries its own range: from its first named
+         * entry to its last. Not the file's, which for eight shipped patches
+         * said `.max = 5.1' or `5.5' over six waveforms -- padding, because a
+         * continuous slider could not reliably land on exactly 5, so the top
+         * was pushed past it and left to truncate. And not 0..count-1 either:
+         * osc::window declares six indices and names three, so a track to 5
+         * would spend its last two fifths on cases its switch does not have.
          *
          * Deliberately *not* done by overwriting ctlMin and ctlMax when the box
          * is built. NodeEdit::setControlMeta writes those numbers back to the
@@ -194,14 +195,18 @@ public:
          * silently rewrites `.max = 5.1' to `5' -- an edit nobody asked for, to
          * a line nobody touched. dspwrite fails on exactly that, which is how
          * this came to be two members and two accessors rather than one. */
-        float ctlDrawMin (void) const {
-            return ctlValueNames.empty() ? ctlMin : 0.0f;
-        }
+        float ctlDrawMin (void) const;
+        float ctlDrawMax (void) const;
 
-        float ctlDrawMax (void) const {
-            return ctlValueNames.empty() ? ctlMax
-                                         : (float)(ctlValueNames.size() - 1);
-        }
+        /* The nearest value this control is allowed to be on.
+         *
+         * For a list of names that is the nearest *named* index, which is not
+         * the nearest index: osc::window declares six waveforms and implements
+         * 0, 2 and 3, so 1, 4 and 5 are holes, and a drag that stopped on one
+         * would select a case its switch does not have and whose output buffer
+         * is therefore left unwritten. For a plain step it is the nearest
+         * multiple. For neither, the value unchanged. */
+        float ctlSnap (float value) const;
 
         /* True if this strip is the first of its group on its host, so it is
            the one that draws the group's heading. */

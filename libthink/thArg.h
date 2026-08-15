@@ -92,7 +92,9 @@ public:
        exists in the range but means nothing -- osc::window implements waveforms
        0, 2 and 3 and not 1, and offering the gap would produce silence at best.
 
-       A non-empty list implies a step of 1 and a range of 0..size()-1. */
+       A non-empty list implies a step of 1, and a range running from its
+       first named entry to its last -- the length says how many indices the
+       arg has, the names say which of them mean anything. */
     const vector<string> &valueNames (void) const { return valueNames_; }
 
     /* True if the .dsp itself said `@x.step' or `@x.values', in which case

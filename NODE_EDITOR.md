@@ -209,7 +209,12 @@ than one that never snaps. And it reads `Triangle` rather than `3`, with `4 of
 6` where the range would go.
 
 **The drawn range is not always the declared range.** A list of names is its own
-range, `0..count-1`, so a `.max` of 5.1 is drawn over 0..5. That is deliberately
+range -- not `0..count-1`, but from its first named entry to its last. A `.max`
+of 5.1 over six named waveforms is drawn as 0..5; `osc::window` declares six
+indices and names three, so it is drawn as 0..3 and its last two fifths do not
+exist. A drag snaps to the nearest *named* value for the same reason: a hole in
+the list is an index whose case the plugin's switch does not have, and landing
+on one selects nothing at all. That is deliberately
 *not* done by fixing up `ctlMin`/`ctlMax` when the box is built:
 `NodeEdit::setControlMeta` writes those numbers back into the file, so a derived
 range there means opening a patch and saving it silently rewrites `.max = 5.1`
@@ -339,7 +344,7 @@ rest take a corpus argument and are run by hand.
 
 | Harness | Gate | Covers |
 |---|---|---|
-| `argtype` | yes | a plugin's step and value names; the pass that carries them to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; a drag that cannot land between two values |
+| `argtype` | yes | a plugin's step and value names; the pass that carries them to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; and that no drag and no written value can land on a hole in a value list or off the step |
 | `dspgraph` | no | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
 | `dspwrite` | no | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |

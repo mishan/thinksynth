@@ -357,25 +357,12 @@ Gtk::Widget *ArgTable::makeChoiceRow (thArg *arg, Gtk::Label *label)
 
     Gtk::DropDown *choice = manage(new Gtk::DropDown(shown));
 
-    /* Nearest, not exact. A .dsp is free to store 3.4 in an arg the plugin
-       reads as a selector -- the engine truncates it and so does this -- and
-       every one of the thirteen shipped waveform controls happens to hold a
-       whole number already, so this is about what the format allows rather than
-       about what it currently contains. */
-    {
-        const int want = (int)(*arg)[0];
-
-        for (size_t i = 0; i < values.size(); i++)
-            if (values[i] == want)
-            {
-                choice->set_selected((guint)i);
-                break;
-            }
-    }
-
-    /* Connected after the initial selection, for the reason spelled out on the
-       slider below: setting it while anything is listening reports the patch as
+    /* Before anything is listening, for the reason spelled out on the slider
+       below: setting it while the handler is connected reports the patch as
        edited by the act of looking at it. */
+    showChoice(choice, values, (*arg)[0]);
+
+    /* Connected after the initial selection. */
     choice->property_selected().signal_changed().connect(
         sigc::bind(sigc::mem_fun(*this, &ArgTable::choiceChanged),
                    choice, arg->name(), values));
@@ -566,17 +553,33 @@ void ArgTable::choiceChanged (Gtk::DropDown *choice, string name,
 void ArgTable::argChangedChoice (thArg *arg, Gtk::DropDown *choice,
                                  std::vector<int> values)
 {
-    const int have = (int)(*arg)[0];
+    showChoice(choice, values, (*arg)[0]);
+}
+
+/* Puts the list on the row that means `value', or on no row at all.
+ *
+ * The second half is the point, and it is why this is one function rather than
+ * the same loop written twice. A .dsp can hold a number this plugin does not
+ * implement -- a 4 in an osc::window waveform, whose switch has no case for it
+ * -- and the list has no row for that. Selecting nothing says so. Falling back
+ * to row 0 would put "Sine" on screen next to an arg holding 4, which is a
+ * display that lies; and picking the nearest row would be the silent correction
+ * this panel deliberately does not make anywhere else.
+ *
+ * Truncating rather than rounding, matching what the plugin does with it:
+ * `switch ((int)x)' reads 3.9 as 3, so a stored 3.9 shows as Triangle rather
+ * than as nothing. */
+void ArgTable::showChoice (Gtk::DropDown *choice,
+                           const std::vector<int> &values, double value)
+{
+    const int want = (int)value;
 
     for (size_t i = 0; i < values.size(); i++)
-        if (values[i] == have)
+        if (values[i] == want)
         {
             choice->set_selected((guint)i);
             return;
         }
 
-    /* A value with no row: something set the arg to a number this plugin does
-       not implement, which the list cannot show and must not silently correct
-       to a neighbour. Leaving the selection alone at least does not change the
-       sound behind the person's back. */
+    choice->set_selected(GTK_INVALID_LIST_POSITION);
 }

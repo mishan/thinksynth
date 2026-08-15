@@ -66,6 +66,12 @@ private:
     void choiceChanged (Gtk::DropDown *, string name, std::vector<int> values);
     void argChangedChoice (thArg *, Gtk::DropDown *, std::vector<int> values);
 
+    /* Selects the row meaning `value', or none where the list has no such row.
+       Shared by the two above so they cannot come to disagree about what an
+       unlistable value looks like. */
+    static void showChoice (Gtk::DropDown *, const std::vector<int> &values,
+                            double value);
+
     /* Drops every subscription in argConns_. */
     void dropArgConns (void);
 

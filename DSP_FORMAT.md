@@ -101,7 +101,10 @@ overriding one it gets wrong.
 value with no name**, not the end of the list: `"Off,,High"` names 0 and 2 and
 says 1 exists and means nothing — which is what `osc::window`, implementing
 three of six waveforms, has to be able to say. A list implies `.step = 1` and a
-range of `0..count-1`.
+range running from its first named entry to its last — so `"Off,,High"` declares
+three indices, offers two, and its control runs 0..2. The length is a statement
+in its own right: it says how many indices the arg has, which is not always how
+many are worth offering.
 
 The file's word is final, and that includes `@x.step = 0`. Saying it explicitly
 is not the same as saying nothing, even though the value is the default —

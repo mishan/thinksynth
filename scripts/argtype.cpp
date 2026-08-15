@@ -415,6 +415,180 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- a list with holes in it ---------------------------------------- */
+
+    /* osc::window declares six waveform indices and implements 0, 2 and 3. The
+     * three gaps are not decoration: its switch has no case for 1, 4 or 5 and
+     * no default:, so those values leave the output buffer holding whatever was
+     * in it. Nothing may offer them.
+     *
+     * All four of these came out of review, and all four are cases the corpus
+     * cannot produce -- no shipped .dsp drives an osc::window waveform at all.
+     */
+    write(wrap("@w = 0;\n@w.widget = 1;\n@w.min = 0;\n@w.max = 5;\n",
+               "node osc osc::window {\n    waveform = @w;\n};\n"));
+
+    {
+        thSynthTree *tree = synth.parseTree(scratch);
+
+        if (tree == NULL)
+            fail("an osc::window patch parses", "");
+        else
+        {
+            NodeGraph g;
+
+            g.build(tree);
+            g.layout();
+
+            int box = -1;
+
+            for (size_t b = 0; b < g.boxes().size(); b++)
+                if (g.boxes()[b].isControl && g.boxes()[b].ctlArg == "w")
+                    box = (int)b;
+
+            if (box < 0)
+                fail("@w is a control box", "");
+            else
+            {
+                const NodeGraph::Box &bx = g.boxes()[box];
+
+                /* Six indices declared, because that is what the switch spans
+                   and the length of the list is a statement about the arg. */
+                if (bx.ctlValueNames.size() != 6)
+                    fail("osc::window declares all six indices",
+                         joined(bx.ctlValueNames));
+
+                /* ...but the track ends at the last one that means something,
+                   or its final two fifths would select nothing. */
+                else if (bx.ctlDrawMax() != 3 || bx.ctlDrawMin() != 0)
+                    fail("the track spans the named values, not the list", "");
+                else
+                    ok("a list with holes declares its whole range and is "
+                       "drawn over the part that means something");
+
+                /* Nothing anywhere on the track may land on a hole. Every
+                   pixel, not a sample of them: a gap at one end is exactly
+                   what a coarse sweep steps over. */
+                double x0, x1, y, hx;
+
+                if (!g.sliderGeometry(box, x0, x1, y, hx))
+                    fail("@w has a track", "");
+                else
+                {
+                    int bad = 0;
+
+                    for (int s = 0; s <= 200; s++)
+                    {
+                        const double x = x0 + (x1 - x0) * (s / 200.0);
+
+                        g.setControlValue(box, g.sliderValueAt(box, x));
+
+                        if (g.boxes()[box].ctlValueName().empty())
+                            bad++;
+                    }
+
+                    /* And from outside the track too -- a value arriving from
+                       the parameter panel or from a reload goes through the
+                       same call and must be held to the same rule. */
+                    static const float outside[] = { -3, 0.6f, 1, 1.4f, 4, 5,
+                                                     9 };
+
+                    for (size_t k = 0; k < sizeof(outside)/sizeof(outside[0]);
+                         k++)
+                    {
+                        g.setControlValue(box, outside[k]);
+
+                        if (g.boxes()[box].ctlValueName().empty())
+                            bad++;
+                    }
+
+                    if (bad)
+                        fail("a control can be left on a value its plugin does "
+                             "not implement", "");
+                    else
+                        ok("no drag and no written value can select a hole");
+                }
+            }
+
+            delete tree;
+        }
+    }
+
+    /* ---- a step is measured from zero ----------------------------------- */
+
+    /* Because that is what a step means here: the plugin reads the arg
+     * `(int)x', so the values it can tell apart are the whole numbers, and
+     * whole numbers are counted from zero rather than from wherever a
+     * particular patch decided its range should begin.
+     *
+     * The range below starts at 0.3 on purpose -- it is also the case where
+     * rounding and clamping as two passes puts the value back off the grid,
+     * since 0.3 is not itself a multiple. */
+    write(wrap("@n = 3;\n@n.widget = 1;\n@n.min = 0.3;\n@n.max = 8;\n"
+               "@n.step = 1;\n",
+               "node gain math::mul {\n    in0 = ionode->note;\n"
+               "    in1 = @n;\n};\n"));
+
+    {
+        thSynthTree *tree = synth.parseTree(scratch);
+
+        if (tree == NULL)
+            fail("the stepped patch parses", "");
+        else
+        {
+            NodeGraph g;
+
+            g.build(tree);
+            g.layout();
+
+            int box = -1;
+
+            for (size_t b = 0; b < g.boxes().size(); b++)
+                if (g.boxes()[b].isControl && g.boxes()[b].ctlArg == "n")
+                    box = (int)b;
+
+            if (box < 0)
+                fail("@n is a control box", "");
+            else
+            {
+                int bad = 0;
+                float low = 0;
+
+                static const float tries[] = { -1, 0, 0.4f, 0.6f, 2.5f, 7.7f,
+                                               20 };
+
+                for (size_t k = 0; k < sizeof(tries)/sizeof(tries[0]); k++)
+                {
+                    g.setControlValue(box, tries[k]);
+
+                    const float v = g.boxes()[box].ctlValue;
+
+                    if (fabs(v - floorf(v + 0.5f)) > 1e-4)
+                        bad++;          /* not a whole number */
+
+                    if (v < 0.3f - 1e-4 || v > 8 + 1e-4)
+                        bad++;          /* outside its own range */
+                }
+
+                /* The bottom of a range that is not itself a multiple has to
+                   push inwards to the next one, not sit on the bound. */
+                g.setControlValue(box, -5);
+                low = g.boxes()[box].ctlValue;
+
+                if (bad)
+                    fail("a step is a whole number inside the range", "");
+                else if (low != 1)
+                    fail("a bound below the first multiple pushes inwards",
+                         "");
+                else
+                    ok("a step counts from zero, and a bound that is not one "
+                       "pushes inwards rather than off the grid");
+            }
+
+            delete tree;
+        }
+    }
+
     remove(scratch);
 
     printf("\n%d failure(s)\n", failed);
