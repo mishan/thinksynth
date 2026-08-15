@@ -1,0 +1,93 @@
+# airports.gen -- v2 of the python prototype's piece.
+# Seven tape loops and a wildcard, now with a live density knob and a
+# slow generative filter sweep the v1 format had no way to say.
+
+name "Airports";
+author "Misha Nasledov";
+description "In the spirit of Music for Airports 2/1.";
+
+seed 1978;
+
+@density = 0.85;
+@density.widget = 1;
+@density.min = 0;
+@density.max = 1;
+@density.label = "Density";
+
+scale fmin "F3 Ab3 C4 Db4 Eb4 F4 Ab4";
+
+chain loop_f3 {
+    stage src gen::eno_line {
+        notes = "F3";  period = 23.9 s; jitter = 2.0 s;
+        prob = @density; hold = 6 s; vel = 72; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+chain loop_ab3 {
+    stage src gen::eno_line {
+        notes = "Ab3"; period = 19.4 s; jitter = 1.5 s;
+        prob = @density; hold = 6 s; vel = 70; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+chain loop_c4 {
+    stage src gen::eno_line {
+        notes = "C4";  period = 27.1 s; jitter = 2.5 s;
+        prob = @density; hold = 5 s; vel = 66; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+chain loop_db4 {
+    stage src gen::eno_line {
+        notes = "Db4"; period = 31.7 s; jitter = 3.0 s;
+        prob = @density; hold = 5 s; vel = 62; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+chain loop_eb4 {
+    stage src gen::eno_line {
+        notes = "Eb4"; period = 21.3 s; jitter = 2.0 s;
+        prob = @density; hold = 5 s; vel = 64; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+chain loop_f4 {
+    stage src gen::eno_line {
+        notes = "F4";  period = 25.6 s; jitter = 2.0 s;
+        prob = @density; hold = 4 s; vel = 60; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+chain loop_ab4 {
+    stage src gen::eno_line {
+        notes = "Ab4"; period = 34.9 s; jitter = 3.0 s;
+        prob = @density; hold = 4 s; vel = 56; vel_jitter = 8;
+    };
+    sink { channel = 3; };
+};
+
+# The wildcard: draws from the whole scale, rare and quiet, and its
+# pitches get re-quantized so a transposed scale edit stays consonant.
+chain wildcard {
+    stage src gen::eno_line {
+        notes = fmin; period = 45 s; jitter = 8 s;
+        prob = 0.6; hold = 5 s; vel = 50; vel_jitter = 10;
+    };
+    stage q xform::quantize { scale = fmin; };
+    sink { channel = 3; };
+};
+
+# What v1 could not express at all: a slow random walk driving the pad
+# patch's filter knob. Same machinery, different sink.
+chain drift {
+    stage src gen::walk {
+        min = 0.2; max = 0.8; step = 0.05; period = 8 s;
+    };
+    sink { channel = 3; chanarg = "cutoff"; };
+};

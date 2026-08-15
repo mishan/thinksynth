@@ -88,7 +88,9 @@ set(THINKSYNTH_SOURCES
     gui/NodeParams.cpp
     gui/NodeEditor.cpp
     gui/SaveButton.cpp
-    gui/PatchSelWindow.cpp)
+    gui/PatchSelWindow.cpp
+    gui/PianoRoll.cpp
+    gui/ComposerWindow.cpp)
 
 # ---------------------------------------------------------------------------
 # Windows resources: icon, manifest, version block
