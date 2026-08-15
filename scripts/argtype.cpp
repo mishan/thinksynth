@@ -51,6 +51,7 @@
 #include <string.h>
 #include <math.h>
 
+#include <filesystem>
 #include <fstream>
 
 #include "think.h"
@@ -69,13 +70,47 @@ static void fail (const char *what, const string &detail)
     failed++;
 }
 
-static const char *scratch = "/tmp/argtype-scratch.dsp";
-
-static void write (const string &text)
+/* Not "/tmp/...".
+ *
+ * The other file-writing harnesses hardcode it and get away with it because
+ * none of them is a CTest gate -- they take a corpus argument and are run by
+ * hand, on the machine of somebody who has a /tmp. This one is a gate, so it
+ * runs on the Windows runner, where there is no such directory: every write
+ * silently did nothing and every parse then failed to find a file, which is
+ * what twelve failures with no other symptom look like.
+ *
+ * A function rather than a static, because temp_directory_path() consults the
+ * environment and doing that before main() is a habit worth not forming. */
+static string scratchPath (const char *leaf)
 {
-    ofstream out(scratch, ios::binary | ios::trunc);
+    std::error_code ec;
+
+    std::filesystem::path dir = std::filesystem::temp_directory_path(ec);
+
+    if (ec)
+        dir = ".";      /* the build tree; ctest runs us in it */
+
+    return (dir / leaf).string();
+}
+
+static string scratch;
+
+/* Returns false rather than failing silently. A write that does nothing and a
+   parse that then finds no file report the parse, which is two steps from the
+   cause. */
+static bool writeOrFail (const string &text)
+{
+    ofstream out(scratch.c_str(), ios::binary | ios::trunc);
 
     out << text;
+    out.close();
+
+    if (out.good())
+        return true;
+
+    fail("could not write the scratch file", scratch);
+
+    return false;
 }
 
 /* The smallest file that loads, plus whatever the caller wants in it. */
@@ -86,17 +121,43 @@ static string wrap (const string &controls, const string &nodes)
            nodes + "\nio ionode;\n";
 }
 
-/* Parses the scratch file and hands back the named chanarg, or NULL. The tree
-   is leaked deliberately -- the arg points into it and this process is about to
-   exit either way. */
-static thArg *chanargOf (thSynth &synth, const string &name)
+/* What the parse decided about one control, copied out so the tree can go.
+ *
+ * This used to hand back the thArg itself and leak the tree it points into, on
+ * the reasoning that the process was about to exit anyway. That is not true
+ * under a gate: the asan job runs ctest with detect_leaks=1, every other
+ * harness in this tree is clean under it, and "about to exit" is exactly the
+ * excuse LeakSanitizer exists to refuse. Three fields is all any caller wanted
+ * of the arg. */
+struct Typing {
+    bool found;
+    float step;
+    vector<string> names;
+
+    Typing (void) : found(false), step(0) {}
+};
+
+static Typing typingOf (thSynth &synth, const string &name)
 {
+    Typing t;
+
     thSynthTree *tree = synth.parseTree(scratch);
 
     if (tree == NULL)
-        return NULL;
+        return t;
 
-    return tree->getChanArg(name);
+    thArg *a = tree->getChanArg(name);
+
+    if (a)
+    {
+        t.found = true;
+        t.step = a->step();
+        t.names = a->valueNames();
+    }
+
+    delete tree;
+
+    return t;
 }
 
 static string joined (const vector<string> &v)
@@ -120,6 +181,8 @@ int main (int argc, char **argv)
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
 
+    scratch = scratchPath("argtype-scratch.dsp");
+
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
     /* ---- the plugin declares it ---------------------------------------- */
@@ -127,7 +190,7 @@ int main (int argc, char **argv)
     /* Through a node rather than through thPluginManager, whose map is keyed by
        a path this harness would have to reconstruct. A .dsp naming the plugin
        is how everything else in the tree gets at one. */
-    write(wrap("", "node osc osc::simple {\n    freq = ionode->note;\n};\n"));
+    writeOrFail(wrap("", "node osc osc::simple {\n    freq = ionode->note;\n};\n"));
 
     {
         thSynthTree *tree = synth.parseTree(scratch);
@@ -173,23 +236,27 @@ int main (int argc, char **argv)
             else
                 ok("an arg the plugin says nothing about stays continuous");
         }
+
+        /* The plugin outlives this -- thPluginManager owns it and the synth
+           owns that -- but the tree does not. */
+        delete tree;
     }
 
     /* ---- and it reaches the control wired to it ------------------------- */
 
-    write(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
+    writeOrFail(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
                "@wave.max = 5;\n",
                "node osc osc::simple {\n    waveform = @wave;\n};\n"));
 
     {
-        thArg *a = chanargOf(synth, "wave");
+        const Typing a = typingOf(synth, "wave");
 
-        if (a == NULL)
+        if (!a.found)
             fail("@wave survives a parse", "");
-        else if (a->step() != 1)
+        else if (a.step != 1)
             fail("@wave picks up the step from osc::simple", "");
-        else if (a->valueNames().size() != 6)
-            fail("@wave picks up the names", joined(a->valueNames()));
+        else if (a.names.size() != 6)
+            fail("@wave picks up the names", joined(a.names));
         else
             ok("a control driving a named selector is named too");
     }
@@ -221,69 +288,69 @@ int main (int argc, char **argv)
                  "    in1 = @wave;\n};\n",
                  oscName, mulName, oscName);
 
-        write(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
+        writeOrFail(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
                    "@wave.max = 5;\n", nodes));
 
-        thArg *a = chanargOf(synth, "wave");
+        const Typing a = typingOf(synth, "wave");
 
-        if (a == NULL)
+        if (!a.found)
             fail("@wave survives a parse with two consumers", "");
-        else if (a->step() != 0 || !a->valueNames().empty())
+        else if (a.step != 0 || !a.names.empty())
             fail(order ? "the selector is visited second"
                        : "the selector is visited first",
                  "two consumers that disagree left the control typed as " +
-                 joined(a->valueNames()));
+                 joined(a.names));
         else if (order)
             ok("a control two things disagree about is left alone, whichever "
                "the pass sees first");
     }
 
     /* Two consumers that agree are not a disagreement. */
-    write(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
+    writeOrFail(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
                "@wave.max = 5;\n",
                "node osc1 osc::simple {\n    waveform = @wave;\n};\n"
                "node osc2 osc::simple {\n    waveform = @wave;\n};\n"));
 
     {
-        thArg *a = chanargOf(synth, "wave");
+        const Typing a = typingOf(synth, "wave");
 
-        if (a == NULL || a->valueNames().size() != 6)
+        if (!a.found || a.names.size() != 6)
             fail("two consumers that agree still type the control",
-                 a ? joined(a->valueNames()) : string("no arg"));
+                 joined(a.names));
         else
             ok("two consumers that agree are not a disagreement");
     }
 
     /* ---- the .dsp can say it itself, and wins --------------------------- */
 
-    write(wrap("@steps = 2;\n@steps.widget = 1;\n@steps.min = 0;\n"
+    writeOrFail(wrap("@steps = 2;\n@steps.widget = 1;\n@steps.min = 0;\n"
                "@steps.max = 8;\n@steps.step = 1;\n",
                "node gain math::mul {\n    in0 = ionode->note;\n"
                "    in1 = @steps;\n};\n"));
 
     {
-        thArg *a = chanargOf(synth, "steps");
+        const Typing a = typingOf(synth, "steps");
 
-        if (a == NULL || a->step() != 1)
+        if (!a.found || a.step != 1)
             fail("@x.step types a control the plugin says nothing about", "");
         else
             ok("a .dsp can type a control the plugin knows nothing about");
     }
 
-    write(wrap("@mode = 1;\n@mode.widget = 1;\n@mode.min = 0;\n"
+    writeOrFail(wrap("@mode = 1;\n@mode.widget = 1;\n@mode.min = 0;\n"
                "@mode.max = 2;\n@mode.values = \"Off, Low, High\";\n",
                "node gain math::mul {\n    in0 = ionode->note;\n"
                "    in1 = @mode;\n};\n"));
 
     {
-        thArg *a = chanargOf(synth, "mode");
+        const Typing a = typingOf(synth, "mode");
 
-        if (a == NULL || a->valueNames().size() != 3)
-            fail("@x.values names them", a ? joined(a->valueNames()) : "");
-        else if (a->valueNames()[2] != "High")
+        if (!a.found || a.names.size() != 3)
+            fail("@x.values names them", joined(a.names));
+        else if (a.names[2] != "High")
             fail("the space after a comma is not part of the name",
-                 a->valueNames()[2]);
-        else if (a->step() != 1)
+                 a.names[2]);
+        else if (a.step != 1)
             fail("naming the values implies a step", "");
         else
             ok("@x.values names a control's values, spaces trimmed");
@@ -291,19 +358,19 @@ int main (int argc, char **argv)
 
     /* A hole. osc::window implements waveforms 0, 2 and 3 and not 1, and a
        value with no name has to be sayable or a list cannot describe it. */
-    write(wrap("@mode = 0;\n@mode.widget = 1;\n@mode.min = 0;\n"
+    writeOrFail(wrap("@mode = 0;\n@mode.widget = 1;\n@mode.min = 0;\n"
                "@mode.max = 2;\n@mode.values = \"Off,,High\";\n",
                "node gain math::mul {\n    in0 = ionode->note;\n"
                "    in1 = @mode;\n};\n"));
 
     {
-        thArg *a = chanargOf(synth, "mode");
+        const Typing a = typingOf(synth, "mode");
 
-        if (a == NULL || a->valueNames().size() != 3)
+        if (!a.found || a.names.size() != 3)
             fail("a hole is a value, not the end of the list",
-                 a ? joined(a->valueNames()) : "");
-        else if (!a->valueNames()[1].empty() || a->valueNames()[2] != "High")
-            fail("the hole is in the middle", joined(a->valueNames()));
+                 joined(a.names));
+        else if (!a.names[1].empty() || a.names[2] != "High")
+            fail("the hole is in the middle", joined(a.names));
         else
             ok("a value with no name is a gap in the list, not its end");
     }
@@ -312,18 +379,18 @@ int main (int argc, char **argv)
        the file wins. Without typedByFile this cannot be expressed at all --
        a step of 0 is the default, so saying it and saying nothing would be the
        same state. */
-    write(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
+    writeOrFail(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
                "@wave.max = 5;\n@wave.step = 0;\n",
                "node osc osc::simple {\n    waveform = @wave;\n};\n"));
 
     {
-        thArg *a = chanargOf(synth, "wave");
+        const Typing a = typingOf(synth, "wave");
 
-        if (a == NULL)
+        if (!a.found)
             fail("@wave survives a parse with an explicit step", "");
-        else if (a->step() != 0 || !a->valueNames().empty())
+        else if (a.step != 0 || !a.names.empty())
             fail("`@wave.step = 0' is overridden by the plugin",
-                 joined(a->valueNames()));
+                 joined(a.names));
         else
             ok("the file has the last word, including when it says "
                "`continuous'");
@@ -334,7 +401,7 @@ int main (int argc, char **argv)
     /* The padded maximum, which is the thing that started all this: eight
        shipped patches declare 5.1 or 5.5 for six waveforms so that a
        continuous slider could still truncate to the last one. */
-    write(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
+    writeOrFail(wrap("@wave = 3;\n@wave.widget = 1;\n@wave.min = 0;\n"
                "@wave.max = 5.1;\n",
                "node osc osc::simple {\n    waveform = @wave;\n};\n"));
 
@@ -425,7 +492,7 @@ int main (int argc, char **argv)
      * All four of these came out of review, and all four are cases the corpus
      * cannot produce -- no shipped .dsp drives an osc::window waveform at all.
      */
-    write(wrap("@w = 0;\n@w.widget = 1;\n@w.min = 0;\n@w.max = 5;\n",
+    writeOrFail(wrap("@w = 0;\n@w.widget = 1;\n@w.min = 0;\n@w.max = 5;\n",
                "node osc osc::window {\n    waveform = @w;\n};\n"));
 
     {
@@ -524,7 +591,7 @@ int main (int argc, char **argv)
      * The range below starts at 0.3 on purpose -- it is also the case where
      * rounding and clamping as two passes puts the value back off the grid,
      * since 0.3 is not itself a multiple. */
-    write(wrap("@n = 3;\n@n.widget = 1;\n@n.min = 0.3;\n@n.max = 8;\n"
+    writeOrFail(wrap("@n = 3;\n@n.widget = 1;\n@n.min = 0.3;\n@n.max = 8;\n"
                "@n.step = 1;\n",
                "node gain math::mul {\n    in0 = ionode->note;\n"
                "    in1 = @n;\n};\n"));
@@ -589,7 +656,7 @@ int main (int argc, char **argv)
         }
     }
 
-    remove(scratch);
+    remove(scratch.c_str());
 
     printf("\n%d failure(s)\n", failed);
 
