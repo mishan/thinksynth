@@ -1,0 +1,22 @@
+# airports.gen -- in the spirit of Music for Airports 2/1.
+# Eno's piece was ~8 tape loops, each holding one sung note, each loop a
+# different length so the overlaps never repeat. Same idea here: one note
+# per line, incommensurate periods, occasional silence via prob.
+#
+# Aim these channels at slow-attack, long-release pads. With the stock
+# thinkrc, channel 3 is pads/SynString.patch -- point the others at pads
+# too (or whatever you like) before running.
+
+# F minor-ish pool, used only by lines that don't name their own note
+scale F3 Ab3 C4 Db4 Eb4 F4 Ab4
+
+line notes=F3  period=23.9 jitter=2.0 prob=0.90 hold=6 vel=72 vel_jitter=8 channel=3
+line notes=Ab3 period=19.4 jitter=1.5 prob=0.90 hold=6 vel=70 vel_jitter=8 channel=3
+line notes=C4  period=27.1 jitter=2.5 prob=0.85 hold=5 vel=66 vel_jitter=8 channel=3
+line notes=Db4 period=31.7 jitter=3.0 prob=0.80 hold=5 vel=62 vel_jitter=8 channel=3
+line notes=Eb4 period=21.3 jitter=2.0 prob=0.85 hold=5 vel=64 vel_jitter=8 channel=3
+line notes=F4  period=25.6 jitter=2.0 prob=0.80 hold=4 vel=60 vel_jitter=8 channel=3
+line notes=Ab4 period=34.9 jitter=3.0 prob=0.75 hold=4 vel=56 vel_jitter=8 channel=3
+
+# One wildcard line drawing from the whole scale, rare and quiet
+line period=45.0 jitter=8.0 prob=0.6 hold=5 vel=50 vel_jitter=10 channel=3
