@@ -631,11 +631,17 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
         return;
     }
 
-    std::filesystem::path tmp =
-        std::filesystem::temp_directory_path() / "gencheck-live.gen";
+    /* Unique for the same reason every other scratch here is. */
+    std::string tmp = thUtil::tempFile("gencheck-live-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a live-input scratch file");
+        return;
+    }
 
     {
-        std::ofstream out(tmp);
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
 
         out <<
             "seed 11;\n"
@@ -653,7 +659,7 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
     thcScheduler sched(synth);
     thcGenLoader loader(plugins);
 
-    if (!loader.load(tmp.string(), &sched))
+    if (!loader.load(tmp, &sched))
     {
         for (size_t i = 0; i < loader.errors().size(); i++)
             fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
