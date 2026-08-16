@@ -3,8 +3,9 @@
 # The lsystem unfolds a plant grammar into a branching melody; evolve
 # breeds a bass phrase toward its own taste, one generation per cycle.
 # Both emit whole phrases into the future, so the piano roll's ghosted
-# right half finally has something to say. Watch the draw strip: the
-# contour is the plant, the climbing line is the search settling.
+# right half finally has something to say. Watch their stage boxes on
+# the canvas: the contour is the plant, the climbing line is the search
+# settling.
 #
 # Aim channel 3 at a plucky patch and channel 2 at a bass. Unpinned on
 # purpose: evolve should wander differently every time. Pin a seed if

@@ -14,6 +14,8 @@
 
 #include "config.h"
 
+#include <stdio.h>
+
 #include <algorithm>
 #include <cmath>
 
