@@ -133,6 +133,25 @@ thcPlugin::moduleLoad (void)
         return -1;
     }
 
+    /* And the mirror image: an exported entry point whose role was
+       never declared would still answer hasTick()/hasReceive() and get
+       scheduled or fed on the quiet. The flags are the module's public
+       statement of what it is; an export that contradicts them is the
+       same bug wearing the other shirt. */
+    if (tick_ != NULL && !isGenerator())
+    {
+        fprintf(stderr, "thcPlugin: %s exports composer_tick but never "
+                "declared THC_GENERATOR\n", path_.c_str());
+        return -1;
+    }
+
+    if (receive_ != NULL && !isTransformer())
+    {
+        fprintf(stderr, "thcPlugin: %s exports composer_receive but never "
+                "declared THC_TRANSFORMER\n", path_.c_str());
+        return -1;
+    }
+
     if (flags_ == 0)
     {
         fprintf(stderr, "thcPlugin: %s declared no role "

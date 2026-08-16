@@ -135,8 +135,15 @@ struct thcStage
     thcParamStore  params;
     bool           sleeping;    /* tick returned THC_NEVER               */
 
-    thcStage (thcPlugin *p, unsigned seed)
-        : plugin(p), state(NULL), params(p, seed), sleeping(false) {}
+    /* Whether THIS placement is clocked. A plugin that exports both
+       entry points is a generator as a gen:: stage and only a
+       transformer as an xform:: one -- the file's declared role, not
+       the module's capability, decides what gets scheduled. */
+    bool           ticks;
+
+    thcStage (thcPlugin *p, unsigned seed, bool wantTick)
+        : plugin(p), state(NULL), params(p, seed), sleeping(false),
+          ticks(wantTick) {}
 };
 
 /* Where a chain's events go when they fall off the end. A plain sink
@@ -184,7 +191,14 @@ public:
      * master seed and the stage's position, so the same seed and the
      * same construction order replay the same piece. */
     size_t    addChain (const std::string &name);
+
+    /* `asGenerator' is the stage's declared role -- gen:: or xform:: in
+       a .gen file. The two-argument form takes the plugin's word for
+       it. NULL when the module refuses to create an instance; nothing
+       is left half-added. */
     thcStage *addStage (size_t chain, thcPlugin *plugin);
+    thcStage *addStage (size_t chain, thcPlugin *plugin, bool asGenerator);
+
     void      addSink (size_t chain, int channel,
                        const std::string &chanarg = "");
     void      setChainInput (size_t chain, bool midi);
@@ -238,10 +252,10 @@ public:
 
     /* Advance the musical clock by `dt' seconds without the Glib timer:
        the virtual-clock spelling of one timerCallback, for harnesses.
-       Deterministic because everything below is keyed in transport time;
+       Deterministic because everything below is keyed in transport time:
        two renders with the same seed and the same step size deliver the
-       same stream, which is exactly what scripts/gencheck asserts. In
-       the app the timer owns time and nothing calls this. */
+       same stream, which is what makes a replay gate writable at all.
+       In the app the timer owns time and nothing calls this. */
     void stepTransport (double dt);
 
     /* Route a live MIDI note into a chain's receive() path (Markov

@@ -14,6 +14,8 @@
 
 #include "config.h"
 
+#include <cmath>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -449,6 +451,17 @@ thcGenLoader::parseStatement (thcScheduler *sched)
                 return false;
             }
 
+            /* The whole point of a pinned seed is that this exact
+               number replays this exact piece; -3 or 19.5 silently
+               folded through an unsigned cast would replay something,
+               just not what the file says. */
+            if (n.num < 0 || n.num > 4294967295.0 ||
+                n.num != std::floor(n.num))
+            {
+                error(n.line, "seed is a whole number, 0 to 4294967295");
+                return false;
+            }
+
             hasSeed_ = true;
             seed_ = (unsigned)n.num;
             sched->setMasterSeed(seed_);
@@ -832,11 +845,17 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
     if (!expectPunct('{'))
         return false;
 
-    thcStage *stage = sched->addStage(chain, plugin);
+    /* The category is the placement's role, not just a validation: a
+       plugin exporting both entry points ticks as gen:: and only
+       receives as xform::, and the scheduler has to be told which this
+       is. */
+    thcStage *stage = sched->addStage(chain, plugin,
+                                      category.text == "gen");
 
     if (stage == NULL)
     {
-        error(stageName.line, "internal: could not add stage");
+        error(stageName.line, "'" + plugName.text +
+              "' refused to create an instance");
         return false;
     }
 

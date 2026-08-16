@@ -18,6 +18,8 @@
 
 #include "config.h"
 
+#include <stdio.h>
+
 #include <algorithm>
 
 #include "think.h"
@@ -252,18 +254,42 @@ thcScheduler::stageSeed (size_t chain, size_t stage) const
 thcStage *
 thcScheduler::addStage (size_t chain, thcPlugin *plugin)
 {
+    return addStage(chain, plugin,
+                    plugin != NULL && plugin->hasTick());
+}
+
+thcStage *
+thcScheduler::addStage (size_t chain, thcPlugin *plugin, bool asGenerator)
+{
     if (chain >= chains_.size() || plugin == NULL)
         return NULL;
 
     thcChain &c = chains_[chain];
     size_t stage = c.stages.size();
 
+    /* The role the placement declares, gated by what the module can
+       actually do: an xform:: placement of a dual plugin must not tick,
+       and asking for a generator out of a module with no tick is the
+       loader's error to have caught. */
+    bool wantTick = asGenerator && plugin->hasTick();
+
     c.stages.push_back(std::unique_ptr<thcStage>(
-        new thcStage(plugin, stageSeed(chain, stage))));
+        new thcStage(plugin, stageSeed(chain, stage), wantTick)));
 
     thcStage *s = c.stages.back().get();
 
     s->state = plugin->create(s->params.params());
+
+    /* A module may refuse an instance. Half a stage is worse than none
+       -- ticks would hand a NULL state straight into the plugin -- so
+       take it back out and say so. */
+    if (s->state == NULL)
+    {
+        fprintf(stderr, "thcScheduler: %s refused to create an instance\n",
+                plugin->name().c_str());
+        c.stages.pop_back();
+        return NULL;
+    }
 
     /* Wire the store back to the instance it now serves. The rearm
        lambda captures indices, not pointers -- stages are never removed
@@ -275,7 +301,7 @@ thcScheduler::addStage (size_t chain, thcPlugin *plugin)
     s->params.rearm_ = [this, chain, stage] { rearmStage(chain, stage); };
     s->params.tempo_ = [this] { return tempo_; };
 
-    if (plugin->hasTick())
+    if (s->ticks)
     {
         wakeups_.push_back({ transportNow_, chain, stage });
         std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
@@ -460,7 +486,7 @@ thcScheduler::rearmStage (size_t chain, size_t stage)
 
     thcStage *s = chains_[chain].stages[stage].get();
 
-    if (!s->sleeping || !s->plugin->hasTick())
+    if (!s->sleeping || !s->ticks)
         return;
 
     s->sleeping = false;
@@ -670,7 +696,7 @@ thcScheduler::reset (void)
             s->params.instance_ = s->state;
             s->sleeping = false;
 
-            if (s->plugin->hasTick())
+            if (s->ticks && s->state != NULL)
             {
                 wakeups_.push_back({ 0.0, ci, si });
                 std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
