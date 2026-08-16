@@ -145,6 +145,7 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     newBtn_ = NULL;
     openBtn_ = NULL;
     selBox_ = NULL;
+    kbdBtn_ = NULL;
 
     set_title("thinksynth - Composer");
     set_default_size(1060, 640);
@@ -195,6 +196,15 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     bar_.append(*tempoLbl_);
     bar_.append(*tempoBtn_);
     bar_.append(*editBtn_);
+
+    kbdBtn_ = manage(new Gtk::ToggleButton("Kbd input"));
+    kbdBtn_->set_tooltip_text("Feed the on-screen Keyboard window into "
+                              "chains with MIDI input, alongside "
+                              "hardware MIDI");
+    kbdBtn_->signal_toggled().connect(
+        sigc::mem_fun(*this, &ComposerWindow::onKbdToggle));
+    bar_.append(*kbdBtn_);
+
     bar_.append(*status_);
 
     vbox_.append(bar_);
@@ -254,32 +264,9 @@ ComposerWindow::ComposerWindow (thSynth *synth)
        release follows as a NOTEOFF; every chain that declared `input
        midi' on that channel hears both. */
     midiOnConn_ = m_sigNoteOn.connect(
-        [this](int chan, float note, float veloc)
-        {
-            thcEvent ev = {};
-
-            ev.type = THC_EV_NOTE;
-            ev.at = sched_->now();
-            ev.channel = chan;
-            ev.u.note.note = (int)note;
-            ev.u.note.velocity = (int)veloc;
-            ev.u.note.duration = 0;
-
-            sched_->injectMidiEvent(ev);
-        });
-
+        sigc::mem_fun(*this, &ComposerWindow::injectOn));
     midiOffConn_ = m_sigNoteOff.connect(
-        [this](int chan, float note)
-        {
-            thcEvent ev = {};
-
-            ev.type = THC_EV_NOTEOFF;
-            ev.at = sched_->now();
-            ev.channel = chan;
-            ev.u.note.note = (int)note;
-
-            sched_->injectMidiEvent(ev);
-        });
+        sigc::mem_fun(*this, &ComposerWindow::injectOff));
 
     loadPiece();
 }
@@ -289,6 +276,8 @@ ComposerWindow::~ComposerWindow (void)
     drawTimer_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
+    kbdOnConn_.disconnect();
+    kbdOffConn_.disconnect();
 
     /* Order matters: the scheduler's destructor flushes note-offs and
        destroys chain instances, which calls back into the plugins -- so
@@ -858,6 +847,56 @@ ComposerWindow::onDrawTimer (void)
 }
 
 void
+ComposerWindow::injectOn (int chan, float note, float veloc)
+{
+    thcEvent ev = {};
+
+    ev.type = THC_EV_NOTE;
+    ev.at = sched_->now();
+    ev.channel = chan;
+    ev.u.note.note = (int)note;
+    ev.u.note.velocity = (int)veloc;
+    ev.u.note.duration = 0;
+
+    sched_->injectMidiEvent(ev);
+}
+
+void
+ComposerWindow::injectOff (int chan, float note)
+{
+    thcEvent ev = {};
+
+    ev.type = THC_EV_NOTEOFF;
+    ev.at = sched_->now();
+    ev.channel = chan;
+    ev.u.note.note = (int)note;
+
+    sched_->injectMidiEvent(ev);
+}
+
+/* The on-screen keyboard as a performance input, if wished for: the
+ * same two handlers, fed from the pair the Keyboard window emits. A
+ * toggle rather than always-on because the keyboard is also the tool
+ * for auditioning patches, and auditioning through an arpeggiator you
+ * forgot about is a confusing five minutes. */
+void
+ComposerWindow::onKbdToggle (void)
+{
+    if (kbdBtn_->get_active())
+    {
+        kbdOnConn_ = m_sigKbdNoteOn.connect(
+            sigc::mem_fun(*this, &ComposerWindow::injectOn));
+        kbdOffConn_ = m_sigKbdNoteOff.connect(
+            sigc::mem_fun(*this, &ComposerWindow::injectOff));
+    }
+    else
+    {
+        kbdOnConn_.disconnect();
+        kbdOffConn_.disconnect();
+    }
+}
+
+void
 ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &)
 {
     rebuildSelection();
@@ -1077,6 +1116,7 @@ ComposerWindow::rebuildEditor (void)
     newBtn_ = NULL;
     openBtn_ = NULL;
     selBox_ = NULL;
+    kbdBtn_ = NULL;
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);

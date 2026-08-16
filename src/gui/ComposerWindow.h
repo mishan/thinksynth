@@ -189,9 +189,17 @@ protected:
     Gtk::ScrolledWindow canvasScroll_;
     sigc::connection drawTimer_;
 
-    /* The live MIDI hop into injectMidiEvent. */
+    /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
+       input toggle -- the on-screen keyboard's hop into the same place. */
     sigc::connection midiOnConn_;
     sigc::connection midiOffConn_;
+    sigc::connection kbdOnConn_;
+    sigc::connection kbdOffConn_;
+    Gtk::ToggleButton *kbdBtn_;
+
+    void onKbdToggle (void);
+    void injectOn (int chan, float note, float veloc);
+    void injectOff (int chan, float note);
 
     Gtk::Button *playBtn_;
     Gtk::Button *pauseBtn_;

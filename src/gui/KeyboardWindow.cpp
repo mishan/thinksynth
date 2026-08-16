@@ -165,11 +165,13 @@ KeyboardWindow::~KeyboardWindow (void)
 void KeyboardWindow::eventNoteOn (int chan, int note, float veloc)
 {
     synth_->addNote(chan, note, veloc);
+    m_sigKbdNoteOn(chan, note, veloc);
 }
 
 void KeyboardWindow::eventNoteOff (int chan, int note)
 {
     synth_->delNote(chan, note);
+    m_sigKbdNoteOff(chan, note);
 }
 
 void KeyboardWindow::eventChannelChanged (int chan)
