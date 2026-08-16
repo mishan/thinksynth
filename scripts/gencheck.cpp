@@ -462,13 +462,18 @@ static void
 checkEdits (const std::map<std::string, thcPlugin *> &plugins,
             thSynth *synth, const std::string &genFile)
 {
-    std::filesystem::path work =
-        std::filesystem::temp_directory_path() / "gencheck-edit.gen";
+    /* Unique for the same reason expectReject's scratch is: parallel
+       gencheck runs must not edit each other's copy. */
+    std::string path = thUtil::tempFile("gencheck-edit-");
 
-    std::filesystem::copy_file(genFile, work,
+    if (path.empty())
+    {
+        fail("could not make a scratch copy for editing");
+        return;
+    }
+
+    std::filesystem::copy_file(genFile, path,
         std::filesystem::copy_options::overwrite_existing);
-
-    std::string path = work.string();
     std::vector<std::string> comments = commentLines(slurp(path));
     std::string why;
 
@@ -490,7 +495,7 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
         fail("describe missed the density knob");
 
     if (doc.chains[0].stages.size() != 1 ||
-        doc.chains[0].stages[0].params.empty() ||
+        doc.chains[0].stages[0].params.size() < 2 ||
         doc.chains[0].stages[0].params[1].valueText != "23.9 s")
         fail("describe did not keep the authored '23.9 s'");
 
@@ -641,7 +646,7 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     if (doc.author != "gencheck")
         fail("the edited author did not read back");
 
-    std::filesystem::remove(work);
+    std::filesystem::remove(path);
 }
 
 /* ----------------------------------------------------------------------- */

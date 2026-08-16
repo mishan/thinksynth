@@ -118,18 +118,26 @@ struct Edit
  * never overlap unless an operation is buggy -- and a buggy operation
  * must not half-happen: overlaps are detected before the first byte
  * moves, and false means the text was not touched at all. A partially
- * applied edit set is a file nobody wrote. */
+ * applied edit set is a file nobody wrote.
+ *
+ * stable_sort ascending, then applied in reverse. The stability and
+ * the direction together make same-offset inserts land in push order:
+ * the later-pushed insert is applied first and the earlier one then
+ * lands above it, so what setKnobMeta pushes as min, max, label reads
+ * back as min, max, label -- on every platform, every run. Plain sort
+ * left equal offsets to the implementation's mood. */
 static bool
 applyEdits (std::string &text, std::vector<Edit> &edits)
 {
-    std::sort(edits.begin(), edits.end(),
-              [](const Edit &x, const Edit &y) { return x.a > y.a; });
+    std::stable_sort(edits.begin(), edits.end(),
+                     [](const Edit &x, const Edit &y)
+                     { return x.a < y.a; });
 
     for (size_t i = 0; i + 1 < edits.size(); i++)
-        if (edits[i + 1].b > edits[i].a)
+        if (edits[i].b > edits[i + 1].a)
             return false;
 
-    for (size_t i = 0; i < edits.size(); i++)
+    for (size_t i = edits.size(); i-- > 0; )
         text.replace(edits[i].a, edits[i].b - edits[i].a, edits[i].repl);
 
     return true;
