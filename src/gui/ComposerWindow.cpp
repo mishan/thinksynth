@@ -143,9 +143,10 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     saveAsBtn_ = NULL;
     newBtn_ = NULL;
     openBtn_ = NULL;
+    selBox_ = NULL;
 
     set_title("thinksynth - Composer");
-    set_default_size(1060, 560);
+    set_default_size(1060, 640);
 
     sched_ = new thcScheduler(synth_);
 
@@ -197,16 +198,28 @@ ComposerWindow::ComposerWindow (thSynth *synth)
 
     vbox_.append(bar_);
 
-    /* Playing side: knobs, tier-two visualizers, the roll. */
+    /* Playing side: knobs, the node canvas, the roll. The canvas is the
+       piece's face whether or not the Edit panel is open -- the tier-two
+       visualizers live inside its stage boxes now, where the old draw
+       strip used to be a row of orphans. */
     knobBar_.set_spacing(12);
     knobBar_.set_margin_start(6);
     knobBar_.set_margin_end(6);
     playSide_.append(knobBar_);
 
-    drawBar_.set_spacing(6);
-    drawBar_.set_margin_start(6);
-    drawBar_.set_margin_end(6);
-    playSide_.append(drawBar_);
+    canvas_ = manage(new ComposerCanvas());
+    canvas_->sigSelection.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasSelection));
+    canvas_->sigMoveStage.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasMoveStage));
+
+    canvasScroll_.set_child(*canvas_);
+    canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
+                             Gtk::PolicyType::AUTOMATIC);
+    canvasScroll_.set_propagate_natural_height(true);
+    canvasScroll_.set_propagate_natural_width(true);
+    canvasScroll_.set_max_content_height(300);
+    playSide_.append(canvasScroll_);
 
     roll_ = manage(new PianoRoll(sched_));
     roll_->set_vexpand(true);
@@ -388,7 +401,7 @@ ComposerWindow::parseWork (void)
     tempoGuard_ = false;
 
     rebuildKnobs();
-    rebuildDrawStrip();
+    canvas_->SetPiece(&doc_, sched_);
     rebuildEditor();
     updateTransportButtons();
 }
@@ -796,54 +809,45 @@ ComposerWindow::rebuildKnobs (void)
     knobBar_.set_visible(!knobs.empty());
 }
 
-void
-ComposerWindow::rebuildDrawStrip (void)
-{
-    while (Gtk::Widget *child = drawBar_.get_first_child())
-        drawBar_.remove(*child);
-
-    drawAreas_.clear();
-
-    for (size_t ci = 0; ci < sched_->chainCount(); ci++)
-    {
-        thcChain *c = sched_->chain(ci);
-
-        for (size_t si = 0; si < c->stages.size(); si++)
-        {
-            thcStage *s = c->stages[si].get();
-
-            if (!s->plugin->hasDraw())
-                continue;
-
-            Gtk::DrawingArea *area = manage(new Gtk::DrawingArea());
-
-            area->set_content_width(96);
-            area->set_content_height(96);
-            area->set_tooltip_text(c->name + " — " + s->plugin->name());
-
-            area->set_draw_func(
-                [s](const Cairo::RefPtr<Cairo::Context> &cr, int w, int h)
-                {
-                    cr->set_source_rgb(0.09, 0.09, 0.11);
-                    cr->paint();
-                    s->plugin->draw(s->state, cr->cobj(), w, h);
-                });
-
-            drawBar_.append(*area);
-            drawAreas_.push_back(area);
-        }
-    }
-
-    drawBar_.set_visible(!drawAreas_.empty());
-}
-
+/* One slow clock repaints the canvas so the inline composer_draws stay
+ * live; 50ms is plenty for a euclid ring, and the piano roll keeps its
+ * own frame clock. */
 bool
 ComposerWindow::onDrawTimer (void)
 {
-    for (size_t i = 0; i < drawAreas_.size(); i++)
-        drawAreas_[i]->queue_draw();
+    if (canvas_ != NULL)
+        canvas_->queue_draw();
 
     return true;
+}
+
+void
+ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &)
+{
+    rebuildSelection();
+}
+
+void
+ComposerWindow::onCanvasMoveStage (size_t chain, int from, int to)
+{
+    if (chain >= doc_.chains.size())
+        return;
+
+    std::string why;
+
+    if (editOk(thcGenEdit::moveStage(workPath_, doc_.chains[chain].name,
+                                     from, to, why), why))
+    {
+        /* Keep the selection on the stage that moved. */
+        ComposerCanvas::Selection sel;
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = chain;
+        sel.index = (size_t)to;
+        canvas_->select(sel);
+
+        structuralReload();
+    }
 }
 
 /* ---- the editor panel ------------------------------------------------- */
@@ -1036,6 +1040,7 @@ ComposerWindow::rebuildEditor (void)
     saveAsBtn_ = NULL;
     newBtn_ = NULL;
     openBtn_ = NULL;
+    selBox_ = NULL;
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);
@@ -1072,57 +1077,70 @@ ComposerWindow::rebuildEditor (void)
     editorBox_.append(*buildKnobsSection());
     editorBox_.append(*buildScalesSection());
 
-    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
-        editorBox_.append(*buildChainSection(ci));
+    /* The lower half follows the canvas: whatever is selected up there
+       is editable down here. */
+    editorBox_.append(*manage(new Gtk::Separator(
+        Gtk::Orientation::HORIZONTAL)));
 
-    /* Add-chain row: name, generator, channel. */
-    Gtk::Box *addRow = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
-    Gtk::Entry *nameEntry = manage(new Gtk::Entry());
-    std::vector<Glib::ustring> gens;
-    std::vector<std::string> genNames;
+    selBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 4));
+    editorBox_.append(*selBox_);
 
-    nameEntry->set_placeholder_text("new chain name");
-    nameEntry->set_max_width_chars(12);
+    rebuildSelection();
+}
 
-    for (std::map<std::string, thcPlugin *>::iterator i = composers_.begin();
-         i != composers_.end(); ++i)
-        if (i->second->hasTick())
+void
+ComposerWindow::rebuildSelection (void)
+{
+    if (selBox_ == NULL)
+        return;
+
+    while (Gtk::Widget *child = selBox_->get_first_child())
+        selBox_->remove(*child);
+
+    if (!editBtn_->get_active())
+        return;
+
+    const ComposerCanvas::Selection &sel = canvas_->selection();
+
+    switch (sel.kind)
+    {
+        case ComposerCanvas::Selection::NONE:
         {
-            gens.push_back(i->first);
-            genNames.push_back(i->first);
+            Gtk::Label *hint = manage(new Gtk::Label(
+                "Select a stage, sink or chain on the canvas -- or a "
+                "\"+\" to add one."));
+
+            hint->set_wrap(true);
+            hint->set_xalign(0);
+            selBox_->append(*hint);
+            break;
         }
-
-    Gtk::DropDown *genSel = manage(new Gtk::DropDown(gens));
-    Gtk::SpinButton *chanSel = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0, 0, 15, 1)));
-    Gtk::Button *addBtn = manage(new Gtk::Button("Add chain"));
-
-    addBtn->signal_clicked().connect(
-        [this, nameEntry, genSel, chanSel, genNames]
-        {
-            if (genNames.empty())
-                return;
-
-            guint sel = genSel->get_selected();
-
-            if (sel >= genNames.size())
-                sel = 0;
-
-            thcPlugin *plugin = composers_[genNames[sel]];
-            std::string why;
-
-            if (editOk(thcGenEdit::addChain(workPath_,
-                    nameEntry->get_text(), chanSel->get_value_as_int(),
-                    "src", "gen", plugin->name(),
-                    defaultParams(plugin), why), why))
-                structuralReload();
-        });
-
-    addRow->append(*nameEntry);
-    addRow->append(*genSel);
-    addRow->append(*chanSel);
-    addRow->append(*addBtn);
-    editorBox_.append(*addRow);
+        case ComposerCanvas::Selection::CHAIN:
+            if (sel.chain < doc_.chains.size())
+                buildChainSelection(sel.chain);
+            break;
+        case ComposerCanvas::Selection::STAGE:
+            if (sel.chain < doc_.chains.size() &&
+                sel.index < doc_.chains[sel.chain].stages.size())
+                buildStageSelection(sel.chain, sel.index);
+            break;
+        case ComposerCanvas::Selection::SINK:
+            if (sel.chain < doc_.chains.size() &&
+                sel.index < doc_.chains[sel.chain].sinks.size())
+                buildSinkSelection(sel.chain, sel.index);
+            break;
+        case ComposerCanvas::Selection::ADD_STAGE:
+            if (sel.chain < doc_.chains.size())
+                buildAddStage(sel.chain);
+            break;
+        case ComposerCanvas::Selection::ADD_SINK:
+            if (sel.chain < doc_.chains.size())
+                buildAddSink(sel.chain);
+            break;
+        case ComposerCanvas::Selection::ADD_CHAIN:
+            buildAddChain();
+            break;
+    }
 }
 
 Gtk::Widget *
@@ -1399,18 +1417,14 @@ ComposerWindow::buildScalesSection (void)
     return exp;
 }
 
-Gtk::Widget *
-ComposerWindow::buildChainSection (size_t ci)
+void
+ComposerWindow::buildChainSelection (size_t ci)
 {
     const thcGenEdit::Chain &chain = doc_.chains[ci];
     std::string chainName = chain.name;
 
-    Gtk::Expander *exp = manage(new Gtk::Expander("chain " + chainName));
-    Gtk::Box *body = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 4));
+    selBox_->append(*manage(new Gtk::Label("chain " + chainName)));
 
-    body->set_margin(4);
-
-    /* Chain header: rename, mute (live), MIDI input, remove. */
     Gtk::Box *head = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::Entry *nameEntry = manage(new Gtk::Entry());
     Gtk::CheckButton *mute = manage(new Gtk::CheckButton("mute"));
@@ -1439,7 +1453,11 @@ ComposerWindow::buildChainSection (size_t ci)
         });
 
     mute->signal_toggled().connect(
-        [this, ci, mute] { sched_->setMuted(ci, mute->get_active()); });
+        [this, ci, mute]
+        {
+            sched_->setMuted(ci, mute->get_active());
+            canvas_->queue_draw();
+        });
 
     input->signal_toggled().connect(
         [this, chainName, input]
@@ -1464,192 +1482,30 @@ ComposerWindow::buildChainSection (size_t ci)
     head->append(*nameEntry);
     head->append(*mute);
     head->append(*input);
-    head->append(*rm);
-    body->append(*head);
-
-    for (size_t si = 0; si < chain.stages.size(); si++)
-        body->append(*buildStageFrame(ci, si));
-
-    /* Add-stage row. */
-    {
-        Gtk::Box *addRow = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL,
-                                               6));
-        std::vector<Glib::ustring> shown;
-        std::vector<std::string> names;
-
-        for (std::map<std::string, thcPlugin *>::iterator i =
-                 composers_.begin(); i != composers_.end(); ++i)
-        {
-            shown.push_back(i->first);
-            names.push_back(i->first);
-        }
-
-        Gtk::DropDown *sel = manage(new Gtk::DropDown(shown));
-        Gtk::Button *add = manage(new Gtk::Button("Add stage"));
-        size_t nStages = chain.stages.size();
-
-        add->signal_clicked().connect(
-            [this, chainName, sel, names, nStages]
-            {
-                if (names.empty())
-                    return;
-
-                guint s = sel->get_selected();
-
-                if (s >= names.size())
-                    s = 0;
-
-                thcPlugin *plugin = composers_[names[s]];
-                std::ostringstream stageName;
-
-                stageName << "s" << nStages + 1;
-
-                std::string why;
-                std::string cat = plugin->hasTick() ? "gen" : "xform";
-
-                if (editOk(thcGenEdit::addStage(workPath_, chainName,
-                        stageName.str(), cat, plugin->name(),
-                        defaultParams(plugin), why), why))
-                    structuralReload();
-            });
-
-        addRow->append(*sel);
-        addRow->append(*add);
-        body->append(*addRow);
-    }
-
-    /* Sinks. */
-    for (size_t ki = 0; ki < chain.sinks.size(); ki++)
-    {
-        Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
-        Gtk::Label *lbl = manage(new Gtk::Label("sink"));
-        Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-            Gtk::Adjustment::create(chain.sinks[ki].channel, 0, 15, 1)));
-        Gtk::Entry *arg = manage(new Gtk::Entry());
-        Gtk::Button *rm2 = manage(new Gtk::Button("Remove"));
-        int sinkIndex = (int)ki;
-
-        chan->set_tooltip_text("MIDI channel, 0-15");
-        arg->set_text(chain.sinks[ki].chanarg);
-        arg->set_placeholder_text("chanarg (empty: notes)");
-        arg->set_max_width_chars(12);
-        rm2->set_sensitive(chain.sinks.size() > 1);
-
-        auto applySink = [this, chainName, sinkIndex, chan, arg]
-        {
-            std::string why;
-
-            if (editOk(thcGenEdit::setSink(workPath_, chainName, sinkIndex,
-                    chan->get_value_as_int(), arg->get_text(), why), why))
-                structuralReload();
-        };
-
-        chan->signal_value_changed().connect(applySink);
-        arg->signal_activate().connect(applySink);
-
-        rm2->signal_clicked().connect(
-            [this, chainName, sinkIndex]
-            {
-                std::string why;
-
-                if (editOk(thcGenEdit::removeSink(workPath_, chainName,
-                        sinkIndex, why), why))
-                    structuralReload();
-            });
-
-        row->append(*lbl);
-        row->append(*chan);
-        row->append(*arg);
-        row->append(*rm2);
-        body->append(*row);
-    }
-
-    {
-        Gtk::Button *addSink = manage(new Gtk::Button("Add sink"));
-
-        addSink->signal_clicked().connect(
-            [this, chainName]
-            {
-                std::string why;
-
-                if (editOk(thcGenEdit::addSink(workPath_, chainName, 0, "",
-                                               why), why))
-                    structuralReload();
-            });
-
-        body->append(*addSink);
-    }
-
-    exp->set_child(*body);
-    exp->set_expanded(true);
-
-    return exp;
+    selBox_->append(*head);
+    selBox_->append(*rm);
 }
 
-Gtk::Widget *
-ComposerWindow::buildStageFrame (size_t ci, size_t si)
+void
+ComposerWindow::buildStageSelection (size_t ci, size_t si)
 {
     const thcGenEdit::Stage &stage = doc_.chains[ci].stages[si];
     std::string chainName = doc_.chains[ci].name;
 
     std::ostringstream title;
 
-    title << si + 1 << ". " << stage.category << "::" << stage.plugin
+    title << chainName << " · " << stage.category << "::" << stage.plugin
           << "  (" << stage.name << ")";
 
-    Gtk::Frame *frame = manage(new Gtk::Frame(title.str()));
-    Gtk::Box *body = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+    Gtk::Label *lbl = manage(new Gtk::Label(title.str()));
 
-    body->set_margin(4);
-
-    /* Up / down / remove. */
-    Gtk::Box *btns = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
-    Gtk::Button *up = manage(new Gtk::Button("Up"));
-    Gtk::Button *down = manage(new Gtk::Button("Down"));
-    Gtk::Button *rm = manage(new Gtk::Button("Remove"));
-    int idx = (int)si;
-    int last = (int)doc_.chains[ci].stages.size() - 1;
-
-    up->set_sensitive(idx > 0);
-    down->set_sensitive(idx < last);
-
-    up->signal_clicked().connect(
-        [this, chainName, idx]
-        {
-            std::string why;
-
-            if (editOk(thcGenEdit::moveStage(workPath_, chainName, idx,
-                    idx - 1, why), why))
-                structuralReload();
-        });
-
-    down->signal_clicked().connect(
-        [this, chainName, idx]
-        {
-            std::string why;
-
-            if (editOk(thcGenEdit::moveStage(workPath_, chainName, idx,
-                    idx + 1, why), why))
-                structuralReload();
-        });
-
-    rm->signal_clicked().connect(
-        [this, chainName, idx]
-        {
-            std::string why;
-
-            if (editOk(thcGenEdit::removeStage(workPath_, chainName, idx,
-                                               why), why))
-                structuralReload();
-        });
-
-    btns->append(*up);
-    btns->append(*down);
-    btns->append(*rm);
-    body->append(*btns);
+    lbl->set_xalign(0);
+    selBox_->append(*lbl);
 
     /* Every registered param, whether or not the file writes it --
-       editing one that exists only as a default inserts the line. */
+       editing one that exists only as a default inserts the line.
+       Reordering is a drag on the canvas now, so the buttons here are
+       down to the one thing a drag cannot say. */
     std::map<std::string, thcPlugin *>::iterator found =
         composers_.find(stage.plugin);
 
@@ -1663,15 +1519,216 @@ ComposerWindow::buildStageFrame (size_t ci, size_t si)
         for (int pi = 0; pi < found->second->paramCount(); pi++)
             addParamRow(grid, pi, ci, si, found->second, pi);
 
-        body->append(*grid);
+        selBox_->append(*grid);
     }
     else
-        body->append(*manage(new Gtk::Label(
+        selBox_->append(*manage(new Gtk::Label(
             "module '" + stage.plugin + "' is not installed")));
 
-    frame->set_child(*body);
+    Gtk::Button *rm = manage(new Gtk::Button("Remove stage"));
+    int idx = (int)si;
 
-    return frame;
+    rm->signal_clicked().connect(
+        [this, chainName, idx]
+        {
+            std::string why;
+
+            if (editOk(thcGenEdit::removeStage(workPath_, chainName, idx,
+                                               why), why))
+                structuralReload();
+        });
+
+    selBox_->append(*rm);
+}
+
+void
+ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
+{
+    const thcGenEdit::Chain &chain = doc_.chains[ci];
+    std::string chainName = chain.name;
+    int sinkIndex = (int)ki;
+
+    selBox_->append(*manage(new Gtk::Label(chainName + " · sink")));
+
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+    Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(chain.sinks[ki].channel, 0, 15, 1)));
+    Gtk::Entry *arg = manage(new Gtk::Entry());
+    Gtk::Button *rm = manage(new Gtk::Button("Remove"));
+
+    chan->set_tooltip_text("MIDI channel, 0-15");
+    arg->set_text(chain.sinks[ki].chanarg);
+    arg->set_placeholder_text("chanarg (empty: notes)");
+    arg->set_max_width_chars(12);
+    rm->set_sensitive(chain.sinks.size() > 1);
+
+    auto applySink = [this, chainName, sinkIndex, chan, arg]
+    {
+        std::string why;
+
+        if (editOk(thcGenEdit::setSink(workPath_, chainName, sinkIndex,
+                chan->get_value_as_int(), arg->get_text(), why), why))
+            structuralReload();
+    };
+
+    chan->signal_value_changed().connect(applySink);
+    arg->signal_activate().connect(applySink);
+
+    rm->signal_clicked().connect(
+        [this, chainName, sinkIndex]
+        {
+            std::string why;
+
+            if (editOk(thcGenEdit::removeSink(workPath_, chainName,
+                    sinkIndex, why), why))
+                structuralReload();
+        });
+
+    row->append(*chan);
+    row->append(*arg);
+    row->append(*rm);
+    selBox_->append(*row);
+}
+
+void
+ComposerWindow::buildAddStage (size_t ci)
+{
+    std::string chainName = doc_.chains[ci].name;
+    size_t nStages = doc_.chains[ci].stages.size();
+
+    selBox_->append(*manage(new Gtk::Label(
+        "add a stage to " + chainName)));
+
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+    std::vector<Glib::ustring> shown;
+    std::vector<std::string> names;
+
+    for (std::map<std::string, thcPlugin *>::iterator i =
+             composers_.begin(); i != composers_.end(); ++i)
+    {
+        shown.push_back(i->first);
+        names.push_back(i->first);
+    }
+
+    Gtk::DropDown *sel = manage(new Gtk::DropDown(shown));
+    Gtk::Button *add = manage(new Gtk::Button("Add stage"));
+
+    add->signal_clicked().connect(
+        [this, chainName, sel, names, nStages]
+        {
+            if (names.empty())
+                return;
+
+            guint s = sel->get_selected();
+
+            if (s >= names.size())
+                s = 0;
+
+            thcPlugin *plugin = composers_[names[s]];
+            std::ostringstream stageName;
+
+            stageName << "s" << nStages + 1;
+
+            std::string why;
+            std::string cat = plugin->hasTick() ? "gen" : "xform";
+
+            if (editOk(thcGenEdit::addStage(workPath_, chainName,
+                    stageName.str(), cat, plugin->name(),
+                    defaultParams(plugin), why), why))
+                structuralReload();
+        });
+
+    row->append(*sel);
+    row->append(*add);
+    selBox_->append(*row);
+}
+
+void
+ComposerWindow::buildAddSink (size_t ci)
+{
+    std::string chainName = doc_.chains[ci].name;
+
+    selBox_->append(*manage(new Gtk::Label(
+        "add a sink to " + chainName)));
+
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+    Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(0, 0, 15, 1)));
+    Gtk::Entry *arg = manage(new Gtk::Entry());
+    Gtk::Button *add = manage(new Gtk::Button("Add sink"));
+
+    chan->set_tooltip_text("MIDI channel, 0-15");
+    arg->set_placeholder_text("chanarg (empty: notes)");
+    arg->set_max_width_chars(12);
+
+    add->signal_clicked().connect(
+        [this, chainName, chan, arg]
+        {
+            std::string why;
+
+            if (editOk(thcGenEdit::addSink(workPath_, chainName,
+                    chan->get_value_as_int(), arg->get_text(), why), why))
+                structuralReload();
+        });
+
+    row->append(*chan);
+    row->append(*arg);
+    row->append(*add);
+    selBox_->append(*row);
+}
+
+void
+ComposerWindow::buildAddChain (void)
+{
+    selBox_->append(*manage(new Gtk::Label("add a chain")));
+
+    Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+    Gtk::Entry *nameEntry = manage(new Gtk::Entry());
+    std::vector<Glib::ustring> gens;
+    std::vector<std::string> genNames;
+
+    nameEntry->set_placeholder_text("name");
+    nameEntry->set_max_width_chars(10);
+
+    for (std::map<std::string, thcPlugin *>::iterator i = composers_.begin();
+         i != composers_.end(); ++i)
+        if (i->second->hasTick())
+        {
+            gens.push_back(i->first);
+            genNames.push_back(i->first);
+        }
+
+    Gtk::DropDown *genSel = manage(new Gtk::DropDown(gens));
+    Gtk::SpinButton *chanSel = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(0, 0, 15, 1)));
+    Gtk::Button *addBtn = manage(new Gtk::Button("Add chain"));
+
+    addBtn->signal_clicked().connect(
+        [this, nameEntry, genSel, chanSel, genNames]
+        {
+            if (genNames.empty())
+                return;
+
+            guint sel = genSel->get_selected();
+
+            if (sel >= genNames.size())
+                sel = 0;
+
+            thcPlugin *plugin = composers_[genNames[sel]];
+            std::string why;
+
+            if (editOk(thcGenEdit::addChain(workPath_,
+                    nameEntry->get_text(), chanSel->get_value_as_int(),
+                    "src", "gen", plugin->name(),
+                    defaultParams(plugin), why), why))
+                structuralReload();
+        });
+
+    row->append(*nameEntry);
+    row->append(*genSel);
+    row->append(*chanSel);
+    row->append(*addBtn);
+    selBox_->append(*row);
 }
 
 void

@@ -19,6 +19,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "gui-util.h"
+
 static const double CHANARG_STRIP = 26;   /* px reserved at the bottom   */
 static const double EASE          = 0.12; /* pitch-range easing per frame*/
 
@@ -26,43 +28,15 @@ static const double EASE          = 0.12; /* pitch-range easing per frame*/
  * past to 30s of future -- its position IS that ratio, so there is no
  * separate constant to fall out of step with it. */
 
-/* One color per MIDI channel, hue-spaced by the golden angle. Matches
- * nothing else in the app yet; if channel colors grow legs (patch
- * selector, keyboard), this table moves to ColumnUtil and everyone
- * shares it.
- *
- * The HSV->RGB conversion is spelled out here because gtkmm-4 has
- * nowhere to borrow it from: Gtk::HSV went with GTK3 and Gdk::RGBA only
- * parses names. Saturation and value are fixed, so this is the h-sector
- * dance and nothing more. */
+/* Channel hues live in gui-util.h now, shared with the composer canvas
+ * whose sink boxes wear the same color this gives the channel's notes. */
 static void
 channelColor (const Cairo::RefPtr<Cairo::Context> &cr, int chan,
               double alpha)
 {
-    double h = (chan * 137.508) / 360.0;      /* golden-angle spacing    */
-    h -= std::floor(h);
-
-    const double s = 0.65, v = 0.85;
-
-    double f = h * 6.0;
-    int    sector = (int)f % 6;
-    f -= std::floor(f);
-
-    double p = v * (1 - s);
-    double q = v * (1 - s * f);
-    double t = v * (1 - s * (1 - f));
     double r, g, b;
 
-    switch (sector)
-    {
-        case 0:  r = v; g = t; b = p; break;
-        case 1:  r = q; g = v; b = p; break;
-        case 2:  r = p; g = v; b = t; break;
-        case 3:  r = p; g = q; b = v; break;
-        case 4:  r = t; g = p; b = v; break;
-        default: r = v; g = p; b = q; break;
-    }
-
+    gthChannelColor(chan, r, g, b);
     cr->set_source_rgba(r, g, b, alpha);
 }
 

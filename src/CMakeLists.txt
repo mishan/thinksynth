@@ -91,6 +91,7 @@ set(THINKSYNTH_SOURCES
     gui/SaveButton.cpp
     gui/PatchSelWindow.cpp
     gui/PianoRoll.cpp
+    gui/ComposerCanvas.cpp
     gui/ComposerWindow.cpp)
 
 # ---------------------------------------------------------------------------

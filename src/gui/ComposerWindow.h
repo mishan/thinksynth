@@ -26,6 +26,7 @@
 #include <gtkmm.h>
 
 #include "thcGenEdit.h"
+#include "ComposerCanvas.h"
 
 class thSynth;
 class thArg;
@@ -34,22 +35,23 @@ class thcScheduler;
 struct thcStage;
 class PianoRoll;
 
-/* The composer's home: transport controls, the piece's knobs, the
- * tier-two plugin visualizers, the piano roll -- and, behind the Edit
- * toggle, a structural editor for the piece itself.
+/* The composer's home: transport over the piece's knobs, the node
+ * canvas, and the piano roll -- with, behind the Edit toggle, a panel
+ * whose lower half follows the canvas selection.
  *
- * The editing model is NodeEditor's, deliberately: edits go to a work
- * copy of the .gen through thcGenEdit's text splices (comments survive;
- * see thcGenEdit.h), and Save publishes the work copy over the source.
- * Two kinds of edit behave differently on purpose:
+ * The canvas is the structure editor: click a stage, a sink, a chain
+ * name or one of the ghost "+" slots and the panel grows the controls
+ * for exactly that -- params with their units and knob bindings for a
+ * stage, channel and target for a sink, the add forms for the ghosts.
+ * Dragging a stage sideways reorders it. The canvas itself never
+ * touches the file; it asks, and this window performs the edit through
+ * thcGenEdit and reloads -- one writer, as everywhere else.
  *
- *   value edits (a param, a knob) splice the file AND poke the live
- *   store, so the piece keeps playing and just sounds different;
- *
- *   structural edits (stages, chains, sinks, scales, seed) splice the
- *   file and then reload it into the scheduler, which rewinds to zero
- *   -- the honest reading of "same file, same seed, same piece" when
- *   the piece itself changed shape.
+ * The editing model is NodeEditor's: edits go to a work copy, Save
+ * publishes. Value edits (params, knobs, tempo) splice the file AND
+ * poke the live store, so the piece keeps playing; structural edits
+ * splice and reload, which rewinds to zero -- the honest reading of
+ * "same file, same seed, same piece" when the piece changed shape.
  *
  * Closing the window hides it; the scheduler and the music keep going.
  */
@@ -104,7 +106,6 @@ protected:
     bool editOk (thcGenEdit::Result r, const std::string &why);
 
     void rebuildKnobs (void);
-    void rebuildDrawStrip (void);
     bool onDrawTimer (void);
 
     /* ---- the editor panel -------------------------------------------- */
@@ -113,10 +114,23 @@ protected:
     Gtk::Widget *buildPieceSection (void);
     Gtk::Widget *buildKnobsSection (void);
     Gtk::Widget *buildScalesSection (void);
-    Gtk::Widget *buildChainSection (size_t ci);
-    Gtk::Widget *buildStageFrame (size_t ci, size_t si);
+
+    /* The selection-driven half, rebuilt whenever the canvas selection
+       changes (or the piece reloads under it). */
+    void rebuildSelection (void);
+    void buildChainSelection (size_t ci);
+    void buildStageSelection (size_t ci, size_t si);
+    void buildSinkSelection (size_t ci, size_t ki);
+    void buildAddStage (size_t ci);
+    void buildAddSink (size_t ci);
+    void buildAddChain (void);
+
     void addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
                       const thcPlugin *plugin, int paramIndex);
+
+    /* Canvas callbacks. */
+    void onCanvasSelection (const ComposerCanvas::Selection &sel);
+    void onCanvasMoveStage (size_t chain, int from, int to);
 
     /* The live stage behind a doc position, for poking values without a
        reload. Doc order and scheduler order agree because the loader
@@ -162,12 +176,17 @@ protected:
     Gtk::ScrolledWindow editorScroll_;
     Gtk::Box editorBox_{Gtk::Orientation::VERTICAL};
 
+    /* The selection panel's home inside editorBox_, refilled in place
+       so the sections above it keep their state. */
+    Gtk::Box *selBox_;
+
     /* One slider per @knob the piece declares, rebuilt on load. */
     Gtk::Box knobBar_{Gtk::Orientation::HORIZONTAL};
 
-    /* One drawing area per stage that exports composer_draw. */
-    Gtk::Box drawBar_{Gtk::Orientation::HORIZONTAL};
-    std::vector<Gtk::DrawingArea *> drawAreas_;
+    /* The node view, above the roll; inline composer_draw replaced the
+       old draw strip. */
+    ComposerCanvas *canvas_;
+    Gtk::ScrolledWindow canvasScroll_;
     sigc::connection drawTimer_;
 
     Gtk::Button *playBtn_;
