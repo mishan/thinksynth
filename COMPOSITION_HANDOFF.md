@@ -219,14 +219,20 @@ Everything this section originally listed is now written (see STATUS
 above for where each landed and what changed on the way). What remains
 open, in rough priority order:
 
-- **Live MIDI into chains.** `input midi;` parses, `injectMidiEvent`
-  routes by sink channel, but nothing calls it yet: the dispatchmidi
-  hop is not wired to the composer window's scheduler, and the event
-  model has no note-off — an arpeggiator needs to know what is *held*,
-  which duration-carrying events cannot say. Both halves of that
-  question land together when the first receive-from-live plugin is
-  written. Related: injectMidi on a stopped transport still queues
-  rather than delivering immediately — flagged, still not decided.
+- ~~Live MIDI into chains~~ — LANDED, all three halves at once.
+  `THC_EV_NOTEOFF` joined the ABI (a NOTE with duration <= 0 is "held
+  until further notice"; the scheduler tracks held notes and a pause
+  releases them like everything else). ComposerWindow connects the
+  m_sigNoteOn/Off hop into `injectMidiEvent`, so every chain with
+  `input midi' hears the hardware keyboard; `gen::arp` is the
+  receive-from-live plugin that forced the question, and it also
+  arpeggiates composed chords from upstream, nothing configured
+  differently. The stopped-transport question is decided: injected
+  events falling out of chains on a paused clock deliver immediately
+  — keys pressed while paused should sound. quantize snaps offs with
+  the same snap as ons so a held release cannot miss its press. Still
+  open in this area: the on-screen Keyboard widget does not emit
+  m_sigNoteOn, so only hardware MIDI reaches chains from outside.
 - `composer_input` and `composer_serialize`/`deserialize` — the two ABI
   additions §7 below argues for; neither blocks anything current.
 - Chanarg strip in the piano roll normalizes 0–1; should use the arg's
@@ -276,11 +282,13 @@ channel richer than a param. Both gaps have contained fixes, neither of
 which needs to happen before milestone 4.
 
 **Euclidean rhythms, random walks, arpeggiators, echo/humanize/quantize
-(the planned launch set).** Pure fits. Euclid is a clocked generator
-(period in beats, so tempo automation stretches it); walk is `gen::walk`
-driving a chanarg sink; the arpeggiator is the both-entry-points case the
-API was shaped around; the transformers are two-line `receive()` bodies.
-Nothing new learned by writing them beyond confidence.
+(the planned launch set).** All landed. Euclid is a clocked generator;
+walk drives chanarg sinks; the transformers are two-line `receive()`
+bodies. The arpeggiator (`gen::arp`) turned out to be the load-bearing
+one: needing to know what is held NOW is what forced THC_EV_NOTEOFF
+into the ABI, and it holds both live keys (until their off) and
+composed notes (for their duration), so the same stage breaks a
+hardware chord and an eno_line's pads.
 
 **L-systems.** LANDED as `gen::lsystem`: axiom and rules are
 `THC_PARAM_STRING` params re-derived in `composer_param_changed` — the

@@ -610,7 +610,214 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(tmp);
 }
 
-/* ---- 5. the editor's splices ------------------------------------------ */
+/* ---- 5. live input ----------------------------------------------------- */
+
+/* The injectMidiEvent path end to end: a chain with `input midi' hears
+ * presses and releases, an arp stage turns held keys into steps, a
+ * bare input chain passes the performance straight through -- and all
+ * of it replays exactly when the same events arrive at the same
+ * transport times, which is what makes recorded performances a future
+ * feature instead of a rewrite. Also pins the decided open question:
+ * keys pressed on a STOPPED transport sound immediately instead of
+ * waiting for Play behind a frozen clock. */
+
+static void
+checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    if (plugins.find("arp") == plugins.end())
+    {
+        fail("arp module missing; build the plugins first");
+        return;
+    }
+
+    std::filesystem::path tmp =
+        std::filesystem::temp_directory_path() / "gencheck-live.gen";
+
+    {
+        std::ofstream out(tmp);
+
+        out <<
+            "seed 11;\n"
+            "chain hands {\n"
+            "    input midi;\n"
+            "    stage a gen::arp { period = 0.1 s; hold = 0.08 s; };\n"
+            "    sink { channel = 0; };\n"
+            "};\n"
+            "chain thru {\n"
+            "    input midi;\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(tmp.string(), &sched))
+    {
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+        fail("the live-input piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    /* One scripted performance, in virtual time. Routing is by the
+       chains' sink channels: channel 0 reaches `hands' (the arp),
+       channel 1 reaches `thru'. */
+    auto press = [&sched](int chan, int note, int vel)
+    {
+        thcEvent ev = {};
+
+        ev.type = THC_EV_NOTE;
+        ev.at = sched.now();
+        ev.channel = chan;
+        ev.u.note.note = note;
+        ev.u.note.velocity = vel;
+        ev.u.note.duration = 0;
+        sched.injectMidiEvent(ev);
+    };
+    auto release = [&sched](int chan, int note)
+    {
+        thcEvent ev = {};
+
+        ev.type = THC_EV_NOTEOFF;
+        ev.at = sched.now();
+        ev.channel = chan;
+        ev.u.note.note = note;
+        sched.injectMidiEvent(ev);
+    };
+
+    auto perform = [&]() -> std::string
+    {
+        std::string tape;
+        sigc::connection conn = sched.sigDelivered.connect(
+            [&tape](const thcEvent &ev)
+            {
+                char b[96];
+
+                if (ev.type == THC_EV_NOTE)
+                    snprintf(b, sizeof(b), "N %.17g %d %d %d\n", ev.at,
+                             ev.channel, ev.u.note.note,
+                             ev.u.note.velocity);
+                else if (ev.type == THC_EV_NOTEOFF)
+                    snprintf(b, sizeof(b), "O %.17g %d %d\n", ev.at,
+                             ev.channel, ev.u.note.note);
+                else
+                    b[0] = 0;
+
+                tape += b;
+            });
+
+        sched.start();
+
+        while (sched.now() < 3.0)
+        {
+            sched.stepTransport(0.02);
+
+            /* The scripted hands, at exact virtual moments. */
+            double t = sched.now();
+
+            if (t >= 0.10 && t < 0.12) { press(0, 60, 90); }
+            if (t >= 0.14 && t < 0.16)
+            {
+                press(0, 64, 70);
+                press(0, 67, 50);
+            }
+            if (t >= 0.50 && t < 0.52) { press(1, 48, 111); }
+            if (t >= 1.00 && t < 1.02) { release(1, 48); }
+            if (t >= 2.00 && t < 2.02)
+            {
+                release(0, 60);
+                release(0, 64);
+                release(0, 67);
+            }
+        }
+
+        sched.stop();
+        conn.disconnect();
+
+        return tape;
+    };
+
+    std::string first = perform();
+
+    sched.reset();
+
+    std::string second = perform();
+
+    if (first != second)
+        fail("a scripted performance replayed differently");
+
+    /* The arp stepped through exactly the held pitches, inheriting the
+       performance's velocities (vel = 0 means as played). */
+    int arpNotes = 0;
+    bool wrongPitch = false, wrongVel = false, thruOk = false;
+    {
+        std::istringstream in(first);
+        std::string line;
+        double at;
+        int chan, note, vel;
+
+        while (std::getline(in, line))
+            if (sscanf(line.c_str(), "N %lg %d %d %d", &at, &chan, &note,
+                       &vel) == 4)
+            {
+                if (chan == 0)
+                {
+                    arpNotes++;
+
+                    if (note != 60 && note != 64 && note != 67)
+                        wrongPitch = true;
+
+                    if (vel != 90 && vel != 70 && vel != 50)
+                        wrongVel = true;
+                }
+
+                if (chan == 1 && note == 48 && vel == 111)
+                    thruOk = true;
+            }
+    }
+
+    if (arpNotes < 10)
+        fail("the arp barely stepped; held notes are not reaching it");
+
+    if (wrongPitch)
+        fail("the arp emitted a pitch nobody held");
+
+    if (wrongVel)
+        fail("vel = 0 did not inherit the performance's velocities");
+
+    if (!thruOk)
+        fail("the pass-through chain never delivered the raw press");
+
+    /* Keys on a stopped transport sound immediately. */
+    {
+        sched.reset();
+
+        int now = 0;
+        sigc::connection conn = sched.sigDelivered.connect(
+            [&now](const thcEvent &ev)
+            {
+                if (ev.type == THC_EV_NOTE)
+                    now++;
+            });
+
+        press(1, 72, 100);       /* the bare chain: nothing swallows it */
+
+        if (now < 1)
+            fail("a key pressed on a stopped transport made no sound");
+
+        release(1, 72);
+        conn.disconnect();
+        sched.reset();
+    }
+
+    std::filesystem::remove(tmp);
+}
+
+/* ---- 6. the editor's splices ------------------------------------------ */
 
 /* thcGenEdit's whole promise is that an edit touches the bytes it names
  * and nothing else -- so every comment in the file survives any sequence
@@ -888,6 +1095,7 @@ main (int argc, char *argv[])
     checkValidation(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
     checkPlanners(plugins, &synth);
+    checkLiveInput(plugins, &synth);
     checkEdits(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

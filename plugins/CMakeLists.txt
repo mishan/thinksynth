@@ -71,6 +71,7 @@ think_add_composer(lsystem)
 think_add_composer(evolve)
 think_add_composer(markov)
 think_add_composer(ca)
+think_add_composer(arp)
 
 # The exception that proves the no-cairo rule: a module with a
 # composer_draw (euclid's onset ring, lsystem's contour, evolve's
