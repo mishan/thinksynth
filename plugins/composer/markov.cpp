@@ -90,7 +90,6 @@ struct State {
     std::mt19937     rng;
 
     std::map<MarkovState, std::map<int, int> > table;
-    int trained;                 /* transitions learned, for the draw   */
 
     int hearPrev, hearPrevPrev;  /* training context                    */
     int emitPrev, emitPrevPrev;  /* walking context                     */
@@ -114,7 +113,6 @@ composer_create (const thcParams *params)
 
     st->params = params;
     st->rng.seed(params->seed);
-    st->trained = 0;
     st->hearPrev = st->hearPrevPrev = -1;
     st->emitPrev = st->emitPrevPrev = -1;
 
@@ -132,7 +130,6 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         int note = ev->u.note.note;
 
         st->table[st->key(st->hearPrev, st->hearPrevPrev)][note]++;
-        st->trained++;
 
         st->hearPrevPrev = st->hearPrev;
         st->hearPrev = note;

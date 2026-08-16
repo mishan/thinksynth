@@ -441,13 +441,23 @@ static void
 checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
                thSynth *synth)
 {
-    if (plugins.find("lsystem") == plugins.end() ||
-        plugins.find("evolve") == plugins.end() ||
-        plugins.find("markov") == plugins.end() ||
-        plugins.find("ca") == plugins.end())
     {
-        fail("planner modules missing; build the plugins first");
-        return;
+        /* Named, so the failure says which module to go and build
+           rather than waving at a category. */
+        const char *need[] = { "lsystem", "evolve", "markov", "ca",
+                               NULL };
+        bool missing = false;
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                missing = true;
+            }
+
+        if (missing)
+            return;
     }
 
     /* Unique for the same reason every other scratch here is. */
