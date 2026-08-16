@@ -28,6 +28,22 @@ class thcPlugin;
 class thcScheduler;
 struct thcStage;
 
+/* One token of .gen source, with its byte span. Public rather than a
+ * loader detail because thcGenEdit splices files by replacing exact
+ * token spans -- the same lexer feeds the reader and the writer, which
+ * is what guarantees an edit never moves a byte it was not aimed at
+ * (comments included; they live between the spans). */
+struct thcGenToken
+{
+    enum Kind { WORD, NUMBER, STRING, KNOB, PUNCT, MODSEP, END } kind;
+
+    std::string text;    /* WORD/STRING body/KNOB name, PUNCT char      */
+    double      num;
+    int         line;
+    size_t      off;     /* where the token starts in the source        */
+    size_t      end;     /* one past where it stops (quotes included)   */
+};
+
 /* Loads a .gen file into a scheduler. See GEN_FORMAT.md for the language.
  *
  * A hand-rolled recursive-descent parser rather than the bison/flex
@@ -77,14 +93,22 @@ public:
     static bool parseNoteList (const std::string &text,
                                std::vector<int> &out, std::string &bad);
 
+    /* The inverse, for anything writing note text: 60 -> "C4". Flats
+       for the black keys, because that is how the shipped piece spells
+       them. Empty for a value off the MIDI range. */
+    static std::string noteName (int midi);
+
+    /* The lexical layer, on its own: `out' gets an END-terminated token
+       stream with byte spans. False on a lexical error, with `err' and
+       `errLine' saying what and where. thcGenEdit shares this, which is
+       what keeps "the editor and the loader read the same language"
+       true by construction. */
+    static bool tokenize (const std::string &text,
+                          std::vector<thcGenToken> &out,
+                          std::string &err, int &errLine);
+
 private:
-    struct Token
-    {
-        enum Kind { WORD, NUMBER, STRING, KNOB, PUNCT, MODSEP, END } kind;
-        std::string text;    /* WORD/STRING/KNOB text, PUNCT char       */
-        double      num;
-        int         line;
-    };
+    typedef thcGenToken Token;
 
     bool lex (const std::string &path, std::vector<Token> &out);
 

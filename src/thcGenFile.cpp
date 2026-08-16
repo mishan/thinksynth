@@ -129,24 +129,24 @@ noteListToString (const std::vector<int> &notes)
 /* The .dsp lexical layer, reproduced: `#' comments to end of line,
  * whitespace, numbers (a leading `-' is folded in here -- .gen has no
  * arithmetic for a grammar to hang SUB on), words, quoted strings with
- * no escapes and no embedded newline, `::', and the punctuation. */
+ * no escapes and no embedded newline, `::', and the punctuation.
+ *
+ * Every token carries its byte span, and a STRING's span includes its
+ * quotes: thcGenEdit replaces spans, and what sits between them --
+ * comments, indentation, the author's blank lines -- is never touched. */
 bool
-thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
+thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
+                        std::string &err, int &errLine)
 {
-    std::ifstream in(path.c_str());
-
-    if (!in)
-    {
-        error(0, "cannot open file");
-        return false;
-    }
-
-    std::string text((std::istreambuf_iterator<char>(in)),
-                     std::istreambuf_iterator<char>());
-
     int line = 1;
     size_t i = 0;
     bool ok = true;
+
+    /* A public tokenizer owns its output: a caller reusing one vector
+       across files must not get the previous file's tail. */
+    out.clear();
+    err.clear();
+    errLine = 0;
 
     while (i < text.size())
     {
@@ -166,6 +166,7 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 
         t.line = line;
         t.num = 0;
+        t.off = i;
 
         if ((c >= '0' && c <= '9') ||
             (c == '-' && i + 1 < text.size() &&
@@ -191,11 +192,13 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 
             if (end == NULL || *end != 0)
             {
-                error(line, "'" + t.text + "' is not a number");
+                err = "'" + t.text + "' is not a number";
+                errLine = line;
                 ok = false;
                 break;
             }
 
+            t.end = i;
             out.push_back(t);
             continue;
         }
@@ -212,6 +215,7 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 
             t.kind = Token::WORD;
             t.text = text.substr(start, i - start);
+            t.end = i;
             out.push_back(t);
             continue;
         }
@@ -225,23 +229,27 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 
             if (i >= text.size() || text[i] != '"')
             {
-                error(line, "unterminated string");
+                err = "unterminated string";
+                errLine = line;
                 ok = false;
                 break;
             }
 
             t.kind = Token::STRING;
             t.text = text.substr(start, i - start);
-            out.push_back(t);
             i++;
+            t.end = i;              /* both quotes inside the span       */
+            out.push_back(t);
             continue;
         }
 
         if (c == ':' && i + 1 < text.size() && text[i + 1] == ':')
         {
             t.kind = Token::MODSEP;
-            out.push_back(t);
+            t.text = "::";
             i += 2;
+            t.end = i;
+            out.push_back(t);
             continue;
         }
 
@@ -257,13 +265,15 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 
             if (i == start)
             {
-                error(line, "'@' with no knob name after it");
+                err = "'@' with no knob name after it";
+                errLine = line;
                 ok = false;
                 break;
             }
 
             t.kind = Token::KNOB;
             t.text = text.substr(start, i - start);
+            t.end = i;              /* the '@' inside the span           */
             out.push_back(t);
             continue;
         }
@@ -272,8 +282,9 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
         {
             t.kind = Token::PUNCT;
             t.text = std::string(1, c);
-            out.push_back(t);
             i++;
+            t.end = i;
+            out.push_back(t);
             continue;
         }
 
@@ -281,7 +292,8 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
             std::ostringstream s;
 
             s << "stray character '" << c << "'";
-            error(line, s.str());
+            err = s.str();
+            errLine = line;
         }
         ok = false;
         break;
@@ -292,9 +304,56 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
     end.kind = Token::END;
     end.line = line;
     end.num = 0;
+    end.off = end.end = text.size();
     out.push_back(end);
 
     return ok;
+}
+
+bool
+thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
+{
+    std::ifstream in(path.c_str());
+
+    if (!in)
+    {
+        error(0, "cannot open file");
+        return false;
+    }
+
+    std::string text((std::istreambuf_iterator<char>(in)),
+                     std::istreambuf_iterator<char>());
+
+    std::string err;
+    int errLine = 0;
+
+    if (!tokenize(text, out, err, errLine))
+    {
+        error(errLine, err);
+        return false;
+    }
+
+    return true;
+}
+
+/* 60 -> "C4". Flats on the black keys -- Ab3, not G#3 -- because that is
+ * how the shipped piece spells them, and a writer that changes the
+ * spelling of a pitch nobody edited has edited it anyway. */
+std::string
+thcGenLoader::noteName (int midi)
+{
+    static const char *names[12] = {
+        "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B"
+    };
+
+    if (midi < 0 || midi > 127)
+        return "";
+
+    std::ostringstream s;
+
+    s << names[midi % 12] << (midi / 12 - 1);
+
+    return s.str();
 }
 
 /* ---- token stream helpers --------------------------------------------- */

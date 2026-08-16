@@ -56,6 +56,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "thcGenEdit.h"
 
 static int failures = 0;
 
@@ -414,6 +415,235 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
         fail("the chanarg sink's name never reached delivery");
 }
 
+/* ---- 4. the editor's splices ------------------------------------------ */
+
+/* thcGenEdit's whole promise is that an edit touches the bytes it names
+ * and nothing else -- so every comment in the file survives any sequence
+ * of edits, an edit that changes nothing writes nothing, and the file
+ * after each edit still loads. Exercised on a scratch copy of the real
+ * piece, because the real piece is where the comments are. */
+
+static std::string
+slurp (const std::string &path)
+{
+    std::ifstream in(path.c_str());
+
+    return std::string((std::istreambuf_iterator<char>(in)),
+                       std::istreambuf_iterator<char>());
+}
+
+static std::vector<std::string>
+commentLines (const std::string &text)
+{
+    std::vector<std::string> out;
+    std::istringstream in(text);
+    std::string line;
+
+    while (std::getline(in, line))
+    {
+        size_t sp = line.find_first_not_of(" \t");
+
+        if (sp != std::string::npos && line[sp] == '#')
+            out.push_back(line.substr(sp));
+    }
+
+    return out;
+}
+
+static void
+editOk (thcGenEdit::Result r, const std::string &why, const char *what)
+{
+    if (r != thcGenEdit::OK)
+        fail(std::string(what) + ": " + why + " (" +
+             thcGenEdit::resultText(r) + ")");
+}
+
+static void
+checkEdits (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth, const std::string &genFile)
+{
+    std::filesystem::path work =
+        std::filesystem::temp_directory_path() / "gencheck-edit.gen";
+
+    std::filesystem::copy_file(genFile, work,
+        std::filesystem::copy_options::overwrite_existing);
+
+    std::string path = work.string();
+    std::vector<std::string> comments = commentLines(slurp(path));
+    std::string why;
+
+    if (comments.empty())
+        fail("the shipped piece has no comments; this check needs them");
+
+    /* Reading the structure back. */
+    thcGenEdit::Doc doc;
+
+    editOk(thcGenEdit::describe(path, doc, why), why, "describe");
+
+    if (doc.chains.size() != 9)
+        fail("describe found the wrong number of chains");
+
+    if (!doc.hasSeed || doc.seed != 1978)
+        fail("describe missed the pinned seed");
+
+    if (doc.knobs.size() != 1 || doc.knobs[0].name != "density")
+        fail("describe missed the density knob");
+
+    if (doc.chains[0].stages.size() != 1 ||
+        doc.chains[0].stages[0].params.empty() ||
+        doc.chains[0].stages[0].params[1].valueText != "23.9 s")
+        fail("describe did not keep the authored '23.9 s'");
+
+    /* An edit that changes nothing writes nothing. */
+    std::string before = slurp(path);
+
+    editOk(thcGenEdit::setParam(path, "loop_f3", 0, "period", "23.9 s",
+                                why), why, "no-op setParam");
+
+    if (slurp(path) != before)
+        fail("writing the value already there changed the file");
+
+    /* One of everything, on the scratch copy. */
+    editOk(thcGenEdit::setParam(path, "loop_f3", 0, "period", "21.5 s",
+                                why), why, "setParam replace");
+    editOk(thcGenEdit::setParam(path, "loop_f3", 0, "vel_jitter", "12",
+                                why), why, "setParam replace 2");
+    editOk(thcGenEdit::setKnobValue(path, "density", 0.7, why), why,
+           "setKnobValue");
+    editOk(thcGenEdit::setKnobMeta(path, "density", 0, 1, "How often",
+                                   why), why, "setKnobMeta");
+    editOk(thcGenEdit::setInfo(path, "author", "gencheck", why), why,
+           "setInfo");
+    editOk(thcGenEdit::setSeed(path, 4242, why), why, "setSeed");
+    editOk(thcGenEdit::setTempo(path, 90, why), why, "setTempo");
+    editOk(thcGenEdit::addKnob(path, "shimmer", 0.5, 0, 1, "Shimmer",
+                               why), why, "addKnob");
+    editOk(thcGenEdit::setParam(path, "loop_ab3", 0, "prob", "@shimmer",
+                                why), why, "bind to new knob");
+    editOk(thcGenEdit::addScale(path, "pent", "C4 D4 E4 G4 A4", why),
+           why, "addScale");
+    editOk(thcGenEdit::setScale(path, "pent", "C3 D3 E3 G3 A3", why),
+           why, "setScale");
+
+    std::vector<std::pair<std::string, std::string> > params;
+
+    params.push_back(std::make_pair(std::string("notes"),
+                                    std::string("pent")));
+    params.push_back(std::make_pair(std::string("period"),
+                                    std::string("2 beats")));
+    params.push_back(std::make_pair(std::string("prob"),
+                                    std::string("0.5")));
+
+    editOk(thcGenEdit::addChain(path, "pulse", 2, "src", "gen",
+                                "eno_line", params, why), why, "addChain");
+
+    std::vector<std::pair<std::string, std::string> > qparams;
+
+    qparams.push_back(std::make_pair(std::string("scale"),
+                                     std::string("pent")));
+
+    editOk(thcGenEdit::addStage(path, "pulse", "q", "xform", "quantize",
+                                qparams, why), why, "addStage");
+    editOk(thcGenEdit::addSink(path, "pulse", 5, "cutoff", why), why,
+           "addSink");
+    editOk(thcGenEdit::setSink(path, "pulse", 1, 6, "", why), why,
+           "setSink to note sink");
+    editOk(thcGenEdit::setSink(path, "pulse", 0, 2, "bright", why), why,
+           "setSink add chanarg");
+    editOk(thcGenEdit::setChainInput(path, "pulse", true, why), why,
+           "setChainInput on");
+    editOk(thcGenEdit::setChainInput(path, "pulse", false, why), why,
+           "setChainInput off");
+    editOk(thcGenEdit::renameChain(path, "pulse", "pulse2", why), why,
+           "renameChain");
+    editOk(thcGenEdit::moveStage(path, "wildcard", 0, 1, why), why,
+           "moveStage");
+    editOk(thcGenEdit::moveStage(path, "wildcard", 1, 0, why), why,
+           "moveStage back");
+
+    int rewritten = 0;
+
+    editOk(thcGenEdit::removeKnob(path, "shimmer", 0.5, rewritten, why),
+           why, "removeKnob");
+
+    if (rewritten != 1)
+        fail("removeKnob did not rewrite the one binding to it");
+
+    editOk(thcGenEdit::removeScale(path, "pent", rewritten, why), why,
+           "removeScale");
+
+    if (rewritten != 2)
+        fail("removeScale did not inline its two references");
+
+    editOk(thcGenEdit::removeStage(path, "pulse2", 1, why), why,
+           "removeStage");
+    editOk(thcGenEdit::removeSink(path, "pulse2", 1, why), why,
+           "removeSink");
+    editOk(thcGenEdit::clearSeed(path, why), why, "clearSeed");
+    editOk(thcGenEdit::clearTempo(path, why), why, "clearTempo");
+    editOk(thcGenEdit::removeChain(path, "pulse2", why), why,
+           "removeChain");
+
+    /* Guard rails. */
+    if (thcGenEdit::removeSink(path, "drift", 0, why) !=
+        thcGenEdit::REFUSED)
+        fail("removing a chain's last sink was not refused");
+
+    if (thcGenEdit::setParam(path, "loop_f3", 0, "period", "20 furlongs",
+                             why) != thcGenEdit::UNWRITABLE)
+        fail("a unit the lexer does not know was accepted");
+
+    if (thcGenEdit::addChain(path, "loop_f3", 0, "s", "gen", "eno_line",
+            std::vector<std::pair<std::string, std::string> >(), why) !=
+        thcGenEdit::REFUSED)
+        fail("a duplicate chain name was accepted");
+
+    /* After all of that: every comment intact, and the file loads. */
+    std::string after = slurp(path);
+    std::vector<std::string> commentsAfter = commentLines(after);
+
+    for (size_t i = 0; i < comments.size(); i++)
+    {
+        bool found = false;
+
+        for (size_t j = 0; j < commentsAfter.size(); j++)
+            if (commentsAfter[j] == comments[i])
+                found = true;
+
+        if (!found)
+            fail("a comment was lost in editing: " + comments[i]);
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n",
+                        loader.errors()[i].c_str());
+
+            fail("the edited file no longer loads");
+        }
+
+        if (loader.hasSeed())
+            fail("clearSeed left a seed behind");
+    }
+
+    /* The edits round-trip through describe: the changed period reads
+       back as authored. */
+    editOk(thcGenEdit::describe(path, doc, why), why, "describe after");
+
+    if (doc.chains[0].stages[0].params[1].valueText != "21.5 s")
+        fail("the edited period did not read back as '21.5 s'");
+
+    if (doc.author != "gencheck")
+        fail("the edited author did not read back");
+
+    std::filesystem::remove(work);
+}
+
 /* ----------------------------------------------------------------------- */
 
 int
@@ -457,6 +687,7 @@ main (int argc, char *argv[])
 
     checkValidation(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
+    checkEdits(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
        runs under sanitizers should not salt the report. The schedulers
