@@ -46,10 +46,17 @@ thcGenEdit::resultText (Result r)
 
 /* ---- file plumbing ---------------------------------------------------- */
 
+/* Binary, here and in every read and write below: the splicer's whole
+ * contract is byte spans into the file as it sits on disk, and Windows'
+ * text mode rewrites newlines in both directions -- offsets that
+ * counted \n would land splices one byte short per line above them,
+ * and a written file would grow \r\n it never had. NodeEdit's
+ * writeLines learned this first; the lexer reads the same way so the
+ * two ends of the span agree. */
 static bool
 readFile (const std::string &filename, std::string &text)
 {
-    std::ifstream in(filename.c_str());
+    std::ifstream in(filename.c_str(), std::ios::binary);
 
     if (!in)
         return false;
@@ -69,7 +76,7 @@ writeFile (const std::string &filename, const std::string &text)
     std::string tmp = filename + ".gen-edit-tmp";
 
     {
-        std::ofstream out(tmp.c_str(), std::ios::trunc);
+        std::ofstream out(tmp.c_str(), std::ios::trunc | std::ios::binary);
 
         if (!out)
             return false;

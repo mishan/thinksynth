@@ -313,7 +313,10 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
 bool
 thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 {
-    std::ifstream in(path.c_str());
+    /* Binary for the same reason thcGenEdit reads binary: the tokens
+       carry byte offsets into the file as it sits on disk, and text
+       mode on Windows would shift every offset by one per line. */
+    std::ifstream in(path.c_str(), std::ios::binary);
 
     if (!in)
     {
