@@ -78,15 +78,20 @@ int module_init (thPlugin *plugin)
 
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (pw == 0) pw = 0.5;' */
+    plugin->setArgDefault(args[IN_PW], 0.5);
     args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
 
     plugin->setArgValues(args[IN_WAVEFORM], waveforms,
                          (int)(sizeof(waveforms) / sizeof(waveforms[0])));
 
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RESET], "Reset position to 0 when this goes to 1");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_SYNC], "Output a 1 when the wave begins its cycle");
     args[OUT_SYNC2] = plugin->regArg("sync2", thPlugin::ARG_OUT);
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);

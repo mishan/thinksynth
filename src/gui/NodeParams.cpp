@@ -72,8 +72,20 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
     name->set_margin_top(2);
     name->set_margin_bottom(2);
 
+    /* Three things could go in the tooltip, in increasing order of how much
+       they are worth reading, and the last one present wins.
+
+       The arg's own name is a fallback for when the caption is a label that
+       hides it. The plugin's description is what the plugin author wrote about
+       that arg -- "Multiply the wavelength by this" -- and 33 args have one.
+       The .dsp's own comment beats both, because it is about this patch rather
+       than about the plugin in general, and whoever wrote it was looking at
+       this node when they did. */
     if (!p.label.empty() && p.label != p.name)
         name->set_tooltip_text(p.name);
+
+    if (!p.desc.empty())
+        name->set_tooltip_text(p.desc);
 
     if (!p.comment.empty())
         name->set_tooltip_text(p.comment);

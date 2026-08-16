@@ -99,6 +99,18 @@ public:
 
     void setSensitive (bool s);
 
+    /* What the plugin says about itself: its description, its ports, and any
+       defaults it declares for its args.
+
+       Through the palette rather than through a catalog of the caller's own,
+       because this one has already loaded the plugin -- selecting a row is what
+       fills in its ports -- and loading it twice would mean two thPlugin
+       objects for one .so. `pm_' is the manager it was populated with. */
+    bool describe (const string &spelling, NodeCatalog::Entry &out)
+    {
+        return catalog_.describe(spelling, pm_, out);
+    }
+
 protected:
     void onSelectionChanged (void);
     void onRowActivated (guint position);

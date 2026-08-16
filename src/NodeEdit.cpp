@@ -611,7 +611,10 @@ static bool writeLines (const string &filename, const vector<string> &lines,
         chmod(tmp.c_str(), st.st_mode & 07777);
 #endif
 
-    if (rename(tmp.c_str(), filename.c_str()) != 0)
+    /* thUtil::replaceFile rather than rename(): Windows' rename
+       refuses a target that exists, which is every save after the
+       first. */
+    if (!thUtil::replaceFile(tmp, filename))
     {
         remove(tmp.c_str());
         return false;
@@ -1154,7 +1157,9 @@ static size_t findIoLine (const vector<string> &lines)
 }
 
 NodeEdit::Result NodeEdit::addNode (const string &filename, const string &node,
-                                    const string &plugin, string &why)
+                                    const string &plugin,
+                                    const vector<pair<string, double> > &initial,
+                                    string &why)
 {
     why.clear();
 
@@ -1195,6 +1200,30 @@ NodeEdit::Result NodeEdit::addNode (const string &filename, const string &node,
     vector<string> block;
 
     block.push_back("node " + node + " " + plugin + " {");
+
+    /* The plugin's declared defaults, written out rather than left implied.
+     *
+     * buildArgMap() invents `= 0' for every registered arg a .dsp does not
+     * mention, and several plugins then special-case that zero back to
+     * something else -- osc::simple's amp is full scale at 0 and its mul
+     * multiplies by nothing. Writing them means a node added here comes out
+     * saying what it does, and means the same thing either way: these are the
+     * plugin's own zero-cases, so the sound is identical to leaving them out.
+
+       An unwritable number is skipped rather than failing the whole add. The
+       node is still a valid node without the line, and refusing to add a node
+       because one of its defaults needs an exponent would be a strange place
+       to draw that line. */
+    for (size_t i = 0; i < initial.size(); i++)
+    {
+        string text;
+
+        if (!validName(initial[i].first) || !format(initial[i].second, text))
+            continue;
+
+        block.push_back("    " + initial[i].first + " = " + text + ";");
+    }
+
     block.push_back("};");
     block.push_back("");
 

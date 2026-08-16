@@ -48,8 +48,9 @@ must value-initialise.
 
 `regArg(name, dir)` carries an `ArgDir`, and `argIsPort()` is what keeps the
 editor from offering a delay ring for wiring. `ARG_IN` is the default, so a
-plugin built against the older header still loads — which is why this did not
-need an interface-version bump and `MODULE_IFACE_VER` is still 4.
+plugin built against the older header still loads — which is why *this* did not
+need an interface-version bump, though a later change to the same structure did.
+See the note on `MODULE_IFACE_VER`, now 5, at the end of the next section.
 
 Three directions matter:
 
@@ -62,21 +63,28 @@ Three directions matter:
 
 ## Arg type
 
-`regArg` says which way an arg faces. Two more things a plugin can say about
-one, through `setArgStep` and `setArgValues`:
+`regArg` says which way an arg faces. Four more things a plugin can say about
+one:
 
 - **step** — 0 for an ordinary continuous parameter, 1 for one that means a
   whole number.
 - **values** — the names of those whole numbers, where they have any. A list
   implies a step of 1, and a range running from its first named entry to its
   last.
+- **description** — what the arg is for, for a tooltip.
+- **default** — the value the plugin behaves as though the arg held when it is
+  0.
 
-Neither is read anywhere in the audio path. They exist because `osc::simple`
-reads `waveform` as `switch ((int)buf[i])`, so 3.4 *is* 3 — and a control that
-can produce 3.4 is a control most of whose travel does nothing. The eight
-shipped patches that drive a waveform all declare `.max = 5.1` or `5.5` rather
-than 5, which is an author working around exactly that: padding the top of a
-continuous slider so it can still truncate to the last waveform.
+None of it is read anywhere in the audio path.
+
+### Step and value names
+
+They exist because `osc::simple` reads `waveform` as `switch ((int)buf[i])`, so
+3.4 *is* 3 — and a control that can produce 3.4 is a control most of whose
+travel does nothing. The eight shipped patches that drive a waveform all
+declared `.max = 5.1` or `5.5` rather than 5, which was an author working around
+exactly that: padding the top of a continuous slider so it could still truncate
+to the last waveform. Those declarations say 5 now.
 
 Two plugins have a selector to declare, both spelled `waveform`. `osc::simple`
 implements six cases; `osc::window` implements three and leaves 1, 4 and 5
@@ -90,6 +98,41 @@ what a 5 in a `.dsp` means. What gets offered is decided by the named entries
 instead, so the list says six and the control still shows three. A step is
 measured from zero, not from the bottom of the range, because the thing being
 stepped to is what `(int)x` can distinguish.
+
+Eight further args carry a step with no names: they are read `(int)(*in_x)[0]`
+and used as a length or a count — `delay/echo`'s size, `filt/comb`'s, the four
+`impulse` lengths, `osc/multiwave` and `osc/multisined`'s `waves`. A delay line
+of 220 samples has nothing to call itself. Found by grepping for a cast of an
+arg to int rather than by reading arg names, which is the difference between a
+sweep and a guess — an earlier draft did the latter and named two plugins that
+do no such thing.
+
+### Description and default
+
+Both are deliberately thin on content, for the same reason: **everything in them
+was transcribed, and nothing was written.**
+
+33 args across 11 plugins already carried a trailing comment on the line that
+fetches them — `in_mul = mod->getArg(node, args[IN_MUL]); /* Multiply the
+wavelength by this */`. Those are the descriptions. The other 281 have none and
+stay empty. Reading someone else's arithmetic and writing a confident sentence
+about what it is for produces a tooltip that is wrong in a way nobody can see.
+
+The defaults are the same principle over a different pattern. Eight args across
+five plugins are special-cased in their own callback — `if (amp_max == 0)
+amp_max = TH_MAX;`, `if (mul) freq *= mul;`, `if (pw == 0) pw = 0.5;`. Those
+plugins already had defaults; they were written somewhere nothing could read
+them, so a node the editor added came out saying `amp = 0` and left the reader
+to know that meant full scale. **A default here is not a suggested starting
+value**, and that is what stops it being taste.
+
+An editor default, not an engine one. `buildArgMap` still invents `= 0` for
+every registered arg a `.dsp` omits, and changing that would change the sound of
+every file that omits one. What it is for is `NodeEdit::addNode`, which writes
+the declared defaults into a node the palette adds: the same sound, since they
+are the plugin's own zero-cases, in a file that says what it does. `argtype`
+renders both spellings and compares them bitwise, because that is exactly the
+sort of claim that is easy to make and easy to get wrong.
 
 ### Getting it to the control
 
@@ -113,9 +156,6 @@ wins. That needs `thArg::typedByFile` to be a separate flag rather than being
 inferred: a step of 0 is the default, so without it an author saying "leave
 this one continuous" and an author saying nothing would be the same state.
 
-The rest of the proposal — a description and a default per arg — is still not
-done.
-
 **This bumped `MODULE_IFACE_VER` to 5.** Direction did not need one: `regArg`
 gained a defaulted parameter and nothing about `thPlugin`'s shape moved, so a
 plugin built against the older header still loaded and reported every arg as an
@@ -128,6 +168,12 @@ where a mismatched library made every header-inlined accessor read at the wrong
 offset and return garbage silently. The version check exists to make that loud,
 and stale plugin `.so` files in a source tree are a thing that actually happens
 here — `NodePalette`'s own tooltip tells people to go and delete them.
+
+It stayed at 5 when the description and the default were added, and the rule
+above is why: those went *inside* `ArgInfo`, which lives in a vector, so
+`thPlugin` is the same size and every member is where it was. Adding methods is
+not a layout change. The version is for layout changes, and saying which is
+which is the whole value of having one.
 
 ## Threading
 

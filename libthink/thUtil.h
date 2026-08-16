@@ -73,6 +73,20 @@ public:
     static string findDataDir (const string &subdir, const char *envVar,
                                const string &fallback);
 
+    /* The finish of every temp-and-rename writer: rename `tmp' over
+     * `target', replacing it if it is there. POSIX rename() already
+     * means that; Windows' refuses a target that exists, which is how a
+     * writer that passed every Unix gate came to fail its first edit of
+     * an existing file on the Windows runner -- the create worked (no
+     * target yet) and the very next save did not. There it is
+     * MoveFileEx with MOVEFILE_REPLACE_EXISTING, which keeps the
+     * either-the-old-file-or-the-new-one guarantee on NTFS.
+     *
+     * False when the replace failed; `tmp' is left in place for the
+     * caller to remove, since the caller knows whether it is worth
+     * keeping for a diagnostic. */
+    static bool replaceFile (const string &tmp, const string &target);
+
     /* Create an empty file with a name nobody can predict, in whatever
      * directory this platform uses for temporary files, and return its
      * absolute path. Returns "" if one cannot be made.

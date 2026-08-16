@@ -40,6 +40,8 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
+    /* `(int)(*in_len)[0]' -- the impulse is this many samples long. */
+    plugin->setArgStep(args[IN_LEN], 1);
     args[IN_WIDTH] = plugin->regArg("width", thPlugin::ARG_IN);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
     args[IN_NUM] = plugin->regArg("num", thPlugin::ARG_IN);

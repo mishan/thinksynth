@@ -41,6 +41,8 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
+    /* `(int)(*in_len)[0]' -- the impulse is this many samples long. */
+    plugin->setArgStep(args[IN_LEN], 1);
     args[IN_MAX] = plugin->regArg("max", thPlugin::ARG_IN);
     args[IN_PERCENT] = plugin->regArg("percent", thPlugin::ARG_IN);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);

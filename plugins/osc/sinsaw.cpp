@@ -45,6 +45,7 @@ int module_init (thPlugin *plugin)
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_FACTOR] = plugin->regArg("factor", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FACTOR], "(1-abs(x^factor))*x");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
     return 0;

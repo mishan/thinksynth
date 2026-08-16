@@ -67,7 +67,13 @@ int module_init (thPlugin *plugin)
 
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (amp_max == 0) amp_max = TH_MAX;' */
+    plugin->setArgDefault(args[IN_AMP], TH_MAX);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    /* The plugin already had this default, written where nothing
+       could read it: `if (pw == 0) pw = 0.5;' */
+    plugin->setArgDefault(args[IN_PW], 0.5);
     args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
 
     /* Read `switch ((int)buf_waveform[i])', so it is a selector and not a
@@ -78,12 +84,21 @@ int module_init (thPlugin *plugin)
                          (int)(sizeof(waveforms) / sizeof(waveforms[0])));
 
     args[IN_FM] = plugin->regArg("fm", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FM], "FM Input");
     args[IN_FMAMT] = plugin->regArg("fmamt", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FMAMT], "Modulation amount");
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RESET], "Reset position to 0 when this goes to 1");
     args[IN_MUL] = plugin->regArg("mul", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_MUL], "Multiply the wavelength by this");
+    /* The plugin already had this default, written where nothing
+       could read it: `if (mul) freq *= mul;' -- a 0 multiplies by nothing, which is a 1 */
+    plugin->setArgDefault(args[IN_MUL], 1);
+
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_SYNC], "Output a 1 when the wave begins its cycle");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
