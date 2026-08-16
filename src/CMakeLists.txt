@@ -52,7 +52,8 @@ target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 # stays main-loop-free; this cannot. Same reasoning as think_visualhost,
 # with glibmm standing where cairo stood.
 add_library(think_composerhost OBJECT
-    thcPlugin.cpp)
+    thcPlugin.cpp
+    thcScheduler.cpp)
 
 target_include_directories(think_composerhost PUBLIC
     "${PROJECT_SOURCE_DIR}"
