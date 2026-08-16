@@ -43,6 +43,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -165,20 +166,35 @@ expectReject (const std::map<std::string, thcPlugin *> &plugins,
               thSynth *synth, const char *label, const std::string &body,
               const std::string &expect)
 {
-    std::filesystem::path path =
-        std::filesystem::temp_directory_path() /
-        (std::string("gencheck-") + label + ".gen");
+    /* thUtil::tempFile, not a fixed name under the shared temp dir:
+       two gencheck processes (parallel ctest, two build trees) writing
+       the same scratch path is a flaky failure nobody can reproduce. */
+    std::string path = thUtil::tempFile(
+        std::string("gencheck-") + label + "-");
+
+    if (path.empty())
+    {
+        fail(std::string(label) + ": could not make a scratch file");
+        return;
+    }
 
     {
-        std::ofstream out(path);
+        std::ofstream out(path.c_str(), std::ios::trunc);
 
         out << body;
+
+        if (!out.good())
+        {
+            fail(std::string(label) + ": could not write " + path);
+            std::filesystem::remove(path);
+            return;
+        }
     }
 
     thcScheduler sched(synth);
     thcGenLoader loader(plugins);
 
-    if (loader.load(path.string(), &sched))
+    if (loader.load(path, &sched))
         fail(std::string(label) + ": a file that should not load, loaded");
     else
     {

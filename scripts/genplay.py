@@ -59,7 +59,10 @@ def parse_gen(path):
             tokens = text.split()
             kind, rest = tokens[0], tokens[1:]
             if kind == "scale":
-                scale = [note_number(t) for t in rest]
+                try:
+                    scale = [note_number(t) for t in rest]
+                except ValueError as e:
+                    sys.exit(f"{path}:{lineno}: {e}")
             elif kind == "line":
                 spec = {
                     "notes": None,
@@ -78,7 +81,11 @@ def parse_gen(path):
                     if key not in spec:
                         sys.exit(f"{path}:{lineno}: unknown key {key!r}")
                     if key == "notes":
-                        spec[key] = [note_number(n) for n in val.split(",")]
+                        try:
+                            spec[key] = [note_number(n)
+                                         for n in val.split(",")]
+                        except ValueError as e:
+                            sys.exit(f"{path}:{lineno}: {e}")
                     elif key in ("vel", "vel_jitter", "channel"):
                         spec[key] = int(val)
                     else:
