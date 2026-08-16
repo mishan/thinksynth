@@ -69,7 +69,15 @@ typedef struct _cairo cairo_t;  /* drawing is optional; no hard cairo dep */
 
 typedef enum {
     THC_EV_NOTE = 0,     /* one note; the scheduler derives the note-off  */
-    THC_EV_CHANARG       /* set a patch @chanarg -- generative timbre     */
+    THC_EV_CHANARG,      /* set a patch @chanarg -- generative timbre     */
+
+    /* Releases a held note -- the pair to a NOTE whose duration is <= 0,
+     * which means "held until further notice". Composed material almost
+     * never needs the pair (durations are the composed way to say when a
+     * note ends); it exists because live MIDI has no idea how long a key
+     * will stay down, and an arpeggiator has to know what is held NOW.
+     * A NOTEOFF uses u.note.note; velocity and duration are ignored. */
+    THC_EV_NOTEOFF
 } thcEventType;
 
 typedef struct {
@@ -80,7 +88,8 @@ typedef struct {
         struct {
             int    note;       /* MIDI note number                        */
             int    velocity;   /* 1-127                                   */
-            double duration;   /* seconds until note-off                  */
+            double duration;   /* seconds until note-off; <= 0: held
+                                  until a matching THC_EV_NOTEOFF        */
         } note;
         struct {
             const char *name;  /* @chanarg name; copied by the sink       */

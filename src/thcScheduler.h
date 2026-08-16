@@ -259,13 +259,10 @@ public:
     void stepTransport (double dt);
 
     /* Route a live MIDI note into a chain's receive() path (Markov
-     * training, arpeggiators). Called from the existing dispatchmidi
-     * hop -- same thread, so it is a plain call into propagate().
-     *
-     * Open question, flagged in the handoff: when the transport is
-     * stopped this queues like everything else, so an arpeggio on a
-     * stopped transport waits for play. Delivering immediately instead
-     * is a contained change to make here once it matters. */
+     * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
+     * same thread, so it is a plain call into propagate(). On a stopped
+     * transport, whatever falls out of the chains is delivered
+     * immediately: keys pressed while paused should sound. */
     void injectMidi (size_t chainIndex, const thcEvent &ev);
 
     /* The `input midi;' route: hand the event to every chain that
@@ -289,6 +286,13 @@ public:
     sigc::signal<void (const thcEvent &)> sigDelivered;
     const std::vector<thcEvent> &peekPending (void) const;
 
+    /* The declared range of a patch chanarg, for anyone drawing its
+       values honestly -- the roll's strip normalizes by this instead of
+       assuming 0-1. False when the channel has no such arg or its range
+       is degenerate; the caller falls back to assuming. */
+    bool chanArgRange (int channel, const char *name,
+                       float &lo, float &hi) const;
+
     /* Emitted by reset(): the transport has rewound to zero and every
      * instance has been recreated. Anything keeping history keyed to
      * transport time -- the piano roll's delivered notes -- must drop
@@ -301,6 +305,8 @@ public:
 private:
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride);
+    void releaseHeld (int channel, int note);
+    void flushHeld (void);
     void runDueTicks (double now);
     void deliverDue (double now);
     void sendDueNoteOffs (double now);
@@ -356,6 +362,18 @@ private:
     std::vector<Wakeup>  wakeups_;
     std::vector<Pending> pending_;
     std::vector<NoteOff> noteOffs_;
+
+    /* Notes delivered with duration <= 0: held until a THC_EV_NOTEOFF
+       releases them, or until stop()/clearChains flushes them -- a
+       pause must not hang a key any more than it hangs a note. */
+    std::vector<NoteOff> held_;      /* .at unused                       */
+
+    /* True while an injectMidi* call is propagating on a stopped
+       transport; what falls out of the chains is delivered immediately
+       rather than parked in pending_ behind a frozen clock. Decided
+       (the handoff had it flagged): an arpeggio on a stopped transport
+       should still sound. */
+    bool injectingLive_;
 
     mutable std::vector<thcEvent> peekCache_;
 };

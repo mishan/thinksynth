@@ -103,9 +103,33 @@ PianoRoll::onDelivered (const thcEvent &ev)
         notes_.push_back({ ev.at, ev.u.note.duration,
                            ev.channel, ev.u.note.note,
                            ev.u.note.velocity });
-    else
-        argTicks_.push_back({ ev.at, ev.channel,
-                              ev.u.chanarg.value });
+    else if (ev.type == THC_EV_NOTEOFF)
+    {
+        /* The release live input promised: find the held bar (duration
+           <= 0, the "who knows" spelling) and give it its real end. */
+        for (size_t i = notes_.size(); i-- > 0; )
+            if (notes_[i].channel == ev.channel &&
+                notes_[i].note == ev.u.note.note &&
+                notes_[i].duration <= 0)
+            {
+                notes_[i].duration =
+                    std::max(ev.at - notes_[i].start, 0.05);
+                break;
+            }
+    }
+    else if (ev.type == THC_EV_CHANARG)
+    {
+        /* Normalized by the arg's declared range where it has one --
+           the honest scale the strip always wanted; 0-1 stays the
+           fallback for an arg that never said. */
+        float lo, hi;
+        double v = ev.u.chanarg.value;
+
+        if (sched_->chanArgRange(ev.channel, ev.u.chanarg.name, lo, hi))
+            v = (v - lo) / (hi - lo);
+
+        argTicks_.push_back({ ev.at, ev.channel, (float)v });
+    }
     /* no queue_draw: the tick callback repaints every frame anyway */
 }
 
@@ -151,7 +175,7 @@ PianoRoll::prune (void)
 {
     double keep = sched_->now() - 4 * spanPast_;
 
-    while (!notes_.empty() &&
+    while (!notes_.empty() && notes_.front().duration > 0 &&
            notes_.front().start + notes_.front().duration < keep)
         notes_.pop_front();
 
@@ -242,8 +266,13 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
        sees durations, not envelopes -- so bars end honestly at the off. */
     for (const Note &n : notes_)
     {
+        /* A held note (live input, no NOTEOFF yet) is still sounding:
+           its bar grows to the now-line until the release names its
+           end. */
+        double dur = n.duration > 0 ? n.duration
+                                    : std::max(viewNow_ - n.start, 0.05);
         double x0 = timeToX(n.start, width);
-        double x1 = timeToX(n.start + n.duration, width);
+        double x1 = timeToX(n.start + dur, width);
 
         if (x1 < 0 || x0 > width)
             continue;

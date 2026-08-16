@@ -33,6 +33,7 @@
 #include "thcGenEdit.h"
 #include "PianoRoll.h"
 #include "Dialogs.h"
+#include "gthSignal.h"
 #include "ComposerWindow.h"
 
 /* ---- little local helpers --------------------------------------------- */
@@ -247,12 +248,47 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     drawTimer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &ComposerWindow::onDrawTimer), 50);
 
+    /* Live MIDI into the chains: the same m_sigNoteOn/Off hop that
+       lights the on-screen keyboard, already on the GUI thread. A press
+       has no known length, so it goes in held (duration 0) and the
+       release follows as a NOTEOFF; every chain that declared `input
+       midi' on that channel hears both. */
+    midiOnConn_ = m_sigNoteOn.connect(
+        [this](int chan, float note, float veloc)
+        {
+            thcEvent ev = {};
+
+            ev.type = THC_EV_NOTE;
+            ev.at = sched_->now();
+            ev.channel = chan;
+            ev.u.note.note = (int)note;
+            ev.u.note.velocity = (int)veloc;
+            ev.u.note.duration = 0;
+
+            sched_->injectMidiEvent(ev);
+        });
+
+    midiOffConn_ = m_sigNoteOff.connect(
+        [this](int chan, float note)
+        {
+            thcEvent ev = {};
+
+            ev.type = THC_EV_NOTEOFF;
+            ev.at = sched_->now();
+            ev.channel = chan;
+            ev.u.note.note = (int)note;
+
+            sched_->injectMidiEvent(ev);
+        });
+
     loadPiece();
 }
 
 ComposerWindow::~ComposerWindow (void)
 {
     drawTimer_.disconnect();
+    midiOnConn_.disconnect();
+    midiOffConn_.disconnect();
 
     /* Order matters: the scheduler's destructor flushes note-offs and
        destroys chain instances, which calls back into the plugins -- so

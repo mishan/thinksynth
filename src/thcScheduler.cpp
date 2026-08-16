@@ -190,7 +190,7 @@ thcParamStore::notifyChanged (int index)
 thcScheduler::thcScheduler (thSynth *synth)
     : synth_(synth), running_(false), transportNow_(0), beat_(0),
       tempo_(120), lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int())
+      masterSeed_(g_random_int()), injectingLive_(false)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -316,6 +316,7 @@ thcScheduler::clearChains (void)
     /* Anything sounding came from these instances; silence it before
        taking them away. */
     flushNoteOffs();
+    flushHeld();
 
     for (size_t ci = 0; ci < chains_.size(); ci++)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
@@ -593,6 +594,15 @@ thcScheduler::queuePending (const thcEvent &ev,
         p.ev.u.chanarg.name = p.chanargName->c_str();
     }
 
+    /* Live input on a paused clock: pending_ is keyed in transport
+       time and transport time is frozen, so anything due now would
+       wait for Play. It should not -- the keys were pressed now. */
+    if (injectingLive_ && p.at <= transportNow_)
+    {
+        deliver(p.ev);
+        return;
+    }
+
     pending_.push_back(p);
     std::push_heap(pending_.begin(), pending_.end(), Later());
 }
@@ -628,12 +638,25 @@ thcScheduler::deliver (const thcEvent &ev)
             synth_->addNote(ev.channel, ev.u.note.note,
                             ev.u.note.velocity);
 
-            /* Keyed off the event's own time, not the delivery tick's:
-               the off lands exactly duration after the on was scheduled,
-               so a replayed piece derives an identical off stream. */
-            noteOffs_.push_back({ ev.at + ev.u.note.duration,
-                                  ev.channel, ev.u.note.note });
-            std::push_heap(noteOffs_.begin(), noteOffs_.end(), Later());
+            /* A composed note carries its whole life in the duration;
+               the off lands exactly there, keyed off the event's own
+               time so a replay derives an identical off stream. A held
+               note (duration <= 0, live input's spelling of "who
+               knows") waits for its NOTEOFF instead. */
+            if (ev.u.note.duration > 0)
+            {
+                noteOffs_.push_back({ ev.at + ev.u.note.duration,
+                                      ev.channel, ev.u.note.note });
+                std::push_heap(noteOffs_.begin(), noteOffs_.end(),
+                               Later());
+            }
+            else
+                held_.push_back({ 0, ev.channel, ev.u.note.note });
+            break;
+        }
+        case THC_EV_NOTEOFF:
+        {
+            releaseHeld(ev.channel, ev.u.note.note);
             break;
         }
         case THC_EV_CHANARG:
@@ -676,6 +699,32 @@ thcScheduler::flushNoteOffs (void)
 }
 
 void
+thcScheduler::releaseHeld (int channel, int note)
+{
+    for (size_t i = 0; i < held_.size(); i++)
+        if (held_[i].channel == channel && held_[i].note == note)
+        {
+            synth_->delNote(channel, note);
+            held_.erase(held_.begin() + i);
+            return;
+        }
+
+    /* An off for a note nobody holds: a release that raced a flush.
+       delNote copes; do the same. */
+    synth_->delNote(channel, note);
+}
+
+void
+thcScheduler::flushHeld (void)
+{
+    while (!held_.empty())
+    {
+        synth_->delNote(held_.back().channel, held_.back().note);
+        held_.pop_back();
+    }
+}
+
+void
 thcScheduler::start (void)
 {
     lastMono_ = g_get_monotonic_time();
@@ -683,13 +732,16 @@ thcScheduler::start (void)
 }
 
 /* stop() is a pause, but a pause must not hang notes: flush every
- * derived off immediately. pending_ and wakeups_ are keyed in transport
- * time, which has stopped advancing, so they keep on their own. */
+ * derived off immediately, and release every held key -- a note whose
+ * end nobody knows still has to end when the music does. pending_ and
+ * wakeups_ are keyed in transport time, which has stopped advancing, so
+ * they keep on their own. */
 void
 thcScheduler::stop (void)
 {
     running_ = false;
     flushNoteOffs();
+    flushHeld();
 }
 
 /* reset() is what makes --seed style replays a first-class feature:
@@ -753,7 +805,9 @@ thcScheduler::injectMidi (size_t chainIndex, const thcEvent &ev)
     if (chainIndex >= chains_.size())
         return;
 
+    injectingLive_ = !running_;
     propagate(chains_[chainIndex], 0, ev);
+    injectingLive_ = false;
 }
 
 void
@@ -778,8 +832,27 @@ thcScheduler::injectMidiEvent (const thcEvent &ev)
             }
 
         if (match || c.sinks.empty())
+        {
+            injectingLive_ = !running_;
             propagate(c, 0, ev);
+            injectingLive_ = false;
+        }
     }
+}
+
+bool
+thcScheduler::chanArgRange (int channel, const char *name,
+                            float &lo, float &hi) const
+{
+    thArg *arg = synth_->getChanArg(channel, name != NULL ? name : "");
+
+    if (arg == NULL || arg->max() <= arg->min())
+        return false;
+
+    lo = arg->min();
+    hi = arg->max();
+
+    return true;
 }
 
 const std::vector<thcEvent> &

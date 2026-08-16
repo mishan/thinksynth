@@ -141,7 +141,9 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     thcEvent copy = *ev;
 
-    if (copy.type == THC_EV_NOTE)
+    /* Offs snap with the same snap as ons, or a held note's release
+       would name a pitch its press never had and the note would hang. */
+    if (copy.type == THC_EV_NOTE || copy.type == THC_EV_NOTEOFF)
         copy.u.note.note = st->snap(copy.u.note.note);
 
     out->emit(out->ctx, &copy);

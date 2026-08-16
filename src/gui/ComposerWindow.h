@@ -189,6 +189,10 @@ protected:
     Gtk::ScrolledWindow canvasScroll_;
     sigc::connection drawTimer_;
 
+    /* The live MIDI hop into injectMidiEvent. */
+    sigc::connection midiOnConn_;
+    sigc::connection midiOffConn_;
+
     Gtk::Button *playBtn_;
     Gtk::Button *pauseBtn_;
     Gtk::Button *rewindBtn_;
