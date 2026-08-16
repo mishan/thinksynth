@@ -411,10 +411,17 @@ main (int argc, char *argv[])
         return 2;
     }
 
-    thSynth *synth = new thSynth();
+    thSynth synth;
 
-    checkValidation(plugins, synth);
-    checkReplay(plugins, synth, genFile);
+    checkValidation(plugins, &synth);
+    checkReplay(plugins, &synth, genFile);
+
+    /* Freed for the leak checker's sake, not the OS's: a gate that
+       runs under sanitizers should not salt the report. The schedulers
+       are already gone -- each check scoped its own. */
+    for (std::map<std::string, thcPlugin *>::iterator i = plugins.begin();
+         i != plugins.end(); ++i)
+        delete i->second;
 
     if (failures == 0)
         printf("gencheck: OK\n");

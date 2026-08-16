@@ -18,8 +18,11 @@
 #include <cmath>
 
 static const double CHANARG_STRIP = 26;   /* px reserved at the bottom   */
-static const double NOW_FRACTION  = 0.66; /* now-line sits at 2/3 width  */
 static const double EASE          = 0.12; /* pitch-range easing per frame*/
+
+/* The now-line sits at 2/3 width because the default spans are 60s of
+ * past to 30s of future -- its position IS that ratio, so there is no
+ * separate constant to fall out of step with it. */
 
 /* One color per MIDI channel, hue-spaced by the golden angle. Matches
  * nothing else in the app yet; if channel colors grow legs (patch
@@ -110,12 +113,17 @@ PianoRoll::~PianoRoll (void)
 void
 PianoRoll::onDelivered (const thcEvent &ev)
 {
+    /* The event's own timestamp, not the scheduler's now: delivery
+       runs on a ~20ms tick and a humanized note's `at' is the point of
+       it -- drawing arrival times would shift every bar by delivery
+       latency and render a replayed stream differently from its
+       authored self. */
     if (ev.type == THC_EV_NOTE)
-        notes_.push_back({ sched_->now(), ev.u.note.duration,
+        notes_.push_back({ ev.at, ev.u.note.duration,
                            ev.channel, ev.u.note.note,
                            ev.u.note.velocity });
     else
-        argTicks_.push_back({ sched_->now(), ev.channel,
+        argTicks_.push_back({ ev.at, ev.channel,
                               ev.u.chanarg.value });
     /* no queue_draw: the tick callback repaints every frame anyway */
 }
@@ -277,7 +285,11 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
         if (x < 0 || x > width)
             continue;
 
-        double y = height - 3 - a.value * (CHANARG_STRIP - 8);
+        /* Clamped: the strip normalizes 0-1 (a documented stopgap until
+           arg metadata is reachable from here), and a knob with a wider
+           range must not draw outside its reserved band. */
+        double v = std::clamp((double)a.value, 0.0, 1.0);
+        double y = height - 3 - v * (CHANARG_STRIP - 8);
 
         channelColor(cr, a.channel, 0.9);
         cr->move_to(x, y - 3); cr->line_to(x + 3, y);
@@ -348,6 +360,9 @@ PianoRoll::onDoubleClick (int nPress, double, double)
 void
 PianoRoll::SetTimeSpan (double past, double future)
 {
-    spanPast_ = past;
-    spanFuture_ = future;
+    /* The same bounds the scroll wheel obeys: timeToX divides by the
+       sum, and a zero or negative span is a request for a crash, not a
+       view. */
+    spanPast_ = std::clamp(past, 5.0, 600.0);
+    spanFuture_ = std::clamp(future, 2.5, 300.0);
 }
