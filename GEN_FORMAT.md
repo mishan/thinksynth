@@ -153,8 +153,13 @@ sinkparam   : ("channel" "=" NUMBER | "chanarg" "=" STRING) ";"
 
 ## 7. Rules for anything that writes these files
 
-The GUI will write `.gen` files, so the writing rules exist from day one
-rather than being archaeology later:
+The GUI writes `.gen` files by *editing the text* (`src/thcGenEdit.cpp`),
+not by regenerating it from a model — the same decision NodeEdit made for
+`.dsp`, so an author's comments and blank lines survive any sequence of
+GUI edits. Each operation replaces exactly the token span it is aimed at,
+located through the loader's own lexer. The rules below bind what gets
+written *into* those spans, and what a freshly generated block (a new
+stage, a new chain) contains:
 
 - Write stages in execution order; there is no other order to recover.
 - Write durations back in the unit the author used. A user who wrote

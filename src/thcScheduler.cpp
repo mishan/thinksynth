@@ -375,7 +375,7 @@ thcScheduler::knob (const std::string &name)
 void
 thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 {
-    if (stage == NULL || knob == NULL)
+    if (stage == NULL)
         return;
 
     /* An index the plugin never registered must not get a binding OR a
@@ -384,6 +384,16 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
        never issued is nobody's guess to make. */
     if (paramIndex < 0 || paramIndex >= stage->plugin->paramCount())
         return;
+
+    /* NULL unbinds: the param falls back to its stored value. The old
+       signal connection stays parked harmlessly -- notifyChanged on an
+       unbound index is a param_changed a live edit would have sent
+       anyway -- and dies with the next clearChains. */
+    if (knob == NULL)
+    {
+        stage->params.bindKnob(paramIndex, NULL);
+        return;
+    }
 
     stage->params.bindKnob(paramIndex, knob);
 

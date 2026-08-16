@@ -227,15 +227,29 @@ open, in rough priority order:
   question land together when the first receive-from-live plugin is
   written. Related: injectMidi on a stopped transport still queues
   rather than delivering immediately — flagged, still not decided.
-- **The GUI-side `.gen` writer** (§7 of GEN_FORMAT.md is the contract;
-  the loader keeps everything it needs — units as authored, knob
-  bindings, unpinned seeds — but nothing writes yet).
 - `composer_input` and `composer_serialize`/`deserialize` — the two ABI
   additions §7 below argues for; neither blocks anything current.
 - Chanarg strip in the piano roll normalizes 0–1; should use the arg's
   declared `.min/.max` once param metadata is reachable from the widget.
-- A file chooser in ComposerWindow (it plays `gen/airports.gen` or
-  `$THINK_GEN_PATH`; picking a piece by hand means editing neither).
+- A file chooser for *opening* a piece (New/Save/Save As exist; the
+  window still opens on `gen/airports.gen` or `$THINK_GEN_PATH`).
+
+The GUI-side `.gen` writer is no longer on this list: it landed as
+**`thcGenEdit` + the Edit panel in ComposerWindow**, and it preserves
+comments rather than regenerating files — NodeEdit's philosophy carried
+over wholesale, after the whole-file-generation reading of §7 was
+reconsidered. Each operation replaces the exact token span it is aimed
+at, located through the loader's own tokenizer (`thcGenToken` carries
+byte spans for precisely this). The editing model in the window is
+NodeEditor's work-copy flow: edits splice a temp copy, Save publishes
+it. Value edits (params, knobs, tempo) splice *and* poke the live
+stores, so the piece keeps playing; structural edits (stages, chains,
+sinks, scales, seed) splice and reload, which rewinds to zero — the
+honest reading of the determinism story when the piece changed shape.
+gencheck grew a fourth section that runs one of every operation against
+a scratch copy of the shipped piece and then proves every comment
+survived, no-op writes change no byte, guard rails hold (last sink,
+duplicate names, unknown units), and the edited file still loads.
 
 ## 6. Suggested build order
 
