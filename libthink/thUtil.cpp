@@ -21,6 +21,10 @@
 #include <cstdlib>
 #include <cstring>
 
+#ifdef _WIN32
+#include <windows.h>   /* MoveFileExA -- see replaceFile */
+#endif
+
 #include <filesystem>
 #include <system_error>
 #include <vector>
@@ -103,6 +107,16 @@ int thUtil::getNumLength (int num)
  * only consumers are Gtk::FileChooser::set_current_folder and the patch
  * list's display column.
  */
+
+bool thUtil::replaceFile (const string &tmp, const string &target)
+{
+#ifdef _WIN32
+    return MoveFileExA(tmp.c_str(), target.c_str(),
+                       MOVEFILE_REPLACE_EXISTING) != 0;
+#else
+    return ::rename(tmp.c_str(), target.c_str()) == 0;
+#endif
+}
 
 string thUtil::basename (const char *path)
 {
