@@ -282,13 +282,15 @@ driving a chanarg sink; the arpeggiator is the both-entry-points case the
 API was shaped around; the transformers are two-line `receive()` bodies.
 Nothing new learned by writing them beyond confidence.
 
-**L-systems.** A generator whose axiom and rules are `THC_PARAM_STRING`
-params, re-derived in `composer_param_changed` — the hook was designed
-for exactly this. Long derivations can emit far into the future, which
-is what makes the piano roll's ghosted right half interesting for the
-first time: eno_line emits at `t->now`, so pending_ is always nearly
-empty and the lookahead draws nothing. The first plugin that *plans*
-will light it up.
+**L-systems.** LANDED as `gen::lsystem`: axiom and rules are
+`THC_PARAM_STRING` params re-derived in `composer_param_changed` — the
+hook was designed for exactly this — and the whole derived phrase is
+emitted as one scheduled block, so the piano roll's ghosted right half
+finally draws something (gencheck asserts it stays that way). Brackets
+push and pop *time as well as degree*, so a branch runs in parallel
+with what follows it: polyphony falls out of the grammar. No randomness
+anywhere in the plugin. Exponential rules are capped, truncating the
+tail rather than failing — for music, the right kind of wrong.
 
 **Cellular automata.** A clocked generator; the grid is instance state;
 `composer_draw` is its natural window. One row per tick keeps it
@@ -316,13 +318,18 @@ dispatchmidi hop), emit from it in `tick()`. Two things surface:
 
 **Genetic algorithms.** Three shapes, in rising order of friction:
 
-1. *Autonomous GA* — fitness is a heuristic the plugin computes
-   (consonance against the scale param, contour smoothness, rhythmic
-   density targets). Fits today: population and generation counter are
-   instance state, seeded RNG keeps it replayable, `tick()` performs a
-   generation step every N beats and plays the current champion. The
-   piece audibly converging over minutes is exactly the kind of thing
-   this framework exists to try.
+1. *Autonomous GA* — fitness is a heuristic the plugin computes.
+   LANDED as `gen::evolve`: phrase genomes over the pitch ladder,
+   tournament selection, single-point crossover, per-gene mutation,
+   two elites, and a fitness function documented as taste with a
+   number on it (target density, leap tax, cadence on the root,
+   monotony penalty). Each tick plays the current champion as a
+   scheduled block and then runs one generation, so the piece *is*
+   the search; the mutation knob reintroduces doubt mid-piece. Replay
+   determinism is gated in gencheck — a GA drifting off its seed
+   would be the least debuggable corruption of the story, so it is
+   the one most worth a tripwire. `gen/growth.gen` is the demo: an
+   lsystem canopy over an evolving bass.
 2. *Interactive evolution* — the user is the fitness function. The only
    feedback channel today is a param ("rate the last phrase 0–5" as a
    FLOAT the panel exposes), which works but is clunky: params are

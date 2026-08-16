@@ -415,7 +415,93 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
         fail("the chanarg sink's name never reached delivery");
 }
 
-/* ---- 4. the editor's splices ------------------------------------------ */
+/* ---- 4. the planners --------------------------------------------------- */
+
+/* lsystem and evolve emit whole phrases into the future -- the first
+ * composers that plan. Two claims worth a gate: the pending heap
+ * actually holds a scheduled future right after a tick (the piano
+ * roll's ghosted half is drawn from it, and a regression here would be
+ * invisible until someone looked), and the planning replays exactly --
+ * evolve especially, since a GA that drifted off its seed would corrupt
+ * the determinism story in the least debuggable way possible. */
+
+static void
+checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
+               thSynth *synth)
+{
+    if (plugins.find("lsystem") == plugins.end() ||
+        plugins.find("evolve") == plugins.end())
+    {
+        fail("lsystem/evolve modules missing; build the plugins first");
+        return;
+    }
+
+    std::filesystem::path tmp =
+        std::filesystem::temp_directory_path() / "gencheck-planners.gen";
+
+    {
+        std::ofstream out(tmp);
+
+        out <<
+            "seed 7;\n"
+            "chain canopy {\n"
+            "    stage src gen::lsystem {\n"
+            "        axiom = \"X\"; rules = \"X=F[+X]F[-X]\";\n"
+            "        depth = 3; step = 0.15 s; hold = 0.2 s;\n"
+            "    };\n"
+            "    sink { channel = 0; };\n"
+            "};\n"
+            "chain roots {\n"
+            "    stage src gen::evolve {\n"
+            "        length = 8; population = 8;\n"
+            "        step = 0.2 s; hold = 0.2 s;\n"
+            "    };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(tmp.string(), &sched))
+    {
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+        fail("the planners piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    /* One tick in: both plugins have committed a phrase, and the future
+       is sitting in the pending heap where the roll can see it. */
+    sched.start();
+    sched.stepTransport(0.05);
+
+    if (sched.peekPending().size() < 5)
+        fail("planners scheduled almost nothing ahead; the ghosted "
+             "future would be empty");
+
+    sched.stop();
+    sched.reset();
+
+    std::string first = render(sched, 30.0, 0.02);
+
+    sched.reset();
+
+    std::string second = render(sched, 30.0, 0.02);
+
+    if (first.empty())
+        fail("thirty seconds of planners delivered nothing");
+
+    if (first != second)
+        fail("planner replay diverged -- evolution is drawing "
+             "randomness from somewhere outside its seed");
+
+    std::filesystem::remove(tmp);
+}
+
+/* ---- 5. the editor's splices ------------------------------------------ */
 
 /* thcGenEdit's whole promise is that an edit touches the bytes it names
  * and nothing else -- so every comment in the file survives any sequence
@@ -692,6 +778,7 @@ main (int argc, char *argv[])
 
     checkValidation(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
+    checkPlanners(plugins, &synth);
     checkEdits(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
