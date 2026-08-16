@@ -24,6 +24,8 @@
 
 #include <sys/stat.h>   /* writeFile preserves the mode                 */
 
+#include "think.h"      /* thUtil::replaceFile                          */
+
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
 
@@ -81,12 +83,20 @@ writeFile (const std::string &filename, const std::string &text)
         }
     }
 
+    /* Unix only, for the reason NodeEdit's writeLines gives: Windows
+       has no POSIX mode worth preserving, and MinGW declares chmod in
+       <io.h>, so this would not even compile there. */
+#ifndef _WIN32
     struct stat st;
 
     if (::stat(filename.c_str(), &st) == 0)
         ::chmod(tmp.c_str(), st.st_mode & 07777);
+#endif
 
-    if (::rename(tmp.c_str(), filename.c_str()) != 0)
+    /* thUtil::replaceFile rather than rename(): Windows' rename
+       refuses a target that exists, and every save of a piece after
+       the first is exactly that. */
+    if (!thUtil::replaceFile(tmp, filename))
     {
         ::remove(tmp.c_str());
         return false;
