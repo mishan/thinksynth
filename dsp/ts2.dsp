@@ -33,7 +33,7 @@ description "Cool Synth";
     @waveform = 2;
     @waveform.widget = 1;
     @waveform.min = 0;
-    @waveform.max = 5.1;
+    @waveform.max = 5;
     @waveform.label = "OSC2 Waveform";
 
     @res = 1.5;

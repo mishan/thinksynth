@@ -22,7 +22,7 @@ description "Simple additive organ";
     @waveform.label = "Waveform";
     @waveform.widget = 1;
     @waveform.min = 0;
-    @waveform.max = 5.5;
+    @waveform.max = 5;
 
     @a = 1ms;
     @a.label = "Attack";

@@ -719,6 +719,13 @@ thSynthTree *thSynth::finishParse (const string &what, int parseResult,
             io->setArg("trigger", 0);
     }
 
+    /* After setPointers(), because a control's consumers are exactly its
+       ARG_CHANNEL references and buildArgMap() is what settles the arg indices
+       this reads the plugin's metadata by. Before anything is handed out, so
+       that a channel's copy of the chanargs and the node editor's own parse
+       agree about what a control is. */
+    tree->typeChanArgs();
+
     tree->buildSynthTree();
 
     if (registerTree)

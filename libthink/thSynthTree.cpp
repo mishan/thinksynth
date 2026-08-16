@@ -441,6 +441,124 @@ to 0 here and set the index of each node to -1 when it is first created. */
     }
 }
 
+/* A control is a `@name' block; a type is something a plugin knows about its
+ * own arg. Nothing joins the two but the wire between them -- `in1 = @blim' --
+ * so the type has to travel along it.
+ *
+ * A pass over the tree rather than a lookup at the point of use, because the
+ * answer depends on *every* consumer and not on whichever one asks first. 197
+ * of the 206 controls in the corpus drive exactly one parameter, but nine drive
+ * several, and a control feeding both a waveform selector and a mixer gain
+ * cannot become a list of six names without losing the ability to say 0.35 to
+ * the mixer.
+ *
+ * So a control is typed only by unanimous agreement, and a consumer that says
+ * nothing disagrees with one that does. "No opinion" is an opinion -- that this
+ * is an ordinary continuous number -- and it is the one held by every arg of
+ * every plugin that has not been taught otherwise.
+ *
+ * Runs after buildArgMap(), which is what makes a node arg's index equal to the
+ * plugin's registration index for it. That correspondence is already
+ * load-bearing: it is how every plugin's own `mod->getArg(node, args[IN_FREQ])'
+ * finds anything. This rides on existing structure rather than on a
+ * coincidence.
+ */
+void thSynthTree::typeChanArgs (void)
+{
+    struct Typing {
+        float step;
+        vector<string> names;
+        bool conflict;
+
+        Typing (void) : step(0), conflict(false) {}
+    };
+
+    map<string, Typing> typing;
+
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); i++)
+    {
+        thNode *curnode = i->second;
+
+        if (curnode == NULL)
+            continue;
+
+        thPlugin *plugin = curnode->plugin();
+
+        const thArgMap &nodeargs = curnode->args();
+
+        for (thArgMap::const_iterator j = nodeargs.begin();
+             j != nodeargs.end(); j++)
+        {
+            thArg *curarg = j->second;
+
+            if (curarg == NULL || curarg->type() != thArg::ARG_CHANNEL)
+                continue;
+
+            /* What this consumer has to say. The io node has no plugin, and an
+               arg no plugin registered has no index into one; both are
+               consumers with no opinion, which is an answer here rather than a
+               reason to skip them. */
+            float step = 0;
+            vector<string> names;
+
+            if (plugin)
+            {
+                const int idx = curarg->index();
+
+                if (idx >= 0 && idx < plugin->argCount())
+                {
+                    step = plugin->getArgStep(idx);
+                    names = plugin->getArgValues(idx);
+                }
+            }
+
+            const string &control = curarg->argPtrName();
+
+            map<string, Typing>::iterator seen = typing.find(control);
+
+            if (seen == typing.end())
+            {
+                Typing t;
+
+                t.step = step;
+                t.names = names;
+
+                typing[control] = t;
+            }
+            else if (seen->second.step != step || seen->second.names != names)
+            {
+                seen->second.conflict = true;
+            }
+        }
+    }
+
+    for (map<string, Typing>::const_iterator t = typing.begin();
+         t != typing.end(); t++)
+    {
+        if (t->second.conflict)
+            continue;
+
+        if (t->second.step == 0 && t->second.names.empty())
+            continue;               /* nothing anyone had an opinion about */
+
+        thArg *chanarg = getChanArg(t->first);
+
+        if (chanarg == NULL)
+            continue;
+
+        /* The file has the last word. `@x.step' and `@x.values' are the
+           author's override, and an author who has said what a control is does
+           not want it worked out again from the other end. */
+        if (chanarg->typedByFile())
+            continue;
+
+        chanarg->setStep(t->second.step);
+
+        if (!t->second.names.empty())
+            chanarg->setValueNames(t->second.names);
+    }
+}
+
 void thSynthTree::setPointers (void)
 {
     thNode *node;     /* for referencing nodes that curnode points to */

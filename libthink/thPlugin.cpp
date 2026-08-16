@@ -26,6 +26,8 @@
 
 #include "think.h"
 
+const vector<string> thPlugin::noValues_;
+
 thPlugin::thPlugin (const string &path)
 {
     path_ = path;
@@ -33,10 +35,7 @@ thPlugin::thPlugin (const string &path)
 
     callback_ = NULL;
 
-    args_ = (string **)calloc(ARGCHUNK, sizeof(string *));
-    argdirs_ = (ArgDir *)calloc(ARGCHUNK, sizeof(ArgDir));
-    argcounter_ = 0;
-    argsize_ = ARGCHUNK;
+    args_.reserve(ARGCHUNK);
 
     if (moduleLoad()) { /* fail = return (1) */
         fprintf(stderr, "Couldn't load plugin %s\n", path.c_str());
@@ -47,19 +46,9 @@ thPlugin::~thPlugin ()
 {
     moduleUnload();
 
-    /* Neither the registered arg names nor the array holding them were ever
-       freed. */
-    for (int i = 0; i < argcounter_; i++)
-    {
-        delete args_[i];
-    }
-
-    free(args_);
-    free(argdirs_);
-    args_ = NULL;
-    argdirs_ = NULL;
-    argcounter_ = 0;
-    argsize_ = 0;
+    /* The registered arg names used to be `new string' behind a calloc'd array
+       and neither was ever freed. Both belong to the vector now. */
+    args_.clear();
 }
 
 void thPlugin::fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
@@ -83,33 +72,45 @@ void thPlugin::fire (thNode *node, thSynthTree *mod, unsigned int windowlen,
    an integer index for fast lookup */
 int thPlugin::regArg (const string &argname, ArgDir dir)
 {
-    string **newargs;
-    ArgDir *newdirs;
+    args_.push_back(ArgInfo(argname, dir));
 
-    /* was `>' -- valid slots are 0..argsize_-1, so registering the arg that
-       lands exactly on argsize_ wrote one element past the array before the
-       grow check fired. */
-    if (argcounter_ >= argsize_)
+    return (int)args_.size() - 1;
+}
+
+/* Both of these take the index regArg() handed back, so a plugin says
+
+       args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+       plugin->setArgValues(args[IN_WAVEFORM], waveforms, 6);
+
+   and an out-of-range index is quietly ignored rather than trusted. module_init
+   runs inside dlopen, from a plugin nobody in this tree necessarily wrote. */
+void thPlugin::setArgStep (int index, float step)
+{
+    if (index < 0 || index >= (int)args_.size())
+        return;
+
+    args_[index].step = step;
+}
+
+void thPlugin::setArgValues (int index, const char *const *names, int count)
+{
+    if (index < 0 || index >= (int)args_.size() || names == NULL || count <= 0)
+        return;
+
+    args_[index].values.clear();
+    args_[index].values.reserve(count);
+
+    for (int i = 0; i < count; i++)
     {
-        /* make room for more args */
-        newargs = (string **)calloc(argsize_ + ARGCHUNK, sizeof(string *));
-        newdirs = (ArgDir *)calloc(argsize_ + ARGCHUNK, sizeof(ArgDir));
-        /* copy args over to new memory */
-        memcpy(newargs, args_, argcounter_ * sizeof(string *));
-        memcpy(newdirs, argdirs_, argcounter_ * sizeof(ArgDir));
-        free(args_);
-        free(argdirs_);
-
-        args_ = newargs;
-        argdirs_ = newdirs;
-        argsize_ += ARGCHUNK;
+        /* A hole in the list is a value with no name, not the end of it:
+           osc::window implements 0, 2 and 3 and leaves 1, 4 and 5 out, so its
+           list has to be able to say "nothing sensible here" in the middle. */
+        args_[index].values.push_back(names[i] ? names[i] : "");
     }
 
-    args_[argcounter_] = new string(argname);
-    argdirs_[argcounter_] = dir;
-    argcounter_++;
-
-    return (argcounter_ - 1);
+    /* Naming every value says more than a step of 1 does, so it implies one
+       rather than needing to be paired with one at every call site. */
+    args_[index].step = 1;
 }
 
 int thPlugin::moduleLoad (void)

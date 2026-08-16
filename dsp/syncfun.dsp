@@ -38,13 +38,13 @@ description "A little bit of fun with hard-sync";
     @wave1 = 4;
     @wave1.widget = 1;
     @wave1.min = 0;
-    @wave1.max = 5.1;
+    @wave1.max = 5;
     @wave1.label = "Waveform 1";
 
     @wave2 = 3;
     @wave2.widget = 1;
     @wave2.min = 0;
-    @wave2.max = 5.1;
+    @wave2.max = 5;
     @wave2.label = "Waveform 2";
 
     @res = 0.8;

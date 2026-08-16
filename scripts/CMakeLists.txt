@@ -134,6 +134,11 @@ think_harness(editorcheck NODEMODEL VISUALHOST
                     "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
 target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 
+# What a parameter *is*: the plugin's declaration, the pass that carries it to
+# the control driving it, and the graph that draws the result. Builds its own
+# .dsp files -- the cases that matter are ones the corpus cannot contain.
+think_harness(argtype   NODEMODEL)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -215,6 +220,10 @@ set_tests_properties(configcheck PROPERTIES
 
 add_test(NAME themecheck COMMAND themecheck)
 
+# Needs no corpus and no display -- it writes its own .dsp files.
+add_test(NAME argtype
+         COMMAND argtype -p "${PROJECT_BINARY_DIR}/plugins/")
+
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
          COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
@@ -236,5 +245,5 @@ add_test(NAME editorcheck
                  "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
-                     ringcheck visualcheck dspprobe editorcheck
+                     ringcheck visualcheck dspprobe editorcheck argtype
                      PROPERTIES TIMEOUT 900)

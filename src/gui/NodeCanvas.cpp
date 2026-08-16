@@ -1019,13 +1019,56 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
 
     cr->set_line_cap(Cairo::Context::LineCap::BUTT);
 
+    /* A tick per value, when a control has few enough of them to draw.
+     *
+     * A stepped track and a continuous one are the same picture otherwise, and
+     * the difference only shows up when you drag one and it refuses to stop
+     * between two places -- which reads as a stiff slider rather than as a
+     * deliberate choice. The ticks say so before it is touched.
+     *
+     * Capped, because the same step of 1 that gives a waveform six positions
+     * gives an envelope time in samples eight hundred thousand, and drawing
+     * those would be a solid bar and a lot of frames. */
+    if (b.ctlStep > 0 && b.ctlDrawMax() > b.ctlDrawMin())
+    {
+        const double steps =
+            (double)(b.ctlDrawMax() - b.ctlDrawMin()) / (double)b.ctlStep;
+
+        if (steps >= 1 && steps <= 16)
+        {
+            cr->set_line_width(1.0);
+            cr->set_source_rgb(COL_TRACK);
+
+            for (int s = 0; s <= (int)steps; s++)
+            {
+                const double tx = x0 + (x1 - x0) * (s / steps);
+
+                cr->move_to(tx, y - 4.0);
+                cr->line_to(tx, y + 4.0);
+            }
+
+            cr->stroke();
+        }
+    }
+
     cr->arc(hx, y, (index == dragSlider_) ? 6.0 : 5.0, 0, 2 * M_PI);
     cr->set_source_rgb(COL_HANDLE);
     cr->fill();
 
     char buf[48];
 
-    snprintf(buf, sizeof(buf), "%.4g", (double)b.ctlValue);
+    /* The value's name where it has one -- "Triangle" says what a waveform is
+       and "3" says where it comes in a list nobody can see. Falls back to the
+       number for a value the plugin does not name, which is a state a .dsp can
+       be in: nothing stops it storing a 7 in a selector with six cases. */
+    const string &named = b.ctlValueName();
+
+    if (!named.empty())
+        snprintf(buf, sizeof(buf), "%s", named.c_str());
+    else if (b.ctlStep == 1)
+        snprintf(buf, sizeof(buf), "%d", (int)b.ctlValue);
+    else
+        snprintf(buf, sizeof(buf), "%.4g", (double)b.ctlValue);
 
     cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
                          Cairo::ToyFontFace::Weight::NORMAL);
@@ -1051,8 +1094,18 @@ void NodeCanvas::drawSlider (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->move_to(b.x + b.w - te.width - 6, b.y + b.h - 3);
     cr->show_text(buf);
 
-    /* ...and the range at the left, so the slider's travel means something. */
-    snprintf(buf, sizeof(buf), "%.3g-%.3g", (double)b.ctlMin, (double)b.ctlMax);
+    /* ...and the range at the left, so the slider's travel means something. A
+       list of named values says how many there are instead: "0-5" is the same
+       information twice when the value beside it already reads "Triangle". */
+    if (!b.ctlValueNames.empty())
+        snprintf(buf, sizeof(buf), "%d of %d", (int)b.ctlValue + 1,
+                 (int)b.ctlValueNames.size());
+    else if (b.ctlStep == 1)
+        snprintf(buf, sizeof(buf), "%d-%d", (int)b.ctlDrawMin(),
+                 (int)b.ctlDrawMax());
+    else
+        snprintf(buf, sizeof(buf), "%.3g-%.3g", (double)b.ctlMin,
+                 (double)b.ctlMax);
 
     cr->move_to(b.x + 6, b.y + b.h - 3);
     cr->show_text(buf);

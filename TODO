@@ -96,10 +96,22 @@ Engine
   queue would be silly -- but the honest fix is an atomic or a smoothed
   parameter.
 
-- Arg metadata: a description, a sane range and a default per arg. regArg()
-  already carries direction; the rest of that proposal is what would improve
-  the parameter panel. MODULE_IFACE_VER is still 4 and ARG_IN defaults, so
-  nothing needs a version bump.
+- Arg metadata: a description and a default per arg. regArg() carries
+  direction, and now a step and a set of value names -- enough for a waveform
+  to be a list of six names rather than a slider with five sixths of its
+  travel doing nothing. A description is what is left, and it would give the
+  parameter panel a tooltip worth having.  (ARCHITECTURE.md)
+
+- Two plugins declare a selector, both spelled `waveform', and they are the
+  only two that switch on one. But eight more cast an arg to int and use it as
+  a count or a length -- delay/echo's size, filt/comb's size, the four
+  impulse/* lengths, osc/multiwave and osc/multisined's `waves'. Those want
+  setArgStep(1) rather than value names: a delay of 220.5 samples is 220, and
+  a slider offering the half is offering nothing.
+
+  Found by grepping for a cast of an arg to int, which is the honest way to
+  ask -- an earlier draft of this entry guessed from arg names and named two
+  plugins that do no such thing.
 
 - A @chanarg cannot be driven by a node. "This parameter varies with an LFO"
   works today; "the knob moves on its own" needs engine work.

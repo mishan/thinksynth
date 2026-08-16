@@ -319,6 +319,19 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
     {
         chanarg->setWidgetType((thArg::WidgetType)$6.floatval);
     }
+    else if (strcmp($4.str, "step") == 0)
+    {
+        /* `@x.step = 1' says this control means a whole number. Normally the
+           plugin reading it says so and typeChanArgs() carries that along the
+           wire, which is why no shipped file needs this line; it is here for a
+           control the plugin cannot know about, and for overriding one that
+           gets it wrong.
+
+           `true' marks it as the author's, so typeChanArgs() leaves it alone.
+           That is what lets `@x.step = 0' mean "continuous, and I mean it"
+           rather than being indistinguishable from having said nothing. */
+        chanarg->setStep($6.floatval, true);
+    }
     else
         printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);
 
@@ -350,6 +363,14 @@ ATSIGN WORD PERIOD WORD ASSIGN STRING
         /* Presentation only. An editor draws a group's controls together;
            the engine never looks at it. */
         chanarg->setGroup($6.str);
+    }
+    else if (strcmp($4.str, "values") == 0)
+    {
+        /* `@x.values = "Sine,Sawtooth,Square"' -- names for the whole numbers
+           this control selects between, which implies `.step = 1' and a range
+           of 0..count-1. The author's word, so typeChanArgs() will not
+           overwrite it. */
+        chanarg->setValueNames(string($6.str), true);
     }
     else
         printf("ERROR:  Invalid arg parameter '%s <string>'\n", $4.str);

@@ -59,11 +59,32 @@ private:
     void sliderChanged (Gtk::Scale *, string name);
     void argChanged (thArg *, Gtk::Scale *);
 
+    /* The same pair for a parameter drawn as a list of named values. `values'
+       is row index -> the number that row means, which is not the identity: a
+       plugin may implement some of a range and not the rest, and a row for a
+       value that does nothing is worse than no row. */
+    void choiceChanged (Gtk::DropDown *, string name, std::vector<int> values);
+    void argChangedChoice (thArg *, Gtk::DropDown *, std::vector<int> values);
+
+    /* Selects the row meaning `value', or none where the list has no such row.
+       Shared by the two above so they cannot come to disagree about what an
+       unlistable value looks like. */
+    static void showChoice (Gtk::DropDown *, const std::vector<int> &values,
+                            double value);
+
     /* Drops every subscription in argConns_. */
     void dropArgConns (void);
 
-    /* One parameter: its name, a slider and a value box, side by side. */
+    /* One parameter, drawn the way its type asks for. */
     Gtk::Widget *makeRow (thArg *arg);
+
+    /* A label and a list of named values: what a parameter whose plugin reads
+       it `switch ((int)x)' and names the cases gets instead of a slider. */
+    Gtk::Widget *makeChoiceRow (thArg *arg, Gtk::Label *label);
+
+    /* A label, a slider and a value box. Both step by one and read no decimals
+       when the parameter means a whole number. */
+    Gtk::Widget *makeSliderRow (thArg *arg, Gtk::Label *label);
 
     /* These parameters, wrapped into however many columns the width allows. */
     Gtk::FlowBox *makeFlow (const std::vector<thArg *> &args, int maxPerLine);

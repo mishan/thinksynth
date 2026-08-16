@@ -44,6 +44,14 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "Complex Oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The six the switch in module_callback() actually implements, in its order.
+   Kept beside the plugin rather than in the GUI because this is the only place
+   that knows what a 3 means, and the only place that would notice a seventh
+   being added. */
+static const char *const waveforms[] = {
+    "Sine", "Sawtooth", "Square", "Triangle", "Half-circle", "Parabola"
+};
+
 const float SQRT2_2 = 2*sqrt(2);
 
 void module_cleanup (thPlugin *plugin)
@@ -61,6 +69,14 @@ int module_init (thPlugin *plugin)
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
     args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+
+    /* Read `switch ((int)buf_waveform[i])', so it is a selector and not a
+       parameter: 3.4 is a triangle and so is 3.9. Saying so is what lets a
+       control driving it be a list of six names rather than a slider whose
+       travel is five sixths decoration. */
+    plugin->setArgValues(args[IN_WAVEFORM], waveforms,
+                         (int)(sizeof(waveforms) / sizeof(waveforms[0])));
+
     args[IN_FM] = plugin->regArg("fm", thPlugin::ARG_IN);
     args[IN_FMAMT] = plugin->regArg("fmamt", thPlugin::ARG_IN);
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);

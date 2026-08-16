@@ -44,6 +44,25 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "Complex Oscillator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* Six indices, three of them implemented, and the gaps are the point.
+ *
+ * The switch in module_callback() has cases 0 through 5 -- the same six
+ * osc::simple has -- but 1, 4 and 5 are commented out, and there is no
+ * default:, so those values leave out[i] holding whatever was in the buffer. An
+ * empty name is how this list says "an index exists here and does nothing".
+ *
+ * All six rather than stopping after the last implemented one, because the
+ * length of this list is a statement about the arg's range and truncating it
+ * would quietly redefine what a 5 in a .dsp means. What a control drawn from it
+ * offers is decided by the *named* entries, not by the length -- so this says
+ * six and still gives three choices ending at Triangle.
+ *
+ * Written from the cases rather than from the comment above them. The comment
+ * is what the file hoped for; the switch is what it does. */
+static const char *const waveforms[] = {
+    "Sine", "", "Square", "Triangle", "", ""
+};
+
 const float SQRT2_2 = 2*sqrt(2);
 
 void module_cleanup (thPlugin *plugin)
@@ -60,6 +79,10 @@ int module_init (thPlugin *plugin)
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
     args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+
+    plugin->setArgValues(args[IN_WAVEFORM], waveforms,
+                         (int)(sizeof(waveforms) / sizeof(waveforms[0])));
+
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);

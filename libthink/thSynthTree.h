@@ -82,6 +82,12 @@ public:
     void buildArgMap (void);
     void setPointers (void);
     void buildNodeIndex (void);
+
+    /* Carries what a plugin says about one of its args -- that it means a whole
+       number, and what its values are called -- to the control that drives it.
+       See the definition for why a control can only be typed by agreement. */
+    void typeChanArgs (void);
+
     void buildSynthTree (void);
     void listNodes(void);
 protected:

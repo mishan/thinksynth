@@ -840,20 +840,31 @@ int main (int argc, char **argv)
                      argv[f], bx.ctlArg.c_str(), g.sliderAt(hx, y), (int)b);
               problems++; continue; }
 
+            /* Against the range the track is *drawn* over, which is what the
+               file declares except where the control's values are named -- and
+               there the list is the range. Eight shipped patches declare a
+               maximum of 5.1 or 5.5 for six waveforms, padding for a slider
+               that could not otherwise land on the last one.
+
+               Box keeps both: the declared numbers stay untouched because
+               NodeEdit writes them back into the file, so asking bx.ctlMax here
+               would be asking the wrong one. */
+            const double lo = bx.ctlDrawMin(), hi = bx.ctlDrawMax();
+
             /* The track is only about a hundred pixels wide, so a value
                recovered from a handle position is quantised to roughly a
                hundredth of the range. */
             const double v = g.sliderValueAt((int)b, hx);
-            const double tol = (bx.ctlMax - bx.ctlMin) * 0.02 + 1e-6;
+            const double tol = (hi - lo) * 0.02 + 1e-6;
 
             if (fabs(v - (double)bx.ctlValue) > tol)
             { printf("FAIL  %s: @%s reads %g at its own handle, not %g\n",
                      argv[f], bx.ctlArg.c_str(), v, (double)bx.ctlValue);
               problems++; continue; }
 
-            /* Both ends of the track must give the declared limits. */
-            if (fabs(g.sliderValueAt((int)b, x0) - bx.ctlMin) > tol ||
-                fabs(g.sliderValueAt((int)b, x1) - bx.ctlMax) > tol)
+            /* Both ends of the track must give the limits it is drawn over. */
+            if (fabs(g.sliderValueAt((int)b, x0) - lo) > tol ||
+                fabs(g.sliderValueAt((int)b, x1) - hi) > tol)
             { printf("FAIL  %s: @%s track ends do not give its range\n",
                      argv[f], bx.ctlArg.c_str());
               problems++; }

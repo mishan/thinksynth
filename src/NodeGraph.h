@@ -78,6 +78,14 @@ public:
         float value;        /* meaningful when kind == VALUE      */
         float min, max;     /* both 0 if the .dsp gave no range   */
 
+        /* What the plugin says this arg is: 0 for a continuous number, 1 for
+           one it reads as a whole number, and the names of its values where it
+           has any. Read straight off the plugin rather than off the thArg --
+           unlike a control, a node's own arg is the plugin's arg, so there is
+           no wire to follow and no other consumer to disagree. */
+        float step;
+        vector<string> valueNames;
+
         /* For POINTER, "env->out"; for CHANARG, "@cutoff". Empty otherwise. */
         string source;
 
@@ -99,8 +107,8 @@ public:
            its own; a chanarg has the channel's, which is worth showing. */
         bool hasValue;
 
-        Param (void) : kind(VALUE), value(0), min(0), max(0), isPort(false),
-                       isOutput(false), hasValue(false) { }
+        Param (void) : kind(VALUE), value(0), min(0), max(0), step(0),
+                       isPort(false), isOutput(false), hasValue(false) { }
     };
 
     struct Box {
@@ -149,6 +157,56 @@ public:
 
         float ctlValue;
         float ctlMin, ctlMax;
+
+        /* 0 for a continuous control, 1 for one that means a whole number; and
+           the names of its values, when they have any.
+         *
+         * Neither is worked out here. thSynthTree::typeChanArgs carries what a
+         * plugin says about its own arg to the control wired to it, or the .dsp
+         * declares it outright -- so both arrive on the thArg already decided
+         * and the graph only carries them. What they buy the canvas is a track
+         * a drag cannot land between two values of, and a strip that reads
+         * "Triangle" rather than "3".
+         *
+         * A name may be empty where a value exists in the range and means
+         * nothing: osc::window implements waveforms 0, 2 and 3 and not 1. */
+        float ctlStep;
+        vector<string> ctlValueNames;
+
+        /* The name of the value this control currently holds, or "" -- for a
+           control with no names, and for one whose value is not among them,
+           which nothing prevents a .dsp from storing. */
+        const string &ctlValueName (void) const;
+
+        /* The range to *draw* over, which is not always the range the file
+           declares.
+         *
+         * A list of value names carries its own range: from its first named
+         * entry to its last. Not the file's, which for eight shipped patches
+         * said `.max = 5.1' or `5.5' over six waveforms -- padding, because a
+         * continuous slider could not reliably land on exactly 5, so the top
+         * was pushed past it and left to truncate. And not 0..count-1 either:
+         * osc::window declares six indices and names three, so a track to 5
+         * would spend its last two fifths on cases its switch does not have.
+         *
+         * Deliberately *not* done by overwriting ctlMin and ctlMax when the box
+         * is built. NodeEdit::setControlMeta writes those numbers back to the
+         * file, so a derived range there means opening a patch and saving it
+         * silently rewrites `.max = 5.1' to `5' -- an edit nobody asked for, to
+         * a line nobody touched. dspwrite fails on exactly that, which is how
+         * this came to be two members and two accessors rather than one. */
+        float ctlDrawMin (void) const;
+        float ctlDrawMax (void) const;
+
+        /* The nearest value this control is allowed to be on.
+         *
+         * For a list of names that is the nearest *named* index, which is not
+         * the nearest index: osc::window declares six waveforms and implements
+         * 0, 2 and 3, so 1, 4 and 5 are holes, and a drag that stopped on one
+         * would select a case its switch does not have and whose output buffer
+         * is therefore left unwritten. For a plain step it is the nearest
+         * multiple. For neither, the value unchanged. */
+        float ctlSnap (float value) const;
 
         /* True if this strip is the first of its group on its host, so it is
            the one that draws the group's heading. */
@@ -204,7 +262,8 @@ public:
 
         Box (void) : x(0), y(0), w(0), h(0), layer(0), order(0),
                      isIoSource(false), isIoSink(false), isControl(false),
-                     ctlValue(0), ctlMin(0), ctlMax(1), groupHead(false),
+                     ctlValue(0), ctlMin(0), ctlMax(1), ctlStep(0),
+                     groupHead(false),
                      attachedTo(-1), attachSlot(0), attachH(0),
                      isProbe(false) { }
     };

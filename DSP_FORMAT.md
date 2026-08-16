@@ -16,7 +16,7 @@ author "Leif Ames";
 
 @cutoff = 4;              # a channel arg = user-facing knob
 @cutoff.widget = 1;       # .min .max .label .widget .units .group
-@cutoff.min = 0;
+@cutoff.min = 0;          # .step .values
 @cutoff.max = 16;
 
 node freq misc::midi2freq {     # <name> <category>::<plugin>
@@ -82,6 +82,34 @@ envelope's four sliders as one titled block rather than four unrelated rows:
 
 It sits alongside `.label` and `.units` in the grammar — one more case in the
 rule that already handles string metadata — and `thArg` carries it.
+
+### `.step` and `.values`
+
+```
+@wave.step = 1;                       # this control means a whole number
+@wave.values = "Sine,Sawtooth,Square";  # ...and here is what they are called
+```
+
+Both are overrides, and **no shipped file needs either**. The usual source of
+this is the plugin on the far end of the control's wire: `osc::simple` declares
+that it reads `waveform` as `switch ((int)x)` and names its six cases, and
+[`thSynthTree::typeChanArgs`](ARCHITECTURE.md#arg-type) carries that to the
+control. These two lines are for a control the plugin cannot know about, and for
+overriding one it gets wrong.
+
+`.values` is one string split on commas, spaces trimmed. An **empty entry is a
+value with no name**, not the end of the list: `"Off,,High"` names 0 and 2 and
+says 1 exists and means nothing — which is what `osc::window`, implementing
+three of six waveforms, has to be able to say. A list implies `.step = 1` and a
+range running from its first named entry to its last — so `"Off,,High"` declares
+three indices, offers two, and its control runs 0..2. The length is a statement
+in its own right: it says how many indices the arg has, which is not always how
+many are worth offering.
+
+The file's word is final, and that includes `@x.step = 0`. Saying it explicitly
+is not the same as saying nothing, even though the value is the default —
+`thArg::typedByFile` is what keeps them distinguishable, so a patch can hold a
+control continuous against a plugin that would otherwise step it.
 
 ### The io node
 

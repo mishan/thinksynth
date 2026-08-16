@@ -241,6 +241,9 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
         bool isOutput = false;
         bool isState = false;
 
+        float step = 0;
+        vector<string> valueNames;
+
         if (p)
         {
             for (int k = 0; k < p->argCount(); k++)
@@ -249,6 +252,12 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
                     isState = (p->getArgDir(k) == thPlugin::ARG_STATE);
                     isPort = (p->getArgDir(k) == thPlugin::ARG_IN);
                     isOutput = (p->getArgDir(k) == thPlugin::ARG_OUT);
+
+                    /* Straight from the plugin. A node's own arg *is* the
+                       plugin's arg, so unlike a control there is no wire to
+                       follow and nobody else to disagree with. */
+                    step = p->getArgStep(k);
+                    valueNames = p->getArgValues(k);
                     break;
                 }
         }
@@ -264,6 +273,8 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
         prm.comment = arg->comment();
         prm.min = arg->min();
         prm.max = arg->max();
+        prm.step = step;
+        prm.valueNames = valueNames;
         prm.isPort = isPort;
         prm.isOutput = isOutput;
 
@@ -553,6 +564,14 @@ bool NodeGraph::build (thSynthTree *tree)
             b.ctlMin = arg->min();
             b.ctlMax = arg->max();
 
+            /* Whether this control means a whole number, and what its values
+               are called. Worked out by thSynthTree::typeChanArgs from what the
+               plugin on the other end of the wire says, or declared outright by
+               the .dsp -- either way it arrives here already decided, and the
+               graph only has to carry it. */
+            b.ctlStep = arg->step();
+            b.ctlValueNames = arg->valueNames();
+
             /* A range of nothing would make a slider that cannot move. Only
                33 of the 206 omit a label; none omit a range, but a patch
                written by hand might. */
@@ -561,6 +580,9 @@ bool NodeGraph::build (thSynthTree *tree)
                 b.ctlMin = 0;
                 b.ctlMax = (b.ctlValue > 1.0f) ? b.ctlValue * 2.0f : 1.0f;
             }
+
+            /* ctlMin and ctlMax stay exactly what the file declared, even when
+               the value names say otherwise -- see ctlDrawMax(). */
 
             b.plugin = "control";
 
@@ -1965,10 +1987,11 @@ bool NodeGraph::sliderGeometry (int box, double &x0, double &x1, double &y,
         y = b.y + BOX_HEAD + BOX_PAD + CTL_ROW * 0.5;
     }
 
-    const double span = (b.ctlMax > b.ctlMin)
-                        ? (double)(b.ctlMax - b.ctlMin) : 1.0;
+    const double lo = b.ctlDrawMin(), hi = b.ctlDrawMax();
 
-    double t = ((double)b.ctlValue - (double)b.ctlMin) / span;
+    const double span = (hi > lo) ? (hi - lo) : 1.0;
+
+    double t = ((double)b.ctlValue - lo) / span;
 
     if (t < 0) t = 0;
     if (t > 1) t = 1;
@@ -2014,14 +2037,145 @@ float NodeGraph::sliderValueAt (int box, double x) const
     const Box &b = boxes_[box];
 
     if (x1 <= x0)
-        return b.ctlMin;
+        return b.ctlDrawMin();
 
     double t = (x - x0) / (x1 - x0);
 
     if (t < 0) t = 0;
     if (t > 1) t = 1;
 
-    return (float)((double)b.ctlMin + t * ((double)b.ctlMax - (double)b.ctlMin));
+    const double lo = b.ctlDrawMin(), hi = b.ctlDrawMax();
+
+    return (float)(lo + t * (hi - lo));
+}
+
+/* The name of the value a control is currently on.
+ *
+ * Out of line and returning a reference to a static empty string rather than by
+ * value: this is asked once per control per frame while a visualizer redraws
+ * the canvas, and NODE_EDITOR.md's whole argument for redrawing everything
+ * rests on that frame costing 0.8 ms. */
+const string &NodeGraph::Box::ctlValueName (void) const
+{
+    static const string none;
+
+    if (ctlValueNames.empty())
+        return none;
+
+    /* Truncating, because that is what the plugin does: `switch ((int)x)'
+       cannot tell 3.4 from 3, so neither should the label above it. */
+    const int i = (int)ctlValue;
+
+    if (i < 0 || i >= (int)ctlValueNames.size())
+        return none;
+
+    return ctlValueNames[i];
+}
+
+/* The range a control is drawn over, which is not always the one it declares.
+ *
+ * A list of names carries its own range. Not 0..size-1, though: 0..*the named
+ * ones*. osc::window declares six waveform indices and implements 0, 2 and 3,
+ * so its list names three and leaves holes at 1, 4 and 5 -- and a track running
+ * to 5 would spend its last two fifths on values the plugin's switch has no
+ * case for. The ends of the track are the first and last value that mean
+ * something.
+ *
+ * A loop rather than two more members, because the alternative is state that
+ * can disagree with the list beside it, and six emptiness tests per box per
+ * frame is nothing against the 0.8 ms NODE_EDITOR.md measures a whole canvas
+ * repaint at. */
+float NodeGraph::Box::ctlDrawMin (void) const
+{
+    for (size_t i = 0; i < ctlValueNames.size(); i++)
+        if (!ctlValueNames[i].empty())
+            return (float)i;
+
+    return ctlMin;
+}
+
+float NodeGraph::Box::ctlDrawMax (void) const
+{
+    for (size_t i = ctlValueNames.size(); i > 0; i--)
+        if (!ctlValueNames[i - 1].empty())
+            return (float)(i - 1);
+
+    return ctlMax;
+}
+
+float NodeGraph::Box::ctlSnap (float value) const
+{
+    /* Named values: the nearest one that has a name. Ties go to the lower,
+       which is arbitrary but has to be decided somewhere. */
+    if (!ctlValueNames.empty())
+    {
+        int best = -1;
+        double bestDist = 0;
+
+        for (size_t i = 0; i < ctlValueNames.size(); i++)
+        {
+            if (ctlValueNames[i].empty())
+                continue;
+
+            const double d = fabs((double)value - (double)i);
+
+            if (best < 0 || d < bestDist)
+            {
+                best = (int)i;
+                bestDist = d;
+            }
+        }
+
+        if (best >= 0)
+            return (float)best;
+
+        /* A list of nothing but holes describes no values at all. Falling
+           through leaves the value alone, which beats inventing one. */
+    }
+
+    const double lo = ctlDrawMin(), hi = ctlDrawMax();
+
+    /* A multiple of the step, measured from zero rather than from the bottom of
+     * the range.
+     *
+     * Deliberate, and the reason is what a step means here: the plugin reads
+     * the arg `(int)x', so the values it can tell apart are the whole numbers,
+     * and whole numbers are counted from zero. Measuring the grid from a range
+     * that begins at 0.5 would give 0.5, 1.5, 2.5 -- every one of which the
+     * plugin truncates to the same integer as its neighbour, so the control
+     * would have twice as many positions as it has effects.
+     *
+     * The clamping is part of the same sum rather than a separate pass
+     * afterwards. Rounding and then clamping lets the clamp put the value back
+     * off the grid whenever a bound is not itself a multiple: a range of
+     * 0.3..8 with a step of 1 would round 0.4 down to 0 and then clamp it up to
+     * 0.3, which is neither a step nor what anybody asked for. So a bound
+     * pushes *inwards to the next multiple*. */
+    if (ctlStep > 0)
+    {
+        const double step = ctlStep;
+
+        double snapped = floor((double)value / step + 0.5) * step;
+
+        if (snapped < lo)
+            snapped = ceil(lo / step) * step;
+
+        if (snapped > hi)
+            snapped = floor(hi / step) * step;
+
+        /* A range too narrow to contain a single multiple. Nothing legal
+           exists, so the range wins and the step gives way -- a value outside
+           the declared bounds would be worse than one off the grid. */
+        if (snapped < lo || snapped > hi)
+            return (float)((value < lo) ? lo : (value > hi ? hi : value));
+
+        return (float)snapped;
+    }
+
+    if (value < lo) return (float)lo;
+    if (value > hi) return (float)hi;
+
+    return value;
 }
 
 void NodeGraph::setControlValue (int box, float value)
@@ -2031,8 +2185,14 @@ void NodeGraph::setControlValue (int box, float value)
 
     Box &b = boxes_[box];
 
-    if (value < b.ctlMin) value = b.ctlMin;
-    if (value > b.ctlMax) value = b.ctlMax;
+    /* ctlSnap does the clamping too -- see there for why the two cannot be
+       separate passes.
+     *
+     * Here rather than in sliderValueAt(), because a drag is not the only way a
+     * value arrives -- the parameter panel and a reload both come through this
+     * -- and a control that snaps when dragged and not when typed into is worse
+     * than one that never snaps. */
+    value = b.ctlSnap(value);
 
     b.ctlValue = value;
 
