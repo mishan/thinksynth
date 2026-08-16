@@ -386,7 +386,63 @@ tier-two visualizers into controls), then serialize/deserialize (unlocks
 persistent learned state), then pending-revocation if a planner ever
 wants it.
 
-## 8. Style notes for new code
+## 8. One language or two: reconciling .gen with .dsp
+
+The question was bound to come up: the formats deliberately share a
+lexical layer, live side by side, and are read by two parsers. Should
+they be one thinklang parser? Checked against what actually divides
+them, the honest answer is: unify the *lexer* soon, the *grammar* only
+when a language-level feature pays for it, and treat one hidden
+semantic difference first because it blocks everything else.
+
+**What genuinely divides them today:**
+
+- **`ms` means two things.** `.dsp` folds `5 ms` into *samples* inside
+  the grammar action (times TH_SAMPLE at parse time); `.gen` keeps
+  seconds and defers `beats` to read time. One token, two meanings, and
+  the fold bakes the sample rate into every parsed `.dsp`. Any shared
+  grammar would have to carry both meanings keyed by dialect — or,
+  better, `.dsp` stops folding in the grammar and hands `(value, unit)`
+  to buildArgMap to fold. That change is independently right (it makes
+  `.dsp` sample-rate honest) and is exactly the kind the dspcheck
+  corpus sweep exists to gate.
+- **thinklang is not reentrant.** Globals (`parsetree`, `parsenode`, a
+  static synth) and build-during-parse actions that construct the
+  thSynthTree directly. The `.gen` loader is reentrant and builds
+  through a passed scheduler.
+- **Layering.** libthink cannot see thcPlugin or thcScheduler, so a
+  unified parser's `.gen` half must produce a neutral document that
+  src/ walks — which is a shape the `.dsp` half does not have yet.
+- **Order semantics** differ per construct (irrelevant in `.dsp`,
+  load-bearing in a chain), but that is grammar-local and easy.
+
+**The staged recommendation:**
+
+1. *Make thinklang pure* (reentrant, no globals), behavior identical,
+   corpus-gated. Worth doing regardless of any merge.
+2. *Unify the lexer, not the parser.* Teach the flex lexer to emit
+   tokens with byte offsets and let it feed both consumers: the bison
+   grammar for `.dsp`, and thcGenLoader's recursive descent for `.gen`
+   (which already consumes a token vector and is better at name-and-
+   line errors than yacc will ever be). "Same lexical layer by
+   construction" kills the drift risk, which is most of what the
+   two-parser smell actually is. Bonus: offsets in the shared lexer are
+   what would let NodeEdit adopt thcGenEdit's span-splicing and retire
+   its line-based scanning.
+3. *Merge grammars only for a language payoff.* The genuinely exciting
+   convergence is not parser hygiene but the language where a piece
+   can carry its instruments — `.gen` chains beside inline `patch`/
+   `node` blocks, sinks binding to named patches instead of channel
+   numbers, one self-contained shareable file. If that feature gets
+   scheduled, grammar unification is its natural first commit. Without
+   it, a merged grammar is churn in the most load-bearing code in the
+   tree.
+
+Step 0 for all of it is the `ms` fold, because a shared lexer that
+hands `.dsp` a folded sample count and `.gen` a second is not shared —
+it is two lexers wearing one coat.
+
+## 9. Style notes for new code
 
 Match the house: GPL header block on every file, `onX` handlers /
 `PascalCase` public mutators as in `Keyboard.h`, trailing-underscore
