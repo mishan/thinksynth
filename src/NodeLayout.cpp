@@ -242,7 +242,10 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
         }
     }
 
-    if (rename(tmp.c_str(), filename.c_str()) != 0)
+    /* thUtil::replaceFile rather than rename(): Windows' rename
+       refuses a target that exists, which is every save after the
+       first. */
+    if (!thUtil::replaceFile(tmp, filename))
     {
         remove(tmp.c_str());
         return false;
