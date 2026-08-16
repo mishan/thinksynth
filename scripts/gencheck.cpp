@@ -442,9 +442,11 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
                thSynth *synth)
 {
     if (plugins.find("lsystem") == plugins.end() ||
-        plugins.find("evolve") == plugins.end())
+        plugins.find("evolve") == plugins.end() ||
+        plugins.find("markov") == plugins.end() ||
+        plugins.find("ca") == plugins.end())
     {
-        fail("lsystem/evolve modules missing; build the plugins first");
+        fail("planner modules missing; build the plugins first");
         return;
     }
 
@@ -475,6 +477,23 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
             "        step = 0.2 s; hold = 0.2 s;\n"
             "    };\n"
             "    sink { channel = 1; };\n"
+            "};\n"
+            "chain dream {\n"
+            "    stage teacher gen::lsystem {\n"
+            "        axiom = \"X\"; rules = \"X=F[+X]F[-X]\";\n"
+            "        depth = 3; step = 0.15 s; hold = 0.2 s;\n"
+            "    };\n"
+            "    stage student gen::markov {\n"
+            "        pass = 0; period = 0.2 s; hold = 0.2 s;\n"
+            "    };\n"
+            "    sink { channel = 2; };\n"
+            "};\n"
+            "chain grid {\n"
+            "    stage src gen::ca {\n"
+            "        rule = 110; width = 8;\n"
+            "        period = 0.2 s; hold = 0.1 s;\n"
+            "    };\n"
+            "    sink { channel = 3; };\n"
             "};\n";
     }
 
@@ -515,6 +534,30 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
     if (first != second)
         fail("planner replay diverged -- evolution is drawing "
              "randomness from somewhere outside its seed");
+
+    /* The learner and the automaton both spoke: the markov's channel
+       proves receive() trained it from its upstream teacher (pass = 0,
+       so anything on channel 2 is the student's own), and the ca's
+       proves the ring is advancing. */
+    {
+        int perChan[4] = { 0, 0, 0, 0 };
+        std::istringstream in(first);
+        std::string line;
+        double at;
+        int chan, note;
+
+        while (std::getline(in, line))
+            if (sscanf(line.c_str(), "N %lg %d %d", &at, &chan,
+                       &note) == 3 && chan >= 0 && chan < 4)
+                perChan[chan]++;
+
+        if (perChan[2] < 5)
+            fail("the markov student never dreamed -- receive() is not "
+                 "training from upstream");
+
+        if (perChan[3] < 5)
+            fail("the cellular automaton never fired");
+    }
 
     /* The GA must not freeze. With a static fitness landscape and two
        protected elites it used to: a local optimum inside a minute,

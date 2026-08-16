@@ -292,15 +292,24 @@ with what follows it: polyphony falls out of the grammar. No randomness
 anywhere in the plugin. Exponential rules are capped, truncating the
 tail rather than failing — for music, the right kind of wrong.
 
-**Cellular automata.** A clocked generator; the grid is instance state;
-`composer_draw` is its natural window. One row per tick keeps it
-trivially incremental. CA also demonstrates why tick-time work is
-allowed to be nontrivial: the GUI thread grants a frame's budget, not an
-audio callback's.
+**Cellular automata.** LANDED as `gen::ca`: a ring of cells under one
+of Wolfram's 256 rules, one row per tick, cells mapped onto the pitch
+ladder. The rule is an ordinary param, so a knob re-threads the texture
+mid-piece (gen/loom.gen puts Rule on a slider). `scatter' chooses the
+single-center-cell start (no randomness at all) or a seeded random row;
+`trigger' chooses births-only or every-live-cell. The `composer_draw`
+is the scrolling grid, and it is the plugin's entire state made
+visible.
 
-**Markov chains.** The reason `composer_receive` accepts live MIDI.
-Train the transition table in `receive()` (via `injectMidi` from the
-dispatchmidi hop), emit from it in `tick()`. Two things surface:
+**Markov chains.** LANDED as `gen::markov`, the plugin the dual entry
+points were designed around: `receive()` trains (order 1 or 2),
+`tick()` emits the weighted walk, and `pass' decides whether the
+teacher sounds alongside the dream. Today the teacher is the upstream
+stage -- put it after an lsystem and it studies the grammar while
+paraphrasing it, which is loom.gen's whole trick and needed no MIDI
+wiring. When live input lands, the same `receive()` trains on playing,
+unchanged. The draw is the transition heat grid. Two things surfaced
+in the original analysis and still hold:
 
 - *Determinism has a boundary.* A replay is exact only if the inputs
   are; a model trained on live playing replays only the part after the
