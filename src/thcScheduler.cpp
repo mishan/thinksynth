@@ -378,6 +378,13 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
     if (stage == NULL || knob == NULL)
         return;
 
+    /* An index the plugin never registered must not get a binding OR a
+       signal connection: notifyChanged would forward it into
+       composer_param_changed, and what a module does with an index it
+       never issued is nobody's guess to make. */
+    if (paramIndex < 0 || paramIndex >= stage->plugin->paramCount())
+        return;
+
     stage->params.bindKnob(paramIndex, knob);
 
     thcParamStore *store = &stage->params;
@@ -691,9 +698,26 @@ thcScheduler::reset (void)
         {
             thcStage *s = chains_[ci].stages[si].get();
 
-            s->plugin->destroy(s->state);
-            s->state = s->plugin->create(s->params.params());
-            s->params.instance_ = s->state;
+            /* The replacement is made before the old instance goes,
+               so a module refusing the second create leaves the stage
+               with its old state rather than with a NULL that the next
+               tick or receive would hand straight back to it. A stale
+               instance mid-replay is wrong; a crash is more wrong. */
+            void *fresh = s->plugin->create(s->params.params());
+
+            if (fresh == NULL)
+            {
+                fprintf(stderr, "thcScheduler: %s refused to recreate; "
+                        "keeping the old instance\n",
+                        s->plugin->name().c_str());
+            }
+            else
+            {
+                s->plugin->destroy(s->state);
+                s->state = fresh;
+                s->params.instance_ = s->state;
+            }
+
             s->sleeping = false;
 
             if (s->ticks && s->state != NULL)

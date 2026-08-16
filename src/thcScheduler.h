@@ -280,6 +280,12 @@ public:
      * thread as the widget, no snapshotting. peekPending's vector is
      * rebuilt per call and unordered (it mirrors a heap); the roll just
      * wants to draw every entry, so order is not its business. */
+    /* One emission per delivered event, on the GUI thread, synchronous.
+     * BORROW, DO NOT KEEP: a chanarg event's name points into storage
+     * the scheduler releases when the emission returns, so a handler
+     * that wants the name beyond its own stack frame copies the string.
+     * The same borrow applies to peekPending()'s vector, which is
+     * rebuilt on every call. */
     sigc::signal<void (const thcEvent &)> sigDelivered;
     const std::vector<thcEvent> &peekPending (void) const;
 
