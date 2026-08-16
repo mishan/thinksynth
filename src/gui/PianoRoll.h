@@ -51,7 +51,7 @@ protected:
 
     /* horizontal drag scrubs back through history and drops out of
      * follow mode; double-click (or scrubbing back to the live edge)
-     * resumes following. Scroll wheel zooms time about the pointer. */
+     * resumes following. Scroll wheel zooms time about the now-line. */
     void onDragBegin  (double x, double y);
     void onDragUpdate (double dx, double dy);
     bool onScroll     (double dx, double dy);
@@ -77,6 +77,10 @@ private:
     thcScheduler        *sched_;
     std::deque<Note>     notes_;      /* delivered; pruned off the left  */
     std::deque<ArgTick>  argTicks_;   /* delivered chanarg events        */
+
+    /* This frame's copy of the scheduled future, taken once per tick
+       and read by both the range fit and the draw. */
+    std::vector<thcEvent> pendingView_;
 
     double spanPast_, spanFuture_;    /* seconds each side of now        */
     double viewNow_;                  /* time at the now-line            */

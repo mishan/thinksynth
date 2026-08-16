@@ -12,6 +12,8 @@
  * Public License for more details.
  */
 
+#include "config.h"
+
 #include "PianoRoll.h"
 
 #include <algorithm>
@@ -89,10 +91,11 @@ PianoRoll::PianoRoll (thcScheduler *sched)
     auto scroll = Gtk::EventControllerScroll::create();
     scroll->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
     scroll->signal_scroll().connect(
-        sigc::mem_fun(*this, &PianoRoll::onScroll), true);
+        sigc::mem_fun(*this, &PianoRoll::onScroll), false);
     add_controller(scroll);
 
     auto click = Gtk::GestureClick::create();
+    click->set_button(GDK_BUTTON_PRIMARY);
     click->signal_pressed().connect(
         sigc::mem_fun(*this, &PianoRoll::onDoubleClick));
     add_controller(click);
@@ -134,6 +137,11 @@ PianoRoll::onTick (const Glib::RefPtr<Gdk::FrameClock> &)
     if (following_)
         viewNow_ = sched_->now();
 
+    /* One copy of the scheduled future per frame, shared by the range
+       fit and the draw -- peekPending rebuilds its vector per call, and
+       asking twice a frame was paying for the copy twice. */
+    pendingView_ = sched_->peekPending();
+
     prune();
     fitPitchRange();
     queue_draw();
@@ -174,7 +182,7 @@ PianoRoll::fitPitchRange (void)
             hi = std::max(hi, n.note);
         }
 
-    for (const auto &p : sched_->peekPending())
+    for (const auto &p : pendingView_)
         if (p.type == THC_EV_NOTE && p.at <= right)
         {
             lo = std::min(lo, p.u.note.note);
@@ -256,7 +264,7 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
     /* Scheduled future: outline only. peekPending is what falls out of
        the chains and has not been delivered yet -- the piece's actual
        near future, not a prediction. */
-    for (const auto &p : sched_->peekPending())
+    for (const auto &p : pendingView_)
     {
         if (p.type != THC_EV_NOTE)
             continue;
@@ -320,6 +328,11 @@ PianoRoll::onDragBegin (double, double)
 void
 PianoRoll::onDragUpdate (double dx, double)
 {
+    /* An unallocated widget answers zero for its width, and a scrub
+       through a division by zero lands the view on NaN forever. */
+    if (get_width() <= 0)
+        return;
+
     double pxPerSec = get_width() / (spanPast_ + spanFuture_);
 
     following_ = false;
@@ -341,7 +354,11 @@ PianoRoll::onDragUpdate (double dx, double)
 bool
 PianoRoll::onScroll (double, double dy)
 {
-    /* zoom time, keeping the past:future ratio; clamp to sane spans */
+    /* zoom time, keeping the past:future ratio; clamp to sane spans.
+       A zero delta is a report, not a request. */
+    if (dy == 0)
+        return false;
+
     double f = dy > 0 ? 1.25 : 0.8;
 
     spanPast_   = std::clamp(spanPast_ * f, 5.0, 600.0);
