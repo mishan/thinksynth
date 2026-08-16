@@ -57,6 +57,13 @@ think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
 # A .dsp cannot name one of these, so nothing in the corpus depends on which
 # are built and the "what is missing is load-bearing" warning above does not
 # apply to this list.
+# Composers. A third ABI again: loaded by the GUI's scheduler, never by the
+# parser, emitting note and chanarg events rather than samples. They link
+# neither libthink nor cairo -- see think_add_composer in ThinkPlugin.cmake
+# and libthink/thcomposer.h. As with the visuals, nothing in the DSP corpus
+# can name one, so this list carries no compatibility weight.
+think_add_composer(eno_line)
+
 think_add_visual(meter)
 think_add_visual(scope)
 think_add_visual(spectrum)

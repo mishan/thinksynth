@@ -62,6 +62,52 @@ function(think_add_plugin_category category)
 endfunction()
 
 
+# think_add_composer(<name>)
+#
+# A composer: turns a clock into note/chanarg events, or transforms them.
+# See libthink/thcomposer.h for why this is a third ABI rather than an extra
+# entry point on either of the other two.
+#
+# Like a visual module it does not link libthink -- a composer has no node,
+# no arg and no tree, and its whole interface is C structs and function
+# pointers. Unlike a visual module it does not even link cairo: composer_draw
+# takes a cairo_t* but only the host needs the real type. thcomposer.h
+# forward-declares it, so the include path below carries libthink/ solely for
+# thcomposer.h and thExport.h.
+#
+# It lands in <root>/plugins/composer/ alongside the DSP categories, so one
+# THINK_PLUGIN_PATH still finds everything.
+function(think_add_composer name)
+  set(target "composer_${name}")
+
+  add_library(${target} MODULE "composer/${name}.cpp")
+
+  set_target_properties(${target} PROPERTIES
+      OUTPUT_NAME "${name}"
+      PREFIX ""
+      SUFFIX "${THINK_PLUGIN_SUFFIX}"
+      LIBRARY_OUTPUT_DIRECTORY "${PROJECT_BINARY_DIR}/plugins/composer")
+
+  target_compile_definitions(${target} PRIVATE COMPOSER_PLUGIN_BUILD)
+
+  target_include_directories(${target} PRIVATE
+      "${PROJECT_SOURCE_DIR}"
+      "${PROJECT_SOURCE_DIR}/libthink")
+
+  target_link_libraries(${target} PRIVATE m)
+
+  set_target_properties(${target} PROPERTIES
+      CXX_VISIBILITY_PRESET hidden
+      VISIBILITY_INLINES_HIDDEN ON)
+
+  install(TARGETS ${target}
+          LIBRARY DESTINATION "${THINK_PKG_PLUGIN_DIR}/composer"
+          RUNTIME DESTINATION "${THINK_PKG_PLUGIN_DIR}/composer")
+
+  add_dependencies(plugins ${target})
+endfunction()
+
+
 # think_add_visual(<name>)
 #
 # A visualizer: fed samples, draws with cairo. See src/thVisual.h for why this
