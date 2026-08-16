@@ -159,6 +159,17 @@ thcPlugin::moduleLoad (void)
         return -1;
     }
 
+    /* And no roles this interface version has never heard of: a module
+       relying on a flag bit the host does not implement should find
+       out here, not by whatever the unknown bit silently fails to do. */
+    if ((flags_ & ~(THC_GENERATOR | THC_TRANSFORMER)) != 0)
+    {
+        fprintf(stderr, "thcPlugin: %s declared flags 0x%x, which this "
+                "interface version does not define\n", path_.c_str(),
+                flags_);
+        return -1;
+    }
+
     return 0;
 }
 
@@ -178,6 +189,14 @@ thcPlugin::moduleUnload (void)
     paramChanged_ = NULL;
     draw_ = NULL;
     destroy_ = NULL;
+
+    /* NOTLOADED means empty, not "whatever a failed init left behind":
+       a caller asking a dead module for its flags or params must get
+       nothing, or isGenerator() keeps answering for a module that is
+       not there. */
+    flags_ = 0;
+    desc_.clear();
+    params_.clear();
 }
 
 /* ---- the host callbacks composer_init reaches us through ------------- */
@@ -186,6 +205,15 @@ int
 thcPlugin::hostRegisterParam (void *host, const thcParamDef *def)
 {
     thcPlugin *self = static_cast<thcPlugin *>(host);
+
+    /* A dlopen'd module is effectively untrusted; a NULL def is its
+       bug, reported as such rather than as the host's crash. */
+    if (def == NULL)
+    {
+        fprintf(stderr, "thcPlugin: %s registered a NULL param\n",
+                self->path_.c_str());
+        return -1;
+    }
 
     /* Copy everything: the module's strings are its own .rodata and the
        defs have to outlive this call by the life of the plugin. */
@@ -231,7 +259,7 @@ thcPlugin::paramIndex (const string &name) const
 void *
 thcPlugin::create (const thcParams *params)
 {
-    if (state_ != LOADED)
+    if (state_ != LOADED || create_ == NULL || params == NULL)
         return NULL;
 
     return create_(params);
@@ -247,7 +275,10 @@ thcPlugin::destroy (void *state)
 double
 thcPlugin::tick (void *state, const thcTransport *t, thcEventSink *out)
 {
-    if (tick_ == NULL)
+    /* NULL guards on every instance call: handing a module a state it
+       never made is the host's mistake, and the module cannot be asked
+       to survive it. */
+    if (tick_ == NULL || state == NULL)
         return THC_NEVER;
 
     return tick_(state, t, out);
@@ -256,20 +287,20 @@ thcPlugin::tick (void *state, const thcTransport *t, thcEventSink *out)
 void
 thcPlugin::receive (void *state, const thcEvent *ev, thcEventSink *out)
 {
-    if (receive_ != NULL)
+    if (receive_ != NULL && state != NULL && ev != NULL)
         receive_(state, ev, out);
 }
 
 void
 thcPlugin::paramChanged (void *state, int index)
 {
-    if (paramChanged_ != NULL)
+    if (paramChanged_ != NULL && state != NULL)
         paramChanged_(state, index);
 }
 
 void
 thcPlugin::draw (void *state, cairo_t *cr, double w, double h)
 {
-    if (draw_ != NULL)
+    if (draw_ != NULL && state != NULL && cr != NULL)
         draw_(state, cr, w, h);
 }
