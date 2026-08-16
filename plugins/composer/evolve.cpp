@@ -33,6 +33,17 @@
  *   cadence    a phrase that lands on the root outranks one that
  *              trails off; opening on the root is worth a little too
  *   monotony   three of the same note in a row starts to cost
+ *   boredom    similarity to the phrase just played is taxed, weighted
+ *              by `boredom' -- the term that keeps the search alive.
+ *              Without it the algorithm does what GAs do: finds a
+ *              local optimum inside a minute and, with elites
+ *              protecting it and a static landscape offering nothing
+ *              better, plays the same bars forever. The ear is part
+ *              of the fitness landscape, and the ear tires; taxing
+ *              yesterday's champion moves the optimum every cycle, so
+ *              the piece circles a family of good phrases instead of
+ *              freezing on one. Set it to zero to get the freeze back
+ *              on purpose (an ostinato is a choice too).
  *
  * This is the autonomous shape from COMPOSITION_HANDOFF.md §7: fitness
  * the plugin computes. The interactive shape -- the user as fitness
@@ -57,7 +68,7 @@
 #include "thcomposer.h"
 
 enum { P_NOTES, P_LENGTH, P_POP, P_MUTATE, P_DENSITY, P_SMOOTH,
-       P_STEP, P_HOLD, P_VEL, P_COUNT };
+       P_BOREDOM, P_STEP, P_HOLD, P_VEL, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -79,6 +90,8 @@ composer_init (thcComposerInfo *info)
           THC_PARAM_FLOAT, 0, 1, 0.6, NULL, NULL },
         { "smooth",  "how much leaps cost", THC_PARAM_FLOAT,
           0, 1, 0.5, NULL, NULL },
+        { "boredom", "how quickly the last phrase wears out",
+          THC_PARAM_FLOAT, 0, 1, 0.4, NULL, NULL },
         { "step",    "length of one step", THC_PARAM_FLOAT,
           0.02, 60, 0.25, NULL, "s" },
         { "hold",    "time before note-off", THC_PARAM_FLOAT,
@@ -107,6 +120,7 @@ struct State {
 
     std::vector<Genome> pop;
     Genome champion;
+    Genome lastPlayed;
     int    generation;
 
     std::deque<double> fitHistory;       /* best-of-generation, for draw */
@@ -177,6 +191,7 @@ State::reseedPopulation (void)
     }
 
     champion = pop[0];
+    lastPlayed.clear();
     generation = 0;
     fitHistory.clear();
 }
@@ -232,6 +247,24 @@ State::fitness (const Genome &g) const
         f += 0.2;                        /* opening there helps too     */
 
     f -= 0.15 * runs;                    /* monotony tax                */
+
+    /* The boredom tax: gene-for-gene similarity to what was just
+       heard. This is what moves the optimum every cycle -- see the
+       header. Scaled ahead of the other terms on purpose: at full
+       weight, being yesterday's champion costs about as much as
+       missing the density target entirely. */
+    if (lastPlayed.size() == g.size() && !g.empty())
+    {
+        double boredom =
+            params->get(params->ctx, paramIndex[P_BOREDOM]);
+        int same = 0;
+
+        for (size_t i = 0; i < g.size(); i++)
+            if (g[i] == lastPlayed[i])
+                same++;
+
+        f -= boredom * 3.0 * same / g.size();
+    }
 
     return f;
 }
@@ -405,6 +438,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             i += run;
         }
 
+        st->lastPlayed = st->champion;
         st->generationStep();
     }
 

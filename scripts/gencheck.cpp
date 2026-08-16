@@ -510,6 +510,44 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
         fail("planner replay diverged -- evolution is drawing "
              "randomness from somewhere outside its seed");
 
+    /* The GA must not freeze. With a static fitness landscape and two
+       protected elites it used to: a local optimum inside a minute,
+       then the same bars forever. The boredom tax is what keeps the
+       optimum moving, and this holds it down -- deterministic, since
+       the piece is seeded, so it either passes always or fails always.
+       Group the evolve chain's notes (channel 1) into cycle-length
+       windows and count distinct phrases across ~18 cycles. */
+    {
+        std::istringstream in(first);
+        std::string line;
+        std::map<int, std::string> cycles;
+
+        while (std::getline(in, line))
+        {
+            double at;
+            int chan, note;
+
+            if (sscanf(line.c_str(), "N %lg %d %d", &at, &chan,
+                       &note) == 3 && chan == 1)
+            {
+                char b[16];
+
+                snprintf(b, sizeof(b), "%d,", note);
+                cycles[(int)(at / 1.6)] += b;   /* 8 steps * 0.2s      */
+            }
+        }
+
+        std::map<std::string, int> distinct;
+
+        for (std::map<int, std::string>::iterator i = cycles.begin();
+             i != cycles.end(); ++i)
+            distinct[i->second]++;
+
+        if (distinct.size() < 4)
+            fail("evolve froze: fewer than four distinct phrases in "
+                 "thirty seconds -- the boredom tax is not biting");
+    }
+
     std::filesystem::remove(tmp);
 }
 

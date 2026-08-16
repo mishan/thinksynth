@@ -45,6 +45,7 @@ chain roots {
         notes = cpent;
         length = 16; population = 24;
         mutate = @mutation; density = 0.55; smooth = @leaps;
+        boredom = 0.45;
         step = 0.4 s; hold = 0.5 s; vel = 88;
     };
     sink { channel = 2; };
