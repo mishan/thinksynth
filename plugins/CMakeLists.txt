@@ -63,6 +63,15 @@ think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
 # and libthink/thcomposer.h. As with the visuals, nothing in the DSP corpus
 # can name one, so this list carries no compatibility weight.
 think_add_composer(eno_line)
+think_add_composer(walk)
+think_add_composer(quantize)
+think_add_composer(humanize)
+think_add_composer(euclid)
+
+# The exception that proves the no-cairo rule: euclid has a composer_draw
+# (the onset ring), and a module that calls cairo functions links cairo.
+# The others still don't.
+target_link_libraries(composer_euclid PRIVATE PkgConfig::CAIRO)
 
 think_add_visual(meter)
 think_add_visual(scope)

@@ -53,7 +53,8 @@ target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 # with glibmm standing where cairo stood.
 add_library(think_composerhost OBJECT
     thcPlugin.cpp
-    thcScheduler.cpp)
+    thcScheduler.cpp
+    thcGenFile.cpp)
 
 target_include_directories(think_composerhost PUBLIC
     "${PROJECT_SOURCE_DIR}"
