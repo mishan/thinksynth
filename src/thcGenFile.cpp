@@ -181,7 +181,21 @@ thcGenLoader::lex (const std::string &path, std::vector<Token> &out)
 
             t.kind = Token::NUMBER;
             t.text = text.substr(start, i - start);
-            t.num = atof(t.text.c_str());
+
+            /* strtod with its end pointer, not atof: the scan above is
+               permissive about dots, and "1..2" quietly becoming 1.0
+               is the opposite of a validated literal. */
+            char *end = NULL;
+
+            t.num = strtod(t.text.c_str(), &end);
+
+            if (end == NULL || *end != 0)
+            {
+                error(line, "'" + t.text + "' is not a number");
+                ok = false;
+                break;
+            }
+
             out.push_back(t);
             continue;
         }
@@ -717,8 +731,11 @@ thcGenLoader::parseChain (thcScheduler *sched)
             {
                 thcChain *c = sched->chain(chain);
 
+                /* The placement's role, not the module's capability: a
+                   dual-entry plugin placed as xform:: does not tick,
+                   and must not satisfy "this chain has a clock". */
                 if (c != NULL && !c->stages.empty() &&
-                    c->stages.back()->plugin->hasTick())
+                    c->stages.back()->ticks)
                     sawGenerator = true;
             }
             continue;
@@ -952,15 +969,18 @@ thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
                 return false;
             }
 
+            /* The beats flag is stated on every write, not only when
+               it is true: a param set to "4 beats" and later to "2 s"
+               must stop tempo-scaling, and a flag only ever raised
+               never comes down. */
             if (unit == "s")
                 stage->params.set(idx, num.num);
             else if (unit == "ms")
                 stage->params.set(idx, num.num / 1000.0);
             else                                 /* beats / b */
-            {
                 stage->params.set(idx, num.num);
-                stage->params.setBeats(idx, true);
-            }
+
+            stage->params.setBeats(idx, unit == "beats" || unit == "b");
         }
         else
         {
@@ -1134,9 +1154,10 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
             Token num = take();
 
-            if (num.num < 0 || num.num > 15)
+            if (num.num < 0 || num.num > 15 ||
+                num.num != (double)(int)num.num)
             {
-                error(num.line, "channel is 0-15");
+                error(num.line, "channel is a whole number, 0-15");
                 return false;
             }
 
