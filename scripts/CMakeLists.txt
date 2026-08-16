@@ -11,7 +11,8 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST" "" "EXTRA" ${ARGN})
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST" ""
+                        "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
 
@@ -21,6 +22,10 @@ function(think_harness name)
 
   if(H_VISUALHOST)
     list(APPEND sources $<TARGET_OBJECTS:think_visualhost>)
+  endif()
+
+  if(H_COMPOSERHOST)
+    list(APPEND sources $<TARGET_OBJECTS:think_composerhost>)
   endif()
 
   add_executable(${name} ${sources})
@@ -34,6 +39,15 @@ function(think_harness name)
   if(H_VISUALHOST)
     target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
     target_link_libraries(${name} PRIVATE PkgConfig::CAIRO)
+  endif()
+
+  # The composer host runs off the Glib main loop in the app, but the
+  # scheduler's virtual clock (stepTransport) is exactly what lets a harness
+  # drive it with no loop at all -- glibmm links for g_get_monotonic_time and
+  # sigc, not for a running loop.
+  if(H_COMPOSERHOST)
+    target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
+    target_link_libraries(${name} PRIVATE PkgConfig::GLIBMM)
   endif()
 
   if(H_THREADS)
@@ -139,6 +153,13 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # .dsp files -- the cases that matter are ones the corpus cannot contain.
 think_harness(argtype   NODEMODEL)
 
+# The composer framework: the .gen loader's validation (each bad file is
+# built on the fly and must fail with the right complaint), the shared pitch
+# parser, and the replay-determinism contract -- same file, same seed, same
+# delivered event stream, byte for byte. Headless: the scheduler is driven
+# through its virtual clock, no Glib loop and no audio.
+think_harness(gencheck COMPOSERHOST)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -228,6 +249,12 @@ add_test(NAME argtype
 add_test(NAME visualcheck
          COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
+# The .gen loader and the replay gate. Needs the composer plugins from the
+# build tree and the shipped piece; no display, no audio, no main loop.
+add_test(NAME gencheck
+         COMMAND gencheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+
 add_test(NAME dspprobe
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspprobe>
@@ -246,4 +273,5 @@ add_test(NAME editorcheck
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
+                     gencheck
                      PROPERTIES TIMEOUT 900)
