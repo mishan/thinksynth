@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+#include <gtkmm.h>
+
 class thSynth;
 class thArg;
 class thcPlugin;

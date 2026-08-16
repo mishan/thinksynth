@@ -152,11 +152,14 @@ ComposerWindow::loadComposers (void)
             continue;
         }
 
-        if (composers_.find(p->name()) != composers_.end())
+        std::map<std::string, thcPlugin *>::iterator have =
+            composers_.find(p->name());
+
+        if (have != composers_.end())
         {
             fprintf(stderr, "ComposerWindow: two composer modules both "
                     "called '%s'; keeping %s\n", p->name().c_str(),
-                    composers_[p->name()]->path().c_str());
+                    have->second->path().c_str());
             delete p;
             continue;
         }
@@ -343,7 +346,13 @@ ComposerWindow::onRewind (void)
 void
 ComposerWindow::onReload (void)
 {
+    /* Reload also retries discovery: a piece may have appeared (or
+       THINK_GEN_PATH been pointed somewhere real) since startup, and
+       "restart the program" is not a reload button. loadPiece already
+       searches when genPath_ is empty. */
     loadPiece();
+    sched_->reset();
+    updateTransportButtons();
 }
 
 void
@@ -360,7 +369,9 @@ ComposerWindow::updateTransportButtons (void)
     playBtn_->set_sensitive(have && !sched_->running());
     pauseBtn_->set_sensitive(have && sched_->running());
     rewindBtn_->set_sensitive(have);
-    reloadBtn_->set_sensitive(!genPath_.empty());
+    /* Never disabled: with no piece found it is the "look again"
+       button, which is the one moment it is most wanted. */
+    reloadBtn_->set_sensitive(true);
 
     if (!have)
         status_->set_text(pieceLabel_.empty()
