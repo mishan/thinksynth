@@ -50,6 +50,12 @@
 
 #include "thcomposer.h"
 
+/* ucrt hides M_PI behind _USE_MATH_DEFINES, and unlike the GUI's
+ * canvases this file includes no toolkit header to smuggle it in. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 enum { P_AXIOM, P_RULES, P_DEPTH, P_NOTES, P_STEP, P_HOLD, P_VEL,
        P_COUNT };
 
@@ -99,10 +105,6 @@ struct State {
     struct Ev { int at; int midi; };
     std::vector<Ev> phrase;
     int phraseSteps;
-
-    /* Where the playhead was when the phrase was last emitted, so the
-       draw can show progress. */
-    double emittedAt, emittedStep;
 
     void reparseNotes (void);
     void derive (void);
@@ -200,7 +202,12 @@ State::derive (void)
         has[(unsigned char)key] = true;
     }
 
-    derived = params->get_string(params->ctx, paramIndex[P_AXIOM]);
+    /* get_string is nullable everywhere else it is read; an unset
+       axiom is an empty derivation, not undefined behavior. */
+    const char *axiom =
+        params->get_string(params->ctx, paramIndex[P_AXIOM]);
+
+    derived = axiom != NULL ? axiom : "";
 
     int depth = (int)params->get(params->ctx, paramIndex[P_DEPTH]);
 
@@ -279,7 +286,6 @@ composer_create (const thcParams *params)
     State *st = new State;
 
     st->params = params;
-    st->emittedAt = st->emittedStep = 0;
     st->reparseNotes();
     st->derive();
     st->interpret();
@@ -333,8 +339,6 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
             out->emit(out->ctx, &ev);
         }
 
-        st->emittedAt = t->now;
-        st->emittedStep = step;
     }
 
     double span = st->phraseSteps > 0 ? st->phraseSteps * step : step;
@@ -343,8 +347,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 }
 
 /* The phrase as contour: one dot per note, branches visible as several
- * dots in a column, and a sweep line showing where the playhead is in
- * the cycle. */
+ * dots in a column. (No playhead sweep: the phrase is emitted whole,
+ * and progress through it is the piano roll's picture, not this
+ * box's.) */
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
