@@ -375,7 +375,19 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
 
     std::string first = render(sched, 180.0, 0.02);
 
+    /* reset() must announce itself: the piano roll drops its history on
+       this signal, and a reset nobody hears about leaves the previous
+       piece's notes on screen as a future that already happened. */
+    bool announced = false;
+    sigc::connection resetConn = sched.sigReset.connect(
+        [&announced] { announced = true; });
+
     sched.reset();
+
+    if (!announced)
+        fail("reset() did not emit sigReset");
+
+    resetConn.disconnect();
 
     std::string second = render(sched, 180.0, 0.02);
 

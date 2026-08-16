@@ -736,6 +736,8 @@ thcScheduler::reset (void)
                 std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
             }
         }
+
+    sigReset.emit();
 }
 
 void

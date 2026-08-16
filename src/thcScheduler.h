@@ -289,6 +289,15 @@ public:
     sigc::signal<void (const thcEvent &)> sigDelivered;
     const std::vector<thcEvent> &peekPending (void) const;
 
+    /* Emitted by reset(): the transport has rewound to zero and every
+     * instance has been recreated. Anything keeping history keyed to
+     * transport time -- the piano roll's delivered notes -- must drop
+     * it, because time zero is about to mean a different piece (or the
+     * same piece from the top, which for a history is the same thing:
+     * notes stamped with times the transport is about to live through
+     * again would draw as a future that already happened). */
+    sigc::signal<void ()> sigReset;
+
 private:
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride);

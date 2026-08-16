@@ -48,6 +48,7 @@ protected:
                  int height);
     bool onTick (const Glib::RefPtr<Gdk::FrameClock> &clock);
     void onDelivered (const thcEvent &ev);
+    void onTransportReset (void);
 
     /* horizontal drag scrubs back through history and drops out of
      * follow mode; double-click (or scrubbing back to the live edge)
@@ -94,6 +95,7 @@ private:
     int    loFit_, hiFit_;            /* target range from the notes     */
 
     sigc::connection deliveredConn_;
+    sigc::connection resetConn_;
     guint            tickId_;
 };
 

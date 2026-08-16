@@ -75,6 +75,9 @@ PianoRoll::PianoRoll (thcScheduler *sched)
     deliveredConn_ = sched_->sigDelivered.connect(
         sigc::mem_fun(*this, &PianoRoll::onDelivered));
 
+    resetConn_ = sched_->sigReset.connect(
+        sigc::mem_fun(*this, &PianoRoll::onTransportReset));
+
     /* A scrolling view redraws every frame while visible; the frame
        clock is the right driver for that, not a Glib timeout guessing
        at the compositor's rate. queue_draw from delivery alone would
@@ -104,6 +107,7 @@ PianoRoll::PianoRoll (thcScheduler *sched)
 PianoRoll::~PianoRoll (void)
 {
     deliveredConn_.disconnect();
+    resetConn_.disconnect();
 
     /* No remove_tick_callback here, deliberately: for a managed child
        the C++ destructor runs after GTK has disposed the widget, when
@@ -129,6 +133,21 @@ PianoRoll::onDelivered (const thcEvent &ev)
         argTicks_.push_back({ ev.at, ev.channel,
                               ev.u.chanarg.value });
     /* no queue_draw: the tick callback repaints every frame anyway */
+}
+
+/* The transport rewound: history keyed to the old timeline is now a
+ * lie. Kept notes would sit *right* of the new now-line and draw as a
+ * future that already happened -- which is exactly what showed up when
+ * switching pieces, the previous piece's traces refusing to leave
+ * (prune() could never reach them either: its cutoff is now minus four
+ * spans, which at a fresh zero is negative and keeps everything). */
+void
+PianoRoll::onTransportReset (void)
+{
+    notes_.clear();
+    argTicks_.clear();
+    viewNow_ = 0;
+    following_ = true;
 }
 
 bool
