@@ -1561,6 +1561,255 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(tmp);
 }
 
+/* ---- 6b. a picture that is also a control ------------------------------ */
+
+/* composer_input, and what it costs.
+ *
+ * `gen::life' is the first module whose draw is touchable, and the
+ * property worth pinning is the one the canvas cannot show: a click goes
+ * to the plugin's own state, changes what is played from the next
+ * generation on, and does *not* change the file. Everything else here
+ * follows from that -- a board nobody clicked replays from the piece
+ * alone, and a board somebody clicked replays given the same clicks,
+ * which is the boundary live MIDI already has.
+ *
+ * The clicks are scripted rather than real, for exactly the reason §7
+ * gives about learned composers: a gate that needed a mouse would not be
+ * a gate. What is driven is the ABI, not the widget -- composercheck is
+ * where the widget gets pressed.
+ */
+static void
+checkInput (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth)
+{
+    std::map<std::string, thcPlugin *>::const_iterator it =
+        plugins.find("life");
+
+    if (it == plugins.end())
+    {
+        fail("the 'life' module is missing; build the plugins first");
+        return;
+    }
+
+    thcPlugin *life = it->second;
+
+    if (!life->hasInput())
+        fail("gen::life does not export composer_input");
+
+    if (!life->hasCapture())
+        fail("gen::life does not export composer_capture");
+
+    const std::string tmp = thUtil::tempFile("gencheck-life-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a life scratch file");
+        return;
+    }
+
+    /* A blinker: three in a row, which oscillates with period two. Small
+       enough that every assertion below can be reasoned about by hand. */
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "chain c {\n"
+            "    stage b gen::life {\n"
+            "        board = \"...../.OOO./...../...../.....\";\n"
+            "        width = 5; height = 5;\n"
+            "        scatter = 0; trigger = 1; wrap = 1;\n"
+            "        notes = \"C4 D4 E4 F4 G4\";\n"
+            "        period = 0.5 s; hold = 0.2 s; vel = 90;\n"
+            "    };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+    }
+
+    /* A click, in the coordinate space composer_draw is given. The board
+       is square and centred, so a cell's middle is arithmetic the test
+       can do as well as the plugin can -- deliberately, because a test
+       that asked the plugin where its cells were would be checking the
+       plugin against itself. */
+    struct Clicker {
+        thcPlugin *plugin;
+        void      *state;
+        double     w, h;
+
+        void at (int col, int row, thcInputType type) const
+        {
+            const double cell = (w / 5 < h / 5) ? w / 5 : h / 5;
+            const double ox = (w - cell * 5) / 2;
+            const double oy = (h - cell * 5) / 2;
+
+            thcInputEvent ev;
+
+            ev.type = type;
+            ev.x = ox + (col + 0.5) * cell;
+            ev.y = oy + (row + 0.5) * cell;
+            ev.w = w;
+            ev.h = h;
+            ev.button = 1;
+
+            plugin->input(state, &ev);
+        }
+    };
+
+    /* --- untouched, the piece replays from itself --- */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(tmp, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n",
+                        loader.errors()[i].c_str());
+
+            fail("the life piece did not load");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        const std::string first = render(sched, 6.0, 0.02);
+
+        sched.reset();
+
+        const std::string second = render(sched, 6.0, 0.02);
+
+        if (first.empty())
+            fail("gen::life delivered nothing");
+
+        if (first != second)
+            fail("gen::life replayed differently with nobody touching it");
+    }
+
+    /* --- the same clicks give the same music --- */
+    std::string tapes[2];
+
+    for (int pass = 0; pass < 2; pass++)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(tmp, &sched))
+        {
+            fail("the life piece did not load on pass two");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        thcChain *c = sched.chain(0);
+
+        if (c == NULL || c->stages.empty())
+        {
+            fail("the life piece has no stage to click");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        thcStage *st = c->stages[0].get();
+        Clicker click = { st->plugin, st->state, 100.0, 100.0 };
+
+        /* Kill one end of the blinker and add a cell elsewhere. Pressed
+           and released, because that is the pair the canvas sends and a
+           plugin is entitled to keep state between them. */
+        click.at(1, 1, THC_IN_PRESS);
+        click.at(1, 1, THC_IN_RELEASE);
+        click.at(4, 4, THC_IN_PRESS);
+        click.at(4, 4, THC_IN_RELEASE);
+
+        tapes[pass] = render(sched, 6.0, 0.02);
+    }
+
+    if (tapes[0].empty())
+        fail("a clicked board delivered nothing");
+
+    if (tapes[0] != tapes[1])
+        fail("the same clicks gave a different piece -- input is the "
+             "only thing that changed");
+
+    /* --- and the clicks actually did something --- */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        loader.load(tmp, &sched);
+
+        const std::string untouched = render(sched, 6.0, 0.02);
+
+        if (untouched == tapes[0])
+            fail("clicking the board changed nothing about what it plays");
+    }
+
+    /* --- capture hands back what was clicked, as text --- */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        loader.load(tmp, &sched);
+
+        thcChain *c = sched.chain(0);
+        thcStage *st = c->stages[0].get();
+
+        const int idx = st->plugin->paramIndex("board");
+
+        if (idx < 0)
+            fail("gen::life has no 'board' param to capture");
+        else
+        {
+            const std::string before = st->plugin->capture(st->state, idx);
+
+            Clicker click = { st->plugin, st->state, 100.0, 100.0 };
+
+            click.at(0, 0, THC_IN_PRESS);
+            click.at(0, 0, THC_IN_RELEASE);
+
+            const std::string after = st->plugin->capture(st->state, idx);
+
+            if (before.empty() || after.empty())
+                fail("capture returned nothing for the board param");
+            else if (before == after)
+                fail("capture did not see the click");
+            else if (after.find('O') == std::string::npos ||
+                     after.find('.') == std::string::npos ||
+                     after.find('/') == std::string::npos)
+                fail("captured board is not in the format the file "
+                     "writes: " + after);
+
+            /* The round trip, which is the whole reason a board is a
+               string: capture, write it back the way the host does, and
+               capture again. Anything but equality means the writer and
+               the reader of this format disagree, and a piece saved
+               through the panel would come back as a different board. */
+            st->params.setString(idx, after);
+
+            if (st->plugin->capture(st->state, idx) != after)
+                fail("a captured board did not survive a round trip "
+                     "through the param");
+
+            /* ...but a board stated in the file or typed in the panel
+               outranks a click, or a pattern nobody could correct would
+               be one click away. */
+            st->params.setString(idx, "OOOOO/...../...../...../.....");
+
+            const std::string typed = st->plugin->capture(st->state, idx);
+
+            if (typed.compare(0, 5, "OOOOO") != 0)
+                fail("a board written after a click was ignored: " + typed);
+
+            /* A param the plugin cannot capture says so, rather than
+               handing back something a host would then write. */
+            const int other = st->plugin->paramIndex("period");
+
+            if (other >= 0 && !st->plugin->capture(st->state, other).empty())
+                fail("capture answered for a param it has nothing to say "
+                     "about");
+        }
+    }
+
+    std::filesystem::remove(tmp);
+}
+
 /* ---- 7. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
@@ -1706,6 +1955,7 @@ main (int argc, char *argv[])
     checkLiveInput(plugins, &synth);
     checkEdits(plugins, &synth, genFile);
     checkPresets(plugins, &synth);
+    checkInput(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

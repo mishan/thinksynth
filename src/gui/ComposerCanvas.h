@@ -23,6 +23,7 @@
 #include <vector>
 #include <gtkmm.h>
 
+#include "libthink/thcomposer.h"   /* thcInputEvent */
 #include "thcGenEdit.h"
 
 class thcScheduler;
@@ -42,9 +43,19 @@ struct thcStage;
  * channel's notes, so "which row makes which notes" is answered by
  * looking.
  *
+ * A stage whose module also exports composer_input has a picture that is
+ * a *control*: clicks on it are handed straight to the plugin, in the
+ * coordinates it drew in. Double-clicking such a stage enlarges its draw
+ * to fill the canvas, because a Life board in a hundred-pixel box is six
+ * pixels a cell and nobody can click that. Escape, or another
+ * double-click, puts it back.
+ *
  * The canvas does not edit anything itself. It reports -- a selection,
  * a drag that wants stages reordered -- and ComposerWindow performs the
  * edit through thcGenEdit and reloads. One writer, as everywhere else.
+ * Input is not an exception to that: a click goes to the plugin's own
+ * state and changes what is playing, which is a performance, not a file
+ * edit. Capturing it into the file is a separate, deliberate act.
  */
 class ComposerCanvas : public Gtk::DrawingArea
 {
@@ -82,6 +93,14 @@ public:
     /* A drag dropped stage `from' at position `to' in chain `chain'. */
     sigc::signal<void (size_t, int, int)> sigMoveStage;
 
+    /* Which stage is filling the canvas, or NONE. Public so the window
+       can label what it is showing and offer to capture it. */
+    const Selection &enlarged (void) const { return enlarged_; }
+    void setEnlarged (const Selection &sel);
+
+    /* The enlarged stage changed (or went away). */
+    sigc::signal<void (const Selection &)> sigEnlarged;
+
 protected:
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
@@ -89,6 +108,9 @@ protected:
     void onDragBegin (double x, double y);
     void onDragUpdate (double dx, double dy);
     void onDragEnd (double dx, double dy);
+    void onReleased (int nPress, double x, double y);
+    void onMotion (double x, double y);
+    bool onKey (guint keyval, guint keycode, Gdk::ModifierType state);
 
 private:
     /* One clickable box, laid out by rebuild(). */
@@ -105,6 +127,16 @@ private:
 
     void rebuild (void);
     const Box *hit (double x, double y) const;
+
+    /* The live stage filling the canvas, or NULL. */
+    thcStage *enlargedStage (void) const;
+
+    /* Where the enlarged draw sits, in widget coordinates. */
+    void enlargedRect (double &x, double &y, double &w, double &h) const;
+
+    /* Hand a gesture to the enlarged plugin, if there is one and the
+       point is inside its picture. True if it was taken. */
+    bool feedInput (thcInputType type, double x, double y, int button);
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
                   const Box &box, bool selected) const;
 
@@ -115,6 +147,15 @@ private:
     std::vector<double> rowY_;   /* top of each chain row               */
 
     Selection sel_;
+
+    /* NONE unless a stage is filling the canvas. Kept as a Selection
+       rather than a Box index because rebuild() renumbers the boxes and
+       an enlarged view has to survive a reload. */
+    Selection enlarged_;
+
+    /* True between a press the plugin took and its release, so a drag
+       paints rather than selecting or moving anything. */
+    bool feeding_;
 
     /* Drag state: which stage box is in flight, and where the pointer
        has carried it. dropAt_ is the insertion index the drop would

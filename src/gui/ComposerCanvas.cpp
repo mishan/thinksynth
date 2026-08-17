@@ -45,7 +45,8 @@ static const double ARROW_W  = 22;
 static const double TITLE_H  = 15;
 
 ComposerCanvas::ComposerCanvas (void)
-    : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1)
+    : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1),
+      feeding_(false)
 {
     set_draw_func(sigc::mem_fun(*this, &ComposerCanvas::onDraw));
 
@@ -53,7 +54,29 @@ ComposerCanvas::ComposerCanvas (void)
 
     click->signal_pressed().connect(
         sigc::mem_fun(*this, &ComposerCanvas::onPressed));
+    click->signal_released().connect(
+        sigc::mem_fun(*this, &ComposerCanvas::onReleased));
     add_controller(click);
+
+    /* Motion, for painting a plugin's picture by dragging across it.
+       Separate from the drag gesture below because that one exists to
+       move stage boxes around and reports offsets; a plugin wants
+       positions. */
+    auto motion = Gtk::EventControllerMotion::create();
+
+    motion->signal_motion().connect(
+        sigc::mem_fun(*this, &ComposerCanvas::onMotion));
+    add_controller(motion);
+
+    /* Escape leaves the enlarged view. A canvas that fills itself with
+       one stage and offers no way back is a trap. */
+    auto keys = Gtk::EventControllerKey::create();
+
+    keys->signal_key_pressed().connect(
+        sigc::mem_fun(*this, &ComposerCanvas::onKey), false);
+    add_controller(keys);
+
+    set_focusable(true);
 
     auto drag = Gtk::GestureDrag::create();
 
@@ -73,8 +96,17 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
     sched_ = sched;
     dragBox_ = -1;
     dropAt_ = -1;
+    feeding_ = false;
 
     rebuild();
+
+    /* A reload rebuilds every instance, so the enlarged stage is a new
+       object at the same address in the piece -- or gone, if the edit
+       removed it. Checked rather than assumed: enlargedStage() looks it
+       up through the scheduler every time, and this is where a stage
+       that no longer exists stops being shown. */
+    if (enlarged_.kind == Selection::STAGE && enlargedStage() == NULL)
+        setEnlarged(Selection());
 
     /* The selection may name things the new piece does not have. */
     if (sel_.kind != Selection::NONE && sel_.kind != Selection::ADD_CHAIN)
@@ -433,6 +465,42 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
                          Cairo::ToyFontFace::Weight::NORMAL);
 
+    /* One stage, filling everything. Drawn instead of the rows rather
+       than over them: the point of enlarging is room, and a hundred-pixel
+       box behind a Life board would only be something to misclick. */
+    if (thcStage *big = enlargedStage())
+    {
+        double rx, ry, rw, rh;
+
+        enlargedRect(rx, ry, rw, rh);
+
+        std::string label = "stage " + std::to_string(enlarged_.index) +
+            " of " + doc_->chains[enlarged_.chain].name;
+
+        if (big->plugin->hasInput())
+            label += "  --  click to change it, Escape to go back";
+        else
+            label += "  --  Escape to go back";
+
+        cr->set_source_rgba(1, 1, 1, 0.55);
+        cr->set_font_size(11);
+        cr->move_to(rx, ry - 6);
+        cr->show_text(label);
+
+        cr->set_source_rgba(1, 1, 1, 0.06);
+        cr->rectangle(rx, ry, rw, rh);
+        cr->fill();
+
+        cr->save();
+        cr->rectangle(rx, ry, rw, rh);
+        cr->clip();
+        cr->translate(rx, ry);
+        big->plugin->draw(big->state, cr->cobj(), rw, rh);
+        cr->restore();
+
+        return;
+    }
+
     /* Arrows first, boxes over them. */
     cr->set_source_rgba(1, 1, 1, 0.25);
     cr->set_line_width(1);
@@ -504,15 +572,168 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
     }
 }
 
+/* ---- the enlarged view, and gestures that reach a plugin -------------- */
+
+thcStage *
+ComposerCanvas::enlargedStage (void) const
+{
+    if (enlarged_.kind != Selection::STAGE || sched_ == NULL)
+        return NULL;
+
+    thcChain *c = sched_->chain(enlarged_.chain);
+
+    if (c == NULL || enlarged_.index >= c->stages.size())
+        return NULL;
+
+    thcStage *s = c->stages[enlarged_.index].get();
+
+    return (s != NULL && s->plugin->hasDraw()) ? s : NULL;
+}
+
 void
-ComposerCanvas::onPressed (int, double x, double y)
+ComposerCanvas::enlargedRect (double &x, double &y, double &w,
+                              double &h) const
+{
+    const double pad = 8;
+    const double head = 18;          /* room for the label above it     */
+
+    x = pad;
+    y = pad + head;
+    w = get_width() - 2 * pad;
+    h = get_height() - 2 * pad - head;
+
+    if (w < 1) w = 1;
+    if (h < 1) h = 1;
+}
+
+void
+ComposerCanvas::setEnlarged (const Selection &sel)
+{
+    if (enlarged_ == sel)
+        return;
+
+    enlarged_ = sel;
+    feeding_ = false;
+
+    sigEnlarged.emit(enlarged_);
+    queue_draw();
+}
+
+/* The one place a gesture becomes a plugin's business.
+ *
+ * Only in the enlarged view, and only for a module that exports
+ * composer_input. The coordinates handed over are the plugin's own --
+ * the same origin and the same size composer_draw was last given -- so
+ * a plugin maps a click by inverting the arithmetic it drew with, and
+ * never has to know that a canvas exists. */
+bool
+ComposerCanvas::feedInput (thcInputType type, double x, double y,
+                           int button)
+{
+    thcStage *s = enlargedStage();
+
+    if (s == NULL || !s->plugin->hasInput())
+        return false;
+
+    double rx, ry, rw, rh;
+
+    enlargedRect(rx, ry, rw, rh);
+
+    if (x < rx || y < ry || x >= rx + rw || y >= ry + rh)
+        return false;
+
+    thcInputEvent ev;
+
+    ev.type = type;
+    ev.x = x - rx;
+    ev.y = y - ry;
+    ev.w = rw;
+    ev.h = rh;
+    ev.button = button;
+
+    s->plugin->input(s->state, &ev);
+    queue_draw();
+
+    return true;
+}
+
+void
+ComposerCanvas::onPressed (int nPress, double x, double y)
 {
     pressX_ = x;
     pressY_ = y;
 
+    /* A press the plugin takes is not a selection and not the start of
+       a drag: the canvas gets out of the way entirely while someone is
+       drawing on a board. */
+    if (feedInput(THC_IN_PRESS, x, y, 1))
+    {
+        feeding_ = true;
+        return;
+    }
+
     const Box *box = hit(x, y);
 
+    /* Double-click enlarges a stage that has a picture, and a second
+       one puts it back -- the same gesture both ways, because a mode
+       you can enter and not leave is worse than no mode. */
+    if (nPress >= 2)
+    {
+        if (enlarged_.kind != Selection::NONE)
+        {
+            setEnlarged(Selection());
+            return;
+        }
+
+        if (box != NULL && box->what.kind == Selection::STAGE &&
+            box->live != NULL && box->live->plugin->hasDraw())
+        {
+            select(box->what);
+            setEnlarged(box->what);
+            grab_focus();
+            return;
+        }
+    }
+
+    /* While enlarged, a click that missed the picture leaves the mode.
+       Clicking the surround to get out is what every enlarged view in
+       every program does. */
+    if (enlarged_.kind != Selection::NONE)
+    {
+        setEnlarged(Selection());
+        return;
+    }
+
     select(box != NULL ? box->what : Selection());
+}
+
+void
+ComposerCanvas::onReleased (int, double x, double y)
+{
+    if (!feeding_)
+        return;
+
+    feedInput(THC_IN_RELEASE, x, y, 1);
+    feeding_ = false;
+}
+
+void
+ComposerCanvas::onMotion (double x, double y)
+{
+    if (feeding_)
+        feedInput(THC_IN_DRAG, x, y, 1);
+}
+
+bool
+ComposerCanvas::onKey (guint keyval, guint, Gdk::ModifierType)
+{
+    if (keyval == GDK_KEY_Escape && enlarged_.kind != Selection::NONE)
+    {
+        setEnlarged(Selection());
+        return true;
+    }
+
+    return false;
 }
 
 void
@@ -521,6 +742,11 @@ ComposerCanvas::onDragBegin (double x, double y)
     dragBox_ = -1;
     dragDx_ = 0;
     dropAt_ = -1;
+
+    /* Not while someone is painting on a plugin's picture, and not in
+       the enlarged view at all -- there are no stage boxes to move. */
+    if (feeding_ || enlarged_.kind != Selection::NONE)
+        return;
 
     const Box *box = hit(x, y);
 

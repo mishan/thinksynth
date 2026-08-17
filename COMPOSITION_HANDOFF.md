@@ -76,11 +76,18 @@ Repo: github.com/mishan/thinksynth (C++, gtkmm-4, CMake, GPL-2+).
 >   resolved there; `channel = 0` is a load error naming the change,
 >   which is the one spelling that tells a file written for the old
 >   numbering apart from one written for this.
-> - **`gen/README.md` indexes the shipped pieces**, ten of them, each
+> - **`gen/README.md` indexes the shipped pieces**, eleven of them, each
 >   built around one idea and gated by gencheck's corpus sweep: every
 >   piece must load, and every piece with a generator in it must deliver
 >   something inside a minute. A piece that loads and then says nothing
 >   is a piece with a typo in it.
+> - **A composer's picture can be a control.** `composer_input` routes
+>   clicks on a stage's `composer_draw` area into the module, and
+>   ComposerCanvas gained an enlarged view to click in. `gen::life` is
+>   Conway's, played, and the first module to take one. What a click
+>   changes is the *instance*, not the file; `composer_capture` and the
+>   panel's Capture button are the deliberate second step that writes it
+>   back.
 
 ## 1. What is being built
 
@@ -248,8 +255,23 @@ open, in rough priority order:
   the same snap as ons so a held release cannot miss its press. Still
   open in this area: the on-screen Keyboard widget does not emit
   m_sigNoteOn, so only hardware MIDI reaches chains from outside.
-- `composer_input` and `composer_serialize`/`deserialize` — the two ABI
-  additions §7 below argues for; neither blocks anything current.
+- ~~`composer_input`~~ — LANDED (branch composer-input), for exactly the
+  case §7 named. `composer_draw` was draw-only, and the things it draws
+  are the things a person wants to reach into. `thcInputEvent` carries
+  press/drag/release in the coordinates the draw was handed, so a plugin
+  maps a click by inverting the arithmetic it already wrote; ComposerCanvas
+  gained an enlarged view (double-click a stage, Escape to leave) because
+  a board in a hundred-pixel box is six pixels a cell. `gen::life` is the
+  first module to export it.
+
+  `composer_capture` came with it and is *not* the opaque blob §7
+  sketched. It returns the value of one of the plugin's own params, so a
+  clicked board is written back through the ordinary param path and the
+  file stays readable. That works because the state worth clicking
+  usually already has a spelling — a Life board is a pattern, and a
+  pattern is a string. A trained Markov table is not, so
+  `composer_serialize`/`deserialize` is still open and still unblocking
+  nothing.
 - Chanarg strip in the piano roll normalizes 0–1; should use the arg's
   declared `.min/.max` once param metadata is reachable from the widget.
 - A file chooser for *opening* a piece (New/Save/Save As exist; the
@@ -362,14 +384,18 @@ in the original analysis and still hold:
    would be the least debuggable corruption of the story, so it is
    the one most worth a tripwire. `gen/growth.gen` is the demo: an
    lsystem canopy over an evolving bass.
-2. *Interactive evolution* — the user is the fitness function. The only
-   feedback channel today is a param ("rate the last phrase 0–5" as a
-   FLOAT the panel exposes), which works but is clunky: params are
-   continuous knobs, and selection is an event. A first-class fix is a
-   small one: an optional `composer_input(state, event)` entry point,
-   fed by the host from UI gestures (including clicks on the plugin's
-   own `composer_draw` area, which is currently draw-only). Same
-   pattern as param_changed: optional export, host checks for it.
+2. *Interactive evolution* — the user is the fitness function. The
+   entry point this asked for now exists: `composer_input` is landed,
+   with the same pattern as param_changed (optional export, host checks
+   for it) and clicks on a plugin's own `composer_draw` area routed into
+   it, which is what this section predicted would be wanted. `gen::life`
+   is what forced it and what proves it — Conway's board is the case
+   where everything interesting is in what you put on it.
+
+   Interactive evolution itself is still unbuilt, but nothing is in its
+   way now: `gen::evolve` would export `composer_input`, draw its
+   population, and take a click on a phrase as the selection event a
+   param could never be.
 3. *Fitness from the sound itself* — judging phenotype (audio) rather
    than genotype (notes). The probe/visual machinery already publishes
    per-window samples to the GUI thread, so the host *could* feed a

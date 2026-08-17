@@ -1785,6 +1785,56 @@ ComposerWindow::presetChanged (const std::string &preset)
         }
 }
 
+/* Ask a stage's module what its touchable state is now, and write it
+ * back through the ordinary param path.
+ *
+ * Every param is offered, and the module answers for the ones it can --
+ * `composer_capture' returns NULL for the rest. That keeps the host from
+ * needing to know which param of which plugin holds a board, and it is
+ * what makes this one button rather than one per plugin.
+ *
+ * Through applyParam, so the splice, the cached doc and the live poke
+ * all happen the way they do for a value typed by hand. Writing the file
+ * behind thcGenEdit's back would be a second writer, and there is one. */
+void
+ComposerWindow::captureStage (size_t ci, size_t si)
+{
+    thcStage *s = liveStage(ci, si);
+
+    if (s == NULL || !s->plugin->hasCapture())
+        return;
+
+    int written = 0;
+
+    for (int pi = 0; pi < s->plugin->paramCount(); pi++)
+    {
+        const std::string text = s->plugin->capture(s->state, pi);
+
+        if (text.empty())
+            continue;
+
+        const thcPlugin::ParamInfo *info = s->plugin->paramInfo(pi);
+
+        if (info == NULL)
+            continue;
+
+        /* Quoted, because everything a plugin can hand back this way is
+           a string param -- a board, an axiom, a rule set. A numeric
+           param has nothing to capture that a knob does not already
+           say. */
+        if (info->type != THC_PARAM_STRING)
+            continue;
+
+        applyParam(ci, si, info->name, "\"" + text + "\"");
+        written++;
+    }
+
+    if (written)
+        status_->set_text("captured into the piece; Save to keep it");
+    else
+        status_->set_text("this stage had nothing to capture");
+}
+
 void
 ComposerWindow::buildChainSelection (size_t ci)
 {
@@ -1892,6 +1942,26 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
     else
         selBox_->append(*manage(new Gtk::Label(
             "module '" + stage.plugin + "' is not installed")));
+
+    /* A module whose picture can be clicked can also be asked what its
+       picture currently is. Offered here rather than on the canvas
+       because this is where every other edit to a stage is made, and
+       because capturing is deliberately a separate act from clicking: a
+       click is a performance and changes what is playing, and writing it
+       into the file is a decision about the piece. */
+    if (found != composers_.end() && found->second->hasCapture())
+    {
+        Gtk::Button *cap = manage(new Gtk::Button("Capture to file"));
+
+        cap->set_tooltip_text("Write what this stage is playing now back "
+                              "into the piece -- double-click the stage on "
+                              "the canvas to change it first");
+
+        cap->signal_clicked().connect(
+            [this, ci, si] { captureStage(ci, si); });
+
+        selBox_->append(*cap);
+    }
 
     Gtk::Button *rm = manage(new Gtk::Button("Remove stage"));
     int idx = (int)si;

@@ -195,6 +195,49 @@ typedef struct {
    re-arms the composer. */
 #define THC_NEVER (-1.0)
 
+/* ---- input ------------------------------------------------------------ */
+
+/* A gesture the host is passing on, for composers whose state is worth
+ * touching directly.
+ *
+ * COMPOSITION_HANDOFF.md §7 argued for this twice and named the same
+ * motivating case both times: `composer_draw' is draw-only, and the
+ * things it draws -- a CA's grid, a Life board, a Euclid ring -- are
+ * exactly the things a person wants to reach into. Interactive
+ * evolution wants it too (the user as the fitness function), and a
+ * param is a poor substitute: params are continuous knobs, and
+ * selection is an event.
+ *
+ * The coordinates are the ones composer_draw was handed, in the same
+ * space and the same units, so a plugin maps a click by inverting the
+ * arithmetic it already wrote to draw with. `w' and `h' come along
+ * because the draw's size is the host's business and can change between
+ * one frame and the next -- an enlarged view is the same draw at a
+ * different size, and a plugin that cached the last w it drew at would
+ * be wrong exactly when someone was looking closely.
+ *
+ * THREADING is the GUI thread, like everything else in this layer, so
+ * input may touch instance state directly and tick() will see it.
+ *
+ * DETERMINISM has the same boundary live MIDI has, and for the same
+ * reason: a replay is exact only if the inputs are. A piece nobody
+ * clicked replays from its seed; a piece somebody clicked replays given
+ * the same clicks, which is what the gate feeds it. That is not a flaw,
+ * it is what "replay the piece" honestly means once a person is part of
+ * the piece. */
+typedef enum {
+    THC_IN_PRESS = 0,    /* button went down at (x, y)                  */
+    THC_IN_DRAG,         /* still down, now at (x, y)                   */
+    THC_IN_RELEASE
+} thcInputType;
+
+typedef struct {
+    thcInputType type;
+    double       x, y;      /* in composer_draw's coordinates           */
+    double       w, h;      /* the size that draw was last given         */
+    int          button;    /* 1 primary, 3 secondary                   */
+} thcInputEvent;
+
 #ifdef __cplusplus
 }
 #endif
@@ -259,6 +302,29 @@ extern "C" {
        piano roll is the host's job and needs nothing from the plugin. */
     THINK_PLUGIN_API void composer_draw (void *state, cairo_t *cr,
                                          double w, double h);
+
+    /* Optional. A gesture on the area composer_draw painted, in the
+       coordinates it painted them in. Exporting this is what makes a
+       visualizer a control; a plugin without one is drawn and not
+       touched, exactly as before. */
+    THINK_PLUGIN_API void composer_input (void *state,
+                                          const thcInputEvent *ev);
+
+    /* Optional, and the other half of composer_input: what the plugin's
+       touchable state currently is, as text a .gen file can carry.
+     *
+     * Deliberately not the opaque serialize/deserialize blob §7
+     * sketched for a trained Markov table. This returns the value of one
+     * of the plugin's *own params* -- `index' says which -- so a host
+     * writes it back through the ordinary param path and the file stays
+     * something a person can read and edit. It works because the state
+     * worth clicking is usually small and already has a spelling: a Life
+     * board is a pattern, and a pattern is a string.
+     *
+     * The returned pointer belongs to the plugin and must stay valid
+     * until the next call. Return NULL for a param that has nothing to
+     * capture. */
+    THINK_PLUGIN_API const char *composer_capture (void *state, int index);
 
     THINK_PLUGIN_API void composer_destroy (void *state);
 }

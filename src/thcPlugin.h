@@ -81,6 +81,17 @@ public:
     bool hasParamChanged (void) const { return paramChanged_ != NULL; }
     bool hasDraw (void) const { return draw_ != NULL; }
 
+    /* A module that exports composer_input is one whose picture is also
+       a control: the canvas routes clicks into it. Without one the draw
+       stays what it always was, something to look at. */
+    bool hasInput (void) const { return input_ != NULL; }
+
+    /* ...and one that can hand its touchable state back as text a .gen
+       file can carry, so a board someone clicked into shape can be
+       saved. See composer_capture in thcomposer.h for why this is a
+       param value rather than an opaque blob. */
+    bool hasCapture (void) const { return capture_ != NULL; }
+
     int paramCount (void) const { return (int)params_.size(); }
 
     /* NULL for an index out of range. */
@@ -105,6 +116,12 @@ public:
     void   receive (void *state, const thcEvent *ev, thcEventSink *out);
     void   paramChanged (void *state, int index);
     void   draw (void *state, cairo_t *cr, double w, double h);
+    void   input (void *state, const thcInputEvent *ev);
+
+    /* The plugin's current value for param `index', as text, or "" when
+       it has nothing to say. Copied out rather than handed on: the ABI
+       promises the pointer only until the next call. */
+    string capture (void *state, int index);
 
 private:
     /* Copying would give two owners of one dlopen handle. */
@@ -128,6 +145,8 @@ private:
                                        thcEventSink *);
     typedef void   (*ComposerParamChanged) (void *, int);
     typedef void   (*ComposerDraw)    (void *, cairo_t *, double, double);
+    typedef void   (*ComposerInput)   (void *, const thcInputEvent *);
+    typedef const char *(*ComposerCapture) (void *, int);
     typedef void   (*ComposerDestroy) (void *);
 
     string path_;
@@ -145,6 +164,8 @@ private:
     ComposerReceive      receive_;
     ComposerParamChanged paramChanged_;
     ComposerDraw         draw_;
+    ComposerInput        input_;
+    ComposerCapture      capture_;
     ComposerDestroy      destroy_;
 };
 

@@ -65,6 +65,7 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "gthSignal.h"
+#include "gui/ComposerCanvas.h"
 #include "gui/ComposerWindow.h"
 
 /* The five application-wide signals gthSignal.h declares, defined here
@@ -88,6 +89,7 @@ public:
 
     using ComposerWindow::editBtn_;
     using ComposerWindow::kbdBtn_;
+    using ComposerWindow::canvas_;
 };
 
 static int checks = 0;
@@ -191,6 +193,36 @@ run (const std::string &pluginPath, const char *genFile)
     pump(4);
 
     ok("kbd input toggles with the edit panel open");
+
+    /* The enlarged view, which is a canvas mode and therefore a place
+       to get stuck. Entered, left by Escape, entered again, left by a
+       click on the surround -- a mode with one way in and no way out is
+       the failure this is here for, not anything about how it looks. */
+    {
+        ComposerCanvas::Selection sel;
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = 0;
+        sel.index = 0;
+
+        win->canvas_->setEnlarged(sel);
+        pump(4);
+
+        if (win->canvas_->enlarged().kind ==
+            ComposerCanvas::Selection::NONE)
+            fail("a stage could be enlarged");
+        else
+            ok("a stage fills the canvas when asked to");
+
+        win->canvas_->setEnlarged(ComposerCanvas::Selection());
+        pump(4);
+
+        if (win->canvas_->enlarged().kind !=
+            ComposerCanvas::Selection::NONE)
+            fail("the enlarged view can be left");
+        else
+            ok("the enlarged view can be left again");
+    }
 
     delete win;
     pump(2);

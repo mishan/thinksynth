@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Ten `.gen` files, each of which is meant to be read as well as heard. Between
+Eleven `.gen` files, each of which is meant to be read as well as heard. Between
 them they exercise every composer plugin in the tree and every ability the
 `.gen` language has, and each one is built around a single idea rather than
 around being impressive. The comment at the top of each file is the lesson;
@@ -30,6 +30,7 @@ typo in it.
 | piece | the idea |
 | --- | --- |
 | [`hands.gen`](hands.gen) | **Live input.** Nothing generates anything: every chain is fed by `input midi`, so hardware MIDI and the on-screen Keyboard (toolbar → **Kbd input**) drive an arpeggiator, a corrector, and a slow shadow. The piece that shows why `THC_EV_NOTEOFF` exists. |
+| [`glider.gen`](glider.gen) | **A picture that is a control.** Conway's Game of Life, played. Double-click a stage on the canvas to fill the window with its board, then click cells while it runs — the next generation takes whatever you leave. **Capture to file** writes the board you made back into the piece. |
 
 ## Algorithms
 
@@ -52,12 +53,14 @@ typo in it.
 Plugins: `eno_line` (airports, weather), `euclid` (pulse, loosen, tide),
 `quantize` (airports, hands, loosen), `humanize` (loosen, fern), `walk`
 (airports, weather), `arp` (hands), `lsystem` (fern, growth, loom), `markov`
-(loom), `ca` (loom), `evolve` (growth), `morph` (tide), `breed` (bloom).
+(loom), `ca` (loom), `life` (glider), `evolve` (growth), `morph` (tide),
+`breed` (bloom).
 
 Language: `tempo` and `beats` (pulse), free-running seconds (airports,
 weather), `scale` (airports, hands, loosen, weather), `preset` (tide, bloom),
 `@knob` bindings on floats (airports, weather) and on whole numbers (pulse,
-hands), `input midi` (hands), note sinks, named chanarg sinks (airports,
+hands), `input midi` (hands), clicks on a
+plugin's draw (glider), note sinks, named chanarg sinks (airports,
 weather), the `chanarg = "*"` wildcard (tide, bloom), fan-out to several sinks
 (weather, tide), pinned and unpinned seeds (all of them, both ways).
 
