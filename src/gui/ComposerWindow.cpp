@@ -1105,18 +1105,45 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
 
         case ValueShape::WORD:
         {
-            /* A scale reference, or a preset's name -- and the same
-               unbind QUOTED needs, for the same shadowing reason.
-             *
-             * Only the scale half can be poked. Resolving a preset means
-             * having the piece's preset table, and thcGenEdit::describe
-             * does not collect one yet; so a preset reference is spliced
-             * into the file and takes effect on the next load, which is
-             * the same bargain every structural edit already makes. The
-             * loop below simply finds no scale by that name and leaves
-             * the live value alone, which is the right thing to do with
-             * a name it cannot resolve. */
+            /* A scale's name or a preset's -- the two kinds of named
+               object a param can refer to, spelled identically. Which
+               one it is comes from the param's type, not from the word.
+               And the same unbind QUOTED needs, for the same shadowing
+               reason. */
             sched_->bindKnob(s, idx, NULL);
+
+            const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
+
+            if (pi != NULL && pi->type == THC_PARAM_PRESET)
+            {
+                for (size_t i = 0; i < doc_.presets.size(); i++)
+                {
+                    if (doc_.presets[i].name != v.text)
+                        continue;
+
+                    /* The same "name=value,..." the loader hands a
+                       plugin, built the same way, so a preset changed
+                       through the panel and one read from the file are
+                       indistinguishable to the composer. */
+                    std::ostringstream vec;
+
+                    for (size_t k = 0;
+                         k < doc_.presets[i].values.size(); k++)
+                    {
+                        std::string num;
+
+                        thcGenEdit::format(doc_.presets[i].values[k].value,
+                                           num);
+
+                        vec << (k ? "," : "")
+                            << doc_.presets[i].values[k].name << "=" << num;
+                    }
+
+                    s->params.setString(idx, vec.str());
+                }
+
+                break;
+            }
 
             for (size_t i = 0; i < doc_.scales.size(); i++)
                 if (doc_.scales[i].name == v.text)
@@ -1186,6 +1213,7 @@ ComposerWindow::rebuildEditor (void)
     editorBox_.append(*buildPieceSection());
     editorBox_.append(*buildKnobsSection());
     editorBox_.append(*buildScalesSection());
+    editorBox_.append(*buildPresetsSection());
 
     /* The lower half follows the canvas: whatever is selected up there
        is editable down here. */
@@ -1525,6 +1553,223 @@ ComposerWindow::buildScalesSection (void)
     exp->set_expanded(!doc_.scales.empty());
 
     return exp;
+}
+
+/* Presets: a named chanarg vector per block, one spin button per
+ * component.
+ *
+ * Laid out as rows under the preset's name rather than as one text field
+ * of "res=0.4,fmin=0.1", because a preset is the thing a morph travels
+ * between and dragging one component while listening is the whole point.
+ * Every edit is a splice *and* a poke, so the sweep between two presets
+ * changes under the transport rather than at the next load. */
+Gtk::Widget *
+ComposerWindow::buildPresetsSection (void)
+{
+    Gtk::Expander *exp = manage(new Gtk::Expander("Presets"));
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_column_spacing(6);
+    grid->set_row_spacing(4);
+    grid->set_margin(4);
+
+    int row = 0;
+
+    for (size_t i = 0; i < doc_.presets.size(); i++)
+    {
+        const std::string preset = doc_.presets[i].name;
+
+        Gtk::Label *head = manage(new Gtk::Label(preset));
+        Gtk::Button *rmPreset = manage(new Gtk::Button("Remove"));
+
+        head->set_xalign(0);
+        head->set_markup("<b>" + Glib::Markup::escape_text(preset) +
+                         "</b>");
+
+        rmPreset->signal_clicked().connect(
+            [this, preset]
+            {
+                std::string why;
+
+                if (editOk(thcGenEdit::removePreset(workPath_, preset,
+                                                    why), why))
+                    structuralReload();
+            });
+
+        grid->attach(*head, 0, row, 2, 1);
+        grid->attach(*rmPreset, 3, row);
+        row++;
+
+        for (size_t k = 0; k < doc_.presets[i].values.size(); k++)
+        {
+            const std::string comp = doc_.presets[i].values[k].name;
+
+            Gtk::Label *lbl = manage(new Gtk::Label("    " + comp));
+            Gtk::SpinButton *spin = manage(new Gtk::SpinButton(
+                Gtk::Adjustment::create(doc_.presets[i].values[k].value,
+                                        -1e6, 1e6, 0.01), 0, 4));
+            Gtk::Button *rm = manage(new Gtk::Button("-"));
+
+            lbl->set_xalign(0);
+            spin->set_hexpand(true);
+
+            spin->signal_value_changed().connect(
+                [this, preset, comp, spin]
+                {
+                    std::string why;
+
+                    if (editOk(thcGenEdit::setPresetValue(
+                            workPath_, preset, comp, spin->get_value(),
+                            why), why))
+                        presetChanged(preset);
+                });
+
+            rm->signal_clicked().connect(
+                [this, preset, comp]
+                {
+                    std::string why;
+
+                    if (editOk(thcGenEdit::removePresetValue(
+                            workPath_, preset, comp, why), why))
+                        structuralReload();
+                });
+
+            grid->attach(*lbl, 0, row);
+            grid->attach(*spin, 1, row, 2, 1);
+            grid->attach(*rm, 3, row);
+            row++;
+        }
+
+        Gtk::Entry *newComp = manage(new Gtk::Entry());
+        Gtk::Button *addComp = manage(new Gtk::Button("Add value"));
+
+        newComp->set_placeholder_text("chanarg");
+        newComp->set_max_width_chars(10);
+
+        addComp->signal_clicked().connect(
+            [this, preset, newComp]
+            {
+                std::string why;
+
+                if (editOk(thcGenEdit::addPresetValue(
+                        workPath_, preset, newComp->get_text(), 0.5, why),
+                        why))
+                    structuralReload();
+            });
+
+        grid->attach(*newComp, 1, row);
+        grid->attach(*addComp, 2, row);
+        row++;
+    }
+
+    /* A new preset arrives with one component, because one with none
+       does not load and every state written here has to. */
+    Gtk::Entry *newName = manage(new Gtk::Entry());
+    Gtk::Entry *firstComp = manage(new Gtk::Entry());
+    Gtk::Button *add = manage(new Gtk::Button("Add preset"));
+
+    newName->set_placeholder_text("name");
+    newName->set_max_width_chars(8);
+    firstComp->set_placeholder_text("first chanarg");
+    firstComp->set_hexpand(true);
+
+    add->signal_clicked().connect(
+        [this, newName, firstComp]
+        {
+            std::vector<thcGenEdit::PresetValue> vals;
+            thcGenEdit::PresetValue v;
+
+            v.name = firstComp->get_text();
+            v.value = 0.5;
+            vals.push_back(v);
+
+            std::string why;
+
+            if (editOk(thcGenEdit::addPreset(workPath_,
+                    newName->get_text(), vals, why), why))
+                structuralReload();
+        });
+
+    grid->attach(*newName, 0, row);
+    grid->attach(*firstComp, 1, row);
+    grid->attach(*add, 2, row);
+
+    exp->set_child(*grid);
+    exp->set_expanded(!doc_.presets.empty());
+
+    return exp;
+}
+
+/* A preset's value changed: re-resolve it into every live stage that
+ * names it, so the piece keeps playing and hears the edit.
+ *
+ * A value edit splices and pokes; only a structural one reloads. A
+ * preset's *components* are its value, so moving one is a value edit --
+ * which is what makes dragging a component while a morph is sweeping
+ * behave the way dragging a knob does. */
+void
+ComposerWindow::presetChanged (const std::string &preset)
+{
+    setDirty(true);
+
+    std::string why;
+    thcGenEdit::Doc fresh;
+
+    if (thcGenEdit::describe(workPath_, fresh, why) != thcGenEdit::OK)
+        return;
+
+    doc_.presets = fresh.presets;
+
+    std::string vecText;
+
+    for (size_t i = 0; i < doc_.presets.size(); i++)
+    {
+        if (doc_.presets[i].name != preset)
+            continue;
+
+        for (size_t k = 0; k < doc_.presets[i].values.size(); k++)
+        {
+            std::string num;
+
+            thcGenEdit::format(doc_.presets[i].values[k].value, num);
+
+            vecText += (k ? "," : "");
+            vecText += doc_.presets[i].values[k].name + "=" + num;
+        }
+    }
+
+    if (vecText.empty())
+        return;
+
+    /* Every stage naming it, in every chain: one preset can be the
+       destination of several morphs at once, and half of them hearing
+       the edit would be worse than none. */
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+        for (size_t si = 0; si < doc_.chains[ci].stages.size(); si++)
+        {
+            thcStage *s = liveStage(ci, si);
+
+            if (s == NULL)
+                continue;
+
+            const thcGenEdit::Stage &st = doc_.chains[ci].stages[si];
+
+            for (size_t pi = 0; pi < st.params.size(); pi++)
+            {
+                if (st.params[pi].valueText != preset)
+                    continue;
+
+                const int idx = s->plugin->paramIndex(st.params[pi].name);
+
+                if (idx < 0)
+                    continue;
+
+                const thcPlugin::ParamInfo *info = s->plugin->paramInfo(idx);
+
+                if (info != NULL && info->type == THC_PARAM_PRESET)
+                    s->params.setString(idx, vecText);
+            }
+        }
 }
 
 void
@@ -2005,8 +2250,7 @@ ComposerWindow::addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
                 "Note names, or a scale's name; Enter applies");
         else if (pi->type == THC_PARAM_PRESET)
             entry->set_tooltip_text(
-                "The name of a preset this piece declares; applies on the "
-                "next load");
+                "The name of a preset this piece declares; Enter applies");
         else
             entry->set_tooltip_text("Enter applies");
 

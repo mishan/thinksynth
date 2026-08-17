@@ -114,6 +114,11 @@ protected:
     Gtk::Widget *buildPieceSection (void);
     Gtk::Widget *buildKnobsSection (void);
     Gtk::Widget *buildScalesSection (void);
+    Gtk::Widget *buildPresetsSection (void);
+
+    /* A preset's value changed: re-resolve it into every stage naming
+       it. A value edit, not a structural one -- see the definition. */
+    void presetChanged (const std::string &preset);
 
     /* The selection-driven half, rebuilt whenever the canvas selection
        changes (or the piece reloads under it). */

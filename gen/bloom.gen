@@ -1,0 +1,79 @@
+# bloom.gen -- the instrument searching for itself.
+#
+# tide.gen travels a straight line between two presets. This one does not
+# know where it is going: `gen::breed' keeps a population of chanarg
+# vectors, breeds them each cycle by tournament selection and single-point
+# crossover, and plays the champion. What you hear is the search.
+#
+# The corridor it searches is the piece's own doing. A gene may travel
+# between the values `closed' and `open' give it, widened by `spread', and
+# nothing can invent a component neither preset names -- the chanargs a
+# patch declares are the whole of what a composer may reach, and here that
+# is arithmetic rather than a rule anyone has to remember.
+#
+# The fitness is taste with a number on it. `aim' pulls toward `open',
+# `drift' rewards being unlike the timbre just played, and `reach' mildly
+# rewards using the corridor instead of huddling at one end. Turn drift to
+# zero and the instrument settles on one timbre and stays there, which is
+# also a choice; turn aim to zero and it wanders the corridor with no
+# destination at all.
+#
+# Watch the stage box on the canvas: the faint marks are the population,
+# the bright one is the champion. Them crowding to a point and scattering
+# again when drift pulls IS the algorithm.
+#
+# The seed is pinned, so the whole search replays. Unpin it to let the
+# instrument find somewhere else.
+#
+# Aim channel 2 at amb01.dsp, which declares res, fmin and fmax.
+
+name "Bloom";
+author "Misha Nasledov";
+description "A population of timbres, breeding under a piece's own taste.";
+
+seed 2711;
+
+@restlessness = 0.6;
+@restlessness.widget = 1;
+@restlessness.min = 0;
+@restlessness.max = 2;
+@restlessness.label = "Restlessness";
+
+scale amin "A2 C3 D3 E3 G3 A3 C4";
+
+preset closed {
+    res  = 0.90;
+    fmin = 0.03;
+    fmax = 0.22;
+};
+
+preset open {
+    res  = 0.28;
+    fmin = 0.20;
+    fmax = 0.96;
+};
+
+chain search {
+    stage g gen::breed {
+        from   = closed;
+        toward = open;
+        population = 24;
+        mutation = 0.14;
+        elites = 2;
+        spread = 0.12;
+        aim    = 1;
+        drift  = @restlessness;
+        reach  = 0.25;
+        period = 5 s;
+    };
+    sink { channel = 2; chanarg = "*"; };
+};
+
+chain under {
+    stage src gen::eno_line {
+        notes = amin;
+        period = 13.3 s; jitter = 3.1 s;
+        prob = 0.75; hold = 11 s; vel = 58; vel_jitter = 5;
+    };
+    sink { channel = 2; };
+};

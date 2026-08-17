@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <cmath>
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
@@ -939,6 +940,24 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     editOk(thcGenEdit::setScale(path, "pent", "C3 D3 E3 G3 A3", why),
            why, "setScale");
 
+    {
+        std::vector<thcGenEdit::PresetValue> vals;
+        thcGenEdit::PresetValue pv;
+
+        pv.name = "res";  pv.value = 0.4;  vals.push_back(pv);
+        pv.name = "fmin"; pv.value = 0.1;  vals.push_back(pv);
+
+        editOk(thcGenEdit::addPreset(path, "dim", vals, why), why,
+               "addPreset");
+    }
+
+    editOk(thcGenEdit::setPresetValue(path, "dim", "res", 0.55, why), why,
+           "setPresetValue");
+    editOk(thcGenEdit::addPresetValue(path, "dim", "fmax", 0.8, why), why,
+           "addPresetValue");
+    editOk(thcGenEdit::removePresetValue(path, "dim", "fmin", why), why,
+           "removePresetValue");
+
     std::vector<std::pair<std::string, std::string> > params;
 
     params.push_back(std::make_pair(std::string("notes"),
@@ -1012,6 +1031,68 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
         thcGenEdit::REFUSED)
         fail("a duplicate chain name was accepted");
 
+    /* The preset guard rails, all three of which exist because the state
+       they would leave behind does not load. */
+    if (thcGenEdit::addPreset(path, "empty",
+            std::vector<thcGenEdit::PresetValue>(), why) !=
+        thcGenEdit::REFUSED)
+        fail("a preset that sets nothing was accepted");
+
+    {
+        std::vector<thcGenEdit::PresetValue> one;
+        thcGenEdit::PresetValue pv;
+
+        pv.name = "res"; pv.value = 0.1; one.push_back(pv);
+
+        if (thcGenEdit::addPreset(path, "dim", one, why) !=
+            thcGenEdit::REFUSED)
+            fail("a duplicate preset name was accepted");
+    }
+
+    /* Unlike a scale, a preset reference cannot be inlined on the way
+       out: the format has no literal form for a chanarg vector. So a
+       preset something still names is refused, and the message says
+       which stage -- "it is used" without "by what" sends the reader
+       through the file. */
+    {
+        std::vector<thcGenEdit::PresetValue> vals;
+        thcGenEdit::PresetValue pv;
+
+        pv.name = "res"; pv.value = 0.9; vals.push_back(pv);
+
+        editOk(thcGenEdit::addPreset(path, "held", vals, why), why,
+               "addPreset held");
+
+        /* `held' sets one thing, so removing it would leave a preset
+           that sets nothing -- which does not load, and every state this
+           editor writes has to. */
+        if (thcGenEdit::removePresetValue(path, "held", "res", why) !=
+            thcGenEdit::REFUSED)
+            fail("removing a preset's last value was not refused");
+
+        std::vector<std::pair<std::string, std::string> > mparams;
+
+        mparams.push_back(std::make_pair(std::string("from"),
+                                         std::string("held")));
+        mparams.push_back(std::make_pair(std::string("to"),
+                                         std::string("dim")));
+
+        editOk(thcGenEdit::addChain(path, "sweep", 4, "m", "gen", "morph",
+                                    mparams, why), why, "addChain morph");
+
+        if (thcGenEdit::removePreset(path, "held", why) !=
+            thcGenEdit::REFUSED)
+            fail("removing a preset a stage still names was not refused");
+        else if (why.find("sweep's stage m") == std::string::npos)
+            fail("the refusal did not say which stage still names it: " +
+                 why);
+
+        editOk(thcGenEdit::removeChain(path, "sweep", why), why,
+               "removeChain sweep");
+        editOk(thcGenEdit::removePreset(path, "held", why), why,
+               "removePreset");
+    }
+
     /* After all of that: every comment intact, and the file loads. */
     std::string after = slurp(path);
     std::vector<std::string> commentsAfter = commentLines(after);
@@ -1054,6 +1135,25 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
 
     if (doc.author != "gencheck")
         fail("the edited author did not read back");
+
+    /* The preset reads back as the vector it now is, in order: `res'
+       edited, `fmin' removed, `fmax' appended at the end rather than in
+       some canonical slot -- a preset's order is its author's. */
+    {
+        const thcGenEdit::Preset *dim = NULL;
+
+        for (size_t i = 0; i < doc.presets.size(); i++)
+            if (doc.presets[i].name == "dim")
+                dim = &doc.presets[i];
+
+        if (dim == NULL)
+            fail("describe did not read the preset back");
+        else if (dim->values.size() != 2 ||
+                 dim->values[0].name != "res" ||
+                 dim->values[0].value != 0.55 ||
+                 dim->values[1].name != "fmax")
+            fail("the edited preset did not read back as edited");
+    }
 
     std::filesystem::remove(path);
 }
@@ -1234,6 +1334,131 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
             fail("a component only one preset names did not hold still: " +
                  std::to_string(held) + " of " + std::to_string(seen) +
                  " emissions were the value it was given");
+    }
+
+    std::filesystem::remove(tmp);
+
+    /* --- the GA over the same vectors --- */
+
+    if (plugins.find("breed") == plugins.end())
+    {
+        fail("the 'breed' module is missing; build the plugins first");
+        return;
+    }
+
+    tmp = thUtil::tempFile("gencheck-breed-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a breed scratch file");
+        return;
+    }
+
+    {
+        /* spread = 0, so the corridor is exactly the interval the two
+           presets span and the bound below is an equality rather than an
+           estimate. `hum' is named by one preset only: it has nowhere to
+           travel and must still be emitted, held at the value it was
+           given. */
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "seed 91;\n"
+            "preset shut { res = 0.9; fmin = 0.05; hum = 0.4; };\n"
+            "preset wide { res = 0.3; fmin = 0.25; };\n"
+            "chain search {\n"
+            "    stage g gen::breed {\n"
+            "        from = shut; toward = wide;\n"
+            "        population = 12; mutation = 0.2; elites = 2;\n"
+            "        spread = 0; aim = 1; drift = 0.5; reach = 0.25;\n"
+            "        period = 0.5 s;\n"
+            "    };\n"
+            "    sink { channel = 7; chanarg = \"*\"; };\n"
+            "};\n";
+    }
+
+    thcScheduler bsched(synth);
+    thcGenLoader bloader(plugins);
+
+    if (!bloader.load(tmp, &bsched))
+    {
+        for (size_t i = 0; i < bloader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", bloader.errors()[i].c_str());
+
+        fail("the breed piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    const std::string bfirst = render(bsched, 20.0, 0.02);
+
+    bsched.reset();
+
+    const std::string bsecond = render(bsched, 20.0, 0.02);
+
+    /* A GA drifting off its seed would be the least debuggable
+       corruption of the replay story, which is why evolve has this gate
+       and why this one does too. */
+    if (bfirst != bsecond)
+        fail("a breed replayed differently; same file, same seed");
+
+    if (bfirst.find("C ") == std::string::npos)
+        fail("the breed emitted nothing at all");
+
+    /* The corridor, which is the whole "declared surface is consent"
+     * argument stated as arithmetic: a gene may travel between what the
+     * two presets give it and no further, and no component neither
+     * preset names can appear. This is the property that stops a search
+     * reaching past what an instrument was offered for. */
+    {
+        bool strayed = false, unknown = false, sawHum = false, humMoved = false;
+
+        std::istringstream lines(bfirst);
+        std::string line;
+
+        while (std::getline(lines, line))
+        {
+            if (line.empty() || line[0] != 'C')
+                continue;
+
+            std::istringstream f(line);
+            std::string kind, name;
+            double at = 0, value = 0;
+            int chan = 0;
+
+            f >> kind >> at >> chan >> name >> value;
+
+            double lo = 0, hi = 0;
+
+            if (name == "res")       { lo = 0.3;  hi = 0.9;  }
+            else if (name == "fmin") { lo = 0.05; hi = 0.25; }
+            else if (name == "hum")
+            {
+                sawHum = true;
+
+                if (fabs(value - 0.4) > 1e-6)
+                    humMoved = true;
+
+                continue;
+            }
+            else { unknown = true; continue; }
+
+            if (value < lo - 1e-6 || value > hi + 1e-6)
+                strayed = true;
+        }
+
+        if (unknown)
+            fail("the breed emitted a component neither preset names");
+
+        if (strayed)
+            fail("a gene travelled outside the corridor the presets "
+                 "declared");
+
+        if (!sawHum)
+            fail("a component only one preset names was never emitted");
+
+        if (humMoved)
+            fail("a component with nowhere to travel moved anyway");
     }
 
     std::filesystem::remove(tmp);

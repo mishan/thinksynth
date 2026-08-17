@@ -568,13 +568,49 @@ wildcard routing, the exact endpoints and replay; it also grew a corpus
 sweep, because until now nothing loaded the shipped pieces other than
 the one it was handed.
 
-Still open in this tier, and unchanged: populations of chanarg vectors
-under crossover, mutation and elitism — everything `gen::evolve` does to
-phrases applies verbatim to timbre, but the fitness function is what
-makes it worth building, and that is staging step 5's shadow synth.
-Editing presets through `thcGenEdit` is also not done: the editor
-preserves them like anything else it does not know, and add/set/remove
-operations are their own commit.
+The second half of the tier is `gen::breed`, and it is `gen::evolve`
+pointed at a vector of knobs instead of a vector of degrees: a
+population, tournament selection, single-point crossover, per-gene
+mutation, elites carried unchanged, and the champion *played* every
+cycle. The fitness is taste with a number on it and says so — `aim`
+pulls toward a target preset, `drift` rewards being unlike the timbre
+just played (evolve calls the same term `boredom`, for the same reason:
+without it a GA finds a local optimum in a minute and holds it forever),
+`reach` mildly rewards using the corridor rather than huddling at one
+end.
+
+The one design question that did not carry over from `evolve` is where
+a timbre genome's bounds come from. A phrase's genes are degrees on a
+ladder the piece hands over; a timbre's genes are *knobs on somebody's
+instrument*, and a search free to drive them anywhere would be reaching
+past what the patch declared. So the corridor is the piece's own
+presets: each component travels between the values `from` and `toward`
+give it, widened by `spread`, and a component neither preset mentions
+cannot be invented. That is §9's first principle — the declared surface
+is consent — arriving as arithmetic rather than as a rule someone has to
+remember, and gencheck asserts it directly by checking that no emitted
+value leaves the interval and no unnamed component appears.
+
+Audio-feature fitness is still staging step 5's shadow synth, and
+deliberately so. What `breed` needs to become that is a different
+`fitness()` and nothing else, which is most of the argument for having
+built it this way first.
+
+`thcGenEdit` reads and writes presets now: `addPreset`,
+`setPresetValue`, `addPresetValue`, `removePresetValue`, `removePreset`,
+spliced by span like everything else, with the guard rails the format
+implies — a preset that sets nothing does not load, so no operation may
+leave one, and a preset something still names is refused rather than
+removed. That last one is where a preset differs from a scale: a scale's
+references are inlined as its literal note list on the way out, and a
+chanarg vector has no literal form to inline, on purpose. So the choice
+was refuse or silently break the file. The Edit panel draws a spin
+button per component, and moving one is a *value* edit — spliced and
+poked into every live stage naming that preset — so a component can be
+dragged while a morph is sweeping through it.
+
+Tier 2 is closed. `gen/tide.gen` travels between two presets;
+`gen/bloom.gen` searches for one.
 
 *Tier 3 — the graph as genome.* The instrument's synthesis topology
 itself becomes the evolving material. This sounds far-fetched until the
@@ -646,13 +682,16 @@ and the shared lexer stop being hygiene and become the runway.
    instruments.
 3. Presets in the language; a `gen::morph` transformer (writable even
    before this, better after) — DONE, together with the wildcard
-   chanarg sink the sketch had not noticed was needed. See tier 2
-   above.
+   chanarg sink the sketch had not noticed was needed, the editor
+   operations presets turned out to need, and `gen::breed`, the GA over
+   chanarg vectors. Tier 2 above is closed; what is left of it is the
+   audio-feature fitness at step 5.
 4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
    program-change lane on the roll.
-5. Shadow-synth fitness service + `composer_input` (§7's pending item);
-   chanarg-genome GA — timbres evolving under audio-feature fitness
-   while the piece plays.
+5. Shadow-synth fitness service + `composer_input` (§7's pending item).
+   The chanarg-genome GA itself is done (`gen::breed`, tier 2); what
+   this step adds is judging the *sound* rather than the vector, which
+   for `breed` is one function replaced and nothing else moved.
 6. Sections and meta chains; then, if the appetite is real, graph
    mutation constrained by nodemodel.
 

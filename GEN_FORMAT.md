@@ -139,6 +139,14 @@ is the whole reason the noun exists.
 This is the limit of a composer's reach into an instrument: the args the patch
 chose to declare, and no deeper. See `COMPOSITION_HANDOFF.md` §9.
 
+Two composers take presets today, and they are the two halves of tier 2.
+`gen::morph` travels the line between two of them. `gen::breed` does not know
+where it is going: it keeps a population of chanarg vectors and breeds them,
+and the corridor it may search is the interval the named presets span, widened
+by its `spread` param. A component neither preset mentions cannot be invented,
+and a component only one of them names has nowhere to travel — so the sentence
+above is arithmetic in that plugin rather than a rule someone has to remember.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of
@@ -228,6 +236,17 @@ stage, a new chain) contains:
   defaults. A `.gen` should survive a plugin's defaults changing — this is
   the lesson of `noargs/`.
 - Knob bindings round-trip as `@name`, never as the knob's current value.
+- A preset reference round-trips as the preset's bare name. There is no
+  literal form to fall back on, so a writer that could not name it would have
+  nothing to write.
+- A preset's components stay in the order its author wrote them, and a new one
+  is appended rather than filed into a canonical slot. The vector is the point,
+  and reshuffling someone's file into the order this writer prefers is an edit
+  nobody asked for — the same rule the `.dsp` writer follows for `@x.min`.
+- A preset that sets nothing does not load, so no editor operation may leave
+  one: removing the last component is refused, and a new preset arrives with at
+  least one. Removing a preset something still names is refused too, and says
+  which stage — unlike a scale, there is no literal to inline in its place.
 - `seed` is written if and only if the user pinned it. A generated file with
   a seed the user never chose silently freezes a piece that was meant to
   breathe.
