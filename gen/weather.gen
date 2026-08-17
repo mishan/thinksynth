@@ -1,64 +1,119 @@
 # weather.gen -- nothing here plays a note on purpose.
 #
-# Four of the five chains emit no pitches at all. They are random walks,
-# pointed at knobs: the filter opens and closes over minutes, the
-# resonance wanders under it, the cutoff floor breathes on a period that
-# shares no factor with either. What you hear is one very simple pad
-# being weathered.
+# Four chains emit no pitches at all. They are random walks pointed at
+# knobs: the channel's own level swells and falls, and -- if the patch
+# declares them -- a filter opens and closes underneath on periods that
+# share no factor with it. What you hear is one small pad being
+# weathered.
 #
-# This is the plainest form of the thing tide.gen and bloom.gen do with
+# This is the plainest form of what tide.gen and bloom.gen do with
 # presets. A walk emits a bare number and does not know or care which
-# knob it lands on -- routing belongs to the piece, so the *sink* names
-# the target, and pointing the same walk somewhere else is a one-word
-# edit. Presets exist for when a composer wants to move several knobs at
-# once as a vector; a single knob wants nothing more than this.
+# knob it lands on; routing belongs to the piece, so the *sink* names the
+# target, and pointing a walk somewhere else is a one-word edit. Presets
+# exist for moving several knobs at once as a vector. A single knob wants
+# nothing more than this.
+#
+# READ THIS BEFORE POINTING A WALK AT SOMETHING NEW. A chanarg's range
+# belongs to the patch, not to the composer, and they do not all run 0 to
+# 1. `amp' -- the channel level every patch has, whatever else it
+# declares -- runs 0 to 127 and starts at 30. A walk written
+# `min = 0.2; max = 0.9;' aimed at that does not make the channel quiet,
+# it makes it silent, and it goes on doing so every time it fires, which
+# is worse than a mistake you can undo. The `swell' chain below is
+# written in amp's numbers and says so; the filter chains are written in
+# theirs. Nothing in the engine can catch this for you -- 0.9 is a
+# perfectly legal amplitude -- but the piano roll's chanarg strip draws
+# each value against its arg's declared range, so a walk in the wrong
+# units sits pinned to the floor of the strip and never moves. That is
+# what to look for.
 #
 # The walk reflects off its bounds rather than clamping, so it does not
-# stick to an edge the way a clamped walk does, and the three periods are
-# deliberately incommensurate -- 17, 23.5 and 31.7 seconds -- so the
-# three curves never line up twice. That is airports.gen's trick applied
-# to timbre instead of to melody.
+# stick to an edge the way a clamped walk does, and the periods are
+# deliberately incommensurate -- 7.3, 11, 13.7 and 17.9 seconds -- so the
+# curves never line up twice. That is airports.gen's trick applied to
+# timbre instead of to melody.
 #
-# The Weather knob scales how far every walk may step, so one slider runs
-# from "almost still" to "restless" across all three at once. That is a
-# knob bound into three stages, which is what a live binding is for: the
-# param store resolves it, and nothing in the plugin knows.
+# The Weather knob scales how far the three filter walks may step, so one
+# slider runs from "almost still" to "restless" across all of them at
+# once. `swell' keeps its own step because its knob is in different
+# units, which is the same point again.
 #
 # The seed is pinned, so the weather repeats. Unpin it for a different
 # afternoon each time.
 #
-# Aim channel 1 at amb01.dsp, which declares res, fmin and fmax. Any
-# patch that declares none of them will simply play the pad dry: the
-# chanargs a patch exposes are the whole of what a piece may reach.
+# Channel 1 is the whole piece, and it works with any patch: `amp' is
+# always there. Load amb01.dsp on it as well and the three filter chains
+# come alive too -- res, fmin and fmax are its. A patch that declares
+# none of them simply ignores those three chains: the chanargs a patch
+# exposes are the whole of what a piece may reach.
 
 name "Weather";
 author "Misha Nasledov";
-description "Three random walks, one pad, and no notes worth mentioning.";
+description "Four random walks, one small pad, and no notes worth mentioning.";
 
 seed 5090;
 
-@weather = 0.05;
+@weather = 0.06;
 @weather.widget = 1;
 @weather.min = 0;
 @weather.max = 0.3;
 @weather.label = "Weather";
 
-scale dmin "D3 E3 F3 A3 C4 D4";
+scale dmin "D3 E3 F3 A3 C4 D4 E4 F4";
 
-chain pad {
+# Dense enough to hear the weather happening to it. Three lines at
+# incommensurate periods, the way airports.gen builds a texture out of
+# voices that never quite line up. One voice on a fifteen-second period
+# is a piece you have to wait for, and this one is about what happens to
+# the sound rather than about the notes.
+chain pad_low {
     stage src gen::eno_line {
-        notes = dmin;
-        period = 14.5 s; jitter = 3.5 s;
-        prob = 0.7; hold = 13 s; vel = 54; vel_jitter = 6;
+        notes = "D3 A3";
+        period = 3.1 s; jitter = 0.7 s;
+        prob = 0.85; hold = 5 s; vel = 58; vel_jitter = 6;
     };
     sink { channel = 1; };
 };
 
+chain pad_mid {
+    stage src gen::eno_line {
+        notes = dmin;
+        period = 2.3 s; jitter = 0.9 s;
+        prob = 0.8; hold = 4 s; vel = 52; vel_jitter = 8;
+    };
+    sink { channel = 1; };
+};
+
+chain pad_high {
+    stage src gen::eno_line {
+        notes = "A4 C5 D5 F5";
+        period = 4.7 s; jitter = 1.3 s;
+        prob = 0.6; hold = 6 s; vel = 44; vel_jitter = 6;
+    };
+    sink { channel = 1; };
+};
+
+# The one chain that works on any patch. 12 to 46 out of amp's 0 to 127,
+# so the swell is clearly audible and the channel never disappears; 30 is
+# where a freshly loaded patch sits, so this breathes around it. `step'
+# is in the same units -- 1.5 of 127 is a small move, where 1.5 of a
+# filter cutoff would be the whole range and back again.
+chain swell {
+    stage src gen::walk {
+        min = 12; max = 46;
+        step = 1.5;
+        period = 7.3 s;
+    };
+    sink { channel = 1; chanarg = "amp"; };
+};
+
+# The three below need a patch that declares res, fmin and fmax --
+# amb01.dsp does. On anything else they run, deliver, and are ignored.
 chain ceiling {
     stage src gen::walk {
         min = 0.25; max = 0.98;
         step = @weather;
-        period = 17 s;
+        period = 11 s;
     };
     sink { channel = 1; chanarg = "fmax"; };
 };
@@ -67,7 +122,7 @@ chain floor {
     stage src gen::walk {
         min = 0.01; max = 0.22;
         step = @weather;
-        period = 23.5 s;
+        period = 13.7 s;
     };
     sink { channel = 1; chanarg = "fmin"; };
 };
@@ -76,21 +131,7 @@ chain ring {
     stage src gen::walk {
         min = 0.15; max = 0.95;
         step = @weather;
-        period = 31.7 s;
+        period = 17.9 s;
     };
     sink { channel = 1; chanarg = "res"; };
-};
-
-# One walk, two destinations. Every event leaving the chain is delivered
-# to each sink, so the same drift lands on two patches at once -- which is
-# what fan-out is for, and why the type filtering lives in the sink
-# rather than in the stage.
-chain shared {
-    stage src gen::walk {
-        min = 0.3; max = 0.9;
-        step = @weather;
-        period = 41.3 s;
-    };
-    sink { channel = 1; chanarg = "amp"; };
-    sink { channel = 2; chanarg = "amp"; };
 };

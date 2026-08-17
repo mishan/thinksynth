@@ -7,7 +7,9 @@ around being impressive. The comment at the top of each file is the lesson;
 this is the index.
 
 Open one with the Composer window's **Open** button, press **Play**, and aim
-the channels its header names at patches you like. Channels are 1–16 here, the
+the channels its header names at patches you like. The three timbre pieces
+also move `amp`, the one chanarg every channel has, so they do something
+audible whatever is loaded; their filter components need `amb01.dsp`. Channels are 1–16 here, the
 same numbers the main window's patch tabs show.
 
 Every piece is gated: `scripts/gencheck` loads all of them on every build, and
@@ -41,7 +43,7 @@ typo in it.
 
 | piece | the idea |
 | --- | --- |
-| [`weather.gen`](weather.gen) | **Generative timbre, plainly.** Four random walks pointed at knobs and one very simple pad. The walk emits a number and does not know where it lands; the sink names the target. |
+| [`weather.gen`](weather.gen) | **Generative timbre, plainly.** Four random walks pointed at knobs, over a pad of three lines. The walk emits a number and does not know where it lands; the sink names the target. Read its header before pointing a walk at something new — a chanarg's range belongs to the patch, and `amp` runs 0–127. |
 | [`tide.gen`](tide.gen) | **Presets, and the line between two.** `gen::morph` travels between two named chanarg vectors — as a generator on its own clock, and as a transformer where each note schedules its own sweep. |
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
 

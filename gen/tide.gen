@@ -18,10 +18,11 @@
 # half shows the sweep coming. `swell' and `settle' are a two-second
 # gesture rather than a forty-second one.
 #
-# Aim channel 3 at amb01.dsp, which declares res, fmin and fmax. A patch
-# that declares none of them will simply hear nothing: the chanargs a
-# patch exposes are the whole of what a piece may reach, deliberately.
-# See COMPOSITION_HANDOFF.md, section 9.
+# Channel 3 works with any patch -- both presets move `amp', which every
+# channel has. Load amb01.dsp on it as well and res, fmin and fmax come
+# alive too. A patch that declares none of them ignores those components:
+# the chanargs a patch exposes are the whole of what a piece may reach,
+# deliberately. See COMPOSITION_HANDOFF.md, section 9.
 
 name "Tide";
 author "Misha Nasledov";
@@ -38,21 +39,33 @@ seed 4412;
 
 scale fmin_scale "F2 Ab2 C3 Db3 Eb3 F3 Ab3";
 
+# `amp' is in both so the morph is audible on any patch: it is the one
+# chanarg every channel has. Written in amp's own numbers -- 0 to 127,
+# starting at 30 -- rather than the 0-to-1 the filter components use,
+# because a chanarg's range belongs to the patch and they do not all
+# agree. res, fmin and fmax want amb01.dsp; elsewhere they are delivered
+# and ignored.
 preset dusk {
+    amp  = 18;
     res  = 0.86;
     fmin = 0.04;
     fmax = 0.30;
 };
 
 preset noon {
+    amp  = 42;
     res  = 0.32;
     fmin = 0.18;
     fmax = 0.94;
 };
 
 # A small correction rather than a full restatement: `settle' names only
-# what moves, and a component only one preset mentions holds still.
+# what moves, and a component only one preset mentions holds still --
+# `amp' and the two below it stay where `swell' put them for the whole
+# two seconds, which is what makes a struck bell open rather than
+# reappear somewhere else.
 preset swell {
+    amp  = 26;
     res  = 0.55;
     fmin = 0.10;
     fmax = 0.40;
@@ -78,8 +91,17 @@ chain sweep {
 chain pads {
     stage src gen::eno_line {
         notes = fmin_scale;
-        period = 11.7 s; jitter = 2.4 s;
-        prob = 0.8; hold = 9 s; vel = 62; vel_jitter = 6;
+        period = 3.3 s; jitter = 1.1 s;
+        prob = 0.8; hold = 6 s; vel = 62; vel_jitter = 6;
+    };
+    sink { channel = 3; };
+};
+
+chain pads_low {
+    stage src gen::eno_line {
+        notes = "F2 C3";
+        period = 5.1 s; jitter = 0.9 s;
+        prob = 0.85; hold = 8 s; vel = 56; vel_jitter = 4;
     };
     sink { channel = 3; };
 };

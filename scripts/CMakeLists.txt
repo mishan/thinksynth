@@ -309,3 +309,19 @@ set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
                      gencheck
                      PROPERTIES TIMEOUT 900)
+
+# The two harnesses that build real widgets need LeakSanitizer told which
+# leaks are the toolkit's. See scripts/lsan.supp for what is in it and what
+# is deliberately left out; the short version is that a process which draws
+# one frame and exits leaves fontconfig's caches and a software GL driver
+# behind, and none of it is ours.
+#
+# Set here rather than in the CI workflow so that `-DTHINK_SANITIZE=address'
+# behaves the same on a developer's machine as it does on a runner -- a gate
+# that only passes in CI teaches people to stop running it locally. Only
+# under the address sanitizer, so an ordinary run carries none of it.
+if(THINK_SANITIZE MATCHES "address")
+  set_tests_properties(composercheck editorcheck PROPERTIES
+      ENVIRONMENT
+      "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
+endif()

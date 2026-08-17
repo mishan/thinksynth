@@ -2070,8 +2070,11 @@ ComposerWindow::buildAddChain (void)
 
     Gtk::DropDown *genSel = manage(new Gtk::DropDown(gens));
     Gtk::SpinButton *chanSel = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0, 0, 15, 1)));
+        Gtk::Adjustment::create(1, 1, 16, 1)));
     Gtk::Button *addBtn = manage(new Gtk::Button("Add chain"));
+
+    chanSel->set_tooltip_text("MIDI channel, 1-16 -- the number on "
+                              "the main window's patch tab");
 
     addBtn->signal_clicked().connect(
         [this, nameEntry, genSel, chanSel, genNames]

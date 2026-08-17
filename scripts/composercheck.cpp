@@ -62,11 +62,11 @@
 #include "gthSignal.h"
 #include "gui/ComposerWindow.h"
 
-/* The six application-wide signals ComposerWindow listens to, defined
- * here because main.cpp defines them there and this harness is not
- * main.cpp. Empty and never emitted: what is under test is the window's
- * own wiring, and a keyboard that never plays is exactly the state the
- * Kbd input toggle has to survive. */
+/* The five application-wide signals gthSignal.h declares, defined here
+ * because main.cpp defines them there and this harness is not main.cpp.
+ * Empty and never emitted: what is under test is the window's own
+ * wiring, and a keyboard that never plays is exactly the state the Kbd
+ * input toggle has to survive. */
 sigNoteOn    m_sigNoteOn;
 sigNoteOff   m_sigNoteOff;
 sigNoteClear m_sigNoteClear;
