@@ -1,0 +1,81 @@
+# loosen.gen -- the same phrase, three ways.
+#
+# One question, asked as plainly as the format allows: what does a
+# transformer actually do? Three chains run the *same* Euclidean pattern
+# from the same parameters, and differ only in what sits between the
+# generator and the sink.
+#
+#   channel 1   nothing. The grid, exactly.
+#   channel 2   xform::humanize. Every onset nudged in time and
+#               velocity, so the grid breathes without moving.
+#   channel 3   humanize, and then quantize onto a pentatonic. The
+#               pitches were already in the scale, so this stage does
+#               nothing you can hear -- which is the point. Textual
+#               order is execution order, and a stage that has nothing
+#               to correct is not a stage that misbehaves.
+#
+# Play them together at first and the flam between 1 and 2 is the whole
+# of what humanize is. Then mute two of the three from the canvas and
+# listen to each alone. A muted chain keeps evolving silently -- the drop
+# happens at the end of the chain, not at the start -- so un-muting
+# mid-piece rejoins a process that never stopped.
+#
+# The seed is pinned, so the humanize jitter is the same every run: two
+# renders of this file deliver the same stream byte for byte, which is
+# what the replay gate in gencheck asserts about every piece here.
+#
+# Aim all three channels at the same patch, or at three that differ only
+# a little; the comparison is the piece.
+
+name "Loosen";
+author "Misha Nasledov";
+description "One Euclidean phrase, straight, humanized, and quantized.";
+
+seed 8815;
+
+scale pent "C4 D4 E4 G4 A4 C5 D5 E5";
+
+@looseness = 0.045;
+@looseness.widget = 1;
+@looseness.min = 0;
+@looseness.max = 0.25;
+@looseness.label = "Looseness";
+@looseness.units = "s";
+
+chain grid {
+    stage src gen::euclid {
+        steps = 16; fills = 7; rotate = 0;
+        notes = pent;
+        period = 0.16 s; hold = 0.14 s; vel = 84;
+    };
+    sink { channel = 1; };
+};
+
+chain breathed {
+    stage src gen::euclid {
+        steps = 16; fills = 7; rotate = 0;
+        notes = pent;
+        period = 0.16 s; hold = 0.14 s; vel = 84;
+    };
+    stage h xform::humanize {
+        time = @looseness;
+        vel = 14;
+    };
+    sink { channel = 2; };
+};
+
+chain corrected {
+    stage src gen::euclid {
+        steps = 16; fills = 7; rotate = 0;
+        notes = pent;
+        period = 0.16 s; hold = 0.14 s; vel = 84;
+    };
+    stage h xform::humanize {
+        time = @looseness;
+        vel = 14;
+    };
+    stage q xform::quantize {
+        scale = pent;
+    };
+    sink { channel = 3; };
+};

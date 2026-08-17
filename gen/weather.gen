@@ -1,0 +1,96 @@
+# weather.gen -- nothing here plays a note on purpose.
+#
+# Four of the five chains emit no pitches at all. They are random walks,
+# pointed at knobs: the filter opens and closes over minutes, the
+# resonance wanders under it, the cutoff floor breathes on a period that
+# shares no factor with either. What you hear is one very simple pad
+# being weathered.
+#
+# This is the plainest form of the thing tide.gen and bloom.gen do with
+# presets. A walk emits a bare number and does not know or care which
+# knob it lands on -- routing belongs to the piece, so the *sink* names
+# the target, and pointing the same walk somewhere else is a one-word
+# edit. Presets exist for when a composer wants to move several knobs at
+# once as a vector; a single knob wants nothing more than this.
+#
+# The walk reflects off its bounds rather than clamping, so it does not
+# stick to an edge the way a clamped walk does, and the three periods are
+# deliberately incommensurate -- 17, 23.5 and 31.7 seconds -- so the
+# three curves never line up twice. That is airports.gen's trick applied
+# to timbre instead of to melody.
+#
+# The Weather knob scales how far every walk may step, so one slider runs
+# from "almost still" to "restless" across all three at once. That is a
+# knob bound into three stages, which is what a live binding is for: the
+# param store resolves it, and nothing in the plugin knows.
+#
+# The seed is pinned, so the weather repeats. Unpin it for a different
+# afternoon each time.
+#
+# Aim channel 1 at amb01.dsp, which declares res, fmin and fmax. Any
+# patch that declares none of them will simply play the pad dry: the
+# chanargs a patch exposes are the whole of what a piece may reach.
+
+name "Weather";
+author "Misha Nasledov";
+description "Three random walks, one pad, and no notes worth mentioning.";
+
+seed 5090;
+
+@weather = 0.05;
+@weather.widget = 1;
+@weather.min = 0;
+@weather.max = 0.3;
+@weather.label = "Weather";
+
+scale dmin "D3 E3 F3 A3 C4 D4";
+
+chain pad {
+    stage src gen::eno_line {
+        notes = dmin;
+        period = 14.5 s; jitter = 3.5 s;
+        prob = 0.7; hold = 13 s; vel = 54; vel_jitter = 6;
+    };
+    sink { channel = 1; };
+};
+
+chain ceiling {
+    stage src gen::walk {
+        min = 0.25; max = 0.98;
+        step = @weather;
+        period = 17 s;
+    };
+    sink { channel = 1; chanarg = "fmax"; };
+};
+
+chain floor {
+    stage src gen::walk {
+        min = 0.01; max = 0.22;
+        step = @weather;
+        period = 23.5 s;
+    };
+    sink { channel = 1; chanarg = "fmin"; };
+};
+
+chain ring {
+    stage src gen::walk {
+        min = 0.15; max = 0.95;
+        step = @weather;
+        period = 31.7 s;
+    };
+    sink { channel = 1; chanarg = "res"; };
+};
+
+# One walk, two destinations. Every event leaving the chain is delivered
+# to each sink, so the same drift lands on two patches at once -- which is
+# what fan-out is for, and why the type filtering lives in the sink
+# rather than in the stage.
+chain shared {
+    stage src gen::walk {
+        min = 0.3; max = 0.9;
+        step = @weather;
+        period = 41.3 s;
+    };
+    sink { channel = 1; chanarg = "amp"; };
+    sink { channel = 2; chanarg = "amp"; };
+};
