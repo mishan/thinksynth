@@ -234,6 +234,15 @@ limited to `master` and a `concurrency` group cancels superseded runs.
   shape: **a platform-conditional macro that one platform hands out for free
   is a trap with a feedback loop measured in CI runs.** Fix it in the build,
   not in the file that noticed.
+- **POSIX functions Linux hands out for free.** `setenv` is the one that bit;
+  MinGW's UCRT has no such function and the build fails there and nowhere
+  else. It is the same shape as the `M_PI` trap above with a different noun,
+  and it has the same two answers: use the spelling that is already portable
+  where one is to hand (`Glib::setenv`, since glibmm is linked into everything
+  with a window in it), and `#ifdef _WIN32` around `_putenv_s` only where it
+  is not — `scripts/pathcheck.cpp` is that case, because it deliberately links
+  nothing but libthink. The general rule: **if it is in POSIX and not in the C
+  or C++ standard, assume the Windows job will tell you about it.**
 - **glibmm's deprecated API is compiled out on MSYS2.** `Glib::thread_init()`
   was an undefined reference on Windows for that reason — at link time, not
   compile time. Anything else the tree calls that glibmm has since deprecated

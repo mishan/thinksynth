@@ -126,9 +126,16 @@ run (const std::string &pluginPath, const char *genFile)
 
     /* The window opens whatever THINK_GEN_PATH names, which is how the
        ctest entry points it at the shipped piece without this having to
-       know where a source tree is. */
+       know where a source tree is.
+     *
+       Glib::setenv, not setenv: the POSIX one does not exist on MinGW's
+       UCRT, and glibmm is a hard dependency of this harness anyway.
+       pathcheck spells the same thing with an `#ifdef _WIN32' and
+       _putenv_s because it deliberately links nothing but libthink and
+       cannot assume glibmm -- so the rule for the tree is glibmm where
+       it is already linked, and the ifdef only where it is not. */
     if (genFile != NULL)
-        setenv("THINK_GEN_PATH", genFile, 1);
+        Glib::setenv("THINK_GEN_PATH", genFile);
 
     TestComposer *win = new TestComposer(&synth);
 
