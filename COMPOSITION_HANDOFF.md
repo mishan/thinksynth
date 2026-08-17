@@ -418,8 +418,14 @@ semantic difference first because it blocks everything else.
 
 **The staged recommendation:**
 
-1. *Make thinklang pure* (reentrant, no globals), behavior identical,
-   corpus-gated. Worth doing regardless of any merge.
+1. *Make thinklang pure* — DONE (branch thinklang-pure): api.pure
+   bison threading a thParseContext, reentrant flex with yylineno and a
+   `think' prefix, the whole loading ritual folded into thParseDsp, and
+   the stale tracked generated sources deleted (the source-dir copy of
+   thinklang.h could shadow the fresh build-dir one, which is a bug
+   that was waiting). parseTree runs mutex-free now; the corpus sweeps
+   prove behavior identical, and a hundred concurrent parses prove the
+   purity is real.
 2. *Unify the lexer, not the parser.* Teach the flex lexer to emit
    tokens with byte offsets and let it feed both consumers: the bison
    grammar for `.dsp`, and thcGenLoader's recursive descent for `.gen`

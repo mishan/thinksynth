@@ -27,15 +27,23 @@
 #include "think.h"
 #include "parser.h"
 
-int linenum = 1;
-
 %}
+
+/* Reentrant, to match the pure parser: state lives in a yyscan_t made
+ * and destroyed per parse by thParseDsp, yylineno replaces the old
+ * linenum global, and the `think' prefix keeps the generated names out
+ * of bison's way (the .yy shims its yylex onto thinklex). */
+%option reentrant bison-bridge
+%option yylineno
+%option noyywrap
+%option nounput noinput
+%option prefix="think"
 
 %%
 
   /* ignore comments */
 \#.*$        { }
-\n        { linenum++; }
+\n        { /* yylineno counts these */ }
   /* ignore whitespace */
 [ \t]+        { }
 
@@ -43,20 +51,20 @@ int linenum = 1;
   /* units cleared with every number: yylval is one shared struct now, so a
      `ms' left by an earlier token would otherwise still be sitting there. */
 [0-9]+(\.([0-9]+)?)? {
-  yylval.floatval = atof(yytext);
-  yylval.units = NULL;
+  yylval->floatval = atof(yytext);
+  yylval->units = NULL;
   return NUMBER;
 }
 
-th_max        { yylval.floatval = TH_MAX; yylval.units = NULL; return NUMBER; }
-th_min        { yylval.floatval = TH_MIN; yylval.units = NULL; return NUMBER; }
-th_range    { yylval.floatval = TH_RANGE; yylval.units = NULL; return NUMBER; }
-th_midimax    { yylval.floatval = MIDIVALMAX; yylval.units = NULL; return NUMBER; }
-th_sample    { yylval.floatval = TH_SAMPLE; yylval.units = NULL; return NUMBER; }
+th_max        { yylval->floatval = TH_MAX; yylval->units = NULL; return NUMBER; }
+th_min        { yylval->floatval = TH_MIN; yylval->units = NULL; return NUMBER; }
+th_range    { yylval->floatval = TH_RANGE; yylval->units = NULL; return NUMBER; }
+th_midimax    { yylval->floatval = MIDIVALMAX; yylval->units = NULL; return NUMBER; }
+th_sample    { yylval->floatval = TH_SAMPLE; yylval->units = NULL; return NUMBER; }
 ";"        { return ENDSTATE; }
 "="        { return ASSIGN; }
 
-nil        { yylval.floatval = 0; yylval.units = NULL; return NIL; }
+nil        { yylval->floatval = 0; yylval->units = NULL; return NIL; }
 node        { return NODE; }
 io        { return IO; }
 name        { return NAME; }
@@ -69,7 +77,7 @@ ms        { return MS; }
 "}"        { return RCBRACK; }
 
 [a-zA-Z][a-zA-Z0-9_]* {
-  yylval.str = strdup(yytext);
+  yylval->str = strdup(yytext);
   return WORD;
 }
 
@@ -93,9 +101,9 @@ ms        { return MS; }
 \"[^\"\n]*\" {
   size_t len = strlen(yytext) - 2;   /* strip the surrounding quotes */
 
-  yylval.str = (char *)malloc(len + 1);
-  memcpy(yylval.str, yytext + 1, len);
-  yylval.str[len] = 0;
+  yylval->str = (char *)malloc(len + 1);
+  memcpy(yylval->str, yytext + 1, len);
+  yylval->str[len] = 0;
   return STRING;
 }
 

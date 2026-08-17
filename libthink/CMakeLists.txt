@@ -14,7 +14,8 @@ bison_target(ThinkParser
 
 flex_target(ThinkLexer
             thinklex.ll
-            "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp")
+            "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp"
+            DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklex.h")
 
 add_flex_bison_dependency(ThinkLexer ThinkParser)
 

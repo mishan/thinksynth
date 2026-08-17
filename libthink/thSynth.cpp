@@ -651,15 +651,12 @@ void thSynth::removeChan (int channum)
  * overwrote each other's chanarg pointers, and destroying either left the other
  * pointing at freed memory.
  *
- * Must be called with synthMutex_ held; parsetree is consumed either way.
+ * When registerTree is true this touches treelist_, so those callers
+ * hold synthMutex_; `tree' is consumed either way.
  */
-thSynthTree *thSynth::finishParse (const string &what, int parseResult,
-                                   bool registerTree)
+thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
+                                   int parseResult, bool registerTree)
 {
-    thSynthTree *tree = parsetree;
-
-    parsetree = NULL;
-
     if (tree == NULL)
     {
         return NULL;
@@ -772,29 +769,25 @@ thSynthTree * thSynth::loadTree (const string &filename)
         return NULL;
     }
 
-    if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
+    FILE *input = fopen(filename.c_str(), "r");
+
+    if (input == NULL) { /* ENOENT or smth */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
                  strerror(errno));
         return NULL;
     }
 
+    /* The parser is pure now; the mutex is for treelist_, which
+       finishParse(registerTree = true) mutates. */
     std::lock_guard<std::mutex> lock(synthMutex_);
 
-    /* XXX: do we re-allocate these everytime we read a new input file?? */
-     /* these are used by the parser */
-    parsetree = new thSynthTree("newmod", this);
-    parsenode = new thNode("newnode", NULL);
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDsp(this, input, &raw);
 
-    int parseResult = YYPARSE(this);
-
-    fclose(yyin);
-    yyin = NULL;
-
-    delete parsenode;
-    parsenode = NULL;
+    fclose(input);
 
     /* No channel involved, so thSynth keeps this one. */
-    thSynthTree *tree = finishParse(filename, parseResult, true);
+    thSynthTree *tree = finishParse(filename, raw, parseResult, true);
 
     return tree;
 }
@@ -807,35 +800,23 @@ thSynthTree * thSynth::parseTree (const string &filename)
         std::filesystem::is_directory(filename, ec))
         return NULL;
 
-    /* Opened into a local, and only handed to the parser once the mutex is
-       held. Assigning the global yyin first left a window in which a second
-       parse could overwrite it -- or close it out from under this one -- and
-       taking a lock immediately afterwards does nothing about that: by then
-       the damage is a store that already happened. The other parser globals
-       (parsetree, parsenode) are set inside the lock for the same reason. */
     FILE *input = fopen(filename.c_str(), "r");
 
     if (input == NULL)
         return NULL;
 
-    /* Same mutex as loadTree: the parser's globals are shared, so two parses
-       at once would interleave. */
-    std::lock_guard<std::mutex> lock(synthMutex_);
+    /* No mutex, deliberately: the parser is pure -- a scanner and a
+       context per call -- and with registerTree false, finishParse
+       touches nothing shared either. This function used to open with a
+       paragraph about the window between assigning the global yyin and
+       taking the lock; the fix for that class of bug was not a wider
+       lock but the absence of the global. */
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDsp(this, input, &raw);
 
-    yyin = input;
+    fclose(input);
 
-    parsetree = new thSynthTree("newmod", this);
-    parsenode = new thNode("newnode", NULL);
-
-    int parseResult = YYPARSE(this);
-
-    fclose(yyin);
-    yyin = NULL;
-
-    delete parsenode;
-    parsenode = NULL;
-
-    thSynthTree *tree = finishParse(filename, parseResult, false);
+    thSynthTree *tree = finishParse(filename, raw, parseResult, false);
 
     return tree;
 }
@@ -845,21 +826,13 @@ thSynthTree * thSynth::loadTree (FILE *input)
     if (!input)
         return NULL;
 
+    /* The mutex is for treelist_, as in the by-name overload. */
     std::lock_guard<std::mutex> lock(synthMutex_);
-    
-    yyin = input;
 
-    /* XXX: do we re-allocate these everytime we read a new input file?? */
-    /* these are used by the parser */
-    parsetree = new thSynthTree("newmod", this);
-    parsenode = new thNode("newnode", NULL);
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDsp(this, input, &raw);
 
-    int parseResult = YYPARSE(this);
-
-    delete parsenode;
-    parsenode = NULL;
-
-    thSynthTree *tree = finishParse("<stream>", parseResult, true);
+    thSynthTree *tree = finishParse("<stream>", raw, parseResult, true);
 
     return tree;
 }
@@ -1023,30 +996,26 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
         return NULL;
     }
 
-     if ((yyin = fopen(filename.c_str(), "r")) == NULL) { /* ENOENT or smth */
-         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
-                  strerror(errno));
-         return NULL;
+    FILE *input = fopen(filename.c_str(), "r");
+
+    if (input == NULL) { /* ENOENT or smth */
+        fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
+                 strerror(errno));
+        return NULL;
     }
 
+    /* The parser is pure; the mutex is for the channel bookkeeping and
+       retire queue below, as it always really was. */
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
-    /* XXX: do we re-allocate these everytime we read a new input file?? */
-    /* these are used by the parser */
-    parsetree = new thSynthTree("newmod", this);
-    parsenode = new thNode("newnode", NULL);
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDsp(this, input, &raw);
 
-    int parseResult = YYPARSE(this);
-
-    fclose(yyin);
-    yyin = NULL;
-
-    delete parsenode;
-    parsenode = NULL;
+    fclose(input);
 
     /* registerTree false: the thMidiChan below takes ownership. */
-    thSynthTree *tree = finishParse(filename, parseResult, false);
+    thSynthTree *tree = finishParse(filename, raw, parseResult, false);
 
     if (tree == NULL)
     {
