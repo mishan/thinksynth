@@ -301,11 +301,17 @@ ATSIGN WORD ASSIGN expression
     if ($4.units)
         chanarg->setUnits($4.units);
 
-    /* Before setChanArg, which is what makes the arg the tree's: a
-       redeclared name deletes the old arg, and setChanArg drops anything
-       parked against it. */
     ctx->tree->setChanArg(chanarg);
 
+    /* The fold is parked against an arg the tree owns, which is what
+       setChanArg above has just made true -- and it matters because
+       ownership is what decides the arg's lifetime. Declaring `@a' twice
+       makes the second declaration replace the first, and setChanArg
+       deletes the arg it replaces; a record still aimed at that arg would
+       be aimed at freed memory by the time foldUnits ran, so setChanArg
+       drops those on its way past. Written in this order so the two halves
+       read together; either order works, because the sweep is looking for
+       the *old* arg and this record names the new one. */
     if ($4.units)
         ctx->tree->deferUnitFold(chanarg, thUnitFold::VALUE, $4.floatval,
                                  $4.units);

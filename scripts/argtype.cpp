@@ -995,6 +995,34 @@ int main (int argc, char **argv)
         }
     }
 
+    /* Declaring one control twice is what the deferred folds have to be
+     * swept for: setChanArg deletes the arg it replaces, and a record still
+     * aimed at that arg would be aimed at freed memory by the time
+     * foldUnits ran. Only reachable from a file with a duplicate in it,
+     * which is exactly the sort of use-after-free nothing exercises until
+     * someone's file has a typo in it. */
+    {
+        writeOrFail(wrap("@decay = 500 ms;\n"
+                         "@decay = 250 ms;\n",
+                         "node osc osc::simple {\n"
+                         "    freq = ionode->note;\n"
+                         "};\n"));
+
+        thSynthTree *t = synth.parseTree(scratch);
+        thArg *decay = t ? t->getChanArg("decay") : NULL;
+
+        if (decay == NULL)
+            fail("a redeclared control loads", "");
+        else if ((*decay)[0] != 11025.0f)
+            fail("a redeclared control folds the declaration that won",
+                 to_string((*decay)[0]));
+        else
+            ok("a control declared twice folds once, on the arg that "
+               "survived");
+
+        delete t;
+    }
+
     /* A unit inside arithmetic is refused rather than guessed. It used to
        produce a number by accident -- the leaf was folded before the
        operator ran -- and with the fold deferred there is no accident left
