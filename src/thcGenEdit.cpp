@@ -1893,12 +1893,37 @@ thcGenEdit::addPresetValue (const std::string &filename,
        vector and its order is the author's. Reshuffling someone's file
        into the order this writer would have chosen is an edit nobody
        asked for -- the same rule the .dsp writer follows. */
-    const size_t at = lineStartOf(text, pr->bodyClose);
-
     std::vector<Edit> edits;
 
-    edits.push_back({ at, at,
-                      presetLine(presetIndent(text, *pr), component, value) });
+    const size_t ls = lineStartOf(text, pr->bodyClose);
+
+    /* Whether the closing brace has a line to itself decides how the new
+       component is written, and getting this wrong is not cosmetic. A
+       preset written `preset p { a = 1; };' has its `}' on the same line
+       as the `preset' keyword, so the start of that line is *before* the
+       block -- inserting there would put the new component above the
+       statement it belongs to and break the file. Multi-line blocks get
+       a line of their own; a one-liner stays a one-liner. */
+    if (text.find_first_not_of(" \t", ls) >= pr->bodyClose)
+        edits.push_back({ ls, ls,
+                          presetLine(presetIndent(text, *pr), component,
+                                     value) });
+    else
+    {
+        std::string num;
+
+        thcGenEdit::format(value, num);
+
+        /* A space of our own only where there is not one already, so
+           `{ a = 1; }' and `{ a = 1;}' both come out readable. */
+        const bool spaced = pr->bodyClose > 0 &&
+            (text[pr->bodyClose - 1] == ' ' ||
+             text[pr->bodyClose - 1] == '\t');
+
+        edits.push_back({ pr->bodyClose, pr->bodyClose,
+                          (spaced ? "" : " ") + component + " = " + num +
+                          "; " });
+    }
 
     return finish(filename, text, edits, why);
 }

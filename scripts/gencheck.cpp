@@ -958,6 +958,43 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     editOk(thcGenEdit::removePresetValue(path, "dim", "fmin", why), why,
            "removePresetValue");
 
+    /* A preset written on one line, which addPreset never produces and a
+       person writes all the time. Its `}' shares a line with its
+       `preset', so the start of that line is *before* the block -- an
+       insert aimed there puts the new component above the statement it
+       belongs to, and the file stops loading. Written by hand here for
+       exactly that reason: this editor's own output would never have
+       found it. */
+    {
+        std::string text = slurp(path);
+
+        text += "\npreset flat { one = 1; };\n";
+
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << text;
+    }
+
+    editOk(thcGenEdit::addPresetValue(path, "flat", "two", 0.25, why), why,
+           "addPresetValue on a one-liner");
+
+    {
+        const std::string after = slurp(path);
+        const size_t at = after.find("preset flat");
+
+        if (at == std::string::npos)
+            fail("the one-line preset survived at all");
+        else
+        {
+            const size_t eol = after.find('\n', at);
+            const std::string line = after.substr(at, eol - at);
+
+            if (line.find("two = 0.25;") == std::string::npos)
+                fail("the new component did not land inside the one-line "
+                     "block: " + line);
+        }
+    }
+
     std::vector<std::pair<std::string, std::string> > params;
 
     params.push_back(std::make_pair(std::string("notes"),
@@ -1404,6 +1441,47 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
 
     if (bfirst.find("C ") == std::string::npos)
         fail("the breed emitted nothing at all");
+
+    /* The first thing played is `from', exactly.
+     *
+     * `from' is documented as where the population starts, and a piece
+     * that names a starting timbre should hear it before it hears what
+     * became of it. This was the corridor's midpoint, which whenever a
+     * target is named is neither `from' nor near it -- and nothing said
+     * so, because nothing looked at the first event. */
+    {
+        std::istringstream lines(bfirst);
+        std::string line;
+        bool checked = false, wrong = false;
+
+        while (std::getline(lines, line) && !checked)
+        {
+            if (line.empty() || line[0] != 'C')
+                continue;
+
+            std::istringstream f(line);
+            std::string kind, name;
+            double at = 0, value = 0;
+            int chan = 0;
+
+            f >> kind >> at >> chan >> name >> value;
+
+            if (name != "res")
+                continue;
+
+            checked = true;
+
+            /* shut sets res = 0.9; wide sets it to 0.3. The midpoint
+               this used to play is 0.6. */
+            if (fabs(value - 0.9) > 1e-5)
+                wrong = true;
+        }
+
+        if (!checked)
+            fail("the breed never emitted the component to check");
+        else if (wrong)
+            fail("the breed did not start at the preset `from' names");
+    }
 
     /* The corridor, which is the whole "declared surface is consent"
      * argument stated as arithmetic: a gene may travel between what the

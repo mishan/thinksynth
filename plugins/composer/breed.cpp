@@ -157,8 +157,11 @@ parsePreset (const char *text,
 
 /* ---- instance ---------------------------------------------------------- */
 
-/* One component of the genome: what it is called and how far it may go. */
-struct Gene { std::string name; double lo, hi; };
+/* One component of the genome: what it is called, how far it may go, and
+ * where the piece said to start. `seed' is the value `from' gave it --
+ * or `toward' 's, for a component only the target names -- and it is
+ * what the first genome is built out of. */
+struct Gene { std::string name; double lo, hi, seed; };
 
 typedef std::vector<double> Genome;      /* one value per gene           */
 
@@ -254,7 +257,7 @@ buildGenes (State *st)
         Gene g;
 
         g.name = from[i].first;
-        g.lo = g.hi = from[i].second;
+        g.lo = g.hi = g.seed = from[i].second;
 
         for (size_t j = 0; j < toward.size(); j++)
             if (toward[j].first == g.name)
@@ -279,8 +282,10 @@ buildGenes (State *st)
 
         Gene g;
 
+        /* Only the target names this one, so there is no starting value
+           to have; the target's own is the nearest thing to one. */
         g.name = toward[j].first;
-        g.lo = g.hi = toward[j].second;
+        g.lo = g.hi = g.seed = toward[j].second;
 
         st->genes.push_back(g);
     }
@@ -412,13 +417,20 @@ scatter (State *st)
         st->pop.push_back(g);
     }
 
-    /* The first genome is the seed preset exactly, so a piece that names
-       one hears where it started before hearing what became of it. */
+    /* The first genome is `from' exactly, so a piece that names a
+       starting timbre hears it before it hears what became of it.
+     *
+       This said `seed preset' and computed the midpoint of the corridor,
+       which is neither `from' nor near it whenever a target is named --
+       the comment and the `from' param's own description both promised
+       something the code did not do. Clamped defensively: the seed came
+       from inside the corridor before it was padded, and padding only
+       widens, so this cannot bite -- but a corridor is the one thing in
+       this plugin nothing is allowed to leave. */
     if (!st->pop.empty())
         for (size_t k = 0; k < st->genes.size(); k++)
-            st->pop[0][k] = std::min(std::max(st->genes[k].lo,
-                                              (st->genes[k].lo +
-                                               st->genes[k].hi) / 2),
+            st->pop[0][k] = std::min(std::max(st->genes[k].seed,
+                                              st->genes[k].lo),
                                      st->genes[k].hi);
 
     st->champion = st->pop.empty() ? Genome() : st->pop[0];
