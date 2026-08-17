@@ -86,11 +86,29 @@ struct thLexToken
  * purpose: what a lexical error means is a question about a language,
  * and the languages disagree (a .gen file with any error loads nothing;
  * a .dsp parse error names a line and gives up). The lexer reports and
- * stops; the caller decides what that costs. */
+ * stops; the caller decides what that costs.
+ *
+ * The shape holds even when the scan could not start -- a scanner or a
+ * buffer that could not be allocated comes back as an ERROR and an END
+ * like anything else. flex's own answer to that is yy_fatal_error, which
+ * prints and exits; a library does not get to take the host process down
+ * over a file it was handed. */
 THINK_API bool thLexString (const std::string &text,
                             std::vector<thLexToken> &out);
 
-/* The same, reading `input' to EOF first. The caller opens and closes it. */
+/* The same, reading `input' to EOF first. The caller opens and closes it.
+ *
+ * **Open it in binary mode.** The spans handed back are byte offsets into
+ * the file as it sits on disk, and text mode on Windows collapses each
+ * CRLF into one byte on the way in -- so every offset past the first line
+ * would name the wrong bytes, and an editor splicing by span would cut a
+ * file in the wrong place. Nothing here can detect that after the fact, so
+ * the mode is part of the contract; thcGenEdit reads binary for exactly
+ * this reason and says so.
+ *
+ * A read that fails partway is reported rather than mistaken for end of
+ * file. A truncated buffer parses as a syntax error on whichever line the
+ * read stopped at, which sends the author to a line that is fine. */
 THINK_API bool thLexStream (FILE *input, std::vector<thLexToken> &out);
 
 /* The ERROR token of a failed lex, or NULL if there was not one. Inline

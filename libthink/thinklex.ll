@@ -142,6 +142,32 @@ thLexEmit (thLexExtra *x, thLexToken::Kind kind,
 
 %%
 
+/* The stream every failure path ends with: the complaint, then the END the
+ * API promises. A caller walking the vector must never have to check
+ * whether there is one, so a lex that could not start still hands back the
+ * same shape as a lex that ran into a stray character on line nine. */
+static bool
+thLexFailed (std::vector<thLexToken> &out, const char *why, size_t size)
+{
+    thLexToken bad;
+
+    bad.kind = thLexToken::ERROR;
+    bad.text = why;
+    bad.line = 1;
+    bad.off = bad.end = 0;
+
+    thLexToken end;
+
+    end.kind = thLexToken::END;
+    end.line = 1;
+    end.off = end.end = size;
+
+    out.push_back(bad);
+    out.push_back(end);
+
+    return false;
+}
+
 bool
 thLexString (const std::string &text, std::vector<thLexToken> &out)
 {
@@ -154,13 +180,26 @@ thLexString (const std::string &text, std::vector<thLexToken> &out)
     x.pos = 0;
     x.off = 0;
 
-    thinklex_init_extra(&x, &scanner);
+    /* Checked, and not because it is likely. flex's own answer to a failed
+       allocation is yy_fatal_error, which prints and exits -- a library
+       taking the host process down over a .dsp, which is the same thing the
+       plugin loader was fixed for. An ERROR token is what this layer has to
+       say instead, and it costs one branch. */
+    if (thinklex_init_extra(&x, &scanner) != 0 || scanner == NULL)
+        return thLexFailed(out, "could not create a scanner", text.size());
 
     /* Scanning a buffer rather than a FILE* even for .dsp: byte offsets
        into the text as it sits on disk are the whole point, and a
        scanner that refills from a stream cannot hand them out. */
     YY_BUFFER_STATE buf = think_scan_bytes(text.data(), (int)text.size(),
                                            scanner);
+
+    if (buf == NULL)
+    {
+        thinklex_destroy(scanner);
+
+        return thLexFailed(out, "could not buffer the source", text.size());
+    }
 
     /* yylineno lives in the buffer, and yy_scan_bytes builds its buffer by
        hand instead of going through yy_init_buffer -- so the line count
@@ -202,8 +241,20 @@ thLexStream (FILE *input, std::vector<thLexToken> &out)
     char        buf[4096];
     size_t      got;
 
+    out.clear();
+
+    if (input == NULL)
+        return thLexFailed(out, "no input", 0);
+
     while ((got = fread(buf, 1, sizeof(buf), input)) > 0)
         text.append(buf, got);
+
+    /* A short read is not the same as end of file, and treating it as one
+       is how a truncated .dsp becomes a syntax error on whichever line the
+       read happened to stop at. The author would then go looking at a line
+       that is fine. Say the read failed. */
+    if (ferror(input))
+        return thLexFailed(out, "could not read the file", text.size());
 
     return thLexString(text, out);
 }

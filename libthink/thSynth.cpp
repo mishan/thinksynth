@@ -769,7 +769,11 @@ thSynthTree * thSynth::loadTree (const string &filename)
         return NULL;
     }
 
-    FILE *input = fopen(filename.c_str(), "r");
+    /* "rb", not "r". The tokens carry byte offsets into the file as it sits
+       on disk -- that is what thcGenEdit splices by and what NodeEdit would
+       -- and text mode on Windows eats a byte per CRLF, so every span past
+       the first line would name the wrong bytes. See thLexStream. */
+    FILE *input = fopen(filename.c_str(), "rb");
 
     if (input == NULL) { /* ENOENT or smth */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),
@@ -800,7 +804,11 @@ thSynthTree * thSynth::parseTree (const string &filename)
         std::filesystem::is_directory(filename, ec))
         return NULL;
 
-    FILE *input = fopen(filename.c_str(), "r");
+    /* "rb", not "r". The tokens carry byte offsets into the file as it sits
+       on disk -- that is what thcGenEdit splices by and what NodeEdit would
+       -- and text mode on Windows eats a byte per CRLF, so every span past
+       the first line would name the wrong bytes. See thLexStream. */
+    FILE *input = fopen(filename.c_str(), "rb");
 
     if (input == NULL)
         return NULL;
@@ -1005,7 +1013,11 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
         return NULL;
     }
 
-    FILE *input = fopen(filename.c_str(), "r");
+    /* "rb", not "r". The tokens carry byte offsets into the file as it sits
+       on disk -- that is what thcGenEdit splices by and what NodeEdit would
+       -- and text mode on Windows eats a byte per CRLF, so every span past
+       the first line would name the wrong bytes. See thLexStream. */
+    FILE *input = fopen(filename.c_str(), "rb");
 
     if (input == NULL) { /* ENOENT or smth */
         fprintf (stderr, "couldn't open %s: %s\n", filename.c_str(),

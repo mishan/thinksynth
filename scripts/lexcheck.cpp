@@ -141,8 +141,11 @@ checkSpans (const std::string &label, const std::string &text)
 static void
 checkLexicalLayer (void)
 {
+    /* CRLF on purpose. The spans are byte offsets into the file as it sits
+       on disk, so a \r is a byte like any other and has to be accounted
+       for -- which is also why thLexStream requires a binary-mode FILE*. */
     const std::string dsp =
-        "# a comment nobody lexes\n"
+        "# a comment nobody lexes\r\n"
         "node foo::bar {\n"
         "    a = 5 ms;\n"
         "    b = @gain;\n"
@@ -244,6 +247,37 @@ checkRefusals (void)
 
     check(thLexString("# a \" in a comment\nnode\n", t) && t.size() == 2,
           "a quote inside a comment stays inside it");
+
+    /* The contract is that the stream always ends with END, and that has to
+       hold for a scan that never started as well as for one that hit a
+       stray character on line nine. A caller walking the vector must never
+       have to ask which kind of failure it is looking at. */
+    check(!thLexStream(NULL, t) && t.size() == 2 &&
+          t[0].kind == thLexToken::ERROR && t[1].kind == thLexToken::END,
+          "a stream that cannot be read is still ERROR then END");
+
+    /* A read that fails partway must not be mistaken for end of file: a
+       truncated buffer parses as a syntax error on whichever line the read
+       stopped at, and the author goes looking at a line that is fine. A
+       directory opens on Linux and fails on the first fread, which is the
+       cheapest real ferror available; where it does not open, there is
+       nothing to prove and this says so rather than failing. */
+    FILE *dir = fopen(".", "rb");
+
+    if (dir == NULL)
+        printf("%-58s %s\n", "a failed read is not an end of file",
+               "skipped; this platform will not open a directory");
+    else
+    {
+        const bool ok = thLexStream(dir, t);
+
+        fclose(dir);
+
+        check(!ok && t.size() == 2 && t[0].kind == thLexToken::ERROR &&
+              t[1].kind == thLexToken::END,
+              "a failed read is not an end of file",
+              t.empty() ? "" : t[0].text);
+    }
 }
 
 /* ---- 3. .gen reads the same scan --------------------------------------- */
