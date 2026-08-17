@@ -52,6 +52,7 @@
 
 #include "think.h"
 
+#include "libthink/thDynLib.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
@@ -153,6 +154,31 @@ loadComposers (const std::string &pluginDir,
         }
 
         out[p->name()] = p;
+
+        /* Pin the module's mapping -- and, more to the point, its
+           dependency closure -- for the life of the process: a second
+           dlopen of the same path bumps the loader's reference count,
+           and this handle is never closed on purpose.
+
+           Why: on runners where cairo links gobject (cairo >= 1.18 as
+           Ubuntu 24.04 ships it), a draw module's dlopen is what first
+           loads the glib stack, and the teardown's dlclose -- which
+           this harness performs deliberately, so the unload path runs
+           under ASan at all -- would drop the last reference. The
+           loader then unmaps those libraries and their once-per-process
+           init heap, which glib documents as never-freed, turns into
+           six LeakSanitizer reports. And they cannot be suppressed by
+           library name, because an unmapped library symbolizes as
+           "<unknown module>": the name a suppression would match is
+           exactly what the unload destroyed.
+
+           So: keep the mapping. dlclose still runs in ~thcPlugin and
+           still exercises its path; the reference held here just means
+           the count never reaches zero, the libraries stay mapped, and
+           their init-once allocations remain reachable at exit --
+           which is what they are in every process that links them the
+           ordinary way. */
+        thDynLib::open(f.path().string());
     }
 }
 
