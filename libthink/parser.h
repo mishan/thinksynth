@@ -19,13 +19,53 @@
 #ifndef PARSER_H
 #define PARSER_H
 
-#include "thinklang.h"
+#include <stdio.h>
 
-extern int yylex ();
-extern int YYPARSE (thSynth *argsynth);
-extern int linenum;
-extern FILE *yyin;
-extern thSynthTree *parsetree;     /* Damn you yacc, I hate globals */
-extern thNode *parsenode;
+#include <vector>
+
+#include "thinklang.h"
+#include "thLexer.h"
+
+class thSynth;
+class thSynthTree;
+class thNode;
+
+/* Everything one parse carries, where yacc used to keep globals.
+ *
+ * The old spelling -- extern parsetree/parsenode/yyin, callers assigning
+ * them under a mutex before calling in -- is why the parser could not
+ * run twice at once, why every caller had to know the loading ritual,
+ * and why a parse that stopped early could poison the next one through
+ * flex's retained buffer. All of it is this struct now, one per parse,
+ * on the stack of thParseDsp. */
+struct thParseContext
+{
+    thSynth     *synth;      /* for resolving plugins                    */
+    thSynthTree *tree;       /* built up by the grammar actions          */
+    thNode      *node;       /* the node currently being assembled       */
+
+    /* The whole file, lexed before the grammar sees a word of it, and a
+       read cursor into it. A token vector rather than a scanner the
+       parser pulls from one token at a time: the lexical layer is shared
+       with .gen now (thLexer.h), and what .gen's recursive descent needs
+       is a stream it can look around in. Handing .dsp the same stream is
+       what keeps "one lexer" true -- there is no second way into the
+       scanner for this grammar to take, and so nothing for the two
+       languages to drift apart along. Lexing up front also means a
+       stray character is found before any grammar action has built
+       anything out of the good half of the file. */
+    std::vector<thLexToken> tokens;
+    size_t                  pos;
+};
+
+/* One parse of `input', which the caller opens and closes. Returns
+ * yyparse()'s result; *treeOut receives the tree either way -- possibly
+ * partial on failure -- and the caller consumes it (thSynth::finishParse
+ * is the consumer that knows what a finished tree still needs).
+ *
+ * Reentrant: a scanner and a context per call, no globals, so two
+ * parses may run at once and a failed parse leaves nothing behind for
+ * the next one to trip over. */
+extern int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut);
 
 #endif /* PARSER_H */

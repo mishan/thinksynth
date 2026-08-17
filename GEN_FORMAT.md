@@ -6,9 +6,18 @@ exposes. It is to composers what `.patch` is to DSPs — it names plugins and
 sets their params — but shaped like the DSP language, because a piece is a
 small graph, not a flat list.
 
-The lexical layer is the `.dsp` one, unchanged: `#` comments, `;` statement
-ends, `=`, `::`, `{ }` blocks, quoted strings, numeric literals with optional
-units. The lexer needs two new unit tokens and nothing else.
+The lexical layer is the `.dsp` one — not a copy of it but literally the same
+scanner (`libthink/thLexer.h`): `#` comments, `;` statement ends, `=`, `::`,
+`{ }` blocks, quoted strings, numeric literals with optional units. Units are
+ordinary words to the lexer rather than keywords, so `s` and `beats` cost it
+nothing; what a unit *means* is the loader's question, which is how `.gen`
+keeps seconds where `.dsp` folds milliseconds into samples.
+
+Two marks read differently here than in a `.dsp`, and the loader puts them
+back together after the shared scan: a leading `-` belongs to the number after
+it (there is no arithmetic in this language for it to be an operator in), and
+`@name` is one token (there is no `@` operator either). Both require the mark
+to sit directly against what follows, so `- 5` is an error, not minus five.
 
 ## 1. The language
 

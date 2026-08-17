@@ -4,6 +4,12 @@ The DSP language is parsed by bison/flex (`libthink/thinklang.yy`,
 `thinklex.ll`). It is a node-graph description language, which is why the node
 editor maps onto it with essentially no impedance mismatch.
 
+The lexer is shared with the `.gen` format (`libthink/thLexer.h`): one scanner
+hands both languages tokens carrying line numbers and byte spans, and each
+grammar decides which words it has opinions about. So what this document says
+about comments, strings, numbers and punctuation is true of a `.gen` file too,
+and cannot quietly stop being true of one.
+
 Most of this document exists because the node editor has to *write* these files
 as well as read them, and writing found constraints that reading never revealed.
 Anything that edits a `.dsp` needs the rules in section 3.
@@ -165,8 +171,11 @@ The parser throws away things a naive re-emit would not restore:
 
 - **Comments.** 59 of 92 files have them, 391 in total, and they are the
   author's notes. Losing them on first save would be vandalism.
-- **Units.** 283 values are written `5 ms` or `90%`. The lexer folds these to
+- **Units.** 283 values are written `5 ms` or `90%`. The grammar folds these to
   raw floats, so `a = 5 ms` comes back as `a = 220.5` — correct, unreadable.
+  (The fold is a grammar action, not a lexer rule; the lexer hands out `5` and
+  `ms` as two tokens, which is what lets `.gen` read the same scan and keep its
+  seconds.)
 - **Synthesised args.** `buildArgMap()` calls `setArg(name, 0)` for every arg a
   plugin registered but the `.dsp` did not mention. Re-emitting the in-memory
   model would write out dozens of `reset = 0;` lines nobody authored.

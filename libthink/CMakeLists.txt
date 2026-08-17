@@ -12,11 +12,15 @@ bison_target(ThinkParser
              "${CMAKE_CURRENT_BINARY_DIR}/thinklang.cpp"
              DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklang.h")
 
+# No add_flex_bison_dependency any more: the lexer stopped including the
+# grammar's token header when it stopped being one grammar's lexer. It
+# produces thLexToken (thLexer.h) for both .dsp and .gen, and thinklang.yy
+# maps those onto its own tokens -- so the dependency now runs the other way,
+# and cmake works that out from the ordinary source list.
 flex_target(ThinkLexer
             thinklex.ll
-            "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp")
-
-add_flex_bison_dependency(ThinkLexer ThinkParser)
+            "${CMAKE_CURRENT_BINARY_DIR}/thinklex.cpp"
+            DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklex.h")
 
 set(THINK_SOURCES
     thArg.cpp

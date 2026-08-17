@@ -25,12 +25,14 @@ Repo: github.com/mishan/thinksynth (C++, gtkmm-4, CMake, GPL-2+).
 >
 > - **The `.gen` parser is hand-rolled in `src/thcGenFile.cpp`**, not
 >   bison/flex additions to thinklang.yy as §5 sketched. Deliberate:
->   the shared grammar is non-reentrant, folds `ms` into *samples*
->   (engine semantics a .gen value must not inherit), and cannot see
->   thcPlugin/thcScheduler from libthink. The lexical layer is the .dsp
->   one reproduced faithfully instead of linked; GEN_FORMAT.md is
->   implemented as written, including "a file with any error loads
->   nothing" and name-and-line messages.
+>   the shared grammar folds `ms` into *samples* (engine semantics a
+>   .gen value must not inherit) and cannot see thcPlugin/thcScheduler
+>   from libthink. GEN_FORMAT.md is implemented as written, including
+>   "a file with any error loads nothing" and name-and-line messages.
+>   The *lexical* layer began as the .dsp one reproduced faithfully;
+>   §8 step 2 has since replaced the copy with the thing itself
+>   (`libthink/thLexer.h`), so the grammars are still two and the
+>   scanner is one.
 > - **`thcParamDef` grew a `units` field** ("s" marks a duration) so the
 >   loader can enforce §2 of the format and do the beats→seconds
 >   conversion at read time (`thcParamStore::setBeats`). Interface
@@ -418,17 +420,58 @@ semantic difference first because it blocks everything else.
 
 **The staged recommendation:**
 
-1. *Make thinklang pure* (reentrant, no globals), behavior identical,
-   corpus-gated. Worth doing regardless of any merge.
-2. *Unify the lexer, not the parser.* Teach the flex lexer to emit
-   tokens with byte offsets and let it feed both consumers: the bison
-   grammar for `.dsp`, and thcGenLoader's recursive descent for `.gen`
-   (which already consumes a token vector and is better at name-and-
-   line errors than yacc will ever be). "Same lexical layer by
-   construction" kills the drift risk, which is most of what the
-   two-parser smell actually is. Bonus: offsets in the shared lexer are
-   what would let NodeEdit adopt thcGenEdit's span-splicing and retire
-   its line-based scanning.
+1. *Make thinklang pure* — DONE (branch thinklang-pure): api.pure
+   bison threading a thParseContext, reentrant flex with yylineno and a
+   `think' prefix, the whole loading ritual folded into thParseDsp, and
+   the stale tracked generated sources deleted (the source-dir copy of
+   thinklang.h could shadow the fresh build-dir one, which is a bug
+   that was waiting). parseTree runs mutex-free now; the corpus sweeps
+   prove behavior identical, and a hundred concurrent parses prove the
+   purity is real.
+2. *Unify the lexer, not the parser* — DONE (branch thinklang-lexer).
+   `libthink/thLexer.h` is the lexical layer on its own: `thLexToken`
+   carries kind, text, value, line and byte span, and `thLexString`
+   hands back an END-terminated vector. thinklex.ll produces it, and
+   both consumers read it — thinklang.yy's `yylex` maps tokens onto
+   grammar codes, and `thcGenLoader::tokenize` adapts them to .gen's
+   shape. .gen's hand-written copy of the .dsp rules is deleted.
+
+   The division that made this work: the shared layer is *lexical* and
+   nothing more, and vocabulary belongs to each language. Every
+   identifier comes out a WORD; `ms` is a keyword in thinklang.yy's
+   shim and an ordinary unit name to .gen, `beats` the reverse. A
+   lexer with a dialect switch would have been two lexers wearing one
+   coat, which is the thing step 0 warns about.
+
+   .gen's adapter fuses two pairs the shared lexer keeps apart — `-`
+   onto the number after it, `@` onto the name after it — because .gen
+   has neither arithmetic nor an `@` operator to hang them on.
+   Adjacency is checked by span, so `-5` is a literal and `- 5` is the
+   error it always was. Punctuation .gen has no use for is refused with
+   the wording the old scanner used.
+
+   Two behavior changes worth knowing. A stray character used to hit
+   flex's default rule, which echoed it to stdout and carried on; it is
+   an ERROR token now, and `thParseDsp` refuses the file before a
+   grammar action has built anything. And `.dsp` is lexed from a string
+   rather than pulled through a FILE*, because offsets into the text as
+   it sits on disk are the point — which is what NodeEdit needs to
+   adopt thcGenEdit's span-splicing and retire its line-based scanning.
+
+   `scripts/lexcheck` is the gate: spans cut the source back into the
+   tokens that claim them, lines survive comments and blank lines,
+   refusals name what and where, .gen's fused tokens still begin where
+   the shared lexer began one, and sixteen concurrent lexes match
+   sixteen lone ones. It earned itself immediately — `yy_scan_bytes`
+   builds its buffer without going through `yy_init_buffer`, so
+   `yylineno` started at whatever the malloc'd block held and every
+   error named a line from the previous parse.
+
+   Step 0 (the `ms` fold) turned out not to block this after all: the
+   fold lives in a grammar action, not in the lexer, so the shared
+   scanner already hands both languages an unfolded `(5, "ms")`. It
+   remains worth doing on its own merits — it is what makes `.dsp`
+   sample-rate honest — but it is no longer the runway for anything.
 3. *Merge grammars only for a language payoff.* The genuinely exciting
    convergence is not parser hygiene but the language where a piece
    can carry its instruments — `.gen` chains beside inline `patch`/
@@ -438,11 +481,127 @@ semantic difference first because it blocks everything else.
    it, a merged grammar is churn in the most load-bearing code in the
    tree.
 
-Step 0 for all of it is the `ms` fold, because a shared lexer that
-hands `.dsp` a folded sample count and `.gen` a second is not shared —
-it is two lexers wearing one coat.
+Step 0 for all of it was thought to be the `ms` fold, because a shared
+lexer that hands `.dsp` a folded sample count and `.gen` a second is
+not shared — it is two lexers wearing one coat. Doing step 2 showed
+the fold was never in the lexer: it is a grammar action, and the
+scanner hands out `5` and `ms` as two tokens to whoever asks. So the
+fold is independent work, still right for its own reason (it bakes the
+sample rate into every parsed `.dsp`), and no longer a prerequisite.
 
-## 9. Style notes for new code
+## 9. When the algorithms reach the instruments
+
+The question behind §8's "language payoff" deserves its own section:
+what if the algorithmic processes controlled not just the notes but the
+instruments — their timbre, their evolution, and the piece's structure?
+Checked against the architecture, the surprising answer is that most of
+the machinery already exists, some of it built for other reasons. What
+is missing is language and policy, not plumbing.
+
+**Three tiers, in rising depth of reach.**
+
+*Tier 1 — playing the declared surface.* This exists. Chanarg sinks let
+any composer drive whatever `@args` a patch declares, scheduled and
+replay-deterministic like everything else. A generative process already
+shapes timbre — but only along axes the instrument chose to expose.
+
+*Tier 2 — evolving the surface.* A patch's declared chanargs form a
+vector of floats, and a vector of floats is a genome. Everything
+`gen::evolve` does to phrases applies verbatim to timbre: populations of
+chanarg vectors, crossover, mutation, elitism. Notably, a `morph`
+transformer that interpolates between two chanarg vectors and emits the
+curve as scheduled `THC_EV_CHANARG` events is writable against the v1
+ABI *today* — no host change at all. What the language should add is
+the noun: named *presets* (a preset is a named chanarg vector the piece
+file carries), so that morphs, GA populations, and Markov chains over
+timbres have something to refer to, splice, and save.
+
+*Tier 3 — the graph as genome.* The instrument's synthesis topology
+itself becomes the evolving material. This sounds far-fetched until the
+inventory is taken:
+
+- `loadTree(filename, channum, amp)` is a *live atomic instrument
+  swap*: the replacement is built fully off the audio thread, a
+  `SET_CHANNEL` command queues the exchange at a window boundary, and
+  the retire queue hands the old channel back for safe deletion. Hot
+  instrument replacement is not a feature to build — it is the normal
+  patch-load path, running since before this project started.
+- thinklang is pure (§8 step 1), so candidate instruments parse
+  anywhere, even concurrently — a background evaluator can parse a
+  population without touching the live synth's state.
+- NodeEdit and thcGenEdit prove the validated-splice model: a program
+  can edit instrument text through the same one-writer seam a human
+  uses, comments preserved, atomicity guaranteed.
+- `think_nodemodel` (NodeGraph + NodeCatalog, deliberately GTK-free) is
+  the vocabulary of *legal* graphs — `canConnect` is exactly the
+  constraint function a graph-mutation operator needs so that offspring
+  are well-formed by construction rather than by luck.
+- The headless harnesses (dspcheck, dsplevel, dspab) render patches
+  in-process with no audio device. That is a fitness lab: a second,
+  *shadow* thSynth renders candidates offline while the live one plays,
+  and scores them on audio features (RMS, envelope shape, spectral
+  measures — kissfft, per the visualizers' verdict on the fft/ relic).
+  Judging phenotype instead of genotype, which §7 filed as speculative
+  for note-fitness, is for timbre-fitness the whole point.
+
+**The ABI shape: intents out, services in.** Composers deliberately
+cannot link libthink, and that stays true. A plugin never touches a
+graph; it emits *intents* the host executes — the same relationship
+sinks already express. Concretely: a `THC_EV_PATCH` event ("channel n
+becomes patch p at time t") makes instrument changes schedulable,
+which means the piano roll draws them (a program-change lane) and
+replay determinism covers them. Tier-3 evolution runs host-side as a
+service a `meta::` plugin steers, not as plugin code holding graph
+pointers.
+
+**Structure, two roads.** *Structure as data*: the piece file grows
+`section` blocks (which chains run, which patches bind, for how long)
+and a meta chain schedules or chooses among them — deterministic,
+drawable, savable, and the piano roll's future-window shows the form
+approaching. *Structure as rewriting*: meta-composers splice the piece
+itself through thcGenEdit, so the piece is self-modifying and Save
+publishes what it became — the "same file, same seed" story becomes
+"same file, same seed, same final file", which still verifies but reads
+stranger. Data first; rewriting is the research branch.
+
+**Why this lands on §8.** Tiers 2 and 3 all want the self-contained
+file: inline `patch` blocks, sinks binding patch *names* instead of
+channel numbers, presets as named vectors, sections as form. That is
+precisely the "language payoff" §8 step 3 said grammar unification
+should wait for. This section is that payoff arriving; the `ms` fold
+and the shared lexer stop being hygiene and become the runway.
+
+**Staging, each step shippable alone:**
+
+1. The `ms` fold and the shared offset-carrying lexer (§8 steps 0 and
+   2). The lexer half is done: `libthink/thLexer.h` feeds both
+   languages and carries byte spans, so `patch` blocks inline in a
+   `.gen` would be read by the same scanner that reads them in a
+   `.dsp`, by construction rather than by care. The `ms` fold is still
+   open and is now independent of everything else here.
+2. `patch` blocks inline in `.gen`; sinks bind by patch name; the
+   loader instantiates channels. One shareable file that carries its
+   instruments.
+3. Presets in the language; a `gen::morph` transformer (writable even
+   before this, better after).
+4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
+   program-change lane on the roll.
+5. Shadow-synth fitness service + `composer_input` (§7's pending item);
+   chanarg-genome GA — timbres evolving under audio-feature fitness
+   while the piece plays.
+6. Sections and meta chains; then, if the appetite is real, graph
+   mutation constrained by nodemodel.
+
+**Three principles to hold while building it.** The declared surface is
+*consent* — an instrument states how it may be played, and deeper reach
+is a language change the patch opts into, never a backdoor. Algorithms
+use the human seams — thcGenEdit, NodeEdit, loadTree — so there is one
+writer and no second path that can corrupt a file. And everything
+schedulable is drawable: if an instrument change is an event, the roll
+shows it coming and gencheck replays it byte-identically, or it does
+not ship.
+
+## 10. Style notes for new code
 
 Match the house: GPL header block on every file, `onX` handlers /
 `PascalCase` public mutators as in `Keyboard.h`, trailing-underscore

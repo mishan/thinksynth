@@ -71,6 +71,10 @@ endfunction()
 # moves. See the header of pathcheck.cpp for the bug that was not caught.
 think_harness(pathcheck)
 
+# Which libthink headers stand on their own. The test is the compile; see the
+# header of includecheck.cpp for why the list is short and why it grows.
+think_harness(includecheck)
+
 # The first-run configuration. Needs gthPrefs and gthPatchfile, which live in
 # the binary rather than in libthink, and glibmm for the config directory --
 # but not gtkmm: none of this draws anything.
@@ -160,6 +164,12 @@ think_harness(argtype   NODEMODEL)
 # through its virtual clock, no Glib loop and no audio.
 think_harness(gencheck COMPOSERHOST)
 
+# The lexical layer .dsp and .gen now share: kinds, lines, byte spans, what it
+# refuses, and that .gen's tokenize() is still an adapter over that scan
+# rather than a second scanner growing back. Needs the composer host only to
+# reach thcGenLoader::tokenize.
+think_harness(lexcheck COMPOSERHOST THREADS)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -241,6 +251,10 @@ set_tests_properties(configcheck PROPERTIES
 
 add_test(NAME themecheck COMMAND themecheck)
 
+# Registered so the log names what was covered; the assertion already fired at
+# compile time.
+add_test(NAME includecheck COMMAND includecheck)
+
 # Needs no corpus and no display -- it writes its own .dsp files.
 add_test(NAME argtype
          COMMAND argtype -p "${PROJECT_BINARY_DIR}/plugins/")
@@ -254,6 +268,9 @@ add_test(NAME visualcheck
 add_test(NAME gencheck
          COMMAND gencheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+
+# Needs no corpus, no plugins and no display -- it writes its own source text.
+add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME dspprobe
          COMMAND "${CMAKE_COMMAND}"

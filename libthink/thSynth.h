@@ -209,7 +209,8 @@ private:
 
        registerTree: true puts the tree in treelist_ under thSynth's ownership;
        false gives the caller an unowned tree to hand to a thMidiChan. */
-    thSynthTree *finishParse (const string &what, int parseResult,
+    thSynthTree *finishParse (const string &what, thSynthTree *tree,
+                              int parseResult,
                               bool registerTree);
 
     /* Applies one queued command. Audio thread. */

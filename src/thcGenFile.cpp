@@ -20,6 +20,7 @@
 #include <sstream>
 
 #include "think.h"
+#include "thLexer.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
@@ -126,185 +127,134 @@ noteListToString (const std::vector<int> &notes)
 
 /* ---- lexing ----------------------------------------------------------- */
 
-/* The .dsp lexical layer, reproduced: `#' comments to end of line,
- * whitespace, numbers (a leading `-' is folded in here -- .gen has no
- * arithmetic for a grammar to hang SUB on), words, quoted strings with
- * no escapes and no embedded newline, `::', and the punctuation.
+/* The .dsp lexical layer, shared rather than reproduced.
  *
- * Every token carries its byte span, and a STRING's span includes its
- * quotes: thcGenEdit replaces spans, and what sits between them --
- * comments, indentation, the author's blank lines -- is never touched. */
+ * This used to be a hand-written scanner that copied thinklex.ll's rules
+ * -- `#' comments, whitespace, numbers, words, quoted strings, `::', the
+ * punctuation -- because linking the flex lexer would have meant
+ * inheriting a grammar and a drawerful of globals along with it. The
+ * globals are gone (thinklang is pure), and the lexer is now a
+ * standalone thing in libthink that answers to neither language
+ * (thLexer.h). So the copy is retired and this is an adapter over the
+ * real one: two languages, one lexical layer, and nothing left for them
+ * to drift apart along.
+ *
+ * The adapter does the three things .gen's shape asks for and .dsp's
+ * does not:
+ *
+ *  - A leading `-' folds into the number after it. .gen has no
+ *    arithmetic and so no grammar to hang a SUB token on; .dsp has
+ *    both, which is why the shared lexer keeps them apart and this puts
+ *    them back together. Adjacency is checked by span, which is what
+ *    still makes `-5' a literal and `- 5' the error it always was.
+ *  - `@name' folds into one KNOB token, spelled without the `@' and
+ *    spanned with it. Same reason: `@' is an operator in a .dsp
+ *    expression, and in .gen it is only ever the front of a knob's name.
+ *  - Punctuation .gen has no use for is refused here rather than carried
+ *    into the parser to be rejected further from the cause, and with the
+ *    wording the hand-written scanner used: a `+' in a .gen file is a
+ *    stray character, not a missing rule.
+ *
+ * Every token still carries its byte span, and a STRING's span still
+ * includes its quotes: thcGenEdit replaces spans, and what sits between
+ * them -- comments, indentation, the author's blank lines -- is never
+ * touched. */
 bool
 thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
                         std::string &err, int &errLine)
 {
-    int line = 1;
-    size_t i = 0;
-    bool ok = true;
-
     /* A public tokenizer owns its output: a caller reusing one vector
        across files must not get the previous file's tail. */
     out.clear();
     err.clear();
     errLine = 0;
 
-    while (i < text.size())
+    std::vector<thLexToken> raw;
+
+    thLexString(text, raw);
+
+    bool ok = true;
+
+    /* raw always ends with an END token, so raw[i + 1] below is in range
+       for every i this loop looks at a real token at. */
+    for (size_t i = 0; i < raw.size(); i++)
     {
-        char c = text[i];
+        const thLexToken &t = raw[i];
 
-        if (c == '\n') { line++; i++; continue; }
-        if (c == ' ' || c == '\t' || c == '\r') { i++; continue; }
+        if (t.kind == thLexToken::END)
+            break;
 
-        if (c == '#')
+        if (t.kind == thLexToken::ERROR)
         {
-            while (i < text.size() && text[i] != '\n')
-                i++;
-            continue;
+            err = t.text;
+            errLine = t.line;
+            ok = false;
+            break;
         }
 
-        Token t;
+        Token g;
 
-        t.line = line;
-        t.num = 0;
-        t.off = i;
+        g.line = t.line;
+        g.num  = 0;
+        g.off  = t.off;
+        g.end  = t.end;
+        g.text = t.text;
 
-        if ((c >= '0' && c <= '9') ||
-            (c == '-' && i + 1 < text.size() &&
-             text[i + 1] >= '0' && text[i + 1] <= '9'))
+        if (t.kind == thLexToken::WORD)
+            g.kind = Token::WORD;
+        else if (t.kind == thLexToken::STRING)
+            g.kind = Token::STRING;
+        else if (t.kind == thLexToken::NUMBER)
         {
-            size_t start = i;
-
-            if (c == '-')
-                i++;
-            while (i < text.size() &&
-                   ((text[i] >= '0' && text[i] <= '9') || text[i] == '.'))
-                i++;
-
-            t.kind = Token::NUMBER;
-            t.text = text.substr(start, i - start);
-
-            /* strtod with its end pointer, not atof: the scan above is
-               permissive about dots, and "1..2" quietly becoming 1.0
-               is the opposite of a validated literal. */
-            char *end = NULL;
-
-            t.num = strtod(t.text.c_str(), &end);
-
-            if (end == NULL || *end != 0)
-            {
-                err = "'" + t.text + "' is not a number";
-                errLine = line;
-                ok = false;
-                break;
-            }
-
-            t.end = i;
-            out.push_back(t);
-            continue;
+            g.kind = Token::NUMBER;
+            g.num  = t.num;
         }
-
-        if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))
+        else if (t.text == "::")
+            g.kind = Token::MODSEP;
+        else if (t.text == ";" || t.text == "=" || t.text == "{" ||
+                 t.text == "}" || t.text == ".")
+            g.kind = Token::PUNCT;
+        else if (t.text == "-" && raw[i + 1].kind == thLexToken::NUMBER &&
+                 raw[i + 1].off == t.end)
         {
-            size_t start = i;
-
-            while (i < text.size() &&
-                   ((text[i] >= 'a' && text[i] <= 'z') ||
-                    (text[i] >= 'A' && text[i] <= 'Z') ||
-                    (text[i] >= '0' && text[i] <= '9') || text[i] == '_'))
-                i++;
-
-            t.kind = Token::WORD;
-            t.text = text.substr(start, i - start);
-            t.end = i;
-            out.push_back(t);
-            continue;
-        }
-
-        if (c == '"')
-        {
-            size_t start = ++i;
-
-            while (i < text.size() && text[i] != '"' && text[i] != '\n')
-                i++;
-
-            if (i >= text.size() || text[i] != '"')
-            {
-                err = "unterminated string";
-                errLine = line;
-                ok = false;
-                break;
-            }
-
-            t.kind = Token::STRING;
-            t.text = text.substr(start, i - start);
+            g.kind = Token::NUMBER;
+            g.text = "-" + raw[i + 1].text;
+            g.num  = -raw[i + 1].num;
+            g.end  = raw[i + 1].end;
             i++;
-            t.end = i;              /* both quotes inside the span       */
-            out.push_back(t);
-            continue;
         }
-
-        if (c == ':' && i + 1 < text.size() && text[i + 1] == ':')
+        else if (t.text == "@" && raw[i + 1].kind == thLexToken::WORD &&
+                 raw[i + 1].off == t.end)
         {
-            t.kind = Token::MODSEP;
-            t.text = "::";
-            i += 2;
-            t.end = i;
-            out.push_back(t);
-            continue;
-        }
-
-        if (c == '@')
-        {
-            size_t start = ++i;
-
-            while (i < text.size() &&
-                   ((text[i] >= 'a' && text[i] <= 'z') ||
-                    (text[i] >= 'A' && text[i] <= 'Z') ||
-                    (text[i] >= '0' && text[i] <= '9') || text[i] == '_'))
-                i++;
-
-            if (i == start)
-            {
-                err = "'@' with no knob name after it";
-                errLine = line;
-                ok = false;
-                break;
-            }
-
-            t.kind = Token::KNOB;
-            t.text = text.substr(start, i - start);
-            t.end = i;              /* the '@' inside the span           */
-            out.push_back(t);
-            continue;
-        }
-
-        if (c == ';' || c == '=' || c == '{' || c == '}' || c == '.')
-        {
-            t.kind = Token::PUNCT;
-            t.text = std::string(1, c);
+            g.kind = Token::KNOB;
+            g.text = raw[i + 1].text;
+            g.end  = raw[i + 1].end;
             i++;
-            t.end = i;
-            out.push_back(t);
-            continue;
         }
-
+        else if (t.text == "@")
         {
-            std::ostringstream s;
-
-            s << "stray character '" << c << "'";
-            err = s.str();
-            errLine = line;
+            err = "'@' with no knob name after it";
+            errLine = t.line;
+            ok = false;
+            break;
         }
-        ok = false;
-        break;
+        else
+        {
+            err = std::string("stray character '") + t.text[0] + "'";
+            errLine = t.line;
+            ok = false;
+            break;
+        }
+
+        out.push_back(g);
     }
 
     Token end;
 
     end.kind = Token::END;
-    end.line = line;
-    end.num = 0;
-    end.off = end.end = text.size();
+    end.line = ok ? raw[raw.size() - 1].line : errLine;
+    end.num  = 0;
+    end.off  = end.end = text.size();
     out.push_back(end);
 
     return ok;
