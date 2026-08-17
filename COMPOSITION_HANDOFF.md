@@ -448,7 +448,115 @@ Step 0 for all of it is the `ms` fold, because a shared lexer that
 hands `.dsp` a folded sample count and `.gen` a second is not shared —
 it is two lexers wearing one coat.
 
-## 9. Style notes for new code
+## 9. When the algorithms reach the instruments
+
+The question behind §8's "language payoff" deserves its own section:
+what if the algorithmic processes controlled not just the notes but the
+instruments — their timbre, their evolution, and the piece's structure?
+Checked against the architecture, the surprising answer is that most of
+the machinery already exists, some of it built for other reasons. What
+is missing is language and policy, not plumbing.
+
+**Three tiers, in rising depth of reach.**
+
+*Tier 1 — playing the declared surface.* This exists. Chanarg sinks let
+any composer drive whatever `@args` a patch declares, scheduled and
+replay-deterministic like everything else. A generative process already
+shapes timbre — but only along axes the instrument chose to expose.
+
+*Tier 2 — evolving the surface.* A patch's declared chanargs form a
+vector of floats, and a vector of floats is a genome. Everything
+`gen::evolve` does to phrases applies verbatim to timbre: populations of
+chanarg vectors, crossover, mutation, elitism. Notably, a `morph`
+transformer that interpolates between two chanarg vectors and emits the
+curve as scheduled `THC_EV_CHANARG` events is writable against the v1
+ABI *today* — no host change at all. What the language should add is
+the noun: named *presets* (a preset is a named chanarg vector the piece
+file carries), so that morphs, GA populations, and Markov chains over
+timbres have something to refer to, splice, and save.
+
+*Tier 3 — the graph as genome.* The instrument's synthesis topology
+itself becomes the evolving material. This sounds far-fetched until the
+inventory is taken:
+
+- `loadTree(filename, channum, amp)` is a *live atomic instrument
+  swap*: the replacement is built fully off the audio thread, a
+  `SET_CHANNEL` command queues the exchange at a window boundary, and
+  the retire queue hands the old channel back for safe deletion. Hot
+  instrument replacement is not a feature to build — it is the normal
+  patch-load path, running since before this project started.
+- thinklang is pure (§8 step 1), so candidate instruments parse
+  anywhere, even concurrently — a background evaluator can parse a
+  population without touching the live synth's state.
+- NodeEdit and thcGenEdit prove the validated-splice model: a program
+  can edit instrument text through the same one-writer seam a human
+  uses, comments preserved, atomicity guaranteed.
+- `think_nodemodel` (NodeGraph + NodeCatalog, deliberately GTK-free) is
+  the vocabulary of *legal* graphs — `canConnect` is exactly the
+  constraint function a graph-mutation operator needs so that offspring
+  are well-formed by construction rather than by luck.
+- The headless harnesses (dspcheck, dsplevel, dspab) render patches
+  in-process with no audio device. That is a fitness lab: a second,
+  *shadow* thSynth renders candidates offline while the live one plays,
+  and scores them on audio features (RMS, envelope shape, spectral
+  measures — kissfft, per the visualizers' verdict on the fft/ relic).
+  Judging phenotype instead of genotype, which §7 filed as speculative
+  for note-fitness, is for timbre-fitness the whole point.
+
+**The ABI shape: intents out, services in.** Composers deliberately
+cannot link libthink, and that stays true. A plugin never touches a
+graph; it emits *intents* the host executes — the same relationship
+sinks already express. Concretely: a `THC_EV_PATCH` event ("channel n
+becomes patch p at time t") makes instrument changes schedulable,
+which means the piano roll draws them (a program-change lane) and
+replay determinism covers them. Tier-3 evolution runs host-side as a
+service a `meta::` plugin steers, not as plugin code holding graph
+pointers.
+
+**Structure, two roads.** *Structure as data*: the piece file grows
+`section` blocks (which chains run, which patches bind, for how long)
+and a meta chain schedules or chooses among them — deterministic,
+drawable, savable, and the piano roll's future-window shows the form
+approaching. *Structure as rewriting*: meta-composers splice the piece
+itself through thcGenEdit, so the piece is self-modifying and Save
+publishes what it became — the "same file, same seed" story becomes
+"same file, same seed, same final file", which still verifies but reads
+stranger. Data first; rewriting is the research branch.
+
+**Why this lands on §8.** Tiers 2 and 3 all want the self-contained
+file: inline `patch` blocks, sinks binding patch *names* instead of
+channel numbers, presets as named vectors, sections as form. That is
+precisely the "language payoff" §8 step 3 said grammar unification
+should wait for. This section is that payoff arriving; the `ms` fold
+and the shared lexer stop being hygiene and become the runway.
+
+**Staging, each step shippable alone:**
+
+1. The `ms` fold and the shared offset-carrying lexer (§8 steps 0 and
+   2) — unchanged, now with a destination.
+2. `patch` blocks inline in `.gen`; sinks bind by patch name; the
+   loader instantiates channels. One shareable file that carries its
+   instruments.
+3. Presets in the language; a `gen::morph` transformer (writable even
+   before this, better after).
+4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
+   program-change lane on the roll.
+5. Shadow-synth fitness service + `composer_input` (§7's pending item);
+   chanarg-genome GA — timbres evolving under audio-feature fitness
+   while the piece plays.
+6. Sections and meta chains; then, if the appetite is real, graph
+   mutation constrained by nodemodel.
+
+**Three principles to hold while building it.** The declared surface is
+*consent* — an instrument states how it may be played, and deeper reach
+is a language change the patch opts into, never a backdoor. Algorithms
+use the human seams — thcGenEdit, NodeEdit, loadTree — so there is one
+writer and no second path that can corrupt a file. And everything
+schedulable is drawable: if an instrument change is an event, the roll
+shows it coming and gencheck replays it byte-identically, or it does
+not ship.
+
+## 10. Style notes for new code
 
 Match the house: GPL header block on every file, `onX` handlers /
 `PascalCase` public mutators as in `Keyboard.h`, trailing-underscore
