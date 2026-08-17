@@ -18,7 +18,7 @@
 # half shows the sweep coming. `swell' and `settle' are a two-second
 # gesture rather than a forty-second one.
 #
-# Aim channel 2 at amb01.dsp, which declares res, fmin and fmax. A patch
+# Aim channel 3 at amb01.dsp, which declares res, fmin and fmax. A patch
 # that declares none of them will simply hear nothing: the chanargs a
 # patch exposes are the whole of what a piece may reach, deliberately.
 # See COMPOSITION_HANDOFF.md, section 9.
@@ -72,7 +72,7 @@ chain sweep {
         mode  = 2;
         retrigger = 0;
     };
-    sink { channel = 2; chanarg = "*"; };
+    sink { channel = 3; chanarg = "*"; };
 };
 
 chain pads {
@@ -81,7 +81,7 @@ chain pads {
         period = 11.7 s; jitter = 2.4 s;
         prob = 0.8; hold = 9 s; vel = 62; vel_jitter = 6;
     };
-    sink { channel = 2; };
+    sink { channel = 3; };
 };
 
 chain bell {
@@ -99,6 +99,6 @@ chain bell {
         mode  = 0;
         retrigger = 1;
     };
-    sink { channel = 3; };
-    sink { channel = 3; chanarg = "*"; };
+    sink { channel = 4; };
+    sink { channel = 4; chanarg = "*"; };
 };

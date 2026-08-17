@@ -2032,9 +2032,11 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
         return REFUSED;
     }
 
-    if (channel < 0 || channel > 15)
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    if (channel < 1 || channel > 16)
     {
-        why = "channel is 0-15";
+        why = "channel is 1-16";
         return REFUSED;
     }
 
@@ -2393,9 +2395,11 @@ thcGenEdit::addSink (const std::string &filename, const std::string &chain,
                      int channel, const std::string &chanarg,
                      std::string &why)
 {
-    if (channel < 0 || channel > 15)
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    if (channel < 1 || channel > 16)
     {
-        why = "channel is 0-15";
+        why = "channel is 1-16";
         return REFUSED;
     }
 
@@ -2473,9 +2477,11 @@ thcGenEdit::setSink (const std::string &filename, const std::string &chain,
                      int sinkIndex, int channel, const std::string &chanarg,
                      std::string &why)
 {
-    if (channel < 0 || channel > 15)
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    if (channel < 1 || channel > 16)
     {
-        why = "channel is 0-15";
+        why = "channel is 1-16";
         return REFUSED;
     }
 

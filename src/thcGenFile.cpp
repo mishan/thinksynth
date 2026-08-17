@@ -1358,14 +1358,33 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
             Token num = take();
 
-            if (num.num < 0 || num.num > 15 ||
-                num.num != (double)(int)num.num)
+            /* 1-16, the way every other place a person sees a channel in
+               this program spells one: the main window's patch tabs and
+               the Keyboard window's spinner have always counted from one,
+               and so does every sequencer anyone has used. The wire and
+               the engine count from zero, and the conversion belongs
+               here, at the file boundary, exactly as the note-name
+               parser does.
+             *
+               `channel = 0' was the whole of the old range's bottom and
+               is now an error rather than channel 1, which is the one
+               case where a file written for the old numbering can be
+               told apart from one written for this. It says so. */
+            if (num.num == 0)
             {
-                error(num.line, "channel is a whole number, 0-15");
+                error(num.line, "channel is 1-16 now, counting the way the "
+                      "patch tabs do; there is no channel 0");
                 return false;
             }
 
-            channel = (int)num.num;
+            if (num.num < 1 || num.num > 16 ||
+                num.num != (double)(int)num.num)
+            {
+                error(num.line, "channel is a whole number, 1-16");
+                return false;
+            }
+
+            channel = (int)num.num - 1;
         }
         else
         {
@@ -1419,6 +1438,8 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
     if (channel < 0)
     {
+        /* -1 is "never set", which the range check above makes
+           unreachable any other way. */
         error(peek().line, "sink has no channel");
         return false;
     }

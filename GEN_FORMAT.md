@@ -49,7 +49,7 @@ chain loop1 {
     stage q xform::quantize {
         scale = fmin;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 ```
 
@@ -168,11 +168,20 @@ A chain body holds, in order:
 - one or more `sink` blocks, always last:
 
 ```
-sink { channel = 3; };                          # notes -> MIDI channel 3
-sink { channel = 2; chanarg = "cutoff"; };      # values -> a patch knob
-sink { channel = 2; chanarg = "*"; };           # values -> the knob each
+sink { channel = 4; };                          # notes -> MIDI channel 4
+sink { channel = 3; chanarg = "cutoff"; };      # values -> a patch knob
+sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
+
+**Channels are 1–16.** That is the number on the main window's patch tab and
+in the Keyboard window's spinner, and it is what every sequencer shows; the
+wire and the engine count from zero, and the conversion happens here at the
+file boundary the way note names are resolved here rather than in a plugin.
+`channel = 0` is an error rather than channel 1, and says why — it is the one
+spelling that can tell a file written for the old 0–15 numbering apart from
+one written for this, and a piece silently playing a channel out is worse than
+a piece that refuses to load.
 
 Two sinks is fan-out: every event leaving the last stage is delivered to
 each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
@@ -211,6 +220,7 @@ value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("channel" "=" NUMBER | "chanarg" "=" STRING) ";"
+                                                       # channel is 1-16
                                                        # STRING = a name
                                                        #   or "*"
 ```

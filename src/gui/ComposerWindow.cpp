@@ -882,6 +882,13 @@ ComposerWindow::injectOff (int chan, float note)
 void
 ComposerWindow::onKbdToggle (void)
 {
+    /* Guarded as well as fixed. This is a signal handler on a member
+       pointer, so it can be reached from anywhere the toolkit decides to
+       emit `toggled' -- including from set_active() during teardown --
+       and a crash is a poor way to find out. */
+    if (kbdBtn_ == NULL)
+        return;
+
     if (kbdBtn_->get_active())
     {
         kbdOnConn_ = m_sigKbdNoteOn.connect(
@@ -1171,13 +1178,19 @@ void
 ComposerWindow::rebuildEditor (void)
 {
     /* The buttons below die with their row; forgetting that here left
-       setDirty poking freed widgets whenever the panel was hidden. */
+       setDirty poking freed widgets whenever the panel was hidden.
+     *
+     * kbdBtn_ is deliberately *not* in this list, and used to be. It
+       lives in the toolbar, which nothing here clears, so nulling it
+       forgot a widget that was still on screen and still connected --
+       and the next click on Kbd input reached onKbdToggle, which
+       dereferenced the null and took the program with it. A pointer
+       cleared here has to be one the loop below actually destroys. */
     saveBtn_ = NULL;
     saveAsBtn_ = NULL;
     newBtn_ = NULL;
     openBtn_ = NULL;
     selBox_ = NULL;
-    kbdBtn_ = NULL;
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);
@@ -1907,11 +1920,12 @@ ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(chain.sinks[ki].channel, 0, 15, 1)));
+        Gtk::Adjustment::create(chain.sinks[ki].channel, 1, 16, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *rm = manage(new Gtk::Button("Remove"));
 
-    chan->set_tooltip_text("MIDI channel, 0-15");
+    chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
+                           "the main window's patch tab");
     arg->set_text(chain.sinks[ki].chanarg);
     arg->set_placeholder_text("chanarg (empty: notes)");
     arg->set_max_width_chars(12);
@@ -2008,11 +2022,12 @@ ComposerWindow::buildAddSink (size_t ci)
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0, 0, 15, 1)));
+        Gtk::Adjustment::create(1, 1, 16, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *add = manage(new Gtk::Button("Add sink"));
 
-    chan->set_tooltip_text("MIDI channel, 0-15");
+    chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
+                           "the main window's patch tab");
     arg->set_placeholder_text("chanarg (empty: notes)");
     arg->set_max_width_chars(12);
 

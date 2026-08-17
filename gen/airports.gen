@@ -21,7 +21,7 @@ chain loop_f3 {
         notes = "F3";  period = 23.9 s; jitter = 2.0 s;
         prob = @density; hold = 6 s; vel = 72; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loop_ab3 {
@@ -29,7 +29,7 @@ chain loop_ab3 {
         notes = "Ab3"; period = 19.4 s; jitter = 1.5 s;
         prob = @density; hold = 6 s; vel = 70; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loop_c4 {
@@ -37,7 +37,7 @@ chain loop_c4 {
         notes = "C4";  period = 27.1 s; jitter = 2.5 s;
         prob = @density; hold = 5 s; vel = 66; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loop_db4 {
@@ -45,7 +45,7 @@ chain loop_db4 {
         notes = "Db4"; period = 31.7 s; jitter = 3.0 s;
         prob = @density; hold = 5 s; vel = 62; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loop_eb4 {
@@ -53,7 +53,7 @@ chain loop_eb4 {
         notes = "Eb4"; period = 21.3 s; jitter = 2.0 s;
         prob = @density; hold = 5 s; vel = 64; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loop_f4 {
@@ -61,7 +61,7 @@ chain loop_f4 {
         notes = "F4";  period = 25.6 s; jitter = 2.0 s;
         prob = @density; hold = 4 s; vel = 60; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loop_ab4 {
@@ -69,7 +69,7 @@ chain loop_ab4 {
         notes = "Ab4"; period = 34.9 s; jitter = 3.0 s;
         prob = @density; hold = 4 s; vel = 56; vel_jitter = 8;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 # The wildcard: draws from the whole scale, rare and quiet, and its
@@ -80,7 +80,7 @@ chain wildcard {
         prob = 0.6; hold = 5 s; vel = 50; vel_jitter = 10;
     };
     stage q xform::quantize { scale = fmin; };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 # What v1 could not express at all: a slow random walk driving the pad
@@ -89,5 +89,5 @@ chain drift {
     stage src gen::walk {
         min = 0.2; max = 0.8; step = 0.05; period = 8 s;
     };
-    sink { channel = 3; chanarg = "cutoff"; };
+    sink { channel = 4; chanarg = "cutoff"; };
 };

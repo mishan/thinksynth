@@ -257,31 +257,31 @@ checkValidation (const std::map<std::string, thcPlugin *> &plugins,
     /* A duration with no unit: the whole point of §2 of the format. */
     expectReject(plugins, synth, "bare-duration",
         "chain c { stage s gen::eno_line { period = 20; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "write a unit");
 
     /* A plugin that does not exist, by name. */
     expectReject(plugins, synth, "no-such-plugin",
         "chain c { stage s gen::no_such_thing { };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "no_such_thing");
 
     /* A param the plugin never registered, by name. */
     expectReject(plugins, synth, "no-such-param",
         "chain c { stage s gen::eno_line { frobnicate = 3; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "frobnicate");
 
     /* gen:: asked of a transformer. */
     expectReject(plugins, synth, "wrong-role",
         "chain c { stage s gen::quantize { };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "cannot be a gen:: stage");
 
     /* A knob used before it is declared. */
     expectReject(plugins, synth, "undeclared-knob",
         "chain c { stage s gen::eno_line { prob = @nope; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "@nope");
 
     /* A chain with no sink has nowhere to deliver. */
@@ -292,26 +292,26 @@ checkValidation (const std::map<std::string, thcPlugin *> &plugins,
     /* Textual order is execution order; a stage after a sink is a
        contradiction, not a style choice. */
     expectReject(plugins, synth, "stage-after-sink",
-        "chain c { stage s gen::eno_line { }; sink { channel = 0; };"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; };"
         " stage t xform::quantize { }; };",
         "stage after sink");
 
     /* All transformers and no input: nothing would ever flow. */
     expectReject(plugins, synth, "no-source",
         "chain c { stage s xform::quantize { };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "no generator");
 
     /* A scale nobody declared, by name. */
     expectReject(plugins, synth, "no-such-scale",
         "chain c { stage s gen::eno_line { notes = ghost; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "ghost");
 
     /* A seed after a chain cannot mean what it says. */
     expectReject(plugins, synth, "late-seed",
         "chain c { stage s gen::eno_line { };"
-        " sink { channel = 0; }; };\n"
+        " sink { channel = 1; }; };\n"
         "seed 42;",
         "before the first chain");
 }
@@ -481,14 +481,14 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
             "        axiom = \"X\"; rules = \"X=F[+X]F[-X]\";\n"
             "        depth = 3; step = 0.15 s; hold = 0.2 s;\n"
             "    };\n"
-            "    sink { channel = 0; };\n"
+            "    sink { channel = 1; };\n"
             "};\n"
             "chain roots {\n"
             "    stage src gen::evolve {\n"
             "        length = 8; population = 8;\n"
             "        step = 0.2 s; hold = 0.2 s;\n"
             "    };\n"
-            "    sink { channel = 1; };\n"
+            "    sink { channel = 2; };\n"
             "};\n"
             "chain dream {\n"
             "    stage teacher gen::lsystem {\n"
@@ -498,14 +498,14 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
             "    stage student gen::markov {\n"
             "        pass = 0; period = 0.2 s; hold = 0.2 s;\n"
             "    };\n"
-            "    sink { channel = 2; };\n"
+            "    sink { channel = 3; };\n"
             "};\n"
             "chain grid {\n"
             "    stage src gen::ca {\n"
             "        rule = 110; width = 8;\n"
             "        period = 0.2 s; hold = 0.1 s;\n"
             "    };\n"
-            "    sink { channel = 3; };\n"
+            "    sink { channel = 4; };\n"
             "};\n";
     }
 
@@ -549,7 +549,7 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
 
     /* The learner and the automaton both spoke: the markov's channel
        proves receive() trained it from its upstream teacher (pass = 0,
-       so anything on channel 2 is the student's own), and the ca's
+       so anything on the third channel is the student's own), and the ca's
        proves the ring is advancing. */
     {
         int perChan[4] = { 0, 0, 0, 0 };
@@ -576,8 +576,10 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
        then the same bars forever. The boredom tax is what keeps the
        optimum moving, and this holds it down -- deterministic, since
        the piece is seeded, so it either passes always or fails always.
-       Group the evolve chain's notes (channel 1) into cycle-length
-       windows and count distinct phrases across ~18 cycles. */
+       Group the evolve chain's notes into cycle-length windows and
+       count distinct phrases across ~18 cycles. The comparisons below
+       are against *delivered* channels, which the engine counts from
+       zero -- the file's `channel = 2' is this stream's channel 1. */
     {
         std::istringstream in(first);
         std::string line;
@@ -650,11 +652,11 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
             "chain hands {\n"
             "    input midi;\n"
             "    stage a gen::arp { period = 0.1 s; hold = 0.08 s; };\n"
-            "    sink { channel = 0; };\n"
+            "    sink { channel = 1; };\n"
             "};\n"
             "chain thru {\n"
             "    input midi;\n"
-            "    sink { channel = 1; };\n"
+            "    sink { channel = 2; };\n"
             "};\n";
     }
 
@@ -672,8 +674,10 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     /* One scripted performance, in virtual time. Routing is by the
-       chains' sink channels: channel 0 reaches `hands' (the arp),
-       channel 1 reaches `thru'. */
+       chains' sink channels, and these are the *engine's* numbers: the
+       file writes 1 and 2, the loader hands over 0 and 1, and injection
+       and delivery both speak the latter. Channel 0 reaches `hands'
+       (the arp), channel 1 reaches `thru'. */
     auto press = [&sched](int chan, int note, int vel)
     {
         thcEvent ev = {};
@@ -1224,17 +1228,17 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
 
     expectReject(plugins, synth, "no-such-preset",
         "chain c { stage s gen::morph { from = ghost; to = ghost; };"
-        " sink { channel = 0; chanarg = \"*\"; }; };",
+        " sink { channel = 1; chanarg = \"*\"; }; };",
         "no preset called 'ghost'");
 
     expectReject(plugins, synth, "duplicate-preset",
         "preset a { x = 1; };\npreset a { x = 2; };\n"
-        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
         "already declared");
 
     expectReject(plugins, synth, "empty-preset",
         "preset a { };\n"
-        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
         "sets nothing");
 
     /* A preset is a vector or it is nothing: interpolating towards a
@@ -1242,12 +1246,12 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
        not a preset, it is an expression with a value right now. */
     expectReject(plugins, synth, "knob-in-preset",
         "@k = 1;\npreset a { x = @k; };\n"
-        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
         "cannot be a knob");
 
     expectReject(plugins, synth, "preset-set-twice",
         "preset a { x = 1; x = 2; };\n"
-        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
         "sets 'x' twice");
 
     /* A preset param takes a name, not the resolved text: a vector
@@ -1255,19 +1259,34 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
        which is the whole reason the noun exists. */
     expectReject(plugins, synth, "preset-as-string",
         "chain c { stage s gen::morph { from = \"x=1\"; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "declare it with `preset'");
 
     expectReject(plugins, synth, "preset-as-number",
         "chain c { stage s gen::morph { from = 3; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "wants a preset name");
 
     /* A sink pointed at a name no .dsp could declare would fail silently
        at delivery, which is a long way from the typo. */
+    /* The bottom of the old range. A file written when channels counted
+       from zero is indistinguishable from one written for 1-16 *except*
+       here, so this is the only place the change can be caught rather
+       than silently transposing a piece -- and the message says what
+       happened rather than only that a number was out of range. */
+    expectReject(plugins, synth, "channel-zero",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 0; }; };",
+        "channel is 1-16 now");
+
+    expectReject(plugins, synth, "channel-seventeen",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 17; }; };",
+        "whole number, 1-16");
+
     expectReject(plugins, synth, "bad-sink-name",
         "chain c { stage s gen::eno_line { };"
-        " sink { channel = 0; chanarg = \"cut off\"; }; };",
+        " sink { channel = 1; chanarg = \"cut off\"; }; };",
         "is not a chanarg name");
 
     /* --- what it does when it is right --- */
@@ -1295,7 +1314,7 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
             "        from = depart; to = arrive;\n"
             "        time = 4 s; steps = 9; curve = 1; mode = 0;\n"
             "    };\n"
-            "    sink { channel = 5; chanarg = \"*\"; };\n"
+            "    sink { channel = 6; chanarg = \"*\"; };\n"
             "};\n";
     }
 
@@ -1410,7 +1429,7 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
             "        spread = 0; aim = 1; drift = 0.5; reach = 0.25;\n"
             "        period = 0.5 s;\n"
             "    };\n"
-            "    sink { channel = 7; chanarg = \"*\"; };\n"
+            "    sink { channel = 8; chanarg = \"*\"; };\n"
             "};\n";
     }
 
@@ -1553,10 +1572,17 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
  * quietly stopped loading with no test anywhere to say so. dspcheck has
  * swept dsp/ for exactly this reason since long before any of this.
  *
- * Loading only, not rendering: what these files can prove cheaply is
- * that they still parse, still name plugins that exist, and still pass
- * every validation the loader applies. Replay determinism needs a pinned
- * seed and three minutes, and one piece carrying that is enough.
+ * Loading is most of it, and one thing more: a piece that loads and then
+ * says nothing is a piece with a typo in it, and the demos are meant to
+ * be read as much as heard. So every piece with a generator in it has to
+ * deliver something inside a minute of its own virtual time. A piece
+ * whose chains are all `input midi' is exempt, because silence is
+ * exactly what it should produce with nobody playing -- hands.gen is
+ * that piece, and the exemption is why the check can be strict about
+ * everything else.
+ *
+ * Replay determinism is not swept here: it needs a pinned seed and three
+ * minutes, and one piece carrying that is enough.
  */
 static void
 checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
@@ -1594,16 +1620,42 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
 
     for (size_t i = 0; i < files.size(); i++)
     {
+        const std::string leaf = files[i].filename().string();
+
         thcScheduler sched(synth);
         thcGenLoader loader(plugins);
 
-        if (loader.load(files[i].string(), &sched))
+        if (!loader.load(files[i].string(), &sched))
+        {
+            for (size_t k = 0; k < loader.errors().size(); k++)
+                fprintf(stderr, "gencheck: %s\n",
+                        loader.errors()[k].c_str());
+
+            fail(leaf + " no longer loads");
             continue;
+        }
 
-        for (size_t k = 0; k < loader.errors().size(); k++)
-            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+        if (sched.chainCount() == 0)
+        {
+            fail(leaf + " loaded with no chains at all");
+            continue;
+        }
 
-        fail(files[i].filename().string() + " no longer loads");
+        bool anyGenerator = false;
+
+        for (size_t ci = 0; ci < sched.chainCount(); ci++)
+        {
+            const thcChain *c = sched.chain(ci);
+
+            if (c != NULL && !c->inputMidi)
+                anyGenerator = true;
+        }
+
+        if (!anyGenerator)
+            continue;           /* played by hand; see above            */
+
+        if (render(sched, 60.0, 0.05).empty())
+            fail(leaf + " loads but delivers nothing in a minute");
     }
 }
 

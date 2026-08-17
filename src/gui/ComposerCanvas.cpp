@@ -349,7 +349,11 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     bool isSink = box.what.kind == Selection::SINK;
 
     if (isSink && box.channel >= 0)
-        gthChannelColor(box.channel, r, g, b);
+        /* The box carries the file's number, 1-16; the colour table is
+           the engine's, 0-15, and the piano roll draws delivered notes
+           with it. Off by one here would have every sink drawn in its
+           neighbour's colour. */
+        gthChannelColor(box.channel - 1, r, g, b);
 
     cr->set_source_rgba(r, g, b, isSink ? 0.13 : 0.07);
     roundedRect(cr, box.x, box.y, box.w, box.h, 5);

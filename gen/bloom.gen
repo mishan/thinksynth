@@ -25,7 +25,7 @@
 # The seed is pinned, so the whole search replays. Unpin it to let the
 # instrument find somewhere else.
 #
-# Aim channel 2 at amb01.dsp, which declares res, fmin and fmax.
+# Aim channel 3 at amb01.dsp, which declares res, fmin and fmax.
 
 name "Bloom";
 author "Misha Nasledov";
@@ -66,7 +66,7 @@ chain search {
         reach  = 0.25;
         period = 5 s;
     };
-    sink { channel = 2; chanarg = "*"; };
+    sink { channel = 3; chanarg = "*"; };
 };
 
 chain under {
@@ -75,5 +75,5 @@ chain under {
         period = 13.3 s; jitter = 3.1 s;
         prob = 0.75; hold = 11 s; vel = 58; vel_jitter = 5;
     };
-    sink { channel = 2; };
+    sink { channel = 3; };
 };

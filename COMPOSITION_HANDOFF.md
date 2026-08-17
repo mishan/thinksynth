@@ -68,6 +68,19 @@ Repo: github.com/mishan/thinksynth (C++, gtkmm-4, CMake, GPL-2+).
 >   exist yet. It is the thing milestone 4 deletes.
 > - New code standardizes on American English spelling (color, not
 >   colour).
+> - **`.gen` channels are 1-16**, not the wire's 0-15. The main window's
+>   patch tabs and the Keyboard window's spinner have always counted
+>   from one and so does every sequencer, and a file that disagreed with
+>   the thing next to it on screen is a confusion nobody needed. The
+>   loader converts at the file boundary, the way note names are
+>   resolved there; `channel = 0` is a load error naming the change,
+>   which is the one spelling that tells a file written for the old
+>   numbering apart from one written for this.
+> - **`gen/README.md` indexes the shipped pieces**, ten of them, each
+>   built around one idea and gated by gencheck's corpus sweep: every
+>   piece must load, and every piece with a generator in it must deliver
+>   something inside a minute. A piece that loads and then says nothing
+>   is a piece with a typo in it.
 
 ## 1. What is being built
 
