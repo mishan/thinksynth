@@ -207,26 +207,30 @@ NODE WORD plugname LCBRACK assignments RCBRACK
 {
     thPluginManager *plugMgr = ctx->synth->getPluginManager();
 
-    if (!plugMgr->getPlugin($3.str)) {
-        if (plugMgr->loadPlugin($3.str) == 1) { /* FAILED */
-            /* This used to exit(1) -- a library taking the whole host process
-               down because one .dsp referenced a plugin that would not load.
-               Fail the parse instead; loadTree() discards the tree. */
-            char errbuf[256];
+    /* One call rather than get-then-load-then-get. The old spelling was a
+       check-then-act, and with parseTree no longer holding the synth mutex
+       two parses of a file naming the same unloaded plugin could both miss
+       and both load it. getOrLoadPlugin settles it under one lock. */
+    thPlugin *plug = plugMgr->getOrLoadPlugin($3.str);
 
-            snprintf(errbuf, sizeof(errbuf),
-                     "could not load plugin '%s' required by node '%s'",
-                     $3.str, $2.str);
-            yyerror(ctx, errbuf);
+    if (plug == NULL) {
+        /* This used to exit(1) -- a library taking the whole host process
+           down because one .dsp referenced a plugin that would not load.
+           Fail the parse instead; loadTree() discards the tree. */
+        char errbuf[256];
 
-            free($2.str);        /* WORD comes from the lexer's strdup() */
-            delete[] $3.str;     /* plugname is built with new char[] */
+        snprintf(errbuf, sizeof(errbuf),
+                 "could not load plugin '%s' required by node '%s'",
+                 $3.str, $2.str);
+        yyerror(ctx, errbuf);
 
-            YYERROR;
-        }
+        free($2.str);        /* WORD comes from the lexer's strdup() */
+        delete[] $3.str;     /* plugname is built with new char[] */
+
+        YYERROR;
     }
 
-    ctx->node->setPlugin(plugMgr->getPlugin($3.str));
+    ctx->node->setPlugin(plug);
     ctx->node->setName($2.str);
 
     ctx->tree->newNode(ctx->node, true);
@@ -525,14 +529,37 @@ static void yyerror (thParseContext *ctx, const char *str)
  * parse makes that hazard unconstructible rather than handled. */
 int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
 {
-    thParseContext ctx;
+    /* Checked rather than assumed. Every caller in the tree passes all
+       three, but this is the entry point an out-of-tree consumer of
+       libthink reaches the language through, and the failure modes are a
+       null dereference for treeOut and a parse of nothing for input. A
+       nonzero return with *treeOut left NULL is a shape finishParse already
+       handles -- it is what a parse that failed on line one looks like. */
+    if (treeOut == NULL)
+        return 1;
+
+    *treeOut = NULL;
+
+    if (synth == NULL || input == NULL)
+        return 1;
+
+    /* Before the tree is built, so a scanner that could not be made costs
+       nothing to clean up. thinklex_init allocates, and flex's own
+       yy_fatal_error is the alternative to noticing here. */
     yyscan_t scanner = NULL;
+
+    if (thinklex_init(&scanner) != 0 || scanner == NULL)
+    {
+        fprintf(stderr, "error: could not create a scanner\n");
+        return 1;
+    }
+
+    thParseContext ctx;
 
     ctx.synth = synth;
     ctx.tree = new thSynthTree("newmod", synth);
     ctx.node = new thNode("newnode", NULL);
 
-    thinklex_init(&scanner);
     thinkset_in(input, scanner);
     ctx.scanner = scanner;
 

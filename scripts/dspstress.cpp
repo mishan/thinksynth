@@ -46,6 +46,7 @@
  *   3 chanargs  + setChanArg and slider-style setValue
  *   4 reload    + loadTree onto a live channel, removeChan
  *   5 probes    + armProbe / disarmProbe, and draining the rings
+ *   6 parse     + four threads parsing the same .dsp over and over
  *
  * Level 5 is where the visualizer tap gets looked at, and it deliberately sits
  * on top of level 4 rather than beside it: arming and disarming on a quiet
@@ -54,11 +55,24 @@
  * is part of it because the ring's consumer side is the GUI thread's, and a
  * ring that is written but never read exercises half of what it is for.
  *
- * Confirmed to fail before it was trusted to pass: relaxing thSampleRing's
- * release store to memory_order_relaxed makes level 5 report a data race at
- * the memcpy in read() within a second and a half. That is the edge the whole
- * handoff rests on, and this is what watches it -- ringcheck can only find an
- * ordering bug by volume, on hardware that will not reorder the stores itself.
+ * Level 6 is the one that checks a claim rather than a mechanism. thinklang
+ * was made pure -- a scanner and a context per parse -- so that parseTree
+ * could run without the synth mutex and a background evaluator could parse
+ * candidate instruments while the live synth plays. Purity of the parser is
+ * necessary and was not sufficient: a parse resolves its nodes' plugins
+ * through thPluginManager, whose map is the synth's and not the parse's, and
+ * whose lookup was `plugins_[name]' -- an insert on every miss, from a call
+ * that reads. Two parses of a file naming a plugin neither had loaded raced
+ * on that insert. This level is what says so, and what would say so again.
+ *
+ * Confirmed to fail before it was trusted to pass, both of them. Taking the
+ * manager's lock back out makes level 6 report a data race inside the map,
+ * from two of the four parser threads, within three seconds. And relaxing
+ * thSampleRing's release store to memory_order_relaxed makes level 5 report
+ * a data race at the memcpy in read() within a second and a half. That is the
+ * edge the whole handoff rests on, and this is what watches it -- ringcheck
+ * can only find an ordering bug by volume, on hardware that will not reorder
+ * the stores itself.
  *
  * Exit status is the number of levels that failed (crashed, or reported a race
  * when TSAN_OPTIONS sets exitcode/halt_on_error).
@@ -95,7 +109,8 @@ enum {
     LVL_CHANARG,
     LVL_RELOAD,
     LVL_PROBE,
-    LVL_MAX = LVL_PROBE
+    LVL_PARSE,
+    LVL_MAX = LVL_PARSE
 };
 
 static const char *levelName (int level)
@@ -107,6 +122,7 @@ static const char *levelName (int level)
         case LVL_CHANARG: return "chanargs (+ setChanArg/setValue)";
         case LVL_RELOAD:  return "reload   (+ loadTree/removeChan)";
         case LVL_PROBE:   return "probes   (+ arm/disarm/drain)";
+        case LVL_PARSE:   return "parse    (+ concurrent parseTree)";
         default:          return "?";
     }
 }
@@ -125,8 +141,9 @@ static unsigned int nextRand (void)
 struct StressCounters {
     std::atomic<unsigned long> windows;
     std::atomic<unsigned long> ops;
+    std::atomic<unsigned long> parses;
 
-    StressCounters () : windows(0), ops(0) {}
+    StressCounters () : windows(0), ops(0), parses(0) {}
 };
 
 /* Stands in for the JACK process callback. */
@@ -141,6 +158,32 @@ static void audioThread (thSynth *synth, std::atomic<bool> *running,
         /* A real callback is woken by the audio device rather than spinning;
            yielding here widens the interleaving rather than starving the
            other thread on a single core. */
+        std::this_thread::yield();
+    }
+}
+
+/* Stands in for whatever wants a tree without wanting the synth: the node
+ * editor's own parse, a patch being previewed, and -- the reason the parser
+ * was made pure -- a background evaluator scoring candidate instruments
+ * while the live one plays.
+ *
+ * parseTree registers nothing, so the tree is this thread's to delete. The
+ * deletion is the point as much as the parse is: it is what makes a leak or
+ * a double free show up here rather than as growth in a long session. */
+static void parserThread (thSynth *synth, const char *file,
+                          std::atomic<bool> *running, StressCounters *counters)
+{
+    while (running->load(std::memory_order_relaxed))
+    {
+        thSynthTree *tree = synth->parseTree(file);
+
+        if (tree == NULL)
+            continue;
+
+        delete tree;
+
+        counters->parses.fetch_add(1, std::memory_order_relaxed);
+
         std::this_thread::yield();
     }
 }
@@ -224,6 +267,17 @@ static int runLevel (const string &pluginPath, const char *file, int level,
     std::atomic<bool> running(true);
 
     std::thread audio(audioThread, &synth, &running, &counters);
+
+    /* Four rather than two: the race this level exists for is on an insert,
+       and an insert is over quickly. More threads than cores is deliberate
+       -- the scheduler's preemptions are half of what widens the window on a
+       machine that is otherwise too fast to lose. */
+    vector<std::thread> parsers;
+
+    if (level >= LVL_PARSE)
+        for (int i = 0; i < 4; i++)
+            parsers.push_back(std::thread(parserThread, &synth, file, &running,
+                                          &counters));
 
     const std::chrono::steady_clock::time_point deadline =
         std::chrono::steady_clock::now() +
@@ -319,8 +373,16 @@ static int runLevel (const string &pluginPath, const char *file, int level,
     running.store(false, std::memory_order_relaxed);
     audio.join();
 
-    printf("      %lu windows, %lu ops\n",
-           counters.windows.load(), counters.ops.load());
+    for (size_t i = 0; i < parsers.size(); i++)
+        parsers[i].join();
+
+    if (parsers.empty())
+        printf("      %lu windows, %lu ops\n",
+               counters.windows.load(), counters.ops.load());
+    else
+        printf("      %lu windows, %lu ops, %lu parses\n",
+               counters.windows.load(), counters.ops.load(),
+               counters.parses.load());
 
     return 0;
 }

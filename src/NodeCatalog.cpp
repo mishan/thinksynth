@@ -138,15 +138,9 @@ bool NodeCatalog::describe (const string &spelling, thPluginManager *pm,
 
     const string path = out.category + "/" + out.name;
 
-    thPlugin *p = pm->getPlugin(path);
-
-    if (p == NULL)
-    {
-        if (pm->loadPlugin(path) != 0)
-            return false;
-
-        p = pm->getPlugin(path);
-    }
+    /* One call: get-then-load-then-get is a check-then-act, and the manager
+       can answer it under a single lock. */
+    thPlugin *p = pm->getOrLoadPlugin(path);
 
     if (p == NULL)
         return false;

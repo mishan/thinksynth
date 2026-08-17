@@ -810,7 +810,16 @@ thSynthTree * thSynth::parseTree (const string &filename)
        touches nothing shared either. This function used to open with a
        paragraph about the window between assigning the global yyin and
        taking the lock; the fix for that class of bug was not a wider
-       lock but the absence of the global. */
+       lock but the absence of the global.
+
+       "Touches nothing shared" wants one qualification, because there is
+       exactly one thing left: a parse resolves its nodes' plugins through
+       thPluginManager, which is the synth's and not the parse's.
+       thPluginManager locks its own map and resolves a name in one call,
+       which is where that belongs -- a lock here would serialize whole
+       parses to protect one map lookup, and would still leave the manager
+       unsafe for the node editor and the composer window, which reach it
+       from outside any parse at all. */
     thSynthTree *raw = NULL;
     int parseResult = thParseDsp(this, input, &raw);
 

@@ -160,9 +160,26 @@ const string thPluginManager::getPath (const string &name)
     return path;
 }
 
-int thPluginManager::loadPlugin (const string &name)
+thPlugin *thPluginManager::findLocked (const string &name) const
 {
-    thPlugin *plugin;
+    /* find(), not plugins_[name]. operator[] default-constructs on a miss,
+       so the old spelling turned every failed lookup into an insert of a
+       NULL -- which grew the map from a const-looking call, and made two
+       concurrent lookups of an unloaded plugin a race on the same insert. */
+    const PluginMap::const_iterator i = plugins_.find(name);
+
+    return (i == plugins_.end()) ? NULL : i->second;
+}
+
+int thPluginManager::loadLocked (const string &name)
+{
+    /* Idempotent. Callers reach here through a get-then-load pattern, and
+       two threads can both have missed before either got the lock; without
+       this the second one dlopens a second copy and overwrites -- and leaks
+       -- the first. */
+    if (findLocked(name) != NULL)
+        return 0;
+
     const string path = getPath(name);
 
     if (path.empty()) { /* Not found at all */
@@ -170,21 +187,46 @@ int thPluginManager::loadPlugin (const string &name)
         return 1;
     }
 
-    plugin = new thPlugin (path);
+    thPlugin *plugin = new thPlugin (path);
 
     if (plugin->state() == thPlugin::NOTLOADED) { /* something messed up */
         delete plugin;
         return 1;
     }
-    
+
     plugins_[name] = plugin;
 
     return 0;
 }
 
+thPlugin *thPluginManager::getPlugin (const string &name)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    return findLocked(name);
+}
+
+int thPluginManager::loadPlugin (const string &name)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    return loadLocked(name);
+}
+
+thPlugin *thPluginManager::getOrLoadPlugin (const string &name)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (loadLocked(name) != 0)
+        return NULL;
+
+    return findLocked(name);
+}
 
 void thPluginManager::unloadPlugin(const string &name)
 {
+    std::lock_guard<std::mutex> lock(mutex_);
+
     PluginMap::iterator i = plugins_.find(name);
 
     if (i == plugins_.end()) {
@@ -200,6 +242,9 @@ void thPluginManager::unloadPlugin(const string &name)
     delete plugin;
 }
 
+/* No lock: the only caller is the destructor, and anything still holding a
+   reference to a manager that is being destroyed has a worse problem than
+   this map. */
 void thPluginManager::unloadPlugins (void)
 {
     DestroyMap(plugins_);
