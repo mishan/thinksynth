@@ -1,0 +1,60 @@
+# fern.gen -- one grammar, three sizes.
+#
+# The same plant rule at three depths, three tempos and three octaves:
+# the sprig hurries through a shallow derivation, the frond unfolds the
+# middle one, and the trunk walks the deepest one slowly underneath.
+# Because an L-system is deterministic, the three never drift apart --
+# every repeat is the same plant, seen at three magnifications. There
+# is no seed to pin; nothing here rolls dice except the light humanize
+# on the frond, and un-pinned is how a texture piece should breathe.
+#
+# Watch the three stage boxes on the canvas: contours of the same
+# shape, dense to sparse. Brackets are branches, and branches are
+# chords -- the plant's forks land as simultaneous notes.
+#
+# Aim channel 3 at something plucked and channel 2 at a soft pad.
+
+name "Fern";
+author "Misha Nasledov";
+description "One L-system at three magnifications.";
+
+@sway = 0.02;
+@sway.widget = 1;
+@sway.min = 0;
+@sway.max = 0.08;
+@sway.label = "Sway";
+@sway.units = "s";
+
+chain sprig {
+    stage src gen::lsystem {
+        axiom = "X";
+        rules = "X=F[+X]rF[-X]X, F=Fr";
+        depth = 3;
+        notes = "D5 E5 Gb5 A5 B5";
+        step = 0.17 s; hold = 0.3 s; vel = 58;
+    };
+    sink { channel = 3; };
+};
+
+chain frond {
+    stage src gen::lsystem {
+        axiom = "X";
+        rules = "X=F[+X]rF[-X]X, F=Fr";
+        depth = 4;
+        notes = "D4 E4 Gb4 A4 B4";
+        step = 0.34 s; hold = 0.6 s; vel = 70;
+    };
+    stage soft xform::humanize { time = @sway; vel = 5; };
+    sink { channel = 3; };
+};
+
+chain trunk {
+    stage src gen::lsystem {
+        axiom = "X";
+        rules = "X=F[+X]rF[-X]X, F=Fr";
+        depth = 5;
+        notes = "D2 E2 Gb2 A2 B2";
+        step = 0.68 s; hold = 1.4 s; vel = 76;
+    };
+    sink { channel = 2; };
+};

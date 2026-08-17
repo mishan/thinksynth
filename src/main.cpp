@@ -71,6 +71,8 @@ Glib::RefPtr<Gtk::Application> gtkApp;
 
 sigNoteOn  m_sigNoteOn;
 sigNoteOff m_sigNoteOff;
+sigNoteOn  m_sigKbdNoteOn;
+sigNoteOff m_sigKbdNoteOff;
 sigNoteClear m_sigNoteClear;
 
 static string plugin_path = PLUGIN_PATH;

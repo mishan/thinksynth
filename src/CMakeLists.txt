@@ -39,6 +39,30 @@ target_include_directories(think_visualhost PUBLIC
 
 target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 
+# The host side of the composer framework: the dlopen wrapper for composer
+# modules and the scheduler that drives them. Its own object library for the
+# same reason the other two are -- it needs glibmm (the scheduler runs off a
+# Glib timeout and the monotonic clock) but not gtkmm, and the replay-
+# determinism harness planned in the handoff wants to link exactly this,
+# headlessly, without a toolkit.
+#
+# Deliberately in src/ rather than libthink/: composers are loaded by the
+# GUI and never by the parser, and the scheduler touches the synth only
+# through the same GUI-thread calls the on-screen keyboard uses. libthink
+# stays main-loop-free; this cannot. Same reasoning as think_visualhost,
+# with glibmm standing where cairo stood.
+add_library(think_composerhost OBJECT
+    thcPlugin.cpp
+    thcScheduler.cpp
+    thcGenFile.cpp
+    thcGenEdit.cpp)
+
+target_include_directories(think_composerhost PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+
+target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
+
 set(THINKSYNTH_SOURCES
     main.cpp
     gthPrefs.cpp
@@ -65,7 +89,10 @@ set(THINKSYNTH_SOURCES
     gui/NodeParams.cpp
     gui/NodeEditor.cpp
     gui/SaveButton.cpp
-    gui/PatchSelWindow.cpp)
+    gui/PatchSelWindow.cpp
+    gui/PianoRoll.cpp
+    gui/ComposerCanvas.cpp
+    gui/ComposerWindow.cpp)
 
 # ---------------------------------------------------------------------------
 # Windows resources: icon, manifest, version block
@@ -140,7 +167,8 @@ endif()
 add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>
-    $<TARGET_OBJECTS:think_visualhost>)
+    $<TARGET_OBJECTS:think_visualhost>
+    $<TARGET_OBJECTS:think_composerhost>)
 
 # The GUI subsystem on Windows, so launching this does not also open a
 # terminal. Without it the linker defaults to the console subsystem and

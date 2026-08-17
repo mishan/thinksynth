@@ -1,0 +1,54 @@
+# loom.gen -- a teacher, a student, and a loom underneath.
+#
+# The warp: an L-system plays its grammar. The weft: a markov stage in
+# the SAME chain listens to every note the grammar makes -- and with
+# pass = 0 the teacher is struck silent, so what reaches the sink is
+# only the student's paraphrase: the lsystem is a generator you hear
+# through the markov's ears. Watch its stage box on the canvas: the
+# transition table filling in IS the piece learning itself.
+#
+# Underneath, rule 110 walks a sixteen-cell ring -- the loom -- and the
+# Rule knob rethreads it live. Try 90 for lace, 30 for boiling.
+#
+# Seed pinned: the dream and the scatter replay exactly. Unpin to let
+# the student improvise differently each run.
+#
+# Aim channel 3 at keys, channel 2 at something short and woody.
+
+name "Loom";
+author "Misha Nasledov";
+description "A markov student of an L-system, over rule 110.";
+
+seed 613;
+
+@rule = 110;
+@rule.widget = 1;
+@rule.min = 0;
+@rule.max = 255;
+@rule.step = 1;
+@rule.label = "Rule";
+
+chain weave {
+    stage teacher gen::lsystem {
+        axiom = "X";
+        rules = "X=F[+X]F[-X], F=Fr";
+        depth = 4;
+        notes = "E4 Gb4 G4 B4 Db5";
+        step = 0.27 s; hold = 0.4 s; vel = 74;
+    };
+    stage student gen::markov {
+        order = 2; pass = 0;
+        period = 0.27 s; hold = 0.45 s; vel = 68;
+    };
+    sink { channel = 3; };
+};
+
+chain loom {
+    stage src gen::ca {
+        rule = @rule;
+        width = 16; scatter = 0; trigger = 0;
+        notes = "E2 Gb2 G2 B2 Db3";
+        period = 0.27 s; hold = 0.22 s; vel = 80;
+    };
+    sink { channel = 2; };
+};

@@ -38,6 +38,7 @@
 #include "PatchSelWindow.h"
 #include "Keyboard.h"
 #include "KeyboardWindow.h"
+#include "ComposerWindow.h"
 #include "MainSynthWindow.h"
 
 #include "../gthTheme.h"
@@ -87,6 +88,7 @@ MainSynthWindow::MainSynthWindow (gthAudio *audio)
     patchSel_ = NULL;
     aboutBox_ = NULL;
     kbWin_ = NULL;
+    compWin_ = NULL;
 
     /* Likewise the DSP browser: DSP_PATH is the *build* machine's install
        prefix, so on a relocatable package it names a directory the user has
@@ -200,11 +202,13 @@ MainSynthWindow::~MainSynthWindow (void)
     delete patchSel_;
     delete midiMap_;
     delete kbWin_;
+    delete compWin_;
 
     aboutBox_ = NULL;
     patchSel_ = NULL;
     midiMap_ = NULL;
     kbWin_ = NULL;
+    compWin_ = NULL;
 
     /* Not shutdown(): the loop has already ended by the time this runs, and
        asking a torn-down application to quit again is not a thing to do in a
@@ -458,6 +462,9 @@ void MainSynthWindow::populateMenu (void)
               sigc::mem_fun(*this, &MainSynthWindow::menuPatchSel), "<Control>p");
     addAction("midimap",
               sigc::mem_fun(*this, &MainSynthWindow::menuMidiMap), "<Control>m");
+    addAction("composer",
+              sigc::mem_fun(*this, &MainSynthWindow::menuComposer),
+              "<Control>g");
     addAction("quit",
               sigc::mem_fun(*this, &MainSynthWindow::menuQuit), "<Control>q");
     addAction("about", sigc::mem_fun(*this, &MainSynthWindow::menuAbout));
@@ -477,6 +484,7 @@ void MainSynthWindow::populateMenu (void)
     fileItems->append("_Keyboard", "win.keyboard");
     fileItems->append("_Patch Selector", "win.patchsel");
     fileItems->append("_MIDI Controllers", "win.midimap");
+    fileItems->append("_Composer", "win.composer");
 
     /* A separator is a section boundary in a menu model rather than an item
        of its own, so Quit goes in a section by itself. */
@@ -525,6 +533,21 @@ void MainSynthWindow::menuKeyboard (void)
     }
 
     kbWin_->present();
+}
+
+void MainSynthWindow::menuComposer (void)
+{
+    if (compWin_ == NULL)
+    {
+        compWin_ = new ComposerWindow (thSynth::instance());
+        compWin_->signal_close_request().connect(
+            sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onSubWindowClose),
+                       (Gtk::Window *)compWin_), false);
+
+        addCloseAccel(compWin_);
+    }
+
+    compWin_->present();
 }
 
 void MainSynthWindow::menuPatchSel (void)
