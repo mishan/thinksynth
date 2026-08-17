@@ -15,6 +15,7 @@
 #include "config.h"
 
 #include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
@@ -125,7 +126,7 @@ presetToString (const std::vector<std::pair<std::string, double> > &vec)
     {
         char num[32];
 
-        snprintf(num, sizeof(num), "%.9g", vec[i].second);
+        std::snprintf(num, sizeof(num), "%.9g", vec[i].second);
 
         if (i)
             s << ",";

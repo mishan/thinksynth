@@ -38,11 +38,9 @@
 
 #include "thcomposer.h"
 
-/* ucrt hides M_PI behind _USE_MATH_DEFINES, and unlike the GUI's
- * canvases this file includes no toolkit header to smuggle it in. */
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+/* M_PI is not in C++ and UCRT hides it; thMath.h is the one place that
+ * knows that. See its header for why there are two answers and not one. */
+#include "thMath.h"
 
 enum { P_STEPS, P_FILLS, P_ROTATE, P_NOTES, P_VEL, P_HOLD, P_PERIOD,
        P_COUNT };

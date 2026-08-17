@@ -54,6 +54,9 @@
 #include <cairo.h>
 
 #include "thcomposer.h"
+/* M_PI is not in C++ and UCRT hides it; thMath.h is the one place that
+ * knows that. See its header for why there are two answers and not one. */
+#include "thMath.h"
 
 enum { P_FROM, P_TO, P_TIME, P_STEPS, P_CURVE, P_MODE, P_RETRIGGER,
        P_COUNT };

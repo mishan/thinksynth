@@ -158,8 +158,8 @@ struct thcSink
 
     bool isChanarg (void) const { return !chanarg.empty(); }
 
-    /* `chanarg = "*"' -- a chanarg sink that lets each event name its
-     * own target instead of overwriting it.
+    /* A chanarg sink written `chanarg = "*";' -- one that lets each
+     * event name its own target instead of overwriting it.
      *
      * The ordinary chanarg sink names one knob, which is right for a
      * walk or an envelope: the plugin produces a number and has no

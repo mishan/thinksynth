@@ -21,13 +21,9 @@
 
 #include "think.h"
 
-/* Belt to <cmath>'s braces: ucrt only defines M_PI under
- * _USE_MATH_DEFINES, and this file should not depend on the gtkmm
- * include chain having smuggled it in the way NodeCanvas gets away
- * with. */
-#ifndef M_PI
-#define M_PI 3.14159265358979323846
-#endif
+/* M_PI is not in C++ and UCRT hides it; thMath.h is the one place that
+ * knows that. See its header for why there are two answers and not one. */
+#include "thMath.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"

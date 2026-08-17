@@ -220,6 +220,20 @@ limited to `master` and a `concurrency` group cancels superseded runs.
   that launched it gets the output and Explorer does not get a terminal. See
   `src/gthConsole.cpp`. The trap underneath: a redirected stream already has a
   valid handle, and reopening it on `CONOUT$` throws the redirection away.
+- **`M_PI` is not in C++, and only Windows makes you notice.** glibc hands it
+  out from `<math.h>` because g++ defines `_GNU_SOURCE`, so a file using it
+  builds on Linux; MinGW's UCRT hides it behind `_USE_MATH_DEFINES`, so the
+  same file fails there and nowhere else. `CMAKE_CXX_EXTENSIONS OFF` is what
+  exposes this and is worth keeping for its own reasons. The tree got it wrong
+  four times before the fix went anywhere durable: three files carried an
+  identical `#ifndef M_PI` shim, a fourth forgot, and a fifth compiled only
+  because gtkmm smuggled a definition in. Now the top-level `CMakeLists.txt`
+  defines `_USE_MATH_DEFINES` for every target — which fixes the files nobody
+  has written yet — and `libthink/thMath.h` is the belt for plugins built out
+  of tree, where none of this project's compile definitions apply. The general
+  shape: **a platform-conditional macro that one platform hands out for free
+  is a trap with a feedback loop measured in CI runs.** Fix it in the build,
+  not in the file that noticed.
 - **glibmm's deprecated API is compiled out on MSYS2.** `Glib::thread_init()`
   was an undefined reference on Windows for that reason — at link time, not
   compile time. Anything else the tree calls that glibmm has since deprecated

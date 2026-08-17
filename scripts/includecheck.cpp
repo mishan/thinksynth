@@ -58,6 +58,8 @@
 
 #include "thLexer.h"
 
+#include "thMath.h"
+
 #include "thRing.h"
 
 #include "thSampleRing.h"
@@ -71,7 +73,7 @@ main (void)
 {
     /* Nothing to check at run time -- see the header comment. Printed so
        a ctest log says what was covered rather than nothing at all. */
-    printf("includecheck: 8 headers compiled standing on their own\n");
+    printf("includecheck: 9 headers compiled standing on their own\n");
 
     return 0;
 }

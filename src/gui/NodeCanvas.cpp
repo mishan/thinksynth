@@ -18,6 +18,11 @@
 
 #include "config.h"
 
+/* This file used M_PI with no fallback and compiled anyway, because the
+ * gtkmm include chain happens to smuggle one in. That is luck rather than
+ * a decision, and it would end the day gtkmm reorganised a header. */
+#include "thMath.h"
+
 #include <gtkmm.h>
 
 #include "think.h"

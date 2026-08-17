@@ -950,6 +950,15 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
         const thcPlugin::ParamInfo *p = plugin->paramInfo(i);
         std::string v;
 
+        /* Every enumerator named, and no `default:'.
+         *
+         * This switch had one, and a param type added years after it was
+         * written fell through to the numeric case and wrote `from = 0;'
+         * -- a generated stage the loader then refused. -Wall's -Wswitch
+         * only fires on a switch that covers the enum and misses a value,
+         * so a default label is exactly what buys the silence. Spelling
+         * the numeric types out costs three lines and turns the next
+         * addition into a compiler warning instead of a bug report. */
         switch (p->type)
         {
             case THC_PARAM_NOTESET:
@@ -958,7 +967,23 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
             case THC_PARAM_STRING:
                 v = "\"" + p->defString + "\"";
                 break;
-            default:
+
+            case THC_PARAM_PRESET:
+                /* The one param that gets left out, and the rule above is
+                   why rather than in spite of. "Write every param" exists
+                   so a piece survives a plugin's *defaults* changing -- a
+                   preset param has no default that can be written at all,
+                   because the only legal value is the name of something
+                   this piece declares, and a new stage cannot know one.
+                   Falling through to the numeric case would write `from =
+                   0;', which the loader rejects by name and line: a
+                   generated stage that will not load is worse than an
+                   absent line the loader is happy to default. */
+                continue;
+
+            case THC_PARAM_FLOAT:
+            case THC_PARAM_INT:
+            case THC_PARAM_NOTE:
                 thcGenEdit::format(p->def, v);
 
                 if (p->isDuration())
@@ -1080,8 +1105,17 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
 
         case ValueShape::WORD:
         {
-            /* A scale reference -- and the same unbind QUOTED needs,
-               for the same shadowing reason. */
+            /* A scale reference, or a preset's name -- and the same
+               unbind QUOTED needs, for the same shadowing reason.
+             *
+             * Only the scale half can be poked. Resolving a preset means
+             * having the piece's preset table, and thcGenEdit::describe
+             * does not collect one yet; so a preset reference is spliced
+             * into the file and takes effect on the next load, which is
+             * the same bargain every structural edit already makes. The
+             * loop below simply finds no scale by that name and leaves
+             * the live value alone, which is the right thing to do with
+             * a name it cannot resolve. */
             sched_->bindKnob(s, idx, NULL);
 
             for (size_t i = 0; i < doc_.scales.size(); i++)
@@ -1957,16 +1991,24 @@ ComposerWindow::addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
     }
     else
     {
-        /* NOTESET, NOTE and STRING: an entry. For a NOTESET it takes
-           note names or a scale's name; the quoting is worked out from
-           which one it is. */
+        /* NOTESET, NOTE, STRING and PRESET: an entry. What the typed
+           text becomes is worked out below from the param's type -- a
+           NOTESET takes note names or a scale's name, a PRESET takes a
+           preset's name and nothing else. */
         Gtk::Entry *entry = manage(new Gtk::Entry());
 
         entry->set_text(v.kind == ValueShape::QUOTED ? v.text : authored);
         entry->set_hexpand(true);
-        entry->set_tooltip_text(pi->type == THC_PARAM_NOTESET
-            ? "Note names, or a scale's name; Enter applies"
-            : "Enter applies");
+
+        if (pi->type == THC_PARAM_NOTESET)
+            entry->set_tooltip_text(
+                "Note names, or a scale's name; Enter applies");
+        else if (pi->type == THC_PARAM_PRESET)
+            entry->set_tooltip_text(
+                "The name of a preset this piece declares; applies on the "
+                "next load");
+        else
+            entry->set_tooltip_text("Enter applies");
 
         thcParamType type = pi->type;
 
@@ -2000,6 +2042,35 @@ ComposerWindow::addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
 
                         valueText = "\"" + text + "\"";
                     }
+                }
+                else if (type == THC_PARAM_PRESET)
+                {
+                    /* Bare, not quoted. A preset is referred to by name,
+                       the way a scale is, and the loader refuses a
+                       quoted one on purpose -- a timbre vector spelled
+                       inline is a preset that cannot be saved under a
+                       name. Checked here rather than left to the load,
+                       because the panel is where the person is. */
+                    bool ok = !text.empty() &&
+                        ((text[0] >= 'a' && text[0] <= 'z') ||
+                         (text[0] >= 'A' && text[0] <= 'Z'));
+
+                    for (size_t i = 1; ok && i < text.size(); i++)
+                    {
+                        const char c = text[i];
+
+                        ok = (c >= 'a' && c <= 'z') ||
+                             (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '_';
+                    }
+
+                    if (!ok)
+                    {
+                        status_->set_text("a preset's name, like `warm'");
+                        return;
+                    }
+
+                    valueText = text;
                 }
                 else if (type == THC_PARAM_NOTE)
                 {
