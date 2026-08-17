@@ -1,0 +1,104 @@
+# tide.gen -- the instrument as material.
+#
+# Every other piece here composes notes and leaves the timbre alone. This
+# one composes the timbre too: `dusk' and `noon' are presets -- named
+# vectors over the chanargs amb01.dsp declares -- and gen::morph plays the
+# line between them, forty seconds out and forty seconds back, forever.
+# The chords underneath do not change at all. Everything you hear moving
+# is the filter travelling.
+#
+# The sink is `chanarg = "*"'. An ordinary chanarg sink names one knob and
+# overwrites whatever the event carried, which is right for a walk and
+# wrong for a vector: a morph moves three knobs at once and each event
+# knows which one it is.
+#
+# The second chain is the other half of the same idea. `xform::morph' does
+# not tick; a note passing through schedules a whole sweep from that note's
+# own time, so the bell opens as it is struck and the piano roll's ghosted
+# half shows the sweep coming. `swell' and `settle' are a two-second
+# gesture rather than a forty-second one.
+#
+# Aim channel 2 at amb01.dsp, which declares res, fmin and fmax. A patch
+# that declares none of them will simply hear nothing: the chanargs a
+# patch exposes are the whole of what a piece may reach, deliberately.
+# See COMPOSITION_HANDOFF.md, section 9.
+
+name "Tide";
+author "Misha Nasledov";
+description "Two presets and the forty seconds between them.";
+
+seed 4412;
+
+@travel = 40;
+@travel.widget = 1;
+@travel.min = 4;
+@travel.max = 240;
+@travel.label = "Travel";
+@travel.units = "s";
+
+scale fmin_scale "F2 Ab2 C3 Db3 Eb3 F3 Ab3";
+
+preset dusk {
+    res  = 0.86;
+    fmin = 0.04;
+    fmax = 0.30;
+};
+
+preset noon {
+    res  = 0.32;
+    fmin = 0.18;
+    fmax = 0.94;
+};
+
+# A small correction rather than a full restatement: `settle' names only
+# what moves, and a component only one preset mentions holds still.
+preset swell {
+    res  = 0.55;
+    fmin = 0.10;
+    fmax = 0.40;
+};
+
+preset settle {
+    fmax = 0.86;
+};
+
+chain sweep {
+    stage tide gen::morph {
+        from  = dusk;
+        to    = noon;
+        time  = @travel;
+        steps = 96;
+        curve = 1.6;
+        mode  = 2;
+        retrigger = 0;
+    };
+    sink { channel = 2; chanarg = "*"; };
+};
+
+chain pads {
+    stage src gen::eno_line {
+        notes = fmin_scale;
+        period = 11.7 s; jitter = 2.4 s;
+        prob = 0.8; hold = 9 s; vel = 62; vel_jitter = 6;
+    };
+    sink { channel = 2; };
+};
+
+chain bell {
+    stage src gen::euclid {
+        steps = 16; fills = 5; rotate = 0;
+        notes = "Ab4 C5 Eb5";
+        period = 1.1 s; hold = 0.9 s; vel = 74;
+    };
+    stage open xform::morph {
+        from  = swell;
+        to    = settle;
+        time  = 2 s;
+        steps = 24;
+        curve = 0.7;
+        mode  = 0;
+        retrigger = 1;
+    };
+    sink { channel = 3; };
+    sink { channel = 3; chanarg = "*"; };
+};

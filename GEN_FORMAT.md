@@ -106,6 +106,39 @@ This resolves the question the plugin API left open: pitch pools are not
 strings threaded through param tables — they are declared once and referenced
 by name, and the string form of the param exists only at the file boundary.
 
+## 4a. Presets are named chanarg vectors
+
+```
+preset dusk {
+    res  = 0.86;
+    fmin = 0.04;
+    fmax = 0.30;
+};
+```
+
+A patch's declared chanargs are a vector of floats, and a vector of floats is
+something a composer can interpolate between, breed from, or save. Giving one
+a name is what lets a piece refer to a *timbre* the way it already refers to a
+scale. `THC_PARAM_PRESET` receives the resolved vector — `"res=0.86,fmin=0.04"`
+— exactly as `THC_PARAM_NOTESET` receives resolved pitches, so no plugin ever
+looks a preset up.
+
+The values are plain numbers. A knob inside a preset would make it not a
+vector but an expression that happens to have a value right now, and both
+things a preset exists for want the fixed reading; the knob belongs on the
+stage that *uses* the preset, where it already works. Declaration order is
+kept, because the vector is the point. A preset must be declared before it is
+referenced, like a scale, and a preset that sets nothing is an error rather
+than a silent no-op.
+
+Unlike a note set, there is no quoted-literal form. A one-off pitch pool is a
+reasonable thing to write inline; a one-off timbre vector spelled as text is a
+preset that cannot be morphed towards, bred from or saved under a name, which
+is the whole reason the noun exists.
+
+This is the limit of a composer's reach into an instrument: the args the patch
+chose to declare, and no deeper. See `COMPOSITION_HANDOFF.md` §9.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of
@@ -129,6 +162,8 @@ A chain body holds, in order:
 ```
 sink { channel = 3; };                          # notes -> MIDI channel 3
 sink { channel = 2; chanarg = "cutoff"; };      # values -> a patch knob
+sink { channel = 2; chanarg = "*"; };           # values -> the knob each
+                                                #   event names for itself
 ```
 
 Two sinks is fan-out: every event leaving the last stage is delivered to
@@ -136,25 +171,40 @@ each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
 notes; a plain sink does the reverse. That rule is in the sink, not the
 stage, so one generator can drive a melody and a filter sweep at once.
 
+A named `chanarg` sink *overwrites* the name on every event passing through
+it, which is right for a walk or an envelope: the plugin produces a number
+and has no business knowing which knob it lands on. `chanarg = "*"` is for
+the case that breaks — a composer producing a whole vector, several knobs at
+once, each event already knowing which one it is. One sink per knob cannot
+say that, because every sink would deliver the same value. `*` cannot collide
+with a real name, since a chanarg is a `.dsp` identifier; anything else that
+is not one is refused at load rather than failing silently at delivery.
+
 ## 6. Grammar
 
 ```
 genfile     : statement*
-statement   : infostring | tempo | seed | knob | knobmeta | scale | chain
+statement   : infostring | tempo | seed | knob | knobmeta | scale
+            | preset | chain
 infostring  : ("name" | "author" | "description") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
 knob        : CHANARG "=" NUMBER ";"
 knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
+preset      : "preset" WORD "{" presetval* "}" ";"
+presetval   : WORD "=" NUMBER ";"
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"
 stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
 param       : WORD "=" value ";"
-value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale ref
+value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
+                                                       #   preset ref
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("channel" "=" NUMBER | "chanarg" "=" STRING) ";"
+                                                       # STRING = a name
+                                                       #   or "*"
 ```
 
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
@@ -191,6 +241,8 @@ stage, a new chain) contains:
 | param `= @knob`        | live binding (the composer-world `ARG_CHAN`)        |
 | `= n beats`            | converted via transport tempo when the value is read|
 | `scale`                | resolved note list, shared by reference             |
+| `preset`               | resolved chanarg vector, shared by reference        |
+| `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |

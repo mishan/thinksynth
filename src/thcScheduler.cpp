@@ -548,8 +548,14 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
             thcEvent routed = ev;
 
             routed.channel = sink.channel;
+
+            /* NULL means "keep what the event carries" -- which is what a
+               note sink wants and also what a `*' chanarg sink wants, for
+               opposite reasons: the note has no name to keep, and the
+               vector's component has one worth keeping. */
             queuePending(routed,
-                         sink.isChanarg() ? &sink.chanarg : NULL);
+                         (sink.isChanarg() && !sink.namesItsOwn())
+                             ? &sink.chanarg : NULL);
         }
         return;
     }

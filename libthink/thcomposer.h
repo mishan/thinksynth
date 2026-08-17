@@ -132,7 +132,26 @@ typedef enum {
      * boundary, and no plugin ever parses pitch text. */
     THC_PARAM_NOTESET,
 
-    THC_PARAM_STRING     /* free text, e.g. an L-system axiom             */
+    THC_PARAM_STRING,    /* free text, e.g. an L-system axiom             */
+
+    /* A named chanarg vector -- a *preset*. The string a plugin reads
+     * through get_string is the resolved vector, "res=0.8,fmin=0.06", in
+     * the order the piece declared it. Same bargain as NOTESET: a .gen
+     * file writes the preset's name, the host looks it up once at the
+     * file boundary, and no plugin ever resolves a preset.
+     *
+     * The noun exists because a patch's declared chanargs are a vector of
+     * floats and a vector of floats is a genome. A morph interpolating
+     * between two of them, a GA breeding populations of them, a Markov
+     * chain walking a set of them -- all of it needs something to refer
+     * to, splice and save. This is that something, and it is the *only*
+     * reach a composer has into an instrument: the args a patch chose to
+     * declare, no deeper. See COMPOSITION_HANDOFF.md §9.
+     *
+     * Appended rather than slotted in beside NOTESET on purpose -- an
+     * enum whose existing values keep their numbers is an additive
+     * change, and the interface version stays 1. */
+    THC_PARAM_PRESET
 } thcParamType;
 
 typedef struct {

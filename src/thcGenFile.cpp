@@ -110,6 +110,32 @@ thcGenLoader::parseNoteList (const std::string &text, std::vector<int> &out,
     return !out.empty();
 }
 
+/* A resolved preset, in the form a plugin reads: "res=0.8,fmin=0.06".
+ *
+ * %.9g rather than a fixed precision: a float round-trips exactly at nine
+ * significant digits, and a preset that came back as 0.059999999 after a
+ * morph had interpolated between two of them would be a bug nobody would
+ * think to look for here. */
+static std::string
+presetToString (const std::vector<std::pair<std::string, double> > &vec)
+{
+    std::ostringstream s;
+
+    for (size_t i = 0; i < vec.size(); i++)
+    {
+        char num[32];
+
+        snprintf(num, sizeof(num), "%.9g", vec[i].second);
+
+        if (i)
+            s << ",";
+
+        s << vec[i].first << "=" << num;
+    }
+
+    return s.str();
+}
+
 static std::string
 noteListToString (const std::vector<int> &notes)
 {
@@ -502,6 +528,12 @@ thcGenLoader::parseStatement (thcScheduler *sched)
         return parseScale();
     }
 
+    if (t.text == "preset")
+    {
+        take();
+        return parsePreset();
+    }
+
     if (t.text == "chain")
     {
         take();
@@ -652,6 +684,125 @@ thcGenLoader::parseScale (void)
     }
 
     scales_[nameTok.text] = resolved;
+
+    return expectPunct(';');
+}
+
+/* `preset warm { res = 0.8; fmin = 0.06; };'
+ *
+ * A named vector of chanarg values -- the noun COMPOSITION_HANDOFF.md §9
+ * says tier 2 was missing. A patch's declared chanargs are a vector of
+ * floats, and a vector of floats is something a morph can interpolate, a
+ * GA can breed and a file can save; without a name for one, every
+ * composer that wants to move a timbre has to carry the whole vector in
+ * its own params.
+ *
+ * Deliberately plain numbers. A knob inside a preset would make it not a
+ * vector but an expression that happens to have a value right now, and
+ * the two things a preset is for -- interpolating between them, and
+ * saving them -- both want the fixed reading. The knob belongs on the
+ * stage that *uses* the preset, where it already works.
+ *
+ * Declaration order is kept (see Preset in the header): the vector is the
+ * point, and the panel that eventually draws one should show it the way
+ * its author grouped it.
+ */
+bool
+thcGenLoader::parsePreset (void)
+{
+    const Token &n = peek();
+
+    if (n.kind != Token::WORD)
+    {
+        error(n.line, "preset wants a name");
+        return false;
+    }
+
+    Token nameTok = take();
+
+    if (presets_.find(nameTok.text) != presets_.end())
+    {
+        error(nameTok.line, "preset '" + nameTok.text +
+              "' is already declared");
+        return false;
+    }
+
+    if (!expectPunct('{'))
+        return false;
+
+    Preset vec;
+
+    while (true)
+    {
+        const Token &t = peek();
+
+        if (t.kind == Token::PUNCT && t.text[0] == '}')
+        {
+            take();
+            break;
+        }
+
+        if (t.kind == Token::END)
+        {
+            error(t.line, "unterminated preset '" + nameTok.text + "'");
+            return false;
+        }
+
+        if (t.kind != Token::WORD)
+        {
+            error(t.line, "preset " + nameTok.text +
+                  ": expected a chanarg name");
+            return false;
+        }
+
+        Token arg = take();
+
+        for (size_t i = 0; i < vec.size(); i++)
+            if (vec[i].first == arg.text)
+            {
+                error(arg.line, "preset " + nameTok.text + " sets '" +
+                      arg.text + "' twice");
+                return false;
+            }
+
+        if (!expectPunct('='))
+            return false;
+
+        const Token &v = peek();
+
+        if (v.kind == Token::KNOB)
+        {
+            /* Named so the message says what to do instead. A preset
+               bound to a knob is not a vector, and the two things a
+               preset exists for both need it to be one. */
+            error(v.line, "preset " + nameTok.text + ": '" + arg.text +
+                  "' cannot be a knob; a preset is a fixed vector");
+            return false;
+        }
+
+        if (v.kind != Token::NUMBER)
+        {
+            error(v.line, "preset " + nameTok.text + ": '" + arg.text +
+                  "' wants a number");
+            return false;
+        }
+
+        vec.push_back(std::make_pair(arg.text, take().num));
+
+        if (!expectPunct(';'))
+            return false;
+    }
+
+    if (vec.empty())
+    {
+        /* An empty preset is almost certainly half an edit, and a morph
+           between two of them would sweep nothing at all -- silently,
+           which is the failure worth refusing. */
+        error(nameTok.line, "preset '" + nameTok.text + "' sets nothing");
+        return false;
+    }
+
+    presets_[nameTok.text] = vec;
 
     return expectPunct(';');
 }
@@ -1010,6 +1161,13 @@ thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
                 return false;
             }
 
+            if (pi->type == THC_PARAM_PRESET)
+            {
+                error(num.line, "'" + pname.text +
+                      "' wants a preset name, not a number");
+                return false;
+            }
+
             stage->params.set(idx, num.num);
         }
 
@@ -1028,7 +1186,8 @@ thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
             return false;
         }
 
-        if (pi->type == THC_PARAM_NOTESET || pi->type == THC_PARAM_STRING)
+        if (pi->type == THC_PARAM_NOTESET || pi->type == THC_PARAM_STRING ||
+            pi->type == THC_PARAM_PRESET)
         {
             error(knobTok.line, "'" + pname.text +
                   "' is not numeric; a knob cannot drive it");
@@ -1074,6 +1233,18 @@ thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
         }
         else if (pi->type == THC_PARAM_STRING)
             stage->params.setString(idx, str.text);
+        else if (pi->type == THC_PARAM_PRESET)
+        {
+            /* No quoted literal, unlike a NOTESET. A one-off pitch pool
+               is a reasonable thing to write inline; a one-off timbre
+               vector spelled as text is a preset that cannot be morphed
+               towards, bred from or saved under a name, which is the
+               whole reason the noun exists. Say so rather than accept
+               it. */
+            error(str.line, "'" + pname.text +
+                  "' wants a preset name; declare it with `preset'");
+            return false;
+        }
         else
         {
             error(str.line, "'" + pname.text +
@@ -1086,8 +1257,28 @@ thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
 
     if (v.kind == Token::WORD)
     {
-        /* A bare word as a value is a scale reference. */
+        /* A bare word as a value names a declared object: a scale for a
+           note set, a preset for a chanarg vector. Which one is decided
+           by the param, not by the word, so a typo is reported against
+           the kind of thing the plugin actually asked for. */
         Token ref = take();
+
+        if (pi->type == THC_PARAM_PRESET)
+        {
+            std::map<std::string, Preset>::const_iterator p =
+                presets_.find(ref.text);
+
+            if (p == presets_.end())
+            {
+                error(ref.line, "no preset called '" + ref.text +
+                      "' has been declared");
+                return false;
+            }
+
+            stage->params.setString(idx, presetToString(p->second));
+
+            return expectPunct(';');
+        }
 
         if (pi->type != THC_PARAM_NOTESET)
         {
@@ -1145,7 +1336,7 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
             (t.text != "channel" && t.text != "chanarg"))
         {
             error(t.line, "a sink says 'channel = N' and optionally "
-                  "'chanarg = \"name\"'");
+                  "'chanarg = \"name\"' or 'chanarg = \"*\"'");
             return false;
         }
 
@@ -1185,7 +1376,40 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
                 return false;
             }
 
-            chanarg = take().text;
+            Token argTok = take();
+
+            chanarg = argTok.text;
+
+            /* `*' or an identifier, and nothing else. A chanarg is
+               declared in a .dsp as `@name', so anything that could not
+               be written there cannot be delivered to either -- and a
+               sink pointed at "cut off" would otherwise fail silently at
+               delivery time, which is a long way from the typo. */
+            bool ok = chanarg == "*";
+
+            if (!ok && !chanarg.empty() &&
+                ((chanarg[0] >= 'a' && chanarg[0] <= 'z') ||
+                 (chanarg[0] >= 'A' && chanarg[0] <= 'Z')))
+            {
+                ok = true;
+
+                for (size_t i = 1; i < chanarg.size(); i++)
+                {
+                    const char c = chanarg[i];
+
+                    if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                          (c >= '0' && c <= '9') || c == '_'))
+                        ok = false;
+                }
+            }
+
+            if (!ok)
+            {
+                error(argTok.line, "'" + chanarg + "' is not a chanarg name; "
+                      "write the name a patch declares, or \"*\" to let "
+                      "each event name its own");
+                return false;
+            }
         }
 
         if (!expectPunct(';'))

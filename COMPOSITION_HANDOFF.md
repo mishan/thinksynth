@@ -524,16 +524,57 @@ any composer drive whatever `@args` a patch declares, scheduled and
 replay-deterministic like everything else. A generative process already
 shapes timbre — but only along axes the instrument chose to expose.
 
-*Tier 2 — evolving the surface.* A patch's declared chanargs form a
-vector of floats, and a vector of floats is a genome. Everything
-`gen::evolve` does to phrases applies verbatim to timbre: populations of
-chanarg vectors, crossover, mutation, elitism. Notably, a `morph`
-transformer that interpolates between two chanarg vectors and emits the
-curve as scheduled `THC_EV_CHANARG` events is writable against the v1
-ABI *today* — no host change at all. What the language should add is
-the noun: named *presets* (a preset is a named chanarg vector the piece
-file carries), so that morphs, GA populations, and Markov chains over
-timbres have something to refer to, splice, and save.
+*Tier 2 — evolving the surface.* LANDED (branch composer-presets). A
+patch's declared chanargs form a vector of floats, and a vector of floats
+is a genome. The noun arrived first, because everything else was blocked
+on it: `preset <name> { arg = value; … };` is a named chanarg vector the
+piece file carries, and `THC_PARAM_PRESET` delivers it to a plugin
+resolved — `"res=0.86,fmin=0.04"` — on exactly the terms
+`THC_PARAM_NOTESET` delivers pitches, so no composer ever looks a preset
+up. Additive enum value; interface version stays 1.
+
+`gen::morph` is the first thing to use it: two presets, the line between
+them, emitted as scheduled `THC_EV_CHANARG` events. It exports both entry
+points and they are genuinely different pieces of music — `gen::morph`
+sweeps on its own clock under whatever is playing, while `xform::morph`
+does not tick at all and instead schedules a whole sweep from the time of
+each note passing through, so the instrument opens as it is played and
+the roll's ghosted half shows the sweep coming. No randomness anywhere,
+which makes its replay gate a sharper tripwire than a seeded composer's:
+a divergence there is the scheduler, not the plugin.
+
+Two things the sketch above did not anticipate:
+
+- **The sink had to grow a wildcard.** "No host change at all" was true
+  of the ABI and false of the delivery path. A named chanarg sink
+  *overwrites* the name on every event — correct for a walk, which
+  produces a number and should not know which knob it lands on — and a
+  vector routed through one arrives as a single knob taking each
+  component's value in turn. `sink { channel = 2; chanarg = "*"; }` keeps
+  the name each event carries. Scheduler-side only; `*` cannot collide
+  with a real name because a chanarg is a `.dsp` identifier.
+- **Presets take no quoted literal**, unlike note sets. A one-off pitch
+  pool written inline is reasonable; a one-off timbre vector spelled as
+  text is a preset that cannot be morphed towards, bred from or saved
+  under a name, which is the entire reason the noun exists. The loader
+  says so rather than accepting it.
+
+A component named by one preset and not the other holds still at the
+value it was given, so a target can be a correction rather than a
+restatement. `gen/tide.gen` is the demo: `dusk` and `noon` forty seconds
+apart on channel 2, and a struck bell that opens itself through
+`xform::morph`. gencheck gates the resolution, the eight rejections, the
+wildcard routing, the exact endpoints and replay; it also grew a corpus
+sweep, because until now nothing loaded the shipped pieces other than
+the one it was handed.
+
+Still open in this tier, and unchanged: populations of chanarg vectors
+under crossover, mutation and elitism — everything `gen::evolve` does to
+phrases applies verbatim to timbre, but the fitness function is what
+makes it worth building, and that is staging step 5's shadow synth.
+Editing presets through `thcGenEdit` is also not done: the editor
+preserves them like anything else it does not know, and add/set/remove
+operations are their own commit.
 
 *Tier 3 — the graph as genome.* The instrument's synthesis topology
 itself becomes the evolving material. This sounds far-fetched until the
@@ -604,7 +645,9 @@ and the shared lexer stop being hygiene and become the runway.
    loader instantiates channels. One shareable file that carries its
    instruments.
 3. Presets in the language; a `gen::morph` transformer (writable even
-   before this, better after).
+   before this, better after) — DONE, together with the wildcard
+   chanarg sink the sketch had not noticed was needed. See tier 2
+   above.
 4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
    program-change lane on the roll.
 5. Shadow-synth fitness service + `composer_input` (§7's pending item);

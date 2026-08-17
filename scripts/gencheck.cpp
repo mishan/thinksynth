@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -1057,6 +1058,252 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(path);
 }
 
+/* ---- 6. presets, the wildcard sink, and morph -------------------------- */
+
+/* Tier 2 of COMPOSITION_HANDOFF.md §9: the piece composes the instrument
+ * as well as the notes. Three things have to hold together for that, and
+ * none of them is provable from any other section here.
+ *
+ * A preset has to arrive at the plugin resolved -- the same bargain
+ * NOTESET made, and the reason no composer has ever parsed a note name.
+ * The `*' sink has to deliver each component under its own name, because
+ * a vector routed through a sink that renames everything arrives as one
+ * knob taking three values in turn. And a morph has to replay exactly:
+ * it draws no randomness at all, so if this one ever diverges the cause
+ * is the scheduler and not the plugin, which makes it a sharper tripwire
+ * than a seeded composer would be.
+ */
+static void
+checkPresets (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth)
+{
+    if (plugins.find("morph") == plugins.end())
+    {
+        fail("the 'morph' module is missing; build the plugins first");
+        return;
+    }
+
+    /* --- the rejections the format promises --- */
+
+    expectReject(plugins, synth, "no-such-preset",
+        "chain c { stage s gen::morph { from = ghost; to = ghost; };"
+        " sink { channel = 0; chanarg = \"*\"; }; };",
+        "no preset called 'ghost'");
+
+    expectReject(plugins, synth, "duplicate-preset",
+        "preset a { x = 1; };\npreset a { x = 2; };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "already declared");
+
+    expectReject(plugins, synth, "empty-preset",
+        "preset a { };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "sets nothing");
+
+    /* A preset is a vector or it is nothing: interpolating towards a
+       component whose value depends on where a slider happens to be is
+       not a preset, it is an expression with a value right now. */
+    expectReject(plugins, synth, "knob-in-preset",
+        "@k = 1;\npreset a { x = @k; };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "cannot be a knob");
+
+    expectReject(plugins, synth, "preset-set-twice",
+        "preset a { x = 1; x = 2; };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 0; }; };",
+        "sets 'x' twice");
+
+    /* A preset param takes a name, not the resolved text: a vector
+       spelled inline cannot be morphed towards or saved under a name,
+       which is the whole reason the noun exists. */
+    expectReject(plugins, synth, "preset-as-string",
+        "chain c { stage s gen::morph { from = \"x=1\"; };"
+        " sink { channel = 0; }; };",
+        "declare it with `preset'");
+
+    expectReject(plugins, synth, "preset-as-number",
+        "chain c { stage s gen::morph { from = 3; };"
+        " sink { channel = 0; }; };",
+        "wants a preset name");
+
+    /* A sink pointed at a name no .dsp could declare would fail silently
+       at delivery, which is a long way from the typo. */
+    expectReject(plugins, synth, "bad-sink-name",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 0; chanarg = \"cut off\"; }; };",
+        "is not a chanarg name");
+
+    /* --- what it does when it is right --- */
+
+    std::string tmp = thUtil::tempFile("gencheck-presets-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a presets scratch file");
+        return;
+    }
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        /* `arrive' names only what moves. A component one preset
+           mentions and the other does not must hold still, which is what
+           lets a target be a correction rather than a restatement. */
+        out <<
+            "seed 11;\n"
+            "preset depart { res = 0.2; fmin = 0.10; fmax = 0.30; };\n"
+            "preset arrive { fmax = 0.90; };\n"
+            "chain sweep {\n"
+            "    stage m gen::morph {\n"
+            "        from = depart; to = arrive;\n"
+            "        time = 4 s; steps = 9; curve = 1; mode = 0;\n"
+            "    };\n"
+            "    sink { channel = 5; chanarg = \"*\"; };\n"
+            "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(tmp, &sched))
+    {
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+        fail("the presets piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    const std::string first = render(sched, 6.0, 0.02);
+
+    sched.reset();
+
+    const std::string second = render(sched, 6.0, 0.02);
+
+    if (first != second)
+        fail("a morph replayed differently; it draws no randomness at "
+             "all, so this is the scheduler");
+
+    /* Each component under its own name. Without the `*' sink all three
+       would arrive as whatever one name the sink carried. */
+    if (first.find(" res ") == std::string::npos ||
+        first.find(" fmin ") == std::string::npos ||
+        first.find(" fmax ") == std::string::npos)
+        fail("the wildcard sink did not deliver each component under its "
+             "own name");
+
+    /* Routing still belongs to the piece: the sink's channel overwrites
+       whatever the plugin put in the event. */
+    if (first.find("C ") != std::string::npos &&
+        first.find(" 5 ") == std::string::npos)
+        fail("the sink's channel did not reach delivery");
+
+    /* The endpoints, exactly. A sweep that stopped at 0.98 of the way
+       would leave the instrument almost at the preset the file named,
+       forever -- and 0.9 is the only value `arrive' asks for. */
+    if (first.find("fmax 0.30000001192092896") == std::string::npos)
+        fail("the morph did not start at the preset it departs from");
+
+    if (first.find("fmax 0.89999997615814209") == std::string::npos)
+        fail("the morph did not arrive exactly at the preset it names");
+
+    /* `res' is in `depart' and not in `arrive', so it must be emitted
+       and must never move. */
+    if (first.find("res 0.20000000298023224") == std::string::npos)
+        fail("a component only one preset names was not emitted");
+
+    /* ...and must never move, on any of the nine steps. Counted rather
+       than spot-checked: "it was 0.2 at the start" and "it was 0.2
+       throughout" are different claims and only the second one is the
+       rule being stated. */
+    {
+        size_t seen = 0, held = 0;
+
+        for (size_t at = first.find("res "); at != std::string::npos;
+             at = first.find("res ", at + 1))
+        {
+            seen++;
+
+            if (first.compare(at, strlen("res 0.20000000298023224"),
+                              "res 0.20000000298023224") == 0)
+                held++;
+        }
+
+        if (seen == 0 || seen != held)
+            fail("a component only one preset names did not hold still: " +
+                 std::to_string(held) + " of " + std::to_string(seen) +
+                 " emissions were the value it was given");
+    }
+
+    std::filesystem::remove(tmp);
+}
+
+/* ---- 7. every shipped piece still loads -------------------------------- */
+
+/* The corpus instinct, applied to .gen.
+ *
+ * Everything above builds its own files or leans on the one piece passed
+ * in, so the other shipped pieces were gated by nothing at all: a param
+ * renamed in a plugin, a unit tightened in the loader, a knob whose
+ * metadata stopped being accepted, and fern.gen or loom.gen would have
+ * quietly stopped loading with no test anywhere to say so. dspcheck has
+ * swept dsp/ for exactly this reason since long before any of this.
+ *
+ * Loading only, not rendering: what these files can prove cheaply is
+ * that they still parse, still name plugins that exist, and still pass
+ * every validation the loader applies. Replay determinism needs a pinned
+ * seed and three minutes, and one piece carrying that is enough.
+ */
+static void
+checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &genFile)
+{
+    const std::filesystem::path dir =
+        std::filesystem::path(genFile).parent_path();
+
+    std::error_code ec;
+
+    if (dir.empty() || !std::filesystem::is_directory(dir, ec))
+        return;                 /* nothing to sweep; not a failure       */
+
+    std::vector<std::filesystem::path> files;
+
+    for (const auto &e : std::filesystem::directory_iterator(dir, ec))
+    {
+        if (ec)
+            break;
+
+        if (e.path().extension() == ".gen")
+            files.push_back(e.path());
+    }
+
+    /* Sorted so a failure names the same file on every machine; the
+       directory order is the filesystem's business, not the test's. */
+    std::sort(files.begin(), files.end());
+
+    if (files.empty())
+    {
+        fail("no .gen files beside " + genFile + " -- the sweep swept "
+             "nothing");
+        return;
+    }
+
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (loader.load(files[i].string(), &sched))
+            continue;
+
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail(files[i].filename().string() + " no longer loads");
+    }
+}
+
 /* ----------------------------------------------------------------------- */
 
 int
@@ -1103,6 +1350,8 @@ main (int argc, char *argv[])
     checkPlanners(plugins, &synth);
     checkLiveInput(plugins, &synth);
     checkEdits(plugins, &synth, genFile);
+    checkPresets(plugins, &synth);
+    checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
        runs under sanitizers should not salt the report. The schedulers

@@ -72,16 +72,18 @@ think_add_composer(evolve)
 think_add_composer(markov)
 think_add_composer(ca)
 think_add_composer(arp)
+think_add_composer(morph)
 
 # The exception that proves the no-cairo rule: a module with a
 # composer_draw (euclid's onset ring, lsystem's contour, evolve's
-# fitness curve, markov's transition heat, ca's grid) calls cairo
-# functions and links cairo. The others still don't.
+# fitness curve, markov's transition heat, ca's grid, morph's lanes)
+# calls cairo functions and links cairo. The others still don't.
 target_link_libraries(composer_euclid PRIVATE PkgConfig::CAIRO)
 target_link_libraries(composer_lsystem PRIVATE PkgConfig::CAIRO)
 target_link_libraries(composer_evolve PRIVATE PkgConfig::CAIRO)
 target_link_libraries(composer_markov PRIVATE PkgConfig::CAIRO)
 target_link_libraries(composer_ca PRIVATE PkgConfig::CAIRO)
+target_link_libraries(composer_morph PRIVATE PkgConfig::CAIRO)
 
 think_add_visual(meter)
 think_add_visual(scope)

@@ -20,6 +20,7 @@
 #define THCGENFILE_H
 
 #include <map>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -136,6 +137,7 @@ private:
     bool parseStatement (thcScheduler *sched);
     bool parseKnobStatement (thcScheduler *sched);
     bool parseScale (void);
+    bool parsePreset (void);
     bool parseChain (thcScheduler *sched);
     bool parseStageBlock (thcScheduler *sched, size_t chain,
                           const std::string &chainName);
@@ -159,6 +161,14 @@ private:
     std::vector<std::string> errors_;
 
     std::map<std::string, std::vector<int> > scales_;
+
+    /* Presets, in declaration order within each one: a preset is a
+       *vector*, and a vector whose components arrive in a different order
+       than they were written is a different vector. A map would sort them
+       by name, which is why this is a vector of pairs. */
+    typedef std::vector<std::pair<std::string, double> > Preset;
+
+    std::map<std::string, Preset> presets_;
 
     std::string name_, author_, description_;
     bool        hasSeed_;

@@ -154,9 +154,23 @@ struct thcStage
 struct thcSink
 {
     int         channel;
-    std::string chanarg;     /* empty: a note sink                       */
+    std::string chanarg;     /* empty: a note sink; "*": see below       */
 
     bool isChanarg (void) const { return !chanarg.empty(); }
+
+    /* `chanarg = "*"' -- a chanarg sink that lets each event name its
+     * own target instead of overwriting it.
+     *
+     * The ordinary chanarg sink names one knob, which is right for a
+     * walk or an envelope: the plugin produces a number and has no
+     * business knowing which knob it lands on. A morph produces a whole
+     * *vector* -- several knobs at once, each with its own name -- and
+     * one sink per knob cannot express that, because every sink would
+     * deliver the same value.
+     *
+     * `*' cannot collide with a real name: a chanarg is a .dsp
+     * identifier, and identifiers do not contain it. */
+    bool namesItsOwn (void) const { return chanarg == "*"; }
 };
 
 /* A linear pipeline: stage 0 is usually a generator, the rest
