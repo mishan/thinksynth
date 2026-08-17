@@ -25,12 +25,14 @@ Repo: github.com/mishan/thinksynth (C++, gtkmm-4, CMake, GPL-2+).
 >
 > - **The `.gen` parser is hand-rolled in `src/thcGenFile.cpp`**, not
 >   bison/flex additions to thinklang.yy as §5 sketched. Deliberate:
->   the shared grammar is non-reentrant, folds `ms` into *samples*
->   (engine semantics a .gen value must not inherit), and cannot see
->   thcPlugin/thcScheduler from libthink. The lexical layer is the .dsp
->   one reproduced faithfully instead of linked; GEN_FORMAT.md is
->   implemented as written, including "a file with any error loads
->   nothing" and name-and-line messages.
+>   the shared grammar folds `ms` into *samples* (engine semantics a
+>   .gen value must not inherit) and cannot see thcPlugin/thcScheduler
+>   from libthink. GEN_FORMAT.md is implemented as written, including
+>   "a file with any error loads nothing" and name-and-line messages.
+>   The *lexical* layer began as the .dsp one reproduced faithfully;
+>   §8 step 2 has since replaced the copy with the thing itself
+>   (`libthink/thLexer.h`), so the grammars are still two and the
+>   scanner is one.
 > - **`thcParamDef` grew a `units` field** ("s" marks a duration) so the
 >   loader can enforce §2 of the format and do the beats→seconds
 >   conversion at read time (`thcParamStore::setBeats`). Interface
@@ -426,15 +428,50 @@ semantic difference first because it blocks everything else.
    that was waiting). parseTree runs mutex-free now; the corpus sweeps
    prove behavior identical, and a hundred concurrent parses prove the
    purity is real.
-2. *Unify the lexer, not the parser.* Teach the flex lexer to emit
-   tokens with byte offsets and let it feed both consumers: the bison
-   grammar for `.dsp`, and thcGenLoader's recursive descent for `.gen`
-   (which already consumes a token vector and is better at name-and-
-   line errors than yacc will ever be). "Same lexical layer by
-   construction" kills the drift risk, which is most of what the
-   two-parser smell actually is. Bonus: offsets in the shared lexer are
-   what would let NodeEdit adopt thcGenEdit's span-splicing and retire
-   its line-based scanning.
+2. *Unify the lexer, not the parser* — DONE (branch thinklang-lexer).
+   `libthink/thLexer.h` is the lexical layer on its own: `thLexToken`
+   carries kind, text, value, line and byte span, and `thLexString`
+   hands back an END-terminated vector. thinklex.ll produces it, and
+   both consumers read it — thinklang.yy's `yylex` maps tokens onto
+   grammar codes, and `thcGenLoader::tokenize` adapts them to .gen's
+   shape. .gen's hand-written copy of the .dsp rules is deleted.
+
+   The division that made this work: the shared layer is *lexical* and
+   nothing more, and vocabulary belongs to each language. Every
+   identifier comes out a WORD; `ms` is a keyword in thinklang.yy's
+   shim and an ordinary unit name to .gen, `beats` the reverse. A
+   lexer with a dialect switch would have been two lexers wearing one
+   coat, which is the thing step 0 warns about.
+
+   .gen's adapter fuses two pairs the shared lexer keeps apart — `-`
+   onto the number after it, `@` onto the name after it — because .gen
+   has neither arithmetic nor an `@` operator to hang them on.
+   Adjacency is checked by span, so `-5` is a literal and `- 5` is the
+   error it always was. Punctuation .gen has no use for is refused with
+   the wording the old scanner used.
+
+   Two behavior changes worth knowing. A stray character used to hit
+   flex's default rule, which echoed it to stdout and carried on; it is
+   an ERROR token now, and `thParseDsp` refuses the file before a
+   grammar action has built anything. And `.dsp` is lexed from a string
+   rather than pulled through a FILE*, because offsets into the text as
+   it sits on disk are the point — which is what NodeEdit needs to
+   adopt thcGenEdit's span-splicing and retire its line-based scanning.
+
+   `scripts/lexcheck` is the gate: spans cut the source back into the
+   tokens that claim them, lines survive comments and blank lines,
+   refusals name what and where, .gen's fused tokens still begin where
+   the shared lexer began one, and sixteen concurrent lexes match
+   sixteen lone ones. It earned itself immediately — `yy_scan_bytes`
+   builds its buffer without going through `yy_init_buffer`, so
+   `yylineno` started at whatever the malloc'd block held and every
+   error named a line from the previous parse.
+
+   Step 0 (the `ms` fold) turned out not to block this after all: the
+   fold lives in a grammar action, not in the lexer, so the shared
+   scanner already hands both languages an unfolded `(5, "ms")`. It
+   remains worth doing on its own merits — it is what makes `.dsp`
+   sample-rate honest — but it is no longer the runway for anything.
 3. *Merge grammars only for a language payoff.* The genuinely exciting
    convergence is not parser hygiene but the language where a piece
    can carry its instruments — `.gen` chains beside inline `patch`/
@@ -444,9 +481,13 @@ semantic difference first because it blocks everything else.
    it, a merged grammar is churn in the most load-bearing code in the
    tree.
 
-Step 0 for all of it is the `ms` fold, because a shared lexer that
-hands `.dsp` a folded sample count and `.gen` a second is not shared —
-it is two lexers wearing one coat.
+Step 0 for all of it was thought to be the `ms` fold, because a shared
+lexer that hands `.dsp` a folded sample count and `.gen` a second is
+not shared — it is two lexers wearing one coat. Doing step 2 showed
+the fold was never in the lexer: it is a grammar action, and the
+scanner hands out `5` and `ms` as two tokens to whoever asks. So the
+fold is independent work, still right for its own reason (it bakes the
+sample rate into every parsed `.dsp`), and no longer a prerequisite.
 
 ## 9. When the algorithms reach the instruments
 
@@ -533,7 +574,11 @@ and the shared lexer stop being hygiene and become the runway.
 **Staging, each step shippable alone:**
 
 1. The `ms` fold and the shared offset-carrying lexer (§8 steps 0 and
-   2) — unchanged, now with a destination.
+   2). The lexer half is done: `libthink/thLexer.h` feeds both
+   languages and carries byte spans, so `patch` blocks inline in a
+   `.gen` would be read by the same scanner that reads them in a
+   `.dsp`, by construction rather than by care. The `ms` fold is still
+   open and is now independent of everything else here.
 2. `patch` blocks inline in `.gen`; sinks bind by patch name; the
    loader instantiates channels. One shareable file that carries its
    instruments.

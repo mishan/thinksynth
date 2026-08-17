@@ -164,6 +164,12 @@ think_harness(argtype   NODEMODEL)
 # through its virtual clock, no Glib loop and no audio.
 think_harness(gencheck COMPOSERHOST)
 
+# The lexical layer .dsp and .gen now share: kinds, lines, byte spans, what it
+# refuses, and that .gen's tokenize() is still an adapter over that scan
+# rather than a second scanner growing back. Needs the composer host only to
+# reach thcGenLoader::tokenize.
+think_harness(lexcheck COMPOSERHOST THREADS)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -262,6 +268,9 @@ add_test(NAME visualcheck
 add_test(NAME gencheck
          COMMAND gencheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+
+# Needs no corpus, no plugins and no display -- it writes its own source text.
+add_test(NAME lexcheck COMMAND lexcheck)
 
 add_test(NAME dspprobe
          COMMAND "${CMAKE_COMMAND}"

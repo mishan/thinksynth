@@ -16,95 +16,194 @@
  * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
  */
 
-%{
+%top{
 #include "config.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#include "yygrammar.h"
-#include "think.h"
-#include "parser.h"
+#include <string>
+#include <vector>
+
+#include "thLexer.h"
+
+/* Everything one lex carries. `pos' is the byte cursor YY_USER_ACTION
+ * advances, `off' is where the match now running started, and `tok' is
+ * where an action leaves the token it built for the driver below to
+ * collect -- the scanner returns a yes/no, not a grammar's token code,
+ * because it no longer answers to one grammar. */
+struct thLexExtra
+{
+    size_t     pos;
+    size_t     off;
+    thLexToken tok;
+};
+}
+
+%{
+
+/* Byte spans for every token, comments and whitespace included in the
+ * accounting: the offsets are what thcGenEdit splices files by, and what
+ * would let NodeEdit stop scanning .dsp text by line. Kept here rather
+ * than recomputed by consumers because only the scanner knows how long a
+ * match was -- yyleng is the whole of the bookkeeping. */
+#define YY_USER_ACTION                          \
+    do {                                        \
+        yyextra->off = yyextra->pos;            \
+        yyextra->pos += (size_t)yyleng;         \
+    } while (0);
+
+static void
+thLexEmit (thLexExtra *x, thLexToken::Kind kind,
+           const char *text, size_t len, int line)
+{
+    x->tok.kind = kind;
+    x->tok.text.assign(text, len);
+    x->tok.num  = 0;
+    x->tok.line = line;
+    x->tok.off  = x->off;
+    x->tok.end  = x->pos;
+}
 
 %}
 
-/* Reentrant, to match the pure parser: state lives in a yyscan_t made
- * and destroyed per parse by thParseDsp, yylineno replaces the old
- * linenum global, and the `think' prefix keeps the generated names out
- * of bison's way (the .yy shims its yylex onto thinklex). */
-%option reentrant bison-bridge
+/* Reentrant, and no longer a bison bridge: yylval belonged to the .dsp
+ * grammar, and this scanner now feeds .gen's recursive descent as well.
+ * yylineno replaces the old linenum global and the `think' prefix keeps
+ * the generated names to itself. */
+%option reentrant
 %option yylineno
 %option noyywrap
 %option nounput noinput
 %option prefix="think"
+%option extra-type="struct thLexExtra *"
 
 %%
 
-  /* ignore comments */
-\#.*$        { }
-\n        { /* yylineno counts these */ }
-  /* ignore whitespace */
-[ \t]+        { }
+  /* comments to end of line; the newline is left for the rule below to
+     count, which is why this is [^\n]* and not the old .*$ */
+#[^\n]*        { }
 
+  /* \r joins the set so a CRLF file lexes: the old .dsp scanner had no
+     rule for it and fell through to flex's default, which echoed it. */
+[ \t\r\n]+     { }
 
-  /* units cleared with every number: yylval is one shared struct now, so a
-     `ms' left by an earlier token would otherwise still be sitting there. */
 [0-9]+(\.([0-9]+)?)? {
-  yylval->floatval = atof(yytext);
-  yylval->units = NULL;
-  return NUMBER;
+  thLexEmit(yyextra, thLexToken::NUMBER, yytext, yyleng, yylineno);
+  yyextra->tok.num = atof(yytext);
+  return 1;
 }
 
-th_max        { yylval->floatval = TH_MAX; yylval->units = NULL; return NUMBER; }
-th_min        { yylval->floatval = TH_MIN; yylval->units = NULL; return NUMBER; }
-th_range    { yylval->floatval = TH_RANGE; yylval->units = NULL; return NUMBER; }
-th_midimax    { yylval->floatval = MIDIVALMAX; yylval->units = NULL; return NUMBER; }
-th_sample    { yylval->floatval = TH_SAMPLE; yylval->units = NULL; return NUMBER; }
-";"        { return ENDSTATE; }
-"="        { return ASSIGN; }
-
-nil        { yylval->floatval = 0; yylval->units = NULL; return NIL; }
-node        { return NODE; }
-io        { return IO; }
-name        { return NAME; }
-description    { return DESC; }
-author { return AUTHOR; }
-
-ms        { return MS; }
-
-"{"        { return LCBRACK; }
-"}"        { return RCBRACK; }
-
+  /* Identifiers, keywords and the th_ constants all come out as WORD.
+     Which words mean something is a question about a language, and the
+     two languages answer it differently; see thLexer.h. */
 [a-zA-Z][a-zA-Z0-9_]* {
-  yylval->str = strdup(yytext);
-  return WORD;
+  thLexEmit(yyextra, thLexToken::WORD, yytext, yyleng, yylineno);
+  return 1;
 }
 
-->        { return INTO; }
-::        { return MODSEP; }
-
-"+"        { return ADD; }
-"-"        { return SUB; }
-"*"        { return MUL; }
-"/"        { return DIV; }
-"%"        { return MOD; }
-"("        { return OPAREN; }
-")"        { return CPAREN; }
-
-\.        { return PERIOD; }
-"@"        { return ATSIGN; }    /* chan midi arg */
-"$"        { return DOLLAR; }  /* note midi arg */
-
-  /* [^"\n]* rather than .* : the greedy version swallowed everything between
-     the first and last quote on a line, merging two strings into one. */
+  /* [^"\n]* rather than .* : the greedy version swallowed everything
+     between the first and last quote on a line, merging two strings into
+     one. The span keeps the quotes, the text drops them. */
 \"[^\"\n]*\" {
-  size_t len = strlen(yytext) - 2;   /* strip the surrounding quotes */
+  thLexEmit(yyextra, thLexToken::STRING, yytext + 1, yyleng - 2, yylineno);
+  return 1;
+}
 
-  yylval->str = (char *)malloc(len + 1);
-  memcpy(yylval->str, yytext + 1, len);
-  yylval->str[len] = 0;
-  return STRING;
+\"[^\"\n]* {
+  thLexEmit(yyextra, thLexToken::ERROR, "unterminated string",
+            sizeof("unterminated string") - 1, yylineno);
+  return 1;
+}
+
+  /* Two-character operators first only for readability; flex prefers the
+     longest match, so `->' could not be read as `-' followed by `>'
+     whatever the order. */
+"::"|"->" {
+  thLexEmit(yyextra, thLexToken::PUNCT, yytext, yyleng, yylineno);
+  return 1;
+}
+
+[;={}.@$+*/%()-] {
+  thLexEmit(yyextra, thLexToken::PUNCT, yytext, yyleng, yylineno);
+  return 1;
+}
+
+  /* No default rule. flex's own default echoes what it cannot match to
+     stdout and carries on, which is how a stray character in a .dsp used
+     to print itself and then be forgotten. */
+. {
+  std::string msg = std::string("stray character '") + yytext[0] + "'";
+
+  thLexEmit(yyextra, thLexToken::ERROR, msg.data(), msg.size(), yylineno);
+  return 1;
 }
 
 %%
+
+bool
+thLexString (const std::string &text, std::vector<thLexToken> &out)
+{
+    thLexExtra x;
+    yyscan_t   scanner = NULL;
+    bool       ok = true;
+
+    out.clear();
+
+    x.pos = 0;
+    x.off = 0;
+
+    thinklex_init_extra(&x, &scanner);
+
+    /* Scanning a buffer rather than a FILE* even for .dsp: byte offsets
+       into the text as it sits on disk are the whole point, and a
+       scanner that refills from a stream cannot hand them out. */
+    YY_BUFFER_STATE buf = think_scan_bytes(text.data(), (int)text.size(),
+                                           scanner);
+
+    /* yylineno lives in the buffer, and yy_scan_bytes builds its buffer by
+       hand instead of going through yy_init_buffer -- so the line count
+       starts at whatever was in the malloc'd block, which on a second lex
+       is the first lex's leftovers. Every token then reports a line from
+       the wrong file. Set it here, where the buffer exists and the reason
+       is visible; flex will not do it. */
+    thinkset_lineno(1, scanner);
+
+    while (thinklex(scanner))
+    {
+        out.push_back(x.tok);
+
+        if (x.tok.kind == thLexToken::ERROR)
+        {
+            ok = false;
+            break;
+        }
+    }
+
+    thLexToken end;
+
+    end.kind = thLexToken::END;
+    end.line = thinkget_lineno(scanner);
+    end.off  = end.end = text.size();
+
+    out.push_back(end);
+
+    think_delete_buffer(buf, scanner);
+    thinklex_destroy(scanner);
+
+    return ok;
+}
+
+bool
+thLexStream (FILE *input, std::vector<thLexToken> &out)
+{
+    std::string text;
+    char        buf[4096];
+    size_t      got;
+
+    while ((got = fread(buf, 1, sizeof(buf), input)) > 0)
+        text.append(buf, got);
+
+    return thLexString(text, out);
+}

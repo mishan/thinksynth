@@ -23,9 +23,10 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <string>
+
 #include "think.h"
 #include "parser.h"
-#include "thinklex.h"   /* the reentrant lexer: thinklex(), _init, _destroy */
 
 /* The shim yyparse calls and the reporter it reaches errors through;
    bodies live after the grammar, beside thParseDsp. */
@@ -510,30 +511,130 @@ WORD INTO WORD
 ;
 %%
 
-static int yylex (YYSTYPE *yylval, thParseContext *ctx)
+/* .dsp's vocabulary.
+ *
+ * The shared lexer (thLexer.h) hands back every identifier as a WORD and
+ * every operator as its spelling, because which words and marks mean
+ * something is a question about a *language*, and there are two of them
+ * reading its output now. `ms' is a keyword here and an ordinary unit
+ * name in .gen; `beats' is the reverse. So the vocabulary lives with the
+ * grammar that has it, and the lexical layer stays one thing.
+ *
+ * This costs a string compare per token against a table of thirteen
+ * words, on files of a few hundred lines, at load time. It buys a lexer
+ * that cannot drift from the one .gen reads. */
+static int
+yylex (YYSTYPE *yylval, thParseContext *ctx)
 {
-    return thinklex(yylval, (yyscan_t)ctx->scanner);
+    /* units cleared with every token: yylval is one shared struct, so a
+       `ms' left by an earlier number would otherwise still be sitting
+       there when a later rule read it. */
+    yylval->units = NULL;
+    yylval->floatval = 0;
+    yylval->str = NULL;
+
+    const thLexToken &t = ctx->tokens[ctx->pos];
+
+    if (t.kind == thLexToken::END)
+        return 0;
+
+    ctx->pos++;
+
+    switch (t.kind)
+    {
+    case thLexToken::NUMBER:
+        yylval->floatval = (float)t.num;
+        return NUMBER;
+
+    case thLexToken::STRING:
+        /* strdup because the grammar actions free() what they are given;
+           the token itself outlives the parse and must not be stolen. */
+        yylval->str = strdup(t.text.c_str());
+        return STRING;
+
+    case thLexToken::WORD:
+    {
+        const std::string &w = t.text;
+
+        /* The named constants. NUMBER tokens with a value the engine
+           supplies, which is why they are keywords rather than something
+           a .dsp could shadow. */
+        if (w == "th_max")      { yylval->floatval = TH_MAX;     return NUMBER; }
+        if (w == "th_min")      { yylval->floatval = TH_MIN;     return NUMBER; }
+        if (w == "th_range")    { yylval->floatval = TH_RANGE;   return NUMBER; }
+        if (w == "th_midimax")  { yylval->floatval = MIDIVALMAX; return NUMBER; }
+        if (w == "th_sample")   { yylval->floatval = TH_SAMPLE;  return NUMBER; }
+
+        if (w == "nil")         return NIL;
+        if (w == "node")        return NODE;
+        if (w == "io")          return IO;
+        if (w == "name")        return NAME;
+        if (w == "description") return DESC;
+        if (w == "author")      return AUTHOR;
+        if (w == "ms")          return MS;
+
+        yylval->str = strdup(w.c_str());
+        return WORD;
+    }
+
+    case thLexToken::PUNCT:
+    {
+        const std::string &p = t.text;
+
+        if (p == ";")  return ENDSTATE;
+        if (p == "=")  return ASSIGN;
+        if (p == "{")  return LCBRACK;
+        if (p == "}")  return RCBRACK;
+        if (p == "->") return INTO;
+        if (p == "::") return MODSEP;
+        if (p == "+")  return ADD;
+        if (p == "-")  return SUB;
+        if (p == "*")  return MUL;
+        if (p == "/")  return DIV;
+        if (p == "%")  return MOD;
+        if (p == "(")  return OPAREN;
+        if (p == ")")  return CPAREN;
+        if (p == ".")  return PERIOD;
+        if (p == "@")  return ATSIGN;
+        if (p == "$")  return DOLLAR;
+
+        break;
+    }
+
+    default:
+        break;
+    }
+
+    /* Unreachable: thParseDsp refuses to start on a stream that carries
+       an ERROR, and every other kind is spoken for above. Ending the
+       parse rather than asserting, because a lexer that grew a token
+       this grammar has no word for should fail a file, not the process. */
+    return 0;
 }
 
 static void yyerror (thParseContext *ctx, const char *str)
 {
-    fprintf(stderr, "line %d: error: %s\n",
-            thinkget_lineno((yyscan_t)ctx->scanner), str);
+    /* The token that was read, not the one about to be: yyparse reports
+       after taking the lookahead, so pos_ is already one past the thing
+       the author got wrong. */
+    size_t at = ctx->pos ? ctx->pos - 1 : 0;
+
+    fprintf(stderr, "line %d: error: %s\n", ctx->tokens[at].line, str);
 }
 
 /* The whole loading ritual, in the one place that should know it. The
  * old entry point had callers assigning yyin, parsetree and parsenode
  * under a mutex, and needed yyrestart() because flex's retained buffer
  * let a parse that stopped early feed its unread tail to the next one,
- * which then failed at "line 1" for no visible reason. A scanner per
+ * which then failed at "line 1" for no visible reason. A context per
  * parse makes that hazard unconstructible rather than handled. */
 int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
 {
-    /* Checked rather than assumed. Every caller in the tree passes all
-       three, but this is the entry point an out-of-tree consumer of
-       libthink reaches the language through, and the failure modes are a
-       null dereference for treeOut and a parse of nothing for input. A
-       nonzero return with *treeOut left NULL is a shape finishParse already
+    /* Checked rather than assumed. Every caller in the tree passes both,
+       but this is the entry point an out-of-tree consumer of libthink
+       reaches the language through, and the failure modes are a null
+       dereference for treeOut and a parse of nothing for input. A nonzero
+       return with *treeOut left NULL is a shape finishParse already
        handles -- it is what a parse that failed on line one looks like. */
     if (treeOut == NULL)
         return 1;
@@ -543,29 +644,33 @@ int thParseDsp (thSynth *synth, FILE *input, thSynthTree **treeOut)
     if (synth == NULL || input == NULL)
         return 1;
 
-    /* Before the tree is built, so a scanner that could not be made costs
-       nothing to clean up. thinklex_init allocates, and flex's own
-       yy_fatal_error is the alternative to noticing here. */
-    yyscan_t scanner = NULL;
-
-    if (thinklex_init(&scanner) != 0 || scanner == NULL)
-    {
-        fprintf(stderr, "error: could not create a scanner\n");
-        return 1;
-    }
-
     thParseContext ctx;
 
     ctx.synth = synth;
     ctx.tree = new thSynthTree("newmod", synth);
     ctx.node = new thNode("newnode", NULL);
+    ctx.pos = 0;
 
-    thinkset_in(input, scanner);
-    ctx.scanner = scanner;
+    int result = 0;
 
-    int result = yyparse(&ctx);
+    if (!thLexStream(input, ctx.tokens))
+    {
+        /* A lexical error stops the file here rather than being echoed
+           to stdout and forgotten, which is what flex's default rule did
+           with anything the old scanner had no pattern for. A character
+           the language cannot spell is a broken file, and a broken file
+           should not half-build a tree. */
+        const thLexToken *bad = thLexError(ctx.tokens);
 
-    thinklex_destroy(scanner);
+        fprintf(stderr, "line %d: error: %s\n",
+                bad ? bad->line : 0,
+                bad ? bad->text.c_str() : "lexical error");
+
+        result = 1;
+    }
+    else
+        result = yyparse(&ctx);
+
     delete ctx.node;
 
     *treeOut = ctx.tree;

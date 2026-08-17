@@ -21,7 +21,10 @@
 
 #include <stdio.h>
 
+#include <vector>
+
 #include "thinklang.h"
+#include "thLexer.h"
 
 class thSynth;
 class thSynthTree;
@@ -40,7 +43,19 @@ struct thParseContext
     thSynth     *synth;      /* for resolving plugins                    */
     thSynthTree *tree;       /* built up by the grammar actions          */
     thNode      *node;       /* the node currently being assembled       */
-    void        *scanner;    /* the reentrant lexer's yyscan_t           */
+
+    /* The whole file, lexed before the grammar sees a word of it, and a
+       read cursor into it. A token vector rather than a scanner the
+       parser pulls from one token at a time: the lexical layer is shared
+       with .gen now (thLexer.h), and what .gen's recursive descent needs
+       is a stream it can look around in. Handing .dsp the same stream is
+       what keeps "one lexer" true -- there is no second way into the
+       scanner for this grammar to take, and so nothing for the two
+       languages to drift apart along. Lexing up front also means a
+       stray character is found before any grammar action has built
+       anything out of the good half of the file. */
+    std::vector<thLexToken> tokens;
+    size_t                  pos;
 };
 
 /* One parse of `input', which the caller opens and closes. Returns

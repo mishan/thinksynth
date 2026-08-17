@@ -23,6 +23,8 @@
 #include <string>
 #include <vector>
 
+#include "thLexer.h"
+
 class thArg;
 class thcPlugin;
 class thcScheduler;
@@ -32,7 +34,15 @@ struct thcStage;
  * loader detail because thcGenEdit splices files by replacing exact
  * token spans -- the same lexer feeds the reader and the writer, which
  * is what guarantees an edit never moves a byte it was not aimed at
- * (comments included; they live between the spans). */
+ * (comments included; they live between the spans).
+ *
+ * Not thLexToken itself, though it is built from one. The shared lexer
+ * is deliberately language-neutral: it hands back `-' and `5' as two
+ * tokens because .dsp has arithmetic, and `@' and `density' as two
+ * because .dsp has an operator there. .gen has neither, and its parser
+ * is much clearer reading a NUMBER of -5 and a KNOB called density than
+ * re-deciding that at every call site. tokenize() below is where the
+ * one shape becomes the other. */
 struct thcGenToken
 {
     enum Kind { WORD, NUMBER, STRING, KNOB, PUNCT, MODSEP, END } kind;
@@ -48,16 +58,23 @@ struct thcGenToken
  *
  * A hand-rolled recursive-descent parser rather than the bison/flex
  * additions COMPOSITION_HANDOFF.md §5 originally sketched, and the
- * deviation is deliberate. thinklang.yy is non-reentrant, builds a
- * thSynthTree through globals, and folds `ms' into *samples* inside the
- * grammar -- engine semantics a .gen value must not inherit. And the
- * loader has to resolve stage names against thcPlugin and build
- * thcScheduler chains, both of which live in src/, which libthink cannot
- * see; a shared grammar would have meant a neutral AST in libthink plus a
- * second walker here. The lexical layer below is the .dsp one reproduced
- * faithfully instead of linked: `#' comments, `;', `=', `::', `{ }',
- * quoted strings, numeric literals -- small enough that one page of code
- * is cheaper than a mode switch in a parser the whole corpus depends on.
+ * deviation is deliberate. thinklang.yy builds a thSynthTree as it goes
+ * and folds `ms' into *samples* inside the grammar -- engine semantics a
+ * .gen value must not inherit. And the loader has to resolve stage names
+ * against thcPlugin and build thcScheduler chains, both of which live in
+ * src/, which libthink cannot see; a shared grammar would have meant a
+ * neutral AST in libthink plus a second walker here. Recursive descent
+ * also says what is wrong by name and line far better than yacc does,
+ * which for a file format people hand-write is most of the job.
+ *
+ * The *lexical* layer is shared, and that is the half worth sharing. It
+ * began here as a faithful copy of thinklex.ll's rules -- cheap to write
+ * and a standing invitation to drift the next time either language grew
+ * a token. It is now the flex lexer itself, extracted into libthink as
+ * thLexer.h and taught to hand back tokens with byte offsets. `#'
+ * comments, `;', `=', `::', `{ }', quoted strings and numeric literals
+ * are one implementation for both languages, and tokenize() below is a
+ * short adapter rather than a second scanner.
  *
  * Everything is validated by name and line: a stage asking gen:: of a
  * plugin that exports no tick, a param the plugin never registered, a
@@ -98,11 +115,12 @@ public:
        them. Empty for a value off the MIDI range. */
     static std::string noteName (int midi);
 
-    /* The lexical layer, on its own: `out' gets an END-terminated token
-       stream with byte spans. False on a lexical error, with `err' and
-       `errLine' saying what and where. thcGenEdit shares this, which is
-       what keeps "the editor and the loader read the same language"
-       true by construction. */
+    /* The lexical layer in .gen's shape: `out' gets an END-terminated
+       token stream with byte spans. False on a lexical error, with `err'
+       and `errLine' saying what and where. thcGenEdit shares this, which
+       is what keeps "the editor and the loader read the same language"
+       true by construction; thLexString does the scanning under it,
+       which is what keeps that language the same one .dsp is written in. */
     static bool tokenize (const std::string &text,
                           std::vector<thcGenToken> &out,
                           std::string &err, int &errLine);
