@@ -399,15 +399,16 @@ semantic difference first because it blocks everything else.
 
 **What genuinely divides them today:**
 
-- **`ms` means two things.** `.dsp` folds `5 ms` into *samples* inside
-  the grammar action (times TH_SAMPLE at parse time); `.gen` keeps
-  seconds and defers `beats` to read time. One token, two meanings, and
-  the fold bakes the sample rate into every parsed `.dsp`. Any shared
-  grammar would have to carry both meanings keyed by dialect — or,
-  better, `.dsp` stops folding in the grammar and hands `(value, unit)`
-  to buildArgMap to fold. That change is independently right (it makes
-  `.dsp` sample-rate honest) and is exactly the kind the dspcheck
-  corpus sweep exists to gate.
+- **`ms` means two things.** `.dsp` folds `5 ms` into *samples*; `.gen`
+  keeps seconds and defers `beats` to read time. One token, two
+  meanings, and the `.dsp` fold used to happen in the grammar action at
+  the compile-time sample rate. Half of this is settled: `.dsp` now
+  hands `(value, unit)` out of the grammar and folds at load, which was
+  independently right and is what the dspcheck corpus sweep existed to
+  gate. What remains divided is only that the two languages mean
+  different things by a duration, which is a fact about them rather
+  than a defect in either — and which a shared *grammar* would have to
+  carry keyed by dialect.
 - **thinklang is not reentrant.** Globals (`parsetree`, `parsenode`, a
   static synth) and build-during-parse actions that construct the
   thSynthTree directly. The `.gen` loader is reentrant and builds
@@ -486,8 +487,26 @@ lexer that hands `.dsp` a folded sample count and `.gen` a second is
 not shared — it is two lexers wearing one coat. Doing step 2 showed
 the fold was never in the lexer: it is a grammar action, and the
 scanner hands out `5` and `ms` as two tokens to whoever asks. So the
-fold is independent work, still right for its own reason (it bakes the
-sample rate into every parsed `.dsp`), and no longer a prerequisite.
+fold was independent work rather than a prerequisite — and it is now
+DONE too (branch dsp-unit-fold), for its own reason.
+
+That reason turned out to be worse than "sample-rate honest" implied.
+The grammar folded with the compile-time `TH_SAMPLE`, so `thinksynth
+-r 48000` opened the device at 48k and then played every envelope in
+every patch 8.8% short: the durations had been converted for a rate
+nothing was running at. The grammar now records `(value, unit)` and
+`thSynthTree::foldUnits` converts once, in `finishParse`, at the rate
+the synth was built with. One record per *value site* rather than per
+arg, because `@decay = 500 ms` and `@decay.max = 88200` is the same
+control with one site in milliseconds and one already in samples.
+`libthink/thUnits.h` is the one copy of the arithmetic — the panel and
+the `.dsp` writer unfold through it at the same rate, which they have
+to, or a `-r` session would rewrite files to mean something else. Node
+args carry their unit now as well as chanargs. A unit inside
+arithmetic (`5 ms + 3`) is a parse error rather than the accident it
+used to produce. `argtype` gates it: a duration follows the rate, a
+percentage ignores it, a range written without a unit is left alone,
+and the corpus sweeps prove 44100 is byte-identical to before.
 
 ## 9. When the algorithms reach the instruments
 
@@ -574,11 +593,13 @@ and the shared lexer stop being hygiene and become the runway.
 **Staging, each step shippable alone:**
 
 1. The `ms` fold and the shared offset-carrying lexer (§8 steps 0 and
-   2). The lexer half is done: `libthink/thLexer.h` feeds both
-   languages and carries byte spans, so `patch` blocks inline in a
-   `.gen` would be read by the same scanner that reads them in a
-   `.dsp`, by construction rather than by care. The `ms` fold is still
-   open and is now independent of everything else here.
+   2) — DONE, both halves. `libthink/thLexer.h` feeds both languages
+   and carries byte spans, so `patch` blocks inline in a `.gen` would
+   be read by the same scanner that reads them in a `.dsp`, by
+   construction rather than by care; and a `.dsp` value no longer
+   arrives pre-converted at a rate nobody chose, which is what step 2
+   below would otherwise have inherited the moment a piece carried its
+   instruments.
 2. `patch` blocks inline in `.gen`; sinks bind by patch name; the
    loader instantiates channels. One shareable file that carries its
    instruments.

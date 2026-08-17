@@ -19,11 +19,41 @@
 #ifndef TH_SYNTH_TREE_H
 #define TH_SYNTH_TREE_H 1
 
+#include <vector>
+
 #include "thExport.h"
 
 #include "thNode.h"
 
 class thSynth;
+
+/* A value the file wrote with a unit, parked until the fold can be done
+ * honestly.
+ *
+ * `5 ms' used to become 220.5 inside the grammar action that read it,
+ * using the compile-time TH_SAMPLE. That is wrong the moment the synth
+ * runs at any other rate: `thinksynth -r 48000' opens the device at 48k
+ * and then plays every envelope in every patch 8.8% short, because the
+ * durations were converted by a parser with no idea what rate it was
+ * parsing for. It is wrong in principle even at 44100 -- a parse should
+ * say what the file says, and folding engine semantics into it is the
+ * parser answering a question that belongs to the synth.
+ *
+ * So the grammar records the literal and its unit and moves on, and
+ * thSynthTree::foldUnits does the arithmetic once, at load, with the rate
+ * the synth was actually built with. One record per *value site* rather
+ * than one per arg, because a file may write `@decay = 500 ms' and then
+ * `@decay.max = 88200': the same arg, one site in milliseconds and one
+ * already in samples, and only the site knows which it is. */
+struct thUnitFold
+{
+    enum Field { VALUE, MIN, MAX, STEP };
+
+    thArg  *arg;
+    Field   field;
+    float   literal;
+    string  units;
+};
 
 class THINK_API thSynthTree {
 public:
@@ -77,6 +107,16 @@ public:
 
     const NodeMap &nodes (void) const { return nodes_; }
 
+    /* Parked by the grammar, applied by foldUnits. See thUnitFold. */
+    void deferUnitFold (thArg *arg, thUnitFold::Field field,
+                        float literal, const string &units);
+
+    /* Turns every `5 ms' and `90%' the file wrote into what the engine
+       works in, at `sampleRate' samples per second, and forgets them --
+       so calling it twice cannot fold twice. Run once, from
+       thSynth::finishParse, before anything reads a value. */
+    void foldUnits (long sampleRate);
+
     void process (unsigned int windowlen);
     void setActiveNodes(void);
     void buildArgMap (void);
@@ -105,6 +145,13 @@ private:
     thNodeList activelist_;
     thNode *ionode_;
     thArgMap chanargs_;    /* midi chan args */
+
+    /* Empty except between the parse and foldUnits(). Not copied by the
+       copy constructor for the same reason: a tree is only ever copied
+       after it has been finished, and a copy that carried these would
+       fold a second time if anyone ever called foldUnits on it. */
+    std::vector<thUnitFold> unitFolds_;
+
     string name_, desc_;
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 
                             id for the node index */

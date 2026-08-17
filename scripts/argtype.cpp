@@ -885,6 +885,138 @@ int main (int argc, char **argv)
         remove(spelt.c_str());
     }
 
+    /* ---- units are folded at the synth's rate, not the compiler's ------ */
+
+    /* `5 ms' used to become 220.5 inside the grammar action that read it,
+     * using the compile-time TH_SAMPLE. Two things were wrong with that.
+     * The visible one: `thinksynth -r 48000' opened the device at 48k and
+     * played every envelope in every patch 8.8% short, because the numbers
+     * had been converted for a rate nothing was running at. The quieter
+     * one: a parse should say what the file says, and a parser that folds
+     * engine semantics into a literal has answered a question that was not
+     * its own.
+     *
+     * The corpus sweeps cannot see any of this -- they run at 44100, where
+     * the old fold and the new one agree exactly, which is the point of
+     * running them. What has to be checked here is that the two disagree
+     * when the rate does.
+     */
+    {
+        /* A duration and a percentage, and a range written in samples
+           rather than in the value's own unit -- which is the case that
+           makes the fold a property of each *site* rather than of the arg.
+           A node arg too: those never carried a unit before. */
+        writeOrFail(wrap("@decay = 500 ms;\n"
+                         "@decay.max = 88200;\n"
+                         "@gain = 90%;\n",
+                         "node osc osc::simple {\n"
+                         "    freq = ionode->note;\n"
+                         "    mul = 5 ms;\n"
+                         "};\n"));
+
+        struct Read { bool ok; float decay, decayMax, gain, mul; string units; };
+
+        auto readAt = [&](long rate) -> Read
+        {
+            Read r;
+
+            r.ok = false;
+            r.decay = r.decayMax = r.gain = r.mul = 0;
+
+            thSynth s(pluginPath, TH_DEFAULT_WINDOW_LENGTH, (int)rate);
+            thSynthTree *t = s.parseTree(scratch);
+
+            if (t == NULL)
+                return r;
+
+            thArg *decay = t->getChanArg("decay");
+            thArg *gain = t->getChanArg("gain");
+            thArg *mul = t->getArg("osc", "mul");
+
+            if (decay && gain && mul)
+            {
+                r.ok = true;
+                r.decay = (*decay)[0];
+                r.decayMax = decay->max();
+                r.gain = (*gain)[0];
+                r.mul = (*mul)[0];
+                r.units = mul->units();
+            }
+
+            delete t;
+
+            return r;
+        };
+
+        const Read at44 = readAt(44100);
+        const Read at48 = readAt(48000);
+
+        if (!at44.ok || !at48.ok)
+            fail("the units file loads at both rates", "");
+        else
+        {
+            /* 500 ms is 22050 samples at 44100 and 24000 at 48000. Exact in
+               both cases, so this is an equality and not a tolerance. */
+            if (at44.decay != 22050.0f || at48.decay != 24000.0f)
+                fail("a duration follows the synth's sample rate",
+                     "44100 -> " + to_string(at44.decay) + ", 48000 -> " +
+                     to_string(at48.decay));
+            else
+                ok("a duration folds at the rate the synth is running at");
+
+            /* The range was written in samples. Folding the arg by its unit
+               rather than each site by its own would have converted it
+               twice over. */
+            if (at44.decayMax != 88200.0f || at48.decayMax != 88200.0f)
+                fail("a range written without a unit is left alone",
+                     to_string(at44.decayMax) + " / " +
+                     to_string(at48.decayMax));
+            else
+                ok("a range written without a unit is not folded");
+
+            /* A percentage is a fraction of TH_MAX and has nothing to do
+               with time; the rate must not touch it. */
+            if (at44.gain != 0.9f || at48.gain != 0.9f)
+                fail("a percentage ignores the sample rate",
+                     to_string(at44.gain) + " / " + to_string(at48.gain));
+            else
+                ok("a percentage is the same at any sample rate");
+
+            /* Node args never used to carry a unit at all -- only chanargs
+               did, because only chanargs were ever drawn. */
+            if (at44.mul != 220.5f || at48.mul != 240.0f)
+                fail("a node arg's duration follows the rate too",
+                     to_string(at44.mul) + " / " + to_string(at48.mul));
+            else if (at44.units != "ms")
+                fail("a node arg remembers what it was written in",
+                     at44.units.empty() ? "(none)" : at44.units);
+            else
+                ok("a node arg folds at the rate and remembers its unit");
+        }
+    }
+
+    /* A unit inside arithmetic is refused rather than guessed. It used to
+       produce a number by accident -- the leaf was folded before the
+       operator ran -- and with the fold deferred there is no accident left
+       to have, so the file is rejected instead of quietly meaning
+       something else. */
+    {
+        writeOrFail(wrap("", "node osc osc::simple {\n"
+                             "    freq = ionode->note;\n"
+                             "    mul = 5 ms + 3;\n"
+                             "};\n"));
+
+        thSynthTree *t = synth.parseTree(scratch);
+
+        if (t != NULL)
+        {
+            fail("arithmetic on a united value is refused", "it parsed");
+            delete t;
+        }
+        else
+            ok("a unit inside arithmetic is a parse error");
+    }
+
     remove(scratch.c_str());
 
     printf("\n%d failure(s)\n", failed);

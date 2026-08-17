@@ -25,6 +25,7 @@
 #include <gtkmm.h>
 
 #include "think.h"
+#include "thUnits.h"
 
 #include "ArgTable.h"
 #include "../gthPatchfile.h"
@@ -65,32 +66,36 @@ void ArgTable::dropArgConns (void)
  *
  * The engine works in samples and in fractions of TH_MAX, and that is what is
  * stored; these only decide what the panel puts on screen. Both folds the
- * grammar performs are exact and exactly invertible, so a value written
+ * loader performs are exact and exactly invertible, so a value written
  * `7000 ms' comes back as 7000 and not 6999.97.
  *
  * A unit the author declared rather than wrote as a suffix -- `@x.units =
  * "Hz"' -- passes through untouched. Nothing folded it, so there is nothing
- * to unfold; it is a label. */
+ * to unfold; it is a label. thUnfoldUnit knows which units are which, which
+ * is why this is a call now rather than a third copy of the arithmetic.
+ *
+ * The rate must be the one the value was folded at. It used to be the
+ * compile-time TH_SAMPLE on both sides of the fold, so the mistake cancelled
+ * out and the panel was right by luck; now that the loader folds at the
+ * synth's rate, a session started with `-r 48000' would show every envelope
+ * time 8.8% long -- and write it back that way -- if this asked anyone else.
+ * thSynth::instance() is that synth; TH_SAMPLE is the fallback for a panel
+ * with no synth behind it, which in practice means a test. */
+static long displayRate (void)
+{
+    thSynth *synth = thSynth::instance();
+
+    return synth ? synth->getSampleRate() : TH_SAMPLE;
+}
+
 double ArgTable::toDisplay (double raw, const string &units)
 {
-    if (units == "ms")
-        return raw * 1000.0 / TH_SAMPLE;
-
-    if (units == "%")
-        return raw * 100.0 / TH_MAX;
-
-    return raw;
+    return thUnfoldUnit(raw, units, displayRate());
 }
 
 double ArgTable::fromDisplay (double shown, const string &units)
 {
-    if (units == "ms")
-        return shown * TH_SAMPLE / 1000.0;
-
-    if (units == "%")
-        return shown * TH_MAX / 100.0;
-
-    return shown;
+    return thFoldUnit(shown, units, displayRate());
 }
 
 /* Decimal places worth showing for a control whose range runs to `hi'.

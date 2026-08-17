@@ -677,6 +677,20 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
         return NULL;
     }
 
+    /* First, before anything reads a value off this tree.
+     *
+     * The grammar hands back what the file said -- `5 ms' is 5 -- and this
+     * is where it becomes what the engine works in, because this is the
+     * first point that knows the rate. Folding in the grammar action meant
+     * folding with the compile-time TH_SAMPLE, so `thinksynth -r 48000'
+     * opened the device at 48k and then played every envelope in every
+     * patch 8.8% short. See thUnitFold.
+     *
+     * After the bail-outs above and not before: a parse that failed may
+     * have parked folds against args on the half-built node thParseDsp has
+     * already deleted, and a failed parse folds nothing. */
+    tree->foldUnits(sampleRate_);
+
     tree->buildArgMap(); /* build the index of args */
     tree->setPointers();
 

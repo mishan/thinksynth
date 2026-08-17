@@ -171,11 +171,10 @@ The parser throws away things a naive re-emit would not restore:
 
 - **Comments.** 59 of 92 files have them, 391 in total, and they are the
   author's notes. Losing them on first save would be vandalism.
-- **Units.** 283 values are written `5 ms` or `90%`. The grammar folds these to
+- **Units.** 283 values are written `5 ms` or `90%`. The loader folds these to
   raw floats, so `a = 5 ms` comes back as `a = 220.5` — correct, unreadable.
-  (The fold is a grammar action, not a lexer rule; the lexer hands out `5` and
-  `ms` as two tokens, which is what lets `.gen` read the same scan and keep its
-  seconds.)
+  (The lexer hands out `5` and `ms` as two tokens and the grammar keeps them
+  that way; the fold happens once, at load. See below.)
 - **Synthesised args.** `buildArgMap()` calls `setArg(name, 0)` for every arg a
   plugin registered but the `.dsp` did not mention. Re-emitting the in-memory
   model would write out dozens of `reset = 0;` lines nobody authored.
@@ -201,8 +200,23 @@ Two things that only showed up in practice:
   that needs one cannot be written at all; `NodeEdit` refuses rather than
   emitting something that will not parse.
 - **Negatives** exist only as a unary-minus rule over that. Eight in the corpus.
-- `5 ms` is `5 * TH_SAMPLE / 1000` and `50%` is `50 * TH_MAX / 100`. Both are
-  exactly invertible, so a value written with a unit keeps it.
+- `5 ms` is `5 * <sample rate> / 1000` and `50%` is `50 * TH_MAX / 100`. Both
+  are exactly invertible, so a value written with a unit keeps it.
+- **The fold happens at load, not at parse.** It used to be a grammar action
+  using the compile-time `TH_SAMPLE`, which meant `thinksynth -r 48000` opened
+  the device at 48k and then played every envelope in every patch 8.8% short.
+  The grammar now records `(value, unit)` and `thSynthTree::foldUnits` converts
+  once, in `finishParse`, at the rate the synth was built with. One record per
+  *value site*, not per arg, because a file may write `@decay = 500 ms` and
+  `@decay.max = 88200` — the same control, one site in milliseconds and one
+  already in samples. `thUnits.h` holds the arithmetic, and the panel and the
+  writer unfold through the same functions at the same rate; a `-r` session
+  that displayed or saved through a different one would rewrite files to mean
+  something else.
+- **A unit inside arithmetic is a parse error.** `5 ms + 3` used to produce a
+  number by accident — the leaf was folded before the operator ran, so it meant
+  223.5 samples — and with the fold deferred there is no accident left to have.
+  Nothing in the corpus does this; the rule exists so nothing quietly starts.
 - **229 uses of `th_max` and `th_min`**, plus `th_range`, `th_midimax` and
   `th_sample`. A writer that did not recognise these would turn
   `inmax = th_max` into `inmax = 1` on the first save of any file containing one.

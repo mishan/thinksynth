@@ -32,6 +32,10 @@
    bodies live after the grammar, beside thParseDsp. */
 static int yylex (YYSTYPE *yylval, thParseContext *ctx);
 static void yyerror (thParseContext *ctx, const char *str);
+
+/* False, having complained, if either operand of an arithmetic rule was
+   written with a unit. See the ADD rule for the argument. */
+static bool thCheckNoUnits (thParseContext *ctx, const char *a, const char *b);
 %}
 
 /* Pure: no globals anywhere in the generated parser, a context threaded
@@ -120,18 +124,28 @@ term
 |
 term ADD unsigned_simple_expression
 {
-    $$.floatval = $1.floatval + $3.floatval;
+    /* A unit in an arithmetic expression is refused rather than guessed.
+     *
+     * `5 ms + 3' has no unit this grammar can name, and it used to get a
+     * number anyway: the fold happened at the leaf, so the left side was
+     * already 220.5 samples and the right side was 3 of whatever, and the
+     * sum was 223.5 samples by accident rather than by anyone's decision.
+     * Now that the fold waits for load time there is no accident left to
+     * have -- the unit would simply be dropped and `5 ms + 3' would mean 8
+     * samples, which is worse than an error. Nothing in the corpus does
+     * this; the rule is here so nothing quietly starts. */
+    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+        YYERROR;
 
-    /* Cleared rather than guessed. `5 ms + 3' has no unit this grammar can
-       name, and calling the result milliseconds because the left side was
-       would put a wrong unit on a right number. No shipped .dsp does
-       arithmetic on a united value; if one ever does, it gets a bare
-       number, which is what it had before any of this. */
+    $$.floatval = $1.floatval + $3.floatval;
     $$.units = NULL;
 }
 |
 term SUB unsigned_simple_expression
 {
+    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+        YYERROR;
+
     $$.floatval = $1.floatval - $3.floatval;
     $$.units = NULL;
 }
@@ -142,34 +156,52 @@ factor
 |
 factor MUL term
 {
+    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+        YYERROR;
+
     $$.floatval = $1.floatval * $3.floatval;
     $$.units = NULL;
 }
 |
 factor DIV term
 {
+    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+        YYERROR;
+
     $$.floatval = $1.floatval / $3.floatval;
     $$.units = NULL;
 }
 |
 factor MOD term
 {
+    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+        YYERROR;
+
     $$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
     $$.units = NULL;
 }
 |
 factor MOD /* percentage of TH_MAX  (ex: somearg = 50%) */
 {
-    $$.floatval = $1.floatval * TH_MAX / 100;
-
-    /* The fold is exactly invertible, so remembering what was folded is
-       enough to show the number back the way it was written. */
+    /* The literal, not the fold.
+     *
+     * Both of these rules used to convert here -- `50%' to 0.5 and `5 ms'
+     * to 220.5 -- and the `ms' one did it with the compile-time TH_SAMPLE,
+     * which is a rate the parser has no business knowing and, at
+     * `thinksynth -r 48000', is not the rate anything is running at. So
+     * the value keeps the author's number and carries its unit up through
+     * the expression rules, and whoever stores it parks a fold for
+     * thSynthTree::foldUnits to do at load time. The unit is still
+     * recorded afterwards, because the fold is exactly invertible and
+     * remembering what was folded is what lets a panel show the number
+     * back the way it was written. */
+    $$.floatval = $1.floatval;
     $$.units = "%";
 }
 |
 factor MS /* milliseconds */
 {
-    $$.floatval = $1.floatval * TH_SAMPLE / 1000;
+    $$.floatval = $1.floatval;
     $$.units = "ms";
 }
 ;
@@ -260,15 +292,23 @@ ATSIGN WORD ASSIGN expression
 {
     thArg *chanarg = new thArg($2.str, $4.floatval);
 
-    /* `@a = 5 ms' is stored as 220.5 samples, which is what the engine wants
-       and what every consumer of this value has always got. Recording that it
-       was written in milliseconds costs nothing and lets a display show it
-       back the way it was written. An explicit `@a.units = "Hz"' later still
+    /* `@a = 5 ms' ends up stored as samples, which is what the engine wants
+       and what every consumer of this value has always got -- but the fold
+       waits for foldUnits, which knows the rate. Recording that it was
+       written in milliseconds costs nothing and lets a display show it back
+       the way it was written. An explicit `@a.units = "Hz"' later still
        overrides this -- the author knows better than the fold does. */
     if ($4.units)
         chanarg->setUnits($4.units);
 
+    /* Before setChanArg, which is what makes the arg the tree's: a
+       redeclared name deletes the old arg, and setChanArg drops anything
+       parked against it. */
     ctx->tree->setChanArg(chanarg);
+
+    if ($4.units)
+        ctx->tree->deferUnitFold(chanarg, thUnitFold::VALUE, $4.floatval,
+                                 $4.units);
 
     free($2.str);
 }
@@ -294,6 +334,14 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
            and some patches give the unit only on the range. */
         if ($6.units && chanarg->units().empty())
             chanarg->setUnits($6.units);
+
+        /* Parked per site, not per arg. A file may write the value in
+           milliseconds and the range in samples -- `@decay = 500 ms' and
+           `@decay.max = 88200' -- and folding the whole arg by its unit
+           would convert a number that was already converted. */
+        if ($6.units)
+            ctx->tree->deferUnitFold(chanarg, thUnitFold::MIN, $6.floatval,
+                                     $6.units);
     }
     else if (strcmp($4.str, "max") == 0)
     {
@@ -301,6 +349,10 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
 
         if ($6.units && chanarg->units().empty())
             chanarg->setUnits($6.units);
+
+        if ($6.units)
+            ctx->tree->deferUnitFold(chanarg, thUnitFold::MAX, $6.floatval,
+                                     $6.units);
     }
     else if (strcmp($4.str, "widget") == 0)
     {
@@ -318,6 +370,10 @@ ATSIGN WORD PERIOD WORD ASSIGN expression
            That is what lets `@x.step = 0' mean "continuous, and I mean it"
            rather than being indistinguishable from having said nothing. */
         chanarg->setStep($6.floatval, true);
+
+        if ($6.units)
+            ctx->tree->deferUnitFold(chanarg, thUnitFold::STEP, $6.floatval,
+                                     $6.units);
     }
     else
         printf("ERROR:  Invalid arg parameter '%s <numeric>'\n", $4.str);
@@ -426,7 +482,22 @@ assignment:
 WORD ASSIGN expression
 {
     /* XXX: This is sorta hackish, make it not index it here */
-    ctx->node->setArg($1.str, $3.floatval)->setIndex(-1);
+    thArg *arg = ctx->node->setArg($1.str, $3.floatval);
+
+    arg->setIndex(-1);
+
+    /* A node arg remembers its unit now, which it never used to: only
+       chanargs did, because only chanargs were ever drawn. The arg holds
+       the author's number until foldUnits runs, so anything that reads a
+       tree between the parse and finishParse sees milliseconds -- nothing
+       does, and saying so is cheaper than pretending the value is already
+       in samples. */
+    if ($3.units)
+    {
+        arg->setUnits($3.units);
+        ctx->tree->deferUnitFold(arg, thUnitFold::VALUE, $3.floatval,
+                                 $3.units);
+    }
 
     free($1.str);
 }
@@ -610,6 +681,24 @@ yylex (YYSTYPE *yylval, thParseContext *ctx)
        parse rather than asserting, because a lexer that grew a token
        this grammar has no word for should fail a file, not the process. */
     return 0;
+}
+
+static bool
+thCheckNoUnits (thParseContext *ctx, const char *a, const char *b)
+{
+    const char *unit = a ? a : b;
+
+    if (unit == NULL)
+        return true;
+
+    char msg[128];
+
+    snprintf(msg, sizeof(msg),
+             "'%s' cannot be used in arithmetic; write the number the "
+             "engine wants, or the unit on its own", unit);
+    yyerror(ctx, msg);
+
+    return false;
 }
 
 static void yyerror (thParseContext *ctx, const char *str)

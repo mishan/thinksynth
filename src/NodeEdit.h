@@ -35,9 +35,13 @@
  *     cannot be written at all.
  *   - Negatives exist only as a unary-minus rule over that, so `-0.5' is fine
  *     but `-5 ms' would parse as -(5 ms) -- which is what we want anyway.
- *   - `5 ms' means 5 * TH_SAMPLE / 1000 and `50%' means 50 * TH_MAX / 100.
- *     Both are exactly invertible, so a value written with a unit comes back
- *     with the same unit rather than as a folded raw number.
+ *   - `5 ms' means 5 * <the synth's sample rate> / 1000 and `50%' means
+ *     50 * TH_MAX / 100. Both are exactly invertible, so a value written with
+ *     a unit comes back with the same unit rather than as a folded raw
+ *     number. The rate matters: the loader folds at the rate the synth is
+ *     running at, so a writer that unfolded at any other one would rewrite
+ *     `500 ms' as `459 ms' on the first save of a `-r 48000' session. Both
+ *     sides go through thUnits.h.
  *
  * Anything it cannot express, it refuses and says why, rather than writing
  * something that parses to a different number.
