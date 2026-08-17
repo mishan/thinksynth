@@ -56,6 +56,8 @@
 
 #include "thExport.h"
 
+#include "thLexer.h"
+
 #include "thRing.h"
 
 #include "thSampleRing.h"
@@ -67,7 +69,7 @@ main (void)
 {
     /* Nothing to check at run time -- see the header comment. Printed so
        a ctest log says what was covered rather than nothing at all. */
-    printf("includecheck: 6 headers compiled standing on their own\n");
+    printf("includecheck: 7 headers compiled standing on their own\n");
 
     return 0;
 }
