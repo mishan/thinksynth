@@ -65,6 +65,35 @@ typedef struct thParseContext thParseContext;
 %token ATSIGN DOLLAR
 %token STRING
 
+/* Who frees a string when a parse gives up partway.
+ *
+ * A completed rule frees what it consumed, which covers every successful
+ * parse -- but YYERROR unwinds the stack, and everything already on it is
+ * simply dropped. That was survivable while the only YYERRORs were at the
+ * top level, where the stack below them is empty; a unit inside arithmetic
+ * fails from *inside* a node body, with the node's name, its plugin's
+ * name and the arg's name all still on the stack, and LeakSanitizer said
+ * so at once.
+ *
+ * Destructors are bison's answer and they are the right one, because the
+ * alternative is every future YYERROR remembering to free the whole path
+ * back to the top. They cannot double-free what an action already freed:
+ * only symbols bison *discards* are destroyed, and a symbol a reduction
+ * consumed has been popped already.
+ *
+ * With one exception worth knowing before writing the next YYERROR.
+ * Bison does not reclaim the symbols of the rule whose own action raised
+ * it -- the assumption being that an action that decided to fail knows
+ * what it was holding. So a rule that YYERRORs still frees its own RHS by
+ * hand, and the destructors cover everything below it. The plugin-load
+ * failure below is the one rule in this grammar that has to.
+ *
+ * WORD and STRING come from the lexer's strdup; plugname and fstr are
+ * built with new char[]. Two allocators, two destructors, which is also
+ * a reminder that this grammar has never settled on one. */
+%destructor { free($$.str); }   WORD STRING
+%destructor { delete[] $$.str; } plugname fstr
+
 %%
 
 statements:
@@ -257,6 +286,11 @@ NODE WORD plugname LCBRACK assignments RCBRACK
                  $3.str, $2.str);
         yyerror(ctx, errbuf);
 
+        /* Still freed by hand, destructors or not. Bison does not reclaim
+           the symbols of the rule whose action raised YYERROR -- it
+           assumes the action dealt with them, which is the only sane
+           assumption when the action is what decided to fail. The
+           destructors take over one frame further down. */
         free($2.str);        /* WORD comes from the lexer's strdup() */
         delete[] $3.str;     /* plugname is built with new char[] */
 

@@ -1045,6 +1045,31 @@ int main (int argc, char **argv)
             ok("a unit inside arithmetic is a parse error");
     }
 
+    /* The other way a parse gives up partway, and the reason the grammar
+     * grew %destructor declarations: YYERROR unwinds the stack, and a
+     * failure from inside a node body leaves the node's name, its plugin's
+     * name and the arg's name on it. The arithmetic case above is what
+     * found that; this one is here because the plugin-load failure stopped
+     * freeing by hand when the destructors took the job, and a double free
+     * would look exactly like a pass until asan ran. Both paths are
+     * exercised, and the CI job with detect_leaks=1 is the assertion. */
+    {
+        writeOrFail(wrap("", "node osc gen::no_such_plugin {\n"
+                             "    freq = ionode->note;\n"
+                             "};\n"));
+
+        thSynthTree *t = synth.parseTree(scratch);
+
+        if (t != NULL)
+        {
+            fail("a node naming a plugin that will not load is refused",
+                 "it parsed");
+            delete t;
+        }
+        else
+            ok("a plugin that will not load fails the parse, and unwinds it");
+    }
+
     remove(scratch.c_str());
 
     printf("\n%d failure(s)\n", failed);
