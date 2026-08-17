@@ -62,6 +62,8 @@
 
 #include "thSampleRing.h"
 
+#include "thUnits.h"
+
 #include <cstdio>
 
 int
@@ -69,7 +71,7 @@ main (void)
 {
     /* Nothing to check at run time -- see the header comment. Printed so
        a ctest log says what was covered rather than nothing at all. */
-    printf("includecheck: 7 headers compiled standing on their own\n");
+    printf("includecheck: 8 headers compiled standing on their own\n");
 
     return 0;
 }
