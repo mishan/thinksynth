@@ -114,6 +114,16 @@ protected:
     Gtk::Widget *buildPieceSection (void);
     Gtk::Widget *buildKnobsSection (void);
     Gtk::Widget *buildScalesSection (void);
+    Gtk::Widget *buildPresetsSection (void);
+
+    /* A preset's value changed: re-resolve it into every stage naming
+       it. A value edit, not a structural one -- see the definition. */
+    void presetChanged (const std::string &preset);
+
+    /* Write a stage's clicked-into-shape state back into the file. See
+       the definition for why it is a button and not a side effect of
+       clicking. */
+    void captureStage (size_t ci, size_t si);
 
     /* The selection-driven half, rebuilt whenever the canvas selection
        changes (or the piece reloads under it). */

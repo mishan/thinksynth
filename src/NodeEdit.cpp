@@ -31,6 +31,7 @@
 #include <vector>
 
 #include "think.h"
+#include "thUnits.h"
 #include "NodeEdit.h"
 
 const char *NodeEdit::resultText (Result r)
@@ -202,13 +203,14 @@ static string suffixTextOf (const string &rhs)
 
 /* "The same number", at the precision that matters.
  *
- * Not exact equality, and it cannot be. The grammar folds `0.5 ms' with
- * `$1.floatval * TH_SAMPLE / 1000' in float, and libthink is built with
- * -ffast-math, which lets the compiler turn that division into a multiply by
- * the reciprocal of 1000. So the engine holds 22.0500011 where honest
- * arithmetic gives 22.0499992 -- a couple of ULP apart. Re-deriving the
- * literal exactly is therefore impossible, and demanding it would rewrite
- * `0.5 ms' as `0.50000003 ms' every time anyone saved.
+ * Not exact equality, and it cannot be. The loader folds `0.5 ms' and stores
+ * the result in a float, this side works in double, and libthink is built
+ * with -ffast-math, which lets the compiler reassociate the fold and turn
+ * its division into a multiply by a reciprocal. So the engine holds
+ * 22.0500011 where honest arithmetic gives 22.0499992 -- a couple of ULP
+ * apart. Re-deriving the literal exactly is therefore impossible, and
+ * demanding it would rewrite `0.5 ms' as `0.50000003 ms' every time anyone
+ * saved.
  *
  * Four ULP is comfortably more than that gap and comfortably less than any
  * edit a person could mean. (DSP_FORMAT.md records this as one concrete thing
@@ -251,27 +253,31 @@ static bool namedConstant (const string &word, double &out)
     return false;
 }
 
-/* The grammar's unit conversions, and their inverses. Both are exact. */
+/* The loader's unit conversions, and their inverses. Both are exact.
+ *
+ * The arithmetic is thUnits.h's -- one implementation, so that a writer
+ * cannot come to disagree with the loader about what `5 ms' is. What is
+ * decided here is the rate to hand it: the synth's, because that is what
+ * folded the value being written back, falling back to the compile-time
+ * TH_SAMPLE for an editor with no synth behind it. Getting this wrong is
+ * silent and permanent -- the file would be rewritten with numbers that
+ * mean something else -- which is why it is one function rather than two
+ * call sites each making their own decision. */
+static long editRate (void)
+{
+    thSynth *synth = thSynth::instance();
+
+    return synth ? synth->getSampleRate() : TH_SAMPLE;
+}
+
 static double applyUnits (double literal, const string &units)
 {
-    if (units == "ms")
-        return literal * (double)TH_SAMPLE / 1000.0;
-
-    if (units == "%")
-        return literal * (double)TH_MAX / 100.0;
-
-    return literal;
+    return thFoldUnit(literal, units, editRate());
 }
 
 static double removeUnits (double value, const string &units)
 {
-    if (units == "ms")
-        return value * 1000.0 / (double)TH_SAMPLE;
-
-    if (units == "%")
-        return value * 100.0 / (double)TH_MAX;
-
-    return value;
+    return thUnfoldUnit(value, units, editRate());
 }
 
 /* The number alone, correctly scaled for `units' but with no suffix. */

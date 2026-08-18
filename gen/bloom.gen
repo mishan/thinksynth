@@ -1,0 +1,111 @@
+# bloom.gen -- the instrument searching for itself.
+#
+# tide.gen travels a straight line between two presets. This one does not
+# know where it is going: `gen::breed' keeps a population of chanarg
+# vectors, breeds them each cycle by tournament selection and single-point
+# crossover, and plays the champion. What you hear is the search.
+#
+# The corridor it searches is the piece's own doing. A gene may travel
+# between the values `closed' and `open' give it, widened by `spread', and
+# nothing can invent a component neither preset names -- the chanargs a
+# patch declares are the whole of what a composer may reach, and here that
+# is arithmetic rather than a rule anyone has to remember.
+#
+# The fitness is taste with a number on it. `aim' pulls toward `open',
+# `drift' rewards being unlike the timbre just played, and `reach' mildly
+# rewards using the corridor instead of huddling at one end. Turn drift to
+# zero and the instrument settles on one timbre and stays there, which is
+# also a choice; turn aim to zero and it wanders the corridor with no
+# destination at all.
+#
+# Watch the stage box on the canvas: the faint marks are the population,
+# the bright one is the champion. Them crowding to a point and scattering
+# again when drift pulls IS the algorithm.
+#
+# The seed is pinned, so the whole search replays. Unpin it to let the
+# instrument find somewhere else.
+#
+# Channel 3 works with any patch -- the presets move `amp', which every
+# channel has. Load amb01.dsp on it as well and the filter components
+# come alive too.
+
+name "Bloom";
+author "Misha Nasledov";
+description "A population of timbres, breeding under a piece's own taste.";
+
+seed 2711;
+
+@restlessness = 0.6;
+@restlessness.widget = 1;
+@restlessness.min = 0;
+@restlessness.max = 2;
+@restlessness.label = "Restlessness";
+
+scale amin "A2 C3 D3 E3 G3 A3 C4";
+
+# `amp' is in both, so this piece is audible on any patch at all: amp is
+# the one chanarg every channel has. Its numbers are amp's -- 0 to 127,
+# starting at 30 -- and not the 0-to-1 the filter components use. A
+# corridor of 20 to 44 keeps the search well clear of silence, which is
+# what the bottom of amp's range means and is not a place a demo should
+# be able to wander into. res, fmin and fmax need amb01.dsp; on anything
+# else they are delivered and ignored.
+preset closed {
+    amp  = 20;
+    res  = 0.90;
+    fmin = 0.03;
+    fmax = 0.22;
+};
+
+preset open {
+    amp  = 44;
+    res  = 0.28;
+    fmin = 0.20;
+    fmax = 0.96;
+};
+
+chain search {
+    stage g gen::breed {
+        from   = closed;
+        toward = open;
+        population = 24;
+        mutation = 0.14;
+        elites = 2;
+        spread = 0.12;
+        aim    = 1;
+        drift  = @restlessness;
+        reach  = 0.25;
+        period = 5 s;
+    };
+    sink { channel = 3; chanarg = "*"; };
+};
+
+# Three lines rather than one. A search you can only hear once every
+# thirteen seconds is a search you will not sit through; the piece is
+# about what happens to the sound, so there has to be sound.
+chain under {
+    stage src gen::eno_line {
+        notes = amin;
+        period = 2.7 s; jitter = 0.8 s;
+        prob = 0.8; hold = 4.5 s; vel = 58; vel_jitter = 5;
+    };
+    sink { channel = 3; };
+};
+
+chain over {
+    stage src gen::eno_line {
+        notes = "A4 C5 D5 E5 G5";
+        period = 3.9 s; jitter = 1.1 s;
+        prob = 0.6; hold = 5 s; vel = 46; vel_jitter = 7;
+    };
+    sink { channel = 3; };
+};
+
+chain root {
+    stage src gen::eno_line {
+        notes = "A2 E3";
+        period = 5.3 s; jitter = 0.9 s;
+        prob = 0.9; hold = 7 s; vel = 64; vel_jitter = 4;
+    };
+    sink { channel = 3; };
+};

@@ -1,0 +1,78 @@
+# pulse.gen -- what a unit decides.
+#
+# Every duration in this piece is written in `beats', so every duration
+# is the transport's business. Change the tempo while it plays and all
+# four chains change together and stay locked -- the scheduler integrates
+# beats rather than deriving them, so a beat-valued duration goes on
+# meaning something across a tempo change. Write `0.5 s' instead of
+# `1 beats' anywhere here and that voice tears loose from the others and
+# runs free. The clocked/free distinction lives in the value, not in the
+# plugin, and this file is one half of the demonstration; airports.gen is
+# the other.
+#
+# The rhythm itself is Euclidean: `fills' onsets spread as evenly as
+# whole numbers allow over `steps' steps. Three against four against
+# five against sixteen, all on a common pulse, is a polyrhythm that takes
+# eighty beats to come back around to where it started.
+#
+# The Fills knob drives the hats' onset count live. Watch euclid's ring
+# on the canvas rethread itself as you drag: the ring IS the pattern, and
+# five onsets over sixteen is a different piece from four.
+#
+# No randomness at all -- there is no seed to pin, because there is
+# nothing to replay differently.
+#
+# Aim channels 1 through 4 at drums or short percussive patches: kick,
+# snare, hats, and something with a pitch for the bell.
+
+name "Pulse";
+author "Misha Nasledov";
+description "Three, four, five and sixteen, all on one clock.";
+
+tempo 96;
+
+@fills = 5;
+@fills.widget = 1;
+@fills.min = 0;
+@fills.max = 16;
+@fills.step = 1;
+@fills.label = "Fills";
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4; fills = 1; rotate = 0;
+        notes = "C2";
+        period = 1 beats; hold = 0.25 beats; vel = 104;
+    };
+    sink { channel = 1; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 8; fills = 3; rotate = 2;
+        notes = "D2";
+        period = 0.5 beats; hold = 0.2 beats; vel = 88;
+    };
+    sink { channel = 2; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 16; fills = @fills; rotate = 0;
+        notes = "Gb2";
+        period = 0.25 beats; hold = 0.1 beats; vel = 64;
+    };
+    sink { channel = 3; };
+};
+
+# Five onsets over five steps of three beats each: a cycle fifteen beats
+# long against the kick's four, which is where the piece stops repeating
+# in any way you can hold in your head.
+chain bell {
+    stage src gen::euclid {
+        steps = 5; fills = 3; rotate = 1;
+        notes = "C5 Eb5 G5 Bb5";
+        period = 3 beats; hold = 2 beats; vel = 70;
+    };
+    sink { channel = 4; };
+};

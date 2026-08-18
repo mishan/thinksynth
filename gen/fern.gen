@@ -12,7 +12,7 @@
 # shape, dense to sparse. Brackets are branches, and branches are
 # chords -- the plant's forks land as simultaneous notes.
 #
-# Aim channel 3 at something plucked and channel 2 at a soft pad.
+# Aim channel 4 at something plucked and channel 3 at a soft pad.
 
 name "Fern";
 author "Misha Nasledov";
@@ -33,7 +33,7 @@ chain sprig {
         notes = "D5 E5 Gb5 A5 B5";
         step = 0.17 s; hold = 0.3 s; vel = 58;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain frond {
@@ -45,7 +45,7 @@ chain frond {
         step = 0.34 s; hold = 0.6 s; vel = 70;
     };
     stage soft xform::humanize { time = @sway; vel = 5; };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain trunk {
@@ -56,5 +56,5 @@ chain trunk {
         notes = "D2 E2 Gb2 A2 B2";
         step = 0.68 s; hold = 1.4 s; vel = 76;
     };
-    sink { channel = 2; };
+    sink { channel = 3; };
 };

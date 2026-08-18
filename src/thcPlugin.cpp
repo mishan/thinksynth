@@ -28,6 +28,7 @@
 thcPlugin::thcPlugin (const string &path)
     : path_(path), state_(NOTLOADED), handle_(NULL), flags_(0),
       create_(NULL), tick_(NULL), receive_(NULL), paramChanged_(NULL),
+      input_(NULL), capture_(NULL),
       draw_(NULL), destroy_(NULL)
 {
     /* The name a chain will refer to this by is the filename with the
@@ -101,6 +102,13 @@ thcPlugin::moduleLoad (void)
     paramChanged_ = (ComposerParamChanged)
         thDynLib::symbol(handle_, "composer_param_changed");
     draw_ = (ComposerDraw) thDynLib::symbol(handle_, "composer_draw");
+
+    /* Both optional, and looked up the same way everything optional here
+       is: absent means the feature is simply not offered, which is what
+       lets an old module keep loading against a newer host. */
+    input_ = (ComposerInput) thDynLib::symbol(handle_, "composer_input");
+    capture_ = (ComposerCapture)
+        thDynLib::symbol(handle_, "composer_capture");
 
     thcComposerInfo info;
     info.host = this;
@@ -188,6 +196,8 @@ thcPlugin::moduleUnload (void)
     receive_ = NULL;
     paramChanged_ = NULL;
     draw_ = NULL;
+    input_ = NULL;
+    capture_ = NULL;
     destroy_ = NULL;
 
     /* NOTLOADED means empty, not "whatever a failed init left behind":
@@ -303,4 +313,25 @@ thcPlugin::draw (void *state, cairo_t *cr, double w, double h)
 {
     if (draw_ != NULL && state != NULL && cr != NULL)
         draw_(state, cr, w, h);
+}
+
+void
+thcPlugin::input (void *state, const thcInputEvent *ev)
+{
+    if (input_ != NULL && state != NULL && ev != NULL)
+        input_(state, ev);
+}
+
+string
+thcPlugin::capture (void *state, int index)
+{
+    if (capture_ == NULL || state == NULL)
+        return "";
+
+    /* Copied here, at the boundary, because the ABI promises the
+       pointer only until the next call -- and every caller of this
+       wants to keep the text long enough to splice it into a file. */
+    const char *text = capture_(state, index);
+
+    return text != NULL ? string(text) : string();
 }

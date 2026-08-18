@@ -5,9 +5,9 @@
 # Nine are registered with add_test below; the rest take a corpus argument or
 # their own build tree and are run by hand.
 #
-# editorcheck is the one exception to "no display": it builds real widgets and
-# skips itself loudly without one, which is why CI runs the Linux suite under
-# xvfb-run.
+# editorcheck and composercheck are the exceptions to "no display": they build
+# real widgets and skip themselves loudly without one, which is why CI runs the
+# Linux suite under xvfb-run.
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
@@ -152,6 +152,17 @@ think_harness(editorcheck NODEMODEL VISUALHOST
                     "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
 target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 
+# The composer window, driven the way editorcheck drives the node editor.
+# Its own harness rather than more EXTRA on that one: the two share no code
+# and a link chain that pulls the whole GUI into one binary makes a failure
+# harder to attribute, which is the reason the levels in dspstress exist too.
+think_harness(composercheck COMPOSERHOST VISUALHOST
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp")
+target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM)
+
 # What a parameter *is*: the plugin's declaration, the pass that carries it to
 # the control driving it, and the graph that draws the result. Builds its own
 # .dsp files -- the cases that matter are ones the corpus cannot contain.
@@ -282,6 +293,12 @@ add_test(NAME dspprobe
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
 
+# Needs a display for the same reason editorcheck does, and skips itself the
+# same way.
+add_test(NAME composercheck
+         COMMAND composercheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+
 # Skips itself, loudly, where there is no display -- see the comment in
 # editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
 add_test(NAME editorcheck
@@ -292,3 +309,19 @@ set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
                      gencheck
                      PROPERTIES TIMEOUT 900)
+
+# The two harnesses that build real widgets need LeakSanitizer told which
+# leaks are the toolkit's. See scripts/lsan.supp for what is in it and what
+# is deliberately left out; the short version is that a process which draws
+# one frame and exits leaves fontconfig's caches and a software GL driver
+# behind, and none of it is ours.
+#
+# Set here rather than in the CI workflow so that `-DTHINK_SANITIZE=address'
+# behaves the same on a developer's machine as it does on a runner -- a gate
+# that only passes in CI teaches people to stop running it locally. Only
+# under the address sanitizer, so an ordinary run carries none of it.
+if(THINK_SANITIZE MATCHES "address")
+  set_tests_properties(composercheck editorcheck PROPERTIES
+      ENVIRONMENT
+      "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
+endif()

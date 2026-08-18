@@ -97,6 +97,17 @@ public:
 
     struct Scale { std::string name, notes; };
 
+    /* One component of a preset, and the vector it belongs to. In
+       declaration order, because a preset *is* a vector and one whose
+       components arrive sorted by name is a different vector. */
+    struct PresetValue { std::string name; double value; };
+
+    struct Preset
+    {
+        std::string name;
+        std::vector<PresetValue> values;
+    };
+
     struct Doc
     {
         std::string name, author, description;
@@ -104,9 +115,10 @@ public:
         unsigned seed;
         bool     hasTempo;
         double   tempo;
-        std::vector<Knob>  knobs;
-        std::vector<Scale> scales;
-        std::vector<Chain> chains;
+        std::vector<Knob>   knobs;
+        std::vector<Scale>  scales;
+        std::vector<Preset> presets;
+        std::vector<Chain>  chains;
     };
 
     static Result describe (const std::string &filename, Doc &doc,
@@ -175,6 +187,48 @@ public:
     static Result removeScale (const std::string &filename,
                                const std::string &name, int &rewritten,
                                std::string &why);
+
+    /* ---- presets ------------------------------------------------------ */
+
+    /* A preset arrives whole, with at least one component, because a
+       preset that sets nothing is a load error rather than an empty
+       start -- and every intermediate state this editor writes must
+       load. Component names are chanargs, so they follow the same rule
+       every other name in the file does. */
+    static Result addPreset (const std::string &filename,
+                             const std::string &name,
+                             const std::vector<PresetValue> &values,
+                             std::string &why);
+
+    /* Replaces one component's number, in place. NOT_FOUND if the preset
+       or the component is not there; addPresetValue is how a component
+       that was never written gets in. */
+    static Result setPresetValue (const std::string &filename,
+                                  const std::string &preset,
+                                  const std::string &component,
+                                  double value, std::string &why);
+
+    static Result addPresetValue (const std::string &filename,
+                                  const std::string &preset,
+                                  const std::string &component,
+                                  double value, std::string &why);
+
+    /* Refused for the last component, for the reason addPreset states:
+       what is left would not load. Remove the preset instead. */
+    static Result removePresetValue (const std::string &filename,
+                                     const std::string &preset,
+                                     const std::string &component,
+                                     std::string &why);
+
+    /* Refused while any stage still names it, saying which.
+     *
+     * Unlike a scale, a preset reference cannot be inlined on the way
+     * out: the format has no literal form for a chanarg vector, on
+     * purpose -- one spelled inline is a preset that cannot be morphed
+     * towards or saved under a name. So the choice is refuse or silently
+     * break the file, and there is only one answer to that. */
+    static Result removePreset (const std::string &filename,
+                                const std::string &name, std::string &why);
 
     /* ---- chains ------------------------------------------------------- */
 

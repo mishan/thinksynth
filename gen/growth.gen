@@ -7,7 +7,7 @@
 # the canvas: the contour is the plant, the climbing line is the search
 # settling.
 #
-# Aim channel 3 at a plucky patch and channel 2 at a bass. Unpinned on
+# Aim channel 4 at a plucky patch and channel 3 at a bass. Unpinned on
 # purpose: evolve should wander differently every time. Pin a seed if
 # you hear a take worth keeping.
 
@@ -38,7 +38,7 @@ chain canopy {
         step = 0.32 s; hold = 0.5 s; vel = 72;
     };
     stage soft xform::humanize { time = 0.015 s; vel = 6; };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain roots {
@@ -49,5 +49,5 @@ chain roots {
         boredom = 0.45;
         step = 0.4 s; hold = 0.5 s; vel = 88;
     };
-    sink { channel = 2; };
+    sink { channel = 3; };
 };

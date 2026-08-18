@@ -13,7 +13,7 @@
 # Seed pinned: the dream and the scatter replay exactly. Unpin to let
 # the student improvise differently each run.
 #
-# Aim channel 3 at keys, channel 2 at something short and woody.
+# Aim channel 4 at keys, channel 3 at something short and woody.
 
 name "Loom";
 author "Misha Nasledov";
@@ -40,7 +40,7 @@ chain weave {
         order = 2; pass = 0;
         period = 0.27 s; hold = 0.45 s; vel = 68;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 
 chain loom {
@@ -50,5 +50,5 @@ chain loom {
         notes = "E2 Gb2 G2 B2 Db3";
         period = 0.27 s; hold = 0.22 s; vel = 80;
     };
-    sink { channel = 2; };
+    sink { channel = 3; };
 };

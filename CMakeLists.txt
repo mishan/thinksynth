@@ -69,6 +69,24 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# M_PI, for every target, once.
+#
+# CMAKE_CXX_EXTENSIONS OFF is what makes this necessary and it is worth
+# keeping: -std=c++17 rather than -std=gnu++17 is the setting that stops
+# a GCC extension compiling here and failing on a compiler that does not
+# have it. The cost is that M_PI, which is not in C++ and which glibc
+# hands out anyway because g++ defines _GNU_SOURCE, disappears on MinGW's
+# UCRT -- where it lives behind _USE_MATH_DEFINES.
+#
+# So a file using it built on Linux and failed on Windows, which is a
+# feedback loop measured in CI runs rather than seconds. Three files ended
+# up carrying an identical `#ifndef M_PI' shim; the fourth forgot, and the
+# Windows job is where that was found out. Defining it here is the root
+# cause fixed for every file in the tree, including the ones nobody has
+# written yet. libthink/thMath.h is the belt for plugins built out of tree,
+# which get none of this.
+add_compile_definitions(_USE_MATH_DEFINES)
+
 # libthink is found next to the binary in the build tree and via the install
 # prefix afterwards, which is what src/Makefile.in's $ORIGIN rpath did.
 set(CMAKE_INSTALL_RPATH "${CMAKE_INSTALL_FULL_LIBDIR}")

@@ -41,6 +41,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#include <cmath>
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -255,31 +257,31 @@ checkValidation (const std::map<std::string, thcPlugin *> &plugins,
     /* A duration with no unit: the whole point of §2 of the format. */
     expectReject(plugins, synth, "bare-duration",
         "chain c { stage s gen::eno_line { period = 20; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "write a unit");
 
     /* A plugin that does not exist, by name. */
     expectReject(plugins, synth, "no-such-plugin",
         "chain c { stage s gen::no_such_thing { };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "no_such_thing");
 
     /* A param the plugin never registered, by name. */
     expectReject(plugins, synth, "no-such-param",
         "chain c { stage s gen::eno_line { frobnicate = 3; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "frobnicate");
 
     /* gen:: asked of a transformer. */
     expectReject(plugins, synth, "wrong-role",
         "chain c { stage s gen::quantize { };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "cannot be a gen:: stage");
 
     /* A knob used before it is declared. */
     expectReject(plugins, synth, "undeclared-knob",
         "chain c { stage s gen::eno_line { prob = @nope; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "@nope");
 
     /* A chain with no sink has nowhere to deliver. */
@@ -290,26 +292,26 @@ checkValidation (const std::map<std::string, thcPlugin *> &plugins,
     /* Textual order is execution order; a stage after a sink is a
        contradiction, not a style choice. */
     expectReject(plugins, synth, "stage-after-sink",
-        "chain c { stage s gen::eno_line { }; sink { channel = 0; };"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; };"
         " stage t xform::quantize { }; };",
         "stage after sink");
 
     /* All transformers and no input: nothing would ever flow. */
     expectReject(plugins, synth, "no-source",
         "chain c { stage s xform::quantize { };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "no generator");
 
     /* A scale nobody declared, by name. */
     expectReject(plugins, synth, "no-such-scale",
         "chain c { stage s gen::eno_line { notes = ghost; };"
-        " sink { channel = 0; }; };",
+        " sink { channel = 1; }; };",
         "ghost");
 
     /* A seed after a chain cannot mean what it says. */
     expectReject(plugins, synth, "late-seed",
         "chain c { stage s gen::eno_line { };"
-        " sink { channel = 0; }; };\n"
+        " sink { channel = 1; }; };\n"
         "seed 42;",
         "before the first chain");
 }
@@ -479,14 +481,14 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
             "        axiom = \"X\"; rules = \"X=F[+X]F[-X]\";\n"
             "        depth = 3; step = 0.15 s; hold = 0.2 s;\n"
             "    };\n"
-            "    sink { channel = 0; };\n"
+            "    sink { channel = 1; };\n"
             "};\n"
             "chain roots {\n"
             "    stage src gen::evolve {\n"
             "        length = 8; population = 8;\n"
             "        step = 0.2 s; hold = 0.2 s;\n"
             "    };\n"
-            "    sink { channel = 1; };\n"
+            "    sink { channel = 2; };\n"
             "};\n"
             "chain dream {\n"
             "    stage teacher gen::lsystem {\n"
@@ -496,14 +498,14 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
             "    stage student gen::markov {\n"
             "        pass = 0; period = 0.2 s; hold = 0.2 s;\n"
             "    };\n"
-            "    sink { channel = 2; };\n"
+            "    sink { channel = 3; };\n"
             "};\n"
             "chain grid {\n"
             "    stage src gen::ca {\n"
             "        rule = 110; width = 8;\n"
             "        period = 0.2 s; hold = 0.1 s;\n"
             "    };\n"
-            "    sink { channel = 3; };\n"
+            "    sink { channel = 4; };\n"
             "};\n";
     }
 
@@ -547,7 +549,7 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
 
     /* The learner and the automaton both spoke: the markov's channel
        proves receive() trained it from its upstream teacher (pass = 0,
-       so anything on channel 2 is the student's own), and the ca's
+       so anything on the third channel is the student's own), and the ca's
        proves the ring is advancing. */
     {
         int perChan[4] = { 0, 0, 0, 0 };
@@ -574,8 +576,10 @@ checkPlanners (const std::map<std::string, thcPlugin *> &plugins,
        then the same bars forever. The boredom tax is what keeps the
        optimum moving, and this holds it down -- deterministic, since
        the piece is seeded, so it either passes always or fails always.
-       Group the evolve chain's notes (channel 1) into cycle-length
-       windows and count distinct phrases across ~18 cycles. */
+       Group the evolve chain's notes into cycle-length windows and
+       count distinct phrases across ~18 cycles. The comparisons below
+       are against *delivered* channels, which the engine counts from
+       zero -- the file's `channel = 2' is this stream's channel 1. */
     {
         std::istringstream in(first);
         std::string line;
@@ -648,11 +652,11 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
             "chain hands {\n"
             "    input midi;\n"
             "    stage a gen::arp { period = 0.1 s; hold = 0.08 s; };\n"
-            "    sink { channel = 0; };\n"
+            "    sink { channel = 1; };\n"
             "};\n"
             "chain thru {\n"
             "    input midi;\n"
-            "    sink { channel = 1; };\n"
+            "    sink { channel = 2; };\n"
             "};\n";
     }
 
@@ -670,8 +674,10 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     /* One scripted performance, in virtual time. Routing is by the
-       chains' sink channels: channel 0 reaches `hands' (the arp),
-       channel 1 reaches `thru'. */
+       chains' sink channels, and these are the *engine's* numbers: the
+       file writes 1 and 2, the loader hands over 0 and 1, and injection
+       and delivery both speak the latter. Channel 0 reaches `hands'
+       (the arp), channel 1 reaches `thru'. */
     auto press = [&sched](int chan, int note, int vel)
     {
         thcEvent ev = {};
@@ -938,6 +944,61 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     editOk(thcGenEdit::setScale(path, "pent", "C3 D3 E3 G3 A3", why),
            why, "setScale");
 
+    {
+        std::vector<thcGenEdit::PresetValue> vals;
+        thcGenEdit::PresetValue pv;
+
+        pv.name = "res";  pv.value = 0.4;  vals.push_back(pv);
+        pv.name = "fmin"; pv.value = 0.1;  vals.push_back(pv);
+
+        editOk(thcGenEdit::addPreset(path, "dim", vals, why), why,
+               "addPreset");
+    }
+
+    editOk(thcGenEdit::setPresetValue(path, "dim", "res", 0.55, why), why,
+           "setPresetValue");
+    editOk(thcGenEdit::addPresetValue(path, "dim", "fmax", 0.8, why), why,
+           "addPresetValue");
+    editOk(thcGenEdit::removePresetValue(path, "dim", "fmin", why), why,
+           "removePresetValue");
+
+    /* A preset written on one line, which addPreset never produces and a
+       person writes all the time. Its `}' shares a line with its
+       `preset', so the start of that line is *before* the block -- an
+       insert aimed there puts the new component above the statement it
+       belongs to, and the file stops loading. Written by hand here for
+       exactly that reason: this editor's own output would never have
+       found it. */
+    {
+        std::string text = slurp(path);
+
+        text += "\npreset flat { one = 1; };\n";
+
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << text;
+    }
+
+    editOk(thcGenEdit::addPresetValue(path, "flat", "two", 0.25, why), why,
+           "addPresetValue on a one-liner");
+
+    {
+        const std::string after = slurp(path);
+        const size_t at = after.find("preset flat");
+
+        if (at == std::string::npos)
+            fail("the one-line preset survived at all");
+        else
+        {
+            const size_t eol = after.find('\n', at);
+            const std::string line = after.substr(at, eol - at);
+
+            if (line.find("two = 0.25;") == std::string::npos)
+                fail("the new component did not land inside the one-line "
+                     "block: " + line);
+        }
+    }
+
     std::vector<std::pair<std::string, std::string> > params;
 
     params.push_back(std::make_pair(std::string("notes"),
@@ -1011,6 +1072,68 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
         thcGenEdit::REFUSED)
         fail("a duplicate chain name was accepted");
 
+    /* The preset guard rails, all three of which exist because the state
+       they would leave behind does not load. */
+    if (thcGenEdit::addPreset(path, "empty",
+            std::vector<thcGenEdit::PresetValue>(), why) !=
+        thcGenEdit::REFUSED)
+        fail("a preset that sets nothing was accepted");
+
+    {
+        std::vector<thcGenEdit::PresetValue> one;
+        thcGenEdit::PresetValue pv;
+
+        pv.name = "res"; pv.value = 0.1; one.push_back(pv);
+
+        if (thcGenEdit::addPreset(path, "dim", one, why) !=
+            thcGenEdit::REFUSED)
+            fail("a duplicate preset name was accepted");
+    }
+
+    /* Unlike a scale, a preset reference cannot be inlined on the way
+       out: the format has no literal form for a chanarg vector. So a
+       preset something still names is refused, and the message says
+       which stage -- "it is used" without "by what" sends the reader
+       through the file. */
+    {
+        std::vector<thcGenEdit::PresetValue> vals;
+        thcGenEdit::PresetValue pv;
+
+        pv.name = "res"; pv.value = 0.9; vals.push_back(pv);
+
+        editOk(thcGenEdit::addPreset(path, "held", vals, why), why,
+               "addPreset held");
+
+        /* `held' sets one thing, so removing it would leave a preset
+           that sets nothing -- which does not load, and every state this
+           editor writes has to. */
+        if (thcGenEdit::removePresetValue(path, "held", "res", why) !=
+            thcGenEdit::REFUSED)
+            fail("removing a preset's last value was not refused");
+
+        std::vector<std::pair<std::string, std::string> > mparams;
+
+        mparams.push_back(std::make_pair(std::string("from"),
+                                         std::string("held")));
+        mparams.push_back(std::make_pair(std::string("to"),
+                                         std::string("dim")));
+
+        editOk(thcGenEdit::addChain(path, "sweep", 4, "m", "gen", "morph",
+                                    mparams, why), why, "addChain morph");
+
+        if (thcGenEdit::removePreset(path, "held", why) !=
+            thcGenEdit::REFUSED)
+            fail("removing a preset a stage still names was not refused");
+        else if (why.find("sweep's stage m") == std::string::npos)
+            fail("the refusal did not say which stage still names it: " +
+                 why);
+
+        editOk(thcGenEdit::removeChain(path, "sweep", why), why,
+               "removeChain sweep");
+        editOk(thcGenEdit::removePreset(path, "held", why), why,
+               "removePreset");
+    }
+
     /* After all of that: every comment intact, and the file loads. */
     std::string after = slurp(path);
     std::vector<std::string> commentsAfter = commentLines(after);
@@ -1054,7 +1177,770 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     if (doc.author != "gencheck")
         fail("the edited author did not read back");
 
+    /* The preset reads back as the vector it now is, in order: `res'
+       edited, `fmin' removed, `fmax' appended at the end rather than in
+       some canonical slot -- a preset's order is its author's. */
+    {
+        const thcGenEdit::Preset *dim = NULL;
+
+        for (size_t i = 0; i < doc.presets.size(); i++)
+            if (doc.presets[i].name == "dim")
+                dim = &doc.presets[i];
+
+        if (dim == NULL)
+            fail("describe did not read the preset back");
+        else if (dim->values.size() != 2 ||
+                 dim->values[0].name != "res" ||
+                 dim->values[0].value != 0.55 ||
+                 dim->values[1].name != "fmax")
+            fail("the edited preset did not read back as edited");
+    }
+
     std::filesystem::remove(path);
+}
+
+/* ---- 6. presets, the wildcard sink, and morph -------------------------- */
+
+/* Tier 2 of COMPOSITION_HANDOFF.md §9: the piece composes the instrument
+ * as well as the notes. Three things have to hold together for that, and
+ * none of them is provable from any other section here.
+ *
+ * A preset has to arrive at the plugin resolved -- the same bargain
+ * NOTESET made, and the reason no composer has ever parsed a note name.
+ * The `*' sink has to deliver each component under its own name, because
+ * a vector routed through a sink that renames everything arrives as one
+ * knob taking three values in turn. And a morph has to replay exactly:
+ * it draws no randomness at all, so if this one ever diverges the cause
+ * is the scheduler and not the plugin, which makes it a sharper tripwire
+ * than a seeded composer would be.
+ */
+static void
+checkPresets (const std::map<std::string, thcPlugin *> &plugins,
+              thSynth *synth)
+{
+    if (plugins.find("morph") == plugins.end())
+    {
+        fail("the 'morph' module is missing; build the plugins first");
+        return;
+    }
+
+    /* --- the rejections the format promises --- */
+
+    expectReject(plugins, synth, "no-such-preset",
+        "chain c { stage s gen::morph { from = ghost; to = ghost; };"
+        " sink { channel = 1; chanarg = \"*\"; }; };",
+        "no preset called 'ghost'");
+
+    expectReject(plugins, synth, "duplicate-preset",
+        "preset a { x = 1; };\npreset a { x = 2; };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
+        "already declared");
+
+    expectReject(plugins, synth, "empty-preset",
+        "preset a { };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
+        "sets nothing");
+
+    /* A preset is a vector or it is nothing: interpolating towards a
+       component whose value depends on where a slider happens to be is
+       not a preset, it is an expression with a value right now. */
+    expectReject(plugins, synth, "knob-in-preset",
+        "@k = 1;\npreset a { x = @k; };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
+        "cannot be a knob");
+
+    expectReject(plugins, synth, "preset-set-twice",
+        "preset a { x = 1; x = 2; };\n"
+        "chain c { stage s gen::morph { }; sink { channel = 1; }; };",
+        "sets 'x' twice");
+
+    /* A preset param takes a name, not the resolved text: a vector
+       spelled inline cannot be morphed towards or saved under a name,
+       which is the whole reason the noun exists. */
+    expectReject(plugins, synth, "preset-as-string",
+        "chain c { stage s gen::morph { from = \"x=1\"; };"
+        " sink { channel = 1; }; };",
+        "declare it with `preset'");
+
+    expectReject(plugins, synth, "preset-as-number",
+        "chain c { stage s gen::morph { from = 3; };"
+        " sink { channel = 1; }; };",
+        "wants a preset name");
+
+    /* A sink pointed at a name no .dsp could declare would fail silently
+       at delivery, which is a long way from the typo. */
+    /* The bottom of the old range. A file written when channels counted
+       from zero is indistinguishable from one written for 1-16 *except*
+       here, so this is the only place the change can be caught rather
+       than silently transposing a piece -- and the message says what
+       happened rather than only that a number was out of range. */
+    expectReject(plugins, synth, "channel-zero",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 0; }; };",
+        "channel is 1-16 now");
+
+    expectReject(plugins, synth, "channel-seventeen",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 17; }; };",
+        "whole number, 1-16");
+
+    expectReject(plugins, synth, "bad-sink-name",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; chanarg = \"cut off\"; }; };",
+        "is not a chanarg name");
+
+    /* --- what it does when it is right --- */
+
+    std::string tmp = thUtil::tempFile("gencheck-presets-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a presets scratch file");
+        return;
+    }
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        /* `arrive' names only what moves. A component one preset
+           mentions and the other does not must hold still, which is what
+           lets a target be a correction rather than a restatement. */
+        out <<
+            "seed 11;\n"
+            "preset depart { res = 0.2; fmin = 0.10; fmax = 0.30; };\n"
+            "preset arrive { fmax = 0.90; };\n"
+            "chain sweep {\n"
+            "    stage m gen::morph {\n"
+            "        from = depart; to = arrive;\n"
+            "        time = 4 s; steps = 9; curve = 1; mode = 0;\n"
+            "    };\n"
+            "    sink { channel = 6; chanarg = \"*\"; };\n"
+            "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(tmp, &sched))
+    {
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+        fail("the presets piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    const std::string first = render(sched, 6.0, 0.02);
+
+    sched.reset();
+
+    const std::string second = render(sched, 6.0, 0.02);
+
+    if (first != second)
+        fail("a morph replayed differently; it draws no randomness at "
+             "all, so this is the scheduler");
+
+    /* Each component under its own name. Without the `*' sink all three
+       would arrive as whatever one name the sink carried. */
+    if (first.find(" res ") == std::string::npos ||
+        first.find(" fmin ") == std::string::npos ||
+        first.find(" fmax ") == std::string::npos)
+        fail("the wildcard sink did not deliver each component under its "
+             "own name");
+
+    /* Routing still belongs to the piece: the sink's channel overwrites
+       whatever the plugin put in the event. */
+    if (first.find("C ") != std::string::npos &&
+        first.find(" 5 ") == std::string::npos)
+        fail("the sink's channel did not reach delivery");
+
+    /* The endpoints, exactly. A sweep that stopped at 0.98 of the way
+       would leave the instrument almost at the preset the file named,
+       forever -- and 0.9 is the only value `arrive' asks for. */
+    if (first.find("fmax 0.30000001192092896") == std::string::npos)
+        fail("the morph did not start at the preset it departs from");
+
+    if (first.find("fmax 0.89999997615814209") == std::string::npos)
+        fail("the morph did not arrive exactly at the preset it names");
+
+    /* `res' is in `depart' and not in `arrive', so it must be emitted
+       and must never move. */
+    if (first.find("res 0.20000000298023224") == std::string::npos)
+        fail("a component only one preset names was not emitted");
+
+    /* ...and must never move, on any of the nine steps. Counted rather
+       than spot-checked: "it was 0.2 at the start" and "it was 0.2
+       throughout" are different claims and only the second one is the
+       rule being stated. */
+    {
+        size_t seen = 0, held = 0;
+
+        for (size_t at = first.find("res "); at != std::string::npos;
+             at = first.find("res ", at + 1))
+        {
+            seen++;
+
+            if (first.compare(at, strlen("res 0.20000000298023224"),
+                              "res 0.20000000298023224") == 0)
+                held++;
+        }
+
+        if (seen == 0 || seen != held)
+            fail("a component only one preset names did not hold still: " +
+                 std::to_string(held) + " of " + std::to_string(seen) +
+                 " emissions were the value it was given");
+    }
+
+    std::filesystem::remove(tmp);
+
+    /* --- the GA over the same vectors --- */
+
+    if (plugins.find("breed") == plugins.end())
+    {
+        fail("the 'breed' module is missing; build the plugins first");
+        return;
+    }
+
+    tmp = thUtil::tempFile("gencheck-breed-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a breed scratch file");
+        return;
+    }
+
+    {
+        /* spread = 0, so the corridor is exactly the interval the two
+           presets span and the bound below is an equality rather than an
+           estimate. `hum' is named by one preset only: it has nowhere to
+           travel and must still be emitted, held at the value it was
+           given. */
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "seed 91;\n"
+            "preset shut { res = 0.9; fmin = 0.05; hum = 0.4; };\n"
+            "preset wide { res = 0.3; fmin = 0.25; };\n"
+            "chain search {\n"
+            "    stage g gen::breed {\n"
+            "        from = shut; toward = wide;\n"
+            "        population = 12; mutation = 0.2; elites = 2;\n"
+            "        spread = 0; aim = 1; drift = 0.5; reach = 0.25;\n"
+            "        period = 0.5 s;\n"
+            "    };\n"
+            "    sink { channel = 8; chanarg = \"*\"; };\n"
+            "};\n";
+    }
+
+    thcScheduler bsched(synth);
+    thcGenLoader bloader(plugins);
+
+    if (!bloader.load(tmp, &bsched))
+    {
+        for (size_t i = 0; i < bloader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", bloader.errors()[i].c_str());
+
+        fail("the breed piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    const std::string bfirst = render(bsched, 20.0, 0.02);
+
+    bsched.reset();
+
+    const std::string bsecond = render(bsched, 20.0, 0.02);
+
+    /* A GA drifting off its seed would be the least debuggable
+       corruption of the replay story, which is why evolve has this gate
+       and why this one does too. */
+    if (bfirst != bsecond)
+        fail("a breed replayed differently; same file, same seed");
+
+    if (bfirst.find("C ") == std::string::npos)
+        fail("the breed emitted nothing at all");
+
+    /* The first thing played is `from', exactly.
+     *
+     * `from' is documented as where the population starts, and a piece
+     * that names a starting timbre should hear it before it hears what
+     * became of it. This was the corridor's midpoint, which whenever a
+     * target is named is neither `from' nor near it -- and nothing said
+     * so, because nothing looked at the first event. */
+    {
+        std::istringstream lines(bfirst);
+        std::string line;
+        bool checked = false, wrong = false;
+
+        while (std::getline(lines, line) && !checked)
+        {
+            if (line.empty() || line[0] != 'C')
+                continue;
+
+            std::istringstream f(line);
+            std::string kind, name;
+            double at = 0, value = 0;
+            int chan = 0;
+
+            f >> kind >> at >> chan >> name >> value;
+
+            if (name != "res")
+                continue;
+
+            checked = true;
+
+            /* shut sets res = 0.9; wide sets it to 0.3. The midpoint
+               this used to play is 0.6. */
+            if (fabs(value - 0.9) > 1e-5)
+                wrong = true;
+        }
+
+        if (!checked)
+            fail("the breed never emitted the component to check");
+        else if (wrong)
+            fail("the breed did not start at the preset `from' names");
+    }
+
+    /* The corridor, which is the whole "declared surface is consent"
+     * argument stated as arithmetic: a gene may travel between what the
+     * two presets give it and no further, and no component neither
+     * preset names can appear. This is the property that stops a search
+     * reaching past what an instrument was offered for. */
+    {
+        bool strayed = false, unknown = false, sawHum = false, humMoved = false;
+
+        std::istringstream lines(bfirst);
+        std::string line;
+
+        while (std::getline(lines, line))
+        {
+            if (line.empty() || line[0] != 'C')
+                continue;
+
+            std::istringstream f(line);
+            std::string kind, name;
+            double at = 0, value = 0;
+            int chan = 0;
+
+            f >> kind >> at >> chan >> name >> value;
+
+            double lo = 0, hi = 0;
+
+            if (name == "res")       { lo = 0.3;  hi = 0.9;  }
+            else if (name == "fmin") { lo = 0.05; hi = 0.25; }
+            else if (name == "hum")
+            {
+                sawHum = true;
+
+                if (fabs(value - 0.4) > 1e-6)
+                    humMoved = true;
+
+                continue;
+            }
+            else { unknown = true; continue; }
+
+            if (value < lo - 1e-6 || value > hi + 1e-6)
+                strayed = true;
+        }
+
+        if (unknown)
+            fail("the breed emitted a component neither preset names");
+
+        if (strayed)
+            fail("a gene travelled outside the corridor the presets "
+                 "declared");
+
+        if (!sawHum)
+            fail("a component only one preset names was never emitted");
+
+        if (humMoved)
+            fail("a component with nowhere to travel moved anyway");
+    }
+
+    std::filesystem::remove(tmp);
+}
+
+/* ---- 6b. a picture that is also a control ------------------------------ */
+
+/* composer_input, and what it costs.
+ *
+ * `gen::life' is the first module whose draw is touchable, and the
+ * property worth pinning is the one the canvas cannot show: a click goes
+ * to the plugin's own state, changes what is played from the next
+ * generation on, and does *not* change the file. Everything else here
+ * follows from that -- a board nobody clicked replays from the piece
+ * alone, and a board somebody clicked replays given the same clicks,
+ * which is the boundary live MIDI already has.
+ *
+ * The clicks are scripted rather than real, for exactly the reason §7
+ * gives about learned composers: a gate that needed a mouse would not be
+ * a gate. What is driven is the ABI, not the widget -- composercheck is
+ * where the widget gets pressed.
+ */
+static void
+checkInput (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth)
+{
+    std::map<std::string, thcPlugin *>::const_iterator it =
+        plugins.find("life");
+
+    if (it == plugins.end())
+    {
+        fail("the 'life' module is missing; build the plugins first");
+        return;
+    }
+
+    thcPlugin *life = it->second;
+
+    if (!life->hasInput())
+        fail("gen::life does not export composer_input");
+
+    if (!life->hasCapture())
+        fail("gen::life does not export composer_capture");
+
+    const std::string tmp = thUtil::tempFile("gencheck-life-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a life scratch file");
+        return;
+    }
+
+    /* A blinker: three in a row, which oscillates with period two. Small
+       enough that every assertion below can be reasoned about by hand. */
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "chain c {\n"
+            "    stage b gen::life {\n"
+            "        board = \"...../.OOO./...../...../.....\";\n"
+            "        width = 5; height = 5;\n"
+            "        scatter = 0; trigger = 1; wrap = 1;\n"
+            "        notes = \"C4 D4 E4 F4 G4\";\n"
+            "        period = 0.5 s; hold = 0.2 s; vel = 90;\n"
+            "    };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+    }
+
+    /* A click, in the coordinate space composer_draw is given. The board
+       is square and centred, so a cell's middle is arithmetic the test
+       can do as well as the plugin can -- deliberately, because a test
+       that asked the plugin where its cells were would be checking the
+       plugin against itself. */
+    struct Clicker {
+        thcPlugin *plugin;
+        void      *state;
+        double     w, h;
+
+        void at (int col, int row, thcInputType type) const
+        {
+            at(col, row, type, 1);
+        }
+
+        void at (int col, int row, thcInputType type, int button) const
+        {
+            const double cell = (w / 5 < h / 5) ? w / 5 : h / 5;
+            const double ox = (w - cell * 5) / 2;
+            const double oy = (h - cell * 5) / 2;
+
+            thcInputEvent ev;
+
+            ev.type = type;
+            ev.x = ox + (col + 0.5) * cell;
+            ev.y = oy + (row + 0.5) * cell;
+            ev.w = w;
+            ev.h = h;
+            ev.button = button;
+
+            plugin->input(state, &ev);
+        }
+    };
+
+    /* --- untouched, the piece replays from itself --- */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(tmp, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n",
+                        loader.errors()[i].c_str());
+
+            fail("the life piece did not load");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        const std::string first = render(sched, 6.0, 0.02);
+
+        sched.reset();
+
+        const std::string second = render(sched, 6.0, 0.02);
+
+        if (first.empty())
+            fail("gen::life delivered nothing");
+
+        if (first != second)
+            fail("gen::life replayed differently with nobody touching it");
+    }
+
+    /* --- the same clicks give the same music --- */
+    std::string tapes[2];
+
+    for (int pass = 0; pass < 2; pass++)
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(tmp, &sched))
+        {
+            fail("the life piece did not load on pass two");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        thcChain *c = sched.chain(0);
+
+        if (c == NULL || c->stages.empty())
+        {
+            fail("the life piece has no stage to click");
+            std::filesystem::remove(tmp);
+            return;
+        }
+
+        thcStage *st = c->stages[0].get();
+        Clicker click = { st->plugin, st->state, 100.0, 100.0 };
+
+        /* Kill one end of the blinker and add a cell elsewhere. Pressed
+           and released, because that is the pair the canvas sends and a
+           plugin is entitled to keep state between them. */
+        click.at(1, 1, THC_IN_PRESS);
+        click.at(1, 1, THC_IN_RELEASE);
+        click.at(4, 4, THC_IN_PRESS);
+        click.at(4, 4, THC_IN_RELEASE);
+
+        tapes[pass] = render(sched, 6.0, 0.02);
+    }
+
+    if (tapes[0].empty())
+        fail("a clicked board delivered nothing");
+
+    if (tapes[0] != tapes[1])
+        fail("the same clicks gave a different piece -- input is the "
+             "only thing that changed");
+
+    /* --- and the clicks actually did something --- */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        loader.load(tmp, &sched);
+
+        const std::string untouched = render(sched, 6.0, 0.02);
+
+        if (untouched == tapes[0])
+            fail("clicking the board changed nothing about what it plays");
+    }
+
+    /* --- capture hands back what was clicked, as text --- */
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        loader.load(tmp, &sched);
+
+        thcChain *c = sched.chain(0);
+        thcStage *st = c->stages[0].get();
+
+        const int idx = st->plugin->paramIndex("board");
+
+        if (idx < 0)
+            fail("gen::life has no 'board' param to capture");
+        else
+        {
+            const std::string before = st->plugin->capture(st->state, idx);
+
+            Clicker click = { st->plugin, st->state, 100.0, 100.0 };
+
+            click.at(0, 0, THC_IN_PRESS);
+            click.at(0, 0, THC_IN_RELEASE);
+
+            const std::string after = st->plugin->capture(st->state, idx);
+
+            if (before.empty() || after.empty())
+                fail("capture returned nothing for the board param");
+            else if (before == after)
+                fail("capture did not see the click");
+            else if (after.find('O') == std::string::npos ||
+                     after.find('.') == std::string::npos ||
+                     after.find('/') == std::string::npos)
+                fail("captured board is not in the format the file "
+                     "writes: " + after);
+
+            /* The round trip, which is the whole reason a board is a
+               string: capture, write it back the way the host does, and
+               capture again. Anything but equality means the writer and
+               the reader of this format disagree, and a piece saved
+               through the panel would come back as a different board. */
+            st->params.setString(idx, after);
+
+            if (st->plugin->capture(st->state, idx) != after)
+                fail("a captured board did not survive a round trip "
+                     "through the param");
+
+            /* ...but a board stated in the file or typed in the panel
+               outranks a click, or a pattern nobody could correct would
+               be one click away. */
+            st->params.setString(idx, "OOOOO/...../...../...../.....");
+
+            const std::string typed = st->plugin->capture(st->state, idx);
+
+            if (typed.compare(0, 5, "OOOOO") != 0)
+                fail("a board written after a click was ignored: " + typed);
+
+            /* The secondary button erases rather than toggling, which
+               is the whole reason thcInputEvent carries a button. Two
+               right-clicks on one cell must leave it dead; two left
+               clicks put it back where it started. */
+            st->params.setString(idx, "OOOOO/OOOOO/OOOOO/OOOOO/OOOOO");
+
+            Clicker erase = { st->plugin, st->state, 100.0, 100.0 };
+
+            erase.at(2, 2, THC_IN_PRESS, 3);
+            erase.at(2, 2, THC_IN_RELEASE, 3);
+
+            const std::string once = st->plugin->capture(st->state, idx);
+
+            erase.at(2, 2, THC_IN_PRESS, 3);
+            erase.at(2, 2, THC_IN_RELEASE, 3);
+
+            const std::string twice = st->plugin->capture(st->state, idx);
+
+            if (once == "OOOOO/OOOOO/OOOOO/OOOOO/OOOOO")
+                fail("a secondary click did not erase a cell");
+            else if (once != twice)
+                fail("a secondary click toggled rather than erasing");
+
+            erase.at(2, 2, THC_IN_PRESS, 1);
+            erase.at(2, 2, THC_IN_RELEASE, 1);
+
+            if (st->plugin->capture(st->state, idx) != 
+                "OOOOO/OOOOO/OOOOO/OOOOO/OOOOO")
+                fail("the primary button did not put the cell back");
+
+            /* A param the plugin cannot capture says so, rather than
+               handing back something a host would then write. */
+            const int other = st->plugin->paramIndex("period");
+
+            if (other >= 0 && !st->plugin->capture(st->state, other).empty())
+                fail("capture answered for a param it has nothing to say "
+                     "about");
+        }
+    }
+
+    std::filesystem::remove(tmp);
+}
+
+/* ---- 7. every shipped piece still loads -------------------------------- */
+
+/* The corpus instinct, applied to .gen.
+ *
+ * Everything above builds its own files or leans on the one piece passed
+ * in, so the other shipped pieces were gated by nothing at all: a param
+ * renamed in a plugin, a unit tightened in the loader, a knob whose
+ * metadata stopped being accepted, and fern.gen or loom.gen would have
+ * quietly stopped loading with no test anywhere to say so. dspcheck has
+ * swept dsp/ for exactly this reason since long before any of this.
+ *
+ * Loading is most of it, and one thing more: a piece that loads and then
+ * says nothing is a piece with a typo in it, and the demos are meant to
+ * be read as much as heard. So every piece with a generator in it has to
+ * deliver something inside a minute of its own virtual time. A piece
+ * whose chains are all `input midi' is exempt, because silence is
+ * exactly what it should produce with nobody playing -- hands.gen is
+ * that piece, and the exemption is why the check can be strict about
+ * everything else.
+ *
+ * Replay determinism is not swept here: it needs a pinned seed and three
+ * minutes, and one piece carrying that is enough.
+ */
+static void
+checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &genFile)
+{
+    const std::filesystem::path dir =
+        std::filesystem::path(genFile).parent_path();
+
+    std::error_code ec;
+
+    if (dir.empty() || !std::filesystem::is_directory(dir, ec))
+        return;                 /* nothing to sweep; not a failure       */
+
+    std::vector<std::filesystem::path> files;
+
+    for (const auto &e : std::filesystem::directory_iterator(dir, ec))
+    {
+        if (ec)
+            break;
+
+        if (e.path().extension() == ".gen")
+            files.push_back(e.path());
+    }
+
+    /* Sorted so a failure names the same file on every machine; the
+       directory order is the filesystem's business, not the test's. */
+    std::sort(files.begin(), files.end());
+
+    if (files.empty())
+    {
+        fail("no .gen files beside " + genFile + " -- the sweep swept "
+             "nothing");
+        return;
+    }
+
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        const std::string leaf = files[i].filename().string();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(files[i].string(), &sched))
+        {
+            for (size_t k = 0; k < loader.errors().size(); k++)
+                fprintf(stderr, "gencheck: %s\n",
+                        loader.errors()[k].c_str());
+
+            fail(leaf + " no longer loads");
+            continue;
+        }
+
+        if (sched.chainCount() == 0)
+        {
+            fail(leaf + " loaded with no chains at all");
+            continue;
+        }
+
+        bool anyGenerator = false;
+
+        for (size_t ci = 0; ci < sched.chainCount(); ci++)
+        {
+            const thcChain *c = sched.chain(ci);
+
+            if (c != NULL && !c->inputMidi)
+                anyGenerator = true;
+        }
+
+        if (!anyGenerator)
+            continue;           /* played by hand; see above            */
+
+        if (render(sched, 60.0, 0.05).empty())
+            fail(leaf + " loads but delivers nothing in a minute");
+    }
 }
 
 /* ----------------------------------------------------------------------- */
@@ -1103,6 +1989,9 @@ main (int argc, char *argv[])
     checkPlanners(plugins, &synth);
     checkLiveInput(plugins, &synth);
     checkEdits(plugins, &synth, genFile);
+    checkPresets(plugins, &synth);
+    checkInput(plugins, &synth);
+    checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
        runs under sanitizers should not salt the report. The schedulers

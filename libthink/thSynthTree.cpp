@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include "think.h"
+#include "thUnits.h"
 
 thSynthTree::thSynthTree (const string &name, thSynth *synth)
 {
@@ -268,10 +269,75 @@ void thSynthTree::setChanArg (thArg *arg)
 
     if (oldArg)
     {
+        /* A second `@a = ...' for the same name replaces the first, and
+           anything parked against the first is now aimed at freed memory.
+           Only reachable between the parse and foldUnits(), and only from
+           a file that declares one control twice -- but a use-after-free
+           that needs a typo to reach is still a use-after-free. */
+        for (size_t i = 0; i < unitFolds_.size(); )
+        {
+            if (unitFolds_[i].arg == oldArg)
+                unitFolds_.erase(unitFolds_.begin() + i);
+            else
+                i++;
+        }
+
         delete oldArg;
     }
 
     chanargs_[arg->name()] = arg;
+}
+
+/* See thUnitFold in the header for why the fold waits. */
+void thSynthTree::deferUnitFold (thArg *arg, thUnitFold::Field field,
+                                 float literal, const string &units)
+{
+    if (arg == NULL || !thUnitIsFolded(units))
+        return;
+
+    thUnitFold f;
+
+    f.arg = arg;
+    f.field = field;
+    f.literal = literal;
+    f.units = units;
+
+    unitFolds_.push_back(f);
+}
+
+void thSynthTree::foldUnits (long sampleRate)
+{
+    for (size_t i = 0; i < unitFolds_.size(); i++)
+    {
+        const thUnitFold &f = unitFolds_[i];
+        const float folded = (float)thFoldUnit(f.literal, f.units, sampleRate);
+
+        switch (f.field)
+        {
+        case thUnitFold::VALUE:
+            f.arg->setValue(folded);
+            break;
+
+        case thUnitFold::MIN:
+            f.arg->setMin(folded);
+            break;
+
+        case thUnitFold::MAX:
+            f.arg->setMax(folded);
+            break;
+
+        case thUnitFold::STEP:
+            /* `true' because only the file ever reaches here -- the deferral
+               is made from a grammar action -- and typeChanArgs must still
+               leave an author's step alone afterwards. */
+            f.arg->setStep(folded, true);
+            break;
+        }
+    }
+
+    /* Cleared, not kept: this is what makes a second call a no-op rather
+       than a second fold. */
+    unitFolds_.clear();
 }
 
 void thSynthTree::process (unsigned int windowlen)

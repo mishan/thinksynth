@@ -68,6 +68,26 @@ Repo: github.com/mishan/thinksynth (C++, gtkmm-4, CMake, GPL-2+).
 >   exist yet. It is the thing milestone 4 deletes.
 > - New code standardizes on American English spelling (color, not
 >   colour).
+> - **`.gen` channels are 1-16**, not the wire's 0-15. The main window's
+>   patch tabs and the Keyboard window's spinner have always counted
+>   from one and so does every sequencer, and a file that disagreed with
+>   the thing next to it on screen is a confusion nobody needed. The
+>   loader converts at the file boundary, the way note names are
+>   resolved there; `channel = 0` is a load error naming the change,
+>   which is the one spelling that tells a file written for the old
+>   numbering apart from one written for this.
+> - **`gen/README.md` indexes the shipped pieces**, eleven of them, each
+>   built around one idea and gated by gencheck's corpus sweep: every
+>   piece must load, and every piece with a generator in it must deliver
+>   something inside a minute. A piece that loads and then says nothing
+>   is a piece with a typo in it.
+> - **A composer's picture can be a control.** `composer_input` routes
+>   clicks on a stage's `composer_draw` area into the module, and
+>   ComposerCanvas gained an enlarged view to click in. `gen::life` is
+>   Conway's, played, and the first module to take one. What a click
+>   changes is the *instance*, not the file; `composer_capture` and the
+>   panel's Capture button are the deliberate second step that writes it
+>   back.
 
 ## 1. What is being built
 
@@ -235,8 +255,23 @@ open, in rough priority order:
   the same snap as ons so a held release cannot miss its press. Still
   open in this area: the on-screen Keyboard widget does not emit
   m_sigNoteOn, so only hardware MIDI reaches chains from outside.
-- `composer_input` and `composer_serialize`/`deserialize` — the two ABI
-  additions §7 below argues for; neither blocks anything current.
+- ~~`composer_input`~~ — LANDED (branch composer-input), for exactly the
+  case §7 named. `composer_draw` was draw-only, and the things it draws
+  are the things a person wants to reach into. `thcInputEvent` carries
+  press/drag/release in the coordinates the draw was handed, so a plugin
+  maps a click by inverting the arithmetic it already wrote; ComposerCanvas
+  gained an enlarged view (double-click a stage, Escape to leave) because
+  a board in a hundred-pixel box is six pixels a cell. `gen::life` is the
+  first module to export it.
+
+  `composer_capture` came with it and is *not* the opaque blob §7
+  sketched. It returns the value of one of the plugin's own params, so a
+  clicked board is written back through the ordinary param path and the
+  file stays readable. That works because the state worth clicking
+  usually already has a spelling — a Life board is a pattern, and a
+  pattern is a string. A trained Markov table is not, so
+  `composer_serialize`/`deserialize` is still open and still unblocking
+  nothing.
 - Chanarg strip in the piano roll normalizes 0–1; should use the arg's
   declared `.min/.max` once param metadata is reachable from the widget.
 - A file chooser for *opening* a piece (New/Save/Save As exist; the
@@ -349,14 +384,18 @@ in the original analysis and still hold:
    would be the least debuggable corruption of the story, so it is
    the one most worth a tripwire. `gen/growth.gen` is the demo: an
    lsystem canopy over an evolving bass.
-2. *Interactive evolution* — the user is the fitness function. The only
-   feedback channel today is a param ("rate the last phrase 0–5" as a
-   FLOAT the panel exposes), which works but is clunky: params are
-   continuous knobs, and selection is an event. A first-class fix is a
-   small one: an optional `composer_input(state, event)` entry point,
-   fed by the host from UI gestures (including clicks on the plugin's
-   own `composer_draw` area, which is currently draw-only). Same
-   pattern as param_changed: optional export, host checks for it.
+2. *Interactive evolution* — the user is the fitness function. The
+   entry point this asked for now exists: `composer_input` is landed,
+   with the same pattern as param_changed (optional export, host checks
+   for it) and clicks on a plugin's own `composer_draw` area routed into
+   it, which is what this section predicted would be wanted. `gen::life`
+   is what forced it and what proves it — Conway's board is the case
+   where everything interesting is in what you put on it.
+
+   Interactive evolution itself is still unbuilt, but nothing is in its
+   way now: `gen::evolve` would export `composer_input`, draw its
+   population, and take a click on a phrase as the selection event a
+   param could never be.
 3. *Fitness from the sound itself* — judging phenotype (audio) rather
    than genotype (notes). The probe/visual machinery already publishes
    per-window samples to the GUI thread, so the host *could* feed a
@@ -399,15 +438,16 @@ semantic difference first because it blocks everything else.
 
 **What genuinely divides them today:**
 
-- **`ms` means two things.** `.dsp` folds `5 ms` into *samples* inside
-  the grammar action (times TH_SAMPLE at parse time); `.gen` keeps
-  seconds and defers `beats` to read time. One token, two meanings, and
-  the fold bakes the sample rate into every parsed `.dsp`. Any shared
-  grammar would have to carry both meanings keyed by dialect — or,
-  better, `.dsp` stops folding in the grammar and hands `(value, unit)`
-  to buildArgMap to fold. That change is independently right (it makes
-  `.dsp` sample-rate honest) and is exactly the kind the dspcheck
-  corpus sweep exists to gate.
+- **`ms` means two things.** `.dsp` folds `5 ms` into *samples*; `.gen`
+  keeps seconds and defers `beats` to read time. One token, two
+  meanings, and the `.dsp` fold used to happen in the grammar action at
+  the compile-time sample rate. Half of this is settled: `.dsp` now
+  hands `(value, unit)` out of the grammar and folds at load, which was
+  independently right and is what the dspcheck corpus sweep existed to
+  gate. What remains divided is only that the two languages mean
+  different things by a duration, which is a fact about them rather
+  than a defect in either — and which a shared *grammar* would have to
+  carry keyed by dialect.
 - **thinklang is not reentrant.** Globals (`parsetree`, `parsenode`, a
   static synth) and build-during-parse actions that construct the
   thSynthTree directly. The `.gen` loader is reentrant and builds
@@ -486,8 +526,26 @@ lexer that hands `.dsp` a folded sample count and `.gen` a second is
 not shared — it is two lexers wearing one coat. Doing step 2 showed
 the fold was never in the lexer: it is a grammar action, and the
 scanner hands out `5` and `ms` as two tokens to whoever asks. So the
-fold is independent work, still right for its own reason (it bakes the
-sample rate into every parsed `.dsp`), and no longer a prerequisite.
+fold was independent work rather than a prerequisite — and it is now
+DONE too (branch dsp-unit-fold), for its own reason.
+
+That reason turned out to be worse than "sample-rate honest" implied.
+The grammar folded with the compile-time `TH_SAMPLE`, so `thinksynth
+-r 48000` opened the device at 48k and then played every envelope in
+every patch 8.8% short: the durations had been converted for a rate
+nothing was running at. The grammar now records `(value, unit)` and
+`thSynthTree::foldUnits` converts once, in `finishParse`, at the rate
+the synth was built with. One record per *value site* rather than per
+arg, because `@decay = 500 ms` and `@decay.max = 88200` is the same
+control with one site in milliseconds and one already in samples.
+`libthink/thUnits.h` is the one copy of the arithmetic — the panel and
+the `.dsp` writer unfold through it at the same rate, which they have
+to, or a `-r` session would rewrite files to mean something else. Node
+args carry their unit now as well as chanargs. A unit inside
+arithmetic (`5 ms + 3`) is a parse error rather than the accident it
+used to produce. `argtype` gates it: a duration follows the rate, a
+percentage ignores it, a range written without a unit is left alone,
+and the corpus sweeps prove 44100 is byte-identical to before.
 
 ## 9. When the algorithms reach the instruments
 
@@ -505,16 +563,93 @@ any composer drive whatever `@args` a patch declares, scheduled and
 replay-deterministic like everything else. A generative process already
 shapes timbre — but only along axes the instrument chose to expose.
 
-*Tier 2 — evolving the surface.* A patch's declared chanargs form a
-vector of floats, and a vector of floats is a genome. Everything
-`gen::evolve` does to phrases applies verbatim to timbre: populations of
-chanarg vectors, crossover, mutation, elitism. Notably, a `morph`
-transformer that interpolates between two chanarg vectors and emits the
-curve as scheduled `THC_EV_CHANARG` events is writable against the v1
-ABI *today* — no host change at all. What the language should add is
-the noun: named *presets* (a preset is a named chanarg vector the piece
-file carries), so that morphs, GA populations, and Markov chains over
-timbres have something to refer to, splice, and save.
+*Tier 2 — evolving the surface.* LANDED (branch composer-presets). A
+patch's declared chanargs form a vector of floats, and a vector of floats
+is a genome. The noun arrived first, because everything else was blocked
+on it: `preset <name> { arg = value; … };` is a named chanarg vector the
+piece file carries, and `THC_PARAM_PRESET` delivers it to a plugin
+resolved — `"res=0.86,fmin=0.04"` — on exactly the terms
+`THC_PARAM_NOTESET` delivers pitches, so no composer ever looks a preset
+up. Additive enum value; interface version stays 1.
+
+`gen::morph` is the first thing to use it: two presets, the line between
+them, emitted as scheduled `THC_EV_CHANARG` events. It exports both entry
+points and they are genuinely different pieces of music — `gen::morph`
+sweeps on its own clock under whatever is playing, while `xform::morph`
+does not tick at all and instead schedules a whole sweep from the time of
+each note passing through, so the instrument opens as it is played and
+the roll's ghosted half shows the sweep coming. No randomness anywhere,
+which makes its replay gate a sharper tripwire than a seeded composer's:
+a divergence there is the scheduler, not the plugin.
+
+Two things the sketch above did not anticipate:
+
+- **The sink had to grow a wildcard.** "No host change at all" was true
+  of the ABI and false of the delivery path. A named chanarg sink
+  *overwrites* the name on every event — correct for a walk, which
+  produces a number and should not know which knob it lands on — and a
+  vector routed through one arrives as a single knob taking each
+  component's value in turn. `sink { channel = 2; chanarg = "*"; }` keeps
+  the name each event carries. Scheduler-side only; `*` cannot collide
+  with a real name because a chanarg is a `.dsp` identifier.
+- **Presets take no quoted literal**, unlike note sets. A one-off pitch
+  pool written inline is reasonable; a one-off timbre vector spelled as
+  text is a preset that cannot be morphed towards, bred from or saved
+  under a name, which is the entire reason the noun exists. The loader
+  says so rather than accepting it.
+
+A component named by one preset and not the other holds still at the
+value it was given, so a target can be a correction rather than a
+restatement. `gen/tide.gen` is the demo: `dusk` and `noon` forty seconds
+apart on channel 2, and a struck bell that opens itself through
+`xform::morph`. gencheck gates the resolution, the eight rejections, the
+wildcard routing, the exact endpoints and replay; it also grew a corpus
+sweep, because until now nothing loaded the shipped pieces other than
+the one it was handed.
+
+The second half of the tier is `gen::breed`, and it is `gen::evolve`
+pointed at a vector of knobs instead of a vector of degrees: a
+population, tournament selection, single-point crossover, per-gene
+mutation, elites carried unchanged, and the champion *played* every
+cycle. The fitness is taste with a number on it and says so — `aim`
+pulls toward a target preset, `drift` rewards being unlike the timbre
+just played (evolve calls the same term `boredom`, for the same reason:
+without it a GA finds a local optimum in a minute and holds it forever),
+`reach` mildly rewards using the corridor rather than huddling at one
+end.
+
+The one design question that did not carry over from `evolve` is where
+a timbre genome's bounds come from. A phrase's genes are degrees on a
+ladder the piece hands over; a timbre's genes are *knobs on somebody's
+instrument*, and a search free to drive them anywhere would be reaching
+past what the patch declared. So the corridor is the piece's own
+presets: each component travels between the values `from` and `toward`
+give it, widened by `spread`, and a component neither preset mentions
+cannot be invented. That is §9's first principle — the declared surface
+is consent — arriving as arithmetic rather than as a rule someone has to
+remember, and gencheck asserts it directly by checking that no emitted
+value leaves the interval and no unnamed component appears.
+
+Audio-feature fitness is still staging step 5's shadow synth, and
+deliberately so. What `breed` needs to become that is a different
+`fitness()` and nothing else, which is most of the argument for having
+built it this way first.
+
+`thcGenEdit` reads and writes presets now: `addPreset`,
+`setPresetValue`, `addPresetValue`, `removePresetValue`, `removePreset`,
+spliced by span like everything else, with the guard rails the format
+implies — a preset that sets nothing does not load, so no operation may
+leave one, and a preset something still names is refused rather than
+removed. That last one is where a preset differs from a scale: a scale's
+references are inlined as its literal note list on the way out, and a
+chanarg vector has no literal form to inline, on purpose. So the choice
+was refuse or silently break the file. The Edit panel draws a spin
+button per component, and moving one is a *value* edit — spliced and
+poked into every live stage naming that preset — so a component can be
+dragged while a morph is sweeping through it.
+
+Tier 2 is closed. `gen/tide.gen` travels between two presets;
+`gen/bloom.gen` searches for one.
 
 *Tier 3 — the graph as genome.* The instrument's synthesis topology
 itself becomes the evolving material. This sounds far-fetched until the
@@ -574,21 +709,28 @@ and the shared lexer stop being hygiene and become the runway.
 **Staging, each step shippable alone:**
 
 1. The `ms` fold and the shared offset-carrying lexer (§8 steps 0 and
-   2). The lexer half is done: `libthink/thLexer.h` feeds both
-   languages and carries byte spans, so `patch` blocks inline in a
-   `.gen` would be read by the same scanner that reads them in a
-   `.dsp`, by construction rather than by care. The `ms` fold is still
-   open and is now independent of everything else here.
+   2) — DONE, both halves. `libthink/thLexer.h` feeds both languages
+   and carries byte spans, so `patch` blocks inline in a `.gen` would
+   be read by the same scanner that reads them in a `.dsp`, by
+   construction rather than by care; and a `.dsp` value no longer
+   arrives pre-converted at a rate nobody chose, which is what step 2
+   below would otherwise have inherited the moment a piece carried its
+   instruments.
 2. `patch` blocks inline in `.gen`; sinks bind by patch name; the
    loader instantiates channels. One shareable file that carries its
    instruments.
 3. Presets in the language; a `gen::morph` transformer (writable even
-   before this, better after).
+   before this, better after) — DONE, together with the wildcard
+   chanarg sink the sketch had not noticed was needed, the editor
+   operations presets turned out to need, and `gen::breed`, the GA over
+   chanarg vectors. Tier 2 above is closed; what is left of it is the
+   audio-feature fitness at step 5.
 4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
    program-change lane on the roll.
-5. Shadow-synth fitness service + `composer_input` (§7's pending item);
-   chanarg-genome GA — timbres evolving under audio-feature fitness
-   while the piece plays.
+5. Shadow-synth fitness service + `composer_input` (§7's pending item).
+   The chanarg-genome GA itself is done (`gen::breed`, tier 2); what
+   this step adds is judging the *sound* rather than the vector, which
+   for `breed` is one function replaced and nothing else moved.
 6. Sections and meta chains; then, if the appetite is real, graph
    mutation constrained by nodemodel.
 

@@ -49,7 +49,7 @@ chain loop1 {
     stage q xform::quantize {
         scale = fmin;
     };
-    sink { channel = 3; };
+    sink { channel = 4; };
 };
 ```
 
@@ -106,6 +106,47 @@ This resolves the question the plugin API left open: pitch pools are not
 strings threaded through param tables — they are declared once and referenced
 by name, and the string form of the param exists only at the file boundary.
 
+## 4a. Presets are named chanarg vectors
+
+```
+preset dusk {
+    res  = 0.86;
+    fmin = 0.04;
+    fmax = 0.30;
+};
+```
+
+A patch's declared chanargs are a vector of floats, and a vector of floats is
+something a composer can interpolate between, breed from, or save. Giving one
+a name is what lets a piece refer to a *timbre* the way it already refers to a
+scale. `THC_PARAM_PRESET` receives the resolved vector — `"res=0.86,fmin=0.04"`
+— exactly as `THC_PARAM_NOTESET` receives resolved pitches, so no plugin ever
+looks a preset up.
+
+The values are plain numbers. A knob inside a preset would make it not a
+vector but an expression that happens to have a value right now, and both
+things a preset exists for want the fixed reading; the knob belongs on the
+stage that *uses* the preset, where it already works. Declaration order is
+kept, because the vector is the point. A preset must be declared before it is
+referenced, like a scale, and a preset that sets nothing is an error rather
+than a silent no-op.
+
+Unlike a note set, there is no quoted-literal form. A one-off pitch pool is a
+reasonable thing to write inline; a one-off timbre vector spelled as text is a
+preset that cannot be morphed towards, bred from or saved under a name, which
+is the whole reason the noun exists.
+
+This is the limit of a composer's reach into an instrument: the args the patch
+chose to declare, and no deeper. See `COMPOSITION_HANDOFF.md` §9.
+
+Two composers take presets today, and they are the two halves of tier 2.
+`gen::morph` travels the line between two of them. `gen::breed` does not know
+where it is going: it keeps a population of chanarg vectors and breeds them,
+and the corridor it may search is the interval the named presets span, widened
+by its `spread` param. A component neither preset mentions cannot be invented,
+and a component only one of them names has nowhere to travel — so the sentence
+above is arithmetic in that plugin rather than a rule someone has to remember.
+
 ## 5. Chains
 
 A `chain` is a named, *ordered* pipeline. Order in the file is order of
@@ -127,34 +168,61 @@ A chain body holds, in order:
 - one or more `sink` blocks, always last:
 
 ```
-sink { channel = 3; };                          # notes -> MIDI channel 3
-sink { channel = 2; chanarg = "cutoff"; };      # values -> a patch knob
+sink { channel = 4; };                          # notes -> MIDI channel 4
+sink { channel = 3; chanarg = "cutoff"; };      # values -> a patch knob
+sink { channel = 3; chanarg = "*"; };           # values -> the knob each
+                                                #   event names for itself
 ```
+
+**Channels are 1–16.** That is the number on the main window's patch tab and
+in the Keyboard window's spinner, and it is what every sequencer shows; the
+wire and the engine count from zero, and the conversion happens here at the
+file boundary the way note names are resolved here rather than in a plugin.
+`channel = 0` is an error rather than channel 1, and says why — it is the one
+spelling that can tell a file written for the old 0–15 numbering apart from
+one written for this, and a piece silently playing a channel out is worse than
+a piece that refuses to load.
 
 Two sinks is fan-out: every event leaving the last stage is delivered to
 each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
 notes; a plain sink does the reverse. That rule is in the sink, not the
 stage, so one generator can drive a melody and a filter sweep at once.
 
+A named `chanarg` sink *overwrites* the name on every event passing through
+it, which is right for a walk or an envelope: the plugin produces a number
+and has no business knowing which knob it lands on. `chanarg = "*"` is for
+the case that breaks — a composer producing a whole vector, several knobs at
+once, each event already knowing which one it is. One sink per knob cannot
+say that, because every sink would deliver the same value. `*` cannot collide
+with a real name, since a chanarg is a `.dsp` identifier; anything else that
+is not one is refused at load rather than failing silently at delivery.
+
 ## 6. Grammar
 
 ```
 genfile     : statement*
-statement   : infostring | tempo | seed | knob | knobmeta | scale | chain
+statement   : infostring | tempo | seed | knob | knobmeta | scale
+            | preset | chain
 infostring  : ("name" | "author" | "description") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
 knob        : CHANARG "=" NUMBER ";"
 knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
+preset      : "preset" WORD "{" presetval* "}" ";"
+presetval   : WORD "=" NUMBER ";"
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"
 stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
 param       : WORD "=" value ";"
-value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale ref
+value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
+                                                       #   preset ref
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("channel" "=" NUMBER | "chanarg" "=" STRING) ";"
+                                                       # channel is 1-16
+                                                       # STRING = a name
+                                                       #   or "*"
 ```
 
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
@@ -178,6 +246,17 @@ stage, a new chain) contains:
   defaults. A `.gen` should survive a plugin's defaults changing — this is
   the lesson of `noargs/`.
 - Knob bindings round-trip as `@name`, never as the knob's current value.
+- A preset reference round-trips as the preset's bare name. There is no
+  literal form to fall back on, so a writer that could not name it would have
+  nothing to write.
+- A preset's components stay in the order its author wrote them, and a new one
+  is appended rather than filed into a canonical slot. The vector is the point,
+  and reshuffling someone's file into the order this writer prefers is an edit
+  nobody asked for — the same rule the `.dsp` writer follows for `@x.min`.
+- A preset that sets nothing does not load, so no editor operation may leave
+  one: removing the last component is refused, and a new preset arrives with at
+  least one. Removing a preset something still names is refused too, and says
+  which stage — unlike a scale, there is no literal to inline in its place.
 - `seed` is written if and only if the user pinned it. A generated file with
   a seed the user never chose silently freezes a piece that was meant to
   breathe.
@@ -191,6 +270,8 @@ stage, a new chain) contains:
 | param `= @knob`        | live binding (the composer-world `ARG_CHAN`)        |
 | `= n beats`            | converted via transport tempo when the value is read|
 | `scale`                | resolved note list, shared by reference             |
+| `preset`               | resolved chanarg vector, shared by reference        |
+| `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |

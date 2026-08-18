@@ -1,0 +1,121 @@
+# glider.gen -- the piece you can reach into.
+#
+# Conway's Game of Life, played. Rows are degrees on the ladder, columns
+# are time within the generation, and each tick advances the board one
+# step under B3/S23. The default board is a glider: five cells that walk
+# across the torus forever, sounding a different chord every four
+# generations and arriving back where they started one square along.
+#
+# THE POINT IS THAT YOU CAN CHANGE IT WHILE IT PLAYS. Double-click the
+# `walk' stage on the canvas and its board fills the window. Click a cell
+# to toggle it; drag to paint a line of them. The next generation takes
+# whatever you leave behind, so a block dropped in front of the glider is
+# a wall, and one cell taken out of a blinker is silence.
+#
+# gen::life is the first module to export composer_input, which is
+# COMPOSITION_HANDOFF.md section 7's argument arriving for the case it
+# named: composer_draw was draw-only, and the things it draws are exactly
+# the things a person wants to reach into.
+#
+# What you click is a *performance*. It changes what is playing and it is
+# gone on reload. To keep an arrangement, select the stage and press
+# Capture to file -- the board goes back into the `board' param as the
+# same text this file already writes -- then Save. That is why a board is
+# a plain string rather than something opaque: a Life pattern already had
+# a spelling, so it round-trips with no machinery for saving state at
+# all.
+#
+# A board is written `.' for dead and `O' for alive, with `/' ending each
+# row, top row first. Strings cannot span lines in this format, so each
+# board is one line with its picture in the comment above it -- which is
+# also what the canvas will show you.
+#
+# The three chains are three answers to the same question. `walk' moves.
+# `still' is a block and a beehive, which never change -- so with births
+# only it says nothing at all after its first generation, which is worth
+# hearing once. `blink' is three blinkers out of phase, a two-generation
+# cycle that gives the piece its pulse.
+#
+# No seed is pinned, because there is nothing to seed: Life is
+# deterministic and `scatter' is 0 in all three. Set scatter above 0 for
+# a random start and a seed becomes worth pinning.
+#
+# Aim channel 1 at something plucked or percussive, channel 2 at a pad,
+# channel 3 at something small and bright.
+
+name "Glider";
+author "Misha Nasledov";
+description "Conway's Game of Life, and a board you can click while it plays.";
+
+tempo 108;
+
+scale pent "C3 D3 E3 G3 A3 C4 D4 E4";
+
+#   . . . . . . . . . .
+#   . . . . . . . . . .
+#   . . . . . . . . . .
+#   . . . . . . . . . .
+#   . . . . . . . . . .
+#   . O . . . . . . . .
+#   . . O O . . . . . .
+#   . O O . . . . . . .
+#
+# A glider in the bottom-left corner, heading up and to the right. Ten
+# wide, so it takes forty generations to walk the whole torus.
+chain walk {
+    stage board gen::life {
+        board = "........../........../........../........../........../.O......../..OO....../.OO.......";
+        width = 10; height = 8;
+        scatter = 0; trigger = 0; wrap = 1;
+        notes = pent;
+        period = 1 beats; hold = 0.4 beats; vel = 84;
+    };
+    sink { channel = 1; };
+};
+
+#   . . . . . . . .
+#   . O O . . . . .
+#   . O O . . . . .
+#   . . . . . . . .
+#   . . . O O . . .
+#   . . O . . O . .
+#   . . . O O . . .
+#   . . . . . . . .
+#
+# A block and a beehive: two still lifes, which is the whole joke. With
+# births only this chain sounds once and then holds its peace -- until
+# you click a cell beside one of them and it stops being still.
+chain still {
+    stage board gen::life {
+        board = "......../.OO...../.OO...../......../...OO.../..O..O../...OO.../........";
+        width = 8; height = 8;
+        scatter = 0; trigger = 0; wrap = 1;
+        notes = "C2 D2 E2 G2 A2 C3 D3 E3";
+        period = 2 beats; hold = 1.5 beats; vel = 60;
+    };
+    sink { channel = 2; };
+};
+
+#   . . . . . . . . . .
+#   . . . O O O . . . .
+#   . . . . . . . . . .
+#   . O O O . . . . . .
+#   . . . . . . . . . .
+#   . . . . . . O O O .
+#   . . . . . . . . . .
+#   . . . . . . . . . .
+#
+# Three blinkers, each a two-generation oscillator, placed so their
+# births land on different columns. `trigger = 1' plays every live cell
+# rather than only the births, so this one keeps sounding -- a blinker
+# with births only would be half as busy.
+chain blink {
+    stage board gen::life {
+        board = "........../...OOO..../........../.OOO....../........../......OOO./........../..........";
+        width = 10; height = 8;
+        scatter = 0; trigger = 1; wrap = 1;
+        notes = "C5 D5 E5 G5 A5 C6 D6 E6";
+        period = 0.5 beats; hold = 0.2 beats; vel = 52;
+    };
+    sink { channel = 3; };
+};

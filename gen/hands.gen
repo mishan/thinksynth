@@ -1,0 +1,94 @@
+# hands.gen -- the piece you play.
+#
+# Nothing here generates anything on its own. Every chain begins with
+# `input midi;', which means it is fed by whatever arrives on its sink's
+# channel -- hardware MIDI always, and the on-screen Keyboard window too
+# once the toolbar's Kbd input is switched on. Press Play, hold a chord
+# on channel 1, and the arpeggiator breaks it.
+#
+# This is the one thing duration-carrying events cannot say. A composed
+# note declares how long it lasts and the scheduler derives the off; a
+# key held down has no idea, so the ABI grew THC_EV_NOTEOFF and the arp
+# is the plugin that forced it. Hold a chord, change it a note at a time,
+# and listen to the figure follow your hands -- that is the held set
+# being maintained from both kinds of press.
+#
+# `vel = 0' means "as played": each step carries the velocity of the held
+# note it came from, so an arpeggio of an expressive performance is still
+# expressive. Set it to 90 and the whole thing flattens out.
+#
+# The Pattern knob walks up, down, up-and-down, and seeded random. The
+# random one is seeded, so the same held chord gives the same figure
+# every time -- and `seed' is pinned below, which is what makes that
+# true across a reload as well.
+#
+# Channel 2 is the plain route: your playing, quantized to F minor and
+# passed through. Play a wrong note and hear it corrected -- the
+# transformer is doing all the work, and there is no generator in that
+# chain at all, which is legal precisely because `input midi' is what
+# feeds it.
+#
+# Channel 3 is the same input again, an octave of arpeggio wide and much
+# slower, as a shadow underneath.
+#
+# Aim channel 1 at something plucked, channel 2 at keys, channel 3 at a
+# pad. Then turn on Kbd input and play.
+
+name "Hands";
+author "Misha Nasledov";
+description "Live playing, broken into figures and corrected on the way through.";
+
+seed 3301;
+
+scale fmin "F3 Ab3 C4 Db4 Eb4 F4 Ab4 C5 Db5 Eb5 F5";
+
+@pattern = 2;
+@pattern.widget = 1;
+@pattern.min = 0;
+@pattern.max = 3;
+@pattern.step = 1;
+@pattern.label = "Pattern";
+
+@speed = 0.12;
+@speed.widget = 1;
+@speed.min = 0.03;
+@speed.max = 0.6;
+@speed.label = "Step";
+@speed.units = "s";
+
+chain broken {
+    input midi;
+    stage a gen::arp {
+        pattern = @pattern;
+        octaves = 2;
+        period = @speed;
+        hold = 0.11 s;
+        vel = 0;                # as played
+        pass = 0;               # only the figure, not the chord
+    };
+    sink { channel = 1; };
+};
+
+chain corrected {
+    input midi;
+    stage q xform::quantize {
+        scale = fmin;
+    };
+    sink { channel = 2; };
+};
+
+chain shadow {
+    input midi;
+    stage a gen::arp {
+        pattern = 1;            # down
+        octaves = 1;
+        period = 0.55 s;
+        hold = 0.5 s;
+        vel = 48;
+        pass = 0;
+    };
+    stage q xform::quantize {
+        scale = fmin;
+    };
+    sink { channel = 3; };
+};

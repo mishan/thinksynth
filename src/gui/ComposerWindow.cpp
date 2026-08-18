@@ -882,6 +882,13 @@ ComposerWindow::injectOff (int chan, float note)
 void
 ComposerWindow::onKbdToggle (void)
 {
+    /* Guarded as well as fixed. This is a signal handler on a member
+       pointer, so it can be reached from anywhere the toolkit decides to
+       emit `toggled' -- including from set_active() during teardown --
+       and a crash is a poor way to find out. */
+    if (kbdBtn_ == NULL)
+        return;
+
     if (kbdBtn_->get_active())
     {
         kbdOnConn_ = m_sigKbdNoteOn.connect(
@@ -950,6 +957,15 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
         const thcPlugin::ParamInfo *p = plugin->paramInfo(i);
         std::string v;
 
+        /* Every enumerator named, and no `default:'.
+         *
+         * This switch had one, and a param type added years after it was
+         * written fell through to the numeric case and wrote `from = 0;'
+         * -- a generated stage the loader then refused. -Wall's -Wswitch
+         * only fires on a switch that covers the enum and misses a value,
+         * so a default label is exactly what buys the silence. Spelling
+         * the numeric types out costs three lines and turns the next
+         * addition into a compiler warning instead of a bug report. */
         switch (p->type)
         {
             case THC_PARAM_NOTESET:
@@ -958,7 +974,23 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
             case THC_PARAM_STRING:
                 v = "\"" + p->defString + "\"";
                 break;
-            default:
+
+            case THC_PARAM_PRESET:
+                /* The one param that gets left out, and the rule above is
+                   why rather than in spite of. "Write every param" exists
+                   so a piece survives a plugin's *defaults* changing -- a
+                   preset param has no default that can be written at all,
+                   because the only legal value is the name of something
+                   this piece declares, and a new stage cannot know one.
+                   Falling through to the numeric case would write `from =
+                   0;', which the loader rejects by name and line: a
+                   generated stage that will not load is worse than an
+                   absent line the loader is happy to default. */
+                continue;
+
+            case THC_PARAM_FLOAT:
+            case THC_PARAM_INT:
+            case THC_PARAM_NOTE:
                 thcGenEdit::format(p->def, v);
 
                 if (p->isDuration())
@@ -1080,9 +1112,45 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
 
         case ValueShape::WORD:
         {
-            /* A scale reference -- and the same unbind QUOTED needs,
-               for the same shadowing reason. */
+            /* A scale's name or a preset's -- the two kinds of named
+               object a param can refer to, spelled identically. Which
+               one it is comes from the param's type, not from the word.
+               And the same unbind QUOTED needs, for the same shadowing
+               reason. */
             sched_->bindKnob(s, idx, NULL);
+
+            const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
+
+            if (pi != NULL && pi->type == THC_PARAM_PRESET)
+            {
+                for (size_t i = 0; i < doc_.presets.size(); i++)
+                {
+                    if (doc_.presets[i].name != v.text)
+                        continue;
+
+                    /* The same "name=value,..." the loader hands a
+                       plugin, built the same way, so a preset changed
+                       through the panel and one read from the file are
+                       indistinguishable to the composer. */
+                    std::ostringstream vec;
+
+                    for (size_t k = 0;
+                         k < doc_.presets[i].values.size(); k++)
+                    {
+                        std::string num;
+
+                        thcGenEdit::format(doc_.presets[i].values[k].value,
+                                           num);
+
+                        vec << (k ? "," : "")
+                            << doc_.presets[i].values[k].name << "=" << num;
+                    }
+
+                    s->params.setString(idx, vec.str());
+                }
+
+                break;
+            }
 
             for (size_t i = 0; i < doc_.scales.size(); i++)
                 if (doc_.scales[i].name == v.text)
@@ -1110,13 +1178,19 @@ void
 ComposerWindow::rebuildEditor (void)
 {
     /* The buttons below die with their row; forgetting that here left
-       setDirty poking freed widgets whenever the panel was hidden. */
+       setDirty poking freed widgets whenever the panel was hidden.
+     *
+     * kbdBtn_ is deliberately *not* in this list, and used to be. It
+       lives in the toolbar, which nothing here clears, so nulling it
+       forgot a widget that was still on screen and still connected --
+       and the next click on Kbd input reached onKbdToggle, which
+       dereferenced the null and took the program with it. A pointer
+       cleared here has to be one the loop below actually destroys. */
     saveBtn_ = NULL;
     saveAsBtn_ = NULL;
     newBtn_ = NULL;
     openBtn_ = NULL;
     selBox_ = NULL;
-    kbdBtn_ = NULL;
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);
@@ -1152,6 +1226,7 @@ ComposerWindow::rebuildEditor (void)
     editorBox_.append(*buildPieceSection());
     editorBox_.append(*buildKnobsSection());
     editorBox_.append(*buildScalesSection());
+    editorBox_.append(*buildPresetsSection());
 
     /* The lower half follows the canvas: whatever is selected up there
        is editable down here. */
@@ -1493,6 +1568,294 @@ ComposerWindow::buildScalesSection (void)
     return exp;
 }
 
+/* Presets: a named chanarg vector per block, one spin button per
+ * component.
+ *
+ * Laid out as rows under the preset's name rather than as one text field
+ * of "res=0.4,fmin=0.1", because a preset is the thing a morph travels
+ * between and dragging one component while listening is the whole point.
+ * Every edit is a splice *and* a poke, so the sweep between two presets
+ * changes under the transport rather than at the next load. */
+Gtk::Widget *
+ComposerWindow::buildPresetsSection (void)
+{
+    Gtk::Expander *exp = manage(new Gtk::Expander("Presets"));
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_column_spacing(6);
+    grid->set_row_spacing(4);
+    grid->set_margin(4);
+
+    int row = 0;
+
+    for (size_t i = 0; i < doc_.presets.size(); i++)
+    {
+        const std::string preset = doc_.presets[i].name;
+
+        Gtk::Label *head = manage(new Gtk::Label(preset));
+        Gtk::Button *rmPreset = manage(new Gtk::Button("Remove"));
+
+        head->set_xalign(0);
+        head->set_markup("<b>" + Glib::Markup::escape_text(preset) +
+                         "</b>");
+
+        rmPreset->signal_clicked().connect(
+            [this, preset]
+            {
+                std::string why;
+
+                if (editOk(thcGenEdit::removePreset(workPath_, preset,
+                                                    why), why))
+                    structuralReload();
+            });
+
+        grid->attach(*head, 0, row, 2, 1);
+        grid->attach(*rmPreset, 3, row);
+        row++;
+
+        for (size_t k = 0; k < doc_.presets[i].values.size(); k++)
+        {
+            const std::string comp = doc_.presets[i].values[k].name;
+
+            Gtk::Label *lbl = manage(new Gtk::Label("    " + comp));
+            Gtk::SpinButton *spin = manage(new Gtk::SpinButton(
+                Gtk::Adjustment::create(doc_.presets[i].values[k].value,
+                                        -1e6, 1e6, 0.01), 0, 4));
+            Gtk::Button *rm = manage(new Gtk::Button("-"));
+
+            lbl->set_xalign(0);
+            spin->set_hexpand(true);
+
+            spin->signal_value_changed().connect(
+                [this, preset, comp, spin]
+                {
+                    std::string why;
+
+                    if (editOk(thcGenEdit::setPresetValue(
+                            workPath_, preset, comp, spin->get_value(),
+                            why), why))
+                        presetChanged(preset);
+                });
+
+            rm->signal_clicked().connect(
+                [this, preset, comp]
+                {
+                    std::string why;
+
+                    if (editOk(thcGenEdit::removePresetValue(
+                            workPath_, preset, comp, why), why))
+                        structuralReload();
+                });
+
+            grid->attach(*lbl, 0, row);
+            grid->attach(*spin, 1, row, 2, 1);
+            grid->attach(*rm, 3, row);
+            row++;
+        }
+
+        Gtk::Entry *newComp = manage(new Gtk::Entry());
+        Gtk::Button *addComp = manage(new Gtk::Button("Add value"));
+
+        newComp->set_placeholder_text("chanarg");
+        newComp->set_max_width_chars(10);
+
+        addComp->signal_clicked().connect(
+            [this, preset, newComp]
+            {
+                std::string why;
+
+                if (editOk(thcGenEdit::addPresetValue(
+                        workPath_, preset, newComp->get_text(), 0.5, why),
+                        why))
+                    structuralReload();
+            });
+
+        grid->attach(*newComp, 1, row);
+        grid->attach(*addComp, 2, row);
+        row++;
+    }
+
+    /* A new preset arrives with one component, because one with none
+       does not load and every state written here has to. */
+    Gtk::Entry *newName = manage(new Gtk::Entry());
+    Gtk::Entry *firstComp = manage(new Gtk::Entry());
+    Gtk::Button *add = manage(new Gtk::Button("Add preset"));
+
+    newName->set_placeholder_text("name");
+    newName->set_max_width_chars(8);
+    firstComp->set_placeholder_text("first chanarg");
+    firstComp->set_hexpand(true);
+
+    add->signal_clicked().connect(
+        [this, newName, firstComp]
+        {
+            std::vector<thcGenEdit::PresetValue> vals;
+            thcGenEdit::PresetValue v;
+
+            v.name = firstComp->get_text();
+            v.value = 0.5;
+            vals.push_back(v);
+
+            std::string why;
+
+            if (editOk(thcGenEdit::addPreset(workPath_,
+                    newName->get_text(), vals, why), why))
+                structuralReload();
+        });
+
+    grid->attach(*newName, 0, row);
+    grid->attach(*firstComp, 1, row);
+    grid->attach(*add, 2, row);
+
+    exp->set_child(*grid);
+    exp->set_expanded(!doc_.presets.empty());
+
+    return exp;
+}
+
+/* A preset's value changed: re-resolve it into every live stage that
+ * names it, so the piece keeps playing and hears the edit.
+ *
+ * A value edit splices and pokes; only a structural one reloads. A
+ * preset's *components* are its value, so moving one is a value edit --
+ * which is what makes dragging a component while a morph is sweeping
+ * behave the way dragging a knob does. */
+void
+ComposerWindow::presetChanged (const std::string &preset)
+{
+    setDirty(true);
+
+    std::string why;
+    thcGenEdit::Doc fresh;
+
+    if (thcGenEdit::describe(workPath_, fresh, why) != thcGenEdit::OK)
+        return;
+
+    doc_.presets = fresh.presets;
+
+    std::string vecText;
+
+    for (size_t i = 0; i < doc_.presets.size(); i++)
+    {
+        if (doc_.presets[i].name != preset)
+            continue;
+
+        for (size_t k = 0; k < doc_.presets[i].values.size(); k++)
+        {
+            std::string num;
+
+            thcGenEdit::format(doc_.presets[i].values[k].value, num);
+
+            vecText += (k ? "," : "");
+            vecText += doc_.presets[i].values[k].name + "=" + num;
+        }
+    }
+
+    if (vecText.empty())
+        return;
+
+    /* Every stage naming it, in every chain: one preset can be the
+       destination of several morphs at once, and half of them hearing
+       the edit would be worse than none. */
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+        for (size_t si = 0; si < doc_.chains[ci].stages.size(); si++)
+        {
+            thcStage *s = liveStage(ci, si);
+
+            if (s == NULL)
+                continue;
+
+            const thcGenEdit::Stage &st = doc_.chains[ci].stages[si];
+
+            for (size_t pi = 0; pi < st.params.size(); pi++)
+            {
+                if (st.params[pi].valueText != preset)
+                    continue;
+
+                const int idx = s->plugin->paramIndex(st.params[pi].name);
+
+                if (idx < 0)
+                    continue;
+
+                const thcPlugin::ParamInfo *info = s->plugin->paramInfo(idx);
+
+                if (info != NULL && info->type == THC_PARAM_PRESET)
+                    s->params.setString(idx, vecText);
+            }
+        }
+}
+
+/* Ask a stage's module what its touchable state is now, and write it
+ * back through the ordinary param path.
+ *
+ * Every param is offered and the module answers for the ones it can.
+ * `composer_capture' returns NULL for the rest, which thcPlugin::capture
+ * turns into an empty string at the ABI boundary -- so what this loop
+ * tests is emptiness, and the two spellings mean the same thing on
+ * either side of that line. Offering every param is what keeps the host
+ * from having to know which param of which plugin holds a board, and it
+ * is what makes this one button rather than one per plugin.
+ *
+ * Through applyParam, so the splice, the cached doc and the live poke
+ * all happen the way they do for a value typed by hand. Writing the file
+ * behind thcGenEdit's back would be a second writer, and there is one. */
+void
+ComposerWindow::captureStage (size_t ci, size_t si)
+{
+    thcStage *s = liveStage(ci, si);
+
+    if (s == NULL || !s->plugin->hasCapture())
+        return;
+
+    int written = 0;
+    std::string refused;
+
+    for (int pi = 0; pi < s->plugin->paramCount(); pi++)
+    {
+        const std::string text = s->plugin->capture(s->state, pi);
+
+        if (text.empty())
+            continue;
+
+        const thcPlugin::ParamInfo *info = s->plugin->paramInfo(pi);
+
+        if (info == NULL)
+            continue;
+
+        /* Quoted, because everything a plugin can hand back this way is
+           a string param -- a board, an axiom, a rule set. A numeric
+           param has nothing to capture that a knob does not already
+           say. */
+        if (info->type != THC_PARAM_STRING)
+            continue;
+
+        /* A .gen string is "[^"\n]*" with no escapes at all, so a quote
+           or a newline in what a module hands back simply cannot be
+           written. thcGenEdit::setParam refuses such a value and the
+           file is safe either way -- but it would refuse it three
+           layers down, and this loop would then go on to report a
+           capture that did not happen. Checked here so the message
+           names the param and the count is true. */
+        if (text.find('"') != std::string::npos ||
+            text.find('\n') != std::string::npos)
+        {
+            refused = info->name;
+            continue;
+        }
+
+        applyParam(ci, si, info->name, "\"" + text + "\"");
+        written++;
+    }
+
+    if (!refused.empty())
+        status_->set_text("'" + refused + "' cannot be written: a .gen "
+                          "string holds no quotes or newlines");
+    else if (written)
+        status_->set_text("captured into the piece; Save to keep it");
+    else
+        status_->set_text("this stage had nothing to capture");
+}
+
 void
 ComposerWindow::buildChainSelection (size_t ci)
 {
@@ -1601,6 +1964,26 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
         selBox_->append(*manage(new Gtk::Label(
             "module '" + stage.plugin + "' is not installed")));
 
+    /* A module whose picture can be clicked can also be asked what its
+       picture currently is. Offered here rather than on the canvas
+       because this is where every other edit to a stage is made, and
+       because capturing is deliberately a separate act from clicking: a
+       click is a performance and changes what is playing, and writing it
+       into the file is a decision about the piece. */
+    if (found != composers_.end() && found->second->hasCapture())
+    {
+        Gtk::Button *cap = manage(new Gtk::Button("Capture to file"));
+
+        cap->set_tooltip_text("Write what this stage is playing now back "
+                              "into the piece -- double-click the stage on "
+                              "the canvas to change it first");
+
+        cap->signal_clicked().connect(
+            [this, ci, si] { captureStage(ci, si); });
+
+        selBox_->append(*cap);
+    }
+
     Gtk::Button *rm = manage(new Gtk::Button("Remove stage"));
     int idx = (int)si;
 
@@ -1628,11 +2011,12 @@ ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(chain.sinks[ki].channel, 0, 15, 1)));
+        Gtk::Adjustment::create(chain.sinks[ki].channel, 1, 16, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *rm = manage(new Gtk::Button("Remove"));
 
-    chan->set_tooltip_text("MIDI channel, 0-15");
+    chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
+                           "the main window's patch tab");
     arg->set_text(chain.sinks[ki].chanarg);
     arg->set_placeholder_text("chanarg (empty: notes)");
     arg->set_max_width_chars(12);
@@ -1729,11 +2113,12 @@ ComposerWindow::buildAddSink (size_t ci)
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0, 0, 15, 1)));
+        Gtk::Adjustment::create(1, 1, 16, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *add = manage(new Gtk::Button("Add sink"));
 
-    chan->set_tooltip_text("MIDI channel, 0-15");
+    chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
+                           "the main window's patch tab");
     arg->set_placeholder_text("chanarg (empty: notes)");
     arg->set_max_width_chars(12);
 
@@ -1776,8 +2161,11 @@ ComposerWindow::buildAddChain (void)
 
     Gtk::DropDown *genSel = manage(new Gtk::DropDown(gens));
     Gtk::SpinButton *chanSel = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(0, 0, 15, 1)));
+        Gtk::Adjustment::create(1, 1, 16, 1)));
     Gtk::Button *addBtn = manage(new Gtk::Button("Add chain"));
+
+    chanSel->set_tooltip_text("MIDI channel, 1-16 -- the number on "
+                              "the main window's patch tab");
 
     addBtn->signal_clicked().connect(
         [this, nameEntry, genSel, chanSel, genNames]
@@ -1957,16 +2345,23 @@ ComposerWindow::addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
     }
     else
     {
-        /* NOTESET, NOTE and STRING: an entry. For a NOTESET it takes
-           note names or a scale's name; the quoting is worked out from
-           which one it is. */
+        /* NOTESET, NOTE, STRING and PRESET: an entry. What the typed
+           text becomes is worked out below from the param's type -- a
+           NOTESET takes note names or a scale's name, a PRESET takes a
+           preset's name and nothing else. */
         Gtk::Entry *entry = manage(new Gtk::Entry());
 
         entry->set_text(v.kind == ValueShape::QUOTED ? v.text : authored);
         entry->set_hexpand(true);
-        entry->set_tooltip_text(pi->type == THC_PARAM_NOTESET
-            ? "Note names, or a scale's name; Enter applies"
-            : "Enter applies");
+
+        if (pi->type == THC_PARAM_NOTESET)
+            entry->set_tooltip_text(
+                "Note names, or a scale's name; Enter applies");
+        else if (pi->type == THC_PARAM_PRESET)
+            entry->set_tooltip_text(
+                "The name of a preset this piece declares; Enter applies");
+        else
+            entry->set_tooltip_text("Enter applies");
 
         thcParamType type = pi->type;
 
@@ -2000,6 +2395,35 @@ ComposerWindow::addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
 
                         valueText = "\"" + text + "\"";
                     }
+                }
+                else if (type == THC_PARAM_PRESET)
+                {
+                    /* Bare, not quoted. A preset is referred to by name,
+                       the way a scale is, and the loader refuses a
+                       quoted one on purpose -- a timbre vector spelled
+                       inline is a preset that cannot be saved under a
+                       name. Checked here rather than left to the load,
+                       because the panel is where the person is. */
+                    bool ok = !text.empty() &&
+                        ((text[0] >= 'a' && text[0] <= 'z') ||
+                         (text[0] >= 'A' && text[0] <= 'Z'));
+
+                    for (size_t i = 1; ok && i < text.size(); i++)
+                    {
+                        const char c = text[i];
+
+                        ok = (c >= 'a' && c <= 'z') ||
+                             (c >= 'A' && c <= 'Z') ||
+                             (c >= '0' && c <= '9') || c == '_';
+                    }
+
+                    if (!ok)
+                    {
+                        status_->set_text("a preset's name, like `warm'");
+                        return;
+                    }
+
+                    valueText = text;
                 }
                 else if (type == THC_PARAM_NOTE)
                 {

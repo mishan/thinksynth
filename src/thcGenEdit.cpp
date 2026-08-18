@@ -253,6 +253,22 @@ struct ScaleIdx
     std::string notes;
 };
 
+struct PresetCompIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* name .. its ';'                      */
+    size_t valA, valB;
+    double value;
+};
+
+struct PresetIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* `preset' .. the trailing ';'         */
+    size_t bodyClose;            /* offset of the '}'                    */
+    std::vector<PresetCompIdx> comps;
+};
+
 struct ChainIdx
 {
     std::string name;
@@ -269,13 +285,15 @@ struct Index
 {
     std::map<std::string, MetaIdx> infos;    /* name/author/description  */
     MetaIdx seed, tempo;
-    std::vector<KnobIdx>  knobs;
-    std::vector<ScaleIdx> scales;
-    std::vector<ChainIdx> chains;
+    std::vector<KnobIdx>   knobs;
+    std::vector<ScaleIdx>  scales;
+    std::vector<PresetIdx> presets;
+    std::vector<ChainIdx>  chains;
 
     size_t topInsert;        /* line start of the first token            */
     size_t headerEnd;        /* after the info/tempo/seed statements     */
     size_t firstScaleOff;    /* npos when there is none                  */
+    size_t firstPresetOff;
     size_t firstChainOff;
 };
 
@@ -363,6 +381,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.topInsert = lineStartOf(text, t[0].off);
     ix.headerEnd = ix.topInsert;
     ix.firstScaleOff = std::string::npos;
+    ix.firstPresetOff = std::string::npos;
     ix.firstChainOff = std::string::npos;
 
     size_t i = 0;
@@ -486,6 +505,63 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
             ix.scales.push_back(s);
             i += 4;
+            continue;
+        }
+
+        /* preset <name> { <comp> = <number>; ... }; */
+        if (kw == "preset" && t[i + 1].kind == Tok::WORD &&
+            isPunct(t[i + 2], '{'))
+        {
+            PresetIdx pr;
+
+            pr.name = t[i + 1].text;
+            pr.stmtA = t[i].off;
+            pr.bodyClose = 0;
+
+            size_t j = i + 3;
+            bool shaped = true;
+
+            while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+            {
+                if (t[j].kind == Tok::WORD && isPunct(t[j + 1], '=') &&
+                    t[j + 2].kind == Tok::NUMBER && isPunct(t[j + 3], ';'))
+                {
+                    PresetCompIdx c;
+
+                    c.name = t[j].text;
+                    c.stmtA = t[j].off;
+                    c.stmtB = t[j + 3].end;
+                    c.valA = t[j + 2].off;
+                    c.valB = t[j + 2].end;
+                    c.value = t[j + 2].num;
+
+                    pr.comps.push_back(c);
+                    j += 4;
+                    continue;
+                }
+
+                /* A shape the loader would refuse anyway. Leave the whole
+                   statement unindexed rather than index half of it: an
+                   edit aimed at a preset this scan did not understand
+                   would splice against offsets it guessed. */
+                shaped = false;
+                break;
+            }
+
+            if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
+            {
+                pr.bodyClose = t[j].off;
+                pr.stmtB = t[j + 1].end;
+
+                if (ix.firstPresetOff == std::string::npos)
+                    ix.firstPresetOff = pr.stmtA;
+
+                ix.presets.push_back(pr);
+                i = j + 2;
+                continue;
+            }
+
+            i = skipStmt(t, i);
             continue;
         }
 
@@ -879,6 +955,24 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         s.name = ix.scales[i].name;
         s.notes = ix.scales[i].notes;
         doc.scales.push_back(s);
+    }
+
+    for (size_t i = 0; i < ix.presets.size(); i++)
+    {
+        Preset p;
+
+        p.name = ix.presets[i].name;
+
+        for (size_t k = 0; k < ix.presets[i].comps.size(); k++)
+        {
+            PresetValue v;
+
+            v.name = ix.presets[i].comps[k].name;
+            v.value = ix.presets[i].comps[k].value;
+            p.values.push_back(v);
+        }
+
+        doc.presets.push_back(p);
     }
 
     for (size_t ci = 0; ci < ix.chains.size(); ci++)
@@ -1527,6 +1621,403 @@ validParams (const std::vector<std::pair<std::string, std::string> > &params,
 
 /* ---- chains ----------------------------------------------------------- */
 
+/* ---- presets ----------------------------------------------------------- */
+
+/* Where a preset's block is written and what one line of it looks like.
+ * A preset sits with the scales -- both are named objects a chain refers
+ * to, both must be declared before the chain that names them -- so it
+ * goes after the last one of either, and before the first chain. */
+static std::string
+presetLine (const std::string &indent, const std::string &name, double value)
+{
+    std::string num;
+
+    thcGenEdit::format(value, num);
+
+    return indent + name + " = " + num + ";\n";
+}
+
+/* The indentation this preset's components already use, so a component
+ * added to a hand-formatted block does not arrive at the house default
+ * and make the file look edited. Four spaces when there is nothing to
+ * copy from -- but a preset always has a component to copy from, since
+ * one that sets nothing does not load. */
+static std::string
+presetIndent (const std::string &text, const PresetIdx &pr)
+{
+    if (pr.comps.empty())
+        return "    ";
+
+    const size_t ls = lineStartOf(text, pr.comps[0].stmtA);
+
+    if (ls < pr.comps[0].stmtA &&
+        text.find_first_not_of(" \t", ls) >= pr.comps[0].stmtA)
+        return text.substr(ls, pr.comps[0].stmtA - ls);
+
+    return "    ";
+}
+
+static PresetIdx *
+findPreset (Index &ix, const std::string &name)
+{
+    for (size_t i = 0; i < ix.presets.size(); i++)
+        if (ix.presets[i].name == name)
+            return &ix.presets[i];
+
+    return NULL;
+}
+
+/* Every stage param whose value is the bare word `name'.
+ *
+ * A scale reference and a preset reference are spelled identically -- a
+ * bare word -- and this index does not know which params are which type,
+ * because that is the plugin's business and thcGenEdit deliberately does
+ * not load plugins. So this over-reports by design: a stage whose NOTESET
+ * param names a scale that happens to share a preset's name counts here.
+ * The consequence is a removal refused that could have gone ahead, which
+ * is the safe direction and is fixed by not naming two things the same. */
+static int
+referencesTo (const Index &ix, const std::string &name,
+              std::string &firstWhere)
+{
+    int n = 0;
+
+    for (size_t ci = 0; ci < ix.chains.size(); ci++)
+        for (size_t si = 0; si < ix.chains[ci].stages.size(); si++)
+            for (size_t pi = 0;
+                 pi < ix.chains[ci].stages[si].params.size(); pi++)
+                if (ix.chains[ci].stages[si].params[pi].valueText == name)
+                {
+                    if (n == 0)
+                        firstWhere = ix.chains[ci].name + "'s stage " +
+                            ix.chains[ci].stages[si].name;
+
+                    n++;
+                }
+
+    return n;
+}
+
+R
+thcGenEdit::addPreset (const std::string &filename, const std::string &name,
+                       const std::vector<PresetValue> &values,
+                       std::string &why)
+{
+    if (!validName(name))
+    {
+        why = "'" + name + "' is not a name the file format accepts";
+        return REFUSED;
+    }
+
+    if (values.empty())
+    {
+        why = "a preset needs at least one value";
+        return REFUSED;
+    }
+
+    for (size_t i = 0; i < values.size(); i++)
+    {
+        if (!validName(values[i].name))
+        {
+            why = "'" + values[i].name + "' is not a chanarg name";
+            return REFUSED;
+        }
+
+        for (size_t k = 0; k < i; k++)
+            if (values[k].name == values[i].name)
+            {
+                why = "'" + values[i].name + "' is set twice";
+                return REFUSED;
+            }
+
+        std::string num;
+
+        if (!thcGenEdit::format(values[i].value, num))
+        {
+            why = "that value cannot be written in a .gen";
+            return REFUSED;
+        }
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    if (findPreset(ix, name) != NULL)
+    {
+        why = "there is already a preset called " + name;
+        return REFUSED;
+    }
+
+    std::string body;
+
+    for (size_t i = 0; i < values.size(); i++)
+        body += presetLine("    ", values[i].name, values[i].value);
+
+    const std::string block = "preset " + name + " {\n" + body + "};\n";
+
+    /* After the last scale or preset already there; failing that, before
+       the first chain; failing that, at the end. That is the order the
+       loader requires -- a named object has to be declared before the
+       chain that refers to it -- and it puts a new preset where an author
+       would have written one. */
+    size_t after = std::string::npos;
+
+    if (!ix.presets.empty())
+        after = ix.presets[ix.presets.size() - 1].stmtB;
+    else if (!ix.scales.empty())
+        after = ix.scales[ix.scales.size() - 1].stmtB;
+
+    std::vector<Edit> edits;
+
+    if (after != std::string::npos)
+    {
+        /* The start of the line after that statement's, so the insert
+           lands between whole lines and any trailing comment on it stays
+           where its author put it. */
+        const size_t nl = text.find('\n', after);
+        const size_t at = (nl == std::string::npos) ? text.size() : nl + 1;
+
+        edits.push_back({ at, at, "\n" + block });
+    }
+    else if (ix.firstChainOff != std::string::npos)
+    {
+        const size_t at = lineStartOf(text, ix.firstChainOff);
+
+        edits.push_back({ at, at, block + "\n" });
+    }
+    else
+    {
+        if (!text.empty() && text[text.size() - 1] != '\n')
+            text += "\n";
+
+        edits.push_back({ text.size(), text.size(), "\n" + block });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::setPresetValue (const std::string &filename,
+                            const std::string &preset,
+                            const std::string &component,
+                            double value, std::string &why)
+{
+    std::string num;
+
+    if (!thcGenEdit::format(value, num))
+    {
+        why = "that value cannot be written in a .gen";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, preset);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + preset;
+        return NOT_FOUND;
+    }
+
+    for (size_t i = 0; i < pr->comps.size(); i++)
+        if (pr->comps[i].name == component)
+        {
+            std::vector<Edit> edits;
+
+            /* A no-op write changes no byte, which is the property the
+               whole splice model rests on. */
+            if (text.compare(pr->comps[i].valA,
+                             pr->comps[i].valB - pr->comps[i].valA, num) != 0)
+                edits.push_back({ pr->comps[i].valA, pr->comps[i].valB, num });
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = preset + " does not set " + component;
+    return NOT_FOUND;
+}
+
+R
+thcGenEdit::addPresetValue (const std::string &filename,
+                            const std::string &preset,
+                            const std::string &component,
+                            double value, std::string &why)
+{
+    if (!validName(component))
+    {
+        why = "'" + component + "' is not a chanarg name";
+        return REFUSED;
+    }
+
+    std::string num;
+
+    if (!thcGenEdit::format(value, num))
+    {
+        why = "that value cannot be written in a .gen";
+        return REFUSED;
+    }
+
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, preset);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + preset;
+        return NOT_FOUND;
+    }
+
+    for (size_t i = 0; i < pr->comps.size(); i++)
+        if (pr->comps[i].name == component)
+        {
+            why = preset + " already sets " + component;
+            return REFUSED;
+        }
+
+    /* At the end of the block, not in some canonical slot: a preset is a
+       vector and its order is the author's. Reshuffling someone's file
+       into the order this writer would have chosen is an edit nobody
+       asked for -- the same rule the .dsp writer follows. */
+    std::vector<Edit> edits;
+
+    const size_t ls = lineStartOf(text, pr->bodyClose);
+
+    /* Whether the closing brace has a line to itself decides how the new
+       component is written, and getting this wrong is not cosmetic. A
+       preset written `preset p { a = 1; };' has its `}' on the same line
+       as the `preset' keyword, so the start of that line is *before* the
+       block -- inserting there would put the new component above the
+       statement it belongs to and break the file. Multi-line blocks get
+       a line of their own; a one-liner stays a one-liner. */
+    if (text.find_first_not_of(" \t", ls) >= pr->bodyClose)
+        edits.push_back({ ls, ls,
+                          presetLine(presetIndent(text, *pr), component,
+                                     value) });
+    else
+    {
+        std::string num;
+
+        thcGenEdit::format(value, num);
+
+        /* A space of our own only where there is not one already, so
+           `{ a = 1; }' and `{ a = 1;}' both come out readable. */
+        const bool spaced = pr->bodyClose > 0 &&
+            (text[pr->bodyClose - 1] == ' ' ||
+             text[pr->bodyClose - 1] == '\t');
+
+        edits.push_back({ pr->bodyClose, pr->bodyClose,
+                          (spaced ? "" : " ") + component + " = " + num +
+                          "; " });
+    }
+
+    return finish(filename, text, edits, why);
+}
+
+R
+thcGenEdit::removePresetValue (const std::string &filename,
+                               const std::string &preset,
+                               const std::string &component,
+                               std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, preset);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + preset;
+        return NOT_FOUND;
+    }
+
+    for (size_t i = 0; i < pr->comps.size(); i++)
+        if (pr->comps[i].name == component)
+        {
+            if (pr->comps.size() == 1)
+            {
+                why = component + " is all " + preset + " sets, and a "
+                    "preset that sets nothing will not load";
+                return REFUSED;
+            }
+
+            std::vector<Edit> edits;
+
+            edits.push_back(eraseStmt(text, pr->comps[i].stmtA,
+                                      pr->comps[i].stmtB));
+
+            return finish(filename, text, edits, why);
+        }
+
+    why = preset + " does not set " + component;
+    return NOT_FOUND;
+}
+
+R
+thcGenEdit::removePreset (const std::string &filename,
+                          const std::string &name, std::string &why)
+{
+    std::string text;
+    Index ix;
+    R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    PresetIdx *pr = findPreset(ix, name);
+
+    if (pr == NULL)
+    {
+        why = "no preset called " + name;
+        return NOT_FOUND;
+    }
+
+    std::string where;
+    const int refs = referencesTo(ix, name, where);
+
+    if (refs > 0)
+    {
+        /* Refused rather than inlined, because there is nothing to inline
+           into: the format has no literal form for a chanarg vector, on
+           purpose. Naming where the first reference is, because "it is
+           used" without "by what" sends the reader through the file. */
+        std::ostringstream m;
+
+        m << name << " is still used by " << where;
+
+        if (refs > 1)
+            m << " and " << (refs - 1) << " other"
+              << (refs > 2 ? "s" : "");
+
+        why = m.str();
+        return REFUSED;
+    }
+
+    std::vector<Edit> edits;
+
+    edits.push_back(eraseStmt(text, pr->stmtA, pr->stmtB));
+
+    return finish(filename, text, edits, why);
+}
+
 R
 thcGenEdit::addChain (const std::string &filename, const std::string &name,
                       int channel, const std::string &stageName,
@@ -1541,9 +2032,11 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
         return REFUSED;
     }
 
-    if (channel < 0 || channel > 15)
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    if (channel < 1 || channel > 16)
     {
-        why = "channel is 0-15";
+        why = "channel is 1-16";
         return REFUSED;
     }
 
@@ -1902,9 +2395,11 @@ thcGenEdit::addSink (const std::string &filename, const std::string &chain,
                      int channel, const std::string &chanarg,
                      std::string &why)
 {
-    if (channel < 0 || channel > 15)
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    if (channel < 1 || channel > 16)
     {
-        why = "channel is 0-15";
+        why = "channel is 1-16";
         return REFUSED;
     }
 
@@ -1982,9 +2477,11 @@ thcGenEdit::setSink (const std::string &filename, const std::string &chain,
                      int sinkIndex, int channel, const std::string &chanarg,
                      std::string &why)
 {
-    if (channel < 0 || channel > 15)
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    if (channel < 1 || channel > 16)
     {
-        why = "channel is 0-15";
+        why = "channel is 1-16";
         return REFUSED;
     }
 
