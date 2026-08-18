@@ -348,11 +348,20 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     double r = 1, g = 1, b = 1;
     bool isSink = box.what.kind == Selection::SINK;
 
-    if (isSink && box.channel >= 0)
-        /* The box carries the file's number, 1-16; the colour table is
-           the engine's, 0-15, and the piano roll draws delivered notes
-           with it. Off by one here would have every sink drawn in its
-           neighbour's colour. */
+    /* The box carries the file's number, 1-16; gthChannelColor speaks the
+       engine's, 0-15, and the piano roll draws delivered notes with it.
+       Off by one here would give every sink its neighbour's colour.
+     *
+       Ranged rather than merely non-negative, because this draws what
+       `describe' read and describe reports a file as written -- and a
+       file is only sometimes one the loader accepted. parseWork keeps
+       the window up after a failed load so the error can be read and the
+       piece edited, so a `channel = 0' left over from the old numbering
+       reaches here, and `>= 0' let it through as channel -1: a hue no
+       real channel has, on a sink that is not going to play. Out of
+       range now draws in the neutral colour a stage does, which is the
+       honest picture of a sink that names nothing. */
+    if (isSink && box.channel >= 1 && box.channel <= TH_MIDI_CHANNELS)
         gthChannelColor(box.channel - 1, r, g, b);
 
     cr->set_source_rgba(r, g, b, isSink ? 0.13 : 0.07);

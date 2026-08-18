@@ -53,9 +53,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include <filesystem>
+#include <fstream>
+
 #include <gtkmm.h>
 
 #include "think.h"
+
+#include "thUtil.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
@@ -195,6 +200,78 @@ run (const std::string &pluginPath, const char *genFile)
     return failures;
 }
 
+/* A piece the loader refuses, drawn anyway.
+ *
+ * parseWork deliberately keeps the window up after a failed load: the
+ * error has to be readable and the piece has to be editable, so the
+ * canvas goes on drawing what `describe' read -- and describe reports a
+ * file as written, not as validated. Everything downstream of it is
+ * therefore looking at numbers no loader ever approved.
+ *
+ * `channel = 0' is the sharpest case, because it is the one spelling the
+ * 1-16 renumbering made invalid, so it is exactly what an older file
+ * hands over. The canvas subtracts one to reach the engine's colour
+ * numbering and used to accept anything non-negative, which turned that
+ * into channel -1.
+ *
+ * What is asserted is only that the window builds, draws and closes.
+ * A wrong hue is not something a test can see; a window that will not
+ * come up is. */
+static int
+runRefused (const std::string &pluginPath)
+{
+    const std::string tmp = thUtil::tempFile("composercheck-bad-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
+    }
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "name \"refused\";\n"
+            "chain c {\n"
+            "    stage s gen::eno_line { notes = \"C4\"; };\n"
+            "    sink { channel = 0; };\n"     /* the old numbering       */
+            "};\n"
+            "chain d {\n"
+            "    stage s gen::eno_line { notes = \"E4\"; };\n"
+            "    sink { channel = 99; };\n"    /* and something absurd    */
+            "};\n";
+    }
+
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    Glib::setenv("THINK_GEN_PATH", tmp);
+
+    TestComposer *win = new TestComposer(&synth);
+
+    win->set_visible(true);
+    pump(6);
+
+    /* Drawn twice, with the edit panel in between, because the canvas is
+       rebuilt on the way through and a box built from a rejected file
+       has to survive both passes. */
+    win->editBtn_->set_active(true);
+    pump(6);
+    win->editBtn_->set_active(false);
+    pump(6);
+
+    ok("a piece the loader refused still draws");
+
+    delete win;
+    pump(2);
+
+    std::filesystem::remove(tmp);
+
+    ok("...and closes again");
+
+    return failures;
+}
+
 int
 main (int argc, char **argv)
 {
@@ -236,7 +313,13 @@ main (int argc, char **argv)
     int rc = 0;
 
     app->signal_activate().connect(
-        [&]() { rc = run(pluginPath, genFile); });
+        [&]()
+        {
+            rc = run(pluginPath, genFile);
+
+            if (rc == 0)
+                rc = runRefused(pluginPath);
+        });
 
     app->run();
 
