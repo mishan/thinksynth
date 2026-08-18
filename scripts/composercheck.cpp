@@ -90,6 +90,7 @@ public:
     using ComposerWindow::editBtn_;
     using ComposerWindow::kbdBtn_;
     using ComposerWindow::canvas_;
+    using ComposerWindow::canvasScroll_;
 };
 
 static int checks = 0;
@@ -246,6 +247,53 @@ run (const std::string &pluginPath, const char *genFile)
             fail("a stage did not fill the canvas when asked to");
         else
             ok("a stage fills the canvas when asked to");
+
+        /* And it follows the view rather than the drawing.
+         *
+           The canvas is sized to the whole piece and lives in a
+           scroller, so its own width and height are the size of
+           everything -- eight chains tall for an eight-chain piece.
+           Laying the enlarged stage out in *that* puts it at the top of
+           the content: fine while scrolled to the origin, and gone the
+           moment anybody scrolls, with a plugin handed a rectangle far
+           bigger than anything on screen. So: scroll, and check the
+           picture came along. */
+        {
+            double ex, ey, ew, eh;
+
+            Glib::RefPtr<Gtk::Adjustment> va =
+                win->canvasScroll_.get_vadjustment();
+
+            /* Skipped rather than failed with no piece loaded, which
+               is this harness's own state until the next commit fixes
+               it: THINK_GEN_PATH is being pointed at a file when
+               findDataFile wants a directory, so under ctest there is
+               nothing on the canvas to enlarge and nothing to scroll.
+               This check therefore says "skip" here and does its job
+               from the next commit onward -- which is where it was
+               verified by breaking enlargedRect. */
+            if (!win->canvas_->enlargedArea(ex, ey, ew, eh) ||
+                !va || va->get_upper() - va->get_page_size() < 60)
+                printf("skip  nothing large enough here to scroll\n");
+            else
+            {
+                const double was = ey;
+
+                va->set_value(va->get_value() + 60);
+                pump(4);
+
+                if (!win->canvas_->enlargedArea(ex, ey, ew, eh))
+                    fail("the enlarged stage lost its rectangle");
+                else if (ey <= was + 1)
+                    fail("the enlarged stage stayed behind when the "
+                         "canvas scrolled");
+                else
+                    ok("the enlarged stage follows the view");
+
+                va->set_value(0);
+                pump(4);
+            }
+        }
 
         win->canvas_->setEnlarged(ComposerCanvas::Selection());
         pump(4);

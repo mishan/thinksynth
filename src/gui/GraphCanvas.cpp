@@ -76,6 +76,25 @@ GraphCanvas::setZoom (double z)
     queue_draw();
 }
 
+/* The scrolled window this canvas lives in, or NULL. */
+static Gtk::ScrolledWindow *
+scrollerOf (Gtk::Widget *w)
+{
+    Gtk::Widget *p = w ? w->get_parent() : NULL;
+
+    while (p)
+    {
+        Gtk::ScrolledWindow *s = dynamic_cast<Gtk::ScrolledWindow *>(p);
+
+        if (s)
+            return s;
+
+        p = p->get_parent();
+    }
+
+    return NULL;
+}
+
 /* The space available to draw in: the scrolled window's viewport, not
  * this widget, which has already been sized to the content. */
 static void
@@ -98,6 +117,50 @@ viewportSize (Gtk::Widget *w, int &cw, int &ch)
 
         p = p->get_parent();
     }
+}
+
+/* What can actually be seen, in the subclass's own coordinates.
+ *
+ * Not the widget's size: the widget is sized to the whole scaled
+ * drawing, so get_width() on a canvas in a scroller is the width of
+ * everything, scrolled off or not. Anything that wants to fill the
+ * *view* -- the composer's enlarged stage, a future overlay -- has to
+ * ask for the viewport and where it currently sits, or it will lay
+ * itself out across the content and be somewhere else the moment
+ * anybody scrolls.
+ *
+ * Falls back to the widget when there is no scroller, which is what a
+ * canvas built by a harness looks like. */
+void
+GraphCanvas::visibleRect (double &x, double &y, double &w, double &h) const
+{
+    x = y = 0;
+    w = get_width() / zoom_;
+    h = get_height() / zoom_;
+
+    Gtk::ScrolledWindow *sw = scrollerOf(const_cast<GraphCanvas *>(this));
+
+    if (sw == NULL)
+        return;
+
+    int cw = 0, ch = 0;
+
+    viewportSize(const_cast<GraphCanvas *>(this), cw, ch);
+
+    if (cw < 1 || ch < 1)
+        return;
+
+    Glib::RefPtr<Gtk::Adjustment> ha = sw->get_hadjustment();
+    Glib::RefPtr<Gtk::Adjustment> va = sw->get_vadjustment();
+
+    if (ha)
+        x = ha->get_value() / zoom_;
+
+    if (va)
+        y = va->get_value() / zoom_;
+
+    w = cw / zoom_;
+    h = ch / zoom_;
 }
 
 void
@@ -151,7 +214,7 @@ GraphCanvas::onResize (int, int)
 }
 
 bool
-GraphCanvas::onScroll (double, double dy)
+GraphCanvas::onScroll (double dx, double dy)
 {
     /* Ctrl+wheel zooms; a bare wheel is left to the scrolled window,
      * which is what people expect of a large canvas.
@@ -164,10 +227,18 @@ GraphCanvas::onScroll (double, double dy)
         != Gdk::ModifierType::CONTROL_MASK)
         return false;
 
-    if (dy == 0.0)
-        return false;
+    /* Either axis. The controller was asked for BOTH_AXES so that a
+       touchpad's sideways deltas do not leak past it to the scroller,
+       and then this looked at dy alone: a Ctrl-held horizontal scroll
+       fell through and *panned*, which is the one thing holding Ctrl
+       was meant to stop. A wheel is dy and a touchpad's sideways swipe
+       is dx, and with Ctrl down both mean the same thing. */
+    const double d = dy != 0.0 ? dy : dx;
 
-    setZoom(dy < 0.0 ? zoom_ * 1.1 : zoom_ / 1.1);
+    if (d == 0.0)
+        return true;      /* Ctrl was held: eaten either way            */
+
+    setZoom(d < 0.0 ? zoom_ * 1.1 : zoom_ / 1.1);
 
     return true;
 }

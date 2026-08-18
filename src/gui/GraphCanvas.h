@@ -85,6 +85,11 @@ protected:
        no toWidget to go with this. */
     void toContent (double sx, double sy, double &cx, double &cy) const;
 
+    /* What can be seen right now, in the subclass's coordinates: where
+       the viewport starts and how big it is. Not the widget's size --
+       the widget is the whole drawing. */
+    void visibleRect (double &x, double &y, double &w, double &h) const;
+
     /* Call when the drawing's size changed. Re-requests the widget size
        so the scroller knows what it is scrolling. */
     void contentResized (void);

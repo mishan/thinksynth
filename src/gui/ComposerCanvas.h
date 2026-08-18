@@ -102,6 +102,14 @@ public:
     /* The enlarged stage changed (or went away). */
     sigc::signal<void (const Selection &)> sigEnlarged;
 
+    /* Where the enlarged picture would go, in laid-out coordinates.
+       False if no stage is enlarged. Answers about the view rather than
+       about whether the stage has a picture to put there.
+     *
+       Public so that "it follows the viewport" is a thing a harness can
+       ask rather than a thing the code claims. */
+    bool enlargedArea (double &x, double &y, double &w, double &h) const;
+
 protected:
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);

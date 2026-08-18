@@ -625,6 +625,24 @@ ComposerCanvas::enlargedStage (void) const
     return (s != NULL && s->plugin->hasDraw()) ? s : NULL;
 }
 
+bool
+ComposerCanvas::enlargedArea (double &x, double &y, double &w,
+                              double &h) const
+{
+    /* About the view, not about the picture. enlargedStage() also asks
+       whether the stage exports composer_draw, which is the right
+       question for whether to draw anything and the wrong one here: the
+       rectangle is where the picture *would* go, and that is geometry a
+       harness can check on any piece rather than only on one whose first
+       stage happens to have a face. */
+    if (enlarged_.kind != Selection::STAGE)
+        return false;
+
+    enlargedRect(x, y, w, h);
+
+    return true;
+}
+
 void
 ComposerCanvas::enlargedRect (double &x, double &y, double &w,
                               double &h) const
@@ -632,14 +650,25 @@ ComposerCanvas::enlargedRect (double &x, double &y, double &w,
     const double pad = 8;
     const double head = 18;          /* room for the label above it     */
 
-    /* The widget's pixels divided by the zoom: the enlarged draw fills
-       the visible canvas whatever scale it is being shown at, and a
-       plugin goes on being handed a rectangle in the same coordinates
-       everything else here uses. */
-    x = pad;
-    y = pad + head;
-    w = get_width() / zoom() - 2 * pad;
-    h = get_height() / zoom() - 2 * pad - head;
+    /* The part of the canvas that can be seen, in the same coordinates
+       everything else here uses.
+     *
+       The widget's own size is the whole drawing, not the view: this
+       canvas sizes itself to the scaled content and lives in a
+       scroller, so a piece of eight chains makes get_height() eight
+       chains tall. Laying the enlarged stage out in that put it at the
+       top of the content rather than in front of the person -- fine
+       while scrolled to the origin, and off-screen the moment they were
+       not, with a plugin handed a rectangle far larger than anything
+       visible. */
+    double vx, vy, vw, vh;
+
+    visibleRect(vx, vy, vw, vh);
+
+    x = vx + pad;
+    y = vy + pad + head;
+    w = vw - 2 * pad;
+    h = vh - 2 * pad - head;
 
     if (w < 1) w = 1;
     if (h < 1) h = 1;
