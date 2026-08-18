@@ -96,6 +96,27 @@ ComposerCanvas::ComposerCanvas (void)
     add_controller(drag);
 }
 
+/* The laid-out rows, plus a margin so the rightmost ghost box does not
+   sit against the edge. Zero before the first rebuild, which the base
+   reads as "nothing to size to" and leaves alone. */
+void
+ComposerCanvas::contentExtent (double &w, double &h) const
+{
+    w = h = 0;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].x + boxes_[i].w > w)
+            w = boxes_[i].x + boxes_[i].w;
+
+        if (boxes_[i].y + boxes_[i].h > h)
+            h = boxes_[i].y + boxes_[i].h;
+    }
+
+    if (w > 0) w += 12;
+    if (h > 0) h += 12;
+}
+
 void
 ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
 {
@@ -106,6 +127,7 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
     feeding_ = false;
 
     rebuild();
+    contentResized();
 
     /* A reload rebuilds every instance, so the enlarged stage is a new
        object at the same address in the piece -- or gone, if the edit
@@ -469,6 +491,12 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
     if (doc_ == NULL)
         return;
 
+    /* Everything below is drawn in the coordinates rebuild() laid the
+       boxes out in; the zoom is one transform at the top rather than a
+       multiply on every number. Ctrl+wheel drives it, and the scrolled
+       window this lives in does the scrolling. */
+    cr->scale(zoom(), zoom());
+
     cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
                          Cairo::ToyFontFace::Weight::NORMAL);
 
@@ -604,10 +632,14 @@ ComposerCanvas::enlargedRect (double &x, double &y, double &w,
     const double pad = 8;
     const double head = 18;          /* room for the label above it     */
 
+    /* The widget's pixels divided by the zoom: the enlarged draw fills
+       the visible canvas whatever scale it is being shown at, and a
+       plugin goes on being handed a rectangle in the same coordinates
+       everything else here uses. */
     x = pad;
     y = pad + head;
-    w = get_width() - 2 * pad;
-    h = get_height() - 2 * pad - head;
+    w = get_width() / zoom() - 2 * pad;
+    h = get_height() / zoom() - 2 * pad - head;
 
     if (w < 1) w = 1;
     if (h < 1) h = 1;
@@ -665,8 +697,16 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
 }
 
 void
-ComposerCanvas::onPressed (int nPress, double x, double y, int button)
+ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 {
+    /* Every gesture arrives in widget pixels and everything below thinks
+       in the laid-out coordinates the boxes were placed in. One
+       conversion at the door, so nothing further in has to remember
+       which of the two it is holding. */
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
     pressX_ = x;
     pressY_ = y;
 
@@ -716,10 +756,14 @@ ComposerCanvas::onPressed (int nPress, double x, double y, int button)
 }
 
 void
-ComposerCanvas::onReleased (int, double x, double y, int)
+ComposerCanvas::onReleased (int, double sx, double sy, int)
 {
     if (!feeding_)
         return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
 
     /* The button the gesture began with, not whichever one the
        controller reports now: a release that named a different button
@@ -729,10 +773,16 @@ ComposerCanvas::onReleased (int, double x, double y, int)
 }
 
 void
-ComposerCanvas::onMotion (double x, double y)
+ComposerCanvas::onMotion (double sx, double sy)
 {
-    if (feeding_)
-        feedInput(THC_IN_DRAG, x, y, feedButton_);
+    if (!feeding_)
+        return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
+    feedInput(THC_IN_DRAG, x, y, feedButton_);
 }
 
 bool
@@ -748,7 +798,7 @@ ComposerCanvas::onKey (guint keyval, guint, Gdk::ModifierType)
 }
 
 void
-ComposerCanvas::onDragBegin (double x, double y)
+ComposerCanvas::onDragBegin (double sx, double sy)
 {
     dragBox_ = -1;
     dragDx_ = 0;
@@ -758,6 +808,10 @@ ComposerCanvas::onDragBegin (double x, double y)
        the enlarged view at all -- there are no stage boxes to move. */
     if (feeding_ || enlarged_.kind != Selection::NONE)
         return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
 
     const Box *box = hit(x, y);
 
@@ -771,7 +825,11 @@ ComposerCanvas::onDragUpdate (double dx, double)
     if (dragBox_ < 0)
         return;
 
-    dragDx_ = dx;
+    /* A gesture's offset is in widget pixels and everything it is about
+       to be compared against -- the box's x, the slot width -- is in
+       laid-out ones. Dividing rather than calling toContent because this
+       is a delta and not a point: an origin has no place in it. */
+    dragDx_ = dx / zoom();
 
     /* Which slot would this land in? The box's center, in stage-slot
        units, clamped to the chain's stages. */
