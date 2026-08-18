@@ -60,6 +60,11 @@ static const double KNOB_H   = 38;
 static const double KNOB_GAP = 10;
 static const int    KNOB_COLS = 6;
 
+/* How near a knob's port counts as on it. Four pixels of circle is what
+ * is drawn; nine is what answers, because it is a drag handle and a
+ * handle you have to be accurate about is one nobody finds twice. */
+static const double PORT_GRAB = 9;
+
 ComposerCanvas::ComposerCanvas (void)
     : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1),
       feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
@@ -757,6 +762,32 @@ ComposerCanvas::knobPortAt (const Box &b, double &x, double &y)
     y = b.y + b.h;
 }
 
+/* Which knob node's port a point is on, or -1.
+ *
+ * A scan rather than a question about the box under the point, because
+ * the port straddles the box's bottom edge and half of it is therefore
+ * over whatever is below. Generous on purpose: it is a drag handle, and
+ * PORT_GRAB is the radius that makes it one. */
+int
+ComposerCanvas::knobPortAt (double x, double y) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].what.kind != Selection::KNOB)
+            continue;
+
+        double px, py;
+
+        knobPortAt(boxes_[i], px, py);
+
+        if ((x - px) * (x - px) + (y - py) * (y - py) <=
+            PORT_GRAB * PORT_GRAB)
+            return (int)i;
+    }
+
+    return -1;
+}
+
 const ComposerCanvas::Box *
 ComposerCanvas::knobBox (const std::string &name) const
 {
@@ -1200,6 +1231,30 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 
     const Box *box = hit(x, y);
 
+    /* A knob's output port, before the hit test gets a say.
+     *
+       The port is centred on the box's bottom edge, so half of it is
+       outside the box -- and `hit' stops at the edge, so a press on the
+       lower half found no box at all and the branch below never ran.
+       The target that was described as generous was in fact half of a
+       small circle, and which half depended on nothing the user could
+       see. Scanned directly instead, over the knob boxes, so the whole
+       circle answers. */
+    if (button == 1 && nPress == 1)
+    {
+        const int k = knobPortAt(x, y);
+
+        if (k >= 0)
+        {
+            select(boxes_[k].what);
+            wireFrom_ = k;
+            wireX_ = x;
+            wireY_ = y;
+            queue_draw();
+            return;
+        }
+    }
+
     /* The params handle, before anything else a press on a stage box
        could mean: it sits inside the box's title bar, so a selection or
        a drag would otherwise swallow it.
@@ -1225,29 +1280,10 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
         }
     }
 
-    /* A knob node: its port starts a wire, its track sets the value,
-       and anywhere else selects it.
-     *
-       The port is tested first and generously -- it sits on the box's
-       bottom edge, so half of it is outside the box the hit test just
-       found, and a target you have to be precise about is one nobody
-       finds twice. */
+    /* A knob node's track sets the value; anywhere else on it selects
+       it. (The port was taken above, before the hit test.) */
     if (box != NULL && box->what.kind == Selection::KNOB && button == 1)
     {
-        double px, py;
-
-        knobPortAt(*box, px, py);
-
-        if ((x - px) * (x - px) + (y - py) * (y - py) <= 9 * 9)
-        {
-            select(box->what);
-            wireFrom_ = (int)(box - &boxes_[0]);
-            wireX_ = x;
-            wireY_ = y;
-            queue_draw();
-            return;
-        }
-
         double x0, x1, ty;
 
         knobTrackRect(*box, x0, x1, ty);

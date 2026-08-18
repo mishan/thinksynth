@@ -1119,10 +1119,16 @@ ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
     if (!commit)
         return;
 
+    /* Through editOk, like every other edit in this file: a splice that
+       fails says so on the status line. It used to test for OK and
+       otherwise do nothing at all, so a knob dragged against an
+       unwritable working copy moved on screen, moved the piece, and left
+       the file behind without a word -- which is the failure mode where
+       silence costs the most, because everything else about it looked
+       like it had worked. */
     std::string why;
 
-    if (thcGenEdit::setKnobValue(workPath_, name, value, why) ==
-        thcGenEdit::OK)
+    if (editOk(thcGenEdit::setKnobValue(workPath_, name, value, why), why))
         setDirty(true);
 
     /* The Knobs section's own slider is now stale. Only when the panel

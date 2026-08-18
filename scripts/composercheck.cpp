@@ -95,6 +95,7 @@ public:
     using ComposerWindow::paramPop_;
     using ComposerWindow::structuralReload;
     using ComposerWindow::workPath_;
+    using ComposerWindow::status_;
     using ComposerWindow::sched_;
 };
 
@@ -565,6 +566,37 @@ run (const std::string &pluginPath, const char *genFile)
                 pump(4);
             }
 
+            /* The port's lower half, which is outside the box.
+             *
+               The port is centred on the knob box's bottom edge, so half
+               of it hangs below -- and hit() stops at the edge, so a
+               press down there used to find no box and start no wire.
+               The target described as generous was half a small circle,
+               and which half depended on nothing anyone could see. */
+            if (win->canvas_->stageRect(0, 0, at))
+            {
+                const double dx = at.get_x() + at.get_width() / 2;
+                const double dy = at.get_y() + at.get_height() / 2;
+
+                win->canvas_->pressAt(px, py + 4, 1, 1);
+                pump(1);
+                win->canvas_->motionTo(dx, dy);
+                pump(1);
+                win->canvas_->releaseAt(dx, dy, 1);
+                pump(4);
+
+                if (win->paramPop_ == NULL ||
+                    !win->paramPop_->get_visible())
+                    fail("the underside of a knob's port started no wire");
+                else
+                    ok("...from either side of the port");
+
+                if (win->paramPop_ != NULL)
+                    win->paramPop_->popdown();
+
+                pump(4);
+            }
+
             /* And dropped on nothing, it is nothing: a wire the user
                thought better of has to be abandonable, or the only way
                out of starting one is to bind something. */
@@ -583,6 +615,58 @@ run (const std::string &pluginPath, const char *genFile)
 
         win->canvas_->setZoom(1.0);
         pump(2);
+    }
+
+    /* A splice that cannot be written says so.
+     *
+       Every edit in the window reports through editOk, which puts the
+       reason on the status line; the knob's commit tested for OK and
+       otherwise did nothing, so a knob dragged against a working copy it
+       could not write moved on screen, moved the piece, and left the
+       file behind in silence. That is the failure where silence costs
+       most, because everything visible looked like it had worked.
+
+       Forced by moving the working copy out from under the window. The
+       first attempt at this took write permission off the file instead,
+       and it did not bite: thcGenEdit writes a temp file and renames it
+       over the target, and a rename is governed by the directory. The
+       splice succeeded, the status line went on showing the piece's
+       name, and the check passed with the fix removed -- which is how it
+       was caught.
+
+       Compared against what the line said before rather than against
+       empty, for the same reason: a successful edit rewrites it with the
+       piece's name, so "not empty" is true either way. */
+    {
+        double kx0, kx1, kyy;
+
+        if (win->canvas_->knobTrack("density", kx0, kx1, kyy) &&
+            !win->workPath_.empty())
+        {
+            const std::string aside = win->workPath_ + ".away";
+            const std::string before = win->status_->get_text();
+
+            std::error_code ec;
+
+            std::filesystem::rename(win->workPath_, aside, ec);
+
+            if (ec)
+                printf("skip  could not move the working copy aside\n");
+            else
+            {
+                win->canvas_->pressAt((kx0 + kx1) / 2, kyy, 1, 1);
+                pump(1);
+                win->canvas_->releaseAt(kx1, kyy, 1);
+                pump(4);
+
+                if (win->status_->get_text() == before)
+                    fail("a knob splice failed and said nothing");
+                else
+                    ok("a splice that cannot be written says so");
+
+                std::filesystem::rename(aside, win->workPath_, ec);
+            }
+        }
     }
 
     delete win;

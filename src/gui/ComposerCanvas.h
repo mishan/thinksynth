@@ -228,6 +228,9 @@ private:
                                double &y);
     static void knobPortAt (const Box &b, double &x, double &y);
 
+    /* Which knob's port a point is on, or -1. */
+    int knobPortAt (double x, double y) const;
+
     const Box *knobBox (const std::string &name) const;
 
     /* Every wire the piece declares: from a knob node's port to the
