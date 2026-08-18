@@ -105,7 +105,6 @@ protected:
     /* An edit operation's outcome, shown to the person when it is no. */
     bool editOk (thcGenEdit::Result r, const std::string &why);
 
-    void rebuildKnobs (void);
     bool onDrawTimer (void);
 
     /* ---- the editor panel -------------------------------------------- */
@@ -142,6 +141,10 @@ protected:
     void onCanvasSelection (const ComposerCanvas::Selection &sel);
     void onCanvasMoveStage (size_t chain, int from, int to);
     void onCanvasParams (size_t chain, size_t stage, Gdk::Rectangle at);
+    void buildKnobSelection (size_t ki);
+    void onCanvasKnob (std::string name, double value, bool commit);
+    void onCanvasBindKnob (std::string knob, size_t chain, size_t stage,
+                           Gdk::Rectangle at);
     void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a
@@ -193,7 +196,6 @@ protected:
     Gtk::Box *selBox_;
 
     /* One slider per @knob the piece declares, rebuilt on load. */
-    Gtk::Box knobBar_{Gtk::Orientation::HORIZONTAL};
 
     /* The node view, above the roll; inline composer_draw replaced the
        old draw strip. */

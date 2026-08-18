@@ -21,6 +21,8 @@
 
 #include <string>
 #include <vector>
+#include <functional>
+
 #include <gtkmm.h>
 
 #include "libthink/thcomposer.h"   /* thcInputEvent */
@@ -82,7 +84,7 @@ public:
     struct Selection
     {
         enum Kind { NONE, CHAIN, STAGE, SINK, ADD_STAGE, ADD_SINK,
-                    ADD_CHAIN } kind;
+                    ADD_CHAIN, KNOB } kind;
 
         size_t chain;        /* meaningful for all but NONE/ADD_CHAIN   */
         size_t index;        /* stage or sink index                     */
@@ -117,6 +119,24 @@ public:
        already working in it, and it costs the drawing nothing. */
     sigc::signal<void (size_t, size_t, Gdk::Rectangle)> sigParams;
 
+    /* A knob node dragged: its name, the new value, and whether this is
+       the committing one. Same shape and same reason as sigParams'
+       neighbours -- live all the way down the drag, spliced once at the
+       end. */
+    sigc::signal<void (std::string, double, bool)> sigKnob;
+
+    /* A wire dropped from a knob node onto a stage: the knob's name,
+       which stage, and where its box is for the popover that asks which
+       param the wire is for.
+     *
+       The canvas cannot answer that question itself -- it would need a
+       list of the stage's params with their types, which is the Edit
+       panel's business -- and it should not: dropping a wire on a box
+       with six params is genuinely ambiguous, and guessing would be
+       worse than asking. */
+    sigc::signal<void (std::string, size_t, size_t,
+                       Gdk::Rectangle)> sigBindKnob;
+
     /* Which stage is filling the canvas, or NONE. Public so the window
        can label what it is showing and offer to capture it. */
     const Selection &enlarged (void) const { return enlarged_; }
@@ -127,6 +147,12 @@ public:
 
     /* Where a stage's box is, in widget pixels. */
     bool stageRect (size_t chain, size_t stage, Gdk::Rectangle &at) const;
+
+    /* Where a knob node's value track is, in widget pixels, and where
+       its output port is. False if there is no such knob. */
+    bool knobTrack (const std::string &name,
+                    double &x0, double &x1, double &y) const;
+    bool knobPort (const std::string &name, double &x, double &y) const;
 
     /* Where its params handle is, in widget pixels.
      *
@@ -169,6 +195,10 @@ private:
         std::string sub;         /* stage name, or the sink's target    */
         thcStage *live;          /* for composer_draw; may be NULL      */
         int channel;             /* sinks: for the hue                  */
+
+        /* Knob nodes: what the knob reads and the range it reads it in.
+           Unused, and left alone, by every other kind. */
+        double kv, klo, khi;
         bool ghost;              /* an add-slot                         */
     };
 
@@ -183,6 +213,26 @@ private:
     static void twistyRect (const Box &b, double &x, double &y, double &s);
 
     Gdk::Rectangle boxRect (const Box &b) const;
+
+    /* A knob node's value track and its output port, in box space. */
+    static void knobTrackRect (const Box &b, double &x0, double &x1,
+                               double &y);
+    static void knobPortAt (const Box &b, double &x, double &y);
+
+    const Box *knobBox (const std::string &name) const;
+
+    /* Every wire the piece declares: from a knob node's port to the
+       stage box that reads it. Laid out on demand rather than stored,
+       because a binding lives in the live stage and the live stage is
+       replaced on every reload. */
+    void eachWire (const std::function<void (const Box &knob,
+                                             const Box &stage,
+                                             const std::string &param)>
+                   &fn) const;
+
+    void drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
+                   const Box &box, bool selected) const;
+    void drawWires (const Cairo::RefPtr<Cairo::Context> &cr) const;
 
     /* The live stage filling the canvas, or NULL. */
     thcStage *enlargedStage (void) const;
@@ -215,6 +265,14 @@ private:
        press carried is the one the whole gesture is made with. */
     bool feeding_;
     int  feedButton_;
+
+    /* The knob node whose value is being dragged, or -1. */
+    int dragKnob_;
+
+    /* The knob a wire is being pulled from, or -1, and where the far end
+       of it is right now, in laid-out coordinates. */
+    int  wireFrom_;
+    double wireX_, wireY_;
 
     /* Drag state: which stage box is in flight, and where the pointer
        has carried it. dropAt_ is the insertion index the drop would

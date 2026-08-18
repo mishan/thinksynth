@@ -92,6 +92,8 @@ public:
     using ComposerWindow::canvas_;
     using ComposerWindow::doc_;
     using ComposerWindow::paramPop_;
+    using ComposerWindow::workPath_;
+    using ComposerWindow::sched_;
 };
 
 static int checks = 0;
@@ -416,6 +418,111 @@ run (const std::string &pluginPath, const char *genFile)
                 fail("the params popover would not go away");
             else
                 ok("the params popover closes again");
+        }
+
+        win->canvas_->setZoom(1.0);
+        pump(2);
+    }
+
+    /* The knob nodes: a control and a source, both on the canvas.
+     *
+       Still at zoom 0.5, and for the same reason -- a knob node's track
+       and its port are two small targets a few pixels apart, and a
+       handler that forgot to convert would hit the wrong one or neither.
+
+       airports is the piece for this too: one knob, @density, bound into
+       every one of its seven chains, which is the case the wire drawing
+       exists to survive. */
+    {
+        double x0, x1, ky, px, py;
+
+        win->canvas_->setZoom(0.5);
+        pump(2);
+
+        if (!win->canvas_->knobTrack("density", x0, x1, ky) ||
+            !win->canvas_->knobPort("density", px, py))
+            fail("@density has no node on the canvas");
+        else
+        {
+            thArg *arg = win->sched_->knob("density");
+
+            if (arg == NULL)
+                fail("the piece has no live @density to drive");
+            else
+            {
+                const std::string before = readFile(win->workPath_);
+                const double was = (*arg)[0];
+
+                /* Left end, then right end: whichever the knob started
+                   at, one of the two is a change, and the far end is
+                   its declared maximum. */
+                const double toX = was > (arg->min() + arg->max()) / 2
+                    ? x0 : x1;
+
+                win->canvas_->pressAt((x0 + x1) / 2, ky, 1, 1);
+                pump(1);
+                win->canvas_->motionTo(toX, ky);
+                pump(1);
+                win->canvas_->releaseAt(toX, ky, 1);
+                pump(4);
+
+                if ((*arg)[0] == was)
+                    fail("dragging the knob node changed nothing");
+                else
+                    ok("a knob node drives the live piece");
+
+                if (readFile(win->workPath_) == before)
+                    fail("the knob drag never reached the file");
+                else
+                    ok("...and the working copy remembers where it ended");
+            }
+
+            /* A wire, pulled from the port onto a stage box. What is
+               asserted is that the drop asks -- the canvas deliberately
+               does not choose a param for you, because a stage with six
+               of them is six honest answers. */
+            Gdk::Rectangle at;
+
+            if (!win->canvas_->stageRect(0, 0, at))
+                fail("the first stage has no box to drop a wire on");
+            else
+            {
+                const double dx = at.get_x() + at.get_width() / 2;
+                const double dy = at.get_y() + at.get_height() / 2;
+
+                win->canvas_->pressAt(px, py, 1, 1);
+                pump(1);
+                win->canvas_->motionTo(dx, dy);
+                pump(1);
+                win->canvas_->releaseAt(dx, dy, 1);
+                pump(4);
+
+                if (win->paramPop_ == NULL ||
+                    !win->paramPop_->get_visible())
+                    fail("dropping a wire on a stage asked nothing");
+                else
+                    ok("a wire dropped on a stage asks which param");
+
+                if (win->paramPop_ != NULL)
+                    win->paramPop_->popdown();
+
+                pump(4);
+            }
+
+            /* And dropped on nothing, it is nothing: a wire the user
+               thought better of has to be abandonable, or the only way
+               out of starting one is to bind something. */
+            win->canvas_->pressAt(px, py, 1, 1);
+            pump(1);
+            win->canvas_->motionTo(px + 400, py + 400);
+            pump(1);
+            win->canvas_->releaseAt(px + 400, py + 400, 1);
+            pump(4);
+
+            if (win->paramPop_ != NULL && win->paramPop_->get_visible())
+                fail("a wire dropped on empty canvas bound something");
+            else
+                ok("...and a wire dropped on nothing is nothing");
         }
 
         win->canvas_->setZoom(1.0);
