@@ -1845,6 +1845,158 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(tmp);
 }
 
+/* ---- 6c. two things the window asks the scheduler ---------------------- */
+
+/* Does the tempo mean anything to this piece, and can a dead automaton
+ * be brought back?
+ *
+ * Both are here rather than in composercheck because both are questions
+ * about the *engine*, and the window only asks them. The tempo control
+ * was offered on every piece and did nothing on nine of eleven, because
+ * it scales beat-valued durations and most pieces are written in
+ * seconds -- and nudging it wrote a `tempo' line into a file that never
+ * had one. An empty CA ring is a fixed point for every rule that maps
+ * 000 to 0, so the knob that emptied it cannot refill it.
+ */
+static void
+checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
+                      thSynth *synth)
+{
+    const std::string tmp = thUtil::tempFile("gencheck-beats-");
+
+    if (tmp.empty())
+    {
+        fail("could not make a beats scratch file");
+        return;
+    }
+
+    /* Seconds only: the tempo has nothing to scale. */
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out << "chain c { stage s gen::eno_line { period = 2 s; };"
+               " sink { channel = 1; }; };\n";
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(tmp, &sched))
+            fail("the seconds-only piece did not load");
+        else if (sched.usesBeats())
+            fail("a piece written in seconds claimed the tempo moves it");
+    }
+
+    /* The same piece with one duration in beats. */
+    {
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out << "tempo 90;\n"
+               "chain c { stage s gen::eno_line { period = 2 beats; };"
+               " sink { channel = 1; }; };\n";
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(tmp, &sched))
+            fail("the beats piece did not load");
+        else if (!sched.usesBeats())
+            fail("a piece written in beats claimed the tempo does not "
+                 "move it");
+    }
+
+    /* --- a CA emptied by its rule, and clicked back --- */
+    if (plugins.find("ca") == plugins.end())
+    {
+        fail("the 'ca' module is missing; build the plugins first");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    {
+        /* Rule 0 sends every neighbourhood to 0, so the ring is empty
+           after one row and stays empty however the rule is changed --
+           which is exactly the state a knob can reach and not leave. */
+        std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+        out <<
+            "chain c {\n"
+            "    stage s gen::ca {\n"
+            "        rule = 0; width = 8; scatter = 0; trigger = 1;\n"
+            "        notes = \"C4 D4 E4 G4\";\n"
+            "        period = 0.25 s; hold = 0.2 s; vel = 90;\n"
+            "    };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(tmp, &sched))
+    {
+        fail("the dead-ca piece did not load");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    thcChain *c = sched.chain(0);
+
+    if (c == NULL || c->stages.empty())
+    {
+        fail("the dead-ca piece has no stage");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    thcStage *st = c->stages[0].get();
+
+    if (!st->plugin->hasInput())
+        fail("gen::ca does not export composer_input");
+
+    /* render() runs the transport *to* a time rather than for one, so
+       each leg names a later mark than the last. Passing the same bound
+       twice renders nothing at all, silently, which is a way to write a
+       test that always passes. */
+
+    render(sched, 4.0, 0.02);                    /* run it dead         */
+
+    const std::string silent = render(sched, 8.0, 0.02);
+
+    if (!silent.empty())
+        fail("rule 0 did not empty the ring");
+
+    /* Turning the knob does not help, which is the trap. */
+    st->params.set(st->plugin->paramIndex("rule"), 110);
+
+    if (!render(sched, 12.0, 0.02).empty())
+        fail("an empty ring came back from a rule change alone -- the "
+             "trap this is about does not exist");
+
+    /* A click does. The present row is the bottom band of the draw, and
+       the coordinates are the ones composer_draw is given. */
+    {
+        thcInputEvent ev;
+
+        ev.type = THC_IN_PRESS;
+        ev.x = 50;                  /* somewhere along the ring          */
+        ev.y = 99;                  /* the bottom row's band             */
+        ev.w = 100;
+        ev.h = 100;
+        ev.button = 1;
+
+        st->plugin->input(st->state, &ev);
+    }
+
+    if (render(sched, 16.0, 0.02).empty())
+        fail("a clicked cell did not bring the automaton back");
+
+    std::filesystem::remove(tmp);
+}
+
 /* ---- 7. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
@@ -1991,6 +2143,7 @@ main (int argc, char *argv[])
     checkEdits(plugins, &synth, genFile);
     checkPresets(plugins, &synth);
     checkInput(plugins, &synth);
+    checkTempoAndRevival(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

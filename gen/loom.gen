@@ -10,6 +10,14 @@
 # Underneath, rule 110 walks a sixteen-cell ring -- the loom -- and the
 # Rule knob rethreads it live. Try 90 for lace, 30 for boiling.
 #
+# A warning the knob cannot give you itself: some rules empty the ring,
+# and an empty ring stays empty under every rule that maps 000 to 0 --
+# which is half of them, rule 0 first among them. Turning the knob back
+# does not undo it, because there is nothing left for a rule to work on.
+# That is what a cellular automaton is, not a bug. To bring it back,
+# double-click the `src' stage on the canvas and click a cell: the grid
+# takes clicks, and one live cell is enough to start the loom again.
+#
 # Seed pinned: the dream and the scatter replay exactly. Unpin to let
 # the student improvise differently each run.
 #

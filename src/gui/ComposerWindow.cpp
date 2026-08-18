@@ -425,6 +425,27 @@ ComposerWindow::parseWork (void)
     tempoVal_->set_value(sched_->tempo());
     tempoGuard_ = false;
 
+    /* The tempo scales beat-valued durations and nothing else, so on a
+       piece written entirely in seconds it is a control that does
+       nothing -- which was most of them, with no way to tell. Worse, it
+       is an *edit*: nudging it wrote a `tempo' line into a file that had
+       never had one and marked the piece dirty, for no audible reason.
+       Offered only where it means something, and saying so where it does
+       not. */
+    {
+        const bool live = sched_->usesBeats();
+
+        tempoBtn_->set_sensitive(live);
+        tempoLbl_->set_sensitive(live);
+
+        tempoBtn_->set_tooltip_text(live
+            ? "Beats per minute. This piece writes durations in beats, so "
+              "everything moves together."
+            : "This piece writes every duration in seconds, which the "
+              "tempo does not scale. Write a duration as `4 beats' to "
+              "put a stage on the clock.");
+    }
+
     rebuildKnobs();
     canvas_->SetPiece(&doc_, sched_);
     rebuildEditor();
@@ -527,6 +548,13 @@ void
 ComposerWindow::onTempo (void)
 {
     if (tempoGuard_)
+        return;
+
+    /* Belt for the insensitive spinner above: a control that cannot be
+       reached should also do nothing if it is, because "cannot happen"
+       and "does nothing when it does" are one line apart and only one of
+       them survives a refactor. */
+    if (!sched_->usesBeats())
         return;
 
     sched_->setTempo(tempoVal_->get_value());
@@ -1406,6 +1434,28 @@ ComposerWindow::buildKnobsSection (void)
     grid->set_margin(4);
 
     int row = 0;
+
+    /* Headers, because without them this is a name and two anonymous
+       spinners, and there is no guessing which of `0.000' and `255.000'
+       is which -- least of all that neither is the knob's *value*. The
+       value lives on the slider above the canvas, where it can be
+       dragged while the piece plays; this section is the knob's shape,
+       not its position. */
+    {
+        static const char *heads[] = { "knob", "lowest", "highest",
+                                       "shown as" };
+
+        for (int c = 0; c < 4; c++)
+        {
+            Gtk::Label *h = manage(new Gtk::Label(heads[c]));
+
+            h->set_xalign(0);
+            h->set_sensitive(false);
+            grid->attach(*h, c, row);
+        }
+
+        row++;
+    }
 
     for (size_t i = 0; i < doc_.knobs.size(); i++)
     {
