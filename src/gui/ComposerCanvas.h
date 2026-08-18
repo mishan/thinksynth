@@ -44,15 +44,16 @@ struct thcStage;
  * channel's notes, so "which row makes which notes" is answered by
  * looking.
  *
- * A stage box carries its params. Collapsed it shows the plugin's face
- * (composer_draw) and nothing else; the triangle in its title bar opens
- * it into a column of inline sliders, one per numeric param, laid out on
- * the box itself. Expandable rather than always open because `gen::life'
- * has ten params and a chain of three such stages would be a wall --
- * and because the face is what most stages are worth looking at while
- * they play. Which stages are open is a view preference, kept here and
- * keyed by name so it survives a reload and a reorder; it is not written
- * to the file, because where you were looking is not part of the piece.
+ * A stage box carries its params behind a handle -- the three little
+ * sliders in its title bar -- which selects the stage and asks the
+ * window for a popover beside the box. The box itself never changes
+ * size, and that is the whole of why it is a popover: the first version
+ * of this expanded the box in place with a column of inline tracks, and
+ * a stage with eight params is taller than its chain's row, so opening
+ * one shoved every chain below it down and opening two made the canvas
+ * unreadable. Nothing here is typed into either, at eight pixels a row.
+ * The canvas asks; ComposerWindow answers with the Edit panel's own
+ * rows, which already know about units and knob bindings.
  *
  * A stage whose module also exports composer_input has a picture that is
  * a *control*: clicks on it are handed straight to the plugin, in the

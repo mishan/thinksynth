@@ -44,11 +44,7 @@ static const double GHOST_W  = 30;
 static const double ARROW_W  = 22;
 static const double TITLE_H  = 15;
 
-/* One inline param row, and the room its track needs. Twelve is the
-   smallest that still leaves a legible label at 1:1; below that the zoom
-   is the answer rather than a tighter row. */
-static const double ROW_H    = 12;
-static const double ROW_PAD  = 3;
+/* The params handle in a stage box's title bar. */
 static const double TWISTY   = 9;
 
 ComposerCanvas::ComposerCanvas (void)
