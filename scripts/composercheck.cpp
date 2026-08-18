@@ -91,6 +91,7 @@ public:
     using ComposerWindow::kbdBtn_;
     using ComposerWindow::canvas_;
     using ComposerWindow::canvasScroll_;
+    using ComposerWindow::doc_;
 };
 
 static int checks = 0;
@@ -127,14 +128,74 @@ pump (int rounds)
             ctx->iteration(false);
 }
 
+static std::string
+readFile (const std::string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+
+    if (!in)
+        return std::string();
+
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+}
+
+/* Put a piece where the window will look for it.
+ *
+ * THINK_GEN_PATH names a *directory* -- findDataFile joins it with the
+ * file name it is after -- and this harness used to set it to a file.
+ * The join therefore never matched, the search fell through to the
+ * cwd-relative "gen/airports.gen", and what got loaded depended on where
+ * the harness was run from: from the source tree, the real piece; under
+ * ctest, which runs in the build tree, nothing at all. Every check here
+ * that did not look at the piece passed either way, which is why it
+ * survived four rounds of additions -- and the refused-piece section,
+ * whose entire subject is a bad file, was looking at a blank window.
+ *
+ * So: a scratch directory with the piece in it under the name the window
+ * asks for, which is what the variable was always for. Returns the
+ * directory, for the caller to remove. */
+static std::string
+stagePiece (const std::string &content)
+{
+    if (content.empty())
+        return "";
+
+    std::string dir = thUtil::tempFile("composercheck-gen-");
+
+    if (dir.empty())
+        return "";
+
+    /* tempFile makes a file; what is wanted is a directory of that name,
+       so the name is claimed and then re-used. */
+    std::error_code ec;
+
+    std::filesystem::remove(dir, ec);
+
+    if (!std::filesystem::create_directory(dir, ec) || ec)
+        return "";
+
+    std::ofstream out((dir + "/airports.gen").c_str(), std::ios::trunc);
+
+    out << content;
+    out.close();
+
+    if (!out)
+        return "";
+
+    Glib::setenv("THINK_GEN_PATH", dir);
+
+    return dir;
+}
+
 static int
 run (const std::string &pluginPath, const char *genFile)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
-    /* The window opens whatever THINK_GEN_PATH names, which is how the
-       ctest entry points it at the shipped piece without this having to
-       know where a source tree is.
+    /* The window opens whatever piece it finds under THINK_GEN_PATH,
+       which is how the ctest entry points it at the shipped piece
+       without this having to know where a source tree is.
      *
        Glib::setenv, not setenv: the POSIX one does not exist on MinGW's
        UCRT, and glibmm is a hard dependency of this harness anyway.
@@ -142,8 +203,18 @@ run (const std::string &pluginPath, const char *genFile)
        _putenv_s because it deliberately links nothing but libthink and
        cannot assume glibmm -- so the rule for the tree is glibmm where
        it is already linked, and the ifdef only where it is not. */
+    std::string staged;
+
     if (genFile != NULL)
-        Glib::setenv("THINK_GEN_PATH", genFile);
+    {
+        staged = stagePiece(readFile(genFile));
+
+        if (staged.empty())
+        {
+            fail("could not stage the piece under test");
+            return failures;
+        }
+    }
 
     TestComposer *win = new TestComposer(&synth);
 
@@ -151,6 +222,22 @@ run (const std::string &pluginPath, const char *genFile)
     pump(4);
 
     ok("the composer window builds and shows");
+
+    /* With the piece in it.
+     *
+       This is the check whose absence let the THINK_GEN_PATH bug live:
+       everything below asks about widgets, and widgets come up whether
+       or not there is a piece behind them, so a window showing nothing
+       passed the lot. Anything that reads the piece has to say so
+       first. */
+    if (win->doc_.chains.empty())
+    {
+        fail("the piece under test did not load");
+        delete win;
+        return failures;
+    }
+
+    ok("...with the piece in it");
 
     if (win->editBtn_ == NULL || win->kbdBtn_ == NULL)
     {
@@ -274,7 +361,7 @@ run (const std::string &pluginPath, const char *genFile)
                verified by breaking enlargedRect. */
             if (!win->canvas_->enlargedArea(ex, ey, ew, eh) ||
                 !va || va->get_upper() - va->get_page_size() < 60)
-                printf("skip  nothing large enough here to scroll\n");
+                printf("skip  nothing large enough here to scroll (area=%d up=%g page=%g)\n", (int)win->canvas_->enlargedArea(ex, ey, ew, eh), va?va->get_upper():-1.0, va?va->get_page_size():-1.0);
             else
             {
                 const double was = ey;
@@ -308,6 +395,9 @@ run (const std::string &pluginPath, const char *genFile)
     delete win;
     pump(2);
 
+    if (!staged.empty())
+        std::filesystem::remove_all(staged);
+
     ok("the window closes without taking anything with it");
 
     return failures;
@@ -333,18 +423,7 @@ run (const std::string &pluginPath, const char *genFile)
 static int
 runRefused (const std::string &pluginPath)
 {
-    const std::string tmp = thUtil::tempFile("composercheck-bad-");
-
-    if (tmp.empty())
-    {
-        fail("could not make a scratch piece");
-        return failures;
-    }
-
-    {
-        std::ofstream out(tmp.c_str(), std::ios::trunc);
-
-        out <<
+    const std::string tmp = stagePiece(
             "name \"refused\";\n"
             "chain c {\n"
             "    stage s gen::eno_line { notes = \"C4\"; };\n"
@@ -353,12 +432,15 @@ runRefused (const std::string &pluginPath)
             "chain d {\n"
             "    stage s gen::eno_line { notes = \"E4\"; };\n"
             "    sink { channel = 99; };\n"    /* and something absurd    */
-            "};\n";
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
     }
 
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
-
-    Glib::setenv("THINK_GEN_PATH", tmp);
 
     TestComposer *win = new TestComposer(&synth);
 
@@ -373,12 +455,19 @@ runRefused (const std::string &pluginPath)
     win->editBtn_->set_active(false);
     pump(6);
 
-    ok("a piece the loader refused still draws");
+    /* And this one is the refused piece's version of it: the section is
+       about a file the loader rejected, so a file that never arrived
+       would be the wrong subject entirely -- describe reports a file as
+       written, which is why there are chains here at all. */
+    if (win->doc_.chains.size() != 2)
+        fail("the refused piece did not reach the window");
+    else
+        ok("a piece the loader refused still draws");
 
     delete win;
     pump(2);
 
-    std::filesystem::remove(tmp);
+    std::filesystem::remove_all(tmp);
 
     ok("...and closes again");
 
