@@ -818,7 +818,8 @@ run (const std::string &pluginPath, const char *genFile)
 /* A window closed with its idles still queued.
  *
  * The window schedules work at idle -- the first split of the canvas
- * against the roll, and every structural reload -- and an idle capturing
+ * against the roll, the Edit panel's width, and every structural reload
+ * -- and an idle capturing
  * `this' is held by the main loop, not by the window. So a window closed
  * before the loop comes round again used to leave a callback pointing at
  * freed memory, which then set a paned position through a destroyed
@@ -844,6 +845,10 @@ closeWithIdlesPending (const std::string &pluginPath)
     win->set_visible(true);
     pump(1);
 
+    /* Three idles, queued as late as possible: the first split of the
+       canvas against the roll (from the map, above), the Edit panel's
+       width (from the toggle), and a structural reload. */
+    win->editBtn_->set_active(true);
     win->structuralReload();
 
     delete win;

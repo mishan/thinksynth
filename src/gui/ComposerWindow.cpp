@@ -681,20 +681,31 @@ ComposerWindow::onEditToggle (void)
        natural width: a Selection row of spin buttons and menus is about
        seven hundred pixels wide, which is half the window and not a
        panel. */
-    Glib::signal_idle().connect_once(
+    /* Kept and replaced rather than piled up: Edit can be toggled faster
+       than the loop turns, and the same connection also means the
+       destructor can take back whatever is outstanding. An idle that
+       captured `this' and outlived the window is a call into freed
+       memory -- the same hazard as paneIdle_ and reloadIdle_, which is
+       why it borrows paneIdle_ rather than adding a third name for it:
+       both put a paned where it belongs, and only one can be wanted at
+       a time. */
+    paneIdle_.disconnect();
+    paneIdle_ = Glib::signal_idle().connect(
         [this]
         {
             const int w = paned_.get_width();
 
-            if (w < 400)
-                return;
+            if (w >= 400)
+            {
+                int want = panelW_ > 0 ? panelW_ : std::min(w / 3, 380);
 
-            int want = panelW_ > 0 ? panelW_ : std::min(w / 3, 380);
+                if (want > w - 240)
+                    want = w - 240;
 
-            if (want > w - 240)
-                want = w - 240;
+                paned_.set_position(w - want);
+            }
 
-            paned_.set_position(w - want);
+            return false;
         });
 }
 
