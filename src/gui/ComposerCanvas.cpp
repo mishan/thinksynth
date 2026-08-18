@@ -96,6 +96,27 @@ ComposerCanvas::ComposerCanvas (void)
     add_controller(drag);
 }
 
+/* The laid-out rows, plus a margin so the rightmost ghost box does not
+   sit against the edge. Zero before the first rebuild, which the base
+   reads as "nothing to size to" and leaves alone. */
+void
+ComposerCanvas::contentExtent (double &w, double &h) const
+{
+    w = h = 0;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].x + boxes_[i].w > w)
+            w = boxes_[i].x + boxes_[i].w;
+
+        if (boxes_[i].y + boxes_[i].h > h)
+            h = boxes_[i].y + boxes_[i].h;
+    }
+
+    if (w > 0) w += 12;
+    if (h > 0) h += 12;
+}
+
 void
 ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
 {
@@ -106,6 +127,7 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
     feeding_ = false;
 
     rebuild();
+    contentResized();
 
     /* A reload rebuilds every instance, so the enlarged stage is a new
        object at the same address in the piece -- or gone, if the edit
@@ -469,6 +491,12 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
     if (doc_ == NULL)
         return;
 
+    /* Everything below is drawn in the coordinates rebuild() laid the
+       boxes out in; the zoom is one transform at the top rather than a
+       multiply on every number. Ctrl+wheel drives it, and the scrolled
+       window this lives in does the scrolling. */
+    cr->scale(zoom(), zoom());
+
     cr->select_font_face("sans", Cairo::ToyFontFace::Slant::NORMAL,
                          Cairo::ToyFontFace::Weight::NORMAL);
 
@@ -597,6 +625,24 @@ ComposerCanvas::enlargedStage (void) const
     return (s != NULL && s->plugin->hasDraw()) ? s : NULL;
 }
 
+bool
+ComposerCanvas::enlargedArea (double &x, double &y, double &w,
+                              double &h) const
+{
+    /* About the view, not about the picture. enlargedStage() also asks
+       whether the stage exports composer_draw, which is the right
+       question for whether to draw anything and the wrong one here: the
+       rectangle is where the picture *would* go, and that is geometry a
+       harness can check on any piece rather than only on one whose first
+       stage happens to have a face. */
+    if (enlarged_.kind != Selection::STAGE)
+        return false;
+
+    enlargedRect(x, y, w, h);
+
+    return true;
+}
+
 void
 ComposerCanvas::enlargedRect (double &x, double &y, double &w,
                               double &h) const
@@ -604,10 +650,25 @@ ComposerCanvas::enlargedRect (double &x, double &y, double &w,
     const double pad = 8;
     const double head = 18;          /* room for the label above it     */
 
-    x = pad;
-    y = pad + head;
-    w = get_width() - 2 * pad;
-    h = get_height() - 2 * pad - head;
+    /* The part of the canvas that can be seen, in the same coordinates
+       everything else here uses.
+     *
+       The widget's own size is the whole drawing, not the view: this
+       canvas sizes itself to the scaled content and lives in a
+       scroller, so a piece of eight chains makes get_height() eight
+       chains tall. Laying the enlarged stage out in that put it at the
+       top of the content rather than in front of the person -- fine
+       while scrolled to the origin, and off-screen the moment they were
+       not, with a plugin handed a rectangle far larger than anything
+       visible. */
+    double vx, vy, vw, vh;
+
+    visibleRect(vx, vy, vw, vh);
+
+    x = vx + pad;
+    y = vy + pad + head;
+    w = vw - 2 * pad;
+    h = vh - 2 * pad - head;
 
     if (w < 1) w = 1;
     if (h < 1) h = 1;
@@ -665,8 +726,16 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
 }
 
 void
-ComposerCanvas::onPressed (int nPress, double x, double y, int button)
+ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 {
+    /* Every gesture arrives in widget pixels and everything below thinks
+       in the laid-out coordinates the boxes were placed in. One
+       conversion at the door, so nothing further in has to remember
+       which of the two it is holding. */
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
     pressX_ = x;
     pressY_ = y;
 
@@ -716,10 +785,14 @@ ComposerCanvas::onPressed (int nPress, double x, double y, int button)
 }
 
 void
-ComposerCanvas::onReleased (int, double x, double y, int)
+ComposerCanvas::onReleased (int, double sx, double sy, int)
 {
     if (!feeding_)
         return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
 
     /* The button the gesture began with, not whichever one the
        controller reports now: a release that named a different button
@@ -729,10 +802,16 @@ ComposerCanvas::onReleased (int, double x, double y, int)
 }
 
 void
-ComposerCanvas::onMotion (double x, double y)
+ComposerCanvas::onMotion (double sx, double sy)
 {
-    if (feeding_)
-        feedInput(THC_IN_DRAG, x, y, feedButton_);
+    if (!feeding_)
+        return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
+
+    feedInput(THC_IN_DRAG, x, y, feedButton_);
 }
 
 bool
@@ -748,7 +827,7 @@ ComposerCanvas::onKey (guint keyval, guint, Gdk::ModifierType)
 }
 
 void
-ComposerCanvas::onDragBegin (double x, double y)
+ComposerCanvas::onDragBegin (double sx, double sy)
 {
     dragBox_ = -1;
     dragDx_ = 0;
@@ -758,6 +837,10 @@ ComposerCanvas::onDragBegin (double x, double y)
        the enlarged view at all -- there are no stage boxes to move. */
     if (feeding_ || enlarged_.kind != Selection::NONE)
         return;
+
+    double x, y;
+
+    toContent(sx, sy, x, y);
 
     const Box *box = hit(x, y);
 
@@ -771,7 +854,11 @@ ComposerCanvas::onDragUpdate (double dx, double)
     if (dragBox_ < 0)
         return;
 
-    dragDx_ = dx;
+    /* A gesture's offset is in widget pixels and everything it is about
+       to be compared against -- the box's x, the slot width -- is in
+       laid-out ones. Dividing rather than calling toContent because this
+       is a delta and not a point: an origin has no place in it. */
+    dragDx_ = dx / zoom();
 
     /* Which slot would this land in? The box's center, in stage-slot
        units, clamped to the chain's stages. */

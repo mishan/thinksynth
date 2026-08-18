@@ -24,6 +24,7 @@
 #include <gtkmm.h>
 
 #include "libthink/thcomposer.h"   /* thcInputEvent */
+#include "GraphCanvas.h"
 #include "thcGenEdit.h"
 
 class thcScheduler;
@@ -57,7 +58,7 @@ struct thcStage;
  * state and changes what is playing, which is a performance, not a file
  * edit. Capturing it into the file is a separate, deliberate act.
  */
-class ComposerCanvas : public Gtk::DrawingArea
+class ComposerCanvas : public GraphCanvas
 {
 public:
     ComposerCanvas (void);
@@ -101,6 +102,14 @@ public:
     /* The enlarged stage changed (or went away). */
     sigc::signal<void (const Selection &)> sigEnlarged;
 
+    /* Where the enlarged picture would go, in laid-out coordinates.
+       False if no stage is enlarged. Answers about the view rather than
+       about whether the stage has a picture to put there.
+     *
+       Public so that "it follows the viewport" is a thing a harness can
+       ask rather than a thing the code claims. */
+    bool enlargedArea (double &x, double &y, double &w, double &h) const;
+
 protected:
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
@@ -127,6 +136,9 @@ private:
 
     void rebuild (void);
     const Box *hit (double x, double y) const;
+
+    /* How wide and tall the laid-out rows are, for the base's zoom. */
+    void contentExtent (double &w, double &h) const;
 
     /* The live stage filling the canvas, or NULL. */
     thcStage *enlargedStage (void) const;

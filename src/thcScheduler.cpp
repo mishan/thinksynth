@@ -148,6 +148,16 @@ thcParamStore::setString (const std::string &name, const std::string &v)
     return true;
 }
 
+bool
+thcParamStore::anyBeats (void) const
+{
+    for (size_t i = 0; i < beats_.size(); i++)
+        if (beats_[i])
+            return true;
+
+    return false;
+}
+
 void
 thcParamStore::setBeats (int index, bool beats)
 {
@@ -803,6 +813,21 @@ thcScheduler::setTempo (double bpm)
 {
     if (bpm > 0)
         tempo_ = bpm;
+}
+
+bool
+thcScheduler::usesBeats (void) const
+{
+    for (size_t ci = 0; ci < chains_.size(); ci++)
+    {
+        const thcChain &c = chains_[ci];
+
+        for (size_t si = 0; si < c.stages.size(); si++)
+            if (c.stages[si] && c.stages[si]->params.anyBeats())
+                return true;
+    }
+
+    return false;
 }
 
 void

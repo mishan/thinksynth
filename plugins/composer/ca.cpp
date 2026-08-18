@@ -30,6 +30,20 @@
  * The composer_draw is the grid every CA wants: recent rows scrolling
  * upward, the present row at the bottom -- the piano roll's past in
  * cell form, and this plugin's whole state is on the canvas.
+ *
+ * AND IT IS CLICKABLE, which is not decoration. An empty ring is a fixed
+ * point for every rule that maps 000 to 0, which is half of them --
+ * including rule 0, which empties the ring on its first row. So turning
+ * the rule knob down and back up does *not* bring the automaton back:
+ * once the ring is all zeros the rule has nothing to work on, and the
+ * stage is silent until the piece is reloaded. That is correct
+ * automaton behaviour and a useless instrument.
+ *
+ * composer_input is the way out, and the right one: click a cell in the
+ * canvas's enlarged view and it lives again. Nothing here re-seeds
+ * itself behind your back, because a cellular automaton that quietly
+ * repopulated would not be one. The draw says when the ring is empty so
+ * the silence reads as a state rather than a hang.
  */
 
 #include <cstdlib>
@@ -49,6 +63,12 @@ static int paramIndex[P_COUNT];
 
 #define MAX_WIDTH 32
 #define DRAW_ROWS 40
+
+/* How many rows tall the clickable band is. One row of a forty-row grid
+ * is two pixels in a stage box, so the target is deliberately taller
+ * than the row it edits -- and composer_draw shades the same number, so
+ * that what answers a click and what looks like it will are one thing. */
+#define CLICK_ROWS 2
 
 extern "C" THINK_PLUGIN_API int
 composer_init (thcComposerInfo *info)
@@ -243,6 +263,50 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
 /* Recent rows scrolling upward, the present at the bottom, live cells
  * golden. */
+/* The present row is the bottom one, drawn across the full width, and a
+ * click lands on whichever cell it is over. Only the present row is
+ * touchable: the rows above it are history, and history is not a thing
+ * you get to edit. */
+extern "C" THINK_PLUGIN_API void
+composer_input (void *state, const thcInputEvent *ev)
+{
+    State *st = static_cast<State *>(state);
+
+    const int width = (int)st->cells.size();
+
+    if (width == 0 || ev->w <= 0 || ev->h <= 0)
+        return;
+
+    if (ev->type == THC_IN_RELEASE)
+        return;
+
+    const size_t rows = st->history.size() + 1;
+    const double ch = ev->h / (double)(rows > DRAW_ROWS ? rows : DRAW_ROWS);
+
+    /* Anywhere in the target band. Being generous about the y is
+       deliberate: the present row is one of forty in an 88-pixel box,
+       and asking someone to hit two pixels to revive a dead automaton
+       is asking them to reload instead.
+     *
+       CLICK_ROWS rather than a 2 written here, because composer_draw
+       shades exactly this band and the two numbers have to be the same
+       one. They were not: the band drawn was one row tall and the band
+       that answered was two, so half the target was invisible and a
+       click just above the highlight edited the present row anyway --
+       which reads as the picture being wrong rather than generous. */
+    if (ev->y < ev->h - ch * CLICK_ROWS)
+        return;
+
+    const int i = (int)(ev->x / (ev->w / width));
+
+    if (i < 0 || i >= width)
+        return;
+
+    /* The primary button toggles; any other clears, the same bargain
+       gen::life makes, so a right-drag thins a row out. */
+    st->cells[i] = (ev->button == 1) ? (st->cells[i] ? 0 : 1) : 0;
+}
+
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -256,6 +320,43 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
     double cw = w / width;
     double ch = h / (rows > DRAW_ROWS ? rows : DRAW_ROWS);
     double y = h - ch;
+
+    /* An empty ring stays empty under every rule that maps 000 to 0, so
+       this is not a pause, it is the end -- unless somebody clicks. Said
+       plainly, because a silent stage that looks exactly like a working
+       one is the difference between "I broke it" and "I see". */
+    bool empty = true;
+
+    for (int i = 0; i < width; i++)
+        if (st->cells[i])
+            empty = false;
+
+    if (empty)
+    {
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.45);
+        cairo_select_font_face(cr, "sans", CAIRO_FONT_SLANT_NORMAL,
+                               CAIRO_FONT_WEIGHT_NORMAL);
+        cairo_set_font_size(cr, h > 60 ? 11 : 8);
+        cairo_move_to(cr, 4, h / 2);
+        cairo_show_text(cr, h > 60 ? "empty -- click a cell to seed it"
+                                   : "empty");
+    }
+
+    /* The band a click lands in, marked so the target is visible rather
+       than folklore -- all of it, including the row of history it
+       overlaps. What is edited is still only the present row; the band
+       says where your finger has to be, not which cells are live, and
+       the live cells are drawn over it immediately below. */
+    {
+        double by = h - ch * CLICK_ROWS;
+
+        if (by < 0)
+            by = 0;
+
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.10);
+        cairo_rectangle(cr, 0, by, w, h - by);
+        cairo_fill(cr);
+    }
 
     cairo_set_source_rgba(cr, 1.0, 0.85, 0.3, 0.9);
 

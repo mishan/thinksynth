@@ -60,16 +60,14 @@
 
 #define PORT_R  3.5
 
-#define ZOOM_MIN  0.25
-#define ZOOM_MAX  3.0
 
 NodeCanvas::NodeCanvas (void)
-    : graph_(NULL), zoom_(1.0), dragBox_(-1), dragDX_(0), dragDY_(0),
+    : graph_(NULL), dragBox_(-1), dragDX_(0), dragDY_(0),
       hoverBox_(-1), hoverPort_(-1), selBox_(-1),
       bandOn_(false), bandX0_(0), bandY0_(0), bandX1_(0), bandY1_(0),
       wireBox_(-1), wirePort_(-1), wireX_(0), wireY_(0),
       wireTargetBox_(-1), wireTargetPort_(-1), wireTargetOk_(false),
-      hoverEdge_(-1), dragSlider_(-1), fitPending_(false),
+      hoverEdge_(-1), dragSlider_(-1),
       drawCount_(0), drawMicros_(0.0)
 {
     set_draw_func(sigc::mem_fun(*this, &NodeCanvas::onDraw));
@@ -99,20 +97,14 @@ NodeCanvas::NodeCanvas (void)
         sigc::mem_fun(*this, &NodeCanvas::onLeave));
     add_controller(motion_);
 
-    scroll_ = Gtk::EventControllerScroll::create();
-    scroll_->set_flags(Gtk::EventControllerScroll::Flags::VERTICAL);
-    scroll_->signal_scroll().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onScroll), false);
-    add_controller(scroll_);
-
-    signal_resize().connect(sigc::mem_fun(*this, &NodeCanvas::onResize));
 }
 
-void NodeCanvas::updateSize (void)
+/* What GraphCanvas needs to size and fit the view: the graph's own
+   extent, before zoom. */
+void NodeCanvas::contentExtent (double &w, double &h) const
 {
-    if (graph_)
-        set_size_request((int)(graph_->width() * zoom_),
-                         (int)(graph_->height() * zoom_));
+    w = graph_ ? graph_->width() : 0;
+    h = graph_ ? graph_->height() : 0;
 }
 
 void NodeCanvas::setGraph (NodeGraph *graph)
@@ -127,7 +119,7 @@ void NodeCanvas::setGraph (NodeGraph *graph)
 
     m_signal_selected_(-1);
 
-    updateSize();
+    contentResized();
     queue_draw();
 }
 
@@ -174,89 +166,6 @@ void NodeCanvas::setSelected (int box)
     queue_draw();
 }
 
-/* The space available to draw in: the scrolled window's viewport, not this
-   widget, which has already been sized to the graph. */
-static void viewportSize (Gtk::Widget *w, int &cw, int &ch)
-{
-    cw = ch = 0;
-
-    Gtk::Widget *p = w ? w->get_parent() : NULL;
-
-    while (p)
-    {
-        Gtk::Viewport *v = dynamic_cast<Gtk::Viewport *>(p);
-
-        if (v)
-        {
-            cw = v->get_allocated_width();
-            ch = v->get_allocated_height();
-            return;
-        }
-
-        p = p->get_parent();
-    }
-}
-
-void NodeCanvas::zoomToFit (void)
-{
-    if (graph_ == NULL || graph_->width() <= 0 || graph_->height() <= 0)
-        return;
-
-    int cw = 0, ch = 0;
-
-    viewportSize(this, cw, ch);
-
-    if (cw < 32 || ch < 32)
-    {
-        /* Nothing allocated yet -- this is the first open, before GTK has
-           laid anything out. Try again when it has. */
-        fitPending_ = true;
-        return;
-    }
-
-    fitPending_ = false;
-
-    double z = min(cw / graph_->width(), ch / graph_->height());
-
-    /* Never magnify. A four-node patch blown up to fill the window looks
-       broken, and the point here is only to bring an oversized one down. */
-    if (z > 1.0)
-        z = 1.0;
-
-    setZoom(z);
-}
-
-/* A deferred Fit, taken the moment the canvas has a size to fit to.
- *
- * on_size_allocate is not overridable in GTK4 -- the vfunc is size_allocate
- * with a different signature and overriding it means taking responsibility
- * for allocating the children too. signal_resize says the same thing and asks
- * for nothing. */
-void NodeCanvas::onResize (int width, int height)
-{
-    (void)width; (void)height;
-
-    if (fitPending_)
-        zoomToFit();
-}
-
-void NodeCanvas::setZoom (double z)
-{
-    if (z < ZOOM_MIN) z = ZOOM_MIN;
-    if (z > ZOOM_MAX) z = ZOOM_MAX;
-
-    zoom_ = z;
-
-    updateSize();
-    queue_draw();
-}
-
-void NodeCanvas::toGraph (double sx, double sy, double &gx, double &gy) const
-{
-    gx = sx / zoom_;
-    gy = sy / zoom_;
-}
-
 /* Right-click: says what is under the pointer and lets the editor decide what
    that means. Deliberately without selecting or otherwise disturbing anything
    -- a menu that moved the selection out from under you before opening would
@@ -270,7 +179,7 @@ void NodeCanvas::onRightPressed (int nPress, double x, double y)
 
     double gx, gy;
 
-    toGraph(x, y, gx, gy);
+    toContent(x, y, gx, gy);
 
     int pb = -1, pp = -1;
 
@@ -290,7 +199,7 @@ void NodeCanvas::onPressed (int nPress, double x, double y)
 
     double gx, gy;
 
-    toGraph(x, y, gx, gy);
+    toContent(x, y, gx, gy);
 
     /* Double-click on a panel: open it properly.
      *
@@ -497,7 +406,7 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
         /* A box dragged past the old bounds needs the scrollable area to grow
            with it, or it becomes unreachable. */
         graph_->refreshExtent();
-        updateSize();
+        contentResized();
 
         m_signal_box_moved_(dragBox_);
         dragBox_ = -1;
@@ -513,7 +422,7 @@ void NodeCanvas::onMotion (double x, double y)
 
     double gx, gy;
 
-    toGraph(x, y, gx, gy);
+    toContent(x, y, gx, gy);
 
     if (dragBox_ >= 0)
     {
@@ -637,28 +546,6 @@ void NodeCanvas::onLeave (void)
         hoverBox_ = hoverPort_ = hoverEdge_ = -1;
         queue_draw();
     }
-}
-
-bool NodeCanvas::onScroll (double dx, double dy)
-{
-    (void)dx;
-
-    /* Ctrl+wheel zooms; a bare wheel is left to the scrolled window, which is
-       what people expect of a large canvas.
-     *
-     * The modifier comes off the controller's current event rather than out
-       of a struct member -- and a controller reports every wheel as a delta,
-       so the discrete up/down cases and the smooth one are now one case. */
-    if ((scroll_->get_current_event_state() & Gdk::ModifierType::CONTROL_MASK)
-        != Gdk::ModifierType::CONTROL_MASK)
-        return false;
-
-    if (dy == 0.0)
-        return false;
-
-    setZoom(dy < 0.0 ? zoom_ * 1.1 : zoom_ / 1.1);
-
-    return true;
 }
 
 /* An attached control: label, track, number, on one line against its host.
@@ -1236,7 +1123,7 @@ void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
         return;
 
     cr->save();
-    cr->scale(zoom_, zoom_);
+    cr->scale(zoom(), zoom());
 
     /* Wires first so boxes sit on top of them; a wire disappearing behind a
        box reads better than one crossing its face. */
@@ -1272,7 +1159,7 @@ void NodeCanvas::drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
         dashes.push_back(3.0);
 
         cr->save();
-        cr->set_line_width(1.0 / zoom_);
+        cr->set_line_width(1.0 / zoom());
         cr->set_dash(dashes, 0.0);
         cr->set_source_rgb(COL_SELECT);
         cr->rectangle(x, y, w, h);

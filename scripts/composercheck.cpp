@@ -90,6 +90,8 @@ public:
     using ComposerWindow::editBtn_;
     using ComposerWindow::kbdBtn_;
     using ComposerWindow::canvas_;
+    using ComposerWindow::canvasScroll_;
+    using ComposerWindow::doc_;
 };
 
 static int checks = 0;
@@ -126,14 +128,81 @@ pump (int rounds)
             ctx->iteration(false);
 }
 
+static std::string
+readFile (const std::string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+
+    if (!in)
+        return std::string();
+
+    return std::string(std::istreambuf_iterator<char>(in),
+                       std::istreambuf_iterator<char>());
+}
+
+/* Put a piece where the window will look for it.
+ *
+ * THINK_GEN_PATH names a *directory* -- findDataFile joins it with the
+ * file name it is after -- and this harness used to set it to a file.
+ * The join therefore never matched, the search fell through to the
+ * cwd-relative "gen/airports.gen", and what got loaded depended on where
+ * the harness was run from: from the source tree, the real piece; under
+ * ctest, which runs in the build tree, nothing at all. Every check here
+ * that did not look at the piece passed either way, which is why it
+ * survived four rounds of additions -- and the refused-piece section,
+ * whose entire subject is a bad file, was looking at a blank window.
+ *
+ * So: a scratch directory with the piece in it under the name the window
+ * asks for, which is what the variable was always for. Returns the
+ * directory, for the caller to remove. */
+static std::string
+stagePiece (const std::string &content)
+{
+    if (content.empty())
+        return "";
+
+    std::string dir = thUtil::tempFile("composercheck-gen-");
+
+    if (dir.empty())
+        return "";
+
+    /* tempFile makes a file; what is wanted is a directory of that name,
+       so the name is claimed and then re-used. */
+    std::error_code ec;
+
+    std::filesystem::remove(dir, ec);
+
+    if (!std::filesystem::create_directory(dir, ec) || ec)
+        return "";
+
+    std::ofstream out((dir + "/airports.gen").c_str(), std::ios::trunc);
+
+    out << content;
+    out.close();
+
+    if (!out)
+    {
+        /* The directory exists whether or not the piece got into it, and
+           a harness that leaves one behind per failed run is a harness
+           that fills /tmp on a machine where something is already
+           wrong. */
+        std::filesystem::remove_all(dir, ec);
+        return "";
+    }
+
+    Glib::setenv("THINK_GEN_PATH", dir);
+
+    return dir;
+}
+
 static int
 run (const std::string &pluginPath, const char *genFile)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
 
-    /* The window opens whatever THINK_GEN_PATH names, which is how the
-       ctest entry points it at the shipped piece without this having to
-       know where a source tree is.
+    /* The window opens whatever piece it finds under THINK_GEN_PATH,
+       which is how the ctest entry points it at the shipped piece
+       without this having to know where a source tree is.
      *
        Glib::setenv, not setenv: the POSIX one does not exist on MinGW's
        UCRT, and glibmm is a hard dependency of this harness anyway.
@@ -141,8 +210,18 @@ run (const std::string &pluginPath, const char *genFile)
        _putenv_s because it deliberately links nothing but libthink and
        cannot assume glibmm -- so the rule for the tree is glibmm where
        it is already linked, and the ifdef only where it is not. */
+    std::string staged;
+
     if (genFile != NULL)
-        Glib::setenv("THINK_GEN_PATH", genFile);
+    {
+        staged = stagePiece(readFile(genFile));
+
+        if (staged.empty())
+        {
+            fail("could not stage the piece under test");
+            return failures;
+        }
+    }
 
     TestComposer *win = new TestComposer(&synth);
 
@@ -150,6 +229,22 @@ run (const std::string &pluginPath, const char *genFile)
     pump(4);
 
     ok("the composer window builds and shows");
+
+    /* With the piece in it.
+     *
+       This is the check whose absence let the THINK_GEN_PATH bug live:
+       everything below asks about widgets, and widgets come up whether
+       or not there is a piece behind them, so a window showing nothing
+       passed the lot. Anything that reads the piece has to say so
+       first. */
+    if (win->doc_.chains.empty())
+    {
+        fail("the piece under test did not load");
+        delete win;
+        return failures;
+    }
+
+    ok("...with the piece in it");
 
     if (win->editBtn_ == NULL || win->kbdBtn_ == NULL)
     {
@@ -194,6 +289,39 @@ run (const std::string &pluginPath, const char *genFile)
 
     ok("kbd input toggles with the edit panel open");
 
+    /* The zoom the canvas inherited from GraphCanvas. What is asserted
+       is the arithmetic, not the picture: a zoom that clamps, a fit that
+       never magnifies, and a canvas that still answers gestures
+       afterwards -- the last one because every handler now converts
+       widget pixels to laid-out coordinates on the way in, and a missed
+       conversion is a click that lands somewhere else. */
+    {
+        const double before = win->canvas_->zoom();
+
+        win->canvas_->setZoom(100.0);
+        pump(2);
+
+        if (win->canvas_->zoom() > 3.001)
+            fail("the zoom did not clamp at the top");
+
+        win->canvas_->setZoom(0.0001);
+        pump(2);
+
+        if (win->canvas_->zoom() < 0.249)
+            fail("the zoom did not clamp at the bottom");
+
+        win->canvas_->zoomToFit();
+        pump(2);
+
+        if (win->canvas_->zoom() > 1.001)
+            fail("zoomToFit magnified a drawing that already fitted");
+
+        win->canvas_->setZoom(before);
+        pump(2);
+
+        ok("the canvas zooms, and clamps at both ends");
+    }
+
     /* The enlarged view, which is a canvas mode and therefore a place
        to get stuck. Entered, left by Escape, entered again, left by a
        click on the surround -- a mode with one way in and no way out is
@@ -214,6 +342,53 @@ run (const std::string &pluginPath, const char *genFile)
         else
             ok("a stage fills the canvas when asked to");
 
+        /* And it follows the view rather than the drawing.
+         *
+           The canvas is sized to the whole piece and lives in a
+           scroller, so its own width and height are the size of
+           everything -- eight chains tall for an eight-chain piece.
+           Laying the enlarged stage out in *that* puts it at the top of
+           the content: fine while scrolled to the origin, and gone the
+           moment anybody scrolls, with a plugin handed a rectangle far
+           bigger than anything on screen. So: scroll, and check the
+           picture came along. */
+        {
+            double ex, ey, ew, eh;
+
+            Glib::RefPtr<Gtk::Adjustment> va =
+                win->canvasScroll_.get_vadjustment();
+
+            /* Skipped rather than failed with no piece loaded, which
+               is this harness's own state until the next commit fixes
+               it: THINK_GEN_PATH is being pointed at a file when
+               findDataFile wants a directory, so under ctest there is
+               nothing on the canvas to enlarge and nothing to scroll.
+               This check therefore says "skip" here and does its job
+               from the next commit onward -- which is where it was
+               verified by breaking enlargedRect. */
+            if (!win->canvas_->enlargedArea(ex, ey, ew, eh) ||
+                !va || va->get_upper() - va->get_page_size() < 60)
+                printf("skip  nothing large enough here to scroll (area=%d up=%g page=%g)\n", (int)win->canvas_->enlargedArea(ex, ey, ew, eh), va?va->get_upper():-1.0, va?va->get_page_size():-1.0);
+            else
+            {
+                const double was = ey;
+
+                va->set_value(va->get_value() + 60);
+                pump(4);
+
+                if (!win->canvas_->enlargedArea(ex, ey, ew, eh))
+                    fail("the enlarged stage lost its rectangle");
+                else if (ey <= was + 1)
+                    fail("the enlarged stage stayed behind when the "
+                         "canvas scrolled");
+                else
+                    ok("the enlarged stage follows the view");
+
+                va->set_value(0);
+                pump(4);
+            }
+        }
+
         win->canvas_->setEnlarged(ComposerCanvas::Selection());
         pump(4);
 
@@ -226,6 +401,20 @@ run (const std::string &pluginPath, const char *genFile)
 
     delete win;
     pump(2);
+
+    if (!staged.empty())
+    {
+        /* The error_code overload, as pathcheck uses for its fixtures.
+           The throwing one turns a locked or unreadable scratch
+           directory into an exception out of the tail of a run that has
+           already finished -- so the process dies after the checks have
+           passed and the report they wrote never reaches anyone. A
+           cleanup that fails should be a leaked directory, not a lost
+           result. */
+        std::error_code ec;
+
+        std::filesystem::remove_all(staged, ec);
+    }
 
     ok("the window closes without taking anything with it");
 
@@ -252,18 +441,7 @@ run (const std::string &pluginPath, const char *genFile)
 static int
 runRefused (const std::string &pluginPath)
 {
-    const std::string tmp = thUtil::tempFile("composercheck-bad-");
-
-    if (tmp.empty())
-    {
-        fail("could not make a scratch piece");
-        return failures;
-    }
-
-    {
-        std::ofstream out(tmp.c_str(), std::ios::trunc);
-
-        out <<
+    const std::string tmp = stagePiece(
             "name \"refused\";\n"
             "chain c {\n"
             "    stage s gen::eno_line { notes = \"C4\"; };\n"
@@ -272,12 +450,15 @@ runRefused (const std::string &pluginPath)
             "chain d {\n"
             "    stage s gen::eno_line { notes = \"E4\"; };\n"
             "    sink { channel = 99; };\n"    /* and something absurd    */
-            "};\n";
+            "};\n");
+
+    if (tmp.empty())
+    {
+        fail("could not make a scratch piece");
+        return failures;
     }
 
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
-
-    Glib::setenv("THINK_GEN_PATH", tmp);
 
     TestComposer *win = new TestComposer(&synth);
 
@@ -292,12 +473,23 @@ runRefused (const std::string &pluginPath)
     win->editBtn_->set_active(false);
     pump(6);
 
-    ok("a piece the loader refused still draws");
+    /* And this one is the refused piece's version of it: the section is
+       about a file the loader rejected, so a file that never arrived
+       would be the wrong subject entirely -- describe reports a file as
+       written, which is why there are chains here at all. */
+    if (win->doc_.chains.size() != 2)
+        fail("the refused piece did not reach the window");
+    else
+        ok("a piece the loader refused still draws");
 
     delete win;
     pump(2);
 
-    std::filesystem::remove(tmp);
+    {
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
 
     ok("...and closes again");
 

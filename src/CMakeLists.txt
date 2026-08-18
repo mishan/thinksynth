@@ -84,6 +84,7 @@ set(THINKSYNTH_SOURCES
     gui/KeyboardWindow.cpp
     gui/MainSynthWindow.cpp
     gui/MidiMap.cpp
+    gui/GraphCanvas.cpp
     gui/NodeCanvas.cpp
     gui/NodePalette.cpp
     gui/NodeParams.cpp

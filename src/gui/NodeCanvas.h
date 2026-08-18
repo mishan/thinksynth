@@ -20,6 +20,7 @@
 #define NODE_CANVAS_H 1
 
 #include "../NodeGraph.h"
+#include "GraphCanvas.h"
 
 /*
  * View of a NodeGraph: draws it, and lets boxes be dragged and the whole thing
@@ -29,7 +30,7 @@
  * lives in NodeGraph rather than in this class so it can be tested without a
  * display; this widget only converts coordinates and tracks the drag.
  */
-class NodeCanvas : public Gtk::DrawingArea
+class NodeCanvas : public GraphCanvas
 {
 public:
     NodeCanvas (void);
@@ -37,20 +38,9 @@ public:
     /* The canvas does not own the graph. */
     void setGraph (NodeGraph *graph);
 
-    double zoom (void) const { return zoom_; }
-    void setZoom (double z);
-
-    /* Scales so the whole graph is visible, never magnifying past 1:1.
-    
-       A patch is as wide as its signal chain is deep -- 17 layers of ts1's
-       kind is about 2900 pixels -- and no amount of layout tuning changes
-       that. Being able to see all of it on opening, and zoom in to work, is
-       the answer to a graph wider than the screen.
-    
-       Deferred if the widget has no size yet: on the first open it is called
-       before GTK has allocated anything, and fitting to a zero-width canvas
-       would give a useless zoom. */
-    void zoomToFit (void);
+    /* zoom(), setZoom() and zoomToFit() come from GraphCanvas, which is
+       where the view transform went when the composer's canvas turned out
+       to want exactly it and nothing else here. */
 
     /* Emitted when a box has been dragged, so a host can mark the document
        dirty and eventually write the position out. */
@@ -191,7 +181,6 @@ protected:
     /* The draw callback: times drawGraph and keeps the counters. */
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
-    void onResize (int width, int height);
     /* Input, through controllers. There are no on_*_event vfuncs in GTK4 and
        no event mask to widen -- a controller receives the kind of thing it is
        for, and is handed the coordinates rather than being asked to fetch
@@ -200,13 +189,14 @@ protected:
     void onRightPressed (int nPress, double x, double y);
     void onReleased (int nPress, double x, double y);
     void onMotion (double x, double y);
-    bool onScroll (double dx, double dy);
     void onLeave (void);
+
+    /* How big the graph is, for the base's zoom-to-fit and sizing. */
+    void contentExtent (double &w, double &h) const;
 
     Glib::RefPtr<Gtk::GestureClick> click_;
     Glib::RefPtr<Gtk::GestureClick> rightClick_;
     Glib::RefPtr<Gtk::EventControllerMotion> motion_;
-    Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
@@ -222,14 +212,7 @@ private:
                     int index, const NodeGraph::Box &b, bool highlit,
                     bool selected);
 
-    /* widget pixels -> graph coordinates */
-    void toGraph (double sx, double sy, double &gx, double &gy) const;
-
-    void updateSize (void);
-
     NodeGraph *graph_;
-
-    double zoom_;
 
     int dragBox_;             /* box being dragged, or -1        */
     double dragDX_, dragDY_;  /* grab point within that box      */
@@ -260,10 +243,6 @@ private:
 
     /* Control whose slider is being dragged, or -1. */
     int dragSlider_;
-
-    /* Set by zoomToFit when there was no allocation to fit to; acted on by
-       the next size-allocate. */
-    bool fitPending_;
 
     unsigned long drawCount_;
     double drawMicros_;

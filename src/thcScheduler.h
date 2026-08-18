@@ -84,6 +84,11 @@ public:
        in one .gen file and clocked beats in another. */
     void setBeats (int index, bool beats);
 
+    /* True if any value in this store is beat-valued, and therefore
+       scaled by the transport's tempo. Asked by the window, which has a
+       tempo control to offer or withhold. */
+    bool anyBeats (void) const;
+
     /* `prob = @density' -- the composer-world ARG_CHAN. While bound,
        get() reads the knob and the stored value is shadowed; the plugin
        just calls get() as always. NULL unbinds. The scheduler is what
@@ -261,6 +266,16 @@ public:
     void   reset (void);         /* rewind to 0 and reseed -- a replay   */
     void   setTempo (double bpm);
     double tempo (void) const { return tempo_; }
+
+    /* Does the tempo mean anything to this piece?
+     *
+     * It scales beat-valued durations and nothing else, so a piece whose
+     * every duration is written in seconds is one the tempo cannot
+     * touch -- which is most of them, and which the window had no way to
+     * know. Offering a control that does nothing is worse than offering
+     * none, and nudging one that then writes a `tempo' line into a file
+     * that never had one is worse again. */
+    bool usesBeats (void) const;
     double now (void) const { return transportNow_; }
     bool   running (void) const { return running_; }
 
