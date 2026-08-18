@@ -44,6 +44,16 @@ struct thcStage;
  * channel's notes, so "which row makes which notes" is answered by
  * looking.
  *
+ * A stage box carries its params. Collapsed it shows the plugin's face
+ * (composer_draw) and nothing else; the triangle in its title bar opens
+ * it into a column of inline sliders, one per numeric param, laid out on
+ * the box itself. Expandable rather than always open because `gen::life'
+ * has ten params and a chain of three such stages would be a wall --
+ * and because the face is what most stages are worth looking at while
+ * they play. Which stages are open is a view preference, kept here and
+ * keyed by name so it survives a reload and a reorder; it is not written
+ * to the file, because where you were looking is not part of the piece.
+ *
  * A stage whose module also exports composer_input has a picture that is
  * a *control*: clicks on it are handed straight to the plugin, in the
  * coordinates it drew in. Double-clicking such a stage enlarges its draw
@@ -94,6 +104,19 @@ public:
     /* A drag dropped stage `from' at position `to' in chain `chain'. */
     sigc::signal<void (size_t, int, int)> sigMoveStage;
 
+    /* Someone asked a stage for its params: which stage, and where its
+       box is in widget pixels for the popover to point at.
+     *
+       A popover rather than the box growing in place. Growing was the
+       first try and it does not survive contact with a real piece: a
+       stage with ten params is taller than its chain's row, so opening
+       one shoves the chains below it down, and opening two makes the
+       canvas unreadable -- and the rows are drawn at canvas scale, which
+       is small on purpose. A popover is real widgets at the window's own
+       font, with the panel's spin buttons, unit menus and knob bindings
+       already working in it, and it costs the drawing nothing. */
+    sigc::signal<void (size_t, size_t, Gdk::Rectangle)> sigParams;
+
     /* Which stage is filling the canvas, or NONE. Public so the window
        can label what it is showing and offer to capture it. */
     const Selection &enlarged (void) const { return enlarged_; }
@@ -101,6 +124,29 @@ public:
 
     /* The enlarged stage changed (or went away). */
     sigc::signal<void (const Selection &)> sigEnlarged;
+
+    /* Where a stage's box is, in widget pixels. */
+    bool stageRect (size_t chain, size_t stage, Gdk::Rectangle &at) const;
+
+    /* Where its params handle is, in widget pixels.
+     *
+       Public because the only other way to find out is to repeat the
+       layout arithmetic, and a caller that repeated it would be testing
+       its own copy of it. */
+    bool paramsHandle (size_t chain, size_t stage,
+                       double &x, double &y) const;
+
+    /* A gesture, in widget pixels, without a mouse.
+     *
+       The controllers call these and so can a harness, which is the
+       point: every handler converts widget pixels to laid-out
+       coordinates on the way in, and a missed conversion is a click that
+       lands somewhere else -- silently, and only at a zoom nobody tests
+       at. Making the entry public costs nothing and turns "I checked the
+       conversions by reading them" into something ctest can say. */
+    void pressAt (double sx, double sy, int button, int nPress);
+    void motionTo (double sx, double sy);
+    void releaseAt (double sx, double sy, int button);
 
 protected:
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
@@ -128,9 +174,15 @@ private:
 
     void rebuild (void);
     const Box *hit (double x, double y) const;
+    const Box *boxFor (size_t chain, size_t stage) const;
 
     /* How wide and tall the laid-out rows are, for the base's zoom. */
     void contentExtent (double &w, double &h) const;
+
+    /* Where the params handle is, in box space. */
+    static void twistyRect (const Box &b, double &x, double &y, double &s);
+
+    Gdk::Rectangle boxRect (const Box &b) const;
 
     /* The live stage filling the canvas, or NULL. */
     thcStage *enlargedStage (void) const;

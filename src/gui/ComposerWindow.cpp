@@ -223,18 +223,65 @@ ComposerWindow::ComposerWindow (thSynth *synth)
         sigc::mem_fun(*this, &ComposerWindow::onCanvasSelection));
     canvas_->sigMoveStage.connect(
         sigc::mem_fun(*this, &ComposerWindow::onCanvasMoveStage));
+    canvas_->sigParams.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasParams));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
                              Gtk::PolicyType::AUTOMATIC);
     canvasScroll_.set_propagate_natural_height(true);
     canvasScroll_.set_propagate_natural_width(true);
-    canvasScroll_.set_max_content_height(300);
-    playSide_.append(canvasScroll_);
 
     roll_ = manage(new PianoRoll(sched_));
-    roll_->set_vexpand(true);
-    playSide_.append(*roll_);
+
+    /* The canvas is the piece and the roll is what the piece is doing,
+       so the canvas gets the room. It used to be the other way round --
+       the canvas capped at 300 pixels and the roll taking everything
+       left over -- which put the thing being edited in a letterbox above
+       the thing being watched.
+     *
+       A paned rather than a fixed split: how much roll is worth looking
+       at depends on the piece, and the position below is a starting
+       point, not a ruling. */
+    rollPane_.set_orientation(Gtk::Orientation::VERTICAL);
+    rollPane_.set_start_child(canvasScroll_);
+    rollPane_.set_end_child(*roll_);
+    rollPane_.set_resize_start_child(true);
+    rollPane_.set_resize_end_child(true);
+    rollPane_.set_shrink_start_child(false);
+    rollPane_.set_shrink_end_child(false);
+    rollPane_.set_vexpand(true);
+    playSide_.append(rollPane_);
+
+    /* A first split, once there is a window to split.
+     *
+       Not at construction, where nothing has been allocated and the
+       fraction would be a fraction of zero, and only once: after that
+       the position is wherever the person dragged it to, and a window
+       that reset the split on every reload would be arguing with them.
+
+       The floor is so that a piece with one short chain still leaves the
+       roll something to draw in -- 65% of a tall window is generous, but
+       65% of a short one is not. */
+    signal_map().connect(
+        [this]
+        {
+            if (paneSet_)
+                return;
+
+            paneSet_ = true;
+
+            Glib::signal_idle().connect_once(
+                [this]
+                {
+                    const int h = rollPane_.get_height();
+
+                    if (h < 200)
+                        return;
+
+                    rollPane_.set_position(std::max(h * 65 / 100, h - 320));
+                });
+        });
 
     /* The editor rides in a paned so the roll stays visible while
        editing -- watching the piece change is the point. */
@@ -290,6 +337,8 @@ ComposerWindow::~ComposerWindow (void)
 
     if (!workPath_.empty())
         ::remove(workPath_.c_str());
+
+    closeParams();
 }
 
 /* Same walk NodeEditor does over visual/, one directory over. */
@@ -386,6 +435,12 @@ ComposerWindow::loadPiece (void)
 void
 ComposerWindow::parseWork (void)
 {
+    /* Every ParamInfo behind an open popover is about to be replaced, so
+       the popover goes with them. Not "hidden": the widgets in it hold
+       a plugin pointer and a param index, and the next reload is where
+       both stop meaning what they meant. */
+    closeParams();
+
     thcGenLoader loader(composers_);
 
     if (!loader.load(workPath_, sched_))
@@ -935,6 +990,94 @@ void
 ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &)
 {
     rebuildSelection();
+}
+
+/* The params handle on a stage box, pressed.
+ *
+ * The rows are the Edit panel's rows -- addParamRow, the same call the
+ * Selection tab makes -- in a popover pointed at the box. That is the
+ * whole of why this is a popover and not a drawing: spin buttons that
+ * take typed numbers, unit menus that say `ms' or `beats', and the knob
+ * binding dropdown all already exist and all already splice the file
+ * correctly. A canvas would have had to grow its own versions of the
+ * three, in eight-pixel text, and would still not have let anyone type.
+ *
+ * Rebuilt each time rather than kept: a reload replaces every ParamInfo
+ * behind these widgets, and a popover that outlived one would be editing
+ * a stage that no longer exists. */
+void
+ComposerWindow::closeParams (void)
+{
+    if (paramPop_ == NULL)
+        return;
+
+    paramPop_->unparent();
+    delete paramPop_;
+    paramPop_ = NULL;
+}
+
+void
+ComposerWindow::onCanvasParams (size_t chain, size_t stage,
+                                Gdk::Rectangle at)
+{
+    closeParams();
+
+    thcStage *live = liveStage(chain, stage);
+
+    if (live == NULL || chain >= doc_.chains.size() ||
+        stage >= doc_.chains[chain].stages.size())
+        return;
+
+    const thcPlugin *plugin = live->plugin;
+
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_row_spacing(4);
+    grid->set_column_spacing(8);
+    grid->set_margin(10);
+
+    Gtk::Label *head = manage(new Gtk::Label());
+
+    head->set_markup("<b>" +
+                     Glib::Markup::escape_text(doc_.chains[chain]
+                                               .stages[stage].name) +
+                     "</b>  " +
+                     Glib::Markup::escape_text(
+                         doc_.chains[chain].stages[stage].category + "::" +
+                         doc_.chains[chain].stages[stage].plugin));
+    head->set_xalign(0);
+    head->set_margin_bottom(4);
+    grid->attach(*head, 0, 0, 3);
+
+    int row = 1;
+
+    for (int pi = 0; pi < plugin->paramCount(); pi++)
+        addParamRow(grid, row++, chain, stage, plugin, pi);
+
+    if (row == 1)
+    {
+        Gtk::Label *none = manage(new Gtk::Label("no parameters"));
+
+        none->set_sensitive(false);
+        grid->attach(*none, 0, 1, 3);
+    }
+
+    /* Tall stages exist -- gen::life has eight -- and a popover taller
+       than the window is one with an unreachable bottom. */
+    Gtk::ScrolledWindow *scroll = manage(new Gtk::ScrolledWindow());
+
+    scroll->set_child(*grid);
+    scroll->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    scroll->set_propagate_natural_width(true);
+    scroll->set_propagate_natural_height(true);
+    scroll->set_max_content_height(420);
+
+    paramPop_ = new Gtk::Popover();
+    paramPop_->set_child(*scroll);
+    paramPop_->set_parent(*canvas_);
+    paramPop_->set_position(Gtk::PositionType::BOTTOM);
+    paramPop_->set_pointing_to(at);
+    paramPop_->popup();
 }
 
 void
