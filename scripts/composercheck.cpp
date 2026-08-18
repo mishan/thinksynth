@@ -644,7 +644,15 @@ run (const std::string &pluginPath, const char *genFile)
             !win->workPath_.empty())
         {
             const std::string aside = win->workPath_ + ".away";
-            const std::string before = win->status_->get_text();
+
+            /* Glib::ustring, not std::string. get_text() returns the
+               former, and comparing the two only works on glibmm builds
+               where ustring's templated operator== is available -- 2.88
+               here takes it, the runner's does not, and the error is a
+               page of candidate lists rather than "these are different
+               types". Kept in the toolkit's own type so there is nothing
+               to convert on either. */
+            const Glib::ustring before = win->status_->get_text();
 
             std::error_code ec;
 
