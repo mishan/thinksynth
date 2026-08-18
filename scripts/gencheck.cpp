@@ -1969,12 +1969,49 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
     if (!silent.empty())
         fail("rule 0 did not empty the ring");
 
-    /* Turning the knob does not help, which is the trap. */
-    st->params.set(st->plugin->paramIndex("rule"), 110);
+    /* Turning the knob does not help, which is the trap.
+     *
+       The index is checked before it is used. It cannot be -1 today --
+       the piece above declares `rule' and the loader accepted it -- but
+       paramIndex answers -1 for a name the plugin does not have, and a
+       -1 handed to params.set is an out-of-range write that a renamed
+       param would introduce silently. The rest of this file guards its
+       lookups; this one had been the exception. */
+    const int ruleIdx = st->plugin->paramIndex("rule");
+
+    if (ruleIdx < 0)
+    {
+        fail("gen::ca has no `rule' param to turn");
+        std::filesystem::remove(tmp);
+        return;
+    }
+
+    st->params.set(ruleIdx, 110);
 
     if (!render(sched, 12.0, 0.02).empty())
         fail("an empty ring came back from a rule change alone -- the "
              "trap this is about does not exist");
+
+    /* A click in the history does not, which is the other half of the
+       bargain: the rows above the present one are what happened, and
+       what happened is not editable. Checked before the click that
+       works, so that "a click revived it" cannot be satisfied by a
+       plugin that takes every click anywhere. */
+    {
+        thcInputEvent ev;
+
+        ev.type = THC_IN_PRESS;
+        ev.x = 50;
+        ev.y = 50;                  /* halfway up: history              */
+        ev.w = 100;
+        ev.h = 100;
+        ev.button = 1;
+
+        st->plugin->input(st->state, &ev);
+    }
+
+    if (!render(sched, 14.0, 0.02).empty())
+        fail("a click in the history edited the present row");
 
     /* A click does. The present row is the bottom band of the draw, and
        the coordinates are the ones composer_draw is given. */
@@ -1991,7 +2028,7 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
         st->plugin->input(st->state, &ev);
     }
 
-    if (render(sched, 16.0, 0.02).empty())
+    if (render(sched, 18.0, 0.02).empty())
         fail("a clicked cell did not bring the automaton back");
 
     std::filesystem::remove(tmp);

@@ -64,6 +64,12 @@ static int paramIndex[P_COUNT];
 #define MAX_WIDTH 32
 #define DRAW_ROWS 40
 
+/* How many rows tall the clickable band is. One row of a forty-row grid
+ * is two pixels in a stage box, so the target is deliberately taller
+ * than the row it edits -- and composer_draw shades the same number, so
+ * that what answers a click and what looks like it will are one thing. */
+#define CLICK_ROWS 2
+
 extern "C" THINK_PLUGIN_API int
 composer_init (thcComposerInfo *info)
 {
@@ -277,11 +283,18 @@ composer_input (void *state, const thcInputEvent *ev)
     const size_t rows = st->history.size() + 1;
     const double ch = ev->h / (double)(rows > DRAW_ROWS ? rows : DRAW_ROWS);
 
-    /* Anywhere in the bottom row's band. Being generous about the y is
-       deliberate: the band is one row of a forty-row grid, and asking
-       someone to hit four pixels to revive a dead automaton is asking
-       them to reload instead. */
-    if (ev->y < ev->h - ch * 2)
+    /* Anywhere in the target band. Being generous about the y is
+       deliberate: the present row is one of forty in an 88-pixel box,
+       and asking someone to hit two pixels to revive a dead automaton
+       is asking them to reload instead.
+     *
+       CLICK_ROWS rather than a 2 written here, because composer_draw
+       shades exactly this band and the two numbers have to be the same
+       one. They were not: the band drawn was one row tall and the band
+       that answered was two, so half the target was invisible and a
+       click just above the highlight edited the present row anyway --
+       which reads as the picture being wrong rather than generous. */
+    if (ev->y < ev->h - ch * CLICK_ROWS)
         return;
 
     const int i = (int)(ev->x / (ev->w / width));
@@ -329,11 +342,21 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
                                    : "empty");
     }
 
-    /* The row a click lands in, marked so the target is visible rather
-       than folklore. */
-    cairo_set_source_rgba(cr, 1, 1, 1, 0.10);
-    cairo_rectangle(cr, 0, y, w, ch);
-    cairo_fill(cr);
+    /* The band a click lands in, marked so the target is visible rather
+       than folklore -- all of it, including the row of history it
+       overlaps. What is edited is still only the present row; the band
+       says where your finger has to be, not which cells are live, and
+       the live cells are drawn over it immediately below. */
+    {
+        double by = h - ch * CLICK_ROWS;
+
+        if (by < 0)
+            by = 0;
+
+        cairo_set_source_rgba(cr, 1, 1, 1, 0.10);
+        cairo_rectangle(cr, 0, by, w, h - by);
+        cairo_fill(cr);
+    }
 
     cairo_set_source_rgba(cr, 1.0, 0.85, 0.3, 0.9);
 
