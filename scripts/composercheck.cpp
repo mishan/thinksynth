@@ -67,6 +67,7 @@
 #include "gthSignal.h"
 #include "gui/ComposerCanvas.h"
 #include "gui/ComposerWindow.h"
+#include "gui/PianoRoll.h"
 
 /* The five application-wide signals gthSignal.h declares, defined here
  * because main.cpp defines them there and this harness is not main.cpp.
@@ -93,6 +94,11 @@ public:
     using ComposerWindow::doc_;
     using ComposerWindow::paramPop_;
     using ComposerWindow::workPath_;
+    using ComposerWindow::acts_;
+    using ComposerWindow::saveAct_;
+    using ComposerWindow::rollAct_;
+    using ComposerWindow::tabs_;
+    using ComposerWindow::roll_;
     using ComposerWindow::sched_;
 };
 
@@ -240,6 +246,17 @@ run (const std::string &pluginPath, const char *genFile)
     }
 
     ok("...with the piece in it");
+
+    /* Save, before anything has been done to the piece. Asked here
+       rather than next to the other menu checks because by then the
+       knob section has already dirtied the file, and "it is enabled"
+       would have been true either way. */
+    if (!win->saveAct_)
+        fail("there is no save action to ask about");
+    else if (win->saveAct_->get_enabled())
+        fail("Save was offered on a piece nobody had edited");
+    else
+        ok("Save starts greyed out");
 
     if (win->editBtn_ == NULL || win->kbdBtn_ == NULL)
     {
@@ -527,6 +544,105 @@ run (const std::string &pluginPath, const char *genFile)
 
         win->canvas_->setZoom(1.0);
         pump(2);
+    }
+
+    /* The window's own furniture: the menu that replaced the file row,
+       the two tabs that replaced one long column, and the roll that can
+       now be got out of the way.
+     *
+       New and Open used to be buttons inside the Edit panel, which meant
+       the two things you do before there is anything to edit were behind
+       a toggle for editing. They are actions now, and an action that is
+       not in the group is not in the menu either -- so what is checked
+       is that the group has them, by name, which is the same list the
+       menu model refers to. */
+    {
+        static const char *want[] = { "new", "open", "save", "saveas",
+                                      "revert", "roll" };
+        int missing = 0;
+
+        for (size_t i = 0; i < sizeof(want) / sizeof(want[0]); i++)
+        {
+            if (!win->acts_ || !win->acts_->has_action(want[i]))
+            {
+                printf("      no action `composer.%s'\n", want[i]);
+                missing++;
+            }
+        }
+
+        if (missing > 0)
+            fail("the file menu's actions are all there");
+        else
+            ok("the file menu's actions are all there");
+    }
+
+    /* And Save after an edit. It was a button's sensitivity and is an
+       action's enabled flag; the menu reads the latter, and nothing else
+       does, so this is the only thing left that greys the item out. */
+    if (win->saveAct_ && !win->saveAct_->get_enabled())
+        fail("Save stayed greyed out after the piece was edited");
+    else
+        ok("...and wakes up once the piece has been edited");
+
+    /* The roll is a strip now, not a fixture. Checked both ways: a view
+       you can hide and not show again is worse than one you cannot
+       hide. */
+    {
+        win->activate_action("composer.roll");
+        pump(4);
+
+        if (win->roll_->get_visible())
+            fail("the piano roll would not go away");
+        else
+            ok("the piano roll can be hidden");
+
+        win->activate_action("composer.roll");
+        pump(4);
+
+        if (!win->roll_->get_visible())
+            fail("the piano roll would not come back");
+        else
+            ok("...and brought back");
+    }
+
+    /* Clicking the canvas raises Selection. Without this the tabs are a
+       worse version of the column they replaced: the panel would go on
+       showing the piece's name while the thing just clicked sat behind
+       a tab nobody was told about. */
+    {
+        win->editBtn_->set_active(true);
+        pump(4);
+        win->tabs_.set_current_page(0);
+        pump(2);
+
+        ComposerCanvas::Selection sel;
+
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = 0;
+        sel.index = 0;
+
+        win->canvas_->select(sel);
+        pump(4);
+
+        if (win->tabs_.get_current_page() != 1)
+            fail("selecting a stage did not raise the Selection tab");
+        else
+            ok("clicking the canvas raises Selection");
+
+        /* But deselecting does not: being thrown into an empty tab
+           reads as the window losing its place. */
+        win->tabs_.set_current_page(0);
+        pump(2);
+        win->canvas_->select(ComposerCanvas::Selection());
+        pump(4);
+
+        if (win->tabs_.get_current_page() != 0)
+            fail("deselecting yanked the panel to an empty tab");
+        else
+            ok("...and deselecting leaves it where it was");
+
+        win->editBtn_->set_active(false);
+        pump(4);
     }
 
     delete win;

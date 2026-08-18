@@ -182,14 +182,29 @@ protected:
 
     PianoRoll *roll_;
 
-    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
-    Gtk::Box bar_{Gtk::Orientation::HORIZONTAL};
+    Gtk::HeaderBar header_;
+    Gtk::Box titleBox_;
+    Gtk::Label titleLbl_;
+
+    /* The file and view menu's actions, for the two that are not
+       fire-and-forget: Save goes insensitive when there is nothing to
+       save, and the roll's item carries a tick. */
+    Glib::RefPtr<Gio::SimpleActionGroup> acts_;
+    Glib::RefPtr<Gio::SimpleAction> saveAct_;
+    Glib::RefPtr<Gio::SimpleAction> rollAct_;
 
     /* Editor on the left of the paned when Edit is on. */
     Gtk::Paned paned_{Gtk::Orientation::HORIZONTAL};
     Gtk::Box playSide_{Gtk::Orientation::VERTICAL};
+    Gtk::Notebook tabs_;
+
+    /* How wide the Edit panel was when it was last hidden, so reopening
+       it does not throw away a drag. Zero until it has been shown. */
+    int panelW_ = 0;
     Gtk::ScrolledWindow editorScroll_;
     Gtk::Box editorBox_{Gtk::Orientation::VERTICAL};
+    Gtk::ScrolledWindow selScroll_;
+    Gtk::Box selOuter_{Gtk::Orientation::VERTICAL};
 
     /* The selection panel's home inside editorBox_, refilled in place
        so the sections above it keep their state. */
@@ -221,6 +236,7 @@ protected:
     sigc::connection kbdOffConn_;
     Gtk::ToggleButton *kbdBtn_;
 
+    void buildHeader (void);
     void onKbdToggle (void);
     void injectOn (int chan, float note, float veloc);
     void injectOff (int chan, float note);
@@ -228,12 +244,7 @@ protected:
     Gtk::Button *playBtn_;
     Gtk::Button *pauseBtn_;
     Gtk::Button *rewindBtn_;
-    Gtk::Button *reloadBtn_;
     Gtk::ToggleButton *editBtn_;
-    Gtk::Button *saveBtn_;
-    Gtk::Button *saveAsBtn_;
-    Gtk::Button *newBtn_;
-    Gtk::Button *openBtn_;
 
     Gtk::Label *tempoLbl_;
     Gtk::SpinButton *tempoBtn_;
