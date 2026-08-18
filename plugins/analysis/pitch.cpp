@@ -51,11 +51,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                      unsigned int samples)
 {
     float *out, *out_last;
-    thArg *in_arg, *in_falloff;
+    thArg *in_arg;
     thArg *out_arg;
     thArg *inout_last;
     unsigned int i;
-    float input, last, falloff;
+    float input, last;
     float freq;
     int sign, wavelength;
 
@@ -71,13 +71,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     out = out_arg->allocate(windowlen);
 
     in_arg = mod->getArg(node, args[IN_ARG]);
-    in_falloff = mod->getArg(node, args[IN_FALLOFF]);
 
+    /* `falloff' is registered and stays registered -- it is part of the
+       published arg list and a .dsp may set it -- but nothing reads it.
+       The loop used to compute `pow(0.1, (*in_falloff)[i])' into a local
+       and throw it away: the smoothing it was meant to feed was never
+       written. Implementing one here would be inventing a sound. */
 
     for(i = 0; i < windowlen; i++)
     {
-        falloff = pow(0.1, (*in_falloff)[i]);
-
         input = (*in_arg)[i];
 
         if(last > 0)

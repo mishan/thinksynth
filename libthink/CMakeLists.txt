@@ -12,6 +12,32 @@ bison_target(ThinkParser
              "${CMAKE_CURRENT_BINARY_DIR}/thinklang.cpp"
              DEFINES_FILE "${CMAKE_CURRENT_BINARY_DIR}/thinklang.h")
 
+# Two warnings the compiler has about lines bison wrote. Neither can be
+# answered from thinklang.yy and the file is regenerated on every build, so
+# they are turned off for the generated source -- scoped to that one file on
+# purpose, so the hand-written sources still get both.
+#
+#   -Wunused-but-set-variable  yyparse declares `yynerrs' and counts errors
+#       into it; with the default `parse.error simple' nothing reads it.
+#   -Wfree-nonheap-object      the cleanup path is `if (yyss != yyssa)
+#       YYSTACK_FREE (yyss);' -- the guard is exactly what stops the stack
+#       array being freed, and at -O0 gcc cannot see through it. Only shows
+#       up in an unoptimised build, which is why it is easy to miss.
+set(THINK_PARSER_NOWARN)
+
+if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+  list(APPEND THINK_PARSER_NOWARN -Wno-unused-but-set-variable)
+endif()
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  list(APPEND THINK_PARSER_NOWARN -Wno-free-nonheap-object)
+endif()
+
+if(THINK_PARSER_NOWARN)
+  set_source_files_properties("${CMAKE_CURRENT_BINARY_DIR}/thinklang.cpp"
+      PROPERTIES COMPILE_OPTIONS "${THINK_PARSER_NOWARN}")
+endif()
+
 # No add_flex_bison_dependency any more: the lexer stopped including the
 # grammar's token header when it stopped being one grammar's lexer. It
 # produces thLexToken (thLexer.h) for both .dsp and .gen, and thinklang.yy
