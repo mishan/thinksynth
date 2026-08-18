@@ -93,6 +93,7 @@ public:
     using ComposerWindow::canvasScroll_;
     using ComposerWindow::doc_;
     using ComposerWindow::paramPop_;
+    using ComposerWindow::structuralReload;
 };
 
 static int checks = 0;
@@ -499,6 +500,43 @@ run (const std::string &pluginPath, const char *genFile)
     return failures;
 }
 
+/* A window closed with its idles still queued.
+ *
+ * The window schedules work at idle -- the first split of the canvas
+ * against the roll, and every structural reload -- and an idle capturing
+ * `this' is held by the main loop, not by the window. So a window closed
+ * before the loop comes round again used to leave a callback pointing at
+ * freed memory, which then set a paned position through a destroyed
+ * widget or reloaded the piece through a deleted scheduler.
+ *
+ * Built, shown, given just enough of the loop to map and queue, deleted,
+ * and then the loop is run properly. Nothing is asserted: on a plain
+ * build the freed memory usually still reads as what it was and the run
+ * carries on regardless. Under -DTHINK_SANITIZE=address, which is what
+ * this is for, it is a heap-use-after-free and the process says so.
+ *
+ * A reload is queued as well as the map, because the map's idle fires at
+ * default priority and a pump generous enough to show the window may
+ * well have drained it; scheduleReload's is queued from inside the
+ * handler and is reliably still there. */
+static void
+closeWithIdlesPending (const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    TestComposer *win = new TestComposer(&synth);
+
+    win->set_visible(true);
+    pump(1);
+
+    win->structuralReload();
+
+    delete win;
+    pump(8);
+
+    ok("a window closed with idles queued takes them with it");
+}
+
 /* A piece the loader refuses, drawn anyway.
  *
  * parseWork deliberately keeps the window up after a failed load: the
@@ -621,6 +659,9 @@ main (int argc, char **argv)
 
             if (rc == 0)
                 rc = runRefused(pluginPath);
+
+            if (rc == 0)
+                closeWithIdlesPending(pluginPath);
         });
 
     app->run();

@@ -271,15 +271,25 @@ ComposerWindow::ComposerWindow (thSynth *synth)
 
             paneSet_ = true;
 
-            Glib::signal_idle().connect_once(
+            /* Kept, so it can be disconnected.
+             *
+               An idle capturing `this' outlives nothing by itself: the
+               main loop holds the slot, not the window, so a window
+               closed between the map and the next idle turn leaves a
+               callback pointing at freed memory. drawTimer_ has been
+               stored and disconnected for exactly this reason since the
+               beginning; these are the same thing arriving once instead
+               of every fifty milliseconds, and were not. */
+            paneIdle_ = Glib::signal_idle().connect(
                 [this]
                 {
                     const int h = rollPane_.get_height();
 
-                    if (h < 200)
-                        return;
+                    if (h >= 200)
+                        rollPane_.set_position(
+                            std::max(h * 65 / 100, h - 320));
 
-                    rollPane_.set_position(std::max(h * 65 / 100, h - 320));
+                    return false;
                 });
         });
 
@@ -321,6 +331,8 @@ ComposerWindow::ComposerWindow (thSynth *synth)
 ComposerWindow::~ComposerWindow (void)
 {
     drawTimer_.disconnect();
+    paneIdle_.disconnect();
+    reloadIdle_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
     kbdOnConn_.disconnect();
@@ -521,7 +533,12 @@ ComposerWindow::scheduleReload (bool markDirty)
 
     reloadPending_ = true;
 
-    Glib::signal_idle().connect_once(
+    /* Stored for the same reason as paneIdle_ above, and this one
+       predates it: a reload queued at idle and a window closed before
+       the loop comes round again is a callback into a freed window that
+       then reloads the piece through a deleted scheduler. The
+       reloadPending_ flag makes sure there is only ever one. */
+    reloadIdle_ = Glib::signal_idle().connect(
         [this, markDirty]
         {
             reloadPending_ = false;
@@ -541,6 +558,8 @@ ComposerWindow::scheduleReload (bool markDirty)
                 sched_->start();
 
             updateTransportButtons();
+
+            return false;
         });
 }
 

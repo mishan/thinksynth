@@ -211,6 +211,13 @@ protected:
     Gtk::Popover *paramPop_ = NULL;
     sigc::connection drawTimer_;
 
+    /* The two idles this window queues, kept so the destructor can take
+       them back. The main loop holds a slot, not the window, so an idle
+       that captured `this' and outlived it is a call into freed
+       memory. */
+    sigc::connection paneIdle_;
+    sigc::connection reloadIdle_;
+
     /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
        input toggle -- the on-screen keyboard's hop into the same place. */
     sigc::connection midiOnConn_;
