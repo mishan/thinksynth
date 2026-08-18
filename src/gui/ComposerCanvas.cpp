@@ -66,9 +66,9 @@ static const int    KNOB_COLS = 6;
 static const double PORT_GRAB = 9;
 
 ComposerCanvas::ComposerCanvas (void)
-    : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1),
+    : doc_(NULL), sched_(NULL),
       feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
-      wireX_(0), wireY_(0)
+      wireX_(0), wireY_(0), dragBox_(-1), dragDx_(0), dropAt_(-1)
 {
     set_draw_func(sigc::mem_fun(*this, &ComposerCanvas::onDraw));
 

@@ -28,8 +28,7 @@
 thcPlugin::thcPlugin (const string &path)
     : path_(path), state_(NOTLOADED), handle_(NULL), flags_(0),
       create_(NULL), tick_(NULL), receive_(NULL), paramChanged_(NULL),
-      input_(NULL), capture_(NULL),
-      draw_(NULL), destroy_(NULL)
+      draw_(NULL), input_(NULL), capture_(NULL), destroy_(NULL)
 {
     /* The name a chain will refer to this by is the filename with the
        suffix off -- "eno_line", not ".../composer/eno_line.so". The ABI

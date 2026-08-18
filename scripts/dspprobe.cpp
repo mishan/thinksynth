@@ -563,7 +563,12 @@ void properties (const string &pluginPath, const char *file)
         ok(slot >= 0, "a constant arg (%s.%s) can be probed: %s",
            scalarNode.c_str(), scalarArg.c_str(), why.c_str());
 
-        if (slot >= 0)
+        /* Fetched once and checked rather than dereferenced inside the
+           loop -- see the note on the same shape further down, and the
+           port sweep above that this copies. */
+        thProbe *const probe = (slot < 0) ? NULL : s.probe(slot);
+
+        if (probe != NULL)
         {
             for (int n = 0; n < NUM_NOTES; n++)
                 s.addNote(0, (float)NOTES[n], 100);
@@ -577,7 +582,7 @@ void properties (const string &pluginPath, const char *file)
             for (int w = 0; w < 4 && got == 0; w++)
             {
                 s.process();
-                got = s.probe(slot)->read(&buf[0], (unsigned int)windowlen);
+                got = probe->read(&buf[0], (unsigned int)windowlen);
             }
 
             const float want = scalarValue * NUM_NOTES;
@@ -676,7 +681,17 @@ void properties (const string &pluginPath, const char *file)
         string why;
         const int slot = s.armProbe(0, "ionode", "note", why);
 
-        if (slot < 0)
+        /* Fetched once and checked, as the port sweep above does. probe()
+           is NULL for a slot that is not armed, and the two loops below
+           dereference it without ever saying so -- at -O3 gcc inlines
+           thProbe::read here, reasons about the NULL it was never told
+           could not happen, and reports the atomic loads inside
+           thSampleRing as writes "at address zero". Nothing between the
+           arm and the last read reloads the channel, which is the only
+           thing that retires a probe, so one fetch is enough. */
+        thProbe *const probe = (slot < 0) ? NULL : s.probe(slot);
+
+        if (probe == NULL)
         {
             printf("      (cannot probe ionode.note on %s: %s)\n", file,
                    why.c_str());
@@ -693,7 +708,7 @@ void properties (const string &pluginPath, const char *file)
             for (int w = 0; w < 3; w++)
             {
                 s.process();
-                s.probe(slot)->read(&buf[0], (unsigned int)windowlen);
+                probe->read(&buf[0], (unsigned int)windowlen);
             }
 
             const float held = buf[0];
@@ -706,7 +721,7 @@ void properties (const string &pluginPath, const char *file)
             {
                 s.process();
 
-                if (s.probe(slot)->read(&buf[0], (unsigned int)windowlen))
+                if (probe->read(&buf[0], (unsigned int)windowlen))
                     withDecaying = buf[0];
             }
 

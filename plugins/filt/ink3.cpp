@@ -71,7 +71,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float buf_in[windowlen], buf_cut[windowlen], buf_res[windowlen],
         buf_shape[windowlen];
     unsigned int i;
-    float in, last, diff, accel;
+    float last, diff, accel;
     float val_arg, val_cutoff, val_res, val_shape;
 
     out_arg = mod->getArg(node, args[OUT_ARG]);

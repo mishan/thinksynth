@@ -68,10 +68,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 {
     int i, j;
     float *out;
-    float *out_last, *sync, *out_freq;
-    float position, wfreq;
+    float *out_last;
+    float wfreq;
     double wavelength, freq;
-    float amp_max, amp_min, amp_range;
+    float amp_max;
     float detunefreq, detuneamt, ampmul, ampadd;
     int waves;
     thArg *in_freq, *in_amp, *in_waves, *in_detunefreq, *in_detuneamt, *in_ampmul, *in_ampadd;
@@ -85,13 +85,16 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     out_sync = mod->getArg(node, args[OUT_SYNC]);
     /* Output a 1 when the wave begins its cycle */
     inout_last = mod->getArg(node, args[INOUT_LAST]);
-    position = (*inout_last)[0];
     out_last = inout_last->allocate(waves);
 
+    /* Both of these are called for the allocate, not for the pointer.
+       `freqbuffer' is sized and never filled, and `sync' is sized and
+       never written -- but a .dsp may still wire `sync' up, and an arg
+       left at length 1 is not the same thing as a zeroed window. */
     inout_freq = mod->getArg(node, args[INOUT_FREQ]);
-    out_freq = inout_freq->allocate(waves);
+    inout_freq->allocate(waves);
 
-    sync = out_sync->allocate(windowlen);
+    out_sync->allocate(windowlen);
 
     out = out_arg->allocate(windowlen);
 
@@ -109,8 +112,6 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if(amp_max == 0) {
           amp_max = TH_MAX;
         }
-        amp_min = -amp_max;
-        amp_range = amp_max-amp_min;
 
         detunefreq = (*in_detunefreq)[i];
         detuneamt = (*in_detuneamt)[i];
