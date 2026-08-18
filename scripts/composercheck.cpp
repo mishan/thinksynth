@@ -181,7 +181,14 @@ stagePiece (const std::string &content)
     out.close();
 
     if (!out)
+    {
+        /* The directory exists whether or not the piece got into it, and
+           a harness that leaves one behind per failed run is a harness
+           that fills /tmp on a machine where something is already
+           wrong. */
+        std::filesystem::remove_all(dir, ec);
         return "";
+    }
 
     Glib::setenv("THINK_GEN_PATH", dir);
 
@@ -396,7 +403,18 @@ run (const std::string &pluginPath, const char *genFile)
     pump(2);
 
     if (!staged.empty())
-        std::filesystem::remove_all(staged);
+    {
+        /* The error_code overload, as pathcheck uses for its fixtures.
+           The throwing one turns a locked or unreadable scratch
+           directory into an exception out of the tail of a run that has
+           already finished -- so the process dies after the checks have
+           passed and the report they wrote never reaches anyone. A
+           cleanup that fails should be a leaked directory, not a lost
+           result. */
+        std::error_code ec;
+
+        std::filesystem::remove_all(staged, ec);
+    }
 
     ok("the window closes without taking anything with it");
 
@@ -467,7 +485,11 @@ runRefused (const std::string &pluginPath)
     delete win;
     pump(2);
 
-    std::filesystem::remove_all(tmp);
+    {
+        std::error_code ec;
+
+        std::filesystem::remove_all(tmp, ec);
+    }
 
     ok("...and closes again");
 
