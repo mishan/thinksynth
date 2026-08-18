@@ -46,16 +46,23 @@ static const double TITLE_H  = 15;
 
 ComposerCanvas::ComposerCanvas (void)
     : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1),
-      feeding_(false)
+      feeding_(false), feedButton_(1)
 {
     set_draw_func(sigc::mem_fun(*this, &ComposerCanvas::onDraw));
 
     auto click = Gtk::GestureClick::create();
 
+    /* Through a lambda rather than straight to the handler, because
+       which button was pressed is the *controller's* to answer and the
+       signal does not carry it. A plugin that could not tell a primary
+       click from a secondary one would have half an input API -- a Life
+       board wants left to draw and right to erase. */
     click->signal_pressed().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onPressed));
+        [this, click](int n, double x, double y)
+        { onPressed(n, x, y, (int)click->get_current_button()); });
     click->signal_released().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onReleased));
+        [this, click](int n, double x, double y)
+        { onReleased(n, x, y, (int)click->get_current_button()); });
     add_controller(click);
 
     /* Motion, for painting a plugin's picture by dragging across it.
@@ -658,7 +665,7 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
 }
 
 void
-ComposerCanvas::onPressed (int nPress, double x, double y)
+ComposerCanvas::onPressed (int nPress, double x, double y, int button)
 {
     pressX_ = x;
     pressY_ = y;
@@ -666,9 +673,10 @@ ComposerCanvas::onPressed (int nPress, double x, double y)
     /* A press the plugin takes is not a selection and not the start of
        a drag: the canvas gets out of the way entirely while someone is
        drawing on a board. */
-    if (feedInput(THC_IN_PRESS, x, y, 1))
+    if (feedInput(THC_IN_PRESS, x, y, button))
     {
         feeding_ = true;
+        feedButton_ = button;
         return;
     }
 
@@ -708,12 +716,15 @@ ComposerCanvas::onPressed (int nPress, double x, double y)
 }
 
 void
-ComposerCanvas::onReleased (int, double x, double y)
+ComposerCanvas::onReleased (int, double x, double y, int)
 {
     if (!feeding_)
         return;
 
-    feedInput(THC_IN_RELEASE, x, y, 1);
+    /* The button the gesture began with, not whichever one the
+       controller reports now: a release that named a different button
+       than its press would be a pair no plugin could match up. */
+    feedInput(THC_IN_RELEASE, x, y, feedButton_);
     feeding_ = false;
 }
 
@@ -721,7 +732,7 @@ void
 ComposerCanvas::onMotion (double x, double y)
 {
     if (feeding_)
-        feedInput(THC_IN_DRAG, x, y, 1);
+        feedInput(THC_IN_DRAG, x, y, feedButton_);
 }
 
 bool

@@ -1788,10 +1788,13 @@ ComposerWindow::presetChanged (const std::string &preset)
 /* Ask a stage's module what its touchable state is now, and write it
  * back through the ordinary param path.
  *
- * Every param is offered, and the module answers for the ones it can --
- * `composer_capture' returns NULL for the rest. That keeps the host from
- * needing to know which param of which plugin holds a board, and it is
- * what makes this one button rather than one per plugin.
+ * Every param is offered and the module answers for the ones it can.
+ * `composer_capture' returns NULL for the rest, which thcPlugin::capture
+ * turns into an empty string at the ABI boundary -- so what this loop
+ * tests is emptiness, and the two spellings mean the same thing on
+ * either side of that line. Offering every param is what keeps the host
+ * from having to know which param of which plugin holds a board, and it
+ * is what makes this one button rather than one per plugin.
  *
  * Through applyParam, so the splice, the cached doc and the live poke
  * all happen the way they do for a value typed by hand. Writing the file
@@ -1805,6 +1808,7 @@ ComposerWindow::captureStage (size_t ci, size_t si)
         return;
 
     int written = 0;
+    std::string refused;
 
     for (int pi = 0; pi < s->plugin->paramCount(); pi++)
     {
@@ -1825,11 +1829,28 @@ ComposerWindow::captureStage (size_t ci, size_t si)
         if (info->type != THC_PARAM_STRING)
             continue;
 
+        /* A .gen string is "[^"\n]*" with no escapes at all, so a quote
+           or a newline in what a module hands back simply cannot be
+           written. thcGenEdit::setParam refuses such a value and the
+           file is safe either way -- but it would refuse it three
+           layers down, and this loop would then go on to report a
+           capture that did not happen. Checked here so the message
+           names the param and the count is true. */
+        if (text.find('"') != std::string::npos ||
+            text.find('\n') != std::string::npos)
+        {
+            refused = info->name;
+            continue;
+        }
+
         applyParam(ci, si, info->name, "\"" + text + "\"");
         written++;
     }
 
-    if (written)
+    if (!refused.empty())
+        status_->set_text("'" + refused + "' cannot be written: a .gen "
+                          "string holds no quotes or newlines");
+    else if (written)
         status_->set_text("captured into the piece; Save to keep it");
     else
         status_->set_text("this stage had nothing to capture");

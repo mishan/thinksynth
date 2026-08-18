@@ -104,11 +104,11 @@ public:
 protected:
     void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                  int height);
-    void onPressed (int nPress, double x, double y);
+    void onPressed (int nPress, double x, double y, int button);
     void onDragBegin (double x, double y);
     void onDragUpdate (double dx, double dy);
     void onDragEnd (double dx, double dy);
-    void onReleased (int nPress, double x, double y);
+    void onReleased (int nPress, double x, double y, int button);
     void onMotion (double x, double y);
     bool onKey (guint keyval, guint keycode, Gdk::ModifierType state);
 
@@ -154,8 +154,11 @@ private:
     Selection enlarged_;
 
     /* True between a press the plugin took and its release, so a drag
-       paints rather than selecting or moving anything. */
+       paints rather than selecting or moving anything, and which button
+       started it -- a drag has no button of its own, so the one the
+       press carried is the one the whole gesture is made with. */
     bool feeding_;
+    int  feedButton_;
 
     /* Drag state: which stage box is in flight, and where the pointer
        has carried it. dropAt_ is the insertion index the drop would

@@ -25,8 +25,8 @@
  * about it comes from what you put on the board, and the difference
  * between a glider and a block is one cell. So this is the first plugin
  * to export composer_input: click a cell in the canvas's enlarged view
- * and it toggles, drag to paint a row of them, and the next generation
- * takes it from there. That is COMPOSITION_HANDOFF.md §7's argument for
+ * and it toggles, drag to paint a row of them, right-drag to erase, and
+ * the next generation takes it from there. That is COMPOSITION_HANDOFF.md §7's argument for
  * the entry point, arriving for exactly the case §7 named -- clicks on
  * the plugin's own draw area, which was draw-only.
  *
@@ -513,13 +513,20 @@ composer_input (void *state, const thcInputEvent *ev)
         return;
     }
 
-    /* A press decides what the gesture paints -- the opposite of the
-       cell it landed on -- and the drag then paints that one value
-       everywhere it goes. Toggling per cell instead would make dragging
-       back over your own line erase it, which is not what a drag on a
-       Life board should mean. */
+    /* A press decides what the gesture paints and the drag then paints
+       that one value everywhere it goes. Toggling per cell instead would
+       make dragging back over your own line erase it, which is not what
+       a drag on a Life board should mean.
+     *
+       The primary button paints the opposite of the cell it landed on,
+       so a single click toggles and a drag extends whatever that first
+       cell became. Any other button erases, always -- which is what a
+       right-drag is for everywhere else, and it is why thcInputEvent
+       carries a button at all rather than assuming there is one. */
     if (ev->type == THC_IN_PRESS)
-        st->paintTo = st->cells[idx(st, x, y)] ? 0 : 1;
+        st->paintTo = (ev->button == 1)
+            ? (st->cells[idx(st, x, y)] ? 0 : 1)
+            : 0;
     else if (st->paintX == x && st->paintY == y)
         return;                        /* same cell, still dragging     */
 
@@ -539,6 +546,13 @@ composer_capture (void *state, int index)
 
     if (index != paramIndex[P_BOARD])
         return NULL;
+
+    /* What is playing now, which is what capture means -- and the board
+       is only guaranteed current after a refresh. tick, draw and input
+       all call one, so in practice it has usually happened; in practice
+       is not a contract, and a host is entitled to ask a stage that has
+       not been drawn or ticked since its params last moved. */
+    refresh(st);
 
     st->captured = boardToString(st);
 

@@ -1637,6 +1637,11 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
 
         void at (int col, int row, thcInputType type) const
         {
+            at(col, row, type, 1);
+        }
+
+        void at (int col, int row, thcInputType type, int button) const
+        {
             const double cell = (w / 5 < h / 5) ? w / 5 : h / 5;
             const double ox = (w - cell * 5) / 2;
             const double oy = (h - cell * 5) / 2;
@@ -1648,7 +1653,7 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
             ev.y = oy + (row + 0.5) * cell;
             ev.w = w;
             ev.h = h;
-            ev.button = 1;
+            ev.button = button;
 
             plugin->input(state, &ev);
         }
@@ -1796,6 +1801,36 @@ checkInput (const std::map<std::string, thcPlugin *> &plugins,
 
             if (typed.compare(0, 5, "OOOOO") != 0)
                 fail("a board written after a click was ignored: " + typed);
+
+            /* The secondary button erases rather than toggling, which
+               is the whole reason thcInputEvent carries a button. Two
+               right-clicks on one cell must leave it dead; two left
+               clicks put it back where it started. */
+            st->params.setString(idx, "OOOOO/OOOOO/OOOOO/OOOOO/OOOOO");
+
+            Clicker erase = { st->plugin, st->state, 100.0, 100.0 };
+
+            erase.at(2, 2, THC_IN_PRESS, 3);
+            erase.at(2, 2, THC_IN_RELEASE, 3);
+
+            const std::string once = st->plugin->capture(st->state, idx);
+
+            erase.at(2, 2, THC_IN_PRESS, 3);
+            erase.at(2, 2, THC_IN_RELEASE, 3);
+
+            const std::string twice = st->plugin->capture(st->state, idx);
+
+            if (once == "OOOOO/OOOOO/OOOOO/OOOOO/OOOOO")
+                fail("a secondary click did not erase a cell");
+            else if (once != twice)
+                fail("a secondary click toggled rather than erasing");
+
+            erase.at(2, 2, THC_IN_PRESS, 1);
+            erase.at(2, 2, THC_IN_RELEASE, 1);
+
+            if (st->plugin->capture(st->state, idx) != 
+                "OOOOO/OOOOO/OOOOO/OOOOO/OOOOO")
+                fail("the primary button did not put the cell back");
 
             /* A param the plugin cannot capture says so, rather than
                handing back something a host would then write. */

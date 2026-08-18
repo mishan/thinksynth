@@ -210,7 +210,7 @@ run (const std::string &pluginPath, const char *genFile)
 
         if (win->canvas_->enlarged().kind ==
             ComposerCanvas::Selection::NONE)
-            fail("a stage could be enlarged");
+            fail("a stage did not fill the canvas when asked to");
         else
             ok("a stage fills the canvas when asked to");
 
@@ -219,7 +219,7 @@ run (const std::string &pluginPath, const char *genFile)
 
         if (win->canvas_->enlarged().kind !=
             ComposerCanvas::Selection::NONE)
-            fail("the enlarged view can be left");
+            fail("the enlarged view would not go away");
         else
             ok("the enlarged view can be left again");
     }
