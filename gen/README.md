@@ -6,11 +6,36 @@ them they exercise every composer plugin in the tree and every ability the
 around being impressive. The comment at the top of each file is the lesson;
 this is the index.
 
-Open one with the Composer window's **Open** button, press **Play**, and aim
-the channels its header names at patches you like. The three timbre pieces
+Open one from the Composer window's menu (**☰ → Open**), press **Play**, and
+aim the channels its header names at patches you like. The three timbre pieces
 also move `amp`, the one chanarg every channel has, so they do something
 audible whatever is loaded; their filter components need `amb01.dsp`. Channels are 1–16 here, the
 same numbers the main window's patch tabs show.
+
+## The window
+
+The canvas is the piece. Chains read left to right, one row each; the knobs a
+piece declares sit in a lane across the top with a wire down to every param
+they drive. Everything is reachable from there:
+
+- **Drag a knob node's track** to move it while the piece plays. The file
+  remembers where you let go.
+- **Drag from a knob's port** — the dot on its bottom edge — onto a stage box
+  to bind it. The drop asks which param, because a stage with six numbers is
+  six honest answers. Unbinding is in the Selection tab, next to the param it
+  releases.
+- **Press the handle** in a stage box's title bar (the three little sliders)
+  for that stage's parameters, with units and knob bindings.
+- **Double-click a stage** that draws something to fill the canvas with it, and
+  again — or Escape — to put it back. `glider.gen` is the piece to try this on.
+- **Drag a stage box** sideways to reorder its chain.
+- **Ctrl+wheel** zooms.
+
+**Edit** opens a panel with two tabs: *Piece* for the things the whole file
+declares — name, seed, tempo, knobs, scales, presets — and *Selection* for
+whatever is selected on the canvas, which clicking raises for you. New, Open,
+Save and Revert are in the menu; **☰ → Piano roll** puts the roll away when
+the canvas wants the whole window.
 
 Every piece is gated: `scripts/gencheck` loads all of them on every build, and
 requires each one with a generator in it to deliver something inside a minute
@@ -29,7 +54,7 @@ typo in it.
 
 | piece | the idea |
 | --- | --- |
-| [`hands.gen`](hands.gen) | **Live input.** Nothing generates anything: every chain is fed by `input midi`, so hardware MIDI and the on-screen Keyboard (toolbar → **Kbd input**) drive an arpeggiator, a corrector, and a slow shadow. The piece that shows why `THC_EV_NOTEOFF` exists. |
+| [`hands.gen`](hands.gen) | **Live input.** Nothing generates anything: every chain is fed by `input midi`, so hardware MIDI and the on-screen Keyboard (title bar → **Kbd input**) drive an arpeggiator, a corrector, and a slow shadow. The piece that shows why `THC_EV_NOTEOFF` exists. |
 | [`glider.gen`](glider.gen) | **A picture that is a control.** Conway's Game of Life, played. Double-click a stage on the canvas to fill the window with its board, then click cells while it runs — the next generation takes whatever you leave. **Capture to file** writes the board you made back into the piece. |
 
 ## Algorithms

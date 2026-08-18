@@ -140,10 +140,6 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     : synth_(synth), dirty_(false), reloadPending_(false),
       tempoGuard_(false)
 {
-    saveBtn_ = NULL;
-    saveAsBtn_ = NULL;
-    newBtn_ = NULL;
-    openBtn_ = NULL;
     selBox_ = NULL;
     kbdBtn_ = NULL;
 
@@ -154,12 +150,9 @@ ComposerWindow::ComposerWindow (thSynth *synth)
 
     loadComposers();
 
-    set_child(vbox_);
-
     playBtn_ = manage(new Gtk::Button("Play"));
     pauseBtn_ = manage(new Gtk::Button("Pause"));
     rewindBtn_ = manage(new Gtk::Button("Rewind"));
-    reloadBtn_ = manage(new Gtk::Button("Revert"));
     editBtn_ = manage(new Gtk::ToggleButton("Edit"));
 
     playBtn_->signal_clicked().connect(
@@ -168,13 +161,8 @@ ComposerWindow::ComposerWindow (thSynth *synth)
         sigc::mem_fun(*this, &ComposerWindow::onPause));
     rewindBtn_->signal_clicked().connect(
         sigc::mem_fun(*this, &ComposerWindow::onRewind));
-    reloadBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onReload));
     editBtn_->signal_toggled().connect(
         sigc::mem_fun(*this, &ComposerWindow::onEditToggle));
-
-    reloadBtn_->set_tooltip_text("Throw away unsaved edits and reload "
-                                 "the piece from its file");
 
     tempoLbl_ = manage(new Gtk::Label("Tempo"));
     tempoVal_ = Gtk::Adjustment::create(120, 20, 300, 1, 10);
@@ -187,73 +175,152 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     status_->set_xalign(1.0);
     status_->set_ellipsize(Pango::EllipsizeMode::END);
 
-    bar_.set_spacing(6);
-    bar_.set_margin(6);
-    bar_.append(*playBtn_);
-    bar_.append(*pauseBtn_);
-    bar_.append(*rewindBtn_);
-    bar_.append(*reloadBtn_);
-    bar_.append(*tempoLbl_);
-    bar_.append(*tempoBtn_);
-    bar_.append(*editBtn_);
-
     kbdBtn_ = manage(new Gtk::ToggleButton("Kbd input"));
     kbdBtn_->set_tooltip_text("Feed the on-screen Keyboard window into "
                               "chains with MIDI input, alongside "
                               "hardware MIDI");
     kbdBtn_->signal_toggled().connect(
         sigc::mem_fun(*this, &ComposerWindow::onKbdToggle));
-    bar_.append(*kbdBtn_);
 
-    bar_.append(*status_);
-
-    vbox_.append(bar_);
+    buildHeader();
 
     /* Playing side: knobs, the node canvas, the roll. The canvas is the
        piece's face whether or not the Edit panel is open -- the tier-two
        visualizers live inside its stage boxes now, where the old draw
        strip used to be a row of orphans. */
-    knobBar_.set_spacing(12);
-    knobBar_.set_margin_start(6);
-    knobBar_.set_margin_end(6);
-    playSide_.append(knobBar_);
-
     canvas_ = manage(new ComposerCanvas());
     canvas_->sigSelection.connect(
         sigc::mem_fun(*this, &ComposerWindow::onCanvasSelection));
     canvas_->sigMoveStage.connect(
         sigc::mem_fun(*this, &ComposerWindow::onCanvasMoveStage));
+    canvas_->sigParams.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasParams));
+    canvas_->sigKnob.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasKnob));
+    canvas_->sigBindKnob.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasBindKnob));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
                              Gtk::PolicyType::AUTOMATIC);
     canvasScroll_.set_propagate_natural_height(true);
     canvasScroll_.set_propagate_natural_width(true);
-    canvasScroll_.set_max_content_height(300);
-    playSide_.append(canvasScroll_);
 
     roll_ = manage(new PianoRoll(sched_));
-    roll_->set_vexpand(true);
-    playSide_.append(*roll_);
+
+    /* The canvas is the piece and the roll is what the piece is doing,
+       so the canvas gets the room. It used to be the other way round --
+       the canvas capped at 300 pixels and the roll taking everything
+       left over -- which put the thing being edited in a letterbox above
+       the thing being watched.
+     *
+       A paned rather than a fixed split: how much roll is worth looking
+       at depends on the piece, and the position below is a starting
+       point, not a ruling. */
+    rollPane_.set_orientation(Gtk::Orientation::VERTICAL);
+    rollPane_.set_start_child(canvasScroll_);
+    rollPane_.set_end_child(*roll_);
+    rollPane_.set_resize_start_child(true);
+    rollPane_.set_resize_end_child(true);
+    rollPane_.set_shrink_start_child(false);
+    rollPane_.set_shrink_end_child(false);
+    rollPane_.set_vexpand(true);
+    playSide_.append(rollPane_);
+
+    /* A first split, once there is a window to split.
+     *
+       Not at construction, where nothing has been allocated and the
+       fraction would be a fraction of zero, and only once: after that
+       the position is wherever the person dragged it to, and a window
+       that reset the split on every reload would be arguing with them.
+
+       The floor is so that a piece with one short chain still leaves the
+       roll something to draw in -- 65% of a tall window is generous, but
+       65% of a short one is not. */
+    signal_map().connect(
+        [this]
+        {
+            if (paneSet_)
+                return;
+
+            paneSet_ = true;
+
+            /* Kept, so it can be disconnected.
+             *
+               An idle capturing `this' outlives nothing by itself: the
+               main loop holds the slot, not the window, so a window
+               closed between the map and the next idle turn leaves a
+               callback pointing at freed memory. drawTimer_ has been
+               stored and disconnected for exactly this reason since the
+               beginning; these are the same thing arriving once instead
+               of every fifty milliseconds, and were not. */
+            paneIdle_ = Glib::signal_idle().connect(
+                [this]
+                {
+                    const int h = rollPane_.get_height();
+
+                    if (h >= 200)
+                        rollPane_.set_position(
+                            std::max(h * 65 / 100, h - 320));
+
+                    return false;
+                });
+        });
 
     /* The editor rides in a paned so the roll stays visible while
-       editing -- watching the piece change is the point. */
+       editing -- watching the piece change is the point.
+     *
+       Two tabs rather than one long column. The piece's own settings and
+       whatever is selected on the canvas are different questions, and
+       stacking them meant the answer to the second was always below the
+       fold: selecting a stage scrolled nothing, so the panel went on
+       showing the piece's name while the thing you had just clicked sat
+       off the bottom. Clicking the canvas now raises Selection. */
+    /* Both directions, and that is deliberate.
+     *
+       With horizontal scrolling off, a scrolled window hands its child's
+       full width up as a minimum -- and a Selection row is a label, a
+       spin button, a unit menu and a binding menu, which comes to about
+       seven hundred pixels. The paned then could not be dragged
+       narrower than that, so the panel ate half the window whatever the
+       position said. Letting it scroll sideways is what makes the panel
+       a panel instead of the other half of the window. */
     editorScroll_.set_child(editorBox_);
-    editorScroll_.set_policy(Gtk::PolicyType::NEVER,
+    editorScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
                              Gtk::PolicyType::AUTOMATIC);
-    editorScroll_.set_visible(false);
 
     editorBox_.set_margin(6);
     editorBox_.set_spacing(6);
 
-    paned_.set_start_child(editorScroll_);
-    paned_.set_end_child(playSide_);
-    paned_.set_resize_start_child(false);
+    selScroll_.set_child(selOuter_);
+    selScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
+                          Gtk::PolicyType::AUTOMATIC);
+
+    selOuter_.set_margin(6);
+    selOuter_.set_spacing(6);
+
+    tabs_.append_page(editorScroll_, "Piece");
+    tabs_.append_page(selScroll_, "Selection");
+    tabs_.set_visible(false);
+    tabs_.set_size_request(260, -1);
+
+    /* The canvas on the left, the panel on the right.
+     *
+       It used to be the other way round, which put a column of spin
+       buttons where the eye starts and pushed the piece off to one side.
+       The chains read left to right from x = 0, so the canvas wants the
+       left edge; an inspector is a thing you glance at after clicking
+       something, which is the right-hand side's job in every editor that
+       has one. */
+    paned_.set_start_child(playSide_);
+    paned_.set_end_child(tabs_);
+    paned_.set_resize_start_child(true);
+    paned_.set_resize_end_child(false);
     paned_.set_shrink_start_child(false);
-    paned_.set_position(400);
+    paned_.set_shrink_end_child(false);
     paned_.set_vexpand(true);
 
-    vbox_.append(paned_);
+    set_child(paned_);
 
     drawTimer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &ComposerWindow::onDrawTimer), 50);
@@ -274,6 +341,8 @@ ComposerWindow::ComposerWindow (thSynth *synth)
 ComposerWindow::~ComposerWindow (void)
 {
     drawTimer_.disconnect();
+    paneIdle_.disconnect();
+    reloadIdle_.disconnect();
     midiOnConn_.disconnect();
     midiOffConn_.disconnect();
     kbdOnConn_.disconnect();
@@ -290,6 +359,8 @@ ComposerWindow::~ComposerWindow (void)
 
     if (!workPath_.empty())
         ::remove(workPath_.c_str());
+
+    closeParams();
 }
 
 /* Same walk NodeEditor does over visual/, one directory over. */
@@ -386,6 +457,12 @@ ComposerWindow::loadPiece (void)
 void
 ComposerWindow::parseWork (void)
 {
+    /* Every ParamInfo behind an open popover is about to be replaced, so
+       the popover goes with them. Not "hidden": the widgets in it hold
+       a plugin pointer and a param index, and the next reload is where
+       both stop meaning what they meant. */
+    closeParams();
+
     thcGenLoader loader(composers_);
 
     if (!loader.load(workPath_, sched_))
@@ -446,7 +523,6 @@ ComposerWindow::parseWork (void)
               "put a stage on the clock.");
     }
 
-    rebuildKnobs();
     canvas_->SetPiece(&doc_, sched_);
     rebuildEditor();
     updateTransportButtons();
@@ -466,7 +542,12 @@ ComposerWindow::scheduleReload (bool markDirty)
 
     reloadPending_ = true;
 
-    Glib::signal_idle().connect_once(
+    /* Stored for the same reason as paneIdle_ above, and this one
+       predates it: a reload queued at idle and a window closed before
+       the loop comes round again is a callback into a freed window that
+       then reloads the piece through a deleted scheduler. The
+       reloadPending_ flag makes sure there is only ever one. */
+    reloadIdle_ = Glib::signal_idle().connect(
         [this, markDirty]
         {
             reloadPending_ = false;
@@ -486,6 +567,8 @@ ComposerWindow::scheduleReload (bool markDirty)
                 sched_->start();
 
             updateTransportButtons();
+
+            return false;
         });
 }
 
@@ -574,10 +657,56 @@ ComposerWindow::onTempo (void)
 void
 ComposerWindow::onEditToggle (void)
 {
-    editorScroll_.set_visible(editBtn_->get_active());
+    const bool on = editBtn_->get_active();
 
-    if (editBtn_->get_active())
-        rebuildEditor();
+    /* Remember how wide the panel was before hiding it, so that closing
+       and reopening Edit is not a way to lose the width you dragged it
+       to. Read before the hide, because a hidden child has no width. */
+    if (!on && tabs_.get_visible() && paned_.get_width() > 0)
+        panelW_ = paned_.get_width() - paned_.get_position();
+
+    tabs_.set_visible(on);
+
+    if (!on)
+        return;
+
+    rebuildEditor();
+
+    /* And put it back where it was, or at a third of the window the
+       first time.
+     *
+       In an idle, because the panel has just been made visible and the
+       paned has not been allocated with it in yet -- asking now gives
+       the width from before the show. A third rather than the panel's
+       natural width: a Selection row of spin buttons and menus is about
+       seven hundred pixels wide, which is half the window and not a
+       panel. */
+    /* Kept and replaced rather than piled up: Edit can be toggled faster
+       than the loop turns, and the same connection also means the
+       destructor can take back whatever is outstanding. An idle that
+       captured `this' and outlived the window is a call into freed
+       memory -- the same hazard as paneIdle_ and reloadIdle_, which is
+       why it borrows paneIdle_ rather than adding a third name for it:
+       both put a paned where it belongs, and only one can be wanted at
+       a time. */
+    paneIdle_.disconnect();
+    paneIdle_ = Glib::signal_idle().connect(
+        [this]
+        {
+            const int w = paned_.get_width();
+
+            if (w >= 400)
+            {
+                int want = panelW_ > 0 ? panelW_ : std::min(w / 3, 380);
+
+                if (want > w - 240)
+                    want = w - 240;
+
+                paned_.set_position(w - want);
+            }
+
+            return false;
+        });
 }
 
 void
@@ -773,8 +902,8 @@ ComposerWindow::setDirty (bool dirty)
 {
     dirty_ = dirty;
 
-    if (saveBtn_ != NULL)
-        saveBtn_->set_sensitive(dirty_ || genPath_.empty());
+    if (saveAct_)
+        saveAct_->set_enabled(dirty_ || genPath_.empty());
 
     updateTransportButtons();
 }
@@ -787,9 +916,6 @@ ComposerWindow::updateTransportButtons (void)
     playBtn_->set_sensitive(have && !sched_->running());
     pauseBtn_->set_sensitive(have && sched_->running());
     rewindBtn_->set_sensitive(have);
-    /* Never disabled: with no piece found it is the "look again"
-       button, which is the one moment it is most wanted. */
-    reloadBtn_->set_sensitive(true);
 
     std::string text = pieceLabel_;
 
@@ -804,63 +930,101 @@ ComposerWindow::updateTransportButtons (void)
     status_->set_text(text);
 }
 
-/* ---- the playing side ------------------------------------------------- */
-
+/* The title bar, which is also the toolbar.
+ *
+ * New and Open used to live inside the Edit panel, which meant the two
+ * things a person does before there is anything to edit were behind a
+ * toggle that only makes sense once there is. They are menu items now,
+ * where every other program keeps them.
+ *
+ * The transport stays on the bar because it is pressed constantly and a
+ * menu is not for that. Everything pressed rarely -- the file commands,
+ * Revert, whether the roll is showing -- is behind the button, and the
+ * two toggles that change what the window *is* stay out where their
+ * state can be seen without opening anything. */
 void
-ComposerWindow::rebuildKnobs (void)
+ComposerWindow::buildHeader (void)
 {
-    while (Gtk::Widget *child = knobBar_.get_first_child())
-        knobBar_.remove(*child);
+    Glib::RefPtr<Gio::SimpleActionGroup> acts = acts_ =
+        Gio::SimpleActionGroup::create();
 
-    const std::map<std::string, thArg *> &knobs = sched_->knobs();
+    acts->add_action("new", sigc::mem_fun(*this, &ComposerWindow::onNew));
+    acts->add_action("open", sigc::mem_fun(*this, &ComposerWindow::onOpen));
+    saveAct_ = acts->add_action("save",
+                                sigc::mem_fun(*this, &ComposerWindow::onSave));
+    acts->add_action("saveas",
+                     sigc::mem_fun(*this, &ComposerWindow::onSaveAs));
+    acts->add_action("revert",
+                     sigc::mem_fun(*this, &ComposerWindow::onReload));
 
-    for (std::map<std::string, thArg *>::const_iterator i = knobs.begin();
-         i != knobs.end(); ++i)
-    {
-        thArg *arg = i->second;
-        std::string name = i->first;
-
-        Gtk::Label *lbl = manage(new Gtk::Label(
-            arg->label().empty() ? name : arg->label()));
-
-        float lo = arg->min(), hi = arg->max();
-
-        if (hi <= lo)
+    /* The roll is a strip, not a fixture: a piece being wired up wants
+       the whole window for the canvas, and one being listened to wants
+       the roll. Stateful rather than a plain action so the menu shows a
+       tick, which is the only way to tell a hidden roll from a piece
+       playing nothing. */
+    rollAct_ = acts->add_action_bool("roll", true);
+    rollAct_->signal_change_state().connect(
+        [this](const Glib::VariantBase &v)
         {
-            lo = 0;
-            hi = 1;
-        }
+            const bool on =
+                Glib::VariantBase::cast_dynamic<Glib::Variant<bool> >(v)
+                    .get();
 
-        Gtk::Scale *scale = manage(new Gtk::Scale(
-            Gtk::Adjustment::create((*arg)[0], lo, hi,
-                                    (hi - lo) / 100.0),
-            Gtk::Orientation::HORIZONTAL));
+            rollAct_->set_state(Glib::Variant<bool>::create(on));
+            roll_->set_visible(on);
+        });
 
-        scale->set_size_request(150, -1);
-        scale->set_draw_value(true);
-        scale->set_digits(2);
+    insert_action_group("composer", acts);
 
-        /* Live and an edit, like the tempo spin: the drag reaches every
-           bound param now, and the file remembers where it ended up. */
-        scale->signal_value_changed().connect(
-            [this, arg, scale, name]
-            {
-                arg->setValue((float)scale->get_value());
+    Glib::RefPtr<Gio::Menu> menu = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> file = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> save = Gio::Menu::create();
+    Glib::RefPtr<Gio::Menu> view = Gio::Menu::create();
 
-                std::string why;
+    file->append("New", "composer.new");
+    file->append("Open...", "composer.open");
+    save->append("Save", "composer.save");
+    save->append("Save As...", "composer.saveas");
+    save->append("Revert", "composer.revert");
+    view->append("Piano roll", "composer.roll");
 
-                if (thcGenEdit::setKnobValue(workPath_, name,
-                                             scale->get_value(), why) ==
-                    thcGenEdit::OK)
-                    setDirty(true);
-            });
+    menu->append_section(file);
+    menu->append_section(save);
+    menu->append_section(view);
 
-        knobBar_.append(*lbl);
-        knobBar_.append(*scale);
-    }
+    Gtk::MenuButton *mb = manage(new Gtk::MenuButton());
 
-    knobBar_.set_visible(!knobs.empty());
+    mb->set_icon_name("open-menu-symbolic");
+    mb->set_tooltip_text("File and view");
+    mb->set_menu_model(menu);
+
+    /* Title and status in one column, because GTK4 took the subtitle
+       away and the status line has nowhere else to be that is not
+       another row of chrome. */
+    titleLbl_.set_text("Composer");
+    titleLbl_.add_css_class("title");
+    status_->add_css_class("subtitle");
+    status_->set_hexpand(false);
+    status_->set_xalign(0.5);
+
+    titleBox_.set_valign(Gtk::Align::CENTER);
+    titleBox_.append(titleLbl_);
+    titleBox_.append(*status_);
+
+    header_.set_title_widget(titleBox_);
+    header_.pack_start(*playBtn_);
+    header_.pack_start(*pauseBtn_);
+    header_.pack_start(*rewindBtn_);
+    header_.pack_start(*tempoLbl_);
+    header_.pack_start(*tempoBtn_);
+    header_.pack_end(*mb);
+    header_.pack_end(*editBtn_);
+    header_.pack_end(*kbdBtn_);
+
+    set_titlebar(header_);
 }
+
+/* ---- the playing side ------------------------------------------------- */
 
 /* One slow clock repaints the canvas so the inline composer_draws stay
  * live; 50ms is plenty for a euclid ring, and the piano roll keeps its
@@ -932,9 +1096,386 @@ ComposerWindow::onKbdToggle (void)
 }
 
 void
-ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &)
+ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &sel)
 {
     rebuildSelection();
+
+    /* Raise Selection, but not for a click that deselected: clearing the
+       canvas and being thrown into an empty tab reads as the window
+       losing its place. */
+    if (sel.kind != ComposerCanvas::Selection::NONE &&
+        tabs_.get_visible())
+        tabs_.set_current_page(1);
+}
+
+/* A knob, selected on the canvas: its shape, and what it drives.
+ *
+ * The list is the wires in words, and it is where they are cut. Binding
+ * is a drag onto a stage; unbinding cannot be, because there is nothing
+ * to drag a wire *off* onto -- so it is a button here, next to the param
+ * it releases. The param keeps the knob's current value when the wire
+ * goes, which is the only answer that does not change what is playing:
+ * removeKnob makes the same promise for the same reason. */
+void
+ComposerWindow::buildKnobSelection (size_t ki)
+{
+    const thcGenEdit::Knob &k = doc_.knobs[ki];
+    const std::string name = k.name;
+
+    Gtk::Label *head = manage(new Gtk::Label());
+
+    head->set_markup("<b>@" + Glib::Markup::escape_text(name) + "</b>");
+    head->set_xalign(0);
+    selBox_->append(*head);
+
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_column_spacing(6);
+    grid->set_row_spacing(4);
+
+    Gtk::SpinButton *minSpin = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(k.min, -100000, 100000, 0.01), 0, 3));
+    Gtk::SpinButton *maxSpin = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(k.max, -100000, 100000, 0.01), 0, 3));
+    Gtk::Entry *lblEntry = manage(new Gtk::Entry());
+
+    lblEntry->set_text(k.label);
+    lblEntry->set_placeholder_text("label");
+
+    auto applyMeta = [this, name, minSpin, maxSpin, lblEntry]
+    {
+        std::string why;
+
+        if (editOk(thcGenEdit::setKnobMeta(workPath_, name,
+                minSpin->get_value(), maxSpin->get_value(),
+                lblEntry->get_text(), why), why))
+            structuralReload();
+    };
+
+    minSpin->signal_value_changed().connect(applyMeta);
+    maxSpin->signal_value_changed().connect(applyMeta);
+    lblEntry->signal_activate().connect(applyMeta);
+
+    static const char *heads[] = { "lowest", "highest", "shown as" };
+
+    for (int c = 0; c < 3; c++)
+    {
+        Gtk::Label *h = manage(new Gtk::Label(heads[c]));
+
+        h->set_xalign(0);
+        h->set_sensitive(false);
+        grid->attach(*h, c, 0);
+    }
+
+    grid->attach(*minSpin, 0, 1);
+    grid->attach(*maxSpin, 1, 1);
+    grid->attach(*lblEntry, 2, 1);
+    selBox_->append(*grid);
+
+    Gtk::Label *drives = manage(new Gtk::Label("drives"));
+
+    drives->set_xalign(0);
+    drives->set_sensitive(false);
+    drives->set_margin_top(6);
+    selBox_->append(*drives);
+
+    int found = 0;
+
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+        for (size_t si = 0; si < doc_.chains[ci].stages.size(); si++)
+        {
+            thcStage *live = liveStage(ci, si);
+
+            if (live == NULL)
+                continue;
+
+            for (int pi = 0; pi < live->plugin->paramCount(); pi++)
+            {
+                thArg *bound = live->params.knobBinding(pi);
+                const thcPlugin::ParamInfo *info =
+                    live->plugin->paramInfo(pi);
+
+                if (bound == NULL || info == NULL ||
+                    bound->name() != name)
+                    continue;
+
+                Gtk::Box *rowBox = manage(new Gtk::Box(
+                    Gtk::Orientation::HORIZONTAL, 6));
+
+                Gtk::Label *what = manage(new Gtk::Label(
+                    doc_.chains[ci].name + " / " +
+                    doc_.chains[ci].stages[si].name + " . " + info->name));
+
+                what->set_xalign(0);
+                what->set_hexpand(true);
+
+                Gtk::Button *cut = manage(new Gtk::Button("Unbind"));
+
+                const std::string param = info->name;
+                const double keep = (*bound)[0];
+
+                /* A duration keeps its unit. The knob's value is already
+                   in seconds -- a knob is not tempo-scaled -- so the
+                   number is right either way; what the `s' buys is a
+                   line that says what it means to the next reader. */
+                const bool dur = info->isDuration();
+
+                cut->signal_clicked().connect(
+                    [this, ci, si, param, keep, dur]
+                    {
+                        std::string text;
+
+                        thcGenEdit::format(keep, text);
+
+                        if (dur)
+                            text += " s";
+
+                        applyParam(ci, si, param, text);
+                        rebuildSelection();
+                    });
+
+                rowBox->append(*what);
+                rowBox->append(*cut);
+                selBox_->append(*rowBox);
+                found++;
+            }
+        }
+
+    if (found == 0)
+    {
+        Gtk::Label *none = manage(new Gtk::Label(
+            "nothing yet -- drag a wire from the knob's port onto a "
+            "stage"));
+
+        none->set_wrap(true);
+        none->set_xalign(0);
+        none->set_sensitive(false);
+        selBox_->append(*none);
+    }
+}
+
+/* A knob node's track, dragged.
+ *
+ * The same two-part shape as everything else on the canvas: the live
+ * value moves under the finger and the file hears about it once, when
+ * the finger comes off. thArg::setValue is what every bound param is
+ * reading through, so the poke is one assignment however many params
+ * that is -- which is the whole point of a knob. */
+void
+ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
+{
+    thArg *arg = sched_->knob(name);
+
+    if (arg == NULL)
+        return;
+
+    arg->setValue((float)value);
+
+    if (!commit)
+        return;
+
+    /* Through editOk, like every other edit in this file: a splice that
+       fails says so on the status line. It used to test for OK and
+       otherwise do nothing at all, so a knob dragged against an
+       unwritable working copy moved on screen, moved the piece, and left
+       the file behind without a word -- which is the failure mode where
+       silence costs the most, because everything else about it looked
+       like it had worked. */
+    std::string why;
+
+    if (editOk(thcGenEdit::setKnobValue(workPath_, name, value, why), why))
+        setDirty(true);
+
+    /* The Knobs section's own slider is now stale. Only when the panel
+       is up: rebuildEditor on a hidden panel is work nobody sees, and
+       the panel is rebuilt on the way to being shown anyway. */
+    if (editBtn_ != NULL && editBtn_->get_active())
+        rebuildEditor();
+}
+
+/* A wire dropped on a stage box: which param is it for?
+ *
+ * The canvas cannot answer this and should not guess -- a stage with six
+ * numeric params is six honest answers -- so the drop asks. One button
+ * per param the wire could drive, and a param that is already bound says
+ * which knob has it, because rebinding is a thing people do and finding
+ * out by doing it is not.
+ *
+ * Params that cannot take a knob are left out rather than shown greyed:
+ * a note set or a Life board is not a thing a wire could ever reach, and
+ * a list of things you cannot have is not help. */
+void
+ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
+                                  size_t stage, Gdk::Rectangle at)
+{
+    closeParams();
+
+    thcStage *live = liveStage(chain, stage);
+
+    if (live == NULL || chain >= doc_.chains.size() ||
+        stage >= doc_.chains[chain].stages.size())
+        return;
+
+    Gtk::Box *list = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+
+    list->set_margin(8);
+
+    Gtk::Label *head = manage(new Gtk::Label());
+
+    head->set_markup("<b>@" + Glib::Markup::escape_text(knob) +
+                     "</b> \u2192 " +
+                     Glib::Markup::escape_text(
+                         doc_.chains[chain].stages[stage].name));
+    head->set_xalign(0);
+    head->set_margin_bottom(4);
+    list->append(*head);
+
+    int offered = 0;
+
+    for (int pi = 0; pi < live->plugin->paramCount(); pi++)
+    {
+        const thcPlugin::ParamInfo *info = live->plugin->paramInfo(pi);
+
+        if (info == NULL ||
+            (info->type != THC_PARAM_FLOAT && info->type != THC_PARAM_INT))
+            continue;
+
+        std::string label = info->name;
+        thArg *bound = live->params.knobBinding(pi);
+
+        if (bound != NULL)
+            label += bound->name() == knob ? "  (already @" + knob + ")"
+                                           : "  (now @" + bound->name() + ")";
+
+        Gtk::Button *btn = manage(new Gtk::Button(label));
+
+        btn->set_has_frame(false);
+        btn->set_halign(Gtk::Align::FILL);
+
+        if (!info->desc.empty())
+            btn->set_tooltip_text(info->desc);
+
+        Gtk::Widget *child = btn->get_child();
+
+        if (child != NULL)
+            child->set_halign(Gtk::Align::START);
+
+        const std::string param = info->name;
+
+        btn->signal_clicked().connect(
+            [this, chain, stage, param, knob]
+            {
+                closeParams();
+                applyParam(chain, stage, param, "@" + knob);
+            });
+
+        list->append(*btn);
+        offered++;
+    }
+
+    if (offered == 0)
+    {
+        Gtk::Label *none = manage(new Gtk::Label(
+            "this stage has nothing a knob can drive"));
+
+        none->set_sensitive(false);
+        list->append(*none);
+    }
+
+    paramPop_ = new Gtk::Popover();
+    paramPop_->set_child(*list);
+    paramPop_->set_parent(*canvas_);
+    paramPop_->set_position(Gtk::PositionType::BOTTOM);
+    paramPop_->set_pointing_to(at);
+    paramPop_->popup();
+}
+
+/* The params handle on a stage box, pressed.
+ *
+ * The rows are the Edit panel's rows -- addParamRow, the same call the
+ * Selection tab makes -- in a popover pointed at the box. That is the
+ * whole of why this is a popover and not a drawing: spin buttons that
+ * take typed numbers, unit menus that say `ms' or `beats', and the knob
+ * binding dropdown all already exist and all already splice the file
+ * correctly. A canvas would have had to grow its own versions of the
+ * three, in eight-pixel text, and would still not have let anyone type.
+ *
+ * Rebuilt each time rather than kept: a reload replaces every ParamInfo
+ * behind these widgets, and a popover that outlived one would be editing
+ * a stage that no longer exists. */
+void
+ComposerWindow::closeParams (void)
+{
+    if (paramPop_ == NULL)
+        return;
+
+    paramPop_->unparent();
+    delete paramPop_;
+    paramPop_ = NULL;
+}
+
+void
+ComposerWindow::onCanvasParams (size_t chain, size_t stage,
+                                Gdk::Rectangle at)
+{
+    closeParams();
+
+    thcStage *live = liveStage(chain, stage);
+
+    if (live == NULL || chain >= doc_.chains.size() ||
+        stage >= doc_.chains[chain].stages.size())
+        return;
+
+    const thcPlugin *plugin = live->plugin;
+
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_row_spacing(4);
+    grid->set_column_spacing(8);
+    grid->set_margin(10);
+
+    Gtk::Label *head = manage(new Gtk::Label());
+
+    head->set_markup("<b>" +
+                     Glib::Markup::escape_text(doc_.chains[chain]
+                                               .stages[stage].name) +
+                     "</b>  " +
+                     Glib::Markup::escape_text(
+                         doc_.chains[chain].stages[stage].category + "::" +
+                         doc_.chains[chain].stages[stage].plugin));
+    head->set_xalign(0);
+    head->set_margin_bottom(4);
+    grid->attach(*head, 0, 0, 3);
+
+    int row = 1;
+
+    for (int pi = 0; pi < plugin->paramCount(); pi++)
+        addParamRow(grid, row++, chain, stage, plugin, pi);
+
+    if (row == 1)
+    {
+        Gtk::Label *none = manage(new Gtk::Label("no parameters"));
+
+        none->set_sensitive(false);
+        grid->attach(*none, 0, 1, 3);
+    }
+
+    /* Tall stages exist -- gen::life has eight -- and a popover taller
+       than the window is one with an unreachable bottom. */
+    Gtk::ScrolledWindow *scroll = manage(new Gtk::ScrolledWindow());
+
+    scroll->set_child(*grid);
+    scroll->set_policy(Gtk::PolicyType::NEVER, Gtk::PolicyType::AUTOMATIC);
+    scroll->set_propagate_natural_width(true);
+    scroll->set_propagate_natural_height(true);
+    scroll->set_max_content_height(420);
+
+    paramPop_ = new Gtk::Popover();
+    paramPop_->set_child(*scroll);
+    paramPop_->set_parent(*canvas_);
+    paramPop_->set_position(Gtk::PositionType::BOTTOM);
+    paramPop_->set_pointing_to(at);
+    paramPop_->popup();
 }
 
 void
@@ -1214,55 +1755,26 @@ ComposerWindow::rebuildEditor (void)
        and the next click on Kbd input reached onKbdToggle, which
        dereferenced the null and took the program with it. A pointer
        cleared here has to be one the loop below actually destroys. */
-    saveBtn_ = NULL;
-    saveAsBtn_ = NULL;
-    newBtn_ = NULL;
-    openBtn_ = NULL;
     selBox_ = NULL;
 
     while (Gtk::Widget *child = editorBox_.get_first_child())
         editorBox_.remove(*child);
 
+    while (Gtk::Widget *child = selOuter_.get_first_child())
+        selOuter_.remove(*child);
+
     if (!editBtn_->get_active())
         return;
-
-    /* File row: New / Save / Save As. */
-    Gtk::Box *fileRow = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
-
-    newBtn_ = manage(new Gtk::Button("New"));
-    openBtn_ = manage(new Gtk::Button("Open"));
-    saveBtn_ = manage(new Gtk::Button("Save"));
-    saveAsBtn_ = manage(new Gtk::Button("Save As"));
-
-    newBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onNew));
-    openBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onOpen));
-    saveBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onSave));
-    saveAsBtn_->signal_clicked().connect(
-        sigc::mem_fun(*this, &ComposerWindow::onSaveAs));
-
-    saveBtn_->set_sensitive(dirty_ || genPath_.empty());
-
-    fileRow->append(*newBtn_);
-    fileRow->append(*openBtn_);
-    fileRow->append(*saveBtn_);
-    fileRow->append(*saveAsBtn_);
-    editorBox_.append(*fileRow);
 
     editorBox_.append(*buildPieceSection());
     editorBox_.append(*buildKnobsSection());
     editorBox_.append(*buildScalesSection());
     editorBox_.append(*buildPresetsSection());
 
-    /* The lower half follows the canvas: whatever is selected up there
-       is editable down here. */
-    editorBox_.append(*manage(new Gtk::Separator(
-        Gtk::Orientation::HORIZONTAL)));
-
+    /* The Selection tab follows the canvas: whatever is selected up
+       there is editable in here. */
     selBox_ = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 4));
-    editorBox_.append(*selBox_);
+    selOuter_.append(*selBox_);
 
     rebuildSelection();
 }
@@ -1294,6 +1806,10 @@ ComposerWindow::rebuildSelection (void)
             selBox_->append(*hint);
             break;
         }
+        case ComposerCanvas::Selection::KNOB:
+            if (sel.index < doc_.knobs.size())
+                buildKnobSelection(sel.index);
+            break;
         case ComposerCanvas::Selection::CHAIN:
             if (sel.chain < doc_.chains.size())
                 buildChainSelection(sel.chain);

@@ -105,7 +105,6 @@ protected:
     /* An edit operation's outcome, shown to the person when it is no. */
     bool editOk (thcGenEdit::Result r, const std::string &why);
 
-    void rebuildKnobs (void);
     bool onDrawTimer (void);
 
     /* ---- the editor panel -------------------------------------------- */
@@ -141,6 +140,12 @@ protected:
     /* Canvas callbacks. */
     void onCanvasSelection (const ComposerCanvas::Selection &sel);
     void onCanvasMoveStage (size_t chain, int from, int to);
+    void onCanvasParams (size_t chain, size_t stage, Gdk::Rectangle at);
+    void buildKnobSelection (size_t ki);
+    void onCanvasKnob (std::string name, double value, bool commit);
+    void onCanvasBindKnob (std::string knob, size_t chain, size_t stage,
+                           Gdk::Rectangle at);
+    void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a
        reload. Doc order and scheduler order agree because the loader
@@ -177,27 +182,58 @@ protected:
 
     PianoRoll *roll_;
 
-    Gtk::Box vbox_{Gtk::Orientation::VERTICAL};
-    Gtk::Box bar_{Gtk::Orientation::HORIZONTAL};
+    Gtk::HeaderBar header_;
+    Gtk::Box titleBox_{Gtk::Orientation::VERTICAL};
+    Gtk::Label titleLbl_;
+
+    /* The file and view menu's actions, for the two that are not
+       fire-and-forget: Save goes insensitive when there is nothing to
+       save, and the roll's item carries a tick. */
+    Glib::RefPtr<Gio::SimpleActionGroup> acts_;
+    Glib::RefPtr<Gio::SimpleAction> saveAct_;
+    Glib::RefPtr<Gio::SimpleAction> rollAct_;
 
     /* Editor on the left of the paned when Edit is on. */
     Gtk::Paned paned_{Gtk::Orientation::HORIZONTAL};
     Gtk::Box playSide_{Gtk::Orientation::VERTICAL};
+    Gtk::Notebook tabs_;
+
+    /* How wide the Edit panel was when it was last hidden, so reopening
+       it does not throw away a drag. Zero until it has been shown. */
+    int panelW_ = 0;
     Gtk::ScrolledWindow editorScroll_;
     Gtk::Box editorBox_{Gtk::Orientation::VERTICAL};
+    Gtk::ScrolledWindow selScroll_;
+    Gtk::Box selOuter_{Gtk::Orientation::VERTICAL};
 
     /* The selection panel's home inside editorBox_, refilled in place
        so the sections above it keep their state. */
     Gtk::Box *selBox_;
 
     /* One slider per @knob the piece declares, rebuilt on load. */
-    Gtk::Box knobBar_{Gtk::Orientation::HORIZONTAL};
 
     /* The node view, above the roll; inline composer_draw replaced the
        old draw strip. */
     ComposerCanvas *canvas_;
     Gtk::ScrolledWindow canvasScroll_;
+
+    /* The canvas over the roll, with the split where the user left it.
+       paneSet_ is false until the first split has been made. */
+    Gtk::Paned rollPane_;
+    bool paneSet_ = false;
+
+    /* A stage's params, while one is showing. Owned by hand rather than
+       managed: a popover parented to the canvas is not the canvas's
+       child in the container sense, so nothing else would free it. */
+    Gtk::Popover *paramPop_ = NULL;
     sigc::connection drawTimer_;
+
+    /* The two idles this window queues, kept so the destructor can take
+       them back. The main loop holds a slot, not the window, so an idle
+       that captured `this' and outlived it is a call into freed
+       memory. */
+    sigc::connection paneIdle_;
+    sigc::connection reloadIdle_;
 
     /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd
        input toggle -- the on-screen keyboard's hop into the same place. */
@@ -207,6 +243,7 @@ protected:
     sigc::connection kbdOffConn_;
     Gtk::ToggleButton *kbdBtn_;
 
+    void buildHeader (void);
     void onKbdToggle (void);
     void injectOn (int chan, float note, float veloc);
     void injectOff (int chan, float note);
@@ -214,12 +251,7 @@ protected:
     Gtk::Button *playBtn_;
     Gtk::Button *pauseBtn_;
     Gtk::Button *rewindBtn_;
-    Gtk::Button *reloadBtn_;
     Gtk::ToggleButton *editBtn_;
-    Gtk::Button *saveBtn_;
-    Gtk::Button *saveAsBtn_;
-    Gtk::Button *newBtn_;
-    Gtk::Button *openBtn_;
 
     Gtk::Label *tempoLbl_;
     Gtk::SpinButton *tempoBtn_;
