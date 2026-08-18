@@ -996,7 +996,6 @@ ComposerWindow::buildHeader (void)
     status_->set_hexpand(false);
     status_->set_xalign(0.5);
 
-    titleBox_.set_orientation(Gtk::Orientation::VERTICAL);
     titleBox_.set_valign(Gtk::Align::CENTER);
     titleBox_.append(titleLbl_);
     titleBox_.append(*status_);

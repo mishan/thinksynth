@@ -183,7 +183,7 @@ protected:
     PianoRoll *roll_;
 
     Gtk::HeaderBar header_;
-    Gtk::Box titleBox_;
+    Gtk::Box titleBox_{Gtk::Orientation::VERTICAL};
     Gtk::Label titleLbl_;
 
     /* The file and view menu's actions, for the two that are not
