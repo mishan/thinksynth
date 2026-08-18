@@ -44,6 +44,13 @@ static const double GHOST_W  = 30;
 static const double ARROW_W  = 22;
 static const double TITLE_H  = 15;
 
+/* One inline param row, and the room its track needs. Twelve is the
+   smallest that still leaves a legible label at 1:1; below that the zoom
+   is the answer rather than a tighter row. */
+static const double ROW_H    = 12;
+static const double ROW_PAD  = 3;
+static const double TWISTY   = 9;
+
 ComposerCanvas::ComposerCanvas (void)
     : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1),
       feeding_(false), feedButton_(1)
@@ -451,6 +458,35 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     cr->set_font_size(9);
     fitText(cr, box.sub, box.x + 4, box.y + box.h - 4, box.w - 8);
 
+    /* The handle that opens the stage's params.
+     *
+       Three little sliders rather than a disclosure triangle, because
+       nothing here expands: the params come up in a popover beside the
+       box. A triangle would promise the box was about to grow, which is
+       what the first version of this did and what made a chain of open
+       boxes unreadable. */
+    if (box.what.kind == Selection::STAGE && box.live != NULL)
+    {
+        double tx, ty, ts;
+
+        twistyRect(box, tx, ty, ts);
+
+        cr->set_line_width(1.0);
+        cr->set_source_rgba(1, 1, 1, 0.45);
+
+        for (int i = 0; i < 3; i++)
+        {
+            const double ly = ty + ts * (0.2 + 0.3 * i);
+
+            cr->move_to(tx, ly);
+            cr->line_to(tx + ts, ly);
+            cr->stroke();
+
+            cr->arc(tx + ts * (i == 1 ? 0.65 : 0.3), ly, 1.4, 0, 2 * M_PI);
+            cr->fill();
+        }
+    }
+
     /* The algorithm's face: composer_draw inside the box, on instance
        state -- same thread, same story as the old draw strip, better
        address. Without one, the first authored params stand in. */
@@ -479,6 +515,78 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
             fitText(cr, st.params[i].name + " " + st.params[i].valueText,
                     box.x + 4, bodyY + 10 + i * 11, box.w - 8);
     }
+}
+
+/* The box for a stage, or NULL. Not `hit', which answers about a point;
+ * this answers about a position in the piece. */
+const ComposerCanvas::Box *
+ComposerCanvas::boxFor (size_t chain, size_t stage) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+        if (boxes_[i].what.kind == Selection::STAGE &&
+            boxes_[i].what.chain == chain && boxes_[i].what.index == stage)
+            return &boxes_[i];
+
+    return NULL;
+}
+
+/* A box in widget pixels, which is what a popover wants to point at. */
+Gdk::Rectangle
+ComposerCanvas::boxRect (const Box &b) const
+{
+    return Gdk::Rectangle((int)(b.x * zoom()), (int)(b.y * zoom()),
+                          (int)(b.w * zoom()), (int)(b.h * zoom()));
+}
+
+bool
+ComposerCanvas::stageRect (size_t chain, size_t stage,
+                           Gdk::Rectangle &at) const
+{
+    const Box *b = boxFor(chain, stage);
+
+    if (b == NULL)
+        return false;
+
+    at = boxRect(*b);
+
+    return true;
+}
+
+bool
+ComposerCanvas::paramsHandle (size_t chain, size_t stage,
+                              double &x, double &y) const
+{
+    const Box *b = boxFor(chain, stage);
+
+    if (b == NULL || b->live == NULL)
+        return false;
+
+    double tx, ty, ts;
+
+    twistyRect(*b, tx, ty, ts);
+
+    x = (tx + ts / 2) * zoom();
+    y = (ty + ts / 2) * zoom();
+
+    return true;
+}
+
+void
+ComposerCanvas::pressAt (double sx, double sy, int button, int nPress)
+{
+    onPressed(nPress, sx, sy, button);
+}
+
+void
+ComposerCanvas::motionTo (double sx, double sy)
+{
+    onMotion(sx, sy);
+}
+
+void
+ComposerCanvas::releaseAt (double sx, double sy, int button)
+{
+    onReleased(1, sx, sy, button);
 }
 
 void
@@ -608,6 +716,14 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
 }
 
 /* ---- the enlarged view, and gestures that reach a plugin -------------- */
+
+void
+ComposerCanvas::twistyRect (const Box &b, double &x, double &y, double &s)
+{
+    s = TWISTY;
+    x = b.x + b.w - TWISTY - 3;
+    y = b.y + (TITLE_H - TWISTY) / 2;
+}
 
 thcStage *
 ComposerCanvas::enlargedStage (void) const
@@ -751,6 +867,31 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 
     const Box *box = hit(x, y);
 
+    /* The params handle, before anything else a press on a stage box
+       could mean: it sits inside the box's title bar, so a selection or
+       a drag would otherwise swallow it.
+     *
+       The stage is selected on the way, so the Edit panel and the
+       popover are talking about the same thing -- opening a stage's
+       params while the panel still shows the previous one would be two
+       answers to the same question on screen at once. */
+    if (box != NULL && box->what.kind == Selection::STAGE &&
+        box->live != NULL && nPress == 1 && button == 1)
+    {
+        double tx, ty, ts;
+
+        twistyRect(*box, tx, ty, ts);
+
+        if (x >= tx - 3 && x <= tx + ts + 3 &&
+            y >= ty - 3 && y <= ty + ts + 3)
+        {
+            select(box->what);
+            sigParams.emit(box->what.chain, box->what.index,
+                           boxRect(*box));
+            return;
+        }
+    }
+
     /* Double-click enlarges a stage that has a picture, and a second
        one puts it back -- the same gesture both ways, because a mode
        you can enter and not leave is worse than no mode. */
@@ -765,7 +906,6 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
         if (box != NULL && box->what.kind == Selection::STAGE &&
             box->live != NULL && box->live->plugin->hasDraw())
         {
-            select(box->what);
             setEnlarged(box->what);
             grab_focus();
             return;
@@ -787,6 +927,8 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 void
 ComposerCanvas::onReleased (int, double sx, double sy, int)
 {
+    /* The committing emit. Everything during the drag was live feedback;
+       this is the one the window turns into an edit. */
     if (!feeding_)
         return;
 
@@ -804,14 +946,12 @@ ComposerCanvas::onReleased (int, double sx, double sy, int)
 void
 ComposerCanvas::onMotion (double sx, double sy)
 {
-    if (!feeding_)
-        return;
-
     double x, y;
 
     toContent(sx, sy, x, y);
 
-    feedInput(THC_IN_DRAG, x, y, feedButton_);
+    if (feeding_)
+        feedInput(THC_IN_DRAG, x, y, feedButton_);
 }
 
 bool

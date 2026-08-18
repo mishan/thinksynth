@@ -141,6 +141,8 @@ protected:
     /* Canvas callbacks. */
     void onCanvasSelection (const ComposerCanvas::Selection &sel);
     void onCanvasMoveStage (size_t chain, int from, int to);
+    void onCanvasParams (size_t chain, size_t stage, Gdk::Rectangle at);
+    void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a
        reload. Doc order and scheduler order agree because the loader
@@ -197,6 +199,16 @@ protected:
        old draw strip. */
     ComposerCanvas *canvas_;
     Gtk::ScrolledWindow canvasScroll_;
+
+    /* The canvas over the roll, with the split where the user left it.
+       paneSet_ is false until the first split has been made. */
+    Gtk::Paned rollPane_;
+    bool paneSet_ = false;
+
+    /* A stage's params, while one is showing. Owned by hand rather than
+       managed: a popover parented to the canvas is not the canvas's
+       child in the container sense, so nothing else would free it. */
+    Gtk::Popover *paramPop_ = NULL;
     sigc::connection drawTimer_;
 
     /* The live MIDI hop into injectMidiEvent, and -- behind the Kbd

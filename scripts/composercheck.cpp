@@ -92,6 +92,7 @@ public:
     using ComposerWindow::canvas_;
     using ComposerWindow::canvasScroll_;
     using ComposerWindow::doc_;
+    using ComposerWindow::paramPop_;
 };
 
 static int checks = 0;
@@ -397,6 +398,83 @@ run (const std::string &pluginPath, const char *genFile)
             fail("the enlarged view would not go away");
         else
             ok("the enlarged view can be left again");
+    }
+
+    /* The params handle on a stage box, pressed rather than read.
+     *
+       This is the section the coordinate conversions were missing. Every
+       gesture handler divides widget pixels by the zoom on the way in,
+       and a handler that forgot would still look right at 1:1 -- which
+       is the zoom a person opens the window at and the zoom a reviewer
+       reads the code at. So the whole section runs at 0.5, where a
+       missed division is off by a factor of two and lands on a different
+       box or misses every box there is.
+
+       What is asserted is that pressing the handle brings up the params
+       and selects the stage, that the box does not change size doing it
+       -- the first version of this grew the box in place, and a chain of
+       grown boxes is what made a popover the answer -- and that the
+       popover goes away again. */
+    {
+        double hx, hy;
+        Gdk::Rectangle before, after;
+
+        win->canvas_->setZoom(0.5);
+        pump(2);
+
+        if (win->paramPop_ != NULL)
+            fail("a params popover was up before anything was pressed");
+
+        if (!win->canvas_->stageRect(0, 0, before) ||
+            !win->canvas_->paramsHandle(0, 0, hx, hy))
+            fail("the first stage has no params handle");
+        else
+        {
+            win->canvas_->pressAt(hx, hy, 1, 1);
+            pump(4);
+
+            if (win->paramPop_ == NULL)
+                fail("pressing the params handle brought up nothing");
+            else if (!win->paramPop_->get_visible())
+                fail("the params popover was built but never shown");
+            else
+                ok("a stage's params come up on its handle");
+
+            const ComposerCanvas::Selection &sel =
+                win->canvas_->selection();
+
+            if (sel.kind != ComposerCanvas::Selection::STAGE ||
+                sel.chain != 0 || sel.index != 0)
+                fail("opening a stage's params did not select the stage");
+            else
+                ok("...and the panel is looking at the same stage");
+
+            if (!win->canvas_->stageRect(0, 0, after))
+                fail("the stage box went missing");
+            else if (after.get_width() != before.get_width() ||
+                     after.get_height() != before.get_height())
+                fail("the stage box changed size to show its params");
+            else
+                ok("...without the box changing size");
+
+            /* And it puts itself away, so the popover is not a mode
+               either. Guarded, because the branch above can have found
+               nothing to put away -- a harness that segfaults instead of
+               failing tells you something is wrong and nothing about
+               what, which is the one thing a check must not do. */
+            if (win->paramPop_ != NULL)
+                win->paramPop_->popdown();
+
+            pump(4);
+
+            if (win->paramPop_ != NULL && win->paramPop_->get_visible())
+                fail("the params popover would not go away");
+            else
+                ok("the params popover closes again");
+        }
+
+        win->canvas_->setZoom(1.0);
+        pump(2);
     }
 
     delete win;
