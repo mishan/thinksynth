@@ -135,7 +135,8 @@ think_harness(dspprobe  NODEMODEL)
 # widget's real draw path. A measuring instrument rather than a gate, so it is
 # not in the ctest list below -- run it by hand, under xvfb-run if need be.
 think_harness(canvasbench NODEMODEL VISUALHOST
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp")
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp")
 target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 
 # editorcheck joins up what the other harnesses cover separately: the tap, the
@@ -144,7 +145,8 @@ target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 # -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
 # list below, guarded by whether a display can be had.
 think_harness(editorcheck NODEMODEL VISUALHOST
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp"
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
@@ -157,7 +159,8 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # and a link chain that pulls the whole GUI into one binary makes a failure
 # harder to attribute, which is the reason the levels in dspstress exist too.
 think_harness(composercheck COMPOSERHOST VISUALHOST
-              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
+              EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp")

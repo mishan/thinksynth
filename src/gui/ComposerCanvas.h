@@ -24,6 +24,7 @@
 #include <gtkmm.h>
 
 #include "libthink/thcomposer.h"   /* thcInputEvent */
+#include "GraphCanvas.h"
 #include "thcGenEdit.h"
 
 class thcScheduler;
@@ -57,7 +58,7 @@ struct thcStage;
  * state and changes what is playing, which is a performance, not a file
  * edit. Capturing it into the file is a separate, deliberate act.
  */
-class ComposerCanvas : public Gtk::DrawingArea
+class ComposerCanvas : public GraphCanvas
 {
 public:
     ComposerCanvas (void);
@@ -127,6 +128,9 @@ private:
 
     void rebuild (void);
     const Box *hit (double x, double y) const;
+
+    /* How wide and tall the laid-out rows are, for the base's zoom. */
+    void contentExtent (double &w, double &h) const;
 
     /* The live stage filling the canvas, or NULL. */
     thcStage *enlargedStage (void) const;

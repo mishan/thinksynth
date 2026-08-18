@@ -194,6 +194,39 @@ run (const std::string &pluginPath, const char *genFile)
 
     ok("kbd input toggles with the edit panel open");
 
+    /* The zoom the canvas inherited from GraphCanvas. What is asserted
+       is the arithmetic, not the picture: a zoom that clamps, a fit that
+       never magnifies, and a canvas that still answers gestures
+       afterwards -- the last one because every handler now converts
+       widget pixels to laid-out coordinates on the way in, and a missed
+       conversion is a click that lands somewhere else. */
+    {
+        const double before = win->canvas_->zoom();
+
+        win->canvas_->setZoom(100.0);
+        pump(2);
+
+        if (win->canvas_->zoom() > 3.001)
+            fail("the zoom did not clamp at the top");
+
+        win->canvas_->setZoom(0.0001);
+        pump(2);
+
+        if (win->canvas_->zoom() < 0.249)
+            fail("the zoom did not clamp at the bottom");
+
+        win->canvas_->zoomToFit();
+        pump(2);
+
+        if (win->canvas_->zoom() > 1.001)
+            fail("zoomToFit magnified a drawing that already fitted");
+
+        win->canvas_->setZoom(before);
+        pump(2);
+
+        ok("the canvas zooms, and clamps at both ends");
+    }
+
     /* The enlarged view, which is a canvas mode and therefore a place
        to get stuck. Entered, left by Escape, entered again, left by a
        click on the surround -- a mode with one way in and no way out is
