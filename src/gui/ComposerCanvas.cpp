@@ -47,9 +47,23 @@ static const double TITLE_H  = 15;
 /* The params handle in a stage box's title bar. */
 static const double TWISTY   = 9;
 
+/* The canvas background, named because the boxes have to repaint it: a
+ * box is opaque, so that a wire running behind it is behind it. */
+static const double BG_R = 0.09, BG_G = 0.09, BG_B = 0.11;
+
+/* A knob node. Wider than it is tall because what it holds is a name and
+ * a track, and shorter than a stage box because it has no picture. Six
+ * to a row: past that the lane is wider than any chain and the wires all
+ * come from off to the right. */
+static const double KNOB_W   = 118;
+static const double KNOB_H   = 38;
+static const double KNOB_GAP = 10;
+static const int    KNOB_COLS = 6;
+
 ComposerCanvas::ComposerCanvas (void)
     : doc_(NULL), sched_(NULL), dragBox_(-1), dragDx_(0), dropAt_(-1),
-      feeding_(false), feedButton_(1)
+      feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
+      wireX_(0), wireY_(0)
 {
     set_draw_func(sigc::mem_fun(*this, &ComposerCanvas::onDraw));
 
@@ -128,6 +142,8 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
     dragBox_ = -1;
     dropAt_ = -1;
     feeding_ = false;
+    dragKnob_ = -1;
+    wireFrom_ = -1;
 
     rebuild();
     contentResized();
@@ -143,7 +159,16 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
     /* The selection may name things the new piece does not have. */
     if (sel_.kind != Selection::NONE && sel_.kind != Selection::ADD_CHAIN)
     {
-        bool ok = doc_ != NULL && sel_.chain < doc_->chains.size();
+        /* A knob is indexed into the piece's knobs, not into a chain --
+           and it leaves `chain' at zero, which the chain test below
+           would have read as "the first chain", quietly keeping a knob
+           selected in a piece that no longer has it. */
+        bool ok = doc_ != NULL;
+
+        if (ok && sel_.kind == Selection::KNOB)
+            ok = sel_.index < doc_->knobs.size();
+        else if (ok)
+            ok = sel_.chain < doc_->chains.size();
 
         if (ok && sel_.kind == Selection::STAGE)
             ok = sel_.index < doc_->chains[sel_.chain].stages.size();
@@ -186,6 +211,52 @@ ComposerCanvas::rebuild (void)
 
     double y = M;
     double widest = 0;
+
+    /* The knob lane, across the top.
+     *
+       Above the chains rather than beside them because a knob feeds
+       stages anywhere in the piece, and a wire that drops down past the
+       chain names reads as "this reaches all of these" -- a left-hand
+       column would have every wire crossing every chain's label. */
+    for (size_t ki = 0; ki < doc_->knobs.size(); ki++)
+    {
+        const thcGenEdit::Knob &k = doc_->knobs[ki];
+
+        Box b;
+
+        b.what.kind = Selection::KNOB;
+        b.what.index = ki;
+        b.x = M + (ki % KNOB_COLS) * (KNOB_W + KNOB_GAP);
+        b.y = y + (ki / KNOB_COLS) * (KNOB_H + KNOB_GAP);
+        b.w = KNOB_W;
+        b.h = KNOB_H;
+        b.title = k.label.empty() ? k.name : k.label;
+        b.sub = "@" + k.name;
+        b.live = NULL;
+        b.channel = -1;
+        b.ghost = false;
+
+        /* The live value, because a knob that has been dragged is not
+           where the file last saw it -- and the node is a control, so it
+           has to show what the piece is actually hearing. */
+        thArg *arg = sched_ ? sched_->knob(k.name) : NULL;
+
+        b.kv  = arg != NULL ? (*arg)[0] : k.value;
+        b.klo = arg != NULL ? arg->min() : (k.hasMin ? k.min : 0);
+        b.khi = arg != NULL ? arg->max() : (k.hasMax ? k.max : 1);
+
+        if (b.khi <= b.klo)
+        {
+            b.klo = 0;
+            b.khi = 1;
+        }
+
+        boxes_.push_back(b);
+        widest = std::max(widest, b.x + b.w);
+
+        if (ki + 1 == doc_->knobs.size())
+            y = b.y + KNOB_H + ROW_GAP;
+    }
 
     for (size_t ci = 0; ci < doc_->chains.size(); ci++)
     {
@@ -353,10 +424,145 @@ fitText (const Cairo::RefPtr<Cairo::Context> &cr, std::string text,
     cr->show_text(text);
 }
 
+/* A knob node: the name, the value, and the track that sets it, with a
+ * port on the bottom edge for wires to leave from. */
+void
+ComposerCanvas::drawKnob (const Cairo::RefPtr<Cairo::Context> &cr,
+                          const Box &box, bool selected) const
+{
+    roundedRect(cr, box.x + 0.5, box.y + 0.5, box.w - 1, box.h - 1, 5);
+    cr->set_source_rgb(0.16, 0.15, 0.10);
+    cr->fill_preserve();
+    cr->set_line_width(selected ? 2 : 1);
+    cr->set_source_rgba(1.0, 0.85, 0.3, selected ? 0.95 : 0.4);
+    cr->stroke();
+
+    cr->set_font_size(10);
+    cr->set_source_rgba(1, 1, 1, 0.85);
+    fitText(cr, box.title, box.x + 8, box.y + 14, box.w - 52);
+
+    char v[32];
+
+    snprintf(v, sizeof(v), "%.3g", box.kv);
+
+    Cairo::TextExtents ext;
+
+    cr->get_text_extents(v, ext);
+    cr->set_source_rgba(1.0, 0.9, 0.5, 0.9);
+    cr->move_to(box.x + box.w - 8 - ext.width, box.y + 14);
+    cr->show_text(v);
+
+    double x0, x1, ty;
+
+    knobTrackRect(box, x0, x1, ty);
+
+    const double t = box.khi > box.klo
+        ? std::clamp((box.kv - box.klo) / (box.khi - box.klo), 0.0, 1.0)
+        : 0.0;
+
+    cr->set_line_width(3.0);
+    cr->set_line_cap(Cairo::Context::LineCap::ROUND);
+
+    cr->set_source_rgba(1, 1, 1, 0.14);
+    cr->move_to(x0, ty);
+    cr->line_to(x1, ty);
+    cr->stroke();
+
+    cr->set_source_rgba(1.0, 0.85, 0.3, 0.75);
+    cr->move_to(x0, ty);
+    cr->line_to(x0 + (x1 - x0) * t, ty);
+    cr->stroke();
+
+    cr->set_line_cap(Cairo::Context::LineCap::BUTT);
+
+    cr->set_source_rgba(1.0, 0.92, 0.6, 0.95);
+    cr->arc(x0 + (x1 - x0) * t, ty, 3.5, 0, 2 * M_PI);
+    cr->fill();
+
+    /* The port. Bigger than it needs to look, because it is a drag
+       target and a three-pixel drag target is a decoration. */
+    double px, py;
+
+    knobPortAt(box, px, py);
+
+    cr->set_source_rgba(1.0, 0.85, 0.3, 0.9);
+    cr->arc(px, py, 4, 0, 2 * M_PI);
+    cr->fill();
+}
+
+/* One curve per binding, plus the one being dragged.
+ *
+ * Faint by default and bright at either end of the selection: a piece
+ * with four knobs and twenty bound params has twenty wires, and twenty
+ * bright wires is a ball of wool. Selecting a knob or a stage is how you
+ * ask which of them are yours. */
+void
+ComposerCanvas::drawWires (const Cairo::RefPtr<Cairo::Context> &cr) const
+{
+    cr->set_line_width(1.4);
+
+    eachWire([&](const Box &kb, const Box &st, const std::string &)
+    {
+        double x0, y0;
+
+        knobPortAt(kb, x0, y0);
+
+        const double x1 = st.x;
+        const double y1 = st.y + st.h / 2;
+
+        const bool lit = sel_.kind != Selection::NONE &&
+            (sel_ == kb.what || sel_ == st.what);
+
+        cr->set_source_rgba(1.0, 0.85, 0.3, lit ? 0.8 : 0.22);
+
+        /* Down out of the port and in from the left, rather than down
+           into the top.
+         *
+           Into the top looked tidier on one chain and was unreadable on
+           seven: every wire ran vertically down the column the stage
+           boxes are in, so a knob feeding the seventh chain drew a line
+           through the six above it. The left edge is the side the flow
+           arrives on, the boxes are opaque, and the space between the
+           chain names and the stages is empty -- so the wires run in the
+           gap and appear where they arrive. */
+        const double bend = std::max(20.0, (y1 - y0) * 0.35);
+
+        cr->move_to(x0, y0);
+        cr->curve_to(x0, y0 + bend, x1 - 26, y1 - bend / 2, x1 - 4, y1);
+        cr->stroke();
+
+        cr->arc(x1 - 3, y1, 2.2, 0, 2 * M_PI);
+        cr->fill();
+    });
+
+    /* The wire in flight, dashed so that it reads as a proposal. */
+    if (wireFrom_ >= 0 && (size_t)wireFrom_ < boxes_.size())
+    {
+        double x0, y0;
+
+        knobPortAt(boxes_[wireFrom_], x0, y0);
+
+        std::vector<double> dashes = { 4.0, 3.0 };
+
+        cr->set_dash(dashes, 0);
+        cr->set_source_rgba(1.0, 0.9, 0.5, 0.9);
+        cr->move_to(x0, y0);
+        cr->line_to(wireX_, wireY_);
+        cr->stroke();
+        cr->unset_dash();
+    }
+}
+
 void
 ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
                          const Box &box, bool selected) const
 {
+    if (box.what.kind == Selection::KNOB)
+    {
+        drawKnob(cr, box, selected);
+        return;
+    }
+
     if (box.ghost)
     {
         std::vector<double> dashes = { 3.0, 3.0 };
@@ -428,8 +634,14 @@ ComposerCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr,
     if (isSink && box.channel >= 1 && box.channel <= TH_MIDI_CHANNELS)
         gthChannelColor(box.channel - 1, r, g, b);
 
-    cr->set_source_rgba(r, g, b, isSink ? 0.13 : 0.07);
+    /* Opaque, in two coats: the background colour so that wires passing
+       behind the box are hidden by it, then the tint that says what kind
+       of box this is. Before, the tint was the only fill and every wire
+       to a stage below showed straight through every stage above it. */
     roundedRect(cr, box.x, box.y, box.w, box.h, 5);
+    cr->set_source_rgb(BG_R, BG_G, BG_B);
+    cr->fill_preserve();
+    cr->set_source_rgba(r, g, b, isSink ? 0.13 : 0.07);
     cr->fill();
 
     if (selected)
@@ -526,6 +738,119 @@ ComposerCanvas::boxFor (size_t chain, size_t stage) const
     return NULL;
 }
 
+/* The knob node's value track: the full width under its name, inset so
+ * the ends are reachable without hitting the box edge. */
+void
+ComposerCanvas::knobTrackRect (const Box &b, double &x0, double &x1,
+                               double &y)
+{
+    x0 = b.x + 8;
+    x1 = b.x + b.w - 8;
+    y  = b.y + b.h - 11;
+}
+
+/* The output port, on the bottom edge, where wires leave from. */
+void
+ComposerCanvas::knobPortAt (const Box &b, double &x, double &y)
+{
+    x = b.x + b.w - 12;
+    y = b.y + b.h;
+}
+
+const ComposerCanvas::Box *
+ComposerCanvas::knobBox (const std::string &name) const
+{
+    if (doc_ == NULL)
+        return NULL;
+
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        if (boxes_[i].what.kind != Selection::KNOB ||
+            boxes_[i].what.index >= doc_->knobs.size())
+            continue;
+
+        if (doc_->knobs[boxes_[i].what.index].name == name)
+            return &boxes_[i];
+    }
+
+    return NULL;
+}
+
+/* Every binding in the piece, as a pair of boxes.
+ *
+ * Read out of the live stages rather than out of the doc, because the
+ * live stage is what a binding actually is: `params.knobBinding(i)' is
+ * the pointer the scheduler will read through, and a doc that said
+ * `@density' for a param the loader refused would draw a wire nothing
+ * travels down. The doc is the spelling; this is the connection. */
+void
+ComposerCanvas::eachWire (const std::function<void (const Box &,
+                                                    const Box &,
+                                                    const std::string &)>
+                          &fn) const
+{
+    for (size_t i = 0; i < boxes_.size(); i++)
+    {
+        const Box &st = boxes_[i];
+
+        if (st.what.kind != Selection::STAGE || st.live == NULL)
+            continue;
+
+        for (int pi = 0; pi < st.live->plugin->paramCount(); pi++)
+        {
+            thArg *bound = st.live->params.knobBinding(pi);
+
+            if (bound == NULL)
+                continue;
+
+            const Box *kb = knobBox(bound->name());
+
+            if (kb == NULL)
+                continue;
+
+            const thcPlugin::ParamInfo *info =
+                st.live->plugin->paramInfo(pi);
+
+            fn(*kb, st, info != NULL ? info->name : std::string());
+        }
+    }
+}
+
+bool
+ComposerCanvas::knobTrack (const std::string &name, double &x0, double &x1,
+                           double &y) const
+{
+    const Box *b = knobBox(name);
+
+    if (b == NULL)
+        return false;
+
+    knobTrackRect(*b, x0, x1, y);
+
+    x0 *= zoom();
+    x1 *= zoom();
+    y  *= zoom();
+
+    return true;
+}
+
+bool
+ComposerCanvas::knobPort (const std::string &name, double &x,
+                          double &y) const
+{
+    const Box *b = knobBox(name);
+
+    if (b == NULL)
+        return false;
+
+    knobPortAt(*b, x, y);
+
+    x *= zoom();
+    y *= zoom();
+
+    return true;
+}
+
 /* A box in widget pixels, which is what a popover wants to point at. */
 Gdk::Rectangle
 ComposerCanvas::boxRect (const Box &b) const
@@ -589,7 +914,7 @@ void
 ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
                         int width, int height)
 {
-    cr->set_source_rgb(0.09, 0.09, 0.11);
+    cr->set_source_rgb(BG_R, BG_G, BG_B);
     cr->paint();
 
     if (doc_ == NULL)
@@ -640,6 +965,9 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
         return;
     }
 
+    /* Wires under the arrows, and both under the boxes. */
+    drawWires(cr);
+
     /* Arrows first, boxes over them. */
     cr->set_source_rgba(1, 1, 1, 0.25);
     cr->set_line_width(1);
@@ -651,6 +979,15 @@ ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
 
         if (a.what.kind == Selection::ADD_CHAIN ||
             b.what.kind == Selection::ADD_CHAIN)
+            continue;
+
+        /* Knob nodes are not in anyone's chain; their connections are
+           wires, drawn separately. Skipped by name rather than by the
+           chain test below, which they would pass by accident -- a knob
+           box leaves `what.chain' at its default of zero, which is also
+           the first chain. */
+        if (a.what.kind == Selection::KNOB ||
+            b.what.kind == Selection::KNOB)
             continue;
 
         if (a.what.chain != b.what.chain)
@@ -888,6 +1225,42 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
         }
     }
 
+    /* A knob node: its port starts a wire, its track sets the value,
+       and anywhere else selects it.
+     *
+       The port is tested first and generously -- it sits on the box's
+       bottom edge, so half of it is outside the box the hit test just
+       found, and a target you have to be precise about is one nobody
+       finds twice. */
+    if (box != NULL && box->what.kind == Selection::KNOB && button == 1)
+    {
+        double px, py;
+
+        knobPortAt(*box, px, py);
+
+        if ((x - px) * (x - px) + (y - py) * (y - py) <= 9 * 9)
+        {
+            select(box->what);
+            wireFrom_ = (int)(box - &boxes_[0]);
+            wireX_ = x;
+            wireY_ = y;
+            queue_draw();
+            return;
+        }
+
+        double x0, x1, ty;
+
+        knobTrackRect(*box, x0, x1, ty);
+
+        if (y >= ty - 7 && y <= ty + 7 && x >= x0 - 6 && x <= x1 + 6)
+        {
+            select(box->what);
+            dragKnob_ = (int)(box - &boxes_[0]);
+            onMotion(sx, sy);       /* jump to where it was pressed     */
+            return;
+        }
+    }
+
     /* Double-click enlarges a stage that has a picture, and a second
        one puts it back -- the same gesture both ways, because a mode
        you can enter and not leave is worse than no mode. */
@@ -923,14 +1296,47 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
 void
 ComposerCanvas::onReleased (int, double sx, double sy, int)
 {
-    /* The committing emit. Everything during the drag was live feedback;
-       this is the one the window turns into an edit. */
-    if (!feeding_)
-        return;
-
     double x, y;
 
     toContent(sx, sy, x, y);
+
+    /* The committing emit. Everything during the drag was live feedback;
+       this is the one the window turns into a line in the file. */
+    if (dragKnob_ >= 0)
+    {
+        if ((size_t)dragKnob_ < boxes_.size() && doc_ != NULL &&
+            boxes_[dragKnob_].what.index < doc_->knobs.size())
+            sigKnob.emit(doc_->knobs[boxes_[dragKnob_].what.index].name,
+                         boxes_[dragKnob_].kv, true);
+
+        dragKnob_ = -1;
+        return;
+    }
+
+    /* A wire let go of. On a stage it is a binding waiting for a param
+       to be named; anywhere else it is a wire the user thought better
+       of, which is what dropping on empty canvas ought to mean. */
+    if (wireFrom_ >= 0)
+    {
+        const int from = wireFrom_;
+        const Box *over = hit(x, y);
+
+        wireFrom_ = -1;
+        queue_draw();
+
+        if (over != NULL && over->what.kind == Selection::STAGE &&
+            over->live != NULL && doc_ != NULL &&
+            (size_t)from < boxes_.size() &&
+            boxes_[from].what.index < doc_->knobs.size())
+            sigBindKnob.emit(doc_->knobs[boxes_[from].what.index].name,
+                             over->what.chain, over->what.index,
+                             boxRect(*over));
+
+        return;
+    }
+
+    if (!feeding_)
+        return;
 
     /* The button the gesture began with, not whichever one the
        controller reports now: a release that named a different button
@@ -945,6 +1351,35 @@ ComposerCanvas::onMotion (double sx, double sy)
     double x, y;
 
     toContent(sx, sy, x, y);
+
+    if (dragKnob_ >= 0 && (size_t)dragKnob_ < boxes_.size())
+    {
+        Box &b = boxes_[dragKnob_];
+
+        double x0, x1, ty;
+
+        knobTrackRect(b, x0, x1, ty);
+
+        double t = x1 > x0 ? (x - x0) / (x1 - x0) : 0.0;
+
+        t = std::clamp(t, 0.0, 1.0);
+
+        b.kv = b.klo + (b.khi - b.klo) * t;
+
+        if (doc_ != NULL && b.what.index < doc_->knobs.size())
+            sigKnob.emit(doc_->knobs[b.what.index].name, b.kv, false);
+
+        queue_draw();
+        return;
+    }
+
+    if (wireFrom_ >= 0)
+    {
+        wireX_ = x;
+        wireY_ = y;
+        queue_draw();
+        return;
+    }
 
     if (feeding_)
         feedInput(THC_IN_DRAG, x, y, feedButton_);
@@ -969,9 +1404,11 @@ ComposerCanvas::onDragBegin (double sx, double sy)
     dragDx_ = 0;
     dropAt_ = -1;
 
-    /* Not while someone is painting on a plugin's picture, and not in
-       the enlarged view at all -- there are no stage boxes to move. */
-    if (feeding_ || enlarged_.kind != Selection::NONE)
+    /* Not while someone is painting on a plugin's picture, working a
+       knob or pulling a wire, and not in the enlarged view at all --
+       there are no stage boxes to move. */
+    if (feeding_ || dragKnob_ >= 0 || wireFrom_ >= 0 ||
+        enlarged_.kind != Selection::NONE)
         return;
 
     double x, y;

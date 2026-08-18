@@ -213,11 +213,6 @@ ComposerWindow::ComposerWindow (thSynth *synth)
        piece's face whether or not the Edit panel is open -- the tier-two
        visualizers live inside its stage boxes now, where the old draw
        strip used to be a row of orphans. */
-    knobBar_.set_spacing(12);
-    knobBar_.set_margin_start(6);
-    knobBar_.set_margin_end(6);
-    playSide_.append(knobBar_);
-
     canvas_ = manage(new ComposerCanvas());
     canvas_->sigSelection.connect(
         sigc::mem_fun(*this, &ComposerWindow::onCanvasSelection));
@@ -225,6 +220,10 @@ ComposerWindow::ComposerWindow (thSynth *synth)
         sigc::mem_fun(*this, &ComposerWindow::onCanvasMoveStage));
     canvas_->sigParams.connect(
         sigc::mem_fun(*this, &ComposerWindow::onCanvasParams));
+    canvas_->sigKnob.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasKnob));
+    canvas_->sigBindKnob.connect(
+        sigc::mem_fun(*this, &ComposerWindow::onCanvasBindKnob));
 
     canvasScroll_.set_child(*canvas_);
     canvasScroll_.set_policy(Gtk::PolicyType::AUTOMATIC,
@@ -513,7 +512,6 @@ ComposerWindow::parseWork (void)
               "put a stage on the clock.");
     }
 
-    rebuildKnobs();
     canvas_->SetPiece(&doc_, sched_);
     rebuildEditor();
     updateTransportButtons();
@@ -880,62 +878,6 @@ ComposerWindow::updateTransportButtons (void)
 
 /* ---- the playing side ------------------------------------------------- */
 
-void
-ComposerWindow::rebuildKnobs (void)
-{
-    while (Gtk::Widget *child = knobBar_.get_first_child())
-        knobBar_.remove(*child);
-
-    const std::map<std::string, thArg *> &knobs = sched_->knobs();
-
-    for (std::map<std::string, thArg *>::const_iterator i = knobs.begin();
-         i != knobs.end(); ++i)
-    {
-        thArg *arg = i->second;
-        std::string name = i->first;
-
-        Gtk::Label *lbl = manage(new Gtk::Label(
-            arg->label().empty() ? name : arg->label()));
-
-        float lo = arg->min(), hi = arg->max();
-
-        if (hi <= lo)
-        {
-            lo = 0;
-            hi = 1;
-        }
-
-        Gtk::Scale *scale = manage(new Gtk::Scale(
-            Gtk::Adjustment::create((*arg)[0], lo, hi,
-                                    (hi - lo) / 100.0),
-            Gtk::Orientation::HORIZONTAL));
-
-        scale->set_size_request(150, -1);
-        scale->set_draw_value(true);
-        scale->set_digits(2);
-
-        /* Live and an edit, like the tempo spin: the drag reaches every
-           bound param now, and the file remembers where it ended up. */
-        scale->signal_value_changed().connect(
-            [this, arg, scale, name]
-            {
-                arg->setValue((float)scale->get_value());
-
-                std::string why;
-
-                if (thcGenEdit::setKnobValue(workPath_, name,
-                                             scale->get_value(), why) ==
-                    thcGenEdit::OK)
-                    setDirty(true);
-            });
-
-        knobBar_.append(*lbl);
-        knobBar_.append(*scale);
-    }
-
-    knobBar_.set_visible(!knobs.empty());
-}
-
 /* One slow clock repaints the canvas so the inline composer_draws stay
  * live; 50ms is plenty for a euclid ring, and the piano roll keeps its
  * own frame clock. */
@@ -1009,6 +951,282 @@ void
 ComposerWindow::onCanvasSelection (const ComposerCanvas::Selection &)
 {
     rebuildSelection();
+}
+
+/* A knob, selected on the canvas: its shape, and what it drives.
+ *
+ * The list is the wires in words, and it is where they are cut. Binding
+ * is a drag onto a stage; unbinding cannot be, because there is nothing
+ * to drag a wire *off* onto -- so it is a button here, next to the param
+ * it releases. The param keeps the knob's current value when the wire
+ * goes, which is the only answer that does not change what is playing:
+ * removeKnob makes the same promise for the same reason. */
+void
+ComposerWindow::buildKnobSelection (size_t ki)
+{
+    const thcGenEdit::Knob &k = doc_.knobs[ki];
+    const std::string name = k.name;
+
+    Gtk::Label *head = manage(new Gtk::Label());
+
+    head->set_markup("<b>@" + Glib::Markup::escape_text(name) + "</b>");
+    head->set_xalign(0);
+    selBox_->append(*head);
+
+    Gtk::Grid *grid = manage(new Gtk::Grid());
+
+    grid->set_column_spacing(6);
+    grid->set_row_spacing(4);
+
+    Gtk::SpinButton *minSpin = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(k.min, -100000, 100000, 0.01), 0, 3));
+    Gtk::SpinButton *maxSpin = manage(new Gtk::SpinButton(
+        Gtk::Adjustment::create(k.max, -100000, 100000, 0.01), 0, 3));
+    Gtk::Entry *lblEntry = manage(new Gtk::Entry());
+
+    lblEntry->set_text(k.label);
+    lblEntry->set_placeholder_text("label");
+
+    auto applyMeta = [this, name, minSpin, maxSpin, lblEntry]
+    {
+        std::string why;
+
+        if (editOk(thcGenEdit::setKnobMeta(workPath_, name,
+                minSpin->get_value(), maxSpin->get_value(),
+                lblEntry->get_text(), why), why))
+            structuralReload();
+    };
+
+    minSpin->signal_value_changed().connect(applyMeta);
+    maxSpin->signal_value_changed().connect(applyMeta);
+    lblEntry->signal_activate().connect(applyMeta);
+
+    static const char *heads[] = { "lowest", "highest", "shown as" };
+
+    for (int c = 0; c < 3; c++)
+    {
+        Gtk::Label *h = manage(new Gtk::Label(heads[c]));
+
+        h->set_xalign(0);
+        h->set_sensitive(false);
+        grid->attach(*h, c, 0);
+    }
+
+    grid->attach(*minSpin, 0, 1);
+    grid->attach(*maxSpin, 1, 1);
+    grid->attach(*lblEntry, 2, 1);
+    selBox_->append(*grid);
+
+    Gtk::Label *drives = manage(new Gtk::Label("drives"));
+
+    drives->set_xalign(0);
+    drives->set_sensitive(false);
+    drives->set_margin_top(6);
+    selBox_->append(*drives);
+
+    int found = 0;
+
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+        for (size_t si = 0; si < doc_.chains[ci].stages.size(); si++)
+        {
+            thcStage *live = liveStage(ci, si);
+
+            if (live == NULL)
+                continue;
+
+            for (int pi = 0; pi < live->plugin->paramCount(); pi++)
+            {
+                thArg *bound = live->params.knobBinding(pi);
+                const thcPlugin::ParamInfo *info =
+                    live->plugin->paramInfo(pi);
+
+                if (bound == NULL || info == NULL ||
+                    bound->name() != name)
+                    continue;
+
+                Gtk::Box *rowBox = manage(new Gtk::Box(
+                    Gtk::Orientation::HORIZONTAL, 6));
+
+                Gtk::Label *what = manage(new Gtk::Label(
+                    doc_.chains[ci].name + " / " +
+                    doc_.chains[ci].stages[si].name + " . " + info->name));
+
+                what->set_xalign(0);
+                what->set_hexpand(true);
+
+                Gtk::Button *cut = manage(new Gtk::Button("Unbind"));
+
+                const std::string param = info->name;
+                const double keep = (*bound)[0];
+
+                /* A duration keeps its unit. The knob's value is already
+                   in seconds -- a knob is not tempo-scaled -- so the
+                   number is right either way; what the `s' buys is a
+                   line that says what it means to the next reader. */
+                const bool dur = info->isDuration();
+
+                cut->signal_clicked().connect(
+                    [this, ci, si, param, keep, dur]
+                    {
+                        std::string text;
+
+                        thcGenEdit::format(keep, text);
+
+                        if (dur)
+                            text += " s";
+
+                        applyParam(ci, si, param, text);
+                        rebuildSelection();
+                    });
+
+                rowBox->append(*what);
+                rowBox->append(*cut);
+                selBox_->append(*rowBox);
+                found++;
+            }
+        }
+
+    if (found == 0)
+    {
+        Gtk::Label *none = manage(new Gtk::Label(
+            "nothing yet -- drag a wire from the knob's port onto a "
+            "stage"));
+
+        none->set_wrap(true);
+        none->set_xalign(0);
+        none->set_sensitive(false);
+        selBox_->append(*none);
+    }
+}
+
+/* A knob node's track, dragged.
+ *
+ * The same two-part shape as everything else on the canvas: the live
+ * value moves under the finger and the file hears about it once, when
+ * the finger comes off. thArg::setValue is what every bound param is
+ * reading through, so the poke is one assignment however many params
+ * that is -- which is the whole point of a knob. */
+void
+ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
+{
+    thArg *arg = sched_->knob(name);
+
+    if (arg == NULL)
+        return;
+
+    arg->setValue((float)value);
+
+    if (!commit)
+        return;
+
+    std::string why;
+
+    if (thcGenEdit::setKnobValue(workPath_, name, value, why) ==
+        thcGenEdit::OK)
+        setDirty(true);
+
+    /* The Knobs section's own slider is now stale. Only when the panel
+       is up: rebuildEditor on a hidden panel is work nobody sees, and
+       the panel is rebuilt on the way to being shown anyway. */
+    if (editBtn_ != NULL && editBtn_->get_active())
+        rebuildEditor();
+}
+
+/* A wire dropped on a stage box: which param is it for?
+ *
+ * The canvas cannot answer this and should not guess -- a stage with six
+ * numeric params is six honest answers -- so the drop asks. One button
+ * per param the wire could drive, and a param that is already bound says
+ * which knob has it, because rebinding is a thing people do and finding
+ * out by doing it is not.
+ *
+ * Params that cannot take a knob are left out rather than shown greyed:
+ * a note set or a Life board is not a thing a wire could ever reach, and
+ * a list of things you cannot have is not help. */
+void
+ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
+                                  size_t stage, Gdk::Rectangle at)
+{
+    closeParams();
+
+    thcStage *live = liveStage(chain, stage);
+
+    if (live == NULL || chain >= doc_.chains.size() ||
+        stage >= doc_.chains[chain].stages.size())
+        return;
+
+    Gtk::Box *list = manage(new Gtk::Box(Gtk::Orientation::VERTICAL, 2));
+
+    list->set_margin(8);
+
+    Gtk::Label *head = manage(new Gtk::Label());
+
+    head->set_markup("<b>@" + Glib::Markup::escape_text(knob) +
+                     "</b> \u2192 " +
+                     Glib::Markup::escape_text(
+                         doc_.chains[chain].stages[stage].name));
+    head->set_xalign(0);
+    head->set_margin_bottom(4);
+    list->append(*head);
+
+    int offered = 0;
+
+    for (int pi = 0; pi < live->plugin->paramCount(); pi++)
+    {
+        const thcPlugin::ParamInfo *info = live->plugin->paramInfo(pi);
+
+        if (info == NULL ||
+            (info->type != THC_PARAM_FLOAT && info->type != THC_PARAM_INT))
+            continue;
+
+        std::string label = info->name;
+        thArg *bound = live->params.knobBinding(pi);
+
+        if (bound != NULL)
+            label += bound->name() == knob ? "  (already @" + knob + ")"
+                                           : "  (now @" + bound->name() + ")";
+
+        Gtk::Button *btn = manage(new Gtk::Button(label));
+
+        btn->set_has_frame(false);
+        btn->set_halign(Gtk::Align::FILL);
+
+        if (!info->desc.empty())
+            btn->set_tooltip_text(info->desc);
+
+        Gtk::Widget *child = btn->get_child();
+
+        if (child != NULL)
+            child->set_halign(Gtk::Align::START);
+
+        const std::string param = info->name;
+
+        btn->signal_clicked().connect(
+            [this, chain, stage, param, knob]
+            {
+                closeParams();
+                applyParam(chain, stage, param, "@" + knob);
+            });
+
+        list->append(*btn);
+        offered++;
+    }
+
+    if (offered == 0)
+    {
+        Gtk::Label *none = manage(new Gtk::Label(
+            "this stage has nothing a knob can drive"));
+
+        none->set_sensitive(false);
+        list->append(*none);
+    }
+
+    paramPop_ = new Gtk::Popover();
+    paramPop_->set_child(*list);
+    paramPop_->set_parent(*canvas_);
+    paramPop_->set_position(Gtk::PositionType::BOTTOM);
+    paramPop_->set_pointing_to(at);
+    paramPop_->popup();
 }
 
 /* The params handle on a stage box, pressed.
@@ -1456,6 +1674,10 @@ ComposerWindow::rebuildSelection (void)
             selBox_->append(*hint);
             break;
         }
+        case ComposerCanvas::Selection::KNOB:
+            if (sel.index < doc_.knobs.size())
+                buildKnobSelection(sel.index);
+            break;
         case ComposerCanvas::Selection::CHAIN:
             if (sel.chain < doc_.chains.size())
                 buildChainSelection(sel.chain);
