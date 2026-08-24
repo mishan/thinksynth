@@ -344,8 +344,17 @@ set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
 # behaves the same on a developer's machine as it does on a runner -- a gate
 # that only passes in CI teaches people to stop running it locally. Only
 # under the address sanitizer, so an ordinary run carries none of it.
+#
+# APPEND, not a second set_tests_properties. ENVIRONMENT is one list property,
+# and setting it replaces whatever was there -- so this block used to delete
+# the THINK_DSP_PATH composercheck was given above, and only under the
+# sanitizer. The piece it opens carries its own instrument now, so the missing
+# path meant the .dsp did not resolve, the piece did not load, and seven checks
+# failed on the runner while every one of them passed locally. A gate that
+# disagrees with CI about what it is testing is worse than no gate.
 if(THINK_SANITIZE MATCHES "address")
-  set_tests_properties(composercheck editorcheck PROPERTIES
-      ENVIRONMENT
-      "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
+  foreach(_t composercheck editorcheck)
+    set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT
+        "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
+  endforeach()
 endif()
