@@ -147,6 +147,22 @@ struct thcInstrumentArg
     std::string name;
     double      value;
     std::string units;
+
+    /* `fmin = @warmth;' -- the piece knob this value is read from, or
+     * empty for a plain number.
+     *
+     * The composer-world ARG_CHAN, pointed the other way. A stage param
+     * bound to a knob is *read* through it, because a composer asks its
+     * param store for a value whenever it wants one; a chanarg cannot be
+     * read that way, because the thing that reads it is the audio graph
+     * and the only value it will ever see is the one in its thArg. So
+     * this binding is a push: the knob moves, the chanarg is set. Same
+     * knob, same panel, same metadata -- and the direction is decided by
+     * which side of the boundary does the reading, not by a preference.
+     *
+     * `units' means what it means for a literal, and applies to the
+     * knob's number on every change. */
+    std::string knob;
 };
 
 /* An instrument the piece carries: a DSP graph named by file, the

@@ -1484,9 +1484,16 @@ thcGenEdit::addKnob (const std::string &filename, const std::string &name,
 
     block << "\n";
 
-    /* Before the scales, before the chains -- the shape the shipped
-       piece has and the reader expects. */
-    size_t at = std::min(ix.firstScaleOff, ix.firstChainOff);
+    /* Before the scales, before the instruments, before the chains --
+       the shape the shipped pieces have and the reader expects.
+     *
+       The instruments are not just tidiness: an instrument value may
+       read a knob, and the loader resolves names in file order, so a
+       knob written *below* the block that binds it is a file that does
+       not load. Nothing here creates such a binding today, but the rule
+       is the file's and not this operation's. */
+    size_t at = std::min(ix.firstScaleOff,
+                         std::min(ix.firstInstrumentOff, ix.firstChainOff));
 
     if (at == std::string::npos)
     {
@@ -1554,6 +1561,45 @@ thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
                     rewritten++;
                 }
             }
+
+    /* And every one inside an instrument, which is a place a knob can be
+     * read from since the two namespaces met. Missing these left a
+     * dangling `@name' behind and the file stopped loading -- the exact
+     * failure this rewriting exists to prevent, in the half of the
+     * language that grew after it was written.
+     *
+     * The unit comes along. A binding on a folded chanarg is written
+     * `r = @tail ms', and a bare number in its place would be refused by
+     * the loader; whatever followed the knob's name is kept verbatim
+     * rather than reconstructed, so `%' and its spacing survive too. */
+    const std::string bind = "@" + name;
+
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+        for (size_t vi = 0; vi < ix.instruments[i].values.size(); vi++)
+        {
+            PIdx &p = ix.instruments[i].values[vi];
+
+            if (p.valueText.compare(0, bind.size(), bind) != 0)
+                continue;
+
+            /* `@warm' must not match inside `@warmth'. `.' is in the set
+               because `@warmth.max' is a knob's metadata rather than the
+               knob, and rewriting the front of it would leave `0.06.max'
+               behind. */
+            std::string tail = p.valueText.substr(bind.size());
+
+            if (!tail.empty())
+            {
+                const char c = tail[0];
+
+                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                    (c >= '0' && c <= '9') || c == '_' || c == '.')
+                    continue;
+            }
+
+            edits.push_back({ p.valA, p.valB, num + tail });
+            rewritten++;
+        }
 
     return finish(filename, text, edits, why);
 }
@@ -1778,11 +1824,13 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
 
         bool found = false;
         bool above = false;
+        const InstrumentIdx *in = NULL;
 
         for (size_t i = 0; i < ix.instruments.size(); i++)
             if (ix.instruments[i].name == instrument)
             {
                 found = true;
+                in = &ix.instruments[i];
 
                 if (before == std::string::npos ||
                     ix.instruments[i].stmtB <= before)
@@ -1794,6 +1842,24 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
             why = "no instrument called " + instrument;
             return thcGenEdit::NOT_FOUND;
         }
+
+        /* Not onto an arg a knob already drives, either. The loader
+           refuses that -- both are pushes, so the walk wins every time
+           it fires and the slider looks dead a second after you let go
+           -- and every state this editor writes has to load. Read off
+           the authored text, which is where a knob binding is spelled
+           `@name'. */
+        if (!chanarg.empty() && chanarg != "*")
+            for (size_t i = 0; i < in->values.size(); i++)
+                if (in->values[i].name == chanarg &&
+                    !in->values[i].valueText.empty() &&
+                    in->values[i].valueText[0] == '@')
+                {
+                    why = chanarg + " on " + instrument + " is driven by " +
+                          in->values[i].valueText + "; a sink and a knob "
+                          "would fight over it";
+                    return thcGenEdit::REFUSED;
+                }
 
         if (!above)
         {

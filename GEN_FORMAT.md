@@ -95,6 +95,9 @@ composer equivalent of `ARG_NODE` in v2 — stages do not wire params to each
 other. What flows between stages is events, and only events. If wiring turns
 out to be wanted, it is an extension, not a reinterpretation.
 
+The same `@density` may also drive an instrument's chanarg — see §4b. One
+declaration, one slider, both sides of the boundary.
+
 ## 4. Scales are named objects
 
 ```
@@ -180,13 +183,58 @@ band.
 
 `dsp` is required, and is a keyword inside the block rather than a chanarg that
 happens to take a string. An instrument must be declared before it is
-referenced, like a scale or a preset. A knob on the right-hand side
-(`cutoff = @warmth;`) is not accepted yet and says so rather than reading as a
-syntax error; it is the next piece of work — see `UNIFICATION.md` phase 2.
+referenced, like a scale or a preset.
 
 Writing the graph out inline instead of naming it is the other half of the
-same idea and is also not here yet. By reference alone delivers the
-self-contained file, which is what this step was for.
+same idea and is not here. By reference alone delivers the self-contained
+file, which is what that step was for.
+
+**A value may be a knob.**
+
+```
+instrument pad {
+    dsp  "amb01.dsp";
+    fmin = @warmth;             # one knob, both worlds
+    r    = @tail ms;            # the unit applies to the knob's numbers
+};
+```
+
+`@warmth` is the same `@warmth` a stage param binds to — one declaration, one
+slider, one entry in the panel, reaching a composer and an instrument at once.
+That is the whole of §3's binding namespace applied on both sides of the
+boundary rather than only on one.
+
+The direction differs, and it is worth knowing why. A stage param bound to a
+knob is *read* through it: a composer asks its param store for a value whenever
+it wants one. A chanarg cannot work that way, because the thing that reads a
+chanarg is the audio graph and the only value it will ever see is the one
+sitting in its `thArg`. So an instrument binding is a **push**: the knob moves,
+the chanarg is set. The knob's current value is pushed at load too, so a piece
+sounds like its file the moment it opens rather than one knob-move later.
+
+The unit rule is the literal's rule, unchanged: `r = @tail ms` because `r` is
+folded from milliseconds, `fmin = @warmth` because `fmin` is not folded at all,
+and getting either backwards is refused. A knob's number is exactly as unitless
+as a number in the file — an envelope on a bare binding would be a slider whose
+top end is forty milliseconds — so the unit is stated at the value site and
+applied on every move.
+
+**A knob and a named chanarg sink may not share an arg.** Both are pushes, so
+both writing `fmin` is last-writer-wins: the walk wins every time it fires and
+the slider appears dead a second after you let go of it. There is no reading of
+the file where that was the intention and it is invisible from either end, so
+the loader refuses it and says which knob. If what was wanted is a starting
+point the walk moves away from, that is a plain number.
+
+`chanarg = "*"` is outside that check, for exactly the reason it is outside the
+"does this arg exist" one: the targets are in the events, and a composer
+emitting a vector may or may not ever name a knob-bound arg. A `*` sink and a
+knob binding on the same instrument is the one way left to write the fight, and
+nothing can catch it for you.
+
+**Chanargs remain the whole of a composer's reach into an instrument.** A knob
+binding widens *who* may drive a declared arg, not *what* may be driven. The
+sentence in §4a still holds: an instrument's surface is what it declares.
 
 **Channels are allocated, not declared.** Each instrument gets the lowest
 channel that no `channel = N` sink in the file has claimed and that nothing
@@ -278,7 +326,8 @@ scale       : "scale" WORD STRING ";"
 preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
-instrstmt   : "dsp" STRING ";" | WORD "=" NUMBER argunit? ";"
+instrstmt   : "dsp" STRING ";"
+            | WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
 argunit     : "ms" | "%"                               # what .dsp folds
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"
@@ -356,6 +405,7 @@ stage, a new chain) contains:
 | `preset`               | resolved chanarg vector, shared by reference        |
 | `instrument` block     | `thcInstrument`: a graph loaded onto an allocated channel |
 | `sink { instrument = }`| that instrument's channel, filled in after the parse |
+| instrument `= @knob`   | a push: the knob's changed signal sets the chanarg   |
 | `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |

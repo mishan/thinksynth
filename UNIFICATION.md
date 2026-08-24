@@ -178,10 +178,68 @@ chain loop_ab3 {
 
 Deliverable: `airports.gen` with zero setup — open, press play. Done.
 
-## Phase 2 — one binding namespace
+## Phase 2 — one binding namespace — LANDED
 
 Both domains already have ARG_CHAN semantics and the same metadata
 system; today they are parallel universes. Merge them:
+
+> **DONE.** `fmin = @warmth;` inside an instrument block, and the same
+> `@warmth` on a stage param. `gen/weather.gen` is the deliverable: it
+> carries its pad now, `Breadth` drives the top line's density and the
+> pad's two mix chanargs from one slider, and `Tail` sets the pad's
+> release and nothing else. GEN_FORMAT.md §4b is the spec. Three things
+> worth knowing:
+>
+> - **The binding is a push, not a read, and the asymmetry is not a
+>   shortcut.** A stage param bound to a knob is read through it, because
+>   a composer asks its param store for a value whenever it wants one. A
+>   chanarg cannot be read that way: what reads a chanarg is the audio
+>   graph, and the only value it will ever see is the one sitting in its
+>   `thArg`. So the knob's changed signal sets the arg, and the knob's
+>   current value is pushed at load as well, or a piece would not sound
+>   like its file until somebody touched a slider. The connection looks
+>   the chanarg up by name every time rather than capturing the `thArg`
+>   the load already had in hand — a channel can be replaced from under a
+>   binding, the Patch Selector will do it on request, and the args go
+>   with the `thMidiChan` that owned them.
+> - **A knob binding carries a unit, exactly as a literal does.** `r =
+>   @tail ms`, and a bare binding on a folded chanarg is refused the way
+>   a bare literal is. The number in a knob is as unitless as the number
+>   in a file; without this, an envelope on a slider would run in samples
+>   and weather.gen's `Tail` would sweep four milliseconds to a hundred
+>   instead of a fifth of a second to five. Phase 1's rule did not need
+>   bending, only applying. The push re-checks the fold against whatever
+>   arg it lands on, too — the re-lookup that stops it writing through a
+>   freed pointer does not stop it writing into a *different* arg of the
+>   same name, and `r` folded from ms on one graph beside `r` running 0
+>   to 1 on the next is a knob nudge writing 88200 into an arg whose top
+>   is 1. A binding whose target changed shape stops driving rather than
+>   driving wrongly.
+> - **A knob and a named chanarg sink may not share an arg.** Both are
+>   pushes, so both writing `fmin` is last-writer-wins — the walk wins
+>   every time it fires and the slider looks dead a second after you let
+>   go. Nothing about that is visible from either end and no reading of
+>   the file makes it deliberate, so the loader refuses it and names the
+>   knob, and so does the editor before it writes one. This is why
+>   weather.gen's `Breadth` reaches the mix rather than the filter: the
+>   filter there belongs to the walks, and "belongs to" now means
+>   something that can be checked. `chanarg = "*"` is outside it, for the
+>   same reason it is outside the arg-exists check — the targets are in
+>   the events — and that is the one way left to write the fight.
+>
+> The conservative decision below was kept, and is worth restating
+> because this phase is exactly where it would have been easy to lose: a
+> knob binding widens *who* may drive a declared arg, not *what* may be
+> driven. GEN_FORMAT.md §4a's sentence about the declared surface stands
+> untouched.
+>
+> Not here: an authoring surface for instrument blocks, so the knob
+> panel's "drives" list shows instrument bindings without an Unbind
+> beside them — a row that says what is true beats a button that cannot
+> do what it offers. And the canvas has no instrument node yet, so a
+> knob that drives *only* an instrument draws no wire; the Selection tab
+> is where it says so. An instrument node on the canvas is the natural
+> next piece of UI work and is not on phase 3's path.
 
 - A piece `@knob` may bind a stage param (already true) **and** an
   instrument chanarg (`cutoff = @warmth;` inside an instrument block).
@@ -197,6 +255,10 @@ system; today they are parallel universes. Merge them:
 
 Deliverable: one `@warmth` knob sweeping a filter and a density together;
 a walk generator driving an instrument it named, not a channel number.
+Done — as `Breadth` over a mix and a density rather than a filter and a
+density, because the rule above put the filter out of reach of a knob in
+that particular piece, which is the deliverable arriving with an argument
+attached rather than without one.
 
 ## Phase 3 — embedded nodes: dsp plugins as chain stages
 

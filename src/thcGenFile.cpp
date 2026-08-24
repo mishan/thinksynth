@@ -548,9 +548,30 @@ thcGenLoader::checkSinkArgs (thcScheduler *sched)
             continue;
 
         if (!sched->chanArgExists(inst->channel, s.chanarg))
+        {
             error(p.line, "instrument '" + p.instrument + "' is '" +
                   inst->dsp + "', which declares no chanarg called '" +
                   s.chanarg + "'");
+            continue;
+        }
+
+        /* Two things driving one knob, and one of them is a human hand.
+         *
+         * A knob binding is a push and so is a chanarg sink, so both
+         * writing the same arg is last-writer-wins -- which in practice
+         * means the walk wins, every time it fires, and the slider
+         * appears to do nothing a second after you let go of it. There
+         * is no reading of the file where that was the intention, and it
+         * is invisible from either end. If what was wanted is a starting
+         * point the walk moves away from, that is a plain number. */
+        for (size_t k = 0; k < inst->args.size(); k++)
+            if (inst->args[k].name == s.chanarg &&
+                !inst->args[k].knob.empty())
+                error(p.line, "'" + s.chanarg + "' on instrument '" +
+                      p.instrument + "' is already driven by '@" +
+                      inst->args[k].knob + "'; a sink and a knob would "
+                      "fight over it (write a plain number for a "
+                      "starting point)");
     }
 }
 
@@ -1061,35 +1082,46 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
 
         const Token &v = peek();
 
-        if (v.kind == Token::KNOB)
-        {
-            /* Named rather than lumped in with "wants a number", because
-               a person writing this is asking for the thing phase 2 is
-               about and deserves to be told it is not here yet rather
-               than told they made a syntax error. */
-            error(v.line, "instrument " + nameTok.text + ": '" + key.text +
-                  "' cannot be a knob; an instrument sets fixed values");
-            return false;
-        }
-
-        if (v.kind != Token::NUMBER)
+        if (v.kind != Token::NUMBER && v.kind != Token::KNOB)
         {
             error(v.line, "instrument " + nameTok.text + ": '" + key.text +
-                  "' wants a number");
+                  "' wants a number or a knob");
             return false;
         }
 
         thcInstrumentArg a;
+        Token val = take();
 
-        a.name  = key.text;
-        a.value = take().num;
+        a.name = key.text;
+
+        if (val.kind == Token::KNOB)
+        {
+            /* Declared first, like everywhere else a knob is named. */
+            if (sched->knob(val.text) == NULL)
+            {
+                error(val.line, "'@" + val.text + "' is not a declared knob");
+                return false;
+            }
+
+            a.knob  = val.text;
+            a.value = 0;
+        }
+        else
+            a.value = val.num;
 
         /* The two units the language folds. `s' and `beats' are the
            composer's units and mean nothing on this side of the
            boundary: a chanarg is a number the audio thread reads, not a
            duration the transport schedules. Which unit an arg wants is
            the arg's own business and is checked when the value lands --
-           here we only record what was written. */
+           here we only record what was written.
+         *
+           A knob binding carries one for exactly the same reason a
+           literal does. The number a knob holds is as unitless as the
+           number in the file, so `a = @attack' with nothing after it
+           would be a slider quietly running in samples; the unit says
+           what the knob's numbers mean, and it is applied on every move
+           rather than once. */
         if (peek().kind == Token::WORD && peek().text == "ms")
             a.units = take().text;
         else if (peek().kind == Token::PUNCT && peek().text[0] == '%')

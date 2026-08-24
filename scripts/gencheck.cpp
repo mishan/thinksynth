@@ -1218,6 +1218,82 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     if (rewritten != 1)
         fail("removeKnob did not rewrite the one binding to it");
 
+    /* A knob read from inside an instrument is a binding too, and a
+       removal that walked only the stages left a dangling `@name' and a
+       file that no longer loaded -- the exact failure the rewriting is
+       for, in the half of the language that grew after it. The unit
+       comes along, because a bare number on a folded chanarg is refused.
+       Its own scratch: the shipped piece has no such binding, which is
+       the point. */
+    {
+        std::string bound = thUtil::tempFile("gencheck-knobinst-");
+
+        if (bound.empty())
+            fail("could not make a scratch file for the knob removal");
+        else
+        {
+            {
+                std::ofstream out(bound.c_str(), std::ios::trunc);
+
+                out << "@tail = 1800;\n@tail.min = 200;\n@tail.max = 5000;\n"
+                       "instrument pad {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    r = @tail ms;\n"
+                       "    fmin = @tail;\n"
+                       "};\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = pad; }; };\n";
+            }
+
+            /* Before removing it: a sink cannot be pointed at an arg
+               that knob already drives, because the loader refuses that
+               and every state this editor writes has to load. Both
+               writers, since addSink and setSink share the check but
+               not the call site. */
+            if (thcGenEdit::addSink(bound, "c", 1, "pad", "fmin", why) ==
+                thcGenEdit::OK)
+                fail("addSink wrote a sink that fights a knob");
+
+            if (thcGenEdit::setSink(bound, "c", 0, 1, "pad", "r", why) ==
+                thcGenEdit::OK)
+                fail("setSink wrote a sink that fights a knob");
+
+            /* An arg the instrument leaves alone is still fair game. */
+            editOk(thcGenEdit::addSink(bound, "c", 1, "pad", "res", why),
+                   why, "addSink onto an arg no knob drives");
+
+            int n = 0;
+
+            editOk(thcGenEdit::removeKnob(bound, "tail", 1800, n, why), why,
+                   "removeKnob bound into an instrument");
+
+            if (n != 2)
+            {
+                std::ostringstream s;
+
+                s << "removeKnob rewrote " << n
+                  << " instrument bindings, not 2";
+                fail(s.str());
+            }
+
+            const std::string after = slurp(bound);
+
+            if (after.find("@tail") != std::string::npos)
+                fail("removeKnob left a dangling knob reference behind");
+
+            if (after.find("r = 1800 ms;") == std::string::npos)
+                fail("removeKnob dropped the unit off a binding it "
+                     "rewrote: " + after);
+
+            thcGenEdit::Doc back;
+
+            if (thcGenEdit::describe(bound, back, why) != thcGenEdit::OK)
+                fail("the file after removeKnob no longer reads");
+
+            std::filesystem::remove(bound);
+        }
+    }
+
     editOk(thcGenEdit::removeScale(path, "pent", rewritten, why), why,
            "removeScale");
 
@@ -2396,6 +2472,108 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* ---- knobs reaching into an instrument -------------------------- */
+
+    /* UNIFICATION.md phase 2, and the whole of it: one knob, both sides
+     * of the boundary. A stage param bound to a knob is *read* through
+     * it; a chanarg cannot be, because what reads a chanarg is the audio
+     * graph and the only value it will ever see is the one in its thArg.
+     * So this binding is a push, and the thing to hold down is that the
+     * push happens -- at load, and again on every move, through the
+     * unit the binding was written with. */
+    {
+        std::string path = thUtil::tempFile("gencheck-instr-knob-");
+
+        if (path.empty())
+            fail("could not make a scratch file for the knob-binding check");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "@warmth = 0.4;\n"
+                       "@warmth.min = 0;\n@warmth.max = 1;\n"
+                       "@tail = 1800;\n"
+                       "@tail.min = 200;\n@tail.max = 5000;\n"
+                       "instrument pad {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    fmin = @warmth;\n"
+                       "    r = @tail ms;\n"
+                       "};\n"
+                       "chain c { stage s gen::eno_line { prob = @warmth; };"
+                       " sink { instrument = pad; }; };\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+
+            if (!loader.load(path, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("a knob bound to an instrument chanarg did not load");
+            }
+            else
+            {
+                const long rate = synth->getSampleRate();
+                thArg *fmin = synth->getChanArg(0, "fmin");
+                thArg *r    = synth->getChanArg(0, "r");
+                thArg *warmth = sched.knob("warmth");
+                thArg *tail = sched.knob("tail");
+
+                if (fmin == NULL || r == NULL || warmth == NULL ||
+                    tail == NULL)
+                    fail("the knob-bound instrument did not arrive whole");
+                else
+                {
+                    /* Where the knob is, before anybody touches it: a
+                       piece has to sound like its file the moment it
+                       loads, not one knob-move later. */
+                    if (fabs((*fmin)[0] - 0.4) > 1e-5)
+                        fail("a knob-bound chanarg did not take the knob's "
+                             "value at load");
+
+                    if (fabs((*r)[0] - 1800.0 * rate / 1000.0) > 1.0)
+                        fail("a knob binding with a unit was not folded "
+                             "through it at load");
+
+                    /* And on every move. */
+                    warmth->setValue(0.8f);
+
+                    if (fabs((*fmin)[0] - 0.8) > 1e-5)
+                        fail("moving the knob did not move the chanarg");
+
+                    tail->setValue(600.0f);
+
+                    if (fabs((*r)[0] - 600.0 * rate / 1000.0) > 1.0)
+                        fail("moving a unit-carrying knob did not fold "
+                             "through the unit");
+
+                    /* The same knob, still driving the composer's side.
+                       That is the sentence phase 2 is about. */
+                    thcChain *c = sched.chain(0);
+
+                    if (c == NULL || c->stages.empty())
+                        fail("the chain did not survive");
+                    else
+                    {
+                        thcStage *st = c->stages[0].get();
+                        const int pi = st->plugin->paramIndex("prob");
+
+                        if (pi < 0 || fabs(st->params.get(pi) - 0.8) > 1e-5)
+                            fail("one knob did not reach both worlds");
+                    }
+                }
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
     /* ---- the rejections ---- */
 
     expectReject(plugins, synth, "instr-no-dsp",
@@ -2448,12 +2626,40 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
         " sink { instrument = pad; }; };",
         "means nothing to it");
 
-    expectReject(plugins, synth, "instr-knob",
-        "@warmth = 0.5;\n"
-        "instrument pad { dsp \"amb01.dsp\"; fmin = @warmth; };\n"
+    expectReject(plugins, synth, "instr-undeclared-knob",
+        "instrument pad { dsp \"amb01.dsp\"; fmin = @nope; };\n"
         "chain c { stage s gen::eno_line { };"
         " sink { instrument = pad; }; };",
-        "cannot be a knob");
+        "@nope");
+
+    /* A knob binding obeys the unit rule a literal obeys, both ways
+       round. The number in a knob is as unitless as the number in a
+       file, so an envelope on a bare binding would be a slider running
+       in samples. */
+    expectReject(plugins, synth, "instr-knob-bare-duration",
+        "@attack = 500;\n"
+        "instrument pad { dsp \"amb01.dsp\"; a = @attack; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "written in ms");
+
+    expectReject(plugins, synth, "instr-knob-spurious-unit",
+        "@warmth = 0.5;\n"
+        "instrument pad { dsp \"amb01.dsp\"; fmin = @warmth ms; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "means nothing to it");
+
+    /* A knob and a sink over one arg are both pushes, so the walk wins
+       every time it fires and the slider looks dead a second after you
+       let go of it. Invisible from either end, and no reading of the
+       file where it was the intention. */
+    expectReject(plugins, synth, "knob-and-sink-fight",
+        "@warmth = 0.5;\n"
+        "instrument pad { dsp \"amb01.dsp\"; fmin = @warmth; };\n"
+        "chain c { stage s gen::walk { };"
+        " sink { instrument = pad; chanarg = \"fmin\"; }; };",
+        "would fight over it");
 
     expectReject(plugins, synth, "sink-unknown-instrument",
         "chain c { stage s gen::eno_line { };"

@@ -429,6 +429,19 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 
 /* ---- instruments ------------------------------------------------------- */
 
+/* What an arg is *folded* in, as opposed to what its author labelled it.
+ * `@x.units = "Hz"' is a word for the panel to print and nothing
+ * converts through it, so a bare number is the right and only way to
+ * write one. */
+static std::string
+foldUnitOf (const thArg *arg)
+{
+    if (arg == NULL || !thUnitIsFolded(arg->units()))
+        return std::string();
+
+    return arg->units();
+}
+
 size_t
 thcScheduler::addInstrument (const thcInstrument &inst)
 {
@@ -478,12 +491,7 @@ thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
             return false;
         }
 
-        /* What the arg is folded in, as opposed to what its author
-           labelled it. `@x.units = "Hz"' is a word for the panel to
-           print and nothing converts through it, so a bare number is
-           the right and only way to write one. */
-        const std::string declared =
-            thUnitIsFolded(arg->units()) ? arg->units() : std::string();
+        const std::string declared = foldUnitOf(arg);
 
         /* A unit the arg is not folded in cannot be folded into it, and
            its absence is no better: `res = 50 ms' on a resonance that
@@ -512,8 +520,76 @@ thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
             return false;
         }
 
-        arg->setValue((float)thFoldUnit(a.value, a.units,
-                                        synth_->getSampleRate()));
+        if (a.knob.empty())
+        {
+            arg->setValue((float)thFoldUnit(a.value, a.units,
+                                            synth_->getSampleRate()));
+            continue;
+        }
+
+        thArg *k = knob(a.knob);
+
+        if (k == NULL)
+        {
+            /* The loader checks this when it reads the line, so getting
+               here means the knob was declared and then went away --
+               which nothing does. Said rather than dereferenced. */
+            why = "'@" + a.knob + "' is not a declared knob";
+            return false;
+        }
+
+        /* Look the chanarg up by name on every move rather than
+           capturing the thArg the line above already has. A channel can
+           be replaced from under this binding -- the Patch Selector will
+           do it on request -- and the thArgs go with the thMidiChan that
+           owned them, so a captured pointer is a use-after-free waiting
+           for somebody to move a slider. A map lookup per knob move is
+           nothing; the knob is a human hand. */
+        const int         channel = inst.channel;
+        const std::string name    = a.name;
+        const std::string units   = a.units;
+
+        std::function<void (thArg *)> push =
+            [this, channel, name, units](thArg *from)
+            {
+                thArg *dest = synth_ != NULL
+                    ? synth_->getChanArg(channel, name) : NULL;
+
+                if (dest == NULL)
+                    return;
+
+                /* And it has to still be the arg this binding was
+                   checked against. Re-looking the name up stops the
+                   push from writing through a freed pointer; it does
+                   not stop it from writing into a *different* arg that
+                   happens to share the name, because a channel replaced
+                   from under the piece -- which the Patch Selector will
+                   do on request -- brings a whole new set of them.
+                   `r' folded from ms on one graph and `r' running 0 to
+                   1 on the next is a knob nudge writing 88200 into an
+                   arg whose top is 1.
+                 *
+                   So the fold is re-checked, and a binding whose target
+                   changed shape stops driving rather than driving
+                   wrongly. Silent, because the alternative is a line of
+                   stderr per pixel of a slider drag, and because the
+                   piece is about to be reloaded by whoever did this. */
+                if (foldUnitOf(dest) != units)
+                    return;
+
+                dest->setValue((float)thFoldUnit((*from)[0], units,
+                                                 synth_->getSampleRate()));
+            };
+
+        /* Where the knob is now, before anybody touches it: a piece must
+           sound like its file the moment it loads, not one knob-move
+           later. */
+        push(k);
+
+        /* knobConns_, so these die exactly when the knob-to-param
+           connections do -- in clearChains, before the knobs
+           themselves are deleted. */
+        knobConns_.push_back(k->signal_arg_changed().connect(push));
     }
 
     return true;

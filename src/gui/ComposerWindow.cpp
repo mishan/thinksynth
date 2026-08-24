@@ -497,7 +497,8 @@ sameInstrument (const thcInstrument &a, const thcInstrument &b)
     for (size_t i = 0; i < a.args.size(); i++)
         if (a.args[i].name != b.args[i].name ||
             a.args[i].value != b.args[i].value ||
-            a.args[i].units != b.args[i].units)
+            a.args[i].units != b.args[i].units ||
+            a.args[i].knob != b.args[i].knob)
             return false;
 
     return true;
@@ -1460,6 +1461,37 @@ ComposerWindow::buildKnobSelection (size_t ki)
                 found++;
             }
         }
+
+    /* And the other world. A knob may drive an instrument's chanarg as
+       well as a stage's param -- one knob, both sides of the boundary --
+       so a list of what it drives that stopped at the stages would be
+       telling half the truth about the piece.
+     *
+       No Unbind beside these, unlike the stage rows: undoing one means
+       editing the instrument block, and the instrument block has no
+       authoring surface yet. Better a row that says what is true than a
+       button that cannot do what it offers. */
+    for (size_t i = 0; i < sched_->instruments().size(); i++)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+
+        for (size_t a = 0; a < inst.args.size(); a++)
+        {
+            if (inst.args[a].knob != name)
+                continue;
+
+            std::string what = inst.name + " . " + inst.args[a].name;
+
+            if (!inst.args[a].units.empty())
+                what += "  (" + inst.args[a].units + ")";
+
+            Gtk::Label *row = manage(new Gtk::Label(what));
+
+            row->set_xalign(0);
+            selBox_->append(*row);
+            found++;
+        }
+    }
 
     if (found == 0)
     {
