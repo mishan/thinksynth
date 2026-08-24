@@ -71,6 +71,29 @@ protected:
     bool ensureWork (void);
     void parseWork (void);          /* work -> scheduler + all panels    */
 
+    /* The scheduler's instrument hook, in the application's terms: a
+       piece's instrument is not only a graph on a channel, it is a
+       patch tab with a filename on it and an arg panel behind it, so
+       this goes through gthPatchManager exactly as the Patch Selector
+       does. The scheduler's own default -- loadTree and nothing else --
+       is right for a harness and would be a channel the rest of the
+       program could not see. */
+    bool loadInstrument (const std::string &dsp, int channel,
+                         std::string &why);
+
+    /* Unloads whichever of prevOwned_ the piece just parsed no longer
+       wants. A patch outlives the file that asked for it -- which is why
+       the scheduler does not do this -- but a piece that drops an
+       instrument and leaves its channel loaded leaves a tab nothing
+       plays. */
+    void releaseInstruments (void);
+
+    /* The scheduler's channel-taken hook: true for a channel holding
+       somebody else's patch. The piece's own channels from the load
+       being replaced are not somebody else's, or an instrument would
+       walk one to the right on every reload. */
+    bool channelTaken (int channel);
+
     /* One structural edit has happened in the work file: reload it,
        rewind, resume if we were playing, rebuild the panels.
      *
@@ -132,6 +155,15 @@ protected:
     void buildSinkSelection (size_t ci, size_t ki);
     void buildAddStage (size_t ci);
     void buildAddSink (size_t ci);
+
+    /* The "what does this sink play" control: the piece's instruments
+       by name plus `channel' for a patch it does not own. NULL, and no
+       widget appended, when the piece declares no instruments -- one
+       choice is not a choice. `targets' comes back parallel to the
+       drop-down's items, with "" for the channel entry. */
+    Gtk::DropDown *buildSinkTarget (Gtk::Box *row, Gtk::SpinButton *chan,
+                                    const std::string &selected,
+                                    std::vector<std::string> &targets);
     void buildAddChain (void);
 
     void addParamRow (Gtk::Grid *grid, int row, size_t ci, size_t si,
@@ -171,6 +203,17 @@ protected:
        in the scheduler's destructor, which runs first). */
     std::map<std::string, thcPlugin *> composers_;
     std::string composerRoot_;      /* where loadComposers looked        */
+
+    /* Channels this window loaded for the piece currently open, so a
+       piece that loses an instrument gives its channel back -- and so a
+       channel somebody loaded by hand is neither taken nor taken away,
+       which is the whole reason this is a list and not a range.
+       prevOwned_ is the same list for the piece being replaced, live
+       only while a parse is in flight: allocation consults it (those
+       channels are reusable), the loader refills ownedChannels_, and
+       releaseInstruments unloads the difference. */
+    std::vector<int> ownedChannels_;
+    std::vector<int> prevOwned_;
 
     std::string genPath_;           /* the source file; may be empty     */
     std::string workPath_;          /* the copy the edits go to          */

@@ -138,6 +138,7 @@ private:
     bool parseKnobStatement (thcScheduler *sched);
     bool parseScale (void);
     bool parsePreset (void);
+    bool parseInstrument (thcScheduler *sched);
     bool parseChain (thcScheduler *sched);
     bool parseStageBlock (thcScheduler *sched, size_t chain,
                           const std::string &chainName);
@@ -149,6 +150,16 @@ private:
     Token        take (void);
     bool         expectPunct (char c);
     void         skipStatement (void);
+
+    /* Hands every instrument a channel and every instrument-bound sink
+       the number behind its name. Runs once, after the whole file has
+       parsed cleanly, because it cannot run any earlier: a `channel = N'
+       sink further down the file is a claim on a number, and an
+       instrument allocated before that claim was read would have to
+       either collide with it or refuse a piece that mixes the two.
+       Deferring is what lets both spellings live in one file without
+       either one having to come first. */
+    bool allocateChannels (thcScheduler *sched);
 
     void error (int line, const std::string &msg);
 
@@ -169,6 +180,28 @@ private:
     typedef std::vector<std::pair<std::string, double> > Preset;
 
     std::map<std::string, Preset> presets_;
+
+    /* Instruments, by name, as indices into the scheduler's table --
+       which is where they live, because the piece owns them and the
+       loader is only what read them. The line is kept alongside so a
+       failure to actually load one (a .dsp that is not there, a chanarg
+       the graph does not declare) is reported against the block that
+       asked for it, like every other error in this file. */
+    std::map<std::string, size_t> instruments_;
+    std::vector<int>              instrumentLines_;
+
+    /* Channels claimed outright by a `channel = N' sink, and the sinks
+       still waiting to be told the number behind an instrument's name.
+       Both are emptied by allocateChannels at the end of a clean load. */
+    std::vector<int> claimedChannels_;
+
+    struct PendingSink
+    {
+        size_t      chain, sink;
+        std::string instrument;
+    };
+
+    std::vector<PendingSink> pendingSinks_;
 
     std::string name_, author_, description_;
     bool        hasSeed_;

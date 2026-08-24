@@ -37,6 +37,12 @@ seed 1978;                      # optional; present means replayable
 
 scale fmin "F3 Ab3 C4 Db4 Eb4 F4 Ab4";
 
+instrument pad {                # the piece carries what it is played on
+    dsp  "amb01.dsp";
+    a    = 900 ms;
+    fmin = 0.06;
+};
+
 chain loop1 {
     stage src gen::eno_line {   # <name> <category>::<plugin>
         notes  = "Ab3";
@@ -49,7 +55,7 @@ chain loop1 {
     stage q xform::quantize {
         scale = fmin;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 ```
 
@@ -139,6 +145,58 @@ is the whole reason the noun exists.
 This is the limit of a composer's reach into an instrument: the args the patch
 chose to declare, and no deeper. See `COMPOSITION_HANDOFF.md` §9.
 
+## 4b. Instruments are what the piece is played on
+
+```
+instrument pad {
+    dsp  "amb01.dsp";           # the graph, by name
+    a    = 900 ms;              # the values that make it this instrument
+    fmin = 0.06;
+};
+```
+
+A `.gen` used to name MIDI channels in its sinks and leave the question of
+what was loaded on them to whoever opened the file — which is why every piece
+in `gen/` carried a paragraph at the top telling you what to go and load
+first, and why "open it and press play" was true of none of them. An
+`instrument` block answers that inside the file.
+
+The shape is a `.patch` said out loud: a graph, then the chanarg values that
+make it this instrument rather than that graph's defaults. Two things it can
+do that a `.patch` cannot.
+
+**The values carry units.** A `.patch` stores every chanarg already folded, so
+an envelope in it reads `a 39690` — a sample count at one particular rate. Here
+it is `a = 900 ms`, and the fold happens on the way in, against the unit the
+chanarg was *declared* with and at the rate the synth is actually running. The
+unit has to match that declaration: `ms` on an arg written in milliseconds, `%`
+on one written as a percentage, and a bare number on everything else. A unit
+where none belongs is refused, and so is a bare number where one does — the
+same rule §2 applies to a stage's durations, for the same reason.
+
+**It has a name, and a sink can bind to the name.** That is the point. Routing
+stops being a number the author and the listener have to agree about out of
+band.
+
+`dsp` is required, and is a keyword inside the block rather than a chanarg that
+happens to take a string. An instrument must be declared before it is
+referenced, like a scale or a preset. A knob on the right-hand side
+(`cutoff = @warmth;`) is not accepted yet and says so rather than reading as a
+syntax error; it is the next piece of work — see `UNIFICATION.md` phase 2.
+
+Writing the graph out inline instead of naming it is the other half of the
+same idea and is also not here yet. By reference alone delivers the
+self-contained file, which is what this step was for.
+
+**Channels are allocated, not declared.** Each instrument gets the lowest
+channel that no `channel = N` sink in the file has claimed and that nothing
+else is already loaded on, taken in declaration order — so the first instrument
+usually lands on channel 1, where somebody looking for it would look. Opening a
+piece never replaces a patch you loaded yourself; it takes what is free. Given
+the same starting state the assignment is the same every time, which matters
+more than it sounds, because patch tabs, saved mixer settings and the roll's
+per-channel colors all key off it.
+
 Two composers take presets today, and they are the two halves of tier 2.
 `gen::morph` travels the line between two of them. `gen::breed` does not know
 where it is going: it keeps a population of chanarg vectors and breeds them,
@@ -168,11 +226,19 @@ A chain body holds, in order:
 - one or more `sink` blocks, always last:
 
 ```
+sink { instrument = pad; };                     # notes -> the piece's own pad
+sink { instrument = pad; chanarg = "fmin"; };   # values -> that pad's knob
 sink { channel = 4; };                          # notes -> MIDI channel 4
 sink { channel = 3; chanarg = "cutoff"; };      # values -> a patch knob
 sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
+
+A sink names **an instrument or a channel, never both**; a sink that names
+both is refused rather than have the loader pick one. `instrument = pad` is
+the primary spelling and the one a self-contained piece uses. `channel = N`
+stays in the language for the case it was always really for: driving a patch
+this piece does not own and did not load.
 
 **Channels are 1–16.** That is the number on the main window's patch tab and
 in the Keyboard window's spinner, and it is what every sequencer shows; the
@@ -202,7 +268,7 @@ is not one is refused at load rather than failing silently at delivery.
 ```
 genfile     : statement*
 statement   : infostring | tempo | seed | knob | knobmeta | scale
-            | preset | chain
+            | preset | instrument | chain
 infostring  : ("name" | "author" | "description") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
@@ -211,6 +277,9 @@ knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
 preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
+instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
+instrstmt   : "dsp" STRING ";" | WORD "=" NUMBER argunit? ";"
+argunit     : "ms" | "%"                               # what .dsp folds
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"
 stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
@@ -219,14 +288,21 @@ value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
                                                        #   preset ref
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
-sinkparam   : ("channel" "=" NUMBER | "chanarg" "=" STRING) ";"
+sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
+              | "chanarg" "=" STRING) ";"
+                                                       # instrument or
+                                                       #   channel, not both
                                                        # channel is 1-16
                                                        # STRING = a name
                                                        #   or "*"
 ```
 
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
-`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it.
+`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `%` is a
+`.dsp` token too, and reaches `.gen` for one purpose only — the unit suffix an
+instrument value needs when the chanarg it lands on was declared as a
+percentage. Everywhere else in a `.gen` it is a stray character, the way `+`
+is.
 
 ## 7. Rules for anything that writes these files
 
@@ -257,6 +333,13 @@ stage, a new chain) contains:
   one: removing the last component is refused, and a new preset arrives with at
   least one. Removing a preset something still names is refused too, and says
   which stage — unlike a scale, there is no literal to inline in its place.
+- An instrument value round-trips in the unit its author wrote, exactly as a
+  duration does, and for the same reason: `900 ms` read back as `39690` is a
+  file that has been lied to about what it says.
+- A sink round-trips in the spelling it was written in. Switching between
+  `instrument = pad` and `channel = 4` replaces that one statement — there is
+  no sense in which one can be edited into the other, and a sink left carrying
+  both would not load.
 - `seed` is written if and only if the user pinned it. A generated file with
   a seed the user never chose silently freezes a piece that was meant to
   breathe.
@@ -271,6 +354,8 @@ stage, a new chain) contains:
 | `= n beats`            | converted via transport tempo when the value is read|
 | `scale`                | resolved note list, shared by reference             |
 | `preset`               | resolved chanarg vector, shared by reference        |
+| `instrument` block     | `thcInstrument`: a graph loaded onto an allocated channel |
+| `sink { instrument = }`| that instrument's channel, filled in after the parse |
 | `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |

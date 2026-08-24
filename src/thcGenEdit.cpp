@@ -217,11 +217,33 @@ struct SinkIdx
 {
     size_t stmtA, stmtB;
     size_t bodyClose;
-    int    channel;
-    size_t chValA, chValB;
+
+    /* The target, in whichever of its two spellings the file used. The
+       whole `channel = N;' or `instrument = pad;' statement is spanned
+       as well as its value, because switching between the two replaces
+       the statement rather than editing inside it. */
+    int    channel;                        /* 0 when instrument-bound   */
+    size_t chStmtA, chStmtB, chValA, chValB;
+    std::string instrument;
+    size_t instStmtA, instStmtB, instValA, instValB;
+
     bool   hasArg;
     std::string chanarg;
     size_t argStmtA, argStmtB, argValA, argValB;
+};
+
+/* One value inside an instrument block: `a = 900 ms;'. The same shape as
+ * a stage param and indexed by the same scanner, because it is the same
+ * thing -- a name, an `=', and a right-hand side kept as text. */
+struct InstrumentIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;         /* `instrument' .. the trailing ';'   */
+    size_t bodyClose;
+
+    std::string dsp;
+
+    std::vector<PIdx> values;
 };
 
 struct MetaIdx
@@ -285,15 +307,17 @@ struct Index
 {
     std::map<std::string, MetaIdx> infos;    /* name/author/description  */
     MetaIdx seed, tempo;
-    std::vector<KnobIdx>   knobs;
-    std::vector<ScaleIdx>  scales;
-    std::vector<PresetIdx> presets;
-    std::vector<ChainIdx>  chains;
+    std::vector<KnobIdx>       knobs;
+    std::vector<ScaleIdx>      scales;
+    std::vector<PresetIdx>     presets;
+    std::vector<InstrumentIdx> instruments;
+    std::vector<ChainIdx>      chains;
 
     size_t topInsert;        /* line start of the first token            */
     size_t headerEnd;        /* after the info/tempo/seed statements     */
     size_t firstScaleOff;    /* npos when there is none                  */
     size_t firstPresetOff;
+    size_t firstInstrumentOff;
     size_t firstChainOff;
 };
 
@@ -382,6 +406,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
     ix.headerEnd = ix.topInsert;
     ix.firstScaleOff = std::string::npos;
     ix.firstPresetOff = std::string::npos;
+    ix.firstInstrumentOff = std::string::npos;
     ix.firstChainOff = std::string::npos;
 
     size_t i = 0;
@@ -565,6 +590,65 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             continue;
         }
 
+        /* instrument <name> { dsp "<file>"; <arg> = <value>; ... }; */
+        if (kw == "instrument" && t[i + 1].kind == Tok::WORD &&
+            isPunct(t[i + 2], '{'))
+        {
+            InstrumentIdx in;
+
+            in.name = t[i + 1].text;
+            in.stmtA = t[i].off;
+            in.bodyClose = 0;
+
+            size_t j = i + 3;
+            bool shaped = true;
+
+            while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+            {
+                if (t[j].kind == Tok::WORD && t[j].text == "dsp" &&
+                    t[j + 1].kind == Tok::STRING && isPunct(t[j + 2], ';'))
+                {
+                    in.dsp = t[j + 1].text;
+                    j += 3;
+                    continue;
+                }
+
+                PIdx p;
+                size_t next = scanParam(t, j, p);
+
+                if (next == 0)
+                {
+                    /* A shape the loader would refuse anyway. Leave the
+                       whole block unindexed rather than half of it --
+                       the same call presets make, for the same reason:
+                       an edit aimed at what this scan misread would
+                       splice against offsets it guessed. */
+                    shaped = false;
+                    break;
+                }
+
+                p.valueText = text.substr(p.valA, p.valB - p.valA);
+                in.values.push_back(p);
+                j = next;
+            }
+
+            if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
+            {
+                in.bodyClose = t[j].off;
+                in.stmtB = t[j + 1].end;
+
+                if (ix.firstInstrumentOff == std::string::npos)
+                    ix.firstInstrumentOff = in.stmtA;
+
+                ix.instruments.push_back(in);
+                i = j + 2;
+                continue;
+            }
+
+            i = skipStmt(t, i);
+            continue;
+        }
+
         if (kw == "chain" && t[i + 1].kind == Tok::WORD &&
             isPunct(t[i + 2], '{'))
         {
@@ -646,7 +730,9 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
                     s.stmtA = t[j].off;
                     s.channel = 0;
-                    s.chValA = s.chValB = 0;
+                    s.chStmtA = s.chStmtB = s.chValA = s.chValB = 0;
+                    s.instStmtA = s.instStmtB = 0;
+                    s.instValA = s.instValB = 0;
                     s.hasArg = false;
                     s.argStmtA = s.argStmtB = s.argValA = s.argValB = 0;
 
@@ -661,8 +747,25 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                             isPunct(t[k + 3], ';'))
                         {
                             s.channel = (int)t[k + 2].num;
+                            s.chStmtA = t[k].off;
+                            s.chStmtB = t[k + 3].end;
                             s.chValA = t[k + 2].off;
                             s.chValB = t[k + 2].end;
+                            k += 4;
+                            continue;
+                        }
+
+                        if (t[k].kind == Tok::WORD &&
+                            t[k].text == "instrument" &&
+                            isPunct(t[k + 1], '=') &&
+                            t[k + 2].kind == Tok::WORD &&
+                            isPunct(t[k + 3], ';'))
+                        {
+                            s.instrument = t[k + 2].text;
+                            s.instStmtA = t[k].off;
+                            s.instStmtB = t[k + 3].end;
+                            s.instValA = t[k + 2].off;
+                            s.instValB = t[k + 2].end;
                             k += 4;
                             continue;
                         }
@@ -765,8 +868,16 @@ thcGenEdit::validName (const std::string &name)
        words that open statements, and the unit words a bare value could
        be mistaken for. A chain named `sink' would parse today, but the
        file it produces reads like a trap. */
+    /* Statement keywords only. `dsp', `channel' and `chanarg' are
+       keywords *inside* a block and are not on this list, because this
+       is also what a preset's component names go through -- and a
+       component name is a chanarg, so a patch that declares `@channel'
+       has to stay reachable. Reserving them cost nothing visible and
+       quietly refused a name the loader accepts, which is the worse of
+       the two mistakes. */
     static const char *reserved[] = {
         "name", "author", "description", "tempo", "seed", "scale",
+        "preset", "instrument",
         "chain", "input", "stage", "sink", "midi",
         "s", "ms", "beats", "b", NULL
     };
@@ -975,6 +1086,25 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
         doc.presets.push_back(p);
     }
 
+    for (size_t i = 0; i < ix.instruments.size(); i++)
+    {
+        Instrument in;
+
+        in.name = ix.instruments[i].name;
+        in.dsp = ix.instruments[i].dsp;
+
+        for (size_t k = 0; k < ix.instruments[i].values.size(); k++)
+        {
+            InstrumentValue v;
+
+            v.name = ix.instruments[i].values[k].name;
+            v.valueText = ix.instruments[i].values[k].valueText;
+            in.values.push_back(v);
+        }
+
+        doc.instruments.push_back(in);
+    }
+
     for (size_t ci = 0; ci < ix.chains.size(); ci++)
     {
         ChainIdx &c = ix.chains[ci];
@@ -1008,6 +1138,7 @@ thcGenEdit::describe (const std::string &filename, Doc &doc,
             Sink s;
 
             s.channel = c.sinks[ki].channel;
+            s.instrument = c.sinks[ki].instrument;
             s.chanarg = c.sinks[ki].hasArg ? c.sinks[ki].chanarg : "";
             out.sinks.push_back(s);
         }
@@ -1588,12 +1719,29 @@ stageText (const std::string &stageName, const std::string &category,
     return s.str();
 }
 
+/* The target half of a sink body, in whichever spelling applies. One
+ * function because there is one rule: an instrument name wins, and a
+ * channel is what is written when there is no name to write. */
 static std::string
-sinkText (int channel, const std::string &chanarg)
+sinkTarget (int channel, const std::string &instrument)
 {
     std::ostringstream s;
 
-    s << "    sink { channel = " << channel << ";";
+    if (!instrument.empty())
+        s << "instrument = " << instrument << ";";
+    else
+        s << "channel = " << channel << ";";
+
+    return s.str();
+}
+
+static std::string
+sinkText (int channel, const std::string &instrument,
+          const std::string &chanarg)
+{
+    std::ostringstream s;
+
+    s << "    sink { " << sinkTarget(channel, instrument);
 
     if (!chanarg.empty())
         s << " chanarg = \"" << chanarg << "\";";
@@ -1601,6 +1749,74 @@ sinkText (int channel, const std::string &chanarg)
     s << " };\n";
 
     return s.str();
+}
+
+/* The target checks every writer of a sink shares -- addSink, setSink
+ * and the sink addChain generates with a new chain. An instrument name
+ * is checked against what the file declares rather than merely for
+ * shape: a sink pointed at an instrument nobody wrote is a load error,
+ * and every state this editor writes has to load.
+ *
+ * `before' is where the sink will sit -- the start of its chain, or npos
+ * for a chain about to be appended at the end of the file. The
+ * instrument has to be declared above that, because the loader resolves
+ * names in file order and refuses one it has not read yet. Checking only
+ * that the name exists *somewhere* is how this wrote a file it could
+ * then not load: a piece is free to put its chains above its
+ * instruments, and plenty of hand-written ones would. */
+static R
+checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
+                 const std::string &chanarg, size_t before, std::string &why)
+{
+    if (!instrument.empty())
+    {
+        if (!thcGenEdit::validName(instrument))
+        {
+            why = "that is not a name the file format accepts";
+            return thcGenEdit::REFUSED;
+        }
+
+        bool found = false;
+        bool above = false;
+
+        for (size_t i = 0; i < ix.instruments.size(); i++)
+            if (ix.instruments[i].name == instrument)
+            {
+                found = true;
+
+                if (before == std::string::npos ||
+                    ix.instruments[i].stmtB <= before)
+                    above = true;
+            }
+
+        if (!found)
+        {
+            why = "no instrument called " + instrument;
+            return thcGenEdit::NOT_FOUND;
+        }
+
+        if (!above)
+        {
+            why = "instrument " + instrument + " is declared below this "
+                  "chain, and a sink can only name one declared above it";
+            return thcGenEdit::REFUSED;
+        }
+    }
+    /* File numbers, because this edits the file. 1-16, and the loader
+       maps them onto the engine's 0-15 on the way in. */
+    else if (channel < 1 || channel > 16)
+    {
+        why = "channel is 1-16";
+        return thcGenEdit::REFUSED;
+    }
+
+    if (!validString(chanarg))
+    {
+        why = "a chanarg name cannot contain a quote";
+        return thcGenEdit::UNWRITABLE;
+    }
+
+    return thcGenEdit::OK;
 }
 
 static bool
@@ -2020,7 +2236,8 @@ thcGenEdit::removePreset (const std::string &filename,
 
 R
 thcGenEdit::addChain (const std::string &filename, const std::string &name,
-                      int channel, const std::string &stageName,
+                      int channel, const std::string &instrument,
+                      const std::string &stageName,
                       const std::string &category, const std::string &plugin,
                       const std::vector<std::pair<std::string,
                           std::string> > &params,
@@ -2032,20 +2249,19 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
         return REFUSED;
     }
 
-    /* File numbers, because this edits the file. 1-16, and the loader
-       maps them onto the engine's 0-15 on the way in. */
-    if (channel < 1 || channel > 16)
-    {
-        why = "channel is 1-16";
-        return REFUSED;
-    }
-
     if (!validParams(params, why))
         return UNWRITABLE;
 
     std::string text;
     Index ix;
     R r = loadIndexed(filename, text, ix, why);
+
+    if (r != OK)
+        return r;
+
+    /* npos: the block is appended at the end of the file, so anything
+       the file declares is above it. */
+    r = checkSinkTarget(ix, channel, instrument, "", std::string::npos, why);
 
     if (r != OK)
         return r;
@@ -2063,7 +2279,7 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
 
     block << "\nchain " << name << " {\n"
           << stageText(stageName, category, plugin, params)
-          << sinkText(channel, "")
+          << sinkText(channel, instrument, "")
           << "};\n";
 
     std::vector<Edit> edits;
@@ -2392,23 +2608,9 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
 
 R
 thcGenEdit::addSink (const std::string &filename, const std::string &chain,
-                     int channel, const std::string &chanarg,
-                     std::string &why)
+                     int channel, const std::string &instrument,
+                     const std::string &chanarg, std::string &why)
 {
-    /* File numbers, because this edits the file. 1-16, and the loader
-       maps them onto the engine's 0-15 on the way in. */
-    if (channel < 1 || channel > 16)
-    {
-        why = "channel is 1-16";
-        return REFUSED;
-    }
-
-    if (!validString(chanarg))
-    {
-        why = "a chanarg name cannot contain a quote";
-        return UNWRITABLE;
-    }
-
     std::string text;
     Index ix;
     R r = loadIndexed(filename, text, ix, why);
@@ -2424,11 +2626,16 @@ thcGenEdit::addSink (const std::string &filename, const std::string &chain,
         return NOT_FOUND;
     }
 
+    r = checkSinkTarget(ix, channel, instrument, chanarg, c->stmtA, why);
+
+    if (r != OK)
+        return r;
+
     size_t at = lineStartOf(text, c->bodyClose);
 
     std::vector<Edit> edits;
 
-    edits.push_back({ at, at, sinkText(channel, chanarg) });
+    edits.push_back({ at, at, sinkText(channel, instrument, chanarg) });
 
     return finish(filename, text, edits, why);
 }
@@ -2474,23 +2681,10 @@ thcGenEdit::removeSink (const std::string &filename, const std::string &chain,
 
 R
 thcGenEdit::setSink (const std::string &filename, const std::string &chain,
-                     int sinkIndex, int channel, const std::string &chanarg,
-                     std::string &why)
+                     int sinkIndex, int channel,
+                     const std::string &instrument,
+                     const std::string &chanarg, std::string &why)
 {
-    /* File numbers, because this edits the file. 1-16, and the loader
-       maps them onto the engine's 0-15 on the way in. */
-    if (channel < 1 || channel > 16)
-    {
-        why = "channel is 1-16";
-        return REFUSED;
-    }
-
-    if (!validString(chanarg))
-    {
-        why = "a chanarg name cannot contain a quote";
-        return UNWRITABLE;
-    }
-
     std::string text;
     Index ix;
     R r = loadIndexed(filename, text, ix, why);
@@ -2506,6 +2700,11 @@ thcGenEdit::setSink (const std::string &filename, const std::string &chain,
         return NOT_FOUND;
     }
 
+    r = checkSinkTarget(ix, channel, instrument, chanarg, c->stmtA, why);
+
+    if (r != OK)
+        return r;
+
     if (sinkIndex < 0 || sinkIndex >= (int)c->sinks.size())
     {
         why = "no such sink";
@@ -2515,14 +2714,35 @@ thcGenEdit::setSink (const std::string &filename, const std::string &chain,
     SinkIdx &s = c->sinks[sinkIndex];
     std::vector<Edit> edits;
 
-    if (s.channel != channel)
+    /* Same spelling as before: edit the value in place, so a sink whose
+       channel moves from 4 to 5 changes one character. */
+    if (instrument.empty() && s.instrument.empty())
     {
-        char buf[16];
+        if (s.channel != channel && s.chValB > s.chValA)
+        {
+            char buf[16];
 
-        snprintf(buf, sizeof(buf), "%d", channel);
-
-        if (s.chValB > s.chValA)
+            snprintf(buf, sizeof(buf), "%d", channel);
             edits.push_back({ s.chValA, s.chValB, buf });
+        }
+    }
+    else if (!instrument.empty() && !s.instrument.empty())
+    {
+        if (s.instrument != instrument && s.instValB > s.instValA)
+            edits.push_back({ s.instValA, s.instValB, instrument });
+    }
+    else
+    {
+        /* The spelling changed, so the whole statement is replaced --
+           there is no sense in which `channel = 4' can be edited into
+           `instrument = pad'. Whichever one is there goes; the other
+           takes its place, in its place, so the rest of the line and
+           anything after it on it stays where the author left it. */
+        const size_t a = instrument.empty() ? s.instStmtA : s.chStmtA;
+        const size_t b = instrument.empty() ? s.instStmtB : s.chStmtB;
+
+        if (b > a)
+            edits.push_back({ a, b, sinkTarget(channel, instrument) });
     }
 
     if (s.hasArg && chanarg.empty())

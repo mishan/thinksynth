@@ -337,12 +337,33 @@ ComposerCanvas::rebuild (void)
 
             char t[24];
 
-            snprintf(t, sizeof(t), "ch %d", chain.sinks[ki].channel);
-            b.title = t;
+            /* A sink bound to one of the piece's own instruments wears
+               its name, not the number underneath it: the number is an
+               allocation nobody chose, and "ch 3" says nothing about
+               what is on channel 3 -- which was the whole complaint the
+               instrument block answers. The hue still comes from the
+               channel, because the roll draws notes in it and the two
+               pictures have to agree. */
+            int channel = chain.sinks[ki].channel;
+
+            if (!chain.sinks[ki].instrument.empty())
+            {
+                const thcInstrument *inst = sched_
+                    ? sched_->instrument(chain.sinks[ki].instrument) : NULL;
+
+                b.title = chain.sinks[ki].instrument;
+                channel = inst != NULL ? inst->channel + 1 : 0;
+            }
+            else
+            {
+                snprintf(t, sizeof(t), "ch %d", channel);
+                b.title = t;
+            }
+
             b.sub = chain.sinks[ki].chanarg.empty()
                 ? "notes" : "@" + chain.sinks[ki].chanarg;
             b.live = NULL;
-            b.channel = chain.sinks[ki].channel;
+            b.channel = channel;
             b.ghost = false;
             boxes_.push_back(b);
             x += SINK_W + 8;

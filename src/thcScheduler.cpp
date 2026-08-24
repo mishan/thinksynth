@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "think.h"
+#include "thUnits.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
@@ -351,6 +352,13 @@ thcScheduler::clearChains (void)
          i != knobs_.end(); ++i)
         delete i->second;
     knobs_.clear();
+
+    /* The instrument table goes with the piece too. What is *loaded* on
+       those channels does not: a patch outlives the file that asked for
+       it, exactly as one loaded by hand outlives the window that loaded
+       it, and deciding when a channel should be given back is the
+       host's business rather than this table's. */
+    instruments_.clear();
 }
 
 thArg *
@@ -412,6 +420,138 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 
     knobConns_.push_back(knob->signal_arg_changed().connect(
         [store, paramIndex](thArg *) { store->notifyChanged(paramIndex); }));
+}
+
+/* ---- instruments ------------------------------------------------------- */
+
+size_t
+thcScheduler::addInstrument (const thcInstrument &inst)
+{
+    instruments_.push_back(inst);
+
+    return instruments_.size() - 1;
+}
+
+const thcInstrument *
+thcScheduler::instrument (const std::string &name) const
+{
+    for (size_t i = 0; i < instruments_.size(); i++)
+        if (instruments_[i].name == name)
+            return &instruments_[i];
+
+    return NULL;
+}
+
+thcInstrument *
+thcScheduler::instrument (size_t index)
+{
+    return index < instruments_.size() ? &instruments_[index] : NULL;
+}
+
+/* The graph, then the values on top of it -- which is what a .patch is,
+ * said in a language people write by hand.
+ *
+ * The split between the two halves is deliberate. Loading the graph is
+ * the host's, because in the application it is also a patch tab and an
+ * arg panel; setting the values is *not*, because what a value means --
+ * which arg it lands on, what its unit folds to, what happens when the
+ * patch has no such arg -- is a property of the .gen language and
+ * belongs where the rest of the language's semantics are. One copy,
+ * gated headlessly, whichever host is on the other end of the hook.
+ */
+bool
+thcScheduler::applyInstrument (size_t index, std::string &why)
+{
+    if (index >= instruments_.size())
+    {
+        why = "no such instrument";
+        return false;
+    }
+
+    const thcInstrument &inst = instruments_[index];
+
+    if (inst.channel < 0)
+    {
+        why = "no channel was allocated for it";
+        return false;
+    }
+
+    if (loadDsp_)
+    {
+        if (!loadDsp_(inst.dsp, inst.channel, why))
+            return false;
+    }
+    else
+    {
+        /* No hook: the plain reading of what an instrument is. The name
+           is searched for the way a .patch's `dsp' line is searched for,
+           because a piece that only loaded from one directory would be a
+           piece you could not send anybody. */
+        const std::string path =
+            thUtil::findDataFile(inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        if (synth_ == NULL ||
+            synth_->loadTree((path.empty() ? inst.dsp : path).c_str(),
+                             inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
+        {
+            why = "'" + inst.dsp + "' did not load";
+            return false;
+        }
+    }
+
+    for (size_t i = 0; i < inst.args.size(); i++)
+    {
+        const thcInstrumentArg &a = inst.args[i];
+        thArg *arg = synth_ != NULL
+            ? synth_->getChanArg(inst.channel, a.name) : NULL;
+
+        /* A .patch invents the arg instead, which it has to: patches
+           predate arg metadata and half the corpus sets things no graph
+           declares. A piece file has no such history, and an arg name
+           the graph does not know is a typo every time -- so it is said
+           rather than swallowed. The declared surface is the whole of
+           what a piece may reach; see COMPOSITION_HANDOFF.md section 9. */
+        if (arg == NULL)
+        {
+            why = "'" + inst.dsp + "' declares no chanarg called '" +
+                  a.name + "'";
+            return false;
+        }
+
+        /* What the arg is folded in, as opposed to what its author
+           labelled it. `@x.units = "Hz"' is a word for the panel to
+           print and nothing converts through it, so a bare number is
+           the right and only way to write one. */
+        const std::string declared =
+            thUnitIsFolded(arg->units()) ? arg->units() : std::string();
+
+        /* A unit the arg is not folded in cannot be folded into it, and
+           its absence is no better: `res = 50 ms' on a resonance that
+           runs 0 to 1 would become two thousand-odd samples of nothing,
+           and `a = 39690' on an envelope is a sample count nobody meant
+           to write. Same rule as a duration param in a stage, for the
+           same reason -- the unit decides what the number is, so its
+           absence decides nothing. */
+        if (a.units != declared)
+        {
+            if (a.units.empty())
+                why = "'" + a.name + "' is written in " + declared +
+                      "; write the unit, or the number is raw samples";
+            else if (declared.empty())
+                why = "'" + a.name + "' has no unit; '" + a.units +
+                      "' means nothing to it";
+            else
+                why = "'" + a.name + "' is written in " + declared +
+                      ", not " + a.units;
+
+            return false;
+        }
+
+        arg->setValue((float)thFoldUnit(a.value, a.units,
+                                        synth_->getSampleRate()));
+    }
+
+    return true;
 }
 
 void
