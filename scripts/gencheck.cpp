@@ -2322,6 +2322,68 @@ clearChannels (thSynth *synth)
     drainSynth();
 }
 
+/* A scratch .dsp declaring `name' with no unit at all.
+ *
+ * amb01 is used throughout above because it is a real instrument with
+ * real chanargs; what it cannot be is a *second* graph declaring one of
+ * those names differently, and that shape is the one a knob binding has
+ * to survive being swapped onto. So it is written here, the way argtype
+ * writes the .dsp files whose cases the corpus cannot contain. Built
+ * from amb01 rather than from nothing, so it stays a graph that loads
+ * and sounds; only the one declaration is rewritten. Returns the path,
+ * or "" if it could not be written. */
+static std::string
+writeUnitlessArg (const std::string &name)
+{
+    const std::string src =
+        thUtil::findDataFile("amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    if (src.empty())
+        return "";
+
+    std::ifstream in(src.c_str());
+    std::string line, out;
+
+    if (!in)
+        return "";
+
+    /* `@r = 100 ms;' -> `@r = 0.5;', and the same for its .max, which
+       would otherwise put the unit back: a .dsp takes the unit from
+       whichever value site states one first. */
+    while (std::getline(in, line))
+    {
+        const std::string decl = "@" + name + " = ";
+        const std::string maxd = "@" + name + ".max = ";
+        size_t at = line.find(decl);
+
+        if (at != std::string::npos)
+            line = line.substr(0, at) + decl + "0.5;";
+        else if ((at = line.find(maxd)) != std::string::npos)
+            line = line.substr(0, at) + maxd + "1;";
+
+        out += line + "\n";
+    }
+
+    std::string path = thUtil::tempFile("gencheck-plain-");
+
+    if (path.empty())
+        return "";
+
+    {
+        std::ofstream o(path.c_str(), std::ios::trunc);
+
+        o << out;
+
+        if (!o.good())
+        {
+            std::filesystem::remove(path);
+            return "";
+        }
+    }
+
+    return path;
+}
+
 static void
 checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
                   thSynth *synth)
@@ -2566,6 +2628,57 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
                         if (pi < 0 || fabs(st->params.get(pi) - 0.8) > 1e-5)
                             fail("one knob did not reach both worlds");
+                    }
+
+                    /* And a channel replaced from under the binding.
+                     *
+                     * The push looks its target up by name every time,
+                     * which stops it writing through a freed pointer --
+                     * and does nothing at all about that name resolving
+                     * to a *different* arg. The Patch Selector replaces
+                     * a channel on request, so `r' folded from ms here
+                     * beside `r' running 0 to 1 on the next graph is a
+                     * knob nudge writing six figures into an arg whose
+                     * top is 1. Nothing in the corpus has that shape, so
+                     * the .dsp is written here, the way argtype writes
+                     * the ones it needs.
+                     *
+                     * Not hypothetical: without the fold re-check in the
+                     * push, `r' below lands at 176400. */
+                    const std::string plain = writeUnitlessArg("r");
+
+                    if (plain.empty())
+                        fail("could not write a scratch .dsp for the "
+                             "channel-replacement check");
+                    else
+                    {
+                        drainSynth();
+
+                        if (synth->loadTree(plain.c_str(), 0,
+                                            TH_DEFAULT_CHAN_AMP) == NULL)
+                            fail("the scratch .dsp did not load");
+                        else
+                        {
+                            drainSynth();
+
+                            thArg *now = synth->getChanArg(0, "r");
+
+                            if (now == NULL || !now->units().empty())
+                                fail("the scratch .dsp did not give 'r' a "
+                                     "different shape");
+                            else
+                            {
+                                const float was = (*now)[0];
+
+                                tail->setValue(4000.0f);
+
+                                if (fabs((*now)[0] - was) > 1e-5)
+                                    fail("a knob went on driving an arg "
+                                         "whose fold had changed under it");
+                            }
+                        }
+
+                        std::filesystem::remove(plain);
                     }
                 }
             }

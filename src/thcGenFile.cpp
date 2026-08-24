@@ -971,12 +971,18 @@ thcGenLoader::parsePreset (void)
  *    point: routing stops being a number the author and the listener
  *    have to agree about out of band.
  *
- * Not here, deliberately: a knob on the right-hand side. `cutoff =
- * @warmth' inside this block is one knob reaching into both worlds, and
- * it is the next phase's work rather than a line to sneak in with the
- * noun -- UNIFICATION.md phase 2. And not here either: the graph
- * written out inline instead of named. By reference alone delivers the
- * self-contained file, which is what this phase is for.
+ *  - A value may be a knob. `fmin = @warmth;' is the same @warmth a
+ *    stage param binds to, reaching a composer and an instrument from
+ *    one slider -- UNIFICATION.md phase 2, and the reason this block
+ *    and the chains below it belong in one file at all. The binding
+ *    carries a unit exactly as a literal does, because the number in a
+ *    knob is exactly as unitless as the number in a file; what a unit
+ *    means is checked where the value lands, in
+ *    thcScheduler::applyInstrument.
+ *
+ * Not here: the graph written out inline instead of named. By reference
+ * alone delivers the self-contained file, which is what this block was
+ * for; inlining is the half that wants the grammar merge.
  */
 bool
 thcGenLoader::parseInstrument (thcScheduler *sched)
