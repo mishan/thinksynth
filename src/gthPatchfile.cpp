@@ -182,7 +182,16 @@ bool gthPatchManager::unloadPatch (int chan)
 
     thSynth *synth = thSynth::instance();
 
-    synth->removeChan(chan);
+    /* Only forget it if the audio thread was actually told to drop it. A
+       dropped command means the channel is still loaded and still sounding;
+       deleting the PatchFile anyway left the graph playing with isLoaded()
+       saying false, no tab contents naming it, and nothing able to unload it
+       on a second attempt -- and the next thing looking for a free channel
+       would take that one. removeChan says which happened, exactly so this
+       can agree with it. */
+    if (!synth->removeChan(chan))
+        return false;
+
     delete patches_[chan];
     patches_[chan] = NULL;
 

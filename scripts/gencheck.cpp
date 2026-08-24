@@ -2476,6 +2476,16 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             if (synth->getChanArg(2, "fmin") != NULL)
                 fail("the instruments after the failure were loaded too");
 
+            /* And `bad' itself, which is the one the first version of
+               this check quietly skipped. Its .dsp loads fine and it is
+               refused for an arg the graph does not declare -- so its
+               graph is on the channel at the moment it fails, and a
+               rollback that counted only successes walked straight past
+               it. applyInstrument takes it back itself now, which is
+               what makes the count above exact. */
+            if (synth->getChanArg(1, "fmin") != NULL)
+                fail("the instrument that failed was left on its channel");
+
             std::filesystem::remove(path);
         }
     }

@@ -72,7 +72,13 @@ public:
     void process(void);
 
     void printChan(int chan);
-    void removeChan (int channum);
+
+    /* False when the audio thread could not be told -- a full command ring.
+       The channel is then still loaded and still sounding, so a caller
+       keeping its own record of what is on it has to keep that record too;
+       throwing it away is how a graph ends up playing with nothing left able
+       to name it. */
+    bool removeChan (int channum);
 
     int audioChannelCount (void) const { return channels_; }
 

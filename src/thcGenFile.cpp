@@ -464,7 +464,14 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
                    now, and every instrument after this would be another
                    graph put on another channel for a piece nobody is
                    going to hear -- one wrong answer is easier to read
-                   than five, and cheaper to take back. */
+                   than five, and cheaper to take back.
+                 *
+                   Nothing to undo for this one: applyInstrument is all
+                   or nothing, and a value refused after its graph was
+                   loaded takes that graph back itself. Which is why
+                   `applied' is an exact count of what is still up, and
+                   the rollback below can be the obvious loop rather than
+                   a loop plus a flag about the index it stopped on. */
                 break;
             }
 

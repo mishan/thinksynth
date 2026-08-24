@@ -548,8 +548,13 @@ ComposerWindow::unloadInstrument (const thcInstrument &inst)
 {
     gthPatchManager *pm = gthPatchManager::instance();
 
-    if (pm != NULL)
-        pm->unloadPatch(inst.channel);
+    /* Still ours if it would not go. unloadPatch fails when the audio
+       thread could not be told to drop the channel, and the channel is
+       then still loaded and still sounding -- so forgetting it here
+       would leave a graph playing that this window no longer believes
+       it owns and will never try to unload again. */
+    if (pm == NULL || !pm->unloadPatch(inst.channel))
+        return;
 
     for (size_t i = 0; i < ownedChannels_.size(); i++)
         if (ownedChannels_[i] == inst.channel)
@@ -617,8 +622,12 @@ ComposerWindow::releaseInstruments (void)
                     prevInstruments_[k].dsp == have->dspFile)
                     ours = true;
 
-            if (ours)
-                pm->unloadPatch(prevOwned_[i]);
+            /* And keep it if it would not go: a channel the audio thread
+               could not be told to drop is still loaded and still ours,
+               so it stays on the list for the next parse to try again
+               rather than becoming a graph nothing can reach. */
+            if (ours && !pm->unloadPatch(prevOwned_[i]))
+                ownedChannels_.push_back(prevOwned_[i]);
         }
 
     /* The parse is over; nothing may consult either again until the

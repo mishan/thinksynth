@@ -355,7 +355,12 @@ public:
        False with `why' saying what went wrong, which the .gen loader
        turns into a load error against the instrument's line: a piece
        whose instrument is missing will not play, and should say so
-       rather than open silent and let the person hunt for it. */
+       rather than open silent and let the person hunt for it.
+
+       All or nothing. A value can only be checked once its graph is on
+       the channel, so a refusal usually happens with the .dsp already
+       loaded -- and this takes it back rather than leaving the caller
+       to know which failures did and did not install something. */
     bool applyInstrument (size_t index, std::string &why);
 
     /* Takes instrument `index' back off its channel. Idempotent, and
@@ -461,6 +466,11 @@ public:
     sigc::signal<void ()> sigReset;
 
 private:
+    /* The values half of applyInstrument, on a channel whose graph is
+       already up. Split out so every refusal has one caller, and that
+       caller can take the graph back down. */
+    bool applyValues (const thcInstrument &inst, std::string &why);
+
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride);
     void releaseHeld (int channel, int note);

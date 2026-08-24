@@ -448,57 +448,12 @@ thcScheduler::instrument (size_t index)
     return index < instruments_.size() ? &instruments_[index] : NULL;
 }
 
-/* The graph, then the values on top of it -- which is what a .patch is,
- * said in a language people write by hand.
- *
- * The split between the two halves is deliberate. Loading the graph is
- * the host's, because in the application it is also a patch tab and an
- * arg panel; setting the values is *not*, because what a value means --
- * which arg it lands on, what its unit folds to, what happens when the
- * patch has no such arg -- is a property of the .gen language and
- * belongs where the rest of the language's semantics are. One copy,
- * gated headlessly, whichever host is on the other end of the hook.
- */
+/* The values half of applyInstrument, on a channel whose graph is
+ * already up. Split out so that every way of refusing one has a single
+ * caller, and that caller can take the graph back down again. */
 bool
-thcScheduler::applyInstrument (size_t index, std::string &why)
+thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
 {
-    if (index >= instruments_.size())
-    {
-        why = "no such instrument";
-        return false;
-    }
-
-    const thcInstrument &inst = instruments_[index];
-
-    if (inst.channel < 0)
-    {
-        why = "no channel was allocated for it";
-        return false;
-    }
-
-    if (loadDsp_)
-    {
-        if (!loadDsp_(inst, why))
-            return false;
-    }
-    else
-    {
-        /* No hook: the plain reading of what an instrument is. The name
-           is searched for the way a .patch's `dsp' line is searched for,
-           because a piece that only loaded from one directory would be a
-           piece you could not send anybody. */
-        const std::string path =
-            thUtil::findDataFile(inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
-
-        if (synth_ == NULL ||
-            synth_->loadTree((path.empty() ? inst.dsp : path).c_str(),
-                             inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
-        {
-            why = "'" + inst.dsp + "' did not load";
-            return false;
-        }
-    }
-
     for (size_t i = 0; i < inst.args.size(); i++)
     {
         const thcInstrumentArg &a = inst.args[i];
@@ -549,6 +504,81 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
         arg->setValue((float)thFoldUnit(a.value, a.units,
                                         synth_->getSampleRate()));
+    }
+
+    return true;
+}
+
+/* The graph, then the values on top of it -- which is what a .patch is,
+ * said in a language people write by hand.
+ *
+ * The split between the two halves is deliberate. Loading the graph is
+ * the host's, because in the application it is also a patch tab and an
+ * arg panel; setting the values is *not*, because what a value means --
+ * which arg it lands on, what its unit folds to, what happens when the
+ * patch has no such arg -- is a property of the .gen language and
+ * belongs where the rest of the language's semantics are. One copy,
+ * gated headlessly, whichever host is on the other end of the hook.
+ *
+ * All or nothing, though. A value can only be checked once its graph is
+ * on the channel -- which arg it lands on is a question about that graph
+ * -- so refusing an instrument for a chanarg its .dsp does not declare
+ * happens with the .dsp already loaded. Rolling that back *here* is what
+ * lets the caller's bookkeeping stay simple: this either applied or it
+ * did not, and there is no third state for anybody else to track. The
+ * caller that tried to track it got it wrong in both directions --
+ * leaving the failed graph up, and later taking down a patch a failed
+ * load had deliberately preserved.
+ */
+bool
+thcScheduler::applyInstrument (size_t index, std::string &why)
+{
+    if (index >= instruments_.size())
+    {
+        why = "no such instrument";
+        return false;
+    }
+
+    const thcInstrument &inst = instruments_[index];
+
+    if (inst.channel < 0)
+    {
+        why = "no channel was allocated for it";
+        return false;
+    }
+
+    if (loadDsp_)
+    {
+        /* Nothing was installed, so there is nothing to take back --
+           and taking something back here would be worse than doing
+           nothing: gthPatchManager::newPatch deliberately leaves the
+           previous patch alone when a load fails, and an unload on this
+           path would throw away the thing it just protected. */
+        if (!loadDsp_(inst, why))
+            return false;
+    }
+    else
+    {
+        /* No hook: the plain reading of what an instrument is. The name
+           is searched for the way a .patch's `dsp' line is searched for,
+           because a piece that only loaded from one directory would be a
+           piece you could not send anybody. */
+        const std::string path =
+            thUtil::findDataFile(inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        if (synth_ == NULL ||
+            synth_->loadTree((path.empty() ? inst.dsp : path).c_str(),
+                             inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
+        {
+            why = "'" + inst.dsp + "' did not load";
+            return false;
+        }
+    }
+
+    if (!applyValues(inst, why))
+    {
+        unapplyInstrument(index);
+        return false;
     }
 
     return true;
