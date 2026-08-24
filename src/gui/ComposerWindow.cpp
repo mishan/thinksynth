@@ -149,8 +149,10 @@ ComposerWindow::ComposerWindow (thSynth *synth)
 
     sched_ = new thcScheduler(synth_);
     sched_->setInstrumentLoader(
-        [this](const std::string &dsp, int channel, std::string &why)
-        { return loadInstrument(dsp, channel, why); });
+        [this](const thcInstrument &inst, std::string &why)
+        { return loadInstrument(inst, why); });
+    sched_->setInstrumentUnloader(
+        [this](const thcInstrument &inst) { unloadInstrument(inst); });
     sched_->setChannelTaken(
         [this](int channel) { return channelTaken(channel); });
 
@@ -476,9 +478,33 @@ ComposerWindow::loadPiece (void)
  * makes. It marks the channel dirty, which is true: what is on it came
  * from a .gen and there is no .patch holding it.
  */
+/* Is this the same instrument, in every respect the file can state?
+ *
+ * Not just the same .dsp. applyInstrument only writes the values the
+ * block lists, so an instrument that keeps its graph and *drops* a line
+ * would otherwise keep the value that line used to set -- delete
+ * `a = 900 ms' from the pad and the attack stays at 900ms until the
+ * program is restarted, which is exactly the kind of stale number that
+ * costs an hour. Anything different about the declaration means rebuild.
+ */
+static bool
+sameInstrument (const thcInstrument &a, const thcInstrument &b)
+{
+    if (a.name != b.name || a.dsp != b.dsp || a.channel != b.channel ||
+        a.args.size() != b.args.size())
+        return false;
+
+    for (size_t i = 0; i < a.args.size(); i++)
+        if (a.args[i].name != b.args[i].name ||
+            a.args[i].value != b.args[i].value ||
+            a.args[i].units != b.args[i].units)
+            return false;
+
+    return true;
+}
+
 bool
-ComposerWindow::loadInstrument (const std::string &dsp, int channel,
-                                std::string &why)
+ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
 {
     gthPatchManager *pm = gthPatchManager::instance();
 
@@ -488,32 +514,49 @@ ComposerWindow::loadInstrument (const std::string &dsp, int channel,
         return false;
     }
 
-    /* Already ours, already this graph: leave it alone.
+    /* Already ours, still this graph, still declared the same way:
+     * leave it alone.
      *
      * Every structural edit reloads the piece, and reloading it used to
-     * mean newPatch on every instrument -- which deletes the channel,
-     * re-parses the .dsp and swaps the tree in. So renaming a knob's
-     * label cut every sounding voice on the pad. The values are set
+     * mean newPatch on every instrument -- which drops the channel,
+     * re-parses the .dsp and swaps a new tree in. So renaming a knob's
+     * label cut every sounding voice on the pad. The values are written
      * again either way (a structural reload rewinds to zero, so the
      * file's numbers are the right ones to be at), but the graph does
-     * not have to be rebuilt to say so. */
-    gthPatchManager::PatchFile *have = pm->getPatch(channel);
-    bool mine = false;
+     * not have to be rebuilt for that. */
+    gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
+    bool keep = false;
 
-    for (size_t i = 0; i < prevOwned_.size(); i++)
-        if (prevOwned_[i] == channel)
-            mine = true;
+    if (have != NULL && have->dspFile == inst.dsp)
+        for (size_t i = 0; i < prevInstruments_.size(); i++)
+            if (sameInstrument(prevInstruments_[i], inst))
+                keep = true;
 
-    if (!(mine && have != NULL && have->dspFile == dsp))
-        if (!pm->newPatch(dsp, channel))
-        {
-            why = "'" + dsp + "' did not load";
-            return false;
-        }
+    if (!keep && !pm->newPatch(inst.dsp, inst.channel))
+    {
+        why = "'" + inst.dsp + "' did not load";
+        return false;
+    }
 
-    ownedChannels_.push_back(channel);
+    ownedChannels_.push_back(inst.channel);
 
     return true;
+}
+
+void
+ComposerWindow::unloadInstrument (const thcInstrument &inst)
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+
+    if (pm != NULL)
+        pm->unloadPatch(inst.channel);
+
+    for (size_t i = 0; i < ownedChannels_.size(); i++)
+        if (ownedChannels_[i] == inst.channel)
+        {
+            ownedChannels_.erase(ownedChannels_.begin() + i);
+            break;
+        }
 }
 
 bool
@@ -557,13 +600,31 @@ ComposerWindow::releaseInstruments (void)
                 if (ownedChannels_[k] == prevOwned_[i])
                     wanted = true;
 
-            if (!wanted)
+            if (wanted)
+                continue;
+
+            /* Only if what is on it is still what this window put
+               there. Somebody who loaded their own patch onto one of
+               the piece's channels has made it theirs, and a piece that
+               later drops that instrument has no business taking their
+               patch down with it. */
+            gthPatchManager::PatchFile *have = pm->getPatch(prevOwned_[i]);
+            bool ours = false;
+
+            for (size_t k = 0; have != NULL && k < prevInstruments_.size();
+                 k++)
+                if (prevInstruments_[k].channel == prevOwned_[i] &&
+                    prevInstruments_[k].dsp == have->dspFile)
+                    ours = true;
+
+            if (ours)
                 pm->unloadPatch(prevOwned_[i]);
         }
 
-    /* The parse is over; nothing may consult it again until the next
-       one sets it. */
+    /* The parse is over; nothing may consult either again until the
+       next one sets them. */
     prevOwned_.clear();
+    prevInstruments_.clear();
 }
 
 void
@@ -582,6 +643,7 @@ ComposerWindow::parseWork (void)
        the difference and clears it again. */
     prevOwned_.clear();
     prevOwned_.swap(ownedChannels_);
+    prevInstruments_ = sched_->instruments();
 
     thcGenLoader loader(composers_);
 

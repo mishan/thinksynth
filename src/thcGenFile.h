@@ -161,6 +161,12 @@ private:
        either one having to come first. */
     bool allocateChannels (thcScheduler *sched);
 
+    /* Every instrument-bound chanarg sink names a knob on a graph this
+       load just brought up, so every one of them can be checked against
+       it. Runs after the instruments are applied, for the obvious
+       reason. */
+    void checkSinkArgs (thcScheduler *sched);
+
     void error (int line, const std::string &msg);
 
     const std::map<std::string, thcPlugin *> &plugins_;
@@ -199,6 +205,7 @@ private:
     {
         size_t      chain, sink;
         std::string instrument;
+        int         line;
     };
 
     std::vector<PendingSink> pendingSinks_;

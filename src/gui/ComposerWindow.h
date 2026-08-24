@@ -26,6 +26,9 @@
 #include <gtkmm.h>
 
 #include "thcGenEdit.h"
+/* By value in prevInstruments_ below, so a forward declaration will not
+   do -- and it is the same header ComposerCanvas already pulls in. */
+#include "thcScheduler.h"
 #include "ComposerCanvas.h"
 
 class thSynth;
@@ -78,8 +81,10 @@ protected:
        does. The scheduler's own default -- loadTree and nothing else --
        is right for a harness and would be a channel the rest of the
        program could not see. */
-    bool loadInstrument (const std::string &dsp, int channel,
-                         std::string &why);
+    bool loadInstrument (const thcInstrument &inst, std::string &why);
+
+    /* The way back, for a load that failed after this one succeeded. */
+    void unloadInstrument (const thcInstrument &inst);
 
     /* Unloads whichever of prevOwned_ the piece just parsed no longer
        wants. A patch outlives the file that asked for it -- which is why
@@ -214,6 +219,14 @@ protected:
        releaseInstruments unloads the difference. */
     std::vector<int> ownedChannels_;
     std::vector<int> prevOwned_;
+
+    /* The instrument table the piece being replaced was loaded with,
+       taken before the parse wipes it. Two things read it: an
+       instrument whose whole declaration is unchanged keeps the graph
+       it already has instead of having it rebuilt underneath a
+       sounding voice, and a channel is only given back if what is on
+       it is still the graph this window put there. */
+    std::vector<thcInstrument> prevInstruments_;
 
     std::string genPath_;           /* the source file; may be empty     */
     std::string workPath_;          /* the copy the edits go to          */

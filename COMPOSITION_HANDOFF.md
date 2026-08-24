@@ -205,11 +205,18 @@ this design leans on:
   Textual order IS execution order — hence the keyword `stage`, not `node`
   (in `.dsp` order is irrelevant and edges carry topology; same word would
   teach editors the wrong intuition).
-- Sinks: `{ channel = N; }` for notes, `{ channel = N; chanarg = "x"; }`
-  for values; multiple sinks = fan-out; type filtering happens at the
-  sink so one generator can drive melody and a filter sweep at once.
+- Sinks name a target and optionally a knob on it: `{ instrument = pad; }`
+  for notes, `{ instrument = pad; chanarg = "x"; }` for values. The
+  target is one of the piece's own `instrument` blocks or, for a patch
+  the piece does not own, a bare `channel = N` — one or the other, never
+  both. Multiple sinks = fan-out; type filtering happens at the sink so
+  one generator can drive melody and a filter sweep at once.
 - `scale <name> "F3 Ab3 …";` — named pitch sets parsed once at load;
   NOTESET params accept a scale identifier or a quoted literal.
+- `instrument <name> { dsp "x.dsp"; <arg> = <value>; … };` — the graph a
+  sink can name, plus the chanarg values that make it that instrument.
+  Values carry units and are folded against what the chanarg declares.
+  The loader allocates the channel; §9's staging step 2.
 - Writer's rules are in the spec (the GUI will write these files):
   round-trip units as authored, write defaulted params explicitly, knob
   bindings persist as `@name`, never persist a seed the user didn't pin.

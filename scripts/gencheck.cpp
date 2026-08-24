@@ -2229,10 +2229,29 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
  *    chanarg written in the wrong unit is a value silently a thousand
  *    times wrong, which is the failure this format exists to refuse.
  */
+/* Every channel empty, and the queue that empties them drained.
+ *
+ * The checks below ask what is on a channel, and a scheduler going out
+ * of scope does not unload what its piece loaded -- a patch outlives the
+ * file that asked for it, deliberately. So the sub-tests would be
+ * answering with the previous one's leftovers. Nothing else in this
+ * harness cares, because the harness installs no channelTaken hook and
+ * allocation therefore ignores what is loaded. */
+static void
+clearChannels (thSynth *synth)
+{
+    for (int i = 0; i < TH_MIDI_CHANNELS; i++)
+        synth->removeChan(i);
+
+    drainSynth();
+}
+
 static void
 checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
                   thSynth *synth)
 {
+    clearChannels(synth);
+
     /* Two instruments and a sink that claimed a channel out from under
        them: `pad' takes 1, `bell' skips the claimed 2 and takes 3. */
     const std::string body =
@@ -2393,12 +2412,25 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
         "chain c { stage s gen::eno_line { }; sink { }; };",
         "no instrument and no channel");
 
-    /* One bad instrument stops the rest.
+    /* A sink bound to an instrument cannot name a knob that instrument
+       does not have. Unlike a `channel = N' sink, whose patch is
+       somebody else's business, this one is checkable -- and a sink
+       that is not checked delivers into getChanArg's NULL forever, in
+       silence, a long way from the typo. */
+    expectReject(plugins, synth, "sink-unknown-chanarg",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage s gen::walk { };"
+        " sink { instrument = pad; chanarg = \"nosuchknob\"; }; };",
+        "nosuchknob");
+
+    /* One bad instrument stops the rest, and takes back the one that
+       already made it.
      *
-     * The file is not going to load once the first one fails, and every
+     * The file is not going to load once the first fails, so every
      * instrument after it would be another graph put on another channel
-     * for a piece nobody is going to hear. One error to read, and one
-     * channel to give back rather than four. */
+     * for a piece nobody is going to hear -- and the one before it is a
+     * graph on a channel for the same piece, which is the half of "a
+     * file with any error loads nothing" that used to be false. */
     {
         std::string path = thUtil::tempFile("gencheck-instr-stop-");
 
@@ -2407,7 +2439,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             {
                 std::ofstream out(path.c_str(), std::ios::trunc);
 
-                out << "instrument bad { dsp \"amb01.dsp\";"
+                out << "instrument first { dsp \"amb01.dsp\"; };\n"
+                       "instrument bad { dsp \"amb01.dsp\";"
                        " nosucharg = 1; };\n"
                        "instrument after { dsp \"amb01.dsp\"; };\n"
                        "chain c { stage s gen::eno_line { };"
@@ -2417,7 +2450,7 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             thcScheduler sched(synth);
             thcGenLoader loader(plugins);
 
-            drainSynth();
+            clearChannels(synth);
 
             if (loader.load(path, &sched))
                 fail("an instrument naming an arg its graph does not "
@@ -2430,6 +2463,18 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
                   << loader.errors().size() << " errors, not one";
                 fail(s.str());
             }
+
+            /* `first' came up before `bad' failed, and must not still be
+               there. Drained first, because what unapplyInstrument does
+               is queue a command like everything else. */
+            drainSynth();
+
+            if (synth->getChanArg(0, "fmin") != NULL)
+                fail("a piece that failed to load left an instrument on a "
+                     "channel");
+
+            if (synth->getChanArg(2, "fmin") != NULL)
+                fail("the instruments after the failure were loaded too");
 
             std::filesystem::remove(path);
         }

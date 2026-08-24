@@ -478,7 +478,7 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
     if (loadDsp_)
     {
-        if (!loadDsp_(inst.dsp, inst.channel, why))
+        if (!loadDsp_(inst, why))
             return false;
     }
     else
@@ -552,6 +552,18 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
     }
 
     return true;
+}
+
+void
+thcScheduler::unapplyInstrument (size_t index)
+{
+    if (index >= instruments_.size() || instruments_[index].channel < 0)
+        return;
+
+    if (unloadDsp_)
+        unloadDsp_(instruments_[index]);
+    else if (synth_ != NULL)
+        synth_->removeChan(instruments_[index].channel);
 }
 
 void
@@ -1009,6 +1021,12 @@ thcScheduler::injectMidiEvent (const thcEvent &ev)
             injectingLive_ = false;
         }
     }
+}
+
+bool
+thcScheduler::chanArgExists (int channel, const std::string &name) const
+{
+    return synth_ != NULL && synth_->getChanArg(channel, name) != NULL;
 }
 
 bool

@@ -446,35 +446,89 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
        that is not going to load, and loading a graph on the strength of
        a piece with an error in it would put sound on a channel nobody
        asked for. */
+    size_t applied = 0;
+
     if (errors_.empty() && allocateChannels(sched))
-        for (size_t i = 0; i < sched->instruments().size(); i++)
+        while (applied < sched->instruments().size())
         {
             std::string why;
 
-            if (!sched->applyInstrument(i, why))
+            if (!sched->applyInstrument(applied, why))
             {
-                error(i < instrumentLines_.size() ? instrumentLines_[i] : 0,
-                      "instrument '" + sched->instruments()[i].name +
+                error(applied < instrumentLines_.size()
+                      ? instrumentLines_[applied] : 0,
+                      "instrument '" + sched->instruments()[applied].name +
                       "': " + why);
 
                 /* Stop at the first one. The file is not going to load
                    now, and every instrument after this would be another
                    graph put on another channel for a piece nobody is
                    going to hear -- one wrong answer is easier to read
-                   than five, and cheaper to undo. */
+                   than five, and cheaper to take back. */
                 break;
             }
+
+            applied++;
         }
+
+    if (errors_.empty())
+        checkSinkArgs(sched);
 
     if (!errors_.empty())
     {
-        /* A file with any error loads nothing. Half a piece that plays
-           is worse than a piece that says why it will not. */
+        /* A file with any error loads nothing.
+         *
+         * That was true of the chains from the first version of this
+         * loader and briefly false of the channels: an instrument that
+         * came up before a later one failed stayed up, silent, on a tab,
+         * for a piece nobody was going to hear. So the ones that made it
+         * are taken back before the chains are -- in reverse, which
+         * costs nothing and is the order anyone reading this expects. */
+        while (applied > 0)
+            sched->unapplyInstrument(--applied);
+
         sched->clearChains();
         return false;
     }
 
     return true;
+}
+
+/* A sink bound to an instrument names a knob on a graph this piece just
+ * loaded -- so unlike a `channel = N' sink, whose patch is somebody
+ * else's business and may not even be loaded yet, this one can be
+ * checked. And should be: the name is overwritten onto every event
+ * passing through, and a knob the graph does not declare means
+ * getChanArg returns NULL at delivery and the sink silently does
+ * nothing, forever, a long way from the typo. The same argument the sink
+ * parser already makes about `cut off' with a space in it, now that
+ * there is something to check the name against.
+ *
+ * `*' is exempt: it means the events name their own targets, which are
+ * a composer's business and not knowable here.
+ */
+void
+thcGenLoader::checkSinkArgs (thcScheduler *sched)
+{
+    for (size_t i = 0; i < pendingSinks_.size(); i++)
+    {
+        const PendingSink &p = pendingSinks_[i];
+        const thcInstrument *inst = sched->instrument(p.instrument);
+        thcChain *c = sched->chain(p.chain);
+
+        if (inst == NULL || c == NULL || p.sink >= c->sinks.size())
+            continue;
+
+        const thcSink &s = c->sinks[p.sink];
+
+        if (!s.isChanarg() || s.namesItsOwn())
+            continue;
+
+        if (!sched->chanArgExists(inst->channel, s.chanarg))
+            error(p.line, "instrument '" + p.instrument + "' is '" +
+                  inst->dsp + "', which declares no chanarg called '" +
+                  s.chanarg + "'");
+    }
 }
 
 bool
@@ -1734,6 +1788,7 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
         p.chain      = chain;
         p.sink       = c != NULL && !c->sinks.empty() ? c->sinks.size() - 1 : 0;
         p.instrument = instrument;
+        p.line       = instrumentLine;
 
         pendingSinks_.push_back(p);
     }

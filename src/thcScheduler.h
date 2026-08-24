@@ -310,10 +310,24 @@ public:
      * not a fallback nobody runs. It is precisely what a headless
      * harness wants, which is what makes the instrument path gateable
      * at all rather than only reachable through the GUI. */
-    typedef std::function<bool (const std::string &dsp, int channel,
+    typedef std::function<bool (const thcInstrument &inst,
                                 std::string &why)> InstrumentLoader;
 
+    /* And the way back. A .gen that fails to load is documented to load
+       nothing, and until this existed that was true of the chains and
+       false of the channels: an instrument that came up before a later
+       one failed stayed up, on a tab, for a piece nobody was going to
+       hear. The host needs to hear about it for the same reason it
+       handles the load -- what has to be undone is a patch tab, not
+       just a graph. */
+    typedef std::function<void (const thcInstrument &inst)>
+        InstrumentUnloader;
+
     void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
+    void setInstrumentUnloader (const InstrumentUnloader &fn)
+    {
+        unloadDsp_ = fn;
+    }
 
     /* Is this channel somebody else's?
      *
@@ -343,6 +357,10 @@ public:
        whose instrument is missing will not play, and should say so
        rather than open silent and let the person hunt for it. */
     bool applyInstrument (size_t index, std::string &why);
+
+    /* Takes instrument `index' back off its channel. Idempotent, and
+       harmless on one that never got there. */
+    void unapplyInstrument (size_t index);
 
     size_t chainCount (void) const { return chains_.size(); }
     thcChain *chain (size_t i)
@@ -420,6 +438,12 @@ public:
     sigc::signal<void (const thcEvent &)> sigDelivered;
     const std::vector<thcEvent> &peekPending (void) const;
 
+    /* Does the patch on `channel' declare this knob? What the .gen
+       loader asks about a sink bound to one of the piece's own
+       instruments, where the graph is known and a typo is therefore
+       catchable instead of silent at delivery time. */
+    bool chanArgExists (int channel, const std::string &name) const;
+
     /* The declared range of a patch chanarg, for anyone drawing its
        values honestly -- the roll's strip normalizes by this instead of
        assuming 0-1. False when the channel has no such arg or its range
@@ -466,6 +490,7 @@ private:
        allocates channels in, and what the editor draws. */
     std::vector<thcInstrument> instruments_;
     InstrumentLoader           loadDsp_;
+    InstrumentUnloader         unloadDsp_;
     ChannelTaken               taken_;
 
     /* transport */

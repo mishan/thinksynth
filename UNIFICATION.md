@@ -71,7 +71,19 @@ isn't self-contained."
 >   would invent it. Patches predate arg metadata and half the corpus
 >   sets things no graph declares; a piece file has no such history, and
 >   §9's "the declared surface is consent" reads more naturally as a rule
->   the loader enforces than as one an author remembers.
+>   the loader enforces than as one an author remembers. The same check
+>   reaches a *sink's* chanarg when the sink names an instrument, since
+>   then the graph is known — a knob the instrument does not have would
+>   otherwise deliver into `getChanArg`'s NULL forever, in silence, a
+>   long way from the typo. A `channel = N` sink is exempt: its patch is
+>   somebody else's and may not even be loaded yet.
+> - **A file with any error loads nothing, channels included.** That
+>   sentence was true of the chains from the first version of this loader
+>   and briefly false of the channels: an instrument that came up before
+>   a later one failed stayed up, silent, on a tab, for a piece nobody
+>   was going to hear. So a failed load takes back every instrument it
+>   had applied, through an unload hook that is the mirror of the load
+>   one and defaults to `removeChan` the same way.
 > - **The window gives channels back, and does not take ones that are
 >   not free.** `ComposerWindow` remembers which channels it filled for
 >   the piece that is open, so a piece that drops an instrument does not
@@ -81,10 +93,16 @@ isn't self-contained."
 >   allocates around a patch you loaded by hand instead of replacing it —
 >   while the channels the *previous* load of this piece was on stay
 >   reusable, or an instrument would walk one to the right on every
->   reload. And an instrument whose graph and channel have not changed is
+>   reload. And an instrument whose *whole declaration* is unchanged is
 >   left alone rather than rebuilt, because every structural edit
 >   reparses the piece and rebuilding meant renaming a knob's label cut
->   every sounding voice on the pad.
+>   every sounding voice on the pad. The whole declaration and not just
+>   the `.dsp`, because applying an instrument only writes the values its
+>   block lists: one that kept its graph and *dropped* a line would keep
+>   the value that line used to set. A channel is likewise only given
+>   back if what is on it is still the graph this window put there —
+>   somebody who loaded their own patch onto one of the piece's channels
+>   has made it theirs.
 > - **`thcGenEdit` learned the block by reading and the sinks by
 >   writing**: `describe` reports instruments with their authored
 >   right-hand sides, and `addSink`/`setSink`/`addChain` take a target
@@ -107,14 +125,21 @@ isn't self-contained."
 >   another graph put on another channel for a piece nobody is going to
 >   hear.
 >
-> Two things found on the way that were nothing to do with instruments.
+> Three things found on the way that were nothing to do with instruments.
 > `thcGenLoader::load` never cleared `presets_`, so a loader reused
 > across files carried the previous piece's presets into the next one.
-> And `gencheck` had been filling the synth's command ring and printing
+> `gencheck` had been filling the synth's command ring and printing
 > "command queue full" for most of its run, harmlessly while the ring
 > held only notes nobody listens to — and not at all harmlessly the
-> moment loading an instrument started queueing a `SET_CHANNEL`. It
-> drains once per render now.
+> moment loading an instrument started queueing a `SET_CHANNEL`; it
+> drains once per render now. And `gthPatchManager::newPatch` deleted the
+> channel's `PatchFile` *before* attempting the load, so a DSP that
+> failed to parse left the old graph playing with nothing describing it:
+> no filename, no tab contents, nothing able to unload it. `loadTree`
+> does not touch the channel unless it succeeds, so neither does
+> `newPatch` now. That one predates all of this and belongs to the Patch
+> Selector as much as to here; loading an instrument on every piece load
+> is just what made it easy to reach.
 
 - New top-level block in the gen grammar:
 

@@ -113,13 +113,11 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
     thArg *amparg = NULL;
     bool r = true;
 
+    /* Read before the load, because loadTree is what replaces the channel
+       the value is being read off. Whether the old PatchFile survives is
+       decided below, after we know if there is a new one. */
     if (patches_[chan])
-    {
-        /* keep copy of amplitude */
         amparg = new thArg (synth->getChanArg(chan, "amp"));
-        delete patches_[chan];
-        patches_[chan] = NULL;
-    }
 
     /* Load the resolved path but remember the name as given, so a patch saved
        afterwards still carries the short name it came with. */
@@ -133,10 +131,19 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 
     if (mod == NULL)
     {
+        /* The old PatchFile used to be deleted before the load was
+           attempted, so a DSP that failed to parse left the channel still
+           playing the previous graph with nothing here describing it: no
+           tab contents, no filename, nothing able to unload it. loadTree
+           does not touch the channel unless it succeeds, so neither does
+           this -- the failure is now a failure to change anything. */
         r = false;
+        delete amparg;
     }
     else
     {
+        delete patches_[chan];
+
         patches_[chan] = new PatchFile;
         patches_[chan]->dspFile = dspName;
 
@@ -145,7 +152,7 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
         patches_[chan]->dirty = true;
 
         if (amparg != NULL)
-            synth->setChanArg(chan, amparg); 
+            synth->setChanArg(chan, amparg);
     }
 
     m_signal_patches_changed();
