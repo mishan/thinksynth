@@ -320,7 +320,7 @@ public:
        hear. The host needs to hear about it for the same reason it
        handles the load -- what has to be undone is a patch tab, not
        just a graph. */
-    typedef std::function<void (const thcInstrument &inst)>
+    typedef std::function<bool (const thcInstrument &inst)>
         InstrumentUnloader;
 
     void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
@@ -360,12 +360,20 @@ public:
        All or nothing. A value can only be checked once its graph is on
        the channel, so a refusal usually happens with the .dsp already
        loaded -- and this takes it back rather than leaving the caller
-       to know which failures did and did not install something. */
+       to know which failures did and did not install something. The one
+       case it cannot keep that promise in is a command ring too full to
+       carry the removal, and then it says so in `why' rather than
+       claiming the channel is clear. */
     bool applyInstrument (size_t index, std::string &why);
 
     /* Takes instrument `index' back off its channel. Idempotent, and
-       harmless on one that never got there. */
-    void unapplyInstrument (size_t index);
+       harmless on one that never got there.
+
+       False when it could not be taken back -- the audio thread has to
+       be told to drop a channel and the command ring can be full. The
+       channel is then still loaded and still sounding, and the host
+       still owns it. */
+    bool unapplyInstrument (size_t index);
 
     size_t chainCount (void) const { return chains_.size(); }
     thcChain *chain (size_t i)

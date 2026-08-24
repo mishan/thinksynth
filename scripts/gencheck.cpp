@@ -2348,6 +2348,54 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
     std::filesystem::remove(path);
 
+    /* `%' folds too, and it is the half nothing else here touches --
+       every other instrument in this file is amb01, which declares no
+       percentages. A fraction of TH_MAX rather than a sample count,
+       which is exactly why the diagnostic for a *missing* unit cannot
+       talk about samples. */
+    {
+        std::string path = thUtil::tempFile("gencheck-instr-pct-");
+
+        if (path.empty())
+            fail("could not make a scratch file for the percent check");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "instrument fizz { dsp \"aspect2.dsp\"; os = 50%; };\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = fizz; }; };\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+
+            if (!loader.load(path, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("a percentage instrument value did not load");
+            }
+            else
+            {
+                thArg *os = synth->getChanArg(0, "os");
+
+                if (os == NULL)
+                    fail("the percentage instrument did not reach its "
+                         "channel");
+                else if (fabs((*os)[0] - TH_MAX / 2.0) > 1.0)
+                    fail("50% did not fold to half of TH_MAX");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
     /* ---- the rejections ---- */
 
     expectReject(plugins, synth, "instr-no-dsp",
@@ -2383,6 +2431,16 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
         "chain c { stage s gen::eno_line { };"
         " sink { instrument = pad; }; };",
         "written in ms");
+
+    /* The other fold, and the reason that message cannot say "samples":
+       a bare number on a percentage arg is a raw fraction of TH_MAX, not
+       a sample count. aspect2.dsp is the one graph in the corpus that
+       declares a chanarg in `%'. */
+    expectReject(plugins, synth, "instr-bare-percent",
+        "instrument fizz { dsp \"aspect2.dsp\"; os = 50; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = fizz; }; };",
+        "written in %");
 
     expectReject(plugins, synth, "instr-spurious-unit",
         "instrument pad { dsp \"amb01.dsp\"; fmin = 50 ms; };\n"

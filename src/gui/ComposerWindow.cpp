@@ -152,7 +152,7 @@ ComposerWindow::ComposerWindow (thSynth *synth)
         [this](const thcInstrument &inst, std::string &why)
         { return loadInstrument(inst, why); });
     sched_->setInstrumentUnloader(
-        [this](const thcInstrument &inst) { unloadInstrument(inst); });
+        [this](const thcInstrument &inst) { return unloadInstrument(inst); });
     sched_->setChannelTaken(
         [this](int channel) { return channelTaken(channel); });
 
@@ -524,13 +524,21 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
      * again either way (a structural reload rewinds to zero, so the
      * file's numbers are the right ones to be at), but the graph does
      * not have to be rebuilt for that. */
-    gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
-    bool keep = false;
+    bool keep = stillOurs(inst.channel);
 
-    if (have != NULL && have->dspFile == inst.dsp)
+    if (keep)
+    {
+        /* Ours, and still the same instrument the file declares. Any
+           difference at all -- a value changed, a line dropped -- means
+           rebuild, because applying an instrument only writes the values
+           its block lists and a dropped line would otherwise keep the
+           value it used to set. */
+        keep = false;
+
         for (size_t i = 0; i < prevInstruments_.size(); i++)
             if (sameInstrument(prevInstruments_[i], inst))
                 keep = true;
+    }
 
     if (!keep && !pm->newPatch(inst.dsp, inst.channel))
     {
@@ -538,12 +546,18 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
         return false;
     }
 
-    ownedChannels_.push_back(inst.channel);
+    gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
+    Owned o;
+
+    o.channel = inst.channel;
+    o.generation = have != NULL ? have->generation : 0;
+
+    ownedChannels_.push_back(o);
 
     return true;
 }
 
-void
+bool
 ComposerWindow::unloadInstrument (const thcInstrument &inst)
 {
     gthPatchManager *pm = gthPatchManager::instance();
@@ -554,14 +568,34 @@ ComposerWindow::unloadInstrument (const thcInstrument &inst)
        would leave a graph playing that this window no longer believes
        it owns and will never try to unload again. */
     if (pm == NULL || !pm->unloadPatch(inst.channel))
-        return;
+        return false;
 
     for (size_t i = 0; i < ownedChannels_.size(); i++)
-        if (ownedChannels_[i] == inst.channel)
+        if (ownedChannels_[i].channel == inst.channel)
         {
             ownedChannels_.erase(ownedChannels_.begin() + i);
             break;
         }
+
+    return true;
+}
+
+bool
+ComposerWindow::stillOurs (int channel) const
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+    gthPatchManager::PatchFile *have =
+        pm != NULL ? pm->getPatch(channel) : NULL;
+
+    if (have == NULL)
+        return false;
+
+    for (size_t i = 0; i < prevOwned_.size(); i++)
+        if (prevOwned_[i].channel == channel &&
+            prevOwned_[i].generation == have->generation)
+            return true;
+
+    return false;
 }
 
 bool
@@ -572,13 +606,11 @@ ComposerWindow::channelTaken (int channel)
     if (pm == NULL || !pm->isLoaded(channel))
         return false;
 
-    /* Loaded, but by this piece a moment ago -- so it is the piece's to
-       have back, and the instrument that was on it stays on it. */
-    for (size_t i = 0; i < prevOwned_.size(); i++)
-        if (prevOwned_[i] == channel)
-            return false;
-
-    return true;
+    /* Loaded by this piece a moment ago, and not touched since -- so it
+       is the piece's to have back, and the instrument that was on it
+       stays on it. Anything else on that channel is somebody's, and
+       taking it would replace an instrument they chose. */
+    return !stillOurs(channel);
 }
 
 /* Give back the channels this window filled for the piece that was open
@@ -599,34 +631,29 @@ ComposerWindow::releaseInstruments (void)
     if (pm != NULL)
         for (size_t i = 0; i < prevOwned_.size(); i++)
         {
+            const int channel = prevOwned_[i].channel;
             bool wanted = false;
 
             for (size_t k = 0; k < ownedChannels_.size(); k++)
-                if (ownedChannels_[k] == prevOwned_[i])
+                if (ownedChannels_[k].channel == channel)
                     wanted = true;
 
             if (wanted)
                 continue;
 
-            /* Only if what is on it is still what this window put
-               there. Somebody who loaded their own patch onto one of
-               the piece's channels has made it theirs, and a piece that
-               later drops that instrument has no business taking their
-               patch down with it. */
-            gthPatchManager::PatchFile *have = pm->getPatch(prevOwned_[i]);
-            bool ours = false;
-
-            for (size_t k = 0; have != NULL && k < prevInstruments_.size();
-                 k++)
-                if (prevInstruments_[k].channel == prevOwned_[i] &&
-                    prevInstruments_[k].dsp == have->dspFile)
-                    ours = true;
+            /* Only if what is on it is still the exact patch this window
+               put there. Somebody who loaded their own onto one of the
+               piece's channels has made it theirs -- and their patch may
+               well be built on the same .dsp, which is why this is a
+               generation and not a filename. */
+            if (!stillOurs(channel))
+                continue;
 
             /* And keep it if it would not go: a channel the audio thread
                could not be told to drop is still loaded and still ours,
                so it stays on the list for the next parse to try again
                rather than becoming a graph nothing can reach. */
-            if (ours && !pm->unloadPatch(prevOwned_[i]))
+            if (!pm->unloadPatch(channel))
                 ownedChannels_.push_back(prevOwned_[i]);
         }
 

@@ -34,6 +34,16 @@
 
 gthPatchManager *gthPatchManager::instance_ = NULL;
 
+/* Stamped on every PatchFile, never reused. See the field's comment for why
+   this exists rather than a filename comparison or a pointer. GUI thread
+   only, like everything else here. */
+static unsigned patchGeneration = 0;
+
+gthPatchManager::PatchFile::PatchFile (void)
+    : dirty(false), generation(++patchGeneration)
+{
+}
+
 gthPatchManager::gthPatchManager (int numPatches)
 {
     numPatches_ = numPatches;

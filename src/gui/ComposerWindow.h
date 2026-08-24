@@ -83,8 +83,10 @@ protected:
        program could not see. */
     bool loadInstrument (const thcInstrument &inst, std::string &why);
 
-    /* The way back, for a load that failed after this one succeeded. */
-    void unloadInstrument (const thcInstrument &inst);
+    /* The way back, for a load that failed after this one succeeded.
+       False when the channel would not go, in which case it stays this
+       window's to try again. */
+    bool unloadInstrument (const thcInstrument &inst);
 
     /* Unloads whichever of prevOwned_ the piece just parsed no longer
        wants. A patch outlives the file that asked for it -- which is why
@@ -209,16 +211,34 @@ protected:
     std::map<std::string, thcPlugin *> composers_;
     std::string composerRoot_;      /* where loadComposers looked        */
 
-    /* Channels this window loaded for the piece currently open, so a
-       piece that loses an instrument gives its channel back -- and so a
-       channel somebody loaded by hand is neither taken nor taken away,
-       which is the whole reason this is a list and not a range.
-       prevOwned_ is the same list for the piece being replaced, live
-       only while a parse is in flight: allocation consults it (those
-       channels are reusable), the loader refills ownedChannels_, and
+    /* A channel this window filled, and *which* patch it put there.
+     *
+     * The number alone is not ownership. Somebody who loads their own
+     * patch onto one of the piece's channels has taken it, and a
+     * comparison by channel -- or by the .dsp's filename, which is the
+     * same mistake wearing a hat, since their patch may well be built
+     * on the same graph -- would go on treating it as the piece's:
+     * overwriting it on the next reload, and unloading it when the piece
+     * dropped the instrument. gthPatchManager stamps each load with a
+     * generation that is never reused, and that is what gets compared. */
+    struct Owned
+    {
+        int      channel;
+        unsigned generation;
+    };
+
+    /* What this window filled for the piece currently open, so a piece
+       that loses an instrument gives its channel back. prevOwned_ is the
+       same list for the piece being replaced, live only while a parse is
+       in flight: allocation consults it (those channels are the piece's
+       to have back), the loader refills ownedChannels_, and
        releaseInstruments unloads the difference. */
-    std::vector<int> ownedChannels_;
-    std::vector<int> prevOwned_;
+    std::vector<Owned> ownedChannels_;
+    std::vector<Owned> prevOwned_;
+
+    /* True if `channel' still holds the exact patch prevOwned_ recorded
+       -- the one question both of those lists exist to answer. */
+    bool stillOurs (int channel) const;
 
     /* The instrument table the piece being replaced was loaded with,
        taken before the parse wipes it. Two things read it: an

@@ -490,8 +490,13 @@ thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
         if (a.units != declared)
         {
             if (a.units.empty())
+                /* Not "raw samples": that is what a bare number means on
+                   a `ms' arg and not on a `%' one, where it is a raw
+                   fraction of TH_MAX. The engine's own terms covers
+                   both, and is what the two folds have in common. */
                 why = "'" + a.name + "' is written in " + declared +
-                      "; write the unit, or the number is raw samples";
+                      "; write the unit, or the number is in the "
+                      "engine's own terms";
             else if (declared.empty())
                 why = "'" + a.name + "' has no unit; '" + a.units +
                       "' means nothing to it";
@@ -577,23 +582,36 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
 
     if (!applyValues(inst, why))
     {
-        unapplyInstrument(index);
+        /* The one way the promise above can fail to be kept: a full
+           command ring means the audio thread cannot be told to drop
+           the channel, so the graph stays up and sounding. Saying so is
+           better than a message that leaves somebody hunting for why a
+           refused instrument is audible -- and the host keeps the
+           channel on its own books either way, so the next load tries
+           again. */
+        if (!unapplyInstrument(index))
+            why += " (and its graph could not be taken off channel " +
+                   std::to_string(inst.channel + 1) + ")";
+
         return false;
     }
 
     return true;
 }
 
-void
+bool
 thcScheduler::unapplyInstrument (size_t index)
 {
     if (index >= instruments_.size() || instruments_[index].channel < 0)
-        return;
+        return true;                    /* never got there; nothing to do */
 
     if (unloadDsp_)
-        unloadDsp_(instruments_[index]);
-    else if (synth_ != NULL)
-        synth_->removeChan(instruments_[index].channel);
+        return unloadDsp_(instruments_[index]);
+
+    if (synth_ != NULL)
+        return synth_->removeChan(instruments_[index].channel);
+
+    return true;
 }
 
 void
