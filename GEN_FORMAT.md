@@ -351,6 +351,72 @@ function of where the transport got to, not of how many frames went by — which
 is what lets a piece with nodes in it pass the same replay gate every other
 piece passes.
 
+### 5b. A composer can reshape the instrument
+
+Two event kinds go the other way from a note: instead of asking an instrument
+to play something, they change what the instrument *is*.
+
+```
+instrument voice { dsp "amb01.dsp"; ... };
+instrument bell  { dsp "amb01.dsp"; a = 4 ms; ... };
+
+chain swapping {
+    stage m gen::swap { instruments = "voice,bell"; every = 40 s; };
+    sink { instrument = voice; };        # the slot it rebuilds
+};
+
+chain sensitivity {
+    stage r gen::reshape { node = "fmap"; arg = "inmax";
+                           from = 1; to = 0.25; every = 11 s; };
+    sink { instrument = voice; };
+};
+```
+
+**A swap** rebuilds the sink's channel around a different instrument. It goes
+through the same patch-load path a person clicking in the Patch Selector uses,
+so notes already sounding finish on the instrument they started on and the next
+note gets the new one — the promise loading a patch has always kept, not a new
+one. `instruments` is resolved at the file boundary exactly as a scale and a
+preset are: a bare name for one, a quoted comma-separated list for several, and
+every name checked before the piece loads.
+
+A swap may only land on a channel the piece **declares an instrument for**.
+Rebuilding a graph is not like writing a chanarg, where the worst case is a
+number: it throws away whatever was on the channel, and a rewind could not put
+it back, because a channel no declaration names is a channel nothing restores
+from. A `sink { channel = 5; }` can still carry a swap chain — the swap is
+simply refused, by name, in the log. And a swap to the instrument already there
+does nothing at all rather than rebuilding a graph into a copy of itself: a
+`gen::swap` has a list and a clock and cannot see what its sink is playing, so
+a list beginning with the sink's own instrument would otherwise cut every
+sounding voice on the opening tick.
+
+**A node-arg edit** changes one constant *inside* the graph — a node in the
+`.dsp` and one of its args, which is emphatically not a chanarg. §4a says the
+args a patch declares are the whole of a composer's reach, and that stays true
+of chanargs; this is the different mechanism `COMPOSITION_HANDOFF.md` §9
+promised rather than a widening of that one. The consent moved rather than
+vanished: a piece reaching this deep has said so in a line anyone can read.
+
+Only an arg that is **already a constant** may be set. Anything wired is
+refused — to another node's output, to a `@chanarg`, to a note property —
+because writing a number over a wire would silently unwire the graph, which is
+an add/remove/rewire edit wearing a value edit's clothes. The chanarg case is
+the one that bites hardest and is easiest to miss: `outmin = @fmin` looks like a
+number in the file, and a number written over it would kill that channel's
+`fmin` for the rest of the session with the slider still on screen. A module's
+`ARG_STATE` scratch is refused too, and so is an arg the module never declared.
+
+**Both are events**, and that is the whole rate limit: scheduled, so they
+happen on the transport; sparse, so nothing can thrash a channel; replayed from
+the seed, so a piece sounds the same twice; and drawn on the roll, so you can
+watch one coming. A rewind puts every instrument back as the file declares it,
+because after a swap the channels no longer say what the file says.
+
+A structure edit reaches **every** sink of its chain. The note/chanarg filter is
+a rule about notes and chanargs; an edit is neither, and both kinds of sink name
+the channel it needs — so fan-out means what fan-out means everywhere else.
+
 Two sinks is fan-out: every event leaving the last stage is delivered to
 each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
 notes; a plain sink does the reverse. That rule is in the sink, not the
@@ -470,6 +536,8 @@ stage, a new chain) contains:
 | `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
 | a `dsp` family stage   | a node in the chain's `thcNodeHost`, at control rate |
+| `gen::swap`            | `THC_EV_PATCH`: the sink's channel is rebuilt        |
+| `gen::reshape`         | `THC_EV_NODEARG`: a constant in that channel's graph |
 | param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |

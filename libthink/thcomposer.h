@@ -77,7 +77,48 @@ typedef enum {
      * note ends); it exists because live MIDI has no idea how long a key
      * will stay down, and an arpeggiator has to know what is held NOW.
      * A NOTEOFF uses u.note.note; velocity and duration are ignored. */
-    THC_EV_NOTEOFF
+    THC_EV_NOTEOFF,
+
+    /* ---- structure edits ---------------------------------------------
+     *
+     * UNIFICATION.md phase 4: a composer reshaping the instrument rather
+     * than playing it. The two below are the coarse end and the fine end
+     * of the same idea, and both are *intents* -- a plugin says what it
+     * wants to be true and the host does it. A composer cannot link
+     * libthink and never touches a graph; that is the same bargain a
+     * sink already expresses, and it is what keeps graph pointers out of
+     * plugin code.
+     *
+     * Being events is the whole rate-limit. A structure edit is
+     * scheduled, sparse, replayed with the seed, and drawn on the roll
+     * like everything else, so a composer cannot thrash the graph faster
+     * than the event stream flows.
+     */
+
+    /* This channel becomes that instrument, at that time.
+     *
+     * `u.patch.name' is one of the instruments the piece declares -- see
+     * THC_PARAM_INSTRSET for how a plugin comes to know the names
+     * without ever looking one up. The host rebuilds and swaps through
+     * the ordinary patch-load path, so the voice lifecycle is the one
+     * the editor has always promised: notes already sounding finish on
+     * the tree they started on, and the next note gets the new one. */
+    THC_EV_PATCH,
+
+    /* One constant inside that instrument's graph becomes this.
+     *
+     * `node' and `arg' name a node and an arg *in the .dsp* -- not a
+     * chanarg. That is the entire point, and the line COMPOSITION_HANDOFF
+     * §9 drew: a chanarg is the surface a patch chose to expose, and the
+     * reach of every composer up to now. This is the other mechanism §9
+     * promised rather than a widening of that one, and a piece using it
+     * is reaching past what the instrument declared -- deliberately,
+     * visibly, and on the piece's own say-so.
+     *
+     * The edit lands on the channel's prototype tree, which the audio
+     * thread never reads, so the lifecycle promise above holds here too
+     * without a swap: it is the *next* voice that is built differently. */
+    THC_EV_NODEARG
 } thcEventType;
 
 typedef struct {
@@ -95,6 +136,15 @@ typedef struct {
             const char *name;  /* @chanarg name; copied by the sink       */
             float       value;
         } chanarg;
+        struct {
+            const char *name;  /* an instrument the piece declares;
+                                  copied by the sink                      */
+        } patch;
+        struct {
+            const char *node;  /* a node in the instrument's .dsp; copied */
+            const char *arg;   /* one of that node's args; copied         */
+            float       value;
+        } nodearg;
     } u;
 } thcEvent;
 
@@ -151,7 +201,19 @@ typedef enum {
      * Appended rather than slotted in beside NOTESET on purpose -- an
      * enum whose existing values keep their numbers is an additive
      * change, and the interface version stays 1. */
-    THC_PARAM_PRESET
+    THC_PARAM_PRESET,
+
+    /* The instruments a piece declares, by name. The string a plugin
+     * reads through get_string is the resolved list, "voice,bell,glass",
+     * in the order the file wrote them.
+     *
+     * Same bargain as NOTESET and PRESET, one more time: a .gen names
+     * the instruments, the host checks at the file boundary that each
+     * one exists, and no plugin ever looks an instrument up. What a
+     * composer does with them is pick one and put its name in a
+     * THC_EV_PATCH -- which is as close as it comes to touching an
+     * instrument, and closer than it can come to touching a graph. */
+    THC_PARAM_INSTRSET
 } thcParamType;
 
 typedef struct {

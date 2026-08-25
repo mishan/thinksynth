@@ -223,8 +223,18 @@ protected:
      * generation that is never reused, and that is what gets compared. */
     struct Owned
     {
-        int      channel;
-        unsigned generation;
+        int         channel;
+        unsigned    generation;
+
+        /* Which .dsp actually went onto that channel -- not which one
+           the declaration names. A swap puts a different graph on a
+           channel the piece owns, keeping the generation (it is still
+           our load) and changing nothing about the declaration, so the
+           "unchanged instrument keeps its graph" shortcut below said
+           keep and left the swapped-in graph up while the reload
+           believed the declared one was there. Recording what was
+           loaded is the only thing that can tell those apart. */
+        std::string dsp;
     };
 
     /* What this window filled for the piece currently open, so a piece

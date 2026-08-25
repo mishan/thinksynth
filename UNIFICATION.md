@@ -414,6 +414,103 @@ Deliverable: an LFO breathing a chain's density; an envelope shaping a
 piece's dynamics over minutes — modulation *of the composition*, with
 the same modules that modulate sound.
 
+## Phase 4 — structural mutation: composers reshape instruments — LANDED (first half)
+
+> **DONE, as far as the plan said to take it first.** "4 rides on all of
+> it and should start life as one hardcoded structure edit end-to-end --
+> prove rebuild-and-swap under the scheduler before any composer is
+> allowed to breed a filter." Two edits are landed end to end, and no
+> composer breeds anything yet.
+>
+> `THC_EV_PATCH` -- this channel becomes that instrument -- and
+> `THC_EV_NODEARG` -- this constant inside its graph becomes that.
+> `gen::swap` and `gen::reshape` emit them, `gen/reshape.gen` is the
+> piece, GEN_FORMAT.md §5b is the spec. Notes worth keeping:
+>
+> - **Intents out, services in**, exactly as §9 of the handoff sketched.
+>   A composer emits "this channel becomes `bell'" and the host does it;
+>   no plugin holds a graph, and `bell' reaches the plugin as a resolved
+>   name in a `THC_PARAM_INSTRSET` -- the same bargain a scale and a
+>   preset already make, one noun further along.
+> - **The voice-lifecycle question was answered by not answering it.** A
+>   swap goes through the ordinary patch-load path, so sounding voices
+>   finish on the tree they started on and the next note gets the new one
+>   -- what `loadTree` has always promised. A node-arg edit lands on the
+>   channel's *prototype* tree, which thMidiChan.cpp says in as many
+>   words the audio thread never reads, so the same promise falls out
+>   with no swap and no command at all.
+> - **Being an event is the whole rate limit**, and it cost nothing to
+>   arrange: scheduled, sparse, replayed from the seed, drawn on the
+>   roll. The plan predicted that and it turned out to be simply true.
+> - **A rewind restores the declarations.** After a swap the channels no
+>   longer say what the file says, so `reset()` re-applies every
+>   instrument -- through the same call the loader makes, so there is one
+>   answer to what a declaration means rather than a second one kept in
+>   step by hand. Only when something moved; an ordinary rewind of an
+>   ordinary piece reloads nothing.
+> - **Four refusals worth having**, and the first draft got the most
+>   important one half right. A node arg may be set only if it is
+>   *already a constant* -- a whitelist on `ARG_VALUE`, not a blacklist
+>   naming `ARG_POINTER`, because `thArg` has four types and the one the
+>   blacklist missed was `ARG_CHANNEL`. `thNode::setArg` retypes an arg
+>   to `ARG_VALUE` whatever it was, and
+>   `thMidiChan::assignChanArgPointers` only re-points args still typed
+>   `ARG_CHANNEL`, so `reshape { node = "fmap"; arg = "outmin"; }` against
+>   `amb01.dsp` would have killed that channel's `@fmin` for the rest of
+>   the session -- slider on screen, arg panel live, nothing moving,
+>   nothing said. `NodeEditor::applyValueLive` asks the same question the
+>   same way; it was there to be copied and was not. A module's
+>   `ARG_STATE` scratch is refused too, and an arg the module never
+>   declared would otherwise be invented by `thNode::setArg` and read by
+>   nothing -- the same silence phase 3's mistyped node args produced,
+>   arriving by a different door. The fourth is about swaps: only onto a
+>   channel the piece declares an instrument for. Rebuilding a graph is
+>   not like writing a chanarg, where the worst case is a number; it
+>   throws away whatever was on the channel, and a `sink { channel = 5; }`
+>   is in no declaration for a rewind to restore from.
+> - **Applying an instrument had to become idempotent.** It was written
+>   as a once-per-load call and phase 4 made it three: a swap applies one,
+>   a rewind applies them all again. A knob bound into a chanarg is a
+>   *push*, connected as its value is read, and the connection list only
+>   ever grew -- so a swapped-away instrument went on driving the channel
+>   it used to be on, alongside its replacement, until the piece was
+>   closed. The connections now remember which channel they push into and
+>   are dropped before the channel is wired again, which is the shape this
+>   wanted from the start: applying an instrument says the same thing
+>   however many times it is done.
+> - **A swap has to record what is on the channel**, for two callers that
+>   both got it wrong without it. `gen::swap` has a list of names and a
+>   clock and cannot see what its sink is playing, so a list beginning
+>   with the sink's own instrument rebuilt the graph into a copy of
+>   itself on the opening tick -- every sounding voice cut, for no
+>   change. And the window's "an unchanged instrument keeps its graph"
+>   shortcut compares the generation (still ours after a swap) and the
+>   declaration (unchanged in the file), so a reload after a swap kept
+>   the swapped-in graph while believing the declared one was there,
+>   whereupon applying the declaration's values failed on a chanarg the
+>   wrong `.dsp` does not have and the whole file refused to load.
+> - **The consent argument moved rather than vanished.** §4a's sentence
+>   about chanargs being the whole of a composer's reach is still true
+>   *of chanargs*; `reshape` is the different mechanism §9 promised
+>   instead of a widening of that one. A piece reaching past a patch's
+>   declared surface has said so in a line anyone can read, in a file
+>   they can diff, at a rate its own event stream sets.
+>
+> Not here, and deliberately: add/remove/rewire a node, and the genetic
+> convergence below -- `breed` and `evolve` over graphs, with the render
+> pipeline as the fitness function. Those want a mutation vocabulary
+> (`NodeGraph::canConnect`), a genome that serialises, and a shadow synth
+> to judge it, which is the research branch the handoff files them under.
+> What is proven here is the thing they were waiting on: an edit can be
+> scheduled, delivered, drawn, replayed and refused.
+>
+> Every gate above was checked by breaking the fix and watching the gate
+> fail -- the wired-chanarg refusal, the own-channel rule, the
+> already-there no-op (which asserts the prototype tree is the *same
+> object* afterwards, since "did nothing" is not visible any other way),
+> the stale knob binding, and `reshape`'s ping-pong reflecting one step
+> short of its walls rather than at them.
+
 ## Phase 4 — structural mutation: composers reshape instruments
 
 The endgame, and the reason phases 1–3 are ordered this way: mutation

@@ -393,6 +393,51 @@ public:
     const thcInstrument *instrument (const std::string &name) const;
     thcInstrument       *instrument (size_t index);
 
+    /* Is this event a structure edit rather than something to play?
+       One place, because the sink filter, the roll and the gates all
+       have to agree about which events are which. */
+    static bool isStructureEdit (thcEventType t)
+    {
+        return t == THC_EV_PATCH || t == THC_EV_NODEARG;
+    }
+
+    /* ---- structure edits (UNIFICATION.md phase 4) ----
+     *
+     * The services behind THC_EV_PATCH and THC_EV_NODEARG. Both are
+     * host-side on purpose: a composer emits an intent and this does
+     * it, so no plugin ever holds a graph. */
+
+    /* `channel' becomes `name', which must be an instrument the piece
+       declares. Goes through the same load hook and the same values a
+       piece's own instrument does, so an instrument swapped in is
+       indistinguishable from one declared there -- and so the patch
+       tab, the arg panel and the dirty flag all follow it in the
+       application. False with `why' when it cannot be done. */
+    bool swapInstrument (int channel, const std::string &name,
+                         std::string &why);
+
+    /* Which instrument `channel' is holding: the last one swapped onto
+       it, or the one whose declaration owns it, or empty for a channel
+       this piece has no instrument on. The host asks so that a reload
+       does not mistake a swapped channel for one still holding what its
+       declaration names. */
+    std::string holding (int channel) const;
+
+    /* The instrument declared on `channel', or NULL. */
+    const thcInstrument *channelOf (int channel) const;
+
+    /* One constant inside whatever graph is on `channel'.
+     *
+       Not a chanarg: a node's own arg, which the .dsp never offered.
+       Lands on the channel's prototype tree -- the one thMidiChan builds
+       new voices from and the audio thread never reads -- so notes
+       already sounding finish unchanged and the next note is built
+       differently. That is the editor's promise, kept by the same
+       mechanism rather than restated. */
+    bool setNodeArg (int channel, const std::string &node,
+                     const std::string &arg, float value,
+                     std::string &why);
+
     /* Who turns a named .dsp into a sounding channel.
      *
      * The scheduler knows what the piece declared; how *this program*
@@ -471,6 +516,7 @@ public:
        instrument is remembered (see strandedCount) so the attempt can be
        made again rather than the graph being abandoned. */
     bool unapplyInstrument (size_t index);
+    bool unapply (const thcInstrument &what);
 
     /* How many instruments are waiting to be taken off a channel that
        would not let go.
@@ -586,6 +632,7 @@ private:
        already up. Split out so every refusal has one caller, and that
        caller can take the graph back down. */
     bool applyValues (const thcInstrument &inst, std::string &why);
+    bool writeValues (const thcInstrument &inst, std::string &why);
 
     /* The one way an instrument comes off a channel, so the first
        attempt and every retry cannot drift apart. */
@@ -617,9 +664,59 @@ private:
 
     /* Piece knobs, owned here; and the signal connections that carry a
        knob's movement to the params bound to it (param_changed forward
-       plus the THC_NEVER rearm). Dropped in clearChains. */
+       plus the THC_NEVER rearm). Dropped in clearChains.
+     *
+       Each connection remembers which channel it pushes into, or -1 for
+       the ones that drive a stage param and reach no channel at all.
+       That is there so a channel's bindings can be dropped on their own:
+       applying an instrument is no longer a once-per-load event -- a
+       swap applies one, and a rewind applies them all again -- and a
+       connection list that only ever grew meant a swapped-away
+       instrument went on driving the channel it used to be on, forever,
+       alongside the one that replaced it. */
+    struct KnobConn
+    {
+        int              channel;
+        sigc::connection conn;
+    };
+
     std::map<std::string, thArg *>  knobs_;
-    std::vector<sigc::connection>   knobConns_;
+    std::vector<KnobConn>           knobConns_;
+
+    /* Disconnect and forget every knob binding that pushes into this
+       channel. Called by applyValues before it wires the new set, which
+       is what makes applying an instrument idempotent. */
+    void dropKnobConns (int channel);
+
+    /* Which (channel, node, arg) a structure edit has touched, so a swap
+       on that channel can forget them and a reset knows there is
+       something to put back. The values are not kept: what a reset
+       restores is the *declaration*, and re-applying the instrument is
+       what does that. */
+    struct NodeArgEdit
+    {
+        int         channel;
+        std::string node, arg;
+    };
+
+    std::vector<NodeArgEdit> nodeArgs_;
+
+    /* Which instrument each channel is holding, for the channels a swap
+       has moved. A gen::swap knows only a list of names and a clock --
+       it cannot see what its sink's channel is playing -- so a list
+       starting with the instrument already there would rebuild the graph
+       into a copy of itself on the opening tick, cutting every sounding
+       voice for no change. This is where that is knowable. Cleared by a
+       rewind, which puts every declaration back. */
+    std::map<int, std::string> holding_;
+
+    /* True once any channel has been swapped, so a rewind knows the
+       channels no longer say what the file says. Not a count of which:
+       what a rewind restores is every declaration, and re-applying them
+       all is both simpler and the same answer. */
+    bool swapped_;
+
+    void forgetNodeArgs (int channel);
 
     /* The control-rate synth every node host in this piece borrows: a
        sample rate and a plugin manager, and nothing else. NULL until a
@@ -664,6 +761,10 @@ private:
         double   at;
         thcEvent ev;
         std::shared_ptr<std::string> chanargName;
+
+        /* The same copy-what-you-keep promise for a structure edit's
+           strings: an instrument's name, or a node's and its arg's. */
+        std::shared_ptr<std::string> text, text2;
     };
 
     /* min-heaps on .at, kept as vectors with std::push_heap/pop_heap --

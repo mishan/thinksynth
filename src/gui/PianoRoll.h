@@ -71,6 +71,20 @@ private:
         float  value;
     };
 
+    /* A structure edit: the piece rebuilding its own instrument.
+     *
+     * Drawn because everything schedulable is drawn -- that is the rule
+     * phase 4 inherited rather than invented, and it is what makes an
+     * edit debuggable: you watch one arrive instead of wondering why
+     * the sound changed. Kept as text because that is what it is; a
+     * swap has no value to plot. */
+    struct Edit
+    {
+        double      at;
+        int         channel;
+        std::string label;
+    };
+
     double timeToX (double t, int width) const;
     void   fitPitchRange (void);
     void   prune (void);
@@ -78,6 +92,7 @@ private:
     thcScheduler        *sched_;
     std::deque<Note>     notes_;      /* delivered; pruned off the left  */
     std::deque<ArgTick>  argTicks_;   /* delivered chanarg events        */
+    std::deque<Edit>     edits_;      /* delivered structure edits       */
 
     /* This frame's copy of the scheduled future, taken once per tick
        and read by both the range fit and the draw. */

@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Twelve `.gen` files, each of which is meant to be read as well as heard. Between
+Thirteen `.gen` files, each of which is meant to be read as well as heard. Between
 them they exercise every composer plugin in the tree and every ability the
 `.gen` language has, and each one is built around a single idea rather than
 around being impressive. The comment at the top of each file is the lesson;
@@ -8,8 +8,8 @@ this is the index.
 
 Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
 
-`airports.gen`, `weather.gen` and `breath.gen` need nothing else: they carry
-their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
+`airports.gen`, `weather.gen`, `breath.gen` and `reshape.gen` need nothing
+else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
@@ -74,6 +74,7 @@ typo in it.
 | [`fern.gen`](fern.gen) | **L-systems.** One grammar at three depths, three tempos and three octaves. Brackets push and pop time as well as degree, so a branch runs alongside what follows it and polyphony falls out of the grammar. |
 | [`loom.gen`](loom.gen) | **Markov chains, and cellular automata.** A markov stage listens to an L-system in the same chain and paraphrases it with the teacher struck silent; underneath, rule 110 walks a sixteen-cell ring with the rule on a slider. |
 | [`growth.gen`](growth.gen) | **Genetic algorithms over phrases.** `gen::evolve` plays its current champion each cycle and runs a generation while it sounds, so the piece *is* the search. |
+| [`reshape.gen`](reshape.gen) | **The composer changes the instrument.** Two chains emit no pitches: one rebuilds the channel around a different instrument every forty seconds, the other reaches inside whatever is there and moves a constant the patch never declared. The notes never change — everything you hear moving is the instrument underneath them. |
 | [`breath.gen`](breath.gen) | **DSP modules composing.** An `osc::simple` and an `env::adsr` in the chains, running fifty times a second on the composer's side — the same plugins a patch is built from, wired with the same `->`, modulating the music instead of the audio. One breathes a line's density over twenty seconds; the other shapes another over ten minutes. |
 
 ## Timbre as material
@@ -90,13 +91,13 @@ Plugins: `eno_line` (airports, weather), `euclid` (pulse, loosen, tide),
 `quantize` (airports, hands, loosen), `humanize` (loosen, fern), `walk`
 (airports, weather), `arp` (hands), `lsystem` (fern, growth, loom), `markov`
 (loom), `ca` (loom), `life` (glider), `evolve` (growth), `morph` (tide),
-`breed` (bloom).
+`breed` (bloom), `swap` and `reshape` (reshape).
 
 Language: `tempo` and `beats` (pulse), free-running seconds (airports,
 weather), `scale` (airports, hands, loosen, weather), `preset` (tide, bloom),
 `instrument` blocks and sinks bound by name (airports, weather), knobs bound
 into an instrument (weather), dsp nodes as chain stages and `->` bindings
-(breath),
+(breath), structure edits -- swaps and node constants (reshape),
 `@knob` bindings on floats (airports, weather) and on whole numbers (pulse,
 hands), `input midi` (hands), clicks on a
 plugin's draw (glider), note sinks, named chanarg sinks (airports,

@@ -527,6 +527,27 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
      * not have to be rebuilt for that. */
     bool keep = stillOurs(inst.channel);
 
+    /* Ours, but is it still this *graph*?
+     *
+       A swap replaces the .dsp on a channel the piece owns without
+       touching either the generation (it is still our load) or the
+       declaration (unchanged in the file), so both of the tests here
+       said keep and a reload left the swapped-in graph up while
+       believing the declared one was there -- whereupon applying the
+       declaration's values fails on a chanarg the wrong .dsp does not
+       have and the whole file refuses to load. Recording what actually
+       went onto the channel is the only thing that can tell those two
+       apart. */
+    if (keep)
+    {
+        keep = false;
+
+        for (size_t i = 0; i < prevOwned_.size(); i++)
+            if (prevOwned_[i].channel == inst.channel &&
+                prevOwned_[i].dsp == inst.dsp)
+                keep = true;
+    }
+
     if (keep)
     {
         /* Ours, and still the same instrument the file declares. Any
@@ -552,6 +573,18 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
 
     o.channel = inst.channel;
     o.generation = have != NULL ? have->generation : 0;
+    o.dsp = inst.dsp;
+
+    /* One entry per channel. This is no longer called once per load: a
+       swap calls it, and so does every rewind of a piece a swap has
+       touched, and a list that only grew would carry a stale generation
+       for the same channel into releaseInstruments. */
+    for (size_t i = 0; i < ownedChannels_.size(); i++)
+        if (ownedChannels_[i].channel == inst.channel)
+        {
+            ownedChannels_[i] = o;
+            return true;
+        }
 
     ownedChannels_.push_back(o);
 
@@ -1844,8 +1877,25 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
                    Falling through to the numeric case would write `from =
                    0;', which the loader rejects by name and line: a
                    generated stage that will not load is worse than an
-                   absent line the loader is happy to default. */
-                continue;
+                   absent line the loader is happy to default.
+                 *
+                   Left out with an *empty value*, not skipped. The
+                   returned vector is indexed by param index by the arg
+                   panel, which reads defs[paramIndex] to show what a
+                   line the file omits will actually do; skipping shifted
+                   every param after this one up by a slot -- so a preset
+                   param showed its neighbour's default -- and read one
+                   past the end when the omitted param was the last.
+                   thcGenEdit's writers drop the empties. */
+                break;
+
+            case THC_PARAM_INSTRSET:
+                /* And out for the same reason, one noun along: the only
+                   legal value is the name of an instrument this piece
+                   declares, which a freshly added stage cannot know.
+                   The warning that sent me here is the tripwire the
+                   paragraph above installed, doing its job. */
+                break;
 
             case THC_PARAM_FLOAT:
             case THC_PARAM_INT:

@@ -1,0 +1,146 @@
+# reshape.gen -- the composer changes the instrument, not the notes.
+#
+# Everything up to here composes what is played. This piece composes
+# what it is played ON. Two chains emit no pitches at all: one rebuilds
+# a channel around a different instrument every forty seconds, and the
+# other reaches inside whatever is there and moves a number the patch
+# never offered.
+#
+# UNIFICATION.md phase 4. The mechanism is the one the plan named before
+# any of it was written: a composer emits an *intent* and the host
+# carries it out. A plugin cannot link libthink and never touches a
+# graph -- `gen::swap' knows nothing about `bell' except that the piece
+# declared something by that name, handed to it already resolved the way
+# a scale arrives as numbers. What it emits is "this channel becomes
+# that instrument, at that time", and the host does it through the same
+# patch-load path a person clicking in the Patch Selector uses.
+#
+# WHY IT IS AN EVENT AND NOT A FUNCTION CALL. Because everything else is.
+# A structure edit is scheduled, so it happens on the transport rather
+# than whenever a plugin felt like it; sparse, so nothing can thrash a
+# channel; replayed from the seed, so this file sounds the same twice;
+# and drawn on the roll, so you can watch one coming. That list is the
+# rate limit, the determinism story and the debugging story all at once,
+# and none of it needed inventing -- it is what being an event already
+# meant.
+#
+# WHAT A SWAP DOES TO A SOUNDING NOTE: nothing. The replacement is built
+# off the audio thread and published at a window boundary, so notes
+# already sounding finish on the instrument they started on and the next
+# note gets the new one. That is not a new promise; it is what loading a
+# patch has always done, which is exactly why the plan said to use it
+# rather than decide it again.
+#
+# `reshape' IS THE LINE BEING CROSSED, and it is worth reading slowly.
+# Every composer before this one was held to a patch's declared chanargs
+# -- COMPOSITION_HANDOFF.md section 9 argued at length that the limit
+# was encapsulation rather than a missing feature. `reshape' names a
+# node in the .dsp and one of *its* args: `fmap.inmax' is not a chanarg,
+# was never offered, and until phase 4 nothing in the composer world
+# could have said its name. Section 9 also said the way past would be a
+# different mechanism rather than a widening of the old one, and this is
+# it. The consent moved rather than vanished: a piece reaching this deep
+# has said so in a line anyone can read, in a file they can diff.
+#
+# Channels: the loader hands one to each declared instrument, so `voice'
+# is on the first free one and `bell' and `glass' sit on their own until
+# a swap moves one of them over. The sink names `voice', which means
+# "the channel voice lives on" -- the slot, not the graph in it.
+
+name "Reshape";
+author "Misha Nasledov";
+description "A piece that rebuilds its own instrument while it plays.";
+
+seed 8021;
+
+scale emin "E2 G2 B2 E3 F#3 G3 B3 D4 E4";
+
+# Three instruments, three characters, one slot. `voice' is where the
+# notes go; the other two are what the slot can become.
+instrument voice {
+    dsp  "amb01.dsp";
+    a    = 500 ms;
+    d    = 1200 ms;
+    s    = 0.75;
+    r    = 2600 ms;
+    res  = 0.6;
+    fmin = 0.08;
+    fmax = 0.55;
+};
+
+instrument bell {
+    dsp  "amb01.dsp";
+    a    = 4 ms;
+    d    = 2600 ms;
+    s    = 0.05;
+    r    = 2600 ms;
+    res  = 0.9;
+    fmin = 0.2;
+    fmax = 0.95;
+};
+
+instrument glass {
+    dsp  "ts1.dsp";
+    a    = 40 ms;
+    d    = 900 ms;
+    s    = 0.4;
+    r    = 1800 ms;
+    cutoff = 9;
+    res    = 0.5;
+};
+
+# The notes. They know nothing about any of this and never change --
+# every difference you hear over the piece is the instrument underneath
+# them being rebuilt.
+chain line {
+    stage src gen::eno_line {
+        notes = emin;  period = 3.9 s;  jitter = 1.1 s;
+        prob = 0.8;  hold = 6 s;  vel = 66;  vel_jitter = 8;
+    };
+    sink { instrument = voice; };
+};
+
+chain under {
+    stage src gen::eno_line {
+        notes = "E2 B2";  period = 9.7 s;  jitter = 2.5 s;
+        prob = 0.6;  hold = 11 s;  vel = 52;  vel_jitter = 6;
+    };
+    sink { instrument = voice; };
+};
+
+# The coarse edit. Round-robin so the piece has a shape you can learn
+# rather than one you have to wait out; `order = 1' picks from the seed
+# instead, and still never picks what is already sounding.
+chain swapping {
+    stage m gen::swap {
+        instruments = "voice,bell,glass";
+        every = 40 s;
+        order = 0;
+    };
+    sink { instrument = voice; };
+};
+
+# The fine edit, and the one that reaches past what any patch declared.
+#
+# `fmap' is the node inside amb01.dsp that maps a note's velocity onto
+# the filter's range, and `inmax' is the top of the velocity it expects.
+# Lower it and a soft note opens the filter as far as a hard one did --
+# the instrument stops caring how hard it is played. amb01 exposes res,
+# fmin, fmax, the envelope and the three detunes as chanargs; it does
+# not expose this, and it never meant to. The sweep moves the whole
+# piece between velocity-sensitive and flat over about a minute and a
+# half, and back.
+#
+# It is aimed at the *slot*, so when the swap puts ts1.dsp there the node
+# is gone and the host says so once per step rather than pretending it
+# worked. That is the honest behaviour and it is worth seeing: a
+# structure edit names something in a graph, and graphs change underneath
+# it. Nothing else in the piece stops.
+chain sensitivity {
+    stage r gen::reshape {
+        node = "fmap";  arg = "inmax";
+        from = 1;  to = 0.25;
+        every = 11 s;  steps = 9;
+    };
+    sink { instrument = voice; };
+};

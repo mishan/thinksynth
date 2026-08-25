@@ -1770,6 +1770,13 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
                 return false;
             }
 
+            if (pi->type == THC_PARAM_INSTRSET)
+            {
+                error(num.line, "'" + pname.text +
+                      "' wants instrument names, not a number");
+                return false;
+            }
+
             stage->params.set(idx, num.num);
         }
 
@@ -1789,7 +1796,7 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
         }
 
         if (pi->type == THC_PARAM_NOTESET || pi->type == THC_PARAM_STRING ||
-            pi->type == THC_PARAM_PRESET)
+            pi->type == THC_PARAM_PRESET || pi->type == THC_PARAM_INSTRSET)
         {
             error(knobTok.line, "'" + pname.text +
                   "' is not numeric; a knob cannot drive it");
@@ -1847,6 +1854,70 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
                   "' wants a preset name; declare it with `preset'");
             return false;
         }
+        else if (pi->type == THC_PARAM_INSTRSET)
+        {
+            /* `instruments = "voice,bell,glass";' -- the list form. A
+               bare word above names one; this names several, and it is
+               quoted for the flat reason that `,' is not punctuation
+               this language has. Every name is checked here, so a
+               composer receives a list it can trust and a typo is an
+               error against the line that made it rather than a swap
+               that silently does nothing a minute in. */
+            std::string list;
+            std::string one;
+
+            for (size_t i = 0; i <= str.text.size(); i++)
+            {
+                const char ch = i < str.text.size() ? str.text[i] : ',';
+
+                /* Newlines and returns separate too. A quoted string can
+                   hold one, and a name with a \r stuck to it is a name
+                   nothing declares -- an error about a typo the author
+                   cannot see. */
+                if (ch != ',' && ch != ' ' && ch != '\t' &&
+                    ch != '\n' && ch != '\r')
+                {
+                    one += ch;
+                    continue;
+                }
+
+                if (one.empty())
+                    continue;
+
+                if (instruments_.find(one) == instruments_.end())
+                {
+                    error(str.line, "no instrument called '" + one +
+                          "' has been declared");
+                    return false;
+                }
+
+                /* Twice in the list is a typo. It is not harmful --
+                   the swap service answers a swap to what is already
+                   there by doing nothing -- but a round-robin that
+                   dwells two turns on one instrument is not what
+                   anybody wrote down. */
+                if (("," + list + ",").find("," + one + ",") !=
+                    std::string::npos)
+                {
+                    error(str.line, "'" + one + "' is named twice");
+                    return false;
+                }
+
+                if (!list.empty())
+                    list += ",";
+
+                list += one;
+                one.clear();
+            }
+
+            if (list.empty())
+            {
+                error(str.line, "'" + pname.text + "' names no instruments");
+                return false;
+            }
+
+            stage->params.setString(idx, list);
+        }
         else
         {
             error(str.line, "'" + pname.text +
@@ -1886,7 +1957,8 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
 
             if (pi->type == THC_PARAM_NOTESET ||
                 pi->type == THC_PARAM_STRING ||
-                pi->type == THC_PARAM_PRESET)
+                pi->type == THC_PARAM_PRESET ||
+                pi->type == THC_PARAM_INSTRSET)
             {
                 error(ref.line, "'" + pname.text +
                       "' is not numeric; a node cannot drive it");
@@ -1922,6 +1994,24 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
             }
 
             stage->params.setString(idx, presetToString(p->second));
+
+            return expectPunct(';');
+        }
+
+        /* `instruments = voice;' -- one of the piece's own, named the
+           way a scale or a preset is. The quoted form below is how more
+           than one is written; this is the same identifier-or-literal
+           bargain a note set already offers, for the same reason. */
+        if (pi->type == THC_PARAM_INSTRSET)
+        {
+            if (instruments_.find(ref.text) == instruments_.end())
+            {
+                error(ref.line, "no instrument called '" + ref.text +
+                      "' has been declared");
+                return false;
+            }
+
+            stage->params.setString(idx, ref.text);
 
             return expectPunct(';');
         }

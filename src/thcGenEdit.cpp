@@ -1756,9 +1756,16 @@ stageText (const std::string &stageName, const std::string &category,
     s << "    stage " << stageName << " " << category << "::" << plugin
       << " {\n";
 
+    /* An empty value means "this param has no default that can be
+       written down" -- a preset or instrument name, where the only legal
+       value is something the piece declares and a fresh stage cannot
+       know one. The caller keeps them in its vector so the arg panel can
+       index it by param number; a written stage leaves the line out and
+       lets the loader default it. */
     for (size_t i = 0; i < params.size(); i++)
-        s << "        " << params[i].first << " = " << params[i].second
-          << ";\n";
+        if (!params[i].second.empty())
+            s << "        " << params[i].first << " = " << params[i].second
+              << ";\n";
 
     s << "    };\n";
 
@@ -1890,8 +1897,10 @@ validParams (const std::vector<std::pair<std::string, std::string> > &params,
              std::string &why)
 {
     for (size_t i = 0; i < params.size(); i++)
-        if (!validWord(params[i].first) ||
-            !validValueText(params[i].second))
+        if (params[i].second.empty())
+            continue;
+        else if (!validWord(params[i].first) ||
+                 !validValueText(params[i].second))
         {
             why = "'" + params[i].first + " = " + params[i].second +
                   "' is not something the file format can say";

@@ -55,6 +55,7 @@
 #include "think.h"
 
 #include "libthink/thDynLib.h"
+#include "libthink/thMidiChan.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
@@ -372,11 +373,34 @@ render (thcScheduler &sched, double seconds, double step)
                 snprintf(buf, sizeof(buf), "N %.17g %d %d %d %.17g\n",
                          ev.at, ev.channel, ev.u.note.note,
                          ev.u.note.velocity, ev.u.note.duration);
-            else
+            /* Structure edits are on the tape for the same reason notes
+               are: they are what the piece did. A replay gate that
+               diffed only the notes would call a piece identical while
+               it rebuilt its instrument at different times. */
+            else if (ev.type == THC_EV_PATCH)
+                snprintf(buf, sizeof(buf), "P %.17g %d %s\n",
+                         ev.at, ev.channel,
+                         ev.u.patch.name ? ev.u.patch.name : "");
+            else if (ev.type == THC_EV_NODEARG)
+                snprintf(buf, sizeof(buf), "E %.17g %d %s %s %.17g\n",
+                         ev.at, ev.channel,
+                         ev.u.nodearg.node ? ev.u.nodearg.node : "",
+                         ev.u.nodearg.arg ? ev.u.nodearg.arg : "",
+                         (double)ev.u.nodearg.value);
+            else if (ev.type == THC_EV_CHANARG)
                 snprintf(buf, sizeof(buf), "C %.17g %d %s %.17g\n",
                          ev.at, ev.channel,
                          ev.u.chanarg.name ? ev.u.chanarg.name : "",
                          (double)ev.u.chanarg.value);
+            /* Named, not fallen through to. The chanarg case used to be
+               the `else', which read u.chanarg.name out of whatever
+               arrived -- a THC_EV_NOTEOFF landing there hands printf two
+               ints as a char *. Unreachable in a headless run with no
+               MIDI in it, and one live-input piece away from not
+               being. */
+            else
+                snprintf(buf, sizeof(buf), "? %.17g %d %d\n",
+                         ev.at, ev.channel, (int)ev.type);
 
             tape += buf;
         });
@@ -3457,6 +3481,391 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
     clearChannels(synth);
 }
 
+/* ---- 6f. structure edits: composers reshaping instruments -------------- */
+
+/* UNIFICATION.md phase 4. What has to be true:
+ *
+ * 1. A swap actually swaps -- the channel is playing a different graph
+ *    afterwards, not merely told to.
+ * 2. A node-arg edit reaches a constant the patch never declared, which
+ *    is the whole of what makes it a different mechanism from a chanarg
+ *    rather than a wider one.
+ * 3. Both replay. They are events, so they should; a piece full of them
+ *    rendered twice with a reset between must be byte-identical.
+ * 4. A rewind puts the instruments back as the file declared them,
+ *    because after a swap the channels no longer say what the file says.
+ * 5. The refusals -- an instrument nobody declared, an arg no node has,
+ *    a node arg that is wired rather than constant.
+ */
+static void
+checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
+                     thSynth *synth, const std::string &genFile)
+{
+    const std::string piece =
+        (std::filesystem::path(genFile).parent_path() / "reshape.gen").string();
+
+    if (!std::filesystem::exists(piece))
+    {
+        fail("reshape.gen is not beside " + genFile);
+        return;
+    }
+
+    clearChannels(synth);
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("reshape.gen does not load");
+            return;
+        }
+
+        /* voice is amb01 and glass is ts1, and only one of them declares
+           `cutoff'. So which graph is on the channel is a question with
+           an answer, rather than a thing to take on trust. */
+        const thcInstrument *voice = sched.instrument("voice");
+        const thcInstrument *glass = sched.instrument("glass");
+
+        if (voice == NULL || glass == NULL)
+            fail("reshape.gen no longer declares voice and glass");
+        else
+        {
+            const int ch = voice->channel;
+
+            drainSynth();
+
+            if (synth->getChanArg(ch, "fmin") == NULL)
+                fail("the piece did not open on the instrument it declares");
+
+            std::string why;
+
+            if (!sched.swapInstrument(ch, "glass", why))
+                fail("a swap to glass was refused: " + why);
+
+            drainSynth();
+
+            /* ts1 has a cutoff and amb01 does not: the graph changed. */
+            if (synth->getChanArg(ch, "cutoff") == NULL)
+                fail("after the swap the channel is not playing glass");
+
+            if (synth->getChanArg(ch, "fmin") != NULL)
+                fail("after the swap the old graph is still there");
+
+            /* And the values came with it, not just the graph. */
+            thArg *res = synth->getChanArg(ch, "res");
+
+            if (res == NULL || fabs((*res)[0] - 0.5) > 1e-4)
+                fail("the swapped-in instrument did not bring its values");
+
+            /* Back, and then the fine edit -- which needs amb01, since
+               `fmap' is one of its nodes. */
+            if (!sched.swapInstrument(ch, "voice", why))
+                fail("a swap back to voice was refused: " + why);
+
+            drainSynth();
+
+            if (!sched.setNodeArg(ch, "fmap", "inmax", 0.25f, why))
+                fail("a node arg the patch never declared was refused: " +
+                     why);
+            else
+            {
+                /* Read back off the prototype tree, which is where a
+                   new voice would read it. */
+                thMidiChan *c = synth->getChannel(ch);
+                thSynthTree *tree = c != NULL ? c->modnode() : NULL;
+                thNode *n = tree != NULL ? tree->findNode("fmap") : NULL;
+                thArg *a = n != NULL ? n->getArg("inmax") : NULL;
+
+                if (a == NULL || fabs((*a)[0] - 0.25) > 1e-5)
+                    fail("the node arg did not take");
+
+                /* And it really is not a chanarg -- if it were, this
+                   whole mechanism would be a chanarg with extra steps. */
+                if (synth->getChanArg(ch, "inmax") != NULL)
+                    fail("'inmax' is a chanarg after all, which would make "
+                         "this the wrong test entirely");
+            }
+
+            /* A rewind puts the file back. */
+            sched.reset();
+            drainSynth();
+
+            thNode *n2 = NULL;
+            thMidiChan *c2 = synth->getChannel(ch);
+            thSynthTree *t2 = c2 != NULL ? c2->modnode() : NULL;
+
+            if (t2 != NULL)
+                n2 = t2->findNode("fmap");
+
+            thArg *a2 = n2 != NULL ? n2->getArg("inmax") : NULL;
+
+            if (a2 != NULL && fabs((*a2)[0] - 0.25) < 1e-5)
+                fail("a rewind left a structure edit in place");
+        }
+    }
+
+    drainSynth();
+
+    /* Replay, the gate every piece passes and the one a structure edit
+       had to earn before it was allowed to exist. */
+    {
+        clearChannels(synth);
+
+        thcScheduler a(synth);
+        thcGenLoader la(plugins);
+
+        if (!la.load(piece, &a))
+            fail("reshape.gen did not load for the replay check");
+        else
+        {
+            const std::string first = render(a, 130.0, 0.02);
+
+            a.reset();
+
+            const std::string second = render(a, 130.0, 0.02);
+
+            if (first.empty())
+                fail("reshape.gen delivered nothing at all");
+            else if (first.find("P ") == std::string::npos)
+                fail("no structure edits in reshape.gen's stream");
+            else if (first != second)
+                fail("a piece with structure edits in it did not replay");
+
+            /* And the sweep moves on every step it takes.
+             *
+               A ping-pong that reflects *at* its walls rather than one
+               short of them emits its top value twice running, and its
+               bottom twice running -- a cycle two ticks long than the
+               file asks for that stalls at each extreme. Nothing about
+               the replay gate can see that: both renders stall
+               identically. Consecutive equal values on one arg is the
+               shape of the bug, said directly. */
+            std::map<std::string, std::string> last;
+            std::istringstream lines(first);
+            std::string line;
+
+            while (std::getline(lines, line))
+            {
+                if (line.compare(0, 2, "E ") != 0)
+                    continue;
+
+                /* "E <at> <ch> <node> <arg> <value>": node and arg
+                   together are which constant this is, and the value is
+                   what has to have moved since last time. */
+                std::istringstream f(line);
+                std::string tag, at, ch, node, arg, val;
+
+                if (!(f >> tag >> at >> ch >> node >> arg >> val))
+                    continue;
+
+                const std::string key = ch + " " + node + "." + arg;
+
+                if (last.count(key) && last[key] == val)
+                {
+                    fail("a node-arg sweep emitted '" + val +
+                         "' twice running for " + key);
+                    break;
+                }
+
+                last[key] = val;
+            }
+
+            if (last.empty())
+                fail("no node-arg edits in reshape.gen's stream");
+        }
+    }
+
+    drainSynth();
+    clearChannels(synth);
+
+    /* ---- the refusals ---- */
+
+    expectReject(plugins, synth, "swap-unknown-instrument",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage m gen::swap { instruments = ghost; };"
+        " sink { instrument = pad; }; };",
+        "no instrument called 'ghost'");
+
+    expectReject(plugins, synth, "swap-unknown-in-list",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage m gen::swap { instruments = \"pad,ghost\"; };"
+        " sink { instrument = pad; }; };",
+        "no instrument called 'ghost'");
+
+    /* The services say no by name, which is what a piece hitting one
+       mid-play has to read in the log. */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        /* Said rather than skipped. A block of refusals inside an
+           `if (loaded)' with no else is a block that reports success the
+           day the piece stops loading, which is the day you want to hear
+           about it most. */
+        if (!loader.load(piece, &sched))
+            fail("the structure-edit piece did not load");
+        else
+        {
+            const thcInstrument *voice = sched.instrument("voice");
+            const int ch = voice != NULL ? voice->channel : 0;
+            std::string why;
+
+            drainSynth();
+
+            if (sched.swapInstrument(ch, "nosuchinstrument", why))
+                fail("a swap to an undeclared instrument succeeded");
+
+            /* A channel the piece declares no instrument for. A swap
+               rebuilds a whole graph, so reaching one is reaching into
+               somebody's loaded patch and throwing it away -- and a
+               rewind would not put it back, because it is in no
+               declaration to be restored from. */
+            if (sched.swapInstrument(15, "bell", why))
+                fail("a swap onto a channel the piece does not own "
+                     "succeeded");
+
+            if (sched.setNodeArg(ch, "nosuchnode", "x", 1, why))
+                fail("a node arg on a node that is not there succeeded");
+
+            if (sched.setNodeArg(ch, "fmap", "nosucharg", 1, why))
+                fail("a node arg the module never declared succeeded");
+
+            /* `fmap.in' is wired to ionode->velocity. Writing a number
+               over it would silently unwire the graph, which is an
+               add/remove/rewire edit wearing a value edit's clothes. */
+            if (sched.setNodeArg(ch, "fmap", "in", 1, why))
+                fail("a wired node arg was overwritten with a constant");
+
+            /* And the other kind of wire, which is the one the first
+               draft let through: `fmap.outmin' is `@fmin'. thNode::setArg
+               retypes an arg to ARG_VALUE whatever it was, and
+               assignChanArgPointers only re-points args still typed
+               ARG_CHANNEL -- so a number written here kills that
+               channel's fmin for the rest of the session, silently. */
+            if (sched.setNodeArg(ch, "fmap", "outmin", 0.5, why))
+                fail("a node arg wired to a chanarg was overwritten with "
+                     "a constant");
+
+            /* And a swap to what is already there does nothing rather
+               than rebuilding the graph into a copy of itself, because a
+               gen::swap cannot see what its sink's channel holds: point
+               one at a list whose first name is what the sink already
+               plays and the opening tick would cut every sounding voice
+               for no change. "Did nothing" is the prototype tree still
+               being the same object -- a rebuild goes through loadTree,
+               which makes a new one. */
+            thMidiChan *mc = synth->getChannel(ch);
+            const void *before = mc != NULL ? (void *)mc->modnode() : NULL;
+
+            if (!sched.swapInstrument(ch, sched.holding(ch), why))
+                fail("a swap to the instrument already there was refused");
+
+            mc = synth->getChannel(ch);
+
+            if (before == NULL ||
+                before != (const void *)(mc != NULL ? mc->modnode() : NULL))
+                fail("a swap to the instrument already there rebuilt the "
+                     "graph anyway");
+
+            /* A swapped-away instrument stops driving the channel it
+               was on.
+             *
+               A knob bound into an instrument's chanarg is a *push*: the
+               knob moves, the chanarg is written. The connections used
+               to be appended and never removed, so swapping `quiet' onto
+               `loud's channel left loud's binding pushing into it
+               alongside quiet's own values -- one knob nudge and the
+               instrument the file says is playing is not the one you
+               hear. Both instruments are the same .dsp on purpose, so
+               the stale binding finds a real arg to write through
+               instead of failing to find one and looking fixed. */
+            {
+                const std::string body =
+                    "@k = 0.4;\n@k.min = 0;\n@k.max = 1;\n"
+                    "instrument loud {\n"
+                    "    dsp \"amb01.dsp\";\n"
+                    "    fmin = @k;\n"
+                    "};\n"
+                    "instrument quiet {\n"
+                    "    dsp \"amb01.dsp\";\n"
+                    "    fmin = 0.2;\n"
+                    "};\n"
+                    "chain c { stage s gen::eno_line { };"
+                    " sink { instrument = loud; }; };\n";
+
+                const std::string path = thUtil::tempFile("gencheck-swapkn-");
+
+                if (path.empty())
+                    fail("could not write the swapped-knob piece");
+                else
+                {
+                    FILE *f = fopen(path.c_str(), "w");
+
+                    if (f == NULL)
+                        fail("could not write the swapped-knob piece");
+                    else
+                    {
+                        fputs(body.c_str(), f);
+                        fclose(f);
+                    }
+
+                    clearChannels(synth);
+
+                    thcScheduler s2(synth);
+                    thcGenLoader l2(plugins);
+
+                    if (!l2.load(path, &s2))
+                        fail("the swapped-knob piece did not load");
+                    else
+                    {
+                        const thcInstrument *loud = s2.instrument("loud");
+                        const int lch = loud != NULL ? loud->channel : 0;
+                        std::string w2;
+
+                        drainSynth();
+
+                        if (!s2.swapInstrument(lch, "quiet", w2))
+                            fail("swapping quiet in failed: " + w2);
+                        else
+                        {
+                            drainSynth();
+
+                            thArg *k = s2.knob("k");
+                            thArg *fmin = synth->getChanArg(lch, "fmin");
+
+                            if (k == NULL || fmin == NULL)
+                                fail("the swapped-in instrument did not "
+                                     "arrive whole");
+                            else
+                            {
+                                k->setValue(0.9f);
+
+                                if (fabs((*fmin)[0] - 0.2) > 1e-5)
+                                    fail("a swapped-away instrument's knob "
+                                         "binding still drives the channel");
+                            }
+                        }
+                    }
+
+                    remove(path.c_str());
+                }
+
+                clearChannels(synth);
+            }
+
+        }
+    }
+
+    clearChannels(synth);
+}
+
 /* ---- 7. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
@@ -3612,6 +4021,7 @@ main (int argc, char *argv[])
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
+    checkStructureEdits(plugins, &synth, genFile);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

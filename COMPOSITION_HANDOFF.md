@@ -759,7 +759,27 @@ and the shared lexer stop being hygiene and become the runway.
    chanarg vectors. Tier 2 above is closed; what is left of it is the
    audio-feature fitness at step 5.
 4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
-   program-change lane on the roll.
+   program-change lane on the roll. — DONE, and with a second event the
+   sketch had not asked for. `THC_EV_PATCH` says "channel n becomes
+   instrument p" and is executed by a scheduler service through the same
+   load path the Patch Selector uses, so the voice lifecycle is the one
+   `loadTree` has always promised rather than a new one, and a rewind
+   restores every declaration. `THC_EV_NODEARG` is the other half: one
+   constant *inside* the graph, which is the different mechanism this
+   section promised for reaching past the chanarg surface rather than a
+   widening of that surface. The rate limit is that both are events —
+   scheduled, sparse, replayed from the seed, and drawn on the roll's
+   edit lane, which is the program-change lane with a wider remit.
+
+   Three refusals mark where the reach stops: a swap only onto a channel
+   the piece declares an instrument for (rebuilding a graph throws away
+   what was there, and a channel no declaration names is one nothing can
+   restore), a node arg only if it is already a constant (anything wired
+   — to a node, a chanarg, a note property — is an add/remove/rewire edit
+   wearing a value edit's clothes), and never a module's `ARG_STATE`
+   scratch. `gen::swap` and `gen::reshape` are the two plugins;
+   `gen/reshape.gen` is the piece. UNIFICATION.md phase 4 has the
+   deltas; GEN_FORMAT.md §5b is the spec.
 5. Shadow-synth fitness service + `composer_input` (§7's pending item).
    The chanarg-genome GA itself is done (`gen::breed`, tier 2); what
    this step adds is judging the *sound* rather than the vector, which
