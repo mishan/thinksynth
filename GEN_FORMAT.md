@@ -282,6 +282,18 @@ sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
 
+A module may export both, and several do. `gen::markov` trains on what it
+hears and emits its own walk; `gen::life` plays Conway's board and lets an
+upstream stage *draw* on it, turning arriving pitches into cells. A stage
+like that is a generator in first position and a transformer anywhere else,
+which is what makes a chain a pipeline rather than a list — `colony.gen`
+runs a Euclidean rhythm into a Life board into a markov into a harmonizer,
+and each stage hears only the one before it. What a stage does with what it
+hears is its own business, and it does not have to be "pass a modified
+copy along": a stage whose `pass` is 0 consumes its input entirely, so
+everything downstream is a consequence of the input rather than a version
+of it.
+
 A sink names **an instrument or a channel, never both**; a sink that names
 both is refused rather than have the loader pick one. `instrument = pad` is
 the primary spelling and the one a self-contained piece uses. `channel = N`

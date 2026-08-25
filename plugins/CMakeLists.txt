@@ -77,6 +77,7 @@ think_add_composer(breed)
 think_add_composer(life)
 think_add_composer(swap)
 think_add_composer(reshape)
+think_add_composer(harmonize)
 
 # The exception that proves the no-cairo rule: a module with a
 # composer_draw (euclid's onset ring, lsystem's contour, evolve's

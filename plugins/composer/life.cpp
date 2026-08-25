@@ -38,14 +38,35 @@
  * which is the question §7 filed under composer_serialize and this
  * plugin gets to duck, because a Life board already has a spelling.
  *
+ * And it *listens*. A note arriving from upstream lights the cell it
+ * names, which is the same edit a click makes, arriving from the piece
+ * instead of the hand. The mapping is the tick's own, run backwards: the
+ * tick turns a row into a pitch and a column into a time, so receive
+ * turns a pitch back into a row and a time back into a column. Play a
+ * phrase into it and the phrase draws itself on the board -- its shape
+ * in pitch, its rhythm in the columns -- and then Conway takes whatever
+ * you left, exactly as he takes whatever you clicked. A line feeding
+ * this is a line proposing a seed and getting an argument back.
+ *
+ * `listen' says what an arriving note does and `pass' whether the note
+ * is also heard downstream, the same pair of words `markov' uses for the
+ * same pair of questions. `listen = 0' is the pure generator this
+ * started as, which is what `glider.gen' still wants. `pass' covers
+ * notes and only notes: everything else a chain carries -- offs,
+ * chanargs, structure edits -- goes through whatever it is set to,
+ * because a stage that ate those would be a hole in the pipeline rather
+ * than a stage in it.
+ *
  * DETERMINISM. There is no randomness here at all unless `scatter' asks
  * for one, and that draws from the instance seed like everything else.
  * A board nobody clicked replays exactly; a board somebody clicked
- * replays given the same clicks. That is the boundary live MIDI already
- * has and it is the honest meaning of replaying a piece a person is
- * part of.
+ * replays given the same clicks. A board an upstream stage drew on
+ * replays outright, because that stage is as deterministic as this one
+ * -- listening costs nothing here, which is not true of live MIDI and is
+ * the whole difference between the two.
  */
 
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -58,7 +79,7 @@
 #include "thcomposer.h"
 
 enum { P_BOARD, P_WIDTH, P_HEIGHT, P_SCATTER, P_TRIGGER, P_WRAP,
-       P_NOTES, P_PERIOD, P_HOLD, P_VEL, P_COUNT };
+       P_NOTES, P_PERIOD, P_HOLD, P_VEL, P_LISTEN, P_PASS, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -93,14 +114,26 @@ composer_init (thcComposerInfo *info)
         { "hold",    "time before each note-off", THC_PARAM_FLOAT,
           0.01, 60, 0.45, NULL, "s" },
         { "vel",     "velocity", THC_PARAM_INT, 1, 127, 80, NULL, NULL },
+
+        /* Lighting rather than toggling is the default because an
+           upstream line repeats itself, and a repeated note that toggled
+           would spend half its visits switching a cell back off -- a
+           phrase that draws nothing on average. Toggle is there for the
+           case somebody wants a line to erase as well as write, which is
+           a different and rarer instrument. */
+        { "listen",  "what an arriving note does to the board: 0 nothing, "
+          "1 light that cell, 2 toggle it", THC_PARAM_INT, 0, 2, 1,
+          NULL, NULL },
+        { "pass",    "1: the note that lit a cell is also heard",
+          THC_PARAM_INT, 0, 1, 1, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
-    info->set_flags(info->host, THC_GENERATOR);
+    info->set_flags(info->host, THC_GENERATOR | THC_TRANSFORMER);
     info->set_desc(info->host,
-        "Conway's Game of Life; click the board to change what it plays.");
+        "Conway's Game of Life; click the board, or play notes into it.");
 
     return 0;
 }
@@ -134,6 +167,13 @@ struct State {
        and so a drag paints one value rather than flickering. */
     int  paintX, paintY;
     char paintTo;
+
+    /* When the generation now on the board began, so an arriving note's
+       time can be turned back into the column the tick would have played
+       it from. Set by tick, read by receive; zero before the first tick,
+       which is the right answer for a note that beats the board to the
+       transport. */
+    double genAt;
 };
 
 static double
@@ -317,6 +357,7 @@ composer_create (const thcParams *params)
     st->touched = false;
     st->paintX = st->paintY = -1;
     st->paintTo = 0;
+    st->genAt = 0;
 
     refresh(st);
 
@@ -434,6 +475,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
        generation inside its own beat however long that beat is. */
     const double slot = period / (double)st->w;
 
+    /* Where this generation started, for receive to measure against. */
+    st->genAt = t->now;
+
     for (int x = 0; x < st->w; x++)
         for (int y = 0; y < st->h; y++)
         {
@@ -462,6 +506,112 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         }
 
     return t->now + period;
+}
+
+/* ---- being played into -------------------------------------------------- */
+
+/* Which row plays this pitch: the tick's ladder mapping, run backwards.
+ *
+ * The tick reads row y as `ladder[y % n] + 12 * (y / n)', so a pitch
+ * belongs to a row when it is one of the ladder's degrees in one of the
+ * octaves the board is tall enough to reach. Exact rather than nearest,
+ * because "nearest" would make every wrong note land somewhere and the
+ * board fill up with a line's accidents; a note the ladder cannot spell
+ * is a note this stage has no row for, and dropping it is what keeps the
+ * board a picture of the scale rather than of the melody's misses.
+ *
+ * Put a `gen::quantize' upstream if you want every note to land. That is
+ * the piece's decision to state, not this plugin's to assume.
+ */
+static int
+rowOf (const State *st, int note)
+{
+    /* One caveat, and it is the ladder's rather than this function's: a
+       ladder spanning more than an octave makes two rows name the same
+       pitch once the board is taller than it -- `48,50,52,55,57,60,62,64'
+       reaches 60 at row 5 and again at row 8 -- and the lower row wins.
+       So this is the tick's mapping run backwards exactly when the
+       ladder covers the height, and an approximation of it otherwise.
+       Give a board as many notes as it has rows and the question does
+       not arise; colony.gen does. */
+    const size_t n = st->ladder.size();
+
+    if (n == 0)
+        return -1;
+
+    for (int y = 0; y < st->h; y++)
+        if (st->ladder[y % n] + 12 * (int)(y / n) == note)
+            return y;
+
+    return -1;
+}
+
+extern "C" THINK_PLUGIN_API void
+composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
+{
+    State *st = static_cast<State *>(state);
+
+    const int listen = (int)getp(st, P_LISTEN);
+
+    if (ev->type == THC_EV_NOTE && listen != 0 && st->w > 0 && st->h > 0)
+    {
+        const int y = rowOf(st, ev->u.note.note);
+
+        if (y >= 0)
+        {
+            const double period = getp(st, P_PERIOD);
+            const double slot = period / (double)st->w;
+
+            /* And the column: the tick's other mapping backwards. It
+               plays column x at `genAt + x * slot', so a note at time
+               `at' belongs in the column that time falls in. A phrase
+               spread across a generation draws its own rhythm; one
+               arriving faster than a slot piles into one column, which
+               is the honest picture of playing faster than the board can
+               see. Wrapped rather than clamped, because a line running
+               past the end of a generation should come back round to
+               the start of the next one; clamping would pile every late
+               note against the right-hand edge. */
+            int x = 0;
+            const double into = ev->at - st->genAt;
+
+            /* The range check is not paranoia about arithmetic; it is
+               about the cast. Converting a NaN or a value past LONG_MAX
+               to long is undefined, and `at' is a double that arrived
+               from a plugin. The bound is generous -- a board would have
+               to be days wide for a real column to reach it -- and
+               anything outside it draws in column 0, which is a cell in
+               the right row at the wrong time rather than a crash. */
+            if (slot > 0 && into > -1e9 && into < 1e9)
+            {
+                const long col = (long)std::floor(into / slot);
+
+                x = (int)(((col % st->w) + st->w) % st->w);
+            }
+
+            char *cell = &st->cells[idx(st, x, y)];
+
+            *cell = (listen == 2 && *cell) ? 0 : 1;
+
+            /* The same flag a click sets, and for the same reason: the
+               board and the param no longer agree, and a Capture that
+               round-trips must not be mistaken for somebody restating
+               the board. */
+            st->touched = true;
+        }
+    }
+
+    /* `pass' is about the notes this stage eats, and nothing else.
+     *
+       It used to gate the emit for every event type, which meant a
+       `pass = 0' board silently swallowed the note-offs, chanarg
+       writes and structure edits of every stage upstream of it -- a
+       gen::reshape in front of one delivered nothing at all. A stage
+       consuming what it is *for* is a design; a stage consuming
+       everything that happens to pass through it is a hole in a
+       pipeline. */
+    if (ev->type != THC_EV_NOTE || (int)getp(st, P_PASS) != 0)
+        out->emit(out->ctx, ev);
 }
 
 /* ---- being clicked ----------------------------------------------------- */

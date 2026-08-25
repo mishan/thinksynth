@@ -1,0 +1,273 @@
+# colony.gen -- a line proposes, a colony disposes, a memory harmonizes it.
+#
+# Four stages in one chain, and each one only hears the one before it.
+# That is the whole idea: a chain is a pipeline, so a piece can be built
+# out of small honest transformations of a signal rather than out of one
+# clever generator. Read it left to right on the canvas.
+#
+#   gen::euclid       proposes   a Euclidean rhythm, one bar long
+#   gen::life         disposes   the line draws on Conway's board and is
+#                                eaten; what you hear is what grew
+#   gen::markov       remembers  learns the colony's transitions and
+#                                paraphrases them alongside it
+#   xform::harmonize  answers    every note becomes a chord spelled from
+#                                the scale, not from fixed intervals
+#
+# THE LINE IS NEVER HEARD. `pass = 0' on the board, which is the version
+# of this worth shipping: the line's notes are turned into *cells* and
+# stop there, so every pitch that reaches your ears is one Conway put
+# back. The line is a hand reaching into the board while it runs, and the
+# hand is the piece rather than a person -- gen::life has taken clicks
+# since glider.gen, and a note arriving from upstream is the same edit
+# with nobody's mouse in it.
+#
+# HOW A NOTE BECOMES A CELL. The board's tick reads row y as a degree on
+# the ladder and column x as a time within the generation. Receiving runs
+# both mappings backwards: the pitch picks the row, the arrival time
+# picks the column. So a phrase draws its own shape in pitch and its own
+# rhythm in time, and then B3/S23 argues with it. A pitch the ladder
+# cannot spell has no row and is dropped -- put a gen::quantize upstream
+# if you would rather every note landed. That is the piece's decision to
+# state, not the plugin's to assume.
+#
+# WHY A RHYTHM AND NOT A TAPE LOOP. Because one cell on its own dies.
+# Conway needs three neighbours to make anything, so a sparse line that
+# drops a single cell every few seconds is a line whose cells are all
+# dead before the next one lands -- it can perturb the board but it can
+# never build on it. A euclid draws a *figure*: sixteen steps at 0.28s
+# is one bar of 4.48s, which is exactly one generation, so each bar lays
+# seven onsets into sixteen columns and the pitch pool walks the rows
+# as it cycles. That is a diagonal scattered across the board, redrawn
+# every generation, and diagonals are what Conway makes things out of.
+#
+# The difference is not subtle and is worth hearing for yourself. Set
+# `fills = 0' and the board plays three pitches forever -- the blinker,
+# alone, a metronome, with markov paraphrasing a metronome. Put the line
+# back and the colony spreads over all eight rows inside a minute and
+# more than doubles what the piece plays. The line is silent throughout;
+# every note of that difference is a consequence.
+#
+# WHY THE BOARD STARTS ALMOST EMPTY. One blinker, three cells, a
+# two-generation cycle. It gives the piece a pulse from the first bar and
+# leaves the rest of the board for the line to fill, so what you hear
+# early is mostly the line's drawing and what you hear later is mostly
+# the collisions. Double-click the `board' stage on the canvas to watch
+# it; you can still click cells yourself while it plays, and the line
+# will draw around whatever you leave.
+#
+# `wrap = 0', so the board has edges. On a torus the colony has nowhere
+# to lose anything and saturates into a soup inside two minutes; with
+# edges, things drift off and are gone, and the piece keeps a density it
+# can hold. A piece is a shape over time, and a board that fills up has
+# stopped having one.
+#
+# WHY THE HARMONY IS DIATONIC. xform::harmonize counts scale degrees, not
+# semitones. A harmonizer that added a fixed interval would be a pitch
+# shifter -- the same chord everywhere, the line moved sideways. Counting
+# degrees means the chord's quality comes from where in the scale the
+# melody is, which is the difference between harmony and processing. The
+# scale here is pentatonic, so two degrees up is a fourth and four is a
+# seventh: every stack is open and nothing can clash.
+#
+# THE INSTRUMENT MOVES TOO. Underneath, phase 4's two structure edits:
+# `gen::swap' rebuilds the pad's channel around a different instrument
+# every forty-five seconds, and `gen::reshape' reaches inside whatever is
+# there and sweeps a constant the patch never declared. The notes above
+# know nothing about either. See reshape.gen for the argument; this piece
+# is that argument put underneath something with a lot going on, which is
+# where you can actually hear what it buys.
+#
+# TURN THE DENSITY KNOB while it plays. It sets how many voices each
+# chord has, from one -- the bare colony, no harmony at all -- to five.
+# It is the fastest way to hear which part of this is Conway and which
+# part is the harmonizer.
+#
+# Self-contained: it carries its own instruments, so open it and press
+# Play.
+
+name "Colony";
+author "Misha Nasledov";
+description "A line seeds Conway's board; what grows is learned and harmonized.";
+
+seed 3391;
+
+# A minor pentatonic over two octaves. Eight notes for eight rows, so
+# every row of the board has a pitch and every pitch the line can play
+# has a row -- the two ends of the same ladder, which is what makes the
+# line able to draw at all.
+scale pent "A2 C3 D3 E3 G3 A3 C4 D4";
+
+# The low end, for the chain that goes the other way.
+scale under "A1 C2 E2 A2";
+
+@density = 2;
+@density.min = 1;
+@density.max = 5;
+
+instrument pad {
+    dsp  "amb01.dsp";
+    a    = 260 ms;
+    d    = 1400 ms;
+    s    = 0.62;
+    r    = 2400 ms;
+    res  = 0.55;
+    fmin = 0.1;
+    fmax = 0.6;
+};
+
+instrument bell {
+    dsp  "amb01.dsp";
+    a    = 6 ms;
+    d    = 2400 ms;
+    s    = 0.08;
+    r    = 2200 ms;
+    res  = 0.88;
+    fmin = 0.25;
+    fmax = 0.95;
+};
+
+instrument wood {
+    dsp  "ts1.dsp";
+    a    = 30 ms;
+    d    = 700 ms;
+    s    = 0.35;
+    r    = 1500 ms;
+    cutoff = 7;
+    res    = 0.45;
+};
+
+instrument bass {
+    dsp  "amb01.dsp";
+    a    = 900 ms;
+    d    = 2600 ms;
+    s    = 0.8;
+    r    = 4000 ms;
+    res  = 0.3;
+    fmin = 0.04;
+    fmax = 0.22;
+};
+
+# The chain the piece is about.
+#
+# The line's bar and the board's generation are the same length on
+# purpose: sixteen steps of 0.28s is 4.48s, and so is the generation.
+# One onset per column, one bar per generation, no drift, so the figure
+# lands on the same cells every bar and reinforces itself.
+#
+# Change either number without the other and the piece does not blur, it
+# stops: the figure walks sideways a little each generation, never draws
+# the same cell twice running, and every cell it draws is alone and dead
+# before the next bar. Measured on a scratch board, an aligned line gave
+# 136 notes where an unaligned one gave 1. Alignment is not a nicety
+# here; it is the difference between drawing and scribbling.
+chain colony {
+    stage line gen::euclid {
+        steps = 16;  fills = 7;  rotate = 0;
+        notes = pent;
+        period = 0.28 s;  hold = 0.3 s;  vel = 72;
+    };
+
+    # One blinker, and nothing else. Rows are written top-down and
+    # stored bottom-up, so this sits high on the ladder:
+    #
+    #   ................
+    #   ................
+    #   ...OOO..........
+    #   ................
+    #   ................
+    #   ................
+    #   ................
+    #   ................
+    stage board gen::life {
+        width = 16;  height = 8;  wrap = 0;  scatter = 0;
+        board = "................/................/...OOO........../................/................/................/................/................";
+        notes = pent;
+        trigger = 0;
+        period = 4.48 s;  hold = 3.6 s;  vel = 64;
+        listen = 1;
+        pass = 0;
+    };
+
+    # Order 2, so it learns pairs rather than single steps -- a colony
+    # produces chords and runs, and an order-1 table flattens both into
+    # a cloud. `pass = 1' keeps the board audible underneath the dream,
+    # which matters here: with it off you would be listening to a
+    # paraphrase of something you never heard.
+    stage dream gen::markov {
+        order = 2;  pass = 1;
+        period = 2.2 s;  hold = 3 s;  vel = 54;
+    };
+
+    # And the chord. `spread' rolls it, which keeps a dense passage
+    # legible: five voices arriving together is a block, five arriving
+    # 90ms apart is a gesture.
+    stage chord xform::harmonize {
+        scale = pent;
+        voices = @density;
+        step = 2;
+        spread = 0.09 s;
+        taper = 0.82;
+        root = 1;
+        below = 0;
+    };
+
+    sink { instrument = pad; };
+};
+
+# The other direction, so the piece has a floor.
+#
+# `below = 1' stacks *downward*: the note the line plays becomes the top
+# of its own harmony instead of the bottom. Two voices, very slow, on its
+# own instrument -- the same plugin as the chain above, aimed the other
+# way, which is the cheapest possible demonstration that the direction is
+# a param and not a second plugin.
+chain floor {
+    stage low gen::eno_line {
+        notes = under;
+        period = 11 s;  jitter = 3 s;  prob = 0.7;
+        hold = 13 s;  vel = 48;  vel_jitter = 4;
+    };
+
+    stage chord xform::harmonize {
+        scale = under;
+        voices = 2;  step = 2;
+        spread = 1.4 s;
+        taper = 0.9;
+        below = 1;
+    };
+
+    sink { instrument = bass; };
+};
+
+# The instrument under the colony is rebuilt every forty-five seconds.
+# Round-robin, so the piece has a shape you can learn; the swap service
+# does nothing at all when the list names what is already there, so the
+# first tick is not a rebuild into a copy of itself.
+chain swapping {
+    stage m gen::swap {
+        instruments = "pad,bell,wood";
+        every = 45 s;
+        order = 0;
+    };
+    sink { instrument = pad; };
+};
+
+# And the fine edit. `fmap' is the node inside amb01.dsp that maps a
+# note's velocity onto the filter's range; `inmax' is the top of the
+# velocity it expects, and it is not a chanarg -- amb01 never offered it.
+# Lowering it makes a soft note open the filter as far as a hard one, so
+# the harmonizer's tapered voices stop sitting under the melody and come
+# up level with it. The taper is still there; the instrument has stopped
+# caring about it.
+#
+# Aimed at the slot, so when the swap puts ts1.dsp there the node is gone
+# and the host says so once per step rather than pretending. Nothing else
+# in the piece stops.
+chain sensitivity {
+    stage r gen::reshape {
+        node = "fmap";  arg = "inmax";
+        from = 1;  to = 0.3;
+        every = 13 s;  steps = 7;
+    };
+    sink { instrument = pad; };
+};

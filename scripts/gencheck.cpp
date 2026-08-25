@@ -46,6 +46,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -3866,7 +3867,709 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
     clearChannels(synth);
 }
 
-/* ---- 7. every shipped piece still loads -------------------------------- */
+/* How many notes a scratch piece delivers in `seconds'. The two things
+ * a board fed notes can be asked -- "did it draw" and "did it refuse to
+ * draw" -- are both this number against zero. */
+static int
+notesFrom (const std::map<std::string, thcPlugin *> &plugins,
+           thSynth *synth, const std::string &what,
+           const std::string &body, double seconds)
+{
+    const std::string path = thUtil::tempFile("gencheck-plays-");
+
+    if (path.empty())
+    {
+        fail("could not write the piece for " + what);
+        return -1;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    int n = -1;
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail(what + " did not load");
+        }
+        else
+        {
+            std::istringstream lines(render(sched, seconds, 0.02));
+            std::string line;
+
+            n = 0;
+
+            while (std::getline(lines, line))
+                if (line.compare(0, 2, "N ") == 0)
+                    n++;
+        }
+    }
+
+    remove(path.c_str());
+    clearChannels(synth);
+
+    return n;
+}
+
+/* ---- 7. a chain that is a pipeline ------------------------------------- */
+
+/* colony.gen, and the two things it needed that did not exist.
+ *
+ * gen::life gained a receive, so an upstream stage can draw on the board
+ * the way a mouse already could; xform::harmonize turns a note into a
+ * chord counted in scale degrees. Both are easy to write in a way that
+ * looks right and does nothing, so both are asked directly.
+ *
+ * 1. Feeding the board CHANGES WHAT IT PLAYS. This is the claim the
+ *    piece's header makes and the one worth defending: the same board,
+ *    rendered with the line and without it, must not produce the same
+ *    stream -- and with it must reach rows the blinker alone never
+ *    touches. A receive that quietly dropped every note would pass a
+ *    "does it still load" gate forever.
+ * 2. A pitch the ladder cannot spell draws nothing, rather than landing
+ *    on the nearest row it can find.
+ * 3. `listen = 0' is the pure generator glider.gen still wants.
+ * 4. The chord is DIATONIC. Two degrees above the first pentatonic
+ *    degree and two above the second are different numbers of
+ *    semitones; a harmonizer that added a fixed interval would give the
+ *    same gap everywhere and is the thing this must not be.
+ * 5. `voices = 1' passes the note through untouched, `root = 0' drops
+ *    it, and `below = 1' puts the harmony underneath.
+ * 6. The whole piece replays.
+ */
+static void
+checkColony (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &genFile)
+{
+    const std::string piece =
+        (std::filesystem::path(genFile).parent_path() / "colony.gen").string();
+
+    if (!std::filesystem::exists(piece))
+    {
+        fail("colony.gen is not beside " + genFile);
+        return;
+    }
+
+    clearChannels(synth);
+
+    /* ---- 1. the line makes a difference ---- */
+
+    /* Two renders of the same file, one with the line's onsets turned
+       off. Editing the piece rather than writing a fresh one on purpose:
+       what is being gated is the shipped configuration, and a scratch
+       file tuned until it passed would gate nothing about it. */
+    {
+        const std::string text = slurp(piece);
+
+        if (text.find("fills = 7;") == std::string::npos)
+            fail("colony.gen no longer spells its euclid's fills the way "
+                 "the gate looks for");
+        else
+        {
+            std::string silent = text;
+            const size_t at = silent.find("fills = 7;");
+
+            silent.replace(at, strlen("fills = 7;"), "fills = 0;");
+
+            const std::string sp = thUtil::tempFile("gencheck-colony-");
+
+            if (sp.empty())
+                fail("could not write the line-off variant");
+            else
+            {
+                {
+                    std::ofstream out(sp.c_str(), std::ios::trunc);
+
+                    out << silent;
+                }
+
+                std::string withLine, without;
+                std::set<int> pitchesWith, pitchesWithout;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    clearChannels(synth);
+                    drainSynth();
+
+                    thcScheduler sched(synth);
+                    thcGenLoader loader(plugins);
+
+                    if (!loader.load(pass ? sp : piece, &sched))
+                    {
+                        fail(pass ? "the line-off variant did not load"
+                                  : "colony.gen did not load");
+                        break;
+                    }
+
+                    const std::string tape = render(sched, 90.0, 0.04);
+
+                    (pass ? without : withLine) = tape;
+
+                    /* Which rows of the board were reached. Only the
+                       colony's channel counts: the floor chain plays its
+                       own pitches on its own instrument and would mask
+                       a board that never left its blinker. */
+                    std::istringstream lines(tape);
+                    std::string line;
+
+                    while (std::getline(lines, line))
+                    {
+                        std::istringstream f(line);
+                        std::string tag, at2, ch, note;
+
+                        if (!(f >> tag >> at2 >> ch >> note) || tag != "N")
+                            continue;
+
+                        if (atoi(ch.c_str()) != 0)
+                            continue;
+
+                        (pass ? pitchesWithout : pitchesWith)
+                            .insert(atoi(note.c_str()));
+                    }
+                }
+
+                if (withLine.empty())
+                    fail("colony.gen delivered nothing at all");
+                else if (withLine == without)
+                    fail("feeding gen::life a line changed nothing about "
+                         "what it played");
+                else if (pitchesWith.size() <= pitchesWithout.size())
+                    fail("the line did not spread the colony past the "
+                         "pitches the blinker reaches alone");
+
+                remove(sp.c_str());
+            }
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 2, 3. what the board does and does not accept ---- */
+
+    /* One generation of a board fed four notes: two the ladder can spell
+       and two it cannot. Only the spellable ones may draw. */
+    /* A 4x2 board, empty, and a rhythm on the two pitches its ladder
+       spells. `trigger = 1' so a drawn cell is heard the generation it
+       is drawn rather than having to survive into a birth -- what is
+       being asked here is whether the cell arrived at all. */
+    {
+        const char *shape =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; notes = \"%s\";"
+            " period = 0.25 s; hold = 0.2 s; };\n"
+            "  stage b gen::life { width = 4; height = 2; wrap = 0;"
+            " scatter = 0; board = \"..../....\"; notes = \"C4 D4\";"
+            " trigger = 1; period = 1 s; hold = 0.5 s; listen = %d;"
+            " pass = 0; };\n"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        char body[1024];
+
+        snprintf(body, sizeof(body), shape, "C4 D4", 1);
+
+        if (notesFrom(plugins, synth, "life-listens", body, 6.0) <= 0)
+            fail("a line played into gen::life drew nothing on the board");
+
+        /* C#4 and D#4 are not on a ladder of C4 and D4. A receive that
+           snapped to the nearest row would fill this board just as fast
+           as the one above, and a piece would have no way to tell a
+           mistyped note from a meant one. */
+        snprintf(body, sizeof(body), shape, "C#4 D#4", 1);
+
+        if (notesFrom(plugins, synth, "life-ignores-unspellable",
+                      body, 6.0) != 0)
+            fail("gen::life drew cells for pitches its ladder cannot spell");
+
+        /* And `listen = 0' is the plugin glider.gen has always had. */
+        snprintf(body, sizeof(body), shape, "C4 D4", 0);
+
+        if (notesFrom(plugins, synth, "life-listen-0", body, 6.0) != 0)
+            fail("gen::life drew on its board with listen = 0");
+    }
+
+    /* `pass' is about notes, and a stage that ate anything else would
+       be a hole in the pipeline rather than a stage in it.
+     *
+       The first draft gated the emit on `pass' for every event type, so
+       a `pass = 0' board silently swallowed the note-offs, chanarg
+       writes and structure edits of every stage upstream of it -- a
+       gen::reshape in front of one delivered nothing at all, and the
+       piece it was in had a chain that quietly did nothing. Nothing a
+       note tape can see, which is why it is asked here directly. */
+    {
+        const std::string body =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage r gen::reshape { node = \"fmap\"; arg = \"inmax\";"
+            " from = 1; to = 0.5; every = 0.5 s; steps = 4; };\n"
+            "  stage b gen::life { width = 4; height = 2; wrap = 0;"
+            " scatter = 0; board = \"..../....\"; notes = \"C4 D4\";"
+            " period = 1 s; hold = 0.5 s; listen = 1; pass = 0; };\n"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        const std::string path = thUtil::tempFile("gencheck-passthru-");
+
+        if (path.empty())
+            fail("could not write the pass-through piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the pass-through piece did not load");
+            else if (render(sched, 6.0, 0.02).find("E ") == std::string::npos)
+                fail("a gen::life with pass = 0 swallowed the structure "
+                     "edits of the stage in front of it");
+
+            remove(path.c_str());
+            clearChannels(synth);
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 4, 5. the chord is counted in degrees ---- */
+
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        /* A minor pentatonic on A: 45 48 50 52 55, then 57. Two degrees
+           above 45 is 50 -- five semitones -- and two above 48 is 52,
+           which is four. A fixed-interval shifter cannot tell those
+           apart, and telling them apart is the whole plugin. */
+        const std::string body =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 2; fills = 2;"
+            "    notes = \"A2 C3\"; period = 1 s; hold = 0.5 s; };\n"
+            "  stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+            "    voices = 2; step = 2; spread = 0 s; taper = 1; };\n"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        const std::string path = thUtil::tempFile("gencheck-harm-");
+
+        if (path.empty())
+            fail("could not write the harmonize piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the harmonize piece did not load");
+            else
+            {
+                std::set<int> heard;
+                std::istringstream lines(render(sched, 6.0, 0.02));
+                std::string line;
+
+                while (std::getline(lines, line))
+                {
+                    std::istringstream f(line);
+                    std::string tag, at, ch, note;
+
+                    if ((f >> tag >> at >> ch >> note) && tag == "N")
+                        heard.insert(atoi(note.c_str()));
+                }
+
+                /* Roots, and the second degree above each. */
+                if (!heard.count(45) || !heard.count(48))
+                    fail("harmonize dropped the roots it was given");
+                else if (!heard.count(50))
+                    fail("harmonize did not stack two degrees above 45");
+                else if (!heard.count(52))
+                    fail("harmonize did not stack two degrees above 48");
+                else if (heard.count(47) || heard.count(51) ||
+                         heard.count(53))
+                    fail("harmonize emitted a pitch outside its scale");
+
+                /* The two gaps differ, measured rather than asserted.
+                 *
+                   The first draft of this compared two literals -- 50-45
+                   against 52-48 -- which the compiler can answer without
+                   running anything, so it was a comment with a shape
+                   like a test. What has to be measured is the *gap this
+                   plugin produced*, which means finding what it stacked
+                   over each root in the stream rather than naming it. */
+                int over45 = -1, over48 = -1;
+
+                for (std::set<int>::iterator i = heard.begin();
+                     i != heard.end(); ++i)
+                {
+                    if (*i > 45 && *i < 48 + 12 && over45 < 0 && *i != 48)
+                        over45 = *i;
+
+                    if (*i > 48 && over48 < 0)
+                        over48 = *i;
+                }
+
+                if (over45 < 0 || over48 < 0)
+                    fail("harmonize stacked nothing over one of its roots");
+                else if (over45 - 45 == over48 - 48)
+                    fail("harmonize put the same number of semitones over "
+                         "both roots; it is counting semitones, not "
+                         "degrees");
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* `voices = 1' is a passthrough -- the identity every transformer
+       should have and the one worth pinning, because it is what a piece
+       reaches for when it wants the stage present and doing nothing. */
+    {
+        const char *shape =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 2; fills = 2;"
+            "    notes = \"A2 C3\"; period = 1 s; hold = 0.5 s; };\n"
+            "  %s"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        struct { const char *what; const char *stage; bool wantRoot;
+                 int wantOther; size_t exact; } cases[] = {
+            { "voices = 1 was not a passthrough",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 1; };\n", true, -1, 2 },
+            /* Not just "45 is there" -- euclid supplies that whatever
+               harmonize does. The identity claim is that *nothing else*
+               is there, which `exact' below is what checks. */
+            { "root = 0 still sounded the note it was given",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 2; step = 2; root = 0; };\n", false, 50, 2 },
+            { "below = 1 did not stack downward",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 2; step = 2; below = 1; };\n", true, 40, 4 },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            char body[2048];
+
+            snprintf(body, sizeof(body), shape, cases[c].stage);
+
+            const std::string path = thUtil::tempFile("gencheck-harm2-");
+
+            if (path.empty())
+            {
+                fail("could not write a harmonize variant");
+                continue;
+            }
+
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail(std::string("a harmonize variant did not load: ") +
+                     cases[c].what);
+            else
+            {
+                std::set<int> heard;
+                std::istringstream lines(render(sched, 6.0, 0.02));
+                std::string line;
+
+                while (std::getline(lines, line))
+                {
+                    std::istringstream f(line);
+                    std::string tag, at, ch, note;
+
+                    if ((f >> tag >> at >> ch >> note) && tag == "N")
+                        heard.insert(atoi(note.c_str()));
+                }
+
+                if (heard.count(45) != (cases[c].wantRoot ? 1u : 0u))
+                    fail(cases[c].what);
+                else if (cases[c].wantOther >= 0 &&
+                         !heard.count(cases[c].wantOther))
+                    fail(cases[c].what);
+                else if (heard.size() != cases[c].exact)
+                    fail(std::string(cases[c].what) + " (heard " +
+                         std::to_string(heard.size()) + " distinct "
+                         "pitches, wanted " +
+                         std::to_string(cases[c].exact) + ")");
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 5b. every on gets exactly one off ---- */
+
+    /* The half of a transformer that no rendered tape can see.
+     *
+     * A generator's notes carry their own duration, so the scheduler
+     * derives each off from the event it delivered and a transformer
+     * that never thinks about offs at all still works. Live input does
+     * not: a key arrives as a THC_EV_NOTE with duration 0 and a
+     * THC_EV_NOTEOFF whenever the hand lets go, and a transformer that
+     * turned one note into five owes five offs, at the right pitches
+     * and at the right times. Three ways to get that wrong, all of
+     * which this plugin did, all of which leave a note ringing until
+     * the program is closed:
+     *
+     *   - a pitch pressed twice before either release;
+     *   - `spread', where each voice has to be released as late as it
+     *     was pressed, or the offs arrive before their own ons;
+     *   - a press that emitted nothing, whose release must emit nothing
+     *     rather than forwarding the root it deliberately dropped.
+     *
+     * So this drives the chain by hand and counts. Pitch by pitch, and
+     * with the times compared, because "the same number of ons and
+     * offs" is a gate that a chord released at the wrong pitches walks
+     * straight through.
+     */
+    {
+        struct Case
+        {
+            const char *what;
+            const char *stage;
+            bool        twice;      /* press it again before releasing */
+        };
+
+        static const Case cases[] = {
+            { "a held chord",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; };\n", false },
+            { "a held chord pressed twice",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; };\n", true },
+            { "a rolled chord released early",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; spread = 0.5 s; };\n", false },
+            { "a chord whose root was dropped",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 1; root = 0; };\n", false },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            char body[1024];
+
+            snprintf(body, sizeof(body),
+                     "chain hands {\n"
+                     "  input midi;\n"
+                     "  %s"
+                     "  sink { channel = 1; };\n"
+                     "};\n", cases[c].stage);
+
+            const std::string path = thUtil::tempFile("gencheck-held-");
+
+            if (path.empty())
+            {
+                fail("could not write the held-note piece");
+                continue;
+            }
+
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail(std::string("the held-note piece did not load: ") +
+                     cases[c].what);
+            else
+            {
+                /* pitch -> (ons, offs), and the time of each. */
+                std::map<int, std::vector<double> > ons, offs;
+
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&ons, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            ons[ev.u.note.note].push_back(ev.at);
+                        else if (ev.type == THC_EV_NOTEOFF)
+                            offs[ev.u.note.note].push_back(ev.at);
+                    });
+
+                sched.start();
+
+                thcEvent key = {};
+
+                key.type = THC_EV_NOTE;
+                key.channel = 0;
+                key.u.note.note = 45;
+                key.u.note.velocity = 90;
+                key.u.note.duration = 0;
+                key.at = sched.now();
+
+                sched.injectMidiEvent(key);
+
+                if (cases[c].twice)
+                {
+                    sched.stepTransport(0.1);
+
+                    key.at = sched.now();
+                    sched.injectMidiEvent(key);
+                }
+
+                /* Let go well inside the roll, which is what makes the
+                   spread case a question at all. */
+                sched.stepTransport(0.15);
+
+                thcEvent up = {};
+
+                up.type = THC_EV_NOTEOFF;
+                up.channel = 0;
+                up.u.note.note = 45;
+                up.at = sched.now();
+
+                sched.injectMidiEvent(up);
+
+                if (cases[c].twice)
+                    sched.injectMidiEvent(up);
+
+                /* Long enough for a 0.5s roll's last voice and its off. */
+                for (int i = 0; i < 200; i++)
+                    sched.stepTransport(0.02);
+
+                conn.disconnect();
+
+                for (std::map<int, std::vector<double> >::iterator
+                         i = ons.begin(); i != ons.end(); ++i)
+                {
+                    const size_t up2 = i->second.size();
+                    const size_t down = offs.count(i->first)
+                        ? offs[i->first].size() : 0;
+
+                    if (up2 != down)
+                    {
+                        fail(std::string(cases[c].what) + ": pitch " +
+                             std::to_string(i->first) + " sounded " +
+                             std::to_string(up2) + " times and was "
+                             "released " + std::to_string(down));
+                        break;
+                    }
+
+                    /* And each release after the press it answers. An
+                       off ahead of its own on is a note that never
+                       stops. */
+                    bool bad = false;
+
+                    for (size_t k = 0; k < up2; k++)
+                        if (offs[i->first][k] < i->second[k])
+                            bad = true;
+
+                    if (bad)
+                    {
+                        fail(std::string(cases[c].what) + ": pitch " +
+                             std::to_string(i->first) + " was released "
+                             "before it sounded");
+                        break;
+                    }
+                }
+
+                /* And nothing released that never sounded. */
+                for (std::map<int, std::vector<double> >::iterator
+                         i = offs.begin(); i != offs.end(); ++i)
+                    if (!ons.count(i->first))
+                    {
+                        fail(std::string(cases[c].what) + ": pitch " +
+                             std::to_string(i->first) + " was released "
+                             "but never sounded");
+                        break;
+                    }
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 6. and the whole thing replays ---- */
+
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+            fail("colony.gen did not load for the replay check");
+        else
+        {
+            const std::string first = render(sched, 100.0, 0.04);
+
+            sched.reset();
+
+            const std::string second = render(sched, 100.0, 0.04);
+
+            if (first.empty())
+                fail("colony.gen delivered nothing");
+            else if (first != second)
+                fail("colony.gen did not replay; a learner or a board is "
+                     "carrying state across a rewind");
+        }
+    }
+
+    clearChannels(synth);
+}
+
+/* ---- 8. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
  *
@@ -4022,6 +4725,7 @@ main (int argc, char *argv[])
     checkInstruments(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
+    checkColony(plugins, &synth, genFile);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
