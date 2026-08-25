@@ -1,6 +1,16 @@
 # airports.gen -- v2 of the python prototype's piece.
 # Seven tape loops and a wildcard, now with a live density knob and a
 # slow generative filter sweep the v1 format had no way to say.
+#
+# It also carries its own instrument, which is the first thing about
+# this file that is not about notes at all. Every other piece here opens
+# with a paragraph telling you which channels to go and aim at which
+# patches before pressing Play; this one opens and plays. `instrument'
+# names a graph and the values that make it this instrument rather than
+# that graph's defaults -- a .patch, said in the language the piece is
+# written in -- and the sinks below bind to the name rather than to a
+# channel number nobody agreed on. The channel underneath is the
+# loader's business. See UNIFICATION.md.
 
 name "Airports";
 author "Misha Nasledov";
@@ -14,14 +24,39 @@ seed 1978;
 @density.max = 1;
 @density.label = "Density";
 
-scale fmin "F3 Ab3 C4 Db4 Eb4 F4 Ab4";
+# Not `fmin' -- amb01 below declares a chanarg by that name, and this
+# file would then be using one word for a pitch set and a filter corner.
+# tide.gen calls its scale fmin_scale for the same collision.
+scale fminor "F3 Ab3 C4 Db4 Eb4 F4 Ab4";
+
+# amb01 with the envelope opened out. Its four detuned oscillators are
+# already the right texture; what makes it a pad rather than a pluck is
+# the second and a half at either end, and that is exactly the kind of
+# thing a piece should be allowed to say about its own instrument
+# without shipping a second copy of somebody else's .dsp.
+#
+# Durations carry their unit here for the reason they do everywhere else
+# in this format: `a = 900 ms' is a sentence, and the 39690 a .patch
+# would store instead is a sample count at one particular rate.
+instrument pad {
+    dsp  "amb01.dsp";
+
+    a    = 900 ms;              # attack
+    d    = 1200 ms;             # decay
+    s    = 0.8;                 # sustain
+    r    = 3000 ms;             # release
+
+    res  = 0.72;
+    fmin = 0.06;                # where the drift chain below starts it
+    fmax = 0.55;
+};
 
 chain loop_f3 {
     stage src gen::eno_line {
         notes = "F3";  period = 23.9 s; jitter = 2.0 s;
         prob = @density; hold = 6 s; vel = 72; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 chain loop_ab3 {
@@ -29,7 +64,7 @@ chain loop_ab3 {
         notes = "Ab3"; period = 19.4 s; jitter = 1.5 s;
         prob = @density; hold = 6 s; vel = 70; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 chain loop_c4 {
@@ -37,7 +72,7 @@ chain loop_c4 {
         notes = "C4";  period = 27.1 s; jitter = 2.5 s;
         prob = @density; hold = 5 s; vel = 66; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 chain loop_db4 {
@@ -45,7 +80,7 @@ chain loop_db4 {
         notes = "Db4"; period = 31.7 s; jitter = 3.0 s;
         prob = @density; hold = 5 s; vel = 62; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 chain loop_eb4 {
@@ -53,7 +88,7 @@ chain loop_eb4 {
         notes = "Eb4"; period = 21.3 s; jitter = 2.0 s;
         prob = @density; hold = 5 s; vel = 64; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 chain loop_f4 {
@@ -61,7 +96,7 @@ chain loop_f4 {
         notes = "F4";  period = 25.6 s; jitter = 2.0 s;
         prob = @density; hold = 4 s; vel = 60; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 chain loop_ab4 {
@@ -69,25 +104,33 @@ chain loop_ab4 {
         notes = "Ab4"; period = 34.9 s; jitter = 3.0 s;
         prob = @density; hold = 4 s; vel = 56; vel_jitter = 8;
     };
-    sink { channel = 4; };
+    sink { instrument = pad; };
 };
 
 # The wildcard: draws from the whole scale, rare and quiet, and its
 # pitches get re-quantized so a transposed scale edit stays consonant.
 chain wildcard {
     stage src gen::eno_line {
-        notes = fmin; period = 45 s; jitter = 8 s;
+        notes = fminor; period = 45 s; jitter = 8 s;
         prob = 0.6; hold = 5 s; vel = 50; vel_jitter = 10;
     };
-    stage q xform::quantize { scale = fmin; };
-    sink { channel = 4; };
+    stage q xform::quantize { scale = fminor; };
+    sink { instrument = pad; };
 };
 
-# What v1 could not express at all: a slow random walk driving the pad
-# patch's filter knob. Same machinery, different sink.
+# What v1 could not express at all: a slow random walk driving the pad's
+# filter knob. Same machinery, different sink -- and now the sink names
+# the instrument as well as the knob, so both halves of "which filter on
+# what" are answered in the file rather than by whoever opened it.
+#
+# The numbers are fmin's, not a composer's: it runs 0 to 1 and the
+# instrument above starts it at 0.06, so this opens the pad about
+# halfway and closes it again. A walk written in the wrong arg's units
+# is the mistake weather.gen's header is about; the roll's chanarg strip
+# draws each value against its declared range, which is where it shows.
 chain drift {
     stage src gen::walk {
-        min = 0.2; max = 0.8; step = 0.05; period = 8 s;
+        min = 0.04; max = 0.45; step = 0.03; period = 8 s;
     };
-    sink { channel = 4; chanarg = "cutoff"; };
+    sink { instrument = pad; chanarg = "fmin"; };
 };

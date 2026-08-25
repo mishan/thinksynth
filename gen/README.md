@@ -6,11 +6,21 @@ them they exercise every composer plugin in the tree and every ability the
 around being impressive. The comment at the top of each file is the lesson;
 this is the index.
 
-Open one from the Composer window's menu (**☰ → Open**), press **Play**, and
-aim the channels its header names at patches you like. The three timbre pieces
-also move `amp`, the one chanarg every channel has, so they do something
-audible whatever is loaded; their filter components need `amb01.dsp`. Channels are 1–16 here, the
-same numbers the main window's patch tabs show.
+Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
+
+`airports.gen` and `weather.gen` need nothing else: they carry their own
+instruments. An `instrument` block names a `.dsp` and the chanarg values that
+make it *this* instrument, a sink binds to the name, and the loader puts it on
+a channel and loads it for you — one file you can send somebody. A piece knob
+can reach in there too, so one slider drives a composer and an instrument at
+once. See §4b of [`../GEN_FORMAT.md`](../GEN_FORMAT.md), and `UNIFICATION.md`
+for where this is going.
+
+The rest still name channels, so aim the ones each header lists at patches you
+like before pressing Play. The two remaining timbre pieces move `amp`, the one
+chanarg every channel has, so they do something audible whatever is loaded;
+their filter components need `amb01.dsp`. Channels are 1–16 here, the same
+numbers the main window's patch tabs show.
 
 ## The window
 
@@ -46,7 +56,7 @@ typo in it.
 
 | piece | the idea |
 | --- | --- |
-| [`airports.gen`](airports.gen) | **Free-running time.** Seven tape loops whose periods share no factor, so the piece never repeats. The original: `gen::eno_line`, a live `@density` knob, and a slow filter sweep the v1 format had no way to say. |
+| [`airports.gen`](airports.gen) | **Free-running time**, and **a piece that carries its instrument.** Seven tape loops whose periods share no factor, so the piece never repeats. The original: `gen::eno_line`, a live `@density` knob, and a slow filter sweep the v1 format had no way to say — and now an `instrument` block, so it is the one piece here that needs no setting up at all. |
 | [`pulse.gen`](pulse.gen) | **Clocked time.** The same machinery with every duration written in `beats`: change the tempo and four Euclidean patterns move together and stay locked. The other half of airports' argument — the clock lives in the value, not in the plugin. |
 | [`loosen.gen`](loosen.gen) | **What a transformer does.** One Euclidean phrase, played straight, humanized, and then quantized, on three channels at once. Mute two and listen to each alone. |
 
@@ -69,7 +79,7 @@ typo in it.
 
 | piece | the idea |
 | --- | --- |
-| [`weather.gen`](weather.gen) | **Generative timbre, plainly.** Four random walks pointed at knobs, over a pad of three lines. The walk emits a number and does not know where it lands; the sink names the target. Read its header before pointing a walk at something new — a chanarg's range belongs to the patch, and `amp` runs 0–127. |
+| [`weather.gen`](weather.gen) | **Generative timbre, plainly** — and **one knob, both worlds.** Four random walks pointed at knobs, over a pad of three lines: the walk emits a number and does not know where it lands, and the sink names the target. It carries that pad now, so `Breadth` drives a stage's density and two of the instrument's own chanargs from one slider, and `Tail` sets the pad's release in milliseconds. Read its header before pointing a walk at something new — a chanarg's range belongs to the patch, and `amp` runs 0–127. |
 | [`tide.gen`](tide.gen) | **Presets, and the line between two.** `gen::morph` travels between two named chanarg vectors — as a generator on its own clock, and as a transformer where each note schedules its own sweep. |
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
 
@@ -83,6 +93,8 @@ Plugins: `eno_line` (airports, weather), `euclid` (pulse, loosen, tide),
 
 Language: `tempo` and `beats` (pulse), free-running seconds (airports,
 weather), `scale` (airports, hands, loosen, weather), `preset` (tide, bloom),
+`instrument` blocks and sinks bound by name (airports, weather), knobs bound
+into an instrument (weather),
 `@knob` bindings on floats (airports, weather) and on whole numbers (pulse,
 hands), `input midi` (hands), clicks on a
 plugin's draw (glider), note sinks, named chanarg sinks (airports,

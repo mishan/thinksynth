@@ -64,6 +64,7 @@
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
+#include "gthPatchfile.h"
 #include "gthSignal.h"
 #include "gui/ComposerCanvas.h"
 #include "gui/ComposerWindow.h"
@@ -256,6 +257,29 @@ run (const std::string &pluginPath, const char *genFile)
     }
 
     ok("...with the piece in it");
+
+    /* And with its instrument on a channel.
+     *
+     * A piece carries the instrument it is played on now, and bringing
+     * one up is the half of that the scheduler deliberately does not do
+     * itself: it goes through gthPatchManager, so an instrument is also
+     * a patch tab with a filename on it. Nothing else in this file
+     * would notice if that hook stopped being installed -- the piece
+     * would load, the canvas would draw it, and every sink would
+     * deliver into a channel with nothing on it. */
+    if (win->sched_->instruments().empty())
+        fail("the piece under test carries no instrument to check");
+    else
+    {
+        const thcInstrument &inst = win->sched_->instruments()[0];
+
+        if (gthPatchManager::instance()->getPatch(inst.channel) == NULL)
+            fail("the instrument never reached the patch manager");
+        else if (synth.getChanArg(inst.channel, "fmin") == NULL)
+            fail("the instrument's graph never reached its channel");
+        else
+            ok("...and its instrument loaded onto a channel");
+    }
 
     /* Save, before anything has been done to the piece. Asked here
        rather than next to the other menu checks because by then the

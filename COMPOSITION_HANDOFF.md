@@ -76,6 +76,17 @@ Repo: github.com/mishan/thinksynth (C++, gtkmm-4, CMake, GPL-2+).
 >   resolved there; `channel = 0` is a load error naming the change,
 >   which is the one spelling that tells a file written for the old
 >   numbering apart from one written for this.
+> - **A piece can carry the instrument it is played on.** `instrument
+>   pad { dsp "amb01.dsp"; a = 900 ms; };` at the top of a `.gen`, and
+>   `sink { instrument = pad; }` instead of a channel number; the loader
+>   allocates a channel behind the name and brings the graph up on it.
+>   This is UNIFICATION.md's phase 1 and §9's staging step 2, and it is
+>   what makes `airports.gen` the first shipped piece that needs nothing
+>   set up before Play. Values carry units (`900 ms`, not the `39690` a
+>   `.patch` would store) and are checked against the unit the chanarg
+>   declares. Loading the graph is a host hook, so the application puts
+>   it on a patch tab through `gthPatchManager` while a harness gets
+>   plain `loadTree`.
 > - **`gen/README.md` indexes the shipped pieces**, eleven of them, each
 >   built around one idea and gated by gencheck's corpus sweep: every
 >   piece must load, and every piece with a generator in it must deliver
@@ -194,11 +205,18 @@ this design leans on:
   Textual order IS execution order — hence the keyword `stage`, not `node`
   (in `.dsp` order is irrelevant and edges carry topology; same word would
   teach editors the wrong intuition).
-- Sinks: `{ channel = N; }` for notes, `{ channel = N; chanarg = "x"; }`
-  for values; multiple sinks = fan-out; type filtering happens at the
-  sink so one generator can drive melody and a filter sweep at once.
+- Sinks name a target and optionally a knob on it: `{ instrument = pad; }`
+  for notes, `{ instrument = pad; chanarg = "x"; }` for values. The
+  target is one of the piece's own `instrument` blocks or, for a patch
+  the piece does not own, a bare `channel = N` — one or the other, never
+  both. Multiple sinks = fan-out; type filtering happens at the sink so
+  one generator can drive melody and a filter sweep at once.
 - `scale <name> "F3 Ab3 …";` — named pitch sets parsed once at load;
   NOTESET params accept a scale identifier or a quoted literal.
+- `instrument <name> { dsp "x.dsp"; <arg> = <value>; … };` — the graph a
+  sink can name, plus the chanarg values that make it that instrument.
+  Values carry units and are folded against what the chanarg declares.
+  The loader allocates the channel; §9's staging step 2.
 - Writer's rules are in the spec (the GUI will write these files):
   round-trip units as authored, write defaulted params explicitly, knob
   bindings persist as `@name`, never persist a seed the user didn't pin.
@@ -718,7 +736,22 @@ and the shared lexer stop being hygiene and become the runway.
    instruments.
 2. `patch` blocks inline in `.gen`; sinks bind by patch name; the
    loader instantiates channels. One shareable file that carries its
-   instruments.
+   instruments. — DONE, as `instrument` blocks rather than `patch` ones:
+   the noun a piece needs is not "a .patch file quoted inline" but "the
+   thing this is played on", and the block is a graph named by file plus
+   the chanarg values that make it this instrument. Sinks bind
+   `instrument = pad`; `channel = N` survives for the case it was always
+   really for, an externally loaded patch the piece does not own; and
+   the loader hands out channels itself, after the parse, working around
+   whatever numbers sinks claimed. `gen/airports.gen` opens and plays
+   with nothing set up first, which is the sentence this step existed
+   for. UNIFICATION.md phase 1 has the deltas; GEN_FORMAT.md §4b is the
+   spec.
+
+   Writing the graph out *inline* rather than naming it is still open,
+   and is the half of this that needs the grammar merge §8 step 3
+   describes. By reference alone delivered the self-contained file, so
+   the merge is still waiting on a payoff rather than blocking one.
 3. Presets in the language; a `gen::morph` transformer (writable even
    before this, better after) — DONE, together with the wildcard
    chanarg sink the sketch had not noticed was needed, the editor

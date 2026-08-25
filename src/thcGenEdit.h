@@ -76,7 +76,29 @@ public:
         std::vector<Param> params;
     };
 
-    struct Sink { int channel; std::string chanarg; };
+    /* A sink's target is one of two things and never both: the name of
+       an instrument the piece declares, or a raw channel for a patch
+       the piece does not own. `instrument' empty means the channel is
+       the answer; `channel' is 0 -- not a number the file format
+       accepts -- when the instrument is. */
+    struct Sink
+    {
+        int channel;
+        std::string instrument;
+        std::string chanarg;
+    };
+
+    /* One value an instrument sets, with the right-hand side as
+       authored: "900 ms", "0.06", "100%". Same reason a stage param
+       keeps its text -- what the panel shows should be what the file
+       says, not what the engine folded it to. */
+    struct InstrumentValue { std::string name; std::string valueText; };
+
+    struct Instrument
+    {
+        std::string name, dsp;
+        std::vector<InstrumentValue> values;
+    };
 
     struct Chain
     {
@@ -115,10 +137,11 @@ public:
         unsigned seed;
         bool     hasTempo;
         double   tempo;
-        std::vector<Knob>   knobs;
-        std::vector<Scale>  scales;
-        std::vector<Preset> presets;
-        std::vector<Chain>  chains;
+        std::vector<Knob>       knobs;
+        std::vector<Scale>      scales;
+        std::vector<Preset>     presets;
+        std::vector<Instrument> instruments;
+        std::vector<Chain>      chains;
     };
 
     static Result describe (const std::string &filename, Doc &doc,
@@ -236,9 +259,17 @@ public:
        (every registered param, per the writer's rules; the caller
        builds them from the plugin's defaults) and one note sink --
        because a chain with no generator and no input does not load,
-       and every intermediate state this editor writes must load. */
+       and every intermediate state this editor writes must load.
+
+       The sink takes a target on the same terms addSink does, and for a
+       sharper reason than symmetry: instrument channels are allocated
+       around the numbers sinks claim, so a new chain written
+       `channel = 1' into a piece whose instrument sits on channel 1
+       does not collide -- it *moves the instrument*, onto a different
+       tab, for a chain the person only wanted to hear. */
     static Result addChain (const std::string &filename,
                             const std::string &name, int channel,
+                            const std::string &instrument,
                             const std::string &stageName,
                             const std::string &category,
                             const std::string &plugin,
@@ -292,8 +323,16 @@ public:
 
     /* ---- sinks -------------------------------------------------------- */
 
+    /* A target and a chanarg. `instrument' non-empty writes
+       `instrument = name' and `channel' is ignored; empty writes
+       `channel = N'. There is no authoring surface for instrument
+       *blocks* yet -- the noun landed before its panel, the way a
+       preset did -- but a sink has to be able to point at one from the
+       moment the language can say it, or the editor would silently
+       rewrite an instrument-bound piece into a channel-bound one. */
     static Result addSink (const std::string &filename,
                            const std::string &chain, int channel,
+                           const std::string &instrument,
                            const std::string &chanarg, std::string &why);
 
     /* Refuses to remove the last one: a chain with no sink is a load
@@ -302,12 +341,16 @@ public:
                               const std::string &chain, int sinkIndex,
                               std::string &why);
 
-    /* Channel and chanarg together. An empty chanarg makes it a note
-       sink (the `chanarg = "...";' is removed, not written empty). */
+    /* Target and chanarg together. An empty chanarg makes it a note
+       sink (the `chanarg = "...";' is removed, not written empty), and
+       switching between an instrument and a channel replaces the one
+       line that says which -- so a sink can be moved off a piece's own
+       instrument onto an externally loaded patch, and back, without
+       either spelling leaving a residue behind. */
     static Result setSink (const std::string &filename,
                            const std::string &chain, int sinkIndex,
-                           int channel, const std::string &chanarg,
-                           std::string &why);
+                           int channel, const std::string &instrument,
+                           const std::string &chanarg, std::string &why);
 
     /* ---- small shared checks ------------------------------------------ */
 

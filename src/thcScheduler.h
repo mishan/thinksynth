@@ -132,6 +132,64 @@ private:
     std::function<double()>  tempo_;
 };
 
+/* One value an instrument sets on top of its graph.
+ *
+ * `units' is the suffix the author wrote -- "ms" or "%", or empty for the
+ * raw terms the engine works in. A .patch has neither, because it stores
+ * every chanarg already folded; that is why a patch file is full of
+ * numbers like 39690 and cannot be read by a person. A piece file is
+ * meant to be read, so the fold happens on the way in, through
+ * thFoldUnit and at the rate the synth was actually built with -- the
+ * same arithmetic, at the same rate, as the .dsp the value lands on.
+ */
+struct thcInstrumentArg
+{
+    std::string name;
+    double      value;
+    std::string units;
+
+    /* `fmin = @warmth;' -- the piece knob this value is read from, or
+     * empty for a plain number.
+     *
+     * The composer-world ARG_CHAN, pointed the other way. A stage param
+     * bound to a knob is *read* through it, because a composer asks its
+     * param store for a value whenever it wants one; a chanarg cannot be
+     * read that way, because the thing that reads it is the audio graph
+     * and the only value it will ever see is the one in its thArg. So
+     * this binding is a push: the knob moves, the chanarg is set. Same
+     * knob, same panel, same metadata -- and the direction is decided by
+     * which side of the boundary does the reading, not by a preference.
+     *
+     * `units' means what it means for a literal, and applies to the
+     * knob's number on every change. */
+    std::string knob;
+};
+
+/* An instrument the piece carries: a DSP graph named by file, the
+ * chanarg values that make it this instrument rather than that graph's
+ * defaults, and the channel it was given.
+ *
+ * The channel is an *allocation*, not a declaration. A .gen used to name
+ * MIDI channels in its sinks and leave what was loaded on them to
+ * whoever opened the file -- which is why every shipped piece carries a
+ * paragraph at the top telling you what to go and load first. An
+ * instrument answers that question inside the file, and the number
+ * underneath becomes the loader's business rather than the author's;
+ * thcGenLoader says how one is chosen. `channel = N' survives in the
+ * language for the other case, an externally loaded patch this piece
+ * does not own.
+ */
+struct thcInstrument
+{
+    std::string name;
+    std::string dsp;
+    std::vector<thcInstrumentArg> args;
+
+    int channel;                /* 0-15, engine numbering; -1 unallocated */
+
+    thcInstrument (void) : channel(-1) {}
+};
+
 /* One placement of a plugin in a chain. */
 struct thcStage
 {
@@ -239,6 +297,112 @@ public:
 
     void bindKnob (thcStage *stage, int paramIndex, thArg *knob);
 
+    /* ---- instruments ----
+     *
+     * The instruments the piece declares, in the order it declares them,
+     * each with the channel the loader allocated for it. Owned here for
+     * the reason the knobs are: they belong to the piece, and the piece
+     * is what clearChains takes away. */
+    size_t addInstrument (const thcInstrument &inst);
+
+    const std::vector<thcInstrument> &instruments (void) const
+    {
+        return instruments_;
+    }
+
+    const thcInstrument *instrument (const std::string &name) const;
+    thcInstrument       *instrument (size_t index);
+
+    /* Who turns a named .dsp into a sounding channel.
+     *
+     * The scheduler knows what the piece declared; how *this program*
+     * loads a patch is not its business and must not become its
+     * business. In the application an instrument has to appear on a
+     * patch tab, with a filename, a dirty flag and an arg panel behind
+     * it, and every bit of that lives in gthPatchManager where the
+     * composer host cannot see it. So the app installs a hook.
+     *
+     * The default below -- parse the graph, put it on the channel -- is
+     * not a fallback nobody runs. It is precisely what a headless
+     * harness wants, which is what makes the instrument path gateable
+     * at all rather than only reachable through the GUI. */
+    typedef std::function<bool (const thcInstrument &inst,
+                                std::string &why)> InstrumentLoader;
+
+    /* And the way back. A .gen that fails to load is documented to load
+       nothing, and until this existed that was true of the chains and
+       false of the channels: an instrument that came up before a later
+       one failed stayed up, on a tab, for a piece nobody was going to
+       hear. The host needs to hear about it for the same reason it
+       handles the load -- what has to be undone is a patch tab, not
+       just a graph. */
+    typedef std::function<bool (const thcInstrument &inst)>
+        InstrumentUnloader;
+
+    void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
+    void setInstrumentUnloader (const InstrumentUnloader &fn)
+    {
+        unloadDsp_ = fn;
+    }
+
+    /* Is this channel somebody else's?
+     *
+     * The loader allocates the lowest channel a `channel = N' sink has
+     * not claimed, which is the whole story in a harness and only half
+     * of it in the application: there, channel 1 may already hold a
+     * patch the person loaded by hand, or one their thinkrc loaded at
+     * startup, and taking it would replace their instrument with the
+     * piece's without asking. The host is the only thing that knows.
+     *
+     * "Somebody else's" and not merely "loaded", because the channels
+     * this piece is already on have to stay reusable -- an instrument
+     * that moved one to the right on every reload would be worse than
+     * the problem. The default is that nothing is anybody's, which is
+     * true of a harness and of a synth with an empty rack. */
+    typedef std::function<bool (int channel)> ChannelTaken;
+
+    void setChannelTaken (const ChannelTaken &fn) { taken_ = fn; }
+    bool channelTaken (int channel) const
+    {
+        return taken_ ? taken_(channel) : false;
+    }
+
+    /* Loads instrument `index' onto its channel and sets its values.
+       False with `why' saying what went wrong, which the .gen loader
+       turns into a load error against the instrument's line: a piece
+       whose instrument is missing will not play, and should say so
+       rather than open silent and let the person hunt for it.
+
+       All or nothing. A value can only be checked once its graph is on
+       the channel, so a refusal usually happens with the .dsp already
+       loaded -- and this takes it back rather than leaving the caller
+       to know which failures did and did not install something. The one
+       case it cannot keep that promise in is a command ring too full to
+       carry the removal, and then it says so in `why' rather than
+       claiming the channel is clear. */
+    bool applyInstrument (size_t index, std::string &why);
+
+    /* Takes instrument `index' back off its channel. Idempotent, and
+       harmless on one that never got there.
+
+       False when it could not be taken back -- the audio thread has to
+       be told to drop a channel and the command ring can be full. The
+       channel is then still loaded and still sounding, and the
+       instrument is remembered (see strandedCount) so the attempt can be
+       made again rather than the graph being abandoned. */
+    bool unapplyInstrument (size_t index);
+
+    /* How many instruments are waiting to be taken off a channel that
+       would not let go.
+     *
+     * A full command ring means the audio thread is not draining -- it
+     * is wedged, or there is no backend at all -- so the channel is
+     * still loaded and still sounding, and the piece it belonged to is
+     * already gone. Dropping the record would leave a graph nobody could
+     * name; this keeps it, and every tick of the transport tries again.
+     * Zero in every ordinary run. */
+    size_t strandedCount (void) const { return stranded_.size(); }
+
     size_t chainCount (void) const { return chains_.size(); }
     thcChain *chain (size_t i)
     {
@@ -315,6 +479,12 @@ public:
     sigc::signal<void (const thcEvent &)> sigDelivered;
     const std::vector<thcEvent> &peekPending (void) const;
 
+    /* Does the patch on `channel' declare this knob? What the .gen
+       loader asks about a sink bound to one of the piece's own
+       instruments, where the graph is known and a typo is therefore
+       catchable instead of silent at delivery time. */
+    bool chanArgExists (int channel, const std::string &name) const;
+
     /* The declared range of a patch chanarg, for anyone drawing its
        values honestly -- the roll's strip normalizes by this instead of
        assuming 0-1. False when the channel has no such arg or its range
@@ -332,6 +502,21 @@ public:
     sigc::signal<void ()> sigReset;
 
 private:
+    /* The values half of applyInstrument, on a channel whose graph is
+       already up. Split out so every refusal has one caller, and that
+       caller can take the graph back down. */
+    bool applyValues (const thcInstrument &inst, std::string &why);
+
+    /* The one way an instrument comes off a channel, so the first
+       attempt and every retry cannot drift apart. */
+    bool takeOff (const thcInstrument &inst);
+
+    /* One more go at the channels that would not let go. Called from
+       wherever the clock is driven -- the timer in the application,
+       stepTransport in a harness -- because that is the only thing that
+       reliably happens again after the ring was full. */
+    void retireStranded (void);
+
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride);
     void releaseHeld (int channel, int note);
@@ -355,6 +540,22 @@ private:
        plus the THC_NEVER rearm). Dropped in clearChains. */
     std::map<std::string, thArg *>  knobs_;
     std::vector<sigc::connection>   knobConns_;
+
+    /* The piece's instruments, and the host's way of loading one. A
+       vector rather than a map: declaration order is what the loader
+       allocates channels in, and what the editor draws. */
+    std::vector<thcInstrument> instruments_;
+    InstrumentLoader           loadDsp_;
+    InstrumentUnloader         unloadDsp_;
+    ChannelTaken               taken_;
+
+    /* Instruments whose channel would not go. Deliberately NOT cleared
+       by clearChains: they do not belong to the piece any more -- the
+       piece is gone and they are still sounding, which is precisely why
+       the record has to outlive it. The whole instrument rather than the
+       channel number, because retrying means calling the host's unloader
+       again and that takes one. */
+    std::vector<thcInstrument> stranded_;
 
     /* transport */
     bool     running_;

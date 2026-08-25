@@ -23,6 +23,7 @@
 #include <algorithm>
 
 #include "think.h"
+#include "thUnits.h"
 
 #include "thcPlugin.h"
 #include "thcScheduler.h"
@@ -211,6 +212,11 @@ thcScheduler::~thcScheduler (void)
     timer_.disconnect();
     flushNoteOffs();
     clearChains();
+
+    /* One last go, since after this there is nobody left to try. If the
+       ring is still full the graph outlives us, which is the honest
+       end of a synth whose audio thread stopped draining. */
+    retireStranded();
 }
 
 size_t
@@ -351,6 +357,13 @@ thcScheduler::clearChains (void)
          i != knobs_.end(); ++i)
         delete i->second;
     knobs_.clear();
+
+    /* The instrument table goes with the piece too. What is *loaded* on
+       those channels does not: a patch outlives the file that asked for
+       it, exactly as one loaded by hand outlives the window that loaded
+       it, and deciding when a channel should be given back is the
+       host's business rather than this table's. */
+    instruments_.clear();
 }
 
 thArg *
@@ -414,6 +427,335 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
         [store, paramIndex](thArg *) { store->notifyChanged(paramIndex); }));
 }
 
+/* ---- instruments ------------------------------------------------------- */
+
+/* What an arg is *folded* in, as opposed to what its author labelled it.
+ * `@x.units = "Hz"' is a word for the panel to print and nothing
+ * converts through it, so a bare number is the right and only way to
+ * write one. */
+static std::string
+foldUnitOf (const thArg *arg)
+{
+    if (arg == NULL || !thUnitIsFolded(arg->units()))
+        return std::string();
+
+    return arg->units();
+}
+
+size_t
+thcScheduler::addInstrument (const thcInstrument &inst)
+{
+    instruments_.push_back(inst);
+
+    return instruments_.size() - 1;
+}
+
+const thcInstrument *
+thcScheduler::instrument (const std::string &name) const
+{
+    for (size_t i = 0; i < instruments_.size(); i++)
+        if (instruments_[i].name == name)
+            return &instruments_[i];
+
+    return NULL;
+}
+
+thcInstrument *
+thcScheduler::instrument (size_t index)
+{
+    return index < instruments_.size() ? &instruments_[index] : NULL;
+}
+
+/* The values half of applyInstrument, on a channel whose graph is
+ * already up. Split out so that every way of refusing one has a single
+ * caller, and that caller can take the graph back down again. */
+bool
+thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
+{
+    for (size_t i = 0; i < inst.args.size(); i++)
+    {
+        const thcInstrumentArg &a = inst.args[i];
+        thArg *arg = synth_ != NULL
+            ? synth_->getChanArg(inst.channel, a.name) : NULL;
+
+        /* A .patch invents the arg instead, which it has to: patches
+           predate arg metadata and half the corpus sets things no graph
+           declares. A piece file has no such history, and an arg name
+           the graph does not know is a typo every time -- so it is said
+           rather than swallowed. The declared surface is the whole of
+           what a piece may reach; see COMPOSITION_HANDOFF.md section 9. */
+        if (arg == NULL)
+        {
+            why = "'" + inst.dsp + "' declares no chanarg called '" +
+                  a.name + "'";
+            return false;
+        }
+
+        const std::string declared = foldUnitOf(arg);
+
+        /* A unit the arg is not folded in cannot be folded into it, and
+           its absence is no better: `res = 50 ms' on a resonance that
+           runs 0 to 1 would become two thousand-odd samples of nothing,
+           and `a = 39690' on an envelope is a sample count nobody meant
+           to write. Same rule as a duration param in a stage, for the
+           same reason -- the unit decides what the number is, so its
+           absence decides nothing. */
+        if (a.units != declared)
+        {
+            if (a.units.empty())
+                /* Not "raw samples": that is what a bare number means on
+                   a `ms' arg and not on a `%' one, where it is a raw
+                   fraction of TH_MAX. The engine's own terms covers
+                   both, and is what the two folds have in common. */
+                why = "'" + a.name + "' is written in " + declared +
+                      "; write the unit, or the number is in the "
+                      "engine's own terms";
+            else if (declared.empty())
+                why = "'" + a.name + "' has no unit; '" + a.units +
+                      "' means nothing to it";
+            else
+                why = "'" + a.name + "' is written in " + declared +
+                      ", not " + a.units;
+
+            return false;
+        }
+
+        if (a.knob.empty())
+        {
+            arg->setValue((float)thFoldUnit(a.value, a.units,
+                                            synth_->getSampleRate()));
+            continue;
+        }
+
+        thArg *k = knob(a.knob);
+
+        if (k == NULL)
+        {
+            /* The loader checks this when it reads the line, so getting
+               here means the knob was declared and then went away --
+               which nothing does. Said rather than dereferenced. */
+            why = "'@" + a.knob + "' is not a declared knob";
+            return false;
+        }
+
+        /* Look the chanarg up by name on every move rather than
+           capturing the thArg the line above already has. A channel can
+           be replaced from under this binding -- the Patch Selector will
+           do it on request -- and the thArgs go with the thMidiChan that
+           owned them, so a captured pointer is a use-after-free waiting
+           for somebody to move a slider. A map lookup per knob move is
+           nothing; the knob is a human hand. */
+        const int         channel = inst.channel;
+        const std::string name    = a.name;
+        const std::string units   = a.units;
+
+        std::function<void (thArg *)> push =
+            [this, channel, name, units](thArg *from)
+            {
+                thArg *dest = synth_ != NULL
+                    ? synth_->getChanArg(channel, name) : NULL;
+
+                if (dest == NULL)
+                    return;
+
+                /* And it has to still be the arg this binding was
+                   checked against. Re-looking the name up stops the
+                   push from writing through a freed pointer; it does
+                   not stop it from writing into a *different* arg that
+                   happens to share the name, because a channel replaced
+                   from under the piece -- which the Patch Selector will
+                   do on request -- brings a whole new set of them.
+                   `r' folded from ms on one graph and `r' running 0 to
+                   1 on the next is a knob nudge writing 88200 into an
+                   arg whose top is 1.
+                 *
+                   So the fold is re-checked, and a binding whose target
+                   changed shape stops driving rather than driving
+                   wrongly. Silent, because the alternative is a line of
+                   stderr per pixel of a slider drag, and because the
+                   piece is about to be reloaded by whoever did this. */
+                if (foldUnitOf(dest) != units)
+                    return;
+
+                dest->setValue((float)thFoldUnit((*from)[0], units,
+                                                 synth_->getSampleRate()));
+            };
+
+        /* Where the knob is now, before anybody touches it: a piece must
+           sound like its file the moment it loads, not one knob-move
+           later. */
+        push(k);
+
+        /* knobConns_, so these die exactly when the knob-to-param
+           connections do -- in clearChains, before the knobs
+           themselves are deleted. */
+        knobConns_.push_back(k->signal_arg_changed().connect(push));
+    }
+
+    return true;
+}
+
+/* The graph, then the values on top of it -- which is what a .patch is,
+ * said in a language people write by hand.
+ *
+ * The split between the two halves is deliberate. Loading the graph is
+ * the host's, because in the application it is also a patch tab and an
+ * arg panel; setting the values is *not*, because what a value means --
+ * which arg it lands on, what its unit folds to, what happens when the
+ * patch has no such arg -- is a property of the .gen language and
+ * belongs where the rest of the language's semantics are. One copy,
+ * gated headlessly, whichever host is on the other end of the hook.
+ *
+ * All or nothing, though. A value can only be checked once its graph is
+ * on the channel -- which arg it lands on is a question about that graph
+ * -- so refusing an instrument for a chanarg its .dsp does not declare
+ * happens with the .dsp already loaded. Rolling that back *here* is what
+ * lets the caller's bookkeeping stay simple: this either applied or it
+ * did not, and there is no third state for anybody else to track. The
+ * caller that tried to track it got it wrong in both directions --
+ * leaving the failed graph up, and later taking down a patch a failed
+ * load had deliberately preserved.
+ */
+bool
+thcScheduler::applyInstrument (size_t index, std::string &why)
+{
+    if (index >= instruments_.size())
+    {
+        why = "no such instrument";
+        return false;
+    }
+
+    const thcInstrument &inst = instruments_[index];
+
+    if (inst.channel < 0)
+    {
+        why = "no channel was allocated for it";
+        return false;
+    }
+
+    if (loadDsp_)
+    {
+        /* Nothing was installed, so there is nothing to take back --
+           and taking something back here would be worse than doing
+           nothing: gthPatchManager::newPatch deliberately leaves the
+           previous patch alone when a load fails, and an unload on this
+           path would throw away the thing it just protected. */
+        if (!loadDsp_(inst, why))
+            return false;
+    }
+    else
+    {
+        /* No hook: the plain reading of what an instrument is. The name
+           is searched for the way a .patch's `dsp' line is searched for,
+           because a piece that only loaded from one directory would be a
+           piece you could not send anybody. */
+        const std::string path =
+            thUtil::findDataFile(inst.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        if (synth_ == NULL ||
+            synth_->loadTree((path.empty() ? inst.dsp : path).c_str(),
+                             inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
+        {
+            why = "'" + inst.dsp + "' did not load";
+            return false;
+        }
+    }
+
+    /* Where knobConns_ stands before this instrument wires anything up.
+     *
+     * A knob binding is connected as its value is read, so an instrument
+     * whose *third* value is refused has already wired its first two --
+     * and the graph is about to come off the channel underneath them.
+     * Connections into a channel that is no longer there would push into
+     * whatever gets loaded onto it next, which is the bug the fold
+     * re-check in the push exists for, arriving by a second door. So
+     * "all or nothing" has to cover the wiring as well as the graph. */
+    const size_t wired = knobConns_.size();
+
+    if (!applyValues(inst, why))
+    {
+        while (knobConns_.size() > wired)
+        {
+            knobConns_.back().disconnect();
+            knobConns_.pop_back();
+        }
+
+        /* The one way the promise above can fail to be kept: a full
+           command ring means the audio thread cannot be told to drop
+           the channel, so the graph stays up and sounding. Saying so is
+           better than a message that leaves somebody hunting for why a
+           refused instrument is audible -- and the host keeps the
+           channel on its own books either way, so the next load tries
+           again. */
+        if (!unapplyInstrument(index))
+            why += " (and its graph could not be taken off channel " +
+                   std::to_string(inst.channel + 1) + ")";
+
+        return false;
+    }
+
+    return true;
+}
+
+/* The one way an instrument comes off a channel, so the first attempt
+ * and every retry cannot drift apart. */
+bool
+thcScheduler::takeOff (const thcInstrument &inst)
+{
+    if (inst.channel < 0)
+        return true;                    /* never got there; nothing to do */
+
+    if (unloadDsp_)
+        return unloadDsp_(inst);
+
+    if (synth_ != NULL)
+        return synth_->removeChan(inst.channel);
+
+    return true;
+}
+
+bool
+thcScheduler::unapplyInstrument (size_t index)
+{
+    if (index >= instruments_.size())
+        return true;
+
+    const thcInstrument inst = instruments_[index];
+
+    if (takeOff(inst))
+        return true;
+
+    /* It would not go, so the graph is still on that channel and still
+     * sounding -- and the caller is about to throw the instrument table
+     * away, because a load that needs a rollback is a load that failed.
+     * Keeping a copy is the difference between a channel that gets
+     * cleaned up on the next tick and one nothing in the program can
+     * name.
+     *
+     * In the application the window keeps its own record too and would
+     * eventually notice; headless there is no window, which is where
+     * dropping this quietly would have cost most. */
+    for (size_t i = 0; i < stranded_.size(); i++)
+        if (stranded_[i].channel == inst.channel)
+            return false;               /* already waiting; not twice     */
+
+    stranded_.push_back(inst);
+
+    return false;
+}
+
+void
+thcScheduler::retireStranded (void)
+{
+    /* The ordinary case, and worth keeping free: nothing to do. */
+    if (stranded_.empty())
+        return;
+
+    for (size_t i = stranded_.size(); i > 0; i--)
+        if (takeOff(stranded_[i - 1]))
+            stranded_.erase(stranded_.begin() + (i - 1));
+}
+
 void
 thcScheduler::setMuted (size_t chain, bool muted)
 {
@@ -445,6 +787,11 @@ thcScheduler::timerCallback (void)
     else
         sendDueNoteOffs(transportNow_);   /* offs drain even when paused */
 
+    /* Here as well as in stepTransport, because a channel that would not
+       go is exactly as stuck on a paused transport as on a running one,
+       and this timer keeps firing either way. */
+    retireStranded();
+
     lastMono_ = mono;
 
     return true;
@@ -456,6 +803,11 @@ thcScheduler::timerCallback (void)
 void
 thcScheduler::stepTransport (double dt)
 {
+    /* Before the early return, so a harness -- which has no Glib timer
+       and reaches the scheduler only through here -- still gets the
+       retry it would otherwise never see. */
+    retireStranded();
+
     if (!running_ || dt < 0)
         return;
 
@@ -869,6 +1221,12 @@ thcScheduler::injectMidiEvent (const thcEvent &ev)
             injectingLive_ = false;
         }
     }
+}
+
+bool
+thcScheduler::chanArgExists (int channel, const std::string &name) const
+{
+    return synth_ != NULL && synth_->getChanArg(channel, name) != NULL;
 }
 
 bool

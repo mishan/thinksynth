@@ -34,6 +34,16 @@
 
 gthPatchManager *gthPatchManager::instance_ = NULL;
 
+/* Stamped on every PatchFile, never reused. See the field's comment for why
+   this exists rather than a filename comparison or a pointer. GUI thread
+   only, like everything else here. */
+static unsigned patchGeneration = 0;
+
+gthPatchManager::PatchFile::PatchFile (void)
+    : dirty(false), generation(++patchGeneration)
+{
+}
+
 gthPatchManager::gthPatchManager (int numPatches)
 {
     numPatches_ = numPatches;
@@ -113,13 +123,11 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
     thArg *amparg = NULL;
     bool r = true;
 
+    /* Read before the load, because loadTree is what replaces the channel
+       the value is being read off. Whether the old PatchFile survives is
+       decided below, after we know if there is a new one. */
     if (patches_[chan])
-    {
-        /* keep copy of amplitude */
         amparg = new thArg (synth->getChanArg(chan, "amp"));
-        delete patches_[chan];
-        patches_[chan] = NULL;
-    }
 
     /* Load the resolved path but remember the name as given, so a patch saved
        afterwards still carries the short name it came with. */
@@ -133,10 +141,19 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 
     if (mod == NULL)
     {
+        /* The old PatchFile used to be deleted before the load was
+           attempted, so a DSP that failed to parse left the channel still
+           playing the previous graph with nothing here describing it: no
+           tab contents, no filename, nothing able to unload it. loadTree
+           does not touch the channel unless it succeeds, so neither does
+           this -- the failure is now a failure to change anything. */
         r = false;
+        delete amparg;
     }
     else
     {
+        delete patches_[chan];
+
         patches_[chan] = new PatchFile;
         patches_[chan]->dspFile = dspName;
 
@@ -145,7 +162,7 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
         patches_[chan]->dirty = true;
 
         if (amparg != NULL)
-            synth->setChanArg(chan, amparg); 
+            synth->setChanArg(chan, amparg);
     }
 
     m_signal_patches_changed();
@@ -175,7 +192,16 @@ bool gthPatchManager::unloadPatch (int chan)
 
     thSynth *synth = thSynth::instance();
 
-    synth->removeChan(chan);
+    /* Only forget it if the audio thread was actually told to drop it. A
+       dropped command means the channel is still loaded and still sounding;
+       deleting the PatchFile anyway left the graph playing with isLoaded()
+       saying false, no tab contents naming it, and nothing able to unload it
+       on a second attempt -- and the next thing looking for a free channel
+       would take that one. removeChan says which happened, exactly so this
+       can agree with it. */
+    if (!synth->removeChan(chan))
+        return false;
+
     delete patches_[chan];
     patches_[chan] = NULL;
 

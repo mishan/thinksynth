@@ -180,7 +180,11 @@ noteListToString (const std::vector<int> &notes)
  *  - Punctuation .gen has no use for is refused here rather than carried
  *    into the parser to be rejected further from the cause, and with the
  *    wording the hand-written scanner used: a `+' in a .gen file is a
- *    stray character, not a missing rule.
+ *    stray character, not a missing rule. `%' is on the useful side of
+ *    that line, and only just: it is not arithmetic here, it is the
+ *    unit suffix an instrument value needs when the chanarg it lands on
+ *    was declared as a percentage. The parser refuses it everywhere
+ *    else.
  *
  * Every token still carries its byte span, and a STRING's span still
  * includes its quotes: thcGenEdit replaces spans, and what sits between
@@ -239,7 +243,7 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
         else if (t.text == "::")
             g.kind = Token::MODSEP;
         else if (t.text == ";" || t.text == "=" || t.text == "{" ||
-                 t.text == "}" || t.text == ".")
+                 t.text == "}" || t.text == "." || t.text == "%")
             g.kind = Token::PUNCT;
         else if (t.text == "-" && raw[i + 1].kind == thLexToken::NUMBER &&
                  raw[i + 1].off == t.end)
@@ -412,6 +416,11 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     errors_.clear();
     tokens_.clear();
     scales_.clear();
+    presets_.clear();
+    instruments_.clear();
+    instrumentLines_.clear();
+    claimedChannels_.clear();
+    pendingSinks_.clear();
     pos_ = 0;
     name_.clear();
     author_.clear();
@@ -429,15 +438,141 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
         if (!parseStatement(sched))
             skipStatement();
 
+    /* Channels, then the instruments themselves -- in that order and
+       both after the parse, because an instrument cannot know its
+       channel until every `channel = N' in the file has been read, and
+       cannot be loaded onto one until it has one. Neither runs if the
+       parse already failed: there is nothing to allocate for a file
+       that is not going to load, and loading a graph on the strength of
+       a piece with an error in it would put sound on a channel nobody
+       asked for. */
+    size_t applied = 0;
+
+    if (errors_.empty() && allocateChannels(sched))
+        while (applied < sched->instruments().size())
+        {
+            std::string why;
+
+            if (!sched->applyInstrument(applied, why))
+            {
+                error(applied < instrumentLines_.size()
+                      ? instrumentLines_[applied] : 0,
+                      "instrument '" + sched->instruments()[applied].name +
+                      "': " + why);
+
+                /* Stop at the first one. The file is not going to load
+                   now, and every instrument after this would be another
+                   graph put on another channel for a piece nobody is
+                   going to hear -- one wrong answer is easier to read
+                   than five, and cheaper to take back.
+                 *
+                   Nothing to undo for this one: applyInstrument is all
+                   or nothing, and a value refused after its graph was
+                   loaded takes that graph back itself. Which is why
+                   `applied' is an exact count of what is still up, and
+                   the rollback below can be the obvious loop rather than
+                   a loop plus a flag about the index it stopped on. */
+                break;
+            }
+
+            applied++;
+        }
+
+    if (errors_.empty())
+        checkSinkArgs(sched);
+
     if (!errors_.empty())
     {
-        /* A file with any error loads nothing. Half a piece that plays
-           is worse than a piece that says why it will not. */
+        /* A file with any error loads nothing.
+         *
+         * That was true of the chains from the first version of this
+         * loader and briefly false of the channels: an instrument that
+         * came up before a later one failed stayed up, silent, on a tab,
+         * for a piece nobody was going to hear. So the ones that made it
+         * are taken back before the chains are -- in reverse, which
+         * costs nothing and is the order anyone reading this expects.
+         *
+         * One of them can refuse to go: unapplyInstrument returns false
+         * when the audio thread could not be told, and then the graph is
+         * still on that channel and still sounding. Said rather than
+         * swallowed -- "the file loaded nothing" would be a lie, and the
+         * one place a person would look for the truth is the same list
+         * of errors that explains why the load failed at all. The
+         * scheduler keeps the instrument and retries on its own clock;
+         * this is only the telling. */
+        while (applied > 0)
+            if (!sched->unapplyInstrument(--applied))
+                error(applied < instrumentLines_.size()
+                      ? instrumentLines_[applied] : 0,
+                      "instrument '" + sched->instruments()[applied].name +
+                      "' is still on channel " +
+                      std::to_string(sched->instruments()[applied].channel + 1)
+                      + "; the audio thread could not be told to drop it, "
+                      "and it will be retried");
+
         sched->clearChains();
         return false;
     }
 
     return true;
+}
+
+/* A sink bound to an instrument names a knob on a graph this piece just
+ * loaded -- so unlike a `channel = N' sink, whose patch is somebody
+ * else's business and may not even be loaded yet, this one can be
+ * checked. And should be: the name is overwritten onto every event
+ * passing through, and a knob the graph does not declare means
+ * getChanArg returns NULL at delivery and the sink silently does
+ * nothing, forever, a long way from the typo. The same argument the sink
+ * parser already makes about `cut off' with a space in it, now that
+ * there is something to check the name against.
+ *
+ * `*' is exempt: it means the events name their own targets, which are
+ * a composer's business and not knowable here.
+ */
+void
+thcGenLoader::checkSinkArgs (thcScheduler *sched)
+{
+    for (size_t i = 0; i < pendingSinks_.size(); i++)
+    {
+        const PendingSink &p = pendingSinks_[i];
+        const thcInstrument *inst = sched->instrument(p.instrument);
+        thcChain *c = sched->chain(p.chain);
+
+        if (inst == NULL || c == NULL || p.sink >= c->sinks.size())
+            continue;
+
+        const thcSink &s = c->sinks[p.sink];
+
+        if (!s.isChanarg() || s.namesItsOwn())
+            continue;
+
+        if (!sched->chanArgExists(inst->channel, s.chanarg))
+        {
+            error(p.line, "instrument '" + p.instrument + "' is '" +
+                  inst->dsp + "', which declares no chanarg called '" +
+                  s.chanarg + "'");
+            continue;
+        }
+
+        /* Two things driving one knob, and one of them is a human hand.
+         *
+         * A knob binding is a push and so is a chanarg sink, so both
+         * writing the same arg is last-writer-wins -- which in practice
+         * means the walk wins, every time it fires, and the slider
+         * appears to do nothing a second after you let go of it. There
+         * is no reading of the file where that was the intention, and it
+         * is invisible from either end. If what was wanted is a starting
+         * point the walk moves away from, that is a plain number. */
+        for (size_t k = 0; k < inst->args.size(); k++)
+            if (inst->args[k].name == s.chanarg &&
+                !inst->args[k].knob.empty())
+                error(p.line, "'" + s.chanarg + "' on instrument '" +
+                      p.instrument + "' is already driven by '@" +
+                      inst->args[k].knob + "'; a sink and a knob would "
+                      "fight over it (write a plain number for a "
+                      "starting point)");
+    }
 }
 
 bool
@@ -533,6 +668,12 @@ thcGenLoader::parseStatement (thcScheduler *sched)
     {
         take();
         return parsePreset();
+    }
+
+    if (t.text == "instrument")
+    {
+        take();
+        return parseInstrument(sched);
     }
 
     if (t.text == "chain")
@@ -804,6 +945,216 @@ thcGenLoader::parsePreset (void)
     }
 
     presets_[nameTok.text] = vec;
+
+    return expectPunct(';');
+}
+
+/* `instrument pad { dsp "amb01.dsp"; a = 900 ms; fmin = 0.06; };'
+ *
+ * The block that makes a piece self-contained. Until this existed, a
+ * .gen named MIDI channels and left what was on them to whoever opened
+ * the file -- which is why every shipped piece carries a paragraph at
+ * the top saying what to go and load first, and why "open it and press
+ * play" was never true of any of them.
+ *
+ * The shape is a .patch said out loud: a graph, then the values that
+ * make it this instrument rather than that graph's defaults. Two things
+ * a .patch cannot do, and this can:
+ *
+ *  - The values carry units. A .patch stores every chanarg already
+ *    folded, which is how you end up with `a 39690' in a file people
+ *    are supposed to read. Here it is `a = 900 ms', and the fold
+ *    happens against the arg's own declared unit at the rate the synth
+ *    is running -- see thcScheduler::applyInstrument, which is also
+ *    where a unit that does not match the arg gets refused.
+ *  - It has a name, and a sink can bind to the name. That is the whole
+ *    point: routing stops being a number the author and the listener
+ *    have to agree about out of band.
+ *
+ *  - A value may be a knob. `fmin = @warmth;' is the same @warmth a
+ *    stage param binds to, reaching a composer and an instrument from
+ *    one slider -- UNIFICATION.md phase 2, and the reason this block
+ *    and the chains below it belong in one file at all. The binding
+ *    carries a unit exactly as a literal does, because the number in a
+ *    knob is exactly as unitless as the number in a file; what a unit
+ *    means is checked where the value lands, in
+ *    thcScheduler::applyInstrument.
+ *
+ * Not here: the graph written out inline instead of named. By reference
+ * alone delivers the self-contained file, which is what this block was
+ * for; inlining is the half that wants the grammar merge.
+ */
+bool
+thcGenLoader::parseInstrument (thcScheduler *sched)
+{
+    const Token &n = peek();
+
+    if (n.kind != Token::WORD)
+    {
+        error(n.line, "instrument wants a name");
+        return false;
+    }
+
+    Token nameTok = take();
+
+    if (instruments_.find(nameTok.text) != instruments_.end())
+    {
+        error(nameTok.line, "instrument '" + nameTok.text +
+              "' is already declared");
+        return false;
+    }
+
+    if (!expectPunct('{'))
+        return false;
+
+    thcInstrument inst;
+
+    inst.name = nameTok.text;
+
+    while (true)
+    {
+        const Token &t = peek();
+
+        if (t.kind == Token::PUNCT && t.text[0] == '}')
+        {
+            take();
+            break;
+        }
+
+        if (t.kind == Token::END)
+        {
+            error(t.line, "unterminated instrument '" + nameTok.text + "'");
+            return false;
+        }
+
+        if (t.kind != Token::WORD)
+        {
+            error(t.line, "instrument " + nameTok.text +
+                  ": expected 'dsp' or a chanarg name");
+            return false;
+        }
+
+        Token key = take();
+
+        /* `dsp' is a keyword inside this block rather than a chanarg
+           that happens to take a string. A graph called @dsp would be a
+           strange thing to declare and this would shadow it; naming the
+           graph is what an instrument is *for*, so it gets the word. */
+        if (key.text == "dsp")
+        {
+            if (!inst.dsp.empty())
+            {
+                error(key.line, "instrument " + nameTok.text +
+                      " names two dsp files");
+                return false;
+            }
+
+            const Token &v = peek();
+
+            if (v.kind != Token::STRING)
+            {
+                error(v.line, "instrument " + nameTok.text +
+                      ": dsp wants a quoted filename");
+                return false;
+            }
+
+            Token file = take();
+
+            if (file.text.empty())
+            {
+                error(file.line, "instrument " + nameTok.text +
+                      ": dsp wants a filename");
+                return false;
+            }
+
+            inst.dsp = file.text;
+
+            if (!expectPunct(';'))
+                return false;
+
+            continue;
+        }
+
+        for (size_t i = 0; i < inst.args.size(); i++)
+            if (inst.args[i].name == key.text)
+            {
+                error(key.line, "instrument " + nameTok.text + " sets '" +
+                      key.text + "' twice");
+                return false;
+            }
+
+        if (!expectPunct('='))
+            return false;
+
+        const Token &v = peek();
+
+        if (v.kind != Token::NUMBER && v.kind != Token::KNOB)
+        {
+            error(v.line, "instrument " + nameTok.text + ": '" + key.text +
+                  "' wants a number or a knob");
+            return false;
+        }
+
+        thcInstrumentArg a;
+        Token val = take();
+
+        a.name = key.text;
+
+        if (val.kind == Token::KNOB)
+        {
+            /* Declared first, like everywhere else a knob is named. */
+            if (sched->knob(val.text) == NULL)
+            {
+                error(val.line, "'@" + val.text + "' is not a declared knob");
+                return false;
+            }
+
+            a.knob  = val.text;
+            a.value = 0;
+        }
+        else
+            a.value = val.num;
+
+        /* The two units the language folds. `s' and `beats' are the
+           composer's units and mean nothing on this side of the
+           boundary: a chanarg is a number the audio thread reads, not a
+           duration the transport schedules. Which unit an arg wants is
+           the arg's own business and is checked when the value lands --
+           here we only record what was written.
+         *
+           A knob binding carries one for exactly the same reason a
+           literal does. The number a knob holds is as unitless as the
+           number in the file, so `a = @attack' with nothing after it
+           would be a slider quietly running in samples; the unit says
+           what the knob's numbers mean, and it is applied on every move
+           rather than once. */
+        if (peek().kind == Token::WORD && peek().text == "ms")
+            a.units = take().text;
+        else if (peek().kind == Token::PUNCT && peek().text[0] == '%')
+        {
+            take();
+            a.units = "%";
+        }
+
+        inst.args.push_back(a);
+
+        if (!expectPunct(';'))
+            return false;
+    }
+
+    if (inst.dsp.empty())
+    {
+        /* An instrument with values and no graph is half an edit. It
+           would allocate a channel, load nothing onto it, and then fail
+           to find every arg it names -- five confusing errors instead of
+           the one true one. */
+        error(nameTok.line, "instrument '" + nameTok.text +
+              "' names no dsp");
+        return false;
+    }
+
+    instruments_[nameTok.text] = sched->addInstrument(inst);
+    instrumentLines_.push_back(nameTok.line);
 
     return expectPunct(';');
 }
@@ -1316,6 +1667,8 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
     int channel = -1;
     std::string chanarg;
+    std::string instrument;
+    int instrumentLine = 0;
 
     while (true)
     {
@@ -1334,10 +1687,12 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
         }
 
         if (t.kind != Token::WORD ||
-            (t.text != "channel" && t.text != "chanarg"))
+            (t.text != "channel" && t.text != "chanarg" &&
+             t.text != "instrument"))
         {
-            error(t.line, "a sink says 'channel = N' and optionally "
-                  "'chanarg = \"name\"' or 'chanarg = \"*\"'");
+            error(t.line, "a sink says 'instrument = name' or "
+                  "'channel = N', and optionally 'chanarg = \"name\"' "
+                  "or 'chanarg = \"*\"'");
             return false;
         }
 
@@ -1346,7 +1701,30 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
         if (!expectPunct('='))
             return false;
 
-        if (key.text == "channel")
+        if (key.text == "instrument")
+        {
+            const Token &v = peek();
+
+            if (v.kind != Token::WORD)
+            {
+                error(v.line, "instrument wants the name of a declared "
+                      "instrument");
+                return false;
+            }
+
+            Token ref = take();
+
+            if (instruments_.find(ref.text) == instruments_.end())
+            {
+                error(ref.line, "no instrument called '" + ref.text +
+                      "' has been declared");
+                return false;
+            }
+
+            instrument = ref.text;
+            instrumentLine = ref.line;
+        }
+        else if (key.text == "channel")
         {
             const Token &v = peek();
 
@@ -1436,15 +1814,118 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
             return false;
     }
 
-    if (channel < 0)
+    if (!instrument.empty() && channel >= 0)
     {
-        /* -1 is "never set", which the range check above makes
-           unreachable any other way. */
-        error(peek().line, "sink has no channel");
+        /* The two spellings answer the same question, so a sink using
+           both is a sink whose author changed their mind halfway and
+           left the other half in. Guessing which half is current is not
+           this loader's job. */
+        error(instrumentLine, "sink names both an instrument and a "
+              "channel; it is one or the other");
         return false;
     }
 
-    sched->addSink(chain, channel, chanarg);
+    if (instrument.empty() && channel < 0)
+    {
+        /* -1 is "never set", which the range check above makes
+           unreachable any other way. */
+        error(peek().line, "sink has no instrument and no channel");
+        return false;
+    }
+
+    /* An instrument sink's channel is not known yet -- see
+       allocateChannels for why it cannot be. The sink goes in with a
+       number that could not be mistaken for a real one, and the second
+       pass fills it. */
+    sched->addSink(chain, instrument.empty() ? channel : -1, chanarg);
+
+    if (instrument.empty())
+        claimedChannels_.push_back(channel);
+    else
+    {
+        thcChain *c = sched->chain(chain);
+        PendingSink p;
+
+        p.chain      = chain;
+        p.sink       = c != NULL && !c->sinks.empty() ? c->sinks.size() - 1 : 0;
+        p.instrument = instrument;
+        p.line       = instrumentLine;
+
+        pendingSinks_.push_back(p);
+    }
 
     return expectPunct(';');
+}
+
+/* ---- channels ---------------------------------------------------------- */
+
+/* Every instrument gets a channel, and every sink that named one gets
+ * the number.
+ *
+ * Three facts decide the shape of this. An instrument's channel is an
+ * implementation detail the author never sees, so any assignment will do
+ * as long as it is the *same* one every time the file is read -- a piece
+ * whose instruments landed somewhere different on each load would break
+ * every patch tab, every saved mixer setting and the piano roll's
+ * per-channel colors, all at once. `channel = N' is still in the
+ * language for driving a patch this piece does not own, so a number a
+ * sink claimed outright must not be handed to an instrument underneath
+ * it. And a channel that already has somebody else's patch on it is not
+ * free either -- opening a piece must not quietly replace an instrument
+ * the person loaded by hand, which only the host can answer and which
+ * thcScheduler::channelTaken is how it does.
+ *
+ * Hence: lowest free channel, instruments in declaration order, claimed
+ * and occupied numbers skipped. Deterministic given the same rack, and
+ * it puts the first instrument on channel 1 where a person looking for
+ * it would look first.
+ */
+bool
+thcGenLoader::allocateChannels (thcScheduler *sched)
+{
+    bool taken[16];
+
+    for (int i = 0; i < 16; i++)
+        taken[i] = sched->channelTaken(i);
+
+    for (size_t i = 0; i < claimedChannels_.size(); i++)
+        if (claimedChannels_[i] >= 0 && claimedChannels_[i] < 16)
+            taken[claimedChannels_[i]] = true;
+
+    for (size_t i = 0; i < sched->instruments().size(); i++)
+    {
+        thcInstrument *inst = sched->instrument(i);
+        int at = -1;
+
+        for (int c = 0; c < 16 && at < 0; c++)
+            if (!taken[c])
+                at = c;
+
+        if (at < 0)
+        {
+            error(i < instrumentLines_.size() ? instrumentLines_[i] : 0,
+                  "there is no free channel left for instrument '" +
+                  inst->name + "'; sixteen is all there are");
+            return false;
+        }
+
+        taken[at] = true;
+        inst->channel = at;
+    }
+
+    for (size_t i = 0; i < pendingSinks_.size(); i++)
+    {
+        const PendingSink &p = pendingSinks_[i];
+        const thcInstrument *inst = sched->instrument(p.instrument);
+        thcChain *c = sched->chain(p.chain);
+
+        /* Both were checked when they were read; if either is gone now
+           the loader has a bug rather than the file having an error. */
+        if (inst == NULL || c == NULL || p.sink >= c->sinks.size())
+            continue;
+
+        c->sinks[p.sink].channel = inst->channel;
+    }
+
+    return true;
 }

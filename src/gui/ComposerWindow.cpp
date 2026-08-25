@@ -33,6 +33,7 @@
 #include "thcGenEdit.h"
 #include "PianoRoll.h"
 #include "Dialogs.h"
+#include "gthPatchfile.h"
 #include "gthSignal.h"
 #include "ComposerWindow.h"
 
@@ -147,6 +148,13 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     set_default_size(1060, 640);
 
     sched_ = new thcScheduler(synth_);
+    sched_->setInstrumentLoader(
+        [this](const thcInstrument &inst, std::string &why)
+        { return loadInstrument(inst, why); });
+    sched_->setInstrumentUnloader(
+        [this](const thcInstrument &inst) { return unloadInstrument(inst); });
+    sched_->setChannelTaken(
+        [this](int channel) { return channelTaken(channel); });
 
     loadComposers();
 
@@ -454,6 +462,208 @@ ComposerWindow::loadPiece (void)
     parseWork();
 }
 
+/* An instrument arriving on a channel, in the application's terms.
+ *
+ * gthPatchManager rather than thSynth::loadTree, because in this program
+ * a loaded graph is also a patch tab with a name on it, an arg panel,
+ * and a dirty flag that decides whether Save is worth pressing. A
+ * channel the composer filled behind the patch manager's back would
+ * show as empty in the main window while sound came out of it, which is
+ * the kind of disagreement that costs an afternoon.
+ *
+ * newPatch, not loadPatch: what the piece names is a .dsp, and the
+ * values on top of it are the piece's own -- so this is the Patch
+ * Selector's "new patch from this DSP" path, and the chanargs that
+ * follow are applied by the scheduler through the same call a slider
+ * makes. It marks the channel dirty, which is true: what is on it came
+ * from a .gen and there is no .patch holding it.
+ */
+/* Is this the same instrument, in every respect the file can state?
+ *
+ * Not just the same .dsp. applyInstrument only writes the values the
+ * block lists, so an instrument that keeps its graph and *drops* a line
+ * would otherwise keep the value that line used to set -- delete
+ * `a = 900 ms' from the pad and the attack stays at 900ms until the
+ * program is restarted, which is exactly the kind of stale number that
+ * costs an hour. Anything different about the declaration means rebuild.
+ */
+static bool
+sameInstrument (const thcInstrument &a, const thcInstrument &b)
+{
+    if (a.name != b.name || a.dsp != b.dsp || a.channel != b.channel ||
+        a.args.size() != b.args.size())
+        return false;
+
+    for (size_t i = 0; i < a.args.size(); i++)
+        if (a.args[i].name != b.args[i].name ||
+            a.args[i].value != b.args[i].value ||
+            a.args[i].units != b.args[i].units ||
+            a.args[i].knob != b.args[i].knob)
+            return false;
+
+    return true;
+}
+
+bool
+ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+
+    if (pm == NULL)
+    {
+        why = "there is nowhere to load it";
+        return false;
+    }
+
+    /* Already ours, still this graph, still declared the same way:
+     * leave it alone.
+     *
+     * Every structural edit reloads the piece, and reloading it used to
+     * mean newPatch on every instrument -- which drops the channel,
+     * re-parses the .dsp and swaps a new tree in. So renaming a knob's
+     * label cut every sounding voice on the pad. The values are written
+     * again either way (a structural reload rewinds to zero, so the
+     * file's numbers are the right ones to be at), but the graph does
+     * not have to be rebuilt for that. */
+    bool keep = stillOurs(inst.channel);
+
+    if (keep)
+    {
+        /* Ours, and still the same instrument the file declares. Any
+           difference at all -- a value changed, a line dropped -- means
+           rebuild, because applying an instrument only writes the values
+           its block lists and a dropped line would otherwise keep the
+           value it used to set. */
+        keep = false;
+
+        for (size_t i = 0; i < prevInstruments_.size(); i++)
+            if (sameInstrument(prevInstruments_[i], inst))
+                keep = true;
+    }
+
+    if (!keep && !pm->newPatch(inst.dsp, inst.channel))
+    {
+        why = "'" + inst.dsp + "' did not load";
+        return false;
+    }
+
+    gthPatchManager::PatchFile *have = pm->getPatch(inst.channel);
+    Owned o;
+
+    o.channel = inst.channel;
+    o.generation = have != NULL ? have->generation : 0;
+
+    ownedChannels_.push_back(o);
+
+    return true;
+}
+
+bool
+ComposerWindow::unloadInstrument (const thcInstrument &inst)
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+
+    /* Still ours if it would not go. unloadPatch fails when the audio
+       thread could not be told to drop the channel, and the channel is
+       then still loaded and still sounding -- so forgetting it here
+       would leave a graph playing that this window no longer believes
+       it owns and will never try to unload again. */
+    if (pm == NULL || !pm->unloadPatch(inst.channel))
+        return false;
+
+    for (size_t i = 0; i < ownedChannels_.size(); i++)
+        if (ownedChannels_[i].channel == inst.channel)
+        {
+            ownedChannels_.erase(ownedChannels_.begin() + i);
+            break;
+        }
+
+    return true;
+}
+
+bool
+ComposerWindow::stillOurs (int channel) const
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+    gthPatchManager::PatchFile *have =
+        pm != NULL ? pm->getPatch(channel) : NULL;
+
+    if (have == NULL)
+        return false;
+
+    for (size_t i = 0; i < prevOwned_.size(); i++)
+        if (prevOwned_[i].channel == channel &&
+            prevOwned_[i].generation == have->generation)
+            return true;
+
+    return false;
+}
+
+bool
+ComposerWindow::channelTaken (int channel)
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+
+    if (pm == NULL || !pm->isLoaded(channel))
+        return false;
+
+    /* Loaded by this piece a moment ago, and not touched since -- so it
+       is the piece's to have back, and the instrument that was on it
+       stays on it. Anything else on that channel is somebody's, and
+       taking it would replace an instrument they chose. */
+    return !stillOurs(channel);
+}
+
+/* Give back the channels this window filled for the piece that was open
+ * a moment ago and the new one no longer wants.
+ *
+ * A patch outlives the file that asked for it -- that is why the
+ * scheduler does not do this -- but a piece that drops an instrument and
+ * leaves its channel loaded leaves a patch tab nothing plays, and the
+ * next piece to allocate that number inherits somebody else's arg
+ * values. Only channels in ownedChannels_ are candidates, so a patch
+ * loaded by hand is never taken away.
+ */
+void
+ComposerWindow::releaseInstruments (void)
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+
+    if (pm != NULL)
+        for (size_t i = 0; i < prevOwned_.size(); i++)
+        {
+            const int channel = prevOwned_[i].channel;
+            bool wanted = false;
+
+            for (size_t k = 0; k < ownedChannels_.size(); k++)
+                if (ownedChannels_[k].channel == channel)
+                    wanted = true;
+
+            if (wanted)
+                continue;
+
+            /* Only if what is on it is still the exact patch this window
+               put there. Somebody who loaded their own onto one of the
+               piece's channels has made it theirs -- and their patch may
+               well be built on the same .dsp, which is why this is a
+               generation and not a filename. */
+            if (!stillOurs(channel))
+                continue;
+
+            /* And keep it if it would not go: a channel the audio thread
+               could not be told to drop is still loaded and still ours,
+               so it stays on the list for the next parse to try again
+               rather than becoming a graph nothing can reach. */
+            if (!pm->unloadPatch(channel))
+                ownedChannels_.push_back(prevOwned_[i]);
+        }
+
+    /* The parse is over; nothing may consult either again until the
+       next one sets them. */
+    prevOwned_.clear();
+    prevInstruments_.clear();
+}
+
 void
 ComposerWindow::parseWork (void)
 {
@@ -462,6 +672,15 @@ ComposerWindow::parseWork (void)
        a plugin pointer and a param index, and the next reload is where
        both stop meaning what they meant. */
     closeParams();
+
+    /* What the piece about to be replaced filled in. The loader refills
+       ownedChannels_ as it brings each instrument up, and consults
+       prevOwned_ on the way to decide which channels are free and which
+       instruments can stay where they are; releaseInstruments unloads
+       the difference and clears it again. */
+    prevOwned_.clear();
+    prevOwned_.swap(ownedChannels_);
+    prevInstruments_ = sched_->instruments();
 
     thcGenLoader loader(composers_);
 
@@ -492,6 +711,8 @@ ComposerWindow::parseWork (void)
             pieceLabel_ += buf;
         }
     }
+
+    releaseInstruments();
 
     std::string why;
 
@@ -1240,6 +1461,37 @@ ComposerWindow::buildKnobSelection (size_t ki)
                 found++;
             }
         }
+
+    /* And the other world. A knob may drive an instrument's chanarg as
+       well as a stage's param -- one knob, both sides of the boundary --
+       so a list of what it drives that stopped at the stages would be
+       telling half the truth about the piece.
+     *
+       No Unbind beside these, unlike the stage rows: undoing one means
+       editing the instrument block, and the instrument block has no
+       authoring surface yet. Better a row that says what is true than a
+       button that cannot do what it offers. */
+    for (size_t i = 0; i < sched_->instruments().size(); i++)
+    {
+        const thcInstrument &inst = sched_->instruments()[i];
+
+        for (size_t a = 0; a < inst.args.size(); a++)
+        {
+            if (inst.args[a].knob != name)
+                continue;
+
+            std::string what = inst.name + " . " + inst.args[a].name;
+
+            if (!inst.args[a].units.empty())
+                what += "  (" + inst.args[a].units + ")";
+
+            Gtk::Label *row = manage(new Gtk::Label(what));
+
+            row->set_xalign(0);
+            selBox_->append(*row);
+            found++;
+        }
+    }
 
     if (found == 0)
     {
@@ -2566,6 +2818,60 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
     selBox_->append(*rm);
 }
 
+/* What a sink plays, as a control.
+ *
+ * A piece that declares instruments should be steered by their names --
+ * that is the whole of what phase 1 bought -- but `channel = N' is still
+ * in the language for driving a patch the piece does not own, so the
+ * last entry is that. The spinner comes alive only for that entry: the
+ * channel behind an instrument is an allocation nobody chose, and
+ * showing an editable number for it would invite somebody to change it
+ * into a collision.
+ *
+ * A piece with no instruments gets the spinner it always had and no
+ * drop-down at all. One choice is not a choice.
+ */
+Gtk::DropDown *
+ComposerWindow::buildSinkTarget (Gtk::Box *row, Gtk::SpinButton *chan,
+                                 const std::string &selected,
+                                 std::vector<std::string> &targets)
+{
+    targets.clear();
+
+    if (doc_.instruments.empty())
+        return NULL;
+
+    std::vector<Glib::ustring> shown;
+
+    for (size_t i = 0; i < doc_.instruments.size(); i++)
+    {
+        shown.push_back(doc_.instruments[i].name);
+        targets.push_back(doc_.instruments[i].name);
+    }
+
+    shown.push_back("channel");
+    targets.push_back("");
+
+    Gtk::DropDown *tgt = manage(new Gtk::DropDown(shown));
+
+    tgt->set_tooltip_text("What this sink plays: one of the piece's own "
+                          "instruments, or a bare MIDI channel for a patch "
+                          "loaded from somewhere else");
+
+    guint at = (guint)(targets.size() - 1);
+
+    for (size_t i = 0; i + 1 < targets.size(); i++)
+        if (targets[i] == selected)
+            at = (guint)i;
+
+    tgt->set_selected(at);
+    chan->set_sensitive(targets[at].empty());
+
+    row->append(*tgt);
+
+    return tgt;
+}
+
 void
 ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
 {
@@ -2576,10 +2882,18 @@ ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
     selBox_->append(*manage(new Gtk::Label(chainName + " · sink")));
 
     Gtk::Box *row = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL, 6));
+
+    /* An instrument sink carries no channel of its own, and the spinner
+       has to start somewhere legal; 1 is what it offers if the target is
+       switched to a bare channel. */
     Gtk::SpinButton *chan = manage(new Gtk::SpinButton(
-        Gtk::Adjustment::create(chain.sinks[ki].channel, 1, 16, 1)));
+        Gtk::Adjustment::create(chain.sinks[ki].channel > 0
+                                ? chain.sinks[ki].channel : 1, 1, 16, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *rm = manage(new Gtk::Button("Remove"));
+    std::vector<std::string> targets;
+    Gtk::DropDown *tgt = buildSinkTarget(row, chan,
+                                         chain.sinks[ki].instrument, targets);
 
     chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
                            "the main window's patch tab");
@@ -2588,17 +2902,25 @@ ComposerWindow::buildSinkSelection (size_t ci, size_t ki)
     arg->set_max_width_chars(12);
     rm->set_sensitive(chain.sinks.size() > 1);
 
-    auto applySink = [this, chainName, sinkIndex, chan, arg]
+    auto applySink = [this, chainName, sinkIndex, chan, arg, tgt, targets]
     {
         std::string why;
+        std::string instrument;
+
+        if (tgt != NULL && tgt->get_selected() < targets.size())
+            instrument = targets[tgt->get_selected()];
 
         if (editOk(thcGenEdit::setSink(workPath_, chainName, sinkIndex,
-                chan->get_value_as_int(), arg->get_text(), why), why))
+                chan->get_value_as_int(), instrument, arg->get_text(), why),
+                why))
             structuralReload();
     };
 
     chan->signal_value_changed().connect(applySink);
     arg->signal_activate().connect(applySink);
+
+    if (tgt != NULL)
+        tgt->property_selected().signal_changed().connect(applySink);
 
     rm->signal_clicked().connect(
         [this, chainName, sinkIndex]
@@ -2682,6 +3004,15 @@ ComposerWindow::buildAddSink (size_t ci)
         Gtk::Adjustment::create(1, 1, 16, 1)));
     Gtk::Entry *arg = manage(new Gtk::Entry());
     Gtk::Button *add = manage(new Gtk::Button("Add sink"));
+    std::vector<std::string> targets;
+
+    /* No selection to preserve, so the first instrument is the offer --
+       which for a piece that carries its instruments is nearly always
+       the right one, and for a piece that does not is not offered. */
+    Gtk::DropDown *tgt = buildSinkTarget(row, chan,
+                                         doc_.instruments.empty()
+                                         ? std::string()
+                                         : doc_.instruments[0].name, targets);
 
     chan->set_tooltip_text("MIDI channel, 1-16 -- the number on "
                            "the main window's patch tab");
@@ -2689,14 +3020,28 @@ ComposerWindow::buildAddSink (size_t ci)
     arg->set_max_width_chars(12);
 
     add->signal_clicked().connect(
-        [this, chainName, chan, arg]
+        [this, chainName, chan, arg, tgt, targets]
         {
             std::string why;
+            std::string instrument;
+
+            if (tgt != NULL && tgt->get_selected() < targets.size())
+                instrument = targets[tgt->get_selected()];
 
             if (editOk(thcGenEdit::addSink(workPath_, chainName,
-                    chan->get_value_as_int(), arg->get_text(), why), why))
+                    chan->get_value_as_int(), instrument, arg->get_text(),
+                    why), why))
                 structuralReload();
         });
+
+    if (tgt != NULL)
+        tgt->property_selected().signal_changed().connect(
+            [chan, tgt, targets]
+            {
+                if (tgt->get_selected() < targets.size())
+                    chan->set_sensitive(
+                        targets[tgt->get_selected()].empty());
+            });
 
     row->append(*chan);
     row->append(*arg);
@@ -2729,12 +3074,24 @@ ComposerWindow::buildAddChain (void)
     Gtk::SpinButton *chanSel = manage(new Gtk::SpinButton(
         Gtk::Adjustment::create(1, 1, 16, 1)));
     Gtk::Button *addBtn = manage(new Gtk::Button("Add chain"));
+    std::vector<std::string> targets;
+
+    /* Same control the sink panels get, and here it earns its keep
+       twice over: instrument channels are allocated around the numbers
+       sinks claim, so a new chain written `channel = 1' into a piece
+       whose instrument sits there does not collide -- it moves the
+       instrument to another tab, which is not what anyone clicking
+       "Add chain" was asking for. */
+    Gtk::DropDown *tgt = buildSinkTarget(row, chanSel,
+                                         doc_.instruments.empty()
+                                         ? std::string()
+                                         : doc_.instruments[0].name, targets);
 
     chanSel->set_tooltip_text("MIDI channel, 1-16 -- the number on "
                               "the main window's patch tab");
 
     addBtn->signal_clicked().connect(
-        [this, nameEntry, genSel, chanSel, genNames]
+        [this, nameEntry, genSel, chanSel, tgt, genNames, targets]
         {
             if (genNames.empty())
                 return;
@@ -2746,13 +3103,26 @@ ComposerWindow::buildAddChain (void)
 
             thcPlugin *plugin = composers_[genNames[sel]];
             std::string why;
+            std::string instrument;
+
+            if (tgt != NULL && tgt->get_selected() < targets.size())
+                instrument = targets[tgt->get_selected()];
 
             if (editOk(thcGenEdit::addChain(workPath_,
                     nameEntry->get_text(), chanSel->get_value_as_int(),
-                    "src", "gen", plugin->name(),
+                    instrument, "src", "gen", plugin->name(),
                     defaultParams(plugin), why), why))
                 structuralReload();
         });
+
+    if (tgt != NULL)
+        tgt->property_selected().signal_changed().connect(
+            [chanSel, tgt, targets]
+            {
+                if (tgt->get_selected() < targets.size())
+                    chanSel->set_sensitive(
+                        targets[tgt->get_selected()].empty());
+            });
 
     row->append(*nameEntry);
     row->append(*genSel);

@@ -69,6 +69,36 @@ fail (const std::string &what)
     failures++;
 }
 
+/* The synth every check shares, and the one thing this harness has to do
+ * with it besides hand it to a scheduler: empty its command queue.
+ *
+ * Every delivered note posts a command for the audio thread, and nothing
+ * here is an audio thread -- so the ring filled after the first few
+ * thousand events and stayed full, printing "command queue full" for the
+ * rest of the run and dropping everything queued after it.
+ *
+ * That was noise while the only thing in the ring was notes nobody was
+ * listening to. It stopped being noise when a piece began carrying its
+ * own instruments: loading one queues a SET_CHANNEL, and a SET_CHANNEL
+ * dropped on the floor is loadTree returning NULL -- an instrument that
+ * fails to load because the *previous* check played too many notes,
+ * which is a beautifully confusing way to fail.
+ *
+ * Once per render and once before a load that might carry an instrument,
+ * not once per step. drainCommands empties the whole ring in one call,
+ * so a single window leaves it clean for whatever comes next. A window
+ * per step was tried first and is what a real audio thread does; it also
+ * turned a 0.07-second gate into a 28-second one, which is a fine way to
+ * teach people to stop running it. */
+static thSynth *tapeSynth = NULL;
+
+static void
+drainSynth (void)
+{
+    if (tapeSynth != NULL)
+        tapeSynth->process();
+}
+
 /* ---- 1. the pitch parser ---------------------------------------------- */
 
 static void
@@ -223,6 +253,11 @@ expectReject (const std::map<std::string, thcPlugin *> &plugins,
     thcScheduler sched(synth);
     thcGenLoader loader(plugins);
 
+    /* A file that declares an instrument queues a SET_CHANNEL, and a
+       full command ring would drop it -- so a rejection case would
+       "fail" on the wrong error. See drainSynth. */
+    drainSynth();
+
     if (loader.load(path, &sched))
         fail(std::string(label) + ": a file that should not load, loaded");
     else
@@ -353,6 +388,10 @@ render (thcScheduler &sched, double seconds, double step)
     sched.stop();
     conn.disconnect();
 
+    /* After stop(), so the note-offs it flushes are in the ring this
+       empties too. */
+    drainSynth();
+
     return tape;
 }
 
@@ -425,7 +464,7 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
         fail("no chanarg events in the stream -- the drift chain is not "
              "flowing");
 
-    if (first.find("cutoff") == std::string::npos)
+    if (first.find("fmin") == std::string::npos)
         fail("the chanarg sink's name never reached delivery");
 }
 
@@ -913,6 +952,36 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
         doc.chains[0].stages[0].params[1].valueText != "23.9 s")
         fail("describe did not keep the authored '23.9 s'");
 
+    /* The instrument block, and the sinks that bind to it by name. */
+    if (doc.instruments.size() != 1 || doc.instruments[0].name != "pad" ||
+        doc.instruments[0].dsp != "amb01.dsp")
+        fail("describe missed the pad instrument");
+    else
+    {
+        bool sawAttack = false;
+
+        for (size_t i = 0; i < doc.instruments[0].values.size(); i++)
+            if (doc.instruments[0].values[i].name == "a")
+            {
+                sawAttack = true;
+
+                /* Authored, not folded -- the same promise the stage
+                   params get, and the one that makes an instrument
+                   block readable at all. */
+                if (doc.instruments[0].values[i].valueText != "900 ms")
+                    fail("describe did not keep the authored '900 ms': " +
+                         doc.instruments[0].values[i].valueText);
+            }
+
+        if (!sawAttack)
+            fail("describe missed the pad's attack");
+    }
+
+    if (doc.chains[0].sinks.size() != 1 ||
+        doc.chains[0].sinks[0].instrument != "pad" ||
+        doc.chains[0].sinks[0].channel != 0)
+        fail("describe did not read the sink's instrument binding");
+
     /* An edit that changes nothing writes nothing. */
     std::string before = slurp(path);
 
@@ -1008,8 +1077,40 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
     params.push_back(std::make_pair(std::string("prob"),
                                     std::string("0.5")));
 
-    editOk(thcGenEdit::addChain(path, "pulse", 2, "src", "gen",
+    editOk(thcGenEdit::addChain(path, "pulse", 2, "", "src", "gen",
                                 "eno_line", params, why), why, "addChain");
+
+    /* And one whose sink binds to the piece's own instrument, which is
+       what a new chain in an instrument-carrying piece should do -- a
+       `channel = 1' here would take the pad's channel and move it.
+       Its own params, naming no scale, so that the reference count
+       removeScale checks below stays about the chain above. */
+    {
+        std::vector<std::pair<std::string, std::string> > bparams;
+
+        bparams.push_back(std::make_pair(std::string("notes"),
+                                         std::string("\"C4\"")));
+
+        editOk(thcGenEdit::addChain(path, "bound", 1, "pad", "src", "gen",
+                                    "eno_line", bparams, why), why,
+               "addChain onto an instrument");
+    }
+
+    {
+        thcGenEdit::Doc mid;
+
+        thcGenEdit::describe(path, mid, why);
+
+        const thcGenEdit::Chain *bound = NULL;
+
+        for (size_t i = 0; i < mid.chains.size(); i++)
+            if (mid.chains[i].name == "bound")
+                bound = &mid.chains[i];
+
+        if (bound == NULL || bound->sinks.size() != 1 ||
+            bound->sinks[0].instrument != "pad")
+            fail("addChain did not write the instrument it was given");
+    }
 
     std::vector<std::pair<std::string, std::string> > qparams;
 
@@ -1018,12 +1119,86 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
 
     editOk(thcGenEdit::addStage(path, "pulse", "q", "xform", "quantize",
                                 qparams, why), why, "addStage");
-    editOk(thcGenEdit::addSink(path, "pulse", 5, "cutoff", why), why,
+    editOk(thcGenEdit::addSink(path, "pulse", 5, "", "cutoff", why), why,
            "addSink");
-    editOk(thcGenEdit::setSink(path, "pulse", 1, 6, "", why), why,
+    editOk(thcGenEdit::setSink(path, "pulse", 1, 6, "", "", why), why,
            "setSink to note sink");
-    editOk(thcGenEdit::setSink(path, "pulse", 0, 2, "bright", why), why,
+    editOk(thcGenEdit::setSink(path, "pulse", 0, 2, "", "bright", why), why,
            "setSink add chanarg");
+
+    /* Off the piece's own instrument onto a bare channel and back --
+       the two spellings of a target, and the one edit that replaces a
+       statement rather than a value inside one. */
+    editOk(thcGenEdit::setSink(path, "loop_f3", 0, 9, "", "", why), why,
+           "setSink instrument -> channel");
+
+    {
+        thcGenEdit::Doc mid;
+
+        thcGenEdit::describe(path, mid, why);
+
+        if (mid.chains.empty() || mid.chains[0].sinks.empty() ||
+            !mid.chains[0].sinks[0].instrument.empty() ||
+            mid.chains[0].sinks[0].channel != 9)
+            fail("setSink left the instrument behind when it wrote a "
+                 "channel");
+    }
+
+    editOk(thcGenEdit::setSink(path, "loop_f3", 0, 9, "pad", "", why), why,
+           "setSink channel -> instrument");
+
+    {
+        thcGenEdit::Doc mid;
+
+        thcGenEdit::describe(path, mid, why);
+
+        if (mid.chains.empty() || mid.chains[0].sinks.empty() ||
+            mid.chains[0].sinks[0].instrument != "pad" ||
+            mid.chains[0].sinks[0].channel != 0)
+            fail("setSink left the channel behind when it wrote an "
+                 "instrument");
+    }
+
+    /* A sink cannot be pointed at an instrument nobody declared: every
+       state this editor writes has to load. */
+    if (thcGenEdit::setSink(path, "loop_f3", 0, 1, "ghost", "", why) ==
+        thcGenEdit::OK)
+        fail("a sink was pointed at an undeclared instrument");
+
+    /* Nor at one declared *below* it. The loader resolves names in file
+       order, so a chain above its instrument cannot name it -- and a
+       file is perfectly free to be written that way round. Checking
+       only that the name exists somewhere is how this wrote a file it
+       could not then load. Its own scratch, because the shape the bug
+       needs is not the shape the shipped piece has. */
+    {
+        std::string below = thUtil::tempFile("gencheck-below-");
+
+        if (below.empty())
+            fail("could not make a scratch file for the ordering check");
+        else
+        {
+            {
+                std::ofstream out(below.c_str(), std::ios::trunc);
+
+                out << "chain c { stage s gen::eno_line { };"
+                       " sink { channel = 9; }; };\n"
+                       "instrument late { dsp \"amb01.dsp\"; };\n";
+            }
+
+            std::string was = slurp(below);
+
+            if (thcGenEdit::setSink(below, "c", 0, 9, "late", "", why) ==
+                thcGenEdit::OK)
+                fail("a sink was pointed at an instrument declared below "
+                     "it, which is a file that will not load");
+
+            if (slurp(below) != was)
+                fail("the refused ordering edit wrote to the file anyway");
+
+            std::filesystem::remove(below);
+        }
+    }
     editOk(thcGenEdit::setChainInput(path, "pulse", true, why), why,
            "setChainInput on");
     editOk(thcGenEdit::setChainInput(path, "pulse", false, why), why,
@@ -1042,6 +1217,82 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
 
     if (rewritten != 1)
         fail("removeKnob did not rewrite the one binding to it");
+
+    /* A knob read from inside an instrument is a binding too, and a
+       removal that walked only the stages left a dangling `@name' and a
+       file that no longer loaded -- the exact failure the rewriting is
+       for, in the half of the language that grew after it. The unit
+       comes along, because a bare number on a folded chanarg is refused.
+       Its own scratch: the shipped piece has no such binding, which is
+       the point. */
+    {
+        std::string bound = thUtil::tempFile("gencheck-knobinst-");
+
+        if (bound.empty())
+            fail("could not make a scratch file for the knob removal");
+        else
+        {
+            {
+                std::ofstream out(bound.c_str(), std::ios::trunc);
+
+                out << "@tail = 1800;\n@tail.min = 200;\n@tail.max = 5000;\n"
+                       "instrument pad {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    r = @tail ms;\n"
+                       "    fmin = @tail;\n"
+                       "};\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = pad; }; };\n";
+            }
+
+            /* Before removing it: a sink cannot be pointed at an arg
+               that knob already drives, because the loader refuses that
+               and every state this editor writes has to load. Both
+               writers, since addSink and setSink share the check but
+               not the call site. */
+            if (thcGenEdit::addSink(bound, "c", 1, "pad", "fmin", why) ==
+                thcGenEdit::OK)
+                fail("addSink wrote a sink that fights a knob");
+
+            if (thcGenEdit::setSink(bound, "c", 0, 1, "pad", "r", why) ==
+                thcGenEdit::OK)
+                fail("setSink wrote a sink that fights a knob");
+
+            /* An arg the instrument leaves alone is still fair game. */
+            editOk(thcGenEdit::addSink(bound, "c", 1, "pad", "res", why),
+                   why, "addSink onto an arg no knob drives");
+
+            int n = 0;
+
+            editOk(thcGenEdit::removeKnob(bound, "tail", 1800, n, why), why,
+                   "removeKnob bound into an instrument");
+
+            if (n != 2)
+            {
+                std::ostringstream s;
+
+                s << "removeKnob rewrote " << n
+                  << " instrument bindings, not 2";
+                fail(s.str());
+            }
+
+            const std::string after = slurp(bound);
+
+            if (after.find("@tail") != std::string::npos)
+                fail("removeKnob left a dangling knob reference behind");
+
+            if (after.find("r = 1800 ms;") == std::string::npos)
+                fail("removeKnob dropped the unit off a binding it "
+                     "rewrote: " + after);
+
+            thcGenEdit::Doc back;
+
+            if (thcGenEdit::describe(bound, back, why) != thcGenEdit::OK)
+                fail("the file after removeKnob no longer reads");
+
+            std::filesystem::remove(bound);
+        }
+    }
 
     editOk(thcGenEdit::removeScale(path, "pent", rewritten, why), why,
            "removeScale");
@@ -1067,7 +1318,10 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
                              why) != thcGenEdit::UNWRITABLE)
         fail("a unit the lexer does not know was accepted");
 
-    if (thcGenEdit::addChain(path, "loop_f3", 0, "s", "gen", "eno_line",
+    /* A legal channel, so what this refuses is the duplicate name and
+       not the target -- the check used to pass channel 0 and was
+       answered by the range check before it ever reached the name. */
+    if (thcGenEdit::addChain(path, "loop_f3", 1, "", "s", "gen", "eno_line",
             std::vector<std::pair<std::string, std::string> >(), why) !=
         thcGenEdit::REFUSED)
         fail("a duplicate chain name was accepted");
@@ -1118,7 +1372,7 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
         mparams.push_back(std::make_pair(std::string("to"),
                                          std::string("dim")));
 
-        editOk(thcGenEdit::addChain(path, "sweep", 4, "m", "gen", "morph",
+        editOk(thcGenEdit::addChain(path, "sweep", 4, "", "m", "gen", "morph",
                                     mparams, why), why, "addChain morph");
 
         if (thcGenEdit::removePreset(path, "held", why) !=
@@ -2034,6 +2288,716 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
     std::filesystem::remove(tmp);
 }
 
+/* ---- 6d. instruments: a piece that carries what it is played on -------- */
+
+/* UNIFICATION.md phase 1. Four claims, each of which fails silently if
+ * nothing watches it:
+ *
+ * 1. The block parses and the graph actually arrives on a channel. This
+ *    is the one that needs a real thSynth with a real plugin path, which
+ *    is why main() builds one -- an instrument that "loaded" because
+ *    nothing tried is not a test.
+ * 2. Channels are allocated in declaration order, lowest free first,
+ *    around whatever `channel = N' claimed. That assignment is stable
+ *    across loads and a great deal keys off it.
+ * 3. Sinks bound by name get the number, so the events go somewhere.
+ * 4. The rejections, by name and line. The unit rules especially: a
+ *    chanarg written in the wrong unit is a value silently a thousand
+ *    times wrong, which is the failure this format exists to refuse.
+ */
+/* Every channel empty, and the queue that empties them drained.
+ *
+ * The checks below ask what is on a channel, and a scheduler going out
+ * of scope does not unload what its piece loaded -- a patch outlives the
+ * file that asked for it, deliberately. So the sub-tests would be
+ * answering with the previous one's leftovers. Nothing else in this
+ * harness cares, because the harness installs no channelTaken hook and
+ * allocation therefore ignores what is loaded. */
+static void
+clearChannels (thSynth *synth)
+{
+    for (int i = 0; i < TH_MIDI_CHANNELS; i++)
+        synth->removeChan(i);
+
+    drainSynth();
+}
+
+/* A scratch .dsp declaring `name' with no unit at all.
+ *
+ * amb01 is used throughout above because it is a real instrument with
+ * real chanargs; what it cannot be is a *second* graph declaring one of
+ * those names differently, and that shape is the one a knob binding has
+ * to survive being swapped onto. So it is written here, the way argtype
+ * writes the .dsp files whose cases the corpus cannot contain. Built
+ * from amb01 rather than from nothing, so it stays a graph that loads
+ * and sounds; only the one declaration is rewritten. Returns the path,
+ * or "" if it could not be written. */
+static std::string
+writeUnitlessArg (const std::string &name)
+{
+    const std::string src =
+        thUtil::findDataFile("amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    if (src.empty())
+        return "";
+
+    std::ifstream in(src.c_str());
+    std::string line, out;
+
+    if (!in)
+        return "";
+
+    /* `@r = 100 ms;' -> `@r = 0.5;', and the same for its .max, which
+       would otherwise put the unit back: a .dsp takes the unit from
+       whichever value site states one first. */
+    while (std::getline(in, line))
+    {
+        const std::string decl = "@" + name + " = ";
+        const std::string maxd = "@" + name + ".max = ";
+        size_t at = line.find(decl);
+
+        if (at != std::string::npos)
+            line = line.substr(0, at) + decl + "0.5;";
+        else if ((at = line.find(maxd)) != std::string::npos)
+            line = line.substr(0, at) + maxd + "1;";
+
+        out += line + "\n";
+    }
+
+    std::string path = thUtil::tempFile("gencheck-plain-");
+
+    if (path.empty())
+        return "";
+
+    {
+        std::ofstream o(path.c_str(), std::ios::trunc);
+
+        o << out;
+
+        if (!o.good())
+        {
+            std::filesystem::remove(path);
+            return "";
+        }
+    }
+
+    return path;
+}
+
+static void
+checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
+                  thSynth *synth)
+{
+    clearChannels(synth);
+
+    /* Two instruments and a sink that claimed a channel out from under
+       them: `pad' takes 1, `bell' skips the claimed 2 and takes 3. */
+    const std::string body =
+        "instrument pad {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    a = 900 ms;\n"
+        "    fmin = 0.2;\n"
+        "};\n"
+        "instrument bell {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    r = 40 ms;\n"
+        "};\n"
+        "chain other { stage s gen::eno_line { };"
+        " sink { channel = 2; }; };\n"
+        "chain a { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };\n"
+        "chain b { stage s gen::walk { };"
+        " sink { instrument = bell; chanarg = \"res\"; }; };\n";
+
+    std::string path = thUtil::tempFile("gencheck-instr-");
+
+    if (path.empty())
+    {
+        fail("could not make a scratch file for the instrument check");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a piece with instruments did not load");
+        }
+        else
+        {
+            if (sched.instruments().size() != 2)
+                fail("the instrument table is the wrong size");
+            else
+            {
+                /* Engine numbering here: file 1 and 3 are 0 and 2. */
+                if (sched.instruments()[0].channel != 0)
+                    fail("pad did not land on the first free channel");
+
+                if (sched.instruments()[1].channel != 2)
+                    fail("bell did not skip the channel a sink claimed");
+
+                thArg *a = synth->getChanArg(0, "a");
+                thArg *f = synth->getChanArg(0, "fmin");
+
+                if (a == NULL || f == NULL)
+                    fail("the instrument's graph did not reach its channel");
+                else
+                {
+                    /* 900 ms folded at the rate the synth was built
+                       with -- not the compile-time one, which is the
+                       bug thUnits exists to have fixed. */
+                    const float want =
+                        (float)(900.0 * synth->getSampleRate() / 1000.0);
+
+                    if (fabs((*a)[0] - want) > 1.0)
+                        fail("the attack was not folded through its unit");
+
+                    if (fabs((*f)[0] - 0.2) > 1e-5)
+                        fail("a unitless value did not arrive as written");
+                }
+            }
+
+            /* The sinks got the numbers behind the names. */
+            const thcChain *ca = sched.chain(1);
+            const thcChain *cb = sched.chain(2);
+
+            if (ca == NULL || ca->sinks.size() != 1 ||
+                ca->sinks[0].channel != 0)
+                fail("the sink bound to pad never got its channel");
+
+            if (cb == NULL || cb->sinks.size() != 1 ||
+                cb->sinks[0].channel != 2 || cb->sinks[0].chanarg != "res")
+                fail("the chanarg sink bound to bell never got its channel");
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    /* `%' folds too, and it is the half nothing else here touches --
+       every other instrument in this file is amb01, which declares no
+       percentages. A fraction of TH_MAX rather than a sample count,
+       which is exactly why the diagnostic for a *missing* unit cannot
+       talk about samples. */
+    {
+        std::string path = thUtil::tempFile("gencheck-instr-pct-");
+
+        if (path.empty())
+            fail("could not make a scratch file for the percent check");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "instrument fizz { dsp \"aspect2.dsp\"; os = 50%; };\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = fizz; }; };\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+
+            if (!loader.load(path, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("a percentage instrument value did not load");
+            }
+            else
+            {
+                thArg *os = synth->getChanArg(0, "os");
+
+                if (os == NULL)
+                    fail("the percentage instrument did not reach its "
+                         "channel");
+                else if (fabs((*os)[0] - TH_MAX / 2.0) > 1.0)
+                    fail("50% did not fold to half of TH_MAX");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
+    /* ---- knobs reaching into an instrument -------------------------- */
+
+    /* UNIFICATION.md phase 2, and the whole of it: one knob, both sides
+     * of the boundary. A stage param bound to a knob is *read* through
+     * it; a chanarg cannot be, because what reads a chanarg is the audio
+     * graph and the only value it will ever see is the one in its thArg.
+     * So this binding is a push, and the thing to hold down is that the
+     * push happens -- at load, and again on every move, through the
+     * unit the binding was written with. */
+    {
+        std::string path = thUtil::tempFile("gencheck-instr-knob-");
+
+        if (path.empty())
+            fail("could not make a scratch file for the knob-binding check");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "@warmth = 0.4;\n"
+                       "@warmth.min = 0;\n@warmth.max = 1;\n"
+                       "@tail = 1800;\n"
+                       "@tail.min = 200;\n@tail.max = 5000;\n"
+                       "instrument pad {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    fmin = @warmth;\n"
+                       "    r = @tail ms;\n"
+                       "};\n"
+                       "chain c { stage s gen::eno_line { prob = @warmth; };"
+                       " sink { instrument = pad; }; };\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+
+            if (!loader.load(path, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("a knob bound to an instrument chanarg did not load");
+            }
+            else
+            {
+                const long rate = synth->getSampleRate();
+                thArg *fmin = synth->getChanArg(0, "fmin");
+                thArg *r    = synth->getChanArg(0, "r");
+                thArg *warmth = sched.knob("warmth");
+                thArg *tail = sched.knob("tail");
+
+                if (fmin == NULL || r == NULL || warmth == NULL ||
+                    tail == NULL)
+                    fail("the knob-bound instrument did not arrive whole");
+                else
+                {
+                    /* Where the knob is, before anybody touches it: a
+                       piece has to sound like its file the moment it
+                       loads, not one knob-move later. */
+                    if (fabs((*fmin)[0] - 0.4) > 1e-5)
+                        fail("a knob-bound chanarg did not take the knob's "
+                             "value at load");
+
+                    if (fabs((*r)[0] - 1800.0 * rate / 1000.0) > 1.0)
+                        fail("a knob binding with a unit was not folded "
+                             "through it at load");
+
+                    /* And on every move. */
+                    warmth->setValue(0.8f);
+
+                    if (fabs((*fmin)[0] - 0.8) > 1e-5)
+                        fail("moving the knob did not move the chanarg");
+
+                    tail->setValue(600.0f);
+
+                    if (fabs((*r)[0] - 600.0 * rate / 1000.0) > 1.0)
+                        fail("moving a unit-carrying knob did not fold "
+                             "through the unit");
+
+                    /* The same knob, still driving the composer's side.
+                       That is the sentence phase 2 is about. */
+                    thcChain *c = sched.chain(0);
+
+                    if (c == NULL || c->stages.empty())
+                        fail("the chain did not survive");
+                    else
+                    {
+                        thcStage *st = c->stages[0].get();
+                        const int pi = st->plugin->paramIndex("prob");
+
+                        if (pi < 0 || fabs(st->params.get(pi) - 0.8) > 1e-5)
+                            fail("one knob did not reach both worlds");
+                    }
+
+                    /* And a channel replaced from under the binding.
+                     *
+                     * The push looks its target up by name every time,
+                     * which stops it writing through a freed pointer --
+                     * and does nothing at all about that name resolving
+                     * to a *different* arg. The Patch Selector replaces
+                     * a channel on request, so `r' folded from ms here
+                     * beside `r' running 0 to 1 on the next graph is a
+                     * knob nudge writing six figures into an arg whose
+                     * top is 1. Nothing in the corpus has that shape, so
+                     * the .dsp is written here, the way argtype writes
+                     * the ones it needs.
+                     *
+                     * Not hypothetical: without the fold re-check in the
+                     * push, `r' below lands at 176400. */
+                    const std::string plain = writeUnitlessArg("r");
+
+                    if (plain.empty())
+                        fail("could not write a scratch .dsp for the "
+                             "channel-replacement check");
+                    else
+                    {
+                        drainSynth();
+
+                        if (synth->loadTree(plain.c_str(), 0,
+                                            TH_DEFAULT_CHAN_AMP) == NULL)
+                            fail("the scratch .dsp did not load");
+                        else
+                        {
+                            drainSynth();
+
+                            thArg *now = synth->getChanArg(0, "r");
+
+                            if (now == NULL || !now->units().empty())
+                                fail("the scratch .dsp did not give 'r' a "
+                                     "different shape");
+                            else
+                            {
+                                const float was = (*now)[0];
+
+                                tail->setValue(4000.0f);
+
+                                if (fabs((*now)[0] - was) > 1e-5)
+                                    fail("a knob went on driving an arg "
+                                         "whose fold had changed under it");
+                            }
+                        }
+
+                        std::filesystem::remove(plain);
+                    }
+                }
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
+    /* ---- the rejections ---- */
+
+    expectReject(plugins, synth, "instr-no-dsp",
+        "instrument pad { fmin = 0.2; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "names no dsp");
+
+    expectReject(plugins, synth, "instr-missing-file",
+        "instrument pad { dsp \"no_such_graph.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "did not load");
+
+    expectReject(plugins, synth, "instr-twice",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "already declared");
+
+    expectReject(plugins, synth, "instr-unknown-arg",
+        "instrument pad { dsp \"amb01.dsp\"; frobnicate = 1; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "frobnicate");
+
+    /* The two halves of the unit rule. A duration written bare is a
+       sample count nobody meant; a unit on something that has none is
+       a fold that would land a thousand times off. */
+    expectReject(plugins, synth, "instr-bare-duration",
+        "instrument pad { dsp \"amb01.dsp\"; a = 900; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "written in ms");
+
+    /* The other fold, and the reason that message cannot say "samples":
+       a bare number on a percentage arg is a raw fraction of TH_MAX, not
+       a sample count. aspect2.dsp is the one graph in the corpus that
+       declares a chanarg in `%'. */
+    expectReject(plugins, synth, "instr-bare-percent",
+        "instrument fizz { dsp \"aspect2.dsp\"; os = 50; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = fizz; }; };",
+        "written in %");
+
+    expectReject(plugins, synth, "instr-spurious-unit",
+        "instrument pad { dsp \"amb01.dsp\"; fmin = 50 ms; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "means nothing to it");
+
+    /* A refused instrument leaves no wiring behind either.
+     *
+     * Bindings are connected as their values are read, so this one wires
+     * `fmin' up and is then refused for an arg amb01 does not declare.
+     * The graph comes off the channel; the connections have to go with
+     * it, or they push into whatever is loaded onto that channel next --
+     * the bug the fold re-check in the push exists for, arriving by a
+     * second door. Checked by putting a graph there afterwards and
+     * moving the knob, since a surviving connection still names
+     * channel 0. */
+    {
+        const std::string dsp = thUtil::findDataFile(
+            "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        thcScheduler sched(synth);
+        thcInstrument inst;
+        thcInstrumentArg a;
+
+        clearChannels(synth);
+
+        thArg *knob = sched.addKnob("warmth", 0.4f);
+
+        inst.name = "pad";
+        inst.dsp = "amb01.dsp";
+        inst.channel = 0;
+
+        a.name = "fmin";      a.value = 0; a.knob = "warmth";
+        inst.args.push_back(a);
+        a.name = "nosucharg"; a.value = 1; a.knob.clear();
+        inst.args.push_back(a);
+
+        sched.addInstrument(inst);
+
+        std::string why;
+
+        /* Driven through applyInstrument rather than through a .gen,
+           because the loader calls clearChains on a failed load and
+           that disconnects everything anyway -- which would make this
+           pass whether or not the contract holds. The contract is
+           stated on applyInstrument, so it is asked there. */
+        if (sched.applyInstrument(0, why))
+            fail("an instrument naming an arg its graph lacks applied "
+                 "anyway");
+
+        drainSynth();
+
+        if (dsp.empty() ||
+            synth->loadTree(dsp.c_str(), 0, TH_DEFAULT_CHAN_AMP) == NULL)
+            fail("could not put a graph back for the wiring check");
+        else
+        {
+            drainSynth();
+
+            thArg *fmin = synth->getChanArg(0, "fmin");
+
+            knob->setValue(0.9f);
+
+            if (fmin != NULL && fabs((*fmin)[0] - 0.9) < 1e-5)
+                fail("a refused instrument's knob binding survived and "
+                     "drove the next patch on its channel");
+        }
+    }
+
+    expectReject(plugins, synth, "instr-undeclared-knob",
+        "instrument pad { dsp \"amb01.dsp\"; fmin = @nope; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "@nope");
+
+    /* A knob binding obeys the unit rule a literal obeys, both ways
+       round. The number in a knob is as unitless as the number in a
+       file, so an envelope on a bare binding would be a slider running
+       in samples. */
+    expectReject(plugins, synth, "instr-knob-bare-duration",
+        "@attack = 500;\n"
+        "instrument pad { dsp \"amb01.dsp\"; a = @attack; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "written in ms");
+
+    expectReject(plugins, synth, "instr-knob-spurious-unit",
+        "@warmth = 0.5;\n"
+        "instrument pad { dsp \"amb01.dsp\"; fmin = @warmth ms; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; }; };",
+        "means nothing to it");
+
+    /* A knob and a sink over one arg are both pushes, so the walk wins
+       every time it fires and the slider looks dead a second after you
+       let go of it. Invisible from either end, and no reading of the
+       file where it was the intention. */
+    expectReject(plugins, synth, "knob-and-sink-fight",
+        "@warmth = 0.5;\n"
+        "instrument pad { dsp \"amb01.dsp\"; fmin = @warmth; };\n"
+        "chain c { stage s gen::walk { };"
+        " sink { instrument = pad; chanarg = \"fmin\"; }; };",
+        "would fight over it");
+
+    expectReject(plugins, synth, "sink-unknown-instrument",
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = ghost; }; };",
+        "ghost");
+
+    expectReject(plugins, synth, "sink-both-targets",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { instrument = pad; channel = 4; }; };",
+        "one or the other");
+
+    expectReject(plugins, synth, "sink-no-target",
+        "chain c { stage s gen::eno_line { }; sink { }; };",
+        "no instrument and no channel");
+
+    /* A sink bound to an instrument cannot name a knob that instrument
+       does not have. Unlike a `channel = N' sink, whose patch is
+       somebody else's business, this one is checkable -- and a sink
+       that is not checked delivers into getChanArg's NULL forever, in
+       silence, a long way from the typo. */
+    expectReject(plugins, synth, "sink-unknown-chanarg",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage s gen::walk { };"
+        " sink { instrument = pad; chanarg = \"nosuchknob\"; }; };",
+        "nosuchknob");
+
+    /* One bad instrument stops the rest, and takes back the one that
+       already made it.
+     *
+     * The file is not going to load once the first fails, so every
+     * instrument after it would be another graph put on another channel
+     * for a piece nobody is going to hear -- and the one before it is a
+     * graph on a channel for the same piece, which is the half of "a
+     * file with any error loads nothing" that used to be false. */
+    {
+        std::string path = thUtil::tempFile("gencheck-instr-stop-");
+
+        if (!path.empty())
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "instrument first { dsp \"amb01.dsp\"; };\n"
+                       "instrument bad { dsp \"amb01.dsp\";"
+                       " nosucharg = 1; };\n"
+                       "instrument after { dsp \"amb01.dsp\"; };\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = bad; }; };\n";
+            }
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            clearChannels(synth);
+
+            if (loader.load(path, &sched))
+                fail("an instrument naming an arg its graph does not "
+                     "declare loaded anyway");
+            else if (loader.errors().size() != 1)
+            {
+                std::ostringstream s;
+
+                s << "one bad instrument produced "
+                  << loader.errors().size() << " errors, not one";
+                fail(s.str());
+            }
+
+            /* `first' came up before `bad' failed, and must not still be
+               there. Drained first, because what unapplyInstrument does
+               is queue a command like everything else. */
+            drainSynth();
+
+            if (synth->getChanArg(0, "fmin") != NULL)
+                fail("a piece that failed to load left an instrument on a "
+                     "channel");
+
+            if (synth->getChanArg(2, "fmin") != NULL)
+                fail("the instruments after the failure were loaded too");
+
+            /* And `bad' itself, which is the one the first version of
+               this check quietly skipped. Its .dsp loads fine and it is
+               refused for an arg the graph does not declare -- so its
+               graph is on the channel at the moment it fails, and a
+               rollback that counted only successes walked straight past
+               it. applyInstrument takes it back itself now, which is
+               what makes the count above exact. */
+            if (synth->getChanArg(1, "fmin") != NULL)
+                fail("the instrument that failed was left on its channel");
+
+            std::filesystem::remove(path);
+        }
+    }
+
+    /* A channel that would not go.
+     *
+     * Taking an instrument off means telling the audio thread, and the
+     * command ring can be full -- it is wedged, or nothing is draining
+     * it, which is a harness's normal state. The graph is then still
+     * loaded and still sounding while the piece that asked for it is
+     * being thrown away, so the scheduler keeps the instrument and tries
+     * again on its own clock. Dropping the record instead would leave a
+     * graph nothing in the program could name, and headless there is no
+     * window keeping a second copy.
+     *
+     * Driven through apply/unapply rather than a .gen, because a ring
+     * full enough to block the unload blocks the *load* too and there
+     * would be nothing to strand. */
+    {
+        thcScheduler sched(synth);
+        thcInstrument inst;
+
+        clearChannels(synth);
+
+        inst.name = "pad";
+        inst.dsp = "amb01.dsp";
+        inst.channel = 0;
+
+        sched.addInstrument(inst);
+
+        std::string why;
+
+        if (!sched.applyInstrument(0, why))
+            fail("the stranding check could not get its instrument up: " +
+                 why);
+        else
+        {
+            drainSynth();
+
+            /* Fill the ring, without draining. TH_COMMAND_QUEUE_SIZE
+               notes would do it exactly; twice that is slack against the
+               size ever changing. */
+            for (int i = 0; i < TH_COMMAND_QUEUE_SIZE * 2; i++)
+                synth->addNote(0, 60, 100);
+
+            if (sched.unapplyInstrument(0))
+                fail("an unload succeeded with the command ring full");
+
+            if (sched.strandedCount() != 1)
+                fail("a channel that would not go was not remembered");
+
+            /* Asking twice must not remember it twice. */
+            sched.unapplyInstrument(0);
+
+            if (sched.strandedCount() != 1)
+                fail("the same stranded channel was recorded twice");
+
+            /* And the retry, on the clock the harness has. */
+            drainSynth();
+            sched.stepTransport(0.0);
+
+            if (sched.strandedCount() != 0)
+                fail("a stranded channel was never retried");
+
+            drainSynth();
+
+            if (synth->getChanArg(0, "fmin") != NULL)
+                fail("the retried channel is still loaded");
+        }
+    }
+}
+
 /* ---- 7. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
@@ -2171,7 +3135,13 @@ main (int argc, char *argv[])
         return 2;
     }
 
-    thSynth synth;
+    /* Built with the plugin path rather than bare, because a piece can
+       now carry its own instrument and "the instrument loaded" means a
+       .dsp parsed and dlopen'd its nodes. A synth with nowhere to find
+       them would make checkInstruments pass by failing to try. */
+    thSynth synth(pluginDir, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    tapeSynth = &synth;
 
     checkValidation(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
@@ -2181,6 +3151,7 @@ main (int argc, char *argv[])
     checkPresets(plugins, &synth);
     checkInput(plugins, &synth);
     checkTempoAndRevival(plugins, &synth);
+    checkInstruments(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

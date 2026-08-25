@@ -590,10 +590,10 @@ void thSynth::drainCommands (void)
         applyCommand(cmd);
 }
 
-void thSynth::removeChan (int channum)
+bool thSynth::removeChan (int channum)
 {
     if ((channum < 0) || (channum >= midiChannelCnt_))
-        return;
+        return false;
 
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
@@ -621,14 +621,22 @@ void thSynth::removeChan (int channum)
            the GUI believing the channel was gone while the callback carried on
            playing it -- and with the GUI's only reference dropped, nothing was
            ever going to free it. The bookkeeping below has to go the same way,
-           or the patch list and controller map disagree with reality. */
-        if (postCommand(cmd))
-        {
-            guiChannels_[channum] = NULL;
-            patchlist_[channum] = "";
-            controllerHandler_->clearByDestChan(channum);
-        }
+           or the patch list and controller map disagree with reality.
+         *
+           And so does the caller's, which is what the return value is for. A
+           gthPatchManager that deleted its PatchFile on a dropped command
+           would leave the graph sounding with isLoaded() saying false and the
+           only thing naming the channel already thrown away. */
+        if (!postCommand(cmd))
+            return false;
+
+        guiChannels_[channum] = NULL;
+        patchlist_[channum] = "";
+        controllerHandler_->clearByDestChan(channum);
     }
+
+    /* A channel with nothing on it is a channel successfully empty. */
+    return true;
 
 }
 

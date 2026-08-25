@@ -1,17 +1,18 @@
 # weather.gen -- nothing here plays a note on purpose.
 #
 # Four chains emit no pitches at all. They are random walks pointed at
-# knobs: the channel's own level swells and falls, and -- if the patch
-# declares them -- a filter opens and closes underneath on periods that
-# share no factor with it. What you hear is one small pad being
-# weathered.
+# knobs: the channel's own level swells and falls, and a filter opens and
+# closes underneath on periods that share no factor with it. What you
+# hear is one small pad being weathered. The pad is in this file, so
+# there is nothing to load first and no "if the patch declares them"
+# about any of it.
 #
 # This is the plainest form of what tide.gen and bloom.gen do with
 # presets. A walk emits a bare number and does not know or care which
 # knob it lands on; routing belongs to the piece, so the *sink* names the
-# target, and pointing a walk somewhere else is a one-word edit. Presets
-# exist for moving several knobs at once as a vector. A single knob wants
-# nothing more than this.
+# target -- an instrument and one of its chanargs -- and pointing a walk
+# somewhere else is a one-word edit. Presets exist for moving several
+# knobs at once as a vector. A single knob wants nothing more than this.
 #
 # READ THIS BEFORE POINTING A WALK AT SOMETHING NEW. A chanarg's range
 # belongs to the patch, not to the composer, and they do not all run 0 to
@@ -38,14 +39,40 @@
 # once. `swell' keeps its own step because its knob is in different
 # units, which is the same point again.
 #
+# ONE KNOB, BOTH WORLDS. `Breadth' is the piece's other argument. It
+# drives a stage param -- how often the top line speaks -- and two of the
+# pad's own chanargs, at the same time, from one slider. Until a piece
+# could carry its instrument there was no way to say that: knobs reached
+# composers and chanargs reached patches and the two namespaces never
+# met, so "more pad" had to be two sliders that you moved together and
+# hoped you had matched. It is one control now because it was always one
+# idea. `Tail' is the same door, walked through the other way: it sets
+# the pad's release and nothing else, so a knob need not be about the
+# notes at all.
+#
+# `r = @tail ms' -- a knob binding carries a unit exactly as a literal
+# does, and for the same reason. The number in a knob is as unitless as
+# the number in a file, and this slider read as raw samples would run
+# from four milliseconds to a hundred rather than from a fifth of a
+# second to five. The unit says what the knob's numbers mean, and it is
+# applied every time the knob moves.
+#
+# What a knob may NOT do is share an arg with a walk that names one. Both
+# are pushes, so both writing `fmin' would be last-writer-wins -- the
+# walk would win every time it fired and the slider would appear dead a
+# second after you let go. The loader refuses it and says so. That is why
+# Breadth is pointed at the mix rather than at the filter: the filter
+# here belongs to the walks, and this is what "belongs to" now means.
+# (A `chanarg = "*"' sink is the one that cannot be checked, since what
+# it writes is named by the events rather than by the file.)
+#
 # The seed is pinned, so the weather repeats. Unpin it for a different
 # afternoon each time.
 #
-# Channel 1 is the whole piece, and it works with any patch: `amp' is
-# always there. Load amb01.dsp on it as well and the three filter chains
-# come alive too -- res, fmin and fmax are its. A patch that declares
-# none of them simply ignores those three chains: the chanargs a patch
-# exposes are the whole of what a piece may reach.
+# The piece carries its own instrument, so there is nothing to set up --
+# amb01.dsp with a long envelope, on a channel the loader picks. The
+# walks reach res, fmin and fmax because amb01 declares them; the
+# chanargs a patch exposes are still the whole of what a piece may reach.
 
 name "Weather";
 author "Misha Nasledov";
@@ -59,7 +86,40 @@ seed 5090;
 @weather.max = 0.3;
 @weather.label = "Weather";
 
+@breadth = 0.6;
+@breadth.widget = 1;
+@breadth.min = 0.05;
+@breadth.max = 1;
+@breadth.label = "Breadth";
+
+@tail = 1800;
+@tail.widget = 1;
+@tail.min = 200;
+@tail.max = 5000;
+@tail.label = "Tail";
+@tail.units = "ms";
+
 scale dmin "D3 E3 F3 A3 C4 D4 E4 F4";
+
+# amb01, opened out into a pad. The three filter values are where the
+# walks below start from rather than where they stay; `r' and the two
+# mixes are knobs, and reach across from the composer's side of the file
+# into the instrument's.
+instrument pad {
+    dsp  "amb01.dsp";
+
+    a    = 350 ms;
+    d    = 900 ms;
+    s    = 0.85;
+    r    = @tail ms;
+
+    centermix = @breadth;
+    sidemix   = @breadth;
+
+    res  = 0.7;
+    fmin = 0.06;
+    fmax = 0.55;
+};
 
 # Dense enough to hear the weather happening to it. Three lines at
 # incommensurate periods, the way airports.gen builds a texture out of
@@ -72,7 +132,7 @@ chain pad_low {
         period = 3.1 s; jitter = 0.7 s;
         prob = 0.85; hold = 5 s; vel = 58; vel_jitter = 6;
     };
-    sink { channel = 1; };
+    sink { instrument = pad; };
 };
 
 chain pad_mid {
@@ -81,41 +141,47 @@ chain pad_mid {
         period = 2.3 s; jitter = 0.9 s;
         prob = 0.8; hold = 4 s; vel = 52; vel_jitter = 8;
     };
-    sink { channel = 1; };
+    sink { instrument = pad; };
 };
 
+# The top line is the one Breadth speaks through on the composer's side:
+# turn it up and this voice speaks more often while the pad widens
+# underneath it. Same slider, two worlds -- and the only reason `prob'
+# and `centermix' can share one is that this file now carries both.
 chain pad_high {
     stage src gen::eno_line {
         notes = "A4 C5 D5 F5";
         period = 4.7 s; jitter = 1.3 s;
-        prob = 0.6; hold = 6 s; vel = 44; vel_jitter = 6;
+        prob = @breadth; hold = 6 s; vel = 44; vel_jitter = 6;
     };
-    sink { channel = 1; };
+    sink { instrument = pad; };
 };
 
-# The one chain that works on any patch. 12 to 46 out of amp's 0 to 127,
-# so the swell is clearly audible and the channel never disappears; 30 is
-# where a freshly loaded patch sits, so this breathes around it. `step'
-# is in the same units -- 1.5 of 127 is a small move, where 1.5 of a
-# filter cutoff would be the whole range and back again.
+# The channel's own level. 12 to 46 out of amp's 0 to 127, so the swell
+# is clearly audible and the channel never disappears; 30 is where a
+# freshly loaded patch sits, so this breathes around it. `step' is in the
+# same units -- 1.5 of 127 is a small move, where 1.5 of a filter cutoff
+# would be the whole range and back again.
 chain swell {
     stage src gen::walk {
         min = 12; max = 46;
         step = 1.5;
         period = 7.3 s;
     };
-    sink { channel = 1; chanarg = "amp"; };
+    sink { instrument = pad; chanarg = "amp"; };
 };
 
-# The three below need a patch that declares res, fmin and fmax --
-# amb01.dsp does. On anything else they run, deliver, and are ignored.
+# The filter, in three parts, on periods that share no factor. These used
+# to be conditional on whoever opened the file having loaded the right
+# patch; the instrument block above is what turned "if the patch declares
+# them" into a fact about this piece.
 chain ceiling {
     stage src gen::walk {
         min = 0.25; max = 0.98;
         step = @weather;
         period = 11 s;
     };
-    sink { channel = 1; chanarg = "fmax"; };
+    sink { instrument = pad; chanarg = "fmax"; };
 };
 
 chain floor {
@@ -124,7 +190,7 @@ chain floor {
         step = @weather;
         period = 13.7 s;
     };
-    sink { channel = 1; chanarg = "fmin"; };
+    sink { instrument = pad; chanarg = "fmin"; };
 };
 
 chain ring {
@@ -133,5 +199,5 @@ chain ring {
         step = @weather;
         period = 17.9 s;
     };
-    sink { channel = 1; chanarg = "res"; };
+    sink { instrument = pad; chanarg = "res"; };
 };

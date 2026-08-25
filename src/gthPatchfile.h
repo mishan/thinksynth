@@ -90,6 +90,20 @@ public:
          * changed there is nothing to write, and a Save button that is always
          * live says nothing about whether it is worth pressing. */
         bool dirty;
+
+        /* Which load this is, counted once across the whole program.
+         *
+         * Identity, for anything that has to know whether the patch on a
+         * channel is still the one it put there. The filename cannot answer
+         * that: somebody who loads their own copy of amb01.dsp onto a channel
+         * a piece filled has still replaced it, and a composer comparing
+         * `dspFile' would decide the patch was its own and take it away from
+         * them. Nor can the PatchFile's address, which the allocator is free
+         * to hand out again the moment the old one is freed. A number that
+         * only ever goes up cannot be mistaken for a previous one. */
+        unsigned generation;
+
+        PatchFile (void);
     };
 
     PatchFile *getPatch (int chan)

@@ -158,12 +158,18 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # Its own harness rather than more EXTRA on that one: the two share no code
 # and a link chain that pulls the whole GUI into one binary makes a failure
 # harder to attribute, which is the reason the levels in dspstress exist too.
+#
+# gthPatchfile joins the list because a piece carries its own instruments now,
+# and the window brings one up the way the Patch Selector does. Linking it is
+# what makes that path real here rather than stubbed: the harness gets an
+# actual patch manager and the instrument actually lands on a tab.
 think_harness(composercheck COMPOSERHOST VISUALHOST
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp")
+                    "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 target_link_libraries(composercheck PRIVATE PkgConfig::GTKMM)
 
 # What a parameter *is*: the plugin's declaration, the pass that carries it to
@@ -279,9 +285,18 @@ add_test(NAME visualcheck
 
 # The .gen loader and the replay gate. Needs the composer plugins from the
 # build tree and the shipped piece; no display, no audio, no main loop.
+#
+# THINK_DSP_PATH because a piece now carries its own instruments and the
+# instrument check loads real graphs. Without it the only thing left pointing
+# at a corpus is the compiled-in DSP_PATH, which on a development machine is
+# answered by whatever was last installed to /usr/local -- the same way round
+# the configcheck registration got it wrong.
 add_test(NAME gencheck
          COMMAND gencheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+
+set_tests_properties(gencheck PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
@@ -301,6 +316,12 @@ add_test(NAME dspprobe
 add_test(NAME composercheck
          COMMAND composercheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/gen/airports.gen")
+
+# Same reason as gencheck: the window opens a piece that carries its own
+# instrument, and an instrument that cannot be found is a piece that does not
+# load.
+set_tests_properties(composercheck PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
 
 # Skips itself, loudly, where there is no display -- see the comment in
 # editorcheck.cpp. CI runs the whole suite under xvfb-run so that it does not.
@@ -323,8 +344,17 @@ set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
 # behaves the same on a developer's machine as it does on a runner -- a gate
 # that only passes in CI teaches people to stop running it locally. Only
 # under the address sanitizer, so an ordinary run carries none of it.
+#
+# APPEND, not a second set_tests_properties. ENVIRONMENT is one list property,
+# and setting it replaces whatever was there -- so this block used to delete
+# the THINK_DSP_PATH composercheck was given above, and only under the
+# sanitizer. The piece it opens carries its own instrument now, so the missing
+# path meant the .dsp did not resolve, the piece did not load, and seven checks
+# failed on the runner while every one of them passed locally. A gate that
+# disagrees with CI about what it is testing is worse than no gate.
 if(THINK_SANITIZE MATCHES "address")
-  set_tests_properties(composercheck editorcheck PROPERTIES
-      ENVIRONMENT
-      "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
+  foreach(_t composercheck editorcheck)
+    set_property(TEST ${_t} APPEND PROPERTY ENVIRONMENT
+        "LSAN_OPTIONS=suppressions=${PROJECT_SOURCE_DIR}/scripts/lsan.supp")
+  endforeach()
 endif()
