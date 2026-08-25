@@ -2547,6 +2547,73 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
             std::filesystem::remove(path);
         }
     }
+
+    /* A channel that would not go.
+     *
+     * Taking an instrument off means telling the audio thread, and the
+     * command ring can be full -- it is wedged, or nothing is draining
+     * it, which is a harness's normal state. The graph is then still
+     * loaded and still sounding while the piece that asked for it is
+     * being thrown away, so the scheduler keeps the instrument and tries
+     * again on its own clock. Dropping the record instead would leave a
+     * graph nothing in the program could name, and headless there is no
+     * window keeping a second copy.
+     *
+     * Driven through apply/unapply rather than a .gen, because a ring
+     * full enough to block the unload blocks the *load* too and there
+     * would be nothing to strand. */
+    {
+        thcScheduler sched(synth);
+        thcInstrument inst;
+
+        clearChannels(synth);
+
+        inst.name = "pad";
+        inst.dsp = "amb01.dsp";
+        inst.channel = 0;
+
+        sched.addInstrument(inst);
+
+        std::string why;
+
+        if (!sched.applyInstrument(0, why))
+            fail("the stranding check could not get its instrument up: " +
+                 why);
+        else
+        {
+            drainSynth();
+
+            /* Fill the ring, without draining. TH_COMMAND_QUEUE_SIZE
+               notes would do it exactly; twice that is slack against the
+               size ever changing. */
+            for (int i = 0; i < TH_COMMAND_QUEUE_SIZE * 2; i++)
+                synth->addNote(0, 60, 100);
+
+            if (sched.unapplyInstrument(0))
+                fail("an unload succeeded with the command ring full");
+
+            if (sched.strandedCount() != 1)
+                fail("a channel that would not go was not remembered");
+
+            /* Asking twice must not remember it twice. */
+            sched.unapplyInstrument(0);
+
+            if (sched.strandedCount() != 1)
+                fail("the same stranded channel was recorded twice");
+
+            /* And the retry, on the clock the harness has. */
+            drainSynth();
+            sched.stepTransport(0.0);
+
+            if (sched.strandedCount() != 0)
+                fail("a stranded channel was never retried");
+
+            drainSynth();
+
+            if (synth->getChanArg(0, "fmin") != NULL)
+                fail("the retried channel is still loaded");
+        }
+    }
 }
 
 /* ---- 7. every shipped piece still loads -------------------------------- */

@@ -490,9 +490,25 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
          * came up before a later one failed stayed up, silent, on a tab,
          * for a piece nobody was going to hear. So the ones that made it
          * are taken back before the chains are -- in reverse, which
-         * costs nothing and is the order anyone reading this expects. */
+         * costs nothing and is the order anyone reading this expects.
+         *
+         * One of them can refuse to go: unapplyInstrument returns false
+         * when the audio thread could not be told, and then the graph is
+         * still on that channel and still sounding. Said rather than
+         * swallowed -- "the file loaded nothing" would be a lie, and the
+         * one place a person would look for the truth is the same list
+         * of errors that explains why the load failed at all. The
+         * scheduler keeps the instrument and retries on its own clock;
+         * this is only the telling. */
         while (applied > 0)
-            sched->unapplyInstrument(--applied);
+            if (!sched->unapplyInstrument(--applied))
+                error(applied < instrumentLines_.size()
+                      ? instrumentLines_[applied] : 0,
+                      "instrument '" + sched->instruments()[applied].name +
+                      "' is still on channel " +
+                      std::to_string(sched->instruments()[applied].channel + 1)
+                      + "; the audio thread could not be told to drop it, "
+                      "and it will be retried");
 
         sched->clearChains();
         return false;

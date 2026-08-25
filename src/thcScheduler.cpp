@@ -212,6 +212,11 @@ thcScheduler::~thcScheduler (void)
     timer_.disconnect();
     flushNoteOffs();
     clearChains();
+
+    /* One last go, since after this there is nobody left to try. If the
+       ring is still full the graph outlives us, which is the honest
+       end of a synth whose audio thread stopped draining. */
+    retireStranded();
 }
 
 size_t
@@ -599,19 +604,63 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
     return true;
 }
 
+/* The one way an instrument comes off a channel, so the first attempt
+ * and every retry cannot drift apart. */
 bool
-thcScheduler::unapplyInstrument (size_t index)
+thcScheduler::takeOff (const thcInstrument &inst)
 {
-    if (index >= instruments_.size() || instruments_[index].channel < 0)
+    if (inst.channel < 0)
         return true;                    /* never got there; nothing to do */
 
     if (unloadDsp_)
-        return unloadDsp_(instruments_[index]);
+        return unloadDsp_(inst);
 
     if (synth_ != NULL)
-        return synth_->removeChan(instruments_[index].channel);
+        return synth_->removeChan(inst.channel);
 
     return true;
+}
+
+bool
+thcScheduler::unapplyInstrument (size_t index)
+{
+    if (index >= instruments_.size())
+        return true;
+
+    const thcInstrument inst = instruments_[index];
+
+    if (takeOff(inst))
+        return true;
+
+    /* It would not go, so the graph is still on that channel and still
+     * sounding -- and the caller is about to throw the instrument table
+     * away, because a load that needs a rollback is a load that failed.
+     * Keeping a copy is the difference between a channel that gets
+     * cleaned up on the next tick and one nothing in the program can
+     * name.
+     *
+     * In the application the window keeps its own record too and would
+     * eventually notice; headless there is no window, which is where
+     * dropping this quietly would have cost most. */
+    for (size_t i = 0; i < stranded_.size(); i++)
+        if (stranded_[i].channel == inst.channel)
+            return false;               /* already waiting; not twice     */
+
+    stranded_.push_back(inst);
+
+    return false;
+}
+
+void
+thcScheduler::retireStranded (void)
+{
+    /* The ordinary case, and worth keeping free: nothing to do. */
+    if (stranded_.empty())
+        return;
+
+    for (size_t i = stranded_.size(); i > 0; i--)
+        if (takeOff(stranded_[i - 1]))
+            stranded_.erase(stranded_.begin() + (i - 1));
 }
 
 void
@@ -645,6 +694,11 @@ thcScheduler::timerCallback (void)
     else
         sendDueNoteOffs(transportNow_);   /* offs drain even when paused */
 
+    /* Here as well as in stepTransport, because a channel that would not
+       go is exactly as stuck on a paused transport as on a running one,
+       and this timer keeps firing either way. */
+    retireStranded();
+
     lastMono_ = mono;
 
     return true;
@@ -656,6 +710,11 @@ thcScheduler::timerCallback (void)
 void
 thcScheduler::stepTransport (double dt)
 {
+    /* Before the early return, so a harness -- which has no Glib timer
+       and reaches the scheduler only through here -- still gets the
+       retry it would otherwise never see. */
+    retireStranded();
+
     if (!running_ || dt < 0)
         return;
 

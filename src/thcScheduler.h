@@ -371,9 +371,21 @@ public:
 
        False when it could not be taken back -- the audio thread has to
        be told to drop a channel and the command ring can be full. The
-       channel is then still loaded and still sounding, and the host
-       still owns it. */
+       channel is then still loaded and still sounding, and the
+       instrument is remembered (see strandedCount) so the attempt can be
+       made again rather than the graph being abandoned. */
     bool unapplyInstrument (size_t index);
+
+    /* How many instruments are waiting to be taken off a channel that
+       would not let go.
+     *
+     * A full command ring means the audio thread is not draining -- it
+     * is wedged, or there is no backend at all -- so the channel is
+     * still loaded and still sounding, and the piece it belonged to is
+     * already gone. Dropping the record would leave a graph nobody could
+     * name; this keeps it, and every tick of the transport tries again.
+     * Zero in every ordinary run. */
+    size_t strandedCount (void) const { return stranded_.size(); }
 
     size_t chainCount (void) const { return chains_.size(); }
     thcChain *chain (size_t i)
@@ -479,6 +491,16 @@ private:
        caller can take the graph back down. */
     bool applyValues (const thcInstrument &inst, std::string &why);
 
+    /* The one way an instrument comes off a channel, so the first
+       attempt and every retry cannot drift apart. */
+    bool takeOff (const thcInstrument &inst);
+
+    /* One more go at the channels that would not let go. Called from
+       wherever the clock is driven -- the timer in the application,
+       stepTransport in a harness -- because that is the only thing that
+       reliably happens again after the ring was full. */
+    void retireStranded (void);
+
     bool timerCallback (void);                   /* the ~20ms Glib tick  */
     void queuePending (const thcEvent &ev, const std::string *nameOverride);
     void releaseHeld (int channel, int note);
@@ -510,6 +532,14 @@ private:
     InstrumentLoader           loadDsp_;
     InstrumentUnloader         unloadDsp_;
     ChannelTaken               taken_;
+
+    /* Instruments whose channel would not go. Deliberately NOT cleared
+       by clearChains: they do not belong to the piece any more -- the
+       piece is gone and they are still sounding, which is precisely why
+       the record has to outlive it. The whole instrument rather than the
+       channel number, because retrying means calling the host's unloader
+       again and that takes one. */
+    std::vector<thcInstrument> stranded_;
 
     /* transport */
     bool     running_;

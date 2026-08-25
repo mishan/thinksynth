@@ -83,7 +83,15 @@ isn't self-contained."
 >   a later one failed stayed up, silent, on a tab, for a piece nobody
 >   was going to hear. So a failed load takes back every instrument it
 >   had applied, through an unload hook that is the mirror of the load
->   one and defaults to `removeChan` the same way.
+>   one and defaults to `removeChan` the same way. The one case where it
+>   cannot keep that promise is a command ring too full to carry the
+>   removal — the audio thread is wedged, or nothing is draining it —
+>   and then the graph is still sounding while the piece that asked for
+>   it is being thrown away. The scheduler keeps the instrument rather
+>   than the record dying with the table, retries on its own clock, and
+>   the loader says so among the errors instead of claiming the file
+>   loaded nothing. Headless is where that matters most: the application
+>   has a window keeping a second copy, and nothing else does.
 > - **The window gives channels back, and does not take ones that are
 >   not free.** `ComposerWindow` remembers which channels it filled for
 >   the piece that is open, so a piece that drops an instrument does not
