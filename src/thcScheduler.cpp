@@ -661,8 +661,25 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
         }
     }
 
+    /* Where knobConns_ stands before this instrument wires anything up.
+     *
+     * A knob binding is connected as its value is read, so an instrument
+     * whose *third* value is refused has already wired its first two --
+     * and the graph is about to come off the channel underneath them.
+     * Connections into a channel that is no longer there would push into
+     * whatever gets loaded onto it next, which is the bug the fold
+     * re-check in the push exists for, arriving by a second door. So
+     * "all or nothing" has to cover the wiring as well as the graph. */
+    const size_t wired = knobConns_.size();
+
     if (!applyValues(inst, why))
     {
+        while (knobConns_.size() > wired)
+        {
+            knobConns_.back().disconnect();
+            knobConns_.pop_back();
+        }
+
         /* The one way the promise above can fail to be kept: a full
            command ring means the audio thread cannot be told to drop
            the channel, so the graph stays up and sounding. Saying so is

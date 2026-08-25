@@ -2739,6 +2739,69 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
         " sink { instrument = pad; }; };",
         "means nothing to it");
 
+    /* A refused instrument leaves no wiring behind either.
+     *
+     * Bindings are connected as their values are read, so this one wires
+     * `fmin' up and is then refused for an arg amb01 does not declare.
+     * The graph comes off the channel; the connections have to go with
+     * it, or they push into whatever is loaded onto that channel next --
+     * the bug the fold re-check in the push exists for, arriving by a
+     * second door. Checked by putting a graph there afterwards and
+     * moving the knob, since a surviving connection still names
+     * channel 0. */
+    {
+        const std::string dsp = thUtil::findDataFile(
+            "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        thcScheduler sched(synth);
+        thcInstrument inst;
+        thcInstrumentArg a;
+
+        clearChannels(synth);
+
+        thArg *knob = sched.addKnob("warmth", 0.4f);
+
+        inst.name = "pad";
+        inst.dsp = "amb01.dsp";
+        inst.channel = 0;
+
+        a.name = "fmin";      a.value = 0; a.knob = "warmth";
+        inst.args.push_back(a);
+        a.name = "nosucharg"; a.value = 1; a.knob.clear();
+        inst.args.push_back(a);
+
+        sched.addInstrument(inst);
+
+        std::string why;
+
+        /* Driven through applyInstrument rather than through a .gen,
+           because the loader calls clearChains on a failed load and
+           that disconnects everything anyway -- which would make this
+           pass whether or not the contract holds. The contract is
+           stated on applyInstrument, so it is asked there. */
+        if (sched.applyInstrument(0, why))
+            fail("an instrument naming an arg its graph lacks applied "
+                 "anyway");
+
+        drainSynth();
+
+        if (dsp.empty() ||
+            synth->loadTree(dsp.c_str(), 0, TH_DEFAULT_CHAN_AMP) == NULL)
+            fail("could not put a graph back for the wiring check");
+        else
+        {
+            drainSynth();
+
+            thArg *fmin = synth->getChanArg(0, "fmin");
+
+            knob->setValue(0.9f);
+
+            if (fmin != NULL && fabs((*fmin)[0] - 0.9) < 1e-5)
+                fail("a refused instrument's knob binding survived and "
+                     "drove the next patch on its channel");
+        }
+    }
+
     expectReject(plugins, synth, "instr-undeclared-knob",
         "instrument pad { dsp \"amb01.dsp\"; fmin = @nope; };\n"
         "chain c { stage s gen::eno_line { };"
