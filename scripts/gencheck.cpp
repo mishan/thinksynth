@@ -59,6 +59,7 @@
 #include "thcScheduler.h"
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
+#include "thcNodeHost.h"
 
 static int failures = 0;
 
@@ -2998,6 +2999,345 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* ---- 6e. embedded nodes: dsp plugins as chain stages ------------------- */
+
+/* UNIFICATION.md phase 3. Four claims:
+ *
+ * 1. A node's output reaches a composer param, and moves it. The whole
+ *    deliverable is "an LFO breathing a chain's density", and a binding
+ *    that resolved but never changed anything would look identical from
+ *    outside.
+ * 2. It replays. Nodes step on transport time, so the same file and the
+ *    same seed deliver the same stream twice with a reset between --
+ *    which is the promise every composer already keeps and the reason a
+ *    node had to be as repeatable as one before it was let in.
+ * 3. The refusals: families that mean nothing one sample at a time, the
+ *    one plugin that cannot replay, and arrows pointing at nothing.
+ * 4. Pause freezes them, because transport time is what they read.
+ */
+static void
+checkNodes (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth, const std::string &genFile)
+{
+    const std::string breath =
+        (std::filesystem::path(genFile).parent_path() / "breath.gen").string();
+
+    if (!std::filesystem::exists(breath))
+    {
+        fail("breath.gen is not beside " + genFile + "; the node checks "
+             "have nothing to run");
+        return;
+    }
+
+    clearChannels(synth);
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(breath, &sched))
+    {
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+        fail("breath.gen does not load");
+        return;
+    }
+
+    /* The binding is live: the param a node drives has to *move*. Read
+       straight off the store, because that is where a composer reads it
+       and the arithmetic in between is the piece's business. */
+    thcChain *c = sched.chain(0);
+
+    if (c == NULL || c->stages.empty() || !c->nodes)
+        fail("breath.gen's first chain has no nodes in it");
+    else
+    {
+        thcStage *src = c->stages.back().get();
+        const int pi = src->plugin->paramIndex("prob");
+
+        if (pi < 0)
+            fail("the node-driven stage has no prob param");
+        else
+        {
+            double lo = 2, hi = -1;
+
+            sched.start();
+
+            for (int i = 0; i < 1200; i++)      /* twenty-four seconds  */
+            {
+                sched.stepTransport(0.02);
+
+                const double v = src->params.get(pi);
+
+                lo = v < lo ? v : lo;
+                hi = v > hi ? v : hi;
+            }
+
+            sched.stop();
+
+            /* The piece asks for 0.5 +- 0.45 over a twenty-second
+               cycle, so a full swing is most of 0.05..0.95. Loose
+               bounds: what is being asked is "did the LFO drive it",
+               not "is osc::simple accurate", which hostcheck owns. */
+            if (hi - lo < 0.5)
+            {
+                std::ostringstream s;
+
+                s << "the LFO did not breathe the density: prob stayed "
+                  << "between " << lo << " and " << hi;
+                fail(s.str());
+            }
+
+            /* And it is the *node* doing it, not a stored value that
+               happens to vary: nothing else in that chain touches
+               prob. */
+            if (src->params.nodeBinding(pi) == NULL)
+                fail("prob is not bound to a node at all");
+        }
+    }
+
+    drainSynth();
+
+    /* Replay. Same shape as the gate airports.gen passes, pointed at
+       the piece whose values come out of a second interpreter. */
+    {
+        thcScheduler a(synth);
+        thcGenLoader la(plugins);
+
+        clearChannels(synth);
+
+        if (!la.load(breath, &a))
+            fail("breath.gen did not load for the replay check");
+        else
+        {
+            const std::string first = render(a, 90.0, 0.02);
+
+            a.reset();
+
+            const std::string second = render(a, 90.0, 0.02);
+
+            if (first.empty())
+                fail("breath.gen delivered nothing at all");
+            else if (first != second)
+            {
+                fail("a piece with dsp nodes in it did not replay");
+
+                size_t n = 0;
+
+                while (n < first.size() && n < second.size() &&
+                       first[n] == second[n])
+                    n++;
+
+                size_t line0 = first.rfind('\n', n);
+
+                line0 = line0 == std::string::npos ? 0 : line0 + 1;
+
+                fprintf(stderr, "  first : %.60s\n", first.c_str() + line0);
+                fprintf(stderr, "  second: %.60s\n", second.c_str() + line0);
+            }
+        }
+    }
+
+    drainSynth();
+
+    /* Pause freezes them. The nodes read transport time, and a stopped
+       transport does not advance -- so the value a param sees must be
+       the same before and after a stretch of wall clock spent stopped.
+       Stepping a stopped scheduler is exactly what the app's timer does
+       while paused. */
+    {
+        thcScheduler p(synth);
+        thcGenLoader lp(plugins);
+
+        clearChannels(synth);
+
+        if (lp.load(breath, &p))
+        {
+            thcChain *pc = p.chain(0);
+            thcStage *src = pc != NULL && !pc->stages.empty()
+                ? pc->stages.back().get() : NULL;
+            const int pi = src != NULL
+                ? src->plugin->paramIndex("prob") : -1;
+
+            if (src != NULL && pi >= 0)
+            {
+                p.start();
+
+                for (int i = 0; i < 150; i++)
+                    p.stepTransport(0.02);
+
+                p.stop();
+
+                const double held = src->params.get(pi);
+
+                for (int i = 0; i < 500; i++)
+                    p.stepTransport(0.02);
+
+                if (src->params.get(pi) != held)
+                    fail("a paused transport did not freeze the nodes");
+            }
+        }
+    }
+
+    drainSynth();
+
+    /* A pure function of transport time, and nothing else.
+     *
+     * The replay above is necessary and not sufficient: the harness
+     * drives both renders with the same call pattern, so a host firing
+     * one window per *call* rather than per fiftieth of a second would
+     * replay perfectly and still be wrong -- wrong in the way that
+     * matters, since the application's dt jitters with the frame and a
+     * piece would breathe at whatever rate the machine felt like. That
+     * mistake was made while writing this, and the replay gate did not
+     * notice.
+     *
+     * So it is asked directly, which is the only place the question is
+     * separable from what the composers around it are doing: one graph,
+     * one span of transport, reached in a hundred and fifty steps and in
+     * a single jump. Same answer, or the clock is not the clock. Three
+     * seconds because that is inside the catch-up guard -- a longer jump
+     * is deliberately allowed to skip, the way a pause is.
+     */
+    {
+        /* The host's own control-rate synth, made here the way the
+           scheduler makes one: a rate and a plugin manager. */
+        thSynth control(synth->getPluginManager()->pluginPath(), 1, 50);
+        thcNodeHost a(&control, 50);
+        thcNodeHost b(&control, 50);
+        std::string why;
+        bool built = true;
+
+        for (int which = 0; which < 2; which++)
+        {
+            thcNodeHost &h = which == 0 ? a : b;
+
+            built = built && h.addNode("lfo", "osc/simple", why);
+            h.setValue("lfo", "freq", 0.37, why);
+            h.setValue("lfo", "waveform", 0, why);
+            h.setValue("lfo", "amp", 1, why);
+            built = built && h.build(why);
+        }
+
+        if (!built)
+            fail("the clock check could not build its graph: " + why);
+        else
+        {
+            thArg *ao = a.output("lfo", "out", why);
+            thArg *bo = b.output("lfo", "out", why);
+
+            for (int i = 0; i < 150; i++)
+                a.stepTo((i + 1) * 0.02);
+
+            b.stepTo(3.0);
+
+            if (ao == NULL || bo == NULL)
+                fail("the clock check lost its outputs: " + why);
+            else if ((*ao)[0] != (*bo)[0])
+            {
+                std::ostringstream s;
+
+                s << "a node's value depends on how the transport was "
+                  << "reached rather than on where it got to: stepped "
+                  << (*ao)[0] << ", jumped " << (*bo)[0];
+                fail(s.str());
+            }
+            else if ((*ao)[0] == 0)
+                fail("the clock check watched a signal that never moved");
+        }
+    }
+
+    /* ---- the refusals ---- */
+
+    expectReject(plugins, synth, "node-bad-family",
+        "chain c { stage d dist::clip { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "not a family that means anything at control rate");
+
+    expectReject(plugins, synth, "node-samples-family",
+        "chain c { stage e delay::echo { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "counts in samples");
+
+    expectReject(plugins, synth, "node-not-replayable",
+        "chain c { stage n osc::static { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "would not replay");
+
+    expectReject(plugins, synth, "node-no-such-module",
+        "chain c { stage n osc::nosuchosc { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "nosuchosc");
+
+    /* An arrow to a node nobody declared, and to an arg it does not
+       have. Both are the composer-side spelling, which is where a
+       reader is most likely to get it wrong. */
+    expectReject(plugins, synth, "arrow-no-node",
+        "chain c { stage s gen::eno_line { prob = ghost->out; };"
+        " sink { channel = 1; }; };",
+        "no dsp stages");
+
+    expectReject(plugins, synth, "arrow-no-arg",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { prob = lfo->nosucharg; };"
+        " sink { channel = 1; }; };",
+        "nosucharg");
+
+    /* An arg the module does not declare. thNode::setArg invents one,
+       which is right for a .dsp and silent here: `frq' for `freq' gave
+       an oscillator running at zero and a piece that simply did not
+       breathe, with no error anywhere. */
+    expectReject(plugins, synth, "node-bad-arg",
+        "chain c { stage lfo osc::simple { frq = 0.05; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "no arg called 'frq'");
+
+    /* Both ends of a wire, not just the near one. setPointers would
+       otherwise create the missing far arg as a permanent zero. */
+    expectReject(plugins, synth, "wire-bad-far-arg",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage m math::mul { in0 = lfo->nosuch; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "no arg called 'nosuch'");
+
+    /* A module's own scratch is not a port. */
+    expectReject(plugins, synth, "node-state-arg",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { prob = lfo->last; };"
+        " sink { channel = 1; }; };",
+        "own scratch");
+
+    /* Nor is an input something to read out of. */
+    expectReject(plugins, synth, "arrow-at-an-input",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { prob = lfo->freq; };"
+        " sink { channel = 1; }; };",
+        "is an input, not an output");
+
+    /* The name this host gives the node it invents. */
+    expectReject(plugins, synth, "node-called-ionode",
+        "chain c { stage ionode osc::simple { freq = 1; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "call it something else");
+
+    /* And a wire between nodes pointing at nothing, which is the same
+       mistake one level down. */
+    expectReject(plugins, synth, "wire-no-node",
+        "chain c { stage m math::mul { in0 = ghost->out; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "there is no node called 'ghost'");
+
+    /* A node cannot drive something that is not a number, for the same
+       reason a knob cannot. */
+    expectReject(plugins, synth, "arrow-on-noteset",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { notes = lfo->out; };"
+        " sink { channel = 1; }; };",
+        "a node cannot drive it");
+
+    clearChannels(synth);
+}
+
 /* ---- 7. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
@@ -3152,6 +3492,7 @@ main (int argc, char *argv[])
     checkInput(plugins, &synth);
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
+    checkNodes(plugins, &synth, genFile);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

@@ -142,9 +142,21 @@ private:
     bool parseChain (thcScheduler *sched);
     bool parseStageBlock (thcScheduler *sched, size_t chain,
                           const std::string &chainName);
+
+    /* A `stage lfo osc::simple { ... }' -- a DSP node run at control
+       rate rather than a composer. See the definition. */
+    bool parseNodeStage (thcScheduler *sched, size_t chain,
+                         const std::string &chainName,
+                         const Token &stageName, const Token &category,
+                         const Token &plugName);
+
+    /* Recovery inside a stage body: to just past the next `;', or up to
+       the `}' that ends the block. One bad line should read as one bad
+       line. */
+    void skipToNextInBlock (void);
     bool parseSinkBlock (thcScheduler *sched, size_t chain);
-    bool parseParam (thcScheduler *sched, thcStage *stage,
-                     const std::string &stageName);
+    bool parseParam (thcScheduler *sched, size_t chainIndex,
+                     thcStage *stage, const std::string &stageName);
 
     const Token &peek (void) const;
     Token        take (void);
@@ -166,6 +178,11 @@ private:
        it. Runs after the instruments are applied, for the obvious
        reason. */
     void checkSinkArgs (thcScheduler *sched);
+
+    /* Resolves every parked `param = node->arg' against its chain's
+       built node host. After the parse, for the reason the pass above
+       is. */
+    void bindNodes (thcScheduler *sched);
 
     void error (int line, const std::string &msg);
 
@@ -209,6 +226,23 @@ private:
     };
 
     std::vector<PendingSink> pendingSinks_;
+
+    /* `step = lfo->out' on a composer stage, parked until its chain's
+       node host has been built -- which cannot happen until the chain's
+       last stage has been read, since the host resolves its own wiring
+       by name. Same shape as the sink list above and for the same
+       reason: a reference the file makes before the thing it refers to
+       is finished. */
+    struct PendingNodeBind
+    {
+        size_t      chain;
+        thcStage   *stage;
+        int         param;
+        std::string node, arg;
+        int         line;
+    };
+
+    std::vector<PendingNodeBind> pendingNodeBinds_;
 
     std::string name_, author_, description_;
     bool        hasSeed_;

@@ -260,6 +260,124 @@ density, because the rule above put the filter out of reach of a knob in
 that particular piece, which is the deliverable arriving with an argument
 attached rather than without one.
 
+## Phase 3 — embedded nodes: dsp plugins as chain stages — LANDED
+
+> **DONE.** `stage lfo osc::simple { freq = 0.05; }` inside a chain, and
+> `prob = mid->out` on the composer stage that reads it.
+> `gen/breath.gen` is the deliverable: an LFO breathing a chain's
+> density on a twenty-second cycle, and an `env::adsr` shaping another
+> over four and a half minutes. GEN_FORMAT.md §5a is the spec, `scripts/hostcheck` is the
+> gate the hazards section asked for, and `src/thcNodeHost.*` is the
+> host. Deltas from the sketch below:
+>
+> - **The spelling is the `.dsp` one, not `dsp::`.** The sketch wrote
+>   `stage lfo dsp::sine`, and that is worse than what it was reaching
+>   for: `sine` alone does not say which plugin directory to look in, and
+>   the *family* is exactly what has to be judged before a module is let
+>   near a control rate. So it is `osc::simple`, `math::mul`,
+>   `env::adsr` — a category that is not `gen` or `xform` is a family
+>   from the other world. The keyword stays `stage`, so §0's rule holds:
+>   inside a chain everything is a stage, and the category says which
+>   world it came from.
+> - **The second interpreter is one small `thSynth` and the engine's own
+>   tree.** thSynthTree reaches its synth for exactly one thing --
+>   `getSampleRate()` -- which turns "write a control-rate host" into
+>   "hand the existing one a different rate". One window of one sample,
+>   fifty a second. That is not a degenerate case that happens to work:
+>   a plugin divides by the rate it is handed and keeps what it
+>   remembers in an `ARG_STATE` arg, so `freq = 0.05` is a twenty-second
+>   cycle here and a very low note there and the plugin cannot tell.
+>   Nothing about thSynth is duplicated, and the second synth does not
+>   become `thSynth::instance()` -- that is set only when there is none.
+> - **ARG_NODE landed as one more thing the param store reads through**,
+>   beside the knob binding phase 2 built. An embedded node's output *is*
+>   a `thArg`, so "evaluated at the moment the stage reads it" is not
+>   machinery, it is the absence of machinery. Binding one releases the
+>   other, so there is no precedence rule to remember.
+> - **No scaling, on purpose.** An oscillator runs −1..+1 and `prob`
+>   wants 0..1; `math::mul` and `math::add` are what a patch would use.
+>   Three lines instead of one, in exchange for no hidden mapping and no
+>   second meaning for the arrow depending on which side it lands on.
+>   The composer chain inherits the DSP toolkit rather than growing a
+>   worse copy of it, which was the point of the phase.
+> - **A knob may drive a node's arg** (`in1 = @depth;`). Not in the
+>   sketch, but leaving nodes out of the namespace phase 2 unified would
+>   have made an LFO's depth the one number in a piece that could not go
+>   on a slider.
+> - **The category audit came out as the plan guessed**, with one
+>   addition. `osc`, `env`, `math`, `logic`, `filt`, `misc` are shapes
+>   over time and time at fifty a second is still time; `delay` and `fft`
+>   count in *samples*, and a sample here is a fiftieth of a second, so
+>   they would run and mean something nobody intended. Refused loudly, by
+>   family. The addition is `osc::static`, refused by name: it draws from
+>   the global generator, and a piece that used it would not replay.
+>   There is nowhere to hand it the piece's seed and seeding `rand()`
+>   would reach into the audio thread's copy of it.
+> - **Determinism is a pure function of transport time**, not of how
+>   often the host was called: windows fired by time t is
+>   `floor(t * rate)`, with one stated exception -- a forward jump of
+>   more than a few seconds is capped rather than caught up, because
+>   three thousand windows inside one timer callback would stop the
+>   program and a jump is honestly a jump. So a pause freezes the nodes, a rewind
+>   replays them, and a late frame does not change what a piece sounds
+>   like. `reset()` zeroes the state and output args rather than
+>   rebuilding, because a rebuild would hand every `->` binding in the
+>   piece a dangling pointer at the exact moment a replay began — and
+>   zero is not merely plausible there, it is what `thArg::allocate`
+>   value-initialises a node that has never run to.
+>
+> - **Every node runs every window**, rather than the audio thread's
+>   walk from whatever declared itself ACTIVE. That walk exists because
+>   a patch always has an oscillator in it and skipping the rest is what
+>   makes a hundred voices affordable; down here the assumption is
+>   simply false, since `math` and `logic` plugins are PASSIVE to a
+>   module and a chain is entitled to hold nothing but arithmetic. Such
+>   a graph fired once -- on stale recalc flags -- then froze, and after
+>   a reset produced zeros forever. There is nothing to optimise over a
+>   handful of nodes at one sample a window anyway.
+> - **A node's arg names are checked against its plugin.** `thNode`
+>   invents an arg that does not exist, which is right for a `.dsp` and
+>   silent here: `frq` for `freq` gave an oscillator at zero and a piece
+>   that did not breathe, with no error anywhere. Both ends of a wire,
+>   both ends of an arrow. A module's ARG_STATE scratch is not a port
+>   and neither is an input, so `lfo->last` and `lfo->freq` are refused
+>   too.
+> - **The document's stages and the scheduler's stopped being the same
+>   list**, because a node is a `stage` in the file and nothing in the
+>   event flow. Anything walking one while indexing the other goes
+>   through `thcGenEdit::liveIndex` now; before it did not, and a piece
+>   with an LFO at the top of a chain handed the canvas the wrong
+>   stage's params. That is also why a knob driving a node drew no wire:
+>   a node box has no `thcStage` for `eachWire` to read a binding off.
+>   The host is asked instead.
+> - One control-rate synth per *piece*, not per chain. Every plugin
+>   keeps its registered arg indices in a file-scope global, which
+>   assumes one `thPlugin` per module per process; a second
+>   `thPluginManager` would `dlopen` the same `.so` and call
+>   `module_init` again against a second one.
+>
+> Two things about the gates, both worth knowing.
+>
+> `hostcheck` compares the same graph cut into windows of one and into a
+> window of two hundred. That is the drift the hazards section named:
+> both hosts are the same `thSynthTree` walking the same `.so`, so what
+> can differ between them is the *window length*, and a plugin that kept
+> its phase in a local or read `buf[i - 1]` without remembering
+> `buf[len - 1]` would be right at a thousand samples and wrong at one.
+> It also refuses to pass on a signal that never moved, because two
+> silences agree perfectly and prove nothing. Its first version had no
+> passive-only graph in it, which is exactly where the ACTIVE-walk bug
+> above was living: every case had an oscillator or an envelope pulling
+> the arithmetic along behind it.
+>
+> And the first version of the replay gate was vacuous. It rendered
+> `breath.gen` twice and diffed, which a host firing one window *per
+> call* passes perfectly — the harness drives both renders with the same
+> call pattern. Caught by deliberately breaking the clock and watching
+> the gate stay green. It now also asks the question directly: one graph,
+> one span of transport, reached in a hundred and fifty steps and in a
+> single jump, same answer.
+
 ## Phase 3 — embedded nodes: dsp plugins as chain stages
 
 "Nodes in the composition process": the same dlopen'd DSP plugins,

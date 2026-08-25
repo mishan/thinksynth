@@ -108,6 +108,37 @@ public:
         std::vector<Sink> sinks;
     };
 
+    /* A `stage' whose category is neither gen nor xform is a DSP node
+       run at control rate, not a composer -- see GEN_FORMAT.md §5a. */
+    static bool isNodeStage (const Stage &s)
+    {
+        return s.category != "gen" && s.category != "xform";
+    }
+
+    /* Where doc stage `si' sits in the *scheduler's* stage list, or -1
+       when it is a node.
+     *
+       The two lists stopped agreeing when a chain could hold nodes: the
+       document has every `stage' block in it, and the scheduler has only
+       the composers, because a node is not in the event flow and has no
+       thcStage. Anything walking one while indexing the other has to
+       come through here, or a piece with an LFO at the top of a chain
+       hands you the wrong stage's params -- silently, since both are
+       stages and both have params. */
+    static int liveIndex (const Chain &c, size_t si)
+    {
+        if (si >= c.stages.size() || isNodeStage(c.stages[si]))
+            return -1;
+
+        int at = 0;
+
+        for (size_t i = 0; i < si; i++)
+            if (!isNodeStage(c.stages[i]))
+                at++;
+
+        return at;
+    }
+
     struct Knob
     {
         std::string name;

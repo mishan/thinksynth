@@ -39,6 +39,7 @@ thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
     strings_.resize(count);
     beats_.resize(count, 0);
     knobs_.resize(count, (thArg *)NULL);
+    nodes_.resize(count, (thArg *)NULL);
 
     for (int i = 0; i < count; i++)
     {
@@ -72,10 +73,21 @@ thcParamStore::get (int index) const
     if (index < 0 || index >= (int)values_.size())
         return 0.0;
 
-    /* A knob binding shadows the stored value entirely: dragging the
-       knob is the edit, and there is nothing else to consult. */
-    double v = knobs_[index] != NULL ? (double)(*knobs_[index])[0]
-                                     : values_[index];
+    /* A binding shadows the stored value entirely: the knob, or the
+       embedded node's output, IS the value and there is nothing else to
+       consult. Read here, at the moment the composer asks -- which is
+       what makes `step = lfo->out' mean what it says rather than
+       whatever the LFO happened to be when the piece loaded.
+     *
+       Binding one releases the other (see bindKnob), so the order
+       these are tried in is not a precedence rule anybody has to
+       remember: at most one of them is ever set. */
+    double v = values_[index];
+
+    if (knobs_[index] != NULL)
+        v = (double)(*knobs_[index])[0];
+    else if (nodes_[index] != NULL)
+        v = (double)(*nodes_[index])[0];
 
     /* Beats convert at read time, through whatever the tempo is at this
        moment -- that, and only that, is what makes `period = 4 beats'
@@ -169,8 +181,16 @@ thcParamStore::setBeats (int index, bool beats)
 void
 thcParamStore::bindKnob (int index, thArg *knob)
 {
-    if (index >= 0 && index < (int)knobs_.size())
-        knobs_[index] = knob;
+    if (index < 0 || index >= (int)knobs_.size())
+        return;
+
+    knobs_[index] = knob;
+
+    /* Exclusive by construction rather than by a precedence rule
+       somebody has to remember: a param reads its stored value, or a
+       knob, or a node, and binding one releases the other. */
+    if (knob != NULL)
+        nodes_[index] = NULL;
 }
 
 thArg *
@@ -180,6 +200,27 @@ thcParamStore::knobBinding (int index) const
         return NULL;
 
     return knobs_[index];
+}
+
+void
+thcParamStore::bindNode (int index, thArg *out)
+{
+    if (index < 0 || index >= (int)nodes_.size())
+        return;
+
+    nodes_[index] = out;
+
+    if (out != NULL)
+        knobs_[index] = NULL;
+}
+
+thArg *
+thcParamStore::nodeBinding (int index) const
+{
+    if (index < 0 || index >= (int)nodes_.size())
+        return NULL;
+
+    return nodes_[index];
 }
 
 void
@@ -201,7 +242,8 @@ thcParamStore::notifyChanged (int index)
 thcScheduler::thcScheduler (thSynth *synth)
     : synth_(synth), running_(false), transportNow_(0), beat_(0),
       tempo_(120), lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int()), injectingLive_(false)
+      masterSeed_(g_random_int()), injectingLive_(false),
+      controlSynth_(NULL)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -217,6 +259,11 @@ thcScheduler::~thcScheduler (void)
        ring is still full the graph outlives us, which is the honest
        end of a synth whose audio thread stopped draining. */
     retireStranded();
+
+    /* After clearChains, which is what destroys the node hosts that
+       borrow it. */
+    delete controlSynth_;
+    controlSynth_ = NULL;
 }
 
 size_t
@@ -425,6 +472,31 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 
     knobConns_.push_back(knob->signal_arg_changed().connect(
         [store, paramIndex](thArg *) { store->notifyChanged(paramIndex); }));
+}
+
+thcNodeHost *
+thcScheduler::newNodeHost (void)
+{
+    /* One control-rate synth for the whole piece, made on the first
+       chain that wants nodes and kept until this scheduler dies.
+     *
+       Its plugin root is where the *application* is actually loading
+       plugins from, resolved once by thPluginManager and asked for
+       rather than searched for again: a second search can find a second
+       answer -- an installed /usr/local beside a build tree is the
+       ordinary case -- and two hosts running different builds of one
+       module is precisely the drift the hazards section is about.
+
+       Shared across chains rather than one each, because every plugin
+       keeps its arg indices in a file-scope global and a second
+       thPluginManager would dlopen the same .so and call module_init
+       again against a second thPlugin. */
+    if (controlSynth_ == NULL && synth_ != NULL)
+        controlSynth_ = new thSynth(
+            synth_->getPluginManager()->pluginPath(), 1,
+            (int)controlRate());
+
+    return new thcNodeHost(controlSynth_, controlRate());
 }
 
 /* ---- instruments ------------------------------------------------------- */
@@ -814,6 +886,19 @@ thcScheduler::stepTransport (double dt)
     transportNow_ += dt;
     beat_ += dt * tempo_ / 60.0;
 
+    /* The embedded nodes first, and on transport time.
+     *
+     * First because a stage that reads `lfo->out' this tick should get
+     * this tick's value and not the last one -- the plan's "evaluated at
+     * the moment the stage reads it", made true by evaluating before
+     * anybody reads. On transport time because that is what makes a
+     * replay a replay: how far an LFO has travelled is a function of
+     * where the transport is, not of how many times this was called or
+     * how late a frame was. */
+    for (size_t i = 0; i < chains_.size(); i++)
+        if (chains_[i].nodes)
+            chains_[i].nodes->stepTo(transportNow_);
+
     runDueTicks(transportNow_);
     deliverDue(transportNow_);
     sendDueNoteOffs(transportNow_);
@@ -1122,6 +1207,14 @@ thcScheduler::reset (void)
     transportNow_ = beat_ = 0;
     pending_.clear();
     wakeups_.clear();
+
+    /* The embedded nodes rewind too, or a replay would start with an
+       LFO wherever the last play left it -- which is the same
+       divergence a composer instance carrying its old state would be,
+       arriving through the other host. */
+    for (size_t ci = 0; ci < chains_.size(); ci++)
+        if (chains_[ci].nodes)
+            chains_[ci].nodes->reset();
 
     for (size_t ci = 0; ci < chains_.size(); ci++)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)

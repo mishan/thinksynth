@@ -1462,6 +1462,34 @@ ComposerWindow::buildKnobSelection (size_t ki)
             }
         }
 
+    /* And the dsp nodes, which have no thcStage and so are invisible to
+       the loop above. A knob whose only job is an LFO's depth would
+       otherwise read as driving nothing at all -- which is exactly how
+       it looked. */
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+    {
+        thcChain *live = sched_->chain(ci);
+
+        if (live == NULL || !live->nodes)
+            continue;
+
+        const std::vector<thcNodeHost::KnobUse> uses = live->nodes->knobUses();
+
+        for (size_t u = 0; u < uses.size(); u++)
+        {
+            if (uses[u].knob != name)
+                continue;
+
+            Gtk::Label *row = manage(new Gtk::Label(
+                doc_.chains[ci].name + " / " + uses[u].node + " . " +
+                uses[u].arg));
+
+            row->set_xalign(0);
+            selBox_->append(*row);
+            found++;
+        }
+    }
+
     /* And the other world. A knob may drive an instrument's chanarg as
        well as a stage's param -- one knob, both sides of the boundary --
        so a list of what it drives that stopped at the stages would be
@@ -1760,10 +1788,20 @@ ComposerWindow::liveStage (size_t ci, size_t si)
 {
     thcChain *c = sched_->chain(ci);
 
-    if (c == NULL || si >= c->stages.size())
+    if (c == NULL || ci >= doc_.chains.size())
         return NULL;
 
-    return c->stages[si].get();
+    /* Through liveIndex, because a chain's document stages and its
+       scheduler stages stopped being the same list when nodes arrived:
+       a dsp stage is a stage in the file and nothing in the event flow.
+       NULL for one of those is the honest answer -- it has no thcStage
+       to hand back. */
+    const int at = thcGenEdit::liveIndex(doc_.chains[ci], si);
+
+    if (at < 0 || (size_t)at >= c->stages.size())
+        return NULL;
+
+    return c->stages[at].get();
 }
 
 std::vector<std::pair<std::string, std::string> >
@@ -2777,6 +2815,23 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
             addParamRow(grid, pi, ci, si, found->second, pi);
 
         selBox_->append(*grid);
+    }
+    else if (stage.category != "gen" && stage.category != "xform")
+    {
+        /* A dsp:: node rather than a composer. It has params, but they
+           belong to the other world's plugin and are edited as a .dsp
+           node's args are -- which this panel has no vocabulary for
+           yet. Saying what it is beats "not installed", which is what
+           looking it up in the composer map was about to conclude. */
+        Gtk::Label *what = manage(new Gtk::Label(
+            stage.category + "::" + stage.plugin +
+            " runs at control rate; a stage reads it with " +
+            stage.name + "->out"));
+
+        what->set_wrap(true);
+        what->set_xalign(0);
+        what->set_sensitive(false);
+        selBox_->append(*what);
     }
     else
         selBox_->append(*manage(new Gtk::Label(

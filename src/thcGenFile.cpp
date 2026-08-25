@@ -184,7 +184,11 @@ noteListToString (const std::vector<int> &notes)
  *    that line, and only just: it is not arithmetic here, it is the
  *    unit suffix an instrument value needs when the chanarg it lands on
  *    was declared as a percentage. The parser refuses it everywhere
- *    else.
+ *    else. `->' crosses the same way and for a better reason: it is the
+ *    .dsp spelling for reading a node's output, and phase 3 gives a
+ *    .gen nodes to read. One arrow, one meaning, both languages -- the
+ *    shared lexer has always handed it back whole (longest match, so it
+ *    was never `-' then `>'), and .gen simply stopped refusing it.
  *
  * Every token still carries its byte span, and a STRING's span still
  * includes its quotes: thcGenEdit replaces spans, and what sits between
@@ -243,7 +247,8 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
         else if (t.text == "::")
             g.kind = Token::MODSEP;
         else if (t.text == ";" || t.text == "=" || t.text == "{" ||
-                 t.text == "}" || t.text == "." || t.text == "%")
+                 t.text == "}" || t.text == "." || t.text == "%" ||
+                 t.text == "->")
             g.kind = Token::PUNCT;
         else if (t.text == "-" && raw[i + 1].kind == thLexToken::NUMBER &&
                  raw[i + 1].off == t.end)
@@ -383,6 +388,20 @@ thcGenLoader::expectPunct (char c)
     return false;
 }
 
+/* The same idea one level in: recover to just past the next `;', or stop
+ * at the `}' that ends the block. */
+void
+thcGenLoader::skipToNextInBlock (void)
+{
+    while (peek().kind != Token::END &&
+           !(peek().kind == Token::PUNCT &&
+             (peek().text[0] == ';' || peek().text[0] == '}')))
+        take();
+
+    if (peek().kind == Token::PUNCT && peek().text[0] == ';')
+        take();
+}
+
 /* One mistake should read as one error, not as fifty knock-ons: skip to
  * the `;' that ends the statement, tracking block depth so a mistake
  * inside a chain body skips the body, not half the file. */
@@ -421,6 +440,7 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     instrumentLines_.clear();
     claimedChannels_.clear();
     pendingSinks_.clear();
+    pendingNodeBinds_.clear();
     pos_ = 0;
     name_.clear();
     author_.clear();
@@ -480,6 +500,9 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
 
     if (errors_.empty())
         checkSinkArgs(sched);
+
+    if (errors_.empty())
+        bindNodes(sched);
 
     if (!errors_.empty())
     {
@@ -1289,6 +1312,203 @@ thcGenLoader::parseChain (thcScheduler *sched)
         ok = false;
     }
 
+    /* The chain's nodes, now that every name in it is known -- a wire
+       may point forwards, exactly as one in a .dsp may, so nothing can
+       be resolved until the body has been read to its end. */
+    thcChain *c = sched->chain(chain);
+
+    if (ok && c != NULL && c->nodes)
+    {
+        std::string why;
+
+        if (!c->nodes->build(why))
+        {
+            error(nameTok.line, "chain " + nameTok.text + ": " + why);
+            ok = false;
+        }
+    }
+
+    return ok;
+}
+
+/* `stage lfo dsp::simple { freq = 0.05; in0 = other->out; };'
+ *
+ * The body is a .dsp node's body: numbers, and arrows to other nodes.
+ * Nothing else -- no units (a chanarg's `ms' is about a rate this host
+ * is not running at, and `s' and `beats' are the transport's), no
+ * knobs, no scales. Everything a node can be told is a number or
+ * another node, which is what a .dsp says too.
+ *
+ * The host does the loading and the refusing: whether a category means
+ * anything one sample at a time is its judgement, argued where it is
+ * made. This turns the file into calls and reports what comes back
+ * against the line that caused it.
+ */
+bool
+thcGenLoader::parseNodeStage (thcScheduler *sched, size_t chain,
+                              const std::string &chainName,
+                              const Token &stageName, const Token &category,
+                              const Token &plugName)
+{
+    thcChain *c = sched->chain(chain);
+
+    if (c == NULL)
+        return false;
+
+    if (!c->nodes)
+        c->nodes.reset(sched->newNodeHost());
+
+    std::string why;
+
+    /* `osc::simple' is `osc/simple' on disk, which is the same mapping
+       the .dsp grammar makes -- one `::' becomes one `/'. */
+    if (!c->nodes->addNode(stageName.text,
+                           category.text + "/" + plugName.text, why))
+    {
+        error(category.line, "chain " + chainName + ", stage " +
+              stageName.text + ": " + why);
+
+        /* Step over the body rather than leaving the parser sitting on
+           its `{'. One refused module should read as one refused
+           module; returning here left parseChain looking at a brace it
+           has no rule for, and it reported a second, wrong complaint
+           about the chain before abandoning the rest of it. */
+        skipStatement();
+
+        return false;
+    }
+
+    if (!expectPunct('{'))
+        return false;
+
+    bool ok = true;
+
+    while (true)
+    {
+        const Token &t = peek();
+
+        if (t.kind == Token::PUNCT && t.text[0] == '}')
+        {
+            take();
+            break;
+        }
+
+        if (t.kind == Token::END)
+        {
+            error(t.line, "stage " + stageName.text + ": unterminated body");
+            return false;
+        }
+
+        if (t.kind != Token::WORD)
+        {
+            error(t.line, "stage " + stageName.text +
+                  ": expected an arg name");
+            ok = false;
+            skipToNextInBlock();
+            continue;
+        }
+
+        Token argName = take();
+
+        if (!expectPunct('='))
+        {
+            ok = false;
+            skipToNextInBlock();
+            continue;
+        }
+
+        const Token &v = peek();
+
+        if (v.kind == Token::NUMBER)
+        {
+            Token num = take();
+
+            if (!c->nodes->setValue(stageName.text, argName.text, num.num,
+                                    why))
+            {
+                error(num.line, why);
+                ok = false;
+            }
+        }
+        else if (v.kind == Token::WORD)
+        {
+            /* `in0 = other->out;' -- the .dsp spelling, unchanged. */
+            Token from = take();
+
+            if (!(peek().kind == Token::PUNCT && peek().text == "->"))
+            {
+                error(from.line, "stage " + stageName.text + ": '" +
+                      argName.text + "' takes a number or a node's output; "
+                      "reading a node is spelled '" + from.text + "->out'");
+                ok = false;
+                skipToNextInBlock();
+                continue;
+            }
+
+            take();
+
+            if (peek().kind != Token::WORD)
+            {
+                error(peek().line, "expected an arg name after '" +
+                      from.text + "->'");
+                ok = false;
+                skipToNextInBlock();
+                continue;
+            }
+
+            Token fromArg = take();
+
+            if (!c->nodes->setWire(stageName.text, argName.text, from.text,
+                                   fromArg.text, why))
+            {
+                error(from.line, why);
+                ok = false;
+            }
+        }
+        else if (v.kind == Token::KNOB)
+        {
+            /* `in1 = @depth;' -- the same knob a stage param binds and
+               an instrument chanarg reads, one world further out.
+               Leaving nodes out of the namespace phase 2 unified would
+               have made an LFO's depth the one number in a piece that
+               could not go on a slider. */
+            Token knobTok = take();
+            thArg *knob = sched->knob(knobTok.text);
+
+            if (knob == NULL)
+            {
+                error(knobTok.line, "'@" + knobTok.text +
+                      "' is not a declared knob");
+                ok = false;
+                skipToNextInBlock();
+                continue;
+            }
+
+            if (!c->nodes->setKnob(stageName.text, argName.text, knob, why))
+            {
+                error(knobTok.line, why);
+                ok = false;
+            }
+        }
+        else
+        {
+            error(v.line, "stage " + stageName.text + ": '" + argName.text +
+                  "' takes a number or a node's output");
+            ok = false;
+            skipToNextInBlock();
+            continue;
+        }
+
+        if (!expectPunct(';'))
+        {
+            ok = false;
+            skipToNextInBlock();
+        }
+    }
+
+    if (!expectPunct(';'))
+        ok = false;
+
     return ok;
 }
 
@@ -1333,6 +1553,32 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
 
     Token plugName = take();
 
+    /* `stage lfo osc::simple { ... }' -- a DSP node, not a composer.
+     *
+     * The .dsp spelling, unchanged, which is the same call the arrow
+     * makes: a person who has read a patch can read this line, and the
+     * family is right there in it. UNIFICATION.md sketched `dsp::sine',
+     * and the sketch is worse than what it sketched -- `simple' alone
+     * does not say which of the plugin directories to look in, and the
+     * family is exactly what has to be judged before the module is
+     * allowed to run one sample at a time. A marker that hides the thing
+     * being checked is not a marker.
+     *
+     * Still spelled `stage', because inside a chain everything is, and
+     * §0 of the plan is emphatic that the day a `node' can appear where
+     * a `stage' goes the wrong intuitions about order and lifetime come
+     * with it. What tells the two apart is the category, as it always
+     * was: `gen' and `xform' are the two ends of the composer ABI, and
+     * anything else is a plugin family from the other world.
+     *
+     * What a node is *not* is part of the event flow. It neither ticks
+     * nor receives; it holds a value the stages around it can read. So
+     * it goes to a different host, and comes back through parseParam's
+     * arrow rather than through a sink. */
+    if (category.text != "gen" && category.text != "xform")
+        return parseNodeStage(sched, chain, chainName, stageName,
+                              category, plugName);
+
     std::map<std::string, thcPlugin *>::const_iterator found =
         plugins_.find(plugName.text);
 
@@ -1367,12 +1613,10 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
             return false;
         }
     }
-    else
-    {
-        error(category.line, "unknown stage category '" + category.text +
-              "' (gen or xform)");
-        return false;
-    }
+    /* Unreachable: everything that is not gen or xform went to the node
+       path above, which is where an unknown family is reported -- with
+       the list of families that do work, which is the more useful half
+       of the answer. */
 
     if (!expectPunct('{'))
         return false;
@@ -1409,7 +1653,7 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
             return false;
         }
 
-        if (!parseParam(sched, stage, stageName.text))
+        if (!parseParam(sched, chain, stage, stageName.text))
         {
             ok = false;
 
@@ -1431,8 +1675,8 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
 }
 
 bool
-thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
-                          const std::string &stageName)
+thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
+                          thcStage *stage, const std::string &stageName)
 {
     const Token &n = peek();
 
@@ -1614,6 +1858,50 @@ thcGenLoader::parseParam (thcScheduler *sched, thcStage *stage,
            by the param, not by the word, so a typo is reported against
            the kind of thing the plugin actually asked for. */
         Token ref = take();
+
+        /* Unless an arrow follows it, in which case it names a node.
+           `step = lfo->out' -- the composer-world ARG_NODE, which the
+           v2 format refused to invent a syntax for until there were
+           nodes with defined evaluation semantics to bind. There are
+           now, and the syntax was never going to be anything but the
+           one .dsp already uses. */
+        if (peek().kind == Token::PUNCT && peek().text == "->")
+        {
+            take();
+
+            if (peek().kind != Token::WORD)
+            {
+                error(peek().line, "expected an arg name after '" +
+                      ref.text + "->'");
+                return false;
+            }
+
+            Token fromArg = take();
+
+            if (pi->type == THC_PARAM_NOTESET ||
+                pi->type == THC_PARAM_STRING ||
+                pi->type == THC_PARAM_PRESET)
+            {
+                error(ref.line, "'" + pname.text +
+                      "' is not numeric; a node cannot drive it");
+                return false;
+            }
+
+            /* Parked: the host cannot resolve the name until the chain
+               has been read to its end. */
+            PendingNodeBind b;
+
+            b.chain = chainIndex;
+            b.stage = stage;
+            b.param = idx;
+            b.node  = ref.text;
+            b.arg   = fromArg.text;
+            b.line  = ref.line;
+
+            pendingNodeBinds_.push_back(b);
+
+            return expectPunct(';');
+        }
 
         if (pi->type == THC_PARAM_PRESET)
         {
@@ -1855,6 +2143,48 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
     }
 
     return expectPunct(';');
+}
+
+/* Every `param = node->arg' on a composer stage, resolved against the
+ * chain's built node host.
+ *
+ * After the parse, like the channel allocation above it and for a
+ * related reason: the host cannot answer what a node's output arg is
+ * until its tree is built, and its tree cannot be built until the chain
+ * has been read. What is resolved is a *pointer* to the output buffer,
+ * which the param store then reads at the moment the composer asks --
+ * so the value a stage sees is the value the node holds now, not the
+ * one it held when the file loaded.
+ */
+void
+thcGenLoader::bindNodes (thcScheduler *sched)
+{
+    for (size_t i = 0; i < pendingNodeBinds_.size(); i++)
+    {
+        const PendingNodeBind &b = pendingNodeBinds_[i];
+        thcChain *c = sched->chain(b.chain);
+
+        if (c == NULL || b.stage == NULL)
+            continue;
+
+        if (!c->nodes)
+        {
+            error(b.line, "'" + b.node + "->" + b.arg + "': this chain has "
+                  "no dsp stages in it");
+            continue;
+        }
+
+        std::string why;
+        thArg *out = c->nodes->output(b.node, b.arg, why);
+
+        if (out == NULL)
+        {
+            error(b.line, why);
+            continue;
+        }
+
+        b.stage->params.bindNode(b.param, out);
+    }
 }
 
 /* ---- channels ---------------------------------------------------------- */

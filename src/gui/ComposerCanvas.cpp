@@ -303,8 +303,16 @@ ComposerCanvas::rebuild (void)
 
             thcChain *live = sched_ ? sched_->chain(ci) : NULL;
 
-            b.live = live != NULL && si < live->stages.size()
-                ? live->stages[si].get() : NULL;
+            /* Through liveIndex: a dsp stage is a stage in the file and
+               nothing in the scheduler's list, so the two stopped being
+               indexable by the same number. A node box gets a NULL
+               live, which is right -- it has no thcStage, and every
+               reader here already guards for one. */
+            const int at = thcGenEdit::liveIndex(chain, si);
+
+            b.live = live != NULL && at >= 0 &&
+                     (size_t)at < live->stages.size()
+                ? live->stages[at].get() : NULL;
 
             boxes_.push_back(b);
             x += STAGE_W + ARROW_W;
@@ -864,6 +872,43 @@ ComposerCanvas::eachWire (const std::function<void (const Box &,
                 st.live->plugin->paramInfo(pi);
 
             fn(*kb, st, info != NULL ? info->name : std::string());
+        }
+    }
+
+    /* And the knobs that drive a dsp node's arg.
+     *
+     * A node box has no thcStage behind it, so the loop above cannot
+     * see these -- and a knob whose only job is the depth of an LFO
+     * would have drawn as a slider wired to nothing, which is what the
+     * canvas is for saying it is not. The node host knows; it is asked
+     * per layout, like everything else here. */
+    if (doc_ == NULL || sched_ == NULL)
+        return;
+
+    for (size_t ci = 0; ci < doc_->chains.size(); ci++)
+    {
+        thcChain *live = sched_->chain(ci);
+
+        if (live == NULL || !live->nodes)
+            continue;
+
+        const std::vector<thcNodeHost::KnobUse> uses = live->nodes->knobUses();
+
+        for (size_t u = 0; u < uses.size(); u++)
+        {
+            const Box *kb = knobBox(uses[u].knob);
+            const Box *nb = NULL;
+
+            for (size_t b = 0; b < boxes_.size() && nb == NULL; b++)
+                if (boxes_[b].what.kind == Selection::STAGE &&
+                    boxes_[b].what.chain == ci &&
+                    boxes_[b].what.index < doc_->chains[ci].stages.size() &&
+                    doc_->chains[ci].stages[boxes_[b].what.index].name ==
+                        uses[u].node)
+                    nb = &boxes_[b];
+
+            if (kb != NULL && nb != NULL)
+                fn(*kb, *nb, uses[u].arg);
         }
     }
 }

@@ -297,6 +297,60 @@ spelling that can tell a file written for the old 0–15 numbering apart from
 one written for this, and a piece silently playing a channel out is worse than
 a piece that refuses to load.
 
+### 5a. A stage can be a DSP node
+
+```
+chain breathing {
+    stage lfo  osc::simple { freq = 0.05; waveform = 0; };
+    stage half math::mul   { in0 = lfo->out;  in1 = 0.45; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line { prob = mid->out; ... };
+    sink { instrument = pad; };
+};
+```
+
+A category that is not `gen` or `xform` names a **plugin family from the other
+world** — the same `.so` files a `.dsp` is built out of, spelled the way a
+`.dsp` spells them, wired to each other with the same `->`. They run on the
+composer's side of the program at fifty windows a second, one sample at a time,
+which is what a control signal is; `freq = 0.05` is a twenty-second cycle here
+and a very low note in a patch, and the plugin cannot tell the difference
+because it divides by whatever rate it is being run at.
+
+**A node is not a stage, though both are spelled `stage`.** Events do not flow
+through it: nothing is handed to it and nothing comes out the far side. It
+holds a value, and the composer stages read that value with `->` at the moment
+they want it — so a chain full of nodes still needs a generator or `input midi`
+in it, and a node never satisfies that. The keyword stays `stage` because
+inside a chain everything is one; what says which world a module comes from is
+the category, exactly as it always was.
+
+**Nothing scales the signal for you.** An oscillator runs −1 to +1 and a `prob`
+wants 0 to 1; `math::mul` and `math::add` are what a patch would use and they
+are right there. Three lines instead of one, in exchange for no hidden mapping
+and no second meaning for the arrow depending on which side it lands on.
+
+A node arg takes a number, another node's output, or a piece knob
+(`in1 = @depth;`) — the same knob a stage param binds and an instrument chanarg
+reads, one world further out.
+
+**Families that mean nothing at control rate are refused, by name.** `osc`,
+`env`, `math`, `logic`, `filt` and `misc` are shapes over time, and time at
+fifty a second is still time. `delay` and `fft` count in *samples*, and a sample
+here is a fiftieth of a second rather than twenty microseconds — a 4410-sample
+delay is a hundred milliseconds on the audio thread and a minute and a half on
+this one. They would run, and produce numbers, and the numbers would mean
+something no author intended, which is worse than refusing because it looks
+like it worked. `osc::static` is refused for a different reason: it draws from
+the global random generator, and a piece using it would not replay.
+
+Nodes step on **transport time**, so a pause freezes them where they are and a
+rewind starts them again from the top. How far an LFO has travelled is a
+function of where the transport got to, not of how many frames went by — which
+is what lets a piece with nodes in it pass the same replay gate every other
+piece passes.
+
 Two sinks is fan-out: every event leaving the last stage is delivered to
 each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
 notes; a plain sink does the reverse. That rule is in the sink, not the
@@ -332,9 +386,15 @@ argunit     : "ms" | "%"                               # what .dsp folds
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"
 stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
+                                                       # gen/xform: a
+                                                       #   composer
+                                                       # anything else: a
+                                                       #   dsp node (5a)
 param       : WORD "=" value ";"
 value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
                                                        #   preset ref
+            | WORD "->" WORD                           # a node's output
+nodearg     : WORD "=" (NUMBER | CHANARG | WORD "->" WORD) ";"
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
@@ -347,8 +407,9 @@ sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
 ```
 
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
-`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `%` is a
-`.dsp` token too, and reaches `.gen` for one purpose only — the unit suffix an
+`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `->` is a
+`.dsp` token too and means in a `.gen` exactly what it means in a `.dsp`:
+reading a node's output. `%` reaches `.gen` for one purpose only — the unit suffix an
 instrument value needs when the chanarg it lands on was declared as a
 percentage. Everywhere else in a `.gen` it is a stray character, the way `+`
 is.
@@ -408,6 +469,8 @@ stage, a new chain) contains:
 | instrument `= @knob`   | a push: the knob's changed signal sets the chanarg   |
 | `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
+| a `dsp` family stage   | a node in the chain's `thcNodeHost`, at control rate |
+| param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |
 | `@knobs` + metadata    | the existing chanarg/param-panel machinery          |

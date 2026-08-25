@@ -29,6 +29,8 @@
 
 #include "libthink/thcomposer.h"
 
+#include "thcNodeHost.h"
+
 class thSynth;
 class thArg;
 class thcPlugin;
@@ -97,6 +99,19 @@ public:
     void bindKnob (int index, thArg *knob);
     thArg *knobBinding (int index) const;
 
+    /* `step = lfo->out' -- the composer-world ARG_NODE, which v2
+       deliberately did not have and phase 3 of the unification is
+       about. It arrives as one more thing get() reads through, exactly
+       as a knob does, because that is what it is: an embedded DSP
+       node's output buffer is a thArg, and a control signal is a value
+       somebody reads at the moment they want it.
+     *
+       The pointer is the node's own output arg and stays put -- the
+       host runs one-sample windows and thArg::allocate keeps a buffer
+       whose length has not changed. NULL unbinds. */
+    void bindNode (int index, thArg *out);
+    thArg *nodeBinding (int index) const;
+
     /* What the .gen loader calls after composer_create to push a fresh
        value at a module that caches (a NOTESET reparse), without
        changing anything -- and what a knob's changed signal funnels
@@ -123,6 +138,7 @@ private:
     std::vector<std::string>  strings_;
     std::vector<char>         beats_;      /* value is beats, not seconds */
     std::vector<thArg *>      knobs_;      /* live binding, NULL = value  */
+    std::vector<thArg *>      nodes_;      /* embedded node's output      */
 
     /* Set by the scheduler once composer_create has run: where to send
        param_changed forwards, how to re-arm a sleeping generator, and
@@ -252,6 +268,13 @@ struct thcChain
        programmatic-chain case harnesses use. A .gen chain always has at
        least one (the loader enforces it). */
     std::vector<thcSink> sinks;
+
+    /* The chain's embedded DSP nodes, or NULL where it has none -- which
+       is every chain in the corpus but one, so this costs nothing to
+       carry. Per chain rather than per piece because that is where they
+       are written and what they modulate: an LFO in a chain is part of
+       that chain's shape, the way a transformer is. */
+    std::unique_ptr<thcNodeHost> nodes;
 };
 
 class thcScheduler
@@ -296,6 +319,20 @@ public:
     }
 
     void bindKnob (thcStage *stage, int paramIndex, thArg *knob);
+
+    /* A control-rate host for a chain that has dsp:: stages in it.
+     *
+     * Made here rather than by the loader because the plugin root is
+     * the synth's answer and not the file's: a harness pointed at a
+     * build tree and an installed application must load the *same*
+     * .so files into both hosts, or the gate that says the two agree is
+     * comparing two different builds. Caller owns it. */
+    thcNodeHost *newNodeHost (void);
+
+    /* The control rate, in windows per second. One number, stated once,
+       because the loader, the host and the gate all have to mean the
+       same thing by it. */
+    static long controlRate (void) { return 50; }
 
     /* ---- instruments ----
      *
@@ -540,6 +577,12 @@ private:
        plus the THC_NEVER rearm). Dropped in clearChains. */
     std::map<std::string, thArg *>  knobs_;
     std::vector<sigc::connection>   knobConns_;
+
+    /* The control-rate synth every node host in this piece borrows: a
+       sample rate and a plugin manager, and nothing else. NULL until a
+       chain asks for nodes, so a piece without any pays nothing.
+       Destroyed after the chains that borrow it. */
+    thSynth *controlSynth_;
 
     /* The piece's instruments, and the host's way of loading one. A
        vector rather than a map: declaration order is what the loader
