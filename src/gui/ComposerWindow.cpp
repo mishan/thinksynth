@@ -2823,10 +2823,39 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
            node's args are -- which this panel has no vocabulary for
            yet. Saying what it is beats "not installed", which is what
            looking it up in the composer map was about to conclude. */
-        Gtk::Label *what = manage(new Gtk::Label(
-            stage.category + "::" + stage.plugin +
-            " runs at control rate; a stage reads it with " +
-            stage.name + "->out"));
+        std::string text = stage.category + "::" + stage.plugin +
+                           " runs at control rate";
+
+        /* Named from the plugin rather than assumed to be `out'. Plenty
+           of modules have no arg by that name -- filt::moog answers on
+           out_low, out_high and out_bandpass -- so a fixed `->out' here
+           was advice that would not load, blamed on whichever line took
+           it. Asked of the live host because it is holding the plugin
+           already; a piece that did not load has no host, and then the
+           honest hint is the shape of the spelling without a name in
+           it. */
+        thcChain *live = sched_->chain(ci);
+        std::vector<std::string> outs;
+
+        if (live != NULL && live->nodes)
+            outs = live->nodes->outputArgs(stage.name);
+
+        if (outs.empty())
+            text += "; a stage reads one of its outputs with " +
+                    stage.name + "->";
+        else
+        {
+            text += "; a stage reads it with " + stage.name + "->" +
+                    outs[0];
+
+            for (size_t o = 1; o < outs.size(); o++)
+                text += (o == 1 ? " (or ->" : ", ->") + outs[o];
+
+            if (outs.size() > 1)
+                text += ")";
+        }
+
+        Gtk::Label *what = manage(new Gtk::Label(text));
 
         what->set_wrap(true);
         what->set_xalign(0);

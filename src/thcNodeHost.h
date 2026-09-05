@@ -109,7 +109,7 @@ public:
 
     /* ---- construction, in the order the loader does it ---------------- */
 
-    /* One `stage lfo dsp::simple { ... }'. `spelling' is the .dsp name --
+    /* One `stage lfo osc::simple { ... }'. `spelling' is the .dsp name --
        "osc/simple" -- and `why' says what is wrong when this returns
        false: no such plugin, or a category that means nothing one sample
        at a time. */
@@ -158,6 +158,17 @@ public:
        which the loader reports rather than passing on. */
     thArg *output (const std::string &node, const std::string &arg,
                    std::string &why);
+
+    /* Every output arg the node's plugin declares, in declaration order,
+       for anything that has to tell a reader how to reach this node.
+     *
+       A list and not a name, because there is no such thing as "the"
+       output: filt::moog declares out_low, out_high and out_bandpass,
+       and a panel that said `->out' would be naming an arg that does
+       not exist -- a wire the loader refuses, blamed on the line that
+       copied the advice. Empty when there is no such node, which is
+       also the honest answer before build(). */
+    std::vector<std::string> outputArgs (const std::string &node) const;
 
     /* Which knob drives which node arg, for anything drawing the piece.
        A knob reaching a node is as much a wire as one reaching a stage

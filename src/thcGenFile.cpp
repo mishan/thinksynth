@@ -1331,13 +1331,19 @@ thcGenLoader::parseChain (thcScheduler *sched)
     return ok;
 }
 
-/* `stage lfo dsp::simple { freq = 0.05; in0 = other->out; };'
+/* `stage lfo osc::simple { freq = 0.05; in0 = other->out; };'
  *
- * The body is a .dsp node's body: numbers, and arrows to other nodes.
- * Nothing else -- no units (a chanarg's `ms' is about a rate this host
- * is not running at, and `s' and `beats' are the transport's), no
- * knobs, no scales. Everything a node can be told is a number or
- * another node, which is what a .dsp says too.
+ * The body is a .dsp node's body, plus knobs: numbers, arrows to other
+ * nodes, and `@name'. No units (a chanarg's `ms' is about a rate this
+ * host is not running at, and `s' and `beats' are the transport's) and
+ * no scales -- everything a node can be told is a number, and the three
+ * spellings here are the three ways a piece has of naming one.
+ *
+ * The knob is the one thing a .dsp body cannot say, and phase 2 is why
+ * it is here: a knob means the same thing on both sides of the
+ * composer/instrument boundary, and leaving the nodes out of that would
+ * have made an LFO's depth the one number in a piece that could not go
+ * on a slider.
  *
  * The host does the loading and the refusing: whether a category means
  * anything one sample at a time is its judgement, argued where it is

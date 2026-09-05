@@ -516,6 +516,22 @@ thcNodeHost::output (const std::string &node, const std::string &arg,
     return a;
 }
 
+std::vector<std::string>
+thcNodeHost::outputArgs (const std::string &node) const
+{
+    std::vector<std::string> out;
+    const thPlugin *p = pluginOf(node);
+
+    if (p == NULL)
+        return out;
+
+    for (int i = 0; i < p->argCount(); i++)
+        if (p->getArgDir(i) == thPlugin::ARG_OUT)
+            out.push_back(p->getArgName(i));
+
+    return out;
+}
+
 std::vector<thcNodeHost::KnobUse>
 thcNodeHost::knobUses (void) const
 {

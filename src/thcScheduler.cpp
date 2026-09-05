@@ -240,10 +240,14 @@ thcParamStore::notifyChanged (int index)
  * while paused so composer_draw views stay live; only the musical clock
  * freezes. */
 thcScheduler::thcScheduler (thSynth *synth)
-    : synth_(synth), running_(false), transportNow_(0), beat_(0),
-      tempo_(120), lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int()), injectingLive_(false),
-      controlSynth_(NULL)
+    /* In declaration order, which is what -Wreorder is about:
+       controlSynth_ is declared up beside the instrument table it
+       belongs to, which puts it ahead of the transport members here
+       even though nothing about it is more fundamental. */
+    : synth_(synth), controlSynth_(NULL),
+      running_(false), transportNow_(0), beat_(0), tempo_(120),
+      lastMono_(g_get_monotonic_time()),
+      masterSeed_(g_random_int()), injectingLive_(false)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
