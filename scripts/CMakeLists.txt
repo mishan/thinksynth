@@ -190,6 +190,13 @@ think_harness(gencheck COMPOSERHOST)
 # reach thcGenLoader::tokenize.
 think_harness(lexcheck COMPOSERHOST THREADS)
 
+# The two hosts, diffed. Same graph, same rate, same plugin binaries, cut into
+# windows of one and into a window of two hundred -- which is the difference
+# between what the composer's control-rate host does and what the audio thread
+# does, and the hazard UNIFICATION.md named before phase 3 was written. Needs
+# no corpus and no display: it builds its graphs in C++.
+think_harness(hostcheck)
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -300,6 +307,10 @@ set_tests_properties(gencheck PROPERTIES
 
 # Needs no corpus, no plugins and no display -- it writes its own source text.
 add_test(NAME lexcheck COMMAND lexcheck)
+
+# Needs the plugins, because what it compares is two runs of the real ones.
+add_test(NAME hostcheck
+         COMMAND hostcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
 add_test(NAME dspprobe
          COMMAND "${CMAKE_COMMAND}"

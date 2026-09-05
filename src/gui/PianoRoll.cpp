@@ -22,6 +22,11 @@
 #include "gui-util.h"
 
 static const double CHANARG_STRIP = 26;   /* px reserved at the bottom   */
+
+/* Reserved at the top for structure edits. Small: they are sparse by
+ * construction -- being events is what rate-limits them -- so a lane
+ * that fits a line of text is a lane that fits a piece's worth. */
+static const double EDIT_LANE = 12;
 static const double EASE          = 0.12; /* pitch-range easing per frame*/
 
 /* The now-line sits at 2/3 width because the default spans are 60s of
@@ -130,6 +135,28 @@ PianoRoll::onDelivered (const thcEvent &ev)
 
         argTicks_.push_back({ ev.at, ev.channel, (float)v });
     }
+    else if (ev.type == THC_EV_PATCH || ev.type == THC_EV_NODEARG)
+    {
+        /* The label is what the piece said, not what the host made of
+           it: "bell", or "fmap.inmax". Somebody reading the roll is
+           looking for the line in the file that caused this. */
+        std::string label;
+
+        if (ev.type == THC_EV_PATCH)
+            label = ev.u.patch.name ? ev.u.patch.name : "?";
+        else
+        {
+            char buf[96];
+
+            snprintf(buf, sizeof(buf), "%s.%s %.3g",
+                     ev.u.nodearg.node ? ev.u.nodearg.node : "?",
+                     ev.u.nodearg.arg ? ev.u.nodearg.arg : "?",
+                     (double)ev.u.nodearg.value);
+            label = buf;
+        }
+
+        edits_.push_back({ ev.at, ev.channel, label });
+    }
     /* no queue_draw: the tick callback repaints every frame anyway */
 }
 
@@ -144,6 +171,7 @@ PianoRoll::onTransportReset (void)
 {
     notes_.clear();
     argTicks_.clear();
+    edits_.clear();
     viewNow_ = 0;
     following_ = true;
 }
@@ -181,6 +209,9 @@ PianoRoll::prune (void)
 
     while (!argTicks_.empty() && argTicks_.front().at < keep)
         argTicks_.pop_front();
+
+    while (!edits_.empty() && edits_.front().at < keep)
+        edits_.pop_front();
 }
 
 /* Fit the lane range to what is on screen, ease the shown range toward
@@ -229,16 +260,30 @@ void
 PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                    int height)
 {
-    double rollH = height - CHANARG_STRIP;
+    /* The roll is what is left between the two reserved bands, and the
+       pitch mapping is offset past the top one. Reserving a lane by
+       naming a constant and then drawing the notes over it is how the
+       edit labels came to sit on top of the highest pitches. */
+    double rollH = std::max(height - CHANARG_STRIP - EDIT_LANE, 1.0);
     double lanes = hiShown_ - loShown_;
     double laneH = rollH / lanes;
-    auto   noteY = [&](double n) { return rollH - (n - loShown_) * laneH; };
+    auto   noteY = [&](double n) {
+        return EDIT_LANE + rollH - (n - loShown_) * laneH;
+    };
 
     cr->set_source_rgb(0.09, 0.09, 0.11);
     cr->paint();
 
     /* Octave shading and C gridlines -- the black-key rows get a slightly
-       lighter wash so pitch is readable without labels. */
+       lighter wash so pitch is readable without labels.
+     *
+       Clipped to the roll, because the loop deliberately runs a row past
+       each end so a partly-visible lane is still shaded, and the reserved
+       lane is only reserved if the wash stops at it. */
+    cr->save();
+    cr->rectangle(0, EDIT_LANE, width, rollH);
+    cr->clip();
+
     for (int n = (int)loShown_; n <= (int)hiShown_ + 1; n++)
     {
         int pc = ((n % 12) + 12) % 12;
@@ -260,6 +305,8 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
             cr->stroke();
         }
     }
+
+    cr->restore();
 
     /* Delivered notes: filled, alpha from velocity. The tail a patch's
        release adds after note-off is unknowable here -- the scheduler
@@ -326,6 +373,31 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
         cr->line_to(x, y + 3); cr->line_to(x - 3, y);
         cr->close_path();
         cr->fill();
+    }
+
+    /* Structure edits: a tick and its label along the top.
+     *
+     * Its own lane rather than a mark in the roll, because an edit is
+     * not a pitch and has nowhere to sit among them -- and because the
+     * point of drawing one is to see it *coming*, against the notes it
+     * is about to change the sound of. Text, since a swap has no value
+     * to plot: "bell" is the whole of what happened. */
+    for (const Edit &e : edits_)
+    {
+        double x = timeToX(e.at, width);
+
+        if (x < 0 || x > width)
+            continue;
+
+        channelColor(cr, e.channel, 0.95);
+        cr->set_line_width(1);
+        cr->move_to(x + 0.5, 0);
+        cr->line_to(x + 0.5, EDIT_LANE);
+        cr->stroke();
+
+        cr->set_font_size(9);
+        cr->move_to(x + 3, EDIT_LANE - 3);
+        cr->show_text(e.label);
     }
 
     /* the now-line, and a dimming wash over the not-yet half */

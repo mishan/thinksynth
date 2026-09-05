@@ -1,0 +1,137 @@
+# breath.gen -- the modules that shape sound, shaping the composition.
+#
+# Every other piece here composes with composers: plugins that emit notes
+# and plugins that change them. This one has two oscillators and an
+# envelope in its chains, and not one of them makes a sound. They are the
+# same `osc::simple' and `env::adsr' a patch is built out of -- the same
+# .so files, wired the same way with the same arrow -- run fifty times a
+# second on the composer's side of the program, where what they modulate
+# is the music rather than the audio.
+#
+# UNIFICATION.md phase 3, and the argument is that a shape over time does
+# not care what it is a shape of. `freq = 0.05' is a twenty-second cycle
+# here and a very low note in a patch, and osc::simple cannot tell: it
+# divides by whatever rate it is being run at, which is the whole reason
+# one plugin can serve both. So a composer inherits the DSP toolkit
+# rather than growing a second, worse copy of it -- and if you want a
+# triangle instead of a sine, that is `waveform = 2', which you already
+# knew.
+#
+# A NODE IS NOT A STAGE, even though both are spelled `stage'. Events
+# never flow through `lfo'; nothing is passed to it and nothing comes out
+# the far side. It holds a number, and the composer stages read that
+# number with `->' at the moment they want it. That is why a chain full
+# of nodes still needs a generator in it, and why the arrow points the
+# way it does.
+#
+# WHY THE ARITHMETIC IS SPELLED OUT. An oscillator runs -1 to +1, and
+# `prob' wants 0 to 1. Nothing converts between them, on purpose: `mul'
+# and `add' are what a patch would use and they are right here. It is
+# three lines instead of one, and in exchange there is no hidden mapping
+# to remember and no second meaning for the arrow depending on which side
+# it lands on. The Depth knob is what `mul' multiplies by, so it is the
+# depth of the breathing; the `0.5' that `add' lifts by is what it
+# breathes around.
+#
+# WHAT NODES MAY NOT DO. `delay' and `fft' count in samples, and a sample
+# down here is a fiftieth of a second rather than twenty microseconds --
+# a 4410-sample delay is a hundred milliseconds on the audio thread and a
+# minute and a half on this one. They are refused by name rather than
+# left to produce numbers nobody meant. So is `osc::static', for a
+# different reason: it draws from the global random generator, and a
+# piece that used it would not replay.
+#
+# The nodes run on transport time like everything else. Pause and the
+# breathing stops where it is; rewind and it starts again from the top,
+# byte for byte -- gencheck renders this file twice and diffs it, which
+# is the same gate every other piece here passes and the reason a node
+# had to be as repeatable as a composer before it was allowed in.
+
+name "Breath";
+author "Misha Nasledov";
+description "An LFO breathing a chain's density, and an envelope over four minutes.";
+
+seed 3141;
+
+@depth = 0.45;
+@depth.widget = 1;
+@depth.min = 0;
+@depth.max = 0.5;
+@depth.label = "Depth";
+
+scale amin "A2 C3 E3 A3 B3 C4 E4 G4 A4";
+
+instrument pad {
+    dsp  "amb01.dsp";
+
+    a    = 600 ms;
+    d    = 1400 ms;
+    s    = 0.8;
+    r    = 3500 ms;
+
+    res  = 0.65;
+    fmin = 0.05;
+    fmax = 0.6;
+};
+
+# The breathing itself: a twenty-second cycle, ten seconds opening and
+# ten closing, with the line speaking more often at the top of it than at
+# the bottom.
+#
+# `lfo' is an oscillator whose entire cycle is slower than most of the
+# notes it governs -- which is the only thing separating it from one you
+# would hear. `half' and `mid' put its -1..+1 where prob's 0..1 is: the
+# depth is a knob, so the breathing can be flattened to nothing or opened
+# to its full swing while the piece plays.
+chain breathing {
+    stage lfo  osc::simple { freq = 0.05; waveform = 0; amp = 1; };
+    stage half math::mul   { in0 = lfo->out;  in1 = @depth; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line {
+        notes = amin;  period = 2.7 s;  jitter = 0.6 s;
+        prob = mid->out;  hold = 5 s;  vel = 62;  vel_jitter = 8;
+    };
+
+    sink { instrument = pad; };
+};
+
+# The other half of the deliverable: an envelope shaping the piece over
+# minutes rather than milliseconds -- four and a half of them, thirty
+# seconds opening and four more settling.
+#
+# adsr's durations are in samples, and a sample here is a fiftieth of a
+# second -- so 1500 is thirty seconds of attack and 12000 is four minutes
+# of decay. That is the arithmetic being at a different rate, stated
+# plainly; it is also the reason `delay' is refused, since a plugin whose
+# numbers mean *time* rather than *a count of windows* would be silently
+# wrong instead of usefully strange.
+#
+# `trigger = 1' holds it open, so the envelope runs its attack and decay
+# once and then sits on its sustain: the low voice comes in over half a
+# minute, thins out over the next four, and stays where it settles. `r'
+# is written for completeness and never reached, because nothing here
+# ever lets go of the trigger.
+chain arc {
+    stage env  env::adsr { a = 1500; d = 12000; s = 0.35; r = 6000;
+                           trigger = 1; };
+    stage lift math::mul { in0 = env->out; in1 = 0.5; };
+    stage base math::add { in0 = lift->out; in1 = 0.35; };
+
+    stage low gen::eno_line {
+        notes = "A2 E3";  period = 6.1 s;  jitter = 1.4 s;
+        prob = base->out;  hold = 9 s;  vel = 54;  vel_jitter = 6;
+    };
+
+    sink { instrument = pad; };
+};
+
+# And one chain with no nodes in it at all, so the piece has something
+# that does not breathe to breathe against.
+chain steady {
+    stage src gen::eno_line {
+        notes = "C4 E4 G4";  period = 11.3 s;  jitter = 3 s;
+        prob = 0.5;  hold = 7 s;  vel = 46;  vel_jitter = 8;
+    };
+    sink { instrument = pad; };
+};

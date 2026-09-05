@@ -588,7 +588,8 @@ on it: `preset <name> { arg = value; … };` is a named chanarg vector the
 piece file carries, and `THC_PARAM_PRESET` delivers it to a plugin
 resolved — `"res=0.86,fmin=0.04"` — on exactly the terms
 `THC_PARAM_NOTESET` delivers pitches, so no composer ever looks a preset
-up. Additive enum value; interface version stays 1.
+up. Additive enum value; interface version stayed 1 for this change.
+(It is 2 as of tier 4 below, which grew `thcEvent` itself.)
 
 `gen::morph` is the first thing to use it: two presets, the line between
 them, emitted as scheduled `THC_EV_CHANARG` events. It exports both entry
@@ -759,7 +760,35 @@ and the shared lexer stop being hygiene and become the runway.
    chanarg vectors. Tier 2 above is closed; what is left of it is the
    audio-feature fitness at step 5.
 4. `THC_EV_PATCH` + scheduler service via the `SET_CHANNEL` path;
-   program-change lane on the roll.
+   program-change lane on the roll. — DONE, and with a second event the
+   sketch had not asked for. `THC_EV_PATCH` says "channel n becomes
+   instrument p" and is executed by a scheduler service through the same
+   load path the Patch Selector uses, so the voice lifecycle is the one
+   `loadTree` has always promised rather than a new one, and a rewind
+   restores every declaration. `THC_EV_NODEARG` is the other half: one
+   constant *inside* the graph, which is the different mechanism this
+   section promised for reaching past the chanarg surface rather than a
+   widening of that surface. The rate limit is that both are events —
+   scheduled, sparse, replayed from the seed, and drawn on the roll's
+   edit lane, which is the program-change lane with a wider remit.
+
+   Three refusals mark where the reach stops: a swap only onto a channel
+   the piece declares an instrument for (rebuilding a graph throws away
+   what was there, and a channel no declaration names is one nothing can
+   restore), a node arg only if it is already a constant (anything wired
+   — to a node, a chanarg, a note property — is an add/remove/rewire edit
+   wearing a value edit's clothes), and never a module's `ARG_STATE`
+   scratch. `gen::swap` and `gen::reshape` are the two plugins;
+   `gen/reshape.gen` is the piece. UNIFICATION.md phase 4 has the
+   deltas; GEN_FORMAT.md §5b is the spec.
+
+   **This bumped `COMPOSER_IFACE_VER` to 2.** The two new event kinds
+   are additive to the enum and would not have needed one; the union
+   arms behind them are not, because `nodearg` is wider than anything
+   that was in there and `thcEvent` grew with it. A host reads what a
+   sink is handed at its own `sizeof`, so a plugin still carrying the
+   old struct is a read off the end of it — refused at load now, with
+   both numbers printed, instead.
 5. Shadow-synth fitness service + `composer_input` (§7's pending item).
    The chanarg-genome GA itself is done (`gen::breed`, tier 2); what
    this step adds is judging the *sound* rather than the vector, which

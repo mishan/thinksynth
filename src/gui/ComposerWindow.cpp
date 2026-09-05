@@ -527,6 +527,27 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
      * not have to be rebuilt for that. */
     bool keep = stillOurs(inst.channel);
 
+    /* Ours, but is it still this *graph*?
+     *
+       A swap replaces the .dsp on a channel the piece owns without
+       touching either the generation (it is still our load) or the
+       declaration (unchanged in the file), so both of the tests here
+       said keep and a reload left the swapped-in graph up while
+       believing the declared one was there -- whereupon applying the
+       declaration's values fails on a chanarg the wrong .dsp does not
+       have and the whole file refuses to load. Recording what actually
+       went onto the channel is the only thing that can tell those two
+       apart. */
+    if (keep)
+    {
+        keep = false;
+
+        for (size_t i = 0; i < prevOwned_.size(); i++)
+            if (prevOwned_[i].channel == inst.channel &&
+                prevOwned_[i].dsp == inst.dsp)
+                keep = true;
+    }
+
     if (keep)
     {
         /* Ours, and still the same instrument the file declares. Any
@@ -552,6 +573,18 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
 
     o.channel = inst.channel;
     o.generation = have != NULL ? have->generation : 0;
+    o.dsp = inst.dsp;
+
+    /* One entry per channel. This is no longer called once per load: a
+       swap calls it, and so does every rewind of a piece a swap has
+       touched, and a list that only grew would carry a stale generation
+       for the same channel into releaseInstruments. */
+    for (size_t i = 0; i < ownedChannels_.size(); i++)
+        if (ownedChannels_[i].channel == inst.channel)
+        {
+            ownedChannels_[i] = o;
+            return true;
+        }
 
     ownedChannels_.push_back(o);
 
@@ -1462,6 +1495,34 @@ ComposerWindow::buildKnobSelection (size_t ki)
             }
         }
 
+    /* And the dsp nodes, which have no thcStage and so are invisible to
+       the loop above. A knob whose only job is an LFO's depth would
+       otherwise read as driving nothing at all -- which is exactly how
+       it looked. */
+    for (size_t ci = 0; ci < doc_.chains.size(); ci++)
+    {
+        thcChain *live = sched_->chain(ci);
+
+        if (live == NULL || !live->nodes)
+            continue;
+
+        const std::vector<thcNodeHost::KnobUse> uses = live->nodes->knobUses();
+
+        for (size_t u = 0; u < uses.size(); u++)
+        {
+            if (uses[u].knob != name)
+                continue;
+
+            Gtk::Label *row = manage(new Gtk::Label(
+                doc_.chains[ci].name + " / " + uses[u].node + " . " +
+                uses[u].arg));
+
+            row->set_xalign(0);
+            selBox_->append(*row);
+            found++;
+        }
+    }
+
     /* And the other world. A knob may drive an instrument's chanarg as
        well as a stage's param -- one knob, both sides of the boundary --
        so a list of what it drives that stopped at the stages would be
@@ -1760,10 +1821,20 @@ ComposerWindow::liveStage (size_t ci, size_t si)
 {
     thcChain *c = sched_->chain(ci);
 
-    if (c == NULL || si >= c->stages.size())
+    if (c == NULL || ci >= doc_.chains.size())
         return NULL;
 
-    return c->stages[si].get();
+    /* Through liveIndex, because a chain's document stages and its
+       scheduler stages stopped being the same list when nodes arrived:
+       a dsp stage is a stage in the file and nothing in the event flow.
+       NULL for one of those is the honest answer -- it has no thcStage
+       to hand back. */
+    const int at = thcGenEdit::liveIndex(doc_.chains[ci], si);
+
+    if (at < 0 || (size_t)at >= c->stages.size())
+        return NULL;
+
+    return c->stages[at].get();
 }
 
 std::vector<std::pair<std::string, std::string> >
@@ -1806,8 +1877,25 @@ ComposerWindow::defaultParams (const thcPlugin *plugin)
                    Falling through to the numeric case would write `from =
                    0;', which the loader rejects by name and line: a
                    generated stage that will not load is worse than an
-                   absent line the loader is happy to default. */
-                continue;
+                   absent line the loader is happy to default.
+                 *
+                   Left out with an *empty value*, not skipped. The
+                   returned vector is indexed by param index by the arg
+                   panel, which reads defs[paramIndex] to show what a
+                   line the file omits will actually do; skipping shifted
+                   every param after this one up by a slot -- so a preset
+                   param showed its neighbour's default -- and read one
+                   past the end when the omitted param was the last.
+                   thcGenEdit's writers drop the empties. */
+                break;
+
+            case THC_PARAM_INSTRSET:
+                /* And out for the same reason, one noun along: the only
+                   legal value is the name of an instrument this piece
+                   declares, which a freshly added stage cannot know.
+                   The warning that sent me here is the tripwire the
+                   paragraph above installed, doing its job. */
+                break;
 
             case THC_PARAM_FLOAT:
             case THC_PARAM_INT:
@@ -1888,7 +1976,7 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
 
         case ValueShape::NUMBER:
         {
-            sched_->bindKnob(s, idx, NULL);
+            sched_->unbindParam(s, idx);
 
             double stored = v.unit == "ms" ? v.num / 1000.0 : v.num;
 
@@ -1901,7 +1989,7 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
         {
             /* A binding shadows the stored value; without this unbind
                the new notes would be set and never heard. */
-            sched_->bindKnob(s, idx, NULL);
+            sched_->unbindParam(s, idx);
 
             const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
 
@@ -1938,7 +2026,7 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
                one it is comes from the param's type, not from the word.
                And the same unbind QUOTED needs, for the same shadowing
                reason. */
-            sched_->bindKnob(s, idx, NULL);
+            sched_->unbindParam(s, idx);
 
             const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
 
@@ -2777,6 +2865,52 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
             addParamRow(grid, pi, ci, si, found->second, pi);
 
         selBox_->append(*grid);
+    }
+    else if (stage.category != "gen" && stage.category != "xform")
+    {
+        /* A dsp:: node rather than a composer. It has params, but they
+           belong to the other world's plugin and are edited as a .dsp
+           node's args are -- which this panel has no vocabulary for
+           yet. Saying what it is beats "not installed", which is what
+           looking it up in the composer map was about to conclude. */
+        std::string text = stage.category + "::" + stage.plugin +
+                           " runs at control rate";
+
+        /* Named from the plugin rather than assumed to be `out'. Plenty
+           of modules have no arg by that name -- filt::moog answers on
+           out_low, out_high and out_bandpass -- so a fixed `->out' here
+           was advice that would not load, blamed on whichever line took
+           it. Asked of the live host because it is holding the plugin
+           already; a piece that did not load has no host, and then the
+           honest hint is the shape of the spelling without a name in
+           it. */
+        thcChain *live = sched_->chain(ci);
+        std::vector<std::string> outs;
+
+        if (live != NULL && live->nodes)
+            outs = live->nodes->outputArgs(stage.name);
+
+        if (outs.empty())
+            text += "; a stage reads one of its outputs with " +
+                    stage.name + "->";
+        else
+        {
+            text += "; a stage reads it with " + stage.name + "->" +
+                    outs[0];
+
+            for (size_t o = 1; o < outs.size(); o++)
+                text += (o == 1 ? " (or ->" : ", ->") + outs[o];
+
+            if (outs.size() > 1)
+                text += ")";
+        }
+
+        Gtk::Label *what = manage(new Gtk::Label(text));
+
+        what->set_wrap(true);
+        what->set_xalign(0);
+        what->set_sensitive(false);
+        selBox_->append(*what);
     }
     else
         selBox_->append(*manage(new Gtk::Label(

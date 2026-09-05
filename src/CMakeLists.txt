@@ -54,6 +54,7 @@ target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 add_library(think_composerhost OBJECT
     thcPlugin.cpp
     thcScheduler.cpp
+    thcNodeHost.cpp
     thcGenFile.cpp
     thcGenEdit.cpp)
 

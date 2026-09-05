@@ -260,6 +260,124 @@ density, because the rule above put the filter out of reach of a knob in
 that particular piece, which is the deliverable arriving with an argument
 attached rather than without one.
 
+## Phase 3 — embedded nodes: dsp plugins as chain stages — LANDED
+
+> **DONE.** `stage lfo osc::simple { freq = 0.05; }` inside a chain, and
+> `prob = mid->out` on the composer stage that reads it.
+> `gen/breath.gen` is the deliverable: an LFO breathing a chain's
+> density on a twenty-second cycle, and an `env::adsr` shaping another
+> over four and a half minutes. GEN_FORMAT.md §5a is the spec, `scripts/hostcheck` is the
+> gate the hazards section asked for, and `src/thcNodeHost.*` is the
+> host. Deltas from the sketch below:
+>
+> - **The spelling is the `.dsp` one, not `dsp::`.** The sketch wrote
+>   `stage lfo dsp::sine`, and that is worse than what it was reaching
+>   for: `sine` alone does not say which plugin directory to look in, and
+>   the *family* is exactly what has to be judged before a module is let
+>   near a control rate. So it is `osc::simple`, `math::mul`,
+>   `env::adsr` — a category that is not `gen` or `xform` is a family
+>   from the other world. The keyword stays `stage`, so §0's rule holds:
+>   inside a chain everything is a stage, and the category says which
+>   world it came from.
+> - **The second interpreter is one small `thSynth` and the engine's own
+>   tree.** thSynthTree reaches its synth for exactly one thing --
+>   `getSampleRate()` -- which turns "write a control-rate host" into
+>   "hand the existing one a different rate". One window of one sample,
+>   fifty a second. That is not a degenerate case that happens to work:
+>   a plugin divides by the rate it is handed and keeps what it
+>   remembers in an `ARG_STATE` arg, so `freq = 0.05` is a twenty-second
+>   cycle here and a very low note there and the plugin cannot tell.
+>   Nothing about thSynth is duplicated, and the second synth does not
+>   become `thSynth::instance()` -- that is set only when there is none.
+> - **ARG_NODE landed as one more thing the param store reads through**,
+>   beside the knob binding phase 2 built. An embedded node's output *is*
+>   a `thArg`, so "evaluated at the moment the stage reads it" is not
+>   machinery, it is the absence of machinery. Binding one releases the
+>   other, so there is no precedence rule to remember.
+> - **No scaling, on purpose.** An oscillator runs −1..+1 and `prob`
+>   wants 0..1; `math::mul` and `math::add` are what a patch would use.
+>   Three lines instead of one, in exchange for no hidden mapping and no
+>   second meaning for the arrow depending on which side it lands on.
+>   The composer chain inherits the DSP toolkit rather than growing a
+>   worse copy of it, which was the point of the phase.
+> - **A knob may drive a node's arg** (`in1 = @depth;`). Not in the
+>   sketch, but leaving nodes out of the namespace phase 2 unified would
+>   have made an LFO's depth the one number in a piece that could not go
+>   on a slider.
+> - **The category audit came out as the plan guessed**, with one
+>   addition. `osc`, `env`, `math`, `logic`, `filt`, `misc` are shapes
+>   over time and time at fifty a second is still time; `delay` and `fft`
+>   count in *samples*, and a sample here is a fiftieth of a second, so
+>   they would run and mean something nobody intended. Refused loudly, by
+>   family. The addition is `osc::static`, refused by name: it draws from
+>   the global generator, and a piece that used it would not replay.
+>   There is nowhere to hand it the piece's seed and seeding `rand()`
+>   would reach into the audio thread's copy of it.
+> - **Determinism is a pure function of transport time**, not of how
+>   often the host was called: windows fired by time t is
+>   `floor(t * rate)`, with one stated exception -- a forward jump of
+>   more than a few seconds is capped rather than caught up, because
+>   three thousand windows inside one timer callback would stop the
+>   program and a jump is honestly a jump. So a pause freezes the nodes, a rewind
+>   replays them, and a late frame does not change what a piece sounds
+>   like. `reset()` zeroes the state and output args rather than
+>   rebuilding, because a rebuild would hand every `->` binding in the
+>   piece a dangling pointer at the exact moment a replay began — and
+>   zero is not merely plausible there, it is what `thArg::allocate`
+>   value-initialises a node that has never run to.
+>
+> - **Every node runs every window**, rather than the audio thread's
+>   walk from whatever declared itself ACTIVE. That walk exists because
+>   a patch always has an oscillator in it and skipping the rest is what
+>   makes a hundred voices affordable; down here the assumption is
+>   simply false, since `math` and `logic` plugins are PASSIVE to a
+>   module and a chain is entitled to hold nothing but arithmetic. Such
+>   a graph fired once -- on stale recalc flags -- then froze, and after
+>   a reset produced zeros forever. There is nothing to optimise over a
+>   handful of nodes at one sample a window anyway.
+> - **A node's arg names are checked against its plugin.** `thNode`
+>   invents an arg that does not exist, which is right for a `.dsp` and
+>   silent here: `frq` for `freq` gave an oscillator at zero and a piece
+>   that did not breathe, with no error anywhere. Both ends of a wire,
+>   both ends of an arrow. A module's ARG_STATE scratch is not a port
+>   and neither is an input, so `lfo->last` and `lfo->freq` are refused
+>   too.
+> - **The document's stages and the scheduler's stopped being the same
+>   list**, because a node is a `stage` in the file and nothing in the
+>   event flow. Anything walking one while indexing the other goes
+>   through `thcGenEdit::liveIndex` now; before it did not, and a piece
+>   with an LFO at the top of a chain handed the canvas the wrong
+>   stage's params. That is also why a knob driving a node drew no wire:
+>   a node box has no `thcStage` for `eachWire` to read a binding off.
+>   The host is asked instead.
+> - One control-rate synth per *piece*, not per chain. Every plugin
+>   keeps its registered arg indices in a file-scope global, which
+>   assumes one `thPlugin` per module per process; a second
+>   `thPluginManager` would `dlopen` the same `.so` and call
+>   `module_init` again against a second one.
+>
+> Two things about the gates, both worth knowing.
+>
+> `hostcheck` compares the same graph cut into windows of one and into a
+> window of two hundred. That is the drift the hazards section named:
+> both hosts are the same `thSynthTree` walking the same `.so`, so what
+> can differ between them is the *window length*, and a plugin that kept
+> its phase in a local or read `buf[i - 1]` without remembering
+> `buf[len - 1]` would be right at a thousand samples and wrong at one.
+> It also refuses to pass on a signal that never moved, because two
+> silences agree perfectly and prove nothing. Its first version had no
+> passive-only graph in it, which is exactly where the ACTIVE-walk bug
+> above was living: every case had an oscillator or an envelope pulling
+> the arithmetic along behind it.
+>
+> And the first version of the replay gate was vacuous. It rendered
+> `breath.gen` twice and diffed, which a host firing one window *per
+> call* passes perfectly — the harness drives both renders with the same
+> call pattern. Caught by deliberately breaking the clock and watching
+> the gate stay green. It now also asks the question directly: one graph,
+> one span of transport, reached in a hundred and fifty steps and in a
+> single jump, same answer.
+
 ## Phase 3 — embedded nodes: dsp plugins as chain stages
 
 "Nodes in the composition process": the same dlopen'd DSP plugins,
@@ -295,6 +413,107 @@ chain drift {
 Deliverable: an LFO breathing a chain's density; an envelope shaping a
 piece's dynamics over minutes — modulation *of the composition*, with
 the same modules that modulate sound.
+
+## Phase 4 — structural mutation: composers reshape instruments — LANDED (first half)
+
+> **DONE, as far as the plan said to take it first.** "4 rides on all of
+> it and should start life as one hardcoded structure edit end-to-end --
+> prove rebuild-and-swap under the scheduler before any composer is
+> allowed to breed a filter." Two edits are landed end to end, and no
+> composer breeds anything yet.
+>
+> `THC_EV_PATCH` -- this channel becomes that instrument -- and
+> `THC_EV_NODEARG` -- this constant inside its graph becomes that.
+> `gen::swap` and `gen::reshape` emit them, `gen/reshape.gen` is the
+> piece, GEN_FORMAT.md §5b is the spec. Notes worth keeping:
+>
+> - **Intents out, services in**, exactly as §9 of the handoff sketched.
+>   A composer emits "this channel becomes `bell'" and the host does it;
+>   no plugin holds a graph, and `bell' reaches the plugin as a resolved
+>   name in a `THC_PARAM_INSTRSET` -- the same bargain a scale and a
+>   preset already make, one noun further along.
+> - **The voice-lifecycle question was answered by not answering it.** A
+>   swap goes through the ordinary patch-load path -- and that path
+>   replaces the channel, so a swap cuts whatever is sounding on it.
+>   (Written the other way round here at first: `loadTree` promises the
+>   outgoing channel is not freed under the audio thread, which is a
+>   promise about lifetimes rather than about notes, and the two were
+>   confused.) A swap is therefore a coarse edit that wants a slow clock.
+>   A node-arg edit is the one that answers the question properly: it
+>   lands on the channel's *prototype* tree, which thMidiChan.cpp says in
+>   as many words the audio thread never reads, so sounding voices are
+>   untouched with no swap and no command at all.
+> - **Being an event is the whole rate limit**, and it cost nothing to
+>   arrange: scheduled, sparse, replayed from the seed, drawn on the
+>   roll. The plan predicted that and it turned out to be simply true.
+> - **A rewind restores the declarations.** After a swap the channels no
+>   longer say what the file says, so `reset()` re-applies every
+>   instrument -- through the same call the loader makes, so there is one
+>   answer to what a declaration means rather than a second one kept in
+>   step by hand. Only when something moved; an ordinary rewind of an
+>   ordinary piece reloads nothing.
+> - **Four refusals worth having**, and the first draft got the most
+>   important one half right. A node arg may be set only if it is
+>   *already a constant* -- a whitelist on `ARG_VALUE`, not a blacklist
+>   naming `ARG_POINTER`, because `thArg` has four types and the one the
+>   blacklist missed was `ARG_CHANNEL`. `thNode::setArg` retypes an arg
+>   to `ARG_VALUE` whatever it was, and
+>   `thMidiChan::assignChanArgPointers` only re-points args still typed
+>   `ARG_CHANNEL`, so `reshape { node = "fmap"; arg = "outmin"; }` against
+>   `amb01.dsp` would have killed that channel's `@fmin` for the rest of
+>   the session -- slider on screen, arg panel live, nothing moving,
+>   nothing said. `NodeEditor::applyValueLive` asks the same question the
+>   same way; it was there to be copied and was not. A module's
+>   `ARG_STATE` scratch is refused too, and an arg the module never
+>   declared would otherwise be invented by `thNode::setArg` and read by
+>   nothing -- the same silence phase 3's mistyped node args produced,
+>   arriving by a different door. The fourth is about swaps: only onto a
+>   channel the piece declares an instrument for. Rebuilding a graph is
+>   not like writing a chanarg, where the worst case is a number; it
+>   throws away whatever was on the channel, and a `sink { channel = 5; }`
+>   is in no declaration for a rewind to restore from.
+> - **Applying an instrument had to become idempotent.** It was written
+>   as a once-per-load call and phase 4 made it three: a swap applies one,
+>   a rewind applies them all again. A knob bound into a chanarg is a
+>   *push*, connected as its value is read, and the connection list only
+>   ever grew -- so a swapped-away instrument went on driving the channel
+>   it used to be on, alongside its replacement, until the piece was
+>   closed. The connections now remember which channel they push into and
+>   are dropped before the channel is wired again, which is the shape this
+>   wanted from the start: applying an instrument says the same thing
+>   however many times it is done.
+> - **A swap has to record what is on the channel**, for two callers that
+>   both got it wrong without it. `gen::swap` has a list of names and a
+>   clock and cannot see what its sink is playing, so a list beginning
+>   with the sink's own instrument rebuilt the graph into a copy of
+>   itself on the opening tick -- every sounding voice cut, for no
+>   change. And the window's "an unchanged instrument keeps its graph"
+>   shortcut compares the generation (still ours after a swap) and the
+>   declaration (unchanged in the file), so a reload after a swap kept
+>   the swapped-in graph while believing the declared one was there,
+>   whereupon applying the declaration's values failed on a chanarg the
+>   wrong `.dsp` does not have and the whole file refused to load.
+> - **The consent argument moved rather than vanished.** §4a's sentence
+>   about chanargs being the whole of a composer's reach is still true
+>   *of chanargs*; `reshape` is the different mechanism §9 promised
+>   instead of a widening of that one. A piece reaching past a patch's
+>   declared surface has said so in a line anyone can read, in a file
+>   they can diff, at a rate its own event stream sets.
+>
+> Not here, and deliberately: add/remove/rewire a node, and the genetic
+> convergence below -- `breed` and `evolve` over graphs, with the render
+> pipeline as the fitness function. Those want a mutation vocabulary
+> (`NodeGraph::canConnect`), a genome that serialises, and a shadow synth
+> to judge it, which is the research branch the handoff files them under.
+> What is proven here is the thing they were waiting on: an edit can be
+> scheduled, delivered, drawn, replayed and refused.
+>
+> Every gate above was checked by breaking the fix and watching the gate
+> fail -- the wired-chanarg refusal, the own-channel rule, the
+> already-there no-op (which asserts the prototype tree is the *same
+> object* afterwards, since "did nothing" is not visible any other way),
+> the stale knob binding, and `reshape`'s ping-pong reflecting one step
+> short of its walls rather than at them.
 
 ## Phase 4 — structural mutation: composers reshape instruments
 

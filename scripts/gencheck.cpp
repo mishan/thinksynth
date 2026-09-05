@@ -46,6 +46,7 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <set>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -55,10 +56,12 @@
 #include "think.h"
 
 #include "libthink/thDynLib.h"
+#include "libthink/thMidiChan.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
 #include "thcGenEdit.h"
+#include "thcNodeHost.h"
 
 static int failures = 0;
 
@@ -371,11 +374,34 @@ render (thcScheduler &sched, double seconds, double step)
                 snprintf(buf, sizeof(buf), "N %.17g %d %d %d %.17g\n",
                          ev.at, ev.channel, ev.u.note.note,
                          ev.u.note.velocity, ev.u.note.duration);
-            else
+            /* Structure edits are on the tape for the same reason notes
+               are: they are what the piece did. A replay gate that
+               diffed only the notes would call a piece identical while
+               it rebuilt its instrument at different times. */
+            else if (ev.type == THC_EV_PATCH)
+                snprintf(buf, sizeof(buf), "P %.17g %d %s\n",
+                         ev.at, ev.channel,
+                         ev.u.patch.name ? ev.u.patch.name : "");
+            else if (ev.type == THC_EV_NODEARG)
+                snprintf(buf, sizeof(buf), "E %.17g %d %s %s %.17g\n",
+                         ev.at, ev.channel,
+                         ev.u.nodearg.node ? ev.u.nodearg.node : "",
+                         ev.u.nodearg.arg ? ev.u.nodearg.arg : "",
+                         (double)ev.u.nodearg.value);
+            else if (ev.type == THC_EV_CHANARG)
                 snprintf(buf, sizeof(buf), "C %.17g %d %s %.17g\n",
                          ev.at, ev.channel,
                          ev.u.chanarg.name ? ev.u.chanarg.name : "",
                          (double)ev.u.chanarg.value);
+            /* Named, not fallen through to. The chanarg case used to be
+               the `else', which read u.chanarg.name out of whatever
+               arrived -- a THC_EV_NOTEOFF landing there hands printf two
+               ints as a char *. Unreachable in a headless run with no
+               MIDI in it, and one live-input piece away from not
+               being. */
+            else
+                snprintf(buf, sizeof(buf), "? %.17g %d %d\n",
+                         ev.at, ev.channel, (int)ev.type);
 
             tape += buf;
         });
@@ -2998,7 +3024,1995 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
-/* ---- 7. every shipped piece still loads -------------------------------- */
+/* ---- 6e. embedded nodes: dsp plugins as chain stages ------------------- */
+
+/* UNIFICATION.md phase 3. Four claims:
+ *
+ * 1. A node's output reaches a composer param, and moves it. The whole
+ *    deliverable is "an LFO breathing a chain's density", and a binding
+ *    that resolved but never changed anything would look identical from
+ *    outside.
+ * 2. It replays. Nodes step on transport time, so the same file and the
+ *    same seed deliver the same stream twice with a reset between --
+ *    which is the promise every composer already keeps and the reason a
+ *    node had to be as repeatable as one before it was let in.
+ * 3. The refusals: families that mean nothing one sample at a time, the
+ *    one plugin that cannot replay, and arrows pointing at nothing.
+ * 4. Pause freezes them, because transport time is what they read.
+ */
+static void
+checkNodes (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth, const std::string &genFile)
+{
+    const std::string breath =
+        (std::filesystem::path(genFile).parent_path() / "breath.gen").string();
+
+    if (!std::filesystem::exists(breath))
+    {
+        fail("breath.gen is not beside " + genFile + "; the node checks "
+             "have nothing to run");
+        return;
+    }
+
+    clearChannels(synth);
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(breath, &sched))
+    {
+        for (size_t i = 0; i < loader.errors().size(); i++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+        fail("breath.gen does not load");
+        return;
+    }
+
+    /* The binding is live: the param a node drives has to *move*. Read
+       straight off the store, because that is where a composer reads it
+       and the arithmetic in between is the piece's business. */
+    thcChain *c = sched.chain(0);
+
+    if (c == NULL || c->stages.empty() || !c->nodes)
+        fail("breath.gen's first chain has no nodes in it");
+    else
+    {
+        thcStage *src = c->stages.back().get();
+        const int pi = src->plugin->paramIndex("prob");
+
+        if (pi < 0)
+            fail("the node-driven stage has no prob param");
+        else
+        {
+            double lo = 2, hi = -1;
+
+            sched.start();
+
+            for (int i = 0; i < 1200; i++)      /* twenty-four seconds  */
+            {
+                sched.stepTransport(0.02);
+
+                const double v = src->params.get(pi);
+
+                lo = v < lo ? v : lo;
+                hi = v > hi ? v : hi;
+            }
+
+            sched.stop();
+
+            /* The piece asks for 0.5 +- 0.45 over a twenty-second
+               cycle, so a full swing is most of 0.05..0.95. Loose
+               bounds: what is being asked is "did the LFO drive it",
+               not "is osc::simple accurate", which hostcheck owns. */
+            if (hi - lo < 0.5)
+            {
+                std::ostringstream s;
+
+                s << "the LFO did not breathe the density: prob stayed "
+                  << "between " << lo << " and " << hi;
+                fail(s.str());
+            }
+
+            /* And it is the *node* doing it, not a stored value that
+               happens to vary: nothing else in that chain touches
+               prob. */
+            if (src->params.nodeBinding(pi) == NULL)
+                fail("prob is not bound to a node at all");
+        }
+    }
+
+    drainSynth();
+
+    /* Replay. Same shape as the gate airports.gen passes, pointed at
+       the piece whose values come out of a second interpreter. */
+    {
+        thcScheduler a(synth);
+        thcGenLoader la(plugins);
+
+        clearChannels(synth);
+
+        if (!la.load(breath, &a))
+            fail("breath.gen did not load for the replay check");
+        else
+        {
+            const std::string first = render(a, 90.0, 0.02);
+
+            a.reset();
+
+            const std::string second = render(a, 90.0, 0.02);
+
+            if (first.empty())
+                fail("breath.gen delivered nothing at all");
+            else if (first != second)
+            {
+                fail("a piece with dsp nodes in it did not replay");
+
+                size_t n = 0;
+
+                while (n < first.size() && n < second.size() &&
+                       first[n] == second[n])
+                    n++;
+
+                size_t line0 = first.rfind('\n', n);
+
+                line0 = line0 == std::string::npos ? 0 : line0 + 1;
+
+                fprintf(stderr, "  first : %.60s\n", first.c_str() + line0);
+                fprintf(stderr, "  second: %.60s\n", second.c_str() + line0);
+            }
+        }
+    }
+
+    drainSynth();
+
+    /* Pause freezes them. The nodes read transport time, and a stopped
+       transport does not advance -- so the value a param sees must be
+       the same before and after a stretch of wall clock spent stopped.
+       Stepping a stopped scheduler is exactly what the app's timer does
+       while paused. */
+    {
+        thcScheduler p(synth);
+        thcGenLoader lp(plugins);
+
+        clearChannels(synth);
+
+        if (lp.load(breath, &p))
+        {
+            thcChain *pc = p.chain(0);
+            thcStage *src = pc != NULL && !pc->stages.empty()
+                ? pc->stages.back().get() : NULL;
+            const int pi = src != NULL
+                ? src->plugin->paramIndex("prob") : -1;
+
+            if (src != NULL && pi >= 0)
+            {
+                p.start();
+
+                for (int i = 0; i < 150; i++)
+                    p.stepTransport(0.02);
+
+                p.stop();
+
+                const double held = src->params.get(pi);
+
+                for (int i = 0; i < 500; i++)
+                    p.stepTransport(0.02);
+
+                if (src->params.get(pi) != held)
+                    fail("a paused transport did not freeze the nodes");
+            }
+        }
+    }
+
+    drainSynth();
+
+    /* A pure function of transport time, and nothing else.
+     *
+     * The replay above is necessary and not sufficient: the harness
+     * drives both renders with the same call pattern, so a host firing
+     * one window per *call* rather than per fiftieth of a second would
+     * replay perfectly and still be wrong -- wrong in the way that
+     * matters, since the application's dt jitters with the frame and a
+     * piece would breathe at whatever rate the machine felt like. That
+     * mistake was made while writing this, and the replay gate did not
+     * notice.
+     *
+     * So it is asked directly, which is the only place the question is
+     * separable from what the composers around it are doing: one graph,
+     * one span of transport, reached in a hundred and fifty steps and in
+     * a single jump. Same answer, or the clock is not the clock. Three
+     * seconds because that is inside the catch-up guard -- a longer jump
+     * is deliberately allowed to skip, the way a pause is.
+     */
+    {
+        /* The host's own control-rate synth, made here the way the
+           scheduler makes one: a rate and a plugin manager. */
+        thSynth control(synth->getPluginManager()->pluginPath(), 1, 50);
+        thcNodeHost a(&control, 50);
+        thcNodeHost b(&control, 50);
+        std::string why;
+        bool built = true;
+
+        for (int which = 0; which < 2; which++)
+        {
+            thcNodeHost &h = which == 0 ? a : b;
+
+            built = built && h.addNode("lfo", "osc/simple", why);
+            h.setValue("lfo", "freq", 0.37, why);
+            h.setValue("lfo", "waveform", 0, why);
+            h.setValue("lfo", "amp", 1, why);
+            built = built && h.build(why);
+        }
+
+        if (!built)
+            fail("the clock check could not build its graph: " + why);
+        else
+        {
+            thArg *ao = a.output("lfo", "out", why);
+            thArg *bo = b.output("lfo", "out", why);
+
+            for (int i = 0; i < 150; i++)
+                a.stepTo((i + 1) * 0.02);
+
+            b.stepTo(3.0);
+
+            if (ao == NULL || bo == NULL)
+                fail("the clock check lost its outputs: " + why);
+            else if ((*ao)[0] != (*bo)[0])
+            {
+                std::ostringstream s;
+
+                s << "a node's value depends on how the transport was "
+                  << "reached rather than on where it got to: stepped "
+                  << (*ao)[0] << ", jumped " << (*bo)[0];
+                fail(s.str());
+            }
+            else if ((*ao)[0] == 0)
+                fail("the clock check watched a signal that never moved");
+        }
+    }
+
+    /* A literal typed over a node-driven param actually takes.
+     *
+     * The panel's undo path: somebody selects a stage whose `prob' reads
+     * an LFO, types 0.9, and the file, the canvas and the panel all say
+     * 0.9 from that moment. Releasing only the knob left the node still
+     * shadowing the stored value, so the piece went on breathing while
+     * every surface that could show a number showed the new one -- and
+     * saving and reopening sounded different from what had just been
+     * heard, which is the part that makes it worth a gate rather than a
+     * bug report. Driven through the scheduler primitive the panel
+     * calls, since gencheck links no widgets.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(breath, &sched))
+            fail("breath.gen did not load for the unbind check");
+        else
+        {
+            thcChain *c = sched.chain(0);
+            thcStage *src = c != NULL && !c->stages.empty()
+                ? c->stages.back().get() : NULL;
+            const int idx = src != NULL
+                ? src->plugin->paramIndex("prob") : -1;
+
+            if (src == NULL || idx < 0)
+                fail("breath.gen's first chain no longer ends in a stage "
+                     "with a 'prob' param");
+            else if (src->params.nodeBinding(idx) == NULL)
+                fail("breath.gen's 'prob' is not node-driven any more, so "
+                     "the unbind check is testing nothing");
+            else
+            {
+                /* Somewhere the LFO is not, so "it took" cannot be read
+                   off a value the node might have produced anyway. */
+                sched.start();
+
+                for (int i = 0; i < 40; i++)
+                    sched.stepTransport(0.02);
+
+                sched.unbindParam(src, idx);
+                src->params.set(idx, 0.9);
+
+                if (src->params.nodeBinding(idx) != NULL)
+                    fail("unbindParam left the node binding in place");
+
+                bool moved = false;
+
+                for (int i = 0; i < 40; i++)
+                {
+                    sched.stepTransport(0.02);
+
+                    if (fabs(src->params.get(idx) - 0.9) > 1e-6)
+                        moved = true;
+                }
+
+                if (moved)
+                    fail("a value written over a node-driven param was "
+                         "still shadowed by the node");
+
+                sched.stop();
+            }
+        }
+
+        clearChannels(synth);
+    }
+
+    /* ---- the refusals ---- */
+
+    expectReject(plugins, synth, "node-bad-family",
+        "chain c { stage d dist::clip { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "not a family that means anything at control rate");
+
+    expectReject(plugins, synth, "node-samples-family",
+        "chain c { stage e delay::echo { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "counts in samples");
+
+    expectReject(plugins, synth, "node-not-replayable",
+        "chain c { stage n osc::static { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "would not replay");
+
+    expectReject(plugins, synth, "node-no-such-module",
+        "chain c { stage n osc::nosuchosc { };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "nosuchosc");
+
+    /* An arrow to a node nobody declared, and to an arg it does not
+       have. Both are the composer-side spelling, which is where a
+       reader is most likely to get it wrong. */
+    expectReject(plugins, synth, "arrow-no-node",
+        "chain c { stage s gen::eno_line { prob = ghost->out; };"
+        " sink { channel = 1; }; };",
+        "no dsp stages");
+
+    expectReject(plugins, synth, "arrow-no-arg",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { prob = lfo->nosucharg; };"
+        " sink { channel = 1; }; };",
+        "nosucharg");
+
+    /* An arg the module does not declare. thNode::setArg invents one,
+       which is right for a .dsp and silent here: `frq' for `freq' gave
+       an oscillator running at zero and a piece that simply did not
+       breathe, with no error anywhere. */
+    expectReject(plugins, synth, "node-bad-arg",
+        "chain c { stage lfo osc::simple { frq = 0.05; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "no arg called 'frq'");
+
+    /* Both ends of a wire, not just the near one. setPointers would
+       otherwise create the missing far arg as a permanent zero. */
+    expectReject(plugins, synth, "wire-bad-far-arg",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage m math::mul { in0 = lfo->nosuch; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "no arg called 'nosuch'");
+
+    /* A module's own scratch is not a port. */
+    expectReject(plugins, synth, "node-state-arg",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { prob = lfo->last; };"
+        " sink { channel = 1; }; };",
+        "own scratch");
+
+    /* Nor is an input something to read out of. */
+    expectReject(plugins, synth, "arrow-at-an-input",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { prob = lfo->freq; };"
+        " sink { channel = 1; }; };",
+        "is an input, not an output");
+
+    /* And an output is not something to write into -- the other end of
+       the same arrow, in its three spellings.
+     *
+       The third one is why these are worth having. A node pointing its
+       own output at itself built a thArg whose pointer resolves to
+       itself, and thSynthTree::getArg follows a pointer in a loop with
+       no exit: the file loaded without a word of complaint and the
+       first window hung the GUI thread. The other two were quiet
+       instead of fatal -- a value the plugin overwrote every window,
+       and a module handed somebody else's buffer to write into -- which
+       is the same silence a mistyped arg name used to produce, and the
+       reason checkArg exists at all. */
+    expectReject(plugins, synth, "value-at-an-output",
+        "chain c { stage lfo osc::simple { freq = 1; out = 0.5; };"
+        " stage s gen::eno_line { prob = lfo->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    expectReject(plugins, synth, "wire-into-an-output",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage m math::mul { in0 = lfo->out; in1 = 2; out = lfo->out; };"
+        " stage s gen::eno_line { prob = m->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    expectReject(plugins, synth, "node-wired-to-itself",
+        "chain c { stage m math::mul { in0 = 1; in1 = 2; out = m->out; };"
+        " stage s gen::eno_line { prob = m->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    /* A knob cannot write one either -- the same end of the arrow,
+       reached from the namespace phase 2 unified. */
+    expectReject(plugins, synth, "knob-at-an-output",
+        "@depth = 0.5;\n@depth.min = 0;\n@depth.max = 1;\n"
+        "chain c { stage lfo osc::simple { freq = 1; out = @depth; };"
+        " stage s gen::eno_line { prob = lfo->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    /* In an allowed family and refused by name: filt:: is admitted
+       because a filter is a shape over time, and comb is a delay line
+       whose `size' is a raw sample count. Same criterion delay:: and
+       fft:: are refused by, arriving one category later. */
+    expectReject(plugins, synth, "node-comb-counts-samples",
+        "chain c { stage k filt::comb { in = 0.5; size = 4410; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "delay line");
+
+    /* The name this host gives the node it invents. */
+    expectReject(plugins, synth, "node-called-ionode",
+        "chain c { stage ionode osc::simple { freq = 1; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "call it something else");
+
+    /* And a wire between nodes pointing at nothing, which is the same
+       mistake one level down. */
+    expectReject(plugins, synth, "wire-no-node",
+        "chain c { stage m math::mul { in0 = ghost->out; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "there is no node called 'ghost'");
+
+    /* A node cannot drive something that is not a number, for the same
+       reason a knob cannot. */
+    expectReject(plugins, synth, "arrow-on-noteset",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage s gen::eno_line { notes = lfo->out; };"
+        " sink { channel = 1; }; };",
+        "a node cannot drive it");
+
+    clearChannels(synth);
+}
+
+/* ---- 6f. structure edits: composers reshaping instruments -------------- */
+
+/* UNIFICATION.md phase 4. What has to be true:
+ *
+ * 1. A swap actually swaps -- the channel is playing a different graph
+ *    afterwards, not merely told to.
+ * 2. A node-arg edit reaches a constant the patch never declared, which
+ *    is the whole of what makes it a different mechanism from a chanarg
+ *    rather than a wider one.
+ * 3. Both replay. They are events, so they should; a piece full of them
+ *    rendered twice with a reset between must be byte-identical.
+ * 4. A rewind puts the instruments back as the file declared them,
+ *    because after a swap the channels no longer say what the file says.
+ * 5. The refusals -- an instrument nobody declared, an arg no node has,
+ *    a node arg that is wired rather than constant.
+ */
+static void
+checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
+                     thSynth *synth, const std::string &genFile)
+{
+    const std::string piece =
+        (std::filesystem::path(genFile).parent_path() / "reshape.gen").string();
+
+    if (!std::filesystem::exists(piece))
+    {
+        fail("reshape.gen is not beside " + genFile);
+        return;
+    }
+
+    clearChannels(synth);
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("reshape.gen does not load");
+            return;
+        }
+
+        /* voice is amb01 and glass is ts1, and only one of them declares
+           `cutoff'. So which graph is on the channel is a question with
+           an answer, rather than a thing to take on trust. */
+        const thcInstrument *voice = sched.instrument("voice");
+        const thcInstrument *glass = sched.instrument("glass");
+
+        if (voice == NULL || glass == NULL)
+            fail("reshape.gen no longer declares voice and glass");
+        else
+        {
+            const int ch = voice->channel;
+
+            drainSynth();
+
+            if (synth->getChanArg(ch, "fmin") == NULL)
+                fail("the piece did not open on the instrument it declares");
+
+            std::string why;
+
+            if (!sched.swapInstrument(ch, "glass", why))
+                fail("a swap to glass was refused: " + why);
+
+            drainSynth();
+
+            /* ts1 has a cutoff and amb01 does not: the graph changed. */
+            if (synth->getChanArg(ch, "cutoff") == NULL)
+                fail("after the swap the channel is not playing glass");
+
+            if (synth->getChanArg(ch, "fmin") != NULL)
+                fail("after the swap the old graph is still there");
+
+            /* And the values came with it, not just the graph. */
+            thArg *res = synth->getChanArg(ch, "res");
+
+            if (res == NULL || fabs((*res)[0] - 0.5) > 1e-4)
+                fail("the swapped-in instrument did not bring its values");
+
+            /* Back, and then the fine edit -- which needs amb01, since
+               `fmap' is one of its nodes. */
+            if (!sched.swapInstrument(ch, "voice", why))
+                fail("a swap back to voice was refused: " + why);
+
+            drainSynth();
+
+            if (!sched.setNodeArg(ch, "fmap", "inmax", 0.25f, why))
+                fail("a node arg the patch never declared was refused: " +
+                     why);
+            else
+            {
+                /* Read back off the prototype tree, which is where a
+                   new voice would read it. */
+                thMidiChan *c = synth->getChannel(ch);
+                thSynthTree *tree = c != NULL ? c->modnode() : NULL;
+                thNode *n = tree != NULL ? tree->findNode("fmap") : NULL;
+                thArg *a = n != NULL ? n->getArg("inmax") : NULL;
+
+                if (a == NULL || fabs((*a)[0] - 0.25) > 1e-5)
+                    fail("the node arg did not take");
+
+                /* And it really is not a chanarg -- if it were, this
+                   whole mechanism would be a chanarg with extra steps. */
+                if (synth->getChanArg(ch, "inmax") != NULL)
+                    fail("'inmax' is a chanarg after all, which would make "
+                         "this the wrong test entirely");
+            }
+
+            /* A rewind puts the file back. */
+            sched.reset();
+            drainSynth();
+
+            thNode *n2 = NULL;
+            thMidiChan *c2 = synth->getChannel(ch);
+            thSynthTree *t2 = c2 != NULL ? c2->modnode() : NULL;
+
+            if (t2 != NULL)
+                n2 = t2->findNode("fmap");
+
+            thArg *a2 = n2 != NULL ? n2->getArg("inmax") : NULL;
+
+            if (a2 != NULL && fabs((*a2)[0] - 0.25) < 1e-5)
+                fail("a rewind left a structure edit in place");
+        }
+    }
+
+    drainSynth();
+
+    /* Replay, the gate every piece passes and the one a structure edit
+       had to earn before it was allowed to exist. */
+    {
+        clearChannels(synth);
+
+        thcScheduler a(synth);
+        thcGenLoader la(plugins);
+
+        if (!la.load(piece, &a))
+            fail("reshape.gen did not load for the replay check");
+        else
+        {
+            const std::string first = render(a, 130.0, 0.02);
+
+            a.reset();
+
+            const std::string second = render(a, 130.0, 0.02);
+
+            if (first.empty())
+                fail("reshape.gen delivered nothing at all");
+            else if (first.find("P ") == std::string::npos)
+                fail("no structure edits in reshape.gen's stream");
+            else if (first != second)
+                fail("a piece with structure edits in it did not replay");
+
+            /* And the sweep moves on every step it takes.
+             *
+               A ping-pong that reflects *at* its walls rather than one
+               short of them emits its top value twice running, and its
+               bottom twice running -- a cycle two ticks long than the
+               file asks for that stalls at each extreme. Nothing about
+               the replay gate can see that: both renders stall
+               identically. Consecutive equal values on one arg is the
+               shape of the bug, said directly. */
+            std::map<std::string, std::string> last;
+            std::istringstream lines(first);
+            std::string line;
+
+            while (std::getline(lines, line))
+            {
+                if (line.compare(0, 2, "E ") != 0)
+                    continue;
+
+                /* "E <at> <ch> <node> <arg> <value>": node and arg
+                   together are which constant this is, and the value is
+                   what has to have moved since last time. */
+                std::istringstream f(line);
+                std::string tag, at, ch, node, arg, val;
+
+                if (!(f >> tag >> at >> ch >> node >> arg >> val))
+                    continue;
+
+                const std::string key = ch + " " + node + "." + arg;
+
+                if (last.count(key) && last[key] == val)
+                {
+                    fail("a node-arg sweep emitted '" + val +
+                         "' twice running for " + key);
+                    break;
+                }
+
+                last[key] = val;
+            }
+
+            if (last.empty())
+                fail("no node-arg edits in reshape.gen's stream");
+        }
+    }
+
+    drainSynth();
+    clearChannels(synth);
+
+    /* ---- what `pass = 0' is allowed to eat ---- */
+
+    /* A transformer told not to pass notes eats the notes, and nothing
+     * else.
+     *
+     * Two halves of one rule. A stage consuming what it is *for* is a
+     * design; a stage consuming everything that happens to flow through
+     * it is a hole in a pipeline -- a gen::reshape in front of a
+     * `pass = 0' arp delivered nothing at all, silently, and the piece
+     * simply never changed. And the off goes with its on: forwarding a
+     * release whose press this stage ate is an off for a note it did not
+     * play, which the scheduler hands to delNote and which then silences
+     * whatever else is sounding at that pitch.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::string tmp = thUtil::tempFile("gencheck-passrule-");
+
+        if (tmp.empty())
+            fail("the pass-rule check could not make a scratch file");
+        else
+        {
+            {
+                std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+                out << "seed 7;\n"
+                    << "instrument pad { dsp \"amb01.dsp\"; };\n"
+                    << "chain edits {\n"
+                    << "  stage r gen::reshape { node = \"fmap\";"
+                    << " arg = \"inmax\"; from = 1; to = 0.25;"
+                    << " every = 1 s; steps = 4; };\n"
+                    << "  stage a xform::arp { pass = 0; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n"
+                    << "chain keys {\n"
+                    << "  input midi;\n"
+                    << "  stage m xform::markov { pass = 0; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n"
+                    /* All three transformers that carry the rule, since
+                       the fix landed on one of them first and the other
+                       two kept the bug for a release. */
+                    << "chain keys2 {\n"
+                    << "  input midi;\n"
+                    << "  stage l xform::life { pass = 0; listen = 1; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n"
+                    << "chain keys3 {\n"
+                    << "  input midi;\n"
+                    << "  stage p xform::arp { pass = 0; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n";
+
+                if (!out.good())
+                    fail("the pass-rule check could not write " + tmp);
+            }
+
+            if (!loader.load(tmp, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("the pass-rule piece did not load");
+            }
+            else
+            {
+                int edits = 0, notes = 0;
+
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&edits, &notes](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NODEARG)
+                            edits++;
+                        else if (ev.type == THC_EV_NOTE ||
+                                 ev.type == THC_EV_NOTEOFF)
+                            notes++;
+                    });
+
+                sched.start();
+
+                /* The press and its release, both of which the markov
+                   stage is told to eat. */
+                thcEvent key = {};
+
+                key.type = THC_EV_NOTE;
+                key.channel = 0;
+                key.u.note.note = 60;
+                key.u.note.velocity = 90;
+                key.u.note.duration = 0;
+                key.at = sched.now();
+                sched.injectMidiEvent(key);
+
+                sched.stepTransport(0.1);
+
+                thcEvent up = {};
+
+                up.type = THC_EV_NOTEOFF;
+                up.channel = 0;
+                up.u.note.note = 60;
+                up.at = sched.now();
+                sched.injectMidiEvent(up);
+
+                for (int i = 0; i < 200; i++)
+                    sched.stepTransport(0.02);
+
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (edits == 0)
+                    fail("a 'pass = 0' transformer swallowed the structure "
+                         "edits of the stage in front of it");
+
+                if (notes != 0)
+                    fail("a 'pass = 0' transformer ate a press and "
+                         "forwarded its release anyway");
+            }
+
+            std::filesystem::remove(tmp);
+        }
+
+        clearChannels(synth);
+    }
+
+    /* ---- two events at one instant come out the way they went in ---- */
+
+    /* A heap does not order equal keys, and a re-pressed held root makes
+     * a pile of exactly equal keys: xform::harmonize releases the old
+     * chord at `at + spread*v' and presses the new one at `at + spread*v'
+     * -- the same instant, deliberately, because that is what replacing a
+     * chord means. Popped in heap order an on could be delivered ahead of
+     * the off emitted before it, and deliver() then ran addNote followed
+     * by delNote on the same pitch: the voice was created and immediately
+     * killed, and held_ kept an entry for a note nothing was playing.
+     *
+     * Asserted as the harm rather than as the ordering, because the
+     * ordering is only interesting for what it does: walk the delivered
+     * stream in order, and every pitch of a chord nobody released has to
+     * end up sounding.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::string tmp = thUtil::tempFile("gencheck-tieorder-");
+
+        if (tmp.empty())
+            fail("the tie-order check could not make a scratch file");
+        else
+        {
+            {
+                std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                    << "instrument pad { dsp \"amb01.dsp\"; };\n"
+                    << "chain keys {\n"
+                    << "  input midi;\n"
+                    /* spread 0 so every voice collides, which is the
+                       case the heap was free to reorder. */
+                    << "  stage h xform::harmonize { voices = 3;"
+                    << " spread = 0 s; root = 1; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n";
+
+                if (!out.good())
+                    fail("the tie-order check could not write " + tmp);
+            }
+
+            if (!loader.load(tmp, &sched))
+                fail("the tie-order piece did not load");
+            else
+            {
+                std::map<int, bool> sounding;
+                int offs = 0;
+
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&sounding, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            sounding[ev.u.note.note] = true;
+                        else if (ev.type == THC_EV_NOTEOFF)
+                        {
+                            sounding[ev.u.note.note] = false;
+                            offs++;
+                        }
+                    });
+
+                sched.start();
+
+                thcEvent key = {};
+
+                key.type = THC_EV_NOTE;
+                key.channel = 0;
+                key.u.note.note = 60;
+                key.u.note.velocity = 90;
+                key.u.note.duration = 0;    /* held */
+                key.at = sched.now();
+                sched.injectMidiEvent(key);
+
+                for (int i = 0; i < 10; i++)
+                    sched.stepTransport(0.02);
+
+                /* The re-press: one key, one entry, so the old chord is
+                   released and the new one pressed at the same instant. */
+                key.at = sched.now();
+                sched.injectMidiEvent(key);
+
+                for (int i = 0; i < 20; i++)
+                    sched.stepTransport(0.02);
+
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (offs == 0)
+                    fail("the tie-order check saw no releases, so the "
+                         "re-press it is about did not happen");
+
+                if (sounding.empty())
+                    fail("the tie-order check heard nothing at all");
+
+                for (std::map<int, bool>::const_iterator i = sounding.begin();
+                     i != sounding.end(); ++i)
+                    if (!i->second)
+                    {
+                        std::ostringstream s;
+
+                        s << "a re-pressed chord ended with pitch "
+                          << i->first << " released: an on was delivered "
+                          << "before the off emitted ahead of it";
+                        fail(s.str());
+                        break;
+                    }
+            }
+
+            std::filesystem::remove(tmp);
+        }
+
+        clearChannels(synth);
+    }
+
+    /* ---- what a rewind reaches, and what it leaves alone ---- */
+
+    /* A rewind restores the channels a structure edit touched and no
+     * others.
+     *
+     * applyInstrument goes through the host's patch loader, which drops
+     * the channel and re-parses the .dsp -- so re-applying every
+     * declaration because *one* of them moved threw away hand-tuned
+     * values and disarmed probes on channels nothing had been near, and
+     * did it only once a swap had happened to fire. Rewind behaving
+     * differently depending on how far the piece had got is the part
+     * worth a gate: the cheap way to see it is that an untouched
+     * channel's graph is the same object afterwards, where a restored
+     * one is not.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+            fail("reshape.gen did not load for the rewind-scope check");
+        else
+        {
+            const thcInstrument *voice = sched.instrument("voice");
+            const thcInstrument *other = sched.instrument("bell");
+
+            if (voice == NULL || other == NULL ||
+                voice->channel == other->channel)
+                fail("reshape.gen no longer declares voice and bell on "
+                     "channels of their own");
+            else
+            {
+                drainSynth();
+
+                thMidiChan *before = synth->getChannel(other->channel);
+                std::string why;
+
+                /* One edit, on voice's channel only. */
+                if (!sched.setNodeArg(voice->channel, "fmap", "inmax",
+                                      0.25f, why))
+                    fail("the rewind-scope check could not make its edit: " +
+                         why);
+
+                sched.reset();
+                drainSynth();
+
+                if (synth->getChannel(other->channel) != before)
+                    fail("a rewind rebuilt a channel no structure edit had "
+                         "touched");
+
+                thMidiChan *c = synth->getChannel(voice->channel);
+                thSynthTree *t = c != NULL ? c->modnode() : NULL;
+                thNode *n = t != NULL ? t->findNode("fmap") : NULL;
+                thArg *a = n != NULL ? n->getArg("inmax") : NULL;
+
+                if (n == NULL || a == NULL)
+                    fail("a rewind left the edited channel without the "
+                         "graph its declaration names");
+                else if (fabs((*a)[0] - 0.25) < 1e-5)
+                    fail("a rewind left a structure edit in place");
+            }
+        }
+
+        clearChannels(synth);
+    }
+
+    /* ---- a list the panel wrote rather than the loader ---- */
+
+    /* The loader normalises an instrument list to "voice,bell,glass" and
+     * checks every name in it, so a piece read off disk never exercises
+     * what a composer does with the separators. The param panel is the
+     * other writer, and it stores what was typed: a list edited in the
+     * window to "voice, bell, glass" reaches the plugin with the spaces
+     * still in it. Splitting on commas alone made that a name with a
+     * space welded to the front, and every swap to it was refused by a
+     * service that had never heard of " bell" -- a piece that quietly
+     * stopped swapping, with nothing in the log tying it to the edit
+     * that did it.
+     *
+     * Asserted on the event rather than on the tape, because the tape is
+     * whitespace-separated and reading a name back out of it would eat
+     * the very space this is about.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+            fail("reshape.gen did not load for the spaced-list check");
+        else
+        {
+            thcStage *swap = NULL;
+
+            for (size_t i = 0; i < sched.chainCount() && swap == NULL; i++)
+            {
+                thcChain *c = sched.chain(i);
+
+                for (size_t j = 0; c != NULL && j < c->stages.size(); j++)
+                    if (c->stages[j]->plugin->name() == "swap")
+                    {
+                        swap = c->stages[j].get();
+                        break;
+                    }
+            }
+
+            if (swap == NULL)
+                fail("reshape.gen no longer has a gen::swap stage");
+            else
+            {
+                const int idx = swap->plugin->paramIndex("instruments");
+
+                /* Exactly what ComposerWindow::applyParam does to a live
+                   stage: the typed text, stored as typed, then the
+                   changed notification the panel sends after it. */
+                if (idx < 0 ||
+                    !swap->params.setString("instruments",
+                                            "voice, bell, glass"))
+                    fail("gen::swap has no 'instruments' param");
+                else
+                {
+                    swap->params.notifyChanged(idx);
+
+                    std::vector<std::string> swapped;
+                    sigc::connection conn = sched.sigDelivered.connect(
+                        [&swapped](const thcEvent &ev)
+                        {
+                            if (ev.type == THC_EV_PATCH)
+                                swapped.push_back(ev.u.patch.name
+                                                  ? ev.u.patch.name : "");
+                        });
+
+                    sched.start();
+
+                    while (sched.now() < 130.0)
+                        sched.stepTransport(0.02);
+
+                    sched.stop();
+                    conn.disconnect();
+                    drainSynth();
+
+                    for (size_t i = 0; i < swapped.size(); i++)
+                        if (sched.instrument(swapped[i]) == NULL)
+                            fail("a spaced instrument list swapped to '" +
+                                 swapped[i] + "', which the piece does "
+                                 "not declare");
+
+                    if (swapped.empty())
+                        fail("a spaced instrument list produced no swaps");
+                }
+            }
+        }
+    }
+
+    drainSynth();
+    clearChannels(synth);
+
+    /* ---- the refusals ---- */
+
+    expectReject(plugins, synth, "swap-unknown-instrument",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage m gen::swap { instruments = ghost; };"
+        " sink { instrument = pad; }; };",
+        "no instrument called 'ghost'");
+
+    expectReject(plugins, synth, "swap-unknown-in-list",
+        "instrument pad { dsp \"amb01.dsp\"; };\n"
+        "chain c { stage m gen::swap { instruments = \"pad,ghost\"; };"
+        " sink { instrument = pad; }; };",
+        "no instrument called 'ghost'");
+
+    /* The services say no by name, which is what a piece hitting one
+       mid-play has to read in the log. */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        /* Said rather than skipped. A block of refusals inside an
+           `if (loaded)' with no else is a block that reports success the
+           day the piece stops loading, which is the day you want to hear
+           about it most. */
+        if (!loader.load(piece, &sched))
+            fail("the structure-edit piece did not load");
+        else
+        {
+            const thcInstrument *voice = sched.instrument("voice");
+            const int ch = voice != NULL ? voice->channel : 0;
+            std::string why;
+
+            drainSynth();
+
+            if (sched.swapInstrument(ch, "nosuchinstrument", why))
+                fail("a swap to an undeclared instrument succeeded");
+
+            /* A channel the piece declares no instrument for. A swap
+               rebuilds a whole graph, so reaching one is reaching into
+               somebody's loaded patch and throwing it away -- and a
+               rewind would not put it back, because it is in no
+               declaration to be restored from. */
+            if (sched.swapInstrument(15, "bell", why))
+                fail("a swap onto a channel the piece does not own "
+                     "succeeded");
+
+            /* And the fine edit onto the same channel, which had no such
+               refusal and needed it more. A swap into somebody's
+               hand-loaded patch is loud; rewriting one constant inside
+               their graph is silent, and reset() restores by re-applying
+               *declarations*, so there is nothing that would ever put it
+               back.
+             *
+               With a graph actually on that channel, which is the whole
+               point: written against an empty one this passed on
+               "nothing is loaded there" and would have gone on passing
+               with the refusal deleted. So put the patch a person would
+               have had loaded onto it first, and then ask -- and read
+               the message, because there are two ways to say no here and
+               only one of them is the one under test. */
+            const std::string handLoaded = thUtil::findDataFile(
+                "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+            if (handLoaded.empty() ||
+                synth->loadTree(handLoaded.c_str(), 15,
+                                TH_DEFAULT_CHAN_AMP) == NULL)
+                fail("could not put a patch on channel 16 by hand");
+            else
+            {
+                drainSynth();
+
+                why.clear();
+
+                if (sched.setNodeArg(15, "fmap", "inmax", 0.25f, why))
+                    fail("a node arg on a channel the piece does not own "
+                         "succeeded");
+                else if (why.find("does not") == std::string::npos &&
+                         why.find("not one this piece declares") ==
+                             std::string::npos)
+                    fail("a node arg on an undeclared channel was refused, "
+                         "but for the wrong reason: " + why);
+            }
+
+            if (sched.setNodeArg(ch, "nosuchnode", "x", 1, why))
+                fail("a node arg on a node that is not there succeeded");
+
+            if (sched.setNodeArg(ch, "fmap", "nosucharg", 1, why))
+                fail("a node arg the module never declared succeeded");
+
+            /* `fmap.in' is wired to ionode->velocity. Writing a number
+               over it would silently unwire the graph, which is an
+               add/remove/rewire edit wearing a value edit's clothes. */
+            if (sched.setNodeArg(ch, "fmap", "in", 1, why))
+                fail("a wired node arg was overwritten with a constant");
+
+            /* And the other kind of wire, which is the one the first
+               draft let through: `fmap.outmin' is `@fmin'. thNode::setArg
+               retypes an arg to ARG_VALUE whatever it was, and
+               assignChanArgPointers only re-points args still typed
+               ARG_CHANNEL -- so a number written here kills that
+               channel's fmin for the rest of the session, silently. */
+            if (sched.setNodeArg(ch, "fmap", "outmin", 0.5, why))
+                fail("a node arg wired to a chanarg was overwritten with "
+                     "a constant");
+
+            /* And a swap to what is already there does nothing rather
+               than rebuilding the graph into a copy of itself, because a
+               gen::swap cannot see what its sink's channel holds: point
+               one at a list whose first name is what the sink already
+               plays and the opening tick would cut every sounding voice
+               for no change. "Did nothing" is the prototype tree still
+               being the same object -- a rebuild goes through loadTree,
+               which makes a new one. */
+            thMidiChan *mc = synth->getChannel(ch);
+            const void *before = mc != NULL ? (void *)mc->modnode() : NULL;
+
+            if (!sched.swapInstrument(ch, sched.holding(ch), why))
+                fail("a swap to the instrument already there was refused");
+
+            mc = synth->getChannel(ch);
+
+            if (before == NULL ||
+                before != (const void *)(mc != NULL ? mc->modnode() : NULL))
+                fail("a swap to the instrument already there rebuilt the "
+                     "graph anyway");
+
+            /* A swapped-away instrument stops driving the channel it
+               was on.
+             *
+               A knob bound into an instrument's chanarg is a *push*: the
+               knob moves, the chanarg is written. The connections used
+               to be appended and never removed, so swapping `quiet' onto
+               `loud's channel left loud's binding pushing into it
+               alongside quiet's own values -- one knob nudge and the
+               instrument the file says is playing is not the one you
+               hear. Both instruments are the same .dsp on purpose, so
+               the stale binding finds a real arg to write through
+               instead of failing to find one and looking fixed. */
+            {
+                const std::string body =
+                    "@k = 0.4;\n@k.min = 0;\n@k.max = 1;\n"
+                    "instrument loud {\n"
+                    "    dsp \"amb01.dsp\";\n"
+                    "    fmin = @k;\n"
+                    "};\n"
+                    "instrument quiet {\n"
+                    "    dsp \"amb01.dsp\";\n"
+                    "    fmin = 0.2;\n"
+                    "};\n"
+                    "chain c { stage s gen::eno_line { };"
+                    " sink { instrument = loud; }; };\n";
+
+                const std::string path = thUtil::tempFile("gencheck-swapkn-");
+
+                if (path.empty())
+                    fail("could not write the swapped-knob piece");
+                else
+                {
+                    FILE *f = fopen(path.c_str(), "w");
+
+                    if (f == NULL)
+                        fail("could not write the swapped-knob piece");
+                    else
+                    {
+                        fputs(body.c_str(), f);
+                        fclose(f);
+                    }
+
+                    clearChannels(synth);
+
+                    thcScheduler s2(synth);
+                    thcGenLoader l2(plugins);
+
+                    if (!l2.load(path, &s2))
+                        fail("the swapped-knob piece did not load");
+                    else
+                    {
+                        const thcInstrument *loud = s2.instrument("loud");
+                        const int lch = loud != NULL ? loud->channel : 0;
+                        std::string w2;
+
+                        drainSynth();
+
+                        if (!s2.swapInstrument(lch, "quiet", w2))
+                            fail("swapping quiet in failed: " + w2);
+                        else
+                        {
+                            drainSynth();
+
+                            thArg *k = s2.knob("k");
+                            thArg *fmin = synth->getChanArg(lch, "fmin");
+
+                            if (k == NULL || fmin == NULL)
+                                fail("the swapped-in instrument did not "
+                                     "arrive whole");
+                            else
+                            {
+                                k->setValue(0.9f);
+
+                                if (fabs((*fmin)[0] - 0.2) > 1e-5)
+                                    fail("a swapped-away instrument's knob "
+                                         "binding still drives the channel");
+                            }
+                        }
+                    }
+
+                    remove(path.c_str());
+                }
+
+                clearChannels(synth);
+            }
+
+        }
+    }
+
+    clearChannels(synth);
+}
+
+/* How many notes a scratch piece delivers in `seconds'. The two things
+ * a board fed notes can be asked -- "did it draw" and "did it refuse to
+ * draw" -- are both this number against zero. */
+static int
+notesFrom (const std::map<std::string, thcPlugin *> &plugins,
+           thSynth *synth, const std::string &what,
+           const std::string &body, double seconds)
+{
+    const std::string path = thUtil::tempFile("gencheck-plays-");
+
+    if (path.empty())
+    {
+        fail("could not write the piece for " + what);
+        return -1;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    int n = -1;
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail(what + " did not load");
+        }
+        else
+        {
+            std::istringstream lines(render(sched, seconds, 0.02));
+            std::string line;
+
+            n = 0;
+
+            while (std::getline(lines, line))
+                if (line.compare(0, 2, "N ") == 0)
+                    n++;
+        }
+    }
+
+    remove(path.c_str());
+    clearChannels(synth);
+
+    return n;
+}
+
+/* ---- 7. a chain that is a pipeline ------------------------------------- */
+
+/* colony.gen, and the two things it needed that did not exist.
+ *
+ * gen::life gained a receive, so an upstream stage can draw on the board
+ * the way a mouse already could; xform::harmonize turns a note into a
+ * chord counted in scale degrees. Both are easy to write in a way that
+ * looks right and does nothing, so both are asked directly.
+ *
+ * 1. Feeding the board CHANGES WHAT IT PLAYS. This is the claim the
+ *    piece's header makes and the one worth defending: the same board,
+ *    rendered with the line and without it, must not produce the same
+ *    stream -- and with it must reach rows the blinker alone never
+ *    touches. A receive that quietly dropped every note would pass a
+ *    "does it still load" gate forever.
+ * 2. A pitch the ladder cannot spell draws nothing, rather than landing
+ *    on the nearest row it can find.
+ * 3. `listen = 0' is the pure generator glider.gen still wants.
+ * 4. The chord is DIATONIC. Two degrees above the first pentatonic
+ *    degree and two above the second are different numbers of
+ *    semitones; a harmonizer that added a fixed interval would give the
+ *    same gap everywhere and is the thing this must not be.
+ * 5. `voices = 1' passes the note through untouched, `root = 0' drops
+ *    it, and `below = 1' puts the harmony underneath.
+ * 6. The whole piece replays.
+ */
+static void
+checkColony (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &genFile)
+{
+    const std::string piece =
+        (std::filesystem::path(genFile).parent_path() / "colony.gen").string();
+
+    if (!std::filesystem::exists(piece))
+    {
+        fail("colony.gen is not beside " + genFile);
+        return;
+    }
+
+    clearChannels(synth);
+
+    /* ---- 1. the line makes a difference ---- */
+
+    /* Two renders of the same file, one with the line's onsets turned
+       off. Editing the piece rather than writing a fresh one on purpose:
+       what is being gated is the shipped configuration, and a scratch
+       file tuned until it passed would gate nothing about it. */
+    {
+        const std::string text = slurp(piece);
+
+        if (text.find("fills = 7;") == std::string::npos)
+            fail("colony.gen no longer spells its euclid's fills the way "
+                 "the gate looks for");
+        else
+        {
+            std::string silent = text;
+            const size_t at = silent.find("fills = 7;");
+
+            silent.replace(at, strlen("fills = 7;"), "fills = 0;");
+
+            const std::string sp = thUtil::tempFile("gencheck-colony-");
+
+            if (sp.empty())
+                fail("could not write the line-off variant");
+            else
+            {
+                {
+                    std::ofstream out(sp.c_str(), std::ios::trunc);
+
+                    out << silent;
+                }
+
+                std::string withLine, without;
+                std::set<int> pitchesWith, pitchesWithout;
+
+                for (int pass = 0; pass < 2; pass++)
+                {
+                    clearChannels(synth);
+                    drainSynth();
+
+                    thcScheduler sched(synth);
+                    thcGenLoader loader(plugins);
+
+                    if (!loader.load(pass ? sp : piece, &sched))
+                    {
+                        fail(pass ? "the line-off variant did not load"
+                                  : "colony.gen did not load");
+                        break;
+                    }
+
+                    const std::string tape = render(sched, 90.0, 0.04);
+
+                    (pass ? without : withLine) = tape;
+
+                    /* Which rows of the board were reached. Only the
+                       colony's channel counts: the floor chain plays its
+                       own pitches on its own instrument and would mask
+                       a board that never left its blinker. */
+                    std::istringstream lines(tape);
+                    std::string line;
+
+                    while (std::getline(lines, line))
+                    {
+                        std::istringstream f(line);
+                        std::string tag, at2, ch, note;
+
+                        if (!(f >> tag >> at2 >> ch >> note) || tag != "N")
+                            continue;
+
+                        if (atoi(ch.c_str()) != 0)
+                            continue;
+
+                        (pass ? pitchesWithout : pitchesWith)
+                            .insert(atoi(note.c_str()));
+                    }
+                }
+
+                if (withLine.empty())
+                    fail("colony.gen delivered nothing at all");
+                else if (withLine == without)
+                    fail("feeding gen::life a line changed nothing about "
+                         "what it played");
+                else if (pitchesWith.size() <= pitchesWithout.size())
+                    fail("the line did not spread the colony past the "
+                         "pitches the blinker reaches alone");
+
+                remove(sp.c_str());
+            }
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 2, 3. what the board does and does not accept ---- */
+
+    /* One generation of a board fed four notes: two the ladder can spell
+       and two it cannot. Only the spellable ones may draw. */
+    /* A 4x2 board, empty, and a rhythm on the two pitches its ladder
+       spells. `trigger = 1' so a drawn cell is heard the generation it
+       is drawn rather than having to survive into a birth -- what is
+       being asked here is whether the cell arrived at all. */
+    {
+        const char *shape =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; notes = \"%s\";"
+            " period = 0.25 s; hold = 0.2 s; };\n"
+            "  stage b gen::life { width = 4; height = 2; wrap = 0;"
+            " scatter = 0; board = \"..../....\"; notes = \"C4 D4\";"
+            " trigger = 1; period = 1 s; hold = 0.5 s; listen = %d;"
+            " pass = 0; };\n"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        char body[1024];
+
+        snprintf(body, sizeof(body), shape, "C4 D4", 1);
+
+        if (notesFrom(plugins, synth, "life-listens", body, 6.0) <= 0)
+            fail("a line played into gen::life drew nothing on the board");
+
+        /* C#4 and D#4 are not on a ladder of C4 and D4. A receive that
+           snapped to the nearest row would fill this board just as fast
+           as the one above, and a piece would have no way to tell a
+           mistyped note from a meant one. */
+        snprintf(body, sizeof(body), shape, "C#4 D#4", 1);
+
+        if (notesFrom(plugins, synth, "life-ignores-unspellable",
+                      body, 6.0) != 0)
+            fail("gen::life drew cells for pitches its ladder cannot spell");
+
+        /* And `listen = 0' is the plugin glider.gen has always had. */
+        snprintf(body, sizeof(body), shape, "C4 D4", 0);
+
+        if (notesFrom(plugins, synth, "life-listen-0", body, 6.0) != 0)
+            fail("gen::life drew on its board with listen = 0");
+    }
+
+    /* `pass' is about notes, and a stage that ate anything else would
+       be a hole in the pipeline rather than a stage in it.
+     *
+       The first draft gated the emit on `pass' for every event type, so
+       a `pass = 0' board silently swallowed the note-offs, chanarg
+       writes and structure edits of every stage upstream of it -- a
+       gen::reshape in front of one delivered nothing at all, and the
+       piece it was in had a chain that quietly did nothing. Nothing a
+       note tape can see, which is why it is asked here directly. */
+    {
+        const std::string body =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage r gen::reshape { node = \"fmap\"; arg = \"inmax\";"
+            " from = 1; to = 0.5; every = 0.5 s; steps = 4; };\n"
+            "  stage b gen::life { width = 4; height = 2; wrap = 0;"
+            " scatter = 0; board = \"..../....\"; notes = \"C4 D4\";"
+            " period = 1 s; hold = 0.5 s; listen = 1; pass = 0; };\n"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        const std::string path = thUtil::tempFile("gencheck-passthru-");
+
+        if (path.empty())
+            fail("could not write the pass-through piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the pass-through piece did not load");
+            else if (render(sched, 6.0, 0.02).find("E ") == std::string::npos)
+                fail("a gen::life with pass = 0 swallowed the structure "
+                     "edits of the stage in front of it");
+
+            remove(path.c_str());
+            clearChannels(synth);
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 4, 5. the chord is counted in degrees ---- */
+
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        /* A minor pentatonic on A: 45 48 50 52 55, then 57. Two degrees
+           above 45 is 50 -- five semitones -- and two above 48 is 52,
+           which is four. A fixed-interval shifter cannot tell those
+           apart, and telling them apart is the whole plugin. */
+        const std::string body =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 2; fills = 2;"
+            "    notes = \"A2 C3\"; period = 1 s; hold = 0.5 s; };\n"
+            "  stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+            "    voices = 2; step = 2; spread = 0 s; taper = 1; };\n"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        const std::string path = thUtil::tempFile("gencheck-harm-");
+
+        if (path.empty())
+            fail("could not write the harmonize piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the harmonize piece did not load");
+            else
+            {
+                std::set<int> heard;
+                std::istringstream lines(render(sched, 6.0, 0.02));
+                std::string line;
+
+                while (std::getline(lines, line))
+                {
+                    std::istringstream f(line);
+                    std::string tag, at, ch, note;
+
+                    if ((f >> tag >> at >> ch >> note) && tag == "N")
+                        heard.insert(atoi(note.c_str()));
+                }
+
+                /* Roots, and the second degree above each. */
+                if (!heard.count(45) || !heard.count(48))
+                    fail("harmonize dropped the roots it was given");
+                else if (!heard.count(50))
+                    fail("harmonize did not stack two degrees above 45");
+                else if (!heard.count(52))
+                    fail("harmonize did not stack two degrees above 48");
+                else if (heard.count(47) || heard.count(51) ||
+                         heard.count(53))
+                    fail("harmonize emitted a pitch outside its scale");
+
+                /* The two gaps differ, measured rather than asserted.
+                 *
+                   The first draft of this compared two literals -- 50-45
+                   against 52-48 -- which the compiler can answer without
+                   running anything, so it was a comment with a shape
+                   like a test. What has to be measured is the *gap this
+                   plugin produced*, which means finding what it stacked
+                   over each root in the stream rather than naming it. */
+                int over45 = -1, over48 = -1;
+
+                for (std::set<int>::iterator i = heard.begin();
+                     i != heard.end(); ++i)
+                {
+                    if (*i > 45 && *i < 48 + 12 && over45 < 0 && *i != 48)
+                        over45 = *i;
+
+                    if (*i > 48 && over48 < 0)
+                        over48 = *i;
+                }
+
+                if (over45 < 0 || over48 < 0)
+                    fail("harmonize stacked nothing over one of its roots");
+                else if (over45 - 45 == over48 - 48)
+                    fail("harmonize put the same number of semitones over "
+                         "both roots; it is counting semitones, not "
+                         "degrees");
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* `voices = 1' is a passthrough -- the identity every transformer
+       should have and the one worth pinning, because it is what a piece
+       reaches for when it wants the stage present and doing nothing. */
+    {
+        const char *shape =
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 2; fills = 2;"
+            "    notes = \"A2 C3\"; period = 1 s; hold = 0.5 s; };\n"
+            "  %s"
+            "  sink { instrument = pad; };\n"
+            "};\n";
+
+        struct { const char *what; const char *stage; bool wantRoot;
+                 int wantOther; size_t exact; } cases[] = {
+            { "voices = 1 was not a passthrough",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 1; };\n", true, -1, 2 },
+            /* Not just "45 is there" -- euclid supplies that whatever
+               harmonize does. The identity claim is that *nothing else*
+               is there, which `exact' below is what checks. */
+            { "root = 0 still sounded the note it was given",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 2; step = 2; root = 0; };\n", false, 50, 2 },
+            { "below = 1 did not stack downward",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 2; step = 2; below = 1; };\n", true, 40, 4 },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            char body[2048];
+
+            snprintf(body, sizeof(body), shape, cases[c].stage);
+
+            const std::string path = thUtil::tempFile("gencheck-harm2-");
+
+            if (path.empty())
+            {
+                fail("could not write a harmonize variant");
+                continue;
+            }
+
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail(std::string("a harmonize variant did not load: ") +
+                     cases[c].what);
+            else
+            {
+                std::set<int> heard;
+                std::istringstream lines(render(sched, 6.0, 0.02));
+                std::string line;
+
+                while (std::getline(lines, line))
+                {
+                    std::istringstream f(line);
+                    std::string tag, at, ch, note;
+
+                    if ((f >> tag >> at >> ch >> note) && tag == "N")
+                        heard.insert(atoi(note.c_str()));
+                }
+
+                if (heard.count(45) != (cases[c].wantRoot ? 1u : 0u))
+                    fail(cases[c].what);
+                else if (cases[c].wantOther >= 0 &&
+                         !heard.count(cases[c].wantOther))
+                    fail(cases[c].what);
+                else if (heard.size() != cases[c].exact)
+                    fail(std::string(cases[c].what) + " (heard " +
+                         std::to_string(heard.size()) + " distinct "
+                         "pitches, wanted " +
+                         std::to_string(cases[c].exact) + ")");
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 5b. every on gets exactly one off ---- */
+
+    /* The half of a transformer that no rendered tape can see.
+     *
+     * A generator's notes carry their own duration, so the scheduler
+     * derives each off from the event it delivered and a transformer
+     * that never thinks about offs at all still works. Live input does
+     * not: a key arrives as a THC_EV_NOTE with duration 0 and a
+     * THC_EV_NOTEOFF whenever the hand lets go, and a transformer that
+     * turned one note into five owes five offs, at the right pitches
+     * and at the right times. Three ways to get that wrong, all of
+     * which this plugin did, all of which leave a note ringing until
+     * the program is closed:
+     *
+     *   - a pitch pressed twice before either release;
+     *   - `spread', where each voice has to be released as late as it
+     *     was pressed, or the offs arrive before their own ons;
+     *   - a press that emitted nothing, whose release must emit nothing
+     *     rather than forwarding the root it deliberately dropped.
+     *
+     * So this drives the chain by hand and counts. Pitch by pitch, and
+     * with the times compared, because "the same number of ons and
+     * offs" is a gate that a chord released at the wrong pitches walks
+     * straight through.
+     */
+    {
+        struct Case
+        {
+            const char *what;
+            const char *stage;
+            bool        twice;      /* press it again before releasing */
+        };
+
+        static const Case cases[] = {
+            { "a held chord",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; };\n", false },
+            { "a held chord pressed twice",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; };\n", true },
+            { "a rolled chord released early",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; spread = 0.5 s; };\n", false },
+            { "a chord whose root was dropped",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 1; root = 0; };\n", false },
+        };
+
+        for (size_t c = 0; c < sizeof(cases) / sizeof(cases[0]); c++)
+        {
+            char body[1024];
+
+            snprintf(body, sizeof(body),
+                     "chain hands {\n"
+                     "  input midi;\n"
+                     "  %s"
+                     "  sink { channel = 1; };\n"
+                     "};\n", cases[c].stage);
+
+            const std::string path = thUtil::tempFile("gencheck-held-");
+
+            if (path.empty())
+            {
+                fail("could not write the held-note piece");
+                continue;
+            }
+
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << body;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail(std::string("the held-note piece did not load: ") +
+                     cases[c].what);
+            else
+            {
+                /* pitch -> (ons, offs), and the time of each. */
+                std::map<int, std::vector<double> > ons, offs;
+
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&ons, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            ons[ev.u.note.note].push_back(ev.at);
+                        else if (ev.type == THC_EV_NOTEOFF)
+                            offs[ev.u.note.note].push_back(ev.at);
+                    });
+
+                sched.start();
+
+                thcEvent key = {};
+
+                key.type = THC_EV_NOTE;
+                key.channel = 0;
+                key.u.note.note = 45;
+                key.u.note.velocity = 90;
+                key.u.note.duration = 0;
+                key.at = sched.now();
+
+                sched.injectMidiEvent(key);
+
+                if (cases[c].twice)
+                {
+                    sched.stepTransport(0.1);
+
+                    key.at = sched.now();
+                    sched.injectMidiEvent(key);
+                }
+
+                /* Let go well inside the roll, which is what makes the
+                   spread case a question at all. */
+                sched.stepTransport(0.15);
+
+                thcEvent up = {};
+
+                up.type = THC_EV_NOTEOFF;
+                up.channel = 0;
+                up.u.note.note = 45;
+                up.at = sched.now();
+
+                sched.injectMidiEvent(up);
+
+                if (cases[c].twice)
+                    sched.injectMidiEvent(up);
+
+                /* Long enough for a 0.5s roll's last voice and its off. */
+                for (int i = 0; i < 200; i++)
+                    sched.stepTransport(0.02);
+
+                conn.disconnect();
+
+                for (std::map<int, std::vector<double> >::iterator
+                         i = ons.begin(); i != ons.end(); ++i)
+                {
+                    const size_t up2 = i->second.size();
+                    const size_t down = offs.count(i->first)
+                        ? offs[i->first].size() : 0;
+
+                    if (up2 != down)
+                    {
+                        fail(std::string(cases[c].what) + ": pitch " +
+                             std::to_string(i->first) + " sounded " +
+                             std::to_string(up2) + " times and was "
+                             "released " + std::to_string(down));
+                        break;
+                    }
+
+                    /* And each release after the press it answers. An
+                       off ahead of its own on is a note that never
+                       stops. */
+                    bool bad = false;
+
+                    for (size_t k = 0; k < up2; k++)
+                        if (offs[i->first][k] < i->second[k])
+                            bad = true;
+
+                    if (bad)
+                    {
+                        fail(std::string(cases[c].what) + ": pitch " +
+                             std::to_string(i->first) + " was released "
+                             "before it sounded");
+                        break;
+                    }
+                }
+
+                /* And nothing released that never sounded. */
+                for (std::map<int, std::vector<double> >::iterator
+                         i = offs.begin(); i != offs.end(); ++i)
+                    if (!ons.count(i->first))
+                    {
+                        fail(std::string(cases[c].what) + ": pitch " +
+                             std::to_string(i->first) + " was released "
+                             "but never sounded");
+                        break;
+                    }
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 6. and the whole thing replays ---- */
+
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+            fail("colony.gen did not load for the replay check");
+        else
+        {
+            const std::string first = render(sched, 100.0, 0.04);
+
+            sched.reset();
+
+            const std::string second = render(sched, 100.0, 0.04);
+
+            if (first.empty())
+                fail("colony.gen delivered nothing");
+            else if (first != second)
+                fail("colony.gen did not replay; a learner or a board is "
+                     "carrying state across a rewind");
+        }
+    }
+
+    clearChannels(synth);
+}
+
+/* ---- 8. every shipped piece still loads -------------------------------- */
 
 /* The corpus instinct, applied to .gen.
  *
@@ -3152,6 +5166,9 @@ main (int argc, char *argv[])
     checkInput(plugins, &synth);
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
+    checkNodes(plugins, &synth, genFile);
+    checkStructureEdits(plugins, &synth, genFile);
+    checkColony(plugins, &synth, genFile);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

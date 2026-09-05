@@ -282,6 +282,18 @@ sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
 
+A module may export both, and several do. `gen::markov` trains on what it
+hears and emits its own walk; `gen::life` plays Conway's board and lets an
+upstream stage *draw* on it, turning arriving pitches into cells. A stage
+like that is a generator in first position and a transformer anywhere else,
+which is what makes a chain a pipeline rather than a list — `colony.gen`
+runs a Euclidean rhythm into a Life board into a markov into a harmonizer,
+and each stage hears only the one before it. What a stage does with what it
+hears is its own business, and it does not have to be "pass a modified
+copy along": a stage whose `pass` is 0 consumes its input entirely, so
+everything downstream is a consequence of the input rather than a version
+of it.
+
 A sink names **an instrument or a channel, never both**; a sink that names
 both is refused rather than have the loader pick one. `instrument = pad` is
 the primary spelling and the one a self-contained piece uses. `channel = N`
@@ -296,6 +308,131 @@ file boundary the way note names are resolved here rather than in a plugin.
 spelling that can tell a file written for the old 0–15 numbering apart from
 one written for this, and a piece silently playing a channel out is worse than
 a piece that refuses to load.
+
+### 5a. A stage can be a DSP node
+
+```
+chain breathing {
+    stage lfo  osc::simple { freq = 0.05; waveform = 0; };
+    stage half math::mul   { in0 = lfo->out;  in1 = 0.45; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line { prob = mid->out; ... };
+    sink { instrument = pad; };
+};
+```
+
+A category that is not `gen` or `xform` names a **plugin family from the other
+world** — the same `.so` files a `.dsp` is built out of, spelled the way a
+`.dsp` spells them, wired to each other with the same `->`. They run on the
+composer's side of the program at fifty windows a second, one sample at a time,
+which is what a control signal is; `freq = 0.05` is a twenty-second cycle here
+and a very low note in a patch, and the plugin cannot tell the difference
+because it divides by whatever rate it is being run at.
+
+**A node is not a stage, though both are spelled `stage`.** Events do not flow
+through it: nothing is handed to it and nothing comes out the far side. It
+holds a value, and the composer stages read that value with `->` at the moment
+they want it — so a chain full of nodes still needs a generator or `input midi`
+in it, and a node never satisfies that. The keyword stays `stage` because
+inside a chain everything is one; what says which world a module comes from is
+the category, exactly as it always was.
+
+**Nothing scales the signal for you.** An oscillator runs −1 to +1 and a `prob`
+wants 0 to 1; `math::mul` and `math::add` are what a patch would use and they
+are right there. Three lines instead of one, in exchange for no hidden mapping
+and no second meaning for the arrow depending on which side it lands on.
+
+A node arg takes a number, another node's output, or a piece knob
+(`in1 = @depth;`) — the same knob a stage param binds and an instrument chanarg
+reads, one world further out.
+
+**Families that mean nothing at control rate are refused, by name.** `osc`,
+`env`, `math`, `logic`, `filt` and `misc` are shapes over time, and time at
+fifty a second is still time. `delay` and `fft` count in *samples*, and a sample
+here is a fiftieth of a second rather than twenty microseconds — a 4410-sample
+delay is a hundred milliseconds on the audio thread and a minute and a half on
+this one. They would run, and produce numbers, and the numbers would mean
+something no author intended, which is worse than refusing because it looks
+like it worked. `osc::static` is refused for a different reason: it draws from
+the global random generator, and a piece using it would not replay.
+
+Nodes step on **transport time**, so a pause freezes them where they are and a
+rewind starts them again from the top. How far an LFO has travelled is a
+function of where the transport got to, not of how many frames went by — which
+is what lets a piece with nodes in it pass the same replay gate every other
+piece passes.
+
+### 5b. A composer can reshape the instrument
+
+Two event kinds go the other way from a note: instead of asking an instrument
+to play something, they change what the instrument *is*.
+
+```
+instrument voice { dsp "amb01.dsp"; ... };
+instrument bell  { dsp "amb01.dsp"; a = 4 ms; ... };
+
+chain swapping {
+    stage m gen::swap { instruments = "voice,bell"; every = 40 s; };
+    sink { instrument = voice; };        # the slot it rebuilds
+};
+
+chain sensitivity {
+    stage r gen::reshape { node = "fmap"; arg = "inmax";
+                           from = 1; to = 0.25; every = 11 s; };
+    sink { instrument = voice; };
+};
+```
+
+**A swap** rebuilds the sink's channel around a different instrument. It goes
+through the same patch-load path a person clicking in the Patch Selector uses —
+which means it **cuts whatever is sounding**: the channel is replaced at a
+window boundary and the old graph's voices stop there, with no release. (What
+that path has always promised is that the outgoing channel is not freed under
+the audio thread. That is a promise about lifetimes, and this section claimed
+the other one for a while by confusing the two.) Write swaps on a clock
+measured in tens of seconds, or onto a channel that is resting; `THC_EV_NODEARG`
+is the edit that leaves sounding voices alone. `instruments` is resolved at the
+file boundary exactly as a scale and a preset are: a bare name for one, a quoted
+comma-separated list for several, and every name checked before the piece
+loads.
+
+A swap may only land on a channel the piece **declares an instrument for**.
+Rebuilding a graph is not like writing a chanarg, where the worst case is a
+number: it throws away whatever was on the channel, and a rewind could not put
+it back, because a channel no declaration names is a channel nothing restores
+from. A `sink { channel = 5; }` can still carry a swap chain — the swap is
+simply refused, by name, in the log. And a swap to the instrument already there
+does nothing at all rather than rebuilding a graph into a copy of itself: a
+`gen::swap` has a list and a clock and cannot see what its sink is playing, so
+a list beginning with the sink's own instrument would otherwise cut every
+sounding voice on the opening tick.
+
+**A node-arg edit** changes one constant *inside* the graph — a node in the
+`.dsp` and one of its args, which is emphatically not a chanarg. §4a says the
+args a patch declares are the whole of a composer's reach, and that stays true
+of chanargs; this is the different mechanism `COMPOSITION_HANDOFF.md` §9
+promised rather than a widening of that one. The consent moved rather than
+vanished: a piece reaching this deep has said so in a line anyone can read.
+
+Only an arg that is **already a constant** may be set. Anything wired is
+refused — to another node's output, to a `@chanarg`, to a note property —
+because writing a number over a wire would silently unwire the graph, which is
+an add/remove/rewire edit wearing a value edit's clothes. The chanarg case is
+the one that bites hardest and is easiest to miss: `outmin = @fmin` looks like a
+number in the file, and a number written over it would kill that channel's
+`fmin` for the rest of the session with the slider still on screen. A module's
+`ARG_STATE` scratch is refused too, and so is an arg the module never declared.
+
+**Both are events**, and that is the whole rate limit: scheduled, so they
+happen on the transport; sparse, so nothing can thrash a channel; replayed from
+the seed, so a piece sounds the same twice; and drawn on the roll, so you can
+watch one coming. A rewind puts every instrument back as the file declares it,
+because after a swap the channels no longer say what the file says.
+
+A structure edit reaches **every** sink of its chain. The note/chanarg filter is
+a rule about notes and chanargs; an edit is neither, and both kinds of sink name
+the channel it needs — so fan-out means what fan-out means everywhere else.
 
 Two sinks is fan-out: every event leaving the last stage is delivered to
 each. A `chanarg` sink delivers `THC_EV_CHANARG` events and silently drops
@@ -332,9 +469,15 @@ argunit     : "ms" | "%"                               # what .dsp folds
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"
 stage       : "stage" WORD WORD "::" WORD "{" param* "}" ";"
+                                                       # gen/xform: a
+                                                       #   composer
+                                                       # anything else: a
+                                                       #   dsp node (5a)
 param       : WORD "=" value ";"
 value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
                                                        #   preset ref
+            | WORD "->" WORD                           # a node's output
+nodearg     : WORD "=" (NUMBER | CHANARG | WORD "->" WORD) ";"
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
@@ -347,8 +490,9 @@ sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
 ```
 
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
-`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `%` is a
-`.dsp` token too, and reaches `.gen` for one purpose only — the unit suffix an
+`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `->` is a
+`.dsp` token too and means in a `.gen` exactly what it means in a `.dsp`:
+reading a node's output. `%` reaches `.gen` for one purpose only — the unit suffix an
 instrument value needs when the chanarg it lands on was declared as a
 percentage. Everywhere else in a `.gen` it is a stray character, the way `+`
 is.
@@ -408,6 +552,10 @@ stage, a new chain) contains:
 | instrument `= @knob`   | a push: the knob's changed signal sets the chanarg   |
 | `chanarg = "*"`        | a sink that keeps the name each event carries       |
 | `sink`                 | delivery target(s) in `thcScheduler::deliver`       |
+| a `dsp` family stage   | a node in the chain's `thcNodeHost`, at control rate |
+| `gen::swap`            | `THC_EV_PATCH`: the sink's channel is rebuilt        |
+| `gen::reshape`         | `THC_EV_NODEARG`: a constant in that channel's graph |
+| param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |
 | `@knobs` + metadata    | the existing chanarg/param-panel machinery          |

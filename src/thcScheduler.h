@@ -21,6 +21,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -28,6 +29,8 @@
 #include <sigc++/sigc++.h>
 
 #include "libthink/thcomposer.h"
+
+#include "thcNodeHost.h"
 
 class thSynth;
 class thArg;
@@ -97,6 +100,49 @@ public:
     void bindKnob (int index, thArg *knob);
     thArg *knobBinding (int index) const;
 
+    /* `step = lfo->out' -- the composer-world ARG_NODE, which v2
+       deliberately did not have and phase 3 of the unification is
+       about. It arrives as one more thing get() reads through, exactly
+       as a knob does, because that is what it is: an embedded DSP
+       node's output buffer is a thArg, and a control signal is a value
+       somebody reads at the moment they want it.
+     *
+       The pointer is the node's own output arg and stays put -- the
+       host runs one-sample windows and thArg::allocate keeps a buffer
+       whose length has not changed. NULL unbinds. */
+    void bindNode (int index, thArg *out);
+    thArg *nodeBinding (int index) const;
+
+    /* A node this store reads has moved: wake a generator that went to
+     * sleep behind it. Called once per window for a chain that has
+     * nodes; cheap, and silent when nothing changed.
+     *
+     * A wake and not a param_changed, which is the whole design
+     * decision. A knob forwards every change because a hand moves it a
+     * few times a second; a node's output moves every single window,
+     * and fifty param_changed a second into a module that rebuilds
+     * something on each one -- gen::ca reallocates its board -- would
+     * be a good deal worse than the silence it replaces. What a
+     * sleeper actually needs is only the wake: THC_NEVER means "nothing
+     * will change until a param does", and a node driving that param is
+     * a param changing. A module that wants the movement itself reads
+     * it at the moment it wants it, which is what a node binding is
+     * for and why it is read rather than pushed. */
+    void pollNodes (void);
+
+    /* Re-announce every binding, and forget what pollNodes last saw.
+     *
+     * What reset() owes a fresh instance. On a load the sequence is
+     * create, then the file's values, then the bindings -- each of the
+     * last two announced as it is made. A rewind re-creates the
+     * instance with the bindings already in place and the nodes freshly
+     * zeroed, so nothing announces anything and the two paths part
+     * company: a module that caches a node-driven param came back from
+     * a rewind holding whatever composer_create happened to read that
+     * time. Announcing here puts the replay back on the load's
+     * footing. */
+    void rebind (void);
+
     /* What the .gen loader calls after composer_create to push a fresh
        value at a module that caches (a NOTESET reparse), without
        changing anything -- and what a knob's changed signal funnels
@@ -123,6 +169,8 @@ private:
     std::vector<std::string>  strings_;
     std::vector<char>         beats_;      /* value is beats, not seconds */
     std::vector<thArg *>      knobs_;      /* live binding, NULL = value  */
+    std::vector<thArg *>      nodes_;      /* embedded node's output      */
+    std::vector<float>        lastNode_;   /* what pollNodes last saw     */
 
     /* Set by the scheduler once composer_create has run: where to send
        param_changed forwards, how to re-arm a sleeping generator, and
@@ -252,6 +300,13 @@ struct thcChain
        programmatic-chain case harnesses use. A .gen chain always has at
        least one (the loader enforces it). */
     std::vector<thcSink> sinks;
+
+    /* The chain's embedded DSP nodes, or NULL where it has none -- which
+       is every chain in the corpus but one, so this costs nothing to
+       carry. Per chain rather than per piece because that is where they
+       are written and what they modulate: an LFO in a chain is part of
+       that chain's shape, the way a transformer is. */
+    std::unique_ptr<thcNodeHost> nodes;
 };
 
 class thcScheduler
@@ -297,6 +352,32 @@ public:
 
     void bindKnob (thcStage *stage, int paramIndex, thArg *knob);
 
+    /* Back to the stored value, whichever kind of binding was shadowing
+       it.
+     *
+       A caller typing `prob = 0.9' over `prob = mid->out' is undoing a
+       binding without knowing or caring which of the two it was, and
+       there was no way to say that: bindKnob(NULL) releases the knob
+       and leaves a node still shadowing the value that was just
+       written. The panel, the canvas and the file then said 0.9 while
+       the piece went on playing the LFO -- and saving and reopening
+       sounded different from what had just been heard. */
+    void unbindParam (thcStage *stage, int paramIndex);
+
+    /* A control-rate host for a chain that has dsp:: stages in it.
+     *
+     * Made here rather than by the loader because the plugin root is
+     * the synth's answer and not the file's: a harness pointed at a
+     * build tree and an installed application must load the *same*
+     * .so files into both hosts, or the gate that says the two agree is
+     * comparing two different builds. Caller owns it. */
+    thcNodeHost *newNodeHost (void);
+
+    /* The control rate, in windows per second. One number, stated once,
+       because the loader, the host and the gate all have to mean the
+       same thing by it. */
+    static long controlRate (void) { return 50; }
+
     /* ---- instruments ----
      *
      * The instruments the piece declares, in the order it declares them,
@@ -312,6 +393,51 @@ public:
 
     const thcInstrument *instrument (const std::string &name) const;
     thcInstrument       *instrument (size_t index);
+
+    /* Is this event a structure edit rather than something to play?
+       One place, because the sink filter, the roll and the gates all
+       have to agree about which events are which. */
+    static bool isStructureEdit (thcEventType t)
+    {
+        return t == THC_EV_PATCH || t == THC_EV_NODEARG;
+    }
+
+    /* ---- structure edits (UNIFICATION.md phase 4) ----
+     *
+     * The services behind THC_EV_PATCH and THC_EV_NODEARG. Both are
+     * host-side on purpose: a composer emits an intent and this does
+     * it, so no plugin ever holds a graph. */
+
+    /* `channel' becomes `name', which must be an instrument the piece
+       declares. Goes through the same load hook and the same values a
+       piece's own instrument does, so an instrument swapped in is
+       indistinguishable from one declared there -- and so the patch
+       tab, the arg panel and the dirty flag all follow it in the
+       application. False with `why' when it cannot be done. */
+    bool swapInstrument (int channel, const std::string &name,
+                         std::string &why);
+
+    /* Which instrument `channel' is holding: the last one swapped onto
+       it, or the one whose declaration owns it, or empty for a channel
+       this piece has no instrument on. The host asks so that a reload
+       does not mistake a swapped channel for one still holding what its
+       declaration names. */
+    std::string holding (int channel) const;
+
+    /* The instrument declared on `channel', or NULL. */
+    const thcInstrument *channelOf (int channel) const;
+
+    /* One constant inside whatever graph is on `channel'.
+     *
+       Not a chanarg: a node's own arg, which the .dsp never offered.
+       Lands on the channel's prototype tree -- the one thMidiChan builds
+       new voices from and the audio thread never reads -- so notes
+       already sounding finish unchanged and the next note is built
+       differently. That is the editor's promise, kept by the same
+       mechanism rather than restated. */
+    bool setNodeArg (int channel, const std::string &node,
+                     const std::string &arg, float value,
+                     std::string &why);
 
     /* Who turns a named .dsp into a sounding channel.
      *
@@ -391,6 +517,7 @@ public:
        instrument is remembered (see strandedCount) so the attempt can be
        made again rather than the graph being abandoned. */
     bool unapplyInstrument (size_t index);
+    bool unapply (const thcInstrument &what);
 
     /* How many instruments are waiting to be taken off a channel that
        would not let go.
@@ -506,6 +633,7 @@ private:
        already up. Split out so every refusal has one caller, and that
        caller can take the graph back down. */
     bool applyValues (const thcInstrument &inst, std::string &why);
+    bool writeValues (const thcInstrument &inst, std::string &why);
 
     /* The one way an instrument comes off a channel, so the first
        attempt and every retry cannot drift apart. */
@@ -537,9 +665,77 @@ private:
 
     /* Piece knobs, owned here; and the signal connections that carry a
        knob's movement to the params bound to it (param_changed forward
-       plus the THC_NEVER rearm). Dropped in clearChains. */
+       plus the THC_NEVER rearm). Dropped in clearChains.
+     *
+       Each connection remembers which channel it pushes into, or -1 for
+       the ones that drive a stage param and reach no channel at all.
+       That is there so a channel's bindings can be dropped on their own:
+       applying an instrument is no longer a once-per-load event -- a
+       swap applies one, and a rewind applies them all again -- and a
+       connection list that only ever grew meant a swapped-away
+       instrument went on driving the channel it used to be on, forever,
+       alongside the one that replaced it. */
+    struct KnobConn
+    {
+        int              channel;
+        sigc::connection conn;
+    };
+
     std::map<std::string, thArg *>  knobs_;
-    std::vector<sigc::connection>   knobConns_;
+    std::vector<KnobConn>           knobConns_;
+
+    /* Disconnect and forget every knob binding that pushes into this
+       channel. Called by applyValues before it wires the new set, which
+       is what makes applying an instrument idempotent. */
+    void dropKnobConns (int channel);
+
+    /* Which (channel, node, arg) a structure edit has touched, so a swap
+       on that channel can forget them and a reset knows there is
+       something to put back. The values are not kept: what a reset
+       restores is the *declaration*, and re-applying the instrument is
+       what does that. */
+    struct NodeArgEdit
+    {
+        int         channel;
+        std::string node, arg;
+    };
+
+    std::vector<NodeArgEdit> nodeArgs_;
+
+    /* Which instrument each channel is holding, for the channels a swap
+       has moved. A gen::swap knows only a list of names and a clock --
+       it cannot see what its sink's channel is playing -- so a list
+       starting with the instrument already there would rebuild the graph
+       into a copy of itself on the opening tick, cutting every sounding
+       voice for no change. This is where that is knowable. Cleared by a
+       rewind, which puts every declaration back. */
+    std::map<int, std::string> holding_;
+
+    /* Which channels a swap has disturbed, so a rewind knows what no
+       longer says what the file says.
+     *
+       Which, and not merely whether. Re-applying every declaration was
+       simpler to write and is not the same answer: applyInstrument goes
+       through the host's patch loader, which drops the channel and
+       re-parses the .dsp, so a rewind of a four-instrument piece with
+       one gen::swap in it threw away hand-tuned values and disarmed
+       probes on three channels nothing had touched -- and did it only
+       once a swap had happened to fire, so Rewind behaved differently
+       depending on how far the piece had got.
+
+       A channel goes in as the swap begins rather than when it
+       succeeds, because the graph goes up before the values are
+       checked: a refusal partway leaves the channel changed, and that
+       is exactly when a rewind has the most to put back. */
+    std::set<int> swapped_;
+
+    void forgetNodeArgs (int channel);
+
+    /* The control-rate synth every node host in this piece borrows: a
+       sample rate and a plugin manager, and nothing else. NULL until a
+       chain asks for nodes, so a piece without any pays nothing.
+       Destroyed after the chains that borrow it. */
+    thSynth *controlSynth_;
 
     /* The piece's instruments, and the host's way of loading one. A
        vector rather than a map: declaration order is what the loader
@@ -578,6 +774,14 @@ private:
         double   at;
         thcEvent ev;
         std::shared_ptr<std::string> chanargName;
+
+        /* The same copy-what-you-keep promise for a structure edit's
+           strings: an instrument's name, or a node's and its arg's. */
+        std::shared_ptr<std::string> text, text2;
+
+        /* Emission order, and the tie-break that makes two events at the
+           same instant come out the way they went in. See LaterPending. */
+        unsigned long seq;
     };
 
     /* min-heaps on .at, kept as vectors with std::push_heap/pop_heap --
@@ -589,8 +793,29 @@ private:
         bool operator() (const T &a, const T &b) const { return a.at > b.at; }
     };
 
+    /* pending_ orders by time and then by emission.
+     *
+     * A heap does not preserve insertion order among equal keys, and a
+     * transformer that releases one chord and presses another emits the
+     * offs and the ons at the *same* instant -- that is what re-pressing
+     * a held root means. Popped in heap order, an on could be delivered
+     * before the off that was emitted ahead of it, and deliver() then
+     * ran addNote followed by delNote on the same pitch: the voice was
+     * created and immediately killed, and held_ kept an entry for a note
+     * nothing was playing. The sequence number costs a comparison and
+     * makes delivery order equal to emission order, which is what every
+     * plugin already assumes and what a replay needs anyway. */
+    struct LaterPending
+    {
+        bool operator() (const Pending &a, const Pending &b) const
+        {
+            return a.at != b.at ? a.at > b.at : a.seq > b.seq;
+        }
+    };
+
     std::vector<Wakeup>  wakeups_;
     std::vector<Pending> pending_;
+    unsigned long        pendingSeq_;   /* hands out Pending::seq       */
     std::vector<NoteOff> noteOffs_;
 
     /* Notes delivered with duration <= 0: held until a THC_EV_NOTEOFF

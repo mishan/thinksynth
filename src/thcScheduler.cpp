@@ -39,6 +39,8 @@ thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
     strings_.resize(count);
     beats_.resize(count, 0);
     knobs_.resize(count, (thArg *)NULL);
+    nodes_.resize(count, (thArg *)NULL);
+    lastNode_.resize(count, 0.0f);
 
     for (int i = 0; i < count; i++)
     {
@@ -72,10 +74,21 @@ thcParamStore::get (int index) const
     if (index < 0 || index >= (int)values_.size())
         return 0.0;
 
-    /* A knob binding shadows the stored value entirely: dragging the
-       knob is the edit, and there is nothing else to consult. */
-    double v = knobs_[index] != NULL ? (double)(*knobs_[index])[0]
-                                     : values_[index];
+    /* A binding shadows the stored value entirely: the knob, or the
+       embedded node's output, IS the value and there is nothing else to
+       consult. Read here, at the moment the composer asks -- which is
+       what makes `step = lfo->out' mean what it says rather than
+       whatever the LFO happened to be when the piece loaded.
+     *
+       Binding one releases the other (see bindKnob), so the order
+       these are tried in is not a precedence rule anybody has to
+       remember: at most one of them is ever set. */
+    double v = values_[index];
+
+    if (knobs_[index] != NULL)
+        v = (double)(*knobs_[index])[0];
+    else if (nodes_[index] != NULL)
+        v = (double)(*nodes_[index])[0];
 
     /* Beats convert at read time, through whatever the tempo is at this
        moment -- that, and only that, is what makes `period = 4 beats'
@@ -169,8 +182,16 @@ thcParamStore::setBeats (int index, bool beats)
 void
 thcParamStore::bindKnob (int index, thArg *knob)
 {
-    if (index >= 0 && index < (int)knobs_.size())
-        knobs_[index] = knob;
+    if (index < 0 || index >= (int)knobs_.size())
+        return;
+
+    knobs_[index] = knob;
+
+    /* Exclusive by construction rather than by a precedence rule
+       somebody has to remember: a param reads its stored value, or a
+       knob, or a node, and binding one releases the other. */
+    if (knob != NULL)
+        nodes_[index] = NULL;
 }
 
 thArg *
@@ -180,6 +201,59 @@ thcParamStore::knobBinding (int index) const
         return NULL;
 
     return knobs_[index];
+}
+
+void
+thcParamStore::bindNode (int index, thArg *out)
+{
+    if (index < 0 || index >= (int)nodes_.size())
+        return;
+
+    nodes_[index] = out;
+
+    if (out != NULL)
+        knobs_[index] = NULL;
+}
+
+thArg *
+thcParamStore::nodeBinding (int index) const
+{
+    if (index < 0 || index >= (int)nodes_.size())
+        return NULL;
+
+    return nodes_[index];
+}
+
+void
+thcParamStore::rebind (void)
+{
+    for (size_t i = 0; i < nodes_.size(); i++)
+    {
+        lastNode_[i] = nodes_[i] != NULL ? (*nodes_[i])[0] : 0.0f;
+
+        if (knobs_[i] != NULL || nodes_[i] != NULL)
+            notifyChanged((int)i);
+    }
+}
+
+void
+thcParamStore::pollNodes (void)
+{
+    for (size_t i = 0; i < nodes_.size(); i++)
+    {
+        if (nodes_[i] == NULL)
+            continue;
+
+        const float now = (*nodes_[i])[0];
+
+        if (now == lastNode_[i])
+            continue;
+
+        lastNode_[i] = now;
+
+        if (rearm_)
+            rearm_();
+    }
 }
 
 void
@@ -199,9 +273,15 @@ thcParamStore::notifyChanged (int index)
  * while paused so composer_draw views stay live; only the musical clock
  * freezes. */
 thcScheduler::thcScheduler (thSynth *synth)
-    : synth_(synth), running_(false), transportNow_(0), beat_(0),
-      tempo_(120), lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int()), injectingLive_(false)
+    /* In declaration order, which is what -Wreorder is about:
+       controlSynth_ is declared up beside the instrument table it
+       belongs to, which puts it ahead of the transport members here
+       even though nothing about it is more fundamental. swapped_ is a
+       container and needs no mention. */
+    : synth_(synth), controlSynth_(NULL),
+      running_(false), transportNow_(0), beat_(0), tempo_(120),
+      lastMono_(g_get_monotonic_time()),
+      masterSeed_(g_random_int()), pendingSeq_(0), injectingLive_(false)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -217,6 +297,11 @@ thcScheduler::~thcScheduler (void)
        ring is still full the graph outlives us, which is the honest
        end of a synth whose audio thread stopped draining. */
     retireStranded();
+
+    /* After clearChains, which is what destroys the node hosts that
+       borrow it. */
+    delete controlSynth_;
+    controlSynth_ = NULL;
 }
 
 size_t
@@ -350,13 +435,18 @@ thcScheduler::clearChains (void)
     /* Knob-to-param connections point into the stages just destroyed;
        the knobs themselves belong to the piece and go with it. */
     for (size_t i = 0; i < knobConns_.size(); i++)
-        knobConns_[i].disconnect();
+        knobConns_[i].conn.disconnect();
     knobConns_.clear();
+    holding_.clear();
 
     for (std::map<std::string, thArg *>::iterator i = knobs_.begin();
          i != knobs_.end(); ++i)
         delete i->second;
     knobs_.clear();
+
+    /* Structure edits belong to the piece that made them. */
+    nodeArgs_.clear();
+    swapped_.clear();
 
     /* The instrument table goes with the piece too. What is *loaded* on
        those channels does not: a patch outlives the file that asked for
@@ -397,6 +487,20 @@ thcScheduler::knob (const std::string &name)
  * (a NOTESET, a derived table) gets the same notification an edit of
  * the param itself would produce. */
 void
+thcScheduler::unbindParam (thcStage *stage, int paramIndex)
+{
+    if (stage == NULL || paramIndex < 0 ||
+        paramIndex >= stage->plugin->paramCount())
+        return;
+
+    stage->params.bindKnob(paramIndex, NULL);
+    stage->params.bindNode(paramIndex, NULL);
+
+    /* Said, like any other change to what the param reads. */
+    stage->params.notifyChanged(paramIndex);
+}
+
+void
 thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 {
     if (stage == NULL)
@@ -421,10 +525,75 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 
     stage->params.bindKnob(paramIndex, knob);
 
+    /* And say so once, now, the way setting the param would.
+     *
+       The connection below carries every *later* move of the knob. It
+       cannot carry the binding itself, and a module that caches -- one
+       that reparses a note set or sizes a board in param_changed --
+       reads its params in composer_create and on param_changed and
+       nowhere else. A stage is created before it is bound, so without
+       this the module's idea of `width = @size' stayed at the
+       registered default until somebody first touched the slider. */
+    stage->params.notifyChanged(paramIndex);
+
     thcParamStore *store = &stage->params;
 
-    knobConns_.push_back(knob->signal_arg_changed().connect(
-        [store, paramIndex](thArg *) { store->notifyChanged(paramIndex); }));
+    KnobConn kc;
+
+    kc.channel = -1;            /* drives a param, reaches no channel */
+    kc.conn = knob->signal_arg_changed().connect(
+        [store, paramIndex](thArg *) { store->notifyChanged(paramIndex); });
+
+    knobConns_.push_back(kc);
+}
+
+/* Every binding that pushes into this channel, gone.
+ *
+ * The param bindings (channel -1) are left alone: they are a property of
+ * the piece's chains, not of whatever graph happens to be on a channel,
+ * and they die with clearChains like they always did. */
+void
+thcScheduler::dropKnobConns (int channel)
+{
+    size_t w = 0;
+
+    for (size_t i = 0; i < knobConns_.size(); i++)
+    {
+        if (knobConns_[i].channel == channel)
+        {
+            knobConns_[i].conn.disconnect();
+            continue;
+        }
+
+        knobConns_[w++] = knobConns_[i];
+    }
+
+    knobConns_.resize(w);
+}
+
+thcNodeHost *
+thcScheduler::newNodeHost (void)
+{
+    /* One control-rate synth for the whole piece, made on the first
+       chain that wants nodes and kept until this scheduler dies.
+     *
+       Its plugin root is where the *application* is actually loading
+       plugins from, resolved once by thPluginManager and asked for
+       rather than searched for again: a second search can find a second
+       answer -- an installed /usr/local beside a build tree is the
+       ordinary case -- and two hosts running different builds of one
+       module is precisely the drift the hazards section is about.
+
+       Shared across chains rather than one each, because every plugin
+       keeps its arg indices in a file-scope global and a second
+       thPluginManager would dlopen the same .so and call module_init
+       again against a second thPlugin. */
+    if (controlSynth_ == NULL && synth_ != NULL)
+        controlSynth_ = new thSynth(
+            synth_->getPluginManager()->pluginPath(), 1,
+            (int)controlRate());
+
+    return new thcNodeHost(controlSynth_, controlRate());
 }
 
 /* ---- instruments ------------------------------------------------------- */
@@ -471,6 +640,41 @@ thcScheduler::instrument (size_t index)
  * caller, and that caller can take the graph back down again. */
 bool
 thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
+{
+    /* Whatever was bound into this channel last time, first.
+     *
+       An instrument is applied more than once now -- a swap applies one,
+       a rewind applies them all again -- and a knob binding that was
+       only ever added meant the instrument a swap replaced went on
+       pushing into the channel it used to hold, alongside its
+       replacement, for the rest of the session. Dropping first makes
+       applying an instrument say the same thing however many times it
+       is done, which is what both callers assume. */
+    dropKnobConns(inst.channel);
+
+    /* Where this instrument's own wiring starts, so a value refused
+       halfway through can take back the bindings the values before it
+       already made: the graph is about to come off the channel
+       underneath them, and connections into a channel that is no longer
+       there push into whatever gets loaded onto it next. Wrapping the
+       body rather than unwinding at each of its half-dozen refusals,
+       because the one that gets forgotten is the one that bites. */
+    const size_t wired = knobConns_.size();
+
+    if (writeValues(inst, why))
+        return true;
+
+    while (knobConns_.size() > wired)
+    {
+        knobConns_.back().conn.disconnect();
+        knobConns_.pop_back();
+    }
+
+    return false;
+}
+
+bool
+thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
 {
     for (size_t i = 0; i < inst.args.size(); i++)
     {
@@ -589,7 +793,12 @@ thcScheduler::applyValues (const thcInstrument &inst, std::string &why)
         /* knobConns_, so these die exactly when the knob-to-param
            connections do -- in clearChains, before the knobs
            themselves are deleted. */
-        knobConns_.push_back(k->signal_arg_changed().connect(push));
+        KnobConn kc;
+
+        kc.channel = inst.channel;
+        kc.conn = k->signal_arg_changed().connect(push);
+
+        knobConns_.push_back(kc);
     }
 
     return true;
@@ -661,25 +870,10 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
         }
     }
 
-    /* Where knobConns_ stands before this instrument wires anything up.
-     *
-     * A knob binding is connected as its value is read, so an instrument
-     * whose *third* value is refused has already wired its first two --
-     * and the graph is about to come off the channel underneath them.
-     * Connections into a channel that is no longer there would push into
-     * whatever gets loaded onto it next, which is the bug the fold
-     * re-check in the push exists for, arriving by a second door. So
-     * "all or nothing" has to cover the wiring as well as the graph. */
-    const size_t wired = knobConns_.size();
-
+    /* applyValues takes its own wiring back when it refuses, so all
+       that is left here is the graph. */
     if (!applyValues(inst, why))
     {
-        while (knobConns_.size() > wired)
-        {
-            knobConns_.back().disconnect();
-            knobConns_.pop_back();
-        }
-
         /* The one way the promise above can fail to be kept: a full
            command ring means the audio thread cannot be told to drop
            the channel, so the graph stays up and sounding. Saying so is
@@ -695,6 +889,309 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
     }
 
     return true;
+}
+
+/* ---- structure edits --------------------------------------------------- */
+
+/* This channel becomes that instrument.
+ *
+ * The same load hook and the same values a declared instrument gets, so
+ * a swapped-in instrument is indistinguishable from one the file put
+ * there: same patch tab, same arg panel, same dirty flag, everything the
+ * application already knows how to show. What makes it a *structure*
+ * edit rather than a chanarg is that the graph itself changes -- a
+ * different .dsp, a different set of nodes.
+ *
+ * The voice lifecycle is the one loadTree has always promised and the
+ * plan declined to re-decide: the replacement is built entirely off the
+ * audio thread and published by a SET_CHANNEL at a window boundary, so
+ * notes already sounding finish on the tree they started on and the next
+ * note gets the new one.
+ */
+bool
+thcScheduler::swapInstrument (int channel, const std::string &name,
+                              std::string &why)
+{
+    const thcInstrument *want = instrument(name);
+
+    if (want == NULL)
+    {
+        why = "no instrument called '" + name + "' is declared";
+        return false;
+    }
+
+    /* Only onto a channel the piece brought with it.
+     *
+       An instrument's channel is either allocated by the loader, which
+       asks the host whether somebody is already there, or written into a
+       sink by hand. A swap has no such conversation: it fires from a
+       running chain, so refusing it here is the only place the question
+       can be asked. Without this, `sink { channel = 5; }' plus a
+       gen::swap rebuilds channel 5 out from under whatever a person had
+       loaded on it -- and channel 5 is in no instrument's declaration,
+       so a rewind would not put their patch back either. The piece's own
+       channels are the whole of what it may rebuild; reaching further is
+       a chanarg's job, where the worst case is a number. */
+    if (channelOf(channel) == NULL)
+    {
+        why = "channel " + std::to_string(channel + 1) + " is not one this "
+              "piece declares an instrument for";
+        return false;
+    }
+
+    /* Already this instrument? Then say so and touch nothing.
+     *
+       A gen::swap cannot know what its sink's channel is holding -- it
+       has a list of names and a clock, and starts at the first name.
+       Point it at a list whose first entry is what the sink already
+       plays and the opening tick would otherwise rebuild the graph into
+       a copy of itself: every sounding voice cut, for no change. Here is
+       where that is knowable, so here is where it is answered. */
+    if (holding(channel) == name)
+        return true;
+
+    /* A copy with the target channel written in. The declaration says
+       which channel that instrument *lives* on; a swap is about where it
+       is being put, which is the sink's business and not the
+       declaration's. */
+    thcInstrument put = *want;
+
+    put.channel = channel;
+
+    /* From here the channel no longer says what the file says, whether
+       or not the rest of this succeeds -- the graph is going up before
+       the values are checked, exactly as it does at load time. Recorded
+       first so that a refusal below still leaves a rewind knowing there
+       is something to put back. */
+    swapped_.insert(channel);
+
+    if (loadDsp_)
+    {
+        if (!loadDsp_(put, why))
+            return false;
+    }
+    else
+    {
+        const std::string path =
+            thUtil::findDataFile(put.dsp, "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+        if (synth_ == NULL ||
+            synth_->loadTree((path.empty() ? put.dsp : path).c_str(),
+                             put.channel, TH_DEFAULT_CHAN_AMP) == NULL)
+        {
+            why = "'" + put.dsp + "' did not load";
+            return false;
+        }
+    }
+
+    /* The values, through the one implementation of what a value means.
+       A swap that loaded the graph and left the numbers behind would be
+       half an instrument.
+     *
+       All or nothing, the same promise applyInstrument makes and for the
+       same reason: applyValues takes its own wiring back, and the graph
+       comes off here, so nobody downstream has a third state to track.
+       The first draft of this returned false with the new graph up and
+       sounding. */
+    if (!applyValues(put, why))
+    {
+        if (!unapply(put))
+            why += " (and its graph could not be taken off channel " +
+                   std::to_string(channel + 1) + ")";
+
+        return false;
+    }
+
+    /* What the channel is holding now, so the next swap can tell whether
+       it has anything to do and the host can tell that the channel no
+       longer holds the graph its declaration names. */
+    holding_[channel] = name;
+
+    /* Any node-arg edits made to whatever was on this channel belonged
+       to that graph, not this one. A `filt.cutoff' that meant something
+       on the old .dsp names nothing on the new one -- or worse, names
+       something else. */
+    forgetNodeArgs(channel);
+
+    return true;
+}
+
+/* Which instrument this channel is holding: the last one swapped onto
+ * it, or the one whose declaration owns it. Empty for a channel that is
+ * none of the piece's business. */
+std::string
+thcScheduler::holding (int channel) const
+{
+    std::map<int, std::string>::const_iterator it = holding_.find(channel);
+
+    if (it != holding_.end())
+        return it->second;
+
+    const thcInstrument *inst = channelOf(channel);
+
+    return inst != NULL ? inst->name : std::string();
+}
+
+const thcInstrument *
+thcScheduler::channelOf (int channel) const
+{
+    for (size_t i = 0; i < instruments_.size(); i++)
+        if (instruments_[i].channel == channel)
+            return &instruments_[i];
+
+    return NULL;
+}
+
+/* One constant inside the graph on this channel.
+ *
+ * Not a chanarg. A chanarg is the surface a patch chose to expose, and
+ * the whole of what every composer up to now could reach;
+ * COMPOSITION_HANDOFF.md section 9 said the way past it would be a
+ * different mechanism rather than a widening of that one, and this is
+ * the different mechanism. A piece doing this is reaching into somebody
+ * else's graph -- on its own say-so, in an event anybody can see on the
+ * roll, and only as often as the event stream flows.
+ *
+ * It lands on the channel's *prototype* tree: the one thMidiChan builds
+ * each new voice from, and the one thMidiChan.cpp says in as many words
+ * the audio thread never reads. So there is no swap to make and no
+ * command to queue -- notes already sounding are playing their own
+ * copies and finish unchanged, and the next note is built from the
+ * edited tree. The editor's promise, kept by the same mechanism rather
+ * than restated.
+ */
+bool
+thcScheduler::setNodeArg (int channel, const std::string &node,
+                          const std::string &arg, float value,
+                          std::string &why)
+{
+    if (synth_ == NULL)
+    {
+        why = "there is no synth to edit";
+        return false;
+    }
+
+    /* Only onto a channel the piece brought with it -- the same refusal
+       swapInstrument makes, for a reason that is stronger here rather
+       than weaker.
+     *
+       A swap that reached an undeclared channel would rebuild somebody's
+       hand-loaded patch out from under them, and a rewind could not put
+       it back because the channel is in no declaration. A node-arg edit
+       reaching one is that with the noise turned down: it rewrites a
+       constant *inside* their graph, silently, and reset() restores by
+       re-applying declarations, so there is nothing that will ever
+       undo it. The piece's own channels are the whole of what it may
+       reshape; that a sink may name any channel at all is exactly why
+       the question has to be asked here. */
+    if (channelOf(channel) == NULL)
+    {
+        why = "channel " + std::to_string(channel + 1) + " is not one this "
+              "piece declares an instrument for";
+        return false;
+    }
+
+    thMidiChan *chan = synth_->getChannel(channel);
+    thSynthTree *tree = chan != NULL ? chan->modnode() : NULL;
+
+    if (tree == NULL)
+    {
+        why = "nothing is loaded on that channel";
+        return false;
+    }
+
+    thNode *n = tree->findNode(node);
+
+    if (n == NULL)
+    {
+        why = "the graph on that channel has no node called '" + node + "'";
+        return false;
+    }
+
+    /* Only an arg the node's plugin declared. thNode::setArg would
+       otherwise invent one, which is a dead value nothing reads -- the
+       same silence a mistyped node arg produced in the control-rate
+       host, arriving by a different door. */
+    thPlugin *p = n->plugin();
+    bool known = false;
+
+    for (int i = 0; p != NULL && i < p->argCount(); i++)
+        if (p->getArgName(i) == arg)
+        {
+            if (p->getArgDir(i) == thPlugin::ARG_STATE)
+            {
+                why = "'" + node + "." + arg + "' is that module's own "
+                      "scratch, not a constant a piece may set";
+                return false;
+            }
+
+            known = true;
+            break;
+        }
+
+    if (!known)
+    {
+        why = "node '" + node + "' has no arg called '" + arg + "'";
+        return false;
+    }
+
+    /* And only an arg that is *already* a constant.
+     *
+       A whitelist, not a blacklist of the wired kinds, because thArg has
+       four of them and the first draft of this only named ARG_POINTER --
+       which let a piece write a number over an ARG_CHANNEL and unwire a
+       chanarg. thNode::setArg rebuilds the arg as ARG_VALUE whatever it
+       was, and thMidiChan::assignChanArgPointers only re-points args
+       still typed ARG_CHANNEL, so `reshape { node = "fmap"; arg =
+       "outmin"; }' against amb01.dsp would have killed that channel's
+       @fmin for the rest of the session: slider dead, arg panel dead,
+       any knob bound to it dead, and nothing said. NodeEditor's live
+       edit asks the same question the same way, for the same reason.
+     *
+       So: an arg wired to anything -- another node's output, a chanarg,
+       a note property -- is not a constant, and writing over it is an
+       add/remove/rewire edit wearing a value edit's clothes. */
+    thArg *existing = n->getArg(arg);
+
+    if (existing == NULL || existing->type() != thArg::ARG_VALUE)
+    {
+        why = "'" + node + "." + arg + "' is wired, not a constant";
+        return false;
+    }
+
+    /* setValue, not thNode::setArg: it is the single relaxed store the
+       rest of the tree uses for exactly this, where setArg reassigns
+       values_, len_, type_ and name_ one after another. Nothing on the
+       audio thread reads a prototype tree's args today, but
+       assignChanArgPointers walks them from applyCommand, and a
+       four-field non-atomic rewrite is the wrong thing to be doing
+       beside that even when the arithmetic happens to work out. */
+    existing->setValue(value);
+
+    /* Remembered so a swap on this channel can forget it, and so a
+       reset knows there is something to put back. */
+    for (size_t i = 0; i < nodeArgs_.size(); i++)
+        if (nodeArgs_[i].channel == channel && nodeArgs_[i].node == node &&
+            nodeArgs_[i].arg == arg)
+            return true;
+
+    NodeArgEdit e;
+
+    e.channel = channel;
+    e.node = node;
+    e.arg = arg;
+
+    nodeArgs_.push_back(e);
+
+    return true;
+}
+
+void
+thcScheduler::forgetNodeArgs (int channel)
+{
+    for (size_t i = nodeArgs_.size(); i > 0; i--)
+        if (nodeArgs_[i - 1].channel == channel)
+            nodeArgs_.erase(nodeArgs_.begin() + (i - 1));
 }
 
 /* The one way an instrument comes off a channel, so the first attempt
@@ -720,7 +1217,13 @@ thcScheduler::unapplyInstrument (size_t index)
     if (index >= instruments_.size())
         return true;
 
-    const thcInstrument inst = instruments_[index];
+    return unapply(instruments_[index]);
+}
+
+bool
+thcScheduler::unapply (const thcInstrument &what)
+{
+    const thcInstrument inst = what;     /* by value: stranded_ may grow */
 
     if (takeOff(inst))
         return true;
@@ -814,6 +1317,29 @@ thcScheduler::stepTransport (double dt)
     transportNow_ += dt;
     beat_ += dt * tempo_ / 60.0;
 
+    /* The embedded nodes first, and on transport time.
+     *
+     * First because a stage that reads `lfo->out' this tick should get
+     * this tick's value and not the last one -- the plan's "evaluated at
+     * the moment the stage reads it", made true by evaluating before
+     * anybody reads. On transport time because that is what makes a
+     * replay a replay: how far an LFO has travelled is a function of
+     * where the transport is, not of how many times this was called or
+     * how late a frame was. */
+    for (size_t i = 0; i < chains_.size(); i++)
+        if (chains_[i].nodes)
+        {
+            chains_[i].nodes->stepTo(transportNow_);
+
+            /* And wake anything that fell asleep behind one of them. A
+               generator that returned THC_NEVER is waiting for a param
+               to change, and a param reading a node has just changed if
+               the node moved. Without this a gen::morph whose `mode' is
+               node-driven slept through the whole of its own sweep. */
+            for (size_t si = 0; si < chains_[i].stages.size(); si++)
+                chains_[i].stages[si]->params.pollNodes();
+        }
+
     runDueTicks(transportNow_);
     deliverDue(transportNow_);
     sendDueNoteOffs(transportNow_);
@@ -904,7 +1430,14 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
         {
             const thcSink &sink = c.sinks[i];
 
-            if ((ev.type == THC_EV_CHANARG) != sink.isChanarg())
+            /* The type filter, which is a rule about notes and chanargs
+               and says nothing about a structure edit -- a swap is
+               neither, and both kinds of sink name the channel it needs.
+               So an edit goes to every sink, and fan-out means what
+               fan-out means everywhere else: a chain with three sinks
+               reshapes three channels. */
+            if (!isStructureEdit(ev.type) &&
+                (ev.type == THC_EV_CHANARG) != sink.isChanarg())
                 continue;
 
             thcEvent routed = ev;
@@ -961,6 +1494,27 @@ thcScheduler::queuePending (const thcEvent &ev,
         p.chanargName.reset(new std::string(from ? from : ""));
         p.ev.u.chanarg.name = p.chanargName->c_str();
     }
+    else if (ev.type == THC_EV_PATCH)
+    {
+        /* Copied for the reason the chanarg name is: the ABI says a
+           sink copies what it keeps, and the composer that emitted this
+           is entitled to reuse its buffer the moment emit() returns.
+           An event sitting in pending_ for thirty seconds holding the
+           plugin's pointer is a dangling read waiting for a param
+           change. */
+        p.text.reset(new std::string(ev.u.patch.name ? ev.u.patch.name
+                                                     : ""));
+        p.ev.u.patch.name = p.text->c_str();
+    }
+    else if (ev.type == THC_EV_NODEARG)
+    {
+        p.text.reset(new std::string(ev.u.nodearg.node
+                                     ? ev.u.nodearg.node : ""));
+        p.text2.reset(new std::string(ev.u.nodearg.arg
+                                      ? ev.u.nodearg.arg : ""));
+        p.ev.u.nodearg.node = p.text->c_str();
+        p.ev.u.nodearg.arg = p.text2->c_str();
+    }
 
     /* Live input on a paused clock: pending_ is keyed in transport
        time and transport time is frozen, so anything due now would
@@ -971,8 +1525,10 @@ thcScheduler::queuePending (const thcEvent &ev,
         return;
     }
 
+    p.seq = pendingSeq_++;
+
     pending_.push_back(p);
-    std::push_heap(pending_.begin(), pending_.end(), Later());
+    std::push_heap(pending_.begin(), pending_.end(), LaterPending());
 }
 
 void
@@ -980,7 +1536,7 @@ thcScheduler::deliverDue (double now)
 {
     while (!pending_.empty() && pending_.front().at <= now)
     {
-        std::pop_heap(pending_.begin(), pending_.end(), Later());
+        std::pop_heap(pending_.begin(), pending_.end(), LaterPending());
         Pending p = pending_.back();
         pending_.pop_back();
 
@@ -1036,6 +1592,29 @@ thcScheduler::deliver (const thcEvent &ev)
 
             if (arg != NULL)
                 arg->setValue(ev.u.chanarg.value);
+            break;
+        }
+        case THC_EV_PATCH:
+        {
+            std::string why;
+
+            if (ev.u.patch.name != NULL &&
+                !swapInstrument(ev.channel, ev.u.patch.name, why))
+                fprintf(stderr, "thcScheduler: swap to '%s' on channel %d: "
+                        "%s\n", ev.u.patch.name, ev.channel + 1,
+                        why.c_str());
+            break;
+        }
+        case THC_EV_NODEARG:
+        {
+            std::string why;
+
+            if (ev.u.nodearg.node != NULL && ev.u.nodearg.arg != NULL &&
+                !setNodeArg(ev.channel, ev.u.nodearg.node,
+                            ev.u.nodearg.arg, ev.u.nodearg.value, why))
+                fprintf(stderr, "thcScheduler: %s.%s on channel %d: %s\n",
+                        ev.u.nodearg.node, ev.u.nodearg.arg,
+                        ev.channel + 1, why.c_str());
             break;
         }
     }
@@ -1123,6 +1702,71 @@ thcScheduler::reset (void)
     pending_.clear();
     wakeups_.clear();
 
+    /* The embedded nodes rewind too, or a replay would start with an
+       LFO wherever the last play left it -- which is the same
+       divergence a composer instance carrying its old state would be,
+       arriving through the other host. */
+    for (size_t ci = 0; ci < chains_.size(); ci++)
+        if (chains_[ci].nodes)
+            chains_[ci].nodes->reset();
+
+    /* And the instruments, if a structure edit has been anywhere near
+       them.
+     *
+     * A replay starts from the file, and after a swap or a node-arg
+     * edit the channels no longer say what the file says: one of them
+     * is playing a different .dsp, another has a constant nobody
+     * declared. Re-applying every instrument is what "as the piece was
+     * written" means, and it is the same call the loader makes -- so
+     * there is one answer to what a declaration means rather than a
+     * second one kept in step by hand.
+     *
+     * Only when something moved. An ordinary rewind of an ordinary
+     * piece reloads nothing, which matters because reloading a graph
+     * is the most expensive thing in here. */
+    if (!nodeArgs_.empty() || !swapped_.empty())
+    {
+        /* The channels an edit actually reached. See swapped_ for why
+           this is a set of channels rather than a flag. */
+        std::set<int> touched = swapped_;
+
+        for (size_t i = 0; i < nodeArgs_.size(); i++)
+            touched.insert(nodeArgs_[i].channel);
+
+        bool restored = true;
+
+        for (size_t i = 0; i < instruments_.size(); i++)
+        {
+            if (touched.find(instruments_[i].channel) == touched.end())
+                continue;
+
+            std::string why;
+
+            if (!applyInstrument(i, why))
+            {
+                fprintf(stderr, "thcScheduler: rewinding instrument '%s': "
+                        "%s\n", instruments_[i].name.c_str(), why.c_str());
+                restored = false;
+            }
+        }
+
+        /* Forgotten only if it was actually put back.
+         *
+           applyInstrument takes the graph back off the channel when it
+           refuses, so a failed restore leaves that channel silent --
+           and clearing the bookkeeping regardless then told every later
+           rewind there was nothing to put back, so the channel stayed
+           silent for the rest of the session even after whatever caused
+           the refusal had been fixed. Keeping it means the next rewind
+           tries again, which is the only thing that can help. */
+        if (restored)
+        {
+            nodeArgs_.clear();
+            swapped_.clear();
+            holding_.clear();   /* every channel says what the file says */
+        }
+    }
+
     for (size_t ci = 0; ci < chains_.size(); ci++)
         for (size_t si = 0; si < chains_[ci].stages.size(); si++)
         {
@@ -1147,6 +1791,11 @@ thcScheduler::reset (void)
                 s->state = fresh;
                 s->params.instance_ = s->state;
             }
+
+            /* The bindings, told to the instance that now serves them --
+               see rebind(). After the swap, because the notification
+               goes to whichever instance is current. */
+            s->params.rebind();
 
             s->sleeping = false;
 
