@@ -61,7 +61,20 @@
 extern "C" {
 #endif
 
-#define COMPOSER_IFACE_VER 1
+/* 2: phase 4 put `patch' and `nodearg' in thcEvent's union, and
+ * nodearg is two pointers and a float where the widest arm had been
+ * sixteen bytes -- so thcEvent itself grew, and a .so built against
+ * version 1 has a smaller one. The host reads what a sink is handed by
+ * dereferencing the pointer at *its* size, which is a read off the end
+ * of a v1 plugin's event. The gate in thcPlugin::moduleLoad turns that
+ * into a refusal at load with both numbers printed, which is the whole
+ * reason the byte is checked before anything is called.
+ *
+ * Note the difference from the additive changes below: an enum gaining
+ * a value keeps every existing value's number and every existing
+ * struct's layout, and those did not need a bump. A union arm that
+ * changes sizeof does. */
+#define COMPOSER_IFACE_VER 2
 
 typedef struct _cairo cairo_t;  /* drawing is optional; no hard cairo dep */
 
@@ -200,7 +213,9 @@ typedef enum {
      *
      * Appended rather than slotted in beside NOTESET on purpose -- an
      * enum whose existing values keep their numbers is an additive
-     * change, and the interface version stays 1. */
+     * change, and needed no interface bump of its own. (The interface
+     * is at 2 as of phase 4, for a reason that is about thcEvent's
+     * size rather than about this enum -- see COMPOSER_IFACE_VER.) */
     THC_PARAM_PRESET,
 
     /* The instruments a piece declares, by name. The string a plugin

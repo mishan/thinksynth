@@ -260,16 +260,30 @@ void
 PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                    int height)
 {
-    double rollH = height - CHANARG_STRIP;
+    /* The roll is what is left between the two reserved bands, and the
+       pitch mapping is offset past the top one. Reserving a lane by
+       naming a constant and then drawing the notes over it is how the
+       edit labels came to sit on top of the highest pitches. */
+    double rollH = std::max(height - CHANARG_STRIP - EDIT_LANE, 1.0);
     double lanes = hiShown_ - loShown_;
     double laneH = rollH / lanes;
-    auto   noteY = [&](double n) { return rollH - (n - loShown_) * laneH; };
+    auto   noteY = [&](double n) {
+        return EDIT_LANE + rollH - (n - loShown_) * laneH;
+    };
 
     cr->set_source_rgb(0.09, 0.09, 0.11);
     cr->paint();
 
     /* Octave shading and C gridlines -- the black-key rows get a slightly
-       lighter wash so pitch is readable without labels. */
+       lighter wash so pitch is readable without labels.
+     *
+       Clipped to the roll, because the loop deliberately runs a row past
+       each end so a partly-visible lane is still shaded, and the reserved
+       lane is only reserved if the wash stops at it. */
+    cr->save();
+    cr->rectangle(0, EDIT_LANE, width, rollH);
+    cr->clip();
+
     for (int n = (int)loShown_; n <= (int)hiShown_ + 1; n++)
     {
         int pc = ((n % 12) + 12) % 12;
@@ -291,6 +305,8 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
             cr->stroke();
         }
     }
+
+    cr->restore();
 
     /* Delivered notes: filled, alpha from velocity. The tail a patch's
        release adds after note-off is unknowable here -- the scheduler

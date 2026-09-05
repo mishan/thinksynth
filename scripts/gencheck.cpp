@@ -3684,6 +3684,98 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
     drainSynth();
     clearChannels(synth);
 
+    /* ---- a list the panel wrote rather than the loader ---- */
+
+    /* The loader normalises an instrument list to "voice,bell,glass" and
+     * checks every name in it, so a piece read off disk never exercises
+     * what a composer does with the separators. The param panel is the
+     * other writer, and it stores what was typed: a list edited in the
+     * window to "voice, bell, glass" reaches the plugin with the spaces
+     * still in it. Splitting on commas alone made that a name with a
+     * space welded to the front, and every swap to it was refused by a
+     * service that had never heard of " bell" -- a piece that quietly
+     * stopped swapping, with nothing in the log tying it to the edit
+     * that did it.
+     *
+     * Asserted on the event rather than on the tape, because the tape is
+     * whitespace-separated and reading a name back out of it would eat
+     * the very space this is about.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+            fail("reshape.gen did not load for the spaced-list check");
+        else
+        {
+            thcStage *swap = NULL;
+
+            for (size_t i = 0; i < sched.chainCount() && swap == NULL; i++)
+            {
+                thcChain *c = sched.chain(i);
+
+                for (size_t j = 0; c != NULL && j < c->stages.size(); j++)
+                    if (c->stages[j]->plugin->name() == "swap")
+                    {
+                        swap = c->stages[j].get();
+                        break;
+                    }
+            }
+
+            if (swap == NULL)
+                fail("reshape.gen no longer has a gen::swap stage");
+            else
+            {
+                const int idx = swap->plugin->paramIndex("instruments");
+
+                /* Exactly what ComposerWindow::applyParam does to a live
+                   stage: the typed text, stored as typed, then the
+                   changed notification the panel sends after it. */
+                if (idx < 0 ||
+                    !swap->params.setString("instruments",
+                                            "voice, bell, glass"))
+                    fail("gen::swap has no 'instruments' param");
+                else
+                {
+                    swap->params.notifyChanged(idx);
+
+                    std::vector<std::string> swapped;
+                    sigc::connection conn = sched.sigDelivered.connect(
+                        [&swapped](const thcEvent &ev)
+                        {
+                            if (ev.type == THC_EV_PATCH)
+                                swapped.push_back(ev.u.patch.name
+                                                  ? ev.u.patch.name : "");
+                        });
+
+                    sched.start();
+
+                    while (sched.now() < 130.0)
+                        sched.stepTransport(0.02);
+
+                    sched.stop();
+                    conn.disconnect();
+                    drainSynth();
+
+                    for (size_t i = 0; i < swapped.size(); i++)
+                        if (sched.instrument(swapped[i]) == NULL)
+                            fail("a spaced instrument list swapped to '" +
+                                 swapped[i] + "', which the piece does "
+                                 "not declare");
+
+                    if (swapped.empty())
+                        fail("a spaced instrument list produced no swaps");
+                }
+            }
+        }
+    }
+
+    drainSynth();
+    clearChannels(synth);
+
     /* ---- the refusals ---- */
 
     expectReject(plugins, synth, "swap-unknown-instrument",

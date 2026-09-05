@@ -588,7 +588,8 @@ on it: `preset <name> { arg = value; … };` is a named chanarg vector the
 piece file carries, and `THC_PARAM_PRESET` delivers it to a plugin
 resolved — `"res=0.86,fmin=0.04"` — on exactly the terms
 `THC_PARAM_NOTESET` delivers pitches, so no composer ever looks a preset
-up. Additive enum value; interface version stays 1.
+up. Additive enum value; interface version stayed 1 for this change.
+(It is 2 as of tier 4 below, which grew `thcEvent` itself.)
 
 `gen::morph` is the first thing to use it: two presets, the line between
 them, emitted as scheduled `THC_EV_CHANARG` events. It exports both entry
@@ -780,6 +781,14 @@ and the shared lexer stop being hygiene and become the runway.
    scratch. `gen::swap` and `gen::reshape` are the two plugins;
    `gen/reshape.gen` is the piece. UNIFICATION.md phase 4 has the
    deltas; GEN_FORMAT.md §5b is the spec.
+
+   **This bumped `COMPOSER_IFACE_VER` to 2.** The two new event kinds
+   are additive to the enum and would not have needed one; the union
+   arms behind them are not, because `nodearg` is wider than anything
+   that was in there and `thcEvent` grew with it. A host reads what a
+   sink is handed at its own `sizeof`, so a plugin still carrying the
+   old struct is a read off the end of it — refused at load now, with
+   both numbers printed, instead.
 5. Shadow-synth fitness service + `composer_input` (§7's pending item).
    The chanarg-genome GA itself is done (`gen::breed`, tier 2); what
    this step adds is judging the *sound* rather than the vector, which

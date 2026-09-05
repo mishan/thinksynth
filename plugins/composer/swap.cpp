@@ -104,11 +104,18 @@ resplit (State *st)
 
     std::string one;
 
+    /* Whitespace separates as a comma does, which is what thcGenLoader
+       decided at the file boundary and what this has to agree with.
+       A loader-normalised list arrives as "pad,bell" and would not care;
+       the param panel is the other writer, and it stores what was typed
+       -- so "pad, bell" reached here as a name with a space welded to
+       the front of it, and every swap to it was refused by a service
+       that had never heard of " bell". A separator is a separator. */
     for (size_t i = 0; i <= st->raw.size(); i++)
     {
         const char c = i < st->raw.size() ? st->raw[i] : ',';
 
-        if (c == ',')
+        if (c == ',' || c == ' ' || c == '\t' || c == '\n' || c == '\r')
         {
             if (!one.empty())
                 st->names.push_back(one);
