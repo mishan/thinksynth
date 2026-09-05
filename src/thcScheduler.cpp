@@ -40,6 +40,7 @@ thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
     beats_.resize(count, 0);
     knobs_.resize(count, (thArg *)NULL);
     nodes_.resize(count, (thArg *)NULL);
+    lastNode_.resize(count, 0.0f);
 
     for (int i = 0; i < count; i++)
     {
@@ -221,6 +222,38 @@ thcParamStore::nodeBinding (int index) const
         return NULL;
 
     return nodes_[index];
+}
+
+void
+thcParamStore::rebind (void)
+{
+    for (size_t i = 0; i < nodes_.size(); i++)
+    {
+        lastNode_[i] = nodes_[i] != NULL ? (*nodes_[i])[0] : 0.0f;
+
+        if (knobs_[i] != NULL || nodes_[i] != NULL)
+            notifyChanged((int)i);
+    }
+}
+
+void
+thcParamStore::pollNodes (void)
+{
+    for (size_t i = 0; i < nodes_.size(); i++)
+    {
+        if (nodes_[i] == NULL)
+            continue;
+
+        const float now = (*nodes_[i])[0];
+
+        if (now == lastNode_[i])
+            continue;
+
+        lastNode_[i] = now;
+
+        if (rearm_)
+            rearm_();
+    }
 }
 
 void
@@ -448,6 +481,20 @@ thcScheduler::knob (const std::string &name)
  * (a NOTESET, a derived table) gets the same notification an edit of
  * the param itself would produce. */
 void
+thcScheduler::unbindParam (thcStage *stage, int paramIndex)
+{
+    if (stage == NULL || paramIndex < 0 ||
+        paramIndex >= stage->plugin->paramCount())
+        return;
+
+    stage->params.bindKnob(paramIndex, NULL);
+    stage->params.bindNode(paramIndex, NULL);
+
+    /* Said, like any other change to what the param reads. */
+    stage->params.notifyChanged(paramIndex);
+}
+
+void
 thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
 {
     if (stage == NULL)
@@ -471,6 +518,17 @@ thcScheduler::bindKnob (thcStage *stage, int paramIndex, thArg *knob)
     }
 
     stage->params.bindKnob(paramIndex, knob);
+
+    /* And say so once, now, the way setting the param would.
+     *
+       The connection below carries every *later* move of the knob. It
+       cannot carry the binding itself, and a module that caches -- one
+       that reparses a note set or sizes a board in param_changed --
+       reads its params in composer_create and on param_changed and
+       nowhere else. A stage is created before it is bound, so without
+       this the module's idea of `width = @size' stayed at the
+       registered default until somebody first touched the slider. */
+    stage->params.notifyChanged(paramIndex);
 
     thcParamStore *store = &stage->params;
 
@@ -901,7 +959,17 @@ thcScheduler::stepTransport (double dt)
      * how late a frame was. */
     for (size_t i = 0; i < chains_.size(); i++)
         if (chains_[i].nodes)
+        {
             chains_[i].nodes->stepTo(transportNow_);
+
+            /* And wake anything that fell asleep behind one of them. A
+               generator that returned THC_NEVER is waiting for a param
+               to change, and a param reading a node has just changed if
+               the node moved. Without this a gen::morph whose `mode' is
+               node-driven slept through the whole of its own sweep. */
+            for (size_t si = 0; si < chains_[i].stages.size(); si++)
+                chains_[i].stages[si]->params.pollNodes();
+        }
 
     runDueTicks(transportNow_);
     deliverDue(transportNow_);
@@ -1244,6 +1312,11 @@ thcScheduler::reset (void)
                 s->state = fresh;
                 s->params.instance_ = s->state;
             }
+
+            /* The bindings, told to the instance that now serves them --
+               see rebind(). After the swap, because the notification
+               goes to whichever instance is current. */
+            s->params.rebind();
 
             s->sleeping = false;
 

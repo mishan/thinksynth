@@ -61,6 +61,11 @@ thcNodeHost::destroyTree (void)
  *      fifty a second is still time. An LFO is an oscillator that
  *      happens to be slow, and the plugin cannot tell.
  *
+ *      The family is a cheap spelling of a per-plugin question, and two
+ *      members fall through it -- osc::static, which does not replay,
+ *      and filt::comb, which is a delay line. Both are refused by name
+ *      in addNode, where the reasoning for each one is.
+ *
  *   delay, fft  -- both count in *samples*, and a sample is four
  *      hundredths of a second here rather than twenty microseconds. A
  *      delay of 4410 is a hundred milliseconds on the audio thread and a
@@ -167,6 +172,31 @@ thcNodeHost::addNode (const std::string &name, const std::string &spelling,
         return false;
     }
 
+    /* And one that is in an allowed family and should not be.
+     *
+     * `filt' is admitted wholesale because a filter is a shape over
+     * time: allpass and res2pole divide by `samples', so they mean the
+     * same thing at any rate, which is the whole argument for running
+     * this graph at fifty a second. filt::comb is not that. It is a
+     * delay line -- `size' is a raw sample count that allocates its
+     * buffer, and `period = samples / freq' -- so it counts in exactly
+     * the units delay:: and fft:: are refused for, and a `size' of 4410
+     * is an eighty-eight second ring here rather than a hundred
+     * milliseconds.
+     *
+     * Named rather than handled by dropping the family, because the
+     * rest of filt:: is genuinely rate-relative and a piece has good
+     * reason to want it. The criterion was always per plugin; the
+     * family list was a cheap way to spell it that this one falls
+     * through. */
+    if (spelling == "filt/comb")
+    {
+        why = "'filt/comb' is a delay line -- its 'size' counts in "
+              "samples, and a sample here is a fiftieth of a second, so "
+              "it would run and mean something nobody intended";
+        return false;
+    }
+
     if (synth_ == NULL)
     {
         why = "there is no control-rate synth to run nodes on";
@@ -250,6 +280,28 @@ thcNodeHost::checkArg (const std::string &node, const std::string &arg,
         {
             why = "'" + node + "." + arg + "' is that module's own "
                   "scratch, not something a piece may set or read";
+            return false;
+        }
+
+        /* And an output is not a destination.
+         *
+           The arrow has a direction and this is the end of it that was
+           not being checked. `out = 0.5' was accepted and then
+           overwritten by the plugin every window -- the same silence a
+           mistyped arg name used to produce, which is what the
+           paragraph above is about. `out = other->out' handed this
+           module somebody else's buffer to write into, so the node
+           downstream read a signal neither of them meant. And
+           `out = a->out' -- a node pointing its own output at itself --
+           built a thArg whose pointer resolves to itself, which
+           thSynthTree::getArg follows in a loop with no exit: the file
+           loaded without a word and the first window hung the GUI
+           thread, and with it the program. */
+        if (!wantOutput && dir == thPlugin::ARG_OUT)
+        {
+            why = "'" + node + "." + arg + "' is that module's output; a "
+                  "piece reads it with '" + node + "->" + arg + "' and "
+                  "cannot write it";
             return false;
         }
 

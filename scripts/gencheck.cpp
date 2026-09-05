@@ -3247,6 +3247,76 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
+    /* A literal typed over a node-driven param actually takes.
+     *
+     * The panel's undo path: somebody selects a stage whose `prob' reads
+     * an LFO, types 0.9, and the file, the canvas and the panel all say
+     * 0.9 from that moment. Releasing only the knob left the node still
+     * shadowing the stored value, so the piece went on breathing while
+     * every surface that could show a number showed the new one -- and
+     * saving and reopening sounded different from what had just been
+     * heard, which is the part that makes it worth a gate rather than a
+     * bug report. Driven through the scheduler primitive the panel
+     * calls, since gencheck links no widgets.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(breath, &sched))
+            fail("breath.gen did not load for the unbind check");
+        else
+        {
+            thcChain *c = sched.chain(0);
+            thcStage *src = c != NULL && !c->stages.empty()
+                ? c->stages.back().get() : NULL;
+            const int idx = src != NULL
+                ? src->plugin->paramIndex("prob") : -1;
+
+            if (src == NULL || idx < 0)
+                fail("breath.gen's first chain no longer ends in a stage "
+                     "with a 'prob' param");
+            else if (src->params.nodeBinding(idx) == NULL)
+                fail("breath.gen's 'prob' is not node-driven any more, so "
+                     "the unbind check is testing nothing");
+            else
+            {
+                /* Somewhere the LFO is not, so "it took" cannot be read
+                   off a value the node might have produced anyway. */
+                sched.start();
+
+                for (int i = 0; i < 40; i++)
+                    sched.stepTransport(0.02);
+
+                sched.unbindParam(src, idx);
+                src->params.set(idx, 0.9);
+
+                if (src->params.nodeBinding(idx) != NULL)
+                    fail("unbindParam left the node binding in place");
+
+                bool moved = false;
+
+                for (int i = 0; i < 40; i++)
+                {
+                    sched.stepTransport(0.02);
+
+                    if (fabs(src->params.get(idx) - 0.9) > 1e-6)
+                        moved = true;
+                }
+
+                if (moved)
+                    fail("a value written over a node-driven param was "
+                         "still shadowed by the node");
+
+                sched.stop();
+            }
+        }
+
+        clearChannels(synth);
+    }
+
     /* ---- the refusals ---- */
 
     expectReject(plugins, synth, "node-bad-family",
@@ -3313,6 +3383,55 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
         " stage s gen::eno_line { prob = lfo->freq; };"
         " sink { channel = 1; }; };",
         "is an input, not an output");
+
+    /* And an output is not something to write into -- the other end of
+       the same arrow, in its three spellings.
+     *
+       The third one is why these are worth having. A node pointing its
+       own output at itself built a thArg whose pointer resolves to
+       itself, and thSynthTree::getArg follows a pointer in a loop with
+       no exit: the file loaded without a word of complaint and the
+       first window hung the GUI thread. The other two were quiet
+       instead of fatal -- a value the plugin overwrote every window,
+       and a module handed somebody else's buffer to write into -- which
+       is the same silence a mistyped arg name used to produce, and the
+       reason checkArg exists at all. */
+    expectReject(plugins, synth, "value-at-an-output",
+        "chain c { stage lfo osc::simple { freq = 1; out = 0.5; };"
+        " stage s gen::eno_line { prob = lfo->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    expectReject(plugins, synth, "wire-into-an-output",
+        "chain c { stage lfo osc::simple { freq = 1; };"
+        " stage m math::mul { in0 = lfo->out; in1 = 2; out = lfo->out; };"
+        " stage s gen::eno_line { prob = m->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    expectReject(plugins, synth, "node-wired-to-itself",
+        "chain c { stage m math::mul { in0 = 1; in1 = 2; out = m->out; };"
+        " stage s gen::eno_line { prob = m->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    /* A knob cannot write one either -- the same end of the arrow,
+       reached from the namespace phase 2 unified. */
+    expectReject(plugins, synth, "knob-at-an-output",
+        "@depth = 0.5;\n@depth.min = 0;\n@depth.max = 1;\n"
+        "chain c { stage lfo osc::simple { freq = 1; out = @depth; };"
+        " stage s gen::eno_line { prob = lfo->out; };"
+        " sink { channel = 1; }; };",
+        "cannot write it");
+
+    /* In an allowed family and refused by name: filt:: is admitted
+       because a filter is a shape over time, and comb is a delay line
+       whose `size' is a raw sample count. Same criterion delay:: and
+       fft:: are refused by, arriving one category later. */
+    expectReject(plugins, synth, "node-comb-counts-samples",
+        "chain c { stage k filt::comb { in = 0.5; size = 4410; };"
+        " stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "delay line");
 
     /* The name this host gives the node it invents. */
     expectReject(plugins, synth, "node-called-ionode",

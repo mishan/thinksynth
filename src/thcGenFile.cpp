@@ -2190,6 +2190,15 @@ thcGenLoader::bindNodes (thcScheduler *sched)
         }
 
         b.stage->params.bindNode(b.param, out);
+
+        /* Announced, for the reason thcScheduler::bindKnob announces a
+           knob: a stage is created before it is bound, so a module that
+           caches its params never heard that this one now reads a node
+           and went on running against the registered default. Unlike a
+           knob there is no later signal to fall back on -- a node's
+           output is read, not pushed -- so this notification is the
+           only one the module will get about the binding existing. */
+        b.stage->params.notifyChanged(b.param);
     }
 }
 

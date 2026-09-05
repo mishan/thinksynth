@@ -1926,7 +1926,7 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
 
         case ValueShape::NUMBER:
         {
-            sched_->bindKnob(s, idx, NULL);
+            sched_->unbindParam(s, idx);
 
             double stored = v.unit == "ms" ? v.num / 1000.0 : v.num;
 
@@ -1939,7 +1939,7 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
         {
             /* A binding shadows the stored value; without this unbind
                the new notes would be set and never heard. */
-            sched_->bindKnob(s, idx, NULL);
+            sched_->unbindParam(s, idx);
 
             const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
 
@@ -1976,7 +1976,7 @@ ComposerWindow::applyParam (size_t ci, size_t si, const std::string &param,
                one it is comes from the param's type, not from the word.
                And the same unbind QUOTED needs, for the same shadowing
                reason. */
-            sched_->bindKnob(s, idx, NULL);
+            sched_->unbindParam(s, idx);
 
             const thcPlugin::ParamInfo *pi = s->plugin->paramInfo(idx);
 

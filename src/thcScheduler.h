@@ -112,6 +112,36 @@ public:
     void bindNode (int index, thArg *out);
     thArg *nodeBinding (int index) const;
 
+    /* A node this store reads has moved: wake a generator that went to
+     * sleep behind it. Called once per window for a chain that has
+     * nodes; cheap, and silent when nothing changed.
+     *
+     * A wake and not a param_changed, which is the whole design
+     * decision. A knob forwards every change because a hand moves it a
+     * few times a second; a node's output moves every single window,
+     * and fifty param_changed a second into a module that rebuilds
+     * something on each one -- gen::ca reallocates its board -- would
+     * be a good deal worse than the silence it replaces. What a
+     * sleeper actually needs is only the wake: THC_NEVER means "nothing
+     * will change until a param does", and a node driving that param is
+     * a param changing. A module that wants the movement itself reads
+     * it at the moment it wants it, which is what a node binding is
+     * for and why it is read rather than pushed. */
+    void pollNodes (void);
+
+    /* Re-announce every binding, and forget what pollNodes last saw.
+     *
+     * What reset() owes a fresh instance. On a load the sequence is
+     * create, then the file's values, then the bindings -- each of the
+     * last two announced as it is made. A rewind re-creates the
+     * instance with the bindings already in place and the nodes freshly
+     * zeroed, so nothing announces anything and the two paths part
+     * company: a module that caches a node-driven param came back from
+     * a rewind holding whatever composer_create happened to read that
+     * time. Announcing here puts the replay back on the load's
+     * footing. */
+    void rebind (void);
+
     /* What the .gen loader calls after composer_create to push a fresh
        value at a module that caches (a NOTESET reparse), without
        changing anything -- and what a knob's changed signal funnels
@@ -139,6 +169,7 @@ private:
     std::vector<char>         beats_;      /* value is beats, not seconds */
     std::vector<thArg *>      knobs_;      /* live binding, NULL = value  */
     std::vector<thArg *>      nodes_;      /* embedded node's output      */
+    std::vector<float>        lastNode_;   /* what pollNodes last saw     */
 
     /* Set by the scheduler once composer_create has run: where to send
        param_changed forwards, how to re-arm a sleeping generator, and
@@ -319,6 +350,18 @@ public:
     }
 
     void bindKnob (thcStage *stage, int paramIndex, thArg *knob);
+
+    /* Back to the stored value, whichever kind of binding was shadowing
+       it.
+     *
+       A caller typing `prob = 0.9' over `prob = mid->out' is undoing a
+       binding without knowing or caring which of the two it was, and
+       there was no way to say that: bindKnob(NULL) releases the knob
+       and leaves a node still shadowing the value that was just
+       written. The panel, the canvas and the file then said 0.9 while
+       the piece went on playing the LFO -- and saving and reopening
+       sounded different from what had just been heard. */
+    void unbindParam (thcStage *stage, int paramIndex);
 
     /* A control-rate host for a chain that has dsp:: stages in it.
      *

@@ -1163,10 +1163,24 @@ ComposerCanvas::enlargedStage (void) const
 
     thcChain *c = sched_->chain(enlarged_.chain);
 
-    if (c == NULL || enlarged_.index >= c->stages.size())
+    if (c == NULL || doc_ == NULL || enlarged_.chain >= doc_->chains.size())
         return NULL;
 
-    thcStage *s = c->stages[enlarged_.index].get();
+    /* Through liveIndex, like every other crossing from the document to
+       the scheduler. A Selection carries the *file's* stage number, and
+       a dsp node is a stage in the file and nothing in the scheduler's
+       list -- so read raw, this enlarged whichever composer happened to
+       sit at that index in the shorter list, and handed its
+       composer_input the clicks meant for another one. With a node
+       ahead of the only drawable stage in a chain it ran off the end
+       instead, and the mode drew nothing at all. */
+    const int at = thcGenEdit::liveIndex(doc_->chains[enlarged_.chain],
+                                         enlarged_.index);
+
+    if (at < 0 || (size_t)at >= c->stages.size())
+        return NULL;
+
+    thcStage *s = c->stages[at].get();
 
     return (s != NULL && s->plugin->hasDraw()) ? s : NULL;
 }
