@@ -385,12 +385,17 @@ chain sensitivity {
 ```
 
 **A swap** rebuilds the sink's channel around a different instrument. It goes
-through the same patch-load path a person clicking in the Patch Selector uses,
-so notes already sounding finish on the instrument they started on and the next
-note gets the new one — the promise loading a patch has always kept, not a new
-one. `instruments` is resolved at the file boundary exactly as a scale and a
-preset are: a bare name for one, a quoted comma-separated list for several, and
-every name checked before the piece loads.
+through the same patch-load path a person clicking in the Patch Selector uses —
+which means it **cuts whatever is sounding**: the channel is replaced at a
+window boundary and the old graph's voices stop there, with no release. (What
+that path has always promised is that the outgoing channel is not freed under
+the audio thread. That is a promise about lifetimes, and this section claimed
+the other one for a while by confusing the two.) Write swaps on a clock
+measured in tens of seconds, or onto a channel that is resting; `THC_EV_NODEARG`
+is the edit that leaves sounding voices alone. `instruments` is resolved at the
+file boundary exactly as a scale and a preset are: a bare name for one, a quoted
+comma-separated list for several, and every name checked before the piece
+loads.
 
 A swap may only land on a channel the piece **declares an instrument for**.
 Rebuilding a graph is not like writing a chanarg, where the worst case is a

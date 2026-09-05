@@ -273,14 +273,15 @@ thcParamStore::notifyChanged (int index)
  * while paused so composer_draw views stay live; only the musical clock
  * freezes. */
 thcScheduler::thcScheduler (thSynth *synth)
-    /* In declaration order, which is what -Wreorder is about: swapped_
-       and controlSynth_ are declared up beside the instrument table
-       they belong to, which puts them ahead of the transport members
-       here even though nothing about them is more fundamental. */
-    : synth_(synth), swapped_(false), controlSynth_(NULL),
+    /* In declaration order, which is what -Wreorder is about:
+       controlSynth_ is declared up beside the instrument table it
+       belongs to, which puts it ahead of the transport members here
+       even though nothing about it is more fundamental. swapped_ is a
+       container and needs no mention. */
+    : synth_(synth), controlSynth_(NULL),
       running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int()), injectingLive_(false)
+      masterSeed_(g_random_int()), pendingSeq_(0), injectingLive_(false)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -445,7 +446,7 @@ thcScheduler::clearChains (void)
 
     /* Structure edits belong to the piece that made them. */
     nodeArgs_.clear();
-    swapped_ = false;
+    swapped_.clear();
 
     /* The instrument table goes with the piece too. What is *loaded* on
        those channels does not: a patch outlives the file that asked for
@@ -962,7 +963,7 @@ thcScheduler::swapInstrument (int channel, const std::string &name,
        the values are checked, exactly as it does at load time. Recorded
        first so that a refusal below still leaves a rewind knowing there
        is something to put back. */
-    swapped_ = true;
+    swapped_.insert(channel);
 
     if (loadDsp_)
     {
@@ -1067,6 +1068,26 @@ thcScheduler::setNodeArg (int channel, const std::string &node,
     if (synth_ == NULL)
     {
         why = "there is no synth to edit";
+        return false;
+    }
+
+    /* Only onto a channel the piece brought with it -- the same refusal
+       swapInstrument makes, for a reason that is stronger here rather
+       than weaker.
+     *
+       A swap that reached an undeclared channel would rebuild somebody's
+       hand-loaded patch out from under them, and a rewind could not put
+       it back because the channel is in no declaration. A node-arg edit
+       reaching one is that with the noise turned down: it rewrites a
+       constant *inside* their graph, silently, and reset() restores by
+       re-applying declarations, so there is nothing that will ever
+       undo it. The piece's own channels are the whole of what it may
+       reshape; that a sink may name any channel at all is exactly why
+       the question has to be asked here. */
+    if (channelOf(channel) == NULL)
+    {
+        why = "channel " + std::to_string(channel + 1) + " is not one this "
+              "piece declares an instrument for";
         return false;
     }
 
@@ -1504,8 +1525,10 @@ thcScheduler::queuePending (const thcEvent &ev,
         return;
     }
 
+    p.seq = pendingSeq_++;
+
     pending_.push_back(p);
-    std::push_heap(pending_.begin(), pending_.end(), Later());
+    std::push_heap(pending_.begin(), pending_.end(), LaterPending());
 }
 
 void
@@ -1513,7 +1536,7 @@ thcScheduler::deliverDue (double now)
 {
     while (!pending_.empty() && pending_.front().at <= now)
     {
-        std::pop_heap(pending_.begin(), pending_.end(), Later());
+        std::pop_heap(pending_.begin(), pending_.end(), LaterPending());
         Pending p = pending_.back();
         pending_.pop_back();
 
@@ -1701,20 +1724,47 @@ thcScheduler::reset (void)
      * Only when something moved. An ordinary rewind of an ordinary
      * piece reloads nothing, which matters because reloading a graph
      * is the most expensive thing in here. */
-    if (!nodeArgs_.empty() || swapped_)
+    if (!nodeArgs_.empty() || !swapped_.empty())
     {
+        /* The channels an edit actually reached. See swapped_ for why
+           this is a set of channels rather than a flag. */
+        std::set<int> touched = swapped_;
+
+        for (size_t i = 0; i < nodeArgs_.size(); i++)
+            touched.insert(nodeArgs_[i].channel);
+
+        bool restored = true;
+
         for (size_t i = 0; i < instruments_.size(); i++)
         {
+            if (touched.find(instruments_[i].channel) == touched.end())
+                continue;
+
             std::string why;
 
             if (!applyInstrument(i, why))
+            {
                 fprintf(stderr, "thcScheduler: rewinding instrument '%s': "
                         "%s\n", instruments_[i].name.c_str(), why.c_str());
+                restored = false;
+            }
         }
 
-        nodeArgs_.clear();
-        swapped_ = false;
-        holding_.clear();       /* every channel says what the file says */
+        /* Forgotten only if it was actually put back.
+         *
+           applyInstrument takes the graph back off the channel when it
+           refuses, so a failed restore leaves that channel silent --
+           and clearing the bookkeeping regardless then told every later
+           rewind there was nothing to put back, so the channel stayed
+           silent for the rest of the session even after whatever caused
+           the refusal had been fixed. Keeping it means the next rewind
+           tries again, which is the only thing that can help. */
+        if (restored)
+        {
+            nodeArgs_.clear();
+            swapped_.clear();
+            holding_.clear();   /* every channel says what the file says */
+        }
     }
 
     for (size_t ci = 0; ci < chains_.size(); ci++)

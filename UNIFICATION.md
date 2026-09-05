@@ -433,12 +433,16 @@ the same modules that modulate sound.
 >   name in a `THC_PARAM_INSTRSET` -- the same bargain a scale and a
 >   preset already make, one noun further along.
 > - **The voice-lifecycle question was answered by not answering it.** A
->   swap goes through the ordinary patch-load path, so sounding voices
->   finish on the tree they started on and the next note gets the new one
->   -- what `loadTree` has always promised. A node-arg edit lands on the
->   channel's *prototype* tree, which thMidiChan.cpp says in as many
->   words the audio thread never reads, so the same promise falls out
->   with no swap and no command at all.
+>   swap goes through the ordinary patch-load path -- and that path
+>   replaces the channel, so a swap cuts whatever is sounding on it.
+>   (Written the other way round here at first: `loadTree` promises the
+>   outgoing channel is not freed under the audio thread, which is a
+>   promise about lifetimes rather than about notes, and the two were
+>   confused.) A swap is therefore a coarse edit that wants a slow clock.
+>   A node-arg edit is the one that answers the question properly: it
+>   lands on the channel's *prototype* tree, which thMidiChan.cpp says in
+>   as many words the audio thread never reads, so sounding voices are
+>   untouched with no swap and no command at all.
 > - **Being an event is the whole rate limit**, and it cost nothing to
 >   arrange: scheduled, sparse, replayed from the seed, drawn on the
 >   roll. The plan predicted that and it turned out to be simply true.

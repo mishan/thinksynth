@@ -603,14 +603,20 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     /* `pass' is about the notes this stage eats, and nothing else.
      *
-       It used to gate the emit for every event type, which meant a
-       `pass = 0' board silently swallowed the note-offs, chanarg
-       writes and structure edits of every stage upstream of it -- a
-       gen::reshape in front of one delivered nothing at all. A stage
-       consuming what it is *for* is a design; a stage consuming
-       everything that happens to pass through it is a hole in a
-       pipeline. */
-    if (ev->type != THC_EV_NOTE || (int)getp(st, P_PASS) != 0)
+       Gating the emit on every event type meant a `pass = 0' stage
+       silently swallowed the chanarg writes and structure edits of
+       everything upstream of it -- a gen::reshape in front of one
+       delivered nothing at all. A stage consuming what it is *for* is a
+       design; a stage consuming everything that happens to pass through
+       it is a hole in a pipeline.
+     *
+       The off goes with its on. Forwarding a release whose press this
+       stage ate is an off for a note it deliberately did not play, and
+       the scheduler hands an unmatched off to delNote -- which silences
+       whatever else is sounding at that pitch on that channel, quite
+       possibly another chain's note. Eat both or pass both. */
+    if ((ev->type != THC_EV_NOTE && ev->type != THC_EV_NOTEOFF) ||
+        (int)getp(st, P_PASS) != 0)
         out->emit(out->ctx, ev);
 }
 

@@ -3684,6 +3684,320 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
     drainSynth();
     clearChannels(synth);
 
+    /* ---- what `pass = 0' is allowed to eat ---- */
+
+    /* A transformer told not to pass notes eats the notes, and nothing
+     * else.
+     *
+     * Two halves of one rule. A stage consuming what it is *for* is a
+     * design; a stage consuming everything that happens to flow through
+     * it is a hole in a pipeline -- a gen::reshape in front of a
+     * `pass = 0' arp delivered nothing at all, silently, and the piece
+     * simply never changed. And the off goes with its on: forwarding a
+     * release whose press this stage ate is an off for a note it did not
+     * play, which the scheduler hands to delNote and which then silences
+     * whatever else is sounding at that pitch.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::string tmp = thUtil::tempFile("gencheck-passrule-");
+
+        if (tmp.empty())
+            fail("the pass-rule check could not make a scratch file");
+        else
+        {
+            {
+                std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+                out << "seed 7;\n"
+                    << "instrument pad { dsp \"amb01.dsp\"; };\n"
+                    << "chain edits {\n"
+                    << "  stage r gen::reshape { node = \"fmap\";"
+                    << " arg = \"inmax\"; from = 1; to = 0.25;"
+                    << " every = 1 s; steps = 4; };\n"
+                    << "  stage a xform::arp { pass = 0; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n"
+                    << "chain keys {\n"
+                    << "  input midi;\n"
+                    << "  stage m xform::markov { pass = 0; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n"
+                    /* All three transformers that carry the rule, since
+                       the fix landed on one of them first and the other
+                       two kept the bug for a release. */
+                    << "chain keys2 {\n"
+                    << "  input midi;\n"
+                    << "  stage l xform::life { pass = 0; listen = 1; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n"
+                    << "chain keys3 {\n"
+                    << "  input midi;\n"
+                    << "  stage p xform::arp { pass = 0; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n";
+
+                if (!out.good())
+                    fail("the pass-rule check could not write " + tmp);
+            }
+
+            if (!loader.load(tmp, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("the pass-rule piece did not load");
+            }
+            else
+            {
+                int edits = 0, notes = 0;
+
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&edits, &notes](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NODEARG)
+                            edits++;
+                        else if (ev.type == THC_EV_NOTE ||
+                                 ev.type == THC_EV_NOTEOFF)
+                            notes++;
+                    });
+
+                sched.start();
+
+                /* The press and its release, both of which the markov
+                   stage is told to eat. */
+                thcEvent key = {};
+
+                key.type = THC_EV_NOTE;
+                key.channel = 0;
+                key.u.note.note = 60;
+                key.u.note.velocity = 90;
+                key.u.note.duration = 0;
+                key.at = sched.now();
+                sched.injectMidiEvent(key);
+
+                sched.stepTransport(0.1);
+
+                thcEvent up = {};
+
+                up.type = THC_EV_NOTEOFF;
+                up.channel = 0;
+                up.u.note.note = 60;
+                up.at = sched.now();
+                sched.injectMidiEvent(up);
+
+                for (int i = 0; i < 200; i++)
+                    sched.stepTransport(0.02);
+
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (edits == 0)
+                    fail("a 'pass = 0' transformer swallowed the structure "
+                         "edits of the stage in front of it");
+
+                if (notes != 0)
+                    fail("a 'pass = 0' transformer ate a press and "
+                         "forwarded its release anyway");
+            }
+
+            std::filesystem::remove(tmp);
+        }
+
+        clearChannels(synth);
+    }
+
+    /* ---- two events at one instant come out the way they went in ---- */
+
+    /* A heap does not order equal keys, and a re-pressed held root makes
+     * a pile of exactly equal keys: xform::harmonize releases the old
+     * chord at `at + spread*v' and presses the new one at `at + spread*v'
+     * -- the same instant, deliberately, because that is what replacing a
+     * chord means. Popped in heap order an on could be delivered ahead of
+     * the off emitted before it, and deliver() then ran addNote followed
+     * by delNote on the same pitch: the voice was created and immediately
+     * killed, and held_ kept an entry for a note nothing was playing.
+     *
+     * Asserted as the harm rather than as the ordering, because the
+     * ordering is only interesting for what it does: walk the delivered
+     * stream in order, and every pitch of a chord nobody released has to
+     * end up sounding.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::string tmp = thUtil::tempFile("gencheck-tieorder-");
+
+        if (tmp.empty())
+            fail("the tie-order check could not make a scratch file");
+        else
+        {
+            {
+                std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                    << "instrument pad { dsp \"amb01.dsp\"; };\n"
+                    << "chain keys {\n"
+                    << "  input midi;\n"
+                    /* spread 0 so every voice collides, which is the
+                       case the heap was free to reorder. */
+                    << "  stage h xform::harmonize { voices = 3;"
+                    << " spread = 0 s; root = 1; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n";
+
+                if (!out.good())
+                    fail("the tie-order check could not write " + tmp);
+            }
+
+            if (!loader.load(tmp, &sched))
+                fail("the tie-order piece did not load");
+            else
+            {
+                std::map<int, bool> sounding;
+                int offs = 0;
+
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&sounding, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            sounding[ev.u.note.note] = true;
+                        else if (ev.type == THC_EV_NOTEOFF)
+                        {
+                            sounding[ev.u.note.note] = false;
+                            offs++;
+                        }
+                    });
+
+                sched.start();
+
+                thcEvent key = {};
+
+                key.type = THC_EV_NOTE;
+                key.channel = 0;
+                key.u.note.note = 60;
+                key.u.note.velocity = 90;
+                key.u.note.duration = 0;    /* held */
+                key.at = sched.now();
+                sched.injectMidiEvent(key);
+
+                for (int i = 0; i < 10; i++)
+                    sched.stepTransport(0.02);
+
+                /* The re-press: one key, one entry, so the old chord is
+                   released and the new one pressed at the same instant. */
+                key.at = sched.now();
+                sched.injectMidiEvent(key);
+
+                for (int i = 0; i < 20; i++)
+                    sched.stepTransport(0.02);
+
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (offs == 0)
+                    fail("the tie-order check saw no releases, so the "
+                         "re-press it is about did not happen");
+
+                if (sounding.empty())
+                    fail("the tie-order check heard nothing at all");
+
+                for (std::map<int, bool>::const_iterator i = sounding.begin();
+                     i != sounding.end(); ++i)
+                    if (!i->second)
+                    {
+                        std::ostringstream s;
+
+                        s << "a re-pressed chord ended with pitch "
+                          << i->first << " released: an on was delivered "
+                          << "before the off emitted ahead of it";
+                        fail(s.str());
+                        break;
+                    }
+            }
+
+            std::filesystem::remove(tmp);
+        }
+
+        clearChannels(synth);
+    }
+
+    /* ---- what a rewind reaches, and what it leaves alone ---- */
+
+    /* A rewind restores the channels a structure edit touched and no
+     * others.
+     *
+     * applyInstrument goes through the host's patch loader, which drops
+     * the channel and re-parses the .dsp -- so re-applying every
+     * declaration because *one* of them moved threw away hand-tuned
+     * values and disarmed probes on channels nothing had been near, and
+     * did it only once a swap had happened to fire. Rewind behaving
+     * differently depending on how far the piece had got is the part
+     * worth a gate: the cheap way to see it is that an untouched
+     * channel's graph is the same object afterwards, where a restored
+     * one is not.
+     */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(piece, &sched))
+            fail("reshape.gen did not load for the rewind-scope check");
+        else
+        {
+            const thcInstrument *voice = sched.instrument("voice");
+            const thcInstrument *other = sched.instrument("bell");
+
+            if (voice == NULL || other == NULL ||
+                voice->channel == other->channel)
+                fail("reshape.gen no longer declares voice and bell on "
+                     "channels of their own");
+            else
+            {
+                drainSynth();
+
+                thMidiChan *before = synth->getChannel(other->channel);
+                std::string why;
+
+                /* One edit, on voice's channel only. */
+                if (!sched.setNodeArg(voice->channel, "fmap", "inmax",
+                                      0.25f, why))
+                    fail("the rewind-scope check could not make its edit: " +
+                         why);
+
+                sched.reset();
+                drainSynth();
+
+                if (synth->getChannel(other->channel) != before)
+                    fail("a rewind rebuilt a channel no structure edit had "
+                         "touched");
+
+                thMidiChan *c = synth->getChannel(voice->channel);
+                thSynthTree *t = c != NULL ? c->modnode() : NULL;
+                thNode *n = t != NULL ? t->findNode("fmap") : NULL;
+                thArg *a = n != NULL ? n->getArg("inmax") : NULL;
+
+                if (n == NULL || a == NULL)
+                    fail("a rewind left the edited channel without the "
+                         "graph its declaration names");
+                else if (fabs((*a)[0] - 0.25) < 1e-5)
+                    fail("a rewind left a structure edit in place");
+            }
+        }
+
+        clearChannels(synth);
+    }
+
     /* ---- a list the panel wrote rather than the loader ---- */
 
     /* The loader normalises an instrument list to "voice,bell,glass" and
@@ -3823,6 +4137,43 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
             if (sched.swapInstrument(15, "bell", why))
                 fail("a swap onto a channel the piece does not own "
                      "succeeded");
+
+            /* And the fine edit onto the same channel, which had no such
+               refusal and needed it more. A swap into somebody's
+               hand-loaded patch is loud; rewriting one constant inside
+               their graph is silent, and reset() restores by re-applying
+               *declarations*, so there is nothing that would ever put it
+               back.
+             *
+               With a graph actually on that channel, which is the whole
+               point: written against an empty one this passed on
+               "nothing is loaded there" and would have gone on passing
+               with the refusal deleted. So put the patch a person would
+               have had loaded onto it first, and then ask -- and read
+               the message, because there are two ways to say no here and
+               only one of them is the one under test. */
+            const std::string handLoaded = thUtil::findDataFile(
+                "amb01.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+            if (handLoaded.empty() ||
+                synth->loadTree(handLoaded.c_str(), 15,
+                                TH_DEFAULT_CHAN_AMP) == NULL)
+                fail("could not put a patch on channel 16 by hand");
+            else
+            {
+                drainSynth();
+
+                why.clear();
+
+                if (sched.setNodeArg(15, "fmap", "inmax", 0.25f, why))
+                    fail("a node arg on a channel the piece does not own "
+                         "succeeded");
+                else if (why.find("does not") == std::string::npos &&
+                         why.find("not one this piece declares") ==
+                             std::string::npos)
+                    fail("a node arg on an undeclared channel was refused, "
+                         "but for the wrong reason: " + why);
+            }
 
             if (sched.setNodeArg(ch, "nosuchnode", "x", 1, why))
                 fail("a node arg on a node that is not there succeeded");

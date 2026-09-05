@@ -21,6 +21,7 @@
 
 #include <functional>
 #include <map>
+#include <set>
 #include <memory>
 #include <string>
 #include <vector>
@@ -710,11 +711,23 @@ private:
        rewind, which puts every declaration back. */
     std::map<int, std::string> holding_;
 
-    /* True once any channel has been swapped, so a rewind knows the
-       channels no longer say what the file says. Not a count of which:
-       what a rewind restores is every declaration, and re-applying them
-       all is both simpler and the same answer. */
-    bool swapped_;
+    /* Which channels a swap has disturbed, so a rewind knows what no
+       longer says what the file says.
+     *
+       Which, and not merely whether. Re-applying every declaration was
+       simpler to write and is not the same answer: applyInstrument goes
+       through the host's patch loader, which drops the channel and
+       re-parses the .dsp, so a rewind of a four-instrument piece with
+       one gen::swap in it threw away hand-tuned values and disarmed
+       probes on three channels nothing had touched -- and did it only
+       once a swap had happened to fire, so Rewind behaved differently
+       depending on how far the piece had got.
+
+       A channel goes in as the swap begins rather than when it
+       succeeds, because the graph goes up before the values are
+       checked: a refusal partway leaves the channel changed, and that
+       is exactly when a rewind has the most to put back. */
+    std::set<int> swapped_;
 
     void forgetNodeArgs (int channel);
 
@@ -765,6 +778,10 @@ private:
         /* The same copy-what-you-keep promise for a structure edit's
            strings: an instrument's name, or a node's and its arg's. */
         std::shared_ptr<std::string> text, text2;
+
+        /* Emission order, and the tie-break that makes two events at the
+           same instant come out the way they went in. See LaterPending. */
+        unsigned long seq;
     };
 
     /* min-heaps on .at, kept as vectors with std::push_heap/pop_heap --
@@ -776,8 +793,29 @@ private:
         bool operator() (const T &a, const T &b) const { return a.at > b.at; }
     };
 
+    /* pending_ orders by time and then by emission.
+     *
+     * A heap does not preserve insertion order among equal keys, and a
+     * transformer that releases one chord and presses another emits the
+     * offs and the ons at the *same* instant -- that is what re-pressing
+     * a held root means. Popped in heap order, an on could be delivered
+     * before the off that was emitted ahead of it, and deliver() then
+     * ran addNote followed by delNote on the same pitch: the voice was
+     * created and immediately killed, and held_ kept an entry for a note
+     * nothing was playing. The sequence number costs a comparison and
+     * makes delivery order equal to emission order, which is what every
+     * plugin already assumes and what a replay needs anyway. */
+    struct LaterPending
+    {
+        bool operator() (const Pending &a, const Pending &b) const
+        {
+            return a.at != b.at ? a.at > b.at : a.seq > b.seq;
+        }
+    };
+
     std::vector<Wakeup>  wakeups_;
     std::vector<Pending> pending_;
+    unsigned long        pendingSeq_;   /* hands out Pending::seq       */
     std::vector<NoteOff> noteOffs_;
 
     /* Notes delivered with duration <= 0: held until a THC_EV_NOTEOFF

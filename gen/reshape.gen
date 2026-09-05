@@ -24,12 +24,17 @@
 # and none of it needed inventing -- it is what being an event already
 # meant.
 #
-# WHAT A SWAP DOES TO A SOUNDING NOTE: nothing. The replacement is built
-# off the audio thread and published at a window boundary, so notes
-# already sounding finish on the instrument they started on and the next
-# note gets the new one. That is not a new promise; it is what loading a
-# patch has always done, which is exactly why the plan said to use it
-# rather than decide it again.
+# WHAT A SWAP DOES TO A SOUNDING NOTE: it cuts it. The replacement is
+# built off the audio thread and published at a window boundary, and
+# publishing it *replaces* the channel -- so the old graph's voices stop
+# right there, with no release. Loading a patch has always done this; the
+# promise it keeps is that the outgoing channel is not freed under the
+# audio thread, which is a promise about lifetimes and not about notes.
+#
+# Which is why `swapping' runs on a forty-second clock and `line' plays
+# short phrases: a swap wants to land in a gap. The fine edit below has
+# no such problem -- a node-arg change touches the prototype tree, so
+# whatever is sounding stays sounding and the next voice is the new one.
 #
 # `reshape' IS THE LINE BEING CROSSED, and it is worth reading slowly.
 # Every composer before this one was held to a patch's declared chanargs

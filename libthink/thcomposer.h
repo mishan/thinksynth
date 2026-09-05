@@ -113,9 +113,21 @@ typedef enum {
      * `u.patch.name' is one of the instruments the piece declares -- see
      * THC_PARAM_INSTRSET for how a plugin comes to know the names
      * without ever looking one up. The host rebuilds and swaps through
-     * the ordinary patch-load path, so the voice lifecycle is the one
-     * the editor has always promised: notes already sounding finish on
-     * the tree they started on, and the next note gets the new one. */
+     * the ordinary patch-load path.
+     *
+     * WHAT A SWAP DOES TO A SOUNDING NOTE: it cuts it. That path
+     * replaces the channel rather than retiring it gently -- anything
+     * sounding on the old graph stops at the window the swap lands on,
+     * with no release. What loadTree promises is that the outgoing
+     * channel is not freed under the audio thread, which is a promise
+     * about lifetimes and not the one a note is asking about; this said
+     * otherwise for a while, on the strength of the two being confused.
+     *
+     * So a swap is a coarse edit and wants a clock measured in tens of
+     * seconds, or a channel that is resting. THC_EV_NODEARG below is
+     * the one that leaves sounding voices alone, and does it by
+     * touching a tree the audio thread never reads rather than by
+     * arranging anything. */
     THC_EV_PATCH,
 
     /* One constant inside that instrument's graph becomes this.
