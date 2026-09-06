@@ -122,6 +122,58 @@ up the amplitudes. The on-screen keyboard works without any of this.
 If you want JACK on Linux, start `jackd` before thinksynth — RtAudio will use
 the running server.
 
+Composing
+---------
+
+thinksynth also writes music. A `.gen` file describes a piece the way a
+`.dsp` describes a sound: as a small graph, in the same language, with the
+same scanner. Composer plugins — tape loops, Euclidean rhythms, L-systems,
+Markov chains, cellular automata, genetic algorithms — run in chains, each
+stage hearing only the one before it, and a sink at the end says where the
+notes go.
+
+```
+instrument pad {
+    dsp  "amb01.dsp";
+    a    = 900 ms;
+};
+
+chain loop_ab3 {
+    stage src gen::eno_line {
+        notes = "Ab3"; period = 19.4 s; jitter = 1.5 s;
+        prob = @density; hold = 6 s;
+    };
+    sink { instrument = pad; };
+};
+```
+
+A piece carries its own instruments, so one file is the whole thing: open
+`gen/airports.gen` from the Composer window (**☰ → Open**), press **Play**,
+and seven loops whose periods share no factor start and never repeat. A
+`@knob` declared in the piece is a live slider, and one slider can drive a
+stage's density and the instrument's own filter at once.
+
+The line between composing and synthesis runs both ways. A DSP node can be a
+stage — `breath.gen` puts an `osc::simple` and an `env::adsr` in a chain,
+running at the composer's rate, shaping a line's density over twenty seconds
+with the same plugins a patch is built from. And a composer can reach back
+into the instrument: `reshape.gen` rebuilds a channel around a different
+`.dsp` every forty seconds and moves constants the patch never declared,
+while the notes stay exactly the same. Everything you hear moving is the
+instrument underneath them.
+
+Time carries its unit. `period = 19.4 s` is a free-running loop;
+`period = 4 beats` is clocked and moves with the tempo. A piece with a
+`seed` replays identically, and the build proves it: `scripts/gencheck`
+loads every shipped piece, renders it twice through a virtual clock, and
+diffs the two note streams byte for byte.
+
+Fourteen pieces ship, each built around one idea and meant to be read as
+well as heard — [`gen/README.md`](gen/README.md) is the index.
+[`GEN_FORMAT.md`](GEN_FORMAT.md) is the language, and
+[`UNIFICATION.md`](UNIFICATION.md) is where the two languages are going,
+and why they keep their `node` and `stage` keywords apart on purpose.
+
 Documentation
 -------------
 
