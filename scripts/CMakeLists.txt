@@ -184,6 +184,12 @@ think_harness(argtype   NODEMODEL)
 # through its virtual clock, no Glib loop and no audio.
 think_harness(gencheck COMPOSERHOST)
 
+# A piece, rendered: the same virtual clock gencheck drives, with the synth
+# rendering a window after every step and the windows written out as a WAV,
+# the delivered events as a tape. For hearing a .gen without the window and
+# for reading a level off a new instrument block. Not a test.
+think_harness(genwav COMPOSERHOST)
+
 # The lexical layer .dsp and .gen now share: kinds, lines, byte spans, what it
 # refuses, and that .gen's tokenize() is still an adapter over that scan
 # rather than a second scanner growing back. Needs the composer host only to

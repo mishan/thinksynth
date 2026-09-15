@@ -1,0 +1,223 @@
+# ebb.gen -- one texture, two keys, and the tide between them.
+#
+# The upper voices never change: a C pentatonic cloud on a pad, with a
+# bell picking single notes out of the top of it. What changes is the
+# ground under them. Two bass chains hold the same shape and differ in
+# one thing -- one plays A, the other plays F -- and a slow sine on the
+# composer's side of the file crossfades their densities, so the piece
+# turns from A minor to F lydian and back on a cycle you can set with the
+# Tide knob. Nothing is retuned and nothing is transposed; every pitch
+# above the bass belongs to both keys, and the harmony comes entirely
+# from which root is sounding under it.
+#
+# The turn is the same trick breath.gen uses for density, aimed at
+# harmony instead: `lfo' is osc::simple running at a hundredth of a hertz,
+# `mul' and `add' put its -1..+1 where prob's 0..1 is, and the F side
+# multiplies by -0.5 where the A side multiplies by +0.5, so one is at its
+# quietest exactly when the other is at its fullest. Each bass chain has
+# its own copy of the oscillator; nodes belong to a chain, and two
+# oscillators on the same knob started at the same transport time stay
+# in step. Halfway through a turn both roots sound at half density, which
+# is an F major sixth chord rather than a clash -- that is why it is A and
+# F and not A and Ab.
+#
+# `colour' is the one upper voice that takes a side. It plays B, and only
+# on the F side of the tide: B over F is the lydian fourth, which is most
+# of what makes that half of the piece sound lit from behind, and B over
+# A minor would pull it towards something more anxious. So it is bound to
+# the F side's curve and falls silent as the tide comes back.
+#
+# The three pad lines run on periods that share no factor (3.7, 5.3 and
+# 8.1 seconds), airports.gen's arrangement, so the cloud never repeats a
+# voicing exactly. A walk opens and closes the pad's filter underneath.
+#
+# Seed pinned so it replays. Self-contained: open it and press Play.
+
+name "Ebb";
+author "Misha Nasledov";
+description "A pentatonic cloud whose ground turns between A minor and F lydian.";
+
+seed 1618;
+
+# How fast the key turns. Written as the oscillator's frequency, so 0.008
+# is a cycle of about two minutes; the bottom of the range is a turn you
+# will not notice happening, and the top is a turn every twenty seconds.
+@tide = 0.008;
+@tide.widget = 1;
+@tide.min = 0.002;
+@tide.max = 0.05;
+@tide.label = "Tide";
+
+# How often the pad speaks. Bound to the three upper lines at once.
+@calm = 0.7;
+@calm.widget = 1;
+@calm.min = 0.1;
+@calm.max = 1;
+@calm.label = "Density";
+
+scale cloud "C4 D4 E4 G4 A4 C5 D5 E5";
+scale high  "G5 A5 C6 D6 E6";
+
+# amb01 opened all the way out. `amp' is the channel's own level, 0 to
+# 127; up to eight of these can sound at once, which is why it sits well
+# below the 30 a freshly loaded patch gets.
+instrument pad {
+    dsp  "amb01.dsp";
+    amp  = 32;
+
+    a    = 1400 ms;
+    d    = 1600 ms;
+    s    = 0.85;
+    r    = 4200 ms;
+
+    centerwave1 = 0;            # sine
+    centerwave2 = 3;            # triangle
+    lwave = 0;
+    rwave = 3;
+    centermix = 0.5;
+    sidemix   = 0.5;
+
+    res  = 0.55;
+    fmin = 0.05;
+    fmax = 0.45;                # where the walk below starts it
+};
+
+# The same graph struck rather than swelled: a few milliseconds of attack,
+# a long decay to almost nothing, and the filter opened well up so the
+# detuned sines ring against each other.
+instrument bell {
+    dsp  "amb01.dsp";
+    amp  = 26;
+
+    a    = 4 ms;
+    d    = 2200 ms;
+    s    = 0.04;
+    r    = 2600 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 0;
+    lwave = 3;
+    rwave = 3;
+    centerdetune = 0.3;
+    ldetune = -1.7;
+    rdetune = 1.9;
+    centermix = 0.4;
+    sidemix   = 0.4;
+
+    res  = 0.82;
+    fmin = 0.35;
+    fmax = 0.9;
+};
+
+# Four sine drawbars on a slow swell, for a ground that is all
+# fundamental and no edge.
+instrument ground {
+    dsp  "organ0.dsp";
+    amp  = 40;
+
+    waveform = 0;               # sine
+    mul1 = 2;
+    mul2 = 3;
+    mul3 = 4;
+    vmin = 0.3;
+    vmax = 0.6;
+
+    a    = 700 ms;
+    d    = 400 ms;
+    s    = 0.9;
+    r    = 950 ms;
+};
+
+# ---- the ground -------------------------------------------------------
+
+# A side. `lfo' is at +1 at the top of the tide; `half' and `mid' put
+# that at prob = 1, and the trough at prob = 0.
+chain bass_a {
+    stage lfo  osc::simple { freq = @tide; waveform = 0; amp = 1; };
+    stage half math::mul   { in0 = lfo->out;  in1 = 0.5; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line {
+        notes = "A1 A2 E2";  period = 8.6 s;  jitter = 1.8 s;
+        prob = mid->out;  hold = 9 s;  vel = 62;  vel_jitter = 5;
+    };
+    sink { instrument = ground; };
+};
+
+# F side: the same oscillator, multiplied by -0.5 instead of +0.5, so it
+# is full where the A side is empty.
+chain bass_f {
+    stage lfo  osc::simple { freq = @tide; waveform = 0; amp = 1; };
+    stage half math::mul   { in0 = lfo->out;  in1 = -0.5; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line {
+        notes = "F1 F2 C2";  period = 9.7 s;  jitter = 1.8 s;
+        prob = mid->out;  hold = 10 s;  vel = 62;  vel_jitter = 5;
+    };
+    sink { instrument = ground; };
+};
+
+# ---- the cloud --------------------------------------------------------
+
+chain cloud_low {
+    stage src gen::eno_line {
+        notes = "C4 E4 G4 A4";  period = 3.7 s;  jitter = 1.1 s;
+        prob = @calm;  hold = 5 s;  vel = 56;  vel_jitter = 8;
+    };
+    sink { instrument = pad; };
+};
+
+chain cloud_mid {
+    stage src gen::eno_line {
+        notes = cloud;  period = 5.3 s;  jitter = 1.6 s;
+        prob = @calm;  hold = 6 s;  vel = 52;  vel_jitter = 8;
+    };
+    sink { instrument = pad; };
+};
+
+chain cloud_high {
+    stage src gen::eno_line {
+        notes = "G4 A4 C5 D5 E5";  period = 8.1 s;  jitter = 2.4 s;
+        prob = @calm;  hold = 7 s;  vel = 46;  vel_jitter = 8;
+    };
+    sink { instrument = pad; };
+};
+
+# The lydian fourth, on the F side only.
+chain colour {
+    stage lfo  osc::simple { freq = @tide; waveform = 0; amp = 1; };
+    stage half math::mul   { in0 = lfo->out;  in1 = -0.5; };
+    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
+
+    stage src gen::eno_line {
+        notes = "B3 B4";  period = 11.3 s;  jitter = 3 s;
+        prob = mid->out;  hold = 8 s;  vel = 44;  vel_jitter = 6;
+    };
+    sink { instrument = pad; };
+};
+
+# ---- the bell ---------------------------------------------------------
+
+# Rare, high and a little uneven. Quantized onto its own pool so a
+# transposed edit of `high' stays inside the cloud.
+chain bell {
+    stage src gen::eno_line {
+        notes = high;  period = 6.9 s;  jitter = 3.5 s;
+        prob = 0.4;  hold = 2.5 s;  vel = 58;  vel_jitter = 12;
+    };
+    stage q xform::quantize { scale = high; };
+    stage h xform::humanize { time = 0.03 s; vel = 6; };
+    sink { instrument = bell; };
+};
+
+# ---- weather ----------------------------------------------------------
+
+# The pad's filter ceiling, in fmax's units (0 to 1), wandering between
+# nearly shut and half open on a period that lines up with nothing above.
+chain drift {
+    stage src gen::walk {
+        min = 0.25;  max = 0.7;  step = 0.04;  period = 9.1 s;
+    };
+    sink { instrument = pad; chanarg = "fmax"; };
+};

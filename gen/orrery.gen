@@ -1,0 +1,301 @@
+# orrery.gen -- gears on one clock, and a bass that knows the chords.
+#
+# Everything here is written in beats, so everything here turns on the
+# transport's clock and stays locked through a tempo change. Four
+# Euclidean rings of different sizes sit on that clock like gears of
+# different sizes on one shaft: kick on eight steps, chords on eight,
+# bass on sixteen, hats on sixteen. Over them, a genetic algorithm
+# breeds a lead phrase toward its own taste, and every thirty-two bars
+# the instrument it plays on is rebuilt around a different one.
+#
+# HOW THE BASS FOLLOWS THE CHORDS. gen::euclid cycles its pitch pool one
+# note per onset, and it does not know what any other chain is doing --
+# so a bass on its own ring and a chord progression on another would
+# drift apart inside a bar. The trick is in the pool. The chord ring
+# plays two onsets a bar and changes chord every bar: four chords, eight
+# notes, two of each. The bass ring plays five onsets a bar, so its pool
+# is twenty notes: five under the E minor bar, five under the C, five
+# under the G, five under the D, root and fifth in a shape that walks.
+# Both rings restart together and both pools are exactly one four-bar
+# phrase long, so the bass lands on the right root every bar of every
+# phrase without a single message passing between the chains. The pool
+# is a lookup table and the ring is the index; that is all a Euclidean
+# rhythm with a cycling pool ever was, and it is enough to write a bass
+# part in.
+#
+# THE CHORDS ARE SPELLED, NOT STORED. The chord ring emits one root a
+# bar and xform::harmonize stacks two more voices on it by counting
+# degrees of G major, so E gives E minor, C gives C major, G gives G,
+# D gives D -- the quality comes from where in the scale the root sits.
+# `spread' rolls each chord over forty milliseconds so it arrives as a
+# strum rather than a block.
+#
+# THE LEAD IS BRED. gen::evolve keeps a population of sixteen-step
+# phrases on the E minor pentatonic and plays the fittest, and its
+# taste -- how dense, how smooth, how quickly it tires of a phrase -- is
+# what `density', `smooth' and `boredom' set. The Lift knob is its
+# density, so one slider takes the top line from sparse to busy while
+# the gears keep turning underneath. It is humanized a little, because a
+# GA has no hands.
+#
+# The hats' `vel' is what makes them open or closed: hat0 fades its
+# decay between the closed and open lengths on velocity squared, so the
+# sixteenths at 44 are closed and the one at 112 on the off-beat is
+# open. Two chains, one instrument, the difference written where the
+# instrument reads it.
+#
+# The swap is round-robin between two voices on a slow enough clock that
+# you will hear the phrase before the tone changes under it. A swap cuts
+# what is sounding; the lead's notes are short, so it lands in a gap.
+#
+# The seed is pinned, so the lead breeds the same way twice. Self-
+# contained: open it and press Play.
+
+name "Orrery";
+author "Misha Nasledov";
+description "Four Euclidean gears on one clock, a bass that reads the chords, a bred lead.";
+
+tempo 104;
+seed 1687;
+
+@lift = 0.5;
+@lift.widget = 1;
+@lift.min = 0.1;
+@lift.max = 0.9;
+@lift.label = "Lift";
+
+@hats = 11;
+@hats.widget = 1;
+@hats.min = 0;
+@hats.max = 16;
+@hats.step = 1;
+@hats.label = "Hats";
+
+scale gmaj  "E3 F#3 G3 A3 B3 C4 D4 E4 F#4 G4 A4 B4 C5 D5";
+scale epent "E4 G4 A4 B4 D5 E5 G5";
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "bdshaped.dsp";
+    amp  = 34;
+};
+
+instrument hat {
+    dsp  "hat0.dsp";
+    amp  = 12;
+
+    clen = 90 ms;
+    olen = 520 ms;
+    cutmin = 0.45;
+    cutmax = 0.8;
+};
+
+# ts1 low and short: the filter envelope is the whole shape of the note.
+instrument bass {
+    dsp  "ts1.dsp";
+    amp  = 30;
+
+    a    = 2 ms;
+    d    = 240 ms;
+    s    = 0.3;
+    f    = 2000 ms;
+    r    = 160 ms;
+
+    cutoff = 2.2;
+    famt   = 3;
+    res    = 2.6;
+    pw1    = 0.4;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0.15;
+};
+
+# amb01 as an electric piano of sorts: quick attack, a decay you can
+# hear, sine against triangle, the filter under a walk.
+instrument keys {
+    dsp  "amb01.dsp";
+    amp  = 18;
+
+    a    = 30 ms;
+    d    = 700 ms;
+    s    = 0.45;
+    r    = 900 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 3;
+    lwave = 3;
+    rwave = 0;
+    centermix = 0.5;
+    sidemix = 0.35;
+
+    res  = 0.5;
+    fmin = 0.1;
+    fmax = 0.45;
+};
+
+# Two voices for the lead. `sync' is hard-sync, which is where the
+# brightness comes from; `reed' is ts1 opened up and sustaining.
+instrument sync {
+    dsp  "syncfun.dsp";
+    amp  = 16;
+
+    a    = 6 ms;
+    d    = 260 ms;
+    s    = 0.45;
+    r    = 380 ms;
+
+    syncdetune = 2.4;
+    syncmix = 0.55;
+    wave1 = 4;
+    wave2 = 3;
+    res  = 0.6;
+    fmin = 0.12;
+    fmax = 0.7;
+};
+
+instrument reed {
+    dsp  "ts1.dsp";
+    amp  = 16;
+
+    a    = 12 ms;
+    d    = 300 ms;
+    s    = 0.6;
+    f    = 5000 ms;
+    r    = 400 ms;
+
+    cutoff = 6;
+    famt   = 2;
+    res    = 1.2;
+    pw1    = 0.25;
+    pw2    = 0.5;
+    oscmul = 2;
+    oscfade = 0.3;
+};
+
+# A struck amb01 high up, for a shimmer that comes and goes.
+instrument bell {
+    dsp  "amb01.dsp";
+    amp  = 14;
+
+    a    = 3 ms;
+    d    = 1400 ms;
+    s    = 0.05;
+    r    = 1800 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 0;
+    lwave = 3;
+    rwave = 3;
+    ldetune = -1.4;
+    rdetune = 1.6;
+
+    res  = 0.8;
+    fmin = 0.4;
+    fmax = 0.9;
+};
+
+# ---- the gears --------------------------------------------------------
+
+# Three over eight: the tresillo. One bar per turn.
+chain kick {
+    stage src gen::euclid {
+        steps = 8;  fills = 3;  rotate = 0;
+        notes = "C2";
+        period = 0.5 beats;  hold = 0.2 beats;  vel = 112;
+    };
+    sink { instrument = kick; };
+};
+
+# Closed hats: sixteenths, however many the knob says, all at a
+# velocity hat0 reads as closed.
+chain hats_closed {
+    stage src gen::euclid {
+        steps = 16;  fills = @hats;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 44;
+    };
+    sink { instrument = hat; };
+};
+
+# One open hat a bar, on the and of four, hard enough to open.
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 1;  rotate = 7;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.4 beats;  vel = 112;
+    };
+    sink { instrument = hat; };
+};
+
+# Two onsets a bar, on one and three; a chord a bar, four bars round.
+chain chords {
+    stage src gen::euclid {
+        steps = 8;  fills = 2;  rotate = 0;
+        notes = "E3 E3 C4 C4 G3 G3 D4 D4";
+        period = 0.5 beats;  hold = 1.7 beats;  vel = 62;
+    };
+    stage chord xform::harmonize {
+        scale = gmaj;
+        voices = 3;  step = 2;
+        spread = 0.04 s;
+        taper = 0.85;
+        root = 1;  below = 0;
+    };
+    sink { instrument = keys; };
+};
+
+# Five over sixteen, and the twenty-note pool that makes it a bass
+# line: five under each chord of the four above, in order.
+chain bass {
+    stage src gen::euclid {
+        steps = 16;  fills = 5;  rotate = 0;
+        notes = "E2 E2 B2 E2 D2  C2 C2 G2 C2 E2  G2 G2 D3 G2 B2  D2 D2 A2 D2 F#2";
+        period = 0.25 beats;  hold = 0.22 beats;  vel = 96;
+    };
+    sink { instrument = bass; };
+};
+
+# ---- the lead ---------------------------------------------------------
+
+chain lead {
+    stage src gen::evolve {
+        notes = epent;
+        length = 16;  population = 20;
+        mutate = 0.1;  density = @lift;  smooth = 0.7;
+        boredom = 0.3;
+        step = 0.5 beats;  hold = 0.42 beats;  vel = 80;
+    };
+    stage h xform::humanize { time = 0.012 s; vel = 9; };
+    sink { instrument = sync; };
+};
+
+# Every thirty-two bars the lead's slot becomes the other voice.
+chain relay {
+    stage m gen::swap {
+        instruments = "sync,reed";
+        every = 128 beats;
+        order = 0;
+    };
+    sink { instrument = sync; };
+};
+
+# ---- shimmer and weather ---------------------------------------------
+
+chain shimmer {
+    stage src gen::eno_line {
+        notes = "B5 D6 E6 G6 A6";
+        period = 3 beats;  jitter = 1.5 beats;
+        prob = 0.3;  hold = 2 beats;  vel = 54;  vel_jitter = 10;
+    };
+    sink { instrument = bell; };
+};
+
+# The keys' filter ceiling, in fmax's units, on a period that is not a
+# whole number of bars.
+chain weather {
+    stage src gen::walk {
+        min = 0.3;  max = 0.85;  step = 0.06;  period = 7 beats;
+    };
+    sink { instrument = keys; chanarg = "fmax"; };
+};

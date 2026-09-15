@@ -1,15 +1,15 @@
 # The shipped pieces
 
-Fourteen `.gen` files, each of which is meant to be read as well as heard. Between
-them they exercise every composer plugin in the tree and every ability the
-`.gen` language has, and each one is built around a single idea rather than
-around being impressive. The comment at the top of each file is the lesson;
+Seventeen `.gen` files, each of which is meant to be read as well as heard.
+Fourteen of them exercise every composer plugin in the tree and every ability
+the `.gen` language has, each built around a single idea rather than around
+being impressive; the last three are pieces first and lessons second. The comment at the top of each file is the lesson;
 this is the index.
 
 Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
 
-`airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen` and
-`colony.gen` need nothing else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
+`airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
+`ebb.gen`, `round.gen` and `orrery.gen` need nothing else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
@@ -85,6 +85,18 @@ typo in it.
 | [`weather.gen`](weather.gen) | **Generative timbre, plainly** — and **one knob, both worlds.** Four random walks pointed at knobs, over a pad of three lines: the walk emits a number and does not know where it lands, and the sink names the target. It carries that pad now, so `Breadth` drives a stage's density and two of the instrument's own chanargs from one slider, and `Tail` sets the pad's release in milliseconds. Read its header before pointing a walk at something new — a chanarg's range belongs to the patch, and `amp` runs 0–127. |
 | [`tide.gen`](tide.gen) | **Presets, and the line between two.** `gen::morph` travels between two named chanarg vectors — as a generator on its own clock, and as a transformer where each note schedules its own sweep. |
 | [`bloom.gen`](bloom.gen) | **Genetic algorithms over timbre.** `gen::breed` searches the corridor the piece's own presets declare. A component neither preset names cannot be invented, which is the reach limit stated as arithmetic. |
+
+## Pieces
+
+Three files where the idea is the music and the mechanism is in service of
+it. Each carries its own instruments; each header says how it is put
+together, in the same detail as the others.
+
+| piece | the idea |
+| --- | --- |
+| [`ebb.gen`](ebb.gen) | **Two keys and the tide between them.** A C pentatonic cloud that never changes, over a ground that does: two bass chains, one on A and one on F, each with its own control-rate sine, wired so one is empty where the other is full. The piece turns from A minor to F lydian and back on a cycle the `Tide` knob sets, with nothing transposed — only the root moves. One upper voice takes a side and plays the lydian fourth on the F side alone. |
+| [`round.gen`](round.gen) | **A canon on one grammar.** One L-system subject, three entries: straight, six steps later a fifth up, and at half speed an octave and a half down. The lag is written as rests in the axiom, the augmentation as `math::mul` on the `Pace` knob, and the ladders are pentatonic so every lag is consonant. Take the trailing rests off the lead and it becomes a phase piece. |
+| [`orrery.gen`](orrery.gen) | **Gears on one clock, and a bass that reads the chords.** Four Euclidean rings of different sizes in `beats`, a harmonizer spelling the chords by degree, a genetic lead on the `Lift` knob, and two voices swapped under it every thirty-two bars. The bass follows the progression without a message passing between chains: its pool is one four-bar phrase long, five notes under each chord, and the ring is the index. |
 
 ## What each piece covers
 
