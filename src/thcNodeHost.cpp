@@ -150,17 +150,16 @@ thcNodeHost::addNode (const std::string &name, const std::string &spelling,
 
     /* And one refusal that is not about the family.
      *
-     * osc::static draws from a generator nothing seeds -- one for the
-     * process, shared by every static node in it -- which makes it the
-     * one plugin in the tree whose output is not a function of its
-     * inputs. On the audio thread that is what noise is and nobody
-     * minds. Down here it would make a piece that does not replay, and
-     * the framework's whole promise is that the same file and the same
-     * seed are the same piece. A noise node in a chain has to be as
-     * replayable as a markov stage, and this one cannot be: there is
-     * nowhere to hand it the piece's seed, and a generator shared by
-     * every static node could not give any one of them a stream of its
-     * own.
+     * osc::static draws from a generator nothing seeds -- one per synth,
+     * shared by every static node in it -- which makes it the one plugin
+     * in the tree whose output is not a function of its inputs. On the
+     * audio thread that is what noise is and nobody minds. Down here it
+     * would make a piece that does not replay, and the framework's whole
+     * promise is that the same file and the same seed are the same
+     * piece. A noise node in a chain has to be as replayable as a markov
+     * stage, and this one cannot be: there is nowhere to hand it the
+     * piece's seed, and a generator shared by every static node could
+     * not give any one of them a stream of its own.
      *
      * Refused by name rather than quietly tolerated, because a piece
      * that replays *nearly* is worse than one that says it cannot. If a
