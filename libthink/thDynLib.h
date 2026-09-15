@@ -59,4 +59,26 @@ THINK_API std::string lastError (void);
 
 } /* namespace thDynLib */
 
+#ifdef THINK_STATIC_PLUGINS
+/* A build with nothing to dlopen.
+ *
+ * An AudioWorkletGlobalScope has no file system and no loader, so the
+ * browser build links every plugin into the one module and generates this
+ * table (wasm/web). open() looks a name up in it -- the name getPath()
+ * hands over, "osc/simple" -- and symbol() answers the four names the host
+ * asks for from the entry, which is all thPlugin.cpp ever does with a
+ * handle. Nothing above this seam knows the difference.
+ */
+struct thStaticPlugin
+{
+    const char *name;
+    void       *init;       /* module_init     */
+    void       *callback;   /* module_callback */
+    void       *cleanup;    /* module_cleanup  */
+};
+
+extern const thStaticPlugin thStaticPlugins[];
+extern const size_t         thStaticPluginCount;
+#endif
+
 #endif /* TH_DYNLIB_H */
