@@ -247,8 +247,9 @@ EMSCRIPTEN_KEEPALIVE void tw_step (double dt)
     sched_->stepTransport(dt);
 }
 
-/* One window, interleaved, tw_channels() * tw_window() floats. The pointer
-   is the synth's own buffer: read it before the next call. */
+/* One window, tw_channels() * tw_window() floats, planar: all of channel 0,
+   then all of channel 1. The pointer is the synth's own buffer: read it
+   before the next call. */
 EMSCRIPTEN_KEEPALIVE const float *tw_process (void)
 {
     synth_->process();

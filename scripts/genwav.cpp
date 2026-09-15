@@ -346,7 +346,15 @@ int main (int argc, char **argv)
                 peak = a;
         }
 
-        pcm.insert(pcm.end(), buf, buf + frame);
+        /* getOutput() is planar -- a window of channel 0, then a window of
+           channel 1 -- and a WAV is interleaved. Copied as it stood, every
+           window came out as channel 0 at double speed across both
+           speakers and then channel 1 the same way: an octave up, chopped
+           forty-three times a second. The tape was never affected, which
+           is why gencheck and compare.mjs had nothing to say about it. */
+        for (int i = 0; i < window; i++)
+            for (int c = 0; c < channels; c++)
+                pcm.push_back(buf[(size_t)c * window + i]);
 
         return peak;
     };

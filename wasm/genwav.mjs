@@ -353,11 +353,18 @@ async function main (argv0, args)
     const windows = [];
 
     /* One window of audio per step of the clock, copied out of the heap
-       before the next one overwrites it. */
+       before the next one overwrites it -- and interleaved on the way, as
+       genwav.cpp does, since the synth's window is planar. */
     const renderWindow = () =>
     {
         const p = M._tw_process() >> 2;
-        const buf = M.HEAPF32.slice(p, p + frame);
+        const planar = M.HEAPF32.subarray(p, p + frame);
+        const buf = new Float32Array(frame);
+
+        for (let i = 0; i < window; i++)
+            for (let c = 0; c < channels; c++)
+                buf[i * channels + c] = planar[c * window + i];
+
         let peak = 0;
 
         for (let i = 0; i < frame; i++)
