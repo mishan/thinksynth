@@ -185,5 +185,6 @@ Documentation
 | [NODE_EDITOR.md](NODE_EDITOR.md) | the visual editor's model, behaviour and layout |
 | [VISUALIZERS.md](VISUALIZERS.md) | writing a visual module, and how probes work |
 | [PORTING.md](PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
+| [JAM.md](JAM.md) | playing together in a browser: the plan, milestones and risks |
 | [PACKAGING.md](PACKAGING.md) | the three install layouts, dependency closure, GTK bundling, Flatpak |
 | [TODO](TODO) | what is left |

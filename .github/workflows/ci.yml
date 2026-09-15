@@ -4,7 +4,7 @@
 # no MSVC build, and reinforced by the eleven files in the tree that use
 # variable-length arrays.
 #
-# STATUS: all four jobs are real gates and must stay green. What CI does not
+# STATUS: all five jobs are real gates and must stay green. What CI does not
 # cover is that hosted runners have no audio device, so the backends are only
 # compiled and linked here, never opened. All three platforms have been run
 # and heard on real hardware; none of that happened here.
@@ -227,6 +227,82 @@ jobs:
         # stop the tick, close the instances, then unload the modules -- is
         # exercised under ASan and nowhere else.
         run: xvfb-run -a ctest --test-dir build --output-on-failure
+
+  # The WebAssembly build, held against the native one. wasm/compare.mjs
+  # renders every seeded piece with scripts/genwav and with wasm/genwav.mjs:
+  # the tapes, the summaries and the exit statuses must be identical, and the
+  # audio may differ by one step in a sample -- libm is glibc's on one side
+  # and musl's on the other, and they disagree in the last bit now and then.
+  #
+  # What this catches is a piece that depends on which C++ library built it:
+  # a heap that breaks ties its own way, a distribution each library
+  # implements differently. Such a piece composes differently under libc++,
+  # which is macOS as well as wasm, and this is the one job that has both
+  # libraries in front of it at once.
+  wasm:
+    name: wasm (emscripten) against native
+    runs-on: ubuntu-latest
+
+    env:
+      # Pinned: the comparison is only as repeatable as the compiler on the
+      # wasm side.
+      EMSDK_VERSION: 6.0.9
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # The whole top-level configure runs for the native half, and it wants
+      # gtkmm, even though only the harness and the plugins are built. gtkmm
+      # brings cairo's headers too, which the wasm build compiles the drawing
+      # composers against.
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build bison flex pkg-config \
+            libgtkmm-4.0-dev libsigc++-3.0-dev \
+            libasound2-dev libjack-jackd2-dev
+
+      # The module runs the same on 20, 22 and 24; pinned so that a change of
+      # runner image is not what moves the result.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Native build
+        run: |
+          cmake -S . -B build -G Ninja
+          cmake --build build --target genwav plugins
+
+      # Most of a gigabyte, so cached on the version.
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/emsdk
+          key: emsdk-${{ env.EMSDK_VERSION }}
+
+      - name: Install emsdk
+        run: |
+          [ -d ~/emsdk ] || git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+          ~/emsdk/emsdk install "$EMSDK_VERSION"
+          ~/emsdk/emsdk activate "$EMSDK_VERSION"
+
+      - name: wasm build
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          emcmake cmake -S wasm -B build-wasm -G Ninja
+          cmake --build build-wasm
+
+      - name: Compare
+        run: node wasm/compare.mjs --lsb 1 -k compare
+
+      # The renders, so a difference can be listened to rather than only
+      # read about.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: wasm-compare
+          path: compare/
 
   macos:
     name: macos (clang, arm64)
