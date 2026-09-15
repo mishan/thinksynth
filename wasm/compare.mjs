@@ -202,11 +202,25 @@ function main (args)
 
     let failed = 0, tolerated = 0;
 
-    for (const gen of pieces)
+    for (const [index, gen] of pieces.entries())
     {
         const name = path.basename(gen, '.gen');
-        const f = (which, ext) => path.join(out, `${name}.${which}.${ext}`);
+
+        /* Numbered, so two pieces of the same name from two directories do
+           not write over each other's renders. */
+        const stem = `${String(index + 1).padStart(2, '0')}-${name}`;
+        const f = (which, ext) => path.join(out, `${stem}.${which}.${ext}`);
         const rel = path.relative(top, gen);
+
+        /* Nothing left from an earlier run into the same -k directory: a
+           render that fails before it writes must find nothing to be
+           compared against, not the last run's files. */
+        for (const which of ['native', 'wasm'])
+            for (const ext of ['wav', 'tape'])
+                fs.rmSync(f(which, ext), { force: true });
+
+        const missing = (ext) =>
+            ['native', 'wasm'].filter((which) => !fs.existsSync(f(which, ext)));
 
         const n = run(native, ['-p', path.join(build, 'plugins') + '/',
                                '-s', seconds, '-o', f('native', 'wav'),
@@ -224,8 +238,10 @@ function main (args)
         if (n.stderr !== w.stderr)
             problems.push(`summary "${n.stderr.trim()}" / "${w.stderr.trim()}"`);
 
-        if (fs.existsSync(f('native', 'tape')) &&
-            fs.existsSync(f('wasm', 'tape')))
+        /* A tape that was not written is a tape that differs. */
+        if (missing('tape').length > 0)
+            problems.push(`no tape from ${missing('tape').join(' or ')}`);
+        else
         {
             const a = fs.readFileSync(f('native', 'tape'), 'latin1');
             const b = fs.readFileSync(f('wasm', 'tape'), 'latin1');
@@ -234,8 +250,9 @@ function main (args)
                 problems.push(`tape: ${describeTape(a, b)}`);
         }
 
-        if (fs.existsSync(f('native', 'wav')) &&
-            fs.existsSync(f('wasm', 'wav')))
+        if (missing('wav').length > 0)
+            problems.push(`no WAV from ${missing('wav').join(' or ')}`);
+        else
         {
             const hdr = fs.readFileSync(f('native', 'wav')).subarray(0, 44);
             const a = pcm(f('native', 'wav')), b = pcm(f('wasm', 'wav'));
@@ -250,8 +267,6 @@ function main (args)
                 (d.max <= lsb ? within : problems).push('wav: ' + d.text);
             }
         }
-        else
-            problems.push('no WAV from one of them');
 
         const label = name.padEnd(10);
         const lines = (list) => list.map((p) => `           ${p}\n`).join('');
