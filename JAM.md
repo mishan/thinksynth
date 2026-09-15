@@ -57,6 +57,37 @@ Where M0 stands:
   pieces it renders, then the fix, then `wasm/` and the job. M0 is done
   when that branch's `wasm` job is green on a runner.
 
+### M1, so far
+
+On the `jam-m1` branch, which starts where `wasm-parity` ends:
+
+- `wasm/web/` builds the browser module: libthink and all 62 DSP plugins
+  linked into one 268 KB wasm file. Each plugin is compiled in a namespace
+  of its own and listed in a table the static branch of `thDynLib` reads,
+  so nothing above that seam changed. The page (`index.html`, `main.js`)
+  has the `.dsp` in a text box, the computer keyboard as the keyboard, and
+  the latency the browser reports; `worklet.js` runs the synth at a window
+  of 256.
+- Commands carry the frame they apply at and land at the start of the
+  window it falls in. A note then sounds from the *next* window -- the
+  engine's onset, the desktop's too -- so a key costs one to two windows on
+  top of the output latency: 5–11 ms at 256 and 48 kHz.
+- `scripts/dspab -B 256` over the corpus: 78 of the 81 DSPs that load
+  render the same at 256 as at 1024. The three that do not --
+  `noargs/dfb`, `noargs/smoothie`, `old/randompw` -- are exactly the three
+  loadable DSPs whose graph has a cycle. The engine breaks a cycle by
+  letting one node read the previous window, so the loop's delay *is* the
+  window: 23 ms at 1024, 5.3 ms at 256. Understood, and no plugin read the
+  window length as a constant.
+- `wasm/web/check.mjs` plays every shipped patch through the module from
+  Node. `wasm/web/browsertest.mjs` renders a phrase through the worklet in
+  headless Chromium and Firefox and matches the module run directly,
+  sample for sample; the page itself starts, loads, takes keys and reports
+  latency in both. The CI `wasm` job runs both.
+- What is left for done: playing it on real hardware, in Chrome and
+  Firefox, on Linux, macOS and Windows. A headless browser has no sound
+  card to hear.
+
 ## 1. The three kinds of state
 
 Everything a peer can know about a session is one of three things, and each
@@ -176,9 +207,11 @@ own copy of libc; static should land near the 1.8 MB main module.
 **No SharedArrayBuffer.** Emscripten's own `-sAUDIO_WORKLET` wants wasm
 workers, which want `SharedArrayBuffer`, which wants cross-origin isolation
 headers that make embedding the thing anywhere a chore. The tree's design
-needs none of it: compile the module on the main thread, hand the
-`WebAssembly.Module` to the worklet through its port, instantiate it there,
-and talk through `postMessage`. Two threads, one queue, as now. If message
+needs none of it: fetch the wasm on the main thread, post its bytes to the
+worklet through its port, compile and instantiate them there, and talk
+through `postMessage`. (The bytes rather than a compiled
+`WebAssembly.Module`: Firefox accepts a Module on an AudioWorklet's port,
+Chrome delivers it as a `messageerror`.) Two threads, one queue, as now. If message
 latency ever shows up as a problem the fix is a ring in a shared buffer, and
 that is a later optimisation with a known cost, not a foundation.
 
