@@ -67,31 +67,35 @@ namespace {
 
 struct Stamped
 {
-    double        frame;
-    unsigned long seq;      /* equal frames apply in the order they came */
-    bool          on;
-    float         note;
-    float         velocity;
+    double frame;
+    bool   on;
+    float  note;
+    float  velocity;
 };
+
+/* Room for this many commands in flight before the queue has to grow. */
+#define TW_PENDING 1024
 
 thSynth             *synth_;
 gthSynthSource      *source_;
 std::vector<float>   block_;
-std::vector<Stamped> pending_;
-unsigned long        seq_;
+std::vector<Stamped> pending_;      /* in order: see push() */
 double               rendered_;     /* frames handed out so far */
 
 /* Everything due before the end of the window about to be rendered, whose
-   first frame is `start'. */
+   first frame is `start'.
+ *
+ * addNote is the desktop's GUI-thread call, and on the desktop it runs on
+ * the GUI thread: it takes the synth's lock, uncontended here, and builds
+ * the note's copy of the graph, which allocates. A worklet has no other
+ * thread to put that on, so a key-on spends its render quantum on it --
+ * measured at 0.02 to 0.38 ms across the shipped patches, against the
+ * 2.67 ms a 128-frame quantum has at 48 kHz. Making a note-on free of
+ * allocation is the engine's work, not this file's; JAM.md, section 7, has
+ * it as risk 3. What this file keeps off the render path is its own: the
+ * queue arrives sorted and has its room already. */
 void applyDue (double start, int len)
 {
-    std::stable_sort(pending_.begin(), pending_.end(),
-                     [](const Stamped &a, const Stamped &b)
-                     {
-                         return a.frame != b.frame ? a.frame < b.frame
-                                                   : a.seq < b.seq;
-                     });
-
     size_t k = 0;
 
     for (; k < pending_.size() && pending_[k].frame < start + len; k++)
@@ -107,17 +111,22 @@ void applyDue (double start, int len)
     pending_.erase(pending_.begin(), pending_.begin() + k);
 }
 
+/* Kept in order as commands arrive -- by frame, and in arrival order within
+   a frame, which upper_bound gives for nothing -- so the render path only
+   ever takes from the front and never sorts. */
 void push (double frame, bool on, float note, float velocity)
 {
     Stamped s;
 
     s.frame = frame;
-    s.seq = seq_++;
     s.on = on;
     s.note = note;
     s.velocity = velocity;
 
-    pending_.push_back(s);
+    pending_.insert(std::upper_bound(pending_.begin(), pending_.end(), s,
+                                     [](const Stamped &a, const Stamped &b)
+                                     { return a.frame < b.frame; }),
+                    s);
 }
 
 } /* namespace */
@@ -134,6 +143,7 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
 
     source_->prepare((unsigned)maxFrames, TW_CHANNELS);
     block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
+    pending_.reserve(TW_PENDING);
 
     return synth_->getWindowlen();
 }

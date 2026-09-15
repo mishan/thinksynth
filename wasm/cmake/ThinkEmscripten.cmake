@@ -10,7 +10,8 @@
 # side-module build -- has to be said before the include.
 #
 # THINK_PLUGIN_PATH may be set first; it goes into config.h as the plugin
-# root.
+# root. THINK_NEED_CAIRO says the including build compiles the composers;
+# see the cairo section below.
 
 if(NOT EMSCRIPTEN)
   message(FATAL_ERROR
@@ -103,18 +104,25 @@ target_link_libraries(sigc PUBLIC PkgConfig::SIGC)
 # Eight composers draw their state for the Composer window, and include
 # cairo.h to do it. The header is the host's -- declarations, nothing
 # compiled -- and the calls are left for the loader to bind, which it does
-# lazily, on the first call. composer_draw is never called here. The browser
-# build does not compile the composers at all, but plugins/CMakeLists.txt
-# names this target either way.
-find_path(CAIRO_INCLUDE_DIR cairo.h
-    PATHS /usr/include /usr/local/include /opt/homebrew/include
-    PATH_SUFFIXES cairo
-    NO_CMAKE_FIND_ROOT_PATH
-    REQUIRED)
-
+# lazily, on the first call. composer_draw is never called here.
+#
+# Only the Node build compiles the composers, so only it needs the header,
+# and it says so with THINK_NEED_CAIRO. The browser build never looks, and
+# builds where the host has no cairo headers at all. plugins/CMakeLists.txt
+# names the target in both, so the target is always there -- empty when
+# nothing looked.
 add_library(PkgConfig::CAIRO INTERFACE IMPORTED GLOBAL)
-set_target_properties(PkgConfig::CAIRO PROPERTIES
-    INTERFACE_INCLUDE_DIRECTORIES "${CAIRO_INCLUDE_DIR}")
+
+if(THINK_NEED_CAIRO)
+  find_path(CAIRO_INCLUDE_DIR cairo.h
+      PATHS /usr/include /usr/local/include /opt/homebrew/include
+      PATH_SUFFIXES cairo
+      NO_CMAKE_FIND_ROOT_PATH
+      REQUIRED)
+
+  set_target_properties(PkgConfig::CAIRO PROPERTIES
+      INTERFACE_INCLUDE_DIRECTORIES "${CAIRO_INCLUDE_DIR}")
+endif()
 
 # ---------------------------------------------------------------------------
 # libthink and the plugins, as the tree has them

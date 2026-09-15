@@ -100,9 +100,9 @@ target_link_libraries(thinkweb PRIVATE think_objects sigc)
 set_target_properties(thinkweb PROPERTIES SUFFIX ".mjs")
 
 # web for the worklet, node for the tests that drive the same module
-# directly. The worklet hands over a compiled WebAssembly.Module and the
-# module is instantiated from it (instantiateWasm, in worklet.js), so
-# nothing here fetches.
+# directly. The worklet is handed the .wasm's bytes and instantiates the
+# module from them (instantiateWasm, in worklet.js; host.js says why bytes
+# and not a compiled module), so nothing here fetches.
 target_link_options(thinkweb PRIVATE
     -sMODULARIZE=1
     -sEXPORT_ES6=1

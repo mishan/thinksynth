@@ -40,7 +40,19 @@ let fetched = null;
 function wasmBytes ()
 {
     fetched ??= fetch(new URL('thinkweb.wasm', import.meta.url))
-        .then((r) => r.arrayBuffer());
+        .then((r) =>
+        {
+            if (!r.ok)
+                throw new Error(`thinkweb.wasm: ${r.status} ${r.statusText}`);
+
+            return r.arrayBuffer();
+        })
+        .catch((e) =>
+        {
+            /* Not kept: Start after a failed fetch fetches again. */
+            fetched = null;
+            throw e;
+        });
 
     return fetched;
 }

@@ -71,12 +71,17 @@ class ThinkProcessor extends AudioWorkletProcessor
     {
         const log = (text) => this.port.postMessage({ type: 'log', text });
 
-        /* The glue would fetch the .wasm itself; handed this, it does not. */
+        /* The glue would fetch the .wasm itself; handed this, it does not.
+           A compile that fails never calls done(), and the glue would wait
+           for it for ever, so the failure is reported from here. */
         const M = await createThinkWeb({
             instantiateWasm: (imports, done) =>
             {
                 WebAssembly.instantiate(bytes, imports)
-                    .then((r) => done(r.instance, r.module));
+                    .then((r) => done(r.instance, r.module))
+                    .catch((e) => this.port.postMessage(
+                        { type: 'error',
+                          text: `the wasm did not compile: ${e}` }));
 
                 return {};
             },

@@ -53,7 +53,21 @@ export function serve (root, port = 8080, host = '127.0.0.1')
     const server = http.createServer((req, res) =>
     {
         const url = new URL(req.url, 'http://localhost');
-        let file = path.join(root, decodeURIComponent(url.pathname));
+        let pathname;
+
+        /* "/%" and its kind do not decode, and an exception here would take
+           the server down -- anyone's to send, with --host 0.0.0.0. */
+        try
+        {
+            pathname = decodeURIComponent(url.pathname);
+        }
+        catch
+        {
+            res.writeHead(400).end();
+            return;
+        }
+
+        let file = path.join(root, pathname);
 
         if (file !== root && !file.startsWith(root + path.sep))
         {

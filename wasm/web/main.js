@@ -91,7 +91,19 @@ async function loadPatch ()
     if (synth === null)
         return;
 
+    /* The graph is built on the audio thread, between two quanta, and a
+       big one could run past the next quantum's deadline. Suspended around
+       the load, the gap a reload makes is a clean one rather than a
+       glitch. */
+    const wasRunning = ctx.state === 'running';
+
+    if (wasRunning)
+        await ctx.suspend();
+
     const ok = await synth.load($('dsp').value);
+
+    if (wasRunning)
+        await ctx.resume();
 
     $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
                                  : 'That .dsp did not parse; see below.';
@@ -111,6 +123,15 @@ async function start ()
     }
     catch (e)
     {
+        /* A context that got this far holds the audio device and perhaps a
+           worklet, and a browser allows only so many contexts; it goes
+           before a retry makes another. */
+        if (ctx !== null)
+            ctx.close().catch(() => {});
+
+        ctx = null;
+        synth = null;
+
         $('status').textContent = `Could not start: ${e.message}`;
         $('start').disabled = false;
         return;
