@@ -163,8 +163,9 @@ static Typing typingOf (thSynth &synth, const string &name)
 }
 
 /* One note through one file. A fresh synth each time, and srand reseeded, for
-   the reason dspcheck spells out: twelve DSPs are built on osc::static and are
-   deterministic only because both renders start from the same seed. */
+   the reason dspcheck spells out: twelve DSPs are built on osc::static, whose
+   noise restarts only when a fresh synth loads it, and anything calling
+   rand() needs the same seed for both renders. */
 static bool render (const string &pluginPath, const char *file,
                     vector<float> &out)
 {

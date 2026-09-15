@@ -70,6 +70,7 @@
 #include <cairo.h>
 
 #include "thcomposer.h"
+#include "thcRandom.h"
 /* M_PI is not in C++ and UCRT hides it; thMath.h is the one place that
  * knows that. See its header for why there are two answers and not one. */
 #include "thMath.h"
@@ -442,13 +443,13 @@ scatter (State *st)
 static const Genome &
 tournament (State *st, const std::vector<double> &fit)
 {
-    std::uniform_int_distribution<size_t> pick(0, st->pop.size() - 1);
+    const size_t last = st->pop.size() - 1;
 
-    size_t best = pick(st->rng);
+    size_t best = thcUniformIndex(st->rng, 0, last);
 
     for (int i = 0; i < 2; i++)
     {
-        const size_t c = pick(st->rng);
+        const size_t c = thcUniformIndex(st->rng, 0, last);
 
         if (fit[c] > fit[best])
             best = c;
@@ -478,8 +479,10 @@ generation (State *st)
     for (size_t i = 0; i < order.size(); i++)
         order[i] = i;
 
-    std::sort(order.begin(), order.end(),
-              [&fit](size_t a, size_t b) { return fit[a] > fit[b]; });
+    /* Stable, so genomes of equal fitness keep population order and the
+       elites are the same ones under every library. */
+    std::stable_sort(order.begin(), order.end(),
+                     [&fit](size_t a, size_t b) { return fit[a] > fit[b]; });
 
     st->champion = st->pop[order[0]];
     st->fitHistory.push_back(fit[order[0]]);
@@ -500,8 +503,7 @@ generation (State *st)
     const double mutation = getp(st, P_MUTATION);
 
     std::uniform_real_distribution<double> uni(0.0, 1.0);
-    std::normal_distribution<double>       jog(0.0, 1.0);
-    std::uniform_int_distribution<size_t>  cut(0, st->genes.size());
+    thcNormal                              jog;
 
     while (next.size() < st->pop.size())
     {
@@ -512,7 +514,7 @@ generation (State *st)
            -- a timbre's genes are named knobs, so a cut splits "these
            settings from one parent, those from the other", which is a
            thing a person could have done by hand. */
-        const size_t at = cut(st->rng);
+        const size_t at = thcUniformIndex(st->rng, 0, st->genes.size());
 
         Genome child(st->genes.size());
 

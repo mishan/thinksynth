@@ -41,6 +41,7 @@
 #include <vector>
 
 #include "thcomposer.h"
+#include "thcRandom.h"
 
 enum { P_INSTRUMENTS, P_EVERY, P_ORDER, P_COUNT };
 
@@ -177,8 +178,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         /* Picked, but never the one already sounding -- a swap to what
            is already there is an event that rebuilds a channel to look
            exactly as it did, which is the one outcome nobody wanted. */
-        std::uniform_int_distribution<size_t> pick(0, st->names.size() - 2);
-        size_t n = pick(st->rng);
+        size_t n = thcUniformIndex(st->rng, 0, st->names.size() - 2);
 
         st->at = n < st->at ? n : n + 1;
     }

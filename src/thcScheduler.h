@@ -761,8 +761,9 @@ private:
     gint64   lastMono_;        /* g_get_monotonic_time at last tick      */
     unsigned masterSeed_;      /* stage seeds derive from this           */
 
-    struct Wakeup  { double at; size_t chain, stage; };
-    struct NoteOff { double at; int channel, note; };
+    /* seq is push order, Later's tie-break; see there. */
+    struct Wakeup  { double at; size_t chain, stage; unsigned long seq; };
+    struct NoteOff { double at; int channel, note; unsigned long seq; };
 
     /* A queued event. The chanarg name a composer emitted is a pointer
        into memory it owns and may rewrite on its next tick, so the copy
@@ -784,13 +785,25 @@ private:
         unsigned long seq;
     };
 
-    /* min-heaps on .at, kept as vectors with std::push_heap/pop_heap --
-       priority_queue hides its container, and pending_ has to be
-       iterable for peekPending. */
+    /* min-heaps kept as vectors with std::push_heap/pop_heap --
+     * priority_queue hides its container, and pending_ has to be
+     * iterable for peekPending.
+     *
+     * Ordered by time and then by push order. Which of two equal keys a
+     * heap gives up first is the standard library's to choose, and
+     * libstdc++ and libc++ choose differently: two stages due at the same
+     * instant woke in one order under one and the other order under the
+     * other, and a piece whose stages meet on a channel -- colony's
+     * reshape and the notes it reshapes -- composed a different piece
+     * from the same seed depending on which library it was built with.
+     * The wasm build, which is libc++, is how that came to light. */
     struct Later
     {
         template <typename T>
-        bool operator() (const T &a, const T &b) const { return a.at > b.at; }
+        bool operator() (const T &a, const T &b) const
+        {
+            return a.at != b.at ? a.at > b.at : a.seq > b.seq;
+        }
     };
 
     /* pending_ orders by time and then by emission.
@@ -816,12 +829,13 @@ private:
     std::vector<Wakeup>  wakeups_;
     std::vector<Pending> pending_;
     unsigned long        pendingSeq_;   /* hands out Pending::seq       */
+    unsigned long        heapSeq_;      /* and Wakeup's and NoteOff's   */
     std::vector<NoteOff> noteOffs_;
 
     /* Notes delivered with duration <= 0: held until a THC_EV_NOTEOFF
        releases them, or until stop()/clearChains flushes them -- a
        pause must not hang a key any more than it hangs a note. */
-    std::vector<NoteOff> held_;      /* .at unused                       */
+    std::vector<NoteOff> held_;      /* .at and .seq unused              */
 
     /* True while an injectMidi* call is propagating on a stopped
        transport; what falls out of the chains is delivered immediately

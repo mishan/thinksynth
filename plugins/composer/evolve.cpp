@@ -301,9 +301,12 @@ State::generationStep (void)
     for (size_t i = 0; i < order.size(); i++)
         order[i] = i;
 
-    std::sort(order.begin(), order.end(),
-              [this](size_t a, size_t b)
-              { return fitness(pop[a]) > fitness(pop[b]); });
+    /* Stable, so a tie keeps population order: std::sort leaves equal
+       elements wherever the library's algorithm puts them, and which
+       two survive would depend on the library. */
+    std::stable_sort(order.begin(), order.end(),
+                     [this](size_t a, size_t b)
+                     { return fitness(pop[a]) > fitness(pop[b]); });
 
     std::vector<Genome> next;
 

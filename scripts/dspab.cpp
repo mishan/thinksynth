@@ -27,7 +27,8 @@
  *   scripts/dspab -a /tmp/plugins-base/ -b plugins/ $(find dsp -name '*.dsp')
  *
  * Exit status is the number of files that differ. Note that a DSP using
- * osc::static or anything else calling rand() is only deterministic because
+ * osc::static is only deterministic because each render builds a fresh
+ * synth, which restarts its noise, and anything calling rand() only because
  * both renders reseed; see dspcheck.
  */
 

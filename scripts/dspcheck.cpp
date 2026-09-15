@@ -45,9 +45,10 @@
 static bool renderNote (const string &pluginPath, const char *file,
                         int windows, vector<float> &out)
 {
-    /* osc::static and friends call rand(), and both renders happen in this one
-       process, so without reseeding the second run would continue the sequence
-       and every noise-based DSP would look non-deterministic. */
+    /* Both renders happen in this one process. osc::static's noise restarts
+       whenever a synth loads it, which the fresh synth below does; the
+       reseed is for anything else that calls rand(), whose second run would
+       otherwise continue the sequence and look non-deterministic. */
     srand(1);
 
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);

@@ -281,7 +281,8 @@ thcScheduler::thcScheduler (thSynth *synth)
     : synth_(synth), controlSynth_(NULL),
       running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
-      masterSeed_(g_random_int()), pendingSeq_(0), injectingLive_(false)
+      masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
+      injectingLive_(false)
 {
     timer_ = Glib::signal_timeout().connect(
         sigc::mem_fun(*this, &thcScheduler::timerCallback), 20);
@@ -404,7 +405,7 @@ thcScheduler::addStage (size_t chain, thcPlugin *plugin, bool asGenerator)
 
     if (s->ticks)
     {
-        wakeups_.push_back({ transportNow_, chain, stage });
+        wakeups_.push_back({ transportNow_, chain, stage, heapSeq_++ });
         std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
     }
 
@@ -1378,7 +1379,7 @@ thcScheduler::runDueTicks (double now)
         else
         {
             wakeups_.push_back({ next > now ? next : now + 0.001,
-                                 w.chain, w.stage });
+                                 w.chain, w.stage, heapSeq_++ });
             std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
         }
     }
@@ -1396,7 +1397,7 @@ thcScheduler::rearmStage (size_t chain, size_t stage)
         return;
 
     s->sleeping = false;
-    wakeups_.push_back({ transportNow_, chain, stage });
+    wakeups_.push_back({ transportNow_, chain, stage, heapSeq_++ });
     std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
 }
 
@@ -1570,7 +1571,8 @@ thcScheduler::deliver (const thcEvent &ev)
             if (ev.u.note.duration > 0)
             {
                 noteOffs_.push_back({ ev.at + ev.u.note.duration,
-                                      ev.channel, ev.u.note.note });
+                                      ev.channel, ev.u.note.note,
+                                      heapSeq_++ });
                 std::push_heap(noteOffs_.begin(), noteOffs_.end(),
                                Later());
             }
@@ -1801,7 +1803,7 @@ thcScheduler::reset (void)
 
             if (s->ticks && s->state != NULL)
             {
-                wakeups_.push_back({ 0.0, ci, si });
+                wakeups_.push_back({ 0.0, ci, si, heapSeq_++ });
                 std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
             }
         }
