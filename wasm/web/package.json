@@ -6,6 +6,7 @@
   "scripts": {
     "check": "node check.mjs",
     "piececheck": "node piececheck.mjs",
+    "protocoltest": "node protocoltest.mjs",
     "browsertest": "node browsertest.mjs",
     "bench": "node bench.mjs"
   },

@@ -11,23 +11,25 @@ its own, is a command stamped with the transport time it applies at.**
 
 ## 0. Where M3 starts from
 
-What is in the tree on `jam-step-fix`:
+What is in the tree on `jam-m2` (JAM.md, "M2, so far"):
 
-- The browser build (`wasm/web/`): libthink and the 62 DSP plugins in one
-  268 KB wasm, an AudioWorklet host (`host.js`, `worklet.js`) with
-  frame-stamped note commands, a page with one `.dsp` in a text box and the
-  computer keyboard as the keyboard, `check.mjs` and `browsertest.mjs` in
-  CI against Chromium and Firefox, and `serve.mjs` for a local site.
+- The browser build (`wasm/web/`): libthink, the 62 DSP plugins, the
+  sixteen composers and the composer host in one 602 KB wasm; the
+  scheduler in the worklet, stepped once per window; load, transport,
+  knob and MIDI-in as frame-stamped commands on one queue; the tape
+  posted back in batches with the transport's position and an epoch; a
+  page with a piece mode, sliders for the knobs, a roll, and keys on
+  screen. `piececheck.mjs` and `browsertest.mjs` hold every seeded piece's
+  tape against `genwav.mjs`'s at four steps, in CI.
 - The scheduler ticks every stage at the time it asked for, so a piece's
   tape is a function of the file and the seed and of nothing about the
   host's step. `gencheck` gates it at 20 ms, 1024 frames and 256.
-- M2 is not started. `jam-m2` sits at the `jam-m1` tip.
 
-M3 therefore has two halves. One half needs nothing from M2: the relay,
-the document, clock sync, the peer mesh, seats, and the protocol harness.
-The other half, the commands that reach the scheduler, needs the seam M2
-builds, and section 2 says exactly what that seam has to be so M2 can build
-it once.
+This document was written before M2 landed, and section 2 said what M2's
+seam would have to be. M2 built its own shape -- frame stamps, applied at
+the top of the window they fall in -- and M3's first step was to add what
+section 2 asks for on top of it. Section 2 now describes the seam as
+built.
 
 ## 1. Decisions M3 makes
 
@@ -85,58 +87,84 @@ the mesh fails (section 5.5).
 
 **Direct mode only.** Quantised and play-ahead modes are M4.
 
-## 2. What M3 needs from M2: the scheduler seam
+## 2. The scheduler seam
 
-M2 puts the composers in the static bundle and the scheduler in the
-worklet. For M3 to sit on top of it without a second pass, M2's `thinkweb`
-exports and `worklet.js` messages need this shape. Names are suggestions;
-the properties are not.
+M2 put the composers in the static bundle and the scheduler in the worklet,
+with every command stamped with a frame and applied at the top of the
+window that frame falls in. That is right for a key -- a note sounds from
+the next window anyway -- and wrong for anything the scheduler reads: two
+peers' windows are not aligned, so "the top of the window containing t" is
+two different transport times on two peers. M3 adds the stamped commands
+beside M2's, in `wasm/web/thinkweb.cpp`, and the worklet's messages and
+`host.js` mirror them one for one.
 
-**Exports** (`wasm/web/thinkweb.cpp`), in addition to M1's:
+**Exports**, beside M2's:
 
 ```
-tw_piece_load(text, dspNames[], dspTexts[])  -> ok
-    Parse a .gen and the .dsp files it names, from strings, not paths.
-    Builds instruments and chains; does not start. Replaces any piece.
+tw_piece_load(text, seed)
+    M2's load, plus the master seed to compose from when the file pins
+    none (below zero: draw one). The .dsp files a piece names are handed
+    over first by tw_instrument, as M2 has it; a room hands over the
+    document's.
 
-tw_transport_start(originFrame)
-    Arm: at the window containing originFrame, start the scheduler with a
-    partial first step so transport 0 is that frame exactly.
+tw_begin(originFrame)
+    Arm a start from the top: at the window containing originFrame the
+    scheduler is rewound and started with a partial first step, so that
+    transport 0 is that frame exactly. A frame already rendered starts at
+    the next window and counts as late.
 
-tw_transport_stop(at) / tw_transport_tempo(at, bpm)
-    Applied at transport time `at`, inside the step.
+tw_at(at, op, value)
+    A stop or a tempo, applied at transport time `at`, inside the step.
 
-tw_knob(at, name, value)
-    A piece knob (@density), at transport time `at`, inside the step.
-    Unknown name: ignored and reported once.
+tw_knob(at, index, value)
+    A piece knob, by the index the load reported it under, at transport
+    time `at`, inside the step. Below zero: the top of the next window,
+    which is what the solo page sends.
 
-tw_step_events(...)          the tape since the last call: the delivered
-                             events as thinkwasm.cpp's twEvent, plus the
-                             transport time now and whether running.
+tw_late()        commands applied after their time, so far
+tw_origin()      the frame transport 0 falls on, or -1
+tw_seed()        the master seed the piece is composing from
+tw_instrument_*  the piece's instruments, with the channel each was given
+tw_listens(ch)   whether a chain takes `input midi' on the channel
 ```
 
-**Properties M3 relies on:**
+`worklet.js`'s `tape` message carries `now`, `origin`, `frame` and `late`
+with the events, and its `piece` reply carries the instruments, the
+channels the piece listens on, and the seed.
 
-1. A command with `at` in the future is held and applied at `at`, before
-   any stage that ticks at or after `at`. A command with `at` in the past
-   is applied at once and counted; the count is readable.
-2. `tw_piece_load` while stopped is the only load path. A load while
-   running is refused. (M4 changes this.)
-3. Transport time is `(frame − originFrame) / sampleRate` exactly, and
-   `tw_step_events` reports it, so the page can convert.
+**Properties M3 relies on**, and how each is kept:
+
+1. A command with `at` in the future is held and applied at `at`, after
+   the stages that tick at or before `at` and before any that tick after
+   it: the transport is stepped to `at` exactly (`thcScheduler::
+   stepTransportTo`), the command applied, and the step carried on. A
+   command with `at` in the past is applied at once and counted.
+2. A load stops the transport first, and a start is a rewind. (M4 changes
+   the first.)
+3. Transport time is `(frame − originFrame) / sampleRate` exactly: every
+   window steps *to* that time rather than *by* a window's length, so the
+   clock never drifts from the frames.
 4. The tape a peer's worklet delivers for a piece, from an origin, with a
    set of stamped commands, equals the tape `genwav.mjs` delivers under
-   Node from the same piece and commands. M3's protocol harness (section
-   6.1) drives the Node module with the same command stream and diffs.
+   Node from the same piece and commands: `genwav.mjs -c "AT knob NAME
+   VALUE"`, `-c "AT tempo BPM"`, `-c "AT stop"` apply a command the same
+   way, at its time inside the step. The protocol harness (section 8.1)
+   compares all three.
 
-**Worklet messages** mirror the exports one for one, and the worklet posts
-`tape` messages on a timer of its own choosing, batched, with the current
-transport time in each.
-
-Until M2 lands, M3 builds against `wasm/thinkwasm.cpp` under Node, whose
-`tw_step` and event queue already exist, and against a stub worklet that
-accepts the messages and answers with an empty tape. That is enough for the
-whole of sections 3, 4 and 5.
+**A rewind is a load.** Found on the way, by the harness: `orrery`
+composed a different lead after a rewind than after a load, on the
+desktop as much as in the browser. A load creates each composer instance
+over the plugin's defaults and then sets the file's values and makes the
+bindings, each announced as it happens; a rewind re-created the instance
+over the final values and announced only the bindings. `gen::evolve` draws
+a population in create sized by `length` and `population` and draws
+another on each of those being announced, so the two paths had drawn
+different amounts of randomness before the first bar. The store now keeps
+everything the loader did to it and a rewind puts it back to the defaults,
+creates the instance, and does it all again. Every seeded piece now
+rewinds to the tape it loaded to, and `gencheck` gates that over the
+corpus -- which matters here because every peer's Play *is* a rewind of
+the piece it loaded.
 
 ## 3. The relay
 
@@ -390,20 +418,25 @@ What the page shows in M3, and nothing more:
 
 Three, in increasing order of what they need, and the first two run in CI.
 
-### 8.1 The protocol harness (no browser, no M2)
+### 8.1 The protocol harness (no browser)
 
 `wasm/web/protocoltest.mjs`. Two peers in one Node process, built from the
-same `clock.js`, `commands.js` and a fake mesh with configurable delay,
-jitter and loss, a fake relay with a fake clock, and for each peer a
-scheduler: the Node wasm build's `tw_step`, stepped at that peer's window
-and rate, 256 at 48 kHz for one and 1024 at 44.1 kHz for the other. A
-script presses play, moves knobs on both sides at scripted times, changes
-tempo, stops. The two tapes are diffed with `compare.mjs`'s tape diff.
+same `clock.js` and `commands.js` the page uses, a simulated network with
+delay, jitter and loss, a simulated relay with a clock of its own, and for
+each peer the browser module itself -- the same wasm the worklet runs --
+stepped at that peer's window and rate, 256 at 48 kHz for one and 1024 at
+44.1 kHz for the other, their blocks out of phase. A script presses play,
+moves a knob from each side at times of its own, changes the tempo from
+each side, and stops. The two tapes are diffed against each other and
+against `genwav.mjs`'s under the same command stream.
 
-Passes when the tapes are identical for every seeded piece with 40 ms of
-delay and 20 ms of jitter, and when, with the delay raised above
-`knobLead`, the late count is non-zero and says which command. The second
-half is a test that the hazard is seen, not hidden.
+**Passes**, and is in the CI `wasm` job: the tapes are identical for every
+seeded piece with 40 ms of delay, 20 ms of jitter and 2% loss, no command
+is late, and each peer's origin frame is within the jitter of where the
+origin truly fell on its output. And with the delay raised to 300 ms, past
+`knobLead`, the knobs arrive late, both peers count them, and the page's
+own reckoning names which. The second half is a test that the hazard is
+seen, not hidden.
 
 This harness is also JAM.md section 5's "two schedulers in one process",
 which M4 extends with edits at scripted beats. It is built first, because

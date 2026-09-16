@@ -119,7 +119,6 @@ enum CmdType
     CMD_MIDI_ON,        /* the keyboard, into the piece's `input midi' */
     CMD_MIDI_OFF,
     CMD_TRANSPORT,
-    CMD_KNOB,
 };
 
 /* CMD_TRANSPORT's `op'. worklet.js spells these too. */
@@ -138,8 +137,37 @@ struct Command
     int    op;                  /* CMD_TRANSPORT                       */
     int    channel;             /* CMD_NOTE_*, CMD_MIDI_*              */
     float  note, velocity;      /* CMD_NOTE_*, CMD_MIDI_*              */
-    double value;               /* CMD_KNOB's value, CMD_TRANSPORT's   */
-    int    knob;                /* CMD_KNOB: an index into knobs_      */
+    double value;               /* CMD_TRANSPORT's                     */
+};
+
+/* A command for the scheduler, stamped in transport seconds rather than
+   frames (JAM_M3.md, section 1). A window is 5 ms and two peers' windows
+   are not aligned to each other or to the origin, so a knob applied "at
+   the top of the window containing t" lands at different transport times
+   on different peers, and a composer that reads it at a tick between
+   those two times composes two different pieces. So these are applied at
+   `at' inside the step: the transport is stepped to `at', which runs the
+   stages that tick at or before it, the command is applied, and the step
+   goes on. The same on every peer, whatever its window or its rate.
+
+   `at' below zero means the top of the next window, which is what the
+   solo page sends and what a peer sends while the transport is stopped.
+   One with a time that has already passed is applied at once and counted
+   (late_): the tape has parted from the other peers' from that time on,
+   and M3's job is to make that visible (JAM_M3.md, section 1). */
+enum AtType
+{
+    AT_STOP,
+    AT_TEMPO,
+    AT_KNOB,
+};
+
+struct Scheduled
+{
+    double at;
+    int    type;
+    int    knob;                /* AT_KNOB: an index into knobs_       */
+    double value;               /* AT_KNOB's value, AT_TEMPO's bpm     */
 };
 
 /* Room for this many commands in flight before the queue has to grow. */
@@ -151,6 +179,28 @@ std::vector<float>    block_;
 std::vector<Command>  pending_;     /* in order: see push() */
 double                rendered_;    /* frames handed out so far */
 double                rate_;
+
+/* The scheduler's commands: the stamped ones in order of `at', and the
+   ones for the top of the next window in order of arrival. */
+std::vector<Scheduled> scheduled_;
+std::vector<Scheduled> immediate_;
+int                    late_;
+
+/* Where transport zero is, as a frame of this synth's output, or -1 while
+   the transport has never been started. Transport time at the end of a
+   window is (frame - originFrame_) / rate_ exactly, and the step is taken
+   to that rather than by adding a window's length each time, so the clock
+   does not drift from the frames by a rounding error per window
+   (JAM_M3.md, section 2, property 3). A begin sets it to the frame it was
+   asked for; a resume sets it so that the transport continues from where
+   it stopped. */
+double originFrame_ = -1;
+
+/* A begin waiting for its frame: at the window that frame falls in the
+   transport is rewound and started, with a partial first step so that
+   transport zero is that frame and not the start of its window. */
+bool   armed_;
+double armFrame_;
 
 /* The piece side. plugins_ is built once, from the table the build wrote,
    and outlives every load; the loader clears the scheduler's chains itself. */
@@ -227,30 +277,158 @@ void applyDue (double start, int len)
             case CMD_TRANSPORT:
                 switch (c.op)
                 {
-                    case TW_START:  sched_->start(); break;
-                    case TW_STOP:   sched_->stop(); break;
-                    case TW_REWIND: sched_->reset(); epoch_++; break;
-                    case TW_TEMPO:  sched_->setTempo(c.value); break;
+                    case TW_START:
+                        /* A resume, the solo page's Play: the transport
+                           goes on from where it is, from the start of
+                           this window. */
+                        sched_->start();
+                        originFrame_ = start - sched_->now() * rate_;
+                        break;
+
+                    case TW_STOP:
+                        sched_->stop();
+                        break;
+
+                    case TW_REWIND:
+                        /* Whatever was stamped for the run being rewound
+                           names a time that is about to mean something
+                           else. */
+                        sched_->reset();
+                        scheduled_.clear();
+                        epoch_++;
+                        break;
+
+                    case TW_TEMPO:
+                        sched_->setTempo(c.value);
+                        break;
                 }
-                break;
-
-            case CMD_KNOB:
-                /* setValue is the whole knob path: every param bound to it
-                   reads through it, and the scheduler has the changed
-                   signal wired to whatever rebuilding or re-arming that
-                   implies (thcScheduler::bindKnob). By index into the
-                   list the page was handed at the load: a name would have
-                   to be copied into the command, and a copy has a length,
-                   and a knob whose name ran past it was silently never
-                   moved. */
-                if (c.knob >= 0 && c.knob < (int)knobs_.size())
-                    knobs_[c.knob]->setValue((float)c.value);
-
                 break;
         }
     }
 
     pending_.erase(pending_.begin(), pending_.begin() + k);
+}
+
+/* A begin whose frame falls in the window about to be rendered. */
+void beginDue (double start, int len)
+{
+    if (!armed_ || armFrame_ >= start + len)
+        return;
+
+    armed_ = false;
+
+    /* From the top: the instances recreated from their seeds, the
+       transport at zero, and nothing held over from the last run. */
+    sched_->reset();
+    scheduled_.clear();
+    epoch_++;
+
+    /* A begin whose frame has already gone by -- it arrived late, or was
+       stamped for a frame this synth had already rendered -- starts now,
+       and is counted: the peers that started on time are ahead of this
+       one by the difference, for good. */
+    if (armFrame_ < start)
+    {
+        originFrame_ = start;
+        late_++;
+    }
+    else
+        originFrame_ = armFrame_;
+
+    sched_->start();
+}
+
+void applyScheduled (const Scheduled &c)
+{
+    switch (c.type)
+    {
+        case AT_STOP:
+            sched_->stop();
+            break;
+
+        case AT_TEMPO:
+            sched_->setTempo(c.value);
+            break;
+
+        case AT_KNOB:
+            /* setValue is the whole knob path: every param bound to it
+               reads through it, and the scheduler has the changed signal
+               wired to whatever rebuilding or re-arming that implies
+               (thcScheduler::bindKnob). By index into the list the page
+               was handed at the load: a name would have to be copied into
+               the command, and a copy has a length, and a knob whose name
+               ran past it was silently never moved. */
+            if (c.knob >= 0 && c.knob < (int)knobs_.size())
+                knobs_[c.knob]->setValue((float)c.value);
+
+            break;
+    }
+}
+
+/* The transport across the window whose first frame is `start', with the
+   scheduler's commands applied where they fall in it. */
+void step (double start, int len)
+{
+    for (size_t i = 0; i < immediate_.size(); i++)
+        applyScheduled(immediate_[i]);
+
+    immediate_.clear();
+
+    if (!sched_->running())
+    {
+        /* Time is not passing, so nothing stamped for later can come due;
+           what is stamped for a time already passed is late wherever it
+           lands, and lands now. */
+        while (!scheduled_.empty() && scheduled_[0].at <= sched_->now())
+        {
+            const Scheduled c = scheduled_[0];
+
+            scheduled_.erase(scheduled_.begin());
+            late_++;
+            applyScheduled(c);
+        }
+
+        return;
+    }
+
+    const double target = (start + len - originFrame_) / rate_;
+
+    while (!scheduled_.empty() && scheduled_[0].at <= target)
+    {
+        const Scheduled c = scheduled_[0];
+
+        scheduled_.erase(scheduled_.begin());
+
+        if (c.at > sched_->now())
+            sched_->stepTransportTo(c.at);
+        else if (c.at < sched_->now())
+            late_++;
+
+        applyScheduled(c);
+
+        /* A stop: the transport is where the stop said, and stays. */
+        if (!sched_->running())
+            return;
+    }
+
+    sched_->stepTransportTo(target);
+}
+
+/* In order of `at', arrival order within one, like push(). */
+void schedule (const Scheduled &c)
+{
+    if (c.at < 0)
+    {
+        immediate_.push_back(c);
+        return;
+    }
+
+    scheduled_.insert(std::upper_bound(scheduled_.begin(), scheduled_.end(),
+                                       c,
+                                       [](const Scheduled &a,
+                                          const Scheduled &b)
+                                       { return a.at < b.at; }),
+                      c);
 }
 
 /* Kept in order as commands arrive -- by frame, and in arrival order within
@@ -330,6 +508,8 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     source_->prepare((unsigned)maxFrames, TW_CHANNELS);
     block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
     pending_.reserve(TW_PENDING);
+    scheduled_.reserve(TW_PENDING);
+    immediate_.reserve(TW_PENDING);
 
     mkdir(TW_DSP_DIR, 0777);
 
@@ -399,10 +579,20 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
  * which is why the page has the two as modes rather than side by side. A
  * keyboard still reaches a piece: through `input midi', as tw_midi_on, the
  * way a peer's keyboard will. */
-EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text)
+/* `seed' is the master seed to compose from when the piece pins none, or
+   below zero to draw one, as the desktop does. Two peers composing from
+   different seeds are playing different pieces, so in a room the one who
+   presses Play picks it and everyone loads with it (JAM_M3.md, section
+   5.3). A piece that pins its own is not moved by this: the loader sets
+   the file's after. */
+EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
 {
     delivery_.disconnect();
     pending_.clear();
+    scheduled_.clear();
+    immediate_.clear();
+    armed_ = false;
+    originFrame_ = -1;
     tape_.clear();
     knobs_.clear();
 
@@ -410,6 +600,15 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text)
 
     if (!writeFile(TW_PIECE_FILE, text))
         return 0;
+
+    /* setMasterSeed takes effect only while no stage exists, which is
+       what the loader is about to make true anyway; made true here first
+       so the seed is in before the first stage draws from it. */
+    if (seed >= 0)
+    {
+        sched_->clearChains();
+        sched_->setMasterSeed((unsigned)seed);
+    }
 
     const bool ok = loader_->load(TW_PIECE_FILE, sched_);
 
@@ -452,6 +651,62 @@ EMSCRIPTEN_KEEPALIVE const char *tw_piece_name (void)
 EMSCRIPTEN_KEEPALIVE const char *tw_piece_description (void)
 {
     return loader_->pieceDescription().c_str();
+}
+
+/* Whether the file pins its seed, and the seed the piece is composing
+   from either way -- the file's, the one handed to the load, or the one
+   drawn. What a peer has to send with Play for the others to load with. */
+EMSCRIPTEN_KEEPALIVE int tw_piece_seeded (void)
+{
+    return loader_->hasSeed() ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_seed (void)
+{
+    return sched_->masterSeed();
+}
+
+/* ---- the instruments the piece declared, and the channels it listens on ---- */
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_count (void)
+{
+    return (int)sched_->instruments().size();
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_name (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].name.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].channel : -1;
+}
+
+/* Does a chain take `input midi' on this channel? A key arriving on a
+   channel the piece listens on goes into the piece; on any other it goes
+   straight to whatever instrument is there. The page's rule for a seat's
+   keys, answered by the piece rather than guessed at. */
+EMSCRIPTEN_KEEPALIVE int tw_listens (int channel)
+{
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        if (!c->inputMidi)
+            continue;
+
+        if (c->sinks.empty())
+            return 1;
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+            if (c->sinks[k].channel == channel)
+                return 1;
+    }
+
+    return 0;
 }
 
 /* ---- the knobs the piece declared ---- */
@@ -538,18 +793,47 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
     push(c);
 }
 
-/* Knob `k' of the loaded piece -- tw_knob_count's numbering -- to `value'.
-   An index outside the list is ignored. */
-EMSCRIPTEN_KEEPALIVE void tw_knob (double frame, int k, double value)
+/* A start from the top, with transport zero at `originFrame' exactly. A
+   frame already rendered, or below zero, starts at the next window and
+   counts as late. */
+EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame)
 {
-    Command c = {};
+    armed_ = true;
+    armFrame_ = originFrame;
+}
 
-    c.frame = frame;
-    c.type = CMD_KNOB;
+/* A stop or a tempo, at transport time `at', inside the step. TW_START and
+   TW_REWIND are frame-stamped -- before a start there is no transport time
+   to stamp with -- and are refused here. */
+EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.value = value;
+
+    switch (op)
+    {
+        case TW_STOP:  c.type = AT_STOP; break;
+        case TW_TEMPO: c.type = AT_TEMPO; break;
+        default:       return;
+    }
+
+    schedule(c);
+}
+
+/* Knob `k' of the loaded piece -- tw_knob_count's numbering -- to `value',
+   at transport time `at'. An index outside the list is ignored. */
+EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.type = AT_KNOB;
     c.knob = k;
     c.value = value;
 
-    push(c);
+    schedule(c);
 }
 
 /* Every sounding note released, now. */
@@ -576,6 +860,20 @@ EMSCRIPTEN_KEEPALIVE int tw_epoch (void)
     return epoch_;
 }
 
+/* How many commands have been applied after the time they were stamped
+   for, since the module was made. Every one is a point from which this
+   peer's tape may differ from the others'. */
+EMSCRIPTEN_KEEPALIVE int tw_late (void)
+{
+    return late_;
+}
+
+/* The frame transport zero falls on, or -1 before any start. */
+EMSCRIPTEN_KEEPALIVE double tw_origin (void)
+{
+    return originFrame_;
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
 {
     return (int)tape_.count();
@@ -598,15 +896,16 @@ EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
  *
  * That order is genwav's, and it has to be: a command is meant to be in
  * force for the window it lands in, and what the step delivers is meant to
- * sound in the window it is delivered for. The step is by the window's own
- * length in seconds and by nothing measured, so the piece is a function of
- * the file and the seed and not of the clock -- which is the property the
- * step-size fix put in the scheduler and this is the first host to lean on
- * (JAM.md, section 3). */
+ * sound in the window it is delivered for. The step is to the transport
+ * time the window's last frame falls on, counted from the origin, and by
+ * nothing measured, so the piece is a function of the file and the seed
+ * and not of the clock -- which is the property the step-size fix put in
+ * the scheduler and this is the first host to lean on (JAM.md, section 3).
+ * The scheduler's own commands are applied inside the step, at the time
+ * each was stamped for; step() above says why. */
 EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
 {
     const int len = synth_->getWindowlen();
-    const double dt = (double)len / rate_;
 
     for (int done = 0; done < frames; )
     {
@@ -617,7 +916,8 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
         if (held == 0)
         {
             applyDue(rendered_, len);
-            sched_->stepTransport(dt);
+            beginDue(rendered_, len);
+            step(rendered_, len);
             held = (unsigned)len;
         }
 

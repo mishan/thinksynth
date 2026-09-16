@@ -176,6 +176,45 @@ starts where that ends:
   machine and on real hardware, in Chrome and Firefox. A fast desktop and a
   headless browser are not the case that decides it.
 
+### M3, so far
+
+On `jam-m3`, which starts where `jam-m2` ends. [JAM_M3.md](JAM_M3.md) is
+the plan; this is where it stands.
+
+- The scheduler seam, as JAM_M3.md section 2 now describes it: a stop, a
+  tempo or a knob is stamped with the transport time it applies at and
+  applied at that time inside the step, the transport stepped to it
+  exactly, on every peer whatever its window or rate; a start is armed at
+  an origin frame and begins with a partial first step so that transport
+  zero is that frame; every window steps *to* its end time rather than
+  *by* a window, so the clock never drifts from the frames; a late command
+  is applied at once and counted. `genwav.mjs -c` applies the same
+  commands the same way, so the reference tape can carry a command
+  stream too.
+- `wasm/web/clock.js` and `commands.js`: the relay-clock offset from the
+  shortest of the last few pings, the audio clock as a line fitted through
+  what the context reports, transport time as frames from the origin; and
+  the commands, made and applied the same way by the sender and every
+  receiver.
+- **Gate 8.1 passes.** `wasm/web/protocoltest.mjs` runs two peers in one
+  process -- the browser module at 256/48 kHz and at 1024/44.1 kHz, blocks
+  out of phase -- over a simulated network of 40 ms with 20 ms of jitter
+  and 2% loss, with Play from one side and knobs and tempo changes from
+  both. Every seeded piece gives one tape on both peers, and it is the
+  tape genwav delivers under the same commands. Over 300 ms, past the knob
+  lead, the late knobs are counted and named. In the CI `wasm` job.
+- Found on the way, and fixed in the scheduler: a rewind did not compose
+  what a load composed. `orrery`'s lead differed from the first bar,
+  because a load creates a composer over the plugin's defaults and then
+  announces the file's values, while a rewind re-created it over the final
+  values and announced only the bindings, and `gen::evolve` draws
+  randomness on both. A rewind now redoes what the load did, and
+  `gencheck` gates every seeded piece's rewind against its load. Every
+  peer's Play is a rewind, so this would have parted the peers before the
+  network had a chance to.
+- Not yet: the relay, the document and editor, the mesh, the page, and
+  gates 8.2 and 8.3.
+
 ## 1. The three kinds of state
 
 Everything a peer can know about a session is one of three things, and each

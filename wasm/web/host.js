@@ -31,12 +31,13 @@
  * and compiling a quarter of a megabyte before the first note is not a
  * cost anyone hears.
  *
- * Everything the page does to the synth carries the frame it applies at
+ * Everything the page does to the synth carries the point it applies at
  * (thinkweb.cpp); -1, the default, is "the next window", which is how a key
- * pressed now is played. A knob and a transport button carry one too: the
- * page is the nearest peer and not a privileged one, and when there are
- * other peers they will send the same commands with the same stamps
- * (JAM.md, section 3).
+ * pressed now is played. A key carries a frame. A knob, a stop and a tempo
+ * carry a transport time and are applied inside the step at that time, and
+ * a begin carries the frame its transport zero falls on: the page is the
+ * nearest peer and not a privileged one, and the other peers send the same
+ * commands with the same stamps (JAM.md section 3, JAM_M3.md section 1).
  */
 
 let fetched = null;
@@ -149,19 +150,34 @@ export async function createSynth (ctx, { windowlen = 256,
         instrument: (name, text) =>
             node.port.postMessage({ type: 'instrument', name, text }),
 
-        /* Resolves to what the piece is: its name, its description and the
-           knobs it declared -- or just `errors', which is the loader's own
-           complaints with line numbers, when it did not parse. */
-        loadPiece: (text) => ask({ type: 'piece', text }),
+        /* Resolves to what the piece is: its name, its description, the
+           knobs it declared, its instruments with their channels, the
+           channels it listens on and the seed it composes from -- or just
+           `errors', which is the loader's own complaints with line
+           numbers, when it did not parse. `seed' is the master seed to
+           compose from when the file pins none; left out, one is drawn. */
+        loadPiece: (text, seed = -1) => ask({ type: 'piece', text, seed }),
 
         /* 'start', 'stop', 'rewind' or 'tempo', the last with a value in
-           beats per minute. */
+           beats per minute, at a frame; -1 is the next window. 'start'
+           resumes from where the transport is. */
         transport: (op, value = 0, frame = -1) =>
             node.port.postMessage({ type: 'transport', op, value, frame }),
 
-        /* `knob' is the index loadPiece reported the knob under. */
-        knob: (knob, value, frame = -1) =>
-            node.port.postMessage({ type: 'knob', knob, value, frame }),
+        /* From the top, with transport zero at `frame' exactly: what a
+           room's Play is, on every peer, at the frame its origin falls on
+           (JAM_M3.md, section 1). */
+        begin: (frame) => node.port.postMessage({ type: 'begin', frame }),
+
+        /* 'stop' or 'tempo' at a transport time, applied inside the step
+           at that time; -1 is the next window. */
+        transportAt: (op, at = -1, value = 0) =>
+            node.port.postMessage({ type: 'at', op, at, value }),
+
+        /* `knob' is the index loadPiece reported the knob under; `at' a
+           transport time, or -1 for the next window. */
+        knob: (knob, value, at = -1) =>
+            node.port.postMessage({ type: 'knob', knob, value, at }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

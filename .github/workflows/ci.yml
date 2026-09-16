@@ -316,6 +316,13 @@ jobs:
       - name: Every seeded piece, against genwav
         run: node wasm/web/piececheck.mjs
 
+      # M3's first gate, without a browser: two peers in one process at
+      # different windows and rates, on a network of made-up delay and
+      # loss, composing every seeded piece from stamped commands -- one
+      # tape between them, and genwav's tape under the same commands.
+      - name: Two peers, one tape
+        run: node wasm/web/protocoltest.mjs
+
       # And with one: browsertest.mjs plays a phrase through the worklet in
       # Chromium and in Firefox and holds each against the module run
       # directly, to the bit, then runs the same piece comparison through

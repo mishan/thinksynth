@@ -169,8 +169,9 @@ class ThinkProcessor extends AudioWorkletProcessor
                 break;
             case 'piece':
             {
-                const ok = this.M.ccall('tw_piece_load', 'number', ['string'],
-                                        [m.text]) !== 0;
+                const ok = this.M.ccall('tw_piece_load', 'number',
+                                        ['string', 'number'],
+                                        [m.text, m.seed ?? -1]) !== 0;
 
                 this.port.postMessage({ type: 'piece', id: m.id,
                                         ...this.piece(ok) });
@@ -192,8 +193,28 @@ class ThinkProcessor extends AudioWorkletProcessor
 
                 this.M._tw_transport(m.frame, TRANSPORT[m.op], m.value ?? 0);
                 break;
+            case 'begin':
+                /* From the top, with transport zero at this frame exactly
+                   (thinkweb.cpp, tw_begin). */
+                this.M._tw_begin(m.frame);
+                break;
+            case 'at':
+                /* A stop or a tempo at a transport time, inside the step.
+                   The other two ops are frame-stamped and go by
+                   'transport'. */
+                if (m.op !== 'stop' && m.op !== 'tempo')
+                {
+                    this.port.postMessage(
+                        { type: 'log',
+                          text: `worklet: '${m.op}' cannot be stamped ` +
+                                'with a transport time' });
+                    break;
+                }
+
+                this.M._tw_at(m.at, TRANSPORT[m.op], m.value ?? 0);
+                break;
             case 'knob':
-                this.M._tw_knob(m.frame, m.knob, m.value);
+                this.M._tw_knob(m.at, m.knob, m.value);
                 break;
             case 'midion':
                 this.M._tw_midi_on(m.frame, m.channel, m.note, m.velocity);
@@ -248,11 +269,33 @@ class ThinkProcessor extends AudioWorkletProcessor
                     value: this.M._tw_knob_value(i),
                 });
 
+        /* The instruments by name with the channel each was given, which
+           is what a seat is; and the channels the piece takes `input
+           midi' on, which is where a seat's keys go into the piece rather
+           than straight onto its channel. */
+        const instruments = [];
+
+        for (let i = 0; i < this.M._tw_instrument_count(); i++)
+            instruments.push({
+                name: this.M.UTF8ToString(this.M._tw_instrument_name(i)),
+                channel: this.M._tw_instrument_channel(i),
+            });
+
+        const listens = [];
+
+        for (let c = 0; c < 16; c++)
+            if (this.M._tw_listens(c))
+                listens.push(c);
+
         return {
             errors: [],
             name: this.M.UTF8ToString(this.M._tw_piece_name()),
             description: this.M.UTF8ToString(this.M._tw_piece_description()),
+            seeded: this.M._tw_piece_seeded() !== 0,
+            seed: this.M._tw_seed(),
             knobs,
+            instruments,
+            listens,
         };
     }
 
@@ -308,11 +351,18 @@ class ThinkProcessor extends AudioWorkletProcessor
     postTape ()
     {
         this.quanta = 0;
+        /* `frame' is where this synth's output has got to and `origin'
+           where its transport zero is, so the page can turn a transport
+           time into a frame and back; `late' is how many commands have
+           been applied after their time (thinkweb.cpp). */
         this.port.postMessage({
             type: 'tape',
             now: this.M._tw_now(),
             epoch: this.epoch,
             running: this.M._tw_running() !== 0,
+            frame: this.M._tw_frame(),
+            origin: this.M._tw_origin(),
+            late: this.M._tw_late(),
             events: this.events,
         });
         this.events = [];

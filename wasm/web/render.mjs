@@ -79,7 +79,8 @@ export async function renderDirect (createThinkWeb,
  * otherwise have to gain it in each. */
 export async function loadPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
-                                   block = 128, gen, instruments = {} })
+                                   block = 128, gen, instruments = {},
+                                   seed = -1 })
 {
     const log = [];
     const M = await createThinkWeb({
@@ -93,7 +94,8 @@ export async function loadPiece (createThinkWeb,
         M.ccall('tw_instrument', 'number', ['string', 'string'],
                 [name, text]);
 
-    const ok = M.ccall('tw_piece_load', 'number', ['string'], [gen]) !== 0;
+    const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                       [gen, seed]) !== 0;
 
     return { M, ok, log, errors: ok ? [] : loadErrors(M),
              windowlen: windowTaken };
@@ -109,7 +111,7 @@ export async function loadPiece (createThinkWeb,
 export async function playPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},
-                                   seconds = 60, knobs = [] })
+                                   seconds = 60, commands = [] })
 {
     const { M, ok, log, errors, windowlen: took } =
         await loadPiece(createThinkWeb,
@@ -119,11 +121,15 @@ export async function playPiece (createThinkWeb,
         return { ok, log, errors, tape: '' };
 
     /* Stamped at -1: the next window, which is where the page's Play lands
-       too. A knob is named by its index, as the page names it. */
+       too. */
     M._tw_transport(-1, 0, 0);
 
-    for (const k of knobs)
-        M._tw_knob(-1, k.knob, k.value);
+    /* The scheduler's commands, each with the transport time it applies
+       at: { at, op: 'knob', knob, value }, { at, op: 'tempo', value } or
+       { at, op: 'stop' }. Handed over up front; the module holds each
+       until its time and applies it inside the step there. */
+    for (const c of commands)
+        schedule(M, c);
 
     let tape = '';
 
@@ -137,6 +143,19 @@ export async function playPiece (createThinkWeb,
 
     return { ok: true, log, errors: [], tape, now: M._tw_now(),
              windowlen: took };
+}
+
+/* One scheduler command into the module, as the worklet would post it. */
+export function schedule (M, c)
+{
+    if (c.op === 'knob')
+        M._tw_knob(c.at, c.knob, c.value);
+    else if (c.op === 'tempo')
+        M._tw_at(c.at, 3, c.value);
+    else if (c.op === 'stop')
+        M._tw_at(c.at, 1, 0);
+    else
+        throw new Error(`no scheduler command '${c.op}'`);
 }
 
 /* A piece played *at*: keys held down and let go, into whatever chains

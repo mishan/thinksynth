@@ -73,6 +73,9 @@ function usage (argv0)
         '  -s, --seconds N         how long to run the transport (default 120)\n' +
         '  -o, --output FILE       write the audio here, 16-bit PCM WAV\n' +
         '  -t, --tape FILE         write the delivered events here (- for stdout)\n' +
+        '  -c, --command "AT OP..."  apply a scheduler command at transport\n' +
+        '                          time AT: "AT knob NAME VALUE", "AT tempo BPM"\n' +
+        '                          or "AT stop"; repeatable\n' +
         '  -q, --quiet             no summary\n');
 }
 
@@ -128,6 +131,7 @@ async function main (argv0, args)
     let genFile = '', wavFile = '', tapeFile = '';
     let seconds = 120;
     let quiet = false;
+    const commands = [];
 
     for (let i = 0; i < args.length; i++)
     {
@@ -152,6 +156,25 @@ async function main (argv0, args)
         {
             if (++i >= args.length) { usage(argv0); return 2; }
             tapeFile = args[i];
+        }
+        else if (a === '-c' || a === '--command')
+        {
+            if (++i >= args.length) { usage(argv0); return 2; }
+
+            const [at, op, ...rest] = args[i].trim().split(/\s+/);
+            const c = { at: parseFloat(at), op, rest };
+
+            if (!(c.at >= 0) ||
+                !((op === 'knob' && rest.length === 2) ||
+                  (op === 'tempo' && rest.length === 1) ||
+                  (op === 'stop' && rest.length === 0)))
+            {
+                process.stderr.write(`${argv0}: cannot read command ` +
+                                     `"${args[i]}"\n`);
+                return 2;
+            }
+
+            commands.push(c);
         }
         else if (a === '-q' || a === '--quiet')
             quiet = true;
@@ -308,11 +331,62 @@ async function main (argv0, args)
         return peak;
     };
 
+    /* The commands, in order of their time; a knob's name resolved to
+       the index the browser host would use, so an unknown one is an
+       error here rather than a silent no-op. */
+    commands.sort((a, b) => a.at - b.at);
+
+    for (const c of commands)
+        if (c.op === 'knob')
+        {
+            c.knob = M.ccall('tw_knob_index', 'number', ['string'],
+                             [c.rest[0]]);
+
+            if (c.knob < 0)
+            {
+                process.stderr.write(`${argv0}: ${genFile} declares no ` +
+                                     `knob '${c.rest[0]}'\n`);
+                return 1;
+            }
+        }
+
+    let next = 0;
+    let stopped = false;
+
     M._tw_start();
 
-    while (M._tw_now() < seconds)
+    /* One window per step, as before -- and a command stamped inside a
+       window is applied at its own time: the transport is stepped to it,
+       the command applied, the step carried on to the window's end. That
+       is how the browser host applies one (thinkweb.cpp, step()), and
+       what makes a tape composed under a command stream the same tape
+       from either host. With no commands the arithmetic is exactly the
+       old step's: now + dt. */
+    while (!stopped && M._tw_now() < seconds)
     {
-        M._tw_step(dt);
+        const target = M._tw_now() + dt;
+
+        for (; next < commands.length && commands[next].at <= target; next++)
+        {
+            const c = commands[next];
+
+            if (c.at > M._tw_now())
+                M._tw_step_to(c.at);
+
+            if (c.op === 'knob')
+                M._tw_knob(c.knob, parseFloat(c.rest[1]));
+            else if (c.op === 'tempo')
+                M._tw_tempo(parseFloat(c.rest[0]));
+            else
+            {
+                stopped = true;
+                break;
+            }
+        }
+
+        if (!stopped)
+            M._tw_step_to(target);
+
         drain();
         renderWindow();
     }
