@@ -167,7 +167,17 @@ async function pieceInBrowser (page, gen, dsps, windowlen)
         if (piece.errors.length > 0)
             return { ok: false, logs, errors: piece.errors, events: [] };
 
+        /* Started, and acknowledged before the render begins. `transport'
+           is a bare postMessage, and an OfflineAudioContext can render the
+           whole minute in one go before a control message still in flight
+           reaches the worklet. The piece then never starts: drain() finds
+           nothing, the ping below posts an empty tape, and the pong comes
+           back as if all were well -- a pass-shaped answer of zero events
+           rather than an error, which is what `tide.gen has nothing' was.
+           Every other step of this setup already waits for the worklet to
+           answer; this one has to as well. */
         synth.transport('start');
+        await synth.flush();
 
         await ctx.startRendering();
         await synth.flush();
