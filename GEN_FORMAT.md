@@ -363,6 +363,15 @@ function of where the transport got to, not of how many frames went by — which
 is what lets a piece with nodes in it pass the same replay gate every other
 piece passes.
 
+Stages step on transport time in the same sense: a stage is ticked at the time
+it asked to be woken at, and the chain's nodes are moved to that time before it
+reads them — not at the end of whichever step the host happened to take. So a
+piece composes the same whether the host steps it a window at a time at
+44.1 kHz, a quarter of a window at 48 kHz, or at whatever interval a timer
+managed. That is what lets the same file and the same seed be the same piece on
+two machines with different sound cards, which is what
+[JAM.md](JAM.md) needs of it.
+
 ### 5b. A composer can reshape the instrument
 
 Two event kinds go the other way from a note: instead of asking an instrument

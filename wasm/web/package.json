@@ -1,0 +1,13 @@
+{
+  "name": "thinksynth-web-tests",
+  "private": true,
+  "description": "What browsertest.mjs needs to drive Chromium and Firefox; the site itself has no dependencies.",
+  "type": "module",
+  "scripts": {
+    "check": "node check.mjs",
+    "browsertest": "node browsertest.mjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}

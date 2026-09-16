@@ -138,6 +138,11 @@ string thPluginManager::resolveRoot (const string &preferred)
 
 const string thPluginManager::getPath (const string &name)
 {
+#ifdef THINK_STATIC_PLUGINS
+    /* Nothing is on disk. The name is the key thDynLib::open looks up in
+       the table the build generated, so it goes through as it stands. */
+    return name;
+#else
     std::error_code ec;
 
     /* Use the default path first */
@@ -158,6 +163,7 @@ const string thPluginManager::getPath (const string &name)
     }
 
     return path;
+#endif
 }
 
 thPlugin *thPluginManager::findLocked (const string &name) const

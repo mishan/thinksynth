@@ -26,6 +26,18 @@
  *
  *   scripts/dspab -a /tmp/plugins-base/ -b plugins/ $(find dsp -name '*.dsp')
  *
+ * -A and -B set each side's window length, and the two sides may share a
+ * plugin directory, which turns this into the other question a plugin can
+ * be asked -- does it sound the same cut into windows of 256 as of 1024?
+ *
+ *   scripts/dspab -a plugins/ -b plugins/ -B 256 $(find dsp -name '*.dsp')
+ *
+ * The browser build runs at 256 (JAM.md, section 2). -w counts windows of
+ * the default length, so both sides render the same number of frames
+ * whatever their windows are, and the renders are compared interleaved,
+ * since the synth's own window is planar and two lengths of it only line
+ * up frame by frame.
+ *
  * Exit status is the number of files that differ. Note that a DSP using
  * osc::static is only deterministic because each render builds a fresh
  * synth, which restarts its noise, and anything calling rand() only because
@@ -43,29 +55,34 @@
 
 #include "think.h"
 
+/* One note, `frames' frames of it, interleaved. */
 static bool renderNote (const string &pluginPath, const char *file,
-                        int windows, vector<float> &out)
+                        int windowlen, int frames, vector<float> &out)
 {
     srand(1);
 
-    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thSynth synth(pluginPath, windowlen, TH_DEFAULT_SAMPLES);
 
     if (synth.loadTree(file, 0, 100) == NULL)
         return false;
 
     synth.addNote(0, 60, 100);
 
-    const int frame = synth.audioChannelCount() * synth.getWindowlen();
+    const int channels = synth.audioChannelCount();
+    const int len = synth.getWindowlen();
 
     out.clear();
+    out.reserve((size_t)frames * channels);
 
-    for (int w = 0; w < windows; w++)
+    for (int done = 0; done < frames; )
     {
         synth.process();
 
         const float *buf = synth.getOutput();
 
-        out.insert(out.end(), buf, buf + frame);
+        for (int i = 0; i < len && done < frames; i++, done++)
+            for (int c = 0; c < channels; c++)
+                out.push_back(buf[(size_t)c * len + i]);
     }
 
     return true;
@@ -75,6 +92,7 @@ int main (int argc, char **argv)
 {
     string pathA, pathB;
     int windows = 8;
+    int lenA = TH_DEFAULT_WINDOW_LENGTH, lenB = TH_DEFAULT_WINDOW_LENGTH;
     bool quiet = false;
     int firstFile = -1;
 
@@ -82,17 +100,22 @@ int main (int argc, char **argv)
     {
         if (!strcmp(argv[i], "-a")) { if (++i >= argc) return 2; pathA = argv[i]; }
         else if (!strcmp(argv[i], "-b")) { if (++i >= argc) return 2; pathB = argv[i]; }
+        else if (!strcmp(argv[i], "-A")) { if (++i >= argc) return 2; lenA = atoi(argv[i]); }
+        else if (!strcmp(argv[i], "-B")) { if (++i >= argc) return 2; lenB = atoi(argv[i]); }
         else if (!strcmp(argv[i], "-w")) { if (++i >= argc) return 2; windows = atoi(argv[i]); }
         else if (!strcmp(argv[i], "-q")) quiet = true;
         else { firstFile = i; break; }
     }
 
-    if (pathA.empty() || pathB.empty() || firstFile < 0)
+    if (pathA.empty() || pathB.empty() || firstFile < 0 ||
+        lenA <= 0 || lenB <= 0 || windows <= 0)
     {
-        printf("usage: %s -a PLUGINS_A -b PLUGINS_B [-w N] [-q] file.dsp ...\n",
-               argv[0]);
+        printf("usage: %s -a PLUGINS_A -b PLUGINS_B [-A WINDOW] [-B WINDOW] "
+               "[-w N] [-q] file.dsp ...\n", argv[0]);
         return 2;
     }
+
+    const int frames = windows * TH_DEFAULT_WINDOW_LENGTH;
 
     if (pathA[pathA.size() - 1] != '/') pathA += '/';
     if (pathB[pathB.size() - 1] != '/') pathB += '/';
@@ -103,8 +126,8 @@ int main (int argc, char **argv)
     {
         vector<float> a, b;
 
-        if (!renderNote(pathA, argv[f], windows, a) ||
-            !renderNote(pathB, argv[f], windows, b))
+        if (!renderNote(pathA, argv[f], lenA, frames, a) ||
+            !renderNote(pathB, argv[f], lenB, frames, b))
         { skipped++; continue; }
 
         if (a.size() != b.size())
@@ -132,8 +155,8 @@ int main (int argc, char **argv)
 
         if (firstBad != a.size())
         {
-            printf("DIFF  %-34s first differing sample %d of %d, worst %.6g\n",
-                   argv[f], (int)firstBad, (int)a.size(), worst);
+            printf("DIFF  %-34s first differing frame %d of %d, worst %.6g\n",
+                   argv[f], (int)(firstBad / 2), frames, worst);
             differ++;
         }
         else

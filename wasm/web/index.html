@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>thinksynth</title>
+<style>
+  body { font: 15px/1.4 system-ui, sans-serif; max-width: 60em; margin: 2em auto;
+         padding: 0 1em; }
+  textarea, pre { font: 13px/1.35 ui-monospace, monospace; }
+  textarea { width: 100%; height: 26em; box-sizing: border-box; }
+  label[for="dsp"] { display: block; margin-bottom: 0.3em; }
+  pre { background: #f4f4f4; padding: 0.6em 0.8em; margin: 0.8em 0; }
+  #log { max-height: 10em; overflow: auto; }
+  .row { display: flex; gap: 0.6em; align-items: center; margin: 0.8em 0; }
+  kbd { border: 1px solid #aaa; border-radius: 3px; padding: 0 0.3em; }
+  @media (prefers-color-scheme: dark) {
+    body { background: #1b1b1b; color: #ddd; }
+    pre, textarea { background: #262626; color: #ddd; }
+  }
+</style>
+</head>
+<body>
+<h1>thinksynth</h1>
+
+<p id="status">Press Start, then play from the keyboard.</p>
+
+<p>
+  <kbd>Z</kbd> to <kbd>/</kbd> is an octave and a bit from C, with the black
+  keys on the row above; <kbd>Q</kbd> to <kbd>P</kbd> is the octave above
+  that. <kbd>-</kbd> and <kbd>=</kbd> move both an octave. Edit the .dsp and
+  press Load to hear the change.
+</p>
+
+<div class="row">
+  <button id="start">Start</button>
+  <label>Patch <select id="patch"></select></label>
+  <button id="load" disabled>Load</button>
+</div>
+
+<label for="dsp">Patch source (.dsp)</label>
+<textarea id="dsp" spellcheck="false" autocomplete="off"></textarea>
+
+<pre id="latency"></pre>
+<pre id="log"></pre>
+
+<script type="module" src="main.js"></script>
+</body>
+</html>

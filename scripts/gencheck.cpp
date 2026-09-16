@@ -421,6 +421,24 @@ render (thcScheduler &sched, double seconds, double step)
     return tape;
 }
 
+/* Where two streams parted, because "different" alone is undebuggable. */
+static void
+showDivergence (const std::string &a, const std::string &b,
+                const char *labelA, const char *labelB)
+{
+    size_t n = 0;
+
+    while (n < a.size() && n < b.size() && a[n] == b[n])
+        n++;
+
+    size_t line0 = a.rfind('\n', n);
+
+    line0 = line0 == std::string::npos ? 0 : line0 + 1;
+
+    fprintf(stderr, "  %s: %.60s\n", labelA, a.c_str() + line0);
+    fprintf(stderr, "  %s: %.60s\n", labelB, b.c_str() + line0);
+}
+
 static void
 checkReplay (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &genFile)
@@ -464,20 +482,7 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
     if (first != second)
     {
         fail("replay diverged: same file, same seed, different stream");
-
-        /* Show where, because "different" alone is undebuggable. */
-        size_t n = 0;
-
-        while (n < first.size() && n < second.size() &&
-               first[n] == second[n])
-            n++;
-
-        size_t line0 = first.rfind('\n', n);
-
-        line0 = line0 == std::string::npos ? 0 : line0 + 1;
-
-        fprintf(stderr, "  first : %.60s\n", first.c_str() + line0);
-        fprintf(stderr, "  second: %.60s\n", second.c_str() + line0);
+        showDivergence(first, second, "first ", "second");
     }
 
     /* The piece exercises the whole seam or this gate is weaker than it
@@ -492,6 +497,38 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
 
     if (first.find("fmin") == std::string::npos)
         fail("the chanarg sink's name never reached delivery");
+
+    /* And the same piece however finely the host steps it.
+     *
+     * The transport's dt is the host's business -- a 1024-frame window at
+     * 44.1 kHz on the desktop, 256 frames at whatever rate a browser's
+     * device runs at, 20 ms of wall clock from the Glib timer -- and none
+     * of it belongs in what a piece composes. It used to: a composer was
+     * ticked at the end of the step its wakeup fell in, so every wake was
+     * late by up to a step and the next was scheduled from the late one.
+     * Two machines with different sound cards composed different pieces
+     * from one file and one seed, which is the one failure a jam cannot
+     * see happening (JAM.md section 3). This is what stops it coming
+     * back, and what every new composer meets. */
+    sched.reset();
+
+    const std::string coarse = render(sched, 180.0, 1024.0 / 44100.0);
+
+    sched.reset();
+
+    const std::string fine = render(sched, 180.0, 256.0 / 48000.0);
+
+    if (coarse != first)
+    {
+        fail("the piece composes differently at a 1024-frame step");
+        showDivergence(first, coarse, "20 ms ", "1024fr");
+    }
+
+    if (fine != first)
+    {
+        fail("the piece composes differently at a 256-frame step");
+        showDivergence(first, fine, "20 ms ", "256 fr");
+    }
 }
 
 /* ---- 4. the planners --------------------------------------------------- */

@@ -57,6 +57,37 @@ Where M0 stands:
   pieces it renders, then the fix, then `wasm/` and the job. M0 is done
   when that branch's `wasm` job is green on a runner.
 
+### M1, so far
+
+On the `jam-m1` branch, which starts where `wasm-parity` ends:
+
+- `wasm/web/` builds the browser module: libthink and all 62 DSP plugins
+  linked into one 268 KB wasm file. Each plugin is compiled in a namespace
+  of its own and listed in a table the static branch of `thDynLib` reads,
+  so nothing above that seam changed. The page (`index.html`, `main.js`)
+  has the `.dsp` in a text box, the computer keyboard as the keyboard, and
+  the latency the browser reports; `worklet.js` runs the synth at a window
+  of 256.
+- Commands carry the frame they apply at and land at the start of the
+  window it falls in. A note then sounds from the *next* window -- the
+  engine's onset, the desktop's too -- so a key costs one to two windows on
+  top of the output latency: 5–11 ms at 256 and 48 kHz.
+- `scripts/dspab -B 256` over the corpus: 78 of the 81 DSPs that load
+  render the same at 256 as at 1024. The three that do not --
+  `noargs/dfb`, `noargs/smoothie`, `old/randompw` -- are exactly the three
+  loadable DSPs whose graph has a cycle. The engine breaks a cycle by
+  letting one node read the previous window, so the loop's delay *is* the
+  window: 23 ms at 1024, 5.3 ms at 256. Understood, and no plugin read the
+  window length as a constant.
+- `wasm/web/check.mjs` plays every shipped patch through the module from
+  Node. `wasm/web/browsertest.mjs` renders a phrase through the worklet in
+  headless Chromium and Firefox and matches the module run directly,
+  sample for sample; the page itself starts, loads, takes keys and reports
+  latency in both. The CI `wasm` job runs both.
+- What is left for done: playing it on real hardware, in Chrome and
+  Firefox, on Linux, macOS and Windows. A headless browser has no sound
+  card to hear.
+
 ## 1. The three kinds of state
 
 Everything a peer can know about a session is one of three things, and each
@@ -88,9 +119,11 @@ Three consequences fall out:
   whose output can depend on the platform is a composer that will silently
   desynchronise two peers. `compare.mjs` is the gate for native-versus-wasm;
   section 7 adds the wasm-versus-wasm one across browsers.
-- **The audio thread sees no network.** The worklet gets the same five
-  commands it gets today. The network lives entirely on the main thread, in
-  front of the command queue, where the GUI lives now.
+- **The audio thread sees no network.** The network lives entirely on the
+  main thread, in front of the command queue, where the GUI lives now. What
+  crosses the queue is commands stamped with the frame or beat they apply
+  at, whether they came from the keyboard, the page or a peer. The worklet
+  cannot tell which, and that is the point.
 
 ## 2. Latency, and where it goes
 
@@ -112,12 +145,11 @@ scheduling lookahead   one worklet quantum or so
 
 The synth window is the one the tree controls. `TH_DEFAULT_WINDOW_LENGTH` is
 1024, which is 23 ms at 44.1 kHz on its own, and a note-on applies at the top
-of the next `process()`. The web build wants 128 or 256. The ring between
+of the next `process()`. The web build runs at 256. The ring between
 `process()` and the device already handles a device period that is not the
-window, so this is a number, not a rework — but it is a number a plugin might
-have assumed. `scripts/dspab` over the corpus at 256 against 1024 is the
-check, and anything that moves is a plugin that read the window length as a
-constant.
+window, so this was a number, not a rework; M1 ran `scripts/dspab` at 256
+against 1024 and the only DSPs that moved are the three with a cycle in
+their graph, whose feedback delay *is* the window (section 0).
 
 Then three ways to play, chosen per seat, with the measured round trip shown
 next to the choice so nobody has to guess:
@@ -137,55 +169,144 @@ next to the choice so nobody has to guess:
 
 ```
   editor              transport            input
-  CodeMirror + Yjs    play/tempo/seed      keys, Web MIDI, knobs
+  CodeMirror + Yjs    play/tempo/seed      keys, Web MIDI, knobs, clicks
         |                  |                    |
         v                  v                    v
   main thread:  Yjs provider · clock sync · data channels
-                parse and apply the document
-                composer scheduler (wasm, this thread, as native)
+                parse the document; pick the beat an edit applies at
         |
         |  command queue: NOTE_ON/OFF, SET_CHAN_ARG, SET_CHANNEL,
-        |  each stamped with the frame it applies at
+        |  LOAD_PIECE, TRANSPORT, KNOB, COMPOSER_INPUT --
+        |  each stamped with the frame or beat it applies at
         v
-  AudioWorklet: libthink + plugins, one wasm module
-                process() per window; ring to the 128-frame quantum
+  AudioWorklet: libthink, the plugins and the composer scheduler,
+                one wasm module. process() per window, the scheduler
+                stepped once per window; ring to the 128-frame quantum
+        |
+        |  the tape (delivered events), transport position, status
+        v
+  main thread:  piano roll, knobs, transport; later the mirror (3a)
 ```
 
 Decisions, and why:
 
-**The scheduler stays on the main thread.** It is GUI-thread code today and
-the worklet has to stay lean. It is driven from the audio clock rather than
-the 20 ms timer: the main thread reads `AudioContext.currentTime`, ticks the
-scheduler ahead by a lookahead, and posts commands stamped with the frame
-they apply at. The worklet applies a command at its frame rather than at the
-top of `process()`. That is the one change to the command path, and it is
-what makes a window of 256 mean 256 rather than "somewhere in the next 256".
-`g_get_monotonic_time` in the glibmm shim becomes the audio clock, not the
-wall clock; the two drift and only one of them is the truth.
+**The scheduler runs in the worklet.** This reverses the first draft of this
+plan, which had it on the main thread stepped ahead of the audio clock.
+[SCHEDULER_PLACEMENT.md](SCHEDULER_PLACEMENT.md) measured both and the
+reasons are these. The scheduler holds a `thSynth *` and calls it directly,
+and much of what it does never appears on the tape: the note-offs it derives
+from durations, the chanarg writes a knob binding makes, instrument
+application at load and rewind, the flushes at stop. A main-thread
+scheduler would need a bridge forwarding all of that as stamped messages,
+plus a second synth on the main thread for it to hold, which has to be
+processed or its command queue fills. A bridge bug leaves the tape right
+and the audio wrong, which is exactly what the tape gate cannot see. In the
+worklet the scheduler drives the real synth the way `genwav` does, stepped
+once per window by the audio clock itself: no lookahead, no timer, nothing
+a background tab can throttle. The cost was measured at 0.05 ms per step at
+p99 against a 2.67 ms quantum, with the one expensive step, the first,
+landing before audio starts.
+
+**The tape must not depend on the step.** Found on the way: `runDueTicks`
+handed every composer it woke the *end of the step* as `now`, so each wake
+was late by up to a step, the next was scheduled from the late one, and the
+lateness compounded. The tape was a function of the step size. Two peers at
+44.1 and 48 kHz would have composed different pieces from one file and one
+seed, and on the desktop two live plays of a seeded piece never matched
+either; only `gencheck` and `genwav`, with their fixed virtual clock,
+repeated. The fix ticks each composer at its own wake time, with the
+chain's control-rate nodes stepped to that time first; with it, all 13
+seeded pieces give the same tape at 1024 and 256, at 44.1 and 48 kHz, and
+under jittered steps of 2 to 60 ms. It changes what the existing pieces
+compose, so it is its own PR with `gencheck`, ctest, `compare.mjs` and a
+listen. One thing to add to it: a wake returned at or before now is now
+re-armed from the wake time rather than the step end, so a composer that
+keeps returning its own wake time used to run once per step and can now run
+up to a thousand times per second of step. Cap it.
+
+**Every input is a stamped command, the page's own included.** A knob
+moved, a key pressed or a Life cell clicked has to be applied at the same
+beat on every peer or their tapes diverge from that beat on. So the local
+page has no privileged access to the scheduler. It is the nearest peer, and
+its commands take the path a remote peer's do. The composer ABI's promise
+that tick, receive, param access and input never run concurrently still
+holds: commands are applied at the top of a step, from the queue, on the
+one thread that ticks. The one export that cannot run there is draw, which
+is what section 3a is about.
 
 **Plugins link statically for the browser.** Under Node the wasm build loads
 side modules through `dlopen`, which is what keeps `compare.mjs` honest
 about the native loader. An `AudioWorkletGlobalScope` has no `fetch` and no
 file system, so nothing there can `dlopen`. The browser bundle links every
-plugin into the main module and registers them through a table keyed
-`category::name` behind the same seam `thPlugin.cpp` already puts around
-`dlopen`. Both bundles come from the plugin list in `plugins/CMakeLists.txt`,
-so neither can drift. The side-module tree is 11 MB, mostly each module's
-own copy of libc; static should land near the 1.8 MB main module.
+plugin into the main module and registers them through a table behind the
+same seam `thDynLib` already puts around `dlopen`; M1 did this for the 62
+DSP plugins and they came to 268 KB of wasm. The composers join them in M2.
+Both bundles come from the plugin list in `plugins/CMakeLists.txt`, so
+neither can drift.
 
 **No SharedArrayBuffer.** Emscripten's own `-sAUDIO_WORKLET` wants wasm
 workers, which want `SharedArrayBuffer`, which wants cross-origin isolation
 headers that make embedding the thing anywhere a chore. The tree's design
-needs none of it: compile the module on the main thread, hand the
-`WebAssembly.Module` to the worklet through its port, instantiate it there,
-and talk through `postMessage`. Two threads, one queue, as now. If message
+needs none of it: fetch the wasm on the main thread, post its bytes to the
+worklet through its port, compile and instantiate them there, and talk
+through `postMessage`. (The bytes rather than a compiled
+`WebAssembly.Module`: Firefox accepts a Module on an AudioWorklet's port,
+Chrome delivers it as a `messageerror`.) Two threads, one queue, as now. If message
 latency ever shows up as a problem the fix is a ring in a shared buffer, and
-that is a later optimisation with a known cost, not a foundation.
+that is a later optimisation with a known cost, not a foundation. Headless
+Firefox was seen to hand the worklet its messages in batches about every
+10 ms; in this design that bounds how soon a knob is heard and how fresh
+the page's tape is, never when a composed note sounds.
 
-**The editor is text.** CodeMirror with the Yjs binding gives shared editing
-with everyone's cursors. The node canvas is a substantial gtkmm investment
-and porting it is a separate project; a text-first tool is also the thing
-none of the existing browser modulars are.
+**The document is text.** CodeMirror with the Yjs binding gives shared
+editing with everyone's cursors, and a text-first tool is the thing none of
+the existing browser modulars are. The node canvas and the composer view
+are views of that text, and both are wanted soon; section 3a is how they
+fit.
+
+### 3a. The composer view and the node editor
+
+Neither changes the placement above, for different reasons.
+
+**The node editor is independent of the scheduler.** It edits the `.dsp`
+text in the document and reads probes, and probes come from the worklet in
+every design. It is [NODE_EDITOR.md](NODE_EDITOR.md)'s model over a
+canvas, with the document underneath instead of a file. Nothing it does
+goes near the scheduler.
+
+**The composer view is a mirror.** The desktop window's forty-odd calls
+into the scheduler reduce to a few commands (start, stop, reset, tempo,
+mute, bind, inject), a status snapshot (now, running, what is pending) and
+the delivered-event stream; chains, instruments and sinks it reads from the
+document. All of that crosses a port without complaint. What does not is
+`composer_draw`: eight composers paint their state with cairo, on the tick
+thread, straight from instance memory. There is no cairo in a wasm main
+thread either, so draw ports as-is *nowhere* in the browser, whichever
+thread the scheduler is on.
+
+Determinism gives the answer. A second scheduler fed the same stamped
+commands holds the same state, because that is what the jam already relies
+on between peers. So the composer view runs a mirror: another scheduler on
+the main thread or in a worker, another peer that renders nothing, holding
+real composer instances. Draw can then run against those instances
+unchanged, with cairo compiled to wasm and blitted to a canvas, or through
+a snapshot export drawn in JavaScript. That choice waits until the view is
+started; it is the same choice under any placement and the only real cost
+the view adds. Two things the mirror needs from the engine: a drain mode
+for its synth, applying commands without rendering DSP, since a
+non-rendering synth was measured filling its 1024-deep command queue and
+dropping commands within one fast-forward; and the same command stream the
+worklet gets, which the network layer already produces. Diffing the
+mirror's tape against the worklet's is a free, continuous determinism
+check. A mirror bug is a wrong picture and never a wrong sound.
+
+Why not the other way round, with the scheduler on the main thread and a
+bridge to the worklet: a bridge forwards *effects*, most of them off the
+tape, while the mirror forwards *inputs*, all of them already stamped for
+the network. Forwarding inputs is strictly less. And the mirror is most of
+that alternative anyway. If real hardware ever shows the worklet has no
+headroom, promoting the mirror to authoritative and adding the bridge is
+the fallback, and nothing built for the mirror is lost.
 
 ## 4. The network
 
@@ -241,6 +362,19 @@ down. A changed `instrument` block goes through the existing patch-swap
 path, which cuts sounding notes on that channel, and that is documented
 behaviour rather than a bug.
 
+In the worklet that costs: stage teardown and creation at the apply beat,
+under a millisecond measured, so one quantum at most; and for a changed
+instrument, parsing the `.dsp` on the audio thread, which M1's patch reload
+already does and which is a dropout on every peer at the bar. That dropout
+is the same under any placement, since the worklet has to parse the text
+itself either way. Parsing in the windows before the bar and swapping at it
+is the mitigation, and it is later work.
+
+Late join is the same machinery run long: the worklet fast-forwards the
+scheduler from zero to now before audio resumes, with delivery suppressed.
+Nothing reaches `addNote` until the transport catches up, or thousands of
+note graphs get built for notes that will never sound.
+
 This is the piece of the design most likely to be wrong in a way that only
 shows up with two people. It gets a harness before it gets a UI: two
 schedulers in one process, a scripted sequence of edits at scripted beats,
@@ -261,11 +395,18 @@ when* a shipped patch plays from the keyboard in Chrome and Firefox on Linux,
 macOS and Windows, and `dspab` at 256 against 1024 is clean or every
 difference is understood.
 
-**M2 — a piece in a tab.** The scheduler on the main thread against the
-audio clock; the `.gen` loader; knobs as sliders. *Done when* every seeded
-piece plays, and the tape the browser delivered matches the tape
-`genwav.mjs` delivered under Node for the same seconds, in Chrome and in
-Firefox. That is the wasm-against-wasm determinism gate, and it stays.
+**M2 — a piece in a tab.** First the step-size fix from section 3, as its
+own PR: `gencheck`, ctest, `compare.mjs` and a listen to what changed. Then
+the composers in the static bundle, the scheduler in the worklet stepped
+once per window, the load, transport, knob and input commands, the tape
+posted back, and knobs as sliders with a piano roll on the page. *Done
+when* every seeded piece plays, and the tape the browser delivered matches
+the tape `genwav.mjs` delivered under Node for the same seconds, in Chrome
+and in Firefox, at 256 and at 128. That is the wasm-against-wasm gate and
+the step-invariance gate in one, and it stays. Also done here, on real
+hardware: the worst quantum on a slow machine with the busiest pieces
+(`orrery`, `tide`) plus a chord of note-ons, which is the one measurement
+that could send the scheduler back out of the worklet.
 
 **M3 — two tabs.** The relay, the Yjs document bound to the editor, clock
 sync, data channels, seats, knobs and direct-mode notes. *Done when* two
@@ -282,28 +423,46 @@ point, and an edit made on one peer produces the same tape on the other.
 library to pick instruments from. *Done when* four people in two cities play
 a piece for twenty minutes and nobody asks which mode they are in.
 
-**M6 — later, if wanted.** Web MIDI input. Recording the tape and the mix.
-The node canvas. Voice chat as an ordinary WebRTC audio track, which is
-independent of everything above and can be dropped in at any point.
+**M6 — the composer view and the node editor.** Wanted soon, and
+depending on M2 only, so this can run alongside M3 to M5. The composer
+view is the mirror from section 3a: the synth's drain mode, a second
+scheduler fed the command stream, and the cairo-in-wasm or snapshot choice
+made then. Composer input arrives as stamped commands. The node editor is
+[NODE_EDITOR.md](NODE_EDITOR.md)'s model over the document, with probes
+posted from the worklet. *Done when* a Life board in a shipped piece can be
+clicked on one peer and the other peer's tape follows, and a `.dsp` edited
+on the canvas plays the same on both.
+
+**M7 — later, if wanted.** Web MIDI input. Recording the tape and the mix.
+Voice chat as an ordinary WebRTC audio track, which is independent of
+everything above and can be dropped in at any point.
 
 ## 7. Risks, ranked
 
 1. **Structural edits mid-piece** (section 5). Only shows with two peers,
    only reproducible with the harness. Build the harness before the UI.
-2. **The window length.** A plugin that assumed 1024 changes sound at 256.
-   `dspab` finds it; the fix is per plugin and small.
-3. **Per-note allocation in the worklet.** A note copies a tree and its args
+2. **A composer whose tape depends on the step.** One whole class was
+   found and fixed (section 3); the cap on re-arm iterations is part of
+   that fix. Every new composer goes through the step-invariance gate in
+   M2 before it ships, because this failure is silent between peers.
+3. **Worklet headroom on a slow machine.** Composer bursts plus a chord of
+   note builds in one quantum. Small headless; measured on hardware in M2.
+   If it overruns, the mirror becomes authoritative and gets a bridge.
+4. **Per-note allocation in the worklet.** A note copies a tree and its args
    size themselves on the first window ([ARCHITECTURE.md](ARCHITECTURE.md#it-is-not-hard-rt-safe-yet)).
    wasm `malloc` is cheap and the worklet is not hard real time, but sixteen
    voices arriving on one quantum is the thing to measure. The listed fix,
-   sizing on the main thread before enqueue, is the same fix here.
-4. **Output latency on Windows.** Shared-mode WASAPI through Chrome is
+   sizing before enqueue, is the same fix here, though in this design the
+   enqueue is the scheduler's and also on the audio thread.
+5. **A dropout on every peer at the bar** when an instrument changes
+   (section 5). Same under any placement. Pre-parse before the bar when it
+   starts to matter.
+6. **Output latency on Windows.** Shared-mode WASAPI through Chrome is
    20–40 ms before the network. Report it and let the seat pick a mode;
    there is nothing else to do about it from a page.
-5. **Bundle size.** Static plugins should come in around 2 MB of wasm.
-   If they do not, the plugin list is explicit and a browser subset is one
-   CMake variable.
-6. **Clock drift between the audio clock and the relay clock.** The
+7. **Firefox's worklet message batching.** About 10 ms headless, unmeasured
+   on hardware. Bounds knob-to-ear and tape freshness only.
+8. **Clock drift between the audio clock and the relay clock.** The
    estimate is re-taken continuously and the scheduler is driven from the
    audio clock only; the relay clock is used to agree on an origin and
    never to time a note.
@@ -313,4 +472,5 @@ independent of everything above and can be dropped in at any point.
 - Streaming audio between peers. The whole design exists so as not to.
 - Peer-to-peer with no server. See section 4.
 - Mobile. Web MIDI and worklet behaviour on iOS are their own project.
-- The node canvas, until the text tool is real.
+- A visual-first tool. Text stays the document; the canvas and the
+  composer view are views of it (section 3a).

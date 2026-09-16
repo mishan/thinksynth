@@ -42,3 +42,6 @@ src/thinksynth
 build-flatpak/
 repo/
 *.flatpak
+
+# The browser build's test harness (wasm/web/package.json) installs here.
+node_modules/

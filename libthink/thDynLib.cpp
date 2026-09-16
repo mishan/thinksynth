@@ -20,7 +20,69 @@
 
 #include "thDynLib.h"
 
-#if defined(_WIN32)
+#if defined(THINK_STATIC_PLUGINS)
+
+/* See the header: a table the build generated, and a name to find in it. */
+
+# include <string.h>
+
+# include "think.h"     /* MODULE_IFACE_VER */
+
+namespace {
+
+std::string lastError_;
+
+/* What thPlugin checks a plugin's apiversion against. A plugin compiled
+   into this module was compiled against this header, so this is its. */
+unsigned char apiversion_ = MODULE_IFACE_VER;
+
+} /* namespace */
+
+thDynLib::Handle thDynLib::open (const std::string &path)
+{
+    for (size_t i = 0; i < thStaticPluginCount; i++)
+        if (path == thStaticPlugins[i].name)
+        {
+            lastError_.clear();
+            return (Handle)&thStaticPlugins[i];
+        }
+
+    lastError_ = "no plugin " + path + " in this build";
+
+    return NULL;
+}
+
+void *thDynLib::symbol (Handle handle, const char *name)
+{
+    const thStaticPlugin *p = (const thStaticPlugin *)handle;
+
+    if (p == NULL || name == NULL)
+        return NULL;
+
+    if (!strcmp(name, "module_init"))
+        return p->init;
+    if (!strcmp(name, "module_callback"))
+        return p->callback;
+    if (!strcmp(name, "module_cleanup"))
+        return p->cleanup;
+    if (!strcmp(name, "apiversion"))
+        return &apiversion_;
+
+    lastError_ = std::string(name) + ": not in the table";
+
+    return NULL;
+}
+
+void thDynLib::close (Handle)
+{
+}
+
+std::string thDynLib::lastError (void)
+{
+    return lastError_;
+}
+
+#elif defined(_WIN32)
 
 # ifndef WIN32_LEAN_AND_MEAN
 #  define WIN32_LEAN_AND_MEAN
