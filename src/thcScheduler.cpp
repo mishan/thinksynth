@@ -1318,15 +1318,16 @@ thcScheduler::stepTransport (double dt)
     transportNow_ += dt;
     beat_ += dt * tempo_ / 60.0;
 
-    /* The embedded nodes first, and on transport time.
+    /* The stages first, each at the time it asked to be woken at, with
+     * its chain's nodes moved to that time before it reads them --
+     * runDueTicks does both, and says why.
      *
-     * First because a stage that reads `lfo->out' this tick should get
-     * this tick's value and not the last one -- the plan's "evaluated at
-     * the moment the stage reads it", made true by evaluating before
-     * anybody reads. On transport time because that is what makes a
-     * replay a replay: how far an LFO has travelled is a function of
-     * where the transport is, not of how many times this was called or
-     * how late a frame was. */
+     * Then the nodes are brought up to the end of the step. On transport
+     * time, because that is what makes a replay a replay: how far an LFO
+     * has travelled is a function of where the transport is, not of how
+     * many times this was called or how late a frame was. */
+    runDueTicks(transportNow_);
+
     for (size_t i = 0; i < chains_.size(); i++)
         if (chains_[i].nodes)
         {
@@ -1341,15 +1342,46 @@ thcScheduler::stepTransport (double dt)
                 chains_[i].stages[si]->params.pollNodes();
         }
 
-    runDueTicks(transportNow_);
     deliverDue(transportNow_);
     sendDueNoteOffs(transportNow_);
 }
 
+/* How many times one stage may ask to be woken at a time that has already
+   passed, inside a single step, before it is held to the step. A stage
+   that asks for a future time -- every stage in the tree does -- never
+   reaches this. It bounds the one that returns its own wake time for
+   ever, which the 1 ms nudge below would otherwise spin at a thousand
+   wakes per transport second. */
+static const unsigned TH_MAX_STALLED_WAKES = 8;
+
+/* The stages whose time has come, each ticked at the time it asked for.
+ *
+ * `now' is where the transport got to; a wake at or before it runs with
+ * the transport reading the wake's own time, not `now'. Composers
+ * schedule from what they are handed -- thirteen of the sixteen in the
+ * tree return `t->now + period' -- so handing them the end of the step
+ * made every wake late by up to a step, and the next was scheduled from
+ * the late one, so the lateness compounded. What a piece composed was
+ * then a function of how often the host called this: the same file and
+ * the same seed gave one piece at a 1024-frame step and another at 256,
+ * and two machines with different sound cards could not agree on a piece
+ * at all. JAM.md section 3, and SCHEDULER_PLACEMENT.md for the
+ * measurements.
+ *
+ * The chain's nodes move to the wake's time before the stage reads them,
+ * for the same reason and to the same end: a param reading `lfo->out'
+ * sees the lfo where the stage is rather than where the step ended.
+ * stepTransport brings them up to the end of the step afterwards.
+ */
 void
 thcScheduler::runDueTicks (double now)
 {
     thcTransport t = { now, tempo_, beat_, running_ };
+    const double beatAtNow = beat_;
+
+    for (size_t i = 0; i < chains_.size(); i++)
+        for (size_t si = 0; si < chains_[i].stages.size(); si++)
+            chains_[i].stages[si]->stalled = 0;
 
     while (!wakeups_.empty() && wakeups_.front().at <= now)
     {
@@ -1359,6 +1391,14 @@ thcScheduler::runDueTicks (double now)
 
         thcChain &c = chains_[w.chain];
         thcStage *s = c.stages[w.stage].get();
+
+        /* The transport as this stage sees it: its own wake, and the beat
+           that time falls on. */
+        t.now = w.at;
+        t.beat = beatAtNow - (now - w.at) * tempo_ / 60.0;
+
+        if (c.nodes)
+            c.nodes->stepTo(w.at);
 
         /* The sink each stage emits into continues down its own chain. */
         struct Ctx { thcScheduler *self; size_t chain, stage; } ctx =
@@ -1375,13 +1415,40 @@ thcScheduler::runDueTicks (double now)
            this loop forever; a THC_NEVER sleeper re-arms only through
            param_changed (the param store calls rearmStage for us). */
         if (next == THC_NEVER)
+        {
             s->sleeping = true;
+            continue;
+        }
+
+        double at = next;
+
+        if (next > t.now)
+            s->stalled = 0;
         else
         {
-            wakeups_.push_back({ next > now ? next : now + 0.001,
-                                 w.chain, w.stage, heapSeq_++ });
-            std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
+            /* Not in the future. Nudged from the stage's own clock rather
+               than from the end of the step, so that a stage which does
+               it once is still where the piece says it is -- and held to
+               the step past the cap, so that one which does it every time
+               costs a bounded amount of a bounded step instead of the
+               loop. */
+            at = t.now + 0.001;
+
+            if (++s->stalled > TH_MAX_STALLED_WAKES)
+            {
+                if (s->stalled == TH_MAX_STALLED_WAKES + 1)
+                    fprintf(stderr, "thcScheduler: chain %zu stage %zu keeps "
+                            "asking to be woken in the past; holding it to "
+                            "the step\n",
+                            (size_t)(w.chain + 1), (size_t)(w.stage + 1));
+
+                if (at <= now)
+                    at = now + 0.001;
+            }
         }
+
+        wakeups_.push_back({ at, w.chain, w.stage, heapSeq_++ });
+        std::push_heap(wakeups_.begin(), wakeups_.end(), Later());
     }
 }
 

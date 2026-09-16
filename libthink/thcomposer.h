@@ -363,11 +363,16 @@ extern "C" {
        instances of one plugin may exist in a chain. */
     THINK_PLUGIN_API void *composer_create (const thcParams *params);
 
-    /* Generators only. Called when t->now reaches the previously
-       requested wakeup. Emit zero or more events (at >= t->now) and
-       return the absolute time of the next wanted wakeup. Return
-       THC_NEVER to sleep until a param change re-arms the composer.
-       First call comes at transport start. */
+    /* Generators only. Called with t->now *at* the wakeup previously
+       asked for -- not at the end of whatever step the host took to
+       reach it, which is what makes a piece compose the same however
+       finely it is stepped. Emit zero or more events (at >= t->now) and
+       return the absolute time of the next wanted wakeup, which is
+       normally t->now plus a period rather than anything measured.
+       Return THC_NEVER to sleep until a param change re-arms the
+       composer. A wakeup at or before t->now is a contract violation:
+       the host re-arms it 1 ms on and, past a few in one step, holds it
+       to the step. First call comes at transport start. */
     THINK_PLUGIN_API double composer_tick (void *state,
                                            const thcTransport *t,
                                            thcEventSink *out);

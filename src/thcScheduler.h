@@ -252,9 +252,18 @@ struct thcStage
        the module's capability, decides what gets scheduled. */
     bool           ticks;
 
+    /* How many times inside the current transport step this stage has
+       asked to be woken at a time that has already passed. Re-arming
+       such a wake from the stage's own clock rather than the step's is
+       what keeps a piece independent of the step size, and it is also
+       what would let a stage that does it every time spin; see the cap
+       in thcScheduler.cpp. A stage that asks for a future time -- which
+       is every stage in the tree -- never touches this. */
+    unsigned       stalled;
+
     thcStage (thcPlugin *p, unsigned seed, bool wantTick)
         : plugin(p), state(NULL), params(p, seed), sleeping(false),
-          ticks(wantTick) {}
+          ticks(wantTick), stalled(0) {}
 };
 
 /* Where a chain's events go when they fall off the end. A plain sink
