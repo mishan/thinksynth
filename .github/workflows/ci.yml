@@ -296,9 +296,15 @@ jobs:
       - name: Compare
         run: node wasm/compare.mjs --lsb 1 -k compare
 
+      # The room page's bundle and the tests' browsers come from npm; the
+      # build wants the first, so this comes before it.
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
       # The browser build (JAM.md, M1 and M2): every plugin and every
       # composer linked in rather than loaded, with the composer scheduler,
-      # for an AudioWorklet.
+      # for an AudioWorklet -- and the room page (M3), bundled.
       - name: Browser build
         run: |
           source ~/emsdk/emsdk_env.sh
@@ -332,7 +338,6 @@ jobs:
       - name: Browser build, in browsers
         working-directory: wasm/web
         run: |
-          npm ci
           npx playwright install --with-deps chromium firefox
           node browsertest.mjs
 
@@ -342,6 +347,15 @@ jobs:
       - name: The relay
         working-directory: wasm/web
         run: node relaytest.mjs
+
+      # M3's second gate (JAM_M3.md, section 8.2): a Chromium page and a
+      # Firefox page in one room on a relay, each with a live AudioContext,
+      # one pressing Play, a knob moved from each side, and one tape
+      # between them -- genwav's, under the same commands. Live, because
+      # two peers agreeing on a clock is the thing under test.
+      - name: Two browsers, one room
+        working-directory: wasm/web
+        run: node jamtest.mjs
 
       # The renders, so a difference can be listened to rather than only
       # read about.

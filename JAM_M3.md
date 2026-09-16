@@ -376,37 +376,55 @@ spread shows it.
 `AudioContext.getOutputTimestamp()` returns `{ contextTime,
 performanceTime }`, a pair sampled together: the frame the output is at,
 and the `performance.now()` that was. Sample it every second alongside the
-ping and keep a linear fit of `contextTime` against `performanceTime` from
-the last 16, since the audio clock and the wall clock drift apart by tens
-of parts per million. Then
+ping and keep the last 16. Both clocks run in seconds, so the line between
+them has a slope of one give or take the tens of parts per million two
+crystals disagree by -- a millisecond a minute, and the window renews the
+estimate every few seconds anyway -- so what is estimated is the offset
+alone, as the median of the kept pairs. Then
 
 ```
-frameOf(relayMs) = (fit(relayMs − offset)) × sampleRate
+frameOf(relayMs) = (relayMs − offset) / 1000 + audioOffset) × sampleRate
 ```
 
-is how an origin becomes a frame, and it is re-evaluated only when a
+is how an origin becomes a frame, and it is evaluated only when a
 `transport start` arrives; after that, transport time is frames from the
 origin and no wall clock is consulted again until the next start.
 
+The plan said a fitted line. Gate 8.2 said otherwise: a pair reported
+while Chromium's output stream was still starting up -- context time at
+zero, wall clock already moving -- sat far off the line, tilted it, and a
+tilt of a few percent over a sixteen-second window put that peer's origin
+400 ms from the Firefox peer's. A median does not see it, and a pair
+whose context time is zero is not a sample.
+
 ### 6.3 Transport clock
 
-Transport seconds since origin, owned by the worklet and reported in
-every `tape` message. The page keeps `transportNow()` as the last reported
-value plus `ctx.currentTime` elapsed since, which is exact between
-reports because both are the audio clock. Stamps are made from it.
+Transport seconds since origin, owned by the worklet, which reports the
+origin frame in every `tape` message. The page's `transportNow()` is
+`ctx.currentTime − origin / rate`, the worklet's own subtraction on the
+same clock -- or the last report plus the wall clock since it, whichever
+is larger, because `currentTime` read from the main thread can be stale by
+fifty milliseconds in headless Firefox, and a stamp made from a stale
+reading is earlier than it means to be, which eats the lead. Stamps are
+made from it.
 
 ## 7. The page
 
-`main.js` grows, and probably splits, into:
+`jam.html` and `jam.js`, a page of their own beside the solo page rather
+than a mode of it: the solo page has no dependencies and is copied into
+the site as it is, the room page has an editor and a CRDT and is bundled
+by `esbuild` from the CMake build (`bundle.mjs`). The pieces:
 
 ```
 room.js       the room socket: hello, presence, seats, ping, signal
 mesh.js       RTCPeerConnections, data channels, the relayed fallback
-clock.js      the two maps from section 6
-doc.js        the Y.Doc, the file map, the hash, the editor binding
-commands.js   make a command; apply a command (section 5.4); the late count
-host.js       as now, plus the M2 messages
-main.js       the UI
+clock.js      the three clocks and the two maps from section 6
+doc.js        the Y.Doc's shape, the file map, the hash
+editor.js     CodeMirror over the document, a tab per file, the cursors
+commands.js   make a command; apply a command (section 5.4)
+roll.js       the piano roll, shared with the solo page
+host.js       the worklet's side, with the M3 messages
+jam.js        the UI, and the joins between the rest
 ```
 
 What the page shows in M3, and nothing more:
@@ -453,17 +471,23 @@ This harness is also JAM.md section 5's "two schedulers in one process",
 which M4 extends with edits at scripted beats. It is built first, because
 everything else in M3 is plumbing around what it proves.
 
-### 8.2 Two headless browsers (needs M2)
+### 8.2 Two headless browsers
 
-`browsertest.mjs` gains a second scenario: start a relay, open a Chromium
-page and a Firefox page on it, both with a live `AudioContext`, one
-presses play, both run a seeded piece for 30 s while the script moves a
-knob from each side, then both export the tape. Passes when the tapes are
-identical to each other and to `genwav.mjs`'s for the same piece and the
-same command stream, and the late count on both is zero.
+`wasm/web/jamtest.mjs`: start a relay and a site, open a Chromium page
+and a Firefox page on them in one room, both with a live `AudioContext`,
+one presses Play, both run `airports.gen` for 30 s while the script moves
+a knob from each side and the tempo from one, then both hand over the
+tape. **Passes**, and is in the CI `wasm` job: the tapes are identical to
+each other and to `genwav.mjs`'s for the same piece and the same command
+stream, the late count on both is zero, and the peers reach each other
+directly. Each peer records how far ahead of its time every command
+arrived; with the leads at their defaults the least margin seen is about
+100 ms, the knob lead less the 40 ms or so the two transports are apart.
 
 Cross-browser on purpose: a Chromium peer and a Firefox peer is the
-wasm-against-wasm gate from M2 with the network in between.
+wasm-against-wasm gate from M2 with the network in between. Live rather
+than offline, because two peers agreeing on a clock is the thing under
+test, and an offline context has no clock.
 
 ### 8.3 Two machines on a LAN (by hand)
 
@@ -475,24 +499,16 @@ number that looks like a LAN, and both people heard the other's keys.
 
 ## 9. Order of work
 
-1. **Protocol harness scaffolding** (8.1), with the Node module: fake
-   clock, fake mesh, `commands.js`, `clock.js`. Proves the stamping and
-   application rules before any UI exists.
-2. **The relay** (3): clock, presence, seats, signalling, `relayed`, and
-   the document socket with room seeding.
-3. **The document and editor** (4): Y.Doc, tabs, cursors, hash, esbuild in
-   the build.
-4. **The mesh** (5): connect, channel, fallback, RTT display.
-5. **Clocks in the page** (6): both maps, the numbers on the page.
-6. **The scheduler seam** (2): when M2 lands, the M2 messages in
-   `host.js`, and the stub replaced. If M2 is still in progress at this
-   point, the seam's shape is already fixed by section 2 and the stub
-   answers the messages.
-7. **The page** (7): seats, transport, knobs, tape export.
-8. **Gates 8.2 and 8.3.**
+As it went, M2 having landed first:
 
-Steps 1 to 5 need nothing from M2 and can run in parallel with it. Step 6
-is the join.
+1. **The scheduler seam** (2), on M2's, and the **protocol harness**
+   (8.1) with it -- which found the rewind bug.
+2. **The relay** (3), with its test.
+3. **The document and editor** (4), **the mesh** (5), **the clocks in the
+   page** (6) and **the page** (7), together, since none of them can be
+   seen working without the others.
+4. **Gate 8.2** -- which found the audio-clock fit and the stale reading.
+5. **Gate 8.3**, by hand, still to do.
 
 ## 10. Risks particular to M3
 

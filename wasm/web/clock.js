@@ -117,85 +117,65 @@ export class RelayClock
     }
 }
 
-/* The audio clock against the wall clock: a straight line fitted through
- * the last few pairs the context reported together, so that a wall-clock
- * time can be turned into the frame the output will be at then.
+/* The audio clock against the wall clock, so that a wall-clock time can
+ * be turned into the frame the output will be at then.
  *
- * A line rather than the last pair, because the two clocks are two
- * crystals and drift apart by tens of parts per million -- a millisecond
- * in a minute, which is a window. And a fit rather than the last pair
- * because a pair is reported to the nearest quantum. */
+ * Both run in seconds, so the line between them has a slope of one, give
+ * or take the tens of parts per million two crystals disagree by -- a
+ * millisecond a minute, and the window below renews the estimate every
+ * few seconds anyway. So what is estimated is the offset alone, as the
+ * median of the last few pairs the context reported together.
+ *
+ * The median and not a fitted line, found the hard way: a least-squares
+ * line through the same pairs put a Chromium peer's origin 400 ms from a
+ * Firefox peer's. A pair reported while the output stream was still
+ * starting up -- context time at zero, wall clock already moving -- sits
+ * far off the line, tilts it, and a tilt of a few percent over a
+ * sixteen-second window is hundreds of milliseconds at the origin. A
+ * median does not see it. */
 export class AudioClock
 {
     constructor (sampleRate)
     {
         this.rate = sampleRate;
-        this.samples = [];      /* { x: performance ms, y: context seconds } */
+        this.offsets = [];      /* contextTime - performanceTime / 1000 */
     }
 
-    /* getOutputTimestamp()'s two numbers, as they came. */
+    /* getOutputTimestamp()'s two numbers, as they came. A context that
+       has not started ticking reports zero, and that is not a sample. */
     sample (contextTime, performanceTime)
     {
-        this.samples.push({ x: performanceTime, y: contextTime });
+        if (!(contextTime > 0))
+            return;
 
-        if (this.samples.length > KEEP)
-            this.samples.shift();
+        this.offsets.push(contextTime - performanceTime / 1000);
 
-        this.fit = null;
+        if (this.offsets.length > KEEP)
+            this.offsets.shift();
     }
 
     get count ()
     {
-        return this.samples.length;
+        return this.offsets.length;
     }
 
-    /* Least squares through the samples; with one, a line of the nominal
-       slope through it. Cached until the next sample. */
-    line ()
+    get offset ()
     {
-        if (this.fit !== null && this.fit !== undefined)
-            return this.fit;
+        if (this.offsets.length === 0)
+            return NaN;
 
-        const n = this.samples.length;
+        const sorted = [...this.offsets].sort((a, b) => a - b);
+        const mid = sorted.length >> 1;
 
-        if (n === 0)
-            return null;
-
-        /* Around the mean, so the sums stay small and the slope is not
-           a difference of two large numbers. */
-        let mx = 0, my = 0;
-
-        for (const s of this.samples)
-        {
-            mx += s.x;
-            my += s.y;
-        }
-
-        mx /= n;
-        my /= n;
-
-        let sxx = 0, sxy = 0;
-
-        for (const s of this.samples)
-        {
-            sxx += (s.x - mx) * (s.x - mx);
-            sxy += (s.x - mx) * (s.y - my);
-        }
-
-        const slope = sxx > 0 ? sxy / sxx : 1 / 1000;
-
-        this.fit = { mx, my, slope };
-
-        return this.fit;
+        return sorted.length % 2 === 1 ? sorted[mid]
+                                       : (sorted[mid - 1] + sorted[mid]) / 2;
     }
 
     /* The context's time at a wall-clock moment, in seconds. NaN with no
        sample. */
     contextTimeAt (performanceMs)
     {
-        const f = this.line();
-
-        return f === null ? NaN : f.my + (performanceMs - f.mx) * f.slope;
+        return performanceMs / 1000 + this.offset;
     }
 
     frameAt (performanceMs)
@@ -203,19 +183,19 @@ export class AudioClock
         return this.contextTimeAt(performanceMs) * this.rate;
     }
 
-    /* The worst the line misses a sample by, in seconds: how much to
-       trust a frame it gives. A quantum or so is a good fit. */
+    /* The worst a kept sample is from the offset believed, in seconds:
+       how much to trust a frame it gives. A quantum or so is good. */
     get residual ()
     {
-        const f = this.line();
+        const offset = this.offset;
 
-        if (f === null)
+        if (Number.isNaN(offset))
             return NaN;
 
         let worst = 0;
 
-        for (const s of this.samples)
-            worst = Math.max(worst, Math.abs(this.contextTimeAt(s.x) - s.y));
+        for (const o of this.offsets)
+            worst = Math.max(worst, Math.abs(o - offset));
 
         return worst;
     }
@@ -236,24 +216,41 @@ export class TransportClock
         this.origin = -1;
         this.running = false;
         this.reported = 0;      /* the worklet's `now' in its last message */
+        this.reportedAt = NaN;  /* the wall clock when that message came */
     }
 
-    /* A tape message. */
-    report ({ now, origin, running })
+    /* A tape message, and the wall clock as it arrived. */
+    report ({ now, origin, running }, wallMs = NaN)
     {
         this.reported = now;
+        this.reportedAt = wallMs;
         this.origin = origin;
         this.running = running;
     }
 
-    /* Transport seconds now, given the context's current time. While the
-       transport is stopped, where it stopped. */
-    now (contextTime)
+    /* Transport seconds now, given the context's current time and the
+       wall clock. While the transport is stopped, where it stopped.
+     *
+     * Two readings, the fresher one. The context's current time is the
+     * worklet's own clock, but read from the main thread it can be
+     * stale -- some fifty milliseconds in headless Firefox -- and a stamp
+     * made from a stale reading is earlier than it means to be, which
+     * eats the lead a knob is sent with. The last tape message plus the
+     * wall clock since is stale only by the message's own trip. The
+     * transport never runs slower than the wall clock, so the larger of
+     * the two is the less stale. */
+    now (contextTime, wallMs = NaN)
     {
         if (!this.running || this.origin < 0)
             return this.reported;
 
-        return contextTime - this.origin / this.rate;
+        const fromContext = contextTime - this.origin / this.rate;
+
+        if (Number.isNaN(wallMs) || Number.isNaN(this.reportedAt))
+            return fromContext;
+
+        return Math.max(fromContext,
+                        this.reported + (wallMs - this.reportedAt) / 1000);
     }
 
     /* A transport time as a frame of this peer's output. */

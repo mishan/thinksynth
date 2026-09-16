@@ -16,8 +16,10 @@
 # ../cmake/ThinkEmscripten.cmake.
 #
 # What comes out, in the build directory, is the whole site: index.html,
-# main.js, worklet.js, thinkweb.mjs and .wasm, and the shipped .dsp and .gen
-# files the page offers, each directory with an index.json listing it.
+# main.js, worklet.js, thinkweb.mjs and .wasm, the shipped .dsp and .gen
+# files the page offers, each directory with an index.json listing it, and
+# jam.html with its bundled jam.js -- the room page, M3, which is the one
+# thing here with dependencies (`npm ci' in this directory, once).
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -213,8 +215,8 @@ target_link_options(thinkweb PRIVATE
 # tape.mjs is wasm/'s, not this directory's: the worklet reads the tape out
 # of the heap with the same code genwav.mjs does, which is what makes
 # comparing the two tapes a claim about the piece (wasm/twevent.h).
-set(SITE_SOURCES index.html style.css main.js keyboard.js host.js
-                worklet.js ../tape.mjs)
+set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js host.js
+                roll.js worklet.js ../tape.mjs)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -268,5 +270,36 @@ endforeach()
 list(JOIN gen_names ", " gen_names)
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/gen/index.json"
      CONTENT "[${gen_names}]\n")
+
+# The room page's script is bundled (JAM_M3.md, section 4.2): it has an
+# editor, a CRDT and a provider, which come from node_modules and go
+# nowhere a browser could fetch them from. So the room page wants `npm ci'
+# run in this directory first, once; the solo page does not.
+if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
+  message(FATAL_ERROR
+    "The room page's bundle needs node_modules: run `npm ci' in "
+    "${CMAKE_CURRENT_SOURCE_DIR} and configure again.")
+endif()
+
+set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
+                roll.js host.js keyboard.js ../tape.mjs bundle.mjs)
+set(JAM_DEPENDS "")
+
+foreach(f IN LISTS JAM_SOURCES)
+  list(APPEND JAM_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
+endforeach()
+
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/jam.js"
+    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
+            "${PROJECT_BINARY_DIR}"
+    DEPENDS ${JAM_DEPENDS}
+    COMMENT "Bundling the room page")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js")
+
+# Where the relay is, for a site served from anywhere. serve.mjs --relay
+# answers this itself; a static host edits the file.
+if(NOT EXISTS "${PROJECT_BINARY_DIR}/config.json")
+  file(WRITE "${PROJECT_BINARY_DIR}/config.json" "{ \"relay\": null }\n")
+endif()
 
 add_custom_target(site ALL DEPENDS ${SITE_OUTPUTS})

@@ -212,8 +212,36 @@ the plan; this is where it stands.
   `gencheck` gates every seeded piece's rewind against its load. Every
   peer's Play is a rewind, so this would have parted the peers before the
   network had a chance to.
-- Not yet: the relay, the document and editor, the mesh, the page, and
-  gates 8.2 and 8.3.
+- The relay (`wasm/web/relay.mjs`): the document over y-websocket's
+  protocol, the clock, presence and seats, signalling, and the relayed
+  path for gestures the mesh cannot carry. `relaytest.mjs` drives it from
+  Node and is in CI.
+- The page (`jam.html`, `jam.js`): a room joined by name, the piece's
+  text shared through the relay and edited in CodeMirror with everyone's
+  cursors, the peers connected over WebRTC data channels with the relay as
+  the fallback, seats as the piece's instruments, Play as a start from an
+  agreed origin, knobs, tempo and keys as commands, and the numbers --
+  the clocks' round trip and spread, the late count -- on the page. It is
+  bundled by esbuild from the CMake build, so `npm ci` in `wasm/web` comes
+  once before the configure.
+- **Gate 8.2 passes.** `wasm/web/jamtest.mjs` starts a relay and a site,
+  puts a Chromium page and a Firefox page in one room, each with a live
+  `AudioContext`, presses Play on one, moves a knob from each side and the
+  tempo from one over thirty seconds, and holds the two tapes against
+  each other and against genwav's under the same commands: one tape,
+  nothing late, in three runs of three. In the CI `wasm` job. The two
+  transports come out about 40 ms apart by the relay's clock, which is
+  the two browsers' output timestamps disagreeing about where their
+  output is; the tape does not depend on it.
+- Found on the way: a least-squares line through the audio clock's
+  samples put a Chromium peer's origin 400 ms from a Firefox peer's,
+  because a sample reported before the output stream had started ticking
+  tilted the line. The clock now estimates the offset alone, by a median,
+  at a slope of one. And a page's reading of its own transport can be
+  stale by fifty milliseconds in headless Firefox, which makes a stamp
+  earlier than it means to be and eats the lead; the page takes the
+  fresher of two readings.
+- Not yet: gate 8.3, two machines on a LAN, by hand.
 
 ## 1. The three kinds of state
 

@@ -207,10 +207,13 @@ no gtkmm, no cairo, no pkg-config:
 sudo apt install git cmake ninja-build bison flex python3 curl xz-utils
 ```
 
-Then build the site and serve it:
+Then build the site and serve it. The room page (below) has an editor
+and a CRDT in it, which come from npm and are bundled at build time, so
+`npm ci` comes once before the configure:
 
 ```sh
 source ~/emsdk/emsdk_env.sh
+(cd wasm/web && npm ci)
 emcmake cmake -S wasm/web -B build-web -G Ninja
 cmake --build build-web -j
 node wasm/web/serve.mjs            # http://localhost:8080/
@@ -238,6 +241,37 @@ around 4 MB, and can be copied anywhere that serves files over https.
 `nodejs` package does as well. Configuring fetches sigc++, so the first
 run needs the network.
 
+### Playing together
+
+`jam.html` is the same synth with a room around it: several people, one
+piece, each browser rendering the whole of it. The piece's text is shared
+and edited together, with everyone's cursors; Play starts every peer's
+transport at one agreed moment; a knob moved anywhere moves everywhere at
+the same point in the piece; keys play into the seat you took. What
+crosses the network is the score, never the audio. [JAM.md](JAM.md) is
+the design and [JAM_M3.md](JAM_M3.md) the detail of this milestone.
+
+It needs a relay: one small server that holds the document, answers the
+clock, and introduces the peers to each other. Run it beside the site:
+
+```sh
+node wasm/web/relay.mjs                                # ws://0.0.0.0:8787
+node wasm/web/serve.mjs --relay ws://localhost:8787    # http://localhost:8080/
+```
+
+and open `http://localhost:8080/jam.html`, pick a room and a name, Join,
+Start, take a seat, Play. A second tab in the same room is a second peer.
+For a second machine on the LAN, forward the site's port as above and
+open it as `localhost`; the relay needs no secure context, so give it
+the first machine's address: `?relay=ws://192.168.1.10:8787` on the URL,
+or `--relay` to that machine's `serve.mjs`. A new room is seeded with
+`gen/airports.gen`; `?piece=ebb.gen` seeds it with another.
+
+The numbers panel shows what the clocks think -- the relay's round trip
+and the spread of the offset, the audio clock's residual -- and how many
+commands arrived after their time. **Download the tape** on two peers
+after a play, and diff them: they should be the same file.
+
 `wasm/` is the other Emscripten build, the same engine under Node:
 `wasm/genwav.mjs` renders a `.gen` the way `scripts/genwav` does, and
 `wasm/compare.mjs` holds the two builds against each other piece by piece.
@@ -251,7 +285,13 @@ fixed clock in windows of 1024. All four have to agree, because what a piece
 composes is a function of the file and the seed and of nothing else.
 `wasm/web/browsertest.mjs` runs both of those through the worklet in
 Chromium and Firefox, and `wasm/web/bench.mjs` reports what one 128-frame
-quantum costs with a piece running and a chord held down.
+quantum costs with a piece running and a chord held down. For the room:
+`wasm/web/protocoltest.mjs` runs two peers in one process at different
+windows and rates over a simulated network and holds their tapes against
+each other and against `genwav.mjs`'s under the same commands;
+`wasm/web/relaytest.mjs` drives the relay from Node; and
+`wasm/web/jamtest.mjs` puts a Chromium page and a Firefox page in one
+room on a relay and does the same comparison live.
 
 Documentation
 -------------

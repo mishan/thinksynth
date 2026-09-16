@@ -20,7 +20,7 @@
 /*
  * serve.mjs -- the browser build's site, over HTTP on this machine.
  *
- *   node wasm/web/serve.mjs [DIR] [--port N] [--host ADDR]
+ *   node wasm/web/serve.mjs [DIR] [--port N] [--host ADDR] [--relay URL]
  *
  * A worklet module will not load from file:, and AudioWorklet exists only in
  * a secure context, which a browser grants to https and to localhost. So
@@ -28,6 +28,11 @@
  * 127.0.0.1. Another machine on the network can reach it with --host
  * 0.0.0.0, but its browser will not count that as secure; to try the page
  * from there, forward the port and open it as localhost.
+ *
+ * --relay names the relay the room page should use (relay.mjs); it is
+ * answered as config.json in place of the build's, which says none. The
+ * relay itself needs no secure context, so a page opened as localhost can
+ * reach one across the LAN.
  */
 
 import fs from 'node:fs';
@@ -41,12 +46,13 @@ const TYPES = {
     '.mjs':  'text/javascript; charset=utf-8',
     '.wasm': 'application/wasm',
     '.json': 'application/json',
+    '.map':  'application/json',
     '.dsp':  'text/plain; charset=utf-8',
     '.css':  'text/css',
 };
 
 /* Resolves with the listening server. */
-export function serve (root, port = 8080, host = '127.0.0.1')
+export function serve (root, port = 8080, host = '127.0.0.1', relay = null)
 {
     root = path.resolve(root);
 
@@ -54,6 +60,14 @@ export function serve (root, port = 8080, host = '127.0.0.1')
     {
         const url = new URL(req.url, 'http://localhost');
         let pathname;
+
+        if (relay !== null && url.pathname === '/config.json')
+        {
+            res.writeHead(200, { 'Content-Type': 'application/json',
+                                 'Cache-Control': 'no-store' });
+            res.end(JSON.stringify({ relay }) + '\n');
+            return;
+        }
 
         /* "/%" and its kind do not decode, and an exception here would take
            the server down -- anyone's to send, with --host 0.0.0.0. */
@@ -107,6 +121,7 @@ if (process.argv[1] !== undefined &&
     let root = path.join(here, '..', '..', 'build-web');
     let port = 8080;
     let host = '127.0.0.1';
+    let relay = null;
     const args = process.argv.slice(2);
 
     for (let i = 0; i < args.length; i++)
@@ -115,6 +130,8 @@ if (process.argv[1] !== undefined &&
             port = parseInt(args[++i], 10);
         else if (args[i] === '--host' && i + 1 < args.length)
             host = args[++i];
+        else if (args[i] === '--relay' && i + 1 < args.length)
+            relay = args[++i];
         else
             root = args[i];
     }
@@ -126,7 +143,8 @@ if (process.argv[1] !== undefined &&
         process.exit(2);
     }
 
-    await serve(root, port, host);
+    await serve(root, port, host, relay);
     process.stdout.write(`http://${host === '0.0.0.0' ? 'localhost' : host}` +
-                         `:${port}/  (serving ${path.resolve(root)})\n`);
+                         `:${port}/  (serving ${path.resolve(root)}` +
+                         `${relay === null ? '' : `, relay ${relay}`})\n`);
 }

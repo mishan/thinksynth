@@ -51,6 +51,7 @@
 
 import { createSynth } from './host.js';
 import { Keyboard, noteName } from './keyboard.js';
+import { Roll } from './roll.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -65,18 +66,6 @@ const KEYS = {
 
 const VELOCITY = 100;
 
-/* How much of the piece the roll shows, in seconds, and the pitches it has
-   room for. Notes older than this scroll off the left. */
-const ROLL_SECONDS = 30;
-const ROLL_LOW = 24, ROLL_HIGH = 108;
-
-/* One colour per channel, so a piece's instruments are told apart. */
-const CHANNEL_COLOURS = [
-    '#e05c4a', '#e0a13c', '#c9c93a', '#6fbf4a', '#3fb8a0', '#3f96d0',
-    '#5a6fd8', '#8f5ad8', '#cf4fb0', '#d9607a', '#9a8f6a', '#6a9a8f',
-    '#8a8a8a', '#c07a3a', '#4a8ac0', '#a0a04a',
-];
-
 let ctx = null;
 let synth = null;
 let keyboard = null;
@@ -90,12 +79,9 @@ const typed = new Map();         /* key code -> the note it pressed */
 const sounding = new Map();
 
 /* The piece, as it stands: what the worklet said when it loaded, and the
-   tape it has delivered since. */
+   roll of what it has delivered since. */
 let piece = null;
-let epoch = -1;
-let now = 0;
-let running = false;
-let notes = [];
+let roll = null;
 
 function log (text)
 {
@@ -322,7 +308,7 @@ async function loadPiece ()
 
     const it = await quietly(() => synth.loadPiece($('gen').value));
 
-    notes = [];
+    roll.clear();
     piece = it.errors.length === 0 ? it : null;
 
     if (piece === null)
@@ -341,7 +327,7 @@ async function loadPiece ()
         $(id).disabled = piece === null;
 
     showKnobs();
-    draw();
+    roll.draw();
 }
 
 async function pickPiece ()
@@ -426,84 +412,10 @@ function showKnobs ()
     }
 }
 
-/* The tape, as it arrives. Only notes are drawn -- a chanarg write moves a
-   filter and has nothing to put on a roll -- and only the last
-   ROLL_SECONDS of them are kept. */
-function tape (m)
-{
-    now = m.now;
-    running = m.running;
-
-    /* A load or a rewind: `at' starts again from zero and everything drawn
-       so far is about a piece that is no longer running. */
-    if (m.epoch !== epoch)
-    {
-        epoch = m.epoch;
-        notes = [];
-    }
-
-    for (const e of m.events)
-        if (e.kind === 'N')
-            notes.push(e);
-
-    /* Whatever has ended before the left edge, wherever it sits: a long
-       note at the front must not keep everything after it alive. */
-    const first = now - ROLL_SECONDS;
-
-    if (notes.some((e) => e.at + e.duration < first))
-        notes = notes.filter((e) => e.at + e.duration >= first);
-}
-
-function draw ()
-{
-    const c = $('roll');
-    const g = c.getContext('2d');
-    const w = c.width, h = c.height;
-
-    g.clearRect(0, 0, w, h);
-
-    /* The last ROLL_SECONDS, with now at the right edge. */
-    const first = now - ROLL_SECONDS;
-    const x = (t) => (t - first) / ROLL_SECONDS * w;
-    const y = (n) => h - (n - ROLL_LOW) / (ROLL_HIGH - ROLL_LOW) * h;
-
-    g.strokeStyle = getComputedStyle(c).getPropertyValue('--line') || '#ddd';
-    g.lineWidth = 1;
-
-    for (let n = ROLL_LOW; n <= ROLL_HIGH; n += 12)
-    {
-        g.beginPath();
-        g.moveTo(0, Math.round(y(n)) + 0.5);
-        g.lineTo(w, Math.round(y(n)) + 0.5);
-        g.stroke();
-    }
-
-    const tall = Math.max(2, h / (ROLL_HIGH - ROLL_LOW));
-
-    for (const e of notes)
-    {
-        const left = x(e.at);
-        const wide = Math.max(2, (e.duration || 0.05) / ROLL_SECONDS * w);
-
-        g.globalAlpha = 0.25 + 0.75 * Math.min(1, e.velocity / 110);
-        g.fillStyle = CHANNEL_COLOURS[e.channel & 15];
-        g.fillRect(left, y(e.note) - tall / 2, wide, tall);
-    }
-
-    g.globalAlpha = 1;
-
-    const secs = Math.max(0, now);
-
-    $('clock').textContent =
-        `${Math.floor(secs / 60)}:` +
-        `${(secs % 60).toFixed(1).padStart(4, '0')}` +
-        (running ? '' : ' (stopped)');
-}
-
 function frame ()
 {
     if (mode() === 'piece')
-        draw();
+        roll.draw();
 
     requestAnimationFrame(frame);
 }
@@ -519,7 +431,7 @@ async function start ()
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
         synth = await createSynth(ctx, { windowlen: 256, onLog: log,
-                                         onTape: tape });
+                                         onTape: (m) => roll.tape(m) });
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }
@@ -621,6 +533,7 @@ async function init ()
     for (let c = 0; c < 16; c++)
         $('keychan').add(new Option(String(c), c, c === 0, c === 0));
 
+    roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'),
                             { onPress: press, onRelease: release });
     keyboard.setLowest(octave);

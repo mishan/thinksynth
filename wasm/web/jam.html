@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>thinksynth &mdash; a room</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<h1>thinksynth <span class="dim">&mdash; a room</span></h1>
+
+<p id="status">Join a room.</p>
+
+<!-- Who and where. The room's name is the URL's, and so is the piece a
+     new room is seeded with (?room=x&piece=ebb.gen). -->
+<section id="joinrow" class="row">
+  <label>Room <input id="room" size="12" value="lobby"></label>
+  <label>Name <input id="name" size="12"></label>
+  <button id="join">Join</button>
+</section>
+
+<section id="roompanel" hidden>
+  <!-- Who is here, and by which path. -->
+  <div class="row">
+    <span id="peers" class="peers"></span>
+  </div>
+
+  <!-- A seat is an instrument the piece declares, on the channel it was
+       given; keys play into it, on every peer. -->
+  <div class="row">
+    <label>Seat <select id="seat"><option value="">none</option></select></label>
+    <button id="start">Start</button>
+    <button id="play" disabled>Play</button>
+    <button id="stop" disabled>Stop</button>
+    <label>Tempo <input id="tempo" type="number" min="20" max="300" step="1" value="120" size="4" disabled></label>
+    <span id="clock">0:00.0</span>
+  </div>
+
+  <p id="about"></p>
+
+  <canvas id="roll" width="1200" height="360"></canvas>
+
+  <div id="knobs"></div>
+
+  <!-- The instrument, as on the solo page. -->
+  <section id="keyboard">
+    <div class="row">
+      <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
+      <span id="range"></span>
+      <button id="up" class="octave" aria-label="An octave up">&#9654;</button>
+    </div>
+    <svg id="keys" role="application" aria-label="Keyboard"></svg>
+  </section>
+
+  <!-- The document: a tab per file, everyone's cursors, and Apply, which
+       is Play from a new origin with the text as it stands. -->
+  <details id="documentbox" open>
+    <summary>The piece</summary>
+    <div class="row">
+      <span id="tabs" class="tabs"></span>
+      <button id="apply" disabled>Apply</button>
+    </div>
+    <div id="editor"></div>
+  </details>
+
+  <details id="detail">
+    <summary>The numbers</summary>
+    <div class="row">
+      <label>Knob lead <input id="knoblead" type="number" min="0" max="5" step="0.01" size="5"> s</label>
+      <label>Transport lead <input id="transportlead" type="number" min="0" max="5" step="0.01" size="5"> s</label>
+      <button id="export" disabled>Download the tape</button>
+    </div>
+    <pre id="numbers"></pre>
+    <pre id="log"></pre>
+  </details>
+</section>
+
+<script type="module" src="jam.js"></script>
+</body>
+</html>
