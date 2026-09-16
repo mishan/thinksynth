@@ -130,18 +130,41 @@ public:
      * for and why it is read rather than pushed. */
     void pollNodes (void);
 
-    /* Re-announce every binding, and forget what pollNodes last saw.
+    /* ---- a rewind is a load ----
      *
-     * What reset() owes a fresh instance. On a load the sequence is
-     * create, then the file's values, then the bindings -- each of the
-     * last two announced as it is made. A rewind re-creates the
-     * instance with the bindings already in place and the nodes freshly
-     * zeroed, so nothing announces anything and the two paths part
-     * company: a module that caches a node-driven param came back from
-     * a rewind holding whatever composer_create happened to read that
-     * time. Announcing here puts the replay back on the load's
-     * footing. */
-    void rebind (void);
+     * What reset() owes a fresh instance is the load, done again. On a
+     * load the instance is created over the plugin's defaults and then
+     * the file's values are set and the bindings made, each announced as
+     * it happens. A rewind used to re-create the instance over the final
+     * values with the bindings already in place, announce the bindings,
+     * and call that the same -- and it is not, because create and
+     * param_changed can do more than read a value. gen::evolve draws a
+     * population in create sized by `length' and `population', and
+     * draws another on each of those being announced: loaded, three
+     * populations from the defaults up; rewound, one from the final
+     * values. Same file, same seed, a different lead from the first bar
+     * (orrery). Nothing about that is evolve's fault. The store had told
+     * the two instances two different stories.
+     *
+     * So every operation on the store before the transport first runs
+     * -- a value, a string, a unit, a binding, a bare announcement -- is
+     * kept, in order, and a rewind puts the store back to its defaults
+     * before the instance is created and then does them all again to
+     * the new one. What happens while the transport runs, a knob moved
+     * during play, is not kept: a fresh load would not have done it
+     * either, and the knob's value is read at create. */
+
+    /* Back to the plugin's defaults, unbound: what the loader found.
+       Called before composer_create. */
+    void restoreDefaults (void);
+
+    /* The load's operations, again, and forget what pollNodes last saw.
+       Called after composer_create. */
+    void replay (void);
+
+    /* From here on, nothing done is kept for a rewind: called by the
+       scheduler when the transport first starts. */
+    void freeze (void) { recording_ = false; }
 
     /* What the .gen loader calls after composer_create to push a fresh
        value at a module that caches (a NOTESET reparse), without
@@ -171,6 +194,30 @@ private:
     std::vector<thArg *>      knobs_;      /* live binding, NULL = value  */
     std::vector<thArg *>      nodes_;      /* embedded node's output      */
     std::vector<float>        lastNode_;   /* what pollNodes last saw     */
+
+    /* Everything done to the store before the transport first ran, in
+       order: what replay() does again. See there. */
+    enum OpKind { OP_SET, OP_STRING, OP_BEATS, OP_KNOB, OP_NODE, OP_NOTIFY };
+
+    struct Op
+    {
+        OpKind      kind;
+        int         index;
+        double      value;
+        std::string text;
+        thArg      *arg;
+        bool        flag;
+    };
+
+    std::vector<Op>           history_;
+    bool                      recording_;
+
+    void record (OpKind kind, int index, double value = 0,
+                 const std::string &text = std::string(),
+                 thArg *arg = NULL, bool flag = false);
+
+    /* The forward to the module and the re-arm, without a record. */
+    void announce (int index);
 
     /* Set by the scheduler once composer_create has run: where to send
        param_changed forwards, how to re-arm a sleeping generator, and
@@ -587,6 +634,17 @@ public:
        In the app the timer owns time and nothing calls this. */
     void stepTransport (double dt);
 
+    /* The same step, to an absolute transport time rather than by a
+       length. A host that knows where the transport should be -- the
+       browser's, which counts frames from an origin -- says so, instead
+       of adding up steps and drifting from it by a rounding error per
+       step; and a host that has to apply a command at an exact time
+       steps to that time, applies it, and steps on, which is what makes
+       "applied at `at' on every peer" the same on peers whose windows
+       are not aligned (JAM_M3.md, section 2). A time at or before now
+       is a step of nothing. */
+    void stepTransportTo (double t);
+
     /* Route a live MIDI note into a chain's receive() path (Markov
      * training, arpeggiators). Called from the m_sigNoteOn/Off hop --
      * same thread, so it is a plain call into propagate(). On a stopped
@@ -658,6 +716,9 @@ private:
     void queuePending (const thcEvent &ev, const std::string *nameOverride);
     void releaseHeld (int channel, int note);
     void flushHeld (void);
+    /* The body of a step, once the clock has been moved: the stages, the
+       nodes, the deliveries and the offs, in that order. */
+    void runStep (void);
     void runDueTicks (double now);
     void deliverDue (double now);
     void sendDueNoteOffs (double now);

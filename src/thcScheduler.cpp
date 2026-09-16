@@ -31,7 +31,7 @@
 /* ---- thcParamStore ---------------------------------------------------- */
 
 thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
-    : plugin_(plugin), instance_(NULL)
+    : plugin_(plugin), recording_(true), instance_(NULL)
 {
     int count = plugin->paramCount();
 
@@ -119,12 +119,13 @@ thcParamStore::set (int index, double v)
     if (index < 0 || index >= (int)values_.size())
         return;
 
+    record(OP_SET, index, v);
     values_[index] = v;
 
     /* Forward to the module (a no-op when it exports no
        composer_param_changed), then wake it if it was sleeping: the
        contract on THC_NEVER is that a param change re-arms the tick. */
-    notifyChanged(index);
+    announce(index);
 }
 
 void
@@ -133,9 +134,10 @@ thcParamStore::setString (int index, const std::string &v)
     if (index < 0 || index >= (int)strings_.size())
         return;
 
+    record(OP_STRING, index, 0, v);
     strings_[index] = v;
 
-    notifyChanged(index);
+    announce(index);
 }
 
 bool
@@ -176,7 +178,10 @@ void
 thcParamStore::setBeats (int index, bool beats)
 {
     if (index >= 0 && index < (int)beats_.size())
+    {
+        record(OP_BEATS, index, 0, std::string(), NULL, beats);
         beats_[index] = beats ? 1 : 0;
+    }
 }
 
 void
@@ -185,6 +190,7 @@ thcParamStore::bindKnob (int index, thArg *knob)
     if (index < 0 || index >= (int)knobs_.size())
         return;
 
+    record(OP_KNOB, index, 0, std::string(), knob);
     knobs_[index] = knob;
 
     /* Exclusive by construction rather than by a precedence rule
@@ -209,6 +215,7 @@ thcParamStore::bindNode (int index, thArg *out)
     if (index < 0 || index >= (int)nodes_.size())
         return;
 
+    record(OP_NODE, index, 0, std::string(), out);
     nodes_[index] = out;
 
     if (out != NULL)
@@ -225,15 +232,62 @@ thcParamStore::nodeBinding (int index) const
 }
 
 void
-thcParamStore::rebind (void)
+thcParamStore::record (OpKind kind, int index, double value,
+                       const std::string &text, thArg *arg, bool flag)
 {
-    for (size_t i = 0; i < nodes_.size(); i++)
-    {
-        lastNode_[i] = nodes_[i] != NULL ? (*nodes_[i])[0] : 0.0f;
+    if (!recording_)
+        return;
 
-        if (knobs_[i] != NULL || nodes_[i] != NULL)
-            notifyChanged((int)i);
+    Op op = { kind, index, value, text, arg, flag };
+
+    history_.push_back(op);
+}
+
+void
+thcParamStore::restoreDefaults (void)
+{
+    for (size_t i = 0; i < values_.size(); i++)
+    {
+        const thcPlugin::ParamInfo *p = plugin_->paramInfo((int)i);
+
+        values_[i] = p->def;
+        strings_[i] = p->defString;
+        beats_[i] = 0;
+        knobs_[i] = NULL;
+        nodes_[i] = NULL;
+        lastNode_[i] = 0.0f;
     }
+}
+
+void
+thcParamStore::replay (void)
+{
+    /* Not recorded a second time: a rewind before the first start would
+       otherwise double the history, and the next one would do it all
+       twice. */
+    const bool was = recording_;
+
+    recording_ = false;
+
+    for (size_t i = 0; i < history_.size(); i++)
+    {
+        const Op &op = history_[i];
+
+        switch (op.kind)
+        {
+            case OP_SET:    set(op.index, op.value); break;
+            case OP_STRING: setString(op.index, op.text); break;
+            case OP_BEATS:  setBeats(op.index, op.flag); break;
+            case OP_KNOB:   bindKnob(op.index, op.arg); break;
+            case OP_NODE:   bindNode(op.index, op.arg); break;
+            case OP_NOTIFY: announce(op.index); break;
+        }
+    }
+
+    recording_ = was;
+
+    for (size_t i = 0; i < nodes_.size(); i++)
+        lastNode_[i] = nodes_[i] != NULL ? (*nodes_[i])[0] : 0.0f;
 }
 
 void
@@ -258,6 +312,13 @@ thcParamStore::pollNodes (void)
 
 void
 thcParamStore::notifyChanged (int index)
+{
+    record(OP_NOTIFY, index);
+    announce(index);
+}
+
+void
+thcParamStore::announce (int index)
 {
     if (instance_ != NULL)
         plugin_->paramChanged(instance_, index);
@@ -1318,6 +1379,26 @@ thcScheduler::stepTransport (double dt)
     transportNow_ += dt;
     beat_ += dt * tempo_ / 60.0;
 
+    runStep();
+}
+
+void
+thcScheduler::stepTransportTo (double t)
+{
+    retireStranded();
+
+    if (!running_ || t < transportNow_)
+        return;
+
+    beat_ += (t - transportNow_) * tempo_ / 60.0;
+    transportNow_ = t;
+
+    runStep();
+}
+
+void
+thcScheduler::runStep (void)
+{
     /* The stages first, each at the time it asked to be woken at, with
      * its chain's nodes moved to that time before it reads them --
      * runDueTicks does both, and says why.
@@ -1743,6 +1824,13 @@ thcScheduler::flushHeld (void)
 void
 thcScheduler::start (void)
 {
+    /* What a rewind will repeat is now settled: everything announced to
+       a stage so far was part of loading it, and everything from here
+       on is playing it (thcParamStore::rebind). */
+    for (size_t ci = 0; ci < chains_.size(); ci++)
+        for (size_t si = 0; si < chains_[ci].stages.size(); si++)
+            chains_[ci].stages[si]->params.freeze();
+
     lastMono_ = g_get_monotonic_time();
     running_ = true;
 }
@@ -1841,6 +1929,11 @@ thcScheduler::reset (void)
         {
             thcStage *s = chains_[ci].stages[si].get();
 
+            /* Over the defaults, as the load created it -- what the
+               store was before the loader touched it -- and the load's
+               work done again afterwards (thcParamStore::replay). */
+            s->params.restoreDefaults();
+
             /* The replacement is made before the old instance goes,
                so a module refusing the second create leaves the stage
                with its old state rather than with a NULL that the next
@@ -1861,12 +1954,18 @@ thcScheduler::reset (void)
                 s->params.instance_ = s->state;
             }
 
-            /* The bindings, told to the instance that now serves them --
-               see rebind(). After the swap, because the notification
-               goes to whichever instance is current. */
-            s->params.rebind();
-
+            /* Awake before anything is announced to it, as a stage is
+               on a load. An announcement re-arms a sleeper, and a stage
+               that had gone to sleep by the end of the run would be
+               armed by the first announcement and then again below: two
+               wakes at zero, two ticks, and a replay that was not one. */
             s->sleeping = false;
+
+            /* Everything the load did, done again to the instance that
+               now serves the store -- see replay(). After the swap,
+               because the announcements go to whichever instance is
+               current. */
+            s->params.replay();
 
             if (s->ticks && s->state != NULL)
             {

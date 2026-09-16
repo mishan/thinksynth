@@ -5142,8 +5142,32 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
         if (!anyGenerator)
             continue;           /* played by hand; see above            */
 
-        if (render(sched, 60.0, 0.05).empty())
+        const std::string first = render(sched, 60.0, 0.05);
+
+        if (first.empty())
             fail(leaf + " loads but delivers nothing in a minute");
+
+        /* And again from the top, on every seeded piece and not only on
+           the one checkReplay was handed: a rewind is a load, or it is
+           not a replay. orrery used to fail this and airports never did,
+           because what parted them was a composer whose param_changed
+           reseeds -- gen::evolve -- and only the load announced its
+           params (thcParamStore::rebind). Each peer in a jam presses
+           Play as a rewind of the piece it loaded, so a rewind that
+           composed anything else would part the peers from the first
+           bar. */
+        if (!loader.hasSeed())
+            continue;
+
+        sched.reset();
+
+        const std::string again = render(sched, 60.0, 0.05);
+
+        if (again != first)
+        {
+            fail(leaf + " composes differently after a rewind");
+            showDivergence(first, again, "loaded", "rewound");
+        }
     }
 }
 
