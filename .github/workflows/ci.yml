@@ -333,8 +333,10 @@ jobs:
       # M2's gate, without a browser: every seeded piece composed by this
       # module at four steps, against the tape genwav.mjs delivers out of
       # the Node module built above. The wasm-against-wasm gate and the
-      # step-invariance gate in one.
-      - name: Every seeded piece, against genwav
+      # step-invariance gate in one. Then every shipped piece played the way
+      # the page plays it, held to a peak -- a tape says what was composed
+      # and not whether any of it was audible (AIMING.md, section 5).
+      - name: Every seeded piece, against genwav; and every piece audible
         run: node wasm/web/piececheck.mjs
 
       # M3's first gate, without a browser: two peers in one process at
