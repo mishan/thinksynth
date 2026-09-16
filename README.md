@@ -174,6 +174,62 @@ well as heard — [`gen/README.md`](gen/README.md) is the index.
 [`UNIFICATION.md`](UNIFICATION.md) is where the two languages are going,
 and why they keep their `node` and `stage` keywords apart on purpose.
 
+In a browser
+------------
+
+The same engine compiled to WebAssembly and playing in a tab: one `.dsp` in
+a text box, the computer keyboard as the keyboard, and the latency the
+browser admits to. The synth is an AudioWorklet — libthink and all 62 DSP
+plugins in one wasm module — so a page and a static file server are the
+whole of what it takes to hear it. [JAM.md](JAM.md) is where this is going:
+several people playing one piece, each browser rendering it locally.
+
+Emscripten builds it, at a pinned version — the comparison against the
+native build is only as repeatable as the compiler on the wasm side:
+
+```sh
+git clone --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+~/emsdk/emsdk install 6.0.9 && ~/emsdk/emsdk activate 6.0.9
+```
+
+On Debian or Ubuntu this asks for rather less than the desktop build does —
+no gtkmm, no cairo, no pkg-config:
+
+```sh
+sudo apt install git cmake ninja-build bison flex python3 curl xz-utils
+```
+
+Then build the site and serve it:
+
+```sh
+source ~/emsdk/emsdk_env.sh
+emcmake cmake -S wasm/web -B build-web -G Ninja
+cmake --build build-web -j
+node wasm/web/serve.mjs            # http://localhost:8080/
+```
+
+Press **Start** and play: `Z` to `/` is an octave and a bit from C, `Q` to
+`P` the octave above, and `-` and `=` move both. Edit the `.dsp` and press
+**Load** to hear the change.
+
+It has to be served, and to localhost: a worklet module will not load from
+a `file://` path, and a browser counts https and localhost as secure
+contexts and nothing else. To play it from another machine, forward the
+port — `ssh -L 8080:localhost:8080 host` — rather than serving on 0.0.0.0,
+which its browser will not trust. The build directory is the whole site,
+around 4 MB, and can be copied anywhere that serves files over https.
+
+`node` comes with the emsdk, on `PATH` after `emsdk_env.sh`; Debian's
+`nodejs` package does as well. Configuring fetches sigc++, so the first
+run needs the network.
+
+`wasm/` is the other Emscripten build, the same engine under Node:
+`wasm/genwav.mjs` renders a `.gen` the way `scripts/genwav` does, and
+`wasm/compare.mjs` holds the two builds against each other piece by piece.
+The browser build has its own checks in `wasm/web/check.mjs` and
+`wasm/web/browsertest.mjs`, which plays a phrase through the worklet in
+Chromium and Firefox and compares it with the same module run directly.
+
 Documentation
 -------------
 
