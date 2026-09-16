@@ -336,6 +336,13 @@ jobs:
           npx playwright install --with-deps chromium firefox
           node browsertest.mjs
 
+      # The relay (JAM_M3.md, section 3), driven from Node by the clients
+      # the page will be: presence, seats, the clock, signalling, the
+      # relayed fallback, and the shared document reaching two providers.
+      - name: The relay
+        working-directory: wasm/web
+        run: node relaytest.mjs
+
       # The renders, so a difference can be listened to rather than only
       # read about.
       - uses: actions/upload-artifact@v4

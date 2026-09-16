@@ -168,7 +168,10 @@ the piece it loaded.
 
 ## 3. The relay
 
-`wasm/relay/relay.mjs`, Node, one process, one port, no database in M3.
+`wasm/web/relay.mjs`, Node, one process, one port, no database in M3. It
+lives beside `serve.mjs`, the other server the page has, and shares its
+`package.json`; `wasm/web/relaytest.mjs` drives it from Node with the
+clients the page will be, and is in the CI `wasm` job.
 
 ### 3.1 Endpoints
 
@@ -184,9 +187,12 @@ a harness when it is not sharing a socket with binary CRDT updates.
 
 ### 3.2 The document socket
 
-`y-websocket`'s server utilities as they come: `setupWSConnection` per
-socket, one `Y.Doc` per room, kept in memory. Persistence is M5's problem;
-in M3 a room that empties is kept for an hour and then dropped.
+`y-websocket`'s protocol, spoken with `y-protocols` directly rather than
+through the server package, which at the time of writing wants a
+prerelease Yjs: sync step 1 on attach, updates and awareness fanned out
+to every socket on the room, about eighty lines. One `Y.Doc` per room,
+kept in memory. Persistence is M5's problem; in M3 a room that empties is
+kept for an hour and then dropped.
 
 A new room is seeded: the relay reads a shipped piece and every `.dsp` it
 names from the tree and puts them in the document (section 4.1) before the
@@ -198,14 +204,19 @@ default is `gen/airports.gen`.
 Messages, JSON, one per frame, `type` first:
 
 ```
--> hello    { peer, name, protocol }         protocol: 1
-<- welcome  { peer, peers: [{peer, name, seat}], seats: {...}, piece }
-<- joined   { peer, name }        <- left { peer }
--> seat     { seat }              <- seats { seat: peer, ... }   refused: seat null
--> ping     { t0 }                <- pong { t0, t1 }            t1: relay ms
--> signal   { to, data }          <- signal { from, data }      opaque
--> relayed  { data }              <- relayed { from, data }     section 5.5
+-> hello     { peer, name, protocol }         protocol: 1
+<- welcome   { peer, peers: [{peer, name, seat}], seats: {...}, piece, playing }
+<- joined    { peer, name }        <- left { peer }
+-> seat      { seat }              <- seats { seat: peer, ... }   taken: no change
+-> ping      { t0 }                <- pong { t0, t1 }            t1: relay ms
+-> signal    { to, data }          <- signal { from, data }      opaque
+-> relayed   { to?, data }         <- relayed { from, data }     section 5.5
+-> transport { data }              <- transport { from, data }   section 5.3
 ```
+
+`transport` is the one command the relay reads: a start is kept as
+`playing` and handed to the next peer to arrive in its `welcome`, a stop
+clears it.
 
 `peer` is chosen by the relay, a short random id. Seats are first-claim:
 a `seat` for a taken seat answers with the current map and no change. A
@@ -217,7 +228,7 @@ The clock is `process.hrtime.bigint()` in milliseconds as a double, never
 ### 3.4 Running it
 
 ```
-node wasm/relay/relay.mjs [--port 8787] [--tree DIR]
+node wasm/web/relay.mjs [--port 8787] [--tree DIR]
 node wasm/web/serve.mjs --relay ws://127.0.0.1:8787
 ```
 
