@@ -71,6 +71,10 @@ const $ = (id) => document.getElementById(id);
 
 const VELOCITY = 100;
 
+/* Where patch mode puts its one .dsp. thinkweb.cpp's tw_piece_load says
+   why a piece takes this channel first, and why the two are modes. */
+const PATCH_CHANNEL = 0;
+
 let ctx = null;
 let synth = null;
 let keyboard = null;
@@ -226,6 +230,21 @@ async function loadPatch ()
         return;
 
     const ok = await quietly(() => synth.load($('dsp').value));
+
+    /* Patch mode has taken PATCH_CHANNEL, whatever was aimed there. So the
+       aiming for it is forgotten rather than left to be shown as still
+       true: a row that said PhatRip over a channel holding the text box's
+       .dsp would be the page reporting what it did two modes ago, which is
+       the thing this whole file is against.
+     *
+       Only when the load worked. tw_load leaves the channel alone when the
+       parse fails (thSynth::loadTree returns before the swap), so what was
+       aimed there is still there. */
+    if (ok)
+    {
+        aimed.delete(PATCH_CHANNEL);
+        placed.delete(PATCH_CHANNEL);
+    }
 
     $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
                                  : 'That .dsp did not parse; see below.';
@@ -576,6 +595,15 @@ async function start ()
        resolved against: patch.js fetches the .patch and no more, since
        these are already here. */
     dspTexts = Object.fromEntries(dspNames.map((name, i) => [name, texts[i]]));
+
+    /* And the default patches, before anything needs one. The aiming runs
+       inside quietly(), with the context suspended, and patchText fetches
+       on first use -- so without this the first piece load holds the audio
+       device down for a round trip per default. Failures are not reported
+       here: a default that cannot be fetched is reported by the load that
+       wanted it, which is where it means something. */
+    await Promise.all(
+        patch.DEFAULTS.map((name) => patch.patchText(name).catch(() => {})));
 
     $('load').disabled = false;
     $('loadpiece').disabled = false;

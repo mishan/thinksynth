@@ -313,6 +313,14 @@ file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/gen/index.json"
 # of its own.
 file(GLOB_RECURSE SHIPPED_PATCH RELATIVE "${THINK_TOP}/patches"
      "${THINK_TOP}/patches/*.patch")
+
+# A .patch loose at the top of the tree is not one of the shipped sounds:
+# patches/test.patch is a 2004 fixture by J. Random Hacker, and offering it
+# in the page's menus as a bare "test" above the drawers is the same kind of
+# noise dsp/'s noargs/ and old/ drawers would be. The drawer is the content
+# here, so the top level is what gets dropped rather than what gets kept.
+# The desktop still installs the whole tree; nothing here changes that.
+list(FILTER SHIPPED_PATCH EXCLUDE REGEX "^[^/]+$")
 list(SORT SHIPPED_PATCH)
 
 set(patch_names "")
@@ -429,11 +437,37 @@ foreach(f IN LISTS SHIPPED_GEN)
 endforeach()
 install(FILES ${DIST_GEN_FILES} DESTINATION gen PERMISSIONS ${SITE_FILE_MODE})
 
-# And the patches, as the directory the build made: a drawer deep, which
-# is more than an explicit FILES list wants to spell, and exact anyway --
-# what is under build-web/patches/ is what the glob above put there.
-install(DIRECTORY "${PROJECT_BINARY_DIR}/patches/" DESTINATION patches
-        FILE_PERMISSIONS ${SITE_FILE_MODE})
+# And the patches: one install rule per drawer, since a destination is one
+# directory, and an explicit list rather than the directory the build made.
+# Installing that directory would be shorter and would also carry a stale
+# file -- copy_if_different adds and never removes, so a .patch that has
+# been renamed, or dropped from the glob as patches/test.patch was, sits
+# there until somebody deletes the build directory. `the files a server
+# needs and no others' has to mean the list, not the leftovers.
+install(FILES "${PROJECT_BINARY_DIR}/patches/index.json"
+        DESTINATION patches PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_PATCH_DIRS "")
+foreach(rel IN LISTS SHIPPED_PATCH)
+  get_filename_component(dir "${rel}" DIRECTORY)
+  list(APPEND DIST_PATCH_DIRS "${dir}")
+endforeach()
+list(REMOVE_DUPLICATES DIST_PATCH_DIRS)
+
+foreach(dir IN LISTS DIST_PATCH_DIRS)
+  set(DIST_PATCH_FILES "")
+
+  foreach(rel IN LISTS SHIPPED_PATCH)
+    get_filename_component(d "${rel}" DIRECTORY)
+
+    if(d STREQUAL dir)
+      list(APPEND DIST_PATCH_FILES "${PROJECT_BINARY_DIR}/patches/${rel}")
+    endif()
+  endforeach()
+
+  install(FILES ${DIST_PATCH_FILES}
+          DESTINATION "patches/${dir}" PERMISSIONS ${SITE_FILE_MODE})
+endforeach()
 
 set(DIST_DIR "${PROJECT_BINARY_DIR}/dist")
 

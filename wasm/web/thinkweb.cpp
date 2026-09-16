@@ -213,6 +213,13 @@ std::vector<thArg *> knobs_;
    section 4.1). Collected at the load, like knobs_: a sink's channel is
    fixed once allocateChannels has run. */
 std::vector<int>     sinks_;
+
+/* "channel:name" for every chanarg override that named something the tree
+   on that channel does not declare. Kept so the complaint is made once:
+   every piece load re-aims, and a .patch carrying a stale name would
+   otherwise say so again on every one of them. Never cleared -- a .patch
+   is a file on the server, and it does not stop being wrong. */
+std::vector<std::string> unknownChanargs_;
 twTape               tape_;
 sigc::connection     delivery_;
 
@@ -831,9 +838,11 @@ EMSCRIPTEN_KEEPALIVE int tw_sink_channel (int k)
  * -- TH_DEFAULT_CHAN_AMP, which tw_load already applies.
  *
  * A name the tree does not declare is ignored, as tw_knob ignores an
- * index outside the list, and said once here rather than silently: an
- * override for a chanarg that does not exist is a .patch aimed at some
- * other .dsp, and the page's log is where a person would look.
+ * index outside the list, and said rather than passed over: an override
+ * for a chanarg that does not exist is a .patch aimed at some other .dsp,
+ * and the page's log is where a person would look. Said once per channel
+ * and name -- re-aiming happens at every piece load, and a thing repeated
+ * at every load is a thing nobody reads.
  */
 EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
                                      const float *values, int count)
@@ -845,8 +854,21 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
 
     if (arg == NULL)
     {
-        fprintf(stderr, "channel %d declares no '%s'; the override is "
-                        "ignored\n", channel, name);
+        const std::string said = std::to_string(channel) + ":" + name;
+
+        if (std::find(unknownChanargs_.begin(), unknownChanargs_.end(),
+                      said) == unknownChanargs_.end())
+        {
+            unknownChanargs_.push_back(said);
+
+            /* channel + 1, alone among the numbers here: this line is
+               read by a person in the page's log, beside the page's own
+               complaints, and those count channels the way a .gen file
+               does. Everything else this file says is said to the page. */
+            fprintf(stderr, "channel %d declares no '%s'; the override is "
+                            "ignored\n", channel + 1, name);
+        }
+
         return 0;
     }
 

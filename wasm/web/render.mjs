@@ -179,7 +179,8 @@ export function schedule (M, c)
  *
  * `patchFor(channel)' returns `{ name, dsp, args }': the .dsp's text and
  * the chanarg overrides to set on it afterwards, which is a .patch. null
- * for a channel it has nothing for.
+ * for a channel it has nothing for, and those channels come back in
+ * `unaimed' so the caller can say so.
  *
  * A piece fed by `input midi' composes nothing until somebody plays it,
  * so `chord' is held down on every channel it listens on -- there is no
@@ -206,9 +207,16 @@ export async function playAimed (createThinkWeb,
                         { rate, windowlen, block, gen, instruments });
 
     if (!ok)
-        return { ok, log, errors, aimed: [], listens: [], peak: 0, at: 0 };
+        return { ok, log, errors, aimed: [], unaimed: [], listens: [],
+                 peak: 0, at: 0 };
 
     const aimed = [];
+
+    /* Channels the piece asked for that `patchFor' had nothing for. Kept
+       and returned rather than skipped quietly: a caller that cannot tell
+       "this piece names no channel" from "this build ships no patch for
+       its channels" sends somebody hunting in the wrong place. */
+    const unaimed = [];
 
     for (let i = 0; i < M._tw_sink_count(); i++)
     {
@@ -216,7 +224,10 @@ export async function playAimed (createThinkWeb,
         const what = patchFor(channel);
 
         if (what === null || what.dsp === undefined)
+        {
+            unaimed.push(channel);
             continue;
+        }
 
         M.ccall('tw_load', 'number', ['number', 'string'],
                 [channel, what.dsp]);
@@ -270,7 +281,7 @@ export async function playAimed (createThinkWeb,
             break;
     }
 
-    return { ok: true, log, errors: [], aimed, listens, peak,
+    return { ok: true, log, errors: [], aimed, unaimed, listens, peak,
              at: M._tw_now() };
 }
 

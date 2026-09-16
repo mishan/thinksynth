@@ -293,8 +293,8 @@ async function checkKeys (createThinkWeb, dsps, all)
  *
  * `dsps' is the shipped .dsp texts, which is where a .patch's `dsp' line
  * resolves for the page too. Returns null for a patch this build does not
- * ship, which is a build to fix rather than a piece to fail, and is said
- * as a complaint by the caller.
+ * ship; playAimed hands those channels back in `unaimed' and checkAudible
+ * names them as a build to fix rather than a piece to blame.
  */
 export function defaults (buildDir, dsps)
 {
@@ -347,17 +347,29 @@ async function checkAudible (createThinkWeb, dsps, all, buildDir)
             continue;
         }
 
+        /* Said whether or not the piece was audible: a build missing the
+           patches the defaults name is a broken build, and a piece that
+           sounded anyway does not make it less broken. */
+        if (r.unaimed.length > 0)
+            process.stdout.write(
+                `      ${' '.repeat(14)} this build ships no patch for ` +
+                `channel ${r.unaimed.map((c) => c + 1).join(', ')} -- ` +
+                `${[...new Set(r.unaimed.map(defaultFor))].join(', ')} ` +
+                'is not under patches/; fix the build, not the piece\n');
+
         if (r.peak <= FLOOR)
         {
-            const aimed = r.aimed.length === 0
-                ? 'it names no channel the page could aim'
-                : `aimed ${r.aimed.map((a) => `${a.channel + 1} at ` +
-                                              a.patch).join(', ')}`;
+            const how = r.aimed.length > 0
+                ? `aimed ${r.aimed.map((a) => `${a.channel + 1} at ` +
+                                              a.patch).join(', ')}`
+                : r.unaimed.length > 0
+                ? 'and nothing could be aimed at it'
+                : 'it names no channel the page could aim';
 
             process.stdout.write(
                 `FAIL  ${piece.name.padEnd(14)} nothing above ` +
                 `${r.peak.toExponential(1)} through ${SECONDS} s under the ` +
-                `page's defaults; ${aimed}\n`);
+                `page's defaults; ${how}\n`);
             failures++;
             continue;
         }

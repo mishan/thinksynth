@@ -116,3 +116,17 @@ Node editor
   the file as well as the block. That is removeControl plus addControl plus a
   rename of every reference, and it wants deciding on rather than bolting to a
   dialog about ranges.
+
+
+The browser page
+----------------
+
+- The page cannot ask what is on a channel. It knows what it put there
+  itself, which is not the same question: a piece's own instruments, and
+  whatever an earlier mode left, are invisible to it. Two things want the
+  answer. The channels row says "as it is" over a channel nothing is loaded
+  on, where it should say "nothing" -- and in piece mode, keys aimed at a
+  channel the piece neither names nor listens on are silent with nothing in
+  the page to say why. A `tw_loaded(channel)' export beside tw_sink_channel
+  would settle both, and would let the key channel take a default too.
+  (AIMING.md, wasm/web/main.js)
