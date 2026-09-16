@@ -418,15 +418,17 @@ beat it applies at; every peer applies it at that beat.
 **Messages**, sketched:
 
 ```
-transport   { origin, tempo, seed, playing, atBeat }
-knob        { name, value, atBeat, from }            latest atBeat wins
-note        { seat, note, velocity, atBeat, mode }   mode: direct | quantised | ahead
-noteoff     { seat, note, atBeat }
+transport   { at, op: start | stop | tempo, origin, seed, bpm }
+knob        { at, name, value, from }                latest at wins
+note        { at, seat, note, velocity, mode }       mode: direct | quantised | ahead
+noteoff     { at, seat, note }
 ping / pong { sent, received }
 ```
 
-Everything carries a beat, not a millisecond, so a message is meaningful on
-a peer whose clock differs by whatever the estimate missed.
+Everything carries `at`, a transport time, not a wall-clock millisecond,
+so a message is meaningful on a peer whose clock differs by whatever the
+estimate missed. [JAM_M3.md](JAM_M3.md) fixes the unit as transport
+seconds, the scheduler's own clock, with beats derived from it.
 
 ## 5. Seats and editing
 
@@ -506,7 +508,8 @@ nothing in a worklet draws. It arrives with the mirror, in M6.
 sync, data channels, seats, knobs and direct-mode notes. *Done when* two
 browsers on one machine share a piece, both can edit it, and their tapes are
 identical from the same origin. Then the same across two machines on one
-LAN, with the round trip shown.
+LAN, with the round trip shown. The detailed plan, including the scheduler
+seam it needs from M2, is [JAM_M3.md](JAM_M3.md).
 
 **M4 — edits and arrivals.** The apply-at-bar rule from section 5, with its
 harness first. Late join by fast-forward. Quantised and play-ahead modes.
