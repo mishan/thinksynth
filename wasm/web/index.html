@@ -3,45 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>thinksynth</title>
-<style>
-  body { font: 15px/1.4 system-ui, sans-serif; max-width: 60em; margin: 2em auto;
-         padding: 0 1em; }
-  textarea, pre { font: 13px/1.35 ui-monospace, monospace; }
-  textarea { width: 100%; height: 26em; box-sizing: border-box; }
-  label[for="dsp"], label[for="gen"] { display: block; margin-bottom: 0.3em; }
-  pre { background: #f4f4f4; padding: 0.6em 0.8em; margin: 0.8em 0; }
-  #log { max-height: 10em; overflow: auto; }
-  .row { display: flex; gap: 0.6em; align-items: center; margin: 0.8em 0;
-         flex-wrap: wrap; }
-  kbd { border: 1px solid #aaa; border-radius: 3px; padding: 0 0.3em; }
-  h2 { font-size: 1.1em; margin: 1.6em 0 0.4em; }
-  [hidden] { display: none !important; }
-  #roll { width: 100%; height: 180px; background: #f4f4f4; display: block;
-          margin: 0.8em 0; }
-  #knobs { display: grid; grid-template-columns: max-content 1fr max-content;
-           gap: 0.3em 0.8em; align-items: center; margin: 0.8em 0; }
-  #knobs input { width: 100%; }
-  #knobs .value { font: 13px ui-monospace, monospace; min-width: 5em;
-                  text-align: right; }
-  #about { margin: 0.4em 0; color: #666; }
-  @media (prefers-color-scheme: dark) {
-    body { background: #1b1b1b; color: #ddd; }
-    pre, textarea, #roll { background: #262626; color: #ddd; }
-    #about { color: #999; }
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <h1>thinksynth</h1>
 
-<p id="status">Press Start, then play from the keyboard.</p>
-
-<p>
-  <kbd>Z</kbd> to <kbd>/</kbd> is an octave and a bit from C, with the black
-  keys on the row above; <kbd>Q</kbd> to <kbd>P</kbd> is the octave above
-  that. <kbd>-</kbd> and <kbd>=</kbd> move both an octave.
-</p>
+<p id="status">Press Start, then play.</p>
 
 <div class="row">
   <button id="start">Start</button>
@@ -51,15 +20,12 @@
   </select></label>
 </div>
 
-<!-- M1: one .dsp, played from the computer keyboard. -->
+<!-- M1: one .dsp, played from the keyboard. -->
 <section id="patchmode">
   <div class="row">
     <label>Patch <select id="patch"></select></label>
     <button id="load" disabled>Load</button>
   </div>
-
-  <label for="dsp">Patch source (.dsp)</label>
-  <textarea id="dsp" spellcheck="false" autocomplete="off"></textarea>
 </section>
 
 <!-- M2: a .gen, composed by the scheduler in the worklet. The keyboard
@@ -76,6 +42,10 @@
 
   <p id="about"></p>
 
+  <canvas id="roll" width="1200" height="360"></canvas>
+
+  <div id="knobs"></div>
+
   <!-- A piece may route `input midi' to a channel it declares no
        instrument for -- hands.gen declares none at all -- so the keys need
        a channel to arrive on and that channel may need something on it to
@@ -89,17 +59,42 @@
     <label>with <select id="keypatch"></select></label>
     <button id="loadkeypatch" disabled>Put it there</button>
   </div>
-
-  <canvas id="roll" width="1200" height="360"></canvas>
-
-  <div id="knobs"></div>
-
-  <label for="gen">Piece source (.gen)</label>
-  <textarea id="gen" spellcheck="false" autocomplete="off"></textarea>
 </section>
 
-<pre id="latency"></pre>
-<pre id="log"></pre>
+<!-- The instrument, in both modes. Drawn to fit whatever width there is;
+     main.js says how many octaves that comes to. -->
+<section id="keyboard">
+  <div class="row">
+    <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
+    <span id="range"></span>
+    <button id="up" class="octave" aria-label="An octave up">&#9654;</button>
+  </div>
+  <svg id="keys" role="application" aria-label="Keyboard"></svg>
+  <p class="hint">
+    Touch or click the keys. From a computer keyboard,
+    <kbd>Z</kbd>&ndash;<kbd>/</kbd> is an octave and a bit from C with the
+    black keys on the row above, <kbd>Q</kbd>&ndash;<kbd>P</kbd> the octave
+    above that, and <kbd>-</kbd> and <kbd>=</kbd> move both.
+  </p>
+</section>
+
+<details id="patchsource">
+  <summary>Patch source (.dsp)</summary>
+  <textarea id="dsp" spellcheck="false" autocomplete="off"
+            autocapitalize="off" autocorrect="off"></textarea>
+</details>
+
+<details id="piecesource" hidden>
+  <summary>Piece source (.gen)</summary>
+  <textarea id="gen" spellcheck="false" autocomplete="off"
+            autocapitalize="off" autocorrect="off"></textarea>
+</details>
+
+<details id="detail">
+  <summary>What the browser reports</summary>
+  <pre id="latency"></pre>
+  <pre id="log"></pre>
+</details>
 
 <script type="module" src="main.js"></script>
 </body>

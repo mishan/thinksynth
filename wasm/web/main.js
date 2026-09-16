@@ -19,10 +19,10 @@
 /*
  * main.js -- the page.
  *
- * Two things to play. A patch is one .dsp and the computer keyboard, which
- * is M1. A piece is a .gen: the scheduler in the worklet composes it, the
- * knobs it declared are sliders, and what it delivers comes back as the
- * tape and is drawn on a roll. That is M2.
+ * Two things to play. A patch is one .dsp, which is M1. A piece is a .gen:
+ * the scheduler in the worklet composes it, the knobs it declared are
+ * sliders, and what it delivers comes back as the tape and is drawn on a
+ * roll. That is M2.
  *
  * They are modes and not two panels side by side, because a piece takes the
  * channels it asks for and the first of those is channel 0, where the
@@ -33,13 +33,24 @@
  * `input midi' is matched against, and a patch can be put on that channel
  * for pieces that route to one without declaring an instrument for it.
  *
- * Two rows of keys, laid out by position rather than by letter so a
- * non-QWERTY keyboard plays the same shape: Z to / is an octave and a bit
- * from C, Q to P the octave above, with the black keys on the row above
- * each. - and = move both down and up an octave.
+ * TWO KINDS OF FINGER, ONE PATH. There is an on-screen keyboard
+ * (keyboard.js) and there is the computer keyboard, and both go through
+ * press() and release() below rather than reaching the synth themselves.
+ * That is not tidiness: a note pressed on screen and then also from the
+ * keys is one note, and a note released has to be released the way it was
+ * pressed -- in piece mode, on the channel it arrived on, even if the
+ * selector has moved since. So what is held is a map with a count and the
+ * route each note went out by, and it is also what paints the keys.
+ *
+ * The computer keyboard's two rows are laid out by position rather than by
+ * letter, so a non-QWERTY keyboard plays the same shape: Z to / is an
+ * octave and a bit from C, Q to P the octave above, with the black keys on
+ * the row above each. - and = move both down and up an octave, and move
+ * the on-screen keyboard with them.
  */
 
 import { createSynth } from './host.js';
+import { Keyboard, noteName } from './keyboard.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -68,8 +79,15 @@ const CHANNEL_COLOURS = [
 
 let ctx = null;
 let synth = null;
-let octave = 48;                 /* MIDI note of the Z key: C3 */
-const held = new Map();          /* key code -> the note it pressed */
+let keyboard = null;
+let octave = 48;                 /* MIDI note of the Z key, and of the
+                                    leftmost key on screen: C3 */
+
+const typed = new Map();         /* key code -> the note it pressed */
+
+/* note -> { count, piece, channel }: how many fingers are on it, and the
+   route it went out by, which is the route its release has to take. */
+const sounding = new Map();
 
 /* The piece, as it stands: what the worklet said when it loaded, and the
    tape it has delivered since. */
@@ -96,9 +114,147 @@ function mode ()
     return $('mode').value;
 }
 
-/* What the browser says it adds, and what the synth adds: a window, and
-   the quantum the worklet is asked for. The network, when there is one,
-   comes on top (JAM.md, section 2). */
+function keyChannel ()
+{
+    return Number($('keychan').value);
+}
+
+/* ---- what is sounding ---- */
+
+/* Every way of pressing a note comes here. A second press of a note
+   already down is counted and nothing else: one note, however many things
+   are holding it. */
+function press (note)
+{
+    if (synth === null)
+        return;
+
+    const already = sounding.get(note);
+
+    if (already !== undefined)
+    {
+        already.count++;
+        return;
+    }
+
+    const piecing = mode() === 'piece';
+    const channel = keyChannel();
+
+    sounding.set(note, { count: 1, piece: piecing, channel });
+
+    if (piecing)
+        synth.midiOn(note, VELOCITY, -1, channel);
+    else
+        synth.noteOn(note, VELOCITY);
+
+    keyboard?.hold(note, true);
+}
+
+/* And every way of letting go. The route is the one the press took, not
+   the one the page is in now: a mode or a channel changed under a held
+   note must not leave it sounding for ever. */
+function release (note)
+{
+    const held = sounding.get(note);
+
+    if (held === undefined || --held.count > 0)
+        return;
+
+    sounding.delete(note);
+
+    if (held.piece)
+        synth.midiOff(note, -1, held.channel);
+    else
+        synth.noteOff(note);
+
+    keyboard?.hold(note, false);
+}
+
+/* Everything, whoever is holding it: a key released while the page was not
+   looking never sends its keyup, and a mode change is about to make the
+   routes wrong. */
+function releaseAll ()
+{
+    keyboard?.releaseAll();
+    typed.clear();
+
+    for (const [note, held] of [...sounding])
+    {
+        held.count = 1;
+        release(note);
+    }
+}
+
+/* ---- the keyboard, on screen and off ---- */
+
+function showRange ()
+{
+    if (keyboard === null)
+        return;
+
+    const [low, high] = keyboard.range;
+
+    $('range').textContent = `${noteName(low)} – ${noteName(high)}`;
+}
+
+function shiftOctave (by)
+{
+    octave = Math.min(96, Math.max(12, octave + by * 12));
+
+    releaseAll();
+    keyboard?.setLowest(octave);
+    showRange();
+    showLatency();
+}
+
+/* Typing in a text box is editing, not playing -- and before Start there is
+   nothing to play into, so a key is only ever typing then. */
+function typing (e)
+{
+    return synth === null || e.ctrlKey || e.metaKey || e.altKey ||
+           (e.target instanceof Element &&
+            e.target.closest('textarea, select, input') !== null);
+}
+
+function keyDown (e)
+{
+    if (typing(e))
+        return;
+
+    if (e.code === 'Minus' || e.code === 'Equal')
+    {
+        shiftOctave(e.code === 'Equal' ? 1 : -1);
+        e.preventDefault();
+        return;
+    }
+
+    if (!(e.code in KEYS))
+        return;
+
+    e.preventDefault();
+
+    if (e.repeat || typed.has(e.code))
+        return;
+
+    const note = octave + KEYS[e.code];
+
+    typed.set(e.code, note);
+    press(note);
+}
+
+function keyUp (e)
+{
+    const note = typed.get(e.code);
+
+    if (note === undefined)
+        return;
+
+    typed.delete(e.code);
+    release(note);
+}
+
+/* ---- what the browser admits to ---- */
+
 function showLatency ()
 {
     if (ctx === null)
@@ -114,14 +270,6 @@ function showLatency ()
         `${ms(synth.windowlen / rate)}\n` +
         `worklet quantum  128 frames, ${ms(128 / rate)}\n` +
         `octave           Z = ${noteName(octave)}`;
-}
-
-function noteName (n)
-{
-    const names = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A',
-                   'A#', 'B'];
-
-    return names[n % 12] + (Math.floor(n / 12) - 1);
 }
 
 /* ---- the patch, M1 ---- */
@@ -145,16 +293,11 @@ async function loadKeyPatch ()
 
     const name = $('keypatch').value;
     const text = await (await fetch(`dsp/${name}`)).text();
-    const ok = await quietly(() => synth.load(text, keyChannel()));
+    const channel = keyChannel();
+    const ok = await quietly(() => synth.load(text, channel));
 
-    $('status').textContent =
-        ok ? `${name} on channel ${keyChannel()}. Play.`
-           : `${name} did not parse; see below.`;
-}
-
-function keyChannel ()
-{
-    return Number($('keychan').value);
+    $('status').textContent = ok ? `${name} on channel ${channel}. Play.`
+                                 : `${name} did not parse; see below.`;
 }
 
 async function pickPatch ()
@@ -180,6 +323,7 @@ async function loadPiece ()
     {
         $('status').textContent = 'That .gen did not parse; see below.';
         it.errors.forEach(log);
+        $('detail').open = true;
     }
     else
         $('status').textContent =
@@ -253,7 +397,12 @@ function showKnobs ()
             synth.knob(k.name, Number(input.value));
         });
 
-        box.append(label, input, shown);
+        /* Label, value, slider: the order a narrow screen wants, where
+           the slider takes a line of its own under the two of them. A wide
+           one puts the slider between them, which style.css does by
+           placing it in the middle column rather than by a second
+           ordering here. */
+        box.append(label, shown, input);
     }
 }
 
@@ -292,7 +441,6 @@ function draw ()
     const c = $('roll');
     const g = c.getContext('2d');
     const w = c.width, h = c.height;
-    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
 
     g.clearRect(0, 0, w, h);
 
@@ -301,7 +449,7 @@ function draw ()
     const x = (t) => (t - first) / ROLL_SECONDS * w;
     const y = (n) => h - (n - ROLL_LOW) / (ROLL_HIGH - ROLL_LOW) * h;
 
-    g.strokeStyle = dark ? '#3a3a3a' : '#dcdcdc';
+    g.strokeStyle = getComputedStyle(c).getPropertyValue('--line') || '#ddd';
     g.lineWidth = 1;
 
     for (let n = ROLL_LOW; n <= ROLL_HIGH; n += 12)
@@ -342,7 +490,7 @@ function frame ()
     requestAnimationFrame(frame);
 }
 
-/* ---- starting, and the keyboard ---- */
+/* ---- starting, and switching ---- */
 
 async function start ()
 {
@@ -396,7 +544,9 @@ async function pickMode ()
     const piecing = mode() === 'piece';
 
     $('patchmode').hidden = piecing;
+    $('patchsource').hidden = piecing;
     $('piecemode').hidden = !piecing;
+    $('piecesource').hidden = !piecing;
 
     if (synth === null)
         return;
@@ -413,75 +563,6 @@ async function pickMode ()
         piece = null;
         await loadPatch();
     }
-}
-
-/* Typing in the text box is editing, not playing. */
-function playing (e)
-{
-    return synth !== null && !e.target.closest('textarea, select, input') &&
-           !e.ctrlKey && !e.metaKey && !e.altKey;
-}
-
-function keyDown (e)
-{
-    if (!playing(e))
-        return;
-
-    if (e.code === 'Minus' || e.code === 'Equal')
-    {
-        octave = Math.min(96, Math.max(12, octave +
-                                       (e.code === 'Equal' ? 12 : -12)));
-        showLatency();
-        e.preventDefault();
-        return;
-    }
-
-    if (!(e.code in KEYS))
-        return;
-
-    e.preventDefault();
-
-    if (e.repeat || held.has(e.code))
-        return;
-
-    const note = octave + KEYS[e.code];
-
-    held.set(e.code, note);
-
-    if (mode() === 'piece')
-        synth.midiOn(note, VELOCITY, -1, keyChannel());
-    else
-        synth.noteOn(note, VELOCITY);
-}
-
-function keyUp (e)
-{
-    const note = held.get(e.code);
-
-    if (note === undefined)
-        return;
-
-    held.delete(e.code);
-
-    if (mode() === 'piece')
-        synth.midiOff(note, -1, keyChannel());
-    else
-        synth.noteOff(note);
-}
-
-/* A key released while the page was not looking never sends its keyup. */
-function releaseAll ()
-{
-    if (synth === null)
-        return;
-
-    for (const note of held.values())
-    {
-        synth.noteOff(note);
-        synth.midiOff(note, -1, keyChannel());
-    }
-
-    held.clear();
 }
 
 async function fill (select, dir, preferred)
@@ -511,6 +592,12 @@ async function init ()
     for (let c = 0; c < 16; c++)
         $('keychan').add(new Option(String(c), c, c === 0, c === 0));
 
+    keyboard = new Keyboard($('keys'),
+                            { onPress: press, onRelease: release });
+    keyboard.setLowest(octave);
+    keyboard.fit();
+    showRange();
+
     $('start').addEventListener('click', start);
     $('mode').addEventListener('change', pickMode);
 
@@ -525,9 +612,19 @@ async function init ()
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
 
+    $('down').addEventListener('click', () => shiftOctave(-1));
+    $('up').addEventListener('click', () => shiftOctave(1));
+
     window.addEventListener('keydown', keyDown);
     window.addEventListener('keyup', keyUp);
     window.addEventListener('blur', releaseAll);
+
+    /* A screen with room for the source next to the keys opens it; one
+       without keeps it folded, since on a phone it is most of the page.
+       Asked once, at load: this is a starting point and not a rule, and
+       the fold is the reader's from here on. */
+    if (matchMedia('(min-width: 60em)').matches)
+        $('patchsource').open = $('piecesource').open = true;
 
     requestAnimationFrame(frame);
 }

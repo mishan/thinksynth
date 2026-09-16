@@ -178,9 +178,12 @@ In a browser
 ------------
 
 The same engine compiled to WebAssembly and playing in a tab. Two things to
-play: a patch — one `.dsp` in a text box, the computer keyboard as the
-keyboard — and a piece, a `.gen` composed as it plays, with the knobs it
-declares as sliders and a piano roll of what it delivered.
+play: a patch — one `.dsp` — and a piece, a `.gen` composed as it plays,
+with the knobs it declares as sliders and a piano roll of what it
+delivered. Either is played from the keys on screen or from the computer
+keyboard, and the page works on a phone: the keys take as many octaves as
+the screen has room for, several fingers at once, and a phone held sideways
+keeps them under the thumbs while the rest of the page scrolls past.
 
 All of it is one AudioWorklet: libthink, all 62 DSP plugins, all 16
 composers and the composer scheduler in one wasm module, with the transport
@@ -213,9 +216,10 @@ cmake --build build-web -j
 node wasm/web/serve.mjs            # http://localhost:8080/
 ```
 
-Press **Start** and play: `Z` to `/` is an octave and a bit from C, `Q` to
-`P` the octave above, and `-` and `=` move both. Edit the `.dsp` and press
-**Load** to hear the change.
+Press **Start** and play — touch or click the keys, or use the computer
+keyboard: `Z` to `/` is an octave and a bit from C, `Q` to `P` the octave
+above, and `-` and `=` move both, as do the arrows beside the keys. Open
+**Patch source** to edit the `.dsp`, and **Load** to hear the change.
 
 Switch **Play** to *a piece* for the other half: pick one of the shipped
 `.gen` files, **Load**, **Play**. The sliders are whatever knobs the piece

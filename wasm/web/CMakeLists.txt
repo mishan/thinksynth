@@ -216,7 +216,8 @@ target_link_options(thinkweb PRIVATE
 # tape.mjs is wasm/'s, not this directory's: the worklet reads the tape out
 # of the heap with the same code genwav.mjs does, which is what makes
 # comparing the two tapes a claim about the piece (wasm/twevent.h).
-set(SITE_SOURCES index.html main.js host.js worklet.js ../tape.mjs)
+set(SITE_SOURCES index.html style.css main.js keyboard.js host.js
+                worklet.js ../tape.mjs)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)

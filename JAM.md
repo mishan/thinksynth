@@ -133,7 +133,18 @@ starts where that ends:
   ways of printing a number.
 - The page has a piece mode: the `.gen` in a text box, the shipped pieces
   in a menu, Play/Stop/Rewind, the knobs the piece declared as sliders, and
-  a piano roll of what came back. It is a mode and not a second panel
+  a piano roll of what came back.
+- And keys on screen, in both modes, so the thing is playable on a device
+  with no keyboard to borrow. An `<svg>` whose viewBox is in key units --
+  a white key is 1 wide -- so the same widget is two octaves on a phone and
+  four on a desktop, with the keys a finger wide either way rather than the
+  same fraction of two different screens. Several fingers at once, a drag
+  across the keys as a glissando, and one press/release path shared with
+  the computer keyboard: a note held by both is one note, and a note is
+  released by the route it was pressed by, even if the mode or the channel
+  moved under it. The page itself folds its source boxes away on a narrow
+  screen and pins the keys to the bottom of a short one, which is what a
+  phone held sideways to play needs. It is a mode and not a second panel
   because a piece takes the channels it asks for and the first of those is
   channel 0, where the keyboard's patch was -- deliberately, since a
   `setChannelTaken` hook would move every instrument by one and the tape
