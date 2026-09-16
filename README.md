@@ -230,16 +230,46 @@ declared and move it as it runs; the roll is what the scheduler has
 delivered, a colour per channel. The keyboard still plays, into whatever
 chains the piece routed `input midi` to.
 
+Under the roll is a line for each channel the piece touches. A piece that
+carries its own instruments has aimed them itself and says so. One whose
+sinks just name channels — `fern.gen` asks for something plucked and a soft
+pad — is asking the reader to aim them, and the page fills each from the
+same patch the desktop's first run puts there, so the piece sounds without
+being set up; the menu on its line is every shipped `.patch` and `.dsp` if
+you want something else. What a channel sounds like is the piece's to say
+and, where the piece is silent, the defaults' — never what the page did a
+moment ago. [AIMING.md](AIMING.md) is the argument.
+
 It has to be served, and to localhost: a worklet module will not load from
 a `file://` path, and a browser counts https and localhost as secure
 contexts and nothing else. To play it from another machine, forward the
 port — `ssh -L 8080:localhost:8080 host` — rather than serving on 0.0.0.0,
-which its browser will not trust. The build directory is the whole site,
-around 4 MB, and can be copied anywhere that serves files over https.
+which its browser will not trust.
 
 `node` comes with the emsdk, on `PATH` after `emsdk_env.sh`; Debian's
 `nodejs` package does as well. Configuring fetches sigc++, so the first
 run needs the network.
+
+### Putting it somewhere else
+
+The build directory is the whole site and `serve.mjs` serves it where it
+stands. To host it anywhere else, package it first:
+
+```sh
+cmake --build build-web --target dist
+```
+
+which writes `build-web/dist/` — the files a server needs and no others,
+around 4 MB, every file 644 and every directory 755 — after removing
+whatever an earlier `dist` left, so a stale file cannot ride along. Copy
+*that*. For a destination of your own, `cmake --install build-web --prefix
+DIR` is the same rules with the prefix as the site root, putting
+`index.html` at `DIR/index.html`.
+
+Not a copy of the build directory: it carries the object files and CMake's
+own state, and copying keeps each file's mode from the source tree, so a
+`.dsp` that is 640 here is 640 on the server and a 403 in the browser —
+which the page then loads as an HTML error page and fails to parse.
 
 ### Playing together
 
@@ -282,7 +312,11 @@ seeded piece in it — at 48 kHz and 44.1, in windows of 256 and of 128 — and
 diffs each tape against the one `genwav.mjs` delivers under Node, where the
 plugins are dlopened rather than linked in and the transport is stepped by a
 fixed clock in windows of 1024. All four have to agree, because what a piece
-composes is a function of the file and the seed and of nothing else.
+composes is a function of the file and the seed and of nothing else. It then
+plays every shipped piece the way the page plays it, defaults and all, and
+asks for a peak: a tape says what was composed and not whether any of it was
+audible, and a piece that is silent under the page's defaults fails the
+build.
 `wasm/web/browsertest.mjs` runs both of those through the worklet in
 Chromium and Firefox, `wasm/web/pagetest.mjs` drives the solo page's own
 keys and knobs in Chromium, and `wasm/web/bench.mjs` reports what one
@@ -307,5 +341,6 @@ Documentation
 | [VISUALIZERS.md](VISUALIZERS.md) | writing a visual module, and how probes work |
 | [PORTING.md](PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
 | [JAM.md](JAM.md) | playing together in a browser: the plan, milestones and risks |
+| [AIMING.md](AIMING.md) | what a channel sounds like in the page, and who decides it |
 | [PACKAGING.md](PACKAGING.md) | the three install layouts, dependency closure, GTK bundling, Flatpak |
 | [TODO](TODO) | what is left |
