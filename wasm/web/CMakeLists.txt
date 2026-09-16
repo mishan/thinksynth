@@ -95,18 +95,21 @@ foreach(p IN LISTS STATIC_PLUGINS)
   string(APPEND rows "    TH_ROW(\"${p}\", dsp_${id}),\n")
 endforeach()
 
+# Every export a composer may have is declared for every composer, weak:
+# the address of one the plugin did not define links as a null, and a null
+# in the table is what thcPlugin reads as "not offered" -- the same answer
+# dlopen gives for a module without the symbol. So which exports a composer
+# has is decided by what it compiled, not by a scan of how it spelled them.
 foreach(c IN LISTS STATIC_COMPOSERS)
-  get_property(exports GLOBAL PROPERTY THINK_STATIC_COMPOSER_${c})
-
   string(APPEND decls "extern \"C\" {\n")
   string(APPEND syms
 "const thStaticSymbol com_${c}[] = {
     { \"composer_apiversion\", &composerVersion_ },
 ")
 
-  foreach(ex IN LISTS exports)
+  foreach(ex IN LISTS THINK_COMPOSER_EXPORTS)
     string(REPLACE "@" "thc_${c}_${ex}" proto "${THINK_COMPOSER_PROTO_${ex}}")
-    string(APPEND decls "    ${proto};\n")
+    string(APPEND decls "    ${proto} __attribute__((weak));\n")
     string(APPEND syms
            "    { \"composer_${ex}\", (void *)&thc_${c}_${ex} },\n")
   endforeach()
@@ -159,23 +162,17 @@ const size_t thStaticComposerCount =
 # The module
 # ---------------------------------------------------------------------------
 
-# The composer host is src/CMakeLists.txt's think_composerhost, borrowed the
-# way wasm/CMakeLists.txt borrows it and for the same reason: that file
-# builds the application. shim/ stands in for glibmm -- see wasm/shim/
-# glibmm.h; the scheduler asks glib for a monotonic clock it does not use
-# here and hangs a timeout that never fires, because the audio clock steps
-# it (JAM.md section 3, and SCHEDULER_PLACEMENT.md for why here and not on
-# the main thread).
+# The composer host is ../cmake/ThinkEmscripten.cmake's list, shared with
+# the Node build. shim/ stands in for glibmm -- see wasm/shim/glibmm.h; the
+# scheduler asks glib for a monotonic clock it does not use here and hangs
+# a timeout that never fires, because the audio clock steps it (JAM.md
+# section 3, and SCHEDULER_PLACEMENT.md for why here and not on the main
+# thread).
 add_executable(thinkweb
     ${STATIC_SOURCES}
     "${PROJECT_BINARY_DIR}/static/registry.cpp"
     "${THINK_TOP}/src/gthSynthSource.cpp"
-    "${THINK_TOP}/src/thcPlugin.cpp"
-    "${THINK_TOP}/src/thcScheduler.cpp"
-    "${THINK_TOP}/src/thcNodeHost.cpp"
-    "${THINK_TOP}/src/thcGenFile.cpp"
-    "${THINK_TOP}/src/thcGenEdit.cpp"
-    "${THINK_TOP}/wasm/glib.cpp"
+    ${THINK_COMPOSERHOST_SOURCES}
     thinkweb.cpp)
 
 target_include_directories(thinkweb PRIVATE

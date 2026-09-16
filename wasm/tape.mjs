@@ -73,6 +73,28 @@ export function drain (M, out = [])
     return out;
 }
 
+/* The loader's complaints after a load that returned 0: what did not parse,
+   in its own words and with line numbers. The same three calls in every
+   host that loads a piece, so they are made here. */
+export function loadErrors (M)
+{
+    const errors = [];
+
+    for (let i = 0; i < M._tw_error_count(); i++)
+        errors.push(M.UTF8ToString(M._tw_error(i)));
+
+    return errors;
+}
+
+/* Does a .gen pin its seed? `seed N;' as a statement of its own, wherever
+   on the line it starts (thcGenFile.cpp). One answer for every gate that
+   asks, so the pieces the native-against-wasm comparison covers are the
+   pieces the browser-against-genwav one covers. */
+export function seeded (text)
+{
+    return /^\s*seed\s+\d+\s*;/m.test(text);
+}
+
 /* printf("%.<n>f", x). toFixed(100) is the double's exact decimal expansion
    for anything genwav prints, and the rounding is then done here, half to
    even, which is what glibc does with an exact tie. */

@@ -51,12 +51,12 @@ endfunction()
 # the include, and the table looks the plugin up under those. The namespace
 # stays, for everything else the file has at file scope.
 #
-# Which exports this one has is read off its source: the export names it
-# spells at the start of a line, which is how every composer in the tree is
-# written. One that grows an export is picked up here and declared with no
-# edit; one that has lost a mandatory entry point is refused at load, by
-# thcPlugin, exactly as a module missing it would be. THINK_COMPOSER_EXPORTS
-# and the prototypes are CMakeLists.txt's, where the table is written.
+# Which exports this one has is not read here. The table declares every
+# name a composer may export, weak, and one the plugin did not define comes
+# out null (CMakeLists.txt, where the table is written): what the plugin
+# compiled decides, not how it spelled it. One that has lost a mandatory
+# entry point is refused at load, by thcPlugin, exactly as a module missing
+# it would be. THINK_COMPOSER_EXPORTS and the prototypes are CMakeLists.txt's.
 #
 # composer_draw is not among them. It is the one export that cannot run in
 # a worklet -- no canvas, and no cairo to link (JAM.md section 3a) -- so
@@ -67,21 +67,10 @@ function(think_add_composer name)
   set(src "${CMAKE_CURRENT_SOURCE_DIR}/composer/${name}.cpp")
   set(wrapper "${PROJECT_BINARY_DIR}/static/composer_${name}.cpp")
 
-  # Which exports it has is read here, at configure time, so a composer
-  # that gains or loses one has to be configured against again.
-  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${src}")
-
   set(defines "")
-  set(exports "")
 
   foreach(ex IN LISTS THINK_COMPOSER_EXPORTS)
     string(APPEND defines "#define composer_${ex} thc_${name}_${ex}\n")
-
-    file(STRINGS "${src}" found REGEX "^composer_${ex} +\\(")
-
-    if(found)
-      list(APPEND exports "${ex}")
-    endif()
   endforeach()
 
   string(APPEND defines "#define composer_draw thc_${name}_draw\n")
@@ -100,7 +89,6 @@ namespace thc_${name} {
 
   set_property(GLOBAL APPEND PROPERTY THINK_STATIC_SOURCES "${wrapper}")
   set_property(GLOBAL APPEND PROPERTY THINK_STATIC_COMPOSERS "${name}")
-  set_property(GLOBAL PROPERTY THINK_STATIC_COMPOSER_${name} "${exports}")
 
   # plugins/CMakeLists.txt links cairo into eight of these by target name,
   # and a name that is no target is an error. An object library nothing

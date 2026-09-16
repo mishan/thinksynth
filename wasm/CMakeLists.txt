@@ -57,15 +57,10 @@ include(ThinkEmscripten)
 # The main module
 # ---------------------------------------------------------------------------
 
-# The composer host is src/CMakeLists.txt's think_composerhost, which cannot
-# be borrowed the way the others are: that file builds the application.
+# The composer host is cmake/ThinkEmscripten.cmake's list, shared with the
+# browser build.
 add_executable(thinksynth
-    "${THINK_TOP}/src/thcPlugin.cpp"
-    "${THINK_TOP}/src/thcScheduler.cpp"
-    "${THINK_TOP}/src/thcNodeHost.cpp"
-    "${THINK_TOP}/src/thcGenFile.cpp"
-    "${THINK_TOP}/src/thcGenEdit.cpp"
-    glib.cpp
+    ${THINK_COMPOSERHOST_SOURCES}
     thinkwasm.cpp)
 
 # shim/ stands in for glibmm; see shim/glibmm.h.

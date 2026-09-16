@@ -26,7 +26,7 @@
  * shipped patch and every shipped piece without a browser at all.
  */
 
-import { drain, tapeLine } from '../tape.mjs';
+import { drain, loadErrors, tapeLine } from '../tape.mjs';
 
 /* A fresh module per render: a fresh synth, and a fresh plugin load, which
    is what restarts osc::static's noise. */
@@ -66,20 +66,20 @@ export async function renderDirect (createThinkWeb,
     return { ok, log, out, windowlen: took };
 }
 
-/* A .gen, composed for `seconds' of transport, and the tape it delivered.
- *
- * The worklet's loop with the audio taken out: the same module, the same
- * per-block calls, the transport stepped once per window inside tw_render
- * exactly as it is under a real audio thread. What comes back is the tape
- * as text, written the way genwav writes it, which is the thing M2's gate
- * compares (JAM.md, section 6).
+/* A fresh module with a piece loaded into it, the way the page does it:
+ * the synth made at the rate and window asked for, the .dsp files a piece
+ * may name handed over first, then the .gen. `ok' says whether it parsed
+ * and `errors' are the loader's own words when it did not.
  *
  * `instruments' is the .dsp files by name; a piece's instruments are
- * looked up among them, and the module has no other way to reach a file. */
-export async function playPiece (createThinkWeb,
+ * looked up among them, and the module has no other way to reach a file.
+ *
+ * One function, because every harness here and the bench start this way
+ * and a load that gained a step -- a seed to agree on, say -- would
+ * otherwise have to gain it in each. */
+export async function loadPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
-                                   block = 128, gen, instruments = {},
-                                   seconds = 60, knobs = [] })
+                                   block = 128, gen, instruments = {} })
 {
     const log = [];
     const M = await createThinkWeb({
@@ -87,29 +87,43 @@ export async function playPiece (createThinkWeb,
         printErr: (s) => log.push(s),
     });
 
-    const took = M._tw_create(rate, windowlen, block);
+    const windowTaken = M._tw_create(rate, windowlen, block);
 
     for (const [name, text] of Object.entries(instruments))
         M.ccall('tw_instrument', 'number', ['string', 'string'],
                 [name, text]);
 
-    if (M.ccall('tw_piece_load', 'number', ['string'], [gen]) === 0)
-    {
-        const errors = [];
+    const ok = M.ccall('tw_piece_load', 'number', ['string'], [gen]) !== 0;
 
-        for (let i = 0; i < M._tw_error_count(); i++)
-            errors.push(M.UTF8ToString(M._tw_error(i)));
+    return { M, ok, log, errors: ok ? [] : loadErrors(M),
+             windowlen: windowTaken };
+}
 
-        return { ok: false, log, errors, tape: '' };
-    }
+/* A .gen, composed for `seconds' of transport, and the tape it delivered.
+ *
+ * The worklet's loop with the audio taken out: the same module, the same
+ * per-block calls, the transport stepped once per window inside tw_render
+ * exactly as it is under a real audio thread. What comes back is the tape
+ * as text, written the way genwav writes it, which is the thing M2's gate
+ * compares (JAM.md, section 6). */
+export async function playPiece (createThinkWeb,
+                                 { rate = 48000, windowlen = 256,
+                                   block = 128, gen, instruments = {},
+                                   seconds = 60, knobs = [] })
+{
+    const { M, ok, log, errors, windowlen: took } =
+        await loadPiece(createThinkWeb,
+                        { rate, windowlen, block, gen, instruments });
+
+    if (!ok)
+        return { ok, log, errors, tape: '' };
 
     /* Stamped at -1: the next window, which is where the page's Play lands
-       too. Everything else about a knob is a knob's own business. */
+       too. A knob is named by its index, as the page names it. */
     M._tw_transport(-1, 0, 0);
 
     for (const k of knobs)
-        M.ccall('tw_knob', null, ['number', 'string', 'number'],
-                [-1, k.name, k.value]);
+        M._tw_knob(-1, k.knob, k.value);
 
     let tape = '';
 
@@ -149,27 +163,12 @@ export async function playAt (createThinkWeb,
                                 gen, instruments = {}, patches = {},
                                 keys = [], seconds = 10 })
 {
-    const log = [];
-    const M = await createThinkWeb({
-        print: (s) => log.push(s),
-        printErr: (s) => log.push(s),
-    });
+    const { M, ok, log, errors } =
+        await loadPiece(createThinkWeb,
+                        { rate, windowlen, block, gen, instruments });
 
-    M._tw_create(rate, windowlen, block);
-
-    for (const [name, text] of Object.entries(instruments))
-        M.ccall('tw_instrument', 'number', ['string', 'string'],
-                [name, text]);
-
-    if (M.ccall('tw_piece_load', 'number', ['string'], [gen]) === 0)
-    {
-        const errors = [];
-
-        for (let i = 0; i < M._tw_error_count(); i++)
-            errors.push(M.UTF8ToString(M._tw_error(i)));
-
-        return { ok: false, log, errors, events: [], peak: 0 };
-    }
+    if (!ok)
+        return { ok, log, errors, events: [], peak: 0 };
 
     for (const [channel, text] of Object.entries(patches))
         M.ccall('tw_load', 'number', ['number', 'string'],

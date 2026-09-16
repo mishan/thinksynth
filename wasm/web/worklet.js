@@ -39,7 +39,7 @@
  */
 
 import createThinkWeb from './thinkweb.mjs';
-import { drain } from './tape.mjs';
+import { drain, loadErrors } from './tape.mjs';
 
 /* How many 128-frame quanta between posts to the page: 43 ms at 48 kHz. */
 const TAPE_EVERY = 16;
@@ -82,6 +82,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.early = [];        /* messages that arrived before the module */
         this.quanta = 0;        /* since the last post to the page */
         this.events = [];
+        this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
 
         /* A message this side could not take -- a module that did not
@@ -130,6 +131,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         const took = M._tw_create(sampleRate, windowlen, 128);
 
         this.M = M;
+        this.epoch = M._tw_epoch();
         this.port.postMessage({ type: 'ready', windowlen: took, sampleRate });
 
         for (const m of this.early.splice(0))
@@ -178,7 +180,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                 /* Checked, because an op this does not know would reach
                    the module as undefined, arrive as zero and start the
                    transport -- a typo that plays the piece. */
-                if (!(m.op in TRANSPORT))
+                if (!Object.hasOwn(TRANSPORT, m.op))
                 {
                     /* A log and not an `error': that one is the start
                        failing, and rejects the page's promise. */
@@ -191,8 +193,7 @@ class ThinkProcessor extends AudioWorkletProcessor
                 this.M._tw_transport(m.frame, TRANSPORT[m.op], m.value ?? 0);
                 break;
             case 'knob':
-                this.M.ccall('tw_knob', null, ['number', 'string', 'number'],
-                             [m.frame, m.name, m.value]);
+                this.M._tw_knob(m.frame, m.knob, m.value);
                 break;
             case 'midion':
                 this.M._tw_midi_on(m.frame, m.channel, m.note, m.velocity);
@@ -227,24 +228,23 @@ class ThinkProcessor extends AudioWorkletProcessor
     piece (ok)
     {
         if (!ok)
-        {
-            const errors = [];
+            return { errors: loadErrors(this.M), name: '', description: '',
+                     knobs: [] };
 
-            for (let i = 0; i < this.M._tw_error_count(); i++)
-                errors.push(this.M.UTF8ToString(this.M._tw_error(i)));
-
-            return { errors, name: '', description: '', knobs: [] };
-        }
-
+        /* `knob' is the index a command names it by; the list is every
+           knob the piece declared, hidden ones included, so the index is
+           the module's own. */
         const knobs = [];
 
         for (let i = 0; i < this.M._tw_knob_count(); i++)
             if (this.M._tw_knob_shown(i))
                 knobs.push({
+                    knob:  i,
                     name:  this.M.UTF8ToString(this.M._tw_knob_name(i)),
                     label: this.M.UTF8ToString(this.M._tw_knob_label(i)),
                     min:   this.M._tw_knob_min(i),
                     max:   this.M._tw_knob_max(i),
+                    step:  this.M._tw_knob_step(i),
                     value: this.M._tw_knob_value(i),
                 });
 
@@ -278,6 +278,21 @@ class ThinkProcessor extends AudioWorkletProcessor
                 ch[i] = heap[src + i * 2];
         }
 
+        /* A rewind or a load inside the batch: what is held so far is
+           the old run's, and goes out under the old run's epoch before
+           anything from the new one joins it -- posted together, the page
+           would clear its roll for the new epoch and then draw the old
+           notes into it. */
+        const epoch = this.M._tw_epoch();
+
+        if (epoch !== this.epoch)
+        {
+            if (this.events.length > 0)
+                this.postTape();
+
+            this.epoch = epoch;
+        }
+
         /* Drained every quantum and posted every TAPE_EVERY: the module
            holds the events until somebody takes them, and letting a minute
            of a busy piece pile up there would be a megabyte nobody asked
@@ -296,7 +311,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.port.postMessage({
             type: 'tape',
             now: this.M._tw_now(),
-            epoch: this.M._tw_epoch(),
+            epoch: this.epoch,
             running: this.M._tw_running() !== 0,
             events: this.events,
         });

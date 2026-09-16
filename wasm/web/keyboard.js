@@ -201,24 +201,28 @@ export class Keyboard
         /* Whites first and blacks over them, which is the order a pointer
            is hit-tested in too: a finger on the overlap is on the black
            key, as it is on a piano. */
+        /* And none past MIDI's last note: four octaves from a high C
+           would reach 144, and a key nothing can play is left undrawn. */
         for (let i = 0; i <= wide; i++)
         {
             const octave = Math.floor(i / PER_OCTAVE);
             const note = this.lowest + octave * 12 + WHITE[i % PER_OCTAVE];
 
-            rect(WHITE[i % PER_OCTAVE] === 0 ? 'white c' : 'white',
-                 note, i, 0, 1, tall);
+            if (note <= 127)
+                rect(WHITE[i % PER_OCTAVE] === 0 ? 'white c' : 'white',
+                     note, i, 0, 1, tall);
         }
 
         for (let o = 0; o < this.octaves; o++)
             for (let k = 0; k < BLACK.length; k++)
-                rect('black', this.lowest + o * 12 + BLACK[k],
-                     o * PER_OCTAVE + BLACK_AT[k], 0, BLACK_W,
-                     BLACK_H * tall);
+                if (this.lowest + o * 12 + BLACK[k] <= 127)
+                    rect('black', this.lowest + o * 12 + BLACK[k],
+                         o * PER_OCTAVE + BLACK_AT[k], 0, BLACK_W,
+                         BLACK_H * tall);
 
         /* Every C named, which is as much as fits and as much as anyone
            needs to find where they are. */
-        for (let o = 0; o <= this.octaves; o++)
+        for (let o = 0; o <= this.octaves && this.lowest + o * 12 <= 127; o++)
         {
             const t = document.createElementNS(SVG, 'text');
 

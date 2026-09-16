@@ -50,6 +50,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
+import { seeded as pinsSeed } from './tape.mjs';
+
 const here = path.dirname(fileURLToPath(import.meta.url));
 const top = path.resolve(here, '..');
 
@@ -135,7 +137,7 @@ function describeTape (a, b)
 
 function seeded (file)
 {
-    return /^\s*seed\b/m.test(fs.readFileSync(file, 'utf8'));
+    return pinsSeed(fs.readFileSync(file, 'utf8'));
 }
 
 function main (args)

@@ -177,10 +177,27 @@ async function pieceInBrowser (page, gen, dsps, windowlen)
     }, { gen, dsps, windowlen, seconds: SECONDS, rate: RATE });
 }
 
+/* The reference tapes are genwav.mjs's, out of the Node module: checked
+   for up front, as piececheck.mjs checks, rather than found missing by an
+   uncaught throw halfway through the first browser. */
+if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
+{
+    process.stdout.write(
+        `browsertest: no Node module in ${nodeBuild}. It is the tape the ` +
+        'pieces are compared against;\n             build it first -- ' +
+        'see the top of wasm/CMakeLists.txt.\n');
+    process.exit(1);
+}
+
 const server = await serve(build, 0);
 const url = `http://127.0.0.1:${server.address().port}/`;
 const dsps = instruments(build);
 let failed = 0;
+
+/* Once, not once per browser: a minute of each piece rendered under Node. */
+const seededPieces = pieces(build).filter((p) => p.seeded);
+const references = new Map(
+    seededPieces.map((p) => [p.name, reference(p.name, nodeBuild)]));
 
 for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
 {
@@ -254,12 +271,9 @@ for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
                                  `identical, peak ${peak.toFixed(3)}\n`);
     }
 
-    for (const piece of pieces(build))
+    for (const piece of seededPieces)
     {
-        if (!piece.seeded)
-            continue;
-
-        const want = reference(piece.name, nodeBuild);
+        const want = references.get(piece.name);
         const cells = [];
 
         for (const windowlen of WINDOWS)

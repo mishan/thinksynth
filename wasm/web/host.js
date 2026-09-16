@@ -159,8 +159,9 @@ export async function createSynth (ctx, { windowlen = 256,
         transport: (op, value = 0, frame = -1) =>
             node.port.postMessage({ type: 'transport', op, value, frame }),
 
-        knob: (name, value, frame = -1) =>
-            node.port.postMessage({ type: 'knob', name, value, frame }),
+        /* `knob' is the index loadPiece reported the knob under. */
+        knob: (knob, value, frame = -1) =>
+            node.port.postMessage({ type: 'knob', knob, value, frame }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel

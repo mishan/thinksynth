@@ -62,7 +62,6 @@
 
 #include <stdint.h>
 #include <stdio.h>
-#include <string.h>
 #include <sys/stat.h>
 
 #include <algorithm>
@@ -132,12 +131,6 @@ enum TransportOp
     TW_TEMPO,
 };
 
-/* A knob's name, copied into the command rather than pointed at: the queue
-   outlives the call that made it and must not allocate on the audio thread.
-   Longer than any knob the shipped pieces declare, and a longer one is
-   truncated rather than overrunning. */
-#define TW_NAME 48
-
 struct Command
 {
     double frame;
@@ -146,7 +139,7 @@ struct Command
     int    channel;             /* CMD_NOTE_*, CMD_MIDI_*              */
     float  note, velocity;      /* CMD_NOTE_*, CMD_MIDI_*              */
     double value;               /* CMD_KNOB's value, CMD_TRANSPORT's   */
-    char   name[TW_NAME];       /* CMD_KNOB                            */
+    int    knob;                /* CMD_KNOB: an index into knobs_      */
 };
 
 /* Room for this many commands in flight before the queue has to grow. */
@@ -242,18 +235,18 @@ void applyDue (double start, int len)
                 break;
 
             case CMD_KNOB:
-            {
                 /* setValue is the whole knob path: every param bound to it
                    reads through it, and the scheduler has the changed
                    signal wired to whatever rebuilding or re-arming that
-                   implies (thcScheduler::bindKnob). */
-                thArg *knob = sched_->knob(c.name);
-
-                if (knob != NULL)
-                    knob->setValue((float)c.value);
+                   implies (thcScheduler::bindKnob). By index into the
+                   list the page was handed at the load: a name would have
+                   to be copied into the command, and a copy has a length,
+                   and a knob whose name ran past it was silently never
+                   moved. */
+                if (c.knob >= 0 && c.knob < (int)knobs_.size())
+                    knobs_[c.knob]->setValue((float)c.value);
 
                 break;
-            }
         }
     }
 
@@ -364,7 +357,13 @@ EMSCRIPTEN_KEEPALIVE int tw_load (int channel, const char *text)
     if (!writeFile(TW_PATCH_FILE, text))
         return 0;
 
-    pending_.clear();
+    /* The queue is left alone. It used to be cleared here, when it held
+       nothing but notes for the patch being replaced; now it also holds
+       the stop a mode switch posts just ahead of this load and the
+       releases of keys held into a piece, and clearing those left the
+       piece running under patch mode and an arpeggiator holding a chord
+       for ever. A note stamped for the old patch plays on the new one,
+       which is nothing. */
 
     /* At the level the Patch Selector loads one at, on MIDI's 0..127 --
        gthPatchfile.cpp says why that level is where it is. */
@@ -494,6 +493,12 @@ EMSCRIPTEN_KEEPALIVE double tw_knob_value (int k)
     return k >= 0 && k < (int)knobs_.size() ? (*knobs_[k])[0] : 0;
 }
 
+/* `@x.step = 1', or 0 for a knob the piece left continuous. */
+EMSCRIPTEN_KEEPALIVE double tw_knob_step (int k)
+{
+    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->step() : 0;
+}
+
 /* ---- stamped commands ---- */
 
 EMSCRIPTEN_KEEPALIVE void tw_note_on (double frame, int channel, float note,
@@ -533,16 +538,16 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
     push(c);
 }
 
-EMSCRIPTEN_KEEPALIVE void tw_knob (double frame, const char *name,
-                                   double value)
+/* Knob `k' of the loaded piece -- tw_knob_count's numbering -- to `value'.
+   An index outside the list is ignored. */
+EMSCRIPTEN_KEEPALIVE void tw_knob (double frame, int k, double value)
 {
     Command c = {};
 
     c.frame = frame;
     c.type = CMD_KNOB;
+    c.knob = k;
     c.value = value;
-
-    strncpy(c.name, name, TW_NAME - 1);
 
     push(c);
 }

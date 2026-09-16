@@ -51,6 +51,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { instruments, pieces } from './piececheck.mjs';
+import { loadPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const build = path.resolve(process.argv[2] ??
@@ -78,16 +79,13 @@ const ms = (x) => `${x.toFixed(3)} ms`;
 
 async function run (gen, dsps, chord)
 {
-    const M = await createThinkWeb({ print: () => {}, printErr: () => {} });
+    const { M, ok, errors } =
+        await loadPiece(createThinkWeb, { rate: RATE, windowlen: WINDOW,
+                                          block: QUANTUM, gen,
+                                          instruments: dsps });
 
-    M._tw_create(RATE, WINDOW, QUANTUM);
-
-    for (const [name, text] of Object.entries(dsps))
-        M.ccall('tw_instrument', 'number', ['string', 'string'],
-                [name, text]);
-
-    if (M.ccall('tw_piece_load', 'number', ['string'], [gen]) === 0)
-        return null;
+    if (!ok)
+        return { errors };
 
     M._tw_transport(-1, 0, 0);
 
@@ -102,6 +100,7 @@ async function run (gen, dsps, chord)
     let nextChord = 0;
     let down = false;
     let worst = 0, worstAt = 0;
+    let moving = 0;             /* the worst after the first quantum */
 
     while (M._tw_now() < SECONDS)
     {
@@ -135,10 +134,14 @@ async function run (gen, dsps, chord)
             worstAt = at;
         }
 
+        if (at > 0 && took > moving)
+            moving = took;
+
         times[taken++] = took;
     }
 
-    return { times: times.subarray(0, taken).sort(), notes, worst, worstAt };
+    return { times: times.subarray(0, taken).sort(), notes, worst, worstAt,
+             moving };
 }
 
 const budget = QUANTUM / RATE * 1000;
@@ -163,9 +166,10 @@ for (const piece of pieces(build))
     {
         const r = await run(piece.text, dsps, chord);
 
-        if (r === null)
+        if (r.errors !== undefined)
         {
-            process.stdout.write(`${piece.name}: did not load\n`);
+            process.stdout.write(`${piece.name}: did not load -- ` +
+                                 `${r.errors.join('; ')}\n`);
             continue;
         }
 
@@ -190,14 +194,17 @@ const top = rows[0];
 /* The first quantum of a run is the one that builds every instrument's
    graph, and the transport has not moved when it does. Told apart from the
    rest because it is the one expensive step nobody can hear: it lands
-   before there is any audio for it to interrupt. */
-const running = rows.filter((r) => r.worstAt > 0)
-                    .sort((a, b) => b.worst - a.worst)[0];
+   before there is any audio for it to interrupt. Each run's worst *after*
+   that quantum, rather than the runs whose worst happened not to be it --
+   on a machine where every first quantum is the worst there would be no
+   such run, and on any other a run's second-worst was being thrown away
+   with its first. */
+const running = [...rows].sort((a, b) => b.moving - a.moving)[0];
 
 process.stdout.write(
     `\nworst of all: ${top.name} at ${top.worst.toFixed(3)} ms, ` +
     `${(top.worst / budget * 100).toFixed(1)}% of the quantum, ` +
     `${top.worstAt.toFixed(2)} s in\n` +
     `worst once the transport is moving: ${running.name} at ` +
-    `${running.worst.toFixed(3)} ms, ` +
-    `${(running.worst / budget * 100).toFixed(1)}% of the quantum\n`);
+    `${running.moving.toFixed(3)} ms, ` +
+    `${(running.moving / budget * 100).toFixed(1)}% of the quantum\n`);

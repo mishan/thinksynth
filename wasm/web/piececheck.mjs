@@ -57,11 +57,12 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { tapeBefore } from '../tape.mjs';
+import { seeded, tapeBefore } from '../tape.mjs';
 import { playAt, playPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -99,8 +100,7 @@ export function instruments (buildDir)
     return out;
 }
 
-/* Every shipped piece, and whether it pins a seed. `seed N;' at the start of
-   a line is the whole of the syntax (thcGenFile.cpp). */
+/* Every shipped piece, and whether it pins a seed. */
 export function pieces (buildDir)
 {
     const dir = path.join(buildDir, 'gen');
@@ -110,7 +110,7 @@ export function pieces (buildDir)
         {
             const text = fs.readFileSync(path.join(dir, name), 'utf8');
 
-            return { name, text, seeded: /^seed\s+\d+\s*;/m.test(text) };
+            return { name, text, seeded: seeded(text) };
         });
 }
 
@@ -118,7 +118,10 @@ export function pieces (buildDir)
    module, a different loader, a different step. */
 export function reference (name, nodeBuildDir)
 {
-    const tape = path.join(nodeBuildDir, `${name}.tape`);
+    /* A file of its own, so two of these gates running at once -- this
+       one and browsertest.mjs, say -- do not read each other's tapes. */
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'thinksynth-tape-'));
+    const tape = path.join(dir, `${name}.tape`);
 
     execFileSync('node',
                  [path.join(here, '..', 'genwav.mjs'),
@@ -129,7 +132,7 @@ export function reference (name, nodeBuildDir)
 
     const text = fs.readFileSync(tape, 'utf8');
 
-    fs.rmSync(tape, { force: true });
+    fs.rmSync(dir, { recursive: true, force: true });
 
     return tapeBefore(text, SECONDS);
 }

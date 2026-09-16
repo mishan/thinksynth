@@ -136,5 +136,19 @@ set(THINK_LIB_MINOR 0)
 set(THINK_BUILD_STATIC_LIB OFF)
 set(THINK_PKG_LIB_DIR "${CMAKE_INSTALL_LIBDIR}")
 
+# The composer host: src/CMakeLists.txt's think_composerhost, which cannot
+# be borrowed the way libthink/ and plugins/ are, since that file builds the
+# application. Named here once for the two builds that compile it
+# themselves -- wasm/ for Node and wasm/web/ for the worklet -- so the two
+# wasm hosts M2's gate compares cannot be built from different source sets.
+# glib.cpp and shim/ stand in for glibmm; see shim/glibmm.h.
+set(THINK_COMPOSERHOST_SOURCES
+    "${THINK_TOP}/src/thcPlugin.cpp"
+    "${THINK_TOP}/src/thcScheduler.cpp"
+    "${THINK_TOP}/src/thcNodeHost.cpp"
+    "${THINK_TOP}/src/thcGenFile.cpp"
+    "${THINK_TOP}/src/thcGenEdit.cpp"
+    "${THINK_TOP}/wasm/glib.cpp")
+
 add_subdirectory("${THINK_TOP}/libthink" libthink EXCLUDE_FROM_ALL)
 add_subdirectory("${THINK_TOP}/plugins" plugins)

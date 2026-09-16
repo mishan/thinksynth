@@ -283,6 +283,9 @@ async function loadPatch ()
 
     $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
                                  : 'That .dsp did not parse; see below.';
+
+    if (!ok)
+        $('detail').open = true;
 }
 
 /* The same, onto the channel the keys are aimed at rather than onto 0. */
@@ -298,6 +301,9 @@ async function loadKeyPatch ()
 
     $('status').textContent = ok ? `${name} on channel ${channel}. Play.`
                                  : `${name} did not parse; see below.`;
+
+    if (!ok)
+        $('detail').open = true;
 }
 
 async function pickPatch ()
@@ -347,20 +353,34 @@ async function pickPiece ()
 
 /* A load builds graphs on the audio thread, between two quanta, and a big
    one could run past the next quantum's deadline. Suspended around it, the
-   gap is a clean one rather than a glitch. */
-async function quietly (what)
+   gap is a clean one rather than a glitch.
+ *
+ * One at a time. A second load arriving while the first holds the context
+ * suspended would find it already suspended, do nothing about it, and
+ * have the first one's resume land in the middle of its own graph build
+ * -- so each waits for the one before. */
+let quiet = Promise.resolve();
+
+function quietly (what)
 {
-    const wasRunning = ctx.state === 'running';
+    const run = quiet.then(async () =>
+    {
+        const wasRunning = ctx.state === 'running';
 
-    if (wasRunning)
-        await ctx.suspend();
+        if (wasRunning)
+            await ctx.suspend();
 
-    const r = await what();
+        const r = await what();
 
-    if (wasRunning)
-        await ctx.resume();
+        if (wasRunning)
+            await ctx.resume();
 
-    return r;
+        return r;
+    });
+
+    quiet = run.catch(() => {});
+
+    return run;
 }
 
 /* One row per knob the piece declared, each bound straight to the command
@@ -385,7 +405,7 @@ function showKnobs ()
         input.type = 'range';
         input.min = k.min;
         input.max = k.max;
-        input.step = (k.max - k.min) / 1000;
+        input.step = k.step > 0 ? k.step : (k.max - k.min) / 1000;
         input.value = k.value;
 
         shown.className = 'value';
@@ -394,7 +414,7 @@ function showKnobs ()
         input.addEventListener('input', () =>
         {
             shown.textContent = Number(input.value).toPrecision(3);
-            synth.knob(k.name, Number(input.value));
+            synth.knob(k.knob, Number(input.value));
         });
 
         /* Label, value, slider: the order a narrow screen wants, where
@@ -426,14 +446,12 @@ function tape (m)
         if (e.kind === 'N')
             notes.push(e);
 
+    /* Whatever has ended before the left edge, wherever it sits: a long
+       note at the front must not keep everything after it alive. */
     const first = now - ROLL_SECONDS;
-    let k = 0;
 
-    while (k < notes.length && notes[k].at + notes[k].duration < first)
-        k++;
-
-    if (k > 0)
-        notes = notes.slice(k);
+    if (notes.some((e) => e.at + e.duration < first))
+        notes = notes.filter((e) => e.at + e.duration >= first);
 }
 
 function draw ()
@@ -522,9 +540,12 @@ async function start ()
     }
 
     /* The instruments a piece may name, before any piece asks for one: a
-       worklet has no file system of its own and cannot fetch. */
-    for (const name of await (await fetch('dsp/index.json')).json())
-        synth.instrument(name, await (await fetch(`dsp/${name}`)).text());
+       worklet has no file system of its own and cannot fetch. All at once,
+       since nothing here waits on anything else. */
+    const texts = await Promise.all(
+        dspNames.map((name) => fetch(`dsp/${name}`).then((r) => r.text())));
+
+    dspNames.forEach((name, i) => synth.instrument(name, texts[i]));
 
     $('load').disabled = false;
     $('loadpiece').disabled = false;
@@ -565,23 +586,31 @@ async function pickMode ()
     }
 }
 
-async function fill (select, dir, preferred)
-{
-    const names = await (await fetch(`${dir}/index.json`)).json();
+/* The shipped .dsp files, as start() hands them to the worklet. */
+let dspNames = [];
 
+function fill (select, names, preferred)
+{
     for (const name of names)
         select.add(new Option(name, name, name === preferred,
                               name === preferred));
-
-    return (await fetch(`${dir}/${select.value}`)).text();
 }
 
 async function init ()
 {
-    $('dsp').value = await fill($('patch'), 'dsp', 'ts1.dsp');
-    $('gen').value = await fill($('piece'), 'gen', 'ebb.gen');
+    const [dsps, gens] = await Promise.all(
+        ['dsp', 'gen'].map((d) => fetch(`${d}/index.json`)
+                                      .then((r) => r.json())));
 
-    await fill($('keypatch'), 'dsp', 'rpiano0.dsp');
+    dspNames = dsps;
+    fill($('patch'), dsps, 'ts1.dsp');
+    fill($('piece'), gens, 'ebb.gen');
+    fill($('keypatch'), dsps, 'rpiano0.dsp');
+
+    [$('dsp').value, $('gen').value] = await Promise.all([
+        fetch(`dsp/${$('patch').value}`).then((r) => r.text()),
+        fetch(`gen/${$('piece').value}`).then((r) => r.text()),
+    ]);
 
     /* Sixteen is all there are. The engine's numbering, which a .gen
        file's is not: a file writes `channel = 1' for the first one and the
