@@ -27,8 +27,8 @@
  * dependencies and is copied as it is; the room page has an editor, a
  * CRDT and a provider, which come from node_modules and go nowhere a
  * browser could fetch them from, so they are bundled into jam.js with
- * everything they touch. The worklet has no imports beyond tape.mjs and
- * is not bundled.
+ * everything they touch. The worklet imports only the module and tape.js
+ * and is not bundled.
  */
 
 import path from 'node:path';

@@ -38,8 +38,8 @@
  * already has (JAM.md, section 3).
  */
 
-import createThinkWeb from './thinkweb.mjs';
-import { drain, loadErrors } from './tape.mjs';
+import createThinkWeb from './thinkweb.js';
+import { drain, loadErrors } from './tape.js';
 
 /* How many 128-frame quanta between posts to the page: 43 ms at 48 kHz. */
 const TAPE_EVERY = 16;

@@ -65,7 +65,7 @@ const build = path.resolve(process.argv[2] ??
                            path.join(here, '..', '..', 'build-web'));
 
 const { default: createThinkWeb } =
-    await import(pathToFileURL(path.join(build, 'thinkweb.mjs')).href);
+    await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
 const RATE = 48000;
 const FRAMES = RATE * 2;

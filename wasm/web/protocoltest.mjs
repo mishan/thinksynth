@@ -562,7 +562,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
     }
 
     const { default: createThinkWeb } =
-        await import(pathToFileURL(path.join(build, 'thinkweb.mjs')).href);
+        await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
     const dsps = instruments(build);
     const all = pieces(build).filter((p) => p.seeded);

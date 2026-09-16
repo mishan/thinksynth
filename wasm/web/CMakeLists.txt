@@ -16,10 +16,29 @@
 # ../cmake/ThinkEmscripten.cmake.
 #
 # What comes out, in the build directory, is the whole site: index.html,
-# main.js, worklet.js, thinkweb.mjs and .wasm, the shipped .dsp and .gen
+# main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp and .gen
 # files the page offers, each directory with an index.json listing it, and
 # jam.html with its bundled jam.js -- the room page, M3, which is the one
 # thing here with dependencies (`npm ci' in this directory, once).
+#
+# The build directory can be served as it is, and `serve.mjs' does. For
+# putting it somewhere else there is
+#
+#   cmake --build build-web --target dist
+#
+# which installs the site, and nothing but the site, into build-web/dist/
+# with every file 644 and every directory 755, removing what was there
+# first. A copy of the build directory is not that: it carries the object
+# files and CMake's own state, and a copy keeps each file's mode from the
+# source tree, so a .dsp that is 640 there is 640 on the server and a 403
+# to the browser.
+#
+# Every module served is a .js, the wasm's glue included: a .mjs is a
+# module to a browser only if the server calls it JavaScript, and the
+# common mime.types files do not, so a .mjs on a stock nginx is served as
+# application/octet-stream and refused by Chrome (Firefox loads it with a
+# warning, which is how that stays unnoticed on one browser). .js is in
+# every mime.types there is.
 
 cmake_minimum_required(VERSION 3.20)
 
@@ -190,7 +209,9 @@ target_compile_definitions(thinkweb PRIVATE THC_NO_DRAW)
 
 target_link_libraries(thinkweb PRIVATE think_objects sigc)
 
-set_target_properties(thinkweb PROPERTIES SUFFIX ".mjs")
+# .js, not Emscripten's .mjs, for the reason at the top; EXPORT_ES6 below
+# is what makes it a module, whatever it is called.
+set_target_properties(thinkweb PROPERTIES SUFFIX ".js")
 
 # web for the worklet, node for the tests that drive the same module
 # directly. The worklet is handed the .wasm's bytes and instantiates the
@@ -212,11 +233,8 @@ target_link_options(thinkweb PRIVATE
 # The page and its scripts, copied beside the module so the build directory
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
-# tape.mjs is wasm/'s, not this directory's: the worklet reads the tape out
-# of the heap with the same code genwav.mjs does, which is what makes
-# comparing the two tapes a claim about the piece (wasm/twevent.h).
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
-                host.js roll.js worklet.js ../tape.mjs)
+                host.js roll.js worklet.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -227,6 +245,16 @@ foreach(f IN LISTS SITE_SOURCES)
       DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
   list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/${name}")
 endforeach()
+
+# tape.mjs is wasm/'s, not this directory's: the worklet reads the tape out
+# of the heap with the same code genwav.mjs does, which is what makes
+# comparing the two tapes a claim about the piece (wasm/twevent.h). It
+# keeps its name there, where Node reads it, and is served as tape.js.
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/tape.js"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs" "${PROJECT_BINARY_DIR}/tape.js"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/tape.js")
 
 # The shipped patches -- dsp/*.dsp, not the noargs/ and old/ drawers -- and
 # the list the page's menu is filled from.
@@ -310,3 +338,65 @@ if(NOT EXISTS "${PROJECT_BINARY_DIR}/config.json")
 endif()
 
 add_custom_target(site ALL DEPENDS ${SITE_OUTPUTS})
+
+# ---------------------------------------------------------------------------
+# dist
+# ---------------------------------------------------------------------------
+
+# The site, installed: the files a server needs and no others, each with
+# the mode a web server can read whatever the source tree's was. The
+# install rules use the prefix as the site root, so
+# `cmake --install build-web --prefix DIR' puts index.html at DIR/index.html.
+# The dist target below is that, into build-web/dist/, after removing
+# whatever an earlier dist left, so a stale file cannot ride along.
+
+set(SITE_FILE_MODE OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ)
+set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
+    OWNER_READ OWNER_WRITE OWNER_EXECUTE
+    GROUP_READ GROUP_EXECUTE
+    WORLD_READ WORLD_EXECUTE)
+
+# The pages, their scripts and the bundle, from the build directory, since
+# that is where the copies and the bundle are. jam.js.map goes too: it is
+# fetched only when someone opens the devtools, and a phone is where that
+# someone most wants it.
+set(DIST_ROOT_FILES "")
+foreach(f IN LISTS SITE_SOURCES)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_ROOT_FILES "${PROJECT_BINARY_DIR}/${name}")
+endforeach()
+list(APPEND DIST_ROOT_FILES
+    "${PROJECT_BINARY_DIR}/tape.js"
+    "${PROJECT_BINARY_DIR}/jam.js"
+    "${PROJECT_BINARY_DIR}/jam.js.map"
+    "${PROJECT_BINARY_DIR}/config.json"
+    "$<TARGET_FILE:thinkweb>"
+    "${PROJECT_BINARY_DIR}/thinkweb.wasm")
+
+install(FILES ${DIST_ROOT_FILES} DESTINATION . PERMISSIONS ${SITE_FILE_MODE})
+
+# The shipped patches and pieces, from the build directory's copies, with
+# their index.json: what the page's menus are filled from.
+set(DIST_DSP_FILES "${PROJECT_BINARY_DIR}/dsp/index.json")
+foreach(f IN LISTS SHIPPED_DSP)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_DSP_FILES "${PROJECT_BINARY_DIR}/dsp/${name}")
+endforeach()
+install(FILES ${DIST_DSP_FILES} DESTINATION dsp PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/index.json")
+foreach(f IN LISTS SHIPPED_GEN)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/${name}")
+endforeach()
+install(FILES ${DIST_GEN_FILES} DESTINATION gen PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_DIR "${PROJECT_BINARY_DIR}/dist")
+
+add_custom_target(dist
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf "${DIST_DIR}"
+    COMMAND "${CMAKE_COMMAND}" --install "${PROJECT_BINARY_DIR}"
+            --prefix "${DIST_DIR}"
+    COMMENT "Packaging the site into ${DIST_DIR}"
+    VERBATIM)
+add_dependencies(dist site thinkweb)
