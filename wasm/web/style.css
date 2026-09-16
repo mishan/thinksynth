@@ -1,0 +1,314 @@
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * style.css -- the page, on whatever it is being read on.
+ *
+ * Its own file now rather than a <style> block, because there is enough of
+ * it to want reading. Two things it is arranged around:
+ *
+ * A phone is the interesting case, not the awkward one. The whole page is
+ * a thing you play, so what a narrow screen gets is the same page with the
+ * source boxes folded away and the keys given the room -- not a cut-down
+ * one. The keyboard itself takes no width from here at all; main.js counts
+ * the octaves that fit and draws them, so the keys are a finger wide on a
+ * phone and a hand wide on a desktop rather than the same proportion of
+ * two different things.
+ *
+ * And a finger is not a mouse. `pointer: coarse' is what says so -- not
+ * the width, which a laptop in a small window also has -- so the controls
+ * grow to something you can hit only where something will be hitting them.
+ */
+
+:root
+{
+    color-scheme: light dark;
+
+    --fg:        #202020;
+    --bg:        #ffffff;
+    --dim:       #666666;
+    --panel:     #f4f4f4;
+    --line:      #dcdcdc;
+    --key:       #ffffff;
+    --key-edge:  #b0b0b0;
+    --key-black: #202020;
+    --held:      #5050ff;
+    --key-c:     #eaf7fa;
+}
+
+@media (prefers-color-scheme: dark)
+{
+    :root
+    {
+        --fg:        #dddddd;
+        --bg:        #1b1b1b;
+        --dim:       #999999;
+        --panel:     #262626;
+        --line:      #3a3a3a;
+        --key:       #d8d8d8;
+        --key-edge:  #555555;
+        --key-black: #101010;
+        --held:      #6a6aff;
+        --key-c:     #2b3a3d;
+    }
+}
+
+body
+{
+    font: 15px/1.4 system-ui, sans-serif;
+    color: var(--fg);
+    background: var(--bg);
+    max-width: 60em;
+    margin: 2em auto;
+    padding: 0 1em;
+}
+
+h1 { font-size: 1.6em; margin: 0 0 0.4em; }
+
+textarea, pre
+{
+    font: 13px/1.35 ui-monospace, monospace;
+}
+
+textarea
+{
+    width: 100%;
+    height: 26em;
+    box-sizing: border-box;
+    background: var(--panel);
+    color: var(--fg);
+    border: 1px solid var(--line);
+    padding: 0.5em;
+}
+
+pre
+{
+    background: var(--panel);
+    padding: 0.6em 0.8em;
+    margin: 0.8em 0;
+    overflow-x: auto;
+}
+
+#log { max-height: 10em; overflow: auto; }
+
+.row
+{
+    display: flex;
+    gap: 0.6em;
+    align-items: center;
+    margin: 0.8em 0;
+    flex-wrap: wrap;
+}
+
+kbd
+{
+    border: 1px solid var(--key-edge);
+    border-radius: 3px;
+    padding: 0 0.3em;
+}
+
+[hidden] { display: none !important; }
+
+summary
+{
+    cursor: pointer;
+    padding: 0.3em 0;
+    color: var(--dim);
+}
+
+details { margin: 0.8em 0; }
+
+/* ---- the piece ---- */
+
+#roll
+{
+    width: 100%;
+    height: 180px;
+    background: var(--panel);
+    display: block;
+    margin: 0.8em 0;
+}
+
+#knobs
+{
+    display: grid;
+    grid-template-columns: max-content 1fr max-content;
+    gap: 0.3em 0.8em;
+    align-items: center;
+    margin: 0.8em 0;
+
+    /* The slider is written after the value and drawn between it and the
+       label; dense is what lets a later item fill the gap an earlier one
+       left. Without it every slider would start a row of its own. */
+    grid-auto-flow: row dense;
+}
+
+/* Label, slider, value across. The slider is written last of the three
+   and placed in the middle, and the value is pinned to the end rather than
+   left to flow -- otherwise it takes the middle column and the slider goes
+   to a row of its own. */
+#knobs input { width: 100%; grid-column: 2; }
+#knobs .value { grid-column: 3; }
+
+#knobs .value
+{
+    font: 13px ui-monospace, monospace;
+    min-width: 5em;
+    text-align: right;
+}
+
+#about { margin: 0.4em 0; color: var(--dim); }
+
+#clock { font: 13px ui-monospace, monospace; }
+
+/* ---- the keyboard ---- */
+
+/* The keys take whatever width there is and are drawn to fit it: the
+   viewBox is in key units and the element is 100% wide, so one <svg> is a
+   two-octave keyboard on a phone and a four-octave one on a desktop
+   without a second set of measurements anywhere. keyboard.js counts the
+   octaves that fit and writes the viewBox, height and all -- there is no
+   preserveAspectRatio here, and that file says why not.
+
+   touch-action: none, because a finger dragging across the keys is a
+   glissando and not a scroll, and the browser's default is to decide that
+   for itself after a delay -- which eats the first note of every phrase. */
+#keys
+{
+    display: block;
+    width: 100%;
+    height: 132px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
+    margin: 0.4em 0;
+}
+
+#keys .white { fill: var(--key); stroke: var(--key-edge); stroke-width: 0.02; }
+#keys .black { fill: var(--key-black); stroke: var(--key-edge);
+               stroke-width: 0.02; }
+
+/* Every C, not just middle C, and faintly: two octaves on a phone is not
+   much to find your way around by, and the octave lines are the way. */
+#keys .c     { fill: var(--key-c); }
+#keys .held  { fill: var(--held); }
+
+/* Outlined, because the key under a note name changes colour when it is
+   held and the name has to stay readable on either. paint-order puts the
+   stroke behind the fill, which is what makes it a halo rather than a
+   thickening. */
+#keys text
+{
+    font-family: system-ui, sans-serif;
+    fill: var(--fg);
+    stroke: var(--key);
+    stroke-width: 0.05;
+    paint-order: stroke;
+    text-anchor: middle;
+    pointer-events: none;
+}
+
+#range
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 7em;
+}
+
+.hint { color: var(--dim); font-size: 0.9em; margin: 0.4em 0; }
+
+/* ---- a finger rather than a mouse ---- */
+
+@media (pointer: coarse)
+{
+    button, select
+    {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    /* 16px or iOS zooms the page in when the box takes focus, and then
+       the page is the wrong size and stays that way. */
+    textarea, input { font-size: 16px; }
+
+    #keys { height: 160px; }
+
+    #knobs input { height: 44px; }
+}
+
+/* ---- a narrow screen ---- */
+
+@media (max-width: 40em)
+{
+    body { margin: 0.8em auto; padding: 0 0.6em; }
+
+    h1 { font-size: 1.3em; }
+
+    textarea { height: 14em; }
+
+    #roll { height: 120px; }
+
+    /* Label and value on one line, the slider across the next: three
+       columns of a phone's width leave the slider too short to aim at. */
+    #knobs
+    {
+        grid-template-columns: 1fr max-content;
+        gap: 0.1em 0.6em;
+    }
+
+    /* Two columns: label and value side by side, and the slider -- which
+       is written after them -- takes the next line whole. The placements
+       above are undone, or the value would want a third column that is
+       not there. */
+    #knobs .value { grid-column: auto; }
+    #knobs input { grid-column: 1 / -1; margin-bottom: 0.6em; }
+
+    .hint { display: none; }
+}
+
+/* A phone held sideways is the playing position, and it is also the shape
+   with no room: everything this page has, stacked, is most of two screens
+   at 360 pixels tall. So the keys are pinned to the bottom of the viewport
+   instead of taking their turn in the stack -- the roll, the knobs and the
+   source scroll past above them and the keys stay under the thumbs.
+   Which is what a keyboard is, on a device you hold. */
+@media (max-height: 30em) and (orientation: landscape)
+{
+    body { margin: 0.3em auto; }
+
+    h1, #about, .hint { display: none; }
+
+    #roll { height: 80px; }
+
+    #keyboard
+    {
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        background: var(--bg);
+        padding-bottom: 0.3em;
+
+        /* Sticky and opaque, so the page has to be told where it ends. */
+        box-shadow: 0 -0.5em 0.5em -0.5em rgb(0 0 0 / 0.3);
+    }
+
+    #keyboard .row { margin: 0.3em 0; }
+
+    #keys { height: 38vh; margin: 0.2em 0; }
+}

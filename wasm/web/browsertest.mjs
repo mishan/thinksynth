@@ -18,19 +18,29 @@
  */
 
 /*
- * browsertest.mjs -- the worklet, in real browsers, held against the module
- * run directly.
+ * browsertest.mjs -- the worklet, in real browsers, held against what the
+ * module does without one.
  *
  *   cd wasm/web && npm ci && npx playwright install chromium firefox
  *   node browsertest.mjs [BUILD_DIR]
  *
- * For each browser: serve the site, build the synth exactly as the page
- * does (host.js) but on an OfflineAudioContext, play a phrase with stamped
- * notes, render, and compare every sample with what render.mjs gets from
- * the same module called from Node. It is one wasm file on both sides, so
- * the two agree to the bit or the plumbing between them is wrong -- the
- * module handed to the worklet, the messages, the stamps, the 128-frame
- * quanta, the de-interleave.
+ * For each browser: serve the site and build the synth exactly as the page
+ * does (host.js), but on an OfflineAudioContext. Then twice over.
+ *
+ * A patch, which is M1: play a phrase with stamped notes, render, and
+ * compare every sample with what render.mjs gets from the same module
+ * called from Node. It is one wasm file on both sides, so the two agree to
+ * the bit or the plumbing between them is wrong -- the module handed to
+ * the worklet, the messages, the stamps, the 128-frame quanta, the
+ * de-interleave.
+ *
+ * A piece, which is M2: load every seeded .gen, run the transport for a
+ * minute at a window of 256 and again at 128, and hold the tape that comes
+ * back against the one genwav.mjs delivers under Node for the same seconds.
+ * That is M2's gate (JAM.md, section 6), and it is the same comparison
+ * piececheck.mjs makes without a browser -- run here through the worklet,
+ * the port, and a real audio thread's quanta, which is the part
+ * piececheck.mjs cannot see.
  *
  * Offline rather than live because offline is repeatable; the live path
  * differs only in who asks for the next quantum and when.
@@ -44,6 +54,9 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { chromium, firefox } from 'playwright';
 
+import { tapeBefore, tapeLine } from '../tape.mjs';
+import { SECONDS, firstDifference, instruments, pieces, reference }
+    from './piececheck.mjs';
 import { renderDirect } from './render.mjs';
 import { serve } from './serve.mjs';
 
@@ -57,6 +70,14 @@ const { default: createThinkWeb } =
 const RATE = 48000;
 const FRAMES = RATE * 2;
 const PATCHES = ['ts1.dsp', 'hat0.dsp', 'amb01.dsp'];
+
+/* The two windows M2's gate names. 256 is the page's; 128 is a window as
+   short as the quantum, which is where a step-size bug would show first. */
+const WINDOWS = [256, 128];
+
+const nodeBuild = path.resolve(process.argv[3] ??
+                               process.env.THINK_WASM_BUILD ??
+                               path.join(here, '..', '..', 'build-wasm'));
 
 /* A phrase, not a note: overlapping voices, a re-press, stamps that fall
    mid-window and on a window's first frame. */
@@ -111,9 +132,82 @@ async function inBrowser (page, text)
     }, { text, frames: FRAMES, rate: RATE, events: EVENTS });
 }
 
+/* A piece, composed in the page's own way: the instruments handed over
+   first, the .gen loaded, Play pressed, and the tape collected as it is
+   posted. The render is offline, so the transport runs as fast as the
+   engine can render it rather than in a minute of real time.
+ *
+ * The flush at the end is what makes the last batch arrive: a ping is
+ * answered after every tape message already posted, and answering it posts
+ * the batch in hand (worklet.js). */
+async function pieceInBrowser (page, gen, dsps, windowlen)
+{
+    return page.evaluate(async ({ gen, dsps, windowlen, seconds, rate }) =>
+    {
+        const { createSynth } = await import('./host.js');
+        const ctx = new OfflineAudioContext({
+            numberOfChannels: 2,
+            length: Math.ceil((seconds + 1) * rate),
+            sampleRate: rate,
+        });
+        const logs = [];
+        const events = [];
+        const synth = await createSynth(ctx, { windowlen,
+                                               onLog: (t) => logs.push(t),
+                                               onTape: (m) =>
+                                                   events.push(...m.events) });
+
+        synth.node.connect(ctx.destination);
+
+        for (const [name, text] of Object.entries(dsps))
+            synth.instrument(name, text);
+
+        const piece = await synth.loadPiece(gen);
+
+        if (piece.errors.length > 0)
+            return { ok: false, logs, errors: piece.errors, events: [] };
+
+        /* Started, and acknowledged before the render begins. `transport'
+           is a bare postMessage, and an OfflineAudioContext can render the
+           whole minute in one go before a control message still in flight
+           reaches the worklet. The piece then never starts: drain() finds
+           nothing, the ping below posts an empty tape, and the pong comes
+           back as if all were well -- a pass-shaped answer of zero events
+           rather than an error, which is what `tide.gen has nothing' was.
+           Every other step of this setup already waits for the worklet to
+           answer; this one has to as well. */
+        synth.transport('start');
+        await synth.flush();
+
+        await ctx.startRendering();
+        await synth.flush();
+
+        return { ok: true, logs, errors: [], events,
+                 knobs: piece.knobs.length, windowlen: synth.windowlen };
+    }, { gen, dsps, windowlen, seconds: SECONDS, rate: RATE });
+}
+
+/* The reference tapes are genwav.mjs's, out of the Node module: checked
+   for up front, as piececheck.mjs checks, rather than found missing by an
+   uncaught throw halfway through the first browser. */
+if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
+{
+    process.stdout.write(
+        `browsertest: no Node module in ${nodeBuild}. It is the tape the ` +
+        'pieces are compared against;\n             build it first -- ' +
+        'see the top of wasm/CMakeLists.txt.\n');
+    process.exit(1);
+}
+
 const server = await serve(build, 0);
 const url = `http://127.0.0.1:${server.address().port}/`;
+const dsps = instruments(build);
 let failed = 0;
+
+/* Once, not once per browser: a minute of each piece rendered under Node. */
+const seededPieces = pieces(build).filter((p) => p.seeded);
+const references = new Map(
+    seededPieces.map((p) => [p.name, reference(p.name, nodeBuild)]));
 
 for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
 {
@@ -185,6 +279,51 @@ for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
         else
             process.stdout.write(`ok    ${label} ${patch}: ${FRAMES} frames ` +
                                  `identical, peak ${peak.toFixed(3)}\n`);
+    }
+
+    for (const piece of seededPieces)
+    {
+        const want = references.get(piece.name);
+        const cells = [];
+
+        for (const windowlen of WINDOWS)
+        {
+            let got;
+
+            try
+            {
+                got = await pieceInBrowser(page, piece.text, dsps, windowlen);
+            }
+            catch (e)
+            {
+                cells.push(`${windowlen}: ${e.message.split('\n')[0]}`);
+                continue;
+            }
+
+            if (!got.ok)
+            {
+                cells.push(`${windowlen}: did not load -- ` +
+                           got.errors.join('; '));
+                continue;
+            }
+
+            const tape = tapeBefore(got.events.map(tapeLine).join(''),
+                                    SECONDS);
+
+            cells.push(tape === want ? `${windowlen} ok`
+                       : `${windowlen} DIFFERS -- ` +
+                         firstDifference(want, tape));
+        }
+
+        const bad = cells.some((c) => !c.endsWith('ok'));
+
+        if (bad)
+            ok = false;
+
+        process.stdout.write(
+            `${bad ? 'FAIL' : 'ok  '}  ${label} ${piece.name.padEnd(14)} ` +
+            `${String(want.split('\n').length - 1).padStart(5)} events   ` +
+            `${cells.join('   ')}\n`);
     }
 
     for (const e of errors)

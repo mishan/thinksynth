@@ -88,6 +88,94 @@ On the `jam-m1` branch, which starts where `wasm-parity` ends:
   Firefox, on Linux, macOS and Windows. A headless browser has no sound
   card to hear.
 
+### M2, so far
+
+The step-size fix is its own branch and its own PR, `jam-step-fix`, since it
+changes what the shipped pieces compose. What follows is on `jam-m2`, which
+starts where that ends:
+
+- The sixteen composers join the 62 DSP plugins in the static bundle, and
+  the composer host -- `thcScheduler`, `thcPlugin`, `thcGenFile`,
+  `thcNodeHost` -- is compiled into the module beside them. 268 KB of wasm
+  becomes 602 KB. `thDynLib`'s static table stopped being a table of the
+  DSP ABI's four function pointers and became a name and a list of symbols,
+  because there are two ABIs behind that seam now and neither belongs in a
+  file whose job is to stand in for `dlopen`.
+- A composer's exports are `extern "C"`, which is a linkage and not a
+  scope, so a namespace apiece is not enough as it was for the DSP
+  plugins: the build renames each export before compiling the plugin
+  inside its namespace, and the table looks it up under the new name.
+- `composer_draw` is the one export that does not come. Eight composers
+  draw with cairo, there is no cairo in a worklet and nothing to draw on,
+  so they are compiled with `THC_NO_DRAW` and both the function and its
+  `<cairo.h>` are left out. `thcPlugin::hasDraw` already answers for an
+  absent one. The canvas that would call it is section 3a's, and M6's.
+- The scheduler runs in the worklet, stepped once per window from inside
+  `tw_render`: apply the commands due in this window, step the transport by
+  the window's own length in seconds, render. That is `genwav`'s loop, to
+  the line. No timer, no lookahead, and nothing a background tab throttles.
+- Load, transport, knob and MIDI-in commands, each stamped with the frame
+  it applies at, on the queue the notes already used. The page is the
+  nearest peer and not a privileged one. The tape comes back the other way
+  in batches -- every 16 quanta, or on a flush -- with the transport's
+  position and an epoch a rewind bumps, which is how the page knows to
+  clear its roll.
+- A key in piece mode is a `THC_EV_NOTE` held with no duration and a
+  `THC_EV_NOTEOFF` to let it go, on a channel the page picks, which is
+  what a chain's `input midi` is matched against. So `hands.gen` -- three
+  chains, no generators, no instruments, nothing but what you play -- is
+  playable in a tab: hold a chord and the arpeggiator breaks it. It
+  declares no instruments, so the page can put a `.dsp` on the channel it
+  is playing into, which is the desktop's Patch Selector aimed by hand.
+- `wasm/twevent.h` and `wasm/tape.mjs` are one spelling of an event,
+  shared by the Node host and the browser's: M2's gate is that two tapes
+  are the same tape, which is a claim about the piece and not about two
+  ways of printing a number.
+- The page has a piece mode: the `.gen` in a text box, the shipped pieces
+  in a menu, Play/Stop/Rewind, the knobs the piece declared as sliders, and
+  a piano roll of what came back.
+- And keys on screen, in both modes, so the thing is playable on a device
+  with no keyboard to borrow. An `<svg>` whose viewBox is in key units --
+  a white key is 1 wide -- so the same widget is two octaves on a phone and
+  four on a desktop, with the keys a finger wide either way rather than the
+  same fraction of two different screens. Several fingers at once, a drag
+  across the keys as a glissando, and one press/release path shared with
+  the computer keyboard: a note held by both is one note, and a note is
+  released by the route it was pressed by, even if the mode or the channel
+  moved under it. The page itself folds its source boxes away on a narrow
+  screen and pins the keys to the bottom of a short one, which is what a
+  phone held sideways to play needs. It is a mode and not a second panel
+  because a piece takes the channels it asks for and the first of those is
+  channel 0, where the keyboard's patch was -- deliberately, since a
+  `setChannelTaken` hook would move every instrument by one and the tape
+  names channels. The keyboard still plays in piece mode: into the piece,
+  through `input midi`, which is the path a peer's keyboard will take.
+- A tape comparison cannot see a key: a seeded piece composes the same
+  whoever is listening. So `piececheck.mjs` ends by holding a chord in
+  `hands.gen` and asserting what comes back is a *figure* and not the
+  chord -- the arp eats what it is handed, so a press passed straight
+  through would look like success and mean the arp never saw it.
+- **The gate passes.** `wasm/web/piececheck.mjs` composes every seeded
+  piece in the browser module for a minute at 48 kHz and 44.1, in windows
+  of 256 and of 128, and diffs each against the tape `genwav.mjs` delivers
+  under Node -- a different module, plugins dlopened rather than linked in,
+  the transport stepped by a fixed virtual clock in windows of 1024. All
+  thirteen are identical at all four steps. `browsertest.mjs` runs the same
+  comparison through the worklet in headless Chromium and Firefox at 256
+  and at 128: identical there too. Both are in the CI `wasm` job.
+- `wasm/web/bench.mjs` is the quantum measurement. On this desktop, with
+  every seeded piece and a six-note chord pressed and released twice a
+  second on top: the worst quantum of all runs 1.6 to 2.4 ms across
+  repeats, against a 2.67 ms budget, and it is always the *first* one --
+  the one that builds every instrument's graph, before the transport has
+  moved and before there is audio for it to interrupt. Once the transport
+  is moving the worst of all of them is about 0.6 ms, a fifth of the
+  quantum, and p99 stays under 0.4 ms. That is the measurement that could
+  have sent the scheduler back out of the worklet, and it did not.
+- What is left for done: the same bench and the same pieces on a slow
+  machine and on real hardware, in Chrome and Firefox. A fast desktop and a
+  headless browser are not the case that decides it.
+
 ## 1. The three kinds of state
 
 Everything a peer can know about a session is one of three things, and each
@@ -407,6 +495,12 @@ the step-invariance gate in one, and it stays. Also done here, on real
 hardware: the worst quantum on a slow machine with the busiest pieces
 (`orrery`, `tide`) plus a chord of note-ons, which is the one measurement
 that could send the scheduler back out of the worklet.
+
+The gates pass and the bench is written; what is left is a slow machine and
+a sound card. `COMPOSER_INPUT` is the one command on section 3's list that
+is not here, and it is blocked rather than skipped: a gesture on a
+composer's picture is in the coordinates that picture was drawn in, and
+nothing in a worklet draws. It arrives with the mirror, in M6.
 
 **M3 — two tabs.** The relay, the Yjs document bound to the editor, clock
 sync, data channels, seats, knobs and direct-mode notes. *Done when* two

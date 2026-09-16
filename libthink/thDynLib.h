@@ -64,21 +64,41 @@ THINK_API std::string lastError (void);
  *
  * An AudioWorkletGlobalScope has no file system and no loader, so the
  * browser build links every plugin into the one module and generates this
- * table (wasm/web). open() looks a name up in it -- the name getPath()
- * hands over, "osc/simple" -- and symbol() answers the four names the host
- * asks for from the entry, which is all thPlugin.cpp ever does with a
- * handle. Nothing above this seam knows the difference.
+ * table (wasm/web). open() looks a name up in it -- the name the host
+ * hands over, "osc/simple" or "composer/euclid" -- and symbol() looks in
+ * that entry's symbols, which is all a caller ever does with a handle.
+ * Nothing above this seam knows the difference.
+ *
+ * A row is a name and a list of symbols, and not the DSP ABI's four
+ * fields, because there is more than one ABI behind this seam: a .dsp
+ * node's plugin exports module_init and two more, a composer exports
+ * composer_init and up to eight more (libthink/thcomposer.h). Neither
+ * list belongs in a file whose whole job is to stand in for dlopen, so
+ * the build that writes the table writes the names too -- the version
+ * byte each ABI is gated on included, since a compiled-in plugin's
+ * version is the header it was compiled against.
  */
-struct thStaticPlugin
+struct thStaticSymbol
 {
     const char *name;
-    void       *init;       /* module_init     */
-    void       *callback;   /* module_callback */
-    void       *cleanup;    /* module_cleanup  */
+    void       *addr;
+};
+
+struct thStaticPlugin
+{
+    const char          *name;
+    const thStaticSymbol *symbols;
+    size_t                count;
 };
 
 extern const thStaticPlugin thStaticPlugins[];
 extern const size_t         thStaticPluginCount;
+
+/* The composers among them, as the paths to open() them by. A host that
+   would have scanned plugins/composer/ for modules reads this instead;
+   there is no directory to scan. */
+extern const char *const thStaticComposers[];
+extern const size_t       thStaticComposerCount;
 #endif
 
 #endif /* TH_DYNLIB_H */

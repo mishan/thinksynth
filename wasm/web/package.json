@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "check": "node check.mjs",
-    "browsertest": "node browsertest.mjs"
+    "piececheck": "node piececheck.mjs",
+    "browsertest": "node browsertest.mjs",
+    "bench": "node bench.mjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

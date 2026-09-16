@@ -63,7 +63,9 @@
 #include <random>
 #include <vector>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 
@@ -450,6 +452,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
 /* Left: the champion's contour, rests as gaps. Right margin: the last
  * 128 generations' best fitness, climbing as the search settles. */
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -511,6 +514,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         cairo_stroke(cr);
     }
 }
+#endif
 
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)

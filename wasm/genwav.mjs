@@ -52,14 +52,13 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { drain as drainTape, fixed, tapeLine } from './tape.mjs';
+
 /* genwav.cpp's TAIL_SILENT and TAIL_MAX, and its clip threshold -- the
    float ones as the floats they are. */
 const TAIL_SILENT = Math.fround(1e-4);
 const TAIL_MAX    = 8.0;
 const CLIP_LEVEL  = Math.fround(0.999);
-
-/* sizeof(twEvent); the offsets are in readEvent. */
-const EVENT_SIZE = 48;
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const buildDir = process.env.THINK_WASM_BUILD ??
@@ -77,72 +76,12 @@ function usage (argv0)
         '  -q, --quiet             no summary\n');
 }
 
-/* printf("%.<n>f", x). toFixed(100) is the double's exact decimal expansion
-   for anything genwav prints, and the rounding is then done here, half to
-   even, which is what glibc does with an exact tie. */
-function fixed (x, n)
-{
-    const neg = x < 0 || Object.is(x, -0);
-    const [whole, frac] = Math.abs(x).toFixed(100).split('.');
-    const rest = frac.slice(n);
-    let digits = BigInt(whole + frac.slice(0, n));
-
-    if (rest[0] > '5' ||
-        (rest[0] === '5' &&
-         (/[1-9]/.test(rest.slice(1)) || digits % 2n === 1n)))
-        digits += 1n;
-
-    const s = digits.toString().padStart(n + 1, '0');
-
-    return (neg ? '-' : '') +
-           (n > 0 ? s.slice(0, -n) + '.' + s.slice(-n) : s);
-}
-
 /* lrintf: to nearest, ties to even. Math.round sends every tie up. */
 function lrint (v)
 {
     const r = Math.round(v);
 
     return (r - v === 0.5 && r % 2 !== 0) ? r - 1 : r;
-}
-
-function readEvent (M, p)
-{
-    const f64 = M.HEAPF64, i32 = M.HEAP32, u32 = M.HEAPU32;
-
-    return {
-        at:       f64[p >> 3],
-        duration: f64[(p + 8) >> 3],
-        value:    f64[(p + 16) >> 3],
-        kind:     String.fromCharCode(i32[(p + 24) >> 2]),
-        channel:  i32[(p + 28) >> 2],
-        note:     i32[(p + 32) >> 2],
-        velocity: i32[(p + 36) >> 2],
-        name:     M.UTF8ToString(u32[(p + 40) >> 2]),
-        arg:      M.UTF8ToString(u32[(p + 44) >> 2]),
-    };
-}
-
-/* genwav.cpp's writeEvent. */
-function tapeLine (e)
-{
-    const at = fixed(e.at, 3);
-
-    switch (e.kind)
-    {
-        case 'N':
-            return `N ${at} ${e.channel} ${e.note} ${e.velocity} ` +
-                   `${fixed(e.duration, 3)}\n`;
-        case 'C':
-            return `C ${at} ${e.channel} ${e.name} ${fixed(e.value, 4)}\n`;
-        case 'P':
-            return `P ${at} ${e.channel} ${e.name}\n`;
-        case 'E':
-            return `E ${at} ${e.channel} ${e.name}.${e.arg} ` +
-                   `${fixed(e.value, 4)}\n`;
-        default:
-            return `? ${at} ${e.channel} ${e.note}\n`;
-    }
 }
 
 /* genwav.cpp's writeWav, clamp and all. */
@@ -317,25 +256,14 @@ async function main (argv0, args)
        step delivered are queued on the wasm side and taken here. */
     const drain = () =>
     {
-        const n = M._tw_event_count();
-
-        if (n === 0)
-            return;
-
-        const base = M._tw_events();
-
-        for (let i = 0; i < n; i++)
+        for (const e of drainTape(M))
         {
-            const e = readEvent(M, base + EVENT_SIZE * i);
-
             if (e.kind === 'N')
                 notes++;
 
             if (tape !== null)
                 tapeText += tapeLine(e);
         }
-
-        M._tw_events_clear();
 
         if (tape !== null && tapeText.length > 65536)
         {

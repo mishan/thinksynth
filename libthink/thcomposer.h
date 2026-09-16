@@ -393,7 +393,15 @@ extern "C" {
     /* Optional, the tier-two visualizer: the euclid ring, the CA grid,
        the transition graph. Same thread as tick/receive, so it may
        read instance state directly -- no snapshot copying. The tier-one
-       piano roll is the host's job and needs nothing from the plugin. */
+       piano roll is the host's job and needs nothing from the plugin.
+     *
+     * The one export a host may have nowhere to put. A plugin whose draw
+     * calls cairo guards both it and its <cairo.h> with THC_NO_DRAW, so
+     * a build with no cairo to link -- the browser's, where the scheduler
+     * runs in an AudioWorklet that has no canvas and no drawing at all
+     * (JAM.md, sections 3 and 3a) -- compiles the composer without it.
+     * Absent, it is simply an optional export the module does not offer,
+     * which is what thcPlugin::hasDraw already answers for. */
     THINK_PLUGIN_API void composer_draw (void *state, cairo_t *cr,
                                          double w, double h);
 

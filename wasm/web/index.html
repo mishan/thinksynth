@@ -3,46 +3,98 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>thinksynth</title>
-<style>
-  body { font: 15px/1.4 system-ui, sans-serif; max-width: 60em; margin: 2em auto;
-         padding: 0 1em; }
-  textarea, pre { font: 13px/1.35 ui-monospace, monospace; }
-  textarea { width: 100%; height: 26em; box-sizing: border-box; }
-  label[for="dsp"] { display: block; margin-bottom: 0.3em; }
-  pre { background: #f4f4f4; padding: 0.6em 0.8em; margin: 0.8em 0; }
-  #log { max-height: 10em; overflow: auto; }
-  .row { display: flex; gap: 0.6em; align-items: center; margin: 0.8em 0; }
-  kbd { border: 1px solid #aaa; border-radius: 3px; padding: 0 0.3em; }
-  @media (prefers-color-scheme: dark) {
-    body { background: #1b1b1b; color: #ddd; }
-    pre, textarea { background: #262626; color: #ddd; }
-  }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <h1>thinksynth</h1>
 
-<p id="status">Press Start, then play from the keyboard.</p>
-
-<p>
-  <kbd>Z</kbd> to <kbd>/</kbd> is an octave and a bit from C, with the black
-  keys on the row above; <kbd>Q</kbd> to <kbd>P</kbd> is the octave above
-  that. <kbd>-</kbd> and <kbd>=</kbd> move both an octave. Edit the .dsp and
-  press Load to hear the change.
-</p>
+<p id="status">Press Start, then play.</p>
 
 <div class="row">
   <button id="start">Start</button>
-  <label>Patch <select id="patch"></select></label>
-  <button id="load" disabled>Load</button>
+  <label>Play <select id="mode">
+    <option value="patch">a patch</option>
+    <option value="piece">a piece</option>
+  </select></label>
 </div>
 
-<label for="dsp">Patch source (.dsp)</label>
-<textarea id="dsp" spellcheck="false" autocomplete="off"></textarea>
+<!-- M1: one .dsp, played from the keyboard. -->
+<section id="patchmode">
+  <div class="row">
+    <label>Patch <select id="patch"></select></label>
+    <button id="load" disabled>Load</button>
+  </div>
+</section>
 
-<pre id="latency"></pre>
-<pre id="log"></pre>
+<!-- M2: a .gen, composed by the scheduler in the worklet. The keyboard
+     still plays, into whatever chains asked for `input midi'. -->
+<section id="piecemode" hidden>
+  <div class="row">
+    <label>Piece <select id="piece"></select></label>
+    <button id="loadpiece" disabled>Load</button>
+    <button id="play" disabled>Play</button>
+    <button id="stop" disabled>Stop</button>
+    <button id="rewind" disabled>Rewind</button>
+    <span id="clock">0:00.0</span>
+  </div>
+
+  <p id="about"></p>
+
+  <canvas id="roll" width="1200" height="360"></canvas>
+
+  <div id="knobs"></div>
+
+  <!-- A piece may route `input midi' to a channel it declares no
+       instrument for -- hands.gen declares none at all -- so the keys need
+       a channel to arrive on and that channel may need something on it to
+       sound. This is the desktop's Patch Selector, aimed by hand.
+
+       These are the engine's channel numbers, which a .gen file's are not:
+       a file writes `channel = 1' for the first one and the loader hands
+       over 0. -->
+  <div class="row">
+    <label>Keys into channel <select id="keychan"></select></label>
+    <label>with <select id="keypatch"></select></label>
+    <button id="loadkeypatch" disabled>Put it there</button>
+  </div>
+</section>
+
+<!-- The instrument, in both modes. Drawn to fit whatever width there is;
+     main.js says how many octaves that comes to. -->
+<section id="keyboard">
+  <div class="row">
+    <button id="down" class="octave" aria-label="An octave down">&#9664;</button>
+    <span id="range"></span>
+    <button id="up" class="octave" aria-label="An octave up">&#9654;</button>
+  </div>
+  <svg id="keys" role="application" aria-label="Keyboard"></svg>
+  <p class="hint">
+    Touch or click the keys. From a computer keyboard,
+    <kbd>Z</kbd>&ndash;<kbd>/</kbd> is an octave and a bit from C with the
+    black keys on the row above, <kbd>Q</kbd>&ndash;<kbd>P</kbd> the octave
+    above that, and <kbd>-</kbd> and <kbd>=</kbd> move both.
+  </p>
+</section>
+
+<details id="patchsource">
+  <summary>Patch source (.dsp)</summary>
+  <textarea id="dsp" spellcheck="false" autocomplete="off"
+            autocapitalize="off" autocorrect="off"></textarea>
+</details>
+
+<details id="piecesource" hidden>
+  <summary>Piece source (.gen)</summary>
+  <textarea id="gen" spellcheck="false" autocomplete="off"
+            autocapitalize="off" autocorrect="off"></textarea>
+</details>
+
+<details id="detail">
+  <summary>What the browser reports</summary>
+  <pre id="latency"></pre>
+  <pre id="log"></pre>
+</details>
 
 <script type="module" src="main.js"></script>
 </body>

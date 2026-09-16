@@ -31,8 +31,12 @@
  * and compiling a quarter of a megabyte before the first note is not a
  * cost anyone hears.
  *
- * A note carries the frame it applies at (thinkweb.cpp); -1, the default,
- * is "the next window", which is how a key pressed now is played.
+ * Everything the page does to the synth carries the frame it applies at
+ * (thinkweb.cpp); -1, the default, is "the next window", which is how a key
+ * pressed now is played. A knob and a transport button carry one too: the
+ * page is the nearest peer and not a privileged one, and when there are
+ * other peers they will send the same commands with the same stamps
+ * (JAM.md, section 3).
  */
 
 let fetched = null;
@@ -58,7 +62,8 @@ function wasmBytes ()
 }
 
 export async function createSynth (ctx, { windowlen = 256,
-                                          onLog = () => {} } = {})
+                                          onLog = () => {},
+                                          onTape = () => {} } = {})
 {
     const [bytes] = await Promise.all([
         wasmBytes(),
@@ -103,6 +108,13 @@ export async function createSynth (ctx, { windowlen = 256,
                 waiting.get(m.id)?.(m.ok);
                 waiting.delete(m.id);
                 break;
+            case 'piece':
+                waiting.get(m.id)?.(m);
+                waiting.delete(m.id);
+                break;
+            case 'tape':
+                onTape(m);
+                break;
         }
     };
 
@@ -127,14 +139,52 @@ export async function createSynth (ctx, { windowlen = 256,
         windowlen: info.windowlen,
         sampleRate: info.sampleRate,
 
-        /* Resolves true if the .dsp parsed. */
-        load: (text) => ask({ type: 'load', text }),
+        /* Resolves true if the .dsp parsed. The channel is the caller's:
+           a piece that routes `input midi' to a channel it declares no
+           instrument for needs something put there to sound. */
+        load: (text, channel = 0) => ask({ type: 'load', text, channel }),
 
-        noteOn: (note, velocity = 100, frame = -1) =>
-            node.port.postMessage({ type: 'on', note, velocity, frame }),
+        /* A .dsp under the name a piece's `instrument { dsp = ... }' will
+           ask for. A worklet cannot fetch, so the page hands these over. */
+        instrument: (name, text) =>
+            node.port.postMessage({ type: 'instrument', name, text }),
 
-        noteOff: (note, frame = -1) =>
-            node.port.postMessage({ type: 'off', note, frame }),
+        /* Resolves to what the piece is: its name, its description and the
+           knobs it declared -- or just `errors', which is the loader's own
+           complaints with line numbers, when it did not parse. */
+        loadPiece: (text) => ask({ type: 'piece', text }),
+
+        /* 'start', 'stop', 'rewind' or 'tempo', the last with a value in
+           beats per minute. */
+        transport: (op, value = 0, frame = -1) =>
+            node.port.postMessage({ type: 'transport', op, value, frame }),
+
+        /* `knob' is the index loadPiece reported the knob under. */
+        knob: (knob, value, frame = -1) =>
+            node.port.postMessage({ type: 'knob', knob, value, frame }),
+
+        /* A key, into the piece rather than straight onto a channel: the
+           chains that declared `input midi' and sink to this channel
+           receive it.
+         *
+           The channel comes after the frame, here and below, because the
+           frame was here first and a caller that had learned to put it
+           third would have gone on putting it third -- silently sending a
+           stamp as a channel and playing every note at once. Which is what
+           happened, and what browsertest.mjs caught. */
+        midiOn: (note, velocity = 100, frame = -1, channel = 0) =>
+            node.port.postMessage({ type: 'midion', note, velocity,
+                                    frame, channel }),
+
+        midiOff: (note, frame = -1, channel = 0) =>
+            node.port.postMessage({ type: 'midioff', note, frame, channel }),
+
+        noteOn: (note, velocity = 100, frame = -1, channel = 0) =>
+            node.port.postMessage({ type: 'on', note, velocity, frame,
+                                    channel }),
+
+        noteOff: (note, frame = -1, channel = 0) =>
+            node.port.postMessage({ type: 'off', note, frame, channel }),
 
         allOff: () => node.port.postMessage({ type: 'alloff' }),
 

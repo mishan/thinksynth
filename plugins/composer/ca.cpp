@@ -52,7 +52,9 @@
 #include <random>
 #include <vector>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 
@@ -307,6 +309,7 @@ composer_input (void *state, const thcInputEvent *ev)
     st->cells[i] = (ev->button == 1) ? (st->cells[i] ? 0 : 1) : 0;
 }
 
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -388,6 +391,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
             }
     }
 }
+#endif
 
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)

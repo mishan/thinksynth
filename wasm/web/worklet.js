@@ -17,13 +17,21 @@
  */
 
 /*
- * worklet.js -- the synth, on the audio thread.
+ * worklet.js -- the synth and the composer scheduler, on the audio thread.
  *
- * One processor, one module, one synth. The main thread fetches the wasm
- * and posts its bytes here (host.js says why the bytes and not a compiled
- * module); this compiles and instantiates them, since a worklet cannot
- * fetch. After that everything is messages -- load a .dsp, a key down, a
- * key up -- and process() asks the synth for each 128-frame quantum.
+ * One processor, one module, one synth, one transport. The main thread
+ * fetches the wasm and posts its bytes here (host.js says why the bytes and
+ * not a compiled module); this compiles and instantiates them, since a
+ * worklet cannot fetch. After that everything is messages -- load a .dsp or
+ * a .gen, a key down, a knob moved, Play -- and process() asks the synth
+ * for each 128-frame quantum, which is where the transport is stepped too.
+ *
+ * The traffic the other way is the tape: what the scheduler delivered, the
+ * transport's position, and the epoch a rewind bumps. It goes in batches
+ * rather than per quantum -- a quantum is 2.7 ms and a piano roll does not
+ * want 375 messages a second -- which costs the page at most TAPE_EVERY
+ * quanta of freshness and costs a composed note nothing, since the note
+ * sounded here.
  *
  * No SharedArrayBuffer, so none of the cross-origin isolation it demands:
  * two threads, messages between them, which is the shape the desktop
@@ -31,10 +39,38 @@
  */
 
 import createThinkWeb from './thinkweb.mjs';
+import { drain, loadErrors } from './tape.mjs';
+
+/* How many 128-frame quanta between posts to the page: 43 ms at 48 kHz. */
+const TAPE_EVERY = 16;
+
+/* thinkweb.cpp's TransportOp. */
+const TRANSPORT = { start: 0, stop: 1, rewind: 2, tempo: 3 };
 
 /* The glue asks for the time now and then; a worklet has no performance
    object to ask. The audio clock is the only clock here anyway. */
 globalThis.performance ??= { now: () => currentTime * 1000 };
+
+/* And it asks for entropy. An AudioWorkletGlobalScope is not a window and
+   not a worker, so it has no `crypto' either -- and the module reaches for
+   one before the first note: thcScheduler's constructor draws its master
+   seed from g_random_int, which is std::random_device, which is getentropy.
+ *
+ * Math.random is enough for what that seed is. It is the seed of a piece
+ * that pinned none, whose one requirement is to differ between runs; a
+ * piece that pins one never looks. Nothing in this module is cryptographic.
+ * (When there are peers, an unpinned seed will have to be agreed rather
+ * than drawn -- two peers composing from different seeds are playing
+ * different pieces -- but that is a message, and messages are M3.) */
+globalThis.crypto ??= {
+    getRandomValues (view)
+    {
+        for (let i = 0; i < view.length; i++)
+            view[i] = Math.random() * 0x100000000;
+
+        return view;
+    },
+};
 
 class ThinkProcessor extends AudioWorkletProcessor
 {
@@ -44,6 +80,9 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         this.M = null;
         this.early = [];        /* messages that arrived before the module */
+        this.quanta = 0;        /* since the last post to the page */
+        this.events = [];
+        this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
 
         /* A message this side could not take -- a module that did not
@@ -92,6 +131,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         const took = M._tw_create(sampleRate, windowlen, 128);
 
         this.M = M;
+        this.epoch = M._tw_epoch();
         this.port.postMessage({ type: 'ready', windowlen: took, sampleRate });
 
         for (const m of this.early.splice(0))
@@ -116,25 +156,104 @@ class ThinkProcessor extends AudioWorkletProcessor
         {
             case 'load':
             {
-                const ok = this.M.ccall('tw_load', 'number', ['string'],
-                                        [m.text]) !== 0;
+                const ok = this.M.ccall('tw_load', 'number',
+                                        ['number', 'string'],
+                                        [m.channel, m.text]) !== 0;
 
                 this.port.postMessage({ type: 'loaded', id: m.id, ok });
                 break;
             }
+            case 'instrument':
+                this.M.ccall('tw_instrument', 'number', ['string', 'string'],
+                             [m.name, m.text]);
+                break;
+            case 'piece':
+            {
+                const ok = this.M.ccall('tw_piece_load', 'number', ['string'],
+                                        [m.text]) !== 0;
+
+                this.port.postMessage({ type: 'piece', id: m.id,
+                                        ...this.piece(ok) });
+                break;
+            }
+            case 'transport':
+                /* Checked, because an op this does not know would reach
+                   the module as undefined, arrive as zero and start the
+                   transport -- a typo that plays the piece. */
+                if (!Object.hasOwn(TRANSPORT, m.op))
+                {
+                    /* A log and not an `error': that one is the start
+                       failing, and rejects the page's promise. */
+                    this.port.postMessage(
+                        { type: 'log',
+                          text: `worklet: no transport op '${m.op}'` });
+                    break;
+                }
+
+                this.M._tw_transport(m.frame, TRANSPORT[m.op], m.value ?? 0);
+                break;
+            case 'knob':
+                this.M._tw_knob(m.frame, m.knob, m.value);
+                break;
+            case 'midion':
+                this.M._tw_midi_on(m.frame, m.channel, m.note, m.velocity);
+                break;
+            case 'midioff':
+                this.M._tw_midi_off(m.frame, m.channel, m.note);
+                break;
             case 'on':
-                this.M._tw_note_on(m.frame, m.note, m.velocity);
+                this.M._tw_note_on(m.frame, m.channel, m.note, m.velocity);
                 break;
             case 'off':
-                this.M._tw_note_off(m.frame, m.note);
+                this.M._tw_note_off(m.frame, m.channel, m.note);
                 break;
             case 'alloff':
                 this.M._tw_all_off();
                 break;
             case 'ping':
+                /* Everything sent before this has been handled -- and
+                   everything delivered before it has been posted, which is
+                   the half a tape needs: the batch in hand may be short of
+                   TAPE_EVERY and would otherwise wait for a quantum that
+                   is not coming. */
+                this.postTape();
                 this.port.postMessage({ type: 'pong', id: m.id });
                 break;
         }
+    }
+
+    /* What the page needs to draw a piece: its name, and the knobs it
+       declared, with the range and label each was given. Read once, at the
+       load -- a knob's value moves, but nothing else about it does. */
+    piece (ok)
+    {
+        if (!ok)
+            return { errors: loadErrors(this.M), name: '', description: '',
+                     knobs: [] };
+
+        /* `knob' is the index a command names it by; the list is every
+           knob the piece declared, hidden ones included, so the index is
+           the module's own. */
+        const knobs = [];
+
+        for (let i = 0; i < this.M._tw_knob_count(); i++)
+            if (this.M._tw_knob_shown(i))
+                knobs.push({
+                    knob:  i,
+                    name:  this.M.UTF8ToString(this.M._tw_knob_name(i)),
+                    label: this.M.UTF8ToString(this.M._tw_knob_label(i)),
+                    min:   this.M._tw_knob_min(i),
+                    max:   this.M._tw_knob_max(i),
+                    step:  this.M._tw_knob_step(i),
+                    value: this.M._tw_knob_value(i),
+                });
+
+        return {
+            errors: [],
+            name: this.M.UTF8ToString(this.M._tw_piece_name()),
+            description: this.M.UTF8ToString(this.M._tw_piece_description()),
+            knobs,
+        };
     }
 
     process (inputs, outputs)
@@ -159,7 +278,44 @@ class ThinkProcessor extends AudioWorkletProcessor
                 ch[i] = heap[src + i * 2];
         }
 
+        /* A rewind or a load inside the batch: what is held so far is
+           the old run's, and goes out under the old run's epoch before
+           anything from the new one joins it -- posted together, the page
+           would clear its roll for the new epoch and then draw the old
+           notes into it. */
+        const epoch = this.M._tw_epoch();
+
+        if (epoch !== this.epoch)
+        {
+            if (this.events.length > 0)
+                this.postTape();
+
+            this.epoch = epoch;
+        }
+
+        /* Drained every quantum and posted every TAPE_EVERY: the module
+           holds the events until somebody takes them, and letting a minute
+           of a busy piece pile up there would be a megabyte nobody asked
+           for. */
+        drain(this.M, this.events);
+
+        if (++this.quanta >= TAPE_EVERY)
+            this.postTape();
+
         return true;
+    }
+
+    postTape ()
+    {
+        this.quanta = 0;
+        this.port.postMessage({
+            type: 'tape',
+            now: this.M._tw_now(),
+            epoch: this.epoch,
+            running: this.M._tw_running() !== 0,
+            events: this.events,
+        });
+        this.events = [];
     }
 }
 
