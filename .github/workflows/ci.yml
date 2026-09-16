@@ -352,6 +352,37 @@ jobs:
             adwaita-icon-theme:p
             librsvg:p
 
+      # glib 2.90.0 (in ucrt64 since 2026-09-09) and gtk4 4.24.0 (2026-09-11)
+      # moved GEmblem, GDBusActionGroup and GdkCursor over to
+      # G_DECLARE_FINAL_TYPE. That macro expands to
+      #
+      #     typedef struct { GObjectClass parent_class; } GEmblemClass;
+      #
+      # -- an *unnamed* struct -- while giomm and gdkmm still hand-write
+      # `using GEmblemClass = struct _GEmblemClass;'. Two system headers, two
+      # different types by the same name, and every translation unit that
+      # includes <gtkmm.h> dies on three `conflicting declaration' errors.
+      # Nothing we compile reaches it, and there is nothing to upgrade into:
+      # ucrt64's newest glibmm (2.86.0) and gtkmm-4.0 (4.20.0) both predate
+      # the change.
+      #
+      # So hold the last glib2 and gtk4 that agree with them. pacman -U after
+      # the install above, because pacboy would otherwise pull the new ones
+      # straight back in. Both downgrades are safe to mix with what stays
+      # current: gtkmm 4.20.0 and glibmm 2.86.0-4 were built long before
+      # either pinned version, and librsvg 2.63.0 -- the one package rebuilt
+      # the same hour glib 2.90 landed -- imports nothing that 2.88.3 does
+      # not export.
+      #
+      # Drop this step once ucrt64 ships a glibmm/gtkmm built against glib
+      # 2.90; the build will simply stop needing it.
+      - name: Hold glib2 and gtk4 where gtkmm still compiles
+        run: |
+          set -e
+          pacman -U --noconfirm \
+            https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-glib2-2.88.3-1-any.pkg.tar.zst \
+            https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gtk4-4.22.4-1-any.pkg.tar.zst
+
       - name: Configure
         run: cmake -S . -B build -G Ninja
 

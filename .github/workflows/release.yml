@@ -326,6 +326,18 @@ jobs:
             adwaita-icon-theme:p
             librsvg:p
 
+      # The same pin the ci workflow carries, for the same reason: glib 2.90
+      # and gtk4 4.24 declare GEmblemClass, GDBusActionGroupClass and
+      # GdkCursorClass one way, ucrt64's giomm/gdkmm another, and <gtkmm.h>
+      # stops compiling. Hold the last pair that agrees with them, and take
+      # this out when the packages catch up.
+      - name: Hold glib2 and gtk4 where gtkmm still compiles
+        run: |
+          set -e
+          pacman -U --noconfirm \
+            https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-glib2-2.88.3-1-any.pkg.tar.zst \
+            https://repo.msys2.org/mingw/ucrt64/mingw-w64-ucrt-x86_64-gtk4-4.22.4-1-any.pkg.tar.zst
+
       # RelWithDebInfo is already CMakeLists.txt's default. Spelled out
       # anyway, so that a release does not quietly change if that changes.
       - name: Build
