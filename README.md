@@ -177,12 +177,17 @@ and why they keep their `node` and `stage` keywords apart on purpose.
 In a browser
 ------------
 
-The same engine compiled to WebAssembly and playing in a tab: one `.dsp` in
-a text box, the computer keyboard as the keyboard, and the latency the
-browser admits to. The synth is an AudioWorklet — libthink and all 62 DSP
-plugins in one wasm module — so a page and a static file server are the
-whole of what it takes to hear it. [JAM.md](JAM.md) is where this is going:
-several people playing one piece, each browser rendering it locally.
+The same engine compiled to WebAssembly and playing in a tab. Two things to
+play: a patch — one `.dsp` in a text box, the computer keyboard as the
+keyboard — and a piece, a `.gen` composed as it plays, with the knobs it
+declares as sliders and a piano roll of what it delivered.
+
+All of it is one AudioWorklet: libthink, all 62 DSP plugins, all 16
+composers and the composer scheduler in one wasm module, with the transport
+stepped by the audio clock itself rather than by a timer. So a page and a
+static file server are the whole of what it takes to hear it.
+[JAM.md](JAM.md) is where this is going: several people playing one piece,
+each browser rendering it locally.
 
 Emscripten builds it, at a pinned version — the comparison against the
 native build is only as repeatable as the compiler on the wasm side:
@@ -212,6 +217,12 @@ Press **Start** and play: `Z` to `/` is an octave and a bit from C, `Q` to
 `P` the octave above, and `-` and `=` move both. Edit the `.dsp` and press
 **Load** to hear the change.
 
+Switch **Play** to *a piece* for the other half: pick one of the shipped
+`.gen` files, **Load**, **Play**. The sliders are whatever knobs the piece
+declared and move it as it runs; the roll is what the scheduler has
+delivered, a colour per channel. The keyboard still plays, into whatever
+chains the piece routed `input midi` to.
+
 It has to be served, and to localhost: a worklet module will not load from
 a `file://` path, and a browser counts https and localhost as secure
 contexts and nothing else. To play it from another machine, forward the
@@ -226,9 +237,17 @@ run needs the network.
 `wasm/` is the other Emscripten build, the same engine under Node:
 `wasm/genwav.mjs` renders a `.gen` the way `scripts/genwav` does, and
 `wasm/compare.mjs` holds the two builds against each other piece by piece.
-The browser build has its own checks in `wasm/web/check.mjs` and
-`wasm/web/browsertest.mjs`, which plays a phrase through the worklet in
-Chromium and Firefox and compares it with the same module run directly.
+
+The browser build has its own checks. `wasm/web/check.mjs` plays every
+shipped patch through the module. `wasm/web/piececheck.mjs` composes every
+seeded piece in it — at 48 kHz and 44.1, in windows of 256 and of 128 — and
+diffs each tape against the one `genwav.mjs` delivers under Node, where the
+plugins are dlopened rather than linked in and the transport is stepped by a
+fixed clock in windows of 1024. All four have to agree, because what a piece
+composes is a function of the file and the seed and of nothing else.
+`wasm/web/browsertest.mjs` runs both of those through the worklet in
+Chromium and Firefox, and `wasm/web/bench.mjs` reports what one 128-frame
+quantum costs with a piece running and a chord held down.
 
 Documentation
 -------------

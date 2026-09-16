@@ -296,22 +296,32 @@ jobs:
       - name: Compare
         run: node wasm/compare.mjs --lsb 1 -k compare
 
-      # The browser build (JAM.md, M1): every plugin linked in rather than
-      # loaded, for an AudioWorklet. check.mjs plays each shipped patch
-      # through it from Node; browsertest.mjs plays a phrase through the
-      # worklet in Chromium and in Firefox and holds each against the module
-      # run directly, to the bit. That is the plumbing between page, worklet
-      # and module -- the messages, the stamps, the quanta -- in the two
-      # engines the page has to work in.
+      # The browser build (JAM.md, M1 and M2): every plugin and every
+      # composer linked in rather than loaded, with the composer scheduler,
+      # for an AudioWorklet.
       - name: Browser build
         run: |
           source ~/emsdk/emsdk_env.sh
           emcmake cmake -S wasm/web -B build-web -G Ninja
           cmake --build build-web
 
+      # Every shipped patch, loaded and played through the module.
       - name: Browser build, played from Node
         run: node wasm/web/check.mjs
 
+      # M2's gate, without a browser: every seeded piece composed by this
+      # module at four steps, against the tape genwav.mjs delivers out of
+      # the Node module built above. The wasm-against-wasm gate and the
+      # step-invariance gate in one.
+      - name: Every seeded piece, against genwav
+        run: node wasm/web/piececheck.mjs
+
+      # And with one: browsertest.mjs plays a phrase through the worklet in
+      # Chromium and in Firefox and holds each against the module run
+      # directly, to the bit, then runs the same piece comparison through
+      # the worklet at a window of 256 and of 128. That is the plumbing
+      # between page, worklet and module -- the messages, the stamps, the
+      # quanta -- in the two engines the page has to work in.
       - name: Browser build, in browsers
         working-directory: wasm/web
         run: |

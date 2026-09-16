@@ -46,7 +46,9 @@
 #include <string>
 #include <vector>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 
@@ -348,6 +350,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
  * dots in a column. (No playhead sweep: the phrase is emitted whole,
  * and progress through it is the piano roll's picture, not this
  * box's.) */
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -385,6 +388,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         cairo_fill(cr);
     }
 }
+#endif
 
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)

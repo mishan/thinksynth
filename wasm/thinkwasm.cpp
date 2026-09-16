@@ -37,7 +37,6 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#include <deque>
 #include <filesystem>
 #include <map>
 #include <string>
@@ -51,48 +50,15 @@
 #include "thcScheduler.h"
 #include "thcGenFile.h"
 
-/* One delivered event, laid out for JavaScript to read straight out of the
-   heap. genwav.mjs knows these offsets; the static_asserts below are what
-   keep the two in step. `kind' is the tape's letter rather than the enum,
-   so the enum's numbering stays this side of the boundary -- except for an
-   event the tape has no letter for, whose raw type rides in `note'. */
-struct twEvent
-{
-    double      at;
-    double      duration;   /* N */
-    double      value;      /* C, E */
-    int32_t     kind;       /* 'N', 'C', 'P', 'E' or '?' */
-    int32_t     channel;
-    int32_t     note;       /* N; the THC_EV_* value for '?' */
-    int32_t     velocity;   /* N */
-    const char *name;       /* C: chanarg, P: patch, E: node */
-    const char *arg;        /* E */
-};
-
-static_assert(offsetof(twEvent, at) == 0, "genwav.mjs reads at 0");
-static_assert(offsetof(twEvent, duration) == 8, "genwav.mjs reads 8");
-static_assert(offsetof(twEvent, value) == 16, "genwav.mjs reads 16");
-static_assert(offsetof(twEvent, kind) == 24, "genwav.mjs reads 24");
-static_assert(offsetof(twEvent, channel) == 28, "genwav.mjs reads 28");
-static_assert(offsetof(twEvent, note) == 32, "genwav.mjs reads 32");
-static_assert(offsetof(twEvent, velocity) == 36, "genwav.mjs reads 36");
-static_assert(offsetof(twEvent, name) == 40, "genwav.mjs reads 40");
-static_assert(offsetof(twEvent, arg) == 44, "genwav.mjs reads 44");
-static_assert(sizeof(twEvent) == 48, "genwav.mjs steps by 48");
+#include "twevent.h"
 
 static std::map<std::string, thcPlugin *> plugins_;
 static thSynth      *synth_;
 static thcScheduler *sched_;
 static thcGenLoader *loader_;
 
-static sigc::connection      conn_;
-static std::vector<twEvent>  events_;
-
-/* The event's strings are the scheduler's and need not outlive delivery;
-   these copies live until the next tw_events_clear. A deque, because
-   growing one leaves the earlier elements -- and so their c_str()s -- where
-   they were. */
-static std::deque<std::string> strings_;
+static sigc::connection conn_;
+static twTape           tape_;
 
 /* genwav.cpp's loadComposers, as it stands. */
 static void loadComposers (const std::string &pluginDir,
@@ -123,52 +89,6 @@ static void loadComposers (const std::string &pluginDir,
 
         out[p->name()] = p;
     }
-}
-
-static const char *keep (const char *s)
-{
-    strings_.emplace_back(s != NULL ? s : "");
-
-    return strings_.back().c_str();
-}
-
-static void deliver (const thcEvent &ev)
-{
-    twEvent e = {};
-
-    e.at = ev.at;
-    e.channel = ev.channel;
-
-    switch (ev.type)
-    {
-        case THC_EV_NOTE:
-            e.kind = 'N';
-            e.note = ev.u.note.note;
-            e.velocity = ev.u.note.velocity;
-            e.duration = ev.u.note.duration;
-            break;
-        case THC_EV_CHANARG:
-            e.kind = 'C';
-            e.name = keep(ev.u.chanarg.name);
-            e.value = ev.u.chanarg.value;
-            break;
-        case THC_EV_PATCH:
-            e.kind = 'P';
-            e.name = keep(ev.u.patch.name);
-            break;
-        case THC_EV_NODEARG:
-            e.kind = 'E';
-            e.name = keep(ev.u.nodearg.node);
-            e.arg = keep(ev.u.nodearg.arg);
-            e.value = ev.u.nodearg.value;
-            break;
-        default:
-            e.kind = '?';
-            e.note = (int)ev.type;
-            break;
-    }
-
-    events_.push_back(e);
 }
 
 extern "C" {
@@ -225,7 +145,8 @@ EMSCRIPTEN_KEEPALIVE int tw_rate (void)
    connects too: after the load, so nothing the load delivers is counted. */
 EMSCRIPTEN_KEEPALIVE void tw_start (void)
 {
-    conn_ = sched_->sigDelivered.connect(&deliver);
+    conn_ = sched_->sigDelivered.connect(
+        sigc::mem_fun(tape_, &twTape::deliver));
     sched_->start();
 }
 
@@ -260,18 +181,17 @@ EMSCRIPTEN_KEEPALIVE const float *tw_process (void)
 /* What was delivered since the last clear, as twEvents. */
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
 {
-    return (int)events_.size();
+    return (int)tape_.count();
 }
 
 EMSCRIPTEN_KEEPALIVE const twEvent *tw_events (void)
 {
-    return events_.data();
+    return tape_.data();
 }
 
 EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
 {
-    events_.clear();
-    strings_.clear();
+    tape_.clear();
 }
 
 } /* extern "C" */

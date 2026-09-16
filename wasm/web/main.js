@@ -17,8 +17,21 @@
  */
 
 /*
- * main.js -- the page: one .dsp in a text box, the computer keyboard as the
- * keyboard, and the latency the browser admits to.
+ * main.js -- the page.
+ *
+ * Two things to play. A patch is one .dsp and the computer keyboard, which
+ * is M1. A piece is a .gen: the scheduler in the worklet composes it, the
+ * knobs it declared are sliders, and what it delivers comes back as the
+ * tape and is drawn on a roll. That is M2.
+ *
+ * They are modes and not two panels side by side, because a piece takes the
+ * channels it asks for and the first of those is channel 0, where the
+ * keyboard's patch was -- thinkweb.cpp, tw_piece_load, says why that is
+ * deliberate. In piece mode the keyboard still plays: into the piece,
+ * through `input midi', which is the path a peer's keyboard will take. It
+ * arrives on a channel the page picks, because that is what a chain's
+ * `input midi' is matched against, and a patch can be put on that channel
+ * for pieces that route to one without declaring an instrument for it.
  *
  * Two rows of keys, laid out by position rather than by letter so a
  * non-QWERTY keyboard plays the same shape: Z to / is an octave and a bit
@@ -41,10 +54,30 @@ const KEYS = {
 
 const VELOCITY = 100;
 
+/* How much of the piece the roll shows, in seconds, and the pitches it has
+   room for. Notes older than this scroll off the left. */
+const ROLL_SECONDS = 30;
+const ROLL_LOW = 24, ROLL_HIGH = 108;
+
+/* One colour per channel, so a piece's instruments are told apart. */
+const CHANNEL_COLOURS = [
+    '#e05c4a', '#e0a13c', '#c9c93a', '#6fbf4a', '#3fb8a0', '#3f96d0',
+    '#5a6fd8', '#8f5ad8', '#cf4fb0', '#d9607a', '#9a8f6a', '#6a9a8f',
+    '#8a8a8a', '#c07a3a', '#4a8ac0', '#a0a04a',
+];
+
 let ctx = null;
 let synth = null;
 let octave = 48;                 /* MIDI note of the Z key: C3 */
 const held = new Map();          /* key code -> the note it pressed */
+
+/* The piece, as it stands: what the worklet said when it loaded, and the
+   tape it has delivered since. */
+let piece = null;
+let epoch = -1;
+let now = 0;
+let running = false;
+let notes = [];
 
 function log (text)
 {
@@ -56,6 +89,11 @@ function ms (seconds)
 {
     return seconds === undefined ? 'not reported'
                                  : `${(seconds * 1000).toFixed(1)} ms`;
+}
+
+function mode ()
+{
+    return $('mode').value;
 }
 
 /* What the browser says it adds, and what the synth adds: a window, and
@@ -86,28 +124,225 @@ function noteName (n)
     return names[n % 12] + (Math.floor(n / 12) - 1);
 }
 
+/* ---- the patch, M1 ---- */
+
 async function loadPatch ()
 {
     if (synth === null)
         return;
 
-    /* The graph is built on the audio thread, between two quanta, and a
-       big one could run past the next quantum's deadline. Suspended around
-       the load, the gap a reload makes is a clean one rather than a
-       glitch. */
+    const ok = await quietly(() => synth.load($('dsp').value));
+
+    $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
+                                 : 'That .dsp did not parse; see below.';
+}
+
+/* The same, onto the channel the keys are aimed at rather than onto 0. */
+async function loadKeyPatch ()
+{
+    if (synth === null)
+        return;
+
+    const name = $('keypatch').value;
+    const text = await (await fetch(`dsp/${name}`)).text();
+    const ok = await quietly(() => synth.load(text, keyChannel()));
+
+    $('status').textContent =
+        ok ? `${name} on channel ${keyChannel()}. Play.`
+           : `${name} did not parse; see below.`;
+}
+
+function keyChannel ()
+{
+    return Number($('keychan').value);
+}
+
+async function pickPatch ()
+{
+    $('dsp').value = await (await fetch(`dsp/${$('patch').value}`)).text();
+
+    await loadPatch();
+}
+
+/* ---- the piece, M2 ---- */
+
+async function loadPiece ()
+{
+    if (synth === null)
+        return;
+
+    const it = await quietly(() => synth.loadPiece($('gen').value));
+
+    notes = [];
+    piece = it.errors.length === 0 ? it : null;
+
+    if (piece === null)
+    {
+        $('status').textContent = 'That .gen did not parse; see below.';
+        it.errors.forEach(log);
+    }
+    else
+        $('status').textContent =
+            `Loaded ${piece.name || $('piece').value}. Press Play.`;
+
+    $('about').textContent = piece === null ? '' : piece.description;
+
+    for (const id of ['play', 'stop', 'rewind'])
+        $(id).disabled = piece === null;
+
+    showKnobs();
+    draw();
+}
+
+async function pickPiece ()
+{
+    $('gen').value = await (await fetch(`gen/${$('piece').value}`)).text();
+
+    await loadPiece();
+}
+
+/* A load builds graphs on the audio thread, between two quanta, and a big
+   one could run past the next quantum's deadline. Suspended around it, the
+   gap is a clean one rather than a glitch. */
+async function quietly (what)
+{
     const wasRunning = ctx.state === 'running';
 
     if (wasRunning)
         await ctx.suspend();
 
-    const ok = await synth.load($('dsp').value);
+    const r = await what();
 
     if (wasRunning)
         await ctx.resume();
 
-    $('status').textContent = ok ? `Loaded ${$('patch').value}. Play.`
-                                 : 'That .dsp did not parse; see below.';
+    return r;
 }
+
+/* One row per knob the piece declared, each bound straight to the command
+   that moves it. The command carries a frame like every other, so the page
+   is the nearest peer and not a privileged one (JAM.md, section 3). */
+function showKnobs ()
+{
+    const box = $('knobs');
+
+    box.replaceChildren();
+
+    for (const k of piece?.knobs ?? [])
+    {
+        const label = document.createElement('label');
+        const input = document.createElement('input');
+        const shown = document.createElement('span');
+
+        label.textContent = k.label || k.name;
+        label.htmlFor = `knob-${k.name}`;
+
+        input.id = `knob-${k.name}`;
+        input.type = 'range';
+        input.min = k.min;
+        input.max = k.max;
+        input.step = (k.max - k.min) / 1000;
+        input.value = k.value;
+
+        shown.className = 'value';
+        shown.textContent = Number(k.value).toPrecision(3);
+
+        input.addEventListener('input', () =>
+        {
+            shown.textContent = Number(input.value).toPrecision(3);
+            synth.knob(k.name, Number(input.value));
+        });
+
+        box.append(label, input, shown);
+    }
+}
+
+/* The tape, as it arrives. Only notes are drawn -- a chanarg write moves a
+   filter and has nothing to put on a roll -- and only the last
+   ROLL_SECONDS of them are kept. */
+function tape (m)
+{
+    now = m.now;
+    running = m.running;
+
+    /* A load or a rewind: `at' starts again from zero and everything drawn
+       so far is about a piece that is no longer running. */
+    if (m.epoch !== epoch)
+    {
+        epoch = m.epoch;
+        notes = [];
+    }
+
+    for (const e of m.events)
+        if (e.kind === 'N')
+            notes.push(e);
+
+    const first = now - ROLL_SECONDS;
+    let k = 0;
+
+    while (k < notes.length && notes[k].at + notes[k].duration < first)
+        k++;
+
+    if (k > 0)
+        notes = notes.slice(k);
+}
+
+function draw ()
+{
+    const c = $('roll');
+    const g = c.getContext('2d');
+    const w = c.width, h = c.height;
+    const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+
+    g.clearRect(0, 0, w, h);
+
+    /* The last ROLL_SECONDS, with now at the right edge. */
+    const first = now - ROLL_SECONDS;
+    const x = (t) => (t - first) / ROLL_SECONDS * w;
+    const y = (n) => h - (n - ROLL_LOW) / (ROLL_HIGH - ROLL_LOW) * h;
+
+    g.strokeStyle = dark ? '#3a3a3a' : '#dcdcdc';
+    g.lineWidth = 1;
+
+    for (let n = ROLL_LOW; n <= ROLL_HIGH; n += 12)
+    {
+        g.beginPath();
+        g.moveTo(0, Math.round(y(n)) + 0.5);
+        g.lineTo(w, Math.round(y(n)) + 0.5);
+        g.stroke();
+    }
+
+    const tall = Math.max(2, h / (ROLL_HIGH - ROLL_LOW));
+
+    for (const e of notes)
+    {
+        const left = x(e.at);
+        const wide = Math.max(2, (e.duration || 0.05) / ROLL_SECONDS * w);
+
+        g.globalAlpha = 0.25 + 0.75 * Math.min(1, e.velocity / 110);
+        g.fillStyle = CHANNEL_COLOURS[e.channel & 15];
+        g.fillRect(left, y(e.note) - tall / 2, wide, tall);
+    }
+
+    g.globalAlpha = 1;
+
+    const secs = Math.max(0, now);
+
+    $('clock').textContent =
+        `${Math.floor(secs / 60)}:` +
+        `${(secs % 60).toFixed(1).padStart(4, '0')}` +
+        (running ? '' : ' (stopped)');
+}
+
+function frame ()
+{
+    if (mode() === 'piece')
+        draw();
+
+    requestAnimationFrame(frame);
+}
+
+/* ---- starting, and the keyboard ---- */
 
 async function start ()
 {
@@ -117,7 +352,8 @@ async function start ()
     try
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
-        synth = await createSynth(ctx, { windowlen: 256, onLog: log });
+        synth = await createSynth(ctx, { windowlen: 256, onLog: log,
+                                         onTape: tape });
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }
@@ -137,20 +373,46 @@ async function start ()
         return;
     }
 
+    /* The instruments a piece may name, before any piece asks for one: a
+       worklet has no file system of its own and cannot fetch. */
+    for (const name of await (await fetch('dsp/index.json')).json())
+        synth.instrument(name, await (await fetch(`dsp/${name}`)).text());
+
     $('load').disabled = false;
-    await loadPatch();
+    $('loadpiece').disabled = false;
+    $('loadkeypatch').disabled = false;
+
+    if (mode() === 'patch')
+        await loadPatch();
+    else
+        await loadPiece();
 
     showLatency();
     setInterval(showLatency, 500);
 }
 
-async function pickPatch ()
+async function pickMode ()
 {
-    const r = await fetch(`dsp/${$('patch').value}`);
+    const piecing = mode() === 'piece';
 
-    $('dsp').value = await r.text();
+    $('patchmode').hidden = piecing;
+    $('piecemode').hidden = !piecing;
 
-    await loadPatch();
+    if (synth === null)
+        return;
+
+    releaseAll();
+
+    /* Each mode loads what it plays as it is entered: the other one's is
+       still on the channels until it does. */
+    if (piecing)
+        await loadPiece();
+    else
+    {
+        synth.transport('stop');
+        piece = null;
+        await loadPatch();
+    }
 }
 
 /* Typing in the text box is editing, not playing. */
@@ -185,7 +447,11 @@ function keyDown (e)
     const note = octave + KEYS[e.code];
 
     held.set(e.code, note);
-    synth.noteOn(note, VELOCITY);
+
+    if (mode() === 'piece')
+        synth.midiOn(note, VELOCITY, -1, keyChannel());
+    else
+        synth.noteOn(note, VELOCITY);
 }
 
 function keyUp (e)
@@ -196,7 +462,11 @@ function keyUp (e)
         return;
 
     held.delete(e.code);
-    synth.noteOff(note);
+
+    if (mode() === 'piece')
+        synth.midiOff(note, -1, keyChannel());
+    else
+        synth.noteOff(note);
 }
 
 /* A key released while the page was not looking never sends its keyup. */
@@ -206,30 +476,60 @@ function releaseAll ()
         return;
 
     for (const note of held.values())
+    {
         synth.noteOff(note);
+        synth.midiOff(note, -1, keyChannel());
+    }
 
     held.clear();
 }
 
-async function init ()
+async function fill (select, dir, preferred)
 {
-    const names = await (await fetch('dsp/index.json')).json();
+    const names = await (await fetch(`${dir}/index.json`)).json();
 
     for (const name of names)
-        $('patch').add(new Option(name, name, name === 'ts1.dsp',
-                                  name === 'ts1.dsp'));
+        select.add(new Option(name, name, name === preferred,
+                              name === preferred));
 
-    const r = await fetch(`dsp/${$('patch').value}`);
+    return (await fetch(`${dir}/${select.value}`)).text();
+}
 
-    $('dsp').value = await r.text();
+async function init ()
+{
+    $('dsp').value = await fill($('patch'), 'dsp', 'ts1.dsp');
+    $('gen').value = await fill($('piece'), 'gen', 'ebb.gen');
+
+    await fill($('keypatch'), 'dsp', 'rpiano0.dsp');
+
+    /* Sixteen is all there are. The engine's numbering, which a .gen
+       file's is not: a file writes `channel = 1' for the first one and the
+       loader hands over 0, and it is the loader's number that both a
+       chain's `input midi' and this are matched against. So 0 is where a
+       piece's first instrument lands, and where hands.gen's arpeggiator
+       listens. */
+    for (let c = 0; c < 16; c++)
+        $('keychan').add(new Option(String(c), c, c === 0, c === 0));
 
     $('start').addEventListener('click', start);
+    $('mode').addEventListener('change', pickMode);
+
     $('load').addEventListener('click', loadPatch);
     $('patch').addEventListener('change', pickPatch);
+
+    $('loadpiece').addEventListener('click', loadPiece);
+    $('piece').addEventListener('change', pickPiece);
+    $('loadkeypatch').addEventListener('click', loadKeyPatch);
+
+    $('play').addEventListener('click', () => synth.transport('start'));
+    $('stop').addEventListener('click', () => synth.transport('stop'));
+    $('rewind').addEventListener('click', () => synth.transport('rewind'));
 
     window.addEventListener('keydown', keyDown);
     window.addEventListener('keyup', keyUp);
     window.addEventListener('blur', releaseAll);
+
+    requestAnimationFrame(frame);
 }
 
 init();

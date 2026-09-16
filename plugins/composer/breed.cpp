@@ -67,7 +67,9 @@
 #include <string>
 #include <vector>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 #include "thcRandom.h"
@@ -599,6 +601,7 @@ composer_param_changed (void *state, int)
  * converging -- the marks crowding towards a point and then, when drift
  * pulls, scattering again -- is the search, and it is the thing worth
  * being able to see without reading numbers. */
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -664,3 +667,4 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         }
     }
 }
+#endif

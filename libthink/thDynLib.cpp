@@ -26,15 +26,9 @@
 
 # include <string.h>
 
-# include "think.h"     /* MODULE_IFACE_VER */
-
 namespace {
 
 std::string lastError_;
-
-/* What thPlugin checks a plugin's apiversion against. A plugin compiled
-   into this module was compiled against this header, so this is its. */
-unsigned char apiversion_ = MODULE_IFACE_VER;
 
 } /* namespace */
 
@@ -59,14 +53,9 @@ void *thDynLib::symbol (Handle handle, const char *name)
     if (p == NULL || name == NULL)
         return NULL;
 
-    if (!strcmp(name, "module_init"))
-        return p->init;
-    if (!strcmp(name, "module_callback"))
-        return p->callback;
-    if (!strcmp(name, "module_cleanup"))
-        return p->cleanup;
-    if (!strcmp(name, "apiversion"))
-        return &apiversion_;
+    for (size_t i = 0; i < p->count; i++)
+        if (!strcmp(name, p->symbols[i].name))
+            return p->symbols[i].addr;
 
     lastError_ = std::string(name) + ": not in the table";
 

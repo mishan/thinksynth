@@ -51,7 +51,9 @@
 #include <string>
 #include <vector>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 /* M_PI is not in C++ and UCRT hides it; thMath.h is the one place that
@@ -413,6 +415,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
  * where the sweep has got to. The plugin's entire state made visible,
  * which is the rule the other draws follow: the point is to be able to
  * see that a morph is moving, and which way, without reading numbers. */
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -473,3 +476,4 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         cairo_fill(cr);
     }
 }
+#endif

@@ -34,7 +34,9 @@
 #include <cstring>
 #include <random>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 
@@ -179,6 +181,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 
 /* The ring: one dot per step, filled where an onset falls, the current
  * step haloed. Step 0 at twelve o'clock, time running clockwise. */
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -238,6 +241,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
         }
     }
 }
+#endif
 
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)

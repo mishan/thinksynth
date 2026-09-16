@@ -47,7 +47,9 @@
 #include <utility>
 #include <vector>
 
+#ifndef THC_NO_DRAW
 #include <cairo.h>
+#endif
 
 #include "thcomposer.h"
 
@@ -225,6 +227,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
 /* The transition table as a heat grid: rows are "from", columns "to",
  * over the pitches seen so far (capped to keep cells legible). The
  * walk's current pitch gets a halo on its row. */
+#ifndef THC_NO_DRAW
 extern "C" THINK_PLUGIN_API void
 composer_draw (void *state, cairo_t *cr, double w, double h)
 {
@@ -299,6 +302,7 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
             cairo_stroke(cr);
         }
 }
+#endif
 
 extern "C" THINK_PLUGIN_API void
 composer_destroy (void *state)
