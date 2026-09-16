@@ -163,12 +163,15 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     if (t->running && !st->held.empty())
     {
         /* The sequence: held notes sorted ascending, repeated up the
-           octaves. Rebuilt per step because the held set is live. */
+           octaves. Rebuilt per step because the held set is live.
+           Stable, because the same pitch can be held twice at two
+           velocities, and which comes first should not be the standard
+           library's decision. */
         std::vector<Held> seq = st->held;
 
-        std::sort(seq.begin(), seq.end(),
-                  [](const Held &a, const Held &b)
-                  { return a.note < b.note; });
+        std::stable_sort(seq.begin(), seq.end(),
+                         [](const Held &a, const Held &b)
+                         { return a.note < b.note; });
 
         int octaves = (int)get(P_OCTAVES);
         size_t base = seq.size();

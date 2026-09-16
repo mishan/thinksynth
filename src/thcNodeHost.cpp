@@ -150,15 +150,16 @@ thcNodeHost::addNode (const std::string &name, const std::string &spelling,
 
     /* And one refusal that is not about the family.
      *
-     * osc::static draws from the global generator -- `rand()', unseeded
-     * -- which is the one plugin in the tree that does. On the audio
-     * thread that is what noise is and nobody minds. Down here it would
-     * make a piece that does not replay, and the framework's whole
+     * osc::static draws from a generator nothing seeds -- one per synth,
+     * shared by every static node in it -- which makes it the one plugin
+     * in the tree whose output is not a function of its inputs. On the
+     * audio thread that is what noise is and nobody minds. Down here it
+     * would make a piece that does not replay, and the framework's whole
      * promise is that the same file and the same seed are the same
      * piece. A noise node in a chain has to be as replayable as a markov
      * stage, and this one cannot be: there is nowhere to hand it the
-     * piece's seed, and seeding rand() globally would reach into the
-     * audio thread's copy of it as well.
+     * piece's seed, and a generator shared by every static node could
+     * not give any one of them a stream of its own.
      *
      * Refused by name rather than quietly tolerated, because a piece
      * that replays *nearly* is worse than one that says it cannot. If a
@@ -166,8 +167,8 @@ thcNodeHost::addNode (const std::string &name, const std::string &spelling,
      * seed arg, not a loosening of this. */
     if (spelling == "osc/static")
     {
-        why = "'osc/static' draws from the global random generator, so a "
-              "piece using it would not replay; a node in a chain has to "
+        why = "'osc/static' draws from a random generator nothing seeds, so "
+              "a piece using it would not replay; a node in a chain has to "
               "be as repeatable as the composers around it";
         return false;
     }

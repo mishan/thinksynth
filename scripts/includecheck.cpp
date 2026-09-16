@@ -66,6 +66,8 @@
 
 #include "thUnits.h"
 
+#include "thcRandom.h"
+
 #include <cstdio>
 
 int
@@ -73,7 +75,7 @@ main (void)
 {
     /* Nothing to check at run time -- see the header comment. Printed so
        a ctest log says what was covered rather than nothing at all. */
-    printf("includecheck: 9 headers compiled standing on their own\n");
+    printf("includecheck: 10 headers compiled standing on their own\n");
 
     return 0;
 }

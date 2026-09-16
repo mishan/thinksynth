@@ -1,0 +1,174 @@
+# round.gen -- one subject, three entries, and a bass at half speed.
+#
+# A canon. An L-system derives a single thirty-five-step subject -- a
+# climb of five degrees, a fall, a few figures with rests between them,
+# and a return to where it started -- and three voices sing it. The lead
+# sings it straight. The second voice sings it six steps later, a fifth
+# higher. The bass sings it at half speed, an octave and a half down, so
+# it takes two of the others' cycles to get through one of its own. That
+# is a mensuration canon, which is a very old idea, and it falls out of
+# three copies of one stage with three different parameters.
+#
+# HOW THE LAG IS WRITTEN. gen::lsystem has no start offset; a phrase
+# begins when the tick fires and the tick fires when the last phrase
+# ends. So the lag is in the grammar: `r' is a rest and nothing rewrites
+# it, so an axiom of `rrrrrrX' is the subject preceded by six silent
+# steps, and an axiom of `Xrrrrrr' is the subject followed by six. Both
+# phrases are forty-one steps long, both chains fire together, and the
+# follower is six steps behind for as long as the piece runs. Take the
+# trailing rests off the lead and its cycle gets six steps shorter than
+# the follower's, and the lag grows by six every time round -- Reich's
+# phase pieces, from a one-word edit. Both are worth hearing.
+#
+# WHY EVERY LAG IS CONSONANT. The ladders are pentatonic, and the
+# follower's ladder is the same five pitch classes starting on the fifth
+# degree -- a canon at the fifth in the strict sense, the same intervals
+# from a different note. Any note from one pentatonic set against any
+# note from the same set is at worst a major second, so however the three
+# voices land on each other there is nothing to resolve. That is the
+# whole reason a canon can be left to run.
+#
+# The follower is humanized a little and the lead is not; the bass is
+# on a pad that swells under the plucks. A walk moves the lead's cutoff
+# so the same subject does not arrive with the same edge every time.
+#
+# Only the humanize rolls dice, so the seed is pinned for it. Self-
+# contained: open it and press Play.
+
+name "Round";
+author "Misha Nasledov";
+description "A three-voice canon on one L-system, the bass in augmentation.";
+
+seed 1685;
+
+# One turtle step, for all three voices at once. The bass reads it
+# doubled, which keeps the augmentation true as you drag.
+@pace = 0.21;
+@pace.widget = 1;
+@pace.min = 0.08;
+@pace.max = 0.6;
+@pace.label = "Pace";
+@pace.units = "s";
+
+# E minor pentatonic, and the same five notes from B: degree 0 of the
+# follower's ladder is degree 3 of the lead's.
+scale lead_ladder     "E4 G4 A4 B4 D5";
+scale follower_ladder "B4 D5 E5 G5 A5";
+scale bass_ladder     "E2 G2 A2 B2 D3";
+
+# ts1 as a pluck: no sustain to speak of, a short decay, the filter
+# envelope doing the attack.
+instrument pluck {
+    dsp  "ts1.dsp";
+    amp  = 30;
+
+    a    = 2 ms;
+    d    = 380 ms;
+    s    = 0.18;
+    f    = 3000 ms;
+    r    = 500 ms;
+
+    cutoff = 5;
+    famt   = 3.5;
+    res    = 1.8;
+    pw1    = 0.3;
+    pw2    = 0.55;
+    oscmul = 2;
+    oscfade = 0.2;
+};
+
+# rpiano1 for the second voice: the same sort of attack, a rounder
+# body, and quiet -- it runs hot, and it is the answer, not the subject.
+instrument answer {
+    dsp  "rpiano1.dsp";
+    amp  = 16;
+
+    a    = 1 ms;
+    d    = 320 ms;
+    s    = 0.25;
+    f    = 4000 ms;
+    r    = 700 ms;
+
+    res  = 0.35;
+    fmin = 0.08;
+    fmax = 0.55;
+    shape = 0.4;
+};
+
+# amb01 as the ground: a long swell, low filter, sine and triangle.
+instrument low {
+    dsp  "amb01.dsp";
+    amp  = 36;
+
+    a    = 260 ms;
+    d    = 900 ms;
+    s    = 0.7;
+    r    = 1800 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 3;
+    lwave = 0;
+    rwave = 3;
+    centermix = 0.5;
+    sidemix = 0.4;
+
+    res  = 0.45;
+    fmin = 0.06;
+    fmax = 0.3;
+};
+
+# The subject. Depth 3 of this rule is thirty-five steps and twenty-
+# eight notes: 0 1 2 3 4 5 4 . 4 2 . 1 2 1 . 1 2 0 . -1 0 1 2 1 . 1 -1 .
+# -2 -1 -2 . -2 -1 0, degrees on the ladder. Six rests follow so the
+# phrase is as long as the follower's.
+chain lead {
+    stage src gen::lsystem {
+        axiom = "Xrrrrrr";
+        rules = "X=F+F+X--Fr-X+F";
+        depth = 3;
+        notes = lead_ladder;
+        step = @pace;  hold = 0.32 s;  vel = 78;
+    };
+    sink { instrument = pluck; };
+};
+
+# Six rests, then the subject, a fifth up.
+chain follower {
+    stage src gen::lsystem {
+        axiom = "rrrrrrX";
+        rules = "X=F+F+X--Fr-X+F";
+        depth = 3;
+        notes = follower_ladder;
+        step = @pace;  hold = 0.3 s;  vel = 66;
+    };
+    stage h xform::humanize { time = 0.012 s; vel = 7; };
+    sink { instrument = answer; };
+};
+
+# The subject at half speed. `twice' is math::mul with the Pace knob on
+# one side and 2 on the other, so the augmentation is arithmetic rather
+# than a second slider that could stop agreeing with the first. Padded
+# with the same six rests as the lead, so its forty-one steps at twice
+# the pace are exactly two of the others' cycles, and the bass meets the
+# lead at the top of every second one.
+chain ground {
+    stage twice math::mul { in0 = @pace; in1 = 2; };
+
+    stage src gen::lsystem {
+        axiom = "Xrrrrrr";
+        rules = "X=F+F+X--Fr-X+F";
+        depth = 3;
+        notes = bass_ladder;
+        step = twice->out;  hold = 0.8 s;  vel = 70;
+    };
+    sink { instrument = low; };
+};
+
+# The lead's cutoff, in ts1's units (0 to 16), between dull and bright
+# on a period that lines up with none of the phrases.
+chain edge {
+    stage src gen::walk {
+        min = 3;  max = 8;  step = 0.5;  period = 6.7 s;
+    };
+    sink { instrument = pluck; chanarg = "cutoff"; };
+};

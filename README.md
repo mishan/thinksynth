@@ -168,7 +168,7 @@ Time carries its unit. `period = 19.4 s` is a free-running loop;
 loads every shipped piece, renders it twice through a virtual clock, and
 diffs the two note streams byte for byte.
 
-Fourteen pieces ship, each built around one idea and meant to be read as
+Seventeen pieces ship, each built around one idea and meant to be read as
 well as heard — [`gen/README.md`](gen/README.md) is the index.
 [`GEN_FORMAT.md`](GEN_FORMAT.md) is the language, and
 [`UNIFICATION.md`](UNIFICATION.md) is where the two languages are going,
@@ -185,5 +185,6 @@ Documentation
 | [NODE_EDITOR.md](NODE_EDITOR.md) | the visual editor's model, behaviour and layout |
 | [VISUALIZERS.md](VISUALIZERS.md) | writing a visual module, and how probes work |
 | [PORTING.md](PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
+| [JAM.md](JAM.md) | playing together in a browser: the plan, milestones and risks |
 | [PACKAGING.md](PACKAGING.md) | the three install layouts, dependency closure, GTK bundling, Flatpak |
 | [TODO](TODO) | what is left |

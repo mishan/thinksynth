@@ -146,8 +146,10 @@ FAIL  dsp/anasync.dsp (non-deterministic output, first differing window 0
 ```
 
 19 of the 92 shipped DSPs failed that check before the fix, every one of them
-differing at window 0. Zero fail after it. (`renderNote` reseeds `rand()`, or the
-twelve DSPs built on `osc::static` would show up as false positives.)
+differing at window 0. Zero fail after it. (Each render builds a fresh synth,
+which restarts `osc::static`'s noise, and reseeds `rand()` for anything else;
+otherwise the twelve DSPs built on `osc::static` would show up as false
+positives.)
 
 ## The harnesses
 

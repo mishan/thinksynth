@@ -62,8 +62,9 @@ static bool renderAt (const string &pluginPath, const string &dsp,
     if (synth.loadTree(dsp.c_str(), 0, TH_MAX) == NULL)
         return false;
 
-    /* osc::static and friends call rand(); reseed so two runs of the same
-       patch are comparable, exactly as dspcheck does. */
+    /* Reseed rand() so two runs of the same patch are comparable, exactly
+       as dspcheck does; osc::static restarts its own noise with each fresh
+       synth. */
     srand(1);
 
     gthSynthSource source(&synth);
