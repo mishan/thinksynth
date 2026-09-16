@@ -16,10 +16,10 @@
 # ../cmake/ThinkEmscripten.cmake.
 #
 # What comes out, in the build directory, is the whole site: index.html,
-# main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp and .gen
-# files the page offers, each directory with an index.json listing it, and
-# jam.html with its bundled jam.js -- the room page, M3, which is the one
-# thing here with dependencies (`npm ci' in this directory, once).
+# main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp, .gen and
+# .patch files the page offers, each directory with an index.json listing
+# it, and jam.html with its bundled jam.js -- the room page, M3, which is
+# the one thing here with dependencies (`npm ci' in this directory, once).
 #
 # The build directory can be served as it is, and `serve.mjs' does. For
 # putting it somewhere else there is
@@ -234,7 +234,7 @@ target_link_options(thinkweb PRIVATE
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
-                host.js roll.js worklet.js)
+                patch.js host.js roll.js worklet.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -256,8 +256,10 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/tape.js"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/tape.js")
 
-# The shipped patches -- dsp/*.dsp, not the noargs/ and old/ drawers -- and
-# the list the page's menu is filled from.
+# The shipped DSPs -- dsp/*.dsp, not the noargs/ and old/ drawers -- and the
+# list the page's menu is filled from. Patch mode plays one of these
+# directly; a piece's instruments and a .patch's `dsp' line are both looked
+# up among them.
 file(GLOB SHIPPED_DSP "${THINK_TOP}/dsp/*.dsp")
 list(SORT SHIPPED_DSP)
 
@@ -299,6 +301,36 @@ list(JOIN gen_names ", " gen_names)
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/gen/index.json"
      CONTENT "[${gen_names}]\n")
 
+# The shipped patches, the whole tree -- a .patch lives in a drawer named
+# for what it is, `leads/SuperRes.patch', and the relative name is the name
+# the desktop's thinkrc uses and the one the index lists. Recursive, unlike
+# the .dsp glob above, because for these the drawers are the content.
+#
+# What the page does with them: a piece that names a channel and declares
+# no instrument for it is asking the reader to aim it, and the page aims it
+# at gthPrefs.cpp's first-run patch for that channel (patch.js). The .dsp a
+# patch names is one of the ones copied above; nothing here fetches a .dsp
+# of its own.
+file(GLOB_RECURSE SHIPPED_PATCH RELATIVE "${THINK_TOP}/patches"
+     "${THINK_TOP}/patches/*.patch")
+list(SORT SHIPPED_PATCH)
+
+set(patch_names "")
+
+foreach(rel IN LISTS SHIPPED_PATCH)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/patches/${rel}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${THINK_TOP}/patches/${rel}"
+              "${PROJECT_BINARY_DIR}/patches/${rel}"
+      DEPENDS "${THINK_TOP}/patches/${rel}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/patches/${rel}")
+  list(APPEND patch_names "\"${rel}\"")
+endforeach()
+
+list(JOIN patch_names ", " patch_names)
+file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/patches/index.json"
+     CONTENT "[${patch_names}]\n")
+
 # The room page's script is bundled (JAM_M3.md, section 4.2): it has an
 # editor, a CRDT and a provider, which come from node_modules and go
 # nowhere a browser could fetch them from. So the room page wants `npm ci'
@@ -310,13 +342,14 @@ if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
     "wasm/web: no node_modules, so no room page. Run `npm ci' in "
     "${CMAKE_CURRENT_SOURCE_DIR} and configure again to build it; the "
     "solo page does not need it.")
+  set(JAM_DIST_FILES "")
 else()
   # package-lock.json among the dependencies because the bundle contains
   # what it pins: a dependency bumped without it here would rebuild
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
-                  roll.js host.js keyboard.js knobs.js ../tape.mjs bundle.mjs
-                  package-lock.json)
+                  roll.js host.js keyboard.js knobs.js patch.js ../tape.mjs
+                  bundle.mjs package-lock.json)
   set(JAM_DEPENDS "")
 
   foreach(f IN LISTS JAM_SOURCES)
@@ -329,6 +362,12 @@ else()
       DEPENDS ${JAM_DEPENDS}
       COMMENT "Bundling the room page")
   list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js")
+
+  # For dist below, which must not install what was never built. The map
+  # goes too: it is fetched only when somebody opens the devtools, and a
+  # phone is where that somebody most wants it.
+  set(JAM_DIST_FILES "${PROJECT_BINARY_DIR}/jam.js"
+                     "${PROJECT_BINARY_DIR}/jam.js.map")
 endif()
 
 # Where the relay is, for a site served from anywhere. serve.mjs --relay
@@ -357,9 +396,9 @@ set(CMAKE_INSTALL_DEFAULT_DIRECTORY_PERMISSIONS
     WORLD_READ WORLD_EXECUTE)
 
 # The pages, their scripts and the bundle, from the build directory, since
-# that is where the copies and the bundle are. jam.js.map goes too: it is
-# fetched only when someone opens the devtools, and a phone is where that
-# someone most wants it.
+# that is where the copies and the bundle are. The room page's two are in
+# JAM_DIST_FILES, which is empty when there was no node_modules to bundle
+# it from: dist installs what was built and nothing else.
 set(DIST_ROOT_FILES "")
 foreach(f IN LISTS SITE_SOURCES)
   get_filename_component(name "${f}" NAME)
@@ -367,8 +406,7 @@ foreach(f IN LISTS SITE_SOURCES)
 endforeach()
 list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/tape.js"
-    "${PROJECT_BINARY_DIR}/jam.js"
-    "${PROJECT_BINARY_DIR}/jam.js.map"
+    ${JAM_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "$<TARGET_FILE:thinkweb>"
     "${PROJECT_BINARY_DIR}/thinkweb.wasm")
@@ -390,6 +428,12 @@ foreach(f IN LISTS SHIPPED_GEN)
   list(APPEND DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/${name}")
 endforeach()
 install(FILES ${DIST_GEN_FILES} DESTINATION gen PERMISSIONS ${SITE_FILE_MODE})
+
+# And the patches, as the directory the build made: a drawer deep, which
+# is more than an explicit FILES list wants to spell, and exact anyway --
+# what is under build-web/patches/ is what the glob above put there.
+install(DIRECTORY "${PROJECT_BINARY_DIR}/patches/" DESTINATION patches
+        FILE_PERMISSIONS ${SITE_FILE_MODE})
 
 set(DIST_DIR "${PROJECT_BINARY_DIR}/dist")
 

@@ -168,6 +168,18 @@ class ThinkProcessor extends AudioWorkletProcessor
                 this.M.ccall('tw_instrument', 'number', ['string', 'string'],
                              [m.name, m.text]);
                 break;
+            case 'chanarg':
+                /* The overrides half of a .patch (patch.js). `array' is
+                   the only pointer ccall takes, so the floats cross as
+                   the bytes of one -- it stack-allocates and copies,
+                   which is what a handful of numbers wants. */
+                this.M.ccall('tw_chanarg', 'number',
+                             ['number', 'string', 'array', 'number'],
+                             [m.channel, m.name,
+                              new Uint8Array(Float32Array.from(m.values)
+                                                 .buffer),
+                              m.values.length]);
+                break;
             case 'piece':
             {
                 const ok = this.M.ccall('tw_piece_load', 'number',
@@ -251,7 +263,7 @@ class ThinkProcessor extends AudioWorkletProcessor
     {
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
-                     knobs: [] };
+                     knobs: [], instruments: [], listens: [], sinks: [] };
 
         /* `knob' is the index a command names it by; the list is every
            knob the piece declared, hidden ones included, so the index is
@@ -288,6 +300,14 @@ class ThinkProcessor extends AudioWorkletProcessor
             if (this.M._tw_listens(c))
                 listens.push(c);
 
+        /* And the channels its sinks name that it put no instrument of
+           its own on: the ones the page has to aim, or the piece is
+           composed and nothing sounds (AIMING.md, section 4.1). */
+        const sinks = [];
+
+        for (let i = 0; i < this.M._tw_sink_count(); i++)
+            sinks.push(this.M._tw_sink_channel(i));
+
         return {
             errors: [],
             name: this.M.UTF8ToString(this.M._tw_piece_name()),
@@ -297,6 +317,7 @@ class ThinkProcessor extends AudioWorkletProcessor
             knobs,
             instruments,
             listens,
+            sinks,
         };
     }
 

@@ -150,9 +150,21 @@ export async function createSynth (ctx, { windowlen = 256,
         instrument: (name, text) =>
             node.port.postMessage({ type: 'instrument', name, text }),
 
+        /* One chanarg of whatever is loaded on a channel, at the value a
+           .patch overrides it to. The other half of load(), in that
+           order: patch.js does the two together, as
+           gthPatchManager::parse does. A name the tree does not declare
+           is ignored and said once in the log. */
+        chanarg: (channel, name, values) =>
+            node.port.postMessage({ type: 'chanarg', channel, name,
+                                    values: Array.isArray(values)
+                                        ? values : [values] }),
+
         /* Resolves to what the piece is: its name, its description, the
            knobs it declared, its instruments with their channels, the
-           channels it listens on and the seed it composes from -- or just
+           channels it listens on, the channels its sinks name that it
+           aimed at no instrument of its own, and the seed it composes
+           from -- or just
            `errors', which is the loader's own complaints with line
            numbers, when it did not parse. `seed' is the master seed to
            compose from when the file pins none; left out, one is drawn. */

@@ -125,8 +125,11 @@ starts where that ends:
   what a chain's `input midi` is matched against. So `hands.gen` -- three
   chains, no generators, no instruments, nothing but what you play -- is
   playable in a tab: hold a chord and the arpeggiator breaks it. It
-  declares no instruments, so the page can put a `.dsp` on the channel it
-  is playing into, which is the desktop's Patch Selector aimed by hand.
+  declares no instruments, so the page fills the channels it names from
+  the same four patches the desktop's first run loads, and offers each of
+  them as a row to aim by hand — the piece first and the aiming after, so
+  what a channel sounds like is never what the page did before
+  ([`AIMING.md`](AIMING.md)).
 - `wasm/twevent.h` and `wasm/tape.mjs` are one spelling of an event,
   shared by the Node host and the browser's: M2's gate is that two tapes
   are the same tape, which is a claim about the piece and not about two

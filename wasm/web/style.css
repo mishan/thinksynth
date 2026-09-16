@@ -172,6 +172,26 @@ details { margin: 0.8em 0; }
     text-align: right;
 }
 
+/* One line per channel the piece touches: its number, then what is on it.
+   The numbers are a column of their own so the row reads down as a list of
+   channels rather than across as a sentence, and monospaced so 1 and 10
+   line up under each other. */
+#channels { margin: 0.8em 0; }
+
+#channels .row { margin: 0.3em 0; }
+
+#channels .chan
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 2em;
+    text-align: right;
+}
+
+/* A channel the piece aimed itself. Nothing to choose, so nothing that
+   looks like a control. */
+#channels .own { color: var(--dim); }
+
 #about { margin: 0.4em 0; color: var(--dim); }
 
 #clock { font: 13px ui-monospace, monospace; }

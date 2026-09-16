@@ -207,6 +207,12 @@ std::map<std::string, thcPlugin *> plugins_;
 thcScheduler        *sched_;
 thcGenLoader        *loader_;
 std::vector<thArg *> knobs_;
+
+/* The channels the loaded piece's sinks name that no instrument of its
+   own occupies -- the ones a reader is being asked to aim (AIMING.md,
+   section 4.1). Collected at the load, like knobs_: a sink's channel is
+   fixed once allocateChannels has run. */
+std::vector<int>     sinks_;
 twTape               tape_;
 sigc::connection     delivery_;
 
@@ -499,6 +505,45 @@ void openComposers (void)
     }
 }
 
+/* Which channels the piece is asking somebody else to fill.
+ *
+ * Both note sinks and chanarg sinks count: a chanarg sink writes a knob
+ * of whatever is on the channel and needs something there as much as a
+ * note does. A channel one of the piece's own instrument blocks took is
+ * not among them -- the piece has aimed that one itself, and a default
+ * dropped on it would take the piece's instrument away.
+ *
+ * An instrument sink carries its instrument's channel by now
+ * (thcGenFile.cpp, allocateChannels), so the two spellings need no
+ * distinguishing here: the exclusion covers both. */
+void collectSinks (void)
+{
+    sinks_.clear();
+
+    for (size_t i = 0; i < sched_->chainCount(); i++)
+    {
+        const thcChain *c = sched_->chain(i);
+
+        for (size_t k = 0; k < c->sinks.size(); k++)
+        {
+            const int ch = c->sinks[k].channel;
+
+            /* A programmatic chain may have none at all, and a sink
+               whose instrument went missing keeps the loader's -1. */
+            if (ch < 0)
+                continue;
+
+            if (sched_->channelOf(ch) != NULL)
+                continue;
+
+            if (std::find(sinks_.begin(), sinks_.end(), ch) == sinks_.end())
+                sinks_.push_back(ch);
+        }
+    }
+
+    std::sort(sinks_.begin(), sinks_.end());
+}
+
 bool writeFile (const char *path, const char *text)
 {
     FILE *f = fopen(path, "wb");
@@ -634,6 +679,7 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     originFrame_ = -1;
     tape_.clear();
     knobs_.clear();
+    sinks_.clear();
 
     sched_->stop();
 
@@ -660,6 +706,8 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
        kept anywhere, and a page drawing sliders wants some order. */
     for (const auto &k : sched_->knobs())
         knobs_.push_back(k.second);
+
+    collectSinks();
 
     /* Listening starts after the load, where genwav connects too, so the
        instrument application the load itself delivers is not on the tape. */
@@ -746,6 +794,72 @@ EMSCRIPTEN_KEEPALIVE int tw_listens (int channel)
     }
 
     return 0;
+}
+
+/* ---- the channels the piece is asking somebody to aim ---- */
+
+/* How many distinct channels the loaded piece's sinks name that no
+ * instrument of its own occupies, and which they are.
+ *
+ * What a channel sounds like is the piece's to decide, and where the
+ * piece is silent on the matter it is the page's defaults -- never what
+ * the page did before (AIMING.md, section 3). This is the question the
+ * page has to ask to keep that rule: gen/fern.gen declares no instrument
+ * and sinks to two channels, and a page that puts nothing on them renders
+ * three and a half thousand notes at a peak of zero.
+ *
+ * The engine's numbering, as everything here is. A .gen file writes
+ * `channel = 4' and the loader hands over 3.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_sink_count (void)
+{
+    return (int)sinks_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_sink_channel (int k)
+{
+    return k >= 0 && k < (int)sinks_.size() ? sinks_[k] : -1;
+}
+
+/* A chanarg on the tree loaded on `channel', through the path the
+ * application's slider uses. Nonzero if it was set.
+ *
+ * This is the second half of loading a .patch: a .patch is a `dsp' line
+ * and flat `name value[,value]' overrides for that DSP's chanargs
+ * (DSP_FORMAT.md, section 2), and gthPatchManager::parse loads the one
+ * and then sets the others in exactly this order, at exactly this level
+ * -- TH_DEFAULT_CHAN_AMP, which tw_load already applies.
+ *
+ * A name the tree does not declare is ignored, as tw_knob ignores an
+ * index outside the list, and said once here rather than silently: an
+ * override for a chanarg that does not exist is a .patch aimed at some
+ * other .dsp, and the page's log is where a person would look.
+ */
+EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
+                                     const float *values, int count)
+{
+    if (name == NULL || values == NULL || count < 1)
+        return 0;
+
+    thArg *arg = synth_->getChanArg(channel, name);
+
+    if (arg == NULL)
+    {
+        fprintf(stderr, "channel %d declares no '%s'; the override is "
+                        "ignored\n", channel, name);
+        return 0;
+    }
+
+    /* setValue for the single-value case, which is every line in the
+       shipped patches and cannot reallocate; setChanArg for a longer one,
+       which can, and which is the call that queues the swap for the
+       render path. thSynth.cpp argues both. */
+    if (count == 1 && arg->type() == thArg::ARG_VALUE && arg->len() == 1)
+        arg->setValue(values[0]);
+    else
+        synth_->setChanArg(channel, new thArg(name, values, count));
+
+    return 1;
 }
 
 /* ---- the knobs the piece declared ---- */

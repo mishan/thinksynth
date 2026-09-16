@@ -47,6 +47,7 @@ import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { setKnob, showKnobs } from './knobs.js';
 import { Mesh } from './mesh.js';
+import * as patch from './patch.js';
 import { Roll } from './roll.js';
 import { Room } from './room.js';
 import { tapeLine } from '../tape.mjs';
@@ -99,6 +100,11 @@ const dedupe = new Dedupe();
 
 let piece = null;               /* the worklet's word on the loaded piece */
 let listens = new Set();        /* channels the piece takes input on */
+
+/* The shipped .dsp texts, for the channels a piece names and aims at
+   nothing of its own. The document's instruments are the piece's and come
+   from the document; these are the page's defaults' (patch.js). */
+let dspTexts = {};
 const sounding = new Map();     /* note -> { count, seat } */
 
 /* What the numbers panel and the harness read back. Bounded, the way
@@ -333,6 +339,25 @@ async function loadFromDoc (seed = -1)
        dropout while the old run finishes is the price, and the audio is
        nobody's tape. */
     const it = await synth.loadPiece(gen, seed);
+
+    /* And then the aiming, in that order, for the reason the solo page
+       aims in that order: a channel the piece named and put nothing on
+       sounds through the defaults and never through what this page did
+       before (AIMING.md, sections 3 and 4.4).
+     *
+       It is this page's and not the room's. Nothing here is in the
+       document and nothing is on the tape, so two peers may hear a
+       piece's unaimed channels through different instruments -- which is
+       exactly where two people with two thinkrc files already are, and
+       what a piece that carries its own instruments is the answer to.
+       What is the same on every peer is the piece, which is what the
+       tapes are compared on. */
+    if (it.errors.length === 0)
+    {
+        const aiming = await patch.aim(synth, it.sinks, dspTexts);
+
+        aiming.failed.forEach(log);
+    }
 
     roll.clear();
     tapeText = '';
@@ -680,6 +705,25 @@ async function start ()
 
     audioClock = new AudioClock(ctx.sampleRate);
     transport = new TransportClock(ctx.sampleRate);
+
+    /* What the defaults are made of. Fetched once, here, because the
+       aiming below happens inside a load and a load has no time to wait
+       for the network: every peer loads at the same moment, when the
+       start arrives and before its origin. */
+    try
+    {
+        const names = await (await fetch('dsp/index.json')).json();
+        const texts = await Promise.all(
+            names.map((n) => fetch(`dsp/${n}`).then((r) => r.text())));
+
+        dspTexts = Object.fromEntries(names.map((n, i) => [n, texts[i]]));
+
+        await Promise.all(patch.DEFAULTS.map((n) => patch.patchText(n)));
+    }
+    catch (e)
+    {
+        log(`the default instruments are not available: ${e.message}`);
+    }
 
     sampleAudioClock();
     setInterval(() => { sampleAudioClock(); showNumbers(); enable(); },

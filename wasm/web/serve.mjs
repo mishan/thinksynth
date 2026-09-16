@@ -48,6 +48,13 @@ const TYPES = {
     '.json': 'application/json',
     '.map':  'application/json',
     '.dsp':  'text/plain; charset=utf-8',
+
+    /* The other two the page fetches and reads as text. Not strictly
+       needed -- the fallback is octet-stream and fetch().text() takes
+       that -- but a person opening one in a tab to read it should get
+       the text and not a download. */
+    '.gen':   'text/plain; charset=utf-8',
+    '.patch': 'text/plain; charset=utf-8',
     '.css':  'text/css',
 };
 

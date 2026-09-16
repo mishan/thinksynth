@@ -166,6 +166,114 @@ export function schedule (M, c)
         throw new Error(`no scheduler command '${c.op}'`);
 }
 
+/* A piece played the way the page plays it: loaded, then aimed, then
+ * listened to.
+ *
+ * The page's rule, in Node (AIMING.md, section 3): what a channel sounds
+ * like is the piece's to decide, and where the piece is silent on it, the
+ * page's defaults'. So the piece goes in first, the module says which
+ * channels its sinks named and its own instruments did not take, and
+ * `patchFor' is asked what belongs on each -- the same question patch.js
+ * asks for the page, with the same answer, resolved by the caller because
+ * only the caller can read a file.
+ *
+ * `patchFor(channel)' returns `{ name, dsp, args }': the .dsp's text and
+ * the chanarg overrides to set on it afterwards, which is a .patch. null
+ * for a channel it has nothing for.
+ *
+ * A piece fed by `input midi' composes nothing until somebody plays it,
+ * so `chord' is held down on every channel it listens on -- there is no
+ * peak to have otherwise, and hands.gen is the piece that is nothing but
+ * input.
+ *
+ * Returns as soon as the peak passes `floor', because by then the
+ * question is answered and the rest of the minute is time spent. Not at
+ * the first sample above zero: a DC offset is above zero, and so is the
+ * tail of a denormal, and neither is a piece being heard. -60 dBFS is
+ * quiet enough to be nothing a person would call a sound and loud enough
+ * that no shipped piece takes an extra window to reach it -- every one of
+ * the seventeen crosses it in the same window it first leaves zero.
+ */
+export async function playAimed (createThinkWeb,
+                                 { rate = 48000, windowlen = 256,
+                                   block = 128, gen, instruments = {},
+                                   patchFor = () => null,
+                                   chord = [53, 56, 60], seconds = 60,
+                                   floor = 0.001 })
+{
+    const { M, ok, log, errors } =
+        await loadPiece(createThinkWeb,
+                        { rate, windowlen, block, gen, instruments });
+
+    if (!ok)
+        return { ok, log, errors, aimed: [], listens: [], peak: 0, at: 0 };
+
+    const aimed = [];
+
+    for (let i = 0; i < M._tw_sink_count(); i++)
+    {
+        const channel = M._tw_sink_channel(i);
+        const what = patchFor(channel);
+
+        if (what === null || what.dsp === undefined)
+            continue;
+
+        M.ccall('tw_load', 'number', ['number', 'string'],
+                [channel, what.dsp]);
+
+        /* After the load, as gthPatchManager::parse does it: the
+           overrides are for the tree that load just built. */
+        for (const a of what.args ?? [])
+            M.ccall('tw_chanarg', 'number',
+                    ['number', 'string', 'array', 'number'],
+                    [channel, a.name,
+                     new Uint8Array(Float32Array.from(a.values).buffer),
+                     a.values.length]);
+
+        aimed.push({ channel, patch: what.name });
+    }
+
+    const listens = [];
+
+    for (let c = 0; c < 16; c++)
+        if (M._tw_listens(c))
+            listens.push(c);
+
+    M._tw_transport(-1, 0, 0);
+
+    let held = false;
+    let peak = 0;
+
+    while (M._tw_now() < seconds)
+    {
+        /* After a second of transport, which is where checkKeys puts its
+           chord: a press at zero would land before the first step. */
+        if (!held && M._tw_now() >= 1)
+        {
+            held = true;
+
+            for (const c of listens)
+                for (const note of chord)
+                    M._tw_midi_on(-1, c, note, 100);
+        }
+
+        const p = M._tw_render(block) >> 2;
+
+        for (let i = 0; i < block * 2; i++)
+            peak = Math.max(peak, Math.abs(M.HEAPF32[p + i]));
+
+        /* Drained, or the module holds a minute of a busy piece's events
+           for nobody. */
+        drain(M);
+
+        if (peak > floor)
+            break;
+    }
+
+    return { ok: true, log, errors: [], aimed, listens, peak,
+             at: M._tw_now() };
+}
+
 /* A piece played *at*: keys held down and let go, into whatever chains
  * declared `input midi' on the channel they arrive on.
  *
