@@ -410,6 +410,53 @@ jobs:
           brew install cmake ninja pkg-config bison flex gtkmm4 \
                        adwaita-icon-theme librsvg
 
+      # The same break the ucrt64 job holds glib2 and gtk4 back for, one
+      # package manager along: glib 2.90.0 (homebrew-core since 2026-09-14)
+      # moved GEmblem and GDBusActionGroup to G_DECLARE_FINAL_TYPE, which
+      # expands the class struct to an *unnamed* one --
+      #
+      #     typedef struct { GObjectClass parent_class; } GEmblemClass;
+      #
+      # -- while giomm still hand-writes `using GEmblemClass = struct
+      # _GEmblemClass;'. Two system headers, one name, two types, and every
+      # translation unit that includes <gtkmm.h> dies. Nothing we compile
+      # reaches it and there is nothing to upgrade into: Homebrew's newest
+      # glibmm is 2.88.1, and upstream's fix is in glibmm 2.90.0, which
+      # homebrew-core has not taken yet.
+      #
+      # Only glib here, where ucrt64 needs gtk4 held too: the third type,
+      # GdkCursor, went final in GTK 4.24 and Homebrew is still on 4.22.4.
+      #
+      # 2.88.3 is the last release before the change, and safe to put back
+      # under what stays current -- every C++ binding here was bottled
+      # before 2.90 landed and so was built against 2.88 anyway. If one of
+      # them did reach for a symbol only 2.90 has, the smoke test and ctest
+      # below are what would say so, loudly.
+      #
+      # The API index has no older versions in it, so this goes through the
+      # tap, fetched shallow at the commit where glib.rb was still 2.88.3.
+      # The bottle comes from ghcr as usual; nothing is built from source.
+      #
+      # Drop this step once homebrew-core ships a glibmm built against glib
+      # 2.90; the build will simply stop needing it.
+      - name: Hold glib where glibmm still compiles
+        env:
+          # The commit before "glib 2.90.0": glib.rb at 2.88.3, bottled.
+          GLIB_PIN: a6afb6c53
+        run: |
+          set -e
+          export HOMEBREW_NO_INSTALL_FROM_API=1
+          tap="$(brew --repo homebrew/core)"
+          mkdir -p "$tap"
+          git -C "$tap" init -q
+          git -C "$tap" remote add origin \
+              https://github.com/Homebrew/homebrew-core 2>/dev/null || true
+          git -C "$tap" fetch -q --depth 1 origin "$GLIB_PIN"
+          git -C "$tap" checkout -q FETCH_HEAD
+          brew uninstall --ignore-dependencies glib
+          brew install glib
+          brew list --versions glib
+
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
       # put on PATH explicitly. This catches everyone exactly once.
