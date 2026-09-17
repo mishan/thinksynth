@@ -76,6 +76,7 @@
 #include <string.h>
 #include <math.h>
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <vector>
@@ -407,7 +408,12 @@ int main (int argc, char **argv)
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
 
-    const string tmp = "/tmp/dspwrite-scratch.dsp";
+    /* The system's temporary directory, not "/tmp": this is a ctest gate
+       now, and ctest runs it under MSYS2 on Windows, where a leading slash
+       is the current drive's root and usually is not writable. */
+    const string tmp =
+        (std::filesystem::temp_directory_path() / "dspwrite-scratch.dsp")
+            .string();
 
     int failed = 0, files = 0, edits = 0, skipped = 0, inserted = 0;
     int unwritable = 0, noops = 0, respelt = 0;

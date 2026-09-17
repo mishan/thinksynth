@@ -52,6 +52,8 @@
 
 #include "think.h"
 #include "NodeGraph.h"
+#include <algorithm>
+
 #include "NodeCatalog.h"
 #include "NodeEdit.h"
 
@@ -201,6 +203,56 @@ int main (int argc, char **argv)
         if (!quiet)
             printf("  %-10s %d\n", cat.categories()[c].c_str(),
                    (int)cat.inCategory(cat.categories()[c]).size());
+
+    /* ---- the same catalogue, handed over rather than found ----
+     *
+     * A build with the plugins compiled in has no directory to walk and a
+     * table instead (JAM_M6.md, section 7.1). What take() makes of that
+     * table has to be what scan() makes of the directory, or the palette in
+     * a browser offers a different set of nodes from the one on the
+     * desktop -- in a different order, which is worse, because it looks
+     * right. */
+    {
+        vector<string> spellings;
+
+        for (size_t c = 0; c < cat.categories().size(); c++)
+        {
+            const vector<NodeCatalog::Entry> &list =
+                cat.inCategory(cat.categories()[c]);
+
+            for (size_t e = 0; e < list.size(); e++)
+                spellings.push_back(list[e].spelling);
+        }
+
+        /* Backwards, so that a take() which quietly kept the order it was
+           given would fail here rather than in a palette. */
+        std::reverse(spellings.begin(), spellings.end());
+
+        NodeCatalog told;
+        bool same = told.take(spellings) == found &&
+                    told.categories() == cat.categories();
+
+        for (size_t c = 0; same && c < cat.categories().size(); c++)
+        {
+            const string &name = cat.categories()[c];
+            const vector<NodeCatalog::Entry> &a = cat.inCategory(name);
+            const vector<NodeCatalog::Entry> &b = told.inCategory(name);
+
+            same = a.size() == b.size();
+
+            for (size_t e = 0; same && e < a.size(); e++)
+                same = a[e].spelling == b[e].spelling &&
+                       a[e].category == b[e].category &&
+                       a[e].name == b[e].name;
+        }
+
+        if (!same)
+        { printf("FAIL  a catalogue handed the same plugins is a different "
+                 "catalogue\n"); return 1; }
+
+        printf("ok    %d plugins handed over give the catalogue the "
+               "directory gives\n", found);
+    }
 
     /* ---- 1. a new file loads ---- */
 

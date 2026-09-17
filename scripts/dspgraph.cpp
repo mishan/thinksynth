@@ -70,6 +70,7 @@
 #include "NodeGraph.h"
 #include "NodeLayout.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <set>
@@ -1200,7 +1201,9 @@ int main (int argc, char **argv)
          * of every patch in the corpus would start growing a block. */
         if (problems == 0)
         {
-            const string tmp = "/tmp/dspgraph-probe.dsp";
+            const string tmp =
+                (std::filesystem::temp_directory_path() /
+                 "dspgraph-probe.dsp").string();
 
             vector<string> before, after;
 
@@ -1310,7 +1313,11 @@ int main (int argc, char **argv)
         /* layout round-trip, on a copy so the corpus is never touched */
         if (problems == 0)
         {
-            const string tmp = "/tmp/dspgraph-layout.dsp";
+            /* The system's temporary directory, not "/tmp": this is a
+               ctest gate now, and ctest runs it under MSYS2 on Windows. */
+            const string tmp =
+                (std::filesystem::temp_directory_path() /
+                 "dspgraph-layout.dsp").string();
 
             vector<string> before, after;
 
