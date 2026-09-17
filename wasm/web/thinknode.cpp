@@ -55,6 +55,12 @@
 #include "thPluginManager.h"
 #include "thSynth.h"
 
+#include "cairo2d.h"
+#include "cairomm/context.h"
+
+#include "twdraw.h"
+
+#include "NodeCanvas.h"
 #include "NodeCatalog.h"
 #include "NodeEdit.h"
 #include "NodeGraph.h"
@@ -120,6 +126,213 @@ int answer (NodeEdit::Result r)
     return (int)r;
 }
 
+/* ---- the canvas ----
+ *
+ * The desktop's NodeCanvas, with the same four answers a shell owes a
+ * CanvasContent (JAM_M6.md, section 6.1) -- the composer canvas's shell in
+ * thinkweb.cpp is the same class of thing, and the page's half of both is
+ * one file, canvasview.js.
+ */
+class WebNodeCanvas : public NodeCanvas
+{
+public:
+    WebNodeCanvas (void)
+        : dirty_(true), width_(0), height_(0),
+          viewX_(0), viewY_(0), viewW_(0), viewH_(0) {}
+
+    bool takeDirty (void)
+    {
+        const bool was = dirty_;
+
+        dirty_ = false;
+        return was;
+    }
+
+    int width (void) const { return width_; }
+    int height (void) const { return height_; }
+
+    void setViewport (double x, double y, double w, double h)
+    {
+        viewX_ = x;
+        viewY_ = y;
+        viewW_ = w;
+        viewH_ = h;
+
+        shellResized();
+        dirty_ = true;
+    }
+
+protected:
+    void requestRedraw (void) override { dirty_ = true; }
+
+    void resizeShell (int w, int h) override
+    {
+        width_ = w;
+        height_ = h;
+        dirty_ = true;
+    }
+
+    bool shellViewport (double &x, double &y, double &w,
+                        double &h) const override
+    {
+        if (viewW_ <= 0.0 || viewH_ <= 0.0)
+            return false;
+
+        x = viewX_;
+        y = viewY_;
+        w = viewW_;
+        h = viewH_;
+
+        return true;
+    }
+
+private:
+    bool dirty_;
+    int width_, height_;
+    double viewX_, viewY_, viewW_, viewH_;
+};
+
+WebNodeCanvas *canvas_ = NULL;
+Cairo::RefPtr<Cairo::Context> canvasContext_;
+
+/* What the canvas has decided since the page last asked. The desktop's
+   NodeEditor answers these signals with an edit, a rebuild or a line in
+   the status bar; the page does the same, and this is how they reach it
+   (JAM_M6.md, section 7.2).
+ *
+ * A queue rather than a callback per signal because a message to a page is
+ * not a function call: what the shell does with each is its own business,
+ * and it does it after the gesture that produced them has been fully
+ * applied here. */
+struct Signal
+{
+    int         kind;
+    int         a, b, c, d;
+    double      x, y, value;
+    std::string text;
+
+    Signal (int k) : kind(k), a(-1), b(-1), c(-1), d(-1),
+                     x(0), y(0), value(0) {}
+};
+
+std::vector<Signal> signals_;
+
+/* The kinds, which the page switches on. */
+enum {
+    SIG_BOX_MOVED = 0,
+    SIG_SELECTED,
+    SIG_SELECTION,
+    SIG_CONNECT,
+    SIG_DISCONNECT,
+    SIG_REFUSED,
+    SIG_CONTROL,
+    SIG_CONTEXT,
+    SIG_PROBE
+};
+
+const Signal *signalAt (int i)
+{
+    if (i < 0 || (size_t)i >= signals_.size())
+        return NULL;
+
+    return &signals_[(size_t)i];
+}
+
+WebNodeCanvas *canvas (void)
+{
+    if (canvas_ != NULL)
+        return canvas_;
+
+    canvas_ = new WebNodeCanvas();
+
+    canvas_->signal_box_moved().connect([](int box)
+        {
+            Signal s(SIG_BOX_MOVED);
+
+            s.a = box;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_selected().connect([](int box)
+        {
+            Signal s(SIG_SELECTED);
+
+            s.a = box;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_selection().connect([](int many)
+        {
+            Signal s(SIG_SELECTION);
+
+            s.a = many;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_connect_requested().connect(
+        [](int fromBox, int fromPort, int toBox, int toPort)
+        {
+            Signal s(SIG_CONNECT);
+
+            s.a = fromBox;
+            s.b = fromPort;
+            s.c = toBox;
+            s.d = toPort;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_disconnect_requested().connect([](int edge)
+        {
+            Signal s(SIG_DISCONNECT);
+
+            s.a = edge;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_refused().connect([](std::string why)
+        {
+            Signal s(SIG_REFUSED);
+
+            s.text = why;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_control_changed().connect(
+        [](int box, double value, bool committing)
+        {
+            Signal s(SIG_CONTROL);
+
+            s.a = box;
+            s.b = committing ? 1 : 0;
+            s.value = value;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_context_requested().connect(
+        [](int box, int port, double x, double y)
+        {
+            Signal s(SIG_CONTEXT);
+
+            s.a = box;
+            s.b = port;
+            s.x = x;
+            s.y = y;
+            signals_.push_back(s);
+        });
+
+    canvas_->signal_probe_activated().connect([](int box)
+        {
+            Signal s(SIG_PROBE);
+
+            s.a = box;
+            signals_.push_back(s);
+        });
+
+    canvas_->setGraph(&graph_);
+
+    return canvas_;
+}
+
 } /* namespace */
 
 extern "C" {
@@ -150,6 +363,12 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
 
     if (!ok)
         return -1;
+
+    /* Built is not laid out: build() makes the boxes and the wires,
+       layout() gives them their columns and their positions. The saved
+       ones in the file go over the top of that (tw_graph_apply_layout),
+       which is why this order and not the other. */
+    graph_.layout();
 
     return (int)graph_.boxes().size();
 }
@@ -488,6 +707,142 @@ EMSCRIPTEN_KEEPALIVE int tw_edit_create (const char *name, const char *author)
 EMSCRIPTEN_KEEPALIVE const char *tw_edit_result_text (int r)
 {
     return NodeEdit::resultText((NodeEdit::Result)r);
+}
+
+/* ---- the canvas --------------------------------------------------------
+ *
+ * The same shape as the composer canvas's exports in thinkweb.cpp, and the
+ * page drives both through the same shell (canvasview.js). They are
+ * separate sets rather than one with a selector because the two canvases
+ * have nothing else in common: one is enlarged and painted on, the other
+ * is wired up.
+ */
+
+/* Draw at w x h. The list is read back with tw_draw_ops() and friends, as
+   every drawing in this module is. */
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_draw (int w, int h)
+{
+    cairo_t *cr = twDrawingBegin();
+
+    if (!canvasContext_)
+        canvasContext_ = Cairo::Context::create(cr);
+
+    canvas()->draw(canvasContext_, w, h);
+
+    return cairo2d_op_words(cr);
+}
+
+/* The right button is its own entry point here, as it is on the desktop:
+   it asks what can be done rather than starting a wire. */
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_press (double x, double y,
+                                                int button, int nPress)
+{
+    if (button == 3)
+        canvas()->onRightPressed(nPress, x, y);
+    else
+        canvas()->onPressed(nPress, x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_motion (double x, double y)
+{
+    canvas()->onMotion(x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_release (double x, double y,
+                                                  int button)
+{
+    (void)button;
+    canvas()->onReleased(1, x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_key (int key)
+{
+    return canvas()->keyPressed((CanvasContent::Key)key) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_viewport (double x, double y,
+                                                   double w, double h)
+{
+    canvas()->setViewport(x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_node_canvas_zoom (void)
+{
+    return canvas()->zoom();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_set_zoom (double z)
+{
+    canvas()->setZoom(z);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_zoom_to_fit (void)
+{
+    canvas()->zoomToFit();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_width (void)
+{
+    return canvas()->width();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_height (void)
+{
+    return canvas()->height();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_dirty (void)
+{
+    return canvas()->takeDirty() ? 1 : 0;
+}
+
+/* The box the params panel is showing, or -1. */
+EMSCRIPTEN_KEEPALIVE int tw_node_canvas_selected (void)
+{
+    return canvas()->selected();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_canvas_select (int box)
+{
+    canvas()->setSelected(box);
+}
+
+/* ---- what the canvas decided ---- */
+
+EMSCRIPTEN_KEEPALIVE int tw_node_signal_count (void)
+{
+    return (int)signals_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_node_signals_clear (void)
+{
+    signals_.clear();
+}
+
+#define TW_SIGNAL_FIELD(name, type, member, empty)                         \
+    EMSCRIPTEN_KEEPALIVE type tw_node_signal_##name (int i)                \
+    {                                                                      \
+        const Signal *s = signalAt(i);                                     \
+                                                                           \
+        return s != NULL ? s->member : empty;                              \
+    }
+
+TW_SIGNAL_FIELD(kind,  int,    kind,  -1)
+TW_SIGNAL_FIELD(a,     int,    a,     -1)
+TW_SIGNAL_FIELD(b,     int,    b,     -1)
+TW_SIGNAL_FIELD(c,     int,    c,     -1)
+TW_SIGNAL_FIELD(d,     int,    d,     -1)
+TW_SIGNAL_FIELD(x,     double, x,    0.0)
+TW_SIGNAL_FIELD(y,     double, y,    0.0)
+TW_SIGNAL_FIELD(value, double, value, 0.0)
+
+#undef TW_SIGNAL_FIELD
+
+EMSCRIPTEN_KEEPALIVE const char *tw_node_signal_text (int i)
+{
+    const Signal *s = signalAt(i);
+
+    return s != NULL ? s->text.c_str() : "";
 }
 
 /* ---- the palette -------------------------------------------------------

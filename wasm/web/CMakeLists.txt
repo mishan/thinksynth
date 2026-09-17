@@ -223,6 +223,7 @@ add_executable(thinkweb
     "${THINK_TOP}/src/NodeLayout.cpp"
     "${THINK_TOP}/src/NodeCatalog.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
+    twdraw.cpp
     thinkweb.cpp
     thinknode.cpp)
 

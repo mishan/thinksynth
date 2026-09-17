@@ -32,6 +32,12 @@
  *   dspedit FILE add-node NODE PLUGIN
  *   dspedit FILE remove-node NODE
  *   dspedit FILE set-control-meta NAME MIN MAX LABEL GROUP
+ *   dspedit FILE layout-write -p PLUGINS
+ *
+ * The last one is not an edit to the patch but to its layout block: the
+ * graph is built and laid out and the block rewritten from it, which is
+ * what a drag in the editor is followed by. It needs the plugins, since
+ * laying a graph out means parsing the .dsp.
  *
  * Exit status is the NodeEdit::Result: 0 is OK, and a refusal prints its
  * sentence on stderr.
@@ -47,7 +53,11 @@
 #include <string>
 #include <vector>
 
+#include "think.h"
+
 #include "NodeEdit.h"
+#include "NodeGraph.h"
+#include "NodeLayout.h"
 
 using std::string;
 
@@ -91,6 +101,37 @@ int main (int argc, char **argv)
     string why;
     NodeEdit::Result r = NodeEdit::REFUSED;
     int removed = 0;
+
+    /* Not an edit: the layout block, rewritten from the graph the patch
+       lays out to. */
+    if (op == "layout-write" && rest == 2 && string(a[0]) == "-p")
+    {
+        thSynth synth(a[1], TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+        thSynthTree *tree = synth.parseTree(argv[1]);
+
+        if (tree == NULL)
+        {
+            fprintf(stderr, "dspedit: %s does not parse\n", argv[1]);
+            return 2;
+        }
+
+        NodeGraph g;
+
+        g.build(tree);
+        delete tree;
+        g.layout();
+
+        if (!NodeLayout::Text::write(source, g))
+        {
+            fprintf(stderr, "dspedit: the layout block could not be "
+                            "written\n");
+            return 2;
+        }
+
+        fputs(source.c_str(), stdout);
+
+        return 0;
+    }
 
     if (op == "set-value" && rest == 3)
         r = NodeEdit::Text::setValue(source, a[0], a[1], atof(a[2]), why);

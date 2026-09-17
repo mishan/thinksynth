@@ -84,6 +84,8 @@
 #include "cairo2d.h"
 #include "cairomm/context.h"
 
+#include "twdraw.h"
+
 #include "ComposerCanvas.h"
 #include "thcGenEdit.h"
 
@@ -623,13 +625,6 @@ void collectSinks (void)
     std::sort(sinks_.begin(), sinks_.end());
 }
 
-/* Where a draw goes. One recorder for the whole module: nothing here draws
-   two things at once, and the list is read out before the next draw starts
-   (cairo2d_begin empties it). It is made on the first draw, so a module
-   that never draws -- the worklet's -- carries the code and allocates
-   nothing. */
-cairo_t *drawing_ = NULL;
-
 /* ---- the composer canvas, in a module ----
  *
  * The desktop's ComposerCanvas, compiled again here and given a shell of
@@ -1124,64 +1119,11 @@ EMSCRIPTEN_KEEPALIVE int tw_stage_draw (int chain, int stage, double w,
         s->state == NULL)
         return -1;
 
-    if (drawing_ == NULL)
-        drawing_ = cairo2d_create();
+    cairo_t *cr = twDrawingBegin();
 
-    cairo2d_begin(drawing_);
-    s->plugin->draw(s->state, drawing_, w, h);
+    s->plugin->draw(s->state, cr, w, h);
 
-    return cairo2d_op_words(drawing_);
-}
-
-/* The list the last draw recorded, as a pointer into HEAPF32 and a length
-   in floats. wasm/cairo2d/replay.js is what reads it. */
-EMSCRIPTEN_KEEPALIVE const float *tw_draw_ops (void)
-{
-    return drawing_ != NULL ? cairo2d_ops(drawing_) : NULL;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_draw_words (void)
-{
-    return drawing_ != NULL ? cairo2d_op_words(drawing_) : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_draw_string_count (void)
-{
-    return drawing_ != NULL ? cairo2d_string_count(drawing_) : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE const char *tw_draw_string (int k)
-{
-    const char *s = drawing_ != NULL ? cairo2d_string(drawing_, k) : NULL;
-
-    return s != NULL ? s : "";
-}
-
-/* The image surfaces the list blits by reference -- one composer in eight
-   uses none of these, and the spectrogram is what they are for. */
-EMSCRIPTEN_KEEPALIVE int tw_draw_surface_count (void)
-{
-    return drawing_ != NULL ? cairo2d_surface_count(drawing_) : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE const unsigned char *tw_draw_surface_data (int k)
-{
-    return drawing_ != NULL ? cairo2d_surface_data(drawing_, k) : NULL;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_draw_surface_width (int k)
-{
-    return drawing_ != NULL ? cairo2d_surface_width(drawing_, k) : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_draw_surface_height (int k)
-{
-    return drawing_ != NULL ? cairo2d_surface_height(drawing_, k) : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE int tw_draw_surface_stride (int k)
-{
-    return drawing_ != NULL ? cairo2d_surface_stride(drawing_, k) : 0;
+    return cairo2d_op_words(cr);
 }
 
 /* ---- the composer canvas ----
@@ -1252,16 +1194,14 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_draw (int w, int h)
     if (canvas_ == NULL)
         return -1;
 
-    if (drawing_ == NULL)
-        drawing_ = cairo2d_create();
+    cairo_t *cr = twDrawingBegin();
 
     if (!canvasContext_)
-        canvasContext_ = Cairo::Context::create(drawing_);
+        canvasContext_ = Cairo::Context::create(cr);
 
-    cairo2d_begin(drawing_);
     canvas_->draw(canvasContext_, w, h);
 
-    return cairo2d_op_words(drawing_);
+    return cairo2d_op_words(cr);
 }
 
 /* The gestures, in shell pixels, as the desktop's controllers deliver

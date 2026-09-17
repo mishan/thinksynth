@@ -271,6 +271,129 @@ process.stdout.write(
     `ok    ${graphs} patches built ${boxes} boxes, and ${edits} edits are ` +
     'the edits the desktop makes\n');
 
+/* ---- and the canvas over every one of them ------------------------------ */
+
+/* The other half of JAM_M6.md's section 3 gate: the node canvas, which is
+   the desktop's, drawn over every shipped .dsp through the cairo stand-in.
+   The list has to be walkable by the arity table alone and known to
+   replay.js op for op -- the same three questions drawcheck asks of the
+   composer canvas, of the other canvas. */
+{
+    const { ARITY, OP_NAMES, replay } =
+        await import('../cairo2d/replay.js');
+
+    const nothing = () => {};
+    const ctx = new Proxy({}, {
+        get: (target, name) => name in target ? target[name] : nothing,
+        set: () => true,
+    });
+
+    let drawn = 0, ops = 0;
+
+    for (const name of names)
+    {
+        const text = fs.readFileSync(path.join(dspDir, name), 'utf8');
+
+        if (M.ccall('tw_graph_build', 'number', ['string'], [text]) <= 0)
+            continue;
+
+        M.ccall('tw_graph_apply_layout', 'number', ['string'], [text]);
+        M._tw_node_canvas_viewport(0, 0, 900, 600);
+        M._tw_node_canvas_zoom_to_fit();
+
+        const words = M._tw_node_canvas_draw(M._tw_node_canvas_width() || 900,
+                                             M._tw_node_canvas_height() || 600);
+
+        if (words <= 0)
+        {
+            fail(`${name}: the node canvas drew nothing`);
+            continue;
+        }
+
+        const at = M._tw_draw_ops();
+        const list = M.HEAPF32.subarray(at >> 2, (at >> 2) + words);
+        const strings = [];
+
+        for (let i = 0; i < M._tw_draw_string_count(); i++)
+            strings.push(M.UTF8ToString(M._tw_draw_string(i)));
+
+        let bad = null;
+
+        for (let i = 0; i < list.length && bad === null; )
+        {
+            const op = list[i++];
+
+            if (OP_NAMES[op] === undefined)
+                bad = `op ${op} at word ${i - 1} is not one`;
+            else
+            {
+                const arity = ARITY[op] < 0 ? list[i] + 2 : ARITY[op];
+
+                if (i + arity > list.length)
+                    bad = `${OP_NAMES[op]} runs off the end`;
+
+                i += arity;
+            }
+        }
+
+        if (bad !== null)
+        {
+            fail(`${name}: the node canvas's list is malformed: ${bad}`);
+            continue;
+        }
+
+        try
+        {
+            replay(ctx, list, strings, [],
+                   { width: 900, height: 600, dpr: 1 });
+        }
+        catch (e)
+        {
+            fail(`${name}: the node canvas's list did not replay: ` +
+                 `${e.message}`);
+            continue;
+        }
+
+        drawn++;
+        ops += words;
+    }
+
+    process.stdout.write(
+        `ok    the node canvas drew ${drawn} patches, ${ops} words of ops, ` +
+        'every one replayable\n');
+
+    /* And it answers a pointer. The canvas is the only thing that knows
+       what was clicked, and what it decides comes back as signals for the
+       page to act on -- an edit, a rebuild, a line in the status bar,
+       which is what NodeEditor does with the same ones on the desktop. */
+    const text = fs.readFileSync(path.join(dspDir, 'ts1.dsp'), 'utf8');
+
+    M.ccall('tw_graph_build', 'number', ['string'], [text]);
+    M.ccall('tw_graph_apply_layout', 'number', ['string'], [text]);
+    M._tw_node_canvas_viewport(0, 0, 900, 600);
+    M._tw_node_canvas_set_zoom(1);
+    M._tw_node_signals_clear();
+
+    /* A press a little inside the first box, in shell pixels, which at a
+       zoom of one are the graph's own. */
+    M._tw_node_canvas_press(M._tw_graph_box_x(0) + 6,
+                            M._tw_graph_box_y(0) + 6, 1, 1);
+    M._tw_node_canvas_release(M._tw_graph_box_x(0) + 6,
+                              M._tw_graph_box_y(0) + 6, 1);
+
+    const said = [];
+
+    for (let i = 0; i < M._tw_node_signal_count(); i++)
+        said.push(M._tw_node_signal_kind(i));
+
+    if (M._tw_node_canvas_selected() === 0 && said.includes(1))
+        process.stdout.write(
+            'ok    a press on a box selects it and says so\n');
+    else
+        fail(`a press on the first box selected ` +
+             `${M._tw_node_canvas_selected()} and said [${said}]`);
+}
+
 /* ---- a new patch, and a node added to it -------------------------------- */
 
 {
@@ -323,11 +446,27 @@ process.stdout.write(
 
     if (!wrote || lines === 0 ||
         M.ccall('tw_graph_build', 'number', ['string'], [written]) <= 0)
+    {
         fail(`the layout block came back with ${lines} positions`);
+    }
     else
-        process.stdout.write(
-            `ok    ts1.dsp's layout block is ${lines} positions, and the ` +
-            'patch still builds\n');
+    {
+        /* And it is the block the desktop writes, byte for byte: a drag in
+           a browser moves a node for everybody, including whoever opens
+           the file in the editor afterwards. */
+        const want = execFileSync(dspedit,
+                                  [file, 'layout-write', '-p',
+                                   path.join(native, 'plugins') + '/'],
+                                  { encoding: 'utf8' });
+
+        if (written !== want)
+            fail('the layout block the module writes is not the one the ' +
+                 'desktop writes');
+        else
+            process.stdout.write(
+                `ok    ts1.dsp's layout block is ${lines} positions, the ` +
+                'same the desktop writes\n');
+    }
 }
 
 process.stdout.write(failures === 0
