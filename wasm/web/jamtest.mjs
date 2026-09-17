@@ -43,13 +43,12 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, firefox } from 'playwright';
 
 import { tapeBefore } from '../tape.mjs';
-import { firstDifference } from './piececheck.mjs';
+import { firstDifference, reference } from './piececheck.mjs';
 import { relay } from './relay.mjs';
 import { serve } from './serve.mjs';
 
@@ -74,31 +73,6 @@ function fail (what)
 function ok (what)
 {
     process.stdout.write(`ok    ${what}\n`);
-}
-
-/* genwav.mjs's tape for the piece under the commands the pages sent. */
-function reference (knobNames, sent, stopAt)
-{
-    const args = [path.join(here, '..', 'genwav.mjs'),
-                  '-s', String(stopAt + 5), '-t', '-', '-q'];
-
-    for (const c of sent)
-    {
-        if (c.type === 'knob')
-            args.push('-c', `${c.at} knob ${knobNames[c.knob]} ${c.value}`);
-        else if (c.type === 'transport' && c.op === 'tempo')
-            args.push('-c', `${c.at} tempo ${c.bpm}`);
-        else if (c.type === 'transport' && c.op === 'stop')
-            args.push('-c', `${c.at} stop`);
-    }
-
-    args.push(path.join(top, 'gen', PIECE));
-
-    return tapeBefore(execFileSync('node', args,
-                                   { cwd: top, encoding: 'utf8',
-                                     env: { ...process.env,
-                                            THINK_WASM_BUILD: nodeBuild } }),
-                      stopAt);
 }
 
 if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
@@ -178,6 +152,31 @@ try
     /* Play from the first; knobs from both; a tempo from the second. */
     const [A, B] = pages;
 
+    /* A knob dragged before Play. While the transport is stopped there is
+       no time to stamp against, so it goes out as -1 -- "now, on every
+       peer" -- and is applied on arrival. Stamped for a transport time
+       instead it would sit in every worklet's queue waiting for a clock
+       that is not running, and the load a Play does would throw it away
+       without counting it. */
+    await A.page.evaluate(() => window.jam.knob(0, 0.42));
+    await new Promise((r) => setTimeout(r, 300));
+
+    const stopped = await A.page.evaluate(() => window.jam.sent().at(-1));
+
+    if (stopped?.at === -1)
+        ok('a knob moved before Play is stamped for now, not for a time');
+    else
+        fail(`a knob moved before Play was stamped ${stopped?.at}`);
+
+    /* And an edit in flight at the Play: A composes from a revision B has
+       not seen yet, so B's start waits for the update before it loads
+       (JAM_M3.md, section 4.3), and whatever arrives while it waits has
+       to survive the wait rather than be cleared by the load or the arm.
+       A comment, so the piece composes exactly as it did. */
+    await A.page.click('.cm-content');
+    await A.page.keyboard.press('Control+Home');
+    await A.page.keyboard.type('# an edit in flight at the Play\n');
+
     await A.page.evaluate(() => window.jam.play());
 
     const t0 = Date.now();
@@ -242,8 +241,13 @@ try
             `ahead of their time (least ${(least * 1000).toFixed(0)} ms)\n`);
     }
 
+    /* The run's command stream, for genwav. Only what is stamped with a
+       transport time: a command made while the transport was stopped
+       belongs to no run, and the load a Play does puts the piece back to
+       what the file says whatever was moved before it. */
     const sent = results.flatMap((r) => r.sent)
-        .filter((c) => c.type === 'knob' || c.type === 'transport')
+        .filter((c) => (c.type === 'knob' || c.type === 'transport') &&
+                       c.at >= 0)
         .sort((a, b) => a.at - b.at);
     const stopAt = sent.find((c) => c.op === 'stop')?.at;
 
@@ -259,13 +263,15 @@ try
         else
             fail(`the tapes differ: ${firstDifference(tapes[0], tapes[1])}`);
 
-        /* The knob's name, for genwav: the page names knobs by index in
-           the order the module reports them, and the module's order is
-           the scheduler's map order, by name. */
-        const knobNames = await A.page.evaluate(() =>
-            [...document.querySelectorAll('#knobs input')]
-                .map((i) => i.id.replace(/^knob-/, '')));
-        const want = reference(knobNames, sent, stopAt);
+        /* The knob names, for genwav, by the index a command names one
+           by -- which is the module's numbering over every knob the piece
+           declared, hidden ones included, and not the position of the
+           slider on the page. Each slider carries its own index. */
+        const knobs = await A.page.evaluate(() => Object.fromEntries(
+            [...document.querySelectorAll('#knobs input')].map(
+                (i) => [i.dataset.knob, i.id.replace(/^knob-/, '')])));
+        const want = reference(PIECE, nodeBuild,
+                               { commands: sent, knobs, stopAt });
 
         if (tapes[0] === want)
             ok('and it is the tape genwav delivers under the same commands');
@@ -276,11 +282,11 @@ try
 
     for (const r of results)
     {
-        if (r.late.worklet === 0 && r.late.page.length === 0)
+        if (r.late.worklet === 0 && r.late.seen === 0)
             ok(`${r.label} applied nothing late`);
         else
             fail(`${r.label} applied ${r.late.worklet} late by the ` +
-                 `worklet's count, ${r.late.page.length} by the page's` +
+                 `worklet's count, ${r.late.seen} by the page's` +
                  (r.late.page.length > 0
                       ? ': ' + r.late.page.map((c) =>
                             `${c.from}#${c.seq} ${c.type}` +

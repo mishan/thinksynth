@@ -215,8 +215,8 @@ target_link_options(thinkweb PRIVATE
 # tape.mjs is wasm/'s, not this directory's: the worklet reads the tape out
 # of the heap with the same code genwav.mjs does, which is what makes
 # comparing the two tapes a claim about the piece (wasm/twevent.h).
-set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js host.js
-                roll.js worklet.js ../tape.mjs)
+set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
+                host.js roll.js worklet.js ../tape.mjs)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -274,27 +274,34 @@ file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/gen/index.json"
 # The room page's script is bundled (JAM_M3.md, section 4.2): it has an
 # editor, a CRDT and a provider, which come from node_modules and go
 # nowhere a browser could fetch them from. So the room page wants `npm ci'
-# run in this directory first, once; the solo page does not.
+# run in this directory first, once; the solo page does not -- and a tree
+# without node_modules configures and builds the solo page rather than
+# refusing to configure at all.
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
-  message(FATAL_ERROR
-    "The room page's bundle needs node_modules: run `npm ci' in "
-    "${CMAKE_CURRENT_SOURCE_DIR} and configure again.")
+  message(STATUS
+    "wasm/web: no node_modules, so no room page. Run `npm ci' in "
+    "${CMAKE_CURRENT_SOURCE_DIR} and configure again to build it; the "
+    "solo page does not need it.")
+else()
+  # package-lock.json among the dependencies because the bundle contains
+  # what it pins: a dependency bumped without it here would rebuild
+  # nothing and serve the old editor.
+  set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
+                  roll.js host.js keyboard.js knobs.js ../tape.mjs bundle.mjs
+                  package-lock.json)
+  set(JAM_DEPENDS "")
+
+  foreach(f IN LISTS JAM_SOURCES)
+    list(APPEND JAM_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
+  endforeach()
+
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/jam.js"
+      COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
+              "${PROJECT_BINARY_DIR}"
+      DEPENDS ${JAM_DEPENDS}
+      COMMENT "Bundling the room page")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js")
 endif()
-
-set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
-                roll.js host.js keyboard.js ../tape.mjs bundle.mjs)
-set(JAM_DEPENDS "")
-
-foreach(f IN LISTS JAM_SOURCES)
-  list(APPEND JAM_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${f}")
-endforeach()
-
-add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/jam.js"
-    COMMAND node "${CMAKE_CURRENT_SOURCE_DIR}/bundle.mjs"
-            "${PROJECT_BINARY_DIR}"
-    DEPENDS ${JAM_DEPENDS}
-    COMMENT "Bundling the room page")
-list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/jam.js")
 
 # Where the relay is, for a site served from anywhere. serve.mjs --relay
 # answers this itself; a static host edits the file.

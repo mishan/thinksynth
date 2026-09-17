@@ -145,15 +145,23 @@ export async function playPiece (createThinkWeb,
              windowlen: took };
 }
 
-/* One scheduler command into the module, as the worklet would post it. */
+/* thinkweb.cpp's TransportOp, as far as tw_at takes it: the two ops that
+   carry a transport time. worklet.js has the whole table, start and
+   rewind included, because it is what the page posts through. */
+const AT_OP = { stop: 1, tempo: 3 };
+
+/* One scheduler command into the module, as the worklet would post it.
+ *
+ * Every host here goes through this rather than spelling the op numbers
+ * again: the harnesses compare a browser's tape against this path's, and
+ * two spellings of the enum is how a renumbering turns into a gate that
+ * passes while comparing different commands. */
 export function schedule (M, c)
 {
     if (c.op === 'knob')
         M._tw_knob(c.at, c.knob, c.value);
-    else if (c.op === 'tempo')
-        M._tw_at(c.at, 3, c.value);
-    else if (c.op === 'stop')
-        M._tw_at(c.at, 1, 0);
+    else if (Object.hasOwn(AT_OP, c.op))
+        M._tw_at(c.at, AT_OP[c.op], c.value ?? 0);
     else
         throw new Error(`no scheduler command '${c.op}'`);
 }

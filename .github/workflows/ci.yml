@@ -341,6 +341,14 @@ jobs:
           npx playwright install --with-deps chromium firefox
           node browsertest.mjs
 
+      # The solo page itself, which nothing above opens: the octave, the
+      # sliders a piece's knobs are drawn as, and a computer key held and
+      # let go. Both pages share keyboard.js and knobs.js, so this is
+      # where a change to either shows up first.
+      - name: The page's keys and knobs
+        working-directory: wasm/web
+        run: node pagetest.mjs
+
       # The relay (JAM_M3.md, section 3), driven from Node by the clients
       # the page will be: presence, seats, the clock, signalling, the
       # relayed fallback, and the shared document reaching two providers.

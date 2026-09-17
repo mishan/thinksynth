@@ -360,8 +360,16 @@ async function main (argv0, args)
        the command applied, the step carried on to the window's end. That
        is how the browser host applies one (thinkweb.cpp, step()), and
        what makes a tape composed under a command stream the same tape
-       from either host. With no commands the arithmetic is exactly the
-       old step's: now + dt. */
+       from either host.
+     *
+       Stepping *to* a time rather than *by* one leaves the transport on
+       the same double: the target is `now + dt', which is the sum the
+       old step made. The beat counter is not quite so: stepTransportTo
+       accumulates (target - now) * tempo / 60, and (now + dt) - now is
+       not dt to the last bit, so beat_ here parts from native genwav's
+       by ulps over a long piece. Nothing reads thcTransport::beat, and
+       anything that starts to should derive it rather than compare two
+       hosts' accumulations for equality. */
     while (!stopped && M._tw_now() < seconds)
     {
         const target = M._tw_now() + dt;

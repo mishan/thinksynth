@@ -79,6 +79,7 @@ class ThinkProcessor extends AudioWorkletProcessor
         super();
 
         this.M = null;
+        this.aligned = false;   /* the module's frames put on ours */
         this.early = [];        /* messages that arrived before the module */
         this.quanta = 0;        /* since the last post to the page */
         this.events = [];
@@ -305,6 +306,17 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         if (this.M === null || out.length === 0)
             return true;
+
+        /* The module's frame counter starts at zero when tw_create ran;
+           this context's is already well past zero by then, and every
+           frame the page hands in -- a Play's origin above all -- is in
+           the context's numbering. One call before the first render puts
+           the two on one counter (thinkweb.cpp, tw_align). */
+        if (!this.aligned)
+        {
+            this.M._tw_align(currentFrame);
+            this.aligned = true;
+        }
 
         const frames = out[0].length;
         const p = this.M._tw_render(frames) >> 2;

@@ -284,8 +284,10 @@ plugins are dlopened rather than linked in and the transport is stepped by a
 fixed clock in windows of 1024. All four have to agree, because what a piece
 composes is a function of the file and the seed and of nothing else.
 `wasm/web/browsertest.mjs` runs both of those through the worklet in
-Chromium and Firefox, and `wasm/web/bench.mjs` reports what one 128-frame
-quantum costs with a piece running and a chord held down. For the room:
+Chromium and Firefox, `wasm/web/pagetest.mjs` drives the solo page's own
+keys and knobs in Chromium, and `wasm/web/bench.mjs` reports what one
+128-frame quantum costs with a piece running and a chord held down. For
+the room:
 `wasm/web/protocoltest.mjs` runs two peers in one process at different
 windows and rates over a simulated network and holds their tapes against
 each other and against `genwav.mjs`'s under the same commands;

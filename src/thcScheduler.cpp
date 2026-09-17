@@ -31,7 +31,7 @@
 /* ---- thcParamStore ---------------------------------------------------- */
 
 thcParamStore::thcParamStore (thcPlugin *plugin, unsigned seed)
-    : plugin_(plugin), recording_(true), instance_(NULL)
+    : plugin_(plugin), recording_(true), replaying_(false), instance_(NULL)
 {
     int count = plugin->paramCount();
 
@@ -235,12 +235,42 @@ void
 thcParamStore::record (OpKind kind, int index, double value,
                        const std::string &text, thArg *arg, bool flag)
 {
-    if (!recording_)
+    /* A replay is not something that happened; it is something being
+       done again. Recorded, it would double at every rewind. */
+    if (replaying_)
         return;
 
     Op op = { kind, index, value, text, arg, flag };
 
-    history_.push_back(op);
+    if (recording_)
+    {
+        /* A knob dragged before the first Play announces once per tick
+           of the slider, and every one of those would be replayed into
+           a module that may do real work on each. Only the last of a run
+           on one index says anything the one before it did not. */
+        if (kind == OP_NOTIFY && !history_.empty() &&
+            history_.back().kind == OP_NOTIFY &&
+            history_.back().index == index)
+            return;
+
+        history_.push_back(op);
+        return;
+    }
+
+    /* The transport has run, so this is an edit rather than part of the
+       load: the desktop poking the live store so a change to the work
+       file is heard without a reload. A rewind is a load, and the file
+       a load would read is the edited one, so it is kept and replayed
+       after the load's own operations.
+     *
+       An announcement on its own is not kept. What makes them after the
+       first start is a knob being moved, and a knob is not in the store:
+       it holds its own position across a rewind, the param reads through
+       to it, and the bind that made it readable is already in one of the
+       two lists. Replaying a whole drag at every rewind would cost a
+       param_changed each and change nothing. */
+    if (kind != OP_NOTIFY)
+        edits_.push_back(op);
 }
 
 void
@@ -260,18 +290,11 @@ thcParamStore::restoreDefaults (void)
 }
 
 void
-thcParamStore::replay (void)
+thcParamStore::run (const std::vector<Op> &ops)
 {
-    /* Not recorded a second time: a rewind before the first start would
-       otherwise double the history, and the next one would do it all
-       twice. */
-    const bool was = recording_;
-
-    recording_ = false;
-
-    for (size_t i = 0; i < history_.size(); i++)
+    for (size_t i = 0; i < ops.size(); i++)
     {
-        const Op &op = history_[i];
+        const Op &op = ops[i];
 
         switch (op.kind)
         {
@@ -283,8 +306,27 @@ thcParamStore::replay (void)
             case OP_NOTIFY: announce(op.index); break;
         }
     }
+}
 
-    recording_ = was;
+void
+thcParamStore::replay (void)
+{
+    /* Nothing done here is recorded a second time: a rewind before the
+       first start would otherwise double the history, and the next one
+       would do it all twice. */
+    const bool was = replaying_;
+
+    replaying_ = true;
+
+    /* The load, to the instance that now serves the store. */
+    run(history_);
+
+    /* Then what has been done to the store since, in the order it was
+       done: a rewind reads the work file as it stands, not as it was
+       loaded. See the two lists in the header. */
+    run(edits_);
+
+    replaying_ = was;
 
     for (size_t i = 0; i < nodes_.size(); i++)
         lastNode_[i] = nodes_[i] != NULL ? (*nodes_[i])[0] : 0.0f;
@@ -1943,6 +1985,12 @@ thcScheduler::reset (void)
 
             if (fresh == NULL)
             {
+                /* The replay below still runs, over the instance that
+                   survived: restoreDefaults() has already emptied the
+                   store, and leaving it on the plugin's defaults would
+                   make every param of this stage read something the
+                   file never said. A stage that did not rewind is the
+                   lesser of the two. */
                 fprintf(stderr, "thcScheduler: %s refused to recreate; "
                         "keeping the old instance\n",
                         s->plugin->name().c_str());

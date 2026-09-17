@@ -55,7 +55,6 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { drain, tapeBefore, tapeLine } from '../tape.mjs';
@@ -63,8 +62,9 @@ import { AudioClock, RelayClock, TransportClock, frameOfRelayMs }
     from './clock.js';
 import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
     from './commands.js';
-import { firstDifference, instruments, pieces } from './piececheck.mjs';
-import { loadPiece } from './render.mjs';
+import { firstDifference, instruments, pieces, reference }
+    from './piececheck.mjs';
+import { loadPiece, schedule } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const top = path.join(here, '..', '..');
@@ -78,12 +78,20 @@ const SECONDS = 30;
 
 /* The two seats. Different rates, different windows, and blocks that do
    not line up with each other or with anything: the case the stamp is
-   for. */
+   for.
+ *
+   `startFrame' is where each context's frame counter already is by the
+   time its module is made: a browser's has been running since the click
+   that made the AudioContext, through the fetch and the instantiate, and
+   the two peers spend different amounts of time on that. The module
+   counts from zero and is told where that is (thinkweb.cpp, tw_align);
+   with these left at zero the harness could not tell whether it had
+   been. */
 const PEERS = [
     { name: 'A', rate: 48000, windowlen: 256, block: 128, phase: 0.0,
-      perfOffset: 1000 },
+      perfOffset: 1000, startFrame: 16768 },
     { name: 'B', rate: 44100, windowlen: 1024, block: 1024, phase: 7.3,
-      perfOffset: 250000 },
+      perfOffset: 250000, startFrame: 52224 },
 ];
 
 /* The relay's clock against the simulation's, in milliseconds: nothing a
@@ -191,7 +199,8 @@ class Peer
         this.spec = spec;
         this.M = M;
         this.name = spec.name;
-        this.frames = 0;                /* rendered so far */
+        this.frames = spec.startFrame;  /* this context's frame counter */
+        this.aligned = false;           /* the module put on it */
         this.tape = '';
         this.lastRender = null;         /* the audio clock's last pair */
         this.others = [];
@@ -208,12 +217,15 @@ class Peer
             if (M._tw_listens(c))
                 this.listens.add(c);
 
-        /* host.js's object, over the module directly. */
+        /* host.js's object, over the module directly. The two stamped
+           ops go through render.mjs's schedule(), which is the one place
+           the op numbers are written down on this side. */
         this.synth = {
             begin: (frame) => M._tw_begin(frame),
             transportAt: (op, at, value = 0) =>
-                M._tw_at(at, op === 'stop' ? 1 : 3, value),
-            knob: (knob, value, at) => M._tw_knob(at, knob, value),
+                schedule(M, { op, at, value }),
+            knob: (knob, value, at) =>
+                schedule(M, { op: 'knob', at, knob, value }),
             noteOn: (note, velocity, frame, channel) =>
                 M._tw_note_on(frame, channel, note, velocity),
             noteOff: (note, frame, channel) =>
@@ -248,6 +260,15 @@ class Peer
     render ()
     {
         const { M } = this;
+
+        /* The worklet's first process(): the module's frame counter put
+           on this context's, before anything is rendered under the other
+           numbering (worklet.js, and thinkweb.cpp's tw_align). */
+        if (!this.aligned)
+        {
+            M._tw_align(this.frames);
+            this.aligned = true;
+        }
 
         M._tw_render(this.spec.block);
         this.frames += this.spec.block;
@@ -460,32 +481,6 @@ async function play (sim, relay, peers, knob, seed)
     return { stamped, stopAt };
 }
 
-/* genwav.mjs's tape for the piece under the same commands. */
-function reference (name, knobName, stamped, stopAt)
-{
-    const args = [path.join(here, '..', 'genwav.mjs'),
-                  '-s', String(stopAt + 5), '-t', '-', '-q'];
-
-    for (const c of stamped)
-    {
-        if (c.type === 'knob')
-            args.push('-c', `${c.at} knob ${knobName} ${c.value}`);
-        else if (c.op === 'tempo')
-            args.push('-c', `${c.at} tempo ${c.bpm}`);
-        else if (c.op === 'stop')
-            args.push('-c', `${c.at} stop`);
-    }
-
-    args.push(path.join(top, 'gen', name));
-
-    const text = execFileSync('node', args,
-                              { cwd: top, encoding: 'utf8',
-                                env: { ...process.env,
-                                       THINK_WASM_BUILD: nodeBuild } });
-
-    return tapeBefore(text, stopAt);
-}
-
 /* One piece over one network: the peers made, the script run, the tapes
    held against each other and against genwav's. */
 async function session (createThinkWeb, piece, dsps, network, seed)
@@ -541,9 +536,18 @@ async function session (createThinkWeb, piece, dsps, network, seed)
 function originError (peer, startCmd)
 {
     const trueMs = startCmd.origin - RELAY_OFFSET;         /* sim time */
-    const trueFrame = (trueMs - peer.spec.phase) / 1000 * peer.spec.rate;
+    const trueFrame = (trueMs - peer.spec.phase) / 1000 * peer.spec.rate +
+                      peer.spec.startFrame;
 
-    return (peer.M._tw_origin() - trueFrame) / peer.spec.rate * 1000;
+    /* Read in the page's numbering. The module keeps its own counter and
+       the two are one counter only because the host aligned them; left
+       unaligned the module reaches the frame it was armed with however
+       far apart they are late, which is a start skew no tape can show
+       and this subtraction can. */
+    const originFrame = peer.M._tw_origin() +
+                        (peer.frames - peer.M._tw_frame());
+
+    return (originFrame - trueFrame) / peer.spec.rate * 1000;
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href)
@@ -590,8 +594,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         if (a !== b)
             complaints.push(`the two tapes differ: ${firstDifference(a, b)}`);
 
-        const want = reference(piece.name, r.knob?.name, r.stamped,
-                               r.stopAt);
+        const want = reference(piece.name, nodeBuild, {
+            commands: r.stamped, stopAt: r.stopAt,
+            knobs: r.knob === null ? {} : { [r.knob.knob]: r.knob.name },
+        });
 
         if (a !== want)
             complaints.push(`A differs from genwav: ` +

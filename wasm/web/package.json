@@ -10,6 +10,7 @@
     "relaytest": "node relaytest.mjs",
     "relay": "node relay.mjs",
     "browsertest": "node browsertest.mjs",
+    "pagetest": "node pagetest.mjs",
     "jamtest": "node jamtest.mjs",
     "bench": "node bench.mjs"
   },

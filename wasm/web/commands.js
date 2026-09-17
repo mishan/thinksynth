@@ -152,6 +152,13 @@ export class Dedupe
 
         if (cmd.seq > s.last + 1)
             s.gaps += cmd.seq - s.last - 1;
+        else if (cmd.seq < s.last)
+            /* Out of order rather than dropped: this one was counted as a
+               gap when the seq past it arrived first, and here it is. The
+               channel is unordered, so this is the common case, and a gap
+               that is never reconciled reads as a drop that never
+               happened. */
+            s.gaps = Math.max(0, s.gaps - 1);
 
         s.last = Math.max(s.last, cmd.seq);
 

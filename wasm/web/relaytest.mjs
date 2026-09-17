@@ -37,12 +37,13 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import WebSocket from 'ws';
+import WebSocket, { WebSocketServer } from 'ws';
 import * as Y from 'yjs';
 import { WebsocketProvider } from 'y-websocket';
 
 import { dspNames, fileNames, hashOf, pieceText, readFile } from './doc.js';
 import { PROTOCOL, relay } from './relay.mjs';
+import { Room } from './room.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const tree = path.join(here, '..', '..');
@@ -247,9 +248,23 @@ try
           wc.seats[0] === wa.peer && wc.seats[3] === wb.peer,
           'a joiner is told what is playing and who sits where');
 
-    /* Leaving releases the seat. */
     await a.next('joined');
     await b.next('joined');
+
+    /* And to several peers at once: what a page sends when more than one
+       of its channels is down, so the relay serialises the command once
+       rather than once per peer. */
+    b.send({ type: 'relayed', to: [wa.peer, wc.peer],
+             data: { type: 'tempo' } });
+
+    const rel3 = await a.next('relayed');
+    const rel4 = await c.next('relayed');
+
+    check(rel3.from === wb.peer && rel3.data.type === 'tempo' &&
+          rel4.from === wb.peer && rel4.data.type === 'tempo',
+          'a relayed gesture reaches every peer a list names');
+
+    /* Leaving releases the seat. */
     b.close();
 
     const left = await a.next('left');
@@ -271,6 +286,43 @@ try
     a.close();
     c.close();
     d.close();
+
+    /* And the page's side of that: the relay says its piece and closes,
+       which is a clean close and fires no `error' event at all. A
+       connect() that only rejected from `error' left Join awaiting a
+       promise that never settled, with the button disabled. */
+    {
+        const refuser = new WebSocketServer({ port: 0, host: '127.0.0.1' });
+
+        await new Promise((r) => refuser.on('listening', r));
+
+        refuser.on('connection', (ws) =>
+        {
+            ws.send(JSON.stringify(
+                { type: 'error', text: 'protocol 2; this relay speaks 1' }));
+            ws.close();
+        });
+
+        let said = null;
+
+        try
+        {
+            await new Room(`ws://127.0.0.1:${refuser.address().port}`,
+                           'test', 'Di').connect();
+        }
+        catch (e)
+        {
+            said = e.message;
+        }
+        finally
+        {
+            refuser.close();
+        }
+
+        check(said !== null && /protocol 2/.test(said),
+              'a room socket closed without a welcome rejects the join, ' +
+              'with the relay\'s reason');
+    }
 
     /* ---- the document socket ---- */
 
@@ -322,6 +374,49 @@ try
         .some((s) => s.user?.name === 'Ann');
 
     check(seen, 'presence set on one provider is seen on the other');
+
+    /* A malformed document frame costs its own socket and nothing else.
+     *
+       The bytes on that socket are untrusted and the decoder throws on
+       an empty or a truncated one; `ws' emits `message' synchronously,
+       so unguarded the exception left the process and took every room,
+       document and peer on the relay with it. */
+    for (const [what, bytes] of [['an empty', new Uint8Array(0)],
+                                 ['a truncated', new Uint8Array([0, 200])],
+                                 ['a garbage', new Uint8Array([255, 255, 255,
+                                                               255, 255])]])
+    {
+        const bad = new WebSocket(`${base}/doc/test`);
+
+        await new Promise((r) => bad.on('open', r));
+        bad.send(bytes);
+
+        const closed = await new Promise((r) =>
+        {
+            const timer = setTimeout(() => r(false), 2000);
+
+            bad.on('close', () => { clearTimeout(timer); r(true); });
+        });
+
+        check(closed, `${what} document frame closes its own socket`);
+    }
+
+    /* And the relay is still here to say so. */
+    {
+        const e = new Client(`${base}/room/test`, 'E');
+
+        await e.open();
+        e.send({ type: 'hello', name: 'Eve', protocol: PROTOCOL });
+
+        const we = await e.next('welcome');
+
+        check(typeof we.peer === 'string',
+              'and the relay is still serving the room');
+        e.close();
+    }
+
+    check(readFile(docB, 'airports.gen') !== null,
+          'and the providers still have the document');
 
     /* The providers' own awareness keeps a timer the provider does not
        stop; the page never minds, a process that wants to exit does. */

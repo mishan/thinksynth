@@ -217,26 +217,39 @@ class Room
             else
                 bytes = new Uint8Array(data);
 
-            const dec = decoding.createDecoder(bytes);
-            const enc = encoding.createEncoder();
-
-            switch (decoding.readVarUint(dec))
+            /* The bytes are untrusted: an empty, truncated or garbage
+               frame throws out of the decoder or out of Yjs. One bad
+               frame must cost its own socket, not the whole relay. */
+            try
             {
-                case MSG_SYNC:
-                    encoding.writeVarUint(enc, MSG_SYNC);
-                    syncProtocol.readSyncMessage(dec, enc, this.doc, ws);
+                const dec = decoding.createDecoder(bytes);
+                const enc = encoding.createEncoder();
 
-                    /* A reply only when there is one: step 2 in answer
-                       to step 1, or nothing in answer to an update. */
-                    if (encoding.length(enc) > 1)
-                        ws.send(encoding.toUint8Array(enc));
+                switch (decoding.readVarUint(dec))
+                {
+                    case MSG_SYNC:
+                        encoding.writeVarUint(enc, MSG_SYNC);
+                        syncProtocol.readSyncMessage(dec, enc, this.doc, ws);
 
-                    break;
+                        /* A reply only when there is one: step 2 in answer
+                           to step 1, or nothing in answer to an update. */
+                        if (encoding.length(enc) > 1)
+                            ws.send(encoding.toUint8Array(enc));
 
-                case MSG_AWARENESS:
-                    awarenessProtocol.applyAwarenessUpdate(
-                        this.awareness, decoding.readVarUint8Array(dec), ws);
-                    break;
+                        break;
+
+                    case MSG_AWARENESS:
+                        awarenessProtocol.applyAwarenessUpdate(
+                            this.awareness, decoding.readVarUint8Array(dec),
+                            ws);
+                        break;
+                }
+            }
+            catch (err)
+            {
+                process.stderr.write(`relay: bad document frame in room ` +
+                                     `${this.name}: ${err.message}\n`);
+                ws.close();
             }
         });
 
@@ -284,12 +297,37 @@ class Room
                 ws.send(JSON.stringify(m));
         };
 
-        const others = (m) =>
+        /* To the peers `to' names -- one id, or a list of them -- or,
+           with no `to' at all, to everyone in the room but this one.
+         *
+           Serialised once, however many sockets it goes to: a command to
+           a room of eight otherwise costs eight identical stringify calls
+           on the one path that is meant to be cheap, because nothing here
+           reads what it forwards. An id nobody is on is not an error: a
+           peer that left is a peer that left. */
+        const toPeers = (m, to) =>
         {
-            for (const [pid, p] of this.peers)
-                if (pid !== id && p.ws.readyState === p.ws.OPEN)
-                    p.ws.send(JSON.stringify(m));
+            const s = JSON.stringify(m);
+            const put = (p) =>
+            {
+                if (p !== undefined && p.ws.readyState === p.ws.OPEN)
+                    p.ws.send(s);
+            };
+
+            if (to === undefined)
+            {
+                for (const [pid, p] of this.peers)
+                    if (pid !== id)
+                        put(p);
+
+                return;
+            }
+
+            for (const pid of Array.isArray(to) ? to : [to])
+                put(this.peers.get(String(pid)));
         };
+
+        const others = (m) => toPeers(m);
 
         const seatMap = () =>
         {
@@ -399,37 +437,23 @@ class Room
                     send({ type: 'pong', t0: m.t0, t1: relayNow() });
                     break;
 
-                /* Signalling: opaque, to one peer. */
+                /* Signalling: opaque, and to one peer always -- hence
+                   the String, which turns a missing `to' into an id
+                   nobody has rather than into the whole room. */
                 case 'signal':
-                {
-                    const to = this.peers.get(String(m.to));
-
-                    if (to !== undefined && to.ws.readyState === to.ws.OPEN)
-                        to.ws.send(JSON.stringify(
-                            { type: 'signal', from: id, data: m.data }));
-
+                    toPeers({ type: 'signal', from: id, data: m.data },
+                            String(m.to));
                     break;
-                }
 
-                /* A gesture the mesh could not carry, to one peer or to
-                   everyone: forwarded unread (section 5.5). */
+                /* A gesture the mesh could not carry: forwarded unread
+                   (section 5.5). `to' is one peer, or the list of peers
+                   whose channel is not up -- a page falls back one peer
+                   at a time and sends one message for all of them. With
+                   no `to' at all it goes to the room. */
                 case 'relayed':
-                {
-                    const out = { type: 'relayed', from: id, data: m.data };
-
-                    if (m.to !== undefined)
-                    {
-                        const to = this.peers.get(String(m.to));
-
-                        if (to !== undefined &&
-                            to.ws.readyState === to.ws.OPEN)
-                            to.ws.send(JSON.stringify(out));
-                    }
-                    else
-                        others(out);
-
+                    toPeers({ type: 'relayed', from: id, data: m.data },
+                            m.to);
                     break;
-                }
 
                 /* A transport start goes here as well as over the mesh:
                    it is the one command a peer must not miss, and the

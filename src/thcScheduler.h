@@ -150,16 +150,30 @@ public:
      * -- a value, a string, a unit, a binding, a bare announcement -- is
      * kept, in order, and a rewind puts the store back to its defaults
      * before the instance is created and then does them all again to
-     * the new one. What happens while the transport runs, a knob moved
-     * during play, is not kept: a fresh load would not have done it
-     * either, and the knob's value is read at create. */
+     * the new one.
+     *
+     * What happens while the transport runs is kept in a second list and
+     * done after the first, because "what a fresh load would have done"
+     * is not the same question on the two hosts. On the desktop an edit
+     * to the work file pokes the live store so it is audible without a
+     * reload (ComposerWindow::applyParam), and the file a reload would
+     * read is the edited one -- so `prob = 0.5' typed after Play, a
+     * binding made after Play, an unbind after Play, all have to survive
+     * a rewind, as they did before any of this was recorded.
+     *
+     * A knob moved during play is the one thing that is still dropped,
+     * and it is dropped because there is nothing to keep: the knob is
+     * not in the store, the param reads through to it, and it holds its
+     * position across a rewind by itself. Only the announcement it makes
+     * would be recorded, and replaying a slider's whole drag at every
+     * rewind is a cost with no meaning. */
 
     /* Back to the plugin's defaults, unbound: what the loader found.
        Called before composer_create. */
     void restoreDefaults (void);
 
-    /* The load's operations, again, and forget what pollNodes last saw.
-       Called after composer_create. */
+    /* The load's operations and then the edits made since, again, and
+       forget what pollNodes last saw. Called after composer_create. */
     void replay (void);
 
     /* From here on, nothing done is kept for a rewind: called by the
@@ -195,8 +209,8 @@ private:
     std::vector<thArg *>      nodes_;      /* embedded node's output      */
     std::vector<float>        lastNode_;   /* what pollNodes last saw     */
 
-    /* Everything done to the store before the transport first ran, in
-       order: what replay() does again. See there. */
+    /* Everything done to the store, in order: what replay() does again.
+       See there. */
     enum OpKind { OP_SET, OP_STRING, OP_BEATS, OP_KNOB, OP_NODE, OP_NOTIFY };
 
     struct Op
@@ -209,12 +223,17 @@ private:
         bool        flag;
     };
 
-    std::vector<Op>           history_;
-    bool                      recording_;
+    std::vector<Op>           history_;   /* the load                    */
+    std::vector<Op>           edits_;     /* what was done to it since   */
+    bool                      recording_; /* history_, or edits_         */
+    bool                      replaying_; /* neither: this is the replay */
 
     void record (OpKind kind, int index, double value = 0,
                  const std::string &text = std::string(),
                  thArg *arg = NULL, bool flag = false);
+
+    /* One list of operations, applied in order. */
+    void run (const std::vector<Op> &ops);
 
     /* The forward to the module and the re-arm, without a record. */
     void announce (int index);

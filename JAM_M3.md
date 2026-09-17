@@ -107,11 +107,27 @@ tw_piece_load(text, seed)
     over first by tw_instrument, as M2 has it; a room hands over the
     document's.
 
+tw_align(frame)
+    Where this module's frame counter starts, in the host's numbering.
+    Called once by the worklet, with `currentFrame` at its first
+    `process()`, before anything is rendered. The module counts from zero
+    at `tw_create`, which runs when the wasm has finished instantiating --
+    and by then a browser's audio context has been running for a while,
+    its own counter already thousands of frames past zero. Every frame
+    that crosses this boundary is in the context's numbering, so without
+    this a peer's transport zero lands its own setup time after the
+    instant the room agreed on: a different amount on every peer, and
+    invisible to every peer, since each one's stamps are inflated by its
+    own.
+
 tw_begin(originFrame)
     Arm a start from the top: at the window containing originFrame the
     scheduler is rewound and started with a partial first step, so that
     transport 0 is that frame exactly. A frame already rendered starts at
-    the next window and counts as late.
+    the next window and counts as late. The stamped commands in hand are
+    dropped here and not when the frame comes round, so that what arrives
+    during the arm -- from a peer whose transport is already running --
+    survives to be applied at the time it names.
 
 tw_at(at, op, value)
     A stop or a tempo, applied at transport time `at`, inside the step.

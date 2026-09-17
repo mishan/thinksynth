@@ -57,7 +57,6 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -114,27 +113,57 @@ export function pieces (buildDir)
         });
 }
 
-/* genwav.mjs's tape for a piece, cut to SECONDS. The reference: a different
-   module, a different loader, a different step. */
-export function reference (name, nodeBuildDir)
+/* genwav.mjs's tape for a piece, cut where the comparison ends. The
+ * reference every gate here is held against: a different module, a
+ * different loader, a different step.
+ *
+ * `commands' are stamped commands in the shape that crosses the network
+ * (commands.js) -- knobs, tempos, the stop -- turned into genwav's `-c'
+ * argv, so that the peers and the reference are given one command stream.
+ * `knobs' maps a command's knob index, which is the module's numbering
+ * over every knob a piece declared, to the name genwav takes; a piece with
+ * a hidden knob before a shown one numbers them differently from the
+ * sliders on the page, so the map is by index and not by position.
+ *
+ * `stopAt' is the transport time the tape is cut at, and genwav is asked
+ * for a few seconds past it so that the stop itself is on what comes back.
+ * Without one the whole of `seconds' is taken. */
+export function reference (name, nodeBuildDir,
+                           { commands = [], knobs = {}, stopAt = null,
+                             seconds = SECONDS } = {})
 {
-    /* A file of its own, so two of these gates running at once -- this
-       one and browsertest.mjs, say -- do not read each other's tapes. */
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'thinksynth-tape-'));
-    const tape = path.join(dir, `${name}.tape`);
+    const until = stopAt === null ? seconds : stopAt + 5;
 
-    execFileSync('node',
-                 [path.join(here, '..', 'genwav.mjs'),
-                  '-s', String(SECONDS), '-t', tape, '-q',
-                  path.join(top, 'gen', name)],
-                 { cwd: top, env: { ...process.env,
-                                    THINK_WASM_BUILD: nodeBuildDir } });
+    /* To stdout rather than to a file, so two of these gates running at
+       once -- this one and browsertest.mjs, say -- cannot read each
+       other's tapes. */
+    const args = [path.join(here, '..', 'genwav.mjs'),
+                  '-s', String(until), '-t', '-', '-q'];
 
-    const text = fs.readFileSync(tape, 'utf8');
+    for (const c of commands)
+    {
+        if (c.type === 'knob')
+        {
+            if (knobs[c.knob] === undefined)
+                throw new Error(`reference: knob ${c.knob} of ${name} has ` +
+                                'no name to give genwav');
 
-    fs.rmSync(dir, { recursive: true, force: true });
+            args.push('-c', `${c.at} knob ${knobs[c.knob]} ${c.value}`);
+        }
+        else if (c.op === 'tempo')
+            args.push('-c', `${c.at} tempo ${c.bpm}`);
+        else if (c.op === 'stop')
+            args.push('-c', `${c.at} stop`);
+    }
 
-    return tapeBefore(text, SECONDS);
+    args.push(path.join(top, 'gen', name));
+
+    const text = execFileSync('node', args,
+                              { cwd: top, encoding: 'utf8',
+                                env: { ...process.env,
+                                       THINK_WASM_BUILD: nodeBuildDir } });
+
+    return tapeBefore(text, stopAt === null ? seconds : stopAt);
 }
 
 /* Where the two first differ, for a failure that can be acted on. */

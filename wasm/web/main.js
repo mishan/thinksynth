@@ -46,33 +46,25 @@
  * letter, so a non-QWERTY keyboard plays the same shape: Z to / is an
  * octave and a bit from C, Q to P the octave above, with the black keys on
  * the row above each. - and = move both down and up an octave, and move
- * the on-screen keyboard with them.
+ * the on-screen keyboard with them. That layout, and the sliders a piece's
+ * knobs are drawn as, are keyboard.js's and knobs.js's: the room page
+ * wants them identical, and two copies of a thing two pages have to agree
+ * on is how they stop agreeing.
  */
 
 import { createSynth } from './host.js';
-import { Keyboard, noteName } from './keyboard.js';
+import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
+import { showKnobs } from './knobs.js';
 import { Roll } from './roll.js';
 
 const $ = (id) => document.getElementById(id);
-
-const KEYS = {
-    KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7,
-    KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11, Comma: 12, KeyL: 13, Period: 14,
-    Semicolon: 15, Slash: 16,
-    KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17,
-    Digit5: 18, KeyT: 19, Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23,
-    KeyI: 24, Digit9: 25, KeyO: 26, Digit0: 27, KeyP: 28,
-};
 
 const VELOCITY = 100;
 
 let ctx = null;
 let synth = null;
 let keyboard = null;
-let octave = 48;                 /* MIDI note of the Z key, and of the
-                                    leftmost key on screen: C3 */
-
-const typed = new Map();         /* key code -> the note it pressed */
+let keys = null;                 /* the computer keyboard as a musical one */
 
 /* note -> { count, piece, channel }: how many fingers are on it, and the
    route it went out by, which is the route its release has to take. */
@@ -162,7 +154,7 @@ function release (note)
 function releaseAll ()
 {
     keyboard?.releaseAll();
-    typed.clear();
+    keys?.forget();
 
     for (const [note, held] of [...sounding])
     {
@@ -173,70 +165,15 @@ function releaseAll ()
 
 /* ---- the keyboard, on screen and off ---- */
 
-function showRange ()
+/* What the octave keys and the two buttons do: let go of everything, move
+   the keys under the hands, and say where they are now and what they will
+   cost. */
+function shifted (lowest)
 {
-    if (keyboard === null)
-        return;
-
-    const [low, high] = keyboard.range;
-
-    $('range').textContent = `${noteName(low)} – ${noteName(high)}`;
-}
-
-function shiftOctave (by)
-{
-    octave = Math.min(96, Math.max(12, octave + by * 12));
-
     releaseAll();
-    keyboard?.setLowest(octave);
-    showRange();
+    keyboard?.setLowest(lowest);
+    showRange($('range'), keyboard);
     showLatency();
-}
-
-/* Typing in a text box is editing, not playing -- and before Start there is
-   nothing to play into, so a key is only ever typing then. */
-function typing (e)
-{
-    return synth === null || e.ctrlKey || e.metaKey || e.altKey ||
-           (e.target instanceof Element &&
-            e.target.closest('textarea, select, input') !== null);
-}
-
-function keyDown (e)
-{
-    if (typing(e))
-        return;
-
-    if (e.code === 'Minus' || e.code === 'Equal')
-    {
-        shiftOctave(e.code === 'Equal' ? 1 : -1);
-        e.preventDefault();
-        return;
-    }
-
-    if (!(e.code in KEYS))
-        return;
-
-    e.preventDefault();
-
-    if (e.repeat || typed.has(e.code))
-        return;
-
-    const note = octave + KEYS[e.code];
-
-    typed.set(e.code, note);
-    press(note);
-}
-
-function keyUp (e)
-{
-    const note = typed.get(e.code);
-
-    if (note === undefined)
-        return;
-
-    typed.delete(e.code);
-    release(note);
 }
 
 /* ---- what the browser admits to ---- */
@@ -255,7 +192,7 @@ function showLatency ()
         `synth window     ${synth.windowlen} frames, ` +
         `${ms(synth.windowlen / rate)}\n` +
         `worklet quantum  128 frames, ${ms(128 / rate)}\n` +
-        `octave           Z = ${noteName(octave)}`;
+        `octave           Z = ${noteName(keys.lowest)}`;
 }
 
 /* ---- the patch, M1 ---- */
@@ -326,7 +263,7 @@ async function loadPiece ()
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
 
-    showKnobs();
+    drawKnobs();
     roll.draw();
 }
 
@@ -372,44 +309,10 @@ function quietly (what)
 /* One row per knob the piece declared, each bound straight to the command
    that moves it. The command carries a frame like every other, so the page
    is the nearest peer and not a privileged one (JAM.md, section 3). */
-function showKnobs ()
+function drawKnobs ()
 {
-    const box = $('knobs');
-
-    box.replaceChildren();
-
-    for (const k of piece?.knobs ?? [])
-    {
-        const label = document.createElement('label');
-        const input = document.createElement('input');
-        const shown = document.createElement('span');
-
-        label.textContent = k.label || k.name;
-        label.htmlFor = `knob-${k.name}`;
-
-        input.id = `knob-${k.name}`;
-        input.type = 'range';
-        input.min = k.min;
-        input.max = k.max;
-        input.step = k.step > 0 ? k.step : (k.max - k.min) / 1000;
-        input.value = k.value;
-
-        shown.className = 'value';
-        shown.textContent = Number(k.value).toPrecision(3);
-
-        input.addEventListener('input', () =>
-        {
-            shown.textContent = Number(input.value).toPrecision(3);
-            synth.knob(k.knob, Number(input.value));
-        });
-
-        /* Label, value, slider: the order a narrow screen wants, where
-           the slider takes a line of its own under the two of them. A wide
-           one puts the slider between them, which style.css does by
-           placing it in the middle column rather than by a second
-           ordering here. */
-        box.append(label, shown, input);
-    }
+    showKnobs($('knobs'), piece?.knobs ?? [],
+              (knob, value) => synth.knob(knob, value));
 }
 
 function frame ()
@@ -536,9 +439,11 @@ async function init ()
     roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'),
                             { onPress: press, onRelease: release });
-    keyboard.setLowest(octave);
+    keys = new TypingKeys({ press, release, shifted,
+                            playable: () => synth !== null });
+    keyboard.setLowest(keys.lowest);
     keyboard.fit();
-    showRange();
+    showRange($('range'), keyboard);
 
     $('start').addEventListener('click', start);
     $('mode').addEventListener('change', pickMode);
@@ -554,11 +459,11 @@ async function init ()
     $('stop').addEventListener('click', () => synth.transport('stop'));
     $('rewind').addEventListener('click', () => synth.transport('rewind'));
 
-    $('down').addEventListener('click', () => shiftOctave(-1));
-    $('up').addEventListener('click', () => shiftOctave(1));
+    $('down').addEventListener('click', () => keys.shift(-1));
+    $('up').addEventListener('click', () => keys.shift(1));
 
-    window.addEventListener('keydown', keyDown);
-    window.addEventListener('keyup', keyUp);
+    window.addEventListener('keydown', (e) => keys.keyDown(e));
+    window.addEventListener('keyup', (e) => keys.keyUp(e));
     window.addEventListener('blur', releaseAll);
 
     /* A screen with room for the source next to the keys opens it; one

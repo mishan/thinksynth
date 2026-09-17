@@ -278,14 +278,20 @@ export class Mesh
     broadcast (cmd)
     {
         const text = JSON.stringify(cmd);
+        const through = [];         /* whose channel is not carrying it */
 
         for (const [peer, l] of this.links)
         {
             if (!l.relayed && l.channel?.readyState === 'open')
                 l.channel.send(text);
             else
-                this.room.relayed(cmd, peer);
+                through.push(peer);
         }
+
+        /* One message naming all of them, rather than one each: the
+           relay serialises it once and sends it on. */
+        if (through.length > 0)
+            this.room.relayed(cmd, through);
     }
 
     close ()

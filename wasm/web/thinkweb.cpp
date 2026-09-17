@@ -121,13 +121,16 @@ enum CmdType
     CMD_TRANSPORT,
 };
 
-/* CMD_TRANSPORT's `op'. worklet.js spells these too. */
+/* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
+   four too; TW_KNOB has its own entry point and never arrives as an op
+   from there. */
 enum TransportOp
 {
     TW_START,
     TW_STOP,
     TW_REWIND,
     TW_TEMPO,
+    TW_KNOB,
 };
 
 struct Command
@@ -152,22 +155,17 @@ struct Command
 
    `at' below zero means the top of the next window, which is what the
    solo page sends and what a peer sends while the transport is stopped.
-   One with a time that has already passed is applied at once and counted
-   (late_): the tape has parted from the other peers' from that time on,
-   and M3's job is to make that visible (JAM_M3.md, section 1). */
-enum AtType
-{
-    AT_STOP,
-    AT_TEMPO,
-    AT_KNOB,
-};
-
+   Those sort ahead of every stamped one and are applied first in the
+   step; they are never late, because "now" cannot have gone by. One with
+   a time that has already passed is applied at once and counted (late_):
+   the tape has parted from the other peers' from that time on, and M3's
+   job is to make that visible (JAM_M3.md, section 1). */
 struct Scheduled
 {
     double at;
-    int    type;
-    int    knob;                /* AT_KNOB: an index into knobs_       */
-    double value;               /* AT_KNOB's value, AT_TEMPO's bpm     */
+    int    op;                  /* TW_STOP, TW_TEMPO or TW_KNOB        */
+    int    knob;                /* TW_KNOB: an index into knobs_       */
+    double value;               /* TW_KNOB's value, TW_TEMPO's bpm     */
 };
 
 /* Room for this many commands in flight before the queue has to grow. */
@@ -180,10 +178,11 @@ std::vector<Command>  pending_;     /* in order: see push() */
 double                rendered_;    /* frames handed out so far */
 double                rate_;
 
-/* The scheduler's commands: the stamped ones in order of `at', and the
-   ones for the top of the next window in order of arrival. */
+/* The scheduler's commands, in order of `at' and in arrival order within
+   one: the ones for the top of the next window carry an `at' below zero
+   and so come first, and the stamped ones follow in the order the step
+   will want them. */
 std::vector<Scheduled> scheduled_;
-std::vector<Scheduled> immediate_;
 int                    late_;
 
 /* Where transport zero is, as a frame of this synth's output, or -1 while
@@ -216,6 +215,19 @@ sigc::connection     delivery_;
    clears its roll when this changes rather than trying to read a rewind off
    the times. */
 int epoch_;
+
+/* Whatever was stamped for the run that is ending names a transport time
+   that is about to mean something else, so it goes. What is stamped for
+   "the top of the next window" -- an `at' below zero -- is not for a run
+   at all and stays: it arrived a moment ago and has not been stepped over
+   yet. */
+void dropStamped (void)
+{
+    scheduled_.erase(std::remove_if(scheduled_.begin(), scheduled_.end(),
+                                    [](const Scheduled &c)
+                                    { return c.at >= 0; }),
+                     scheduled_.end());
+}
 
 /* Everything due before the end of the window about to be rendered, whose
    first frame is `start'.
@@ -290,11 +302,8 @@ void applyDue (double start, int len)
                         break;
 
                     case TW_REWIND:
-                        /* Whatever was stamped for the run being rewound
-                           names a time that is about to mean something
-                           else. */
                         sched_->reset();
-                        scheduled_.clear();
+                        dropStamped();
                         epoch_++;
                         break;
 
@@ -317,10 +326,13 @@ void beginDue (double start, int len)
 
     armed_ = false;
 
-    /* From the top: the instances recreated from their seeds, the
-       transport at zero, and nothing held over from the last run. */
+    /* From the top: the instances recreated from their seeds and the
+       transport at zero. The queue is not touched: what is in it arrived
+       after the arm, stamped for the run that is starting here, and was
+       held through the arm window by step() below. The run being left
+       behind had its commands dropped at the arm (tw_begin), and before
+       that at the load (tw_piece_load). */
     sched_->reset();
-    scheduled_.clear();
     epoch_++;
 
     /* A begin whose frame has already gone by -- it arrived late, or was
@@ -340,17 +352,17 @@ void beginDue (double start, int len)
 
 void applyScheduled (const Scheduled &c)
 {
-    switch (c.type)
+    switch (c.op)
     {
-        case AT_STOP:
+        case TW_STOP:
             sched_->stop();
             break;
 
-        case AT_TEMPO:
+        case TW_TEMPO:
             sched_->setTempo(c.value);
             break;
 
-        case AT_KNOB:
+        case TW_KNOB:
             /* setValue is the whole knob path: every param bound to it
                reads through it, and the scheduler has the changed signal
                wired to whatever rebuilding or re-arming that implies
@@ -369,13 +381,25 @@ void applyScheduled (const Scheduled &c)
    scheduler's commands applied where they fall in it. */
 void step (double start, int len)
 {
-    for (size_t i = 0; i < immediate_.size(); i++)
-        applyScheduled(immediate_[i]);
+    /* The ones for the top of this window, in arrival order: they sort
+       ahead of everything stamped, they are what "now" means to a solo
+       page and to a peer whose transport is stopped, and a time that has
+       not been named cannot have gone by, so none of them is late. */
+    size_t k = 0;
 
-    immediate_.clear();
+    for (; k < scheduled_.size() && scheduled_[k].at < 0; k++)
+        applyScheduled(scheduled_[k]);
+
+    scheduled_.erase(scheduled_.begin(), scheduled_.begin() + k);
 
     if (!sched_->running())
     {
+        /* A begin is armed: the run these stamps are in is a window or
+           two away and its transport zero is not here yet. Nothing is
+           due and nothing is late; they wait for it. */
+        if (armed_)
+            return;
+
         /* Time is not passing, so nothing stamped for later can come due;
            what is stamped for a time already passed is late wherever it
            lands, and lands now. */
@@ -414,15 +438,11 @@ void step (double start, int len)
     sched_->stepTransportTo(target);
 }
 
-/* In order of `at', arrival order within one, like push(). */
+/* In order of `at', arrival order within one, like push(). An `at' below
+   zero is "the top of the next window", and every one of those is below
+   every stamped one, so they land at the front in the order they came. */
 void schedule (const Scheduled &c)
 {
-    if (c.at < 0)
-    {
-        immediate_.push_back(c);
-        return;
-    }
-
     scheduled_.insert(std::upper_bound(scheduled_.begin(), scheduled_.end(),
                                        c,
                                        [](const Scheduled &a,
@@ -509,7 +529,6 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     block_.assign((size_t)maxFrames * TW_CHANNELS, 0.0f);
     pending_.reserve(TW_PENDING);
     scheduled_.reserve(TW_PENDING);
-    immediate_.reserve(TW_PENDING);
 
     mkdir(TW_DSP_DIR, 0777);
 
@@ -519,6 +538,27 @@ EMSCRIPTEN_KEEPALIVE int tw_create (int sampleRate, int windowlen,
     loader_ = new thcGenLoader(plugins_);
 
     return synth_->getWindowlen();
+}
+
+/* Where this module's frame counter starts, in the host's numbering.
+ *
+ * rendered_ counts from zero at tw_create, which runs when the module has
+ * finished instantiating -- and in a browser the audio context has been
+ * running for a while by then, its own frame counter already some
+ * thousands of frames past zero, while process() handed out silence. But
+ * every frame that crosses this boundary is in the host's numbering: the
+ * origin a Play arms with comes from the page's audio clock, and tw_frame
+ * and tw_origin are read there against the same clock. Left unaligned,
+ * this peer's transport zero lands its own setup time after the instant
+ * the room agreed on -- a different amount on every peer, and invisible
+ * to every peer, since each one's stamps are inflated by its own.
+ *
+ * The host calls this once before the first tw_render, with the frame
+ * that render begins at. Nothing has been handed out yet, so there is
+ * nothing numbered the old way. */
+EMSCRIPTEN_KEEPALIVE void tw_align (double frame)
+{
+    rendered_ = frame;
 }
 
 /* A .dsp, as text, onto a channel in place of whatever was there. Nonzero
@@ -590,7 +630,6 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     delivery_.disconnect();
     pending_.clear();
     scheduled_.clear();
-    immediate_.clear();
     armed_ = false;
     originFrame_ = -1;
     tape_.clear();
@@ -795,29 +834,37 @@ EMSCRIPTEN_KEEPALIVE void tw_transport (double frame, int op, double value)
 
 /* A start from the top, with transport zero at `originFrame' exactly. A
    frame already rendered, or below zero, starts at the next window and
-   counts as late. */
+   counts as late.
+ *
+ * The queue is emptied here and not when the frame comes round, because
+ * between the two a peer whose transport is already running goes on
+ * sending: a knob or a tempo stamped for the coming run, arriving while
+ * this peer is still armed. Cleared at the arm, those survive to be
+ * applied at the time they name; cleared at the begin, they were thrown
+ * away with the old run's and counted as nothing. What is in the queue
+ * now is the old run's, and the load that a start always comes with has
+ * dropped it already. */
 EMSCRIPTEN_KEEPALIVE void tw_begin (double originFrame)
 {
+    dropStamped();
     armed_ = true;
     armFrame_ = originFrame;
 }
 
 /* A stop or a tempo, at transport time `at', inside the step. TW_START and
    TW_REWIND are frame-stamped -- before a start there is no transport time
-   to stamp with -- and are refused here. */
+   to stamp with -- and are refused here, as is TW_KNOB, which has
+   tw_knob. */
 EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
 {
+    if (op != TW_STOP && op != TW_TEMPO)
+        return;
+
     Scheduled c = {};
 
     c.at = at;
+    c.op = op;
     c.value = value;
-
-    switch (op)
-    {
-        case TW_STOP:  c.type = AT_STOP; break;
-        case TW_TEMPO: c.type = AT_TEMPO; break;
-        default:       return;
-    }
 
     schedule(c);
 }
@@ -829,7 +876,7 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
     Scheduled c = {};
 
     c.at = at;
-    c.type = AT_KNOB;
+    c.op = TW_KNOB;
     c.knob = k;
     c.value = value;
 

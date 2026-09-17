@@ -44,22 +44,14 @@ import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
 import { hashOf, instrumentTexts, pieceName, pieceText } from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createSynth } from './host.js';
-import { Keyboard, noteName } from './keyboard.js';
+import { Keyboard, TypingKeys, showRange } from './keyboard.js';
+import { setKnob, showKnobs } from './knobs.js';
 import { Mesh } from './mesh.js';
 import { Roll } from './roll.js';
 import { Room } from './room.js';
 import { tapeLine } from '../tape.mjs';
 
 const $ = (id) => document.getElementById(id);
-
-const KEYS = {
-    KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7,
-    KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11, Comma: 12, KeyL: 13, Period: 14,
-    Semicolon: 15, Slash: 16,
-    KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17,
-    Digit5: 18, KeyT: 19, Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23,
-    KeyI: 24, Digit9: 25, KeyO: 26, Digit0: 27, KeyP: 28,
-};
 
 const VELOCITY = 100;
 
@@ -101,22 +93,38 @@ let audioClock = null;
 let transport = null;
 let roll = null;
 let keyboard = null;
+let keys = null;                /* the computer keyboard as a musical one */
 let maker = null;
 const dedupe = new Dedupe();
 
 let piece = null;               /* the worklet's word on the loaded piece */
 let listens = new Set();        /* channels the piece takes input on */
-let octave = 48;
-const typed = new Map();
 const sounding = new Map();     /* note -> { count, seat } */
 
-const sent = [];                /* every command this peer made */
-const late = [];                /* commands the page saw were late */
+/* What the numbers panel and the harness read back. Bounded, the way
+   Dedupe bounds what it remembers: a knob is a command per slider tick
+   per peer, and a page left in a room all afternoon would otherwise hold
+   every one of them for ever. The count is what the panel shows; the
+   tail is what a failure is read from. */
+const KEEP = 256;
+
+const sent = [];                /* the last commands this peer made */
+const late = [];                /* the last the page saw were late */
 const margins = [];             /* how early each stamped command came */
+let sentCount = 0;
+let lateSeen = 0;
 let lateCount = 0;              /* the worklet's count */
 let tapeText = '';              /* the tape since the last epoch, as text */
 let tapeEpoch = -1;
-let pending = null;             /* a start waiting for the document */
+let numbersDirty = false;       /* the panel is behind; the frame repaints */
+
+function keep (list, item)
+{
+    list.push(item);
+
+    if (list.length > KEEP)
+        list.shift();
+}
 
 function log (text)
 {
@@ -131,10 +139,18 @@ function status (text)
 
 /* ---- the clocks ---- */
 
+/* Transport seconds now, or -1 when there is no time passing to stamp
+   against: no worklet yet, or a stopped transport. That is the contract
+   commands.js's Maker is written to -- a command made while stopped is
+   stamped -1, which is "now, on every peer", and the worklet applies it
+   the moment it arrives rather than holding it for a time that will
+   never come round again. TransportClock.now reports where the transport
+   stopped, which is a position and not a time. */
 function transportNow ()
 {
-    return synth === null ? -1
-                          : transport.now(ctx.currentTime, performance.now());
+    return synth === null || !transport.running
+               ? -1
+               : transport.now(ctx.currentTime, performance.now());
 }
 
 function frameOfOrigin (relayMs)
@@ -167,7 +183,8 @@ function clocksReady ()
 /* A command of our own: applied here, sent to everyone. */
 async function send (cmd)
 {
-    sent.push(cmd);
+    sentCount++;
+    keep(sent, cmd);
     mesh.broadcast(cmd);
 
     /* A start goes by the room socket too: the one command a peer must
@@ -178,8 +195,29 @@ async function send (cmd)
     await receive(room.peer, cmd);
 }
 
-/* Every command in, ours included, by whichever path. */
-async function receive (from, cmd)
+/* Every command in, ours included, by whichever path -- one at a time,
+ * in the order they arrived.
+ *
+ * A start has work to do before the worklet hears of it: wait for the
+ * document to reach the revision it names, then load the piece. Applied
+ * concurrently, a knob that arrived during that reaches the worklet ahead
+ * of the load that clears its queue, or ahead of the begin that gives it
+ * a transport to be stamped against, and is dropped without being counted
+ * anywhere. Behind the start it is simply applied to the run it was
+ * stamped for. */
+let applying = Promise.resolve();
+
+function receive (from, cmd)
+{
+    const done = applying.then(() => applyOne(from, cmd));
+
+    /* The queue outlives one command that threw. */
+    applying = done.catch(() => {});
+
+    return done;
+}
+
+async function applyOne (from, cmd)
 {
     if (typeof cmd !== 'object' || cmd === null || !dedupe.accept(cmd))
         return;
@@ -195,29 +233,23 @@ async function receive (from, cmd)
     }
 
     if (isLate(cmd, transportNow()))
-        late.push(cmd);
+    {
+        lateSeen++;
+        keep(late, cmd);
+    }
 
     /* How far ahead of its time it came: the margin the lead left, which
        is what to look at before turning the lead down. */
     if (cmd.at >= 0)
-        margins.push({ from, seq: cmd.seq, type: cmd.type,
-                       margin: cmd.at - transportNow() });
+        keep(margins, { from, seq: cmd.seq, type: cmd.type,
+                        margin: cmd.at - transportNow() });
 
     await apply(cmd, { synth, frameOfOrigin, listens, load: loadFor });
 
     /* And what the page shows follows. */
-    if (cmd.type === 'knob')
-    {
-        const input = document.querySelector(`#knobs input[data-knob="${cmd.knob}"]`);
-
-        if (input !== null && from !== room.peer)
-        {
-            input.value = cmd.value;
-            input.nextElementSibling?.remove();
-            input.previousElementSibling.textContent =
-                Number(cmd.value).toPrecision(3);
-        }
-    }
+    /* Ours moved its own slider as it was dragged. */
+    if (cmd.type === 'knob' && from !== room.peer)
+        setKnob($('knobs'), cmd.knob, cmd.value);
     else if (cmd.type === 'transport')
     {
         if (cmd.op === 'start')
@@ -229,7 +261,10 @@ async function receive (from, cmd)
             $('tempo').value = cmd.bpm;
     }
 
-    showNumbers();
+    /* Not repainted here: a knob arrives at slider rate per peer, and
+       rebuilding the whole panel on each is a lot of DOM for a number
+       nobody is reading that fast. The frame below picks it up. */
+    numbersDirty = true;
 }
 
 /* The load a start asks for: the document at the revision the start
@@ -249,7 +284,8 @@ async function loadFor (cmd)
         {
             log(`the document had not caught up with ${cmd.from}'s Play ` +
                 'by its origin; loading what is here');
-            late.push(cmd);
+            lateSeen++;
+            keep(late, cmd);
             break;
         }
 
@@ -315,7 +351,7 @@ async function loadFromDoc (seed = -1)
         $('about').textContent = piece.description;
     }
 
-    showKnobs();
+    drawKnobs();
     showSeats();
     enable();
 
@@ -387,7 +423,7 @@ function release (note)
 function releaseAll ()
 {
     keyboard?.releaseAll();
-    typed.clear();
+    keys?.forget();
 
     for (const [note, held] of [...sounding])
     {
@@ -396,63 +432,13 @@ function releaseAll ()
     }
 }
 
-function typing (e)
+/* What the octave keys and the two buttons do: let go of everything,
+   move the keys under the hands, and say where they are now. */
+function shifted (lowest)
 {
-    return synth === null || e.ctrlKey || e.metaKey || e.altKey ||
-           (e.target instanceof Element &&
-            e.target.closest('textarea, select, input, .cm-editor') !== null);
-}
-
-function keyDown (e)
-{
-    if (typing(e))
-        return;
-
-    if (e.code === 'Minus' || e.code === 'Equal')
-    {
-        shiftOctave(e.code === 'Equal' ? 1 : -1);
-        e.preventDefault();
-        return;
-    }
-
-    if (!(e.code in KEYS))
-        return;
-
-    e.preventDefault();
-
-    if (e.repeat || typed.has(e.code))
-        return;
-
-    const note = octave + KEYS[e.code];
-
-    typed.set(e.code, note);
-    press(note);
-}
-
-function keyUp (e)
-{
-    const note = typed.get(e.code);
-
-    if (note === undefined)
-        return;
-
-    typed.delete(e.code);
-    release(note);
-}
-
-function shiftOctave (by)
-{
-    octave = Math.min(96, Math.max(12, octave + by * 12));
     releaseAll();
-    keyboard.setLowest(octave);
-    showRange();
-}
-
-function showRange ()
-{
-    const [low, high] = keyboard.range;
-
-    $('range').textContent = `${noteName(low)} – ${noteName(high)}`;
+    keyboard.setLowest(lowest);
+    showRange($('range'), keyboard);
 }
 
 /* ---- what the page shows ---- */
@@ -508,42 +494,12 @@ function showSeats ()
         sel.value = '';
 }
 
-function showKnobs ()
+/* A knob moved here is a command like everything else, heard knobLead
+   later on this page and on every other. */
+function drawKnobs ()
 {
-    const box = $('knobs');
-
-    box.replaceChildren();
-
-    for (const k of piece?.knobs ?? [])
-    {
-        const label = document.createElement('label');
-        const input = document.createElement('input');
-        const shown = document.createElement('span');
-
-        label.textContent = k.label || k.name;
-        label.htmlFor = `knob-${k.name}`;
-
-        input.id = `knob-${k.name}`;
-        input.dataset.knob = k.knob;
-        input.type = 'range';
-        input.min = k.min;
-        input.max = k.max;
-        input.step = k.step > 0 ? k.step : (k.max - k.min) / 1000;
-        input.value = k.value;
-
-        shown.className = 'value';
-        shown.textContent = Number(k.value).toPrecision(3);
-
-        /* A command, like everything else, heard knobLead later here
-           and everywhere. */
-        input.addEventListener('input', () =>
-        {
-            shown.textContent = Number(input.value).toPrecision(3);
-            send(maker.knob(k.knob, Number(input.value)));
-        });
-
-        box.append(label, shown, input);
-    }
+    showKnobs($('knobs'), piece?.knobs ?? [],
+              (knob, value) => send(maker.knob(knob, value)));
 }
 
 function showNumbers ()
@@ -566,20 +522,22 @@ function showNumbers ()
             `base latency         ${ms(ctx.baseLatency * 1000)}`,
             `output latency       ${ms((ctx.outputLatency ?? NaN) * 1000)}`,
             `synth window         ${synth.windowlen} frames`,
-            `transport            ${transportNow().toFixed(3)} s`);
+            `transport            ` +
+            (transport.running ? `${transportNow().toFixed(3)} s` : 'stopped'));
 
     lines.push(
         `late commands        ${lateCount} applied late by the worklet` +
-        (late.length > 0
-             ? `; the page saw ${late.length}: ` +
+        (lateSeen > 0
+             ? `; the page saw ${lateSeen}: ` +
                late.slice(-3).map((c) => `${c.from}#${c.seq} ${c.type}` +
                                          `${c.op ? ' ' + c.op : ''}`)
                    .join(', ')
              : ''),
         `command gaps         ${dedupe.gaps}`,
-        `commands sent        ${sent.length}`);
+        `commands sent        ${sentCount}`);
 
     $('numbers').textContent = lines.join('\n');
+    numbersDirty = false;
 }
 
 function enable ()
@@ -740,9 +698,14 @@ function init ()
 
     roll = new Roll($('roll'), $('clock'));
     keyboard = new Keyboard($('keys'), { onPress: press, onRelease: release });
-    keyboard.setLowest(octave);
+    keys = new TypingKeys({
+        press, release, shifted,
+        playable: () => synth !== null,
+        editing: '.cm-editor',      /* the room page has a code editor */
+    });
+    keyboard.setLowest(keys.lowest);
     keyboard.fit();
-    showRange();
+    showRange($('range'), keyboard);
 
     $('join').addEventListener('click', join);
     $('start').addEventListener('click', start);
@@ -765,16 +728,20 @@ function init ()
         maker.transportLead = Number($('transportlead').value);
     });
 
-    $('down').addEventListener('click', () => shiftOctave(-1));
-    $('up').addEventListener('click', () => shiftOctave(1));
+    $('down').addEventListener('click', () => keys.shift(-1));
+    $('up').addEventListener('click', () => keys.shift(1));
 
-    window.addEventListener('keydown', keyDown);
-    window.addEventListener('keyup', keyUp);
+    window.addEventListener('keydown', (e) => keys.keyDown(e));
+    window.addEventListener('keyup', (e) => keys.keyUp(e));
     window.addEventListener('blur', releaseAll);
 
     requestAnimationFrame(function frame ()
     {
         roll.draw();
+
+        if (numbersDirty)
+            showNumbers();
+
         requestAnimationFrame(frame);
     });
 
@@ -787,7 +754,7 @@ function init ()
         seat: (seat) => room.claim(seat),
         tape: () => tapeText,
         sent: () => sent,
-        late: () => ({ worklet: lateCount, page: late }),
+        late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
         ready: () => synth !== null && piece !== null && clocksReady(),
         transportNow,

@@ -326,3 +326,119 @@ export class Keyboard
         this.touching.clear();
     }
 }
+
+/* The computer keyboard as a musical one: a tracker layout over the two
+ * rows, two octaves of it, with the lower row starting where the upper
+ * one's does an octave down. The codes and not the characters, so a
+ * layout that is not QWERTY still plays the keys where the notes are
+ * drawn.
+ */
+export const KEYS = {
+    KeyZ: 0, KeyS: 1, KeyX: 2, KeyD: 3, KeyC: 4, KeyV: 5, KeyG: 6, KeyB: 7,
+    KeyH: 8, KeyN: 9, KeyJ: 10, KeyM: 11, Comma: 12, KeyL: 13, Period: 14,
+    Semicolon: 15, Slash: 16,
+    KeyQ: 12, Digit2: 13, KeyW: 14, Digit3: 15, KeyE: 16, KeyR: 17,
+    Digit5: 18, KeyT: 19, Digit6: 20, KeyY: 21, Digit7: 22, KeyU: 23,
+    KeyI: 24, Digit9: 25, KeyO: 26, Digit0: 27, KeyP: 28,
+};
+
+/* The keyboard's range as note names, into whatever element shows it. */
+export function showRange (el, keyboard)
+{
+    const range = keyboard?.range;
+
+    if (el === null || range === undefined)
+        return;
+
+    el.textContent = `${noteName(range[0])} – ${noteName(range[1])}`;
+}
+
+/* Window key events turned into notes: the layout above, the octave on
+ * `-' and `=', and a note held until its own key comes up.
+ *
+ * Both pages want exactly this and had a copy each. What differs between
+ * them is where a note goes -- the two callbacks -- what counts as typing
+ * rather than playing, and what the page shows when the octave moves.
+ */
+export class TypingKeys
+{
+    /* `press' and `release' are given a MIDI note. `playable' answers
+       whether there is anything to play into at all: before Start a key
+       is only ever typing. `shifted' is called with the new lowest note
+       after the octave moves, and does whatever the page shows of it --
+       the on-screen keyboard, the range, the latency. `editing' is a
+       selector for anything beside a text box that a key means editing
+       in; the room page has a code editor. */
+    constructor ({ press, release, playable, shifted, editing = '',
+                   lowest = 48 })
+    {
+        this.press = press;
+        this.release = release;
+        this.playable = playable;
+        this.shifted = shifted;
+        this.editing = ['textarea', 'select', 'input',
+                        ...(editing ? [editing] : [])].join(', ');
+        this.lowest = lowest;
+        this.down = new Map();      /* key code -> the note it pressed */
+    }
+
+    /* Typing in a text box is editing, not playing -- and a modifier is
+       somebody reaching for a shortcut, never a note. */
+    typing (e)
+    {
+        return !this.playable() || e.ctrlKey || e.metaKey || e.altKey ||
+               (e.target instanceof Element &&
+                e.target.closest(this.editing) !== null);
+    }
+
+    /* An octave up or down, clamped to what a MIDI note can be. */
+    shift (by)
+    {
+        this.lowest = Math.min(96, Math.max(12, this.lowest + by * 12));
+        this.shifted(this.lowest);
+    }
+
+    keyDown (e)
+    {
+        if (this.typing(e))
+            return;
+
+        if (e.code === 'Minus' || e.code === 'Equal')
+        {
+            this.shift(e.code === 'Equal' ? 1 : -1);
+            e.preventDefault();
+            return;
+        }
+
+        if (!(e.code in KEYS))
+            return;
+
+        e.preventDefault();
+
+        if (e.repeat || this.down.has(e.code))
+            return;
+
+        const note = this.lowest + KEYS[e.code];
+
+        this.down.set(e.code, note);
+        this.press(note);
+    }
+
+    keyUp (e)
+    {
+        const note = this.down.get(e.code);
+
+        if (note === undefined)
+            return;
+
+        this.down.delete(e.code);
+        this.release(note);
+    }
+
+    /* What is held, forgotten: the page is letting the notes go itself,
+       and a key whose up never arrived must not hold one for ever. */
+    forget ()
+    {
+        this.down.clear();
+    }
+}

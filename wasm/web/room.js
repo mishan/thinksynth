@@ -48,7 +48,6 @@ export class Room
         this.piece = piece;             /* what a new room is seeded with */
         this.peer = null;               /* our id, from the welcome */
         this.peers = new Map();         /* id -> { name, seat } */
-        this.seats = {};                /* seat -> peer id */
         this.playing = null;            /* the last transport start */
         this.clock = new RelayClock();
         this.handlers = new Map();
@@ -75,6 +74,8 @@ export class Room
             const ws = new WebSocket(`${this.url}/room/${this.roomName}` +
                                      (this.piece ? `?piece=${this.piece}`
                                                  : ''));
+            let welcomed = false;
+            let refused = null;     /* the relay's last word, if it said one */
 
             this.ws = ws;
 
@@ -89,6 +90,16 @@ export class Room
             {
                 clearInterval(this.pinger);
                 this.pinger = null;
+
+                /* A relay that turns the hello down -- a protocol
+                   mismatch, say -- sends an error and closes, and a
+                   clean close fires no error event. Without this the
+                   join would await a promise that never settles. */
+                if (!welcomed)
+                    reject(new Error(
+                        refused ?? `the relay at ${this.url} closed the ` +
+                                   'connection before welcoming us'));
+
                 this.emit('close');
             });
 
@@ -108,6 +119,7 @@ export class Room
                 switch (m.type)
                 {
                     case 'welcome':
+                        welcomed = true;
                         this.peer = m.peer;
                         this.peers.clear();
 
@@ -115,7 +127,6 @@ export class Room
                             this.peers.set(p.peer, { name: p.name,
                                                      seat: p.seat });
 
-                        this.seats = m.seats;
                         this.playing = m.playing;
                         this.pinger = setInterval(() => this.ping(),
                                                   PING_EVERY);
@@ -137,8 +148,9 @@ export class Room
                         break;
 
                     case 'seats':
-                        this.seats = m.seats;
-
+                        /* The map is the relay's word on who sits
+                           where; it is kept on the peers and nowhere
+                           else, so there is one answer to ask. */
                         for (const p of this.peers.values())
                             p.seat = null;
 
@@ -176,6 +188,7 @@ export class Room
                         break;
 
                     case 'error':
+                        refused = m.text;
                         this.emit('error', m.text);
                         break;
                 }
@@ -210,7 +223,8 @@ export class Room
         this.send({ type: 'signal', to, data });
     }
 
-    /* A gesture through the relay, to one peer or to everyone else. */
+    /* A gesture through the relay: to one peer, to the several named in
+       an array, or -- with no `to' -- to everyone else. */
     relayed (data, to)
     {
         this.send(to === undefined ? { type: 'relayed', data }

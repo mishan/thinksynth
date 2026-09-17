@@ -439,6 +439,122 @@ showDivergence (const std::string &a, const std::string &b,
     fprintf(stderr, "  %s: %.60s\n", labelB, b.c_str() + line0);
 }
 
+/* A rewind replays the load -- and the edits made since.
+ *
+ * The desktop's editor pokes the live store so a change to the work file
+ * is audible without a reload (ComposerWindow::applyParam): `prob = 0.5'
+ * typed while the piece is playing sets the param there and then. What a
+ * rewind owes that is the file as it now stands, because that is what a
+ * reload would read. Recording only what happened before the first
+ * start, and replaying only that, put the loaded value back and left the
+ * editor, the panel and the work file all saying something the piece was
+ * not playing -- and dropped a binding made after Play while leaving the
+ * knob's signal connected to it.
+ *
+ * So the store keeps two lists and replays both, in order. This is the
+ * gate on the second one.
+ */
+static void
+checkLiveEdits (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth, const std::string &genFile)
+{
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(genFile, &sched))
+    {
+        fail(genFile + " did not load for the live-edit gate");
+        return;
+    }
+
+    /* The first stage with a param a number can be set on. */
+    thcStage *stage = NULL;
+    int idx = -1;
+
+    for (size_t ci = 0; ci < sched.chainCount() && stage == NULL; ci++)
+    {
+        thcChain *c = sched.chain(ci);
+
+        for (size_t si = 0; si < c->stages.size() && stage == NULL; si++)
+        {
+            thcStage *s = c->stages[si].get();
+
+            for (int i = 0; i < s->plugin->paramCount(); i++)
+            {
+                const thcPlugin::ParamInfo *p = s->plugin->paramInfo(i);
+
+                if (p->type != THC_PARAM_FLOAT && p->type != THC_PARAM_INT)
+                    continue;
+
+                stage = s;
+                idx = i;
+                break;
+            }
+        }
+    }
+
+    if (stage == NULL)
+    {
+        fail(genFile + " has no numeric param to edit; the live-edit gate "
+             "needs one");
+        return;
+    }
+
+    const char *name = stage->plugin->paramInfo(idx)->name.c_str();
+
+    /* Played once, so the store is frozen: everything from here on is an
+       edit and not part of the load. */
+    render(sched, 1.0, 0.02);
+
+    /* An edit while it is loaded and playing, exactly as the editor
+       makes one. A value the file cannot already hold, so "it survived"
+       and "it was never set" cannot be told apart by luck. */
+    const double edited = stage->plugin->paramInfo(idx)->min +
+                          (stage->plugin->paramInfo(idx)->max -
+                           stage->plugin->paramInfo(idx)->min) * 0.37 + 0.001;
+
+    stage->params.set(idx, edited);
+    sched.reset();
+
+    if (stage->params.get(idx) != edited)
+        fail(std::string("a value set after Play did not survive a rewind: ")
+             + name + " went back to " +
+             std::to_string(stage->params.get(idx)));
+
+    /* A binding made after Play, to a knob the piece declares -- the
+       scheduler hands back NULL for a name nobody declared, and binding
+       NULL is the unbind. The knob's changed signal is connected once,
+       at the bind, and reset() does not disconnect it, so a rewind that
+       dropped the binding left a live signal driving a param that no
+       longer read through it. */
+    if (sched.knobs().empty())
+    {
+        fail(genFile + " declares no knobs; the live-edit gate needs one");
+        return;
+    }
+
+    thArg *knob = sched.knobs().begin()->second;
+
+    sched.bindKnob(stage, idx, knob);
+    sched.reset();
+
+    if (stage->params.knobBinding(idx) != knob)
+        fail(std::string("a knob bound after Play did not survive a "
+                         "rewind: ") + name + " is unbound again");
+
+    /* And the unbind, which is an edit like any other. */
+    sched.unbindParam(stage, idx);
+    sched.reset();
+
+    if (stage->params.knobBinding(idx) != NULL)
+        fail(std::string("a param unbound after Play was bound again by a "
+                         "rewind: ") + name);
+
+    if (stage->params.get(idx) != edited)
+        fail(std::string("the stored value behind an unbound param did not "
+                         "survive a rewind: ") + name);
+}
+
 static void
 checkReplay (const std::map<std::string, thcPlugin *> &plugins,
              thSynth *synth, const std::string &genFile)
@@ -5220,6 +5336,7 @@ main (int argc, char *argv[])
 
     checkValidation(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
+    checkLiveEdits(plugins, &synth, genFile);
     checkPlanners(plugins, &synth);
     checkLiveInput(plugins, &synth);
     checkEdits(plugins, &synth, genFile);
