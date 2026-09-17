@@ -148,7 +148,7 @@ function status (text)
    stopped, which is a position and not a time. */
 function transportNow ()
 {
-    return synth === null || !transport.running
+    return synth === null || transport === null || !transport.running
                ? -1
                : transport.now(ctx.currentTime, performance.now());
 }
@@ -757,6 +757,21 @@ function init ()
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
         ready: () => synth !== null && piece !== null && clocksReady(),
+
+        /* Which half of ready() is not true yet. A harness that waits for
+           ready() and gives up has otherwise only a timeout to report,
+           and the answer is usually the audio context: a machine with no
+           sound card can leave resume() unresolved, and then Start never
+           returns at all. */
+        state: () => ({
+            status: $('status').textContent,
+            synth: synth !== null,
+            piece: piece !== null,
+            context: ctx === null ? 'none' : ctx.state,
+            relaySamples: room === null ? 0 : room.clock.count,
+            audioSamples: audioClock === null ? 0 : audioClock.count,
+            wanted: ENOUGH_SAMPLES,
+        }),
         transportNow,
         peers: () => [...room.peers].map(([id, p]) =>
             ({ id, ...p, ...mesh.status(id) })),

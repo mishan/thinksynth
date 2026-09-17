@@ -75,6 +75,22 @@ function ok (what)
     process.stdout.write(`ok    ${what}\n`);
 }
 
+/* Why a page is not ready, in its own words. */
+async function why (page)
+{
+    const s = await page.evaluate(() => window.jam.state())
+        .catch((e) => ({ status: `could not be asked: ${e.message}` }));
+
+    if (s.synth === undefined)
+        return s.status;
+
+    return `status "${s.status.trim()}", audio context ${s.context}, ` +
+           `synth ${s.synth ? 'up' : 'not up'}, ` +
+           `piece ${s.piece ? 'loaded' : 'not loaded'}, ` +
+           `${s.relaySamples} relay and ${s.audioSamples} audio clock ` +
+           `samples of the ${s.wanted} each that Play waits for`;
+}
+
 if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
 {
     process.stdout.write(`jamtest: no Node module in ${nodeBuild}; build ` +
@@ -127,8 +143,24 @@ try
         await page.waitForFunction(() => !document.getElementById('roompanel').hidden,
                                    null, { timeout: 15000 });
         await page.click('#start');
-        await page.waitForFunction(() => window.jam.ready(), null,
-                                   { timeout: 20000 });
+
+        try
+        {
+            await page.waitForFunction(() => window.jam.ready(), null,
+                                       { timeout: 20000 });
+        }
+        catch
+        {
+            /* A bare timeout says nothing about which of the three
+               conditions is still false, and the answer is usually the
+               audio: a machine with no sound card leaves Firefox's
+               resume() unresolved, Start never returns, and the page is
+               still saying "Starting..." (see the note in the CI wasm
+               job about the null sink). */
+            fail(`${label} never became ready -- ${await why(page)}`);
+            throw new Error(`${label} did not start`);
+        }
+
         ok(`${label} joined the room and started`);
     }
 

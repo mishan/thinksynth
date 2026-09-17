@@ -261,7 +261,22 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
-            libasound2-dev libjack-jackd2-dev
+            libasound2-dev libjack-jackd2-dev pulseaudio
+
+      # A sound card, of sorts, for jamtest further down. It opens a live
+      # AudioContext in both browsers, because two peers agreeing on a
+      # clock is the thing under test and an offline context has no clock
+      # -- and a runner has no audio device at all. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never
+      # resolves without a backend, so Start never returns and the page
+      # waits for ever with nothing to say about why. One null sink is
+      # enough: nothing here listens to anything.
+      - name: An audio sink for the live-context tests
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=jamtest
+          pactl set-default-sink jamtest
+          pactl info
 
       # The module runs the same on 20, 22 and 24; pinned so that a change of
       # runner image is not what moves the result.
