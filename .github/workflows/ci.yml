@@ -326,6 +326,14 @@ jobs:
           emcmake cmake -S wasm/web -B build-web -G Ninja
           cmake --build build-web
 
+      # The cairo stand-in, on its own terms: what each call records, and
+      # whether the opcodes written out in C and in JavaScript still agree.
+      # It is built by the browser build above (wasm/web/CMakeLists.txt).
+      - name: cairo2d
+        run: |
+          node build-web/cairo2d/cairo2dtest.js
+          node wasm/cairo2d/test/replaytest.mjs build-web/cairo2d/cairo2dtest.js
+
       # Every shipped patch, loaded and played through the module.
       - name: Browser build, played from Node
         run: node wasm/web/check.mjs
@@ -338,6 +346,15 @@ jobs:
       # and not whether any of it was audible (AIMING.md, section 5).
       - name: Every seeded piece, against genwav; and every piece audible
         run: node wasm/web/piececheck.mjs
+
+      # Every picture in every shipped piece, drawn through the module and
+      # replayed: the composers' draws are in the browser build now, and
+      # what they produce is a list of ops rather than pixels (JAM_M6.md,
+      # section 3). Each list has to be walkable by the arity table alone
+      # and known to replay.js op for op, and every composer that says it
+      # draws has to have drawn something somewhere in the corpus.
+      - name: Every picture in every piece
+        run: node wasm/web/drawcheck.mjs
 
       # M3's first gate, without a browser: two peers in one process at
       # different windows and rates, on a network of made-up delay and

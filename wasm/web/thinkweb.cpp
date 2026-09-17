@@ -81,6 +81,8 @@
 
 #include "thDynLib.h"
 
+#include "cairo2d.h"
+
 #include "twevent.h"
 
 /* The synth always mixes to two; so does this. */
@@ -551,6 +553,31 @@ void collectSinks (void)
     std::sort(sinks_.begin(), sinks_.end());
 }
 
+/* Where a draw goes. One recorder for the whole module: nothing here draws
+   two things at once, and the list is read out before the next draw starts
+   (cairo2d_begin empties it). It is made on the first draw, so a module
+   that never draws -- the worklet's -- carries the code and allocates
+   nothing. */
+cairo_t *drawing_ = NULL;
+
+/* A stage by chain and stage index, or NULL. The index pair is the
+   canvas's own key and is the same on every peer holding the same document
+   revision (JAM_M6.md, section 1), so it is what the page names a picture
+   by. Out of range is answered rather than trusted: these indices come off
+   a page. */
+thcStage *stageAt (int chain, int stage)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return NULL;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL || stage < 0 || (size_t)stage >= c->stages.size())
+        return NULL;
+
+    return c->stages[(size_t)stage].get();
+}
+
 bool writeFile (const char *path, const char *text)
 {
     FILE *f = fopen(path, "wb");
@@ -882,6 +909,132 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
         synth_->setChanArg(channel, new thArg(name, values, count));
 
     return 1;
+}
+
+/* ---- the piece's chains and stages, and their pictures ----
+ *
+ * What a composer draws is what the composer view shows: a Life board, a
+ * CA's grid, a Euclid ring, drawn by the plugin itself through the same
+ * composer_draw the desktop calls (JAM_M6.md, section 3). Here the cairo
+ * it draws through is wasm/cairo2d, which records rather than rasterises,
+ * so a draw is a list of ops the page replays on a Canvas2D.
+ *
+ * The three tables below -- the ops, the strings they index, the surfaces
+ * they blit -- stay valid until the next draw. The page reads them out of
+ * the heap between the two.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_chain_count (void)
+{
+    return sched_ != NULL ? (int)sched_->chainCount() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_chain_name (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return "";
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    return c != NULL ? c->name.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_stage_count (int chain)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return 0;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    return c != NULL ? (int)c->stages.size() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_name (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->name().c_str() : "";
+}
+
+/* Whether this stage has a picture at all. Eight composers draw and the
+   rest do not, and the canvas shows an empty box for the rest. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_draws (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL && s->plugin->hasDraw() ? 1 : 0;
+}
+
+/* Draw one stage at w x h, and answer with the length of the list. Zero is
+   a stage that drew nothing; -1 is no such stage, or one that does not
+   draw. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_draw (int chain, int stage, double w,
+                                        double h)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || !s->plugin->hasDraw() ||
+        s->state == NULL)
+        return -1;
+
+    if (drawing_ == NULL)
+        drawing_ = cairo2d_create();
+
+    cairo2d_begin(drawing_);
+    s->plugin->draw(s->state, drawing_, w, h);
+
+    return cairo2d_op_words(drawing_);
+}
+
+/* The list the last draw recorded, as a pointer into HEAPF32 and a length
+   in floats. wasm/cairo2d/replay.js is what reads it. */
+EMSCRIPTEN_KEEPALIVE const float *tw_draw_ops (void)
+{
+    return drawing_ != NULL ? cairo2d_ops(drawing_) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_draw_words (void)
+{
+    return drawing_ != NULL ? cairo2d_op_words(drawing_) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_draw_string_count (void)
+{
+    return drawing_ != NULL ? cairo2d_string_count(drawing_) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_draw_string (int k)
+{
+    const char *s = drawing_ != NULL ? cairo2d_string(drawing_, k) : NULL;
+
+    return s != NULL ? s : "";
+}
+
+/* The image surfaces the list blits by reference -- one composer in eight
+   uses none of these, and the spectrogram is what they are for. */
+EMSCRIPTEN_KEEPALIVE int tw_draw_surface_count (void)
+{
+    return drawing_ != NULL ? cairo2d_surface_count(drawing_) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const unsigned char *tw_draw_surface_data (int k)
+{
+    return drawing_ != NULL ? cairo2d_surface_data(drawing_, k) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_draw_surface_width (int k)
+{
+    return drawing_ != NULL ? cairo2d_surface_width(drawing_, k) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_draw_surface_height (int k)
+{
+    return drawing_ != NULL ? cairo2d_surface_height(drawing_, k) : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_draw_surface_stride (int k)
+{
+    return drawing_ != NULL ? cairo2d_surface_stride(drawing_, k) : 0;
 }
 
 /* ---- the knobs the piece declared ---- */

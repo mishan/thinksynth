@@ -58,11 +58,13 @@ endfunction()
 # entry point is refused at load, by thcPlugin, exactly as a module missing
 # it would be. THINK_COMPOSER_EXPORTS and the prototypes are CMakeLists.txt's.
 #
-# composer_draw is not among them. It is the one export that cannot run in
-# a worklet -- no canvas, and no cairo to link (JAM.md section 3a) -- so
-# this build compiles the composers with THC_NO_DRAW and the eight that draw
-# leave both the function and their <cairo.h> out. It is renamed all the
-# same, so that a mention of it could not compile to the shared name.
+# composer_draw comes this way too now. It used to be the one export that
+# could not -- a worklet has no canvas and there was no cairo to link, so
+# the composers were compiled with THC_NO_DRAW and the eight that draw left
+# both the function and their <cairo.h> out. wasm/cairo2d is the cairo they
+# link now: the same calls, recorded into a list the page replays
+# (JAM_M6.md, section 3). Its cairo.h is what thcstatic.h includes, so the
+# plugin's own `#include <cairo.h>' finds it already behind its guard.
 function(think_add_composer name)
   set(src "${CMAKE_CURRENT_SOURCE_DIR}/composer/${name}.cpp")
   set(wrapper "${PROJECT_BINARY_DIR}/static/composer_${name}.cpp")
@@ -72,8 +74,6 @@ function(think_add_composer name)
   foreach(ex IN LISTS THINK_COMPOSER_EXPORTS)
     string(APPEND defines "#define composer_${ex} thc_${name}_${ex}\n")
   endforeach()
-
-  string(APPEND defines "#define composer_draw thc_${name}_draw\n")
 
   file(CONFIGURE OUTPUT "${wrapper}" CONTENT
 "/* plugins/composer/${name}.cpp, in a namespace of its own and under export
@@ -93,8 +93,8 @@ namespace thc_${name} {
   # plugins/CMakeLists.txt links cairo into eight of these by target name,
   # and a name that is no target is an error. An object library nothing
   # depends on and nothing builds is the cheapest thing that answers to one
-  # -- and the cairo it would carry reaches nothing, since the draw that
-  # wanted it is not compiled.
+  # -- the include path the draws actually compile against is thinkweb's,
+  # and it has cairo2d on it.
   set(nothing "${PROJECT_BINARY_DIR}/static/nothing.cpp")
   file(CONFIGURE OUTPUT "${nothing}" CONTENT "")
   add_library(composer_${name} OBJECT EXCLUDE_FROM_ALL "${nothing}")
