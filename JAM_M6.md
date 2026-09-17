@@ -119,10 +119,16 @@ On `jam-m6`, which starts where `game-music` ends:
   how somebody asks for one. `nodecheck` runs the whole path headless --
   a note played, a thousand samples published, a scope drawing them, the
   canvas drawing the panel -- and `jamtest` arms one in a room.
-- What is left: 8.4, which is two browsers and a person; and the smaller
-  things each page says out loud where they are missing -- cutting a
-  wire from the node canvas, a menu of visual modules rather than the
-  first one, and the composer canvas's params popover.
+- **The three gaps are closed**, and the node editor is on the solo page
+  too. A wire can be cut from the canvas; a right-click on a port offers
+  every visual module this build has and offers to stop when one is
+  already watching; and a stage's params handle opens a popover beside
+  its box, read-only, filled from the piece the mirror is holding. The
+  solo page has no document, so `nodeview.js` takes a file source rather
+  than a `Y.Doc`: in a room it is the shared document, and on the solo
+  page it is the patch in the text box (an edit reloads it) or one of the
+  piece's instruments (heard at the next Load).
+- What is left: 8.4, which is two browsers and a person.
 - A correction to section 0a, found by the gate: **two** composers take
   input, not three. `ca` and `life` do; `evolve` says in its own header
   that interactive evolution wants the `composer_input` ABI and is
