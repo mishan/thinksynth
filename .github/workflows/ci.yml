@@ -347,20 +347,24 @@ jobs:
       - name: Every seeded piece, against genwav; and every piece audible
         run: node wasm/web/piececheck.mjs
 
-      # Every picture in every shipped piece, drawn through the module and
-      # replayed: the composers' draws are in the browser build now, and
-      # what they produce is a list of ops rather than pixels (JAM_M6.md,
-      # section 3). Each list has to be walkable by the arity table alone
-      # and known to replay.js op for op, and every composer that says it
-      # draws has to have drawn something somewhere in the corpus.
-      - name: Every picture in every piece
+      # Every picture in every shipped piece, and the composer canvas
+      # around them, drawn through the module and replayed: the draws are
+      # in the browser build now, and what they produce is a list of ops
+      # rather than pixels (JAM_M6.md, section 3). Each list has to be
+      # walkable by the arity table alone and known to replay.js op for
+      # op, and every composer that says it draws has to have drawn
+      # something somewhere in the corpus.
+      - name: Every picture in every piece, and the canvas around them
         run: node wasm/web/drawcheck.mjs
 
       # The mirror (JAM_M6.md, section 4): the module twice in one process,
       # one rendering and one with a synth that never renders, both fed the
       # same messages through the same handler, the second stepped to the
       # frame the first's tape batch reached. One tape, for every seeded
-      # piece -- and the mirror dropped nothing and made no sound.
+      # piece -- and the mirror dropped nothing and made no sound. Then
+      # every piece with a picture that is a control, clicked: by script
+      # and through the canvas, each time one tape between the two and
+      # not the untouched one (JAM_M6.md, section 5).
       - name: A mirror composes what the worklet composes
         run: node wasm/web/mirrortest.mjs
 
