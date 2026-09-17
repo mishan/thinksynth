@@ -57,6 +57,7 @@
 
 #include "libthink/thDynLib.h"
 #include "libthink/thMidiChan.h"
+#include "libthink/thSynthCommand.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
@@ -371,8 +372,14 @@ render (thcScheduler &sched, double seconds, double step)
 {
     std::string tape;
 
+    /* Every delivered note posts a command for an audio thread that is not
+       there. Counting them is how the drain below knows when to run: a
+       cadence in *steps* cannot work, because a grammar emits a whole
+       phrase in one step and a phrase can be longer than the ring. */
+    long posted = 0;
+
     sigc::connection conn = sched.sigDelivered.connect(
-        [&tape](const thcEvent &ev)
+        [&tape, &posted](const thcEvent &ev)
         {
             char buf[160];
 
@@ -410,12 +417,30 @@ render (thcScheduler &sched, double seconds, double step)
                          ev.at, ev.channel, (int)ev.type);
 
             tape += buf;
+            posted++;
         });
 
     sched.start();
 
+    /* Every so often, not every step. The ring holds
+       TH_COMMAND_QUEUE_SIZE commands and a minute of a busy piece posts
+       tens of thousands, so a render that only drained at the end spent
+       most of itself full, printing "command queue full" for every note
+       after the first thousand -- 35_000 lines of stderr with this gate's
+       nineteen real diagnostics somewhere inside them. Draining on a
+       cadence well under the ring's depth keeps it from ever filling; a
+       window per step is what a real audio thread does and is also what
+       turned a 0.07-second gate into a 28-second one. */
     while (sched.now() < seconds)
+    {
         sched.stepTransport(step);
+
+        if (posted >= TH_COMMAND_QUEUE_SIZE / 4)
+        {
+            drainSynth();
+            posted = 0;
+        }
+    }
 
     sched.stop();
     conn.disconnect();
@@ -3152,7 +3177,16 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
             /* Fill the ring, without draining. TH_COMMAND_QUEUE_SIZE
                notes would do it exactly; twice that is slack against the
-               size ever changing. */
+               size ever changing.
+
+               The "command queue full" flood this prints is the check
+               working, and is now the only one in a passing run -- said
+               out loud because it used to be one wall of it among
+               several, and a reader had no way to tell the deliberate
+               one from the accidents. */
+            fprintf(stderr, "gencheck: filling the command ring on "
+                    "purpose; the next lines are meant to be here\n");
+
             for (int i = 0; i < TH_COMMAND_QUEUE_SIZE * 2; i++)
                 synth->addNote(0, 60, 100);
 
@@ -3170,6 +3204,9 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
             /* And the retry, on the clock the harness has. */
             drainSynth();
+
+            fprintf(stderr, "gencheck: ...and that is the end of them\n");
+
             sched.stepTransport(0.0);
 
             if (sched.strandedCount() != 0)
