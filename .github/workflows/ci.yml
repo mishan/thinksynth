@@ -442,7 +442,9 @@ jobs:
       - name: Hold glib where glibmm still compiles
         env:
           # The commit before "glib 2.90.0": glib.rb at 2.88.3, bottled.
-          GLIB_PIN: a6afb6c53
+          # In full, because a fetch by object name wants the whole 40 --
+          # an abbreviation is a ref to git, and there is no such ref.
+          GLIB_PIN: a6afb6c533be34a6148cf138984506944bc5170b
         run: |
           set -e
           export HOMEBREW_NO_INSTALL_FROM_API=1
