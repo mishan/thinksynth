@@ -113,6 +113,12 @@ function showPiece ()
         return;
     }
 
+    /* A piece that has just loaded is a drawing that did not exist when
+       the page last asked for a fit -- and a fit of nothing is dropped,
+       since there is nothing to fit to. So the fit happens here, where
+       there is. */
+    M._tw_canvas_zoom_to_width();
+
     const chains = [];
 
     for (let c = 0; c < M._tw_chain_count(); c++)
@@ -279,8 +285,12 @@ function receive (m)
             view = { w: m.w, h: m.h, dpr: m.dpr ?? 1 };
             M._tw_canvas_viewport(m.x ?? 0, m.y ?? 0, m.w, m.h);
 
+            /* To the width, and the scroller takes the rest: a piece is
+               a row per chain and a tall one fitted both ways is a
+               quarter-scale picture nobody can read (JAM_M6.md, section
+               6.3; CanvasContent::zoomToWidth). */
             if (m.fit)
-                M._tw_canvas_zoom_to_fit();
+                M._tw_canvas_zoom_to_width();
 
             break;
 

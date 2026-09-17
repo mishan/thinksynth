@@ -123,6 +123,17 @@ public:
      * where the deferred fit happens. */
     void zoomToFit (void);
 
+    /* Scales so the drawing's whole *width* is visible, and leaves the
+     * height to the scroller. Never magnifying, for the same reason.
+     *
+     * What a drawing that is tall and narrow wants, which the composer's
+     * canvas is: one row per chain, read left to right, with the rest
+     * below. Fitting both dimensions there lets the height decide, and a
+     * ten-chain piece in a box half a screen tall comes out at a quarter
+     * scale -- everything legible in principle and nothing legible in
+     * fact. */
+    void zoomToWidth (void);
+
     /* Shell pixels to the content's own coordinates. The inverse is a
        multiply and every caller writes it inline, which is why there is
        no toShell to go with this. */
@@ -176,9 +187,11 @@ protected:
 private:
     double zoom_;
 
-    /* Set by zoomToFit when there was no view to fit to; acted on by
-       the next shellResized. */
+    /* Set by zoomToFit or zoomToWidth when there was no view to fit to;
+       acted on by the next shellResized, which does whichever of the two
+       was asked for. */
     bool fitPending_;
+    bool fitWidthPending_;
 };
 
 #endif /* CANVAS_CONTENT_H */

@@ -269,6 +269,25 @@ try
     check(await ink() > 0,
           `the piece's picture drew, ${size.w} by ${size.h} device pixels`);
 
+    /* And it is drawn to the width of the view, not squeezed into its
+       height. A composer canvas is one row per chain, so fitting both
+       dimensions lets a tall piece decide the zoom -- ten chains in a box
+       half a screen tall came out at a quarter scale, which is what this
+       is here to stop (CanvasContent::zoomToWidth). */
+    const fitted = await page.evaluate(() =>
+    {
+        const c = document.getElementById('composer');
+        const s = document.getElementById('composerscroll');
+
+        return { wide: s.scrollWidth > s.clientWidth + 1,
+                 width: parseFloat(c.style.width),
+                 box: s.clientWidth };
+    });
+
+    check(!fitted.wide && fitted.width > fitted.box * 0.5,
+          `and to the width of the view: ${fitted.width} in ${fitted.box}, ` +
+          `${fitted.wide ? 'scrolling sideways' : 'no sideways scroll'}`);
+
     const stages = await page.$$eval('#composerstages button',
                                      (bs) => bs.map((b) => b.textContent));
 

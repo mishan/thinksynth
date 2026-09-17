@@ -1268,6 +1268,15 @@ EMSCRIPTEN_KEEPALIVE void tw_canvas_zoom_to_fit (void)
         canvas_->zoomToFit();
 }
 
+/* The width alone, which is what the composer view opens at: the drawing
+   is one row per chain and wants reading across, not shrinking until ten
+   of them fit the box (CanvasContent::zoomToWidth). */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_zoom_to_width (void)
+{
+    if (canvas_ != NULL)
+        canvas_->zoomToWidth();
+}
+
 /* How big the drawing is, in shell pixels, for the scroller around it. */
 EMSCRIPTEN_KEEPALIVE int tw_canvas_width (void)
 {
