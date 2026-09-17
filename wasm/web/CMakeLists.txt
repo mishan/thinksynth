@@ -78,6 +78,18 @@ set(THINK_COMPOSER_PROTO_draw
     "void @ (void *, cairo_t *, double, double)")
 set(THINK_COMPOSER_PROTO_destroy       "void @ (void *)")
 
+# And what a visual module may export, with the same treatment: a probe's
+# display is a module like any other (src/thVisual.h), and the page opens
+# one per armed probe (JAM_M6.md, section 7.4).
+set(THINK_VISUAL_EXPORTS init open feed draw close cleanup)
+
+set(THINK_VISUAL_PROTO_init    "int @ (thVisual *)")
+set(THINK_VISUAL_PROTO_open    "void *@ (thVisual *, unsigned int)")
+set(THINK_VISUAL_PROTO_feed    "int @ (void *, const float *, unsigned int)")
+set(THINK_VISUAL_PROTO_draw    "int @ (void *, cairo_t *, int, int)")
+set(THINK_VISUAL_PROTO_close   "void @ (void *)")
+set(THINK_VISUAL_PROTO_cleanup "void @ (thVisual *)")
+
 # cairo, for the composers' draws and for the canvases later, as a display
 # list the page replays on a Canvas2D. Its own directory, its own build and
 # its own test, and nothing in this tree on its include path: thinksynth
@@ -106,12 +118,14 @@ target_compile_definitions(think_objects PUBLIC THINK_STATIC_PLUGINS)
 # link, which is the right place.
 get_property(STATIC_PLUGINS   GLOBAL PROPERTY THINK_STATIC_PLUGINS)
 get_property(STATIC_COMPOSERS GLOBAL PROPERTY THINK_STATIC_COMPOSERS)
+get_property(STATIC_VISUALS   GLOBAL PROPERTY THINK_STATIC_VISUALS)
 get_property(STATIC_SOURCES   GLOBAL PROPERTY THINK_STATIC_SOURCES)
 
 set(decls "")
 set(syms "")
 set(rows "")
 set(composer_names "")
+set(visual_names "")
 
 foreach(p IN LISTS STATIC_PLUGINS)
   string(REPLACE "/" "_" id "${p}")
@@ -158,11 +172,34 @@ foreach(c IN LISTS STATIC_COMPOSERS)
   string(APPEND composer_names "    \"composer/${c}\",\n")
 endforeach()
 
+# The visuals, exactly as the composers: every export declared weak for
+# every module, so what the module compiled decides which it has.
+foreach(v IN LISTS STATIC_VISUALS)
+  string(APPEND decls "extern \"C\" {\n")
+  string(APPEND syms
+"const thStaticSymbol vis_${v}[] = {
+    { \"visual_apiversion\", &visualVersion_ },
+")
+
+  foreach(ex IN LISTS THINK_VISUAL_EXPORTS)
+    string(REPLACE "@" "thv_${v}_${ex}" proto "${THINK_VISUAL_PROTO_${ex}}")
+    string(APPEND decls "    ${proto} __attribute__((weak));\n")
+    string(APPEND syms
+           "    { \"visual_${ex}\", (void *)&thv_${v}_${ex} },\n")
+  endforeach()
+
+  string(APPEND decls "}\n")
+  string(APPEND syms "};\n")
+  string(APPEND rows "    TH_ROW(\"visual/${v}\", vis_${v}),\n")
+  string(APPEND visual_names "    \"visual/${v}\",\n")
+endforeach()
+
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/static/registry.cpp" CONTENT
 "/* The table thDynLib's static branch reads: every DSP plugin and every
    composer in plugins/CMakeLists.txt. Written by wasm/web/CMakeLists.txt. */
 #include \"thinkstatic.h\"
 #include \"thcomposer.h\"
+#include \"thVisual.h\"
 #include \"thDynLib.h\"
 
 namespace {
@@ -172,6 +209,7 @@ namespace {
    against these headers, so these are its. */
 unsigned char dspVersion_ = MODULE_IFACE_VER;
 unsigned char composerVersion_ = COMPOSER_IFACE_VER;
+unsigned char visualVersion_ = VISUAL_IFACE_VER;
 
 } /* namespace */
 
@@ -194,6 +232,12 @@ ${composer_names}};
 
 const size_t thStaticComposerCount =
     sizeof(thStaticComposers) / sizeof(thStaticComposers[0]);
+
+const char *const thStaticVisuals[] = {
+${visual_names}};
+
+const size_t thStaticVisualCount =
+    sizeof(thStaticVisuals) / sizeof(thStaticVisuals[0]);
 ")
 
 # ---------------------------------------------------------------------------
@@ -215,6 +259,7 @@ add_executable(thinkweb
     ${STATIC_SOURCES}
     "${PROJECT_BINARY_DIR}/static/registry.cpp"
     "${THINK_TOP}/src/gthSynthSource.cpp"
+    "${THINK_TOP}/src/thVisual.cpp"
     "${THINK_TOP}/src/CanvasContent.cpp"
     "${THINK_TOP}/src/ComposerCanvas.cpp"
     "${THINK_TOP}/src/NodeCanvas.cpp"

@@ -12,7 +12,9 @@
 # each contributes is a wrapper source and a row in the table; CMakeLists.txt
 # here writes the table from the two properties below.
 #
-# The visuals still do not: they draw, and there is nothing to draw on.
+# The visuals come this way too now: there is something to draw on, which
+# is wasm/cairo2d, and something to draw -- the probes the node editor arms
+# (JAM_M6.md, section 7.4).
 
 # A wrapper source, and a name to find its row by.
 #
@@ -100,5 +102,36 @@ namespace thc_${name} {
   add_library(composer_${name} OBJECT EXCLUDE_FROM_ALL "${nothing}")
 endfunction()
 
+# A visual module, the same way. Its exports are `extern "C"' like a
+# composer's, so each is renamed ahead of the include and the table looks
+# the module up under the renamed names; what the host asks for is the
+# plain spelling, and thDynLib's static branch answers from the row.
+#
+# fftr.h comes along inside the namespace, which is where it belongs: it is
+# the modules' own header and not a shared one, so two modules that both
+# use it get a copy each of what it defines.
 function(think_add_visual name)
+  set(src "${CMAKE_CURRENT_SOURCE_DIR}/visual/${name}.cpp")
+  set(wrapper "${PROJECT_BINARY_DIR}/static/visual_${name}.cpp")
+
+  set(defines "")
+
+  foreach(ex IN LISTS THINK_VISUAL_EXPORTS)
+    string(APPEND defines "#define visual_${ex} thv_${name}_${ex}\n")
+  endforeach()
+
+  file(CONFIGURE OUTPUT "${wrapper}" CONTENT
+"/* plugins/visual/${name}.cpp, in a namespace of its own and under export
+   names of its own. Written by wasm/web/cmake/ThinkPlugin.cmake; see
+   wasm/web/thvstatic.h. */
+#include \"thvstatic.h\"
+
+${defines}
+namespace thv_${name} {
+#include \"${src}\"
+}
+")
+
+  set_property(GLOBAL APPEND PROPERTY THINK_STATIC_SOURCES "${wrapper}")
+  set_property(GLOBAL APPEND PROPERTY THINK_STATIC_VISUALS "${name}")
 endfunction()

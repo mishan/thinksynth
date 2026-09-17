@@ -427,6 +427,173 @@ process.stdout.write(
     }
 }
 
+/* ---- probes: a tap, a module, and a panel -------------------------------
+ *
+ * The whole of what a probe is, end to end and headless (JAM_M6.md,
+ * section 7.4). A .dsp is loaded on a channel and a note played; the synth
+ * taps one arg of one node and publishes what it sees; the samples are fed
+ * to a visual module, which draws; and the canvas has a panel for it,
+ * which is a box like any other and is drawn with the rest of the graph.
+ *
+ * In a page these are three instances of this module -- the worklet taps,
+ * the page displays -- and the samples cross as a message. Here they are
+ * one instance and a pointer, which is the same path with the hop taken
+ * out: what is under test is that the tap publishes, the module draws, and
+ * the canvas makes room for it.
+ */
+{
+    const RATE = 48000;
+    const file = path.join(dspDir, 'ts1.dsp');
+    const patch = fs.readFileSync(file, 'utf8');
+
+    M._tw_create(RATE, 256, 128);
+    M.ccall('tw_load', 'number', ['number', 'string'], [0, patch]);
+
+    /* The visual modules this build has. */
+    const visuals = [];
+
+    for (let i = 0; i < M._tw_visual_count(); i++)
+        visuals.push(M.UTF8ToString(M.ccall('tw_visual_name', 'number',
+                                            ['number'], [i])));
+
+    if (visuals.length === 0)
+        fail('the module has no visual modules in it');
+    else
+        process.stdout.write(
+            `ok    the bundle has ${visuals.length} visual modules: ` +
+            `${visuals.join(', ')}\n`);
+
+    /* Somewhere to tap: a node with an output, which is what a probe
+       reads and what a panel hangs on. The graph is asked rather than a
+       name written here, since it is the thing that knows. */
+    M.ccall('tw_graph_build', 'number', ['string'], [patch]);
+
+    let where = null;
+
+    for (let b = 0; b < M._tw_graph_box_count() && where === null; b++)
+    {
+        if (M._tw_graph_box_kind(b) !== 0)
+            continue;
+
+        for (let p = 0; p < M._tw_graph_port_count(b); p++)
+            if (!M._tw_graph_port_is_input(b, p))
+            {
+                where = {
+                    node: call('tw_graph_box_name', ['number'], [b]),
+                    arg: call('tw_graph_port_name', ['number', 'number'],
+                              [b, p]),
+                };
+                break;
+            }
+    }
+
+    if (where === null)
+    {
+        fail('nothing in ts1.dsp has an output to probe');
+        process.exitCode = failures;
+        throw new Error('no output to probe');
+    }
+
+    const slot = M.ccall('tw_probe_arm', 'number',
+                         ['number', 'string', 'string'],
+                         [0, where.node, where.arg]);
+
+    if (slot < 0)
+        fail(`arming a probe on ${where.node}.${where.arg} said ` +
+             `"${M.UTF8ToString(M._tw_probe_why())}"`);
+    else
+    {
+        /* A note, and a second of it. */
+        M._tw_note_on(-1, 0, 60, 100);
+
+        let got = 0;
+
+        for (let i = 0; i < RATE / 128 && got < 1024; i++)
+        {
+            M._tw_render(128);
+            got += M._tw_probe_read(slot);
+        }
+
+        if (got === 0)
+        {
+            fail('an armed probe published nothing over a second of a note');
+        }
+        else
+        {
+            process.stdout.write(
+                `ok    a probe on ${where.node}.${where.arg} published ` +
+                `${got} samples\n`);
+
+            /* Into a display, and drawn. */
+            const display = M.ccall('tw_probe_open', 'number',
+                                    ['string', 'string', 'string', 'number',
+                                     'number'],
+                                    ['scope', where.node, where.arg, -1,
+                                     RATE]);
+
+            if (display < 0)
+                fail('visual/scope would not open');
+            else
+            {
+                const at = M._tw_probe_buffer();
+                const many = Math.min(got, M._tw_probe_buffer_size());
+
+                M.HEAPF32.set(
+                    M.HEAPF32.subarray(M._tw_probe_samples() >> 2,
+                                       (M._tw_probe_samples() >> 2) + many),
+                    at >> 2);
+                M._tw_probe_feed(display, at, many);
+
+                const words = M._tw_probe_draw(display, 128, 80);
+
+                if (words <= 0)
+                    fail(`a scope fed ${many} samples drew ${words} words`);
+                else
+                    process.stdout.write(
+                        `ok    a scope fed ${many} samples draws ` +
+                        `${words} words of ops\n`);
+
+                /* And the canvas makes a panel for it: a box like any
+                   other, drawn with the graph. */
+                M.ccall('tw_graph_build', 'number', ['string'], [patch]);
+
+                const before = M._tw_graph_box_count();
+                const panel = M.ccall('tw_probe_panel', 'number',
+                                      ['string', 'string', 'string',
+                                       'number'],
+                                      [where.node, where.arg, 'scope',
+                                       92]);
+
+                if (panel < 0 || M._tw_graph_box_count() !== before + 1 ||
+                    M._tw_graph_box_kind(panel) !== 4)
+                    fail(`a probe panel came back as box ${panel}, kind ` +
+                         `${M._tw_graph_box_kind(panel)}`);
+                else
+                {
+                    M._tw_probe_box(display, panel);
+                    M._tw_node_canvas_viewport(0, 0, 900, 600);
+                    M._tw_node_canvas_zoom_to_fit();
+
+                    const drew = M._tw_node_canvas_draw(
+                        M._tw_node_canvas_width(),
+                        M._tw_node_canvas_height());
+
+                    if (drew > 0)
+                        process.stdout.write(
+                            'ok    and the canvas draws it as a panel on ' +
+                            `${where.node}, ${drew} words with it\n`);
+                    else
+                        fail('the canvas drew nothing with a panel on it');
+                }
+
+                M._tw_probe_close(display);
+            }
+        }
+
+        M._tw_probe_disarm(slot);
+    }
+}
+
 /* ---- and the layout block ----------------------------------------------- */
 
 {

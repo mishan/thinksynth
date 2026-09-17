@@ -1647,6 +1647,78 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
     return block_.data();
 }
 
+/* ---- probes ------------------------------------------------------------
+ *
+ * A tap on one arg of one node of whatever is loaded on a channel: eight
+ * slots in the synth, armed by name on the GUI thread, accumulated across
+ * voices on the audio thread and published a window at a time into a ring
+ * (thSynth.h). The desktop's editor drains that ring on a frame tick and
+ * feeds a visual module; here the worklet drains it after every render and
+ * posts the samples to the page with the tape batch, and the page's own
+ * instance of the module holds the visuals (JAM_M6.md, section 7.4).
+ *
+ * The worklet's thread is the only thread this module has, so armProbe --
+ * a GUI-thread call -- is made on it, and the ring is drained on it too,
+ * after process(). Which is the same discipline the desktop has, with the
+ * two threads collapsed into one.
+ */
+
+/* Where a drained probe's samples land, for the page to read out of the
+   heap. One window of a probe is the synth's window; a tape batch is
+   sixteen quanta, so a couple of thousand samples is the most that can be
+   waiting. */
+#define TW_PROBE_DRAIN 4096
+
+static float probeDrain_[TW_PROBE_DRAIN];
+static std::string probeWhy_;
+
+/* Arm a probe on a channel's node and arg. The slot, or -1 with the reason
+   in tw_probe_why(). A slot is only good until the next load on that
+   channel, which disarms every probe pointing at it. */
+EMSCRIPTEN_KEEPALIVE int tw_probe_arm (int channel, const char *node,
+                                       const char *arg)
+{
+    if (synth_ == NULL || node == NULL || arg == NULL)
+        return -1;
+
+    probeWhy_.clear();
+
+    return synth_->armProbe(channel, node, arg, probeWhy_);
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_probe_why (void)
+{
+    return probeWhy_.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_probe_disarm (int slot)
+{
+    if (synth_ != NULL)
+        synth_->disarmProbe(slot);
+}
+
+/* Everything waiting on a slot, into the drain buffer: how many samples,
+   or 0 for a slot that is not armed or has published nothing since the
+   last call. Read after a render, as the desktop reads it on a frame
+   tick. */
+EMSCRIPTEN_KEEPALIVE int tw_probe_read (int slot)
+{
+    if (synth_ == NULL)
+        return 0;
+
+    thProbe *tap = synth_->probe(slot);
+
+    if (tap == NULL)
+        return 0;
+
+    return (int)tap->read(probeDrain_, TW_PROBE_DRAIN);
+}
+
+EMSCRIPTEN_KEEPALIVE const float *tw_probe_samples (void)
+{
+    return probeDrain_;
+}
+
 /* ---- the mirror ----
  *
  * A second instance of this module, in a worker, fed the messages the

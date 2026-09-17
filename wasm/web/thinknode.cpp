@@ -44,6 +44,7 @@
 
 #include <stdio.h>
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -59,6 +60,8 @@
 #include "cairomm/context.h"
 
 #include "twdraw.h"
+
+#include "thVisual.h"
 
 #include "NodeCanvas.h"
 #include "NodeCatalog.h"
@@ -195,6 +198,54 @@ private:
 WebNodeCanvas *canvas_ = NULL;
 Cairo::RefPtr<Cairo::Context> canvasContext_;
 
+/* ---- the probe displays ----
+ *
+ * A probe is three things at once: a Box in the graph, a slot in the
+ * engine, and an instance of a visual module. The first is the canvas's,
+ * the second is the worklet's (thinkweb.cpp), and the third is here --
+ * the page's instance holds the modules and feeds them the samples the
+ * worklet posts over (JAM_M6.md, section 7.4).
+ *
+ * The canvas knows where a panel is and not what goes in one, so it asks
+ * for the body to be painted through a slot it is given; what fills that
+ * slot on the desktop is NodeEditor, and here it is the lambda below.
+ */
+struct Display
+{
+    std::string   visual;       /* "scope"                              */
+    std::string   node, arg;    /* what it is watching                  */
+    thVisual     *module;
+    void         *inst;
+    int           box;          /* the panel in the graph, or -1        */
+
+    Display (void) : module(NULL), inst(NULL), box(-1) {}
+};
+
+std::vector<Display> displays_;
+std::map<std::string, thVisual *> visuals_;
+
+/* One module per kind, opened once and kept: a scope and a spectrum are
+   two modules, and two scopes are two instances of one. */
+thVisual *visualModule (const std::string &name)
+{
+    std::map<std::string, thVisual *>::iterator i = visuals_.find(name);
+
+    if (i != visuals_.end())
+        return i->second;
+
+    thVisual *v = new thVisual("visual/" + name);
+
+    if (v->state() != thVisual::LOADED)
+    {
+        delete v;
+        v = NULL;
+    }
+
+    visuals_[name] = v;
+
+    return v;
+}
+
 /* What the canvas has decided since the page last asked. The desktop's
    NodeEditor answers these signals with an edit, a rebuild or a line in
    the status bar; the page does the same, and this is how they reach it
@@ -326,6 +377,23 @@ WebNodeCanvas *canvas (void)
 
             s.a = box;
             signals_.push_back(s);
+        });
+
+    /* What goes inside a probe panel. The canvas has already clipped to
+       the body and translated to its origin; what is drawn there is the
+       module's business and not the canvas's. */
+    canvas_->setProbePainter(
+        [](int box, const Cairo::RefPtr<Cairo::Context> &cr, int w, int h)
+        {
+            for (size_t i = 0; i < displays_.size(); i++)
+                if (displays_[i].box == box &&
+                    displays_[i].module != NULL &&
+                    displays_[i].inst != NULL)
+                {
+                    displays_[i].module->draw(displays_[i].inst, cr->cobj(),
+                                              w, h);
+                    return;
+                }
         });
 
     canvas_->setGraph(&graph_);
@@ -874,6 +942,185 @@ EMSCRIPTEN_KEEPALIVE const char *tw_node_signal_text (int i)
     return s != NULL ? s->text.c_str() : "";
 }
 
+/* ---- the probe displays ------------------------------------------------
+ *
+ * The page arms a probe in the worklet and opens its display here. What
+ * crosses between them is samples: the worklet drains the tap after every
+ * render and posts them with the tape batch, and they are fed in here.
+ */
+
+/* Every visual module this build has, for the menu a right-click offers. */
+EMSCRIPTEN_KEEPALIVE int tw_visual_count (void)
+{
+#ifdef THINK_STATIC_PLUGINS
+    return (int)thStaticVisualCount;
+#else
+    return 0;
+#endif
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_visual_name (int i)
+{
+#ifdef THINK_STATIC_PLUGINS
+    static std::string name;
+
+    if (i < 0 || (size_t)i >= thStaticVisualCount)
+        return "";
+
+    /* "visual/scope" is how the table names it; "scope" is what a `#
+       @probe' line and a menu say. */
+    name = thStaticVisuals[i];
+
+    const std::string::size_type slash = name.find('/');
+
+    if (slash != std::string::npos)
+        name = name.substr(slash + 1);
+
+    return name.c_str();
+#else
+    (void)i;
+    return "";
+#endif
+}
+
+/* Open a display on a node's arg, with the panel the graph gave it. The
+   display's index, or -1 if the module will not load. */
+EMSCRIPTEN_KEEPALIVE int tw_probe_open (const char *visual, const char *node,
+                                        const char *arg, int box,
+                                        int sampleRate)
+{
+    if (visual == NULL || node == NULL || arg == NULL)
+        return -1;
+
+    Display d;
+
+    d.visual = visual;
+    d.node = node;
+    d.arg = arg;
+    d.box = box;
+    d.module = visualModule(d.visual);
+
+    if (d.module == NULL)
+        return -1;
+
+    d.inst = d.module->open(sampleRate > 0 ? (unsigned)sampleRate : 48000);
+
+    if (d.inst == NULL)
+        return -1;
+
+    displays_.push_back(d);
+
+    return (int)displays_.size() - 1;
+}
+
+/* Samples from the worklet's tap, into the display. The pointer is into
+   this module's own heap: the page copies them in first (a Float32Array
+   set on HEAPF32 at the address tw_probe_buffer answers with). */
+EMSCRIPTEN_KEEPALIVE int tw_probe_feed (int display, const float *samples,
+                                        int count)
+{
+    if (display < 0 || (size_t)display >= displays_.size() ||
+        samples == NULL || count <= 0)
+        return 0;
+
+    Display &d = displays_[(size_t)display];
+
+    if (d.module == NULL || d.inst == NULL)
+        return 0;
+
+    return d.module->feed(d.inst, samples, (unsigned)count);
+}
+
+/* Where to put samples before feeding them: one window's worth, which is
+   what a tape batch can carry per probe. */
+#define TW_PROBE_BUFFER 4096
+
+EMSCRIPTEN_KEEPALIVE float *tw_probe_buffer (void)
+{
+    static float buffer[TW_PROBE_BUFFER];
+
+    return buffer;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_probe_buffer_size (void)
+{
+    return TW_PROBE_BUFFER;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_probe_close (int display)
+{
+    if (display < 0 || (size_t)display >= displays_.size())
+        return;
+
+    Display &d = displays_[(size_t)display];
+
+    if (d.module != NULL && d.inst != NULL)
+        d.module->close(d.inst);
+
+    d.inst = NULL;
+    d.module = NULL;
+    d.box = -1;
+}
+
+/* A panel on a node's output, and the display that fills it. Returns the
+   panel's box index, or -1 -- and the graph is laid out again, since a
+   panel makes its host taller.
+ *
+ * The .dsp does not have these in it: a probe is a display and not part of
+ * the patch, so build() does not make one and the page adds them back
+ * after every rebuild, exactly as the desktop's editor does. What travels
+ * with the patch is a `# @probe' comment (NodeLayout). */
+EMSCRIPTEN_KEEPALIVE int tw_probe_panel (const char *node, const char *arg,
+                                         const char *visual, int height)
+{
+    if (node == NULL || arg == NULL || visual == NULL)
+        return -1;
+
+    int host = -1;
+
+    for (size_t i = 0; i < graph_.boxes().size() && host < 0; i++)
+        if (graph_.boxes()[i].name == node)
+            host = (int)i;
+
+    if (host < 0)
+        return -1;
+
+    const int box = graph_.addProbe(host, arg, visual, height);
+
+    if (box >= 0)
+        graph_.layout();
+
+    return box;
+}
+
+/* Draw one display on its own, at a size -- the panel drawn large, which
+   is what a double-click on one asks for. Into the module's recorder, like
+   every other drawing here. */
+EMSCRIPTEN_KEEPALIVE int tw_probe_draw (int display, int w, int h)
+{
+    if (display < 0 || (size_t)display >= displays_.size())
+        return -1;
+
+    Display &d = displays_[(size_t)display];
+
+    if (d.module == NULL || d.inst == NULL)
+        return -1;
+
+    cairo_t *cr = twDrawingBegin();
+
+    d.module->draw(d.inst, cr, w, h);
+
+    return cairo2d_op_words(cr);
+}
+
+/* Which panel a display is drawn in, after a rebuild gave the graph new
+   boxes. */
+EMSCRIPTEN_KEEPALIVE void tw_probe_box (int display, int box)
+{
+    if (display >= 0 && (size_t)display < displays_.size())
+        displays_[(size_t)display].box = box;
+}
+
 /* ---- the palette -------------------------------------------------------
  *
  * Every plugin this module was built with, by category. There is no
@@ -895,9 +1142,12 @@ EMSCRIPTEN_KEEPALIVE int tw_catalog_take (void)
         if (slash == std::string::npos)
             continue;
 
-        /* The composers are in the same table and are not nodes: a .dsp
-           has nowhere to put one. */
-        if (name.compare(0, slash, "composer") == 0)
+        /* The composers and the visual modules are in the same table and
+           are neither of them nodes: a .dsp has nowhere to put one. They
+           are found by name instead -- a .gen names a composer, and a `#
+           @probe' line names a visual. */
+        if (name.compare(0, slash, "composer") == 0 ||
+            name.compare(0, slash, "visual") == 0)
             continue;
 
         spellings.push_back(name.substr(0, slash) + "::" +
