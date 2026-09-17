@@ -147,16 +147,36 @@ try
           `${PIECE}'s knobs drew, each with its index and its value: ` +
           knobs.map((k) => `${k.id}=${k.shown}`).join(', '));
 
-    /* A drag moves the number beside the slider, which is the span a
-       remote peer's move writes to on the room page as well. */
-    await page.fill(`#${knobs[0].id}`, '0.42');
-    await page.dispatchEvent(`#${knobs[0].id}`, 'input');
+    /* Moving a slider moves the number beside it -- the span a remote
+       peer's move writes to on the room page as well.
+     *
+       With the keyboard, because that is a real input event from the
+       browser: fill() sets the value itself and synthesises one, which
+       is a weaker claim about a range input and a poor one to debug.
+       Both numbers go in the message, since a slider that did not move
+       and a number that did not follow it are different bugs. */
+    await page.focus(`#${knobs[0].id}`);
+
+    const was = await page.inputValue(`#${knobs[0].id}`);
+
+    await page.keyboard.press('ArrowRight');
+
+    let now = await page.inputValue(`#${knobs[0].id}`);
+
+    /* At the top of its range there is nowhere rightwards to go. */
+    if (now === was)
+    {
+        await page.keyboard.press('ArrowLeft');
+        now = await page.inputValue(`#${knobs[0].id}`);
+    }
 
     const shown = await page.evaluate(
         (id) => document.getElementById(id).previousElementSibling.textContent,
         knobs[0].id);
 
-    check(shown === '0.420', `a drag moves the number beside it: ${shown}`);
+    check(now !== was && shown === Number(now).toPrecision(3),
+          `a nudge moves the slider and the number beside it: ` +
+          `${was} -> ${now}, showing ${shown}`);
 
     /* A computer key holds an on-screen key and lets it go. The slider
        just dragged still has the focus, and a focused input is somewhere
