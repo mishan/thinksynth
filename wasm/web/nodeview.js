@@ -130,6 +130,9 @@ export async function createNodeView ({ files, root = document,
         scroller: $('nodescroll'),
         canvas: $('nodecanvas'),
         send: (m) => toModule(m),
+
+        /* At 1:1, and Fit for the whole graph: see canvasview.js. */
+        fitOnShow: false,
     });
 
     /* The shell speaks messages so that the composer view's shell and this
@@ -672,7 +675,7 @@ export async function createNodeView ({ files, root = document,
             selected = -1;
 
         M._tw_node_canvas_select(selected);
-        view.viewport(true);
+        view.viewport();
         showParams();
         paint();
     }

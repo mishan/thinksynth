@@ -402,6 +402,33 @@ try
     check(graph.boxes > 0 && offered.length > 0,
           `${offered.join(', ')} drew ${graph.boxes} boxes`);
 
+    /* And it opens at 1:1 rather than fitted. A patch is wide -- ts1 is
+       1888 pixels of graph -- so fitting it into a page-width box halves
+       every label, and half-size labels are a picture of a patch rather
+       than a patch to work on. Fit is the button for the other question,
+       and after it the whole graph is in the box. */
+    const opened = await page.evaluate(() =>
+    {
+        const s = document.getElementById('nodescroll');
+
+        return { wide: s.scrollWidth > s.clientWidth + 1,
+                 box: s.clientHeight };
+    });
+
+    await page.click('#nodefit');
+    await new Promise((r) => setTimeout(r, 500));
+
+    const whole = await page.evaluate(() =>
+    {
+        const s = document.getElementById('nodescroll');
+
+        return s.scrollWidth <= s.clientWidth + 1;
+    });
+
+    check(opened.wide && opened.box > 200 && whole,
+          `it opens at 1:1 in a ${opened.box}-pixel box and scrolls, and ` +
+          'Fit brings the whole graph in');
+
     /* A node with a plain number on it, clicked, and the number typed
        into. The canvas is asked where the box is: the layout is its
        own. */

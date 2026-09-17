@@ -384,6 +384,14 @@ details { margin: 0.8em 0; }
  */
 .canvasview {
     overflow: auto;
+
+    /* A height of its own, which is the whole point of a viewport: the
+       box used to be as tall as whatever was drawn in it, so a canvas
+       that scaled itself to fit the box was fitting into its own last
+       answer -- each redraw a little smaller than the one before. The
+       minimum stops that; the maximum stops a tall drawing from pushing
+       the keyboard off the screen. */
+    min-height: 16rem;
     max-height: 60vh;
     border: 1px solid var(--line);
     border-radius: 4px;
