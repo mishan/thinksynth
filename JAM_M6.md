@@ -95,7 +95,24 @@ On `jam-m6`, which starts where `game-music` ends:
   board in a room from one browser and finds the same board in the
   other, and not the tape of the run nobody painted on -- which is the
   first half of gate 8.3.
-- Next: the node editor (7), and then 8.4 by hand.
+- **The node editor** (section 7) is in, all but the probes. The writers
+  take text and a file is where the text came from (`NodeEdit::Text`,
+  `NodeLayout::Text`), the catalogue can be handed its plugins rather
+  than finding them, and the model, the canvas and the writer are
+  compiled into the module (`thinknode.cpp`). `nodeview.js` is the page:
+  the shared shell over the node canvas, a palette and a params panel as
+  HTML, and every edit a splice into the room's document. The gates:
+  `dspwrite` and `dspgraph` make every corpus edit twice, over a file and
+  over its text, and hold the two against each other; `nodecheck.mjs`
+  builds every shipped patch through the module, draws the node canvas
+  over each, and holds every edit against `scripts/dspedit` -- the same
+  NodeEdit natively; `jamtest` types a number into a node in one browser
+  and finds it in the other's document and in the desktop's own bytes.
+- What is left of section 7: the probes (7.4), which need the visual
+  modules in the bundle -- the piece of section 3 deliberately deferred
+  to here. And of section 8: 8.4, which is two browsers and a person.
+- Smaller things not in, each a line where the page says so: cutting a
+  wire from the canvas, and the composer canvas's params popover.
 - A correction to section 0a, found by the gate: **two** composers take
   input, not three. `ca` and `life` do; `evolve` says in its own header
   that interactive evolution wants the `composer_input` ABI and is
