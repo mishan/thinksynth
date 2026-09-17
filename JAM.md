@@ -259,7 +259,13 @@ stands.
   draw and what a click means is C++ with no toolkit in it, compiled
   without gtkmm on the include path; the gtk widget around each is a
   few dozen lines. The same content classes are what the browser will
-  run, through a cairo stand-in that is the next step.
+  run.
+- The cairo stand-in they will run through: `wasm/cairo2d`, cairo's own
+  API over a display list the page replays on a Canvas2D, in a directory
+  of its own with its own build and test and nothing of this tree on its
+  include path. The browser build draws through it already -- every
+  composer's picture, gated over the whole corpus at two sizes.
+- Not yet: the mirror, the composer tab, the node editor.
 
 ## 1. The three kinds of state
 

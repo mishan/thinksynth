@@ -40,8 +40,24 @@ On `jam-m6`, which starts where `game-music` ends:
   cairomm and never gtkmm, which is the guard. All nineteen gates pass,
   composercheck and editorcheck pressing the real widgets; canvasbench
   draws the corpus through the split at the cost it had.
-- Next, in order: the cairo stand-in (3), the mirror (4), input as a
-  command (5), the composer tab (6.3), the node editor (7).
+- **The cairo stand-in** (section 3) is in, as `wasm/cairo2d/`: cairo's
+  C API and a cairomm face over a recorder, and `replay.js` over a
+  Canvas2D. Its own directory, build, README and test, and no include of
+  anything in this tree. The browser build compiles the composers' draws
+  against it -- `THC_NO_DRAW` is gone -- and `thinkweb` exports the
+  chains, the stages, and a stage's picture as the three tables a list
+  is. `drawcheck.mjs` gates it: every shipped piece played for four
+  seconds, then every picture drawn at 100x100 and at 400x400, each list
+  walkable by the arity table alone and known to `replay.js` op for op,
+  and every composer that says it draws having drawn something somewhere
+  -- 170 pictures from eight composers. `cairo2d`'s own two tests run
+  beside it.
+- What is not in from section 3: the visual modules. They are section
+  7.4's -- nothing loads or draws one until the node editor's probes do,
+  and `src/thVisual.cpp` is not in the module yet -- so they come with
+  the probe path and its gate rather than ahead of it.
+- Next, in order: the mirror (4), input as a command (5), the composer
+  tab (6.3), the node editor (7).
 
 ## 0a. Where M6 started from
 
