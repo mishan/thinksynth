@@ -20,8 +20,8 @@
  * engine.js -- what a message means to an instance of the module.
  *
  * One switch: a `load', `instrument', `chanarg', `piece', `transport',
- * `begin', `at', `knob', `midion', `midioff', `on', `off' or `alloff'
- * message, turned into the tw_ call that applies it. It used to live in
+ * `begin', `at', `knob', `input', `midion', `midioff', `on', `off' or
+ * `alloff' message, turned into the tw_ call that applies it. It used to live in
  * worklet.js, and moved here when there were two instances to apply it to
  * (JAM_M6.md, section 4).
  *
@@ -120,6 +120,16 @@ export function apply (M, m, host = NOWHERE)
 
         case 'knob':
             M._tw_knob(m.at, m.knob, m.value);
+            return true;
+
+        case 'input':
+            /* A gesture on a stage's picture, at a transport time. The
+               coordinates are the ones the composer's own draw was
+               handed, with the size it was drawn at, so every instance
+               inverts the same arithmetic and reaches the same cell
+               (JAM_M6.md, section 5). */
+            M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
+                        m.button ?? 1);
             return true;
 
         case 'midion':

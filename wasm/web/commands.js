@@ -36,6 +36,7 @@
  *   transport  { at, op: 'stop' }
  *   transport  { at, op: 'tempo', bpm }
  *   knob       { at, knob, value }
+ *   input      { at, chain, stage, kind, x, y, w, h, button }
  *   note       { at, seat, note, velocity }
  *   noteoff    { at, seat, note }
  *
@@ -96,6 +97,26 @@ export class Maker
     knob (knob, value)
     {
         return this.make('knob', { knob, value }, this.knobLead);
+    }
+
+    /* A gesture on a stage's picture: which stage, what kind of gesture,
+       and where in the picture, with the size it was drawn at.
+     *
+       Stamped with the knob's lead and for the same reason: it reaches
+       the composer's state, and every peer has to reach it at the same
+       point in the piece or their boards part. The clicker sees their own
+       cell fill a lead late, as they hear their own knob late. A Life
+       board's period is half a second and up, so there is room.
+     *
+       The stage is named by chain and stage index, which is the canvas's
+       own key and is the same on every peer holding the same revision of
+       the document. The coordinates are draw's, not the page's: the
+       conversion is done by the code that drew the rectangle, on every
+       platform (JAM_M6.md, section 5). */
+    input (chain, stage, kind, x, y, w, h, button = 1)
+    {
+        return this.make('input', { chain, stage, kind, x, y, w, h, button },
+                         this.knobLead);
     }
 
     /* A key. Stamped with now and no lead: direct mode plays it on
@@ -224,6 +245,10 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
 
         case 'knob':
             synth.knob(cmd.knob, cmd.value, cmd.at);
+            break;
+
+        case 'input':
+            synth.input(cmd);
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.

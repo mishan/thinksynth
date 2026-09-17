@@ -128,8 +128,8 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB has its own entry point and never arrives as an op
-   from there. */
+   four too; TW_KNOB and TW_INPUT have entry points of their own and
+   never arrive as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -137,6 +137,7 @@ enum TransportOp
     TW_REWIND,
     TW_TEMPO,
     TW_KNOB,
+    TW_INPUT,
 };
 
 struct Command
@@ -169,9 +170,22 @@ struct Command
 struct Scheduled
 {
     double at;
-    int    op;                  /* TW_STOP, TW_TEMPO or TW_KNOB        */
+    int    op;                  /* TW_STOP, TW_TEMPO, TW_KNOB, TW_INPUT */
     int    knob;                /* TW_KNOB: an index into knobs_       */
     double value;               /* TW_KNOB's value, TW_TEMPO's bpm     */
+
+    /* TW_INPUT: a gesture on a stage's picture, in the coordinates the
+       draw was handed. The stage is named by chain and stage index --
+       the canvas's own key, and the same on every peer holding the same
+       document revision -- and w and h come along because the ABI
+       requires them: the draw's size is the host's business and an
+       enlarged view is the same draw at a different size. Every peer
+       inverts the same arithmetic and reaches the same cell
+       (JAM_M6.md, section 5). */
+    int    chain, stage;
+    int    kind;                /* thcInputType                        */
+    double x, y, w, h;
+    int    button;
 };
 
 /* Room for this many commands in flight before the queue has to grow. */
@@ -369,6 +383,24 @@ void beginDue (double start, int len)
     sched_->start();
 }
 
+/* A stage by chain and stage index, or NULL. The index pair is the
+   canvas's own key and is the same on every peer holding the same document
+   revision (JAM_M6.md, section 1), so it is what the page names a picture
+   by. Out of range is answered rather than trusted: these indices come off
+   a page. */
+thcStage *stageAt (int chain, int stage)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return NULL;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL || stage < 0 || (size_t)stage >= c->stages.size())
+        return NULL;
+
+    return c->stages[(size_t)stage].get();
+}
+
 void applyScheduled (const Scheduled &c)
 {
     switch (c.op)
@@ -393,6 +425,40 @@ void applyScheduled (const Scheduled &c)
                 knobs_[c.knob]->setValue((float)c.value);
 
             break;
+
+        case TW_INPUT:
+        {
+            /* Straight into the plugin's own state, at `at', inside the
+               step -- before any stage ticks at or after it, which is
+               the property every scheduler-facing command has here. The
+               stage is named by index, and an index that names nothing
+               is dropped and said rather than applied to a neighbour:
+               these come off a page, and a page's idea of the piece can
+               be a revision behind. */
+            thcStage *st = stageAt(c.chain, c.stage);
+
+            if (st == NULL || st->plugin == NULL || st->state == NULL)
+            {
+                fprintf(stderr, "input for stage %d.%d, which is not "
+                                "there\n", c.chain, c.stage);
+                break;
+            }
+
+            if (!st->plugin->hasInput())
+                break;          /* its picture is not a control */
+
+            thcInputEvent ev = {};
+
+            ev.type = (thcInputType)c.kind;
+            ev.x = c.x;
+            ev.y = c.y;
+            ev.w = c.w;
+            ev.h = c.h;
+            ev.button = c.button;
+
+            st->plugin->input(st->state, &ev);
+            break;
+        }
     }
 }
 
@@ -563,24 +629,6 @@ void collectSinks (void)
    that never draws -- the worklet's -- carries the code and allocates
    nothing. */
 cairo_t *drawing_ = NULL;
-
-/* A stage by chain and stage index, or NULL. The index pair is the
-   canvas's own key and is the same on every peer holding the same document
-   revision (JAM_M6.md, section 1), so it is what the page names a picture
-   by. Out of range is answered rather than trusted: these indices come off
-   a page. */
-thcStage *stageAt (int chain, int stage)
-{
-    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
-        return NULL;
-
-    const thcChain *c = sched_->chain((size_t)chain);
-
-    if (c == NULL || stage < 0 || (size_t)stage >= c->stages.size())
-        return NULL;
-
-    return c->stages[(size_t)stage].get();
-}
 
 /* ---- the composer canvas, in a module ----
  *
@@ -1387,6 +1435,46 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
     c.value = value;
 
     schedule(c);
+}
+
+/* A gesture on a stage's picture, at a transport time.
+ *
+ * One more stamped command, made and sent the way a knob is: applied at
+ * `at' in the step on every peer, the sender included, so a Life board
+ * that was clicked on one screen is the same board everywhere from that
+ * moment (JAM_M6.md, section 5). The clicker hears their own click a knob
+ * lead late, as they hear their own knob.
+ *
+ * `at' below zero is "now", as for a knob on a stopped transport, which
+ * is what a solo page sends.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
+                                    int kind, double x, double y, double w,
+                                    double h, int button)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_INPUT;
+    c.chain = chain;
+    c.stage = stage;
+    c.kind = kind;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.button = button;
+
+    schedule(c);
+}
+
+/* Whether a stage's picture is a control -- its module exports
+   composer_input. The canvas asks before it enlarges one. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_takes_input (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL && s->plugin->hasInput() ? 1 : 0;
 }
 
 /* Every sounding note released, now. */

@@ -123,9 +123,59 @@ function takeTape (p)
         p.tape += tapeLine(e);
 }
 
+/* The first stage whose picture is a control -- its module exports
+   composer_input. Two do: `life', in colony and glider, and `ca', in
+   loom and cavern. */
+function clickable (M)
+{
+    for (let c = 0; c < M._tw_chain_count(); c++)
+        for (let s = 0; s < M._tw_stage_count(c); s++)
+            if (M._tw_stage_takes_input(c, s))
+                return { chain: c, stage: s,
+                         name: M.UTF8ToString(
+                             M.ccall('tw_stage_name', 'number',
+                                     ['number', 'number'], [c, s])) };
+
+    return null;
+}
+
+/* A press, a drag and a release on a stage's picture: the gesture the
+   canvas will send when somebody paints on an enlarged stage.
+ *
+   In the coordinates the picture was drawn in, which for this harness is
+   a four-hundred-pixel square, and at transport times the run reaches.
+   Where in the picture is the one thing that cannot be general: a plugin
+   answers where it draws, and the two that take input draw different
+   things. gen::life is a board filling the box, so the middle of it is a
+   cell; gen::ca answers only in the band along the bottom, which is the
+   present row -- the row a click edits -- and a click above it is
+   correctly ignored. A click that landed outside what the plugin answers
+   to would leave the tape unchanged, and the check at the end says so
+   rather than passing quietly.
+ *
+   The three are far enough apart to land on three different cells in the
+   narrowest board in the corpus, which is loom's sixteen: gen::ca toggles
+   the cell under the press and under every drag, so a drag that came back
+   over the cell the press landed on would toggle it off again and the
+   gesture as a whole would do nothing at all. */
+const DRAW = 400;
+
+const PAINT_AT = { ca: 0.98, life: 0.5 };
+
+function clicks (name)
+{
+    const y = (PAINT_AT[name] ?? 0.5) * DRAW;
+
+    return [
+        { at: 5.0, kind: 0, x: 0.25 * DRAW, y },
+        { at: 5.1, kind: 1, x: 0.35 * DRAW, y },
+        { at: 5.2, kind: 2, x: 0.45 * DRAW, y },
+    ];
+}
+
 /* ---- one piece, both ways ---------------------------------------------- */
 
-async function run (piece, dsps)
+async function run (piece, dsps, { clicking = false } = {})
 {
     const rendering = await instance({ silent: false });
     const mirror = await instance({ silent: true });
@@ -146,8 +196,13 @@ async function run (piece, dsps)
             loaded = false;
 
     if (!loaded)
-        return fail(`${piece.name}: did not load\n      ` +
-                    rendering.log.concat(mirror.log).join('\n      '));
+    {
+        fail(`${piece.name}: did not load\n      ` +
+             rendering.log.concat(mirror.log).join('\n      '));
+        return null;
+    }
+
+    const control = clickable(rendering.M);
 
     /* The frames the module counts from are the page's, and the page's
        start wherever the audio context happens to be. One align on each
@@ -163,15 +218,28 @@ async function run (piece, dsps)
     /* A script with something in it for every path a command takes: a
        knob at a transport time, a tempo change, and a stop -- each stamped
        ahead of itself, which is what a peer's command is. */
+    const knobs = rendering.M._tw_knob_count() > 0;
+
+    /* A knob is moved inside its own range and not to some number
+       between nought and one: a piece's knob is in the piece's units, and
+       loom's is a Wolfram rule between 0 and 255 whose value 0 empties
+       the ring for good. Half its range is a knob moved; a hard zero is a
+       piece switched off, and a piece switched off composes nothing for
+       anything after it to disagree about. */
+    const of = (f) => knobs
+        ? rendering.M._tw_knob_min(0) +
+          (rendering.M._tw_knob_max(0) - rendering.M._tw_knob_min(0)) * f
+        : 0;
+
     const script = [
-        { type: 'knob', at: 2.0, knob: 0, value: 0.5 },
+        { type: 'knob', at: 2.0, knob: 0, value: of(0.6) },
         { type: 'at', op: 'tempo', at: 4.0, value: 150 },
-        { type: 'knob', at: 6.0, knob: 0, value: 0.25 },
+        { type: 'knob', at: 6.0, knob: 0, value: of(0.4) },
         { type: 'at', op: 'stop', at: 18.0 },
     ];
 
     for (const m of script)
-        if (m.type !== 'knob' || rendering.M._tw_knob_count() > 0)
+        if (m.type !== 'knob' || knobs)
             post(both, m);
 
     /* And, where the piece takes them, keys. A piece that is nothing but
@@ -194,6 +262,17 @@ async function run (piece, dsps)
 
         break;
     }
+
+    /* And the clicks, if this run is the clicked one: one more stamped
+       command, applied at `at' inside the step on both instances -- the
+       one that sounds and the one that will be drawn (JAM_M6.md, section
+       5). */
+    const gestures = clicking && control !== null ? clicks(control.name) : [];
+
+    for (const c of gestures)
+        post(both, { type: 'input', at: c.at, chain: control.chain,
+                     stage: control.stage, kind: c.kind, x: c.x, y: c.y,
+                     w: DRAW, h: DRAW, button: 1 });
 
     /* And now the loop the page runs: the worklet renders a quantum at a
        time and posts a tape batch every sixteenth, and the mirror is
@@ -235,19 +314,24 @@ async function run (piece, dsps)
              `      at event ${at} of ${heard.length}\n` +
              `      sounding: ${heard[at] ?? '(nothing)'}\n` +
              `      mirror:   ${drawn[at] ?? '(nothing)'}`);
-        return;
+        return null;
     }
 
     if (rendering.tape.length === 0)
-        return fail(`${piece.name}: composed nothing, so nothing was ` +
-                    'compared');
+    {
+        fail(`${piece.name}: composed nothing, so nothing was compared`);
+        return null;
+    }
 
     /* The reason the silent synth exists: a scheduler stepped over a synth
        nobody drains fills the command ring inside one fast-forward
        (SCHEDULER_PLACEMENT.md, section 4.4). */
     if (mirror.M._tw_dropped() !== 0)
-        return fail(`${piece.name}: the mirror dropped ` +
-                    `${mirror.M._tw_dropped()} commands`);
+    {
+        fail(`${piece.name}: the mirror dropped ` +
+             `${mirror.M._tw_dropped()} commands`);
+        return null;
+    }
 
     /* And it kept its word about the sound: tw_step renders nothing, so
        the block the renderer hands back is the mirror's silence. */
@@ -255,10 +339,18 @@ async function run (piece, dsps)
     const out = mirror.M.HEAPF32.subarray(at, at + BLOCK * 2);
 
     if (out.some((v) => v !== 0))
-        return fail(`${piece.name}: the mirror made a sound`);
+    {
+        fail(`${piece.name}: the mirror made a sound`);
+        return null;
+    }
 
-    process.stdout.write(`ok    ${piece.name.padEnd(14)} ` +
-                         `${heard.length - 1} events, one tape\n`);
+    process.stdout.write(
+        `ok    ${piece.name.padEnd(14)} ${heard.length - 1} events, one ` +
+        `tape${gestures.length > 0
+                   ? `, ${gestures.length} clicks on ${control.name}` : ''}` +
+        '\n');
+
+    return { tape: rendering.tape, control };
 }
 
 /* ---- every seeded piece ------------------------------------------------- */
@@ -274,7 +366,23 @@ for (const piece of pieces(build))
         continue;
     }
 
-    await run(piece, dsps);
+    const plain = await run(piece, dsps);
+
+    if (plain === null || plain.control === null)
+        continue;
+
+    /* And the same piece with three clicks on the stage whose picture is
+       a control. Two things have to be true of it: the mirror still
+       composed what the renderer composed -- an input is a command and
+       lands at the same point in the piece on both -- and the tape is
+       *not* the unclicked one. A click that changed nothing would look
+       exactly like agreement, which is the lesson gen/hands.gen taught
+       (JAM_M6.md, section 8.3). */
+    const clicked = await run(piece, dsps, { clicking: true });
+
+    if (clicked !== null && clicked.tape === plain.tape)
+        fail(`${piece.name}: three clicks on ${plain.control.name} ` +
+             'changed nothing, so nothing about them was tested');
 }
 
 process.stdout.write(failures === 0
