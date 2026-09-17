@@ -710,6 +710,16 @@ private:
 WebComposerCanvas *canvas_ = NULL;
 Cairo::RefPtr<Cairo::Context> canvasContext_;
 
+/* The gestures the canvas took and did not hand to a plugin, waiting for
+   the shell to turn each into a command. See tw_canvas_input_count(). */
+struct CanvasInput
+{
+    int    chain, stage, kind, button;
+    double x, y, w, h;
+};
+
+std::vector<CanvasInput> canvasInputs_;
+
 /* The piece as thcGenEdit reads it back: the authored spellings, the
    chains and their stages in order, which is what the canvas lays out.
    Kept because the canvas holds a pointer to it. */
@@ -1195,7 +1205,32 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
     std::string why;
 
     if (canvas_ == NULL)
+    {
         canvas_ = new WebComposerCanvas();
+
+        /* A gesture on an enlarged picture does not reach the plugin from
+           here. It leaves as a command, is stamped, goes round the mesh
+           and comes back at its time -- to this instance as to every
+           other (JAM_M6.md, section 5). Connecting this is what tells the
+           canvas so; the desktop connects nothing and the plugin hears
+           the click at once, as it always has. */
+        canvas_->sigInput.connect(
+            [](size_t chain, size_t stage, const thcInputEvent &ev)
+            {
+                CanvasInput in;
+
+                in.chain = (int)chain;
+                in.stage = (int)stage;
+                in.kind = (int)ev.type;
+                in.button = ev.button;
+                in.x = ev.x;
+                in.y = ev.y;
+                in.w = ev.w;
+                in.h = ev.h;
+
+                canvasInputs_.push_back(in);
+            });
+    }
 
     if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
         thcGenEdit::OK)
@@ -1293,6 +1328,104 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_width (void)
 EMSCRIPTEN_KEEPALIVE int tw_canvas_height (void)
 {
     return canvas_ != NULL ? canvas_->height() : 0;
+}
+
+/* ---- the gestures the canvas wants sent ----
+ *
+ * Drained by the shell after every press, drag and release it delivered:
+ * each one becomes an `input' command, stamped and sent, and comes back
+ * to this instance at its time like anyone else's. The shell sends at
+ * most one drag per animation frame, which is the rate a knob's slider
+ * already produces.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_input_count (void)
+{
+    return (int)canvasInputs_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_inputs_clear (void)
+{
+    canvasInputs_.clear();
+}
+
+#define TW_INPUT_FIELD(name, type, member, empty)                          \
+    EMSCRIPTEN_KEEPALIVE type tw_canvas_input_##name (int k)               \
+    {                                                                      \
+        return k >= 0 && k < (int)canvasInputs_.size()                     \
+            ? canvasInputs_[k].member : empty;                             \
+    }
+
+TW_INPUT_FIELD(chain,  int,    chain,  -1)
+TW_INPUT_FIELD(stage,  int,    stage,  -1)
+TW_INPUT_FIELD(kind,   int,    kind,   -1)
+TW_INPUT_FIELD(button, int,    button,  0)
+TW_INPUT_FIELD(x,      double, x,     0.0)
+TW_INPUT_FIELD(y,      double, y,     0.0)
+TW_INPUT_FIELD(w,      double, w,     0.0)
+TW_INPUT_FIELD(h,      double, h,     0.0)
+
+#undef TW_INPUT_FIELD
+
+/* Which stage the canvas has enlarged, or -1: the one a gesture would
+   reach, and what the page labels the view with. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_chain (void)
+{
+    return canvas_ != NULL &&
+           canvas_->enlarged().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->enlarged().chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_stage (void)
+{
+    return canvas_ != NULL &&
+           canvas_->enlarged().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->enlarged().index : -1;
+}
+
+/* Where the enlarged picture is, in the content's own coordinates -- the
+   shell multiplies by the zoom to reach its own pixels. Zero width when
+   nothing is enlarged.
+ *
+   Exported because the alternative is a shell that repeats the layout
+   arithmetic and then tests its own copy of it. Same reason the desktop's
+   harnesses can ask. */
+#define TW_ENLARGED(name, which)                                           \
+    EMSCRIPTEN_KEEPALIVE double tw_canvas_enlarged_##name (void)           \
+    {                                                                      \
+        double a[4];                                                       \
+                                                                           \
+        if (canvas_ == NULL || !canvas_->enlargedArea(a[0], a[1], a[2],    \
+                                                      a[3]))               \
+            return 0.0;                                                    \
+                                                                           \
+        return a[which];                                                   \
+    }
+
+TW_ENLARGED(x, 0)
+TW_ENLARGED(y, 1)
+TW_ENLARGED(w, 2)
+TW_ENLARGED(h, 3)
+
+#undef TW_ENLARGED
+
+/* Enlarge a stage, or put it back with a chain below zero. The canvas
+   does this itself on a double click; the page has a button too. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_enlarge (int chain, int stage)
+{
+    if (canvas_ == NULL)
+        return;
+
+    ComposerCanvas::Selection sel;
+
+    if (chain >= 0)
+    {
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = (size_t)chain;
+        sel.index = (size_t)stage;
+    }
+
+    canvas_->setEnlarged(sel);
 }
 
 /* Has anything asked for a redraw since this was last asked? The shell

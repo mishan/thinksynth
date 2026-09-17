@@ -1232,7 +1232,13 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
     ev.h = rh;
     ev.button = button;
 
-    s->plugin->input(s->state, &ev);
+    /* Whoever is listening decides when the plugin hears it; with nobody
+       listening it hears it now. See sigInput. */
+    if (sigInput.empty())
+        s->plugin->input(s->state, &ev);
+    else
+        sigInput.emit(enlarged_.chain, enlarged_.index, ev);
+
     requestRedraw();
 
     return true;

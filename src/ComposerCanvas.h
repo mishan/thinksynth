@@ -152,6 +152,22 @@ public:
     /* The enlarged stage changed (or went away). */
     sigc::signal<void (const Selection &)> sigEnlarged;
 
+    /* A gesture the enlarged stage's picture took: which stage, and the
+       event in the coordinates that stage's draw was handed.
+     *
+       Connected, the canvas emits this INSTEAD of calling the plugin.
+       That is the browser: in a room a click is a command, stamped and
+       applied at a time on every peer including the one that made it, so
+       the plugin hears it when the command comes due rather than when
+       the finger went down (JAM_M6.md, section 5). Unconnected -- the
+       desktop -- the plugin is called here, where it always was.
+     *
+       Either way the arithmetic that decides which stage was hit, whether
+       the point is inside its picture, and what x, y, w and h are is this
+       one method's, on every platform. That is the whole reason a peer's
+       click lands on the cell the clicker saw. */
+    sigc::signal<void (size_t, size_t, const thcInputEvent &)> sigInput;
+
     /* Where the enlarged picture would go, in laid-out coordinates.
        False if no stage is enlarged. Answers about the view rather than
        about whether the stage has a picture to put there.

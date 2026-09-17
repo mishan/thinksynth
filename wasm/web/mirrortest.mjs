@@ -173,9 +173,82 @@ function clicks (name)
     ];
 }
 
+/* The same three gestures, but through the canvas rather than made up.
+ *
+ * This is the composer tab's own path with the DOM taken out: the canvas
+ * in the mirror is shown the piece, a stage is enlarged, and a press, a
+ * drag and a release arrive in shell pixels -- as a pointer would deliver
+ * them. What the canvas does with them is the desktop's code: find the
+ * enlarged stage, check the point is inside its picture, convert to the
+ * coordinates the draw was handed. What it does NOT do here is call the
+ * plugin: sigInput is connected, so each gesture comes back out as a
+ * record for the shell to stamp and send (JAM_M6.md, section 5).
+ *
+ * So the coordinates every peer will apply are the ones the code that
+ * drew the rectangle worked out, which is the property that makes a
+ * click land on the cell the clicker saw.
+ */
+function throughCanvas (M, control, view)
+{
+    M._tw_canvas_viewport(0, 0, view, view);
+    M._tw_canvas_zoom_to_fit();
+    M._tw_canvas_enlarge(control.chain, control.stage);
+
+    /* The picture's rectangle, in the content's coordinates, from the
+       canvas that laid it out; the shell's pixels are those times the
+       zoom. */
+    const zoom = M._tw_canvas_zoom();
+    const x = M._tw_canvas_enlarged_x() * zoom;
+    const y = M._tw_canvas_enlarged_y() * zoom;
+    const w = M._tw_canvas_enlarged_w() * zoom;
+    const h = M._tw_canvas_enlarged_h() * zoom;
+
+    if (w <= 0 || h <= 0)
+        return { sent: [], why: 'nothing was enlarged' };
+
+    /* Where PAINT_AT says this composer answers, in shell pixels now. */
+    const at = (fx) => [x + fx * w, y + (PAINT_AT[control.name] ?? 0.5) * h];
+
+    M._tw_canvas_inputs_clear();
+
+    M._tw_canvas_press(...at(0.25), 1, 1);
+    M._tw_canvas_motion(...at(0.35));
+    M._tw_canvas_release(...at(0.45), 1);
+
+    const sent = [];
+
+    for (let k = 0; k < M._tw_canvas_input_count(); k++)
+        sent.push({
+            chain: M._tw_canvas_input_chain(k),
+            stage: M._tw_canvas_input_stage(k),
+            kind: M._tw_canvas_input_kind(k),
+            button: M._tw_canvas_input_button(k),
+            x: M._tw_canvas_input_x(k),
+            y: M._tw_canvas_input_y(k),
+            w: M._tw_canvas_input_w(k),
+            h: M._tw_canvas_input_h(k),
+        });
+
+    M._tw_canvas_inputs_clear();
+
+    /* And the arithmetic, checked where it can be: a press a quarter of
+       the way across the picture comes out a quarter of the way across
+       the coordinates the plugin will be handed, whatever the zoom and
+       wherever the picture sits in the view. */
+    const why = sent.length !== 3
+        ? `${sent.length} gestures came out of three`
+        : Math.abs(sent[0].x / sent[0].w - 0.25) > 0.01 ||
+          Math.abs(sent[1].x / sent[1].w - 0.35) > 0.01
+            ? `a press at a quarter across came out at ` +
+              `${(sent[0].x / sent[0].w).toFixed(3)}`
+            : null;
+
+    return { sent, why };
+}
+
 /* ---- one piece, both ways ---------------------------------------------- */
 
-async function run (piece, dsps, { clicking = false } = {})
+async function run (piece, dsps, { clicking = false, canvas = false } = {})
 {
     const rendering = await instance({ silent: false });
     const mirror = await instance({ silent: true });
@@ -267,12 +340,36 @@ async function run (piece, dsps, { clicking = false } = {})
        command, applied at `at' inside the step on both instances -- the
        one that sounds and the one that will be drawn (JAM_M6.md, section
        5). */
-    const gestures = clicking && control !== null ? clicks(control.name) : [];
+    let gestures = [];
 
-    for (const c of gestures)
-        post(both, { type: 'input', at: c.at, chain: control.chain,
-                     stage: control.stage, kind: c.kind, x: c.x, y: c.y,
-                     w: DRAW, h: DRAW, button: 1 });
+    if (clicking && control !== null && !canvas)
+        gestures = clicks(control.name).map((c) => (
+            { at: c.at, chain: control.chain, stage: control.stage,
+              kind: c.kind, x: c.x, y: c.y, w: DRAW, h: DRAW, button: 1 }));
+
+    /* Or the same three through the canvas, which is where a page's come
+       from. The mirror's canvas, because that is the one a page draws. */
+    if (clicking && control !== null && canvas)
+    {
+        if (!mirror.M._tw_canvas_show())
+        {
+            fail(`${piece.name}: the canvas could not read the piece`);
+            return null;
+        }
+
+        const { sent, why } = throughCanvas(mirror.M, control, DRAW);
+
+        if (why !== null)
+        {
+            fail(`${piece.name}: through the canvas, ${why}`);
+            return null;
+        }
+
+        gestures = sent.map((g, i) => ({ ...g, at: 5.0 + i * 0.1 }));
+    }
+
+    for (const g of gestures)
+        post(both, { type: 'input', ...g });
 
     /* And now the loop the page runs: the worklet renders a quantum at a
        time and posts a tape batch every sixteenth, and the mirror is
@@ -347,7 +444,9 @@ async function run (piece, dsps, { clicking = false } = {})
     process.stdout.write(
         `ok    ${piece.name.padEnd(14)} ${heard.length - 1} events, one ` +
         `tape${gestures.length > 0
-                   ? `, ${gestures.length} clicks on ${control.name}` : ''}` +
+                   ? `, ${gestures.length} clicks on ${control.name}` +
+                     `${canvas ? ' through the canvas' : ''}`
+                   : ''}` +
         '\n');
 
     return { tape: rendering.tape, control };
@@ -383,6 +482,17 @@ for (const piece of pieces(build))
     if (clicked !== null && clicked.tape === plain.tape)
         fail(`${piece.name}: three clicks on ${plain.control.name} ` +
              'changed nothing, so nothing about them was tested');
+
+    /* And once more with the gestures coming out of the canvas rather
+       than out of this file: the press, the drag and the release arrive
+       in shell pixels, the canvas works out which stage they are on and
+       where in its picture, and what it hands back is what the page
+       stamps and sends. The same tape on both instances again, and again
+       not the untouched one. */
+    const drawn = await run(piece, dsps, { clicking: true, canvas: true });
+
+    if (drawn !== null && drawn.tape === plain.tape)
+        fail(`${piece.name}: gestures through the canvas changed nothing`);
 }
 
 process.stdout.write(failures === 0
