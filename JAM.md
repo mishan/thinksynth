@@ -265,7 +265,15 @@ stands.
   of its own with its own build and test and nothing of this tree on its
   include path. The browser build draws through it already -- every
   composer's picture, gated over the whole corpus at two sizes.
-- Not yet: the mirror, the composer tab, the node editor.
+- The mirror: the same module again with a synth that never renders, fed
+  the messages the worklet is fed through one shared handler and stepped
+  to the frame the worklet's tape batch reached. Every seeded piece
+  composes one tape over the two.
+- The composer canvas compiled into the module and drawing the piece,
+  and a click on a composer's picture as one more stamped command --
+  made where the rectangle was drawn, applied at its time on every peer.
+- Not yet: the mirror's worker and the page's composer tab, and the node
+  editor.
 
 ## 1. The three kinds of state
 

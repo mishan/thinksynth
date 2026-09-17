@@ -56,8 +56,38 @@ On `jam-m6`, which starts where `game-music` ends:
   7.4's -- nothing loads or draws one until the node editor's probes do,
   and `src/thVisual.cpp` is not in the module yet -- so they come with
   the probe path and its gate rather than ahead of it.
-- Next, in order: the mirror (4), input as a command (5), the composer
-  tab (6.3), the node editor (7).
+- **The mirror** (section 4) is in as far as it can be without a page:
+  `tw_silent` and `tw_step` -- `tw_render` with the render taken out --
+  and `engine.js`, the one switch that says what a message means, which
+  both the worklet and the mirror go through. `mirrortest.mjs` gates it:
+  every seeded piece, both instances in one process, the renderer a
+  quantum at a time and the mirror told after every sixteenth how far it
+  has got, which is the batch lag the picture will have. One tape,
+  nothing dropped, nothing rendered. What is left of section 4 is the
+  plumbing: the worker, `host.js`'s second port, and the tape diff on
+  the page.
+- **The composer canvas** (section 6.2) is compiled into the module and
+  drawing: the desktop's class over cairo2d's cairomm face, with the
+  shell's four answers in a subclass, and the exports the shared shell
+  asks for -- show, draw, press, motion, release, key, zoom, fit,
+  extent, dirty. `drawcheck.mjs` draws it over every shipped piece at
+  two view sizes. What is left is the page half of the shell: the
+  element, the pointer, the replayer, the scroller.
+- **Input as a command** (section 5) is in: `tw_input` scheduled beside
+  STOP, TEMPO and KNOB and applied at `at` inside the step; `input` in
+  `commands.js`, `engine.js` and `host.js`; and `ComposerCanvas::sigInput`,
+  which is how a gesture leaves the canvas as a record to be stamped
+  rather than a call into the plugin. `mirrortest` runs every clickable
+  piece three ways -- untouched, clicked by script, and clicked through
+  the canvas in shell pixels -- and holds each clicked tape against the
+  untouched one so that a click that changed nothing cannot pass as
+  agreement.
+- Next, in order: the mirror's worker and the tape diff (4), the
+  composer tab (6.3), the node editor (7).
+- A correction to section 0a, found by the gate: **two** composers take
+  input, not three. `ca` and `life` do; `evolve` says in its own header
+  that interactive evolution wants the `composer_input` ABI and is
+  deliberately not attempted, so `boss` has no picture to click.
 
 ## 0a. Where M6 started from
 
@@ -68,8 +98,9 @@ What is in the tree that M6 builds on, and what it works around:
   or release in draw's own coordinates with the `w`, `h` it was drawn at;
   `composer_capture` hands a touched param back as text
   (`libthink/thcomposer.h`). Eight composers draw (`breed`, `ca`,
-  `euclid`, `evolve`, `life`, `lsystem`, `markov`, `morph`); three take
-  input (`ca`, `evolve`, `life`); one captures (`life`). `gencheck` already
+  `euclid`, `evolve`, `life`, `lsystem`, `markov`, `morph`); two take
+  input (`ca`, `life` -- see section 0's correction); one captures
+  (`life`). `gencheck` already
   drives `life` and `ca` through `composer_input` with scripted clicks and
   asserts the tape follows, so the ABI half of the M6 gate exists natively.
 - **The browser build strips draw and keeps input.** `THC_NO_DRAW` leaves
