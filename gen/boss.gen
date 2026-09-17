@@ -1,0 +1,361 @@
+# boss.gen -- a riff that does not move, and everything over it that does.
+#
+# The music for the room with the door that closes behind you. A
+# two-bar riff on E that never changes, stabs on a four-bar cycle over
+# it, a solo that is bred rather than written, a gear of seven
+# sixteenths turning against the four, and a swap that rebuilds the
+# solo's instrument every sixteen bars. A hundred and sixty to the
+# minute.
+#
+# THE RIFF is a depth-0 grammar in sixteenths on a ladder that is E
+# minor with the flat second and the flat fifth in it, the way
+# overworld.gen writes its tune, the four eighths at the end of the
+# second bar written as ties. It is exactly thirty-two steps long, so
+# it comes round every two bars for as long as the piece runs, and the
+# flat second it lands on is what the stabs answer:
+#
+#   E E e E  E d E E  c E E bb  E E G F   |  E E e E  E d E E  F- G-  Bb- B-
+#
+# (lower case an octave up, a dash a held eighth.) A walk keeps the
+# filter moving over it, and the Bite knob is the resonance, reaching
+# into the instrument.
+#
+# THE STABS are a tresillo -- E(3,8), one, the and of two, four --
+# whose pool is twelve roots, three a bar for four bars: two bars of E,
+# a bar of F, and a bar that walks D, C, B back to the top.
+# xform::harmonize stacks four voices by degrees of E phrygian, so E is
+# an E minor seventh, F is F major seventh, and B is the half-diminished
+# chord the phrygian scale puts there -- the quality falls out of the
+# scale, and the stabs sound like they were written for the riff
+# because they were spelled from the same seven notes.
+#
+# THE SOLO is gen::evolve on the E blues scale, thirty-two sixteenths
+# a phrase, with the Fury knob on its density: the population breeds
+# toward phrases as busy as the knob says and as unlike the last one as
+# `boredom' insists, which is what a solo over a riff that never
+# changes needs. xform::form under it says which phrases it plays:
+# three of every four, so the riff has a phrase to itself before the
+# solo comes back. Every sixteen bars gen::swap rebuilds the solo's
+# channel around the other of two voices: a hard-sync lead, and ts1
+# opened up. The swap cuts what is sounding; the solo's notes are a
+# fifth of a beat long, so it lands in a gap.
+#
+# THE GEAR is a ring of seven sixteenths with three onsets, on a tick.
+# Seven against sixteen comes round every hundred and twelve
+# sixteenths, seven bars, which is long enough that it never sounds
+# like a pattern and short enough that it never sounds like a mistake.
+# That is what it is for.
+#
+# The drums are grammars, like the riff: the kick doubles up at the
+# end of the second bar and the snare answers it, an open hat sits on
+# every offbeat, a crash once every four bars. The closed hats go
+# through xform::chance and xform::ratchet, so one in twelve is missing
+# and one in twelve is two, which is the difference between a ring and
+# a drummer.
+#
+# The walk, the GA, the humanize, the chance and the ratchet roll dice;
+# the seed is pinned for them. Self-contained: open it and press Play.
+
+name "Boss";
+author "Misha Nasledov";
+description "A riff that never moves, phrygian stabs, a bred solo, and a gear of seven.";
+
+tempo 160;
+seed 1989;
+
+@fury = 0.6;
+@fury.widget = 1;
+@fury.min = 0.25;
+@fury.max = 0.9;
+@fury.label = "Fury";
+
+# The riff's resonance, in ts1's units.
+@bite = 3;
+@bite.widget = 1;
+@bite.min = 1;
+@bite.max = 6;
+@bite.label = "Bite";
+
+scale riff_ladder "E2 F2 G2 A2 Bb2 B2 C3 D3";
+scale phrygian   "E3 F3 G3 A3 B3 C4 D4";
+scale blues      "E4 G4 A4 Bb4 B4 D5";
+
+# ---- instruments ------------------------------------------------------
+
+# The riff: an octave doubled above, the filter envelope doing the
+# snap, the resonance on the knob.
+instrument growl {
+    dsp  "ts1.dsp";
+    amp  = 24;
+
+    a    = 2 ms;
+    d    = 180 ms;
+    s    = 0.35;
+    f    = 4000 ms;
+    r    = 90 ms;
+
+    cutoff = 2.5;
+    famt   = 3;
+    res    = @bite;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 2;
+    oscfade = 0.25;
+};
+
+# brass: a saw with a pitch bend into every note and a buzz on the
+# front of it.
+instrument horns {
+    dsp  "brass.dsp";
+    amp  = 18;
+
+    a    = 8 ms;
+    d    = 80 ms;
+    s    = 0.5;
+    r    = 60 ms;
+
+    bend  = -3;
+    bendl = 30 ms;
+    buzz  = 60 ms;
+    buzzf = 30;
+
+    cutoff = 3;
+    famt   = 3;
+    res    = 2;
+    pw1    = 0.3;
+    pw2    = 0.2;
+    oscmul = 2;
+    oscfade = 0.3;
+};
+
+# Hard sync: the brightness is the sync.
+instrument scream {
+    dsp  "syncfun.dsp";
+    amp  = 16;
+
+    a    = 4 ms;
+    d    = 200 ms;
+    s    = 0.6;
+    r    = 180 ms;
+
+    syncdetune = 3.1;
+    syncmix = 0.7;
+    wave1 = 1;
+    wave2 = 1;
+    res  = 0.5;
+    fmin = 0.2;
+    fmax = 0.8;
+};
+
+# ts1 opened up and sustaining, for the other sixteen bars.
+instrument reed {
+    dsp  "ts1.dsp";
+    amp  = 12;
+
+    a    = 10 ms;
+    d    = 300 ms;
+    s    = 0.6;
+    f    = 5000 ms;
+    r    = 200 ms;
+
+    cutoff = 6;
+    famt   = 2;
+    res    = 1.2;
+    pw1    = 0.25;
+    pw2    = 0.5;
+    oscmul = 2;
+    oscfade = 0.3;
+};
+
+instrument kick {
+    dsp  "bdshaped.dsp";
+    amp  = 30;
+};
+
+instrument snare {
+    dsp  "hat0.dsp";
+    amp  = 30;
+
+    freq = 180;
+    freqmul = 1.73;
+    depth1 = 0.6;
+    depth2 = 0.7;
+    attack = 2 ms;
+    clen = 120 ms;
+    olen = 200 ms;
+    midp = 0.35;
+    cutmin = 0.25;
+    cutmax = 0.6;
+};
+
+# One hat0 for closed and open: it fades its decay between the two
+# lengths on velocity squared, so 44 is closed and 112 is open.
+instrument hat {
+    dsp  "hat0.dsp";
+    amp  = 7;
+
+    freq = 500;
+    freqmul = 1.9;
+    depth1 = 0.9;
+    depth2 = 1;
+    midp = 0.3;
+    clen = 30 ms;
+    olen = 380 ms;
+    cutmin = 0.25;
+    cutmax = 0.5;
+};
+
+instrument crash {
+    dsp  "hat0.dsp";
+    amp  = 7;
+
+    freq = 1500;
+    freqmul = 1.9;
+    clen = 700 ms;
+    olen = 1600 ms;
+    cutmin = 0.5;
+    cutmax = 0.95;
+};
+
+instrument tick {
+    dsp  "hat0.dsp";
+    amp  = 5;
+
+    freq = 2200;
+    freqmul = 2.7;
+    clen = 120 ms;
+    olen = 600 ms;
+    cutmin = 0.6;
+    cutmax = 0.9;
+};
+
+# ---- the riff ---------------------------------------------------------
+
+chain riff {
+    stage src gen::lsystem {
+        axiom = "FF++++++++F--------FF+++++++F-------FF++++++F------FF++++F----FF++F-F-FF++++++++F--------FF+++++++F-------FF+F_+F_++F_+F_";
+        rules = "";
+        depth = 0;
+        notes = riff_ladder;
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 104;
+    };
+    sink { instrument = growl; };
+};
+
+# The riff's cutoff, in ts1's units, on a period that is not a bar.
+chain snarl {
+    stage src gen::walk {
+        min = 1.5;  max = 4;  step = 0.4;  period = 1.5 beats;
+    };
+    sink { instrument = growl; chanarg = "cutoff"; };
+};
+
+# ---- the stabs --------------------------------------------------------
+
+chain stabs {
+    stage src gen::euclid {
+        steps = 8;  fills = 3;  rotate = 0;
+        notes = "E3 E3 E3  E3 E3 E3  F3 F3 F3  D3 C3 B2";
+        period = 0.5 beats;  hold = 0.38 beats;  vel = 96;
+    };
+    stage chord xform::harmonize {
+        scale = phrygian;
+        voices = 4;  step = 2;
+        spread = 0.01 s;
+        taper = 0.85;
+        root = 1;  below = 0;
+    };
+    sink { instrument = horns; };
+};
+
+# ---- the solo ---------------------------------------------------------
+
+chain solo {
+    stage src gen::evolve {
+        notes = blues;
+        length = 32;  population = 24;
+        mutate = 0.15;  density = @fury;  smooth = 0.4;
+        boredom = 0.5;
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 92;
+    };
+    stage h xform::humanize { time = 0.008 s; vel = 8; };
+    stage f xform::form { pattern = "xxx."; bar = 16 beats; mode = 0; };
+    sink { instrument = scream; };
+};
+
+# Every sixteen bars the solo's slot becomes the other voice.
+chain relay {
+    stage m gen::swap {
+        instruments = "scream,reed";
+        every = 64 beats;
+        order = 0;
+    };
+    sink { instrument = scream; };
+};
+
+# ---- the drums --------------------------------------------------------
+
+# Four to the bar, and doubles at the end of the second.
+chain kick {
+    stage src gen::lsystem {
+        axiom = "FrrrFrrrFrrrFrrrFrrrFrrrFrFrFrFF";
+        rules = "";
+        depth = 0;
+        notes = "C2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 112;
+    };
+    sink { instrument = kick; };
+};
+
+# Two and four, and one more answering the doubles.
+chain snare {
+    stage src gen::lsystem {
+        axiom = "rrrrFrrrrrrrFrrrrrrrFrrrrrrrFrFr";
+        rules = "";
+        depth = 0;
+        notes = "D2";
+        step = 0.25 beats;  hold = 0.15 beats;  vel = 108;
+    };
+    sink { instrument = snare; };
+};
+
+chain hats_closed {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 44;
+    };
+    stage c xform::chance  { prob = 0.92; };
+    stage r xform::ratchet { count = 2;  prob = 0.08;  decay = 0.8; };
+    sink { instrument = hat; };
+};
+
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.4 beats;  vel = 112;
+    };
+    sink { instrument = hat; };
+};
+
+# Once every four bars, on the one.
+chain crash {
+    stage src gen::euclid {
+        steps = 64;  fills = 1;  rotate = 0;
+        notes = "A3";
+        period = 0.25 beats;  hold = 1 beats;  vel = 120;
+    };
+    sink { instrument = crash; };
+};
+
+# ---- the gear ---------------------------------------------------------
+
+chain gear {
+    stage src gen::euclid {
+        steps = 7;  fills = 3;  rotate = 0;
+        notes = "A5";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 56;
+    };
+    sink { instrument = tick; };
+};

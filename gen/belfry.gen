@@ -1,0 +1,361 @@
+# belfry.gen -- a castle at night, in A minor with the leading tone.
+#
+# The music for the long staircase and the chandeliers: a minor key
+# that keeps its raised seventh, sixteenths running under everything,
+# a lead that climbs and falls in a hurry, a descent down the bass to
+# the dominant, and a trill on the leading tone to send it round again.
+# A hundred and thirty-six to the minute, eight bars, and a gallop.
+#
+# THE HARMONY. Eight bars of A minor with the classic descent in the
+# second half -- Am Am F G | Am G F E -- so the loop ends on the E major
+# whose G sharp is the whole reason the key is harmonic minor and not
+# natural. The arpeggios are gen::euclid, sixteen sixteenths a bar over
+# a hundred-and-twenty-eight-note pool, a chord every half bar, up and
+# down through root, third, fifth and octave: the harpsichord of
+# invention.gen with somewhere to be. The organ holds the same chords
+# from three rings in lockstep -- root, third, fifth, eight notes each
+# -- because a triad with a G sharp in it and a triad with a G natural
+# in it cannot both be spelled from one scale, so the chords are
+# stored rather than spelled, one ring per voice.
+#
+# THE LEAD is a depth-1 grammar the way invention.gen's is: the tune
+# plain with M and T in it, and rules that turn them into a mordent
+# and a trill on the note the turtle stands on. The ladder has both G
+# and G sharp on it, which is what a harmonic-minor tune needs.
+#
+# THE SECOND PULSE does two jobs, and could not have before
+# xform::form. For the first four bars it plays the lead's echo, a
+# dotted eighth late, through xform::echo with `pass' off. For the
+# last four it plays the lead a third below, through xform::harmonize
+# with the root off, so the descent to the cadence comes in thirds --
+# which is the sound everybody remembers from these games. Two chains,
+# one instrument, and `form' with a pattern of `x.' over four-bar bars
+# on the one and `.x' on the other. The Echo knob is the echo's
+# strength.
+#
+# THE DRUMS gallop: a kick in a grammar on one, the and of one, two-
+# and, three, the and of three -- and doubled up in the eighth bar --
+# a snare on two and four with two sixteenths on the way round, eighths
+# on a hat, a crash on the top of every eight bars. The hats through
+# xform::chance, so the machine misses one now and then.
+#
+# The chance rolls dice; the seed is pinned for it. Self-contained:
+# open it and press Play.
+
+name "Belfry";
+author "Misha Nasledov";
+description "A castle at night: harmonic minor, sixteenth arpeggios, a galloping kick, an echo that becomes thirds.";
+
+tempo 136;
+seed 1986;
+
+# How much of the lead comes back on the second pulse.
+@echo = 0.5;
+@echo.widget = 1;
+@echo.min = 0.05;
+@echo.max = 0.9;
+@echo.label = "Echo";
+
+# The organ's fader.
+@organ = 0.8;
+@organ.widget = 1;
+@organ.min = 0;
+@organ.max = 1;
+@organ.label = "Organ";
+
+scale ladder "A4 B4 C5 D5 E5 F5 G5 G#5";
+scale aharm  "A3 B3 C4 D4 E4 F4 G#4";
+
+# ---- instruments ------------------------------------------------------
+
+# A pulse at a quarter, the console's lead.
+instrument pulse {
+    dsp  "ts1.dsp";
+    amp  = 16;
+
+    a    = 1 ms;
+    d    = 80 ms;
+    s    = 0.75;
+    f    = 12000 ms;
+    r    = 50 ms;
+
+    blim   = 1;
+    cutoff = 8;
+    famt   = 1.2;
+    res    = 1.2;
+    pw1    = 0.25;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# A square, for the echo and the thirds.
+instrument pulse2 {
+    dsp  "ts1.dsp";
+    amp  = 13;
+
+    a    = 1 ms;
+    d    = 80 ms;
+    s    = 0.7;
+    f    = 12000 ms;
+    r    = 50 ms;
+
+    blim   = 1;
+    cutoff = 8;
+    famt   = 1.2;
+    res    = 1.2;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# The harpsichord: a thin pulse, struck and let go.
+instrument harpsi {
+    dsp  "ts1.dsp";
+    amp  = 10;
+
+    a    = 1 ms;
+    d    = 140 ms;
+    s    = 0.12;
+    f    = 3000 ms;
+    r    = 80 ms;
+
+    blim   = 1;
+    cutoff = 6;
+    famt   = 2;
+    res    = 1.5;
+    pw1    = 0.1;
+    pw2    = 0.1;
+    oscmul = 2;
+    oscfade = 0.35;
+};
+
+# A square and its sub-octave, the filter low.
+instrument bass {
+    dsp  "ts1.dsp";
+    amp  = 22;
+
+    a    = 2 ms;
+    d    = 150 ms;
+    s    = 0.5;
+    f    = 6000 ms;
+    r    = 100 ms;
+
+    cutoff = 2;
+    famt   = 3;
+    res    = 2.5;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 0.5;
+    oscfade = 0.3;
+};
+
+# organ0 on squares, the drawbars at the octave and the twelfth, a slow
+# swell: the pipes at the back of the hall.
+instrument organ {
+    dsp  "organ0.dsp";
+    amp  = 12;
+
+    waveform = 2;
+    mul1 = 2;
+    mul2 = 3;
+    mul3 = 4;
+    vmin = 0.3;
+    vmax = 0.5;
+
+    a    = 140 ms;
+    d    = 300 ms;
+    s    = 0.8;
+    r    = 500 ms;
+};
+
+instrument kick {
+    dsp  "bdshaped.dsp";
+    amp  = 26;
+};
+
+instrument snare {
+    dsp  "hat0.dsp";
+    amp  = 28;
+
+    freq = 180;
+    freqmul = 1.73;
+    depth1 = 0.6;
+    depth2 = 0.7;
+    attack = 2 ms;
+    clen = 120 ms;
+    olen = 200 ms;
+    midp = 0.35;
+    cutmin = 0.25;
+    cutmax = 0.6;
+};
+
+instrument hat {
+    dsp  "hat0.dsp";
+    amp  = 6;
+
+    freq = 500;
+    freqmul = 1.9;
+    depth1 = 0.9;
+    depth2 = 1;
+    midp = 0.3;
+    clen = 30 ms;
+    olen = 240 ms;
+    cutmin = 0.25;
+    cutmax = 0.5;
+};
+
+instrument crash {
+    dsp  "hat0.dsp";
+    amp  = 7;
+
+    freq = 1500;
+    freqmul = 1.9;
+    clen = 700 ms;
+    olen = 1600 ms;
+    cutmin = 0.5;
+    cutmax = 0.95;
+};
+
+# ---- the lead ---------------------------------------------------------
+
+chain lead {
+    stage src gen::lsystem {
+        axiom = "F_rrF_+F_+F__-F-F_++++F_M-F_-F_-F___-F_-F_+F_++F_+++F_-F_+F___+++F___--F__-F-F_-F_--F___++F___-F_++F_++++F_-F_+F___----F___-F_++F_+F_-F_-F___-F___-F_+F_+F_+F_+++F_--F_-F_-F_-F_-F_-F___--T";
+        rules = "M=F+F-F_, T=+F-F+F-F+F-F+F-F";
+        depth = 1;
+        notes = ladder;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 98;
+        accent = 12;
+    };
+    sink { instrument = pulse; };
+};
+
+# The echo, for the first four bars.
+chain echo {
+    stage src gen::lsystem {
+        axiom = "F_rrF_+F_+F__-F-F_++++F_M-F_-F_-F___-F_-F_+F_++F_+++F_-F_+F___+++F___--F__-F-F_-F_--F___++F___-F_++F_++++F_-F_+F___----F___-F_++F_+F_-F_-F___-F___-F_+F_+F_+F_+++F_--F_-F_-F_-F_-F_-F___--T";
+        rules = "M=F+F-F_, T=+F-F+F-F+F-F+F-F";
+        depth = 1;
+        notes = ladder;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 98;
+        accent = 12;
+    };
+    stage e xform::echo { repeats = 1;  time = 0.75 beats;  decay = @echo;  shift = 0;  pass = 0; };
+    stage f xform::form { pattern = "x.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = pulse2; };
+};
+
+# The thirds, for the last four.
+chain thirds {
+    stage src gen::lsystem {
+        axiom = "F_rrF_+F_+F__-F-F_++++F_M-F_-F_-F___-F_-F_+F_++F_+++F_-F_+F___+++F___--F__-F-F_-F_--F___++F___-F_++F_++++F_-F_+F___----F___-F_++F_+F_-F_-F___-F___-F_+F_+F_+F_+++F_--F_-F_-F_-F_-F_-F___--T";
+        rules = "M=F+F-F_, T=+F-F+F-F+F-F+F-F";
+        depth = 1;
+        notes = ladder;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 98;
+        accent = 12;
+    };
+    stage h xform::harmonize { scale = aharm;  voices = 2;  step = 2;  spread = 0 s;  taper = 0.8;  root = 0;  below = 1; };
+    stage f xform::form { pattern = ".x";  bar = 16 beats;  mode = 0; };
+    sink { instrument = pulse2; };
+};
+
+# ---- the arpeggios and the bass ----------------------------------------
+
+chain arpeggio {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A3 C4 E4 A4 E4 C4 A3 C4  A3 C4 E4 A4 E4 C4 A3 C4  A3 C4 E4 A4 E4 C4 A3 C4  A3 C4 E4 A4 E4 C4 A3 C4  F3 A3 C4 F4 C4 A3 F3 A3  F3 A3 C4 F4 C4 A3 F3 A3  G3 B3 D4 G4 D4 B3 G3 B3  G3 B3 D4 G4 D4 B3 G3 B3  A3 C4 E4 A4 E4 C4 A3 C4  A3 C4 E4 A4 E4 C4 A3 C4  G3 B3 D4 G4 D4 B3 G3 B3  G3 B3 D4 G4 D4 B3 G3 B3  F3 A3 C4 F4 C4 A3 F3 A3  F3 A3 C4 F4 C4 A3 F3 A3  E3 G#3 B3 E4 B3 G#3 E3 G#3  E3 G#3 B3 E4 B3 G#3 E3 G#3";
+        period = 0.25 beats;  hold = 0.18 beats;  vel = 72;
+    };
+    sink { instrument = harpsi; };
+};
+
+# Eighths in octaves: the root, the root, the octave, over each bar.
+chain bass {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A2 A2 A3 A2 A2 A3 A2 A3  A2 A2 A3 A2 A2 A3 A2 A3  F2 F2 F3 F2 F2 F3 F2 F3  G2 G2 G3 G2 G2 G3 G2 G3  A2 A2 A3 A2 A2 A3 A2 A3  G2 G2 G3 G2 G2 G3 G2 G3  F2 F2 F3 F2 F2 F3 F2 F3  E2 E2 E3 E2 E2 E3 E2 E3";
+        period = 0.5 beats;  hold = 0.4 beats;  vel = 100;
+    };
+    sink { instrument = bass; };
+};
+
+# ---- the organ --------------------------------------------------------
+
+# One chord a bar, one ring per voice, on the same clock.
+chain organ_root {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "A3 A3 F3 G3 A3 G3 F3 E3";
+        period = 4 beats;  hold = 3.8 beats;  vel = 70;
+    };
+    stage l xform::level { gain = @organ; };
+    sink { instrument = organ; };
+};
+
+chain organ_third {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "C4 C4 A3 B3 C4 B3 A3 G#3";
+        period = 4 beats;  hold = 3.8 beats;  vel = 62;
+    };
+    stage l xform::level { gain = @organ; };
+    sink { instrument = organ; };
+};
+
+chain organ_fifth {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "E4 E4 C4 D4 E4 D4 C4 B3";
+        period = 4 beats;  hold = 3.8 beats;  vel = 62;
+    };
+    stage l xform::level { gain = @organ; };
+    sink { instrument = organ; };
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::lsystem {
+        axiom = "FrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrrrFrFrFrFrFrFr";
+        rules = "";
+        depth = 0;
+        notes = "C2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 110;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::lsystem {
+        axiom = "rrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrFF";
+        rules = "";
+        depth = 0;
+        notes = "D2";
+        step = 0.25 beats;  hold = 0.15 beats;  vel = 104;
+    };
+    sink { instrument = snare; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 46;
+    };
+    stage c xform::chance { prob = 0.9; };
+    sink { instrument = hat; };
+};
+
+# Once every eight bars, on the one.
+chain crash {
+    stage src gen::euclid {
+        steps = 64;  fills = 1;  rotate = 0;
+        notes = "A3";
+        period = 0.5 beats;  hold = 1 beats;  vel = 120;
+    };
+    sink { instrument = crash; };
+};

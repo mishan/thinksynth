@@ -1,0 +1,264 @@
+# attract.gen -- one voice pretending to be a chord, and a filter that
+# breathes.
+#
+# The music a cabinet plays to an empty arcade: the tune on a loop,
+# the chords arpeggiated faster than a chord can be heard, a filter
+# sweeping up and down over all of it. A hundred and twenty-eight to
+# the minute, in A minor, and it plays until somebody puts a coin in.
+#
+# THE ARPEGGIO CHORD. A three-voice chip cannot play a chord and a
+# tune and a bass at once, so its composers played the chord's notes
+# one after another, thirty times a second, and let the ear hear
+# them at once. Here that is one gen::euclid ring of sixty-four steps
+# a thirty-second note each, every step an onset, so the ring is two
+# bars and the pool -- a hundred and twenty-eight notes, the most a
+# pool holds -- is four: root, third, fifth, root, third, fifth,
+# thirty-two of them under each of Am, F, C and G, one voice sounding
+# a chord a bar. orrery.gen's bass at sixteen times the speed. The
+# pool is the progression, the ring is the index, and one ts1 with its
+# release cut short is the voice.
+#
+# THE SWEEP. The chip's filter was one filter over everything, and
+# its composers swept it. gen::morph travels between two presets --
+# `dull' and `bright', each a cutoff and a resonance -- and back, on a
+# period of sixteen beats, and the `*' sink lands each component on
+# the chanarg it names. That is tide.gen's mechanism in service of a
+# cliche, which is what a cliche is for. A walk moves the same
+# instrument's pulse width once a beat: the other thing every chip
+# tune did.
+#
+# THE TUNE is eight bars over a four-bar progression, so the
+# accompaniment comes round twice under it, and is written as one
+# depth-0 grammar on the A minor ladder with ties for the longer notes,
+# the way overworld.gen's is. It is played on brass, which is a saw with
+# a slide into every note; the Glide knob is the slide's length, in
+# milliseconds, and reaches into the instrument. The bass is a pulse
+# with a sub-octave, in octaves, on an eighth-note ring.
+#
+# Only the walk rolls dice, and the seed is pinned for it. Self-
+# contained: open it and press Play.
+
+name "Attract";
+author "Misha Nasledov";
+description "Chords arpeggiated faster than the ear, a swept filter, a tune on a loop.";
+
+tempo 128;
+seed 1987;
+
+# The slide into each note of the tune.
+@glide = 45;
+@glide.widget = 1;
+@glide.min = 0;
+@glide.max = 120;
+@glide.label = "Glide";
+@glide.units = "ms";
+
+# How hard the arpeggio is played; the chip's filter follows velocity.
+@shine = 78;
+@shine.widget = 1;
+@shine.min = 30;
+@shine.max = 110;
+@shine.step = 1;
+@shine.label = "Shine";
+
+scale aminor "A4 B4 C5 D5 E5 F5 G5";
+
+# The two ends of the sweep, in ts1's units.
+preset dull {
+    cutoff = 1.5;
+    res    = 2.5;
+};
+
+preset bright {
+    cutoff = 7;
+    res    = 1.2;
+};
+
+# ---- instruments ------------------------------------------------------
+
+# The chip: square, no attack, a release short enough that one note
+# is gone before the next.
+instrument chip {
+    dsp  "ts1.dsp";
+    amp  = 13;
+
+    a    = 0 ms;
+    d    = 30 ms;
+    s    = 0.7;
+    f    = 12000 ms;
+    r    = 20 ms;
+
+    blim   = 1;
+    cutoff = 4;
+    famt   = 1.2;
+    res    = 1.5;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# A pulse with a sub-octave under it.
+instrument bass {
+    dsp  "ts1.dsp";
+    amp  = 24;
+
+    a    = 1 ms;
+    d    = 120 ms;
+    s    = 0.5;
+    f    = 8000 ms;
+    r    = 60 ms;
+
+    cutoff = 3;
+    famt   = 2;
+    res    = 1.5;
+    pw1    = 0.25;
+    pw2    = 0.5;
+    oscmul = 0.5;
+    oscfade = 0.3;
+};
+
+# brass without the buzz: a saw that slides up into every note.
+instrument lead {
+    dsp  "brass.dsp";
+    amp  = 22;
+
+    a    = 3 ms;
+    d    = 120 ms;
+    s    = 0.6;
+    r    = 90 ms;
+
+    bend  = -2;
+    bendl = @glide ms;
+    buzz  = 0 ms;
+    buzzf = 28;
+
+    cutoff = 5;
+    famt   = 1.5;
+    res    = 1.5;
+    pw1    = 0.3;
+    pw2    = 0.2;
+    oscmul = 2;
+    oscfade = 0.2;
+};
+
+instrument kick {
+    dsp  "bdshaped.dsp";
+    amp  = 28;
+};
+
+instrument snare {
+    dsp  "hat0.dsp";
+    amp  = 28;
+
+    freq = 180;
+    freqmul = 1.73;
+    depth1 = 0.6;
+    depth2 = 0.7;
+    attack = 2 ms;
+    clen = 120 ms;
+    olen = 200 ms;
+    midp = 0.35;
+    cutmin = 0.25;
+    cutmax = 0.6;
+};
+
+instrument hat {
+    dsp  "hat0.dsp";
+    amp  = 6;
+
+    freq = 500;
+    freqmul = 1.9;
+    depth1 = 0.9;
+    depth2 = 1;
+    midp = 0.3;
+    clen = 30 ms;
+    olen = 220 ms;
+    cutmin = 0.25;
+    cutmax = 0.5;
+};
+
+# ---- the chord --------------------------------------------------------
+
+# Sixty-four thirty-seconds, every one an onset; four bars of pool.
+chain chord {
+    stage src gen::euclid {
+        steps = 64;  fills = 64;  rotate = 0;
+        notes = "A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5 E5 A4 C5  F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4 C5 F4 A4  C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5 G5 C5 E5  G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4 D5 G4 B4";
+        period = 0.125 beats;  hold = 0.11 beats;  vel = @shine;
+    };
+    sink { instrument = chip; };
+};
+
+# Dull to bright and back, sixteen beats each way, each value landing
+# on the chanarg it names.
+chain sweep {
+    stage src gen::morph {
+        from = dull;  to = bright;
+        time = 16 beats;  steps = 48;  curve = 1;
+        mode = 2;  retrigger = 0;
+    };
+    sink { instrument = chip; chanarg = "*"; };
+};
+
+# The chip's pulse width, once a beat.
+chain width {
+    stage src gen::walk {
+        min = 0.12;  max = 0.5;  step = 0.06;  period = 1 beats;
+    };
+    sink { instrument = chip; chanarg = "pw1"; };
+};
+
+# ---- the bass ---------------------------------------------------------
+
+chain bass {
+    stage src gen::euclid {
+        steps = 32;  fills = 32;  rotate = 0;
+        notes = "A2 A3 A2 A3 A2 A3 G2 G3  F2 F3 F2 F3 F2 F3 E2 E3  C2 C3 C2 C3 C2 C3 D2 D3  G2 G3 G2 G3 F2 F3 G2 G3";
+        period = 0.5 beats;  hold = 0.4 beats;  vel = 100;
+    };
+    sink { instrument = bass; };
+};
+
+# ---- the tune ---------------------------------------------------------
+
+chain tune {
+    stage src gen::lsystem {
+        axiom = "F_++F_++F_+++F_-F___--F___+F__-F+F_++F_-F_____rr--F_++F_--F_--F_+F___+F___-F__-F-F_++F_----F_____rr+F+F+F_++F_+++F_-F_+F_+F___+F__-F-F_-F_-F___rrrr-F_-F_-F_-F_++F_-F_-F_--F_+F_____rr---F_+++F_rrrr";
+        rules = "";
+        depth = 0;
+        notes = aminor;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 96;
+    };
+    sink { instrument = lead; };
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.2 beats;  vel = 110;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.15 beats;  vel = 104;
+    };
+    sink { instrument = snare; };
+};
+
+# Offbeat eighths.
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 52;
+    };
+    sink { instrument = hat; };
+};

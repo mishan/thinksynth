@@ -1,0 +1,237 @@
+# invention.gen -- two voices on a Moog, and the ornaments are rules.
+#
+# In the spirit of Wendy Carlos: Baroque counterpoint played on a
+# monophonic synthesizer one voice per track, each voice its own patch,
+# the ornaments played in by hand rather than left off, and the filter
+# doing what a harpsichord's registration did. A two-part invention in
+# D minor, eight bars round, at ninety-two: the subject in the upper
+# voice, its answer an octave down in the bass two bars later, a
+# sequence down the circle of fifths, and a trill on the leading tone
+# to bring it back to the top.
+#
+# THE ORNAMENTS ARE RULES. Both voices are gen::lsystem, and for once
+# the rules are not empty. The axiom is the tune written plain -- F, r,
+# ties, + and - over a D minor ladder -- with three letters in it that
+# are not notes: M where a mordent goes, T where a trill goes, N where
+# a turn goes. The rules rewrite them, once:
+#
+#   M = F+F-F_            a mordent: the note, the one above, the note
+#   T = +F-F+F-F+F-F+F-F  a trill from the upper note, eight sixteenths
+#   N = +F-F-F+F          a turn: above, the note, below, the note
+#
+# The turtle is standing on the note when it reaches the letter, so one
+# rule is the right mordent on every note it is written on -- the
+# ornament is relative, which is what an ornament is. And the same
+# axiom read with the rules M = F___, T = F_______ and N = F___ is the
+# tune plain, which is how the third voice reads it.
+#
+# THE VOICES. The lead is ladder.dsp, a graph written for this piece:
+# two saws a hertz and a bit apart so they beat, a square an octave
+# under them, and the tree's four-pole ladder filter with an envelope of
+# its own that opens on every attack -- the monophonic lead of the early
+# seventies, spelled as nodes. The Bite knob is where that envelope
+# throws the filter on each note, reaching into the instrument. The bass is ts1 with a square and its
+# sub-octave, the filter low. The continuo is ts1 as a harpsichord: a
+# thin pulse, a millisecond of attack and a short decay, playing broken
+# chords in sixteenths from a hundred-and-twenty-eight-note pool -- one
+# chord per half bar, orrery.gen's lookup table -- through the changes:
+#
+#   Dm  |  A  |  Dm  |  Bb A  |  Gm C  |  F Bb  |  Edim A  |  Dm A
+#
+# The third voice is not written. xform::counterpoint hears the subject,
+# spelled plain, and puts a first-species alto under it: consonant, in
+# the scale, moving against the tune. It comes and goes every other
+# time round, through xform::form, and the Third knob is a fader on it,
+# through xform::level. A walk moves the lead's cutoff slowly, which is
+# the closest a filter gets to a registration change.
+#
+# The humanize and the walk roll dice; the seed is pinned for them.
+# Self-contained: open it and press Play.
+
+name "Invention";
+author "Misha Nasledov";
+description "A two-part invention on a Moog, the ornaments written as rules, an alto that argues.";
+
+tempo 92;
+seed 1968;
+
+# Where the lead's filter envelope peaks on each note, in the ladder's
+# 0-to-1 units.
+@bite = 0.6;
+@bite.widget = 1;
+@bite.min = 0.2;
+@bite.max = 0.95;
+@bite.label = "Bite";
+
+# The third voice's fader.
+@third = 0.7;
+@third.widget = 1;
+@third.min = 0;
+@third.max = 1;
+@third.label = "Third";
+
+scale upper "D4 E4 F4 G4 A4 Bb4 C5 C#5";
+scale lower "D2 E2 F2 G2 A2 Bb2 C3 C#3";
+scale dmin  "D3 E3 F3 G3 A3 Bb3 C#4";
+
+# ---- instruments ------------------------------------------------------
+
+# Two saws a hertz and a bit apart, a sub, and the ladder filter with
+# its own envelope: ladder.dsp, written for this piece. The Bite knob is
+# where the envelope throws the filter on each note.
+instrument lead {
+    dsp  "ladder.dsp";
+    amp  = 18;
+
+    a    = 6 ms;
+    d    = 120 ms;
+    s    = 0.7;
+    r    = 100 ms;
+
+    fa   = 3 ms;
+    fd   = 220 ms;
+    fs   = 0.2;
+    fr   = 150 ms;
+
+    detune = 1.4;
+    sub    = 0.25;
+    cutoff = 0.2;
+    fmax   = @bite;
+    res    = 0.5;
+    drive  = 1.8;
+};
+
+# A square and its sub-octave, the filter low and snapping; the notes
+# held past the next one's attack, so the line is legato.
+instrument bass {
+    dsp  "ts1.dsp";
+    amp  = 26;
+
+    a    = 2 ms;
+    d    = 160 ms;
+    s    = 0.6;
+    f    = 8000 ms;
+    r    = 160 ms;
+
+    cutoff = 2;
+    famt   = 3;
+    res    = 2.5;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 0.5;
+    oscfade = 0.3;
+};
+
+# The harpsichord: a thin pulse, struck and let go.
+instrument harpsi {
+    dsp  "ts1.dsp";
+    amp  = 13;
+
+    a    = 1 ms;
+    d    = 160 ms;
+    s    = 0.12;
+    f    = 3000 ms;
+    r    = 90 ms;
+
+    blim   = 1;
+    cutoff = 6;
+    famt   = 2;
+    res    = 1.5;
+    pw1    = 0.1;
+    pw2    = 0.1;
+    oscmul = 2;
+    oscfade = 0.35;
+};
+
+# The alto: a square, slower on, the filter half open.
+instrument alto {
+    dsp  "ts1.dsp";
+    amp  = 14;
+
+    a    = 15 ms;
+    d    = 200 ms;
+    s    = 0.7;
+    f    = 8000 ms;
+    r    = 120 ms;
+
+    cutoff = 3.5;
+    famt   = 1.5;
+    res    = 1.2;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# ---- the two voices ---------------------------------------------------
+
+chain upper {
+    stage src gen::lsystem {
+        axiom = "rr++++++++F_+F_+F_+F_+F_++++F_-F_+M----F_--F_-F_-F_-F_---F_++++++F_++F_++++F_----F_--F_--F_++F_++F_+F_--F_---F_+++F_+N-----F_++F_++++F_-F_-F_---F_++++++F_-F_-F_-F_+F_-F_-F_----F_+++++++F_-F_-F_---F_+++F_-F_-F_----F_-F_+++F_++F_++F_-F_--F_-T---F_rr";
+        rules = "M=F+F-F_, T=+F-F+F-F+F-F+F-F, N=+F-F-F+F";
+        depth = 1;
+        notes = upper;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 92;
+        accent = 12;
+    };
+    stage h xform::humanize { time = 0.006 s; vel = 5; };
+    sink { instrument = lead; };
+};
+
+# Continuo for two bars, the subject an octave down for two, and a
+# walking bass down the circle.
+chain lower {
+    stage src gen::lsystem {
+        axiom = "++++++++F_----F_++++F_++F_++F_--F_--F_----F_+++F_++F_-----F_+++++F_--F_---F_+++++++F_--F_rr+++++++F_+F_+F_+F_+F_++++F_-F_+M----F_--F_-F_-F_-F_---F_-F_---F_---F_+++F_--F_---F_--F_++F_-F_++++F_--F_++F_-F_---F_--F_++F_-F_++F_++F_--F_+F_+++++F_--F_++F_-F_++F_++F_--F_------F___F_rr";
+        rules = "M=F+F-F_, T=+F-F+F-F+F-F+F-F, N=+F-F-F+F";
+        depth = 1;
+        notes = lower;
+        step = 0.25 beats;  hold = 0.45 beats;  vel = 96;
+        accent = 12;
+    };
+    sink { instrument = bass; };
+};
+
+# ---- the continuo -----------------------------------------------------
+
+# Broken chords in sixteenths, a chord every half bar, eight bars of
+# pool.
+chain continuo {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "D4 A4 F4 A4 D5 A4 F4 A4  D4 A4 F4 A4 D5 A4 F4 A4  A3 E4 C#4 E4 A4 E4 C#4 E4  A3 E4 C#4 E4 A4 E4 C#4 E4  D4 A4 F4 A4 D5 A4 F4 A4  D4 A4 F4 A4 D5 A4 F4 A4  Bb3 F4 D4 F4 Bb4 F4 D4 F4  A3 E4 C#4 E4 A4 E4 C#4 E4  G3 D4 Bb3 D4 G4 D4 Bb3 D4  C4 G4 E4 G4 C5 G4 E4 G4  F3 C4 A3 C4 F4 C4 A3 C4  Bb3 F4 D4 F4 Bb4 F4 D4 F4  E4 Bb4 G4 Bb4 E5 Bb4 G4 Bb4  A3 E4 C#4 E4 A4 E4 C#4 E4  D4 A4 F4 A4 D5 A4 F4 A4  A3 E4 C#4 E4 A4 E4 C#4 E4";
+        period = 0.25 beats;  hold = 0.18 beats;  vel = 70;
+    };
+    sink { instrument = harpsi; };
+};
+
+# ---- the third voice --------------------------------------------------
+
+# The subject read plain, an alto put under it, every other time round.
+chain third {
+    stage src gen::lsystem {
+        axiom = "rr++++++++F_+F_+F_+F_+F_++++F_-F_+M----F_--F_-F_-F_-F_---F_++++++F_++F_++++F_----F_--F_--F_++F_++F_+F_--F_---F_+++F_+N-----F_++F_++++F_-F_-F_---F_++++++F_-F_-F_-F_+F_-F_-F_----F_+++++++F_-F_-F_---F_+++F_-F_-F_----F_-F_+++F_++F_++F_-F_--F_-T---F_rr";
+        rules = "M=F___, T=F_______, N=F___";
+        depth = 1;
+        notes = upper;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 92;
+    };
+    stage k xform::counterpoint {
+        scale = dmin;
+        below = 1;  taper = 0.85;  pass = 0;
+    };
+    stage l xform::level { gain = @third; };
+    stage f xform::form  { pattern = "x."; bar = 32 beats; mode = 0; };
+    sink { instrument = alto; };
+};
+
+# ---- registration -----------------------------------------------------
+
+# The lead's resting cutoff, in the ladder's units, on a period that is
+# not a bar.
+chain registration {
+    stage src gen::walk {
+        min = 0.12;  max = 0.32;  step = 0.04;  period = 5 beats;
+    };
+    sink { instrument = lead; chanarg = "cutoff"; };
+};
