@@ -1269,6 +1269,70 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
     return block_.data();
 }
 
+/* ---- the mirror ----
+ *
+ * A second instance of this module, in a worker, fed the messages the
+ * worklet is fed, holding real composer instances so that the composer
+ * view has something to draw (JAM_M6.md, section 4). It renders nothing:
+ * its synth is silent, and instead of tw_render it is told how far the
+ * worklet's has got and steps to there.
+ *
+ * Everything else about it is the same object doing the same thing, which
+ * is what makes its tape the worklet's tape -- and what makes the two
+ * tapes worth comparing, since a difference is a determinism bug in the
+ * piece or in this module rather than in the mirror.
+ */
+
+/* Silent from here on: notes stop at the door, the queue is still applied,
+   and process() skips the DSP (thSynth::setSilent). Called straight after
+   tw_create and before any load -- it is a kind of synth, not a mode a
+   running one flips. */
+EMSCRIPTEN_KEEPALIVE void tw_silent (void)
+{
+    synth_->setSilent(true);
+}
+
+/* Step to `toFrame': tw_render without the render.
+ *
+ * The same three calls per window, at the same window boundaries -- both
+ * instances count windows from frame zero and tw_align puts them on one
+ * numbering -- so a command lands in the window it lands in over there.
+ * The window containing `toFrame' is stepped too, because the worklet
+ * that reported it had already applied that window whole before handing
+ * out the frames inside it.
+ *
+ * process() is called here rather than by a gthSynthSource, which is the
+ * thing this instance does not have: it is what drains the command ring,
+ * and a ring nobody drains is what SCHEDULER_PLACEMENT.md section 4.4
+ * measured filling up.
+ *
+ * Returns the frame it reached.
+ */
+EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
+{
+    const int len = synth_->getWindowlen();
+
+    while (rendered_ < toFrame)
+    {
+        applyDue(rendered_, len);
+        beginDue(rendered_, len);
+        step(rendered_, len);
+        synth_->process();
+
+        rendered_ += len;
+    }
+
+    return rendered_;
+}
+
+/* Commands this instance could not queue, which on a mirror is the number
+   worth watching: a silent synth drains its ring on every step it is
+   given, so a moving number is a mirror nobody is stepping. */
+EMSCRIPTEN_KEEPALIVE double tw_dropped (void)
+{
+    return (double)synth_->droppedCommands();
+}
+
 /* The frame the next tw_render starts at. */
 EMSCRIPTEN_KEEPALIVE double tw_frame (void)
 {

@@ -1,0 +1,285 @@
+#!/usr/bin/env node
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * mirrortest.mjs -- the module twice in one process: one rendering, one
+ * mirroring, both fed the same messages. One tape?
+ *
+ *   node wasm/web/mirrortest.mjs [BUILD_DIR]
+ *
+ * The first half of JAM_M6.md's section 8.2 gate. The composer view needs
+ * real composer instances to draw, and the ones that sound are in the
+ * worklet, on the audio thread, in another realm. So the mirror: a second
+ * instance of the module, fed the messages host.js posts to the worklet,
+ * with a synth that never renders (thSynth::setSilent) and tw_step in
+ * place of tw_render. If it composes what the worklet composes, its
+ * pictures are the pictures of the piece that is sounding.
+ *
+ * What makes that plausible is that neither side has a message handler of
+ * its own: engine.js is the one switch, and both instances are driven
+ * through it here exactly as the worklet and the worker are driven through
+ * it in a browser. What makes it checked is the tape -- every note the
+ * scheduler delivered, with its time -- taken from both and compared event
+ * for event.
+ *
+ * The two are stepped as they are in a page, which is the part worth
+ * getting right: the renderer in 128-frame quanta, the mirror told after
+ * every sixteenth of them how far the renderer has got, exactly as the
+ * tape batch will tell it. So the mirror steps in whole windows, a batch
+ * behind, and has to arrive at the same tape all the same -- if it did
+ * not, a command that landed in one window here and another there would be
+ * the reason, and that is precisely the bug this is looking for.
+ *
+ * Then the two things a tape cannot show: that the mirror dropped no
+ * commands (its ring is drained by the steps it is given, and a ring
+ * nobody drains is what the silent synth exists to avoid), and that it
+ * made no sound.
+ *
+ * Exit status is the number of failures.
+ */
+
+import path from 'node:path';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+
+import { drain, tapeLine } from '../tape.mjs';
+import { apply } from './engine.js';
+import { instruments, pieces } from './piececheck.mjs';
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const build = path.resolve(process.argv[2] ??
+                           path.join(here, '..', '..', 'build-web'));
+
+const RATE = 48000;
+const WINDOW = 256;
+const BLOCK = 128;
+
+/* worklet.js's TAPE_EVERY: how many quanta between posts to the page, and
+   so how far behind the worklet the mirror is told to step. */
+const TAPE_EVERY = 16;
+
+const SECONDS = 20;
+
+let failures = 0;
+
+const fail = (what) =>
+{
+    process.stdout.write(`FAIL  ${what}\n`);
+    failures++;
+};
+
+const { default: createThinkWeb } =
+    await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
+
+/* One instance, rendering or mirroring. `silent' is the whole difference:
+   tw_silent before any load, and tw_step instead of tw_render after. */
+async function instance ({ silent })
+{
+    const log = [];
+    const M = await createThinkWeb({
+        print: (s) => log.push(s),
+        printErr: (s) => log.push(s),
+    });
+
+    M._tw_create(RATE, WINDOW, BLOCK);
+
+    if (silent)
+        M._tw_silent();
+
+    return { M, log, tape: '', events: [] };
+}
+
+/* A message to both, the way host.js posts one to two ports. */
+function post (peers, m)
+{
+    for (const p of peers)
+        if (!apply(p.M, m, { log: (t) => p.log.push(t) }))
+            throw new Error(`no message type '${m.type}'`);
+}
+
+/* The tape each instance has delivered since it was last asked. Written
+   the way genwav writes it, which is the spelling every other harness
+   here compares in. */
+function takeTape (p)
+{
+    drain(p.M, p.events);
+
+    for (const e of p.events.splice(0))
+        p.tape += tapeLine(e);
+}
+
+/* ---- one piece, both ways ---------------------------------------------- */
+
+async function run (piece, dsps)
+{
+    const rendering = await instance({ silent: false });
+    const mirror = await instance({ silent: true });
+    const both = [rendering, mirror];
+
+    for (const [name, text] of Object.entries(dsps))
+        post(both, { type: 'instrument', name, text });
+
+    let loaded = true;
+
+    post(both, { type: 'piece', text: piece.text, seed: -1 });
+
+    /* Both are asked to load the same piece and both have to agree that
+       they did: a mirror that failed a load nobody looked at would
+       compose an empty tape and match nothing. */
+    for (const p of both)
+        if (p.M._tw_piece_name() === 0)
+            loaded = false;
+
+    if (!loaded)
+        return fail(`${piece.name}: did not load\n      ` +
+                    rendering.log.concat(mirror.log).join('\n      '));
+
+    /* The frames the module counts from are the page's, and the page's
+       start wherever the audio context happens to be. One align on each
+       puts them on one numbering, which is what lets the mirror be told a
+       frame at all (thinkweb.cpp, tw_align). */
+    const origin = 123456;
+
+    post(both, { type: 'transport', op: 'start', frame: -1 });
+
+    for (const p of both)
+        p.M._tw_align(origin);
+
+    /* A script with something in it for every path a command takes: a
+       knob at a transport time, a tempo change, and a stop -- each stamped
+       ahead of itself, which is what a peer's command is. */
+    const script = [
+        { type: 'knob', at: 2.0, knob: 0, value: 0.5 },
+        { type: 'at', op: 'tempo', at: 4.0, value: 150 },
+        { type: 'knob', at: 6.0, knob: 0, value: 0.25 },
+        { type: 'at', op: 'stop', at: 18.0 },
+    ];
+
+    for (const m of script)
+        if (m.type !== 'knob' || rendering.M._tw_knob_count() > 0)
+            post(both, m);
+
+    /* And, where the piece takes them, keys. A piece that is nothing but
+       live input -- gen/hands.gen -- composes not one event without them,
+       and the `input midi' path is one a knob does not reach: the event
+       goes into the chain rather than onto a channel, and a mirror that
+       dropped it would be silent about a piece somebody is playing. */
+    for (let c = 0; c < 16; c++)
+    {
+        if (!rendering.M._tw_listens(c))
+            continue;
+
+        for (const [k, note] of [60, 64, 67].entries())
+        {
+            post(both, { type: 'midion', frame: origin + (1 + k) * RATE,
+                         channel: c, note, velocity: 100 });
+            post(both, { type: 'midioff', frame: origin + (4 + k) * RATE,
+                         channel: c, note });
+        }
+
+        break;
+    }
+
+    /* And now the loop the page runs: the worklet renders a quantum at a
+       time and posts a tape batch every sixteenth, and the mirror is
+       stepped to the frame that batch reached. */
+    let quanta = 0;
+
+    /* Frames and not transport time: the script stops the transport before
+       the end, and a loop that waited for a stopped transport to reach
+       twenty seconds would wait for ever. */
+    const until = origin + SECONDS * RATE;
+
+    while (rendering.M._tw_frame() < until)
+    {
+        rendering.M._tw_render(BLOCK);
+        takeTape(rendering);
+
+        if (++quanta < TAPE_EVERY)
+            continue;
+
+        quanta = 0;
+        mirror.M._tw_step(rendering.M._tw_frame());
+        takeTape(mirror);
+    }
+
+    /* The batch the page would post last. The mirror is a batch behind all
+       the way through and catches up here, which is the freshness the
+       picture costs and nothing else. */
+    mirror.M._tw_step(rendering.M._tw_frame());
+    takeTape(mirror);
+
+    const heard = rendering.tape.split('\n');
+    const drawn = mirror.tape.split('\n');
+
+    if (rendering.tape !== mirror.tape)
+    {
+        const at = heard.findIndex((line, i) => line !== drawn[i]);
+
+        fail(`${piece.name}: the mirror composed something else\n` +
+             `      at event ${at} of ${heard.length}\n` +
+             `      sounding: ${heard[at] ?? '(nothing)'}\n` +
+             `      mirror:   ${drawn[at] ?? '(nothing)'}`);
+        return;
+    }
+
+    if (rendering.tape.length === 0)
+        return fail(`${piece.name}: composed nothing, so nothing was ` +
+                    'compared');
+
+    /* The reason the silent synth exists: a scheduler stepped over a synth
+       nobody drains fills the command ring inside one fast-forward
+       (SCHEDULER_PLACEMENT.md, section 4.4). */
+    if (mirror.M._tw_dropped() !== 0)
+        return fail(`${piece.name}: the mirror dropped ` +
+                    `${mirror.M._tw_dropped()} commands`);
+
+    /* And it kept its word about the sound: tw_step renders nothing, so
+       the block the renderer hands back is the mirror's silence. */
+    const at = mirror.M._tw_render(BLOCK) >> 2;
+    const out = mirror.M.HEAPF32.subarray(at, at + BLOCK * 2);
+
+    if (out.some((v) => v !== 0))
+        return fail(`${piece.name}: the mirror made a sound`);
+
+    process.stdout.write(`ok    ${piece.name.padEnd(14)} ` +
+                         `${heard.length - 1} events, one tape\n`);
+}
+
+/* ---- every seeded piece ------------------------------------------------- */
+
+const dsps = instruments(build);
+
+for (const piece of pieces(build))
+{
+    if (!piece.seeded)
+    {
+        process.stdout.write(`skip  ${piece.name.padEnd(14)} pins no seed; ` +
+                             'it is not meant to repeat\n');
+        continue;
+    }
+
+    await run(piece, dsps);
+}
+
+process.stdout.write(failures === 0
+    ? '\na mirror fed the worklet\'s messages composes the worklet\'s ' +
+      'piece\n'
+    : `\n${failures} failed\n`);
+
+process.exitCode = failures;

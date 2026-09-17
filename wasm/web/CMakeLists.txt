@@ -247,7 +247,7 @@ target_link_options(thinkweb PRIVATE
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
-                patch.js host.js roll.js worklet.js)
+                patch.js host.js roll.js worklet.js engine.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)

@@ -26,6 +26,12 @@
  * a .gen, a key down, a knob moved, Play -- and process() asks the synth
  * for each 128-frame quantum, which is where the transport is stepped too.
  *
+ * What a message means is engine.js's, not this file's: the mirror is
+ * another instance of this module fed the same stream, and one switch over
+ * message types is what makes "the same stream" mean the same thing on
+ * both (JAM_M6.md, section 4). What is left here is the worklet's own --
+ * instantiating, rendering, and the tape.
+ *
  * The traffic the other way is the tape: what the scheduler delivered, the
  * transport's position, and the epoch a rewind bumps. It goes in batches
  * rather than per quantum -- a quantum is 2.7 ms and a piano roll does not
@@ -39,13 +45,11 @@
  */
 
 import createThinkWeb from './thinkweb.js';
+import { apply } from './engine.js';
 import { drain, loadErrors } from './tape.js';
 
 /* How many 128-frame quanta between posts to the page: 43 ms at 48 kHz. */
 const TAPE_EVERY = 16;
-
-/* thinkweb.cpp's TransportOp. */
-const TRANSPORT = { start: 0, stop: 1, rewind: 2, tempo: 3 };
 
 /* The glue asks for the time now and then; a worklet has no performance
    object to ask. The audio clock is the only clock here anyway. */
@@ -153,106 +157,29 @@ class ThinkProcessor extends AudioWorkletProcessor
             return;
         }
 
-        switch (m.type)
+        if (apply(this.M, m, {
+                loaded: (id, ok) =>
+                    this.port.postMessage({ type: 'loaded', id, ok }),
+                piece: (id, ok) =>
+                    this.port.postMessage({ type: 'piece', id,
+                                            ...this.piece(ok) }),
+                /* A log and not an `error': that one is the start
+                   failing, and rejects the page's promise. */
+                log: (text) =>
+                    this.port.postMessage({ type: 'log',
+                                            text: `worklet: ${text}` }),
+            }))
+            return;
+
+        /* The worklet's own. Everything sent before this has been
+           handled -- and everything delivered before it has been posted,
+           which is the half a tape needs: the batch in hand may be short
+           of TAPE_EVERY and would otherwise wait for a quantum that is
+           not coming. */
+        if (m.type === 'ping')
         {
-            case 'load':
-            {
-                const ok = this.M.ccall('tw_load', 'number',
-                                        ['number', 'string'],
-                                        [m.channel, m.text]) !== 0;
-
-                this.port.postMessage({ type: 'loaded', id: m.id, ok });
-                break;
-            }
-            case 'instrument':
-                this.M.ccall('tw_instrument', 'number', ['string', 'string'],
-                             [m.name, m.text]);
-                break;
-            case 'chanarg':
-                /* The overrides half of a .patch (patch.js). `array' is
-                   the only pointer ccall takes, so the floats cross as
-                   the bytes of one -- it stack-allocates and copies,
-                   which is what a handful of numbers wants. */
-                this.M.ccall('tw_chanarg', 'number',
-                             ['number', 'string', 'array', 'number'],
-                             [m.channel, m.name,
-                              new Uint8Array(Float32Array.from(m.values)
-                                                 .buffer),
-                              m.values.length]);
-                break;
-            case 'piece':
-            {
-                const ok = this.M.ccall('tw_piece_load', 'number',
-                                        ['string', 'number'],
-                                        [m.text, m.seed ?? -1]) !== 0;
-
-                this.port.postMessage({ type: 'piece', id: m.id,
-                                        ...this.piece(ok) });
-                break;
-            }
-            case 'transport':
-                /* Checked, because an op this does not know would reach
-                   the module as undefined, arrive as zero and start the
-                   transport -- a typo that plays the piece. */
-                if (!Object.hasOwn(TRANSPORT, m.op))
-                {
-                    /* A log and not an `error': that one is the start
-                       failing, and rejects the page's promise. */
-                    this.port.postMessage(
-                        { type: 'log',
-                          text: `worklet: no transport op '${m.op}'` });
-                    break;
-                }
-
-                this.M._tw_transport(m.frame, TRANSPORT[m.op], m.value ?? 0);
-                break;
-            case 'begin':
-                /* From the top, with transport zero at this frame exactly
-                   (thinkweb.cpp, tw_begin). */
-                this.M._tw_begin(m.frame);
-                break;
-            case 'at':
-                /* A stop or a tempo at a transport time, inside the step.
-                   The other two ops are frame-stamped and go by
-                   'transport'. */
-                if (m.op !== 'stop' && m.op !== 'tempo')
-                {
-                    this.port.postMessage(
-                        { type: 'log',
-                          text: `worklet: '${m.op}' cannot be stamped ` +
-                                'with a transport time' });
-                    break;
-                }
-
-                this.M._tw_at(m.at, TRANSPORT[m.op], m.value ?? 0);
-                break;
-            case 'knob':
-                this.M._tw_knob(m.at, m.knob, m.value);
-                break;
-            case 'midion':
-                this.M._tw_midi_on(m.frame, m.channel, m.note, m.velocity);
-                break;
-            case 'midioff':
-                this.M._tw_midi_off(m.frame, m.channel, m.note);
-                break;
-            case 'on':
-                this.M._tw_note_on(m.frame, m.channel, m.note, m.velocity);
-                break;
-            case 'off':
-                this.M._tw_note_off(m.frame, m.channel, m.note);
-                break;
-            case 'alloff':
-                this.M._tw_all_off();
-                break;
-            case 'ping':
-                /* Everything sent before this has been handled -- and
-                   everything delivered before it has been posted, which is
-                   the half a tape needs: the batch in hand may be short of
-                   TAPE_EVERY and would otherwise wait for a quantum that
-                   is not coming. */
-                this.postTape();
-                this.port.postMessage({ type: 'pong', id: m.id });
-                break;
+            this.postTape();
+            this.port.postMessage({ type: 'pong', id: m.id });
         }
     }
 
