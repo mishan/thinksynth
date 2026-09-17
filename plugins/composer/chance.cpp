@@ -22,8 +22,9 @@
  * piece drops the same hats twice.
  *
  * A dropped note's release must be dropped too -- see xform::form for
- * why an off with no on downstream is worse than nothing -- and that is
- * the only state here.
+ * why an off with no on downstream is worse than nothing, for why the
+ * dropped presses are counted as carefully as the kept ones, and for why
+ * only held notes are counted at all -- and that is the only state here.
  */
 
 #include <cstddef>
@@ -59,7 +60,8 @@ struct State {
     const thcParams *params;
     std::mt19937     rng;
 
-    std::map<int, int> down;    /* pitch -> ons kept, not yet released   */
+    std::map<int, int> down;    /* pitch -> held ons kept, not released  */
+    std::map<int, int> dropped; /* pitch -> held ons dropped, not released */
     std::set<int>      seen;
 };
 
@@ -94,18 +96,44 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         std::uniform_real_distribution<double> uni(0.0, 1.0);
         const double roll = uni(st->rng);
 
-        if (roll >= p->get(p->ctx, paramIndex[P_PROB]))
-            return;
+        /* Held notes only, and counted on whichever side of the gate
+           they fall -- xform::form spells out both halves. */
+        const bool held = ev->u.note.duration <= 0;
 
-        st->down[ev->u.note.note]++;
-        st->seen.insert(ev->u.note.note);
+        if (roll >= p->get(p->ctx, paramIndex[P_PROB]))
+        {
+            if (held)
+                st->dropped[ev->u.note.note]++;
+
+            return;
+        }
+
+        if (held)
+        {
+            st->down[ev->u.note.note]++;
+            st->seen.insert(ev->u.note.note);
+        }
+
         out->emit(out->ctx, ev);
         return;
     }
 
     if (ev->type == THC_EV_NOTEOFF)
     {
-        std::map<int, int>::iterator it = st->down.find(ev->u.note.note);
+        const int note = ev->u.note.note;
+
+        /* Asked first; see xform::form. */
+        std::map<int, int>::iterator d = st->dropped.find(note);
+
+        if (d != st->dropped.end() && d->second > 0)
+        {
+            if (--d->second == 0)
+                st->dropped.erase(d);
+
+            return;
+        }
+
+        std::map<int, int>::iterator it = st->down.find(note);
 
         if (it != st->down.end() && it->second > 0)
         {
@@ -114,7 +142,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
             out->emit(out->ctx, ev);
         }
-        else if (!st->seen.count(ev->u.note.note))
+        else if (!st->seen.count(note))
             out->emit(out->ctx, ev);
 
         return;

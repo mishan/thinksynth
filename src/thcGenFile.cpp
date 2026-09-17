@@ -1844,13 +1844,23 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
             std::vector<int> resolved;
             std::string bad;
 
-            /* One pitch, and a rest is not one: a `.' here would set the
-               param to -1 and a plugin would read a note below the
-               bottom of the keyboard. */
             if (!parseNoteList(str.text, resolved, bad) ||
-                resolved.size() != 1 || resolved[0] < 0)
+                resolved.size() != 1)
             {
                 error(str.line, "'" + pname.text + "' wants one note name");
+                return false;
+            }
+
+            /* One pitch, and a rest is not one: a `.' here would set the
+               param to -1 and a plugin would read a note below the bottom
+               of the keyboard. Said in its own words rather than folded
+               into "wants one note name", because a `.' is good spelling
+               in every note *list* in the file and being told it is not a
+               note name would read as a lie. */
+            if (resolved[0] < 0)
+            {
+                error(str.line, "'" + pname.text + "' wants a note, and a "
+                      "rest is not one");
                 return false;
             }
 

@@ -32,7 +32,9 @@
  * is: no clock, no buffer, a copy of the event with a later `at'. What
  * makes it more than one line is a held note, whose repeats are held
  * too and need releasing when the key comes up: the release goes out
- * `repeats' times as well, each as late as its on was.
+ * `repeats' times as well, each as late as its on was -- and a pitch
+ * pressed twice before that release takes the first press's repeats
+ * down as the second's go up, there being only one off to come.
  *
  * DETERMINISM. Nothing random; the copies are arithmetic.
  */
@@ -99,6 +101,33 @@ composer_destroy (void *state)
     delete static_cast<State *>(state);
 }
 
+/* Take down the repeats a held pitch put up, each as late as its on was,
+ * and forget them. Called for the key coming up and again when the same
+ * key goes down a second time without one -- counterpoint takes the first
+ * down as the second goes up for the same reason: the repeats of the
+ * first press are still sounding and only one release is ever coming. */
+static void
+release (State *st, int pitch, const thcEvent &like, thcEventSink *out)
+{
+    std::map<int, std::vector<std::pair<int, double> > >::iterator it =
+        st->held.find(pitch);
+
+    if (it == st->held.end())
+        return;
+
+    for (size_t i = 0; i < it->second.size(); i++)
+    {
+        thcEvent off = like;
+
+        off.type = THC_EV_NOTEOFF;
+        off.u.note.note = it->second[i].first;
+        off.at = like.at + it->second[i].second;
+        out->emit(out->ctx, &off);
+    }
+
+    st->held.erase(it);
+}
+
 extern "C" THINK_PLUGIN_API void
 composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 {
@@ -111,22 +140,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
         if ((int)get(P_PASS))
             out->emit(out->ctx, ev);
 
-        std::map<int, std::vector<std::pair<int, double> > >::iterator it =
-            st->held.find(ev->u.note.note);
-
-        if (it == st->held.end())
-            return;
-
-        for (size_t i = 0; i < it->second.size(); i++)
-        {
-            thcEvent off = *ev;
-
-            off.u.note.note = it->second[i].first;
-            off.at = ev->at + it->second[i].second;
-            out->emit(out->ctx, &off);
-        }
-
-        st->held.erase(it);
+        release(st, ev->u.note.note, *ev, out);
         return;
     }
 
@@ -138,6 +152,12 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     if ((int)get(P_PASS))
         out->emit(out->ctx, ev);
+
+    /* This pitch already held? Its repeats go down as the new ones go up.
+       Overwriting the list instead left the first press's repeats with no
+       release at all, since the one off still to come names the pitch and
+       not the press. */
+    release(st, ev->u.note.note, *ev, out);
 
     const int    repeats = (int)get(P_REPEATS);
     const double time    = get(P_TIME);

@@ -250,6 +250,12 @@ boardToString (const State *st)
     return out;
 }
 
+/* Degrees only, which is to say 0..127. Every other ladder in the tree
+ * filters what it is handed the same way, and GEN_FORMAT.md rests a `.'
+ * in a note list on their all doing it: a rest resolves to -1 at load and
+ * is simply not a degree. This one pushed whatever strtol returned, so a
+ * `.' here became row 0 playing note -1 and the rows above it playing 11,
+ * 23, 35 -- wrong pitches rather than the silence that was asked for. */
 static void
 parseLadder (State *st, const char *text)
 {
@@ -268,7 +274,9 @@ parseLadder (State *st, const char *text)
         if (end == p)
             break;
 
-        st->ladder.push_back((int)v);
+        if (v >= 0 && v <= 127)
+            st->ladder.push_back((int)v);
+
         p = (*end == ',') ? end + 1 : end;
     }
 

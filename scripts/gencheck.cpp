@@ -5685,6 +5685,385 @@ checkHarmonyKit (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* ---- held notes through the transformers ------------------------------ */
+
+/* An off must go where its on went, and every stage that can drop, delay
+ * or replace a note owes that. None of the three rules below is obvious,
+ * each was got wrong once, and none of them is visible in a rendered
+ * piece -- a stuck note is a piece that sounds slightly wrong an hour in.
+ * So each is played by hand here, in virtual time, live input being the
+ * only thing that asks the question at all.
+ */
+
+struct Touch
+{
+    double at;
+    int    note, vel;
+    double dur;                 /* 0: a key held down                    */
+    bool   on;
+};
+
+struct Sounded
+{
+    double at;
+    int    channel, note;
+    double dur;
+    bool   on;
+};
+
+/* Load `body', play `hand' into it, and hand back every note and off the
+ * scheduler delivered -- offs included, which is what separates this from
+ * playBody: the whole question here is which offs come out. */
+static std::vector<Sounded>
+playHand (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+          const char *what, const std::string &body,
+          const std::vector<Touch> &hand, double seconds)
+{
+    std::vector<Sounded> out;
+    const std::string path = thUtil::tempFile("gencheck-held-");
+
+    if (path.empty())
+    {
+        fail(std::string("could not write the ") + what + " piece");
+        return out;
+    }
+
+    {
+        std::ofstream f(path.c_str(), std::ios::trunc);
+
+        f << body;
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail(std::string("the ") + what + " piece did not load");
+        remove(path.c_str());
+        return out;
+    }
+
+    sigc::connection conn = sched.sigDelivered.connect(
+        [&out](const thcEvent &ev)
+        {
+            if (ev.type != THC_EV_NOTE && ev.type != THC_EV_NOTEOFF)
+                return;
+
+            Sounded s;
+
+            s.at = ev.at;
+            s.channel = ev.channel;
+            s.note = ev.u.note.note;
+            s.dur = ev.u.note.duration;
+            s.on = (ev.type == THC_EV_NOTE);
+
+            out.push_back(s);
+        });
+
+    sched.start();
+
+    size_t next = 0;
+
+    while (sched.now() < seconds)
+    {
+        sched.stepTransport(0.02);
+
+        /* `<=', and the whole backlog each step: a hand written at 0.30
+           on a 0.02 clock must not fall between two steps. */
+        while (next < hand.size() && hand[next].at <= sched.now())
+        {
+            thcEvent ev = {};
+
+            ev.type = hand[next].on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+            ev.at = sched.now();
+            ev.channel = 0;
+            ev.u.note.note = hand[next].note;
+            ev.u.note.velocity = hand[next].vel;
+            ev.u.note.duration = hand[next].dur;
+
+            sched.injectMidiEvent(ev);
+            next++;
+        }
+    }
+
+    sched.stop();
+    conn.disconnect();
+    drainSynth();
+
+    remove(path.c_str());
+
+    if (next != hand.size())
+        fail(std::string(what) + ": the hand did not finish inside the "
+             "render; the piece is shorter than the part");
+
+    return out;
+}
+
+static int
+countOff (const std::vector<Sounded> &heard)
+{
+    int n = 0;
+
+    for (size_t i = 0; i < heard.size(); i++)
+        if (!heard[i].on)
+            n++;
+
+    return n;
+}
+
+static void
+checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    {
+        const char *need[] = { "form", "echo", "counterpoint", NULL };
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                return;
+            }
+    }
+
+    /* xform::form. Bar 0 plays, bar 1 rests. A held key and a note
+       carrying its own duration both go through in bar 0; the duration
+       one never sends its off back this way, so a stage that counted it
+       would be holding a tally for pitch 60 that nothing spends. Bar 1's
+       press is dropped, and the release that follows it must be dropped
+       with it -- spending that tally instead is an off downstream for a
+       pitch this stage is not holding, which takes somebody else's note
+       down. */
+    {
+        const std::string body =
+            "chain g {\n"
+            "    input midi;\n"
+            "    stage f xform::form { pattern = \"x.\"; bar = 1 s;"
+            "        mode = 0; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        std::vector<Touch> hand;
+        const Touch part[] = {
+            { 0.10, 60, 90, 0.0, true  },   /* held, in a playing bar    */
+            { 0.30, 60, 90, 0.2, true  },   /* and one with a duration   */
+            { 0.50, 60,  0, 0.0, false },   /* the held one comes up     */
+            { 1.10, 60, 90, 0.0, true  },   /* dropped: a resting bar    */
+            { 1.30, 60,  0, 0.0, false },   /* and so is this            */
+        };
+
+        for (size_t i = 0; i < sizeof(part) / sizeof(part[0]); i++)
+            hand.push_back(part[i]);
+
+        const std::vector<Sounded> heard =
+            playHand(plugins, synth, "form", body, hand, 2.0);
+
+        int on = 0;
+
+        for (size_t i = 0; i < heard.size(); i++)
+            if (heard[i].on)
+                on++;
+
+        if (on != 2)
+            fail("form: expected the two notes in the playing bar, got " +
+                 std::to_string(on));
+
+        if (countOff(heard) != 1)
+            fail("form: expected one off -- the held note's -- and got " +
+                 std::to_string(countOff(heard)) +
+                 "; a dropped note's release was forwarded");
+    }
+
+    /* xform::counterpoint against a scale of one pitch class. Nothing is
+       a third, fifth, sixth or octave from D in a scale of nothing but C,
+       so the stage puts up nothing, and what puts up nothing takes down
+       nothing. The marker for "nothing" used to be -1 and used to go out
+       as a note number. `pass' is off, so anything at all on this tape
+       came from the stage itself. */
+    {
+        const std::string body =
+            "chain c {\n"
+            "    input midi;\n"
+            "    stage v xform::counterpoint { scale = \"C3\"; below = 1;"
+            "        pass = 0; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        std::vector<Touch> hand;
+        const Touch part[] = {
+            { 0.10, 62, 90, 0.0, true  },
+            { 0.50, 62,  0, 0.0, false },
+        };
+
+        for (size_t i = 0; i < sizeof(part) / sizeof(part[0]); i++)
+            hand.push_back(part[i]);
+
+        const std::vector<Sounded> heard =
+            playHand(plugins, synth, "counterpoint", body, hand, 1.0);
+
+        for (size_t i = 0; i < heard.size(); i++)
+            if (heard[i].note < 0 || heard[i].note > 127)
+                fail("counterpoint: delivered note " +
+                     std::to_string(heard[i].note) +
+                     ", which is not a pitch");
+
+        if (!heard.empty())
+            fail("counterpoint: a root the scale had no consonance for "
+                 "still put " + std::to_string(heard.size()) +
+                 " event(s) out");
+    }
+
+    /* xform::echo, and a key pressed twice before it comes up. Two
+       presses make two sets of repeats and only one release is ever
+       coming, so the first set has to come down as the second goes up --
+       or it never comes down at all. `pass' is off, so the count is the
+       echoes' own. */
+    {
+        const std::string body =
+            "chain e {\n"
+            "    input midi;\n"
+            "    stage r xform::echo { repeats = 2; time = 0.1 s;"
+            "        decay = 0.9; shift = 0; pass = 0; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        std::vector<Touch> hand;
+        const Touch part[] = {
+            { 0.10, 60, 100, 0.0, true  },
+            { 0.40, 60, 100, 0.0, true  },   /* again, without letting go */
+            { 0.80, 60,   0, 0.0, false },
+        };
+
+        for (size_t i = 0; i < sizeof(part) / sizeof(part[0]); i++)
+            hand.push_back(part[i]);
+
+        const std::vector<Sounded> heard =
+            playHand(plugins, synth, "echo", body, hand, 2.0);
+
+        int on = 0;
+
+        for (size_t i = 0; i < heard.size(); i++)
+            if (heard[i].on)
+                on++;
+
+        if (on != 4)
+            fail("echo: two presses at two repeats each is four echoes, "
+                 "got " + std::to_string(on));
+        else if (countOff(heard) != on)
+            fail("echo: " + std::to_string(on) + " echoes went up and " +
+                 std::to_string(countOff(heard)) +
+                 " came down; the first press's repeats are stuck");
+    }
+
+    /* xform::chance is xform::form's bookkeeping with a die in front of
+       it, so it is pinned by the rule rather than by a count: which notes
+       a seeded gate keeps is its business, but an off it lets through for
+       a press it dropped is nobody's. Only held ons are counted -- one
+       carrying a duration releases itself downstream and never appears
+       here as an off -- so the running balance for a pitch is the number
+       of keys this stage is holding down, and it cannot go negative. */
+    {
+        const std::string body =
+            "seed 7;\n"
+            "chain d {\n"
+            "    input midi;\n"
+            "    stage g xform::chance { prob = 0.5; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        std::vector<Touch> hand;
+
+        for (int i = 0; i < 8; i++)
+        {
+            const double t = 0.1 + i * 0.4;
+            const Touch bar[] = {
+                { t,        60, 90, 0.2, true  },  /* releases itself    */
+                { t + 0.15, 60, 90, 0.0, true  },  /* a key held down    */
+                { t + 0.30, 60,  0, 0.0, false },  /* and let go         */
+            };
+
+            for (size_t k = 0; k < sizeof(bar) / sizeof(bar[0]); k++)
+                hand.push_back(bar[k]);
+        }
+
+        const std::vector<Sounded> heard =
+            playHand(plugins, synth, "chance", body, hand, 4.0);
+
+        if (heard.empty())
+            fail("chance: a gate at even odds let nothing through in "
+                 "twenty-four events; the piece is not playing");
+
+        int holding = 0;
+
+        for (size_t i = 0; i < heard.size(); i++)
+        {
+            if (heard[i].on)
+            {
+                if (heard[i].dur <= 0)
+                    holding++;
+            }
+            else if (--holding < 0)
+            {
+                fail("chance: an off came through for a press that did "
+                     "not, at " + std::to_string(heard[i].at) + " s");
+                break;
+            }
+        }
+    }
+
+    /* Not a held note, but the same shape of mistake: a value that is not
+       a pitch reaching a sink as one. GEN_FORMAT.md lets a `.' into any
+       note list and rests the whole idea on every ladder filtering what
+       it is handed to 0..127. gen::life climbs a ladder and was the one
+       that did not, so a rest in its scale played note -1 on row 0 and
+       notes 11, 23, 35 above it -- a wrong pitch rather than a silence.
+       Checked here rather than in a shipped piece because no shipped
+       piece writes a rest into a life ladder, which is exactly why it
+       went unnoticed. */
+    if (plugins.find("life") == plugins.end())
+        fail("module 'life' is missing; build the plugins first");
+    else
+    {
+        const std::string body =
+            "scale gapped \"C3 . E3 . G3\";\n"
+            "chain b {\n"
+            "    stage board gen::life {\n"
+            "        board = \"............/"
+            "............/............/....OOO...../"
+            "............/............\";\n"
+            "        width = 12; height = 6;\n"
+            "        scatter = 0; trigger = 0; wrap = 1;\n"
+            "        notes = gapped;\n"
+            "        period = 0.1 s; hold = 0.05 s; vel = 84;\n"
+            "    };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        const std::vector<Heard> heard =
+            playBody(plugins, synth, "life-rest", body, 4.0);
+
+        if (heard.empty())
+            fail("life: a blinker on a gapped ladder played nothing");
+
+        for (size_t i = 0; i < heard.size(); i++)
+            if (heard[i].note < 0 || heard[i].note > 127)
+            {
+                fail("life: a rest in the ladder played note " +
+                     std::to_string(heard[i].note) +
+                     ", which is not a pitch");
+                break;
+            }
+    }
+}
+
 /* The corpus instinct, applied to .gen.
  *
  * Everything above builds its own files or leans on the one piece passed
@@ -5867,6 +6246,7 @@ main (int argc, char *argv[])
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
+    checkHeldNotes(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that

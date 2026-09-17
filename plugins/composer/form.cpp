@@ -38,8 +38,11 @@
  * playing bar and released in a resting one still needs its release,
  * and a note dropped must have its off dropped too, or something
  * downstream gets an off for a pitch it never heard and takes another
- * stage's note down with it. The count of ons this stage has passed
- * for each pitch is what decides.
+ * stage's note down with it. So both sides are counted: the held presses
+ * that went through, whose offs go through too, and the held presses
+ * that did not, whose offs are swallowed. A note carrying its own
+ * duration is counted on neither side -- its off is derived downstream
+ * and never comes back here to be matched against anything.
  *
  * DETERMINISM. A function of the time and the pattern; nothing random.
  */
@@ -81,7 +84,8 @@ composer_init (thcComposerInfo *info)
 struct State {
     const thcParams *params;
 
-    std::map<int, int> down;    /* pitch -> ons passed, not yet released */
+    std::map<int, int> down;    /* pitch -> held ons passed, not released */
+    std::map<int, int> dropped; /* pitch -> held ons dropped, not released */
     std::set<int>      seen;    /* every pitch ever passed; see harmonize */
 };
 
@@ -142,18 +146,54 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     if (ev->type == THC_EV_NOTE)
     {
-        if (!open(st, ev->at))
-            return;
+        /* Held notes only, on both sides of the gate. One that carries
+           its own duration has its off derived downstream and never
+           routed back through here, so there is nothing to match it
+           against and remembering it only leaves a tally that the next
+           note at that pitch spends by mistake. harmonize and swing
+           guard the same way. */
+        const bool held = ev->u.note.duration <= 0;
 
-        st->down[ev->u.note.note]++;
-        st->seen.insert(ev->u.note.note);
+        if (!open(st, ev->at))
+        {
+            /* Dropped -- and a dropped press owes its release the same
+               silence. Without this the off arrives later looking like
+               anybody's, gets forwarded as an orphan, and takes down
+               whatever else is sounding at that pitch. */
+            if (held)
+                st->dropped[ev->u.note.note]++;
+
+            return;
+        }
+
+        if (held)
+        {
+            st->down[ev->u.note.note]++;
+            st->seen.insert(ev->u.note.note);
+        }
+
         out->emit(out->ctx, ev);
         return;
     }
 
     if (ev->type == THC_EV_NOTEOFF)
     {
-        std::map<int, int>::iterator it = st->down.find(ev->u.note.note);
+        const int note = ev->u.note.note;
+
+        /* Asked first: an off downstream for a press that never went out
+           is the expensive mistake, and a swallowed one is only silence
+           that was already silent. */
+        std::map<int, int>::iterator d = st->dropped.find(note);
+
+        if (d != st->dropped.end() && d->second > 0)
+        {
+            if (--d->second == 0)
+                st->dropped.erase(d);
+
+            return;
+        }
+
+        std::map<int, int>::iterator it = st->down.find(note);
 
         if (it != st->down.end() && it->second > 0)
         {
@@ -162,7 +202,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
             out->emit(out->ctx, ev);
         }
-        else if (!st->seen.count(ev->u.note.note))
+        else if (!st->seen.count(note))
             out->emit(out->ctx, ev);       /* an orphan; forward it     */
 
         return;

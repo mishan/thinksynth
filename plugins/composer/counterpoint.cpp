@@ -46,7 +46,9 @@
  * HELD NOTES. As in harmonize: the pitch chosen for each sounding root
  * is remembered, so the root's release takes down exactly the note it
  * put up, and a root pressed twice before its release takes the first
- * down as the second goes up.
+ * down as the second goes up. A root the scale had no consonance for is
+ * remembered too, as having put up nothing -- harmonize's empty chord --
+ * and only held roots are remembered at all.
  */
 
 #include <cstdlib>
@@ -220,11 +222,18 @@ release (State *st, int root, const thcEvent &like, thcEventSink *out)
     if (it == st->sounding.end())
         return;
 
-    thcEvent off = like;
+    /* Recorded with nothing under it: the scale offered this root no
+       consonance, so there is nothing to take down and forgetting it is
+       the whole release. Emitting the marker as a note number was how
+       a THC_EV_NOTEOFF for note -1 used to reach delNote. */
+    if (it->second >= 0)
+    {
+        thcEvent off = like;
 
-    off.type = THC_EV_NOTEOFF;
-    off.u.note.note = it->second;
-    out->emit(out->ctx, &off);
+        off.type = THC_EV_NOTEOFF;
+        off.u.note.note = it->second;
+        out->emit(out->ctx, &off);
+    }
 
     st->sounding.erase(it);
 }
@@ -265,27 +274,32 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     if (pass)
         out->emit(out->ctx, ev);
 
-    st->seen.insert(root);
-
     const int c = choose(st, root, (int)get(P_BELOW) != 0);
 
-    if (c < 0)
+    if (c >= 0)
     {
-        st->sounding[root] = -1;
-        return;
+        thcEvent copy = *ev;
+        const int v = (int)(ev->u.note.velocity * get(P_TAPER) + 0.5);
+
+        copy.u.note.note = c;
+        copy.u.note.velocity = v < 1 ? 1 : v > 127 ? 127 : v;
+
+        out->emit(out->ctx, &copy);
+
+        st->lastMelody = root;
+        st->lastCounter = c;
     }
 
-    thcEvent copy = *ev;
-    const int v = (int)(ev->u.note.velocity * get(P_TAPER) + 0.5);
-
-    copy.u.note.note = c;
-    copy.u.note.velocity = v < 1 ? 1 : v > 127 ? 127 : v;
-
-    out->emit(out->ctx, &copy);
-
-    st->lastMelody = root;
-    st->lastCounter = c;
-
+    /* Held notes only, and recorded even when the scale had no consonance
+       to offer -- as harmonize records an empty chord -- so the release
+       knows there is nothing to take down instead of guessing. A note
+       carrying its own duration has its off derived downstream and never
+       routed back here, so remembering it would strand both maps: a
+       `sounding' entry nothing spends, and a `seen' entry that turns off
+       the orphan branch below for a pitch this stage is not holding. */
     if (ev->u.note.duration <= 0)
+    {
         st->sounding[root] = c;
+        st->seen.insert(root);
+    }
 }
