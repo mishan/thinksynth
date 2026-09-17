@@ -942,6 +942,15 @@ EMSCRIPTEN_KEEPALIVE const char *tw_instrument_name (int k)
         ? sched_->instruments()[k].name.c_str() : "";
 }
 
+/* The .dsp an instrument plays, which is what connects a file in the
+   document to a channel in the synth -- what the node editor needs to know
+   before it can arm a tap on the instrument it is showing. */
+EMSCRIPTEN_KEEPALIVE const char *tw_instrument_dsp (int k)
+{
+    return k >= 0 && k < (int)sched_->instruments().size()
+        ? sched_->instruments()[k].dsp.c_str() : "";
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_instrument_channel (int k)
 {
     return k >= 0 && k < (int)sched_->instruments().size()

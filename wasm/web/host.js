@@ -144,6 +144,10 @@ export async function createSynth (ctx, { windowlen = 256,
                 waiting.get(m.id)?.(m.ok);
                 waiting.delete(m.id);
                 break;
+            case 'probed':
+                waiting.get(m.id)?.({ slot: m.slot, why: m.why });
+                waiting.delete(m.id);
+                break;
             case 'piece':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
@@ -276,6 +280,29 @@ export async function createSynth (ctx, { windowlen = 256,
            a request for a frame. Nothing here reaches the worklet, which
            has no canvas and no use for any of it. */
         toMirror: (m) => mirror?.postMessage(m),
+
+        /* A tap on one arg of one node of whatever is loaded on a
+           channel. Resolves to { slot, why }: a slot is only good until
+           the next load on that channel, which disarms every probe
+           pointing at it (thSynth.h).
+         *
+           To the worklet alone, and deliberately: a probe is a tap on
+           what is being rendered, and the mirror renders nothing. */
+        probe: (channel, nodeName, arg) => new Promise((resolve) =>
+        {
+            const id = nextId++;
+
+            waiting.set(id, resolve);
+
+            /* `nodeName' and not `node': the AudioWorkletNode is called
+               that in this closure, and a parameter that shadowed it
+               would have posted the message to a string. */
+            node.port.postMessage({ type: 'probe', id, channel,
+                                    node: nodeName, arg });
+        }),
+
+        unprobe: (slot) =>
+            node.port.postMessage({ type: 'unprobe', slot }),
 
         /* Resolves once the worklet has handled everything sent so far. */
         flush: () => ask({ type: 'ping' }),

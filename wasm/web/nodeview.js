@@ -60,7 +60,9 @@ const SIG = {
 const BOX = { NODE: 0, CONTROL: 1, IO_IN: 2, IO_OUT: 3, PROBE: 4 };
 
 export async function createNodeView ({ doc, root = document,
-                                        onStatus = () => {} })
+                                        onStatus = () => {},
+                                        probe = null, unprobe = null,
+                                        sampleRate = 48000 })
 {
     const $ = (id) => root.getElementById(id);
 
@@ -80,6 +82,16 @@ export async function createNodeView ({ doc, root = document,
     let file = null;            /* the .dsp this is showing */
     let watching = null;        /* its Y.Text, while observed */
     let selected = -1;
+
+    /* The probes armed on this patch: the slot the worklet gave back, the
+       display this instance opened for it, and what it is watching. A
+       probe is not in the file -- it is a display -- so these are rebuilt
+       against the graph after every change (JAM_M6.md, section 7.4). */
+    const probes = [];
+
+    /* Which channel the piece put this instrument on, and so which one a
+       tap is armed on. Set by the page when it knows. */
+    let channel = -1;
 
     const text = () => (file === null ? '' : readFile(doc, file) ?? '');
 
@@ -216,6 +228,14 @@ export async function createNodeView ({ doc, root = document,
                     onStatus('Cutting a wire from the canvas is not in yet.');
                     break;
 
+                /* A right-click: what can be done here. Probing is the
+                   one thing the canvas does not know about, since the
+                   modules and the channel are somebody else's -- so the
+                   answer is here, as it is in NodeEditor. */
+                case SIG.CONTEXT:
+                    armProbe(a, M._tw_node_signal_b(i));
+                    break;
+
                 case SIG.REFUSED:
                     onStatus(M.UTF8ToString(M._tw_node_signal_text(i)));
                     break;
@@ -276,6 +296,113 @@ export async function createNodeView ({ doc, root = document,
                   call('tw_graph_port_name', ['number', 'number'],
                        [fromBox, fromPort])]);
     }
+
+    /* ---- probes ----
+     *
+     * Three things at once, in three places: a tap in the worklet on the
+     * channel this instrument is loaded on, a display in this instance,
+     * and a panel on the canvas. The samples come back with the tape.
+     */
+
+    /* A right-click on a box's output port arms one; on a port that is
+       already probed, it takes it away. The visual is the first module
+       this build has, which is the meter -- picking one is a menu, and a
+       menu is the next piece of page after this. */
+    async function armProbe (box, port)
+    {
+        if (probe === null || channel < 0 || box < 0 || port < 0)
+            return;
+
+        if (M._tw_graph_port_is_input(box, port))
+            return;
+
+        const node = call('tw_graph_box_name', ['number'], [box]);
+        const arg = call('tw_graph_port_name', ['number', 'number'],
+                         [box, port]);
+        const already = probes.findIndex((p) => p.node === node &&
+                                                p.arg === arg);
+
+        if (already >= 0)
+        {
+            const p = probes[already];
+
+            unprobe?.(p.slot);
+            M._tw_probe_close(p.display);
+            probes.splice(already, 1);
+            onStatus(`Stopped watching ${node}.${arg}.`);
+            rebuild();
+            return;
+        }
+
+        const visual = call('tw_visual_name', ['number'], [0]);
+        const { slot, why } = await probe(channel, node, arg);
+
+        if (slot < 0)
+        {
+            onStatus(`${node}.${arg} cannot be probed: ${why}`);
+            return;
+        }
+
+        const display = M.ccall('tw_probe_open', 'number',
+                                ['string', 'string', 'string', 'number',
+                                 'number'],
+                                [visual, node, arg, -1, sampleRate]);
+
+        if (display < 0)
+        {
+            unprobe?.(slot);
+            onStatus(`the ${visual} module would not open`);
+            return;
+        }
+
+        probes.push({ slot, display, node, arg, visual });
+        onStatus(`Watching ${node}.${arg} with a ${visual}.`);
+        rebuild();
+    }
+
+    /* The panels, put back after a rebuild: a probe is not in the patch,
+       so building the graph from the text loses them every time and the
+       page is what remembers. */
+    function showProbes ()
+    {
+        for (const p of probes)
+        {
+            const box = M.ccall('tw_probe_panel', 'number',
+                                ['string', 'string', 'string', 'number'],
+                                [p.node, p.arg, p.visual, 0]);
+
+            M._tw_probe_box(p.display, box);
+        }
+    }
+
+    /* Samples from the worklet, by slot: into the display, and a frame. */
+    const feed = (taps) =>
+    {
+        let any = false;
+
+        for (const tap of taps ?? [])
+        {
+            const p = probes.find((q) => q.slot === tap.slot);
+
+            if (p === undefined || tap.samples.length === 0)
+                continue;
+
+            const at = M._tw_probe_buffer();
+            const room = M._tw_probe_buffer_size();
+
+            /* The newest, if more than a bufferful arrived: a display
+               shows what is happening now. */
+            const many = Math.min(tap.samples.length, room);
+            const from = tap.samples.length - many;
+
+            M.HEAPF32.set(tap.samples.subarray(from), at >> 2);
+            M._tw_probe_feed(p.display, at, many);
+            any = true;
+        }
+
+        if (any)
+            paint();
+    };
 
     /* ---- the forms ---- */
 
@@ -415,6 +542,7 @@ export async function createNodeView ({ doc, root = document,
         }
 
         M.ccall('tw_graph_apply_layout', 'number', ['string'], [source]);
+        showProbes();
 
         /* A selection is an index into the boxes, and a rebuild makes new
            ones. Kept only when it still names something. */
@@ -495,14 +623,33 @@ export async function createNodeView ({ doc, root = document,
                 M._tw_graph_param_has_value(i, p))
                 settable = true;
 
+        /* Its ports, where they sit: a port is where a wire starts and
+           where a probe is armed, and only the layout knows where one
+           is. In shell pixels, like the box. */
+        const zoom = M._tw_node_canvas_zoom();
+        const ports = [];
+
+        for (let p = 0; p < M._tw_graph_port_count(i); p++)
+            ports.push({
+                name: call('tw_graph_port_name', ['number', 'number'],
+                           [i, p]),
+                isInput: M._tw_graph_port_is_input(i, p) !== 0,
+                x: (M._tw_graph_box_x(i) + M._tw_graph_port_x(i, p)) * zoom,
+                y: (M._tw_graph_box_y(i) + M._tw_graph_port_y(i, p)) * zoom,
+            });
+
         return { name: call('tw_graph_box_name', ['number'], [i]),
                  kind: M._tw_graph_box_kind(i),
                  settable,
-                 x: M._tw_graph_box_x(i) * M._tw_node_canvas_zoom(),
-                 y: M._tw_graph_box_y(i) * M._tw_node_canvas_zoom() };
+                 ports,
+                 x: M._tw_graph_box_x(i) * zoom,
+                 y: M._tw_graph_box_y(i) * zoom };
     };
 
-    return { offer, show, rebuild, boxAt,
+    return { offer, show, rebuild, boxAt, feed,
+             /* Which channel this instrument is on, for arming a tap. */
+             onChannel: (c) => { channel = c; },
              boxes: () => M._tw_graph_box_count(),
+             probes: () => probes.length,
              selected: () => selected };
 }

@@ -568,6 +568,28 @@ EMSCRIPTEN_KEEPALIVE const char *tw_graph_port_name (int b, int p)
     return box->ports[(size_t)p].name.c_str();
 }
 
+/* Where a port sits, as an offset from its box's top-left in the content's
+   own coordinates: what a shell has to know to put a pointer on one. */
+EMSCRIPTEN_KEEPALIVE double tw_graph_port_x (int b, int p)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    if (box == NULL || p < 0 || (size_t)p >= box->ports.size())
+        return 0.0;
+
+    return box->ports[(size_t)p].x;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_graph_port_y (int b, int p)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    if (box == NULL || p < 0 || (size_t)p >= box->ports.size())
+        return 0.0;
+
+    return box->ports[(size_t)p].y;
+}
+
 EMSCRIPTEN_KEEPALIVE int tw_graph_port_is_input (int b, int p)
 {
     const NodeGraph::Box *box = boxAt(b);

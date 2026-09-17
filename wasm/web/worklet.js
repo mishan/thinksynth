@@ -87,6 +87,13 @@ class ThinkProcessor extends AudioWorkletProcessor
         this.early = [];        /* messages that arrived before the module */
         this.quanta = 0;        /* since the last post to the page */
         this.events = [];
+
+        /* The probes armed here, by slot, and what each has published
+           since the last batch. A probe is a tap on one arg of one node
+           of whatever is loaded on a channel; the page displays it
+           (JAM_M6.md, section 7.4). */
+        this.probes = new Set();
+        this.taps = new Map();
         this.epoch = 0;         /* the epoch this.events belong to */
         this.port.onmessage = (e) => this.receive(e.data);
 
@@ -171,6 +178,34 @@ class ThinkProcessor extends AudioWorkletProcessor
             }))
             return;
 
+        /* A tap, armed on this thread -- which is the GUI thread and the
+           audio thread at once here, so the call that resolves the node
+           and the call that drains the ring are on the same one. */
+        if (m.type === 'probe')
+        {
+            const slot = this.M.ccall('tw_probe_arm', 'number',
+                                      ['number', 'string', 'string'],
+                                      [m.channel, m.node, m.arg]);
+
+            if (slot >= 0)
+                this.probes.add(slot);
+
+            this.port.postMessage({
+                type: 'probed', id: m.id, slot,
+                why: this.M.UTF8ToString(this.M._tw_probe_why()),
+            });
+
+            return;
+        }
+
+        if (m.type === 'unprobe')
+        {
+            this.M._tw_probe_disarm(m.slot);
+            this.probes.delete(m.slot);
+            this.taps.delete(m.slot);
+            return;
+        }
+
         /* The worklet's own. Everything sent before this has been
            handled -- and everything delivered before it has been posted,
            which is the half a tape needs: the batch in hand may be short
@@ -218,6 +253,9 @@ class ThinkProcessor extends AudioWorkletProcessor
         for (let i = 0; i < this.M._tw_instrument_count(); i++)
             instruments.push({
                 name: this.M.UTF8ToString(this.M._tw_instrument_name(i)),
+                /* The .dsp it plays, which is what ties a file in the
+                   document to a channel in the synth. */
+                dsp: this.M.UTF8ToString(this.M._tw_instrument_dsp(i)),
                 channel: this.M._tw_instrument_channel(i),
             });
 
@@ -306,11 +344,48 @@ class ThinkProcessor extends AudioWorkletProcessor
            of a busy piece pile up there would be a megabyte nobody asked
            for. */
         drain(this.M, this.events);
+        this.drainProbes();
 
         if (++this.quanta >= TAPE_EVERY)
             this.postTape();
 
         return true;
+    }
+
+    /* What each armed tap has published since the last quantum, copied
+       out of the heap. The ring is the synth's and is overwritten; these
+       are held until the next batch goes to the page.
+     *
+       Eight probes at a couple of thousand samples is 64 KB a batch and a
+       megabyte and a half a second at the very most -- and nothing at all
+       when none is armed, which is the usual case. */
+    drainProbes ()
+    {
+        for (const slot of this.probes)
+        {
+            const got = this.M._tw_probe_read(slot);
+
+            if (got === 0)
+                continue;
+
+            const at = this.M._tw_probe_samples() >> 2;
+            const samples = this.M.HEAPF32.slice(at, at + got);
+            const had = this.taps.get(slot);
+
+            if (had === undefined)
+            {
+                this.taps.set(slot, samples);
+                continue;
+            }
+
+            /* Two quanta in one batch: the older first, since a visual
+               module is fed a signal and not a set of windows. */
+            const both = new Float32Array(had.length + samples.length);
+
+            both.set(had);
+            both.set(samples, had.length);
+            this.taps.set(slot, both);
+        }
     }
 
     postTape ()
@@ -329,8 +404,11 @@ class ThinkProcessor extends AudioWorkletProcessor
             origin: this.M._tw_origin(),
             late: this.M._tw_late(),
             events: this.events,
-        });
+            probes: [...this.taps].map(([slot, samples]) => ({ slot,
+                                                               samples })),
+        }, [...this.taps.values()].map((s) => s.buffer));
         this.events = [];
+        this.taps.clear();
     }
 }
 
