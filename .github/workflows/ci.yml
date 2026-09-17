@@ -457,7 +457,16 @@ jobs:
           git -C "$tap" checkout -q FETCH_HEAD
           brew uninstall --ignore-dependencies glib
           brew install glib
+          # Explicitly, because the runner image turns out to keep 2.88.3
+          # in the Cellar already: `brew install' then finds it there,
+          # says "already installed, it's just not linked", and leaves it
+          # that way -- no glib-2.0.pc, so gtkmm-4.0.pc cannot resolve and
+          # the configure below fails looking for gtkmm rather than glib.
+          brew link --overwrite glib
+          # And the step says whether it worked, rather than leaving the
+          # configure to discover it three steps later.
           brew list --versions glib
+          pkg-config --modversion glib-2.0 gtkmm-4.0
 
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
