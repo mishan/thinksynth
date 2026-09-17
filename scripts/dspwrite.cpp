@@ -108,6 +108,183 @@ static bool spit (const string &path, const string &text)
     return out.good();
 }
 
+/* ---- both ways at once --------------------------------------------------
+ *
+ * Every edit NodeEdit offers comes in two: one over a file, which is what
+ * the desktop does, and one over the file's text, which is what a browser
+ * tab does -- there the document *is* the patch and there is no file at
+ * all (JAM_M6.md, section 7.1).
+ *
+ * They have to be the same edit. Not "equivalent": the same bytes, the
+ * same Result and the same sentence, or a patch edited in a room stops
+ * being the patch the desktop would have written.
+ *
+ * So the sweep below goes through these rather than through NodeEdit
+ * directly. Each runs the text path over a copy of the file's bytes, runs
+ * the file path, and holds the two against each other -- which means every
+ * one of the forty call sites in this harness checks both, and a text
+ * overload that drifts from its file overload fails on the first .dsp in
+ * the corpus that reaches it.
+ */
+namespace both {
+
+static int disagreements = 0;
+static int checked = 0;
+
+static NodeEdit::Result agree (const char *what, const string &file,
+                               const string &was, NodeEdit::Result fileR,
+                               const string &fileWhy, NodeEdit::Result textR,
+                               const string &textWhy, const string &text)
+{
+    string after;
+
+    slurp(file, after);
+    checked++;
+
+    if (fileR != textR)
+        printf("FAIL  %s over text answered %s, over a file %s\n", what,
+               NodeEdit::resultText(textR), NodeEdit::resultText(fileR));
+    else if (fileWhy != textWhy)
+        printf("FAIL  %s said \"%s\" over text and \"%s\" over a file\n",
+               what, textWhy.c_str(), fileWhy.c_str());
+    else if (after != text)
+        printf("FAIL  %s wrote %zu bytes over a file and %zu over text\n",
+               what, after.size(), text.size());
+    else
+        return fileR;
+
+    (void)was;
+    disagreements++;
+
+    return fileR;
+}
+
+static NodeEdit::Result setValue (const string &file, const string &node,
+                                  const string &arg, double value,
+                                  string &why)
+{
+    string text, textWhy;
+
+    slurp(file, text);
+
+    const string was = text;
+    const NodeEdit::Result t = NodeEdit::Text::setValue(text, node, arg, value,
+                                                  textWhy);
+    const NodeEdit::Result r = NodeEdit::setValue(file, node, arg, value, why);
+
+    return agree("setValue", file, was, r, why, t, textWhy, text);
+}
+
+static NodeEdit::Result setChanArg (const string &file, const string &name,
+                                    double value, string &why)
+{
+    string text, textWhy;
+
+    slurp(file, text);
+
+    const string was = text;
+    const NodeEdit::Result t = NodeEdit::Text::setChanArg(text, name, value,
+                                                    textWhy);
+    const NodeEdit::Result r = NodeEdit::setChanArg(file, name, value, why);
+
+    return agree("setChanArg", file, was, r, why, t, textWhy, text);
+}
+
+static NodeEdit::Result setControlMeta (const string &file,
+                                        const string &name, double min,
+                                        double max, const string &label,
+                                        const string &group, string &why)
+{
+    string text, textWhy;
+
+    slurp(file, text);
+
+    const string was = text;
+    const NodeEdit::Result t = NodeEdit::Text::setControlMeta(text, name, min, max,
+                                                        label, group,
+                                                        textWhy);
+    const NodeEdit::Result r = NodeEdit::setControlMeta(file, name, min, max,
+                                                        label, group, why);
+
+    return agree("setControlMeta", file, was, r, why, t, textWhy, text);
+}
+
+static NodeEdit::Result disconnect (const string &file, const string &node,
+                                    const string &arg, double value,
+                                    string &why)
+{
+    string text, textWhy;
+
+    slurp(file, text);
+
+    const string was = text;
+    const NodeEdit::Result t = NodeEdit::Text::disconnect(text, node, arg, value,
+                                                    textWhy);
+    const NodeEdit::Result r = NodeEdit::disconnect(file, node, arg, value,
+                                                    why);
+
+    return agree("disconnect", file, was, r, why, t, textWhy, text);
+}
+
+static NodeEdit::Result connect (const string &file, const string &node,
+                                 const string &arg, const string &srcNode,
+                                 const string &srcPort, string &why)
+{
+    string text, textWhy;
+
+    slurp(file, text);
+
+    const string was = text;
+    const NodeEdit::Result t = NodeEdit::Text::connect(text, node, arg, srcNode,
+                                                 srcPort, textWhy);
+    const NodeEdit::Result r = NodeEdit::connect(file, node, arg, srcNode,
+                                                 srcPort, why);
+
+    return agree("connect", file, was, r, why, t, textWhy, text);
+}
+
+static NodeEdit::Result connectControl (const string &file,
+                                        const string &node, const string &arg,
+                                        const string &control, string &why)
+{
+    string text, textWhy;
+
+    slurp(file, text);
+
+    const string was = text;
+    const NodeEdit::Result t = NodeEdit::Text::connectControl(text, node, arg,
+                                                        control, textWhy);
+    const NodeEdit::Result r = NodeEdit::connectControl(file, node, arg,
+                                                        control, why);
+
+    return agree("connectControl", file, was, r, why, t, textWhy, text);
+}
+
+/* Read-only, so there is nothing to compare but the answer. */
+static NodeEdit::Result find (const string &file, const string &node,
+                              const string &arg)
+{
+    string text;
+
+    slurp(file, text);
+
+    const NodeEdit::Result t = NodeEdit::Text::find(text, node, arg);
+    const NodeEdit::Result r = NodeEdit::find(file, node, arg);
+
+    checked++;
+
+    if (t != r)
+    {
+        printf("FAIL  find over text answered %s, over a file %s\n",
+               NodeEdit::resultText(t), NodeEdit::resultText(r));
+        disagreements++;
+    }
+
+    return r;
+}
+
+} /* namespace both */
+
 static int changedLines (const string &a, const string &b)
 {
     vector<string> la, lb;
@@ -287,11 +464,11 @@ int main (int argc, char **argv)
 
                 string why;
 
-                const bool wasPresent = (NodeEdit::find(tmp, bx.name, p.name)
+                const bool wasPresent = (both::find(tmp, bx.name, p.name)
                                          == NodeEdit::OK);
 
                 NodeEdit::Result r =
-                    NodeEdit::setValue(tmp, bx.name, p.name, target, why);
+                    both::setValue(tmp, bx.name, p.name, target, why);
 
                 if (r == NodeEdit::UNWRITABLE)
                 { unwritable++; continue; }
@@ -358,7 +535,7 @@ int main (int argc, char **argv)
                     {
                         string w2;
 
-                        NodeEdit::setValue(tmp, bx.name, p.name, cur, w2);
+                        both::setValue(tmp, bx.name, p.name, cur, w2);
 
                         string afterNoop;
 
@@ -377,7 +554,7 @@ int main (int argc, char **argv)
 
                 /* 4. putting the original value back must give the original
                       value back, in one line */
-                r = NodeEdit::setValue(tmp, bx.name, p.name, p.value, why);
+                r = both::setValue(tmp, bx.name, p.name, p.value, why);
 
                 if (!wasPresent) inserted++;
 
@@ -444,7 +621,7 @@ int main (int argc, char **argv)
             string why;
 
             NodeEdit::Result r =
-                NodeEdit::setChanArg(tmp, bx.ctlArg, target, why);
+                both::setChanArg(tmp, bx.ctlArg, target, why);
 
             if (r != NodeEdit::OK)
             { printf("FAIL  %s: setChanArg(@%s) -> %s (%s)\n", argv[f],
@@ -494,7 +671,7 @@ int main (int argc, char **argv)
              * `th_max' comes back as `1'. The writer remembers when it need
              * not touch a line, not how a number used to be spelled. What
              * must hold is that nothing else moved. */
-            r = NodeEdit::setChanArg(tmp, bx.ctlArg, bx.ctlValue, why);
+            r = both::setChanArg(tmp, bx.ctlArg, bx.ctlValue, why);
 
             string back;
 
@@ -514,7 +691,7 @@ int main (int argc, char **argv)
                not against the original. */
             const string beforeNoop = back;
 
-            NodeEdit::setChanArg(tmp, bx.ctlArg, bx.ctlValue, why);
+            both::setChanArg(tmp, bx.ctlArg, bx.ctlValue, why);
             slurp(tmp, back);
 
             if (back != beforeNoop)
@@ -565,7 +742,7 @@ int main (int argc, char **argv)
                    writing the metadata already there changes no byte. This is
                    what an editor that opens a file and saves it does. */
             NodeEdit::Result r =
-                NodeEdit::setControlMeta(tmp, bx.ctlArg, bx.ctlMin, bx.ctlMax,
+                both::setControlMeta(tmp, bx.ctlArg, bx.ctlMin, bx.ctlMax,
                                          label0, group0, why);
 
             {
@@ -604,7 +781,7 @@ int main (int argc, char **argv)
             const string newLabel = "Test Label";
             const string newGroup = "Test Group";
 
-            r = NodeEdit::setControlMeta(tmp, bx.ctlArg, newMin, newMax,
+            r = both::setControlMeta(tmp, bx.ctlArg, newMin, newMax,
                                          newLabel, newGroup, why);
 
             if (r != NodeEdit::OK)
@@ -662,7 +839,7 @@ int main (int argc, char **argv)
                    every line involved either existed and was rewritten in
                    place, or did not and is deleted again. A label the file
                    never had must leave no trace of having been added. */
-            r = NodeEdit::setControlMeta(tmp, bx.ctlArg, bx.ctlMin, bx.ctlMax,
+            r = both::setControlMeta(tmp, bx.ctlArg, bx.ctlMin, bx.ctlMax,
                                          label0, group0, why);
 
             {
@@ -687,7 +864,7 @@ int main (int argc, char **argv)
                 const double lo = (double)bx.ctlValue + 1.0;
                 const double hi = lo + 1.0;
 
-                r = NodeEdit::setControlMeta(tmp, bx.ctlArg, lo, hi, label0,
+                r = both::setControlMeta(tmp, bx.ctlArg, lo, hi, label0,
                                              group0, why);
 
                 if (r != NodeEdit::OK)
@@ -739,7 +916,7 @@ int main (int argc, char **argv)
 
             /* 5. disconnecting must actually disconnect */
             NodeEdit::Result r =
-                NodeEdit::disconnect(tmp, tb.name, arg, 0, why);
+                both::disconnect(tmp, tb.name, arg, 0, why);
 
             if (r != NodeEdit::OK)
             { printf("FAIL  %s: disconnect(%s.%s) -> %s (%s)\n", argv[f],
@@ -773,8 +950,8 @@ int main (int argc, char **argv)
 
             /* 6. reconnecting must give the file back exactly */
             r = fb.isControl
-                    ? NodeEdit::connectControl(tmp, tb.name, arg, fb.ctlArg, why)
-                    : NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
+                    ? both::connectControl(tmp, tb.name, arg, fb.ctlArg, why)
+                    : both::connect(tmp, tb.name, arg, fb.name, port, why);
 
             if (r != NodeEdit::OK)
             { printf("FAIL  %s: connect(%s.%s <- %s->%s) -> %s (%s)\n", argv[f],
@@ -794,8 +971,8 @@ int main (int argc, char **argv)
 
             /* 7. connecting to where it already goes must change nothing */
             r = fb.isControl
-                    ? NodeEdit::connectControl(tmp, tb.name, arg, fb.ctlArg, why)
-                    : NodeEdit::connect(tmp, tb.name, arg, fb.name, port, why);
+                    ? both::connectControl(tmp, tb.name, arg, fb.ctlArg, why)
+                    : both::connect(tmp, tb.name, arg, fb.name, port, why);
 
             slurp(tmp, back);
 
@@ -817,6 +994,9 @@ int main (int argc, char **argv)
 
     remove(tmp.c_str());
 
+    if (both::disagreements > 0)
+        failed += both::disagreements;
+
     printf("\n%d files, %d failed, %d skipped (would not load)\n",
            files, failed, skipped);
     printf("  %d values rewritten and restored, %d inserted, %d unwritable\n",
@@ -831,6 +1011,8 @@ int main (int argc, char **argv)
     printf("  %d control ranges retyped and restored byte-identically, "
            "%d no-op metadata writes, every one byte-identical\n",
            metaRestored, metaNoops);
+    printf("  %d edits made twice, over a file and over its text, and the "
+           "two agree\n", both::checked);
     printf("  %d values clamped by a range narrowed past them\n", metaClamped);
 
     if (metaChanged != metaRestored)

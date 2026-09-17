@@ -73,6 +73,26 @@ public:
         string visual;
     };
 
+    /* ---- over the text ----
+     *
+     * The same three, of a patch's bytes rather than of a file: what a
+     * browser tab has, where the document *is* the patch (JAM_M6.md,
+     * section 7.1). The file versions below read, call and write.
+     *
+     * A scope of their own rather than overloads, for the reason
+     * NodeEdit::Text gives: a filename and a patch are both strings, and
+     * the compiler cannot tell a caller which one they passed. */
+    struct Text {
+        static bool read (const string &source, PosMap &out);
+        static bool readProbes (const string &source, vector<ProbeRef> &out);
+
+        /* Rewrites the layout block in `source'. Two things are
+           normalised rather than preserved: line endings come out as \n,
+           and trailing blank lines are dropped -- otherwise the blank
+           line before the block would accumulate one per save. */
+        static bool write (string &source, const NodeGraph &graph);
+    };
+
     /* Reads `# @layout <node> <x> <y>' lines out of a .dsp. Silently returns
        an empty map if the file has none, which is the normal case. */
     static bool read (const string &filename, PosMap &out);

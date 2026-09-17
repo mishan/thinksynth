@@ -24,7 +24,7 @@
 #include <math.h>
 #include <ctype.h>      /* isalnum, isdigit -- used by the RHS parsing */
 
-#include <sys/stat.h>   /* stat, chmod -- writeLines preserves the mode */
+#include <sys/stat.h>   /* stat, chmod -- writeText preserves the mode */
 #include <unistd.h>     /* access -- and refuses a read-only target */
 
 #include <fstream>
@@ -513,18 +513,22 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
     return false;
 }
 
-/* ---- file in, file out ------------------------------------------------- */
+/* ---- text in, text out --------------------------------------------------
+ *
+ * Every edit below works on the file's text and nothing else: lines in,
+ * lines out, and a Result. Where the text came from is somebody else's
+ * business -- a file on the desktop, a CRDT in a browser tab where the
+ * document *is* the patch and there is no file at all (JAM_M6.md, section
+ * 7.1). The filename overloads at the bottom of this file are the file
+ * case, and they are three lines each.
+ *
+ * This was always the shape of the code; what it lacked was the seam. The
+ * bodies below are unchanged except for their first and last step.
+ */
 
-static bool readLines (const string &filename, vector<string> &lines,
-                       bool &endsWithNewline)
+static void splitLines (const string &all, vector<string> &lines,
+                        bool &endsWithNewline)
 {
-    ifstream in(filename.c_str(), ios::binary);
-
-    if (!in)
-        return false;
-
-    string all((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
-
     endsWithNewline = all.empty() || all[all.size() - 1] == '\n';
 
     string cur;
@@ -539,6 +543,31 @@ static bool readLines (const string &filename, vector<string> &lines,
 
     if (!cur.empty())
         lines.push_back(cur);
+}
+
+static string joinLines (const vector<string> &lines, bool endsWithNewline)
+{
+    string all;
+
+    for (size_t i = 0; i < lines.size(); i++)
+    {
+        all += lines[i];
+
+        if (i + 1 < lines.size() || endsWithNewline)
+            all += "\n";
+    }
+
+    return all;
+}
+
+static bool readText (const string &filename, string &all)
+{
+    ifstream in(filename.c_str(), ios::binary);
+
+    if (!in)
+        return false;
+
+    all.assign((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
 
     return true;
 }
@@ -558,8 +587,7 @@ static bool readLines (const string &filename, vector<string> &lines,
  * The mode of an existing file is carried across: rename replaces the inode,
  * so without this a .dsp that was group-writable would quietly come back with
  * whatever the umask happened to say. */
-static bool writeLines (const string &filename, const vector<string> &lines,
-                        bool endsWithNewline)
+static bool writeText (const string &filename, const string &all)
 {
     /* Refuse a target that exists and cannot be written.
      *
@@ -584,14 +612,7 @@ static bool writeLines (const string &filename, const vector<string> &lines,
         if (!out)
             return false;
 
-        for (size_t i = 0; i < lines.size(); i++)
-        {
-            out << lines[i];
-
-            if (i + 1 < lines.size() || endsWithNewline)
-                out << "\n";
-        }
-
+        out << all;
         out.flush();
 
         if (!out.good())
@@ -646,9 +667,9 @@ static string indentOf (const vector<string> &lines, size_t open, size_t close)
 
 /* ---- the edits --------------------------------------------------------- */
 
-NodeEdit::Result NodeEdit::setValue (const string &filename,
-                                     const string &node, const string &arg,
-                                     double value, string &why)
+NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
+                                     const string &arg, double value,
+                                     string &why)
 {
     why.clear();
 
@@ -661,11 +682,7 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
 
@@ -744,17 +761,13 @@ NodeEdit::Result NodeEdit::setValue (const string &filename,
                      indentOf(lines, open, close) + arg + " = " + text + ";");
     }
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
 
 /* Points an arg at whatever `text' says, adding the line if there is none. */
-static NodeEdit::Result bindArg (const string &filename, const string &node,
+static NodeEdit::Result bindArg (string &source, const string &node,
                                  const string &arg, const string &text,
                                  string &why)
 {
@@ -773,11 +786,7 @@ static NodeEdit::Result bindArg (const string &filename, const string &node,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return NodeEdit::IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
 
@@ -805,16 +814,12 @@ static NodeEdit::Result bindArg (const string &filename, const string &node,
         lines.insert(lines.begin() + close,
                      indentOf(lines, open, close) + arg + " = " + text + ";");
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return NodeEdit::IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return NodeEdit::OK;
 }
 
-NodeEdit::Result NodeEdit::connect (const string &filename, const string &node,
+NodeEdit::Result NodeEdit::Text::connect (string &source, const string &node,
                                     const string &arg, const string &srcNode,
                                     const string &srcPort, string &why)
 {
@@ -837,11 +842,10 @@ NodeEdit::Result NodeEdit::connect (const string &filename, const string &node,
     /* Every one of the 3476 node-to-node connections in the corpus is spelled
        exactly `name->port', with no spaces around the arrow, so writing it
        this way reproduces the existing text byte for byte. */
-    return bindArg(filename, node, arg, srcNode + "->" + srcPort, why);
+    return bindArg(source, node, arg, srcNode + "->" + srcPort, why);
 }
 
-NodeEdit::Result NodeEdit::connectControl (const string &filename,
-                                           const string &node,
+NodeEdit::Result NodeEdit::Text::connectControl (string &source, const string &node,
                                            const string &arg,
                                            const string &control, string &why)
 {
@@ -853,12 +857,12 @@ NodeEdit::Result NodeEdit::connectControl (const string &filename,
         return REFUSED;
     }
 
-    return bindArg(filename, node, arg, "@" + control, why);
+    return bindArg(source, node, arg, "@" + control, why);
 }
 
-NodeEdit::Result NodeEdit::disconnect (const string &filename,
-                                       const string &node, const string &arg,
-                                       double value, string &why)
+NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
+                                       const string &arg, double value,
+                                       string &why)
 {
     why.clear();
 
@@ -871,11 +875,7 @@ NodeEdit::Result NodeEdit::disconnect (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
 
@@ -921,31 +921,18 @@ NodeEdit::Result NodeEdit::disconnect (const string &filename,
 
     lines[line] = lines[line].substr(0, from) + text + lines[line].substr(to);
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
 
-NodeEdit::Result NodeEdit::find (const string &filename, const string &node,
-                                 const string &arg)
+NodeEdit::Result NodeEdit::Text::find (const string &source,
+                                       const string &node, const string &arg)
 {
     vector<string> lines;
+    bool endsWithNewline = true;
 
-    {
-        ifstream in(filename.c_str());
-
-        if (!in)
-            return IO_ERROR;
-
-        string line;
-
-        while (getline(in, line))
-            lines.push_back(line);
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
 
@@ -1049,20 +1036,15 @@ static bool findChanArg (const vector<string> &lines, const string &name,
     return findDecl(lines, "@" + name, line, rhsFrom, rhsTo);
 }
 
-NodeEdit::Result NodeEdit::setChanArg (const string &filename,
-                                       const string &name, double value,
-                                       string &why)
+NodeEdit::Result NodeEdit::Text::setChanArg (string &source, const string &name,
+                                       double value, string &why)
 {
     why.clear();
 
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t line = 0;
     string::size_type from = 0, to = 0;
@@ -1098,11 +1080,7 @@ NodeEdit::Result NodeEdit::setChanArg (const string &filename,
     lines[line] = lines[line].substr(0, from) + text + suffixTextOf(oldRhs) +
                   lines[line].substr(to);
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
@@ -1162,7 +1140,7 @@ static size_t findIoLine (const vector<string> &lines)
     return lines.size();
 }
 
-NodeEdit::Result NodeEdit::addNode (const string &filename, const string &node,
+NodeEdit::Result NodeEdit::Text::addNode (string &source, const string &node,
                                     const string &plugin,
                                     const vector<pair<string, double> > &initial,
                                     string &why)
@@ -1184,11 +1162,7 @@ NodeEdit::Result NodeEdit::addNode (const string &filename, const string &node,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
 
@@ -1235,18 +1209,13 @@ NodeEdit::Result NodeEdit::addNode (const string &filename, const string &node,
 
     lines.insert(lines.begin() + at, block.begin(), block.end());
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
 
-NodeEdit::Result NodeEdit::removeNode (const string &filename,
-                                       const string &node, int &removed,
-                                       string &why)
+NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
+                                       int &removed, string &why)
 {
     why.clear();
     removed = 0;
@@ -1260,11 +1229,7 @@ NodeEdit::Result NodeEdit::removeNode (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t open = 0, close = 0;
 
@@ -1326,32 +1291,15 @@ NodeEdit::Result NodeEdit::removeNode (const string &filename,
 
     lines.erase(lines.begin() + open, lines.begin() + last + 1);
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
 
-NodeEdit::Result NodeEdit::createFile (const string &filename,
-                                       const string &name,
-                                       const string &author, bool replace,
-                                       string &why)
+NodeEdit::Result NodeEdit::Text::createFile (string &source, const string &name,
+                                       const string &author, string &why)
 {
     why.clear();
-
-    if (!replace)
-    {
-        ifstream probe(filename.c_str());
-
-        if (probe)
-        {
-            why = filename + " already exists";
-            return REFUSED;
-        }
-    }
 
     /* The name goes inside `name "..."', and the lexer's string has no escape
        for a quote -- `"[^"\n]*"' and nothing else. The GUI derives this from a
@@ -1388,11 +1336,7 @@ NodeEdit::Result NodeEdit::createFile (const string &filename,
     lines.push_back("");
     lines.push_back("io ionode;");
 
-    if (!writeLines(filename, lines, true))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, true);
 
     return OK;
 }
@@ -1424,9 +1368,8 @@ static size_t findFirstNodeLine (const vector<string> &lines)
     return lines.size();
 }
 
-NodeEdit::Result NodeEdit::addControl (const string &filename,
-                                       const string &name, double value,
-                                       double min, double max,
+NodeEdit::Result NodeEdit::Text::addControl (string &source, const string &name,
+                                       double value, double min, double max,
                                        const string &label,
                                        const string &group, string &why)
 {
@@ -1462,11 +1405,7 @@ NodeEdit::Result NodeEdit::addControl (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     /* Already declared? Two `@blim = ...' lines would have the second quietly
        win, which is not what anyone means by adding one. */
@@ -1510,11 +1449,7 @@ NodeEdit::Result NodeEdit::addControl (const string &filename,
     lines.insert(lines.begin() + findFirstNodeLine(lines),
                  block.begin(), block.end());
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
@@ -1731,9 +1666,9 @@ static bool formatLikeField (const vector<string> &lines, const string &name,
     return true;
 }
 
-NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
-                                           const string &name, double min,
-                                           double max, const string &label,
+NodeEdit::Result NodeEdit::Text::setControlMeta (string &source, const string &name,
+                                           double min, double max,
+                                           const string &label,
                                            const string &group, string &why)
 {
     why.clear();
@@ -1759,11 +1694,7 @@ NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     size_t declLine = 0;
     string::size_type declFrom = 0, declTo = 0;
@@ -1859,18 +1790,13 @@ NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
         }
     }
 
-    if (!writeLines(filename, lines, endsWithNewline))
-    {
-        why = "could not write " + filename;
-        return IO_ERROR;
-    }
+    source = joinLines(lines, endsWithNewline);
 
     return OK;
 }
 
-NodeEdit::Result NodeEdit::removeControl (const string &filename,
-                                          const string &name, int &removed,
-                                          string &why)
+NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &name,
+                                          int &removed, string &why)
 {
     why.clear();
     removed = 0;
@@ -1884,11 +1810,7 @@ NodeEdit::Result NodeEdit::removeControl (const string &filename,
     vector<string> lines;
     bool endsWithNewline = true;
 
-    if (!readLines(filename, lines, endsWithNewline))
-    {
-        why = "could not open " + filename;
-        return IO_ERROR;
-    }
+    splitLines(source, lines, endsWithNewline);
 
     {
         size_t line = 0;
@@ -1974,7 +1896,176 @@ NodeEdit::Result NodeEdit::removeControl (const string &filename,
     for (size_t i = drop.size(); i > 0; i--)
         lines.erase(lines.begin() + drop[i - 1]);
 
-    if (!writeLines(filename, lines, endsWithNewline))
+    source = joinLines(lines, endsWithNewline);
+
+    return OK;
+}
+
+/* ---- the same, over a file ---------------------------------------------
+ *
+ * Read, edit, write -- and write nothing at all when the edit changed no
+ * byte, which several of the edits above go out of their way to arrange
+ * and which a wrapper that always wrote would undo.
+ *
+ * The write is a temporary renamed into place (writeText), so a full disk
+ * or a kill leaves the old file rather than half the new one.
+ */
+
+template <typename Edit>
+static NodeEdit::Result overFile (const string &filename, string &why,
+                                  Edit edit)
+{
+    string source;
+
+    if (!readText(filename, source))
+    {
+        why = "could not open " + filename;
+        return NodeEdit::IO_ERROR;
+    }
+
+    const string was = source;
+    const NodeEdit::Result r = edit(source);
+
+    if (r != NodeEdit::OK || source == was)
+        return r;
+
+    if (!writeText(filename, source))
+    {
+        why = "could not write " + filename;
+        return NodeEdit::IO_ERROR;
+    }
+
+    return NodeEdit::OK;
+}
+
+NodeEdit::Result NodeEdit::setValue (const string &filename,
+                                     const string &node, const string &arg,
+                                     double value, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::setValue(source, node, arg, value, why); });
+}
+
+NodeEdit::Result NodeEdit::connect (const string &filename,
+                                    const string &node, const string &arg,
+                                    const string &srcNode,
+                                    const string &srcPort, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::connect(source, node, arg, srcNode, srcPort, why); });
+}
+
+NodeEdit::Result NodeEdit::connectControl (const string &filename,
+                                           const string &node,
+                                           const string &arg,
+                                           const string &control,
+                                           string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::connectControl(source, node, arg, control, why); });
+}
+
+NodeEdit::Result NodeEdit::disconnect (const string &filename,
+                                       const string &node, const string &arg,
+                                       double value, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::disconnect(source, node, arg, value, why); });
+}
+
+NodeEdit::Result NodeEdit::setChanArg (const string &filename,
+                                       const string &name, double value,
+                                       string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::setChanArg(source, name, value, why); });
+}
+
+NodeEdit::Result NodeEdit::addNode (const string &filename,
+                                    const string &node, const string &plugin,
+                                    const vector<pair<string, double> > &initial,
+                                    string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::addNode(source, node, plugin, initial, why); });
+}
+
+NodeEdit::Result NodeEdit::removeNode (const string &filename,
+                                       const string &node, int &removed,
+                                       string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::removeNode(source, node, removed, why); });
+}
+
+NodeEdit::Result NodeEdit::addControl (const string &filename,
+                                       const string &name, double value,
+                                       double min, double max,
+                                       const string &label,
+                                       const string &group, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::addControl(source, name, value, min, max, label, group,
+                            why); });
+}
+
+NodeEdit::Result NodeEdit::setControlMeta (const string &filename,
+                                           const string &name, double min,
+                                           double max, const string &label,
+                                           const string &group, string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::setControlMeta(source, name, min, max, label, group, why); });
+}
+
+NodeEdit::Result NodeEdit::removeControl (const string &filename,
+                                          const string &name, int &removed,
+                                          string &why)
+{
+    return overFile(filename, why, [&](string &source)
+        { return Text::removeControl(source, name, removed, why); });
+}
+
+NodeEdit::Result NodeEdit::find (const string &filename, const string &node,
+                                 const string &arg)
+{
+    string source;
+
+    if (!readText(filename, source))
+        return IO_ERROR;
+
+    return Text::find(source, node, arg);
+}
+
+/* The one that is not an edit to a file that is there: a new patch.
+ *
+ * The question this answers and the text version cannot is whether the
+ * file already exists -- which is why `replace' is here and not there. */
+NodeEdit::Result NodeEdit::createFile (const string &filename,
+                                       const string &name,
+                                       const string &author, bool replace,
+                                       string &why)
+{
+    why.clear();
+
+    if (!replace)
+    {
+        ifstream probe(filename.c_str());
+
+        if (probe)
+        {
+            why = filename + " already exists";
+            return REFUSED;
+        }
+    }
+
+    string source;
+    const Result r = Text::createFile(source, name, author, why);
+
+    if (r != OK)
+        return r;
+
+    if (!writeText(filename, source))
     {
         why = "could not write " + filename;
         return IO_ERROR;
