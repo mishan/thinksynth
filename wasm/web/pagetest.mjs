@@ -118,10 +118,24 @@ try
 
     await page.selectOption('#mode', 'piece');
     await page.selectOption('#piece', PIECE);
+
+    /* Choosing a piece loads it, and Load loads it again -- deliberately,
+       since Load re-reads the .gen in the textarea, which is editable. So
+       there are two loads here and the second replaces the sliders the
+       first drew. Wait for each, or a drag can land on a slider that is
+       about to be thrown away: nothing is asserted, everything passes,
+       and only a machine fast enough to finish the second load in the
+       80 ms after the first ever says so. */
+    const drawn = await page.waitForSelector('#knobs input',
+                                             { timeout: 60000 });
+
     await page.click('#loadpiece');
-    await page.waitForFunction(
-        () => document.querySelectorAll('#knobs input').length > 0,
-        null, { timeout: 60000 });
+    await page.waitForFunction((was) =>
+    {
+        const now = document.querySelector('#knobs input');
+
+        return now !== null && now !== was;
+    }, drawn, { timeout: 60000 });
 
     const knobs = await page.evaluate(() =>
         [...document.querySelectorAll('#knobs input')].map((i) =>
