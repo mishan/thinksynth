@@ -18,7 +18,7 @@
  */
 
 /*
- * pagetest.mjs -- the solo page's hands and dials, in a browser.
+ * pagetest.mjs -- the solo page's hands, dials and pictures, in a browser.
  *
  *   cd wasm/web && npm ci && npx playwright install chromium
  *   node pagetest.mjs [BUILD_DIR]
@@ -34,6 +34,17 @@
  * Small on purpose: the octave, the sliders, a key down and up, and a key
  * typed into a text box, which must play nothing. What sounds is
  * browsertest.mjs's business and jamtest.mjs's; this is about the page.
+ *
+ * And then the composer view (JAM_M6.md, sections 4 to 6), which is the
+ * one thing here with a whole second engine behind it: the piece's picture
+ * is drawn by the mirror -- another instance of the module, in a worker,
+ * fed the messages the worklet is fed -- and comes over as a list of ops
+ * the page replays on a Canvas2D. What is checked is the round trip a
+ * finger makes: the picture arrives and is replayed, a stage whose picture
+ * is a control can be enlarged, a drag on it leaves as a command and comes
+ * back as a board that has changed, and Escape puts it back. The transport
+ * is left stopped for that, so that nothing but the drag could have
+ * changed what is drawn.
  *
  * Exit status is the number of failures.
  */
@@ -51,6 +62,10 @@ const top = path.join(here, '..', '..');
 const build = path.resolve(process.argv[2] ?? path.join(top, 'build-web'));
 
 const PIECE = 'airports.gen';
+
+/* One with a picture that is a control: gen::life, which is what the
+   composer view's gestures are tried on. */
+const COMPOSER_PIECE = 'colony.gen';
 
 let failures = 0;
 
@@ -217,6 +232,104 @@ try
     check(typed === 0,
           'and a key typed into the source is editing, not a note');
 
+    /* ---- the composer view ---- */
+
+    /* A piece with a picture that is a control: colony's Life board.
+       Choosing it loads it; the mirror is sent the same load and says
+       what it has, which is where the buttons below come from. */
+    await page.selectOption('#piece', COMPOSER_PIECE);
+    await page.waitForSelector('#composerstages button', { timeout: 60000 });
+
+    /* The first frame that reaches the page: the canvas is sized to the
+       drawing and the drawing is on it. A blank canvas of the right size
+       would mean the list arrived and replayed into nothing. */
+    await page.waitForFunction(() =>
+    {
+        const c = document.getElementById('composer');
+
+        return c.width > 0 && c.height > 0;
+    }, null, { timeout: 60000 });
+
+    const ink = () => page.evaluate(() =>
+    {
+        const c = document.getElementById('composer');
+        const d = c.getContext('2d').getImageData(0, 0, c.width, c.height)
+                   .data;
+        let sum = 0;
+
+        for (let i = 0; i < d.length; i += 4)
+            sum += d[i] + d[i + 1] + d[i + 2];
+
+        return sum;
+    });
+
+    const size = await page.$eval('#composer',
+                                  (c) => ({ w: c.width, h: c.height }));
+
+    check(await ink() > 0,
+          `the piece's picture drew, ${size.w} by ${size.h} device pixels`);
+
+    const stages = await page.$$eval('#composerstages button',
+                                     (bs) => bs.map((b) => b.textContent));
+
+    check(stages.length > 0,
+          `${COMPOSER_PIECE} offers its controls: ${stages.join(', ')}`);
+
+    await page.click('#composerstages button');
+    await page.waitForFunction(
+        () => /^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 60000 });
+    check(true, `${stages[0]} enlarged`);
+
+    /* A drag across the enlarged board. Nothing is playing, so the board
+       changes only if the drag reached the composer -- which it can only
+       do by leaving the canvas as a gesture, being stamped as a command,
+       and being applied in the mirror at its time. */
+    const before = await ink();
+
+    /* The scroller's box and not the canvas's: the element is as big as
+       the whole drawing and the scroller clips it, so a point outside
+       what is on screen is a point some other element receives. The
+       enlarged picture fills the visible part by construction -- it
+       follows the viewport, which is the reason the content is told what
+       the viewport is at all -- so the middle of this is the middle of
+       the board. */
+    await page.locator('#composerscroll').scrollIntoViewIfNeeded();
+
+    const box = await page.$eval('#composerscroll', (d) =>
+    {
+        const r = d.getBoundingClientRect();
+
+        return { x: r.x, y: r.y, w: d.clientWidth, h: d.clientHeight };
+    });
+
+    await page.mouse.move(box.x + box.w * 0.3, box.y + box.h * 0.5);
+    await page.mouse.down();
+
+    for (let i = 1; i <= 10; i++)
+    {
+        await page.mouse.move(box.x + box.w * (0.3 + 0.04 * i),
+                              box.y + box.h * 0.5);
+        await new Promise((r) => setTimeout(r, 40));
+    }
+
+    await page.mouse.up();
+    await new Promise((r) => setTimeout(r, 1000));
+
+    const after = await ink();
+
+    check(before !== after,
+          'a drag on the enlarged board went out as commands and came ' +
+          'back as a board that has changed');
+
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(
+        () => !/^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 60000 });
+    check(true, 'and Escape puts it back');
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
@@ -230,6 +343,7 @@ site.closeAllConnections();
 site.close();
 
 process.stdout.write(`\n${failures === 0
-                          ? 'the solo page\'s keys and knobs still work\n'
+                          ? 'the solo page\'s keys, knobs and composer ' +
+                            'view still work\n'
                           : `${failures} failed\n`}`);
 process.exitCode = failures;

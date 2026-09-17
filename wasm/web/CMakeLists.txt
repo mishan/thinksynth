@@ -254,7 +254,8 @@ target_link_options(thinkweb PRIVATE
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
-                patch.js host.js roll.js worklet.js engine.js)
+                patch.js host.js roll.js worklet.js engine.js mirror.js
+                canvasview.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -275,6 +276,17 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/tape.js"
             "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs" "${PROJECT_BINARY_DIR}/tape.js"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/tape.js")
+
+# And the replayer, which is wasm/cairo2d's: the other half of the cairo
+# stand-in the module draws through, and the only part of it that is
+# JavaScript. It keeps its name there, where its own test reads it, and is
+# served beside the page that replays with it.
+add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${THINK_TOP}/wasm/cairo2d/replay.js"
+            "${PROJECT_BINARY_DIR}/replay.js"
+    DEPENDS "${THINK_TOP}/wasm/cairo2d/replay.js")
+list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
 
 # The shipped DSPs -- dsp/*.dsp, not the noargs/ and old/ drawers -- and the
 # list the page's menu is filled from. Patch mode plays one of these
@@ -434,6 +446,7 @@ foreach(f IN LISTS SITE_SOURCES)
 endforeach()
 list(APPEND DIST_ROOT_FILES
     "${PROJECT_BINARY_DIR}/tape.js"
+    "${PROJECT_BINARY_DIR}/replay.js"
     ${JAM_DIST_FILES}
     "${PROJECT_BINARY_DIR}/config.json"
     "$<TARGET_FILE:thinkweb>"

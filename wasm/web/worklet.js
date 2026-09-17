@@ -264,6 +264,11 @@ class ThinkProcessor extends AudioWorkletProcessor
         {
             this.M._tw_align(currentFrame);
             this.aligned = true;
+
+            /* Said once, because the mirror has to start counting frames
+               where this does or the frame in a tape batch means nothing
+               to it (JAM_M6.md, section 4). */
+            this.port.postMessage({ type: 'aligned', frame: currentFrame });
         }
 
         const frames = out[0].length;

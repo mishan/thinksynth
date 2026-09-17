@@ -31,6 +31,18 @@
  * and compiling a quarter of a megabyte before the first note is not a
  * cost anyone hears.
  *
+ * THE MIRROR, when the caller asks for one: a worker holding the same
+ * module with a synth that never renders, fed every message this posts to
+ * the worklet and stepped to the frame each tape batch reached. It is
+ * where the composer view's real composer instances live, and it draws
+ * them (mirror.js, JAM_M6.md section 4). Everything it says comes back
+ * through `onMirror'; anything the page wants to tell it -- the view's
+ * size, a pointer, a request for a frame -- goes through `toMirror'.
+ *
+ * The tee is here and not at each call site on purpose: "the mirror is fed
+ * the messages the worklet is fed" is then a property of one function
+ * rather than a promise twenty callers keep.
+ *
  * Everything the page does to the synth carries the point it applies at
  * (thinkweb.cpp); -1, the default, is "the next window", which is how a key
  * pressed now is played. A key carries a frame. A knob, a stop and a tempo
@@ -64,7 +76,8 @@ function wasmBytes ()
 
 export async function createSynth (ctx, { windowlen = 256,
                                           onLog = () => {},
-                                          onTape = () => {} } = {})
+                                          onTape = () => {},
+                                          onMirror = null } = {})
 {
     const [bytes] = await Promise.all([
         wasmBytes(),
@@ -88,12 +101,34 @@ export async function createSynth (ctx, { windowlen = 256,
         failed = reject;
     });
 
+    /* The second port, when the caller wants a mirror. Made before the
+       worklet is ready so that nothing posted in between is lost: the
+       worker holds what arrives until its own module is up. */
+    const mirror = onMirror !== null
+        ? new Worker(new URL('mirror.js', import.meta.url), { type: 'module' })
+        : null;
+
+    if (mirror !== null)
+        mirror.onmessage = (e) => onMirror(e.data);
+
+    /* One message, both ports. See the top of this file. */
+    const post = (m) =>
+    {
+        node.port.postMessage(m);
+        mirror?.postMessage(m);
+    };
+
     node.port.onmessage = (e) =>
     {
         const m = e.data;
 
         switch (m.type)
         {
+            /* The frame the worklet put its counter on, once, so the
+               mirror can put its own on the same one. */
+            case 'aligned':
+                mirror?.postMessage({ type: 'align', frame: m.frame });
+                break;
             case 'log':
                 onLog(m.text);
                 break;
@@ -114,17 +149,25 @@ export async function createSynth (ctx, { windowlen = 256,
                 waiting.delete(m.id);
                 break;
             case 'tape':
+                /* And the mirror is told how far this has got: it steps
+                   to there, which is tw_render without the render. So its
+                   picture is one batch behind the ear, which is about the
+                   desktop's 50 ms draw timer. */
+                mirror?.postMessage({ type: 'step', frame: m.frame });
                 onTape(m);
                 break;
         }
     };
 
+    /* Asked of the worklet, whose answer is the one that sounds, and
+       told to the mirror, which needs the load as much as the worklet
+       does and has nobody waiting on its answer. */
     const ask = (message) => new Promise((resolve) =>
     {
         const id = nextId++;
 
         waiting.set(id, resolve);
-        node.port.postMessage({ ...message, id });
+        post({ ...message, id });
     });
 
     /* A copy, transferred: the transfer empties what it sends, and the
@@ -134,6 +177,17 @@ export async function createSynth (ctx, { windowlen = 256,
     node.port.postMessage({ type: 'start', bytes: copy, windowlen }, [copy]);
 
     const info = await isReady;
+
+    /* The mirror's own copy of the bytes, and the two numbers the synth
+       it makes has to agree with this one about. */
+    if (mirror !== null)
+    {
+        const forMirror = bytes.slice(0);
+
+        mirror.postMessage({ type: 'start', bytes: forMirror,
+                             windowlen: info.windowlen,
+                             sampleRate: info.sampleRate }, [forMirror]);
+    }
 
     return {
         node,
@@ -147,8 +201,7 @@ export async function createSynth (ctx, { windowlen = 256,
 
         /* A .dsp under the name a piece's `instrument { dsp = ... }' will
            ask for. A worklet cannot fetch, so the page hands these over. */
-        instrument: (name, text) =>
-            node.port.postMessage({ type: 'instrument', name, text }),
+        instrument: (name, text) => post({ type: 'instrument', name, text }),
 
         /* One chanarg of whatever is loaded on a channel, at the value a
            .patch overrides it to. The other half of load(), in that
@@ -156,9 +209,8 @@ export async function createSynth (ctx, { windowlen = 256,
            gthPatchManager::parse does. A name the tree does not declare
            is ignored and said once in the log. */
         chanarg: (channel, name, values) =>
-            node.port.postMessage({ type: 'chanarg', channel, name,
-                                    values: Array.isArray(values)
-                                        ? values : [values] }),
+            post({ type: 'chanarg', channel, name,
+                   values: Array.isArray(values) ? values : [values] }),
 
         /* Resolves to what the piece is: its name, its description, the
            knobs it declared, its instruments with their channels, the
@@ -174,29 +226,28 @@ export async function createSynth (ctx, { windowlen = 256,
            beats per minute, at a frame; -1 is the next window. 'start'
            resumes from where the transport is. */
         transport: (op, value = 0, frame = -1) =>
-            node.port.postMessage({ type: 'transport', op, value, frame }),
+            post({ type: 'transport', op, value, frame }),
 
         /* From the top, with transport zero at `frame' exactly: what a
            room's Play is, on every peer, at the frame its origin falls on
            (JAM_M3.md, section 1). */
-        begin: (frame) => node.port.postMessage({ type: 'begin', frame }),
+        begin: (frame) => post({ type: 'begin', frame }),
 
         /* 'stop' or 'tempo' at a transport time, applied inside the step
            at that time; -1 is the next window. */
         transportAt: (op, at = -1, value = 0) =>
-            node.port.postMessage({ type: 'at', op, at, value }),
+            post({ type: 'at', op, at, value }),
 
         /* `knob' is the index loadPiece reported the knob under; `at' a
            transport time, or -1 for the next window. */
-        knob: (knob, value, at = -1) =>
-            node.port.postMessage({ type: 'knob', knob, value, at }),
+        knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
 
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in (JAM_M6.md, section 5). Handed the command
            itself, since every field of it is one the module wants. */
         input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1 }) =>
-            node.port.postMessage({ type: 'input', at, chain, stage, kind,
-                                    x, y, w, h, button }),
+            post({ type: 'input', at, chain, stage, kind, x, y, w, h,
+                   button }),
 
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel
@@ -208,20 +259,23 @@ export async function createSynth (ctx, { windowlen = 256,
            stamp as a channel and playing every note at once. Which is what
            happened, and what browsertest.mjs caught. */
         midiOn: (note, velocity = 100, frame = -1, channel = 0) =>
-            node.port.postMessage({ type: 'midion', note, velocity,
-                                    frame, channel }),
+            post({ type: 'midion', note, velocity, frame, channel }),
 
         midiOff: (note, frame = -1, channel = 0) =>
-            node.port.postMessage({ type: 'midioff', note, frame, channel }),
+            post({ type: 'midioff', note, frame, channel }),
 
         noteOn: (note, velocity = 100, frame = -1, channel = 0) =>
-            node.port.postMessage({ type: 'on', note, velocity, frame,
-                                    channel }),
+            post({ type: 'on', note, velocity, frame, channel }),
 
         noteOff: (note, frame = -1, channel = 0) =>
-            node.port.postMessage({ type: 'off', note, frame, channel }),
+            post({ type: 'off', note, frame, channel }),
 
-        allOff: () => node.port.postMessage({ type: 'alloff' }),
+        allOff: () => post({ type: 'alloff' }),
+
+        /* To the mirror alone: the composer view's size, its pointer, and
+           a request for a frame. Nothing here reaches the worklet, which
+           has no canvas and no use for any of it. */
+        toMirror: (m) => mirror?.postMessage(m),
 
         /* Resolves once the worklet has handled everything sent so far. */
         flush: () => ask({ type: 'ping' }),

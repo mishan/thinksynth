@@ -390,8 +390,12 @@ jobs:
       # The solo page itself, which nothing above opens: the octave, the
       # sliders a piece's knobs are drawn as, and a computer key held and
       # let go. Both pages share keyboard.js and knobs.js, so this is
-      # where a change to either shows up first.
-      - name: The page's keys and knobs
+      # where a change to either shows up first. Then the composer view
+      # (JAM_M6.md, sections 4 to 6), which has a whole second engine
+      # behind it: the picture arrives from the mirror worker and is
+      # replayed, a stage is enlarged, and a drag on it leaves as a
+      # command and comes back as a board that has changed.
+      - name: The page's keys, knobs and composer view
         working-directory: wasm/web
         run: node pagetest.mjs
 

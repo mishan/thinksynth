@@ -61,6 +61,7 @@
  * on is how they stop agreeing.
  */
 
+import { createCanvasView } from './canvasview.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { showKnobs } from './knobs.js';
@@ -88,6 +89,18 @@ const sounding = new Map();
    roll of what it has delivered since. */
 let piece = null;
 let roll = null;
+
+/* The composer view: the piece's own picture, drawn by the mirror -- a
+   second scheduler in a worker, fed the messages the worklet is fed, with
+   real composer instances in it (JAM_M6.md, sections 4 and 6). The page's
+   half of it is an element and a pointer; everything else is the same C++
+   the desktop draws with. */
+let composer = null;
+
+/* The stages whose picture is a control, by "chain.stage", and which one
+   is enlarged now. */
+let composerStages = new Map();
+let enlarged = { chain: -1, stage: -1 };
 
 /* The channels somebody has aimed by hand in this session, as channel ->
    the .patch or .dsp they chose. A piece that loads afterwards keeps
@@ -563,7 +576,8 @@ async function start ()
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
         synth = await createSynth(ctx, { windowlen: 256, onLog: log,
-                                         onTape: (m) => roll.tape(m) });
+                                         onTape: (m) => roll.tape(m),
+                                         onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }
@@ -613,8 +627,113 @@ async function start ()
     else
         await loadPiece();
 
+    showComposer(mode() === 'piece');
+
     showLatency();
     setInterval(showLatency, 500);
+}
+
+/* ---- the composer view ---- */
+
+/* Everything the mirror says. Three kinds: a drawn frame to replay, a
+   gesture the canvas wants sent as a command, and the tape it composed --
+   which is held against the worklet's elsewhere. */
+function fromMirror (m)
+{
+    switch (m.type)
+    {
+        case 'draw':
+            composer?.frame(m);
+
+            if (m.enlarged.chain !== enlarged.chain ||
+                m.enlarged.stage !== enlarged.stage)
+            {
+                enlarged = m.enlarged;
+                showComposerStatus(enlarged);
+            }
+
+            break;
+
+        /* A piece loaded in the mirror: which chains it has, and which of
+           their pictures are controls. */
+        case 'piece':
+            showComposerStages(m.chains);
+            break;
+
+        /* A press, drag or release the canvas took on an enlarged
+           picture, already in the coordinates that picture was drawn in.
+           It goes out as a command like a knob, is applied at its time,
+           and reaches this page's own worklet and mirror on the way --
+           which is why what was painted appears a moment later rather
+           than at once (JAM_M6.md, section 5).
+         *
+           On a solo page there are no peers and no lead to wait out, so
+           it is stamped for the next window, as this page's knobs are. */
+        case 'input':
+            synth?.input({ ...m, at: -1 });
+            break;
+
+        case 'log':
+            log(m.text);
+            break;
+    }
+}
+
+/* The stages whose picture is a control, as buttons that enlarge one, and
+   a line saying what is enlarged now. A double-click on the canvas does
+   the same thing, and Escape puts it back; this is that for a finger, and
+   it is also how anybody finds out that a picture can be painted on. */
+function showComposerStages (chains)
+{
+    const row = $('composerstages');
+
+    row.replaceChildren();
+    composerStages = new Map();
+
+    for (const chain of chains)
+        for (const stage of chain.stages)
+        {
+            if (!stage.takesInput)
+                continue;
+
+            const button = document.createElement('button');
+
+            composerStages.set(`${chain.chain}.${stage.stage}`,
+                               `${stage.name} in ${chain.name}`);
+
+            button.textContent = `Paint ${stage.name} in ${chain.name}`;
+            button.addEventListener('click', () => synth?.toMirror(
+                { type: 'enlarge', chain: chain.chain, stage: stage.stage }));
+            row.append(button);
+        }
+
+    showComposerStatus({ chain: -1, stage: -1 });
+}
+
+function showComposerStatus (enlarged)
+{
+    const which = composerStages.get(`${enlarged.chain}.${enlarged.stage}`);
+
+    $('composerstatus').textContent = which !== undefined
+        ? `Painting ${which}. Drag on it; Escape puts it back. What you ` +
+          'paint goes out as a command and arrives at its time, here as ' +
+          'on every peer.'
+        : composerStages.size > 0
+            ? 'Double-click a picture that is a control to enlarge it.'
+            : '';
+}
+
+function showComposer (on)
+{
+    if (composer === null)
+        composer = createCanvasView({
+            scroller: $('composerscroll'),
+            canvas: $('composer'),
+            send: (m) => synth?.toMirror(m),
+        });
+
+    composer.show(on && !$('composerview').hidden &&
+                  $('composerview').open);
 }
 
 async function pickMode ()
@@ -628,6 +747,8 @@ async function pickMode ()
 
     if (synth === null)
         return;
+
+    showComposer(piecing);
 
     releaseAll();
 
@@ -710,6 +831,12 @@ async function init ()
        keys moves which line is there. Nothing is loaded by it: where the
        keys go and what a channel sounds like are two questions. */
     $('keychan').addEventListener('change', showChannels);
+
+    /* Folded away, the view stops asking for frames: a picture nobody is
+       looking at is a piece's worth of drawing per animation frame for
+       nobody. */
+    $('composerview').addEventListener(
+        'toggle', () => showComposer(mode() === 'piece'));
 
     $('play').addEventListener('click', () => synth.transport('start'));
     $('stop').addEventListener('click', () => synth.transport('stop'));

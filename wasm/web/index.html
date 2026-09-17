@@ -44,6 +44,30 @@
 
   <canvas id="roll" width="1200" height="360"></canvas>
 
+  <!-- The piece's picture: one row per chain, its stages with each
+       composer's own drawing inside its box, the sinks in their channel's
+       colour. It is the desktop's composer canvas, compiled to wasm and
+       drawn by a second scheduler in a worker that is fed the same
+       messages the worklet is fed (JAM_M6.md, sections 4 and 6). Double-
+       click a stage whose picture is a control -- a Life board, a CA's
+       present row -- to enlarge it, then paint on it; Escape puts it
+       back. What a gesture reaches is not the picture in front of you but
+       a command, applied at its time in the piece here and on every peer,
+       which is why what you painted appears a moment later. -->
+  <details id="composerview" open>
+    <summary>The piece</summary>
+    <div id="composerscroll" class="canvasview">
+      <canvas id="composer" tabindex="0"></canvas>
+    </div>
+
+    <!-- Which stages can be painted on, and what is being painted on
+         now. The canvas enlarges a stage on a double-click and puts it
+         back on Escape; these are the same two things for a finger, and
+         they are what says a picture is a control at all. -->
+    <div class="row" id="composerstages"></div>
+    <p id="composerstatus" class="hint"></p>
+  </details>
+
   <div id="knobs"></div>
 
   <!-- What each channel this piece touches sounds like: its own
