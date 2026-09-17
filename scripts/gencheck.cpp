@@ -96,11 +96,21 @@ fail (const std::string &what)
  * teach people to stop running it. */
 static thSynth *tapeSynth = NULL;
 
+/* And the one that never renders (thSynth::setSilent), which checkSilent
+ * holds up against it. Stepped wherever the rendering one is, because
+ * that is what a mirror does with it: a silent synth still queues a
+ * SET_CHANNEL per instrument, and a ring nobody drains is the failure
+ * the mode exists to remove, not one the gate should reproduce. */
+static thSynth *silentSynth = NULL;
+
 static void
 drainSynth (void)
 {
     if (tapeSynth != NULL)
         tapeSynth->process();
+
+    if (silentSynth != NULL)
+        silentSynth->process();
 }
 
 /* ---- 1. the pitch parser ---------------------------------------------- */
@@ -6122,19 +6132,22 @@ checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
  * Replay determinism is not swept here: it needs a pinned seed and three
  * minutes, and one piece carrying that is enough.
  */
-static void
-checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
-             thSynth *synth, const std::string &genFile)
+/* Every .gen beside the one the harness was handed, or nothing when
+ * there is no directory to sweep, which is not a failure. Sorted so a
+ * failure names the same file on every machine; the directory order is
+ * the filesystem's business, not the test's. */
+static std::vector<std::filesystem::path>
+piecesBeside (const std::string &genFile)
 {
+    std::vector<std::filesystem::path> files;
+
     const std::filesystem::path dir =
         std::filesystem::path(genFile).parent_path();
 
     std::error_code ec;
 
     if (dir.empty() || !std::filesystem::is_directory(dir, ec))
-        return;                 /* nothing to sweep; not a failure       */
-
-    std::vector<std::filesystem::path> files;
+        return files;
 
     for (const auto &e : std::filesystem::directory_iterator(dir, ec))
     {
@@ -6145,9 +6158,32 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
             files.push_back(e.path());
     }
 
-    /* Sorted so a failure names the same file on every machine; the
-       directory order is the filesystem's business, not the test's. */
     std::sort(files.begin(), files.end());
+
+    return files;
+}
+
+/* A piece somebody plays rather than one that plays itself: chains
+ * with `input midi' and no generator anywhere. Nothing to render. */
+static bool
+playedByHand (thcScheduler &sched)
+{
+    for (size_t ci = 0; ci < sched.chainCount(); ci++)
+    {
+        const thcChain *c = sched.chain(ci);
+
+        if (c != NULL && !c->inputMidi)
+            return false;
+    }
+
+    return true;
+}
+
+static void
+checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, const std::string &genFile)
+{
+    const std::vector<std::filesystem::path> files = piecesBeside(genFile);
 
     if (files.empty())
     {
@@ -6179,18 +6215,8 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
             continue;
         }
 
-        bool anyGenerator = false;
-
-        for (size_t ci = 0; ci < sched.chainCount(); ci++)
-        {
-            const thcChain *c = sched.chain(ci);
-
-            if (c != NULL && !c->inputMidi)
-                anyGenerator = true;
-        }
-
-        if (!anyGenerator)
-            continue;           /* played by hand; see above            */
+        if (playedByHand(sched))
+            continue;
 
         const std::string first = render(sched, 60.0, 0.05);
 
@@ -6219,6 +6245,109 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
             showDivergence(first, again, "loaded", "rewound");
         }
     }
+}
+
+/* ---- a synth that never renders ----------------------------------------
+ *
+ * The composer view in the browser is a second scheduler over a second
+ * synth, fed the commands the worklet is fed, holding real composer
+ * instances for their pictures (JAM_M6.md). That synth must not render
+ * -- there is no audio thread behind it -- and must otherwise be the
+ * synth the scheduler expects: instruments load, chanargs read back,
+ * channels come and go. thSynth::setSilent is that, and this is the claim
+ * it rests on: every seeded piece composes the same tape over a silent
+ * synth as over a rendering one. A silent synth that dropped a
+ * SET_CHANNEL, or answered a chanarg differently, would part the picture
+ * from the sound here, before it ever parted them on a page.
+ */
+static void
+checkSilent (const std::map<std::string, thcPlugin *> &plugins,
+             thSynth *synth, thSynth *silent, const std::string &genFile)
+{
+    if (!silent->silent())
+    {
+        fail("the silent synth is not silent");
+        return;
+    }
+
+    const std::vector<std::filesystem::path> files = piecesBeside(genFile);
+
+    for (size_t i = 0; i < files.size(); i++)
+    {
+        const std::string leaf = files[i].filename().string();
+
+        thcScheduler sounding(synth);
+        thcScheduler quiet(silent);
+        thcGenLoader loadA(plugins);
+        thcGenLoader loadB(plugins);
+
+        /* The corpus sweep already said whether it loads at all; what is
+           asserted here is that it loads the same over both. */
+        const bool okA = loadA.load(files[i].string(), &sounding);
+        const bool okB = loadB.load(files[i].string(), &quiet);
+
+        if (okA != okB)
+        {
+            fail(leaf + (okB ? " loads over a silent synth and not a "
+                                "rendering one"
+                              : " loads over a rendering synth and not a "
+                                "silent one"));
+            continue;
+        }
+
+        /* Unseeded, a piece draws its seed at load, and two loads are
+           two pieces -- the same reason checkCorpus rewinds only the
+           seeded ones. The jam plays seeded pieces, and so does this. */
+        if (!okA || playedByHand(sounding) || !loadA.hasSeed())
+            continue;
+
+        /* The piece's instruments landed. A silent synth still parses
+           the .dsp and installs the channel; only the notes stop at the
+           door. Only the channels this piece names: the rendering synth
+           is the one every check before this shares, and it is carrying
+           whatever they left on it. */
+        const std::vector<thcInstrument> &insts = quiet.instruments();
+
+        for (size_t k = 0; k < insts.size(); k++)
+        {
+            const int ch = insts[k].channel;
+
+            if (silent->getChannel(ch) == NULL)
+                fail(leaf + ": instrument '" + insts[k].name +
+                     "' did not land on channel " + std::to_string(ch) +
+                     " of the silent synth");
+        }
+
+        const std::string heard = render(sounding, 60.0, 0.05);
+        const std::string mirrored = render(quiet, 60.0, 0.05);
+
+        if (heard != mirrored)
+        {
+            fail(leaf + " composes differently over a silent synth");
+            showDivergence(heard, mirrored, "sounding", "silent  ");
+        }
+    }
+
+    /* The reason the mode exists (SCHEDULER_PLACEMENT.md, section 4.4):
+       a synth stepped without rendering dropped commands within one
+       fast-forward. Twenty pieces of a minute each, over a ring drained
+       as a mirror drains it, and nothing may have fallen off. */
+    if (silent->droppedCommands() != 0)
+        fail("the silent synth dropped " +
+             std::to_string(silent->droppedCommands()) +
+             " commands over the sweep");
+
+    /* And it kept its word about the sound. */
+    const float *out = silent->getOutput();
+    const size_t samples = (size_t)silent->audioChannelCount() *
+                           (size_t)silent->getWindowlen();
+
+    for (size_t i = 0; out != NULL && i < samples; i++)
+        if (out[i] != 0.0f)
+        {
+            fail("the silent synth rendered something");
+            break;
+        }
 }
 
 /* ----------------------------------------------------------------------- */
@@ -6268,6 +6397,14 @@ main (int argc, char *argv[])
 
     tapeSynth = &synth;
 
+    /* The mirror's kind of synth, beside the real one: see checkSilent.
+       Made silent before anything is loaded on it, which is the one
+       rule setSilent has. */
+    thSynth silent(pluginDir, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    silent.setSilent(true);
+    silentSynth = &silent;
+
     checkValidation(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
     checkLiveEdits(plugins, &synth, genFile);
@@ -6285,6 +6422,7 @@ main (int argc, char *argv[])
     checkHarmonyKit(plugins, &synth);
     checkHeldNotes(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
+    checkSilent(plugins, &synth, &silent, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
        runs under sanitizers should not salt the report. The schedulers

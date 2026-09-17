@@ -77,6 +77,9 @@ thSynth::thSynth (int windowlen, int samples)
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
 
+    silent_ = false;
+    dropped_ = 0;
+
     /* default path */
     pluginmanager_ = new thPluginManager(PLUGIN_PATH);
 
@@ -115,6 +118,9 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     }
 
     masterGain_ = TH_MASTER_GAIN_DEFAULT;
+
+    silent_ = false;
+    dropped_ = 0;
 
     pluginmanager_ = new thPluginManager(plugin_path);
 
@@ -231,6 +237,8 @@ bool thSynth::postCommand (const thSynthCommand &cmd)
        and clean up whatever it was carrying so nothing leaks. */
     fprintf(stderr, "thSynth: command queue full, dropping command %d\n",
             (int)cmd.type);
+
+    dropped_++;
 
     delete cmd.note;
     delete cmd.channel;
@@ -1150,6 +1158,12 @@ bool thSynth::addNote (int channum, float note, float velocity)
         return false;
     }
 
+    /* A silent synth answers as a rendering one would have -- the channel
+       is there -- and stops short of the copy and the queue. See
+       setSilent(). */
+    if (silent_)
+        return true;
+
     thMidiNote *newnote = chan->buildNote(note, velocity);
 
     if (newnote == NULL)
@@ -1182,6 +1196,9 @@ int thSynth::delNote (int channum, float note)
         return 1;
     }
 
+    if (silent_)
+        return 0;               /* nothing was ever sounding; see setSilent */
+
     /* The sustain-pedal test moved to thMidiChan::releaseNote, on the audio
        thread: reading the pedal and poking the note's `trigger' arg from here
        meant writing into a note the callback was mixing. */
@@ -1201,6 +1218,9 @@ void thSynth::clearAll (void)
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
+    if (silent_)
+        return;
+
     /* This used to walk `while (*c) (*c++)->clearAll()', relying on a NULL
        terminator that midiChannels_ does not have -- with every slot occupied
        it ran straight off the end of the array. */
@@ -1211,6 +1231,17 @@ void thSynth::clearAll (void)
 
     postCommand(cmd);
 
+}
+
+void thSynth::setSilent (bool silent)
+{
+    silent_ = silent;
+
+    /* getOutput() on a synth that never mixes should hand back silence
+       and not whatever the allocation held. */
+    if (silent)
+        memset(output_, 0,
+               thOutputSamples(channels_, windowlen_) * sizeof(float));
 }
 
 /* Audio thread. */
@@ -1224,6 +1255,12 @@ void thSynth::process (void)
        midiChannels_ and everything below it is mutated, which is what makes
        the mutex the old code had commented out here unnecessary. */
     drainCommands();
+
+    /* The queue applied is the whole of a silent synth's window: no
+       voices to mix, no probes to publish, and the output stays the
+       silence setSilent() left in it. */
+    if (silent_)
+        return;
 
     memset(output_, 0,
            thOutputSamples(channels_, windowlen_) * sizeof(float));
