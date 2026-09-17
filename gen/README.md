@@ -128,11 +128,12 @@ Plugins: `eno_line` (airports, weather), `euclid` (pulse, loosen, tide),
 `breed` (bloom), `swap` and `reshape` (reshape), `harmonize` (colony).
 invention uses `lsystem` rules as ornaments and `counterpoint`, `level`
 and `form` on its third voice. The game pieces use `lsystem` at depth 0 as
-a sequencer, with ties (all five), `euclid` as one with its pool as the progression (all five), `ca` and
-`markov` in seconds against a clocked bar (cavern), `evolve` and `swap`
-(boss), `morph` through a `*` sink (attract), `echo` (overworld), `form`
-(boss, village), `chance` and `ratchet` (boss, village), `swing`, `level`,
-`progression`, `bassline` and `counterpoint` (village).
+a sequencer, with ties (all six), `euclid` as one with its pool as the
+progression (all six), `ca` and `markov` in seconds against a clocked bar
+(cavern), `evolve` and `swap` (boss), `morph` through a `*` sink
+(attract), `echo` (overworld), `form` (boss, village), `chance` and
+`ratchet` (boss, village), `swing`, `level`, `progression`, `bassline`
+and `counterpoint` (village).
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it.
 
