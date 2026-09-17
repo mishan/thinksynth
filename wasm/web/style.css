@@ -428,3 +428,36 @@ details { margin: 0.8em 0; }
     color: var(--dim);
     font-style: italic;
 }
+
+/*
+ * A little menu or panel that sits over the page beside whatever asked
+ * for it: the node canvas's port menu, and the composer canvas's params.
+ * Placed by the script, which is the only thing that knows where the
+ * canvas put the thing it belongs to.
+ */
+.popover {
+    position: absolute;
+    z-index: 10;
+    min-width: 12rem;
+    max-width: 22rem;
+    padding: 0.4rem;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: var(--panel);
+    box-shadow: 0 4px 16px #0006;
+    font-size: 0.9rem;
+}
+
+.popover button {
+    display: block;
+    width: 100%;
+    margin: 0.1rem 0;
+    text-align: left;
+}
+
+.popover .menutitle {
+    display: block;
+    padding: 0.1rem 0.3rem 0.3rem;
+    color: var(--dim);
+    font-family: monospace;
+}

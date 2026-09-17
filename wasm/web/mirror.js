@@ -163,6 +163,51 @@ function sendGestures ()
         });
 
     M._tw_canvas_inputs_clear();
+
+    /* And the params popover, if a stage's handle was clicked. Read here
+       rather than asked for later, because the page has no scheduler to
+       read them from: this instance is where the piece is (JAM_M6.md,
+       section 4). */
+    if (!M._tw_canvas_params_wanted())
+        return;
+
+    const chain = M._tw_canvas_params_chain();
+    const stage = M._tw_canvas_params_stage();
+    const params = [];
+
+    for (let p = 0; p < M._tw_stage_param_count(chain, stage); p++)
+        params.push({
+            name: string('tw_stage_param_name', chain, stage, p),
+            desc: string('tw_stage_param_desc', chain, stage, p),
+            units: string('tw_stage_param_units', chain, stage, p),
+            knob: string('tw_stage_param_knob', chain, stage, p),
+            text: string('tw_stage_param_text', chain, stage, p),
+            type: M._tw_stage_param_type(chain, stage, p),
+            value: M._tw_stage_param_value(chain, stage, p),
+            min: M._tw_stage_param_min(chain, stage, p),
+            max: M._tw_stage_param_max(chain, stage, p),
+        });
+
+    post({
+        type: 'params',
+        chain,
+        stage,
+        name: M.UTF8ToString(M.ccall('tw_stage_name', 'number',
+                                     ['number', 'number'], [chain, stage])),
+        chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                          ['number'], [chain])),
+        at: { x: M._tw_canvas_params_x(), y: M._tw_canvas_params_y(),
+              w: M._tw_canvas_params_w(), h: M._tw_canvas_params_h() },
+        params,
+    });
+}
+
+/* One of the many `const char *' exports, as a string. */
+function string (name, chain, stage, p)
+{
+    return M.UTF8ToString(
+        M.ccall(name, 'number', ['number', 'number', 'number'],
+                [chain, stage, p]));
 }
 
 /* One frame of the canvas: the list, the strings it indexes and the
@@ -310,6 +355,14 @@ function receive (m)
 
         case 'enlarge':
             M._tw_canvas_enlarge(m.chain ?? -1, m.stage ?? -1);
+            break;
+
+        /* Where a stage's params handle is, for a page that wants to
+           press one without repeating the layout arithmetic. */
+        case 'handle':
+            post({ type: 'handle', chain: m.chain, stage: m.stage,
+                   x: M._tw_canvas_handle_x(m.chain, m.stage),
+                   y: M._tw_canvas_handle_y(m.chain, m.stage) });
             break;
 
         /* The pointer. The canvas decides what it landed on; whatever it

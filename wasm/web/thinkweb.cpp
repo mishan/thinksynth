@@ -705,6 +705,22 @@ private:
 WebComposerCanvas *canvas_ = NULL;
 Cairo::RefPtr<Cairo::Context> canvasContext_;
 
+/* A params popover the canvas asked for: which stage, and where its box
+   is in shell pixels so the page can put the panel beside it. The last
+   one asked for, since a second request replaces the first -- there is
+   one popover. */
+struct CanvasParams
+{
+    int    chain, stage;
+    int    x, y, w, h;
+    bool   wanted;
+
+    CanvasParams (void) : chain(-1), stage(-1), x(0), y(0), w(0), h(0),
+                          wanted(false) {}
+};
+
+CanvasParams canvasParams_;
+
 /* The gestures the canvas took and did not hand to a plugin, waiting for
    the shell to turn each into a command. See tw_canvas_input_count(). */
 struct CanvasInput
@@ -1165,6 +1181,21 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
            other (JAM_M6.md, section 5). Connecting this is what tells the
            canvas so; the desktop connects nothing and the plugin hears
            the click at once, as it always has. */
+        /* A stage's params handle was clicked. The canvas says which
+           stage and where its box is; what a form looks like is the
+           page's business, on this platform as on the desktop. */
+        canvas_->sigParams.connect(
+            [](size_t chain, size_t stage, CanvasRect at)
+            {
+                canvasParams_.chain = (int)chain;
+                canvasParams_.stage = (int)stage;
+                canvasParams_.x = at.x;
+                canvasParams_.y = at.y;
+                canvasParams_.w = at.w;
+                canvasParams_.h = at.h;
+                canvasParams_.wanted = true;
+            });
+
         canvas_->sigInput.connect(
             [](size_t chain, size_t stage, const thcInputEvent &ev)
             {
@@ -1324,6 +1355,68 @@ TW_INPUT_FIELD(w,      double, w,     0.0)
 TW_INPUT_FIELD(h,      double, h,     0.0)
 
 #undef TW_INPUT_FIELD
+
+/* Where a stage's params handle is, in shell pixels: the three little
+   sliders in its title bar. Exported for the reason the desktop makes it
+   public -- the only other way to find out is to repeat the layout
+   arithmetic, and a caller that repeated it would be testing its own
+   copy of it. */
+#define TW_HANDLE(which, member)                                           \
+    EMSCRIPTEN_KEEPALIVE double tw_canvas_handle_##which (int chain,       \
+                                                          int stage)       \
+    {                                                                      \
+        double x = 0, y = 0;                                               \
+                                                                           \
+        if (canvas_ == NULL ||                                             \
+            !canvas_->paramsHandle((size_t)chain, (size_t)stage, x, y))     \
+            return -1.0;                                                   \
+                                                                           \
+        return member;                                                     \
+    }
+
+TW_HANDLE(x, x)
+TW_HANDLE(y, y)
+
+#undef TW_HANDLE
+
+/* ---- the params the canvas asked for ----
+ *
+ * Drained by the shell after a gesture, like the input queue: nonzero
+ * when somebody clicked a stage's params handle, and then the four
+ * numbers say where to put the popover.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_params_wanted (void)
+{
+    const bool was = canvasParams_.wanted;
+
+    canvasParams_.wanted = false;
+
+    return was ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_params_chain (void)
+{
+    return canvasParams_.chain;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_params_stage (void)
+{
+    return canvasParams_.stage;
+}
+
+#define TW_PARAMS_AT(name, member)                                         \
+    EMSCRIPTEN_KEEPALIVE int tw_canvas_params_##name (void)                \
+    {                                                                      \
+        return canvasParams_.member;                                       \
+    }
+
+TW_PARAMS_AT(x, x)
+TW_PARAMS_AT(y, y)
+TW_PARAMS_AT(w, w)
+TW_PARAMS_AT(h, h)
+
+#undef TW_PARAMS_AT
 
 /* Which stage the canvas has enlarged, or -1: the one a gesture would
    reach, and what the page labels the view with. */
@@ -1557,6 +1650,128 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
     c.button = button;
 
     schedule(c);
+}
+
+/* ---- a stage's parameters ----
+ *
+ * What the params popover shows (JAM_M6.md, section 4). The canvas asks
+ * for one and says where to put it; what goes in it is a form, and a form
+ * is the platform's -- so the page builds it out of these.
+ *
+ * Read-only in M6. The canvas reports rather than edits, and editing the
+ * piece from it is the step after this one (section 11): on the desktop a
+ * param goes through thcGenEdit into the file, and in a room the text in
+ * the editor is the piece.
+ */
+
+static const thcPlugin::ParamInfo *paramAt (int chain, int stage, int p)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->paramInfo(p) : NULL;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_stage_param_count (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL ? s->plugin->paramCount() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_name (int chain, int stage,
+                                                      int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->name.c_str() : "";
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_desc (int chain, int stage,
+                                                      int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->desc.c_str() : "";
+}
+
+/* The unit the plugin declares: "" for a plain number, "s" for a duration
+   -- which the store keeps in seconds and a .gen file may have written in
+   beats (thcParamStore::setBeats). */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_units (int chain, int stage,
+                                                       int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->units.c_str() : "";
+}
+
+/* thcParamType: a float, an int, a note, a note set, a string... which is
+   what decides whether the popover shows a number or a word. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_param_type (int chain, int stage, int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? (int)info->type : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_stage_param_min (int chain, int stage, int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->min : 0.0;
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_stage_param_max (int chain, int stage, int p)
+{
+    const thcPlugin::ParamInfo *info = paramAt(chain, stage, p);
+
+    return info != NULL ? info->max : 0.0;
+}
+
+/* The value as the stage is playing it now -- read through the knob when
+   one is bound, which is what the plugin itself sees. */
+EMSCRIPTEN_KEEPALIVE double tw_stage_param_value (int chain, int stage, int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return 0.0;
+
+    return s->params.get(p);
+}
+
+/* And as text, for the types that are text: a note set is "C3 E3 G3" and
+   an axiom is an axiom. Empty for the numeric ones. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_text (int chain, int stage,
+                                                      int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return "";
+
+    const char *text = s->params.getString(p);
+
+    return text != NULL ? text : "";
+}
+
+/* The piece knob this param is read through, or "": `prob = @density' in
+   the .gen file. Worth showing, because a number that moves on its own is
+   otherwise a mystery. */
+EMSCRIPTEN_KEEPALIVE const char *tw_stage_param_knob (int chain, int stage,
+                                                      int p)
+{
+    thcStage *s = stageAt(chain, stage);
+
+    if (s == NULL || s->plugin == NULL || p < 0 ||
+        p >= s->plugin->paramCount())
+        return "";
+
+    const thArg *knob = s->params.knobBinding(p);
+
+    return knob != NULL ? knob->name().c_str() : "";
 }
 
 /* Whether a stage's picture is a control -- its module exports

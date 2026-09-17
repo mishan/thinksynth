@@ -27,10 +27,17 @@
  * business: an edit is a splice into the shared document.
  *
  * WHAT AN EDIT IS. The canvas decides what a gesture meant and says so;
- * this asks the module for the patch that gesture implies, and splices the
- * difference into the file's Y.Text. Nobody's copy of the patch is
- * authoritative and there is no save: the document is the patch, and the
- * piece plays it when somebody presses Apply.
+ * this asks the module for the patch that gesture implies, and hands the
+ * new text to whoever owns the file.
+ *
+ * WHO THAT IS is the one thing that differs between the two pages, so it
+ * is a parameter: `files' reads a .dsp by name, writes one back, and says
+ * when one changed under it. In a room that is the shared document -- the
+ * write is a splice into a Y.Text, nobody's copy is authoritative and
+ * there is no save, and the piece plays the new text at the next Apply.
+ * On the solo page it is the patch in the textarea, or one of the pieces'
+ * instruments, and the write reloads what is playing. The canvas, the
+ * graph and every edit are the same on both.
  *
  * The forms are HTML for the same reason they are gtkmm on the desktop: a
  * form is the platform's. What is in them -- which args a node has, what a
@@ -39,7 +46,6 @@
  */
 
 import { createCanvasView } from './canvasview.js';
-import { readFile, spliceFile } from './doc.js';
 
 /* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
 const OK = 0;
@@ -59,7 +65,7 @@ const SIG = {
 /* NodeGraph::Box kinds, as tw_graph_box_kind reports them. */
 const BOX = { NODE: 0, CONTROL: 1, IO_IN: 2, IO_OUT: 3, PROBE: 4 };
 
-export async function createNodeView ({ doc, root = document,
+export async function createNodeView ({ files, root = document,
                                         onStatus = () => {},
                                         probe = null, unprobe = null,
                                         sampleRate = 48000 })
@@ -80,7 +86,7 @@ export async function createNodeView ({ doc, root = document,
     M._tw_catalog_take();
 
     let file = null;            /* the .dsp this is showing */
-    let watching = null;        /* its Y.Text, while observed */
+    let watching = null;        /* how to stop watching it change */
     let selected = -1;
 
     /* The probes armed on this patch: the slot the worklet gave back, the
@@ -93,7 +99,7 @@ export async function createNodeView ({ doc, root = document,
        tap is armed on. Set by the page when it knows. */
     let channel = -1;
 
-    const text = () => (file === null ? '' : readFile(doc, file) ?? '');
+    const text = () => (file === null ? '' : files.read(file) ?? '');
 
     const call = (name, types, args) =>
         M.UTF8ToString(M.ccall(name, 'number', types, args));
@@ -113,7 +119,7 @@ export async function createNodeView ({ doc, root = document,
             return false;
         }
 
-        spliceFile(doc, file, M.UTF8ToString(M._tw_edit_text()));
+        files.write(file, M.UTF8ToString(M._tw_edit_text()));
 
         return true;
     };
@@ -224,8 +230,13 @@ export async function createNodeView ({ doc, root = document,
                             M._tw_node_signal_c(i), M._tw_node_signal_d(i));
                     break;
 
+                /* A wire cut. What the file needs is the input it
+                   arrived at: `in = 0;' and no line at all are the same
+                   thing to the engine, and keeping the line preserves its
+                   comment and makes a reconnect restore the file exactly
+                   (NodeEdit::disconnect). */
                 case SIG.DISCONNECT:
-                    onStatus('Cutting a wire from the canvas is not in yet.');
+                    disconnect(a);
                     break;
 
                 /* A right-click: what can be done here. Probing is the
@@ -233,7 +244,9 @@ export async function createNodeView ({ doc, root = document,
                    modules and the channel are somebody else's -- so the
                    answer is here, as it is in NodeEditor. */
                 case SIG.CONTEXT:
-                    armProbe(a, M._tw_node_signal_b(i));
+                    offerProbe(a, M._tw_node_signal_b(i),
+                               M._tw_node_signal_x(i),
+                               M._tw_node_signal_y(i));
                     break;
 
                 case SIG.REFUSED:
@@ -260,8 +273,8 @@ export async function createNodeView ({ doc, root = document,
 
                     if (M.ccall('tw_layout_write', 'number', ['string'],
                                 [was]))
-                        spliceFile(doc, file,
-                                   M.UTF8ToString(M._tw_edit_text()));
+                        files.write(file,
+                                    M.UTF8ToString(M._tw_edit_text()));
 
                     break;
                 }
@@ -270,6 +283,26 @@ export async function createNodeView ({ doc, root = document,
 
         if (many > 0)
             M._tw_node_signals_clear();
+    }
+
+    /* The wire at `edge', cut. The lookup is the desktop's
+       (NodeEditor::onDisconnect): an edge names two ports, and the one
+       the file has a line for is the input end. */
+    function disconnect (edge)
+    {
+        const box = M._tw_graph_edge_to_box(edge);
+        const port = M._tw_graph_edge_to_port(edge);
+
+        if (box < 0 || port < 0)
+            return;
+
+        const node = call('tw_graph_box_name', ['number'], [box]);
+        const arg = call('tw_graph_port_name', ['number', 'number'],
+                         [box, port]);
+
+        if (edit('tw_edit_disconnect',
+                 ['string', 'string', 'string', 'number'], [node, arg, 0]))
+            onStatus(`Disconnected ${node}.${arg}.`);
     }
 
     /* A wire the canvas asked for, in the names the file uses. */
@@ -304,37 +337,126 @@ export async function createNodeView ({ doc, root = document,
      * and a panel on the canvas. The samples come back with the tape.
      */
 
-    /* A right-click on a box's output port arms one; on a port that is
-       already probed, it takes it away. The visual is the first module
-       this build has, which is the meter -- picking one is a menu, and a
-       menu is the next piece of page after this. */
-    async function armProbe (box, port)
+    /* A right-click on an output port: which display to watch it with,
+       or stop watching it. The canvas says where the pointer was and on
+       what, and nothing about the menu itself -- what can be done to a
+       port is the editor's business on the desktop too. */
+    function offerProbe (box, port, x, y)
     {
-        if (probe === null || channel < 0 || box < 0 || port < 0)
-            return;
+        const menu = $('nodemenu');
 
-        if (M._tw_graph_port_is_input(box, port))
-            return;
+        menu.replaceChildren();
 
-        const node = call('tw_graph_box_name', ['number'], [box]);
-        const arg = call('tw_graph_port_name', ['number', 'number'],
-                         [box, port]);
-        const already = probes.findIndex((p) => p.node === node &&
-                                                p.arg === arg);
-
-        if (already >= 0)
+        if (probe === null || box < 0)
         {
-            const p = probes[already];
-
-            unprobe?.(p.slot);
-            M._tw_probe_close(p.display);
-            probes.splice(already, 1);
-            onStatus(`Stopped watching ${node}.${arg}.`);
-            rebuild();
+            menu.hidden = true;
             return;
         }
 
-        const visual = call('tw_visual_name', ['number'], [0]);
+        const item = (label, go) =>
+        {
+            const b = document.createElement('button');
+
+            b.textContent = label;
+            b.addEventListener('click', () =>
+            {
+                menu.hidden = true;
+                go();
+            });
+            menu.append(b);
+        };
+
+        const title = (text) =>
+        {
+            const t = document.createElement('span');
+
+            t.className = 'menutitle';
+            t.textContent = text;
+            menu.append(t);
+        };
+
+        const node = call('tw_graph_box_name', ['number'], [box]);
+        const onPort = port >= 0 && !M._tw_graph_port_is_input(box, port);
+
+        if (onPort)
+        {
+            /* A port: watch it, or stop if it is already watched. */
+            const arg = call('tw_graph_port_name', ['number', 'number'],
+                             [box, port]);
+            const already = probes.findIndex((p) => p.node === node &&
+                                                    p.arg === arg);
+
+            title(`${node}.${arg}`);
+
+            if (channel < 0)
+                item('nothing is playing this instrument', () => {});
+            else if (already >= 0)
+                item('Stop watching', () => stopProbe(already));
+            else
+                for (let i = 0; i < M._tw_visual_count(); i++)
+                {
+                    const visual = call('tw_visual_name', ['number'], [i]);
+
+                    item(`Watch with a ${visual}`,
+                         () => armProbe(node, arg, visual));
+                }
+        }
+        else
+        {
+            /* Not on a port: whatever this node is being watched with, to
+               take it away. A panel sits on its host and their rectangles
+               overlap, so the box under the pointer is the host as often
+               as the panel -- and either is somebody saying "this one".
+               Worth having its own way in: arming a probe makes the host
+               taller and moves everything below it, so finding the same
+               port a second time is not the easy thing it sounds like. */
+            const mine = [];
+
+            probes.forEach((p, i) =>
+            {
+                if (p.box === box || p.node === node)
+                    mine.push(i);
+            });
+
+            if (mine.length === 0)
+            {
+                menu.hidden = true;
+                return;
+            }
+
+            title(node);
+
+            for (const i of mine)
+                item(`Stop watching ${probes[i].node}.${probes[i].arg}`,
+                     () => stopProbe(i));
+        }
+
+        /* Beside the pointer, in the page's own coordinates: the canvas
+           said where in its own pixels, and the element says where it
+           is. */
+        const at = $('nodecanvas').getBoundingClientRect();
+
+        menu.style.left = `${at.left + window.scrollX + x}px`;
+        menu.style.top = `${at.top + window.scrollY + y}px`;
+        menu.hidden = false;
+    }
+
+    function stopProbe (which)
+    {
+        const p = probes[which];
+
+        unprobe?.(p.slot);
+        M._tw_probe_close(p.display);
+        probes.splice(which, 1);
+        onStatus(`Stopped watching ${p.node}.${p.arg}.`);
+        rebuild();
+    }
+
+    async function armProbe (node, arg, visual)
+    {
+        if (probe === null || channel < 0)
+            return;
+
         const { slot, why } = await probe(channel, node, arg);
 
         if (slot < 0)
@@ -355,7 +477,7 @@ export async function createNodeView ({ doc, root = document,
             return;
         }
 
-        probes.push({ slot, display, node, arg, visual });
+        probes.push({ slot, display, node, arg, visual, box: -1 });
         onStatus(`Watching ${node}.${arg} with a ${visual}.`);
         rebuild();
     }
@@ -367,11 +489,11 @@ export async function createNodeView ({ doc, root = document,
     {
         for (const p of probes)
         {
-            const box = M.ccall('tw_probe_panel', 'number',
-                                ['string', 'string', 'string', 'number'],
-                                [p.node, p.arg, p.visual, 0]);
+            p.box = M.ccall('tw_probe_panel', 'number',
+                            ['string', 'string', 'string', 'number'],
+                            [p.node, p.arg, p.visual, 0]);
 
-            M._tw_probe_box(p.display, box);
+            M._tw_probe_box(p.display, p.box);
         }
     }
 
@@ -559,10 +681,12 @@ export async function createNodeView ({ doc, root = document,
     {
         if (name !== null && name !== file)
         {
-            watching?.unobserve(rebuild);
+            watching?.();
             file = name;
-            watching = doc.getMap('files').get(name);
-            watching?.observe(rebuild);
+
+            /* Somebody else's edit to this file -- another peer's, or the
+               text editor's on this page -- is a rebuild like our own. */
+            watching = files.watch?.(name, rebuild) ?? null;
             selected = -1;
             rebuild();
         }
@@ -581,6 +705,21 @@ export async function createNodeView ({ doc, root = document,
         paint();
     });
     $('nodeview').addEventListener('toggle', () => show(null));
+
+    /* A menu closes when something else is pressed, which on a canvas is
+       most of the time: the next gesture is the answer to it. */
+    window.addEventListener('pointerdown', (e) =>
+    {
+        const menu = $('nodemenu');
+
+        if (!menu.hidden && !menu.contains(e.target))
+            menu.hidden = true;
+    }, true);
+
+    /* And the browser's own menu stays out of the way: a right-click here
+       is asking the canvas, not the page. */
+    $('nodecanvas').addEventListener('contextmenu', (e) =>
+        e.preventDefault());
 
     /* The .dsp files in the document, for the selector. */
     const offer = (names) =>
