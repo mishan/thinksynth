@@ -158,6 +158,12 @@ checkNotes (void)
 
     if (thcGenLoader::parseNoteList("", out, bad))
         fail("an empty note list was accepted");
+
+    /* A rest is an entry, resolved as -1, that takes its turn in a pool
+       and is not a pitch anywhere else. */
+    if (!thcGenLoader::parseNoteList("C4 . E4", out, bad) ||
+        out.size() != 3 || out[0] != 60 || out[1] != -1 || out[2] != 64)
+        fail("'C4 . E4' did not resolve to 60,-1,64");
 }
 
 /* ---- module loading --------------------------------------------------- */
@@ -5167,6 +5173,518 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 8. every shipped piece still loads -------------------------------- */
 
+/* ---- the phrasing plugins ---------------------------------------------- */
+
+/* A note off the tape. */
+struct Heard
+{
+    double at;
+    int    channel, note, vel;
+    double dur;
+};
+
+static std::vector<Heard>
+notesOf (const std::string &tape)
+{
+    std::vector<Heard> out;
+    std::istringstream lines(tape);
+    std::string line;
+
+    while (std::getline(lines, line))
+    {
+        std::istringstream f(line);
+        std::string tag;
+        Heard h;
+
+        if ((f >> tag >> h.at >> h.channel >> h.note >> h.vel >> h.dur) &&
+            tag == "N")
+            out.push_back(h);
+    }
+
+    return out;
+}
+
+/* Write `body' out, load it, render `seconds' of it, and hand back the
+ * notes. An empty result with `what' in the failure is a piece that did
+ * not load. */
+static std::vector<Heard>
+playBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+          const char *what, const std::string &body, double seconds)
+{
+    std::vector<Heard> none;
+    const std::string path = thUtil::tempFile("gencheck-kit-");
+
+    if (path.empty())
+    {
+        fail(std::string("could not write the ") + what + " piece");
+        return none;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail(std::string("the ") + what + " piece did not load");
+        remove(path.c_str());
+        return none;
+    }
+
+    std::vector<Heard> heard = notesOf(render(sched, seconds, 0.02));
+
+    remove(path.c_str());
+    return heard;
+}
+
+static bool
+near (double a, double b)
+{
+    return std::fabs(a - b) < 1e-6;
+}
+
+/* Ties and accents in a grammar, a rest in a pool, and the transformers
+ * that shape a phrase: form, swing, echo, chance, ratchet. Each is the
+ * arithmetic a piece leans on, measured off the tape. */
+static void
+checkPhrasing (const std::map<std::string, thcPlugin *> &plugins,
+               thSynth *synth)
+{
+    {
+        const char *need[] = { "lsystem", "euclid", "form", "swing", "echo",
+                               "chance", "ratchet", "level", NULL };
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                return;
+            }
+    }
+
+    /* A tie lengthens the note before it and takes a step; an accent
+       mark moves the next note's velocity; the phrase is as long as its
+       steps and repeats on the step after the last. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "ties",
+            "chain c {\n"
+            "  stage src gen::lsystem { axiom = \">F__r<<F\"; rules = \"\";"
+            "    depth = 0; notes = \"C4\"; step = 1 s; hold = 0.5 s;"
+            "    vel = 80; accent = 10; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 9.5);
+
+        if (h.size() != 4)
+            fail("ties: expected 4 notes in 9.5 s, got " +
+                 std::to_string(h.size()));
+        else
+        {
+            if (!near(h[0].at, 0) || !near(h[0].dur, 2.5) || h[0].vel != 90)
+                fail("ties: `>F__' should be one note at 0, 2.5 s long, "
+                     "at velocity 90");
+
+            if (!near(h[1].at, 4) || !near(h[1].dur, 0.5) || h[1].vel != 60)
+                fail("ties: `<<F' after a rest should land at 4 s, 0.5 s "
+                     "long, at velocity 60");
+
+            if (!near(h[2].at, 5))
+                fail("ties: a five-step phrase should repeat at 5 s, not "
+                     "at " + std::to_string(h[2].at));
+        }
+    }
+
+    /* A rest in a cycled pool takes an onset and sounds nothing. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "pool rest",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 3; fills = 3;"
+            "    notes = \"C4 . E4\"; period = 1 s; hold = 0.5 s; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 2.5);
+
+        if (h.size() != 2 || h[0].note != 60 || h[1].note != 64 ||
+            !near(h[1].at, 2))
+            fail("pool rest: `C4 . E4' should sound C4 at 0 and E4 at 2, "
+                 "with the rest taking its turn between");
+    }
+
+    /* form: the pattern is bars, counted from zero, and a note in a
+       resting bar is dropped. Two notes a bar, `x.' over one-second
+       bars: the first, third and fifth seconds sound. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "form",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 0.5 s; hold = 0.2 s; };\n"
+            "  stage f xform::form { pattern = \"x.\"; bar = 1 s; mode = 0; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5.9);
+
+        bool ok = h.size() == 6;
+
+        for (size_t i = 0; ok && i < h.size(); i++)
+            if ((long)floor(h[i].at + 1e-6) % 2 != 0)
+                ok = false;
+
+        if (!ok)
+            fail("form: `x.' over 1 s bars should pass exactly the even "
+                 "seconds' notes; got " + std::to_string(h.size()));
+
+        /* mode 1: the pattern once, then everything. */
+        h = playBody(plugins, synth, "form intro",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 1 s; hold = 0.2 s; };\n"
+            "  stage f xform::form { pattern = \"..\"; bar = 1 s; mode = 1; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 4.5);
+
+        if (h.size() != 3 || !near(h[0].at, 2))
+            fail("form: `..' with mode 1 should rest two bars and then "
+                 "play on");
+    }
+
+    /* swing: odd divisions of the grid move later by a third of a
+       division at amount 1; even ones stay. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "swing",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 0.25 s; hold = 0.1 s; };\n"
+            "  stage s xform::swing { grid = 0.25 s; amount = 1; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 0.9);
+
+        if (h.size() != 4)
+            fail("swing: expected 4 notes, got " + std::to_string(h.size()));
+        else if (!near(h[0].at, 0) || !near(h[2].at, 0.5))
+            fail("swing: the onbeats moved");
+        else if (!near(h[1].at, 0.25 + 0.25 / 3) ||
+                 !near(h[3].at, 0.75 + 0.25 / 3))
+            fail("swing: the offbeats did not move a third of a division");
+    }
+
+    /* echo: repeats `time' apart, each `decay' as loud, and with `pass'
+       off the note itself is not heard. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "echo",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 10 s; hold = 0.1 s; vel = 100; };\n"
+            "  stage e xform::echo { repeats = 2; time = 0.5 s; decay = 0.5;"
+            "    shift = 12; pass = 0; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5);
+
+        if (h.size() != 2)
+            fail("echo: two repeats with pass off should be two notes, got "
+                 + std::to_string(h.size()));
+        else if (!near(h[0].at, 0.5) || h[0].vel != 50 || h[0].note != 72 ||
+                 !near(h[1].at, 1.0) || h[1].vel != 25 || h[1].note != 84)
+            fail("echo: repeats should land at 0.5 and 1.0, at 50 and 25, "
+                 "an octave up each time");
+    }
+
+    /* chance: at 0 nothing passes, at 1 everything does, and in between
+       the same seed drops the same notes twice. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "chance",
+            "seed 5;\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 0.1 s; hold = 0.05 s; };\n"
+            "  stage g xform::chance { prob = 0; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 2);
+
+        if (!h.empty())
+            fail("chance: prob 0 let a note through");
+
+        h = playBody(plugins, synth, "chance",
+            "seed 5;\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 0.1 s; hold = 0.05 s; };\n"
+            "  stage g xform::chance { prob = 1; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 1.95);
+
+        if (h.size() != 20)
+            fail("chance: prob 1 should pass all 20 notes, passed " +
+                 std::to_string(h.size()));
+
+        const std::string half =
+            "seed 5;\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 0.1 s; hold = 0.05 s; };\n"
+            "  stage g xform::chance { prob = 0.5; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n";
+
+        std::vector<Heard> a = playBody(plugins, synth, "chance", half, 3.95);
+        std::vector<Heard> b = playBody(plugins, synth, "chance", half, 3.95);
+
+        if (a.empty() || a.size() == 40)
+            fail("chance: prob 0.5 over 40 notes kept " +
+                 std::to_string(a.size()) + ", which is not a coin");
+        else if (a.size() != b.size())
+            fail("chance: the same seed kept a different number of notes "
+                 "the second time");
+        else
+            for (size_t i = 0; i < a.size(); i++)
+                if (!near(a[i].at, b[i].at))
+                {
+                    fail("chance: the same seed dropped different notes "
+                         "the second time");
+                    break;
+                }
+    }
+
+    /* level: velocity times gain, clamped to what MIDI has. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "level",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 10 s; hold = 0.1 s; vel = 100; };\n"
+            "  stage l xform::level { gain = 0.6; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5);
+
+        if (h.size() != 1 || h[0].vel != 60)
+            fail("level: gain 0.6 on velocity 100 should be 60");
+    }
+
+    /* ratchet: a burst is `count' notes across the note's own duration,
+       so it is as long as what it replaced. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "ratchet",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 10 s; hold = 1 s; vel = 100; };\n"
+            "  stage r xform::ratchet { count = 4; prob = 1; decay = 0.5; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5);
+
+        if (h.size() != 4)
+            fail("ratchet: one note at prob 1, count 4 should be 4 notes, "
+                 "got " + std::to_string(h.size()));
+        else
+        {
+            double span = 0;
+
+            for (size_t i = 0; i < h.size(); i++)
+            {
+                if (!near(h[i].at, i * 0.25) || !near(h[i].dur, 0.25))
+                    fail("ratchet: the burst is not evenly across the note");
+
+                span += h[i].dur;
+            }
+
+            if (!near(span, 1) || h[1].vel != 50 || h[3].vel != 13)
+                fail("ratchet: the burst should be as long as the note "
+                     "and decay by half each time");
+        }
+    }
+}
+
+/* ---- the harmony plugins ------------------------------------------------ */
+
+/* progression walks a key with a cadence at every phrase end, two stages
+ * with one `seed' walk together, bassline plays a pattern under a root
+ * in degrees of the scale, and counterpoint keeps to the scale, to
+ * consonances, and off parallel perfects. */
+static void
+checkHarmonyKit (const std::map<std::string, thcPlugin *> &plugins,
+                 thSynth *synth)
+{
+    {
+        const char *need[] = { "progression", "bassline", "counterpoint",
+                               "euclid", NULL };
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                return;
+            }
+    }
+
+    /* C major from C3: 48 50 52 53 55 57 59. Phrases of four: chords 0
+       and 4 are the tonic, chord 3 the dominant, and everything is in
+       the pool. Two chains with the same seed agree note for note. */
+    {
+        const std::string body =
+            "seed 11;\n"
+            "chain a {\n"
+            "  stage src gen::progression { scale = \"C3 D3 E3 F3 G3 A3 B3\";"
+            "    every = 1 s; hold = 0.9 s; phrase = 4; wander = 0.2;"
+            "    seed = 42; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n"
+            "chain b {\n"
+            "  stage src gen::progression { scale = \"C3 D3 E3 F3 G3 A3 B3\";"
+            "    every = 1 s; hold = 0.9 s; phrase = 4; wander = 0.2;"
+            "    seed = 42; };\n"
+            "  sink { channel = 2; };\n"
+            "};\n";
+
+        std::vector<Heard> h = playBody(plugins, synth, "progression",
+                                        body, 15.5);
+        std::vector<Heard> a, b;
+
+        for (size_t i = 0; i < h.size(); i++)
+            (h[i].channel == 0 ? a : b).push_back(h[i]);
+
+        if (a.size() != 16 || b.size() != 16)
+            fail("progression: expected 16 chords on each of two chains, "
+                 "got " + std::to_string(a.size()) + " and " +
+                 std::to_string(b.size()));
+        else
+        {
+            static const int pool[7] = { 48, 50, 52, 53, 55, 57, 59 };
+
+            for (size_t i = 0; i < a.size(); i++)
+            {
+                bool inPool = false;
+
+                for (int k = 0; k < 7; k++)
+                    if (a[i].note == pool[k])
+                        inPool = true;
+
+                if (!inPool)
+                    fail("progression: a root outside the key");
+
+                if (i % 4 == 0 && a[i].note != 48)
+                    fail("progression: a phrase that does not open on the "
+                         "tonic");
+
+                if (i % 4 == 3 && a[i].note != 55)
+                    fail("progression: a phrase that does not close on the "
+                         "dominant");
+
+                if (a[i].note != b[i].note)
+                    fail("progression: two stages with one seed walked "
+                         "different chords");
+            }
+        }
+    }
+
+    /* bassline: `rtfo' under C3 with octave -1 is C2 E2 G2 C3, one step
+       apart, and the root itself is not heard with pass off; a tie is
+       one longer note. In A minor the third under A is minor. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "bassline",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C3\"; period = 10 s; hold = 2 s; };\n"
+            "  stage b xform::bassline { scale = \"C3 D3 E3 F3 G3 A3 B3\";"
+            "    pattern = \"rtfo_\"; step = 0.25 s; hold = 0.2 s;"
+            "    octave = -1; pass = 0; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5);
+
+        if (h.size() != 4)
+            fail("bassline: `rtfo_' should be four notes, got " +
+                 std::to_string(h.size()));
+        else if (h[0].note != 36 || h[1].note != 40 || h[2].note != 43 ||
+                 h[3].note != 48)
+            fail("bassline: `rtfo' under C3 an octave down is not C2 E2 "
+                 "G2 C3");
+        else if (!near(h[1].at, 0.25) || !near(h[3].dur, 0.45))
+            fail("bassline: steps are not `step' apart, or the tie did "
+                 "not lengthen the octave");
+
+        h = playBody(plugins, synth, "bassline minor",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"A2\"; period = 10 s; hold = 2 s; };\n"
+            "  stage b xform::bassline { scale = \"A2 B2 C3 D3 E3 F3 G3\";"
+            "    pattern = \"t\"; step = 0.25 s; hold = 0.2 s;"
+            "    octave = 0; pass = 0; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 5);
+
+        if (h.size() != 1 || h[0].note != 48)
+            fail("bassline: the third over A in A minor should be C, the "
+                 "scale's third and not a major one");
+    }
+
+    /* counterpoint: under a C major line every added note is in the key
+       and at a consonance, the first is a perfect one, and no two
+       successive pairs are parallel fifths or octaves. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "counterpoint",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 8; fills = 8;"
+            "    notes = \"C4 D4 E4 F4 G4 A4 G4 E4\"; period = 0.5 s;"
+            "    hold = 0.4 s; vel = 100; };\n"
+            "  stage k xform::counterpoint { scale = \"C3 D3 E3 F3 G3 A3 B3\";"
+            "    below = 1; taper = 0.5; pass = 1; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 3.9);
+
+        if (h.size() != 16)
+            fail("counterpoint: eight melody notes should be sixteen on the "
+                 "tape, got " + std::to_string(h.size()));
+        else
+        {
+            static const bool inC[12] = { 1,0,1,0,1,1,0,1,0,1,0,1 };
+            int lastM = -1, lastC = -1;
+
+            for (size_t i = 0; i + 1 < h.size(); i += 2)
+            {
+                const Heard &m = h[i].vel == 100 ? h[i] : h[i + 1];
+                const Heard &c = h[i].vel == 100 ? h[i + 1] : h[i];
+                const int iv = m.note - c.note;
+
+                if (c.vel != 50)
+                    fail("counterpoint: the added voice is not tapered");
+
+                if (!inC[c.note % 12])
+                    fail("counterpoint: an added note outside the scale");
+
+                if (iv <= 0 || (iv % 12 != 0 && iv % 12 != 3 &&
+                                iv % 12 != 4 && iv % 12 != 7 &&
+                                iv % 12 != 8 && iv % 12 != 9))
+                    fail("counterpoint: an added note at a dissonance, or "
+                         "above the melody");
+
+                if (i == 0 && iv % 12 != 0 && iv % 12 != 7)
+                    fail("counterpoint: the first interval is not perfect");
+
+                if (lastM >= 0)
+                {
+                    const int prev = lastM - lastC;
+                    const bool perf = iv % 12 == 0 || iv % 12 == 7;
+                    const bool prevPerf = prev % 12 == 0 || prev % 12 == 7;
+
+                    if (perf && prevPerf && m.note != lastM &&
+                        c.note != lastC &&
+                        (m.note > lastM) == (c.note > lastC))
+                        fail("counterpoint: parallel perfect intervals");
+                }
+
+                lastM = m.note;
+                lastC = c.note;
+            }
+        }
+    }
+}
+
 /* The corpus instinct, applied to .gen.
  *
  * Everything above builds its own files or leans on the one piece passed
@@ -5347,6 +5865,8 @@ main (int argc, char *argv[])
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);
+    checkPhrasing(plugins, &synth);
+    checkHarmonyKit(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
 
     /* Freed for the leak checker's sake, not the OS's: a gate that
