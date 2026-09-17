@@ -280,7 +280,11 @@ stands.
   and writer compiled to wasm, the palette and the params panel as HTML,
   and every edit a splice into the room's `.dsp` -- held, byte for byte,
   against what the desktop's own writer produces.
-- Not yet: the probes, and the by-hand pass in two browsers.
+- Probes: a tap in the worklet on what is being rendered, the samples to
+  the page with the tape, a visual module drawing them in the page's own
+  instance, and a panel on the node the canvas draws with the rest of the
+  graph.
+- Not yet: the by-hand pass in two browsers (M6's gate 8.4).
 
 ## 1. The three kinds of state
 
