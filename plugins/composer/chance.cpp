@@ -26,6 +26,7 @@
  * the only state here.
  */
 
+#include <cstddef>
 #include <map>
 #include <random>
 #include <set>

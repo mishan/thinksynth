@@ -44,6 +44,7 @@
  * DETERMINISM. A function of the time and the pattern; nothing random.
  */
 
+#include <cstddef>
 #include <cmath>
 #include <cstring>
 #include <map>

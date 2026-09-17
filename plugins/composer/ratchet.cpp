@@ -27,6 +27,7 @@
  * instance seed, so the rolls fall in the same places on every replay.
  */
 
+#include <cstddef>
 #include <cmath>
 #include <random>
 

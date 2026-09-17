@@ -37,6 +37,7 @@
  * DETERMINISM. Nothing random; the copies are arithmetic.
  */
 
+#include <cstddef>
 #include <cmath>
 #include <map>
 #include <utility>

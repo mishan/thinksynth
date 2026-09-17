@@ -29,6 +29,7 @@
  * Bound to a knob, it is a fader on the canvas.
  */
 
+#include <cstddef>
 #include <cmath>
 
 #include "thcomposer.h"

@@ -31,6 +31,7 @@
  * DETERMINISM. A function of the time and the knob; nothing random.
  */
 
+#include <cstddef>
 #include <cmath>
 #include <map>
 #include <vector>
