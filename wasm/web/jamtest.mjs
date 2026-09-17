@@ -38,6 +38,11 @@
  * with a pointer, and the two tapes have to be one tape -- and not the
  * tape of the run nobody painted on (JAM_M6.md, section 8.3).
  *
+ * And then the other half of that gate: one page opens an instrument on
+ * the .dsp canvas, clicks a node and types a number into it. The document
+ * changes, the other page has the same file, and the text is what native
+ * NodeEdit writes for the same edit.
+ *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
  * but it renders an AudioContext in real time all the same, and real time
@@ -47,7 +52,9 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { chromium, firefox } from 'playwright';
@@ -63,6 +70,10 @@ const build = path.resolve(process.argv[2] ?? path.join(top, 'build-web'));
 const nodeBuild = path.resolve(process.argv[3] ??
                                process.env.THINK_WASM_BUILD ??
                                path.join(top, 'build-wasm'));
+
+/* The desktop's own build, for scripts/dspedit: the reference an edit made
+   in a room is held against (JAM_M6.md, section 8.3). */
+const nativeBuild = path.resolve(process.argv[4] ?? path.join(top, 'build'));
 
 const PIECE = 'airports.gen';
 const SECONDS = 30;
@@ -241,6 +252,140 @@ async function paintTogether (pages)
         ok('and it is not the tape of the run nobody painted on');
     else
         fail('painting the board changed nothing about what it played');
+}
+
+/*
+ * The .dsp canvas, in a room (JAM_M6.md, sections 7.3 and 8.3).
+ *
+ * One page opens an instrument on the canvas, clicks a node and types a
+ * number into it. Three things have to be true. The document has to change
+ * -- an edit on the canvas is a splice into the shared file, not a local
+ * copy. The other page has to have the same file, because that is what a
+ * shared document means. And the text has to be what native NodeEdit
+ * writes for the same edit, byte for byte, because the .dsp somebody
+ * changes in a browser is the .dsp somebody else opens in the editor.
+ */
+async function editTogether (pages)
+{
+    const [A, B] = pages;
+
+    await A.page.evaluate(() =>
+    {
+        document.getElementById('nodeview').open = true;
+    });
+
+    await A.page.waitForFunction(
+        () => window.jam.node()?.boxes > 0, null, { timeout: 30000 })
+        .catch(() => {});
+
+    const file = await A.page.$eval('#nodefile', (s) => s.value);
+    const graph = await A.page.evaluate(() => window.jam.node());
+
+    if (!file || !graph || graph.boxes === 0)
+    {
+        fail(`the instrument canvas shows ${graph?.boxes ?? 0} boxes of ` +
+             `${file || 'no file'}`);
+        return;
+    }
+
+    ok(`${A.label} opened ${file} on the canvas: ${graph.boxes} boxes`);
+
+    /* A node with something on it a person could type into. */
+    const where = await A.page.evaluate(() =>
+    {
+        const n = window.jam.node();
+
+        for (let i = 0; i < n.boxes; i++)
+        {
+            const b = n.box(i);
+
+            if (b.kind === 0 && b.settable)
+                return b;
+        }
+
+        return null;
+    });
+
+    if (where === null)
+    {
+        fail(`nothing in ${file} has a value to set`);
+        return;
+    }
+
+    await A.page.locator('#nodescroll').scrollIntoViewIfNeeded();
+
+    const box = await A.page.$eval('#nodecanvas', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+
+    await A.page.mouse.click(box.x + where.x + 8, box.y + where.y + 8);
+    await A.page.waitForFunction(
+        () => window.jam.node().selected >= 0, null, { timeout: 15000 });
+
+    /* The text as it stands after the click and before the value: a click
+       on a box is a drag of zero length, and the canvas writes the
+       positions out for one exactly as the desktop does, so the file has
+       already gained its layout block by now. What is under test below is
+       the value, so this is what the desktop is given to edit. */
+    const before = await A.page.evaluate(
+        (name) => window.jam.file(name), file);
+
+    const input = await A.page.$('#nodeparams input');
+
+    if (input === null)
+    {
+        fail(`${where.name} has nothing to type into after all`);
+        return;
+    }
+
+    const arg = await input.evaluate((i) => i.dataset.arg);
+    const value = '0.321';
+
+    await input.fill(value);
+    await input.press('Enter');
+
+    /* The other page, through the relay. */
+    await B.page.waitForFunction(
+        ([name, was]) => window.jam.file(name) !== was, [file, before],
+        { timeout: 20000 }).catch(() => {});
+
+    const mine = await A.page.evaluate((name) => window.jam.file(name), file);
+    const theirs = await B.page.evaluate((name) => window.jam.file(name),
+                                         file);
+
+    if (mine === before)
+    {
+        fail(`typing ${value} into ${where.name}.${arg} changed nothing`);
+        return;
+    }
+
+    if (mine !== theirs)
+    {
+        fail(`${B.label}'s copy of ${file} is not ${A.label}'s`);
+        return;
+    }
+
+    ok(`a value set on the canvas is in both peers' copy of ${file}`);
+
+    /* And it is the edit the desktop makes. */
+    const scratch = path.join(os.tmpdir(), 'jamtest-edit.dsp');
+
+    fs.writeFileSync(scratch, before);
+
+    const want = execFileSync(
+        path.join(nativeBuild, 'scripts', 'dspedit'),
+        [scratch, 'set-value', where.name, arg, value],
+        { encoding: 'utf8' });
+
+    if (mine === want)
+        ok(`and it is what NodeEdit writes for ${where.name}.${arg} = ` +
+           `${value}`);
+    else
+        fail(`the room's edit of ${where.name}.${arg} is not the one the ` +
+             'desktop makes');
 }
 
 if (!fs.existsSync(path.join(build, 'jam.js')))
@@ -492,6 +637,10 @@ try
     /* ---- and now somebody paints on a Life board ---- */
 
     await paintTogether(pages);
+
+    /* ---- and edits an instrument on the canvas ---- */
+
+    await editTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);

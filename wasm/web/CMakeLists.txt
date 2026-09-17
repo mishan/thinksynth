@@ -396,7 +396,7 @@ else()
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
                   roll.js host.js keyboard.js knobs.js patch.js ../tape.mjs
-                  canvasview.js composerview.js tapediff.js
+                  canvasview.js composerview.js nodeview.js tapediff.js
                   bundle.mjs package-lock.json)
   set(JAM_DEPENDS "")
 

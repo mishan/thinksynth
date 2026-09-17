@@ -481,6 +481,35 @@ EMSCRIPTEN_KEEPALIVE double tw_graph_box_control_value (int b)
     return box != NULL ? box->ctlValue : 0.0;
 }
 
+/* ---- a box's ports, which is what a wire names ---- */
+
+EMSCRIPTEN_KEEPALIVE int tw_graph_port_count (int b)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    return box != NULL ? (int)box->ports.size() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE const char *tw_graph_port_name (int b, int p)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    if (box == NULL || p < 0 || (size_t)p >= box->ports.size())
+        return "";
+
+    return box->ports[(size_t)p].name.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_graph_port_is_input (int b, int p)
+{
+    const NodeGraph::Box *box = boxAt(b);
+
+    if (box == NULL || p < 0 || (size_t)p >= box->ports.size())
+        return 0;
+
+    return box->ports[(size_t)p].isInput ? 1 : 0;
+}
+
 /* ---- a box's parameters, for the panel ---- */
 
 EMSCRIPTEN_KEEPALIVE int tw_graph_param_count (int b)

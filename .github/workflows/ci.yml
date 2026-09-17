@@ -427,10 +427,13 @@ jobs:
       # Then M6's (JAM_M6.md, section 8.3): a second room on a piece whose
       # picture is a control, where one page plays and the other paints a
       # line across gen::life's board with a pointer. One tape between the
-      # two, and not the tape of the run nobody painted on.
+      # two, and not the tape of the run nobody painted on. And then the
+      # .dsp canvas: one page types a number into a node, and the file in
+      # both documents is the one native NodeEdit writes -- which is why
+      # the native build above builds dspedit.
       - name: Two browsers, one room
         working-directory: wasm/web
-        run: node jamtest.mjs
+        run: node jamtest.mjs ../../build-web ../../build-wasm ../../build
 
       # The renders, so a difference can be listened to rather than only
       # read about.

@@ -71,6 +71,11 @@ await esbuild.build({
     entryPoints: [path.join(here, 'jam.js')],
     plugins: [copiedIn],
     bundle: true,
+
+    /* Emscripten's glue stays a file of its own: it is generated, it
+       finds its .wasm from its own URL, and the node editor imports it at
+       runtime for the page's own instance of the module (nodeview.js). */
+    external: ['./thinkweb.js'],
     format: 'esm',
     target: ['es2022'],
     sourcemap: true,
