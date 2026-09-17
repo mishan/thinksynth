@@ -82,6 +82,10 @@
 #include "thDynLib.h"
 
 #include "cairo2d.h"
+#include "cairomm/context.h"
+
+#include "ComposerCanvas.h"
+#include "thcGenEdit.h"
 
 #include "twevent.h"
 
@@ -578,6 +582,91 @@ thcStage *stageAt (int chain, int stage)
     return c->stages[(size_t)stage].get();
 }
 
+/* ---- the composer canvas, in a module ----
+ *
+ * The desktop's ComposerCanvas, compiled again here and given a shell of
+ * page and worker instead of a gtk widget (JAM_M6.md, section 6). What it
+ * draws, what it lays out and what a click on it means are the desktop's,
+ * unchanged; what this class is, is the four answers a shell owes it.
+ *
+ * It lives in the mirror, beside the scheduler whose stages it draws. The
+ * worklet has one of these too -- it is the same module -- and never
+ * touches it.
+ */
+class WebComposerCanvas : public ComposerCanvas
+{
+public:
+    WebComposerCanvas (void)
+        : dirty_(true), width_(0), height_(0),
+          viewX_(0), viewY_(0), viewW_(0), viewH_(0) {}
+
+    /* Whether anything has asked to be drawn again since this was last
+       asked. The shell draws on an animation frame when it has, which is
+       what queue_draw buys on the desktop. */
+    bool takeDirty (void)
+    {
+        const bool was = dirty_;
+
+        dirty_ = false;
+        return was;
+    }
+
+    int width (void) const { return width_; }
+    int height (void) const { return height_; }
+
+    /* What the page can see of the drawing, in shell pixels: the scroll
+       position and the element's size. The enlarged stage is laid out
+       against this, so a canvas that was never told would put it across
+       the whole drawing and somewhere off screen. */
+    void setViewport (double x, double y, double w, double h)
+    {
+        viewX_ = x;
+        viewY_ = y;
+        viewW_ = w;
+        viewH_ = h;
+
+        shellResized();
+        dirty_ = true;
+    }
+
+protected:
+    void requestRedraw (void) override { dirty_ = true; }
+
+    void resizeShell (int w, int h) override
+    {
+        width_ = w;
+        height_ = h;
+        dirty_ = true;
+    }
+
+    bool shellViewport (double &x, double &y, double &w,
+                        double &h) const override
+    {
+        if (viewW_ <= 0.0 || viewH_ <= 0.0)
+            return false;
+
+        x = viewX_;
+        y = viewY_;
+        w = viewW_;
+        h = viewH_;
+
+        return true;
+    }
+
+private:
+    bool dirty_;
+    int width_, height_;
+    double viewX_, viewY_, viewW_, viewH_;
+};
+
+WebComposerCanvas *canvas_ = NULL;
+Cairo::RefPtr<Cairo::Context> canvasContext_;
+
+/* The piece as thcGenEdit reads it back: the authored spellings, the
+   chains and their stages in order, which is what the canvas lays out.
+   Kept because the canvas holds a pointer to it. */
+thcGenEdit::Doc canvasDoc_;
+
 bool writeFile (const char *path, const char *text)
 {
     FILE *f = fopen(path, "wb");
@@ -1035,6 +1124,134 @@ EMSCRIPTEN_KEEPALIVE int tw_draw_surface_height (int k)
 EMSCRIPTEN_KEEPALIVE int tw_draw_surface_stride (int k)
 {
     return drawing_ != NULL ? cairo2d_surface_stride(drawing_, k) : 0;
+}
+
+/* ---- the composer canvas ----
+ *
+ * One canvas per instance, made on the first call. The mirror's is the one
+ * that matters: it draws the stages of the scheduler it shares a heap
+ * with, which are the instances that are composing what is being heard
+ * (JAM_M6.md, section 4).
+ *
+ * The list a draw produces is the same three tables a stage's picture
+ * produces -- tw_draw_ops and its neighbours -- because a stage's picture
+ * is drawn inside the canvas's own list anyway, by the plugin, through the
+ * cairo the canvas handed it.
+ */
+
+/* Show the piece that is loaded. Called after a piece message; nonzero if
+   the .gen described. The worklet never calls this, which is why it is not
+   part of the load. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
+{
+    std::string why;
+
+    if (canvas_ == NULL)
+        canvas_ = new WebComposerCanvas();
+
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+    {
+        fprintf(stderr, "the composer view cannot read the piece: %s\n",
+                why.c_str());
+        canvas_->SetPiece(NULL, NULL);
+        return 0;
+    }
+
+    canvas_->SetPiece(&canvasDoc_, sched_);
+
+    return 1;
+}
+
+/* Draw it at w x h, and answer with the length of the list. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_draw (int w, int h)
+{
+    if (canvas_ == NULL)
+        return -1;
+
+    if (drawing_ == NULL)
+        drawing_ = cairo2d_create();
+
+    if (!canvasContext_)
+        canvasContext_ = Cairo::Context::create(drawing_);
+
+    cairo2d_begin(drawing_);
+    canvas_->draw(canvasContext_, w, h);
+
+    return cairo2d_op_words(drawing_);
+}
+
+/* The gestures, in shell pixels, as the desktop's controllers deliver
+   them. The conversion to the drawing's own coordinates is the content's,
+   on every platform, which is what stops a click landing somewhere else at
+   a zoom nobody tested at. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_press (double x, double y, int button,
+                                           int nPress)
+{
+    if (canvas_ != NULL)
+        canvas_->pressAt(x, y, button, nPress);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_motion (double x, double y)
+{
+    if (canvas_ != NULL)
+        canvas_->motionTo(x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_release (double x, double y, int button)
+{
+    if (canvas_ != NULL)
+        canvas_->releaseAt(x, y, button);
+}
+
+/* CanvasContent::Key, not a keysym: the shell maps its own spelling to
+   one of these, as the gtk shell maps GDK_KEY_Escape. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_key (int key)
+{
+    return canvas_ != NULL &&
+           canvas_->keyPressed((CanvasContent::Key)key) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_viewport (double x, double y, double w,
+                                              double h)
+{
+    if (canvas_ != NULL)
+        canvas_->setViewport(x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_zoom (void)
+{
+    return canvas_ != NULL ? canvas_->zoom() : 1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_set_zoom (double z)
+{
+    if (canvas_ != NULL)
+        canvas_->setZoom(z);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_zoom_to_fit (void)
+{
+    if (canvas_ != NULL)
+        canvas_->zoomToFit();
+}
+
+/* How big the drawing is, in shell pixels, for the scroller around it. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_width (void)
+{
+    return canvas_ != NULL ? canvas_->width() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_height (void)
+{
+    return canvas_ != NULL ? canvas_->height() : 0;
+}
+
+/* Has anything asked for a redraw since this was last asked? The shell
+   draws on the next animation frame when it has. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_dirty (void)
+{
+    return canvas_ != NULL && canvas_->takeDirty() ? 1 : 0;
 }
 
 /* ---- the knobs the piece declared ---- */

@@ -206,10 +206,17 @@ const size_t thStaticComposerCount =
 # a timeout that never fires, because the audio clock steps it (JAM.md
 # section 3, and SCHEDULER_PLACEMENT.md for why here and not on the main
 # thread).
+# The composer canvas is the desktop's, compiled again here: one drawing,
+# one behaviour, two shells (JAM_M6.md, section 6). CanvasContent is its
+# base; what it draws through is cairo2d's cairomm face, and what it never
+# sees is a toolkit -- the first Gtk:: that got into either would fail this
+# build, which is the guard the split exists for.
 add_executable(thinkweb
     ${STATIC_SOURCES}
     "${PROJECT_BINARY_DIR}/static/registry.cpp"
     "${THINK_TOP}/src/gthSynthSource.cpp"
+    "${THINK_TOP}/src/CanvasContent.cpp"
+    "${THINK_TOP}/src/ComposerCanvas.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     thinkweb.cpp)
 

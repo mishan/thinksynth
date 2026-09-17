@@ -43,6 +43,11 @@
  *     the C and the JavaScript agreeing about the list a second time, over
  *     the real corpus rather than the stand-in's own fixture.
  *
+ * Then the canvas around them, which is the same three questions of the
+ * whole composer view: the desktop's ComposerCanvas compiled into the
+ * module, laying the piece out and drawing it -- stage pictures and all,
+ * since a stage's draw happens inside the canvas's own list.
+ *
  * And over the corpus as a whole: every composer that says it draws has
  * drawn something somewhere. A composer whose draw compiled to nothing --
  * which is what a #ifdef left in the wrong place looks like -- passes every
@@ -74,6 +79,9 @@ const build = path.resolve(process.argv[2] ??
 
 /* A stage's box on the canvas, and a stage enlarged to fill the view. */
 const SIZES = [100, 400];
+
+/* And the canvas itself, at a window and at a panel. */
+const VIEWS = [[900, 600], [400, 300]];
 
 /* How much of each piece is played before its pictures are asked for. Long
    enough that a composer which learns from what passes through it has
@@ -187,7 +195,7 @@ const { default: createThinkWeb } =
 const dsps = instruments(build);
 const all = pieces(build);
 
-let drawn = 0, silentStages = 0;
+let drawn = 0, canvases = 0, silentStages = 0;
 
 /* Which composers drew, and which only said they would. */
 const everDrew = new Map();
@@ -277,6 +285,52 @@ for (const piece of all)
             }
         }
 
+    /* And the canvas around them: the desktop's ComposerCanvas, compiled
+       into this module and drawing the same piece through the same cairo
+       (JAM_M6.md, section 6). One list for the whole view, with each
+       stage's picture inside it, drawn by the plugin through the context
+       the canvas handed it. */
+    if (!M._tw_canvas_show())
+        fail(`${piece.name}: the composer canvas could not read the piece`);
+    else
+        for (const [w, h] of VIEWS)
+        {
+            M._tw_canvas_viewport(0, 0, w, h);
+            M._tw_canvas_zoom_to_fit();
+
+            const words = M._tw_canvas_draw(w, h);
+            const where = `${piece.name}: the canvas at ${w}x${h}`;
+
+            if (words <= 0)
+            {
+                fail(`${where}: drew nothing`);
+                continue;
+            }
+
+            const { ops, strings, surfaces } = readList(M);
+            const walked = walk(ops);
+
+            if (typeof walked === 'string')
+            {
+                fail(`${where}: ${walked}`);
+                continue;
+            }
+
+            try
+            {
+                replay(counter(), ops, strings, surfaces,
+                       { width: w, height: h, dpr: 1 });
+            }
+            catch (e)
+            {
+                fail(`${where}: ${e.message}`);
+                continue;
+            }
+
+            canvases++;
+            pictures.push(`canvas ${walked}`);
+        }
+
     if (pictures.length === 0)
         process.stdout.write(`ok    ${piece.name.padEnd(14)} nothing in it ` +
                              'draws\n');
@@ -294,7 +348,8 @@ for (const [name, drew] of everDrew)
 
 process.stdout.write(failures === 0
     ? `\n${drawn} pictures drawn and replayed, from ${everDrew.size} ` +
-      `composers; ${silentStages} stages have no picture\n`
+      `composers, and ${canvases} whole canvases; ${silentStages} stages ` +
+      'have no picture\n'
     : `\n${failures} failed\n`);
 
 process.exitCode = failures;
