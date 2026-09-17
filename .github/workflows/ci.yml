@@ -284,10 +284,13 @@ jobs:
         with:
           node-version: 24
 
+      # genwav is the tape every piece gate is compared against; dspedit is
+      # the edit every node-editor gate is compared against. Both are what
+      # the browser build has to agree with.
       - name: Native build
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build --target genwav plugins
+          cmake --build build --target genwav dspedit plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
@@ -356,6 +359,15 @@ jobs:
       # something somewhere in the corpus.
       - name: Every picture in every piece, and the canvas around them
         run: node wasm/web/drawcheck.mjs
+
+      # The node editor's model, through the module (JAM_M6.md, section 7):
+      # every shipped .dsp built into a graph, the palette of plugins this
+      # module was compiled with, and an edit of each patch held against
+      # the one scripts/dspedit makes natively -- byte for byte, because a
+      # .dsp somebody changes in a browser is a .dsp somebody else opens in
+      # the editor.
+      - name: The node editor's model, against the desktop's
+        run: node wasm/web/nodecheck.mjs build-web build
 
       # The mirror (JAM_M6.md, section 4): the module twice in one process,
       # one rendering and one with a synth that never renders, both fed the

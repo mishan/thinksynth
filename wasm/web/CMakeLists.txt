@@ -217,8 +217,14 @@ add_executable(thinkweb
     "${THINK_TOP}/src/gthSynthSource.cpp"
     "${THINK_TOP}/src/CanvasContent.cpp"
     "${THINK_TOP}/src/ComposerCanvas.cpp"
+    "${THINK_TOP}/src/NodeCanvas.cpp"
+    "${THINK_TOP}/src/NodeGraph.cpp"
+    "${THINK_TOP}/src/NodeEdit.cpp"
+    "${THINK_TOP}/src/NodeLayout.cpp"
+    "${THINK_TOP}/src/NodeCatalog.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
-    thinkweb.cpp)
+    thinkweb.cpp
+    thinknode.cpp)
 
 target_include_directories(thinkweb PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"

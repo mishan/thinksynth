@@ -226,6 +226,15 @@ public:
                                const vector<pair<string, double> > &initial,
                                string &why);
 
+        /* Without the plugin's own defaults, for a caller that has no
+           catalogue to ask for them. */
+        static Result addNode (string &source, const string &node,
+                               const string &plugin, string &why)
+        {
+            return addNode(source, node, plugin,
+                           vector<pair<string, double> >(), why);
+        }
+
         static Result removeNode (string &source, const string &node,
                                   int &removed, string &why);
 

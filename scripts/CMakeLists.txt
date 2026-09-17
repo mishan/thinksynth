@@ -228,6 +228,11 @@ think_harness(dsplive   NODEMODEL)
 think_harness(dspnew    NODEMODEL)
 think_harness(dspwrite  NODEMODEL)
 
+# One edit, printed: the reference the browser's node editor is compared
+# against (wasm/web/nodecheck.mjs). Not a gate of its own -- it makes no
+# claims -- which is why it is not in the ctest list below.
+think_harness(dspedit   NODEMODEL)
+
 # ---------------------------------------------------------------------------
 # CTest gates. See cmake/RunHarness.cmake for why the file lists are computed
 # at test time rather than at configure time.
