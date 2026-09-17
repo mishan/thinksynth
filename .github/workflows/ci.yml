@@ -411,6 +411,11 @@ jobs:
       # one pressing Play, a knob moved from each side, and one tape
       # between them -- genwav's, under the same commands. Live, because
       # two peers agreeing on a clock is the thing under test.
+      #
+      # Then M6's (JAM_M6.md, section 8.3): a second room on a piece whose
+      # picture is a control, where one page plays and the other paints a
+      # line across gen::life's board with a pointer. One tape between the
+      # two, and not the tape of the run nobody painted on.
       - name: Two browsers, one room
         working-directory: wasm/web
         run: node jamtest.mjs

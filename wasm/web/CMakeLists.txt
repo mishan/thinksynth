@@ -255,7 +255,7 @@ target_link_options(thinkweb PRIVATE
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
                 patch.js host.js roll.js worklet.js engine.js mirror.js
-                canvasview.js)
+                canvasview.js composerview.js tapediff.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)
@@ -389,6 +389,7 @@ else()
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
                   roll.js host.js keyboard.js knobs.js patch.js ../tape.mjs
+                  canvasview.js composerview.js tapediff.js
                   bundle.mjs package-lock.json)
   set(JAM_DEPENDS "")
 
