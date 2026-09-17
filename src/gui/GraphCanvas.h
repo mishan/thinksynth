@@ -21,92 +21,60 @@
 
 #include <gtkmm.h>
 
+#include "../CanvasContent.h"
+
 /*
- * The part of a canvas that is not about what it draws: a zoom, the
- * conversion between widget pixels and the coordinates a subclass thinks
- * in, and the arithmetic of fitting a drawing to a window.
+ * The desktop shell of a canvas: the part that is a widget.
  *
- * Extracted from NodeCanvas, which had all of it and is now the first
- * user. The second is the composer's canvas, which needs exactly this
- * and nothing else NodeCanvas has -- a patch is a graph with ports and
- * edges and a chain is a sentence, so their *contents* have almost
- * nothing in common. What they share is that both are drawings larger
- * than the window they arrive in.
+ * A CanvasContent draws and decides what a click means; this is what
+ * it needs from the toolkit and nothing more. A drawing area that hands
+ * its draw to the content, a wheel that zooms it, a resize that lets a
+ * deferred zoom-to-fit happen, and the arithmetic of how much of the
+ * drawing is on screen -- which has to come from the scrolled window
+ * this lives in, because the widget itself is sized to the whole
+ * drawing and get_width() on it is the width of everything, scrolled
+ * off or not.
  *
- * That distinction is why this base is deliberately small. Selection,
- * dragging, wires and hit-testing all look shareable and are not: a
- * NodeGraph box and a chain stage answer "what did I just click" in
- * different vocabularies, and a base that tried to own both would end up
- * with a mode switch in every method. Anything genuinely common can
- * move down later; a base that has to be argued out of is worse than one
- * that has to be argued into.
+ * This used to hold the zoom and the coordinate conversion too, and
+ * NodeCanvas and ComposerCanvas were its subclasses. The zoom went into
+ * CanvasContent when the two canvases stopped being widgets (see that
+ * header for why), and what is left here is the shell. A widget class
+ * inherits from its content class and from this, forwards the content's
+ * shell virtuals -- requestRedraw, resizeShell, shellViewport,
+ * takeFocus -- to the widget calls, and creates the gesture controllers
+ * that feed the content's handlers: src/gui/NodeCanvasWidget.h and
+ * ComposerCanvasWidget.h, a few dozen lines each.
  *
- * The subclass says how big its drawing is (contentExtent) and this
- * arranges the rest. There is no panning: the canvas sizes itself to the
- * scaled content and lives in a Gtk::ScrolledWindow, so scrolling is the
- * scroller's job and always behaves the way scrolling does everywhere
- * else. Ctrl+wheel zooms; a bare wheel is left alone for that reason.
- *
- * COMPOSITION_HANDOFF.md section 8 argues that .dsp and .gen converge at
- * the grammar only when a language feature pays for it. The same is true
- * of their canvases, and this is the part that has already paid.
+ * There is no panning: the canvas sizes itself to the scaled content
+ * and lives in a Gtk::ScrolledWindow, so scrolling is the scroller's
+ * job and always behaves the way scrolling does everywhere else.
+ * Ctrl+wheel zooms; a bare wheel is left alone for that reason.
  */
 class GraphCanvas : public Gtk::DrawingArea
 {
 public:
-    GraphCanvas (void);
-
-    double zoom (void) const { return zoom_; }
-    void   setZoom (double z);
-
-    /* Scales so the whole drawing is visible, never magnifying past 1:1.
-     *
-     * A patch is as wide as its signal chain is deep -- seventeen layers
-     * of ts1's kind is about 2900 pixels -- and no amount of layout
-     * tuning changes that. Being able to see all of it on opening, and
-     * zoom in to work, is the answer to a drawing wider than the screen.
-     * Never magnifying because a four-node patch blown up to fill the
-     * window looks broken, and the point is only to bring an oversized
-     * one down.
-     *
-     * Deferred if the widget has no size yet: on the first open this is
-     * called before GTK has allocated anything, and fitting to a
-     * zero-width canvas would give a useless zoom. */
-    void zoomToFit (void);
+    /* `content' is the content class this widget also is; it outlives
+       this by being the same object. */
+    explicit GraphCanvas (CanvasContent &content);
 
 protected:
-    /* How big the drawing is, in the subclass's own coordinates, before
-       zoom. Zero or negative means "nothing to show", and the base then
-       leaves the size and the zoom alone. */
-    virtual void contentExtent (double &w, double &h) const = 0;
-
-    /* Widget pixels to the subclass's coordinates. The inverse is a
-       multiply and every caller writes it inline, which is why there is
-       no toWidget to go with this. */
-    void toContent (double sx, double sy, double &cx, double &cy) const;
-
-    /* What can be seen right now, in the subclass's coordinates: where
-       the viewport starts and how big it is. Not the widget's size --
-       the widget is the whole drawing. */
-    void visibleRect (double &x, double &y, double &w, double &h) const;
-
-    /* Call when the drawing's size changed. Re-requests the widget size
-       so the scroller knows what it is scrolling. */
-    void contentResized (void);
+    /* The visible part of the drawing, in widget pixels: the scroller's
+       position and its viewport's size, or the widget's own allocation
+       when there is no scroller. False before anything is allocated.
+       What a widget subclass answers CanvasContent::shellViewport with. */
+    bool viewport (double &x, double &y, double &w, double &h) const;
 
     /* The scroll controller, so a subclass can ask about modifiers on
        its own gestures without making a second one. */
     Glib::RefPtr<Gtk::EventControllerScroll> scroll_;
 
 private:
+    void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                 int height);
     void onResize (int width, int height);
     bool onScroll (double dx, double dy);
 
-    double zoom_;
-
-    /* Set by zoomToFit when there was no allocation to fit to; acted on
-       by the next resize. */
-    bool fitPending_;
+    CanvasContent &content_;
 };
 
 #endif /* GRAPH_CANVAS_H */

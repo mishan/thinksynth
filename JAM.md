@@ -246,6 +246,21 @@ the plan; this is where it stands.
   fresher of two readings.
 - Not yet: gate 8.3, two machines on a LAN, by hand.
 
+### M6, so far
+
+On `jam-m6`. [JAM_M6.md](JAM_M6.md) is the plan; this is where it
+stands.
+
+- The engine change the mirror needs: a `thSynth` that never renders
+  (`setSilent`), dropping notes at the door and applying everything
+  else, gated in `gencheck` against a rendering synth over every seeded
+  piece.
+- The desktop's two canvases split into content and shell: what they
+  draw and what a click means is C++ with no toolkit in it, compiled
+  without gtkmm on the include path; the gtk widget around each is a
+  few dozen lines. The same content classes are what the browser will
+  run, through a cairo stand-in that is the next step.
+
 ## 1. The three kinds of state
 
 Everything a peer can know about a session is one of three things, and each

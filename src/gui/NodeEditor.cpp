@@ -33,7 +33,7 @@
 #include "../NodeGraph.h"
 #include "../NodeLayout.h"
 #include "../NodeEdit.h"
-#include "NodeCanvas.h"
+#include "NodeCanvasWidget.h"
 #include "NodeParams.h"
 #include "NodePalette.h"
 #include "../NodeCatalog.h"

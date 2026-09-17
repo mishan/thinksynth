@@ -131,6 +131,10 @@ pkg_check_modules(GLIBMM REQUIRED IMPORTED_TARGET glibmm-2.68)
 # draws to an image surface with no toolkit and no display at all. Nothing in
 # libthink or in the 62 DSP plugins sees this. See src/thVisual.h.
 pkg_check_modules(CAIRO  REQUIRED IMPORTED_TARGET cairo)
+# cairomm for the two canvases' content classes, which draw through it and
+# nothing of gtkmm's -- see src/CanvasContent.h. gtkmm brings it anyway; it
+# is named here so those classes can be built with no gtkmm on the path.
+pkg_check_modules(CAIROMM REQUIRED IMPORTED_TARGET cairomm-1.16)
 
 # The one audio backend. RtAudio covers ALSA/JACK/Pulse/OSS, CoreAudio, and
 # WASAPI/DirectSound/ASIO behind a single callback API.

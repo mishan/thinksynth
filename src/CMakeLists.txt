@@ -64,6 +64,35 @@ target_include_directories(think_composerhost PUBLIC
 
 target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
 
+# The two canvases' content -- what they draw and what a click on them
+# means -- with no toolkit in it, so the same classes compile to wasm and run
+# in the browser under a different shell (JAM_M6.md, section 6; the header
+# of CanvasContent.h says how). Three object libraries rather than one:
+# the node canvas needs the graph model and the composer canvas needs the
+# composer host, and a harness that wants one should not have to link the
+# other's dependencies to get it. None of them links gtkmm, and that is the
+# guard on the claim: the first Gtk:: in any of these files fails to build.
+add_library(think_canvas OBJECT CanvasContent.cpp)
+target_include_directories(think_canvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_canvas PUBLIC think PkgConfig::CAIROMM)
+
+add_library(think_nodecanvas OBJECT NodeCanvas.cpp)
+target_include_directories(think_nodecanvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_nodecanvas PUBLIC think PkgConfig::CAIROMM)
+
+# glibmm for the scheduler's header, which the composer canvas reads its
+# live stages through; still no gtkmm.
+add_library(think_composercanvas OBJECT ComposerCanvas.cpp)
+target_include_directories(think_composercanvas PUBLIC
+    "${PROJECT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(think_composercanvas PUBLIC think PkgConfig::CAIROMM
+                                                  PkgConfig::GLIBMM)
+
 set(THINKSYNTH_SOURCES
     main.cpp
     gthPrefs.cpp
@@ -86,14 +115,14 @@ set(THINKSYNTH_SOURCES
     gui/MainSynthWindow.cpp
     gui/MidiMap.cpp
     gui/GraphCanvas.cpp
-    gui/NodeCanvas.cpp
+    gui/NodeCanvasWidget.cpp
     gui/NodePalette.cpp
     gui/NodeParams.cpp
     gui/NodeEditor.cpp
     gui/SaveButton.cpp
     gui/PatchSelWindow.cpp
     gui/PianoRoll.cpp
-    gui/ComposerCanvas.cpp
+    gui/ComposerCanvasWidget.cpp
     gui/ComposerWindow.cpp)
 
 # ---------------------------------------------------------------------------
@@ -170,7 +199,10 @@ add_executable(thinksynth
     ${THINKSYNTH_SOURCES}
     $<TARGET_OBJECTS:think_nodemodel>
     $<TARGET_OBJECTS:think_visualhost>
-    $<TARGET_OBJECTS:think_composerhost>)
+    $<TARGET_OBJECTS:think_composerhost>
+    $<TARGET_OBJECTS:think_canvas>
+    $<TARGET_OBJECTS:think_nodecanvas>
+    $<TARGET_OBJECTS:think_composercanvas>)
 
 # The GUI subsystem on Windows, so launching this does not also open a
 # terminal. Without it the linker defaults to the console subsystem and

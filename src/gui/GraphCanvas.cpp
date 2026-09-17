@@ -18,19 +18,13 @@
 
 #include "config.h"
 
-#include <algorithm>
-
 #include "GraphCanvas.h"
 
-/* The same bounds NodeCanvas has always had. A quarter is where a large
- * patch stops being legible and three is where a small one stops gaining
- * anything. */
-#define ZOOM_MIN  0.25
-#define ZOOM_MAX  3.0
-
-GraphCanvas::GraphCanvas (void)
-    : zoom_(1.0), fitPending_(false)
+GraphCanvas::GraphCanvas (CanvasContent &content)
+    : content_(content)
 {
+    set_draw_func(sigc::mem_fun(*this, &GraphCanvas::onDraw));
+
     /* BOTH_AXES rather than VERTICAL: a touchpad reports horizontal
        deltas too, and a controller that did not ask for them would let
        them through to the scroller while the vertical ones were being
@@ -45,42 +39,17 @@ GraphCanvas::GraphCanvas (void)
 }
 
 void
-GraphCanvas::toContent (double sx, double sy, double &cx, double &cy) const
+GraphCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                     int height)
 {
-    cx = sx / zoom_;
-    cy = sy / zoom_;
-}
-
-void
-GraphCanvas::contentResized (void)
-{
-    double w = 0, h = 0;
-
-    contentExtent(w, h);
-
-    if (w > 0 && h > 0)
-        set_size_request((int)(w * zoom_), (int)(h * zoom_));
-}
-
-void
-GraphCanvas::setZoom (double z)
-{
-    z = std::min(std::max(z, (double)ZOOM_MIN), (double)ZOOM_MAX);
-
-    if (z == zoom_)
-        return;
-
-    zoom_ = z;
-
-    contentResized();
-    queue_draw();
+    content_.draw(cr, width, height);
 }
 
 /* The scrolled window this canvas lives in, or NULL. */
 static Gtk::ScrolledWindow *
-scrollerOf (Gtk::Widget *w)
+scrollerOf (const Gtk::Widget *w)
 {
-    Gtk::Widget *p = w ? w->get_parent() : NULL;
+    Gtk::Widget *p = w ? const_cast<Gtk::Widget *>(w)->get_parent() : NULL;
 
     while (p)
     {
@@ -98,11 +67,11 @@ scrollerOf (Gtk::Widget *w)
 /* The space available to draw in: the scrolled window's viewport, not
  * this widget, which has already been sized to the content. */
 static void
-viewportSize (Gtk::Widget *w, int &cw, int &ch)
+viewportSize (const Gtk::Widget *w, int &cw, int &ch)
 {
     cw = ch = 0;
 
-    Gtk::Widget *p = w ? w->get_parent() : NULL;
+    Gtk::Widget *p = w ? const_cast<Gtk::Widget *>(w)->get_parent() : NULL;
 
     while (p)
     {
@@ -119,85 +88,43 @@ viewportSize (Gtk::Widget *w, int &cw, int &ch)
     }
 }
 
-/* What can actually be seen, in the subclass's own coordinates.
- *
- * Not the widget's size: the widget is sized to the whole scaled
- * drawing, so get_width() on a canvas in a scroller is the width of
- * everything, scrolled off or not. Anything that wants to fill the
- * *view* -- the composer's enlarged stage, a future overlay -- has to
- * ask for the viewport and where it currently sits, or it will lay
- * itself out across the content and be somewhere else the moment
- * anybody scrolls.
- *
- * Falls back to the widget when there is no scroller, which is what a
- * canvas built by a harness looks like. */
-void
-GraphCanvas::visibleRect (double &x, double &y, double &w, double &h) const
+bool
+GraphCanvas::viewport (double &x, double &y, double &w, double &h) const
 {
     x = y = 0;
-    w = get_width() / zoom_;
-    h = get_height() / zoom_;
 
-    Gtk::ScrolledWindow *sw = scrollerOf(const_cast<GraphCanvas *>(this));
+    Gtk::ScrolledWindow *sw = scrollerOf(this);
 
     if (sw == NULL)
-        return;
+    {
+        /* No scroller: what a canvas built by a harness looks like. The
+           widget is the view. */
+        w = get_width();
+        h = get_height();
 
-    int cw = 0, ch = 0;
-
-    viewportSize(const_cast<GraphCanvas *>(this), cw, ch);
-
-    if (cw < 1 || ch < 1)
-        return;
-
-    Glib::RefPtr<Gtk::Adjustment> ha = sw->get_hadjustment();
-    Glib::RefPtr<Gtk::Adjustment> va = sw->get_vadjustment();
-
-    if (ha)
-        x = ha->get_value() / zoom_;
-
-    if (va)
-        y = va->get_value() / zoom_;
-
-    w = cw / zoom_;
-    h = ch / zoom_;
-}
-
-void
-GraphCanvas::zoomToFit (void)
-{
-    double gw = 0, gh = 0;
-
-    contentExtent(gw, gh);
-
-    if (gw <= 0 || gh <= 0)
-        return;
+        return w >= 1 && h >= 1;
+    }
 
     int cw = 0, ch = 0;
 
     viewportSize(this, cw, ch);
 
-    if (cw < 32 || ch < 32)
-    {
-        /* Nothing allocated yet -- this is the first open, before GTK
-           has laid anything out. Try again when it has. */
-        fitPending_ = true;
-        return;
-    }
+    if (cw < 1 || ch < 1)
+        return false;
 
-    fitPending_ = false;
+    Glib::RefPtr<Gtk::Adjustment> ha = sw->get_hadjustment();
+    Glib::RefPtr<Gtk::Adjustment> va = sw->get_vadjustment();
 
-    double z = std::min(cw / gw, ch / gh);
+    if (ha)
+        x = ha->get_value();
 
-    if (z > 1.0)
-        z = 1.0;
+    if (va)
+        y = va->get_value();
 
-    setZoom(z);
+    w = cw;
+    h = ch;
 
-    /* setZoom returns early when the zoom did not change, which on a
-       first fit of a drawing that already fits is exactly what happens
-       -- and the size request still has to be made. */
-    contentResized();
+    return true;
 }
 
 /* A deferred fit, taken the moment the canvas has a size to fit to.
@@ -209,8 +136,7 @@ GraphCanvas::zoomToFit (void)
 void
 GraphCanvas::onResize (int, int)
 {
-    if (fitPending_)
-        zoomToFit();
+    content_.shellResized();
 }
 
 bool
@@ -238,7 +164,7 @@ GraphCanvas::onScroll (double dx, double dy)
     if (d == 0.0)
         return true;      /* Ctrl was held: eaten either way            */
 
-    setZoom(d < 0.0 ? zoom_ * 1.1 : zoom_ / 1.1);
+    content_.setZoom(d < 0.0 ? content_.zoom() * 1.1 : content_.zoom() / 1.1);
 
     return true;
 }

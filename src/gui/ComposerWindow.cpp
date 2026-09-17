@@ -196,7 +196,7 @@ ComposerWindow::ComposerWindow (thSynth *synth)
        piece's face whether or not the Edit panel is open -- the tier-two
        visualizers live inside its stage boxes now, where the old draw
        strip used to be a row of orphans. */
-    canvas_ = manage(new ComposerCanvas());
+    canvas_ = manage(new ComposerCanvasWidget());
     canvas_->sigSelection.connect(
         sigc::mem_fun(*this, &ComposerWindow::onCanvasSelection));
     canvas_->sigMoveStage.connect(
@@ -1619,7 +1619,7 @@ ComposerWindow::onCanvasKnob (std::string name, double value, bool commit)
  * a list of things you cannot have is not help. */
 void
 ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
-                                  size_t stage, Gdk::Rectangle at)
+                                  size_t stage, CanvasRect at)
 {
     closeParams();
 
@@ -1699,7 +1699,7 @@ ComposerWindow::onCanvasBindKnob (std::string knob, size_t chain,
     paramPop_->set_child(*list);
     paramPop_->set_parent(*canvas_);
     paramPop_->set_position(Gtk::PositionType::BOTTOM);
-    paramPop_->set_pointing_to(at);
+    paramPop_->set_pointing_to(ComposerCanvasWidget::toGdk(at));
     paramPop_->popup();
 }
 
@@ -1729,7 +1729,7 @@ ComposerWindow::closeParams (void)
 
 void
 ComposerWindow::onCanvasParams (size_t chain, size_t stage,
-                                Gdk::Rectangle at)
+                                CanvasRect at)
 {
     closeParams();
 
@@ -1787,7 +1787,7 @@ ComposerWindow::onCanvasParams (size_t chain, size_t stage,
     paramPop_->set_child(*scroll);
     paramPop_->set_parent(*canvas_);
     paramPop_->set_position(Gtk::PositionType::BOTTOM);
-    paramPop_->set_pointing_to(at);
+    paramPop_->set_pointing_to(ComposerCanvasWidget::toGdk(at));
     paramPop_->popup();
 }
 

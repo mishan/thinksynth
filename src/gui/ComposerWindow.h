@@ -29,7 +29,7 @@
 /* By value in prevInstruments_ below, so a forward declaration will not
    do -- and it is the same header ComposerCanvas already pulls in. */
 #include "thcScheduler.h"
-#include "ComposerCanvas.h"
+#include "ComposerCanvasWidget.h"
 
 class thSynth;
 class thArg;
@@ -179,11 +179,11 @@ protected:
     /* Canvas callbacks. */
     void onCanvasSelection (const ComposerCanvas::Selection &sel);
     void onCanvasMoveStage (size_t chain, int from, int to);
-    void onCanvasParams (size_t chain, size_t stage, Gdk::Rectangle at);
+    void onCanvasParams (size_t chain, size_t stage, CanvasRect at);
     void buildKnobSelection (size_t ki);
     void onCanvasKnob (std::string name, double value, bool commit);
     void onCanvasBindKnob (std::string knob, size_t chain, size_t stage,
-                           Gdk::Rectangle at);
+                           CanvasRect at);
     void closeParams (void);
 
     /* The live stage behind a doc position, for poking values without a
@@ -300,7 +300,7 @@ protected:
 
     /* The node view, above the roll; inline composer_draw replaced the
        old draw strip. */
-    ComposerCanvas *canvas_;
+    ComposerCanvasWidget *canvas_;
     Gtk::ScrolledWindow canvasScroll_;
 
     /* The canvas over the roll, with the split where the user left it.
