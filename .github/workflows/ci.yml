@@ -261,7 +261,22 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
-            libasound2-dev libjack-jackd2-dev
+            libasound2-dev libjack-jackd2-dev pulseaudio
+
+      # A sound card, of sorts, for jamtest further down. It opens a live
+      # AudioContext in both browsers, because two peers agreeing on a
+      # clock is the thing under test and an offline context has no clock
+      # -- and a runner has no audio device at all. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never
+      # resolves without a backend, so Start never returns and the page
+      # waits for ever with nothing to say about why. One null sink is
+      # enough: nothing here listens to anything.
+      - name: An audio sink for the live-context tests
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=jamtest
+          pactl set-default-sink jamtest
+          pactl info
 
       # The module runs the same on 20, 22 and 24; pinned so that a change of
       # runner image is not what moves the result.
@@ -296,9 +311,15 @@ jobs:
       - name: Compare
         run: node wasm/compare.mjs --lsb 1 -k compare
 
+      # The room page's bundle and the tests' browsers come from npm; the
+      # build wants the first, so this comes before it.
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
       # The browser build (JAM.md, M1 and M2): every plugin and every
       # composer linked in rather than loaded, with the composer scheduler,
-      # for an AudioWorklet.
+      # for an AudioWorklet -- and the room page (M3), bundled.
       - name: Browser build
         run: |
           source ~/emsdk/emsdk_env.sh
@@ -312,9 +333,18 @@ jobs:
       # M2's gate, without a browser: every seeded piece composed by this
       # module at four steps, against the tape genwav.mjs delivers out of
       # the Node module built above. The wasm-against-wasm gate and the
-      # step-invariance gate in one.
-      - name: Every seeded piece, against genwav
+      # step-invariance gate in one. Then every shipped piece played the way
+      # the page plays it, held to a peak -- a tape says what was composed
+      # and not whether any of it was audible (AIMING.md, section 5).
+      - name: Every seeded piece, against genwav; and every piece audible
         run: node wasm/web/piececheck.mjs
+
+      # M3's first gate, without a browser: two peers in one process at
+      # different windows and rates, on a network of made-up delay and
+      # loss, composing every seeded piece from stamped commands -- one
+      # tape between them, and genwav's tape under the same commands.
+      - name: Two peers, one tape
+        run: node wasm/web/protocoltest.mjs
 
       # And with one: browsertest.mjs plays a phrase through the worklet in
       # Chromium and in Firefox and holds each against the module run
@@ -325,9 +355,32 @@ jobs:
       - name: Browser build, in browsers
         working-directory: wasm/web
         run: |
-          npm ci
           npx playwright install --with-deps chromium firefox
           node browsertest.mjs
+
+      # The solo page itself, which nothing above opens: the octave, the
+      # sliders a piece's knobs are drawn as, and a computer key held and
+      # let go. Both pages share keyboard.js and knobs.js, so this is
+      # where a change to either shows up first.
+      - name: The page's keys and knobs
+        working-directory: wasm/web
+        run: node pagetest.mjs
+
+      # The relay (JAM_M3.md, section 3), driven from Node by the clients
+      # the page will be: presence, seats, the clock, signalling, the
+      # relayed fallback, and the shared document reaching two providers.
+      - name: The relay
+        working-directory: wasm/web
+        run: node relaytest.mjs
+
+      # M3's second gate (JAM_M3.md, section 8.2): a Chromium page and a
+      # Firefox page in one room on a relay, each with a live AudioContext,
+      # one pressing Play, a knob moved from each side, and one tape
+      # between them -- genwav's, under the same commands. Live, because
+      # two peers agreeing on a clock is the thing under test.
+      - name: Two browsers, one room
+        working-directory: wasm/web
+        run: node jamtest.mjs
 
       # The renders, so a difference can be listened to rather than only
       # read about.
@@ -358,6 +411,64 @@ jobs:
           # Adwaita is a directory of SVGs nothing can read.
           brew install cmake ninja pkg-config bison flex gtkmm4 \
                        adwaita-icon-theme librsvg
+
+      # The same break the ucrt64 job holds glib2 and gtk4 back for, one
+      # package manager along: glib 2.90.0 (homebrew-core since 2026-09-14)
+      # moved GEmblem and GDBusActionGroup to G_DECLARE_FINAL_TYPE, which
+      # expands the class struct to an *unnamed* one --
+      #
+      #     typedef struct { GObjectClass parent_class; } GEmblemClass;
+      #
+      # -- while giomm still hand-writes `using GEmblemClass = struct
+      # _GEmblemClass;'. Two system headers, one name, two types, and every
+      # translation unit that includes <gtkmm.h> dies. Nothing we compile
+      # reaches it and there is nothing to upgrade into: Homebrew's newest
+      # glibmm is 2.88.1, and upstream's fix is in glibmm 2.90.0, which
+      # homebrew-core has not taken yet.
+      #
+      # Only glib here, where ucrt64 needs gtk4 held too: the third type,
+      # GdkCursor, went final in GTK 4.24 and Homebrew is still on 4.22.4.
+      #
+      # 2.88.3 is the last release before the change, and safe to put back
+      # under what stays current -- every C++ binding here was bottled
+      # before 2.90 landed and so was built against 2.88 anyway. If one of
+      # them did reach for a symbol only 2.90 has, the smoke test and ctest
+      # below are what would say so, loudly.
+      #
+      # The API index has no older versions in it, so this goes through the
+      # tap, fetched shallow at the commit where glib.rb was still 2.88.3.
+      # The bottle comes from ghcr as usual; nothing is built from source.
+      #
+      # Drop this step once homebrew-core ships a glibmm built against glib
+      # 2.90; the build will simply stop needing it.
+      - name: Hold glib where glibmm still compiles
+        env:
+          # The commit before "glib 2.90.0": glib.rb at 2.88.3, bottled.
+          # In full, because a fetch by object name wants the whole 40 --
+          # an abbreviation is a ref to git, and there is no such ref.
+          GLIB_PIN: a6afb6c533be34a6148cf138984506944bc5170b
+        run: |
+          set -e
+          export HOMEBREW_NO_INSTALL_FROM_API=1
+          tap="$(brew --repo homebrew/core)"
+          mkdir -p "$tap"
+          git -C "$tap" init -q
+          git -C "$tap" remote add origin \
+              https://github.com/Homebrew/homebrew-core 2>/dev/null || true
+          git -C "$tap" fetch -q --depth 1 origin "$GLIB_PIN"
+          git -C "$tap" checkout -q FETCH_HEAD
+          brew uninstall --ignore-dependencies glib
+          brew install glib
+          # Explicitly, because the runner image turns out to keep 2.88.3
+          # in the Cellar already: `brew install' then finds it there,
+          # says "already installed, it's just not linked", and leaves it
+          # that way -- no glib-2.0.pc, so gtkmm-4.0.pc cannot resolve and
+          # the configure below fails looking for gtkmm rather than glib.
+          brew link --overwrite glib
+          # And the step says whether it worked, rather than leaving the
+          # configure to discover it three steps later.
+          brew list --versions glib
+          pkg-config --modversion glib-2.0 gtkmm-4.0
 
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be

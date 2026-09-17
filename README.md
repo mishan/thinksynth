@@ -207,10 +207,13 @@ no gtkmm, no cairo, no pkg-config:
 sudo apt install git cmake ninja-build bison flex python3 curl xz-utils
 ```
 
-Then build the site and serve it:
+Then build the site and serve it. The room page (below) has an editor
+and a CRDT in it, which come from npm and are bundled at build time, so
+`npm ci` comes once before the configure:
 
 ```sh
 source ~/emsdk/emsdk_env.sh
+(cd wasm/web && npm ci)
 emcmake cmake -S wasm/web -B build-web -G Ninja
 cmake --build build-web -j
 node wasm/web/serve.mjs            # http://localhost:8080/
@@ -227,16 +230,77 @@ declared and move it as it runs; the roll is what the scheduler has
 delivered, a colour per channel. The keyboard still plays, into whatever
 chains the piece routed `input midi` to.
 
+Under the roll is a line for each channel the piece touches. A piece that
+carries its own instruments has aimed them itself and says so. One whose
+sinks just name channels — `fern.gen` asks for something plucked and a soft
+pad — is asking the reader to aim them, and the page fills each from the
+same patch the desktop's first run puts there, so the piece sounds without
+being set up; the menu on its line is every shipped `.patch` and `.dsp` if
+you want something else. What a channel sounds like is the piece's to say
+and, where the piece is silent, the defaults' — never what the page did a
+moment ago. [AIMING.md](AIMING.md) is the argument.
+
 It has to be served, and to localhost: a worklet module will not load from
 a `file://` path, and a browser counts https and localhost as secure
 contexts and nothing else. To play it from another machine, forward the
 port — `ssh -L 8080:localhost:8080 host` — rather than serving on 0.0.0.0,
-which its browser will not trust. The build directory is the whole site,
-around 4 MB, and can be copied anywhere that serves files over https.
+which its browser will not trust.
 
 `node` comes with the emsdk, on `PATH` after `emsdk_env.sh`; Debian's
 `nodejs` package does as well. Configuring fetches sigc++, so the first
 run needs the network.
+
+### Putting it somewhere else
+
+The build directory is the whole site and `serve.mjs` serves it where it
+stands. To host it anywhere else, package it first:
+
+```sh
+cmake --build build-web --target dist
+```
+
+which writes `build-web/dist/` — the files a server needs and no others,
+around 4 MB, every file 644 and every directory 755 — after removing
+whatever an earlier `dist` left, so a stale file cannot ride along. Copy
+*that*. For a destination of your own, `cmake --install build-web --prefix
+DIR` is the same rules with the prefix as the site root, putting
+`index.html` at `DIR/index.html`.
+
+Not a copy of the build directory: it carries the object files and CMake's
+own state, and copying keeps each file's mode from the source tree, so a
+`.dsp` that is 640 here is 640 on the server and a 403 in the browser —
+which the page then loads as an HTML error page and fails to parse.
+
+### Playing together
+
+`jam.html` is the same synth with a room around it: several people, one
+piece, each browser rendering the whole of it. The piece's text is shared
+and edited together, with everyone's cursors; Play starts every peer's
+transport at one agreed moment; a knob moved anywhere moves everywhere at
+the same point in the piece; keys play into the seat you took. What
+crosses the network is the score, never the audio. [JAM.md](JAM.md) is
+the design and [JAM_M3.md](JAM_M3.md) the detail of this milestone.
+
+It needs a relay: one small server that holds the document, answers the
+clock, and introduces the peers to each other. Run it beside the site:
+
+```sh
+node wasm/web/relay.mjs                                # ws://0.0.0.0:8787
+node wasm/web/serve.mjs --relay ws://localhost:8787    # http://localhost:8080/
+```
+
+and open `http://localhost:8080/jam.html`, pick a room and a name, Join,
+Start, take a seat, Play. A second tab in the same room is a second peer.
+For a second machine on the LAN, forward the site's port as above and
+open it as `localhost`; the relay needs no secure context, so give it
+the first machine's address: `?relay=ws://192.168.1.10:8787` on the URL,
+or `--relay` to that machine's `serve.mjs`. A new room is seeded with
+`gen/airports.gen`; `?piece=ebb.gen` seeds it with another.
+
+The numbers panel shows what the clocks think -- the relay's round trip
+and the spread of the offset, the audio clock's residual -- and how many
+commands arrived after their time. **Download the tape** on two peers
+after a play, and diff them: they should be the same file.
 
 `wasm/` is the other Emscripten build, the same engine under Node:
 `wasm/genwav.mjs` renders a `.gen` the way `scripts/genwav` does, and
@@ -248,10 +312,22 @@ seeded piece in it — at 48 kHz and 44.1, in windows of 256 and of 128 — and
 diffs each tape against the one `genwav.mjs` delivers under Node, where the
 plugins are dlopened rather than linked in and the transport is stepped by a
 fixed clock in windows of 1024. All four have to agree, because what a piece
-composes is a function of the file and the seed and of nothing else.
+composes is a function of the file and the seed and of nothing else. It then
+plays every shipped piece the way the page plays it, defaults and all, and
+asks for a peak: a tape says what was composed and not whether any of it was
+audible, and a piece that is silent under the page's defaults fails the
+build.
 `wasm/web/browsertest.mjs` runs both of those through the worklet in
-Chromium and Firefox, and `wasm/web/bench.mjs` reports what one 128-frame
-quantum costs with a piece running and a chord held down.
+Chromium and Firefox, `wasm/web/pagetest.mjs` drives the solo page's own
+keys and knobs in Chromium, and `wasm/web/bench.mjs` reports what one
+128-frame quantum costs with a piece running and a chord held down. For
+the room:
+`wasm/web/protocoltest.mjs` runs two peers in one process at different
+windows and rates over a simulated network and holds their tapes against
+each other and against `genwav.mjs`'s under the same commands;
+`wasm/web/relaytest.mjs` drives the relay from Node; and
+`wasm/web/jamtest.mjs` puts a Chromium page and a Firefox page in one
+room on a relay and does the same comparison live.
 
 Documentation
 -------------
@@ -265,5 +341,6 @@ Documentation
 | [VISUALIZERS.md](VISUALIZERS.md) | writing a visual module, and how probes work |
 | [PORTING.md](PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
 | [JAM.md](JAM.md) | playing together in a browser: the plan, milestones and risks |
+| [AIMING.md](AIMING.md) | what a channel sounds like in the page, and who decides it |
 | [PACKAGING.md](PACKAGING.md) | the three install layouts, dependency closure, GTK bundling, Flatpak |
 | [TODO](TODO) | what is left |

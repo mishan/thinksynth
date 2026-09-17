@@ -172,6 +172,26 @@ details { margin: 0.8em 0; }
     text-align: right;
 }
 
+/* One line per channel the piece touches: its number, then what is on it.
+   The numbers are a column of their own so the row reads down as a list of
+   channels rather than across as a sentence, and monospaced so 1 and 10
+   line up under each other. */
+#channels { margin: 0.8em 0; }
+
+#channels .row { margin: 0.3em 0; }
+
+#channels .chan
+{
+    font: 13px ui-monospace, monospace;
+    color: var(--dim);
+    min-width: 2em;
+    text-align: right;
+}
+
+/* A channel the piece aimed itself. Nothing to choose, so nothing that
+   looks like a control. */
+#channels .own { color: var(--dim); }
+
 #about { margin: 0.4em 0; color: var(--dim); }
 
 #clock { font: 13px ui-monospace, monospace; }
@@ -312,3 +332,45 @@ details { margin: 0.8em 0; }
 
     #keys { height: 38vh; margin: 0.2em 0; }
 }
+
+/* ---- the room page ---- */
+
+.dim { color: var(--dim); font-weight: normal; }
+
+.peers { display: flex; gap: 0.8em; flex-wrap: wrap; }
+
+.peers .peer
+{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 0.2em 0.6em;
+    border-radius: 0.3em;
+}
+
+.peers .peer.me { border-color: var(--held); }
+.peers .path { color: var(--dim); font-size: 0.85em; margin-left: 0.4em; }
+
+.tabs { display: flex; gap: 0.3em; flex-wrap: wrap; }
+
+.tab
+{
+    background: var(--panel);
+    border: 1px solid var(--line);
+    padding: 0.2em 0.7em;
+    font: inherit;
+    color: var(--fg);
+}
+
+.tab.active { border-color: var(--held); font-weight: bold; }
+
+#editor .cm-editor
+{
+    height: 26em;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    font: 13px/1.35 ui-monospace, monospace;
+}
+
+#editor .cm-scroller { overflow: auto; }
+
+#numbers { min-height: 8em; }

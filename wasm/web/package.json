@@ -1,15 +1,29 @@
 {
   "name": "thinksynth-web-tests",
   "private": true,
-  "description": "What browsertest.mjs needs to drive Chromium and Firefox; the site itself has no dependencies.",
+  "description": "The relay's dependencies, the tests' browsers, and later the page's bundle; the solo page itself has no dependencies.",
   "type": "module",
   "scripts": {
     "check": "node check.mjs",
     "piececheck": "node piececheck.mjs",
+    "protocoltest": "node protocoltest.mjs",
+    "relaytest": "node relaytest.mjs",
+    "relay": "node relay.mjs",
     "browsertest": "node browsertest.mjs",
+    "pagetest": "node pagetest.mjs",
+    "jamtest": "node jamtest.mjs",
     "bench": "node bench.mjs"
   },
   "devDependencies": {
+    "esbuild": "^0.28.2",
     "playwright": "1.63.0"
+  },
+  "dependencies": {
+    "codemirror": "^6.0.2",
+    "ws": "^8.21.3",
+    "y-codemirror.next": "^0.3.6",
+    "y-protocols": "^1.0.7",
+    "y-websocket": "^3.1.0",
+    "yjs": "^13.6.32"
   }
 }

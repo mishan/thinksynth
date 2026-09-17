@@ -47,7 +47,18 @@
  * seeded piece composes the same whoever is listening, so nothing above
  * says whether `input midi' arrives. gen/hands.gen is the piece that is
  * nothing but input -- three chains, no generators, no instruments -- and
- * the last check here holds a chord down in it and listens.
+ * a check here holds a chord down in it and listens.
+ *
+ * And then the thing no tape comparison can reach either, for the
+ * opposite reason: whether any of it makes a sound. A tape is what the
+ * scheduler delivered, and a piece whose sinks name channels nothing is
+ * loaded on delivers every note of it into silence -- fern composes three
+ * and a half thousand notes in two minutes at a peak of 0.000, and its
+ * tape is perfect. So the last check plays every shipped piece the way
+ * the page plays it, the defaults aimed at the channels the piece left to
+ * the reader (AIMING.md, section 5), and asks for a peak. A shipped piece
+ * that is silent under the page's defaults fails the build, which is the
+ * property the report that started all this was missing.
  *
  * What this cannot see is the browser: the worklet, its messages, and the
  * quanta a real audio thread asks for. browsertest.mjs runs the same tape
@@ -57,13 +68,13 @@
  */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { seeded, tapeBefore } from '../tape.mjs';
-import { playAt, playPiece } from './render.mjs';
+import { defaultFor, parse } from './patch.js';
+import { playAimed, playAt, playPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const top = path.join(here, '..', '..');
@@ -114,27 +125,57 @@ export function pieces (buildDir)
         });
 }
 
-/* genwav.mjs's tape for a piece, cut to SECONDS. The reference: a different
-   module, a different loader, a different step. */
-export function reference (name, nodeBuildDir)
+/* genwav.mjs's tape for a piece, cut where the comparison ends. The
+ * reference every gate here is held against: a different module, a
+ * different loader, a different step.
+ *
+ * `commands' are stamped commands in the shape that crosses the network
+ * (commands.js) -- knobs, tempos, the stop -- turned into genwav's `-c'
+ * argv, so that the peers and the reference are given one command stream.
+ * `knobs' maps a command's knob index, which is the module's numbering
+ * over every knob a piece declared, to the name genwav takes; a piece with
+ * a hidden knob before a shown one numbers them differently from the
+ * sliders on the page, so the map is by index and not by position.
+ *
+ * `stopAt' is the transport time the tape is cut at, and genwav is asked
+ * for a few seconds past it so that the stop itself is on what comes back.
+ * Without one the whole of `seconds' is taken. */
+export function reference (name, nodeBuildDir,
+                           { commands = [], knobs = {}, stopAt = null,
+                             seconds = SECONDS } = {})
 {
-    /* A file of its own, so two of these gates running at once -- this
-       one and browsertest.mjs, say -- do not read each other's tapes. */
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'thinksynth-tape-'));
-    const tape = path.join(dir, `${name}.tape`);
+    const until = stopAt === null ? seconds : stopAt + 5;
 
-    execFileSync('node',
-                 [path.join(here, '..', 'genwav.mjs'),
-                  '-s', String(SECONDS), '-t', tape, '-q',
-                  path.join(top, 'gen', name)],
-                 { cwd: top, env: { ...process.env,
-                                    THINK_WASM_BUILD: nodeBuildDir } });
+    /* To stdout rather than to a file, so two of these gates running at
+       once -- this one and browsertest.mjs, say -- cannot read each
+       other's tapes. */
+    const args = [path.join(here, '..', 'genwav.mjs'),
+                  '-s', String(until), '-t', '-', '-q'];
 
-    const text = fs.readFileSync(tape, 'utf8');
+    for (const c of commands)
+    {
+        if (c.type === 'knob')
+        {
+            if (knobs[c.knob] === undefined)
+                throw new Error(`reference: knob ${c.knob} of ${name} has ` +
+                                'no name to give genwav');
 
-    fs.rmSync(dir, { recursive: true, force: true });
+            args.push('-c', `${c.at} knob ${knobs[c.knob]} ${c.value}`);
+        }
+        else if (c.op === 'tempo')
+            args.push('-c', `${c.at} tempo ${c.bpm}`);
+        else if (c.op === 'stop')
+            args.push('-c', `${c.at} stop`);
+    }
 
-    return tapeBefore(text, SECONDS);
+    args.push(path.join(top, 'gen', name));
+
+    const text = execFileSync('node', args,
+                              { cwd: top, encoding: 'utf8',
+                                env: { ...process.env,
+                                       THINK_WASM_BUILD: nodeBuildDir } });
+
+    return tapeBefore(text, stopAt === null ? seconds : stopAt);
 }
 
 /* Where the two first differ, for a failure that can be acted on. */
@@ -244,6 +285,107 @@ async function checkKeys (createThinkWeb, dsps, all)
     return 0;
 }
 
+/* What the page would put on a channel a piece named and aimed at nothing
+ * of its own: gthPrefs.cpp's first-run patch for that channel, read out of
+ * the build's patches/ and through patch.js's own parser -- the same file
+ * the page reads it with, so this gate cannot pass on a parser the page
+ * does not have.
+ *
+ * `dsps' is the shipped .dsp texts, which is where a .patch's `dsp' line
+ * resolves for the page too. Returns null for a patch this build does not
+ * ship; playAimed hands those channels back in `unaimed' and checkAudible
+ * names them as a build to fix rather than a piece to blame.
+ */
+export function defaults (buildDir, dsps)
+{
+    return (channel) =>
+    {
+        const name = defaultFor(channel);
+        const file = path.join(buildDir, 'patches', name);
+
+        if (!fs.existsSync(file))
+            return null;
+
+        const p = parse(fs.readFileSync(file, 'utf8'));
+
+        if (p.dsp === null || dsps[p.dsp] === undefined)
+            return null;
+
+        return { name, dsp: dsps[p.dsp], args: p.args };
+    };
+}
+
+/* How loud counts as heard: -60 dBFS. render.mjs says why there is a
+   floor at all and why this one. */
+const FLOOR = 0.001;
+
+/* Every shipped piece, played the way the page plays it, held to a peak.
+ *
+ * Not a tape: a tape says what was composed and this says whether it was
+ * audible, and the two fail apart -- fern's tape is perfect and fern was
+ * silent. A minute is the window, and the run stops as soon as the piece
+ * has been heard; one that has not been heard in a minute of transport is
+ * not going to be saved by the rest of it.
+ */
+async function checkAudible (createThinkWeb, dsps, all, buildDir)
+{
+    const patchFor = defaults(buildDir, dsps);
+    let failures = 0;
+
+    for (const piece of all)
+    {
+        const r = await playAimed(createThinkWeb,
+                                  { gen: piece.text, instruments: dsps,
+                                    patchFor, seconds: SECONDS,
+                                    floor: FLOOR });
+
+        if (!r.ok)
+        {
+            process.stdout.write(`FAIL  ${piece.name.padEnd(14)} did not ` +
+                                 `load: ${r.errors.join('; ')}\n`);
+            failures++;
+            continue;
+        }
+
+        /* Said whether or not the piece was audible: a build missing the
+           patches the defaults name is a broken build, and a piece that
+           sounded anyway does not make it less broken. */
+        if (r.unaimed.length > 0)
+            process.stdout.write(
+                `      ${' '.repeat(14)} this build ships no patch for ` +
+                `channel ${r.unaimed.map((c) => c + 1).join(', ')} -- ` +
+                `${[...new Set(r.unaimed.map(defaultFor))].join(', ')} ` +
+                'is not under patches/; fix the build, not the piece\n');
+
+        if (r.peak <= FLOOR)
+        {
+            const how = r.aimed.length > 0
+                ? `aimed ${r.aimed.map((a) => `${a.channel + 1} at ` +
+                                              a.patch).join(', ')}`
+                : r.unaimed.length > 0
+                ? 'and nothing could be aimed at it'
+                : 'it names no channel the page could aim';
+
+            process.stdout.write(
+                `FAIL  ${piece.name.padEnd(14)} nothing above ` +
+                `${r.peak.toExponential(1)} through ${SECONDS} s under the ` +
+                `page's defaults; ${how}\n`);
+            failures++;
+            continue;
+        }
+
+        const how = r.aimed.length === 0
+            ? 'its own instruments'
+            : r.aimed.map((a) => `${a.channel + 1}=${a.patch}`).join(' ');
+
+        process.stdout.write(
+            `ok    ${piece.name.padEnd(14)} heard by ${r.at.toFixed(1)} s   ` +
+            `${how}\n`);
+    }
+
+    return failures;
+}
+
 if (import.meta.url === pathToFileURL(process.argv[1]).href)
 {
     if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
@@ -256,7 +398,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
     }
 
     const { default: createThinkWeb } =
-        await import(pathToFileURL(path.join(build, 'thinkweb.mjs')).href);
+        await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
     const dsps = instruments(build);
     const all = pieces(build);
@@ -310,11 +452,15 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
 
     failures += await checkKeys(createThinkWeb, dsps, all);
 
+    process.stdout.write('\n');
+    failures += await checkAudible(createThinkWeb, dsps, all, build);
+
     process.stdout.write(
         `\n${failures === 0
              ? 'every seeded piece composes the same tape in the browser ' +
-               'build as in genwav, at every step, and a chord held in ' +
-               'hands.gen is arpeggiated\n'
+               'build as in genwav, at every step; a chord held in ' +
+               'hands.gen is arpeggiated; and every shipped piece sounds ' +
+               "under the page's defaults\n"
              : `${failures} failed\n`}`);
     process.exitCode = failures;
 }

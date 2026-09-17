@@ -79,7 +79,8 @@ export async function renderDirect (createThinkWeb,
  * otherwise have to gain it in each. */
 export async function loadPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
-                                   block = 128, gen, instruments = {} })
+                                   block = 128, gen, instruments = {},
+                                   seed = -1 })
 {
     const log = [];
     const M = await createThinkWeb({
@@ -93,7 +94,8 @@ export async function loadPiece (createThinkWeb,
         M.ccall('tw_instrument', 'number', ['string', 'string'],
                 [name, text]);
 
-    const ok = M.ccall('tw_piece_load', 'number', ['string'], [gen]) !== 0;
+    const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                       [gen, seed]) !== 0;
 
     return { M, ok, log, errors: ok ? [] : loadErrors(M),
              windowlen: windowTaken };
@@ -109,7 +111,7 @@ export async function loadPiece (createThinkWeb,
 export async function playPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},
-                                   seconds = 60, knobs = [] })
+                                   seconds = 60, commands = [] })
 {
     const { M, ok, log, errors, windowlen: took } =
         await loadPiece(createThinkWeb,
@@ -119,11 +121,15 @@ export async function playPiece (createThinkWeb,
         return { ok, log, errors, tape: '' };
 
     /* Stamped at -1: the next window, which is where the page's Play lands
-       too. A knob is named by its index, as the page names it. */
+       too. */
     M._tw_transport(-1, 0, 0);
 
-    for (const k of knobs)
-        M._tw_knob(-1, k.knob, k.value);
+    /* The scheduler's commands, each with the transport time it applies
+       at: { at, op: 'knob', knob, value }, { at, op: 'tempo', value } or
+       { at, op: 'stop' }. Handed over up front; the module holds each
+       until its time and applies it inside the step there. */
+    for (const c of commands)
+        schedule(M, c);
 
     let tape = '';
 
@@ -137,6 +143,146 @@ export async function playPiece (createThinkWeb,
 
     return { ok: true, log, errors: [], tape, now: M._tw_now(),
              windowlen: took };
+}
+
+/* thinkweb.cpp's TransportOp, as far as tw_at takes it: the two ops that
+   carry a transport time. worklet.js has the whole table, start and
+   rewind included, because it is what the page posts through. */
+const AT_OP = { stop: 1, tempo: 3 };
+
+/* One scheduler command into the module, as the worklet would post it.
+ *
+ * Every host here goes through this rather than spelling the op numbers
+ * again: the harnesses compare a browser's tape against this path's, and
+ * two spellings of the enum is how a renumbering turns into a gate that
+ * passes while comparing different commands. */
+export function schedule (M, c)
+{
+    if (c.op === 'knob')
+        M._tw_knob(c.at, c.knob, c.value);
+    else if (Object.hasOwn(AT_OP, c.op))
+        M._tw_at(c.at, AT_OP[c.op], c.value ?? 0);
+    else
+        throw new Error(`no scheduler command '${c.op}'`);
+}
+
+/* A piece played the way the page plays it: loaded, then aimed, then
+ * listened to.
+ *
+ * The page's rule, in Node (AIMING.md, section 3): what a channel sounds
+ * like is the piece's to decide, and where the piece is silent on it, the
+ * page's defaults'. So the piece goes in first, the module says which
+ * channels its sinks named and its own instruments did not take, and
+ * `patchFor' is asked what belongs on each -- the same question patch.js
+ * asks for the page, with the same answer, resolved by the caller because
+ * only the caller can read a file.
+ *
+ * `patchFor(channel)' returns `{ name, dsp, args }': the .dsp's text and
+ * the chanarg overrides to set on it afterwards, which is a .patch. null
+ * for a channel it has nothing for, and those channels come back in
+ * `unaimed' so the caller can say so.
+ *
+ * A piece fed by `input midi' composes nothing until somebody plays it,
+ * so `chord' is held down on every channel it listens on -- there is no
+ * peak to have otherwise, and hands.gen is the piece that is nothing but
+ * input.
+ *
+ * Returns as soon as the peak passes `floor', because by then the
+ * question is answered and the rest of the minute is time spent. Not at
+ * the first sample above zero: a DC offset is above zero, and so is the
+ * tail of a denormal, and neither is a piece being heard. -60 dBFS is
+ * quiet enough to be nothing a person would call a sound and loud enough
+ * that no shipped piece takes an extra window to reach it -- every one of
+ * the seventeen crosses it in the same window it first leaves zero.
+ */
+export async function playAimed (createThinkWeb,
+                                 { rate = 48000, windowlen = 256,
+                                   block = 128, gen, instruments = {},
+                                   patchFor = () => null,
+                                   chord = [53, 56, 60], seconds = 60,
+                                   floor = 0.001 })
+{
+    const { M, ok, log, errors } =
+        await loadPiece(createThinkWeb,
+                        { rate, windowlen, block, gen, instruments });
+
+    if (!ok)
+        return { ok, log, errors, aimed: [], unaimed: [], listens: [],
+                 peak: 0, at: 0 };
+
+    const aimed = [];
+
+    /* Channels the piece asked for that `patchFor' had nothing for. Kept
+       and returned rather than skipped quietly: a caller that cannot tell
+       "this piece names no channel" from "this build ships no patch for
+       its channels" sends somebody hunting in the wrong place. */
+    const unaimed = [];
+
+    for (let i = 0; i < M._tw_sink_count(); i++)
+    {
+        const channel = M._tw_sink_channel(i);
+        const what = patchFor(channel);
+
+        if (what === null || what.dsp === undefined)
+        {
+            unaimed.push(channel);
+            continue;
+        }
+
+        M.ccall('tw_load', 'number', ['number', 'string'],
+                [channel, what.dsp]);
+
+        /* After the load, as gthPatchManager::parse does it: the
+           overrides are for the tree that load just built. */
+        for (const a of what.args ?? [])
+            M.ccall('tw_chanarg', 'number',
+                    ['number', 'string', 'array', 'number'],
+                    [channel, a.name,
+                     new Uint8Array(Float32Array.from(a.values).buffer),
+                     a.values.length]);
+
+        aimed.push({ channel, patch: what.name });
+    }
+
+    const listens = [];
+
+    for (let c = 0; c < 16; c++)
+        if (M._tw_listens(c))
+            listens.push(c);
+
+    M._tw_transport(-1, 0, 0);
+
+    let held = false;
+    let peak = 0;
+
+    while (M._tw_now() < seconds)
+    {
+        /* After a second of transport, which is where checkKeys puts its
+           chord: a press at zero would land before the first step. */
+        if (!held && M._tw_now() >= 1)
+        {
+            held = true;
+
+            for (const c of listens)
+                for (const note of chord)
+                    M._tw_midi_on(-1, c, note, 100);
+        }
+
+        const p = M._tw_render(block) >> 2;
+
+        for (let i = 0; i < block * 2; i++)
+            peak = Math.max(peak, Math.abs(M.HEAPF32[p + i]));
+
+        /* Drained, or the module holds a minute of a busy piece's events
+           for nobody. */
+        drain(M);
+
+        if (peak > floor)
+            break;
+    }
+
+    return { ok: true, log, errors: [], aimed, unaimed, listens, peak,
+             at: M._tw_now() };
 }
 
 /* A piece played *at*: keys held down and let go, into whatever chains

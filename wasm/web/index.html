@@ -46,19 +46,23 @@
 
   <div id="knobs"></div>
 
-  <!-- A piece may route `input midi' to a channel it declares no
-       instrument for -- hands.gen declares none at all -- so the keys need
-       a channel to arrive on and that channel may need something on it to
-       sound. This is the desktop's Patch Selector, aimed by hand.
+  <!-- What each channel this piece touches sounds like: its own
+       instruments, the channels its sinks name and left to the reader, the
+       channels it takes `input midi' on, and wherever the keys are aimed.
+       A channel the piece named and put nothing on is filled from the
+       defaults the desktop's first run uses (AIMING.md, patch.js), so the
+       piece sounds the same here in any order of clicks; one the piece
+       aimed itself says so and has nothing to choose.
 
-       These are the engine's channel numbers, which a .gen file's are not:
-       a file writes `channel = 1' for the first one and the loader hands
-       over 0. -->
+       Channel numbers here are the file's, 1-16, since that is what a
+       person reading the piece's comment will be looking for; the engine
+       counts them one lower and nothing outside it needs to know. The
+       keys' selector counts the same way, for the same reason. -->
   <div class="row">
     <label>Keys into channel <select id="keychan"></select></label>
-    <label>with <select id="keypatch"></select></label>
-    <button id="loadkeypatch" disabled>Put it there</button>
   </div>
+
+  <div id="channels"></div>
 </section>
 
 <!-- The instrument, in both modes. Drawn to fit whatever width there is;
