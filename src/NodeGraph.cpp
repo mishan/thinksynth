@@ -191,11 +191,12 @@ static void addPortOnce (NodeGraph::Box &b, const string &name, bool isInput)
 /* Is `name' an arg the engine itself reads off the io node?
  *
  * The io node has no plugin, so nothing declares its directions and they have
- * to be recovered from what the engine does with it. thMidiChan reads four
+ * to be recovered from what the engine does with it. thMidiChan reads five
  * things: OUTPUTPREFIX plus a channel digit for the audio it mixes, `play' to
  * learn the note has finished, `channels' to size the mix, and -- at
- * construction -- `poly', which says how many voices the channel allocates.
- * Those are the io node's real inputs.
+ * construction -- `poly' and `mono', which say how many voices the channel
+ * allocates and whether a second note retunes the first. Those are the io
+ * node's real inputs.
  *
  * Everything else on the io node goes the other way. thMidiNote writes note,
  * velocity and trigger; thMidiChan creates amp; and -- by far the commonest
@@ -209,7 +210,8 @@ static void addPortOnce (NodeGraph::Box &b, const string &name, bool isInput)
  * TH_MAX_CHANNELS notes that ten is where the naming would need two. */
 bool NodeGraph::isIoEngineInput (const string &name)
 {
-    if (name == "play" || name == "channels" || name == "poly")
+    if (name == "play" || name == "channels" || name == "poly" ||
+        name == "mono")
         return true;
 
     const string prefix = OUTPUTPREFIX;
@@ -520,9 +522,9 @@ bool NodeGraph::build (thSynthTree *tree)
              * regardless: thMidiChan::process reads OUTPUTPREFIX plus a digit,
              * `play' and `channels'; thMidiNote writes note, velocity and
              * trigger. Anything else the file mentions is still discovered as
-             * before -- `poly' among them, which the engine reads but
-             * which a patch that does not set it has no port for and no use
-             * for.
+             * before -- `poly' and `mono' among them, which the engine reads
+             * but which a patch that does not set them has no port for and no
+             * use for.
              *
              * Not `amp': patches do read `ionode->amp', but every one of them
              * declares it in the io block first. It is a convention among

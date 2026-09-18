@@ -115,15 +115,20 @@ const int NUM_NOTES = 3;
 
 /* How many of NOTES this channel will hold at once.
  *
- * Three, unless the graph's io node says `poly = N' for a smaller N, in which
- * case the channel retires down to N and a harness that insisted on finding
- * three would read the graph as one that publishes nothing. */
+ * Three, unless the graph says otherwise on its io node: `mono = 1' answers
+ * every note with the same voice, and `poly = N' retires down to N. A harness
+ * that played three and then insisted on finding three would read a mono
+ * graph as a graph that publishes nothing -- which is what dsp/bass.dsp did
+ * to this one. */
 int voicesFor (thSynth &synth, int chan)
 {
     thMidiChan *c = synth.getChannel(chan);
 
     if (c == NULL)
         return NUM_NOTES;
+
+    if (c->mono())
+        return 1;
 
     const int limit = c->polyMax();
 
@@ -921,7 +926,7 @@ int main (int argc, char **argv)
     /* The properties want one file, it has to be one that loaded, and it has
        to be one that plays all three notes: the scalar case reads a constant
        summed across the voices and compares it against the constant times
-       three. A `poly = 1' graph would answer with one. */
+       three. A `mono = 1' graph would answer with one. */
     for (int f = firstFile; f < argc; f++)
     {
         thSynth look(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);

@@ -29,6 +29,21 @@ public:
     
     thSynthTree *synthTree (void) { return &synthTree_; }
     int id (void) const { return noteid_; }
+    float note (void) const { return note_; }
+
+    /* Audio thread. Point this voice at another pitch without rebuilding it:
+     * writes the io node's `note', which misc::midi2freq reads every window,
+     * and re-ids the voice so the channel can re-key it.
+     *
+     * The rest of the tree is untouched, which is the point -- the envelopes
+     * stay where they are and any state in the graph carries, so a
+     * misc::slew on the frequency slides into the new pitch instead of
+     * jumping to it. `velocity' is deliberately not touched: the envelopes
+     * read it every sample and a step there is a click.
+     *
+     * Allocation-free. thArg::setArg goes through allocate(1) on an arg that
+     * is already one long, which returns the buffer it has. */
+    void retune (float note);
 
     void process (int length);
 
@@ -38,6 +53,10 @@ public:
 private:
     thSynthTree synthTree_;
     int noteid_;
+    /* The pitch as it was asked for. noteid_ is its integer part, which is
+       what the channel keys notes_ by; this is what a retune has to preserve
+       when a composer asks for something between two keys. */
+    float note_;
 };
 
 #endif /* TH_MIDINOTE_H */

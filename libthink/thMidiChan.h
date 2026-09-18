@@ -107,15 +107,17 @@ public:
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
 
-    /* How many voices this channel plays at once: `poly' off the io node,
+    /* How this channel allocates voices: `poly' and `mono' off the io node,
      * read once at construction and never written again, so either thread may
-     * ask. 0 is no limit.
+     * ask.
      *
      * For anything that plays notes and then expects to find them -- a
-     * harness, a panel, a voice display. A poly-limited channel retires down
+     * harness, a panel, a voice display. A mono channel answers one note with
+     * one voice however many are played, and a poly-limited one retires down
      * to its limit, so "I played three, where are they" is a question with a
-     * different answer per graph. */
+     * different answer per graph. polyMax() of 0 is no limit. */
     int polyMax (void) const { return polymax_; }
+    bool mono (void) const { return mono_; }
 
     thSynthTree *modnode (void) { return modnode_; }
 
@@ -178,6 +180,28 @@ private:
        should not arise, but never correctness. */
     void retireNote (thMidiNote *note, RetireQueue *retire);
 
+    /* Audio thread. Moves a voice out of notes_ and into decaying_, which is
+       what has to happen to any voice that is no longer the one a new note
+       will be keyed as. Was the body of insertNote's same-pitch collision
+       case; mono needs it for a collision on any pitch. */
+    void decayNote (NoteMap::iterator i);
+
+    /* Audio thread. The voice a mono channel is playing, or NULL.
+     *
+     * Not simply notes_.begin(): a voice whose key has come up is still in
+     * notes_ until its release finishes, and a new note then is a new voice
+     * rather than a slide -- which is the rule that makes `hold' longer than
+     * `step' a slide and shorter a retrigger. So this is the voice that is
+     * still being *held*, by a key or by the pedal, which is a non-zero
+     * trigger. */
+    thMidiNote *monoVoice (void);
+
+    /* Audio thread. The stack of pitches whose keys are down, last-note
+       priority. A pitch already on it is moved to the top rather than
+       repeated, so the stack cannot exceed one entry per distinct pitch. */
+    void monoPush (float note);
+    bool monoPop (float note);
+
     bool dirty_;
     thSynthTree *modnode_;
     thArgMap args_;
@@ -216,6 +240,17 @@ private:
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
 
+    /* `mono = 1' on the io node: a new note while one is held retunes the
+       voice that is sounding instead of starting another. See insertNote. */
+    bool mono_;
+
+    /* The pitches whose keys are down, oldest first, so the top of the stack
+       is the one sounding. A fixed array rather than a vector because this is
+       pushed and popped on the audio thread: the 128 is MIDI's pitch count,
+       and a stack that somehow fills drops its oldest entry rather than
+       growing. */
+    float monoStack_[TH_MONO_STACK];
+    int monoCount_;
     thArg *argSustain_; /* for the sustain pedal */
 
     unsigned long serial_;

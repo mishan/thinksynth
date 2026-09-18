@@ -194,14 +194,14 @@ files that is not really there.
 Direction can be recovered, because the engine's own use of the io node is
 narrow. `thMidiChan::process()` reads exactly three things off it: `OUTPUTPREFIX`
 plus a channel digit for the audio it mixes, `play` to learn the note has ended,
-and `channels` to size the mix. `poly` is read once, at construction — see
-below. Everything else travels the other way —
+and `channels` to size the mix. `poly` and `mono` are read once, at
+construction — see below. Everything else travels the other way —
 `thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp, and the
 author's constants are read by whoever wants them.
 
 So an arg is an input to the audio-out half if
 
-- the engine reads it — `out<N>`, `play`, `channels`, `poly`; or
+- the engine reads it — `out<N>`, `play`, `channels`, `poly`, `mono`; or
 - **this file wires something into it.**
 
 The second clause is not decoration. 23 args across the corpus are written by a
@@ -215,24 +215,43 @@ forty other nodes read `ionode->res`. Args with no port on either side — a doz
 dead constants, mostly typos like `inwav` for `inwave` — belong to the source
 half, where a value the io node offers belongs even when nothing takes it up.
 
-### Voices: `poly`
+### Voices: `poly` and `mono`
 
-An io-node constant, read once when the channel is built, that says how many
-voices it plays at once. It was a literal in the engine before it was a
-setting.
+Two io-node constants, read once when the channel is built, that say how notes
+become voices. Both were literals in the engine before they were settings.
 
 ```
-node ionode { channels = 2; poly = 2; out0 = vca->out; };
+node ionode { channels = 2; poly = 2; mono = 1; out0 = vca->out; };
 ```
 
-Without it, 10. Over the limit the channel retires voices that are finishing
-first and then the oldest still held, so what survives is always the newest. A
-`poly` of 0 — or of anything negative — is no limit at all, which is what the
-engine's check has always meant by a limit of zero.
+**`poly`** is how many voices the channel plays at once; without it, 10. Over
+the limit the channel retires voices that are finishing first and then the
+oldest still held, so what survives is always the newest. A `poly` of 0 — or
+of anything negative — is no limit at all, which is what the engine's check
+has always meant by a limit of zero.
 
-`poly = 1` is a monophonic instrument with a retrigger on every note: the
-previous voice is gone rather than slid into, and its release is cut off where
-it stood. `poly = 2` leaves room for one voice sounding and one finishing.
+**`mono = 1`** changes what a note *is*. A note arriving while another is
+still held does not start a second voice: it retunes the one that is sounding
+and the new voice is discarded. The retuned voice keeps its envelopes, its
+filter state and the first note's velocity — only the pitch moves. Releasing
+a key falls back to the newest key still down, which is last-note priority,
+and the channel keeps a stack of the keys that are down to do it with.
+
+A note arriving when *nothing* is held is an ordinary new voice, even if the
+previous one is still in its release. That is the whole rule, and it is the
+one a line already knows how to write:
+
+> **overlap is a slide, a gap is a retrigger** — in a `.gen`, `hold` longer
+> than `step` against `hold` shorter than `step`.
+
+A voice the sustain pedal is holding counts as sounding, so it slides too, and
+a key going down takes it back off the pedal.
+
+`mono` on its own is a hard retune: the pitch steps. The glide is a
+`misc::slew` on the frequency **inside the graph** — the voice outlives the
+note that started it, so the lag's state carries across the retune and the
+pitch slides into the new note. `dsp/bass.dsp` is that arrangement end to
+end.
 
 ## 2. The `.patch` format
 

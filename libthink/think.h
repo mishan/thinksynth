@@ -109,6 +109,14 @@ using namespace std;
  * is overriding. */
 #define TH_DEFAULT_POLY 10
 
+/* How many keys a mono channel remembers are down.
+ *
+ * MIDI has 128 pitches and the stack holds each at most once, so this cannot
+ * be exceeded by a keyboard. A composer writing microtones can ask for
+ * pitches between two keys, and the stack drops its oldest entry rather than
+ * growing on the audio thread. */
+#define TH_MONO_STACK 128
+
 /* Upper bound on a DSP's `channels' setting. The value is read straight out of
    a .dsp file and used to size an allocation, so it needs a sanity limit. Ten
    is also the point at which the out0..out9 naming in

@@ -19,21 +19,46 @@
 /*
  * voicecheck -- how a channel hands notes to voices.
  *
- * `poly' on the io node is what a .dsp can say about that, and what it claims
- * is about a *sound*: how many voices are audible, and at what pitch. So this
- * harness listens rather than counting. It plays notes into a real thSynth,
- * reads the channel's output back, and measures two things from it -- the
- * level, which says how many voices are sounding, and the rate of the zero
- * crossings, which for a graph that is one sine says which pitch. Nothing
- * here reaches into thMidiChan to ask.
+ * `poly' and `mono' on the io node are the two things a .dsp can say about
+ * that, and what each one claims is about a *sound*: how many voices are
+ * audible, and at what pitch. So this harness listens rather than counting.
+ * It plays notes into a real thSynth, reads the channel's output back, and
+ * measures two things from it -- the level, which says how many voices are
+ * sounding, and the rate of the zero crossings, which for a graph that is one
+ * sine says which pitch. Nothing here reaches into thMidiChan to ask.
  *
- * What is claimed: `poly' caps the voices. Three notes at once on a
- * `poly = 1' channel are one voice, and the one left is the newest; a channel
- * that asks for no limit plays all three.
+ * What is claimed:
+ *
+ *   poly    caps the voices. Three notes at once on a `poly = 1' channel are
+ *           one voice, and the one left is the newest.
+ *
+ *   mono    makes a second note retune the voice that is already sounding
+ *           instead of starting another: the pitch moves, the level does not,
+ *           and the velocity stays the first note's, because the envelopes
+ *           read it every sample and a step there is a click.
+ *
+ *           Releasing the newer key falls back to the older one, which is
+ *           last-note priority and the reason the channel keeps a stack of
+ *           the keys that are down rather than one pitch.
+ *
+ *           A note arriving when nothing is held is a new voice even if the
+ *           previous one is still in its release -- so a rest between two
+ *           notes is a retrigger and an overlap is a slide, which is the rule
+ *           a composed line already knows how to write.
+ *
+ *           And a voice the pedal is holding counts as sounding, so it slides
+ *           too -- and stops being the pedal's once a key is down again,
+ *           which is what keeps it from being cut off the moment the pedal
+ *           comes up.
+ *
+ *   glide   a misc::slew on the frequency inside the graph carries across a
+ *           retune. That is the whole point of retuning a voice rather than
+ *           starting one: the state in the graph survives, so the pitch
+ *           slides instead of stepping.
  *
  * Its .dsp files are written here rather than taken from the corpus, for the
  * reason argtype gives about its own: the cases that matter are ones the
- * corpus cannot contain, since every shipped graph takes the default.
+ * corpus cannot contain, since every shipped graph is polyphonic.
  *
  *     scripts/voicecheck -p build/plugins/
  *
@@ -125,9 +150,10 @@ static bool writeFile (const string &path, const string &text)
  * either measurement below needs.
  *
  * `io' is whatever the case under test wants on the io node -- `poly = 1',
- * or nothing at all.
+ * `mono = 1', neither -- and `extra' is the glide case's slew.
  */
-static string graph (const string &io)
+static string graph (const string &io, const string &freqSource,
+                     const string &extra)
 {
     return
         string("name \"voicecheck\";\n\n") +
@@ -138,9 +164,9 @@ static string graph (const string &io)
         "};\n\n"
         "node freq misc::midi2freq {\n"
         "    note = ionode->note;\n"
-        "};\n\n"
+        "};\n\n" + extra +
         "node osc osc::simple {\n"
-        "    freq = freq->out;\n"
+        "    freq = " + freqSource + ";\n"
         "    waveform = 0;\n"
         "    amp = ionode->velocity;\n"
         "};\n\n"
@@ -278,6 +304,11 @@ struct Session
 
         return vector<float>(all.begin() + all.size() / 2, all.end());
     }
+
+    void pedal (int value)
+    {
+        synth.setChanArg(0, new thArg(string("SusPedal"), (float)value));
+    }
 };
 
 /* Within `tol' of each other, proportionally. */
@@ -303,8 +334,8 @@ int main (int argc, char **argv)
     const string file = scratchPath("voicecheck-scratch.dsp");
     const int rate = TH_DEFAULT_SAMPLES;
 
-    /* The C above middle C, which misc::midi2freq puts note 72 at. */
-    const double C5 = 523.2511;
+    /* Middle C and the C above it, which misc::midi2freq puts at these. */
+    const double C4 = 261.6255, C5 = 523.2511;
 
     /* ---- polyphony is what `poly' says -------------------------------- */
 
@@ -312,7 +343,7 @@ int main (int argc, char **argv)
        polyphony check retires from the oldest held voice forward, so what is
        left is the newest -- and it is one voice, at one pitch, which is what
        both measurements below say together. */
-    if (writeFile(file, graph("    poly = 1;\n")))
+    if (writeFile(file, graph("    poly = 1;\n", "freq->out", "")))
     {
         Session s(pluginPath);
 
@@ -340,7 +371,7 @@ int main (int argc, char **argv)
     /* And with no `poly' at all, the same three notes are three voices. This
        is the control: without it, the case above would pass on a channel that
        had simply stopped playing notes. */
-    if (writeFile(file, graph("")))
+    if (writeFile(file, graph("", "freq->out", "")))
     {
         Session s(pluginPath);
 
@@ -362,6 +393,205 @@ int main (int argc, char **argv)
                      "poly: a channel that does not ask for a limit plays all "
                      "three", "one " + num(rms(one)) + ", three " +
                               num(rms(three)));
+        }
+    }
+
+    /* ---- mono: the second note moves the first voice ------------------ */
+
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            /* The second note is quieter than the first on purpose: a slide
+               that took the new velocity would show up here as a level that
+               moved, and the envelopes read velocity every sample. */
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 16);
+            vector<float> slid = s.settled(8);
+
+            s.synth.delNote(0, 72);
+            vector<float> back = s.settled(8);
+
+            s.synth.delNote(0, 60);
+            vector<float> gone = s.settled(32);
+
+            okOrFail(near(pitch(first, rate), C4, 0.01) &&
+                     near(pitch(slid, rate), C5, 0.01) &&
+                     near(rms(slid), rms(first), 0.02),
+                     "mono: a second note retunes the voice rather than "
+                     "adding one, and keeps the first note's velocity",
+                     num(pitch(first, rate)) + " Hz at " + num(rms(first)) +
+                     " becomes " + num(pitch(slid, rate)) + " Hz at " +
+                     num(rms(slid)));
+
+            okOrFail(near(pitch(back, rate), C4, 0.01) &&
+                     near(rms(back), rms(first), 0.02),
+                     "mono: releasing the newer key falls back to the one "
+                     "still held", num(pitch(back, rate)) + " Hz at " +
+                                   num(rms(back)));
+
+            okOrFail(rms(gone) < rms(first) * 0.01,
+                     "mono: releasing the last key ends the note",
+                     num(rms(gone)));
+        }
+    }
+
+    /* ---- mono: a rest is a retrigger ---------------------------------- */
+
+    /* The previous voice is in its release and nothing is held, so this is a
+       new voice at the new pitch -- not a slide out of a voice that is on its
+       way out. Both are audible: a slide would be one voice, and the release
+       of the first would have been cut off rather than left to finish. */
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.delNote(0, 60);
+
+            /* One window: a twentieth of the 200 ms release, so the old voice
+               is still most of its own height. */
+            s.take();
+            s.run(1);
+            s.take();
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> mid = s.take();
+
+            /* Both sounding: the new voice at its pitch and the old one
+               finishing. Once the release is over, one voice at the new
+               pitch. */
+            vector<float> after = s.settled(32);
+
+            okOrFail(rms(mid) > rms(first) * 1.15 &&
+                     near(pitch(after, rate), C5, 0.01) &&
+                     near(rms(after), rms(first), 0.02),
+                     "mono: a note arriving after the last key came up is a "
+                     "new voice, and the old one's release is not cut off",
+                     "release plus attack " + num(rms(mid)) + ", then " +
+                     num(pitch(after, rate)) + " Hz at " + num(rms(after)));
+        }
+    }
+
+    /* ---- mono and the pedal -------------------------------------------- */
+
+    /* A voice the pedal is holding is sounding, so a new note slides into it
+       rather than starting another. And once a key is down the pedal no
+       longer owns it: mixNote turns a trigger of 2 into a 0 the moment the
+       pedal comes up, so a voice left at 2 would be cut off under a key that
+       is still held. */
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            s.pedal(127);
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.delNote(0, 60);
+            vector<float> pedalled = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+            vector<float> slid = s.settled(8);
+
+            s.pedal(0);
+            vector<float> held = s.settled(8);
+
+            okOrFail(near(rms(pedalled), rms(first), 0.02) &&
+                     near(pitch(slid, rate), C5, 0.01) &&
+                     near(rms(slid), rms(first), 0.02),
+                     "mono: the pedal holds a voice, and a new note slides "
+                     "into it", num(rms(pedalled)) + " held, " +
+                                num(pitch(slid, rate)) + " Hz after");
+
+            okOrFail(near(rms(held), rms(first), 0.02),
+                     "mono: the pedal coming up leaves a voice whose key is "
+                     "down alone", num(rms(held)));
+        }
+    }
+
+    /* ---- the glide ----------------------------------------------------- */
+
+    /* misc::slew on the frequency, inside the graph. The voice persists
+       across the retune, so the lag's state does too and the pitch slides.
+       Measured one window at a time: a hundred milliseconds is four windows,
+       so the first is well short of the new pitch and the last is there. */
+    if (writeFile(file, graph("    mono = 1;\n", "glide->out",
+                              "node glide misc::slew {\n"
+                              "    in = freq->out;\n"
+                              "    time = 100 ms;\n"
+                              "};\n\n")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a glide graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            vector<float> first = s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> sliding = s.take();
+
+            vector<float> arrived = s.settled(64);
+
+            const double f0 = pitch(first, rate);
+            const double f1 = pitch(sliding, rate);
+            const double f2 = pitch(arrived, rate);
+
+            okOrFail(near(f0, C4, 0.01) && f1 > f0 * 1.05 && f1 < C5 * 0.85 &&
+                     near(f2, C5, 0.01),
+                     "glide: a misc::slew on the frequency carries across the "
+                     "retune, so the pitch slides into the new note",
+                     num(f0) + " Hz, then " + num(f1) + ", then " + num(f2));
+        }
+    }
+
+    /* And without the slew the same two notes step, which is what makes the
+       case above a measurement of the slew rather than of the window. */
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a `mono = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 40);
+            s.settled(8);
+
+            s.synth.addNote(0, 72, 40);
+
+            s.take();
+            s.run(1);
+            vector<float> stepped = s.take();
+
+            okOrFail(near(pitch(stepped, rate), C5, 0.02),
+                     "mono: with no lag in the graph the retune is a step",
+                     num(pitch(stepped, rate)) + " Hz");
         }
     }
 

@@ -121,10 +121,11 @@ think_harness(dspab)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
-# How a channel hands notes to voices: `poly' on the io node, measured by
-# listening to the channel's output rather than by reaching into thMidiChan.
-# Writes its own .dsp files -- every shipped graph takes the default, so the
-# corpus cannot hold these cases.
+# How a channel hands notes to voices: `poly' and `mono' on the io node, the
+# held-key stack behind mono's last-note priority, and the glide a misc::slew
+# carries across a retune. Listens to the channel's output rather than reaching
+# into thMidiChan, and writes its own .dsp files -- every shipped graph is
+# polyphonic, so the corpus cannot hold these cases.
 think_harness(voicecheck)
 
 # The three stateful nodes -- misc::slew, filt::svf, osc::noise -- measured:
