@@ -42,7 +42,7 @@ import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
     from './commands.js';
 import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
-         readFile } from './doc.js';
+         readFile, spliceFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
 import { createNodeView } from './nodeview.js';
@@ -799,7 +799,21 @@ async function start ()
     try
     {
         nodes = await createNodeView({
-            doc,
+            /* In a room the files are the document's, and a write is a
+               splice: nobody's copy is authoritative and there is no
+               save (JAM_M6.md, section 7.3). */
+            files: {
+                read: (name) => readFile(doc, name),
+                write: (name, next) => spliceFile(doc, name, next),
+                watch: (name, onChange) =>
+                {
+                    const text = files(doc).get(name);
+
+                    text?.observe(onChange);
+
+                    return () => text?.unobserve(onChange);
+                },
+            },
             onStatus: status,
             sampleRate: ctx.sampleRate,
 

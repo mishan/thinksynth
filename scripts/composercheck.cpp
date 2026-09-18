@@ -49,6 +49,7 @@
 
 #include "config.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -467,6 +468,21 @@ run (const std::string &pluginPath, const char *genFile)
         win->canvas_->setZoom(0.5);
         pump(2);
 
+        /* The zoom each rectangle was measured at, because stageRect
+           answers in shell pixels and the two readings below straddle a
+           pump.
+         *
+           A canvas asked to fit before its widget had a size defers the
+           fit to the next allocation (CanvasContent::zoomToFit), and
+           whether that allocation lands inside the pump above or the one
+           after the press is the main loop's business, not this test's.
+           It landed between the two readings about one run in eight, and
+           the box that had not changed at all was reported as having
+           changed size. Dividing each reading by the zoom it was taken at
+           asks the question this check means: the box, in the coordinates
+           it is laid out in. */
+        const double zoomBefore = win->canvas_->zoom();
+
         if (win->paramPop_ != NULL)
             fail("a params popover was up before anything was pressed");
 
@@ -494,10 +510,27 @@ run (const std::string &pluginPath, const char *genFile)
             else
                 ok("...and the panel is looking at the same stage");
 
+            const double zoomAfter = win->canvas_->zoom();
+
             if (!win->canvas_->stageRect(0, 0, after))
                 fail("the stage box went missing");
-            else if (after.w != before.w || after.h != before.h)
-                fail("the stage box changed size to show its params");
+            /* Two content units of slack, because each reading is a whole
+               number of shell pixels and dividing by a zoom of a half
+               turns half a pixel of rounding into one unit at each end.
+               The growth this is here to catch was the box getting a
+               column of parameter rows taller, which is tens. */
+            else if (fabs(after.w / zoomAfter - before.w / zoomBefore) > 2.0 ||
+                     fabs(after.h / zoomAfter - before.h / zoomBefore) > 2.0)
+            {
+                char said[160];
+
+                snprintf(said, sizeof(said),
+                         "the stage box changed size to show its params: "
+                         "%dx%d at zoom %.3f became %dx%d at %.3f",
+                         before.w, before.h, zoomBefore,
+                         after.w, after.h, zoomAfter);
+                fail(said);
+            }
             else
                 ok("...without the box changing size");
 

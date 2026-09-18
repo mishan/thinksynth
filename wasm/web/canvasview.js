@@ -38,6 +38,13 @@
  * one number this page does own is the device pixel ratio: the element is
  * sized in CSS pixels, its backing store is that times the ratio, and the
  * ratio is the first transform the replayer applies.
+ *
+ * `fitOnShow' is whether opening the view scales the drawing into it. The
+ * composer view does, to its width. The node editor does not: a patch is
+ * wide -- ts1 is 1888 pixels of graph -- so any fit into a page-width box
+ * is a halving or worse, and half-size node labels are a picture of a
+ * patch rather than a patch you can work on. It opens at 1:1 and has a
+ * Fit button for the other question.
  */
 
 import { replay } from './replay.js';
@@ -46,6 +53,7 @@ import { replay } from './replay.js';
    faster than a mesh wants, and a knob's slider already produces about
    this rate (JAM_M6.md, section 5). */
 export function createCanvasView ({ scroller, canvas, send,
+                                    fitOnShow = true,
                                     onFrame = () => {} })
 {
     const ctx = canvas.getContext('2d');
@@ -194,7 +202,7 @@ export function createCanvasView ({ scroller, canvas, send,
             return;
         }
 
-        viewport(true);
+        viewport(fitOnShow);
 
         if (!running)
         {

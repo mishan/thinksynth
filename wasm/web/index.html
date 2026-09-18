@@ -68,6 +68,11 @@
     <p id="composerstatus" class="hint"></p>
   </details>
 
+  <!-- What a stage's params handle asks for: what that stage is playing,
+       beside the box that is playing it. Read-only in M6 -- the canvas
+       reports and the document writes (JAM_M6.md, section 1). -->
+  <div id="composerparams" class="popover" hidden></div>
+
   <div id="knobs"></div>
 
   <!-- What each channel this piece touches sounds like: its own
@@ -88,6 +93,30 @@
 
   <div id="channels"></div>
 </section>
+
+<!-- The instrument as a graph: the desktop's node editor, with its
+     canvas, its layout and its writer compiled to wasm and run in this
+     page's own instance of the module (JAM_M6.md, section 7). In patch
+     mode it edits the .dsp in the box below and reloads it, so an edit is
+     heard at once; in piece mode it edits one of the piece's instruments,
+     which the next Load plays. Right-click a node's output to watch it
+     with a meter or a scope. -->
+<details id="nodeview">
+  <summary>The instrument, as a graph</summary>
+  <div class="row">
+    <label>File <select id="nodefile"></select></label>
+    <label>Add <select id="nodepalette"></select></label>
+    <button id="nodeadd">Add node</button>
+    <button id="nodefit">Fit</button>
+    <span id="nodeselected"></span>
+  </div>
+  <div id="nodescroll" class="canvasview">
+    <canvas id="nodecanvas" tabindex="0"></canvas>
+  </div>
+  <div id="nodeparams" class="params"></div>
+</details>
+
+<div id="nodemenu" class="popover" hidden></div>
 
 <!-- The instrument, in both modes. Drawn to fit whatever width there is;
      main.js says how many octaves that comes to. -->

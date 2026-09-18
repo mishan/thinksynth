@@ -113,6 +113,12 @@ function showPiece ()
         return;
     }
 
+    /* A piece that has just loaded is a drawing that did not exist when
+       the page last asked for a fit -- and a fit of nothing is dropped,
+       since there is nothing to fit to. So the fit happens here, where
+       there is. */
+    M._tw_canvas_zoom_to_width();
+
     const chains = [];
 
     for (let c = 0; c < M._tw_chain_count(); c++)
@@ -157,6 +163,51 @@ function sendGestures ()
         });
 
     M._tw_canvas_inputs_clear();
+
+    /* And the params popover, if a stage's handle was clicked. Read here
+       rather than asked for later, because the page has no scheduler to
+       read them from: this instance is where the piece is (JAM_M6.md,
+       section 4). */
+    if (!M._tw_canvas_params_wanted())
+        return;
+
+    const chain = M._tw_canvas_params_chain();
+    const stage = M._tw_canvas_params_stage();
+    const params = [];
+
+    for (let p = 0; p < M._tw_stage_param_count(chain, stage); p++)
+        params.push({
+            name: string('tw_stage_param_name', chain, stage, p),
+            desc: string('tw_stage_param_desc', chain, stage, p),
+            units: string('tw_stage_param_units', chain, stage, p),
+            knob: string('tw_stage_param_knob', chain, stage, p),
+            text: string('tw_stage_param_text', chain, stage, p),
+            type: M._tw_stage_param_type(chain, stage, p),
+            value: M._tw_stage_param_value(chain, stage, p),
+            min: M._tw_stage_param_min(chain, stage, p),
+            max: M._tw_stage_param_max(chain, stage, p),
+        });
+
+    post({
+        type: 'params',
+        chain,
+        stage,
+        name: M.UTF8ToString(M.ccall('tw_stage_name', 'number',
+                                     ['number', 'number'], [chain, stage])),
+        chainName: M.UTF8ToString(M.ccall('tw_chain_name', 'number',
+                                          ['number'], [chain])),
+        at: { x: M._tw_canvas_params_x(), y: M._tw_canvas_params_y(),
+              w: M._tw_canvas_params_w(), h: M._tw_canvas_params_h() },
+        params,
+    });
+}
+
+/* One of the many `const char *' exports, as a string. */
+function string (name, chain, stage, p)
+{
+    return M.UTF8ToString(
+        M.ccall(name, 'number', ['number', 'number', 'number'],
+                [chain, stage, p]));
 }
 
 /* One frame of the canvas: the list, the strings it indexes and the
@@ -279,8 +330,12 @@ function receive (m)
             view = { w: m.w, h: m.h, dpr: m.dpr ?? 1 };
             M._tw_canvas_viewport(m.x ?? 0, m.y ?? 0, m.w, m.h);
 
+            /* To the width, and the scroller takes the rest: a piece is
+               a row per chain and a tall one fitted both ways is a
+               quarter-scale picture nobody can read (JAM_M6.md, section
+               6.3; CanvasContent::zoomToWidth). */
             if (m.fit)
-                M._tw_canvas_zoom_to_fit();
+                M._tw_canvas_zoom_to_width();
 
             break;
 
@@ -300,6 +355,14 @@ function receive (m)
 
         case 'enlarge':
             M._tw_canvas_enlarge(m.chain ?? -1, m.stage ?? -1);
+            break;
+
+        /* Where a stage's params handle is, for a page that wants to
+           press one without repeating the layout arithmetic. */
+        case 'handle':
+            post({ type: 'handle', chain: m.chain, stage: m.stage,
+                   x: M._tw_canvas_handle_x(m.chain, m.stage),
+                   y: M._tw_canvas_handle_y(m.chain, m.stage) });
             break;
 
         /* The pointer. The canvas decides what it landed on; whatever it

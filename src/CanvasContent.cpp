@@ -33,7 +33,7 @@
 #define VIEW_MIN  32
 
 CanvasContent::CanvasContent (void)
-    : zoom_(1.0), fitPending_(false)
+    : zoom_(1.0), fitPending_(false), fitWidthPending_(false)
 {
 }
 
@@ -112,6 +112,7 @@ CanvasContent::zoomToFit (void)
         /* Nothing allocated yet -- this is the first open, before the
            shell has laid anything out. Try again when it has. */
         fitPending_ = true;
+        fitWidthPending_ = false;
         return;
     }
 
@@ -130,9 +131,54 @@ CanvasContent::zoomToFit (void)
     contentResized();
 }
 
+/* Fit the width alone, and scroll for the rest.
+ *
+ * For a drawing that is tall and narrow -- the composer's canvas is one
+ * row per chain, and a piece with ten chains is ten rows -- fitting both
+ * dimensions means the height decides the zoom, and a piece in a box half
+ * a screen tall comes out at a quarter scale and unreadable. What such a
+ * drawing wants is to be as wide as the view and scrolled down through,
+ * which is what the scroller around it is for.
+ *
+ * Never magnifying, for zoomToFit's reason: the point is to bring an
+ * oversized drawing down, not to blow a small one up.
+ */
+void
+CanvasContent::zoomToWidth (void)
+{
+    double gw = 0, gh = 0;
+
+    contentExtent(gw, gh);
+
+    if (gw <= 0 || gh <= 0)
+        return;
+
+    double px = 0, py = 0, pw = 0, ph = 0;
+
+    if (!shellViewport(px, py, pw, ph) || pw < VIEW_MIN || ph < VIEW_MIN)
+    {
+        fitPending_ = true;
+        fitWidthPending_ = true;
+        return;
+    }
+
+    fitPending_ = false;
+
+    setZoom(std::min(1.0, pw / gw));
+    contentResized();
+}
+
 void
 CanvasContent::shellResized (void)
 {
-    if (fitPending_)
+    if (!fitPending_)
+        return;
+
+    /* The fit that was asked for, not whichever one this file happens to
+       call: a view that asked to be fitted to its width and was told to
+       wait must not come back fitted to its height. */
+    if (fitWidthPending_)
+        zoomToWidth();
+    else
         zoomToFit();
 }

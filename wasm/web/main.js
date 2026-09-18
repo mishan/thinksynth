@@ -63,6 +63,7 @@
 
 import { createComposerView } from './composerview.js';
 import { createSynth } from './host.js';
+import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { showKnobs } from './knobs.js';
@@ -97,6 +98,11 @@ let roll = null;
    half of it is an element and a pointer; everything else is the same C++
    the desktop draws with. */
 let composer = null;
+
+/* The instrument as a graph (JAM_M6.md, section 7): the desktop's node
+   editor over whichever .dsp this page is playing. Made on Start, since
+   it is another instance of the module. */
+let nodes = null;
 
 /* The worklet's tape against the mirror's. Two instances of one module on
    one stream of messages have to compose one piece, and this is that claim
@@ -273,6 +279,8 @@ async function pickPatch ()
 {
     $('dsp').value = await (await fetch(`dsp/${$('patch').value}`)).text();
 
+    showNodes();
+
     await loadPatch();
 }
 
@@ -332,6 +340,7 @@ async function loadPiece ()
 
     drawKnobs();
     showChannels();
+    showNodes();
     roll.draw();
 }
 
@@ -636,6 +645,25 @@ async function start ()
 
     showComposer(mode() === 'piece');
 
+    try
+    {
+        nodes = await createNodeView({
+            files: nodeFiles,
+            onStatus: (text) => { $('status').textContent = text; },
+            sampleRate: ctx.sampleRate,
+            probe: (channel, node, arg) => synth.probe(channel, node, arg),
+            unprobe: (slot) => synth.unprobe(slot),
+        });
+
+        showNodes();
+        $('nodefile').addEventListener('change',
+                                       () => nodes.onChannel(nodeChannel()));
+    }
+    catch (e)
+    {
+        log(`the instrument's graph did not start: ${e.message}`);
+    }
+
     showLatency();
     setInterval(showLatency, 500);
 }
@@ -657,6 +685,84 @@ function fromMirror (m)
         log(m.text);
 }
 
+/* ---- the instrument as a graph ----
+ *
+ * The room page's edits are splices into a shared document; this page has
+ * no document, so the files are whatever it is playing. In patch mode
+ * that is the .dsp in the text box, and an edit reloads it -- the canvas
+ * and the box are two views of one text, which is what the desktop's
+ * editor is too. In piece mode they are the piece's instruments, and an
+ * edit is heard at the next Load, which is what the .gen box already
+ * means here.
+ */
+const nodeFiles = {
+    names: () =>
+    {
+        if (mode() === 'patch')
+            return $('patch').value === '' ? [] : [$('patch').value];
+
+        /* The .dsp each of the piece's instruments plays: what there is
+           to edit while a piece is loaded. */
+        return [...new Set((piece?.instruments ?? [])
+            .map((i) => i.dsp)
+            .filter((n) => n !== '' && dspTexts[n] !== undefined))];
+    },
+
+    read: (name) => (mode() === 'patch' ? $('dsp').value
+                                        : dspTexts[name] ?? ''),
+
+    write: (name, next) =>
+    {
+        if (mode() === 'patch')
+        {
+            $('dsp').value = next;
+            loadPatch();
+            return;
+        }
+
+        /* The worklet resolves an instrument by name against what it was
+           handed, so the new text goes over there before anything can
+           play it -- and the piece picks it up at the next load. */
+        dspTexts[name] = next;
+        synth?.instrument(name, next);
+        $('status').textContent =
+            `${name} changed. Load the piece again to hear it.`;
+    },
+
+    /* The text box is the other view of the same patch, so typing in it
+       rebuilds the canvas. */
+    watch: (name, onChange) =>
+    {
+        if (mode() !== 'patch')
+            return null;
+
+        $('dsp').addEventListener('input', onChange);
+
+        return () => $('dsp').removeEventListener('input', onChange);
+    },
+};
+
+/* Which channel what the canvas is showing is playing on, and so which
+   one a probe is armed on: patch mode has one, and in piece mode the
+   piece says. */
+function nodeChannel ()
+{
+    if (mode() === 'patch')
+        return PATCH_CHANNEL;
+
+    return piece?.instruments?.find(
+        (i) => i.dsp === $('nodefile').value)?.channel ?? -1;
+}
+
+function showNodes ()
+{
+    if (nodes === null)
+        return;
+
+    nodes.offer(nodeFiles.names());
+    nodes.onChannel(nodeChannel());
+}
+
 function showComposer (on)
 {
     /* On a solo page there are no peers and no lead to wait out, so a
@@ -672,6 +778,23 @@ function showComposer (on)
     composer.show(on);
 }
 
+/* For pagetest: where a stage's params handle is, and what the popover
+   ended up showing. The layout is the canvas's, so asking it is the only
+   honest way to press one. */
+window.solo = {
+    handleOf: (chain, stage) => composer?.handleOf(chain, stage),
+    params: () => composer?.params() ?? [],
+
+    /* The instrument's graph: where its boxes are, so a harness can press
+       on one rather than at a guess, and what it has selected. */
+    node: () => (nodes === null ? null : {
+        boxes: nodes.boxes(),
+        selected: nodes.selected(),
+        probes: nodes.probes(),
+        box: (i) => nodes.boxAt(i),
+    }),
+};
+
 async function pickMode ()
 {
     const piecing = mode() === 'piece';
@@ -685,6 +808,7 @@ async function pickMode ()
         return;
 
     showComposer(piecing);
+    showNodes();
 
     releaseAll();
 

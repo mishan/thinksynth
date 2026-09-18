@@ -284,6 +284,8 @@ stands.
   the page with the tape, a visual module drawing them in the page's own
   instance, and a panel on the node the canvas draws with the rest of the
   graph.
+- The node editor on the solo page as well, over the patch in its text
+  box rather than over a document -- one file source, two pages.
 - Not yet: the by-hand pass in two browsers (M6's gate 8.4).
 
 ## 1. The three kinds of state

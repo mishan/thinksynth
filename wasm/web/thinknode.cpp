@@ -600,6 +600,35 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_port_is_input (int b, int p)
     return box->ports[(size_t)p].isInput ? 1 : 0;
 }
 
+/* ---- the wires ----
+ *
+ * An edge is what the canvas hands back when somebody asks for one to be
+ * cut: the cut itself is an edit to the patch, and what the file needs is
+ * the name of the input the wire arrives at (NodeEditor::onDisconnect does
+ * the same lookup on the desktop).
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_graph_edge_count (void)
+{
+    return (int)graph_.edges().size();
+}
+
+#define TW_EDGE_FIELD(name, member)                                        \
+    EMSCRIPTEN_KEEPALIVE int tw_graph_edge_##name (int e)                  \
+    {                                                                      \
+        if (e < 0 || (size_t)e >= graph_.edges().size())                   \
+            return -1;                                                     \
+                                                                           \
+        return graph_.edges()[(size_t)e].member;                           \
+    }
+
+TW_EDGE_FIELD(from_box,  fromBox)
+TW_EDGE_FIELD(from_port, fromPort)
+TW_EDGE_FIELD(to_box,    toBox)
+TW_EDGE_FIELD(to_port,   toPort)
+
+#undef TW_EDGE_FIELD
+
 /* ---- a box's parameters, for the panel ---- */
 
 EMSCRIPTEN_KEEPALIVE int tw_graph_param_count (int b)

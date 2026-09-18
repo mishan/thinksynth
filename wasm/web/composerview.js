@@ -99,11 +99,26 @@ export function createComposerView ({ root = document, toMirror,
         status();
     };
 
+    /* Where a stage's params handle is, answered by the worker: what a
+       page presses to open the popover without laying the canvas out a
+       second time. */
+    let handleAsked = null;
+
+    const handleOf = (chain, stage) => new Promise((resolve) =>
+    {
+        handleAsked = resolve;
+        toMirror({ type: 'handle', chain, stage });
+    });
+
     /* True if the message was this view's. */
     const fromMirror = (m) =>
     {
         switch (m.type)
         {
+            case 'handle':
+                handleAsked?.(m);
+                handleAsked = null;
+                return true;
             case 'draw':
                 view.frame(m);
 
@@ -129,10 +144,93 @@ export function createComposerView ({ root = document, toMirror,
             case 'input':
                 onGesture(m);
                 return true;
+
+            /* Somebody clicked a stage's params handle. The canvas says
+               which stage and where its box is; this is the form, which
+               is HTML for the same reason it is gtkmm on the desktop. */
+            case 'params':
+                showParams(m);
+                return true;
         }
 
         return false;
     };
+
+    /* ---- a stage's parameters ----
+     *
+     * What it is playing, beside the box that is playing it. Read-only in
+     * M6: the canvas reports rather than edits, and editing the piece
+     * from it is the step after this one -- on the desktop a param goes
+     * through thcGenEdit into the file, and in a room the text in the
+     * editor is the piece (JAM_M6.md, sections 1 and 11).
+     */
+    const showParams = (m) =>
+    {
+        const panel = $('composerparams');
+
+        panel.replaceChildren();
+
+        const title = document.createElement('div');
+
+        title.className = 'menutitle';
+        title.textContent = `${m.name} in ${m.chainName}`;
+        panel.append(title);
+
+        if (m.params.length === 0)
+        {
+            const none = document.createElement('div');
+
+            none.className = 'paramwhat';
+            none.textContent = 'no parameters';
+            panel.append(none);
+        }
+
+        for (const p of m.params)
+        {
+            const row = document.createElement('div');
+            const name = document.createElement('span');
+            const value = document.createElement('span');
+
+            row.className = 'paramrow';
+            name.textContent = p.name;
+
+            /* A string-valued param says its text; a number says its
+               number, with the unit the plugin declared. And a param read
+               through a piece knob says so, because a number that moves
+               on its own is otherwise a mystery. */
+            value.className = 'paramwhat';
+            value.textContent = p.text !== ''
+                ? p.text
+                : `${Number(p.value.toPrecision(4))}${p.units}`;
+
+            if (p.knob !== '')
+                value.textContent += ` (@${p.knob})`;
+
+            if (p.desc !== '')
+                row.title = p.desc;
+
+            row.append(name, value);
+            panel.append(row);
+        }
+
+        /* Beside the box, in the page's own coordinates: the canvas said
+           where in its own pixels and the element says where it is. */
+        const at = $('composer').getBoundingClientRect();
+
+        panel.style.left = `${at.left + window.scrollX + m.at.x + m.at.w + 6}px`;
+        panel.style.top = `${at.top + window.scrollY + m.at.y}px`;
+        panel.hidden = false;
+    };
+
+    /* A popover closes when something else is pressed: the next gesture
+       is the answer to it. */
+    window.addEventListener('pointerdown', (e) =>
+    {
+        const panel = $('composerparams');
+
+        if (!panel.hidden && !panel.contains(e.target))
+            panel.hidden = true;
+    }, true);
 
     /* Shown when its own box is open and the page is where it belongs.
        Folded away, the view asks for no frames: a picture nobody is
@@ -142,5 +240,8 @@ export function createComposerView ({ root = document, toMirror,
 
     $('composerview').addEventListener('toggle', () => show(true));
 
-    return { fromMirror, show };
+    return { fromMirror, show, handleOf,
+             /* What the popover is showing, for a harness to read. */
+             params: () => [...$('composerparams').querySelectorAll(
+                 '.paramrow')].map((r) => r.textContent) };
 }

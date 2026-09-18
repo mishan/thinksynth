@@ -307,7 +307,7 @@ target_link_options(thinkweb PRIVATE
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
                 patch.js host.js roll.js worklet.js engine.js mirror.js
-                canvasview.js composerview.js tapediff.js)
+                canvasview.js composerview.js nodeview.js tapediff.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)

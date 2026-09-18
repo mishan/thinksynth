@@ -32,7 +32,8 @@
  * most likely to break.
  *
  * Small on purpose: the octave, the sliders, a key down and up, and a key
- * typed into a text box, which must play nothing. What sounds is
+ * typed into a text box, which must play nothing. Then the two canvases
+ * this page has: the composer view, and the instrument's graph. What sounds is
  * browsertest.mjs's business and jamtest.mjs's; this is about the page.
  *
  * And then the composer view (JAM_M6.md, sections 4 to 6), which is the
@@ -269,6 +270,25 @@ try
     check(await ink() > 0,
           `the piece's picture drew, ${size.w} by ${size.h} device pixels`);
 
+    /* And it is drawn to the width of the view, not squeezed into its
+       height. A composer canvas is one row per chain, so fitting both
+       dimensions lets a tall piece decide the zoom -- ten chains in a box
+       half a screen tall came out at a quarter scale, which is what this
+       is here to stop (CanvasContent::zoomToWidth). */
+    const fitted = await page.evaluate(() =>
+    {
+        const c = document.getElementById('composer');
+        const s = document.getElementById('composerscroll');
+
+        return { wide: s.scrollWidth > s.clientWidth + 1,
+                 width: parseFloat(c.style.width),
+                 box: s.clientWidth };
+    });
+
+    check(!fitted.wide && fitted.width > fitted.box * 0.5,
+          `and to the width of the view: ${fitted.width} in ${fitted.box}, ` +
+          `${fitted.wide ? 'scrolling sideways' : 'no sideways scroll'}`);
+
     const stages = await page.$$eval('#composerstages button',
                                      (bs) => bs.map((b) => b.textContent));
 
@@ -330,6 +350,146 @@ try
         null, { timeout: 60000 });
     check(true, 'and Escape puts it back');
 
+    /* A stage's params handle -- the three little sliders in its title
+       bar -- asks for a popover beside the box, and what goes in it comes
+       from the piece the mirror is holding: the values as it is playing
+       them, the units the plugin declared, and the piece knob a param is
+       read through where there is one. The canvas is asked where the
+       handle is, since the layout is its own. */
+    const handle = await page.evaluate(() => window.solo.handleOf(0, 0));
+
+    if (handle.x < 0)
+        check(false, 'the first stage has no params handle');
+    else
+    {
+        await page.mouse.click(box.x + handle.x, box.y + handle.y);
+        await page.waitForFunction(
+            () => !document.getElementById('composerparams').hidden,
+            null, { timeout: 15000 });
+
+        const title = await page.textContent('#composerparams .menutitle');
+        const rows = await page.evaluate(() => window.solo.params());
+
+        check(rows.length > 0,
+              `the params handle opens ${title}: ${rows.join(', ')}`);
+
+        /* And it goes away with the next press somewhere else. */
+        await page.mouse.click(box.x + box.w / 2, box.y + box.h - 4);
+        check(await page.$eval('#composerparams', (e) => e.hidden),
+              'and the next press closes it');
+    }
+
+    /* ---- the instrument as a graph ---- */
+
+    /* The node editor on the solo page, which has no shared document: the
+       files are whatever the page is playing, and an edit rewrites the
+       .dsp in the text box and reloads it -- the canvas and the box being
+       two views of one text, as they are in the desktop's editor
+       (JAM_M6.md, section 7.3). */
+    await page.selectOption('#mode', 'patch');
+    await page.evaluate(() =>
+    {
+        document.getElementById('nodeview').open = true;
+    });
+
+    await page.waitForFunction(() => window.solo.node()?.boxes > 0,
+                               null, { timeout: 60000 });
+
+    const graph = await page.evaluate(() => window.solo.node());
+    const offered = await page.$$eval('#nodefile option',
+                                      (os) => os.map((o) => o.value));
+
+    check(graph.boxes > 0 && offered.length > 0,
+          `${offered.join(', ')} drew ${graph.boxes} boxes`);
+
+    /* And it opens at 1:1 rather than fitted. A patch is wide -- ts1 is
+       1888 pixels of graph -- so fitting it into a page-width box halves
+       every label, and half-size labels are a picture of a patch rather
+       than a patch to work on. Fit is the button for the other question,
+       and after it the whole graph is in the box. */
+    const opened = await page.evaluate(() =>
+    {
+        const s = document.getElementById('nodescroll');
+
+        return { wide: s.scrollWidth > s.clientWidth + 1,
+                 box: s.clientHeight };
+    });
+
+    await page.click('#nodefit');
+    await new Promise((r) => setTimeout(r, 500));
+
+    const whole = await page.evaluate(() =>
+    {
+        const s = document.getElementById('nodescroll');
+
+        return s.scrollWidth <= s.clientWidth + 1;
+    });
+
+    check(opened.wide && opened.box > 200 && whole,
+          `it opens at 1:1 in a ${opened.box}-pixel box and scrolls, and ` +
+          'Fit brings the whole graph in');
+
+    /* A node with a plain number on it, clicked, and the number typed
+       into. The canvas is asked where the box is: the layout is its
+       own. */
+    const node = await page.evaluate(() =>
+    {
+        const n = window.solo.node();
+
+        for (let i = 0; i < n.boxes; i++)
+        {
+            const b = n.box(i);
+
+            if (b.kind === 0 && b.settable)
+                return b;
+        }
+
+        return null;
+    });
+
+    if (node === null)
+        check(false, 'nothing in the patch has a value to set');
+    else
+    {
+        await page.locator('#nodescroll').scrollIntoViewIfNeeded();
+
+        const at = await page.$eval('#nodecanvas', (c) =>
+        {
+            const r = c.getBoundingClientRect();
+
+            return { x: r.x, y: r.y };
+        });
+
+        await page.mouse.click(at.x + node.x + 8, at.y + node.y + 8);
+        await page.waitForFunction(() => window.solo.node().selected >= 0,
+                                   null, { timeout: 15000 });
+
+        const was = await page.inputValue('#dsp');
+        const field = await page.$('#nodeparams input');
+
+        if (field === null)
+            check(false, `${node.name} has nothing to type into`);
+        else
+        {
+            const arg = await field.evaluate((i) => i.dataset.arg);
+
+            await field.fill('0.234');
+            await field.press('Enter');
+            await page.waitForFunction(
+                (before) =>
+                    document.getElementById('dsp').value !== before,
+                was, { timeout: 15000 }).catch(() => {});
+
+            const now = await page.inputValue('#dsp');
+            const line = now.split('\n').find(
+                (l, i) => l !== was.split('\n')[i]);
+
+            check(now !== was && /0\.234/.test(line ?? ''),
+                  `setting ${node.name}.${arg} rewrote the .dsp: ` +
+                  `${(line ?? '').trim()}`);
+        }
+    }
+
     for (const e of errors)
         check(false, `page error: ${e}`);
 }
@@ -343,7 +503,7 @@ site.closeAllConnections();
 site.close();
 
 process.stdout.write(`\n${failures === 0
-                          ? 'the solo page\'s keys, knobs and composer ' +
-                            'view still work\n'
+                          ? 'the solo page\'s keys, knobs, composer view ' +
+                            'and instrument graph still work\n'
                           : `${failures} failed\n`}`);
 process.exitCode = failures;

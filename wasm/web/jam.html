@@ -58,6 +58,11 @@
     <p id="composerstatus" class="hint"></p>
   </details>
 
+  <!-- What a stage's params handle asks for: what that stage is playing,
+       beside the box that is playing it. Read-only in M6 -- the canvas
+       reports and the document writes (JAM_M6.md, section 1). -->
+  <div id="composerparams" class="popover" hidden></div>
+
   <!-- The instrument, as on the solo page. -->
   <section id="keyboard">
     <div class="row">
@@ -98,6 +103,13 @@
     </div>
     <div id="nodeparams" class="params"></div>
   </details>
+
+  <!-- What a right-click on a port offers: which display to watch it
+       with, or stop watching it. Positioned by nodeview.js beside the
+       pointer, because the canvas says where the pointer was and nothing
+       about the menu -- which is the division NodeEditor has on the
+       desktop too. -->
+  <div id="nodemenu" class="popover" hidden></div>
 
   <details id="detail">
     <summary>The numbers</summary>

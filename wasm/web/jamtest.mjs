@@ -387,11 +387,12 @@ async function editTogether (pages)
         fail(`the room's edit of ${where.name}.${arg} is not the one the ` +
              'desktop makes');
 
-    /* And a probe: a right-click on an output port arms a tap in the
-       worklet, opens a display in the page's own instance of the module,
-       and hangs a panel on the node (JAM_M6.md, section 7.4). The samples
-       themselves are gated headlessly in nodecheck; what is under test
-       here is that a person can ask for one. */
+    /* And a probe: a right-click on an output port offers the displays
+       this build has, and picking one arms a tap in the worklet, opens
+       that display in the page's own instance of the module, and hangs a
+       panel on the node (JAM_M6.md, section 7.4). The samples themselves
+       are gated headlessly in nodecheck; what is under test here is that
+       a person can ask for one, and take it away again. */
     const port = await A.page.evaluate(() =>
     {
         const n = window.jam.node();
@@ -419,17 +420,100 @@ async function editTogether (pages)
     await A.page.mouse.click(box.x + port.x, box.y + port.y,
                              { button: 'right' });
     await A.page.waitForFunction(
+        () => document.querySelectorAll('#nodemenu button').length > 0,
+        null, { timeout: 15000 }).catch(() => {});
+
+    const offered = await A.page.$$eval('#nodemenu button',
+                                        (bs) => bs.map((b) => b.textContent));
+    const scope = offered.findIndex((t) => t.includes('scope'));
+
+    if (scope < 0)
+    {
+        fail(`the port menu offered ${offered.join(', ') || 'nothing'}`);
+        return;
+    }
+
+    ok(`a right-click on ${port.port} offers ${offered.length} displays`);
+
+    await (await A.page.$$('#nodemenu button'))[scope].click();
+    await A.page.waitForFunction(
         () => window.jam.node().probes > 0, null, { timeout: 15000 })
         .catch(() => {});
 
     const after = await A.page.evaluate(() => window.jam.node());
 
     if (after.probes === 1 && after.boxes === boxesWere + 1)
-        ok(`a right-click on ${port.name}'s port arms a probe and hangs a ` +
-           `panel on ${port.name}`);
+        ok(`picking one arms it and hangs a panel on ${port.name}`);
     else
+    {
         fail(`arming a probe left ${after.probes} probes and ` +
              `${after.boxes} boxes, from ${boxesWere}`);
+        return;
+    }
+
+    /* And taking it away: the same port again, which now offers to stop
+       rather than to start. The port has moved -- a panel makes its host
+       taller and pushes everything down -- so where it is now is asked
+       for again rather than assumed. */
+    const moved = await A.page.evaluate((want) =>
+    {
+        const n = window.jam.node();
+
+        for (let i = 0; i < n.boxes; i++)
+        {
+            const b = n.box(i);
+
+            if (b.name !== want.name)
+                continue;
+
+            const p = b.ports.find((q) => q.name === want.port);
+
+            if (p !== undefined)
+                return p;
+        }
+
+        return null;
+    }, { name: port.name, port: port.port });
+
+    if (moved === null)
+    {
+        fail(`${port.name}.${port.port} is not in the graph any more`);
+        return;
+    }
+
+    const now = await A.page.$eval('#nodecanvas', (c) =>
+    {
+        const r = c.getBoundingClientRect();
+
+        return { x: r.x, y: r.y };
+    });
+
+    await A.page.mouse.click(now.x + moved.x, now.y + moved.y,
+                             { button: 'right' });
+    await A.page.waitForFunction(
+        () => [...document.querySelectorAll('#nodemenu button')]
+            .some((b) => b.textContent.startsWith('Stop watching')),
+        null, { timeout: 15000 }).catch(() => {});
+
+    const stop = (await A.page.$$('#nodemenu button'))[0];
+
+    if (stop === undefined)
+    {
+        fail(`nothing offered to stop the probe at ${moved.x},${moved.y}`);
+        return;
+    }
+
+    await stop.click();
+    await A.page.waitForFunction(
+        () => window.jam.node().probes === 0, null, { timeout: 15000 })
+        .catch(() => {});
+
+    const back = await A.page.evaluate(() => window.jam.node());
+
+    if (back.probes === 0 && back.boxes === boxesWere)
+        ok('and stopping it takes the panel away again');
+    else
+        fail(`stopping left ${back.probes} probes and ${back.boxes} boxes`);
 }
 
 if (!fs.existsSync(path.join(build, 'jam.js')))
