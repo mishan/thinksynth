@@ -3,13 +3,13 @@
 # The chord sound of every trance record: not one oscillator but a
 # spread of them, each a few cents off the last, so the beating between
 # them is a slow shimmer rather than a pitch. Seven here, three above
-# and three below the centre, each `Detune' cents from its neighbour,
+# and three below the center, each `Detune' cents from its neighbor,
 # and the detune is an expression -- exp2 of cents over twelve hundred
 # -- so it is the same interval at every pitch, which is what amb01's
 # detune in hertz could never be.
 #
 # The odd saws go left and the even ones right, which is width for free:
-# the two sides beat differently, and the centre saw is in both.
+# the two sides beat differently, and the center saw is in both.
 #
 # A filt::svf lowpass with its own envelope opens on the attack and sits
 # where `Cutoff' says; the amp envelope is slow on purpose. This is a pad
@@ -114,7 +114,7 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
-# One filter a side; the centre saw is in both.
+# One filter a side; the center saw is in both.
 node filtl filt::svf {
     in = (s0->out + s1->out + s3->out + s5->out) * 0.25;
     cutoff = @cutoff + fenv->out * @depth;

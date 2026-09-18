@@ -27,6 +27,12 @@
  * comes back fast and then eases, which is what a compressor's release
  * sounds like. The cycle starts at transport zero, where the kick is.
  *
+ * `hold' plus `rise' longer than `period' is a duck the knob never
+ * finishes climbing out of: the cycle restarts from wherever it had got
+ * to, so the knob steps down rather than being ducked. That is a
+ * legitimate thing to ask for -- it is a pad held under -- but it is not
+ * a sidechain, and the two are one number apart.
+ *
  * The whole cycle is emitted at once and the tick sleeps a cycle, like
  * gen::steps. Nothing random.
  */
