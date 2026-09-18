@@ -425,7 +425,13 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
     if (tree == NULL)
         return -1;
 
-    const bool ok = graph_.build(tree);
+    /* Into a graph of its own and swapped in only once it has worked,
+       the way NodeEditor::openFile does it: a build that fails leaves
+       the boxes that are on screen on screen, rather than half of the
+       next patch's. */
+    NodeGraph g;
+
+    const bool ok = g.build(tree);
 
     delete tree;
 
@@ -436,7 +442,18 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_build (const char *text)
        layout() gives them their columns and their positions. The saved
        ones in the file go over the top of that (tw_graph_apply_layout),
        which is why this order and not the other. */
-    graph_.layout();
+    g.layout();
+
+    graph_ = g;
+
+    /* setGraph and not just a redraw, because every index the canvas was
+       holding is an index into the boxes that were here a moment ago: the
+       box being dragged, the port a wire is being pulled from, the
+       selection. A peer's delete arriving mid-gesture used to leave
+       wireBox_ pointing past the end of the new list, and the next mouse
+       move read it. */
+    if (canvas_ != NULL)
+        canvas_->setGraph(&graph_);
 
     return (int)graph_.boxes().size();
 }

@@ -113,13 +113,36 @@ static bool nonLayoutLines (const string &path, vector<string> &out)
     return true;
 }
 
+/* An exit status is eight bits, and a count of failures is not: a run
+   with exactly 256 of them exits 0 and the gate that reads the status
+   calls it a pass. Clamped below 126, which the shell keeps for its
+   own. */
+static int exitCode (int failures)
+{
+    if (failures <= 0)
+        return 0;
+
+    return failures > 125 ? 125 : failures;
+}
+
 /* ---- both ways at once --------------------------------------------------
  *
  * NodeLayout comes in two: over a file, which is what the desktop does, and
  * over the file's text, which is what a browser tab does -- there the
- * document *is* the patch (JAM_M6.md, section 7.1). They have to be the
- * same operation, so every call in the sweep below goes through these and
- * the two answers are held against each other.
+ * document *is* the patch (JAM_M6.md, section 7.1).
+ *
+ * The file overloads are the text ones wrapped -- NodeLayout::read is
+ * readText + Text::read, and write is readText + Text::write + an atomic
+ * write -- so holding the two answers against each other is checking that
+ * a function equals itself. Worth running anyway, since it costs one call
+ * and would catch the day one of them grows an implementation of its own;
+ * not worth counting as the thing this proves.
+ *
+ * What the wrapper adds, and what is checked here, is the write: into a
+ * temporary renamed over the target, so that a full disk or a kill leaves
+ * the old .dsp and never half of the new one -- and never a stray
+ * `.layout-tmp' beside it either, which is the part a passing run can
+ * still get wrong.
  */
 namespace both {
 
@@ -155,6 +178,16 @@ static bool write (const string &file, const NodeGraph &graph)
     if (t != r || (r && after != text))
     {
         printf("FAIL  NodeLayout::write over text and over a file differ\n");
+        disagreements++;
+    }
+
+    /* The atomic write's leftovers, which nothing else would notice: the
+       bytes on disk are right either way, and the next run's slurp reads
+       past a stray temporary without a word. */
+    if (std::filesystem::exists(file + ".layout-tmp"))
+    {
+        printf("FAIL  NodeLayout::write left %s.layout-tmp behind\n",
+               file.c_str());
         disagreements++;
     }
 
@@ -1447,7 +1480,8 @@ int main (int argc, char **argv)
 
     if (total)
         printf("  %d layout reads and writes made twice, over a file and "
-               "over its text, and the two agree\n", both::checked);
+               "over its text; every write renamed into place and left no "
+               "temporary behind\n", both::checked);
 
-    return failed + both::disagreements;
+    return exitCode(failed + both::disagreements);
 }

@@ -214,10 +214,35 @@ export async function createNodeView ({ files, root = document,
     {
         const many = M._tw_node_signal_count();
 
+        /* Read out and cleared before a single one is acted on, because
+           acting on one re-enters this function: an edit writes the file,
+           the document's observer fires, and the rebuild that follows
+           drains again. Cleared afterwards, that second drain found the
+           same signals still queued and applied them a second time --
+           against a graph whose edges the first edit had just renumbered,
+           so a cut wire took an unrelated one with it on every peer. */
+        const queue = [];
+
         for (let i = 0; i < many; i++)
+            queue.push({
+                kind: M._tw_node_signal_kind(i),
+                a: M._tw_node_signal_a(i),
+                b: M._tw_node_signal_b(i),
+                c: M._tw_node_signal_c(i),
+                d: M._tw_node_signal_d(i),
+                value: M._tw_node_signal_value(i),
+                x: M._tw_node_signal_x(i),
+                y: M._tw_node_signal_y(i),
+                text: M.UTF8ToString(M._tw_node_signal_text(i)),
+            });
+
+        if (many > 0)
+            M._tw_node_signals_clear();
+
+        for (const sig of queue)
         {
-            const kind = M._tw_node_signal_kind(i);
-            const a = M._tw_node_signal_a(i);
+            const kind = sig.kind;
+            const a = sig.a;
 
             switch (kind)
             {
@@ -229,8 +254,7 @@ export async function createNodeView ({ files, root = document,
                 /* A wire: from a box's port to another's. The graph knows
                    which end is which; the names are what the file wants. */
                 case SIG.CONNECT:
-                    connect(a, M._tw_node_signal_b(i),
-                            M._tw_node_signal_c(i), M._tw_node_signal_d(i));
+                    connect(a, sig.b, sig.c, sig.d);
                     break;
 
                 /* A wire cut. What the file needs is the input it
@@ -247,24 +271,22 @@ export async function createNodeView ({ files, root = document,
                    modules and the channel are somebody else's -- so the
                    answer is here, as it is in NodeEditor. */
                 case SIG.CONTEXT:
-                    offerProbe(a, M._tw_node_signal_b(i),
-                               M._tw_node_signal_x(i),
-                               M._tw_node_signal_y(i));
+                    offerProbe(a, sig.b, sig.x, sig.y);
                     break;
 
                 case SIG.REFUSED:
-                    onStatus(M.UTF8ToString(M._tw_node_signal_text(i)));
+                    onStatus(sig.text);
                     break;
 
                 /* A control's slider: live while it is dragged, spliced
                    once when it is let go, so a drag across the track is
                    one edit and not fifty. */
                 case SIG.CONTROL:
-                    if (M._tw_node_signal_b(i) === 1)
+                    if (sig.b === 1)
                         edit('tw_edit_set_chanarg', ['string', 'string',
                                                      'number'],
                              [call('tw_graph_box_control', ['number'], [a]),
-                              M._tw_node_signal_value(i)]);
+                              sig.value]);
                     break;
 
                 /* A box was dragged: the positions go back into the file's
@@ -283,9 +305,6 @@ export async function createNodeView ({ files, root = document,
                 }
             }
         }
-
-        if (many > 0)
-            M._tw_node_signals_clear();
     }
 
     /* The wire at `edge', cut. The lookup is the desktop's

@@ -288,21 +288,32 @@ export function replay (ctx, ops, strings, surfaces, opts = {}) {
             ctx.imageSmoothingEnabled = ops[i++] !== 0;
             break;
 
+        /* path() first, and not only on the ops that build a path.
+           needPath is "cairo has taken the path away" -- and it takes it
+           on fill, stroke and clip, where Canvas2D leaves it lying
+           there. Unpaid here, `fill(); stroke();' stroked the shape that
+           was just filled and `clip(); fill();' filled the clip, neither
+           of which cairo would have drawn at all. Paying it makes the
+           path empty, which is what these then do nothing to. */
         case OPS.FILL:
+            path();
             ctx.fill();
             needPath = true;
             break;
 
         case OPS.FILL_PRESERVE:
+            path();
             ctx.fill();
             break;
 
         case OPS.STROKE:
+            path();
             ctx.stroke();
             needPath = true;
             break;
 
         case OPS.STROKE_PRESERVE:
+            path();
             ctx.stroke();
             break;
 

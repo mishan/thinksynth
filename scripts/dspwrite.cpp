@@ -76,6 +76,10 @@
 #include <string.h>
 #include <math.h>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -109,6 +113,18 @@ static bool spit (const string &path, const string &text)
     return out.good();
 }
 
+/* An exit status is eight bits, and a count of failures is not: a run
+   with exactly 256 of them exits 0 and the gate that reads the status
+   calls it a pass. Clamped below 126, which the shell keeps for its
+   own. */
+static int exitCode (int failures)
+{
+    if (failures <= 0)
+        return 0;
+
+    return failures > 125 ? 125 : failures;
+}
+
 /* ---- both ways at once --------------------------------------------------
  *
  * Every edit NodeEdit offers comes in two: one over a file, which is what
@@ -116,24 +132,61 @@ static bool spit (const string &path, const string &text)
  * tab does -- there the document *is* the patch and there is no file at
  * all (JAM_M6.md, section 7.1).
  *
- * They have to be the same edit. Not "equivalent": the same bytes, the
- * same Result and the same sentence, or a patch edited in a room stops
- * being the patch the desktop would have written.
+ * The two cannot drift apart, and it is worth being exact about why: the
+ * file overloads *are* the text ones, wrapped. NodeEdit::setValue is
+ * overFile(readText, Text::setValue, writeText) and so is every other, so
+ * an agreement check on the bytes and the Result is checking that a
+ * function equals itself. The sweep still goes through these, because
+ * running every one of the forty call sites down both entry points is
+ * what would catch the day somebody gives one of them an implementation
+ * of its own -- but that is a guard, not a test, and it is not what
+ * earns the count these print.
  *
- * So the sweep below goes through these rather than through NodeEdit
- * directly. Each runs the text path over a copy of the file's bytes, runs
- * the file path, and holds the two against each other -- which means every
- * one of the forty call sites in this harness checks both, and a text
- * overload that drifts from its file overload fails on the first .dsp in
- * the corpus that reaches it.
+ * What does is the wrapper. overFile has exactly two promises the text
+ * edit underneath it cannot make, and neither shows up in a byte
+ * comparison:
+ *
+ *   - an edit that changes no byte writes nothing at all. "Open a file
+ *     and save it, nothing changed" is the guarantee the editor makes,
+ *     and a file's mtime, its permissions and the inode an editor is
+ *     watching are all part of "nothing".
+ *   - the write is atomic, a temporary renamed into place, so a failure
+ *     leaves the old file and never a prefix of the new one -- and never
+ *     a `.edit-tmp' beside it either.
+ *
+ * Both are checked below, on every one of those forty call sites.
  */
 namespace both {
 
 static int disagreements = 0;
 static int checked = 0;
+static int suppressed = 0;
+
+/* The file's identity rather than its contents. writeText renames a
+   temporary over the target, so a file that was rewritten comes back with
+   a new inode and one that was left alone keeps the old one -- which is
+   the only way to see a write that changed nothing, since by definition
+   its bytes are the same either way.
+
+   Zero where there is no such thing to ask for, which turns the check off
+   rather than failing it: Windows' _stat gives st_ino no meaning. */
+static unsigned long long identity (const string &path)
+{
+#ifndef _WIN32
+    struct stat st;
+
+    if (stat(path.c_str(), &st) == 0)
+        return (unsigned long long)st.st_ino;
+#else
+    (void)path;
+#endif
+
+    return 0;
+}
 
 static NodeEdit::Result agree (const char *what, const string &file,
-                               const string &was, NodeEdit::Result fileR,
+                               const string &was, unsigned long long ino,
+                               NodeEdit::Result fileR,
                                const string &fileWhy, NodeEdit::Result textR,
                                const string &textWhy, const string &text)
 {
@@ -142,6 +195,9 @@ static NodeEdit::Result agree (const char *what, const string &file,
     slurp(file, after);
     checked++;
 
+    /* The two answers first -- a guard against the day the file overload
+       stops being the text one wrapped, cheap because it is already
+       here. */
     if (fileR != textR)
         printf("FAIL  %s over text answered %s, over a file %s\n", what,
                NodeEdit::resultText(textR), NodeEdit::resultText(fileR));
@@ -151,10 +207,27 @@ static NodeEdit::Result agree (const char *what, const string &file,
     else if (after != text)
         printf("FAIL  %s wrote %zu bytes over a file and %zu over text\n",
                what, after.size(), text.size());
-    else
-        return fileR;
 
-    (void)was;
+    /* And then the wrapper's own two promises, which are what this is
+       really for. An edit that moved no byte must not have touched the
+       file: same bytes, same file. */
+    else if (ino != 0 && text == was && identity(file) != ino)
+        printf("FAIL  %s changed no byte of %s and rewrote it anyway\n",
+               what, file.c_str());
+
+    /* And the write is a temporary renamed into place, which leaves
+       nothing beside the target whether it worked or not. */
+    else if (std::filesystem::exists(file + ".edit-tmp"))
+        printf("FAIL  %s left %s.edit-tmp behind\n", what, file.c_str());
+
+    else
+    {
+        if (ino != 0 && text == was)
+            suppressed++;
+
+        return fileR;
+    }
+
     disagreements++;
 
     return fileR;
@@ -169,11 +242,12 @@ static NodeEdit::Result setValue (const string &file, const string &node,
     slurp(file, text);
 
     const string was = text;
+    const unsigned long long ino = identity(file);
     const NodeEdit::Result t = NodeEdit::Text::setValue(text, node, arg, value,
                                                   textWhy);
     const NodeEdit::Result r = NodeEdit::setValue(file, node, arg, value, why);
 
-    return agree("setValue", file, was, r, why, t, textWhy, text);
+    return agree("setValue", file, was, ino, r, why, t, textWhy, text);
 }
 
 static NodeEdit::Result setChanArg (const string &file, const string &name,
@@ -184,11 +258,12 @@ static NodeEdit::Result setChanArg (const string &file, const string &name,
     slurp(file, text);
 
     const string was = text;
+    const unsigned long long ino = identity(file);
     const NodeEdit::Result t = NodeEdit::Text::setChanArg(text, name, value,
                                                     textWhy);
     const NodeEdit::Result r = NodeEdit::setChanArg(file, name, value, why);
 
-    return agree("setChanArg", file, was, r, why, t, textWhy, text);
+    return agree("setChanArg", file, was, ino, r, why, t, textWhy, text);
 }
 
 static NodeEdit::Result setControlMeta (const string &file,
@@ -201,13 +276,14 @@ static NodeEdit::Result setControlMeta (const string &file,
     slurp(file, text);
 
     const string was = text;
+    const unsigned long long ino = identity(file);
     const NodeEdit::Result t = NodeEdit::Text::setControlMeta(text, name, min, max,
                                                         label, group,
                                                         textWhy);
     const NodeEdit::Result r = NodeEdit::setControlMeta(file, name, min, max,
                                                         label, group, why);
 
-    return agree("setControlMeta", file, was, r, why, t, textWhy, text);
+    return agree("setControlMeta", file, was, ino, r, why, t, textWhy, text);
 }
 
 static NodeEdit::Result disconnect (const string &file, const string &node,
@@ -219,12 +295,13 @@ static NodeEdit::Result disconnect (const string &file, const string &node,
     slurp(file, text);
 
     const string was = text;
+    const unsigned long long ino = identity(file);
     const NodeEdit::Result t = NodeEdit::Text::disconnect(text, node, arg, value,
                                                     textWhy);
     const NodeEdit::Result r = NodeEdit::disconnect(file, node, arg, value,
                                                     why);
 
-    return agree("disconnect", file, was, r, why, t, textWhy, text);
+    return agree("disconnect", file, was, ino, r, why, t, textWhy, text);
 }
 
 static NodeEdit::Result connect (const string &file, const string &node,
@@ -236,12 +313,13 @@ static NodeEdit::Result connect (const string &file, const string &node,
     slurp(file, text);
 
     const string was = text;
+    const unsigned long long ino = identity(file);
     const NodeEdit::Result t = NodeEdit::Text::connect(text, node, arg, srcNode,
                                                  srcPort, textWhy);
     const NodeEdit::Result r = NodeEdit::connect(file, node, arg, srcNode,
                                                  srcPort, why);
 
-    return agree("connect", file, was, r, why, t, textWhy, text);
+    return agree("connect", file, was, ino, r, why, t, textWhy, text);
 }
 
 static NodeEdit::Result connectControl (const string &file,
@@ -253,12 +331,13 @@ static NodeEdit::Result connectControl (const string &file,
     slurp(file, text);
 
     const string was = text;
+    const unsigned long long ino = identity(file);
     const NodeEdit::Result t = NodeEdit::Text::connectControl(text, node, arg,
                                                         control, textWhy);
     const NodeEdit::Result r = NodeEdit::connectControl(file, node, arg,
                                                         control, why);
 
-    return agree("connectControl", file, was, r, why, t, textWhy, text);
+    return agree("connectControl", file, was, ino, r, why, t, textWhy, text);
 }
 
 /* Read-only, so there is nothing to compare but the answer. */
@@ -1017,12 +1096,13 @@ int main (int argc, char **argv)
     printf("  %d control ranges retyped and restored byte-identically, "
            "%d no-op metadata writes, every one byte-identical\n",
            metaRestored, metaNoops);
-    printf("  %d edits made twice, over a file and over its text, and the "
-           "two agree\n", both::checked);
+    printf("  %d edits made twice, over a file and over its text; %d of "
+           "them changed nothing and left the file untouched, and none "
+           "left a temporary behind\n", both::checked, both::suppressed);
     printf("  %d values clamped by a range narrowed past them\n", metaClamped);
 
     if (metaChanged != metaRestored)
         printf("  (%d retyped but not restored)\n", metaChanged - metaRestored);
 
-    return failed;
+    return exitCode(failed);
 }
