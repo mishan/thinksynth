@@ -148,28 +148,29 @@ thcNodeHost::addNode (const std::string &name, const std::string &spelling,
     if (!usefulAtControlRate(spelling.substr(0, slash), why))
         return false;
 
-    /* And one refusal that is not about the family.
+    /* And two refusals that are not about the family.
      *
-     * osc::static draws from a generator nothing seeds -- one per synth,
-     * shared by every static node in it -- which makes it the one plugin
-     * in the tree whose output is not a function of its inputs. On the
+     * osc::static and osc::noise draw from a generator nothing seeds --
+     * one per synth, shared by every node in it that draws (see
+     * plugins/osc/noiseslot.h) -- which makes them the two plugins in
+     * the tree whose output is not a function of their inputs. On the
      * audio thread that is what noise is and nobody minds. Down here it
      * would make a piece that does not replay, and the framework's whole
      * promise is that the same file and the same seed are the same
      * piece. A noise node in a chain has to be as replayable as a markov
-     * stage, and this one cannot be: there is nowhere to hand it the
-     * piece's seed, and a generator shared by every static node could
+     * stage, and these cannot be: there is nowhere to hand them the
+     * piece's seed, and a generator shared by every drawing node could
      * not give any one of them a stream of its own.
      *
      * Refused by name rather than quietly tolerated, because a piece
      * that replays *nearly* is worse than one that says it cannot. If a
      * seedable noise node is ever wanted, it is a new plugin taking a
      * seed arg, not a loosening of this. */
-    if (spelling == "osc/static")
+    if (spelling == "osc/static" || spelling == "osc/noise")
     {
-        why = "'osc/static' draws from a random generator nothing seeds, so "
-              "a piece using it would not replay; a node in a chain has to "
-              "be as repeatable as the composers around it";
+        why = "'" + spelling + "' draws from a random generator nothing "
+              "seeds, so a piece using it would not replay; a node in a "
+              "chain has to be as repeatable as the composers around it";
         return false;
     }
 

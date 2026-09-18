@@ -448,6 +448,25 @@ int thSynth::armProbe (int channum, const string &node, const string &arg,
 
     thNode *n = tree->findNode(node);
 
+    /* An expression is `<node>.<arg>' on the canvas and a chain of math::
+       nodes in the tree. What its box hands on is the last of that chain, so
+       a probe aimed at the box resolves to that node -- which is also what
+       makes `# @probe osc2.freq out spectrum' in a file work, since the box
+       name is the stable one and the chain's names are regenerated. */
+    if (n == NULL)
+    {
+        for (size_t i = 0; i < tree->exprBoxes().size(); i++)
+        {
+            const thExprBox &x = tree->exprBoxes()[i];
+
+            if (x.made.empty() || node != x.node + "." + x.arg)
+                continue;
+
+            n = tree->findNode(x.made[x.made.size() - 1]);
+            break;
+        }
+    }
+
     if (n == NULL)
     {
         why = "no node called '" + node + "'";
@@ -708,6 +727,23 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
      * have parked folds against args on the half-built node thParseDsp has
      * already deleted, and a failed parse folds nothing. */
     tree->foldUnits(sampleRate_);
+
+    /* `freq = base->out * 0.5' into the math:: nodes it stands for, before
+       buildArgMap indexes anything: those nodes have args of their own.
+       After foldUnits only because both are parse leftovers and this reads in
+       the order the grammar parked them; no expression may carry a unit.
+     *
+     * A failure here is a plugin that would not load, which fails the file.
+     * The alternative is a graph with an arg reading zero where the author
+     * wrote arithmetic, and silence nobody can account for is the outcome the
+     * guard rails exist to stop. */
+    if (!tree->desugarExprs())
+    {
+        fprintf(stderr, "%s: could not build an expression, discarding\n",
+                what.c_str());
+        delete tree;
+        return NULL;
+    }
 
     tree->buildArgMap(); /* build the index of args */
     tree->setPointers();

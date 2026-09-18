@@ -180,7 +180,13 @@ public:
          * a default; it was just written where nothing could read it.
          *
          * `has' rather than a sentinel, because 0 is a perfectly good default
-         * for an arg that has one. */
+         * for an arg that has one.
+         *
+         * Read by the engine, unlike the rest of ArgInfo: buildArgMap() loads
+         * it into an arg the .dsp never mentioned. Safe only while the value
+         * stays a transcription of the callback's zero case -- `amp = 0' and
+         * no `amp' line must stay the same sound, since NodeEdit::disconnect()
+         * writes the former. scripts/argtype compares all three spellings. */
         float def;
         bool hasDefault;
 

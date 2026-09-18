@@ -952,6 +952,97 @@ validValueText (const std::string &rhs)
     return false;
 }
 
+/* True if a param's current value is arithmetic (GEN_FORMAT.md 5a).
+ *
+ * The loader's rule, restated: an operator, a call, or a parenthesis. What it
+ * is for is the same thing NodeEdit refuses on the .dsp side -- the value in
+ * the file is a graph, and splicing a number over it drops the author's
+ * arithmetic without saying so. Removing one is done by editing the text,
+ * which is what this writer is for anyway. */
+static bool
+isExpressionText (const std::string &rhs)
+{
+    std::vector<Tok> t;
+    std::string err;
+    int line;
+
+    if (!thcGenLoader::tokenize(rhs, t, err, line))
+        return false;
+
+    for (size_t i = 0; i + 1 < t.size(); i++)
+    {
+        if (t[i].kind != Tok::PUNCT)
+            continue;
+
+        if (t[i].text == "+" || t[i].text == "-" || t[i].text == "*" ||
+            t[i].text == "/" || t[i].text == "(" || t[i].text == ")")
+            return true;
+    }
+
+    return false;
+}
+
+/* Every `@name' in `text' replaced by `num'; false if there was none, and
+ * `out' is then untouched.
+ *
+ * Over the tokenizer rather than over the characters, which settles three
+ * questions at once: `@warm' cannot match inside `@warmth', an `@' inside a
+ * string is not a reference, and `@warmth.max' is the knob's metadata rather
+ * than the knob -- rewriting the front of that one would leave `0.06.max'
+ * behind.
+ *
+ * Occurrences rather than the whole value. Before arithmetic reached .gen
+ * (GEN_FORMAT.md 5a) a param bound to a knob was spelled `@name' and nothing
+ * else, so removeKnob compared the whole right-hand side and that was the
+ * same thing. It is not any more: `step = @pace * 2' has to become
+ * `step = 0.25 * 2' and keep the multiplication, and comparing the whole
+ * value left the reference standing while the declaration went -- which is
+ * the dangling `@name' and the piece that no longer loads that this
+ * rewriting exists to prevent.
+ */
+static bool
+substituteKnob (const std::string &text, const std::string &name,
+                const std::string &num, std::string &out)
+{
+    std::vector<Tok> t;
+    std::string err;
+    int line;
+
+    if (!thcGenLoader::tokenize(text, t, err, line))
+        return false;
+
+    std::string built;
+    std::string::size_type taken = 0;
+    bool any = false;
+
+    for (size_t i = 0; i < t.size(); i++)
+    {
+        if (t[i].kind != Tok::KNOB || t[i].text != name)
+            continue;
+
+        /* `@warmth.max' -- the metadata, not the knob. */
+        if (i + 1 < t.size() && t[i + 1].kind == Tok::PUNCT &&
+            t[i + 1].text == ".")
+            continue;
+
+        if (t[i].off < taken || t[i].end > text.size())
+            return false;       /* offsets that do not index this string */
+
+        built += text.substr(taken, t[i].off - taken);
+        built += num;
+        taken = t[i].end;
+        any = true;
+    }
+
+    if (!any)
+        return false;
+
+    built += text.substr(taken);
+    out = built;
+
+    return true;
+}
+
 /* ---- the operations --------------------------------------------------- */
 
 /* Every operation is the same sandwich: read, index, decide, splice,
@@ -1547,17 +1638,29 @@ thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
          m != k->meta.end(); ++m)
         edits.push_back(eraseStmt(text, m->second.stmtA, m->second.stmtB));
 
-    /* Every `= @name' becomes the value those params were hearing. */
+    /* Every `@name' becomes the value those params were hearing -- the whole
+       value where the value was just the knob, and the reference alone where
+       it sits inside arithmetic.
+     *
+     * One gap left, and it is older than the arithmetic. A duration param
+     * bound to a knob takes the knob's number as seconds, and a bare number
+     * in its place is refused by the loader for want of a unit -- so
+     * removing a knob that drives a `step' or a `period' writes a file that
+     * does not load. Which params are durations is the plugin's answer, and
+     * this writer has no plugin map by design: it edits text and never
+     * loads anything. Fixing it means handing removeKnob the catalogue, or
+     * having the caller name the durations. Neither is a text edit. */
     for (size_t ci = 0; ci < ix.chains.size(); ci++)
         for (size_t si = 0; si < ix.chains[ci].stages.size(); si++)
             for (size_t pi = 0;
                  pi < ix.chains[ci].stages[si].params.size(); pi++)
             {
                 PIdx &p = ix.chains[ci].stages[si].params[pi];
+                std::string rewrote;
 
-                if (p.valueText == "@" + name)
+                if (substituteKnob(p.valueText, name, num, rewrote))
                 {
-                    edits.push_back({ p.valA, p.valB, num });
+                    edits.push_back({ p.valA, p.valB, rewrote });
                     rewritten++;
                 }
             }
@@ -1572,33 +1675,17 @@ thcGenEdit::removeKnob (const std::string &filename, const std::string &name,
      * `r = @tail ms', and a bare number in its place would be refused by
      * the loader; whatever followed the knob's name is kept verbatim
      * rather than reconstructed, so `%' and its spacing survive too. */
-    const std::string bind = "@" + name;
-
     for (size_t i = 0; i < ix.instruments.size(); i++)
         for (size_t vi = 0; vi < ix.instruments[i].values.size(); vi++)
         {
             PIdx &p = ix.instruments[i].values[vi];
+            std::string rewrote;
 
-            if (p.valueText.compare(0, bind.size(), bind) != 0)
-                continue;
-
-            /* `@warm' must not match inside `@warmth'. `.' is in the set
-               because `@warmth.max' is a knob's metadata rather than the
-               knob, and rewriting the front of it would leave `0.06.max'
-               behind. */
-            std::string tail = p.valueText.substr(bind.size());
-
-            if (!tail.empty())
+            if (substituteKnob(p.valueText, name, num, rewrote))
             {
-                const char c = tail[0];
-
-                if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                    (c >= '0' && c <= '9') || c == '_' || c == '.')
-                    continue;
+                edits.push_back({ p.valA, p.valB, rewrote });
+                rewritten++;
             }
-
-            edits.push_back({ p.valA, p.valB, num + tail });
-            rewritten++;
         }
 
     return finish(filename, text, edits, why);
@@ -2650,6 +2737,13 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
     for (size_t i = 0; i < s.params.size(); i++)
         if (s.params[i].name == param)
         {
+            if (isExpressionText(s.params[i].valueText))
+            {
+                why = "'" + param + "' is the expression `" +
+                      s.params[i].valueText + "'; edit the text to change it";
+                return UNWRITABLE;
+            }
+
             if (s.params[i].valueText != valueText)
                 edits.push_back({ s.params[i].valA, s.params[i].valB,
                                   valueText });

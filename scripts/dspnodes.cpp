@@ -84,19 +84,6 @@ cell (const std::string &s)
     return out;
 }
 
-/* The two directories under plugins/ that are not DSP nodes.
- *
- * A composer module is a thcPlugin and a visualizer is the cairo ABI in
- * VISUALIZERS.md; neither exports module_init, so thPlugin refuses them and
- * says so on stderr. NodeCatalog walks the directory and cannot tell -- it
- * knows filenames -- so the list is here, where "what a .dsp can name" is the
- * question being answered. */
-static bool
-isNodeCategory (const std::string &category)
-{
-    return category != "composer" && category != "visual";
-}
-
 static const char *
 dirName (thPlugin::ArgDir d)
 {
@@ -212,7 +199,7 @@ writeReference (std::ostream &o, const std::string &pluginPath)
     {
         const std::string &category = cat.categories()[c];
 
-        if (!isNodeCategory(category))
+        if (!NodeCatalog::isNodeCategory(category))
             continue;
 
         const vector<NodeCatalog::Entry> &list = cat.inCategory(category);

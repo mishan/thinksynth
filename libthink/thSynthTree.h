@@ -23,6 +23,7 @@
 
 #include "thExport.h"
 
+#include "thExpr.h"
 #include "thNode.h"
 
 class thSynth;
@@ -53,6 +54,42 @@ struct thUnitFold
     Field   field;
     float   literal;
     string  units;
+};
+
+/* An arithmetic expression over signals, parked until it can become nodes.
+ *
+ * Parked against the thNode rather than its name because the grammar reads a
+ * node's args before it reads the node's name -- `node osc osc::simple { ... }'
+ * reduces the body first, and `ctx->node' is nameless until the outer rule
+ * runs. The pointer is stable: the same object is handed to newNode().
+ *
+ * Between the parse and thSynthTree::desugarExprs, which runs once from
+ * finishParse and empties the list. Nothing else in the tree's life ever sees
+ * one, which is why the copy constructor does not carry them. */
+struct thPendingExpr
+{
+    thNode     *node;
+    string      arg;
+    thExprNode *expr;
+};
+
+/* What an expression was, kept after it has become nodes.
+ *
+ * The desugar is lossy on purpose -- the graph is the truth and the tree is
+ * gone -- but an editor drawing `osc2.freq#1', `osc2.freq#2' and
+ * `osc2.freq#3' as three anonymous math boxes would be showing the compiler's
+ * working rather than the patch. So the text and the leaves survive, and
+ * NodeGraph collapses the lot back into one read-only box.
+ *
+ * Not carried by the copy constructor: a copy is a voice, and a voice has no
+ * editor. */
+struct thExprBox
+{
+    string node;                /* the node whose arg it feeds           */
+    string arg;
+    string text;               /* as a .dsp would write it              */
+    vector<thExprLeaf> leaves;
+    vector<string> made;       /* the synthesised node names            */
 };
 
 class THINK_API thSynthTree {
@@ -111,6 +148,32 @@ public:
     void deferUnitFold (thArg *arg, thUnitFold::Field field,
                         float literal, const string &units);
 
+    /* Parked by the grammar, applied by desugarExprs. See thPendingExpr.
+       Takes ownership of `expr'; a second expression on one arg replaces the
+       first, as a second assignment to it would. */
+    void deferExpr (thNode *node, const string &arg, thExprNode *expr);
+
+    /* Drops anything parked against `node'.`arg'. What a plain assignment
+       after an expression one means: the last line wins, whichever kind it
+       is. */
+    void dropExpr (thNode *node, const string &arg);
+
+    /* Turns every parked expression into the math:: nodes it stands for and
+       points its arg at the last of them, then forgets them. False if a
+       plugin would not load, which fails the parse -- an arg silently left
+       reading zero is the one outcome worse than not loading the file.
+
+       Run once, from thSynth::finishParse, before buildArgMap: the nodes this
+       creates have args of their own to index. */
+    bool desugarExprs (void);
+
+    /* One per expression the desugar rewrote, empty before it runs. See
+       thExprBox. */
+    const vector<thExprBox> &exprBoxes (void) const { return exprBoxes_; }
+
+    /* The record whose synthesised nodes include `name', or NULL. */
+    const thExprBox *exprBoxMaking (const string &name) const;
+
     /* Turns every `5 ms' and `90%' the file wrote into what the engine
        works in, at `sampleRate' samples per second, and forgets them --
        so calling it twice cannot fold twice. Run once, from
@@ -136,6 +199,23 @@ private:
     void processHelper (unsigned int windowlen, thNode *node);
     void setActiveNodesHelper (thNode *node);
     void copyHelper (thNode *parentnode);
+
+    /* Where one operand of a desugared expression is read from: a number,
+       a node's output, or a control -- the three things an arg can already
+       be. Defined in thSynthTree.cpp; nothing outside the desugar needs its
+       shape. */
+    struct ExprRef;
+
+    static void applyRef (thNode *target, const string &arg,
+                          const ExprRef &r);
+    bool emitExpr (const thExprNode *e, const string &base, int &serial,
+                   ExprRef &out);
+
+    /* Where emitExpr records the node names it creates, or NULL outside a
+       desugar. A member rather than another parameter threaded through the
+       recursion, which already carries three. */
+    vector<string> *made_;
+
     int buildSynthTreeHelper (thNode *parent, int nodeid);
     void buildSynthTreeHelper2 (const thArgMap &argtree,
                                 thNode *currentnode);
@@ -151,6 +231,13 @@ private:
        after it has been finished, and a copy that carried these would
        fold a second time if anyone ever called foldUnits on it. */
     std::vector<thUnitFold> unitFolds_;
+
+    /* Empty except between the parse and desugarExprs(), and not copied, for
+       the reasons above. */
+    std::vector<thPendingExpr> pendingExprs_;
+
+    /* What desugarExprs() left behind, for the editor. Not copied either. */
+    std::vector<thExprBox> exprBoxes_;
 
     string name_, desc_;
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 

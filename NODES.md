@@ -77,7 +77,7 @@ Amplifies and clips the stream
 |---|---|---|---|---|---|---|
 | `out` | out | The clipped signal, stretched back out to fill -1 to 1 |  | -1 to 1 | full scale |  |
 | `in` | in | Signal in |  | -1 to 1 | full scale |  |
-| `clip` | in | Where the top is cut; under full scale is taken as full scale |  | 0 to 1 | full scale |  |
+| `clip` | in | Where the top is cut; under full scale is taken as full scale | 1 | 0 to 1 | full scale |  |
 | `lowclip` | in | How far down the bottom is cut; 0 matches clip |  | 0 to 1 | full scale |  |
 
 ### dist::inksat
@@ -419,6 +419,20 @@ Resonator filter
 | `last` | state |  |  |  |  |  |
 | `out` | out | Filtered signal |  |  | full scale |  |
 
+### filt::svf
+
+State-variable filter: low, band and high
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff in hertz, 0 to 0.49 of the sample rate; exact at every setting |  |  | Hz |  |
+| `res` | in | Resonance: 0 is flat, 0.99 is a Q of 50. Stable across the whole range |  | 0 to 0.99 | 0..1 |  |
+| `out_low` | out | Low pass, 12 dB an octave |  | -1 to 1 | full scale |  |
+| `out_band` | out | Band pass, peaking at 1 whatever the resonance is |  | -1 to 1 | full scale |  |
+| `out_high` | out | High pass; the three outputs sum to the input |  | -1 to 1 | full scale |  |
+| `last` | state |  |  |  |  |  |
+
 ## impulse
 
 ### impulse::blackman
@@ -488,6 +502,15 @@ Logical Not
 
 ## math
 
+### math::abs
+
+The magnitude of a stream
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  |  |  |  |
+| `out` | out | in without its sign |  |  |  |  |
+
 ### math::add
 
 Adds two streams, unscaled
@@ -497,6 +520,17 @@ Adds two streams, unscaled
 | `in0` | in | First operand |  |  |  |  |
 | `in1` | in | Second operand |  |  |  |  |
 | `out` | out | in0 + in1, unscaled |  |  |  |  |
+
+### math::clamp
+
+Holds a stream between two others
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  |  |  |  |
+| `lo` | in | The bottom |  |  |  |  |
+| `hi` | in | The top; under lo, the answer is lo below lo and hi above it |  |  |  |  |
+| `out` | out | in, held between lo and hi |  |  |  |  |
 
 ### math::div
 
@@ -508,6 +542,35 @@ Divides two streams
 | `in1` | in | Denominator; 0 is a non-finite result |  |  |  |  |
 | `out` | out | in0 / in1 |  |  |  |  |
 
+### math::exp2
+
+Two raised to the power of a stream
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The power; 1 is an octave up |  |  | octaves |  |
+| `out` | out | 2 to the power of in; a ratio |  |  | ratio |  |
+
+### math::max
+
+The higher of two streams
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in0` | in | First operand |  |  |  |  |
+| `in1` | in | Second operand |  |  |  |  |
+| `out` | out | Whichever of in0 and in1 is higher |  |  |  |  |
+
+### math::min
+
+The lower of two streams
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in0` | in | First operand |  |  |  |  |
+| `in1` | in | Second operand |  |  |  |  |
+| `out` | out | Whichever of in0 and in1 is lower |  |  |  |  |
+
 ### math::mul
 
 Multiplies two streams, unscaled
@@ -517,6 +580,16 @@ Multiplies two streams, unscaled
 | `in0` | in | First operand |  |  |  |  |
 | `in1` | in | Second operand |  |  |  |  |
 | `out` | out | in0 * in1, unscaled |  |  |  |  |
+
+### math::pow
+
+Raises one stream to the power of another
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `base` | in | What is raised |  |  |  |  |
+| `exp` | in | The power; a fraction of a negative base is non-finite |  |  |  |  |
+| `out` | out | base raised to exp |  |  |  |  |
 
 ### math::sin
 
@@ -607,6 +680,17 @@ Prints 'in'
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `in` | in | Printed to stdout, one window at a time |  |  |  |  |
+
+### misc::slew
+
+One-pole lag
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The signal to chase |  |  |  |  |
+| `time` | in | Time constant: how long to cover 63% of a step. Under one sample passes the input straight through |  |  | samples |  |
+| `out` | out | in, lagged |  |  |  |  |
+| `last` | state |  |  |  |  |  |
 
 ## mixer
 
@@ -701,6 +785,17 @@ Sums sines in a series
 | `pitchadd` | in | ...plus this times j, so partials can be inharmonic |  |  | Hz |  |
 | `ampmul` | in | Partial j is this to the power of j times amp |  |  | ratio |  |
 | `ampadd` | in | ...plus this times j |  |  | ratio |  |
+
+### osc::noise
+
+White, pink or brown noise
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `out` | out | The noise |  | -1 to 1 | full scale |  |
+| `color` | in | Which noise |  |  |  | 0 = White, 1 = Pink, 2 = Brown |
+| `amp` | in | Peak amplitude; pink and brown are about nine decibels quieter than white at the same peak | 1 | 0 to 1 | full scale |  |
+| `last` | state |  |  |  |  |  |
 
 ### osc::shapeo
 

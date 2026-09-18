@@ -98,8 +98,14 @@ public:
         bool hasRange;
         float rangeMin, rangeMax;
 
-        /* For POINTER, "env->out"; for CHANARG, "@cutoff". Empty otherwise. */
+        /* For POINTER, "env->out"; for CHANARG, "@cutoff"; for an arg the
+           file wrote as arithmetic, the expression. Empty otherwise. */
         string source;
+
+        /* True when `source' is an expression rather than a single wire.
+           What it costs a caller: the arg cannot be rewired or retyped in
+           place, because the value in the file is a graph. */
+        bool isExpr;
 
         /* True if the plugin registers this as an input port -- one of the
            things a wire can land on. An arg the .dsp binds that the plugin
@@ -121,6 +127,7 @@ public:
 
         Param (void) : kind(VALUE), value(0), min(0), max(0), step(0),
                        hasRange(false), rangeMin(0), rangeMax(0),
+                       isExpr(false),
                        isPort(false), isOutput(false), hasValue(false) { }
     };
 
@@ -273,12 +280,39 @@ public:
         string probeArg;    /* the host's output port being read */
         string probeVisual; /* "meter"; the visual module's name */
 
+        /* An arithmetic expression, drawn as one read-only box.
+         *
+         * `freq->out * exp2(@cents / 1200)' is three math:: nodes by the time
+         * the graph is built -- thSynthTree::desugarExprs made them, and the
+         * audio path knows nothing else. Drawing those three would be showing
+         * the desugar's working rather than the patch, so the record it left
+         * behind (thExprBox) is collapsed back into one box: the text, an
+         * input port per signal leaf, and one output wired to the arg.
+         *
+         * Read-only, and canConnect() says so. The value in the file is a
+         * graph; rewiring one of its leaves means editing the text, which is
+         * a later step. Removing the whole thing is what disconnect already
+         * does -- it rewrites the arg to `= 0'. */
+        bool isExpr;
+
+        string exprText;    /* "freq->out * exp2(@cents / 1200)"  */
+        string exprNode;    /* the node whose arg it feeds        */
+        string exprArg;
+
+        /* The synthesised node whose `out' this box's output really is --
+           the last of the chain the desugar built. The box name is the
+           stable one and is what a `# @probe' line holds; this is what the
+           engine knows. thSynth::armProbe resolves one to the other, so a
+           caller with only a name does not need this; a caller holding the
+           graph can skip the lookup. */
+        string exprOutNode;
+
         Box (void) : x(0), y(0), w(0), h(0), layer(0), order(0),
                      isIoSource(false), isIoSink(false), isControl(false),
                      ctlValue(0), ctlMin(0), ctlMax(1), ctlStep(0),
                      groupHead(false),
                      attachedTo(-1), attachSlot(0), attachH(0),
-                     isProbe(false) { }
+                     isProbe(false), isExpr(false) { }
     };
 
     struct Edge {
@@ -346,6 +380,12 @@ public:
        plugin would draw outside the panel or leave a gap in it, and neither is
        visible in a screenshot until you go looking. */
     static double probeHeadHeight (void) { return 12.0; }
+
+    /* The row an expression box keeps for its text, between the title bar and
+       the first port. Public for the same reason as probeHeadHeight: the
+       layout reserves the space here and the canvas draws the baseline, and
+       if the two disagreed the arithmetic would land on a port name. */
+    static double exprTextRow (void);
 
     /* Wrap the layer sequence into stacked bands once the drawing would be
        wider than this. 0 leaves it in one row, which is the default.

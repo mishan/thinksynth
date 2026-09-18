@@ -908,8 +908,21 @@ int main (int argc, char **argv)
         }
 
         /* connect() and removeEdge() must keep the params and the wires in
-           step, the same way build() does. */
-        if (problems == 0 && !edges.empty())
+           step, the same way build() does.
+         *
+         * Over the first wire that is editable at all. A wire into or out of
+         * an expression box is not: neither end is a line in the file, and
+         * canConnect refuses it on purpose. Cutting one and putting it back
+         * is a property of wires the editor can draw, so the first of those
+         * is what to ask it about. */
+        size_t first = 0;
+
+        while (first < edges.size() &&
+               (boxes[edges[first].fromBox].isExpr ||
+                boxes[edges[first].toBox].isExpr))
+            first++;
+
+        if (problems == 0 && first < edges.size())
         {
             NodeGraph g2;
 
@@ -918,13 +931,13 @@ int main (int argc, char **argv)
 
             const size_t before = g2.edges().size();
 
-            g2.removeEdge(0);
+            g2.removeEdge((int)first);
 
             if (g2.edges().size() != before - 1)
             { printf("FAIL  %s: removeEdge did not remove one\n", argv[f]);
               problems++; }
 
-            const NodeGraph::Edge &e0 = edges[0];
+            const NodeGraph::Edge &e0 = edges[first];
 
             string why;
 
@@ -1154,6 +1167,38 @@ int main (int argc, char **argv)
 
             int wiredParams = 0;
 
+            /* An expression box has no params -- its value is the text, and
+               its inputs are the expression's leaves. What has to hold is
+               that every one of them is attached: a leaf with no wire means
+               the desugar and the drawing disagree about what the arithmetic
+               reads. */
+            if (bx.isExpr)
+            {
+                int ins = 0, outs = 0;
+
+                for (size_t q = 0; q < bx.ports.size(); q++)
+                    if (bx.ports[q].isInput)
+                        ins++;
+
+                for (size_t e = 0; e < edges.size(); e++)
+                    if (edges[e].fromBox == (int)b)
+                        outs++;
+
+                int incoming = 0;
+
+                for (size_t e = 0; e < edges.size(); e++)
+                    if (edges[e].toBox == (int)b)
+                        incoming++;
+
+                if (incoming != ins || outs != 1)
+                { printf("FAIL  %s: expression %s has %d of %d inputs wired "
+                         "and %d outputs\n", argv[f], bx.name.c_str(),
+                         incoming, ins, outs);
+                  problems++; }
+
+                continue;
+            }
+
             for (size_t k = 0; k < bx.params.size(); k++)
             {
                 /* A chanarg reference is a wire now too -- it comes from the
@@ -1179,6 +1224,32 @@ int main (int argc, char **argv)
 
                 if (bx.params[k].kind == NodeGraph::Param::POINTER)
                 {
+                    /* An arg the file wrote as arithmetic is driven by its
+                       expression box, whose name is `<node>.<arg>' rather
+                       than anything `source' spells -- source is the text. */
+                    if (bx.params[k].isExpr)
+                    {
+                        bool found = false;
+
+                        for (size_t e = 0; e < edges.size() && !found; e++)
+                            if (edges[e].toBox == (int)b &&
+                                boxes[edges[e].toBox]
+                                    .ports[edges[e].toPort].name ==
+                                    bx.params[k].name &&
+                                boxes[edges[e].fromBox].isExpr)
+                                found = true;
+
+                        if (found)
+                            wiredParams++;
+                        else
+                        { printf("FAIL  %s: %s.%s is an expression with no "
+                                 "box\n", argv[f], bx.name.c_str(),
+                                 bx.params[k].name.c_str());
+                          problems++; }
+
+                        continue;
+                    }
+
                     /* A reference to a node that does not exist is the .dsp's
                        bug, not the graph's -- old/firtest.dsp reads filt->out
                        and env->out with neither node defined, and the parser

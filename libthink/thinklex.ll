@@ -125,7 +125,10 @@ thLexEmit (thLexExtra *x, thLexToken::Kind kind,
   return 1;
 }
 
-[;={}.@$+*/%()-] {
+  /* `,' is here for .dsp's function calls -- `clamp(x, 0, 1)'. .gen has no
+     use for one and its parser rejects the token, which is a better answer
+     than the stray-character rule below. */
+[;={},.@$+*/%()-] {
   thLexEmit(yyextra, thLexToken::PUNCT, yytext, yyleng, yylineno);
   return 1;
 }

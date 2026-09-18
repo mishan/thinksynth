@@ -45,6 +45,11 @@ namespace {
     };
 }
 
+bool NodeCatalog::isNodeCategory (const string &category)
+{
+    return category != "composer" && category != "visual";
+}
+
 int NodeCatalog::scan (const string &path)
 {
     entries_.clear();

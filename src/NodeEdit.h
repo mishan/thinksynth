@@ -145,8 +145,9 @@ public:
        `amp = 0' as full scale and `mul = 0' as multiply by one. Those are
        defaults that were written where nothing could read them, so a node the
        editor added came out saying `amp = 0' and left the reader to know what
-       that meant. Writing them changes no sound -- they are the plugin's own
-       zero-cases -- and makes the file say what it does.
+       that meant. buildArgMap() loads them now, so writing them changes no
+       sound either way -- they are the plugin's own zero-cases -- and makes
+       the file say what it does instead of leaving the reader to know it.
     
        A value this writer cannot spell is skipped, not fatal: the node is a
        valid node without the line. */

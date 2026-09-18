@@ -39,6 +39,12 @@ node, arg or tree.
 - **`thPlugin`** — the `dlopen` wrapper. Plugins export `module_init`
   (registers named args, returns integer indices), `module_callback` (the
   per-window DSP) and `module_cleanup`.
+- **`thExprNode`** — an arithmetic expression over signals, alive only between
+  the parse and `thSynthTree::desugarExprs`. `freq->out * exp2(@cents / 1200)`
+  becomes `math::` nodes at load and the audio path sees a graph like any
+  other. An all-constant expression never becomes one of these: the grammar
+  folds it at parse, as it always has. See
+  [DSP_FORMAT.md](DSP_FORMAT.md#arithmetic-over-signals).
 
 Plugins keep their state *in args* — delay lines, filter history, oscillator
 phase. That is not incidental; see [AUDIO.md](AUDIO.md) on why `thArg::allocate()`
@@ -75,7 +81,8 @@ one:
 - **default** — the value the plugin behaves as though the arg held when it is
   0.
 
-None of it is read anywhere in the audio path.
+Only the default reaches the audio path, and only at load: `buildArgMap` writes
+it into an arg the `.dsp` never mentioned. The rest is advice.
 
 ### Step and value names
 
@@ -118,21 +125,25 @@ wavelength by this */`. Those are the descriptions. The other 281 have none and
 stay empty. Reading someone else's arithmetic and writing a confident sentence
 about what it is for produces a tooltip that is wrong in a way nobody can see.
 
-The defaults are the same principle over a different pattern. Eight args across
-five plugins are special-cased in their own callback — `if (amp_max == 0)
-amp_max = TH_MAX;`, `if (mul) freq *= mul;`, `if (pw == 0) pw = 0.5;`. Those
+The defaults are the same principle over a different pattern. Fourteen args
+across eleven plugins are special-cased in their own callback — `if (amp_max ==
+0) amp_max = TH_MAX;`, `if (mul) freq *= mul;`, `if (pw == 0) pw = 0.5;`. Those
 plugins already had defaults; they were written somewhere nothing could read
 them, so a node the editor added came out saying `amp = 0` and left the reader
 to know that meant full scale. **A default here is not a suggested starting
 value**, and that is what stops it being taste.
 
-An editor default, not an engine one. `buildArgMap` still invents `= 0` for
-every registered arg a `.dsp` omits, and changing that would change the sound of
-every file that omits one. What it is for is `NodeEdit::addNode`, which writes
-the declared defaults into a node the palette adds: the same sound, since they
-are the plugin's own zero-cases, in a file that says what it does. `argtype`
-renders both spellings and compares them bitwise, because that is exactly the
-sort of claim that is easy to make and easy to get wrong.
+`buildArgMap` loads them. An omitted arg used to become a 0 that the callback
+substituted for per sample, inside itself; the declaration is what the engine
+reads now, so probe, tooltip and arithmetic agree on one number. Sound is
+unchanged because a default is a transcription: `amp = 0` and no `amp` line
+reach the loop identically. `NodeEdit::disconnect` depends on that too — it
+rewrites an arg to `= 0` rather than deleting the line. `argtype` compares all
+three spellings bitwise and checks every declared default against what a bare
+node of its plugin loads holding.
+
+`NodeEdit::addNode` also writes them into a node the palette adds. That one is
+for the reader: same sound, in a file that says what it does.
 
 ### Getting it to the control
 
@@ -187,7 +198,9 @@ a stale plugin; the soname guards a binary against a stale libthink.
 ### What an arg says about itself
 
 `regArg` gives an arg a name and a direction; five calls beside it carry the
-rest, and all five are advice — nothing in the audio path reads any of them.
+rest. Four are advice, read by the editor and by `NODES.md` and by nothing in
+the audio path. `setArgDefault` is the exception: `buildArgMap` loads it into
+every arg a `.dsp` leaves out.
 
 | | |
 |---|---|

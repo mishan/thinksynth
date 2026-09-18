@@ -41,6 +41,17 @@ typedef struct {
      Arithmetic clears it: the unit of `5 ms + 3' is not a question this
      grammar can answer, so it declines to guess. */
   const char *units;
+
+  /* NULL for an expression whose leaves are all numbers -- .floatval is the
+     answer and the grammar folded it, exactly as it always has. Non-NULL
+     once a leaf is a `node->arg' or an `@name', because then there is no
+     number to fold to and the tree has to survive until desugaring turns it
+     into math:: nodes. See thExpr.h.
+
+     Owned by whichever stack symbol holds it, which is what the
+     %destructors are for: a YYERROR inside a node body unwinds past
+     expressions nobody consumed. */
+  struct thExprNode *expr;
 } ATTRIBUTE;
 
 #define YYSTYPE ATTRIBUTE

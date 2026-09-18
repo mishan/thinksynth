@@ -34,21 +34,23 @@ think_add_plugin_category(env      adsr adsfr ad dynmap follower followavg map)
 
 think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
                                    inkshape rds ds dshape divbuf res1pole
-                                   res2pole res2pole2 resgrav moog)
+                                   res2pole res2pole2 resgrav moog svf)
 
 think_add_plugin_category(impulse  sine parabola square blackman)
 
 think_add_plugin_category(logic    and not)
 
-think_add_plugin_category(math     add sub mul div sin)
+think_add_plugin_category(math     add sub mul div sin
+                                   pow exp2 abs min max clamp)
 
 think_add_plugin_category(misc     latch noisegate midi2freq midi2range
-                                   freq2samples print decibel)
+                                   freq2samples print decibel slew)
 
 think_add_plugin_category(mixer    add fade mul)
 
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
-                                   bandosc shapeo multiwave multisined window)
+                                   bandosc shapeo multiwave multisined window
+                                   noise)
 
 # Visualizers. Not DSP plugins: a different ABI, loaded by the GUI rather than
 # by the parser, drawing with cairo and linking neither libthink nor sigc++.

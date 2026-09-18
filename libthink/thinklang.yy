@@ -24,6 +24,7 @@
 #include <string.h>
 
 #include <string>
+#include <vector>
 
 #include "think.h"
 #include "parser.h"
@@ -36,6 +37,22 @@ static void yyerror (thParseContext *ctx, const char *str);
 /* False, having complained, if either operand of an arithmetic rule was
    written with a unit. See the ADD rule for the argument. */
 static bool thCheckNoUnits (thParseContext *ctx, const char *a, const char *b);
+
+/* One arithmetic rule: folds two numbers as this grammar always has, and
+   builds a tree the moment either side carries one. Frees both operands and
+   returns false on a refusal, because bison does not reclaim the symbols of
+   the rule whose action raised YYERROR. */
+static bool thArith (thParseContext *ctx, YYSTYPE *out, int op,
+                     const YYSTYPE *a, const YYSTYPE *b);
+
+/* `pow(a, b)'. Same contract: false having freed everything, `name'
+   included. */
+static bool thCall (thParseContext *ctx, YYSTYPE *out, char *name,
+                    const YYSTYPE *argv, int argc);
+
+/* The operand as an expression node -- the tree it already had, or a fresh
+   constant. Takes over ownership of v->expr. */
+static thExprNode *thOperand (const YYSTYPE *v);
 %}
 
 /* Pure: no globals anywhere in the generated parser, a context threaded
@@ -60,10 +77,28 @@ typedef struct thParseContext thParseContext;
 %token ENDSTATE ASSIGN LCBRACK RCBRACK
 %token INTO
 %token MODSEP
-%token ADD SUB MUL DIV MOD CPAREN OPAREN NIL
+%token ADD SUB MUL DIV MOD CPAREN OPAREN COMMA NIL
 %token PERIOD
 %token ATSIGN DOLLAR
 %token STRING
+
+/* Precedence, declared for exactly one ambiguity.
+ *
+ * `%' is the one token this grammar spells two things with: a modulo between
+ * two numbers, and a percentage after one. Now that a `-' can begin a factor,
+ * `50% - 3' is two readings -- the percentage and a subtraction, or 50 modulo
+ * -3 -- and bison has to be told which. PERCENT is declared after SUB and so
+ * binds tighter, which makes the `factor MOD' rule reduce rather than shift
+ * into `SUB factor'. `50% - 3' stays what it has always been.
+ *
+ * `%precedence' rather than `%nonassoc': neither token is ever asked to
+ * associate with itself, only to outrank the other.
+ *
+ * Nothing else in this grammar resolves by precedence: every other operator
+ * groups by the shape of its rule. A future conflict on SUB would be settled
+ * here silently rather than reported, which is the cost of the line. */
+%precedence SUB
+%precedence PERCENT
 
 /* Who frees a string when a parse gives up partway.
  *
@@ -92,7 +127,14 @@ typedef struct thParseContext thParseContext;
  * built with new char[]. Two allocators, two destructors, which is also
  * a reminder that this grammar has never settled on one. */
 %destructor { free($$.str); }   WORD STRING
-%destructor { delete[] $$.str; } plugname fstr
+%destructor { delete[] $$.str; } plugname
+
+/* An expression the stack was still holding when YYERROR unwound past it.
+   NULL for every all-constant expression, which is every one in the corpus,
+   so this frees nothing until a file writes arithmetic over a signal. */
+%destructor { thExprFree($$.expr); }
+    expression unsigned_simple_expression term factor
+    unsigned_constant
 
 %%
 
@@ -122,26 +164,18 @@ authset
 |
 expression
 {
-    printf("%f\n", $1.floatval);
+    /* A bare expression statement, which only ever printed its value. A
+       signal has no value to print at parse time and no arg to drive, so
+       there is nothing to say about one. */
+    if ($1.expr == NULL)
+        printf("%f\n", $1.floatval);
+
+    thExprFree($1.expr);
 }
 ;
 
 expression:
-simple_expression
-;
-
-simple_expression:
 unsigned_simple_expression
-{
-    $$.floatval = $1.floatval;
-    $$.units = $1.units;
-}
-|
-SUB unsigned_simple_expression
-{
-    $$.floatval = $2.floatval*-1;
-    $$.units = $2.units;    /* -5 ms is still milliseconds */
-}
 ;
 
 unsigned_simple_expression:
@@ -149,6 +183,7 @@ term
 {
     $$.floatval = $1.floatval;
     $$.units = $1.units;
+    $$.expr = $1.expr;
 }
 |
 term ADD unsigned_simple_expression
@@ -163,20 +198,14 @@ term ADD unsigned_simple_expression
      * have -- the unit would simply be dropped and `5 ms + 3' would mean 8
      * samples, which is worse than an error. Nothing in the corpus does
      * this; the rule is here so nothing quietly starts. */
-    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+    if (!thArith(ctx, &$$, '+', &$1, &$3))
         YYERROR;
-
-    $$.floatval = $1.floatval + $3.floatval;
-    $$.units = NULL;
 }
 |
 term SUB unsigned_simple_expression
 {
-    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+    if (!thArith(ctx, &$$, '-', &$1, &$3))
         YYERROR;
-
-    $$.floatval = $1.floatval - $3.floatval;
-    $$.units = NULL;
 }
 ;
 
@@ -185,32 +214,23 @@ factor
 |
 factor MUL term
 {
-    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+    if (!thArith(ctx, &$$, '*', &$1, &$3))
         YYERROR;
-
-    $$.floatval = $1.floatval * $3.floatval;
-    $$.units = NULL;
 }
 |
 factor DIV term
 {
-    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+    if (!thArith(ctx, &$$, '/', &$1, &$3))
         YYERROR;
-
-    $$.floatval = $1.floatval / $3.floatval;
-    $$.units = NULL;
 }
 |
 factor MOD term
 {
-    if (!thCheckNoUnits(ctx, $1.units, $3.units))
+    if (!thArith(ctx, &$$, '%', &$1, &$3))
         YYERROR;
-
-    $$.floatval = ((int)$1.floatval) % ((int)$3.floatval);
-    $$.units = NULL;
 }
 |
-factor MOD /* percentage of TH_MAX  (ex: somearg = 50%) */
+factor MOD %prec PERCENT /* percentage of TH_MAX  (ex: somearg = 50%) */
 {
     /* The literal, not the fold.
      *
@@ -224,14 +244,30 @@ factor MOD /* percentage of TH_MAX  (ex: somearg = 50%) */
      * recorded afterwards, because the fold is exactly invertible and
      * remembering what was folded is what lets a panel show the number
      * back the way it was written. */
+    if ($1.expr)
+    {
+        yyerror(ctx, "a unit cannot be written on a signal");
+        thExprFree($1.expr);
+        YYERROR;
+    }
+
     $$.floatval = $1.floatval;
     $$.units = "%";
+    $$.expr = NULL;
 }
 |
 factor MS /* milliseconds */
 {
+    if ($1.expr)
+    {
+        yyerror(ctx, "a unit cannot be written on a signal");
+        thExprFree($1.expr);
+        YYERROR;
+    }
+
     $$.floatval = $1.floatval;
     $$.units = "ms";
+    $$.expr = NULL;
 }
 ;
 
@@ -240,12 +276,103 @@ OPAREN expression CPAREN
 {
     $$.floatval = $2.floatval;
     $$.units = $2.units;
+    $$.expr = $2.expr;
 }
 |
 unsigned_constant
 {
     $$.floatval = $1.floatval;
     $$.units = $1.units;
+    $$.expr = NULL;
+}
+|
+SUB factor
+{
+    /* `-x'. A number negates as it always did; a signal becomes a mul by
+     * -1, which is the node the desugar already has.
+     *
+     * A `factor' rather than the top of an expression, which is where this
+     * rule used to be. There it scoped over everything to its right, so
+     * `-0.4 + 0.1' was `-(0.4 + 0.1)' and came out -0.5 -- while .gen's
+     * parser, which binds the sign to its operand, read the same text as
+     * -0.3. That rule also made a negative literal unwritable anywhere but
+     * the front of an expression: `a->out * -0.5' was a syntax error here,
+     * and is what ebb.gen writes. Nothing in the corpus wrote a leading
+     * minus over a sum, which is why moving it costs no shipped file; the
+     * two languages now group one expression one way.
+     *
+     * The unit rides along: `-5 ms' is a factor of -5 that the MS rule
+     * below then marks, and `-(5 ms)' a parenthesised factor that carries
+     * one in already. */
+    if ($2.expr == NULL)
+    {
+        $$.floatval = $2.floatval*-1;
+        $$.units = $2.units;
+        $$.expr = NULL;
+    }
+    else
+    {
+        /* A unit on a signal is refused by the MS and MOD rules below, so
+           $2.units is NULL here whenever $2.expr is not. */
+        $$.floatval = 0;
+        $$.units = NULL;
+        $$.expr = thExprOp('*', $2.expr, thExprConst(-1));
+    }
+}
+|
+WORD INTO WORD
+{
+    /* The same leaf `freq = osc->out' has always been, now that it can also
+       appear under an operator. A bare one still becomes an ARG_POINTER and
+       no node -- see the assignment rule. */
+    $$.floatval = 0;
+    $$.units = NULL;
+    $$.expr = thExprNodeRef($1.str, $3.str);
+
+    free($1.str);
+    free($3.str);
+}
+|
+ATSIGN WORD
+{
+    $$.floatval = 0;
+    $$.units = NULL;
+    $$.expr = thExprChanRef($2.str);
+
+    free($2.str);
+}
+|
+WORD OPAREN expression CPAREN
+{
+    YYSTYPE argv[1];
+
+    argv[0] = $3;
+
+    if (!thCall(ctx, &$$, $1.str, argv, 1))
+        YYERROR;
+}
+|
+WORD OPAREN expression COMMA expression CPAREN
+{
+    YYSTYPE argv[2];
+
+    argv[0] = $3;
+    argv[1] = $5;
+
+    if (!thCall(ctx, &$$, $1.str, argv, 2))
+        YYERROR;
+}
+|
+WORD OPAREN expression COMMA expression COMMA expression CPAREN
+{
+    YYSTYPE argv[3];
+
+    argv[0] = $3;
+    argv[1] = $5;
+    argv[2] = $7;
+
+    if (!thCall(ctx, &$$, $1.str, argv, 3))
+        YYERROR;
 }
 ;
 
@@ -253,6 +380,7 @@ unsigned_constant:
 NUMBER
 {
     $$.floatval = $1.floatval;
+    $$.expr = NULL;
 }
 |
 NIL
@@ -261,6 +389,7 @@ NIL
        an arbitrary float propagated into node args. */
     $$.floatval = 0;
     $$.units = NULL;
+    $$.expr = NULL;
 }
 ;
 
@@ -324,6 +453,17 @@ NODE WORD LCBRACK assignments RCBRACK
 paramsetup:
 ATSIGN WORD ASSIGN expression
 {
+    /* A control is a constant the GUI writes into, and nothing drives one:
+       thMidiChan copies the declared value into every voice and a slider
+       overwrites it. An expression here would be a value with two authors. */
+    if ($4.expr)
+    {
+        yyerror(ctx, "a control cannot be driven by an expression");
+        thExprFree($4.expr);
+        free($2.str);
+        YYERROR;
+    }
+
     thArg *chanarg = new thArg($2.str, $4.floatval);
 
     /* `@a = 5 ms' ends up stored as samples, which is what the engine wants
@@ -356,6 +496,15 @@ ATSIGN WORD ASSIGN expression
 ATSIGN WORD PERIOD WORD ASSIGN expression
 {
     thArg *chanarg;
+
+    if ($6.expr)
+    {
+        yyerror(ctx, "a control's range cannot be driven by an expression");
+        thExprFree($6.expr);
+        free($2.str);
+        free($4.str);
+        YYERROR;
+    }
 
     /* `@foo.min = 0' before any `@foo = ...' has no arg to modify. This used
        to hand back a NULL (inserted by map::operator[]) and dereference it. */
@@ -521,73 +670,58 @@ assignments assignment ENDSTATE
 assignment:
 WORD ASSIGN expression
 {
-    /* XXX: This is sorta hackish, make it not index it here */
-    thArg *arg = ctx->node->setArg($1.str, $3.floatval);
+    /* One rule for all four right-hand sides a .dsp can write.
+     *
+     * `in = osc->out' and `in = @cut' used to be rules of their own, and
+     * could not be: a `node->arg' that may appear under an operator is a
+     * `factor', and two rules deriving `WORD ASSIGN WORD INTO WORD' are the
+     * same sentence twice. So the expression grammar reads all of them and
+     * this sorts out what came back.
+     *
+     * The first three branches are exactly what the old rules did, and a
+     * file that writes no arithmetic takes them for every line it has. Only
+     * the fourth is new, and only it makes nodes. */
+    ctx->tree->dropExpr(ctx->node, $1.str);
 
-    arg->setIndex(-1);
-
-    /* A node arg remembers its unit now, which it never used to: only
-       chanargs did, because only chanargs were ever drawn. The arg holds
-       the author's number until foldUnits runs, so anything that reads a
-       tree between the parse and finishParse sees milliseconds -- nothing
-       does, and saying so is cheaper than pretending the value is already
-       in samples. */
-    if ($3.units)
+    if ($3.expr == NULL)
     {
-        arg->setUnits($3.units);
-        ctx->tree->deferUnitFold(arg, thUnitFold::VALUE, $3.floatval,
-                                 $3.units);
+        /* XXX: This is sorta hackish, make it not index it here */
+        thArg *arg = ctx->node->setArg($1.str, $3.floatval);
+
+        arg->setIndex(-1);
+
+        /* A node arg remembers its unit now, which it never used to: only
+           chanargs did, because only chanargs were ever drawn. The arg holds
+           the author's number until foldUnits runs, so anything that reads a
+           tree between the parse and finishParse sees milliseconds -- nothing
+           does, and saying so is cheaper than pretending the value is already
+           in samples. */
+        if ($3.units)
+        {
+            arg->setUnits($3.units);
+            ctx->tree->deferUnitFold(arg, thUnitFold::VALUE, $3.floatval,
+                                     $3.units);
+        }
+    }
+    else if ($3.expr->kind == thExprNode::NODEREF)
+    {
+        ctx->node->setArg($1.str, $3.expr->node, $3.expr->arg)->setIndex(-1);
+        thExprFree($3.expr);
+    }
+    else if ($3.expr->kind == thExprNode::CHANREF)
+    {
+        ctx->node->setArg($1.str, $3.expr->name)->setIndex(-1);
+        thExprFree($3.expr);
+    }
+    else
+    {
+        /* Against the node rather than its name: the body reduces before the
+           `node osc osc::simple {' around it does, so ctx->node has no name
+           yet. See thPendingExpr. */
+        ctx->tree->deferExpr(ctx->node, $1.str, $3.expr);
     }
 
     free($1.str);
-}
-|
-WORD ASSIGN fstr
-{
-    char *node, *arg, *p;
-    int argsize, nodesize;
-    
-    /* Make $3.str ("node/arg" format) into the above vars */
-    p = strchr($3.str, '/');
-    p++;
-    
-    argsize = strlen(p);
-    nodesize = strlen($3.str)-argsize-1;
-    
-    node = new char[nodesize+1];
-    memcpy(node, $3.str, nodesize);
-    node[nodesize] = 0;
-
-    arg = new char[argsize+1];
-    memcpy(arg, p, argsize);
-    arg[argsize] = 0;
-
-    /* XXX: This is sorta hackish, make it not index it here */
-    ctx->node->setArg($1.str, node, arg)->setIndex(-1);
-
-    delete[] node;
-    delete[] arg;
-    delete[] $3.str;
-    free($1.str);
-}
-|
-WORD ASSIGN ATSIGN WORD
-{
-    char *chanarg;
-    int chanarglen;
-
-    chanarglen = strlen($4.str);
-    chanarg = new char[chanarglen + 1];        /* +1 for the terminating '\0' */
-    memcpy(chanarg, $4.str, chanarglen + 1);
-
-    ctx->node->setArg($1.str, chanarg)->setIndex(-1); /* XXX: This is sorta
-                                        hackish, make it not index it here */
-
-    /* setArg() takes a const string& and copies, so none of these outlive the
-       call. All three used to leak, once per chanarg reference per .dsp. */
-    delete[] chanarg;
-    free($1.str);
-    free($4.str);
 }
 ;
 
@@ -609,17 +743,6 @@ WORD MODSEP plugname
 }
 ;
 
-fstr:        /* a node name and an fstring */
-WORD INTO WORD
-{
-    /* we must allocate two extra bytes; one for the '/' and one for the null
-       terminator */
-    $$.str = new char[strlen($1.str) + strlen($3.str) + 2];
-    sprintf((char *)$$.str, "%s/%s", $1.str, $3.str);
-    free($1.str);
-    free($3.str);
-}
-;
 %%
 
 /* .dsp's vocabulary.
@@ -643,6 +766,7 @@ yylex (YYSTYPE *yylval, thParseContext *ctx)
     yylval->units = NULL;
     yylval->floatval = 0;
     yylval->str = NULL;
+    yylval->expr = NULL;
 
     const thLexToken &t = ctx->tokens[ctx->pos];
 
@@ -706,6 +830,7 @@ yylex (YYSTYPE *yylval, thParseContext *ctx)
         if (p == "(")  return OPAREN;
         if (p == ")")  return CPAREN;
         if (p == ".")  return PERIOD;
+        if (p == ",")  return COMMA;
         if (p == "@")  return ATSIGN;
         if (p == "$")  return DOLLAR;
 
@@ -739,6 +864,124 @@ thCheckNoUnits (thParseContext *ctx, const char *a, const char *b)
     yyerror(ctx, msg);
 
     return false;
+}
+
+static thExprNode *
+thOperand (const YYSTYPE *v)
+{
+    return v->expr ? v->expr : thExprConst(v->floatval);
+}
+
+static bool
+thArith (thParseContext *ctx, YYSTYPE *out, int op,
+         const YYSTYPE *a, const YYSTYPE *b)
+{
+    out->floatval = 0;
+    out->units = NULL;
+    out->expr = NULL;
+
+    if (!thCheckNoUnits(ctx, a->units, b->units))
+    {
+        thExprFree(a->expr);
+        thExprFree(b->expr);
+
+        return false;
+    }
+
+    /* Two numbers fold, to the same bits they always did -- including
+       `1 / 0', which this grammar has always let through as an infinity and
+       which the non-finite guard reports at the voice that reaches it. */
+    if (a->expr == NULL && b->expr == NULL)
+    {
+        /* `7 % 0' is an integer division by zero, which is a SIGFPE and not
+           a number -- `amp = 7 % 0;' in any .dsp took the whole process down
+           with it, the editor included. `/' has an answer for a zero
+           denominator and this has none, so it is refused against the line
+           rather than given one. */
+        if (op == '%' && (int)b->floatval == 0)
+        {
+            yyerror(ctx, "'%' by zero has no value");
+
+            return false;
+        }
+
+        switch (op)
+        {
+        case '+': out->floatval = a->floatval + b->floatval; break;
+        case '-': out->floatval = a->floatval - b->floatval; break;
+        case '*': out->floatval = a->floatval * b->floatval; break;
+        case '/': out->floatval = a->floatval / b->floatval; break;
+        case '%':
+            out->floatval = (float)(((int)a->floatval) % ((int)b->floatval));
+            break;
+        }
+
+        return true;
+    }
+
+    /* Every other operator has a math:: node behind it and this one does
+       not. Saying so beats desugaring to something that is nearly a modulo. */
+    if (op == '%')
+    {
+        yyerror(ctx, "'%' takes two numbers; there is no node for a modulo "
+                     "over signals");
+        thExprFree(a->expr);
+        thExprFree(b->expr);
+
+        return false;
+    }
+
+    out->expr = thExprOp(op, thOperand(a), thOperand(b));
+
+    return out->expr != NULL;
+}
+
+static bool
+thCall (thParseContext *ctx, YYSTYPE *out, char *name,
+        const YYSTYPE *argv, int argc)
+{
+    std::vector<thExprNode *> kids;
+    std::string why;
+    bool ok = true;
+
+    out->floatval = 0;
+    out->units = NULL;
+    out->expr = NULL;
+
+    for (int i = 0; i < argc; i++)
+    {
+        if (argv[i].units && !thCheckNoUnits(ctx, argv[i].units, NULL))
+            ok = false;
+
+        kids.push_back(thOperand(&argv[i]));
+    }
+
+    if (ok)
+        out->expr = thExprCall(name, kids, why);
+
+    /* thExprCall empties `kids' whether it succeeds or not; this is the
+       units path, which never reached it. */
+    for (size_t i = 0; i < kids.size(); i++)
+        thExprFree(kids[i]);
+
+    if (ok && out->expr == NULL)
+        yyerror(ctx, why.c_str());
+
+    free(name);
+
+    if (out->expr == NULL)
+        return false;
+
+    /* `exp2(2)' is 4 and no node, for the same reason `5 * 2' is 10 and no
+       node: a function over constants is a constant. */
+    if (out->expr->kind == thExprNode::CONST)
+    {
+        out->floatval = out->expr->value;
+        thExprFree(out->expr);
+        out->expr = NULL;
+    }
+
+    return true;
 }
 
 static void yyerror (thParseContext *ctx, const char *str)

@@ -120,6 +120,41 @@ cannot say which one. That is precisely what the wire is for. It gets a
 vertical-tangent curve rather than the usual horizontal one, because it drops a
 short distance rather than crossing the canvas.
 
+### Expressions are one box
+
+An arg a `.dsp` wrote as arithmetic — `freq = freq->out * exp2(@cents / 1200)`
+— is three `math::` nodes by the time the graph is built.
+`thSynthTree::desugarExprs` made them, named them `osc2.freq#1`, `#2`, `#3`,
+and the audio path knows nothing else. Drawing those three would be showing
+the desugar's working rather than the patch, so `NodeGraph` collapses them
+back into one box: the arithmetic on a line of its own, an input port per
+signal leaf, one output wired to the arg. The box is named `<node>.<arg>`,
+which is stable across loads and is therefore what a `# @layout` or `# @probe`
+line stores — `thSynth::armProbe` resolves it to the last node of the chain.
+
+**Read-only.** `canConnect` refuses a wire into one, out of one, and onto the
+arg one drives; `NodeEdit::setValue` and `connect` refuse an arg whose
+right-hand side is arithmetic, and leave the file untouched. The value in the
+file is a graph, and replacing one term of it with a wire is exactly the
+re-emission splicing exists to prevent. Editing the text in place is a later
+step.
+
+The one edit that works is removing the whole thing: `disconnect` rewrites the
+arg to `= 0`, as it does for any other wire.
+
+Deleting a node or a control an expression *reads* is a smaller edit than that,
+and used to be a larger one. The reference has to go — left alone it resolves
+to nothing and the arg silently reads zero — but nothing around it does, and
+replacing the whole right-hand side with `0` took the rest of the author's
+arithmetic with it. Deleting `@detune` turned `ladder.dsp`'s `freq = freq->out
++ @detune` into `freq = 0`: the oscillator lost its pitch rather than its
+detune, and the edit reported success. So `removeControl` now writes the value
+the control held in place of the reference (`freq = freq->out + 1.3`) and
+`removeNode` writes `0` in place of its own, since a departed output has no
+value to stand for. A plain `a = @cut` still becomes `a = 0`, and so does an
+expression reading a control whose value carries a unit — no expression may
+hold one, so there is nothing to splice in.
+
 ### The nine that are shared
 
 A control read by several nodes cannot attach to any one of them. Those stay
@@ -225,9 +260,11 @@ alongside them.
 
 A node added from the palette arrives carrying whatever defaults its plugin
 declares, so `osc::simple` comes out saying `amp = 1` and `mul = 1` rather than
-leaving the reader to know that the `amp = 0` `buildArgMap` invents means full
-scale. Same sound either way -- those are the plugin's own zero-cases -- and
-`argtype` renders both spellings and compares them to keep that true.
+saying nothing and leaving the reader to know that an unwritten `amp` is full
+scale. `buildArgMap` loads the same numbers into the args the file omits, so
+this is for the reader rather than for the sound; `argtype` renders the arg
+left out, the default written and a literal `0` written, and compares all
+three, to keep that true.
 
 The parameter panel keeps a spin button rather than a list, with the names in
 its tooltip. That column commits on Enter or on focus leaving, and one row
@@ -351,7 +388,8 @@ rest take a corpus argument and are run by hand.
 
 | Harness | Gate | Covers |
 |---|---|---|
-| `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; and that writing a plugin's declared defaults into a node renders bit-identically to leaving them out |
+| `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; that a node written with its plugin's declared defaults, with zeroes, and with neither all render bit-identically; and that every declared default is what a bare node of its plugin loads holding |
+| `exprcheck` | yes | a constant expression still folding to a value and no node, precedence and the unary minus included; an expression rendering bitwise against the nodes it stands for; every box's text re-parsing to the graph behind it; one read-only box per expression with every port attached; `canConnect`, `setValue` and `connect` refusing one and changing no byte; `disconnect` rewriting the whole arg to 0; `removeControl` and `removeNode` replacing the reference and not the arg; a node added beside one and removed again byte for byte |
 | `dspgraph` | no | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
 | `dspwrite` | no | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |

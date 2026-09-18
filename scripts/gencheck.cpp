@@ -495,6 +495,361 @@ showDivergence (const std::string &a, const std::string &b,
  * So the store keeps two lists and replays both, in order. This is the
  * gate on the second one.
  */
+/* ---- arithmetic over signals (GEN_FORMAT.md 5a) ------------------------
+ *
+ * `prob = lfo->out * 0.5 + 0.5' is sugar for the math::mul and math::add a
+ * chain used to have to spell out three lines at a time. The claim is an
+ * equivalence, so what is checked is one: the two spellings must deliver the
+ * same tape, event for event.
+ */
+
+/* Loads `body' and renders `seconds' of it. Empty on a load failure, which
+   the caller reports against its own label. */
+static std::string
+renderBody (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth, const char *label, const std::string &body,
+            double seconds)
+{
+    std::string path = thUtil::tempFile(
+        std::string("gencheck-") + label + "-");
+
+    if (path.empty())
+    {
+        fail(std::string(label) + ": could not make a scratch file");
+        return "";
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    drainSynth();
+
+    std::string tape;
+
+    if (!loader.load(path, &sched))
+    {
+        std::string why = loader.errors().empty() ? "(no errors recorded)"
+                                                  : loader.errors()[0];
+
+        fail(std::string(label) + ": did not load -- " + why);
+    }
+    else
+        tape = render(sched, seconds, 0.02);
+
+    std::filesystem::remove(path);
+
+    return tape;
+}
+
+static void
+checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
+                  thSynth *synth)
+{
+    const std::string head =
+        "seed 7;\n"
+        "@tide = 0.02;\n";
+
+    /* A stage param. ebb.gen's crossfade, both ways round. */
+    {
+        const std::string nodes = head +
+            "chain c {\n"
+            "    stage lfo  osc::simple { freq = @tide; waveform = 0; "
+                "amp = 1; };\n"
+            "    stage half math::mul   { in0 = lfo->out;  in1 = 0.5; };\n"
+            "    stage mid  math::add   { in0 = half->out; in1 = 0.5; };\n"
+            "    stage src gen::eno_line { notes = \"A1 A2 E2\"; "
+                "period = 2 s; jitter = 0 s; prob = mid->out; hold = 1 s; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        const std::string sugar = head +
+            "chain c {\n"
+            "    stage lfo  osc::simple { freq = @tide; waveform = 0; "
+                "amp = 1; };\n"
+            "    stage src gen::eno_line { notes = \"A1 A2 E2\"; "
+                "period = 2 s; jitter = 0 s; "
+                "prob = lfo->out * 0.5 + 0.5; hold = 1 s; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        const std::string a = renderBody(plugins, synth, "expr-nodes", nodes,
+                                         30.0);
+        const std::string b = renderBody(plugins, synth, "expr-sugar", sugar,
+                                         30.0);
+
+        if (a.empty())
+            ;   /* renderBody already said why */
+        else if (a != b)
+        {
+            fail("an expression on a stage param does not compose as the "
+                 "nodes it replaces");
+            showDivergence(a, b, "nodes", "expression");
+        }
+    }
+
+    /* A node arg, and a chain whose only nodes are the ones the arithmetic
+       made -- the host has to be created on demand for that to work at all.
+       round.gen's `twice', both ways round. */
+    {
+        const std::string nodes = head +
+            "@pace = 0.25;\n"
+            "chain c {\n"
+            "    stage twice math::mul { in0 = @pace; in1 = 2; };\n"
+            "    stage src gen::lsystem { axiom = \"X\"; "
+                "rules = \"X=F+FX\"; depth = 3; notes = \"C3 E3 G3\"; "
+                "step = twice->out; hold = 0.5 s; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        const std::string sugar = head +
+            "@pace = 0.25;\n"
+            "chain c {\n"
+            "    stage src gen::lsystem { axiom = \"X\"; "
+                "rules = \"X=F+FX\"; depth = 3; notes = \"C3 E3 G3\"; "
+                "step = @pace * 2; hold = 0.5 s; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        const std::string a = renderBody(plugins, synth, "expr-knob-nodes",
+                                         nodes, 20.0);
+        const std::string b = renderBody(plugins, synth, "expr-knob-sugar",
+                                         sugar, 20.0);
+
+        if (a.empty())
+            ;
+        else if (a != b)
+        {
+            fail("an expression over a knob does not compose as the node it "
+                 "replaces");
+            showDivergence(a, b, "nodes", "expression");
+        }
+    }
+
+    /* A function, which has no spelling without the sugar at all. */
+    {
+        const std::string sugar = head +
+            "chain c {\n"
+            "    stage lfo osc::simple { freq = @tide; waveform = 0; "
+                "amp = 1; };\n"
+            "    stage src gen::eno_line { notes = \"A1\"; period = 2 s; "
+                "jitter = 0 s; prob = clamp(abs(lfo->out), 0.2, 0.8); "
+                "hold = 1 s; };\n"
+            "    sink { channel = 1; };\n"
+            "};\n";
+
+        renderBody(plugins, synth, "expr-call", sugar, 10.0);
+    }
+
+    /* And the refusals. */
+    expectReject(plugins, synth, "expr-noteset",
+        "chain c { stage s gen::eno_line { notes = \"A1\" + 2; "
+        "period = 2 s; }; sink { channel = 1; }; };",
+        "not numeric");
+
+    expectReject(plugins, synth, "expr-duration",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; "
+        "period = 2 * 3; }; sink { channel = 1; }; };",
+        "write a unit");
+
+    expectReject(plugins, synth, "expr-unknown-knob",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; period = 2 s; "
+        "prob = @nosuch * 2; }; sink { channel = 1; }; };",
+        "not a declared knob");
+
+    expectReject(plugins, synth, "expr-no-such-function",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; period = 2 s; "
+        "prob = wobble(0.5) * 2; }; sink { channel = 1; }; };",
+        "is not a function");
+
+    /* And the writer leaves one alone. ebb.gen carries the first shipped
+       expression on a param; setParam over it must refuse rather than
+       splice a number across the author's arithmetic. */
+    {
+        std::string path = thUtil::tempFile("gencheck-expr-write-");
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << head
+                << "chain c {\n"
+                   "    stage lfo osc::simple { freq = @tide; };\n"
+                   "    stage src gen::eno_line { notes = \"A1\"; "
+                   "period = 2 s; prob = lfo->out * 0.5 + 0.5; };\n"
+                   "    sink { channel = 1; };\n"
+                   "};\n";
+        }
+
+        std::string why;
+
+        if (thcGenEdit::setParam(path, "c", 1, "prob", "0.5", why) ==
+                thcGenEdit::OK)
+            fail("setParam wrote over an expression");
+
+        std::string after;
+
+        /* In its own scope: thcGenEdit writes a temporary and renames it
+           over the target, and Windows refuses a rename onto a file
+           something still has open. The edit below is what would fail. */
+        {
+            std::ifstream in(path.c_str());
+
+            after.assign((std::istreambuf_iterator<char>(in)),
+                         std::istreambuf_iterator<char>());
+        }
+
+        if (after.find("lfo->out * 0.5 + 0.5") == std::string::npos)
+            fail("a refused setParam changed the expression anyway");
+
+        /* But a param beside it is still editable -- only the expression is
+           off limits. */
+        if (thcGenEdit::setParam(path, "c", 1, "period", "3 s", why) !=
+                thcGenEdit::OK)
+            fail(std::string("setParam refused a param beside an "
+                             "expression: ") + why);
+
+        std::filesystem::remove(path);
+    }
+
+    expectReject(plugins, synth, "expr-arity",
+        "chain c { stage s gen::eno_line { notes = \"A1\"; period = 2 s; "
+        "prob = exp2(0.5, 2) * 2; }; sink { channel = 1; }; };",
+        "takes 1 argument");
+
+    /* ---- and it groups the way a .dsp groups it ------------------------ */
+
+    /* The claim GEN_FORMAT.md 5a makes: one language, whichever file it is
+     * written in. Two parsers say it -- thinklang.yy's rules and the three
+     * hand-written functions above -- so the way to hold them together is to
+     * ask both the same questions and compare the answers.
+     *
+     * exprcheck folds the same list against the .dsp grammar. Here each is a
+     * `vel', which is an integer a tape reports, so a disagreement shows up
+     * as a velocity rather than as a silence.
+     *
+     * `-60 + 100' is the row that used to differ: this parser binds a sign
+     * to its operand and the .dsp grammar scoped it over everything to the
+     * right, so the same text was 40 here and -160 there. `2 + 3 * 4' pins
+     * the precedence and `1 - 2 + 3' the right-associativity -- a `-' takes
+     * the additions after it too.
+     */
+    {
+        static const struct { const char *rhs; int want; } cases[] = {
+            { "20 + 2 * 10",    40 },
+            { "60 - 10 - 5",    55 },   /* 60 - (10 - 5) */
+            { "100 - 20 + 40",  40 },   /* 100 - (20 + 40) */
+            { "-60 + 100",      40 },   /* (-60) + 100, not -(60 + 100) */
+            { "20 * -1 + 60",   40 },
+            { "clamp(10, 40, 90)", 40 },
+            { "exp2(2) * 10",   40 },
+        };
+
+        bool bad = false;
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]) && !bad; i++)
+        {
+            char body[512], want[512];
+
+            snprintf(body, sizeof(body),
+                     "seed 7;\nchain c {\n"
+                     "    stage src gen::eno_line { notes = \"A3\"; "
+                     "period = 1 s; jitter = 0 s; prob = 1; hold = 0.2 s; "
+                     "vel = %s; };\n    sink { channel = 1; };\n};\n",
+                     cases[i].rhs);
+
+            snprintf(want, sizeof(want),
+                     "seed 7;\nchain c {\n"
+                     "    stage src gen::eno_line { notes = \"A3\"; "
+                     "period = 1 s; jitter = 0 s; prob = 1; hold = 0.2 s; "
+                     "vel = %d; };\n    sink { channel = 1; };\n};\n",
+                     cases[i].want);
+
+            const std::string a =
+                renderBody(plugins, synth, "expr-group", body, 4.0);
+            const std::string b =
+                renderBody(plugins, synth, "expr-group-ref", want, 4.0);
+
+            if (a.empty() || b.empty())
+                bad = true;
+            else if (a != b)
+            {
+                fail(std::string("`") + cases[i].rhs + "' folds as a .dsp "
+                     "folds it");
+                showDivergence(a, b, cases[i].rhs, "the folded value");
+                bad = true;
+            }
+        }
+    }
+
+    /* ---- and removing a knob one reads leaves a file that loads --------- */
+
+    /* removeKnob rewrites every `@name' to the value the params were
+     * hearing, precisely so that deleting a knob cannot leave a dangling
+     * reference behind. It compared the whole value, which was every binding
+     * there was until a param could be arithmetic: `step = @pace * 2' is not
+     * `@pace', so the declaration went and the reference stayed, and
+     * round.gen stopped loading while the edit reported success.
+     */
+    {
+        std::string path = thUtil::tempFile("gencheck-expr-knob-");
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "seed 7;\n@depth = 0.3;\n@warmth = 0.7;\n"
+                   "chain c {\n"
+                   "    stage src gen::eno_line { notes = \"A1\"; "
+                   "period = 2 s; prob = @depth * 2; vel = @warmth; };\n"
+                   "    sink { channel = 1; };\n};\n";
+        }
+
+        std::string why;
+        int rewritten = 0;
+
+        if (thcGenEdit::removeKnob(path, "depth", 0.25, rewritten, why) !=
+                thcGenEdit::OK)
+            fail(std::string("removeKnob over an expression: ") + why);
+        else
+        {
+            std::string after;
+
+            {
+                std::ifstream in(path.c_str());
+
+                after.assign((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+            }
+
+            if (after.find("prob = 0.25 * 2") == std::string::npos)
+                fail("removeKnob puts the value inside the arithmetic");
+            else if (after.find("@depth") != std::string::npos)
+                fail("removeKnob leaves no reference to the knob behind");
+            else if (after.find("vel = @warmth") == std::string::npos)
+                fail("removeKnob leaves the other knob alone");
+            else
+            {
+                thcScheduler sched(synth);
+                thcGenLoader loader(plugins);
+
+                drainSynth();
+
+                if (!loader.load(path, &sched))
+                    fail("the file no longer loads after its knob was "
+                         "removed: " +
+                         (loader.errors().empty() ? std::string("(no errors "
+                          "recorded)") : loader.errors()[0]));
+            }
+        }
+
+        std::filesystem::remove(path);
+    }
+}
+
 static void
 checkLiveEdits (const std::map<std::string, thcPlugin *> &plugins,
                 thSynth *synth, const std::string &genFile)
@@ -6406,6 +6761,7 @@ main (int argc, char *argv[])
     silentSynth = &silent;
 
     checkValidation(plugins, &synth);
+    checkExpressions(plugins, &synth);
     checkReplay(plugins, &synth, genFile);
     checkLiveEdits(plugins, &synth, genFile);
     checkPlanners(plugins, &synth);

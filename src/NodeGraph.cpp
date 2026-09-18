@@ -45,6 +45,12 @@
 /* Controls: the height of the slider row, and how far the track is inset from
    the box edges so the handle never overlaps the port. */
 #define CTL_ROW       26.0
+
+/* The row an expression's text gets, between the title bar and the ports.
+   Public to the canvas through exprTextRow(), because the two have to agree:
+   this is where the box reserves the space and the canvas is where the
+   baseline is drawn. */
+#define EXPR_ROW      16.0
 #define CTL_INSET     14.0
 #define CTL_HANDLE     5.0
 
@@ -377,12 +383,29 @@ bool NodeGraph::build (thSynthTree *tree)
      * ports are recovered from their args below. */
     map<string, int> sourceOfIo;
 
+    /* The nodes thSynthTree::desugarExprs made. Left out of the drawing
+       entirely: they are collapsed back into one box per expression in pass
+       3b, and a `math::mul' named `osc2.freq#3' on the canvas is the
+       desugar's working rather than anything the author wrote. */
+    map<string, const thExprBox *> madeBy;
+
+    for (size_t i = 0; i < tree->exprBoxes().size(); i++)
+    {
+        const thExprBox &x = tree->exprBoxes()[i];
+
+        for (size_t k = 0; k < x.made.size(); k++)
+            madeBy[x.made[k]] = &x;
+    }
+
     for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
          i != nodes.end(); ++i)
     {
         thNode *n = i->second;
 
         if (n == NULL)
+            continue;
+
+        if (madeBy.count(n->name()))
             continue;
 
         Box b;
@@ -617,6 +640,186 @@ bool NodeGraph::build (thSynthTree *tree)
         }
     }
 
+    /* Pass 3b: one box per expression, in place of the nodes it became.
+     *
+     * Created after the controls because a leaf may be an `@name' and the
+     * wire from it needs the control's box; before the edges because the arg
+     * this feeds is an ARG_POINTER at a node that is not being drawn, and
+     * pass 4 would find nothing to attach it to. */
+
+    /* Which box a leaf's wire comes from, or -1 when the file gives it none:
+       a chanarg that declares no widget is not drawn as a control, and a
+       `node->arg' naming a node that does not exist is the .dsp's bug. Asked
+       twice -- once to decide whether the leaf gets a port and once to draw
+       the wire into it -- so it is one answer rather than two tests that
+       could come apart. */
+    auto leafSource = [&](const thExprLeaf &leaf) -> int
+    {
+        if (leaf.isChan)
+        {
+            map<string, int>::const_iterator c = controlOf.find(leaf.node);
+
+            return c == controlOf.end() ? -1 : c->second;
+        }
+
+        map<string, int>::const_iterator src = sourceOfIo.find(leaf.node);
+
+        if (src != sourceOfIo.end())
+            return src->second;
+
+        map<string, int>::const_iterator f = byName_.find(leaf.node);
+
+        return f == byName_.end() ? -1 : f->second;
+    };
+
+    map<string, int> exprOf;
+
+    for (size_t i = 0; i < tree->exprBoxes().size(); i++)
+    {
+        const thExprBox &x = tree->exprBoxes()[i];
+
+        Box b;
+
+        b.isExpr = true;
+        b.name = x.node + "." + x.arg;
+        b.plugin = "expression";
+        b.exprText = x.text;
+        b.exprNode = x.node;
+        b.exprArg = x.arg;
+
+        if (!x.made.empty())
+            b.exprOutNode = x.made[x.made.size() - 1];
+
+        /* An input per distinct leaf the file gives a source for, named the
+           way the file names it, so the box says which wire is which without
+           the text having to be read.
+
+           Only the ones with a source. A chanarg declaring no widget is not
+           drawn as a control (the `name'/`author'/`description' metadata is
+           stored as chanargs too), and a `node->arg' naming a node that does
+           not exist is the .dsp's bug -- a leaf like either gets no wire, and
+           a port with no wire on it is a hole in the box rather than
+           information. A plain `freq = @c' does the same thing: the param
+           lists the chanarg and no edge lands. */
+        for (size_t k = 0; k < x.leaves.size(); k++)
+        {
+            if (leafSource(x.leaves[k]) < 0)
+                continue;
+
+            Port port;
+
+            port.name = x.leaves[k].isChan
+                            ? "@" + x.leaves[k].node
+                            : x.leaves[k].node + "->" + x.leaves[k].arg;
+            port.isInput = true;
+            port.x = port.y = 0;
+
+            b.ports.push_back(port);
+        }
+
+        Port out;
+
+        out.name = "out";
+        out.isInput = false;
+        out.x = out.y = 0;
+
+        b.ports.push_back(out);
+
+        boxes_.push_back(b);
+        exprOf[b.name] = (int)boxes_.size() - 1;
+    }
+
+    for (size_t i = 0; i < tree->exprBoxes().size(); i++)
+    {
+        const thExprBox &x = tree->exprBoxes()[i];
+
+        const int eb = exprOf[x.node + "." + x.arg];
+
+        /* The box's input ports are the leaves that had a source, in leaf
+           order, so this counts them the same way rather than indexing by
+           leaf -- a skipped leaf would put every wire after it on the wrong
+           port. */
+        int toPort = 0;
+
+        for (size_t k = 0; k < x.leaves.size(); k++)
+        {
+            const thExprLeaf &leaf = x.leaves[k];
+            const int from = leafSource(leaf);
+
+            if (from < 0)
+                continue;       /* and it got no port either */
+
+            Edge e;
+
+            e.toBox = eb;
+            e.toPort = toPort++;
+            e.fromBox = from;
+
+            if (leaf.isChan)
+                e.fromPort = 0;
+            else
+            {
+                Box &fb = boxes_[e.fromBox];
+
+                e.fromPort = findPort(fb, leaf.arg, false);
+
+                if (e.fromPort < 0)
+                {
+                    Port port;
+
+                    port.name = leaf.arg;
+                    port.isInput = false;
+                    port.x = port.y = 0;
+
+                    fb.ports.push_back(port);
+                    e.fromPort = (int)fb.ports.size() - 1;
+                }
+            }
+
+            edges_.push_back(e);
+        }
+
+        /* And the one wire out, into the arg the expression was written on. */
+        map<string, int>::iterator dst = byName_.find(x.node);
+
+        if (dst == byName_.end())
+            continue;
+
+        Edge e;
+
+        e.fromBox = eb;
+        e.fromPort = (int)boxes_[eb].ports.size() - 1;
+        e.toBox = dst->second;
+
+        Box &tb = boxes_[e.toBox];
+
+        e.toPort = findPort(tb, x.arg, true);
+
+        if (e.toPort < 0)
+        {
+            Port port;
+
+            port.name = x.arg;
+            port.isInput = true;
+            port.x = port.y = 0;
+
+            tb.ports.push_back(port);
+            e.toPort = (int)tb.ports.size() - 1;
+        }
+
+        /* The param panel shows the arithmetic rather than the pointer at a
+           node nobody can see. */
+        for (size_t q = 0; q < tb.params.size(); q++)
+            if (tb.params[q].name == x.arg)
+            {
+                tb.params[q].isExpr = true;
+                tb.params[q].source = x.text;
+                tb.params[q].hasValue = false;
+            }
+
+        edges_.push_back(e);
+    }
+
     /* Pass 4: edges. An ARG_POINTER arg is a wire from another node's arg;
        an ARG_CHANNEL arg is a wire from a control. */
     for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
@@ -626,6 +829,9 @@ bool NodeGraph::build (thSynthTree *tree)
 
         if (n == NULL)
             continue;
+
+        if (madeBy.count(n->name()))
+            continue;       /* drawn as part of its expression box */
 
         map<string, int>::iterator dst = byName_.find(n->name());
 
@@ -679,6 +885,11 @@ bool NodeGraph::build (thSynthTree *tree)
             }
 
             if (arg->type() != thArg::ARG_POINTER)
+                continue;
+
+            /* An arg whose source is a node the desugar made already has
+               its wire, drawn from the expression box in pass 3b. */
+            if (madeBy.count(arg->nodePtrName()))
                 continue;
 
             map<string, int>::iterator srcIt = byName_.find(arg->nodePtrName());
@@ -999,6 +1210,26 @@ void NodeGraph::placePorts (Box &b)
     if (b.isControl)
         b.h = BOX_HEAD + BOX_PAD * 2 + CTL_ROW;
 
+    /* An expression's content is a line of text, so its width is set by the
+       text rather than by the port count, and it gets a row of its own above
+       the ports -- drawn over them, the arithmetic and the leaf names sit on
+       top of each other and neither is readable.
+
+       No font here: this file is free of cairo as well as of gtk, and a
+       layout that could only be computed with a drawing context could not be
+       checked headlessly. 5.4 px per character is the monospace 9pt the
+       canvas draws it in, measured; the clip in drawBox is what makes a wrong
+       guess cost a truncated line rather than text outside the box. */
+    if (b.isExpr)
+    {
+        const double wanted = 12.0 + 5.4 * (double)b.exprText.size();
+
+        if (wanted > b.w)
+            b.w = wanted;
+
+        b.h += EXPR_ROW;
+    }
+
     /* An attached one is a strip instead: no title bar, no ports drawn, so
        it only needs the height of a slider row. layout() sets its position;
        the size has to be right before that, because the row heights it
@@ -1024,6 +1255,8 @@ void NodeGraph::placePorts (Box &b)
 
     int i = 0, o = 0;
 
+    const double top = BOX_HEAD + BOX_PAD + (b.isExpr ? EXPR_ROW : 0.0);
+
     for (size_t k = 0; k < b.ports.size(); k++)
     {
         Port &p = b.ports[k];
@@ -1031,16 +1264,21 @@ void NodeGraph::placePorts (Box &b)
         if (p.isInput)
         {
             p.x = 0;
-            p.y = BOX_HEAD + BOX_PAD + PORT_PITCH * i + PORT_PITCH / 2;
+            p.y = top + PORT_PITCH * i + PORT_PITCH / 2;
             i++;
         }
         else
         {
             p.x = b.w;
-            p.y = BOX_HEAD + BOX_PAD + PORT_PITCH * o + PORT_PITCH / 2;
+            p.y = top + PORT_PITCH * o + PORT_PITCH / 2;
             o++;
         }
     }
+}
+
+double NodeGraph::exprTextRow (void)
+{
+    return EXPR_ROW;
 }
 
 /* Works out which controls hang off which box.
@@ -1762,6 +2000,24 @@ bool NodeGraph::canConnect (int fromBox, int fromPort, int toBox, int toPort,
        it would read as forbidding something three shipped DSPs do. */
     if (fromBox == toBox)
     { why = "a box cannot feed itself"; return false; }
+
+    /* An expression is read-only until its text can be edited in place.
+     *
+     * Neither end of one is a node in the file: its inputs are leaves of the
+     * arithmetic and its output is the arg the arithmetic was written on.
+     * There is no line for a writer to rewrite that would not amount to
+     * re-emitting the author's expression with a wire in place of a term.
+     * Removing the whole thing is a different gesture and still works --
+     * disconnect rewrites the arg to `= 0'. */
+    if (fb.isExpr)
+    { why = "an expression's output is the arg it is written on"; return false; }
+
+    if (tb.isExpr)
+    { why = "an expression's inputs are its text"; return false; }
+
+    for (size_t k = 0; k < tb.params.size(); k++)
+        if (tb.params[k].isExpr && tb.params[k].name == tb.ports[toPort].name)
+        { why = "that parameter is an expression"; return false; }
 
     return true;
 }
