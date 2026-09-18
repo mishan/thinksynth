@@ -40,10 +40,24 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    /* filt::allpass with its output fed back, so the peak sits where the
+       allpass turns over. */
+    plugin->setArgDesc(args[IN_FREQ], "Where the resonance sits");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_FB] = plugin->regArg("fb", thPlugin::ARG_IN);
+    /* The allpass coefficient's magnitude is under 1, so the loop gain is
+       under fb: at 1 it rings without decaying and past it, it grows. */
+    plugin->setArgDesc(args[IN_FB],
+                       "Feedback round the allpass; 1 never decays");
+    plugin->setArgRange(args[IN_FB], 0, 1);
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     return 0;
 }
 

@@ -42,12 +42,35 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_ACCEL] = plugin->regArg("aout", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ACCEL],
+                       "The filter's velocity, band-pass-ish");
+    plugin->setArgUnits(args[OUT_ACCEL], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* filt::ink's spring: the state matrix has determinant res and trace
+       res + 1 - res*cutoff*cutoff, so it holds together for 0 <= res < 1 and
+       cutoff*cutoff < 2(1 + res)/res. The cutoff bound moves with res, which
+       is why only the part that does not is written on the knob. */
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a spring constant, not hertz");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "spring constant");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 is the edge of the stable region");
+    plugin->setArgRange(args[IN_RES], 0, 1);
     args[IN_SHAPER] = plugin->regArg("shaper", thPlugin::ARG_IN);
+    /* The step is multiplied by (1 - abs(step)/2)^shaper. */
+    plugin->setArgDesc(args[IN_SHAPER],
+                       "How hard a large step is squashed; 0 is not at all");
+    plugin->setArgUnits(args[IN_SHAPER], "exponent");
 
     return 0;
 }

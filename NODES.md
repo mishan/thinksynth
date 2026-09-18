@@ -217,10 +217,10 @@ Allpass Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `freq` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `freq` | in | Where the phase shift passes 90 degrees |  |  | Hz |  |
 | `last` | state |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `out` | out | The input, phase-shifted |  |  | full scale |  |
 
 ### filt::comb
 
@@ -228,11 +228,11 @@ Comb Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `freq` | in | Delay length spacing |  |  |  |  |
-| `feedback` | in |  |  |  |  |  |
-| `size` | in | Buffer size |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `freq` | in | Delay length spacing |  |  | Hz |  |
+| `feedback` | in | How much of each pass is kept; 1 never decays |  | 0 to 1 |  |  |
+| `size` | in | Buffer size; must cover the period |  |  | samples |  |
+| `out` | out | Filtered signal |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
 | `bufpos` | state |  |  |  |  |  |
 
@@ -242,10 +242,10 @@ Cheap IIR-ish Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
+| `out` | out | Filtered signal |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `factor` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `factor` | in | Cutoff: the fourth power of this is the one-pole coefficient |  | 0 to 1.18 | one-pole coefficient, to the fourth |  |
 
 ### filt::ds
 
@@ -253,11 +253,11 @@ Difference Scaling Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `out_high` | out |  |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `out_high` | out | Half the step the low pass just took |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | One-pole coefficient: 1 follows the input exactly |  | 0 to 1 | one-pole coefficient |  |
 
 ### filt::dshape
 
@@ -265,13 +265,13 @@ Resonant Difference Shaping Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `out_high` | out |  |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `out_high` | out | The shaped step, before res and cutoff |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
-| `res` | in |  |  |  |  |  |
-| `factor` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | One-pole coefficient: 1 follows the input exactly |  | 0 to 1 | one-pole coefficient |  |
+| `res` | in | Scales the step by res squared |  | 0 to 1 |  |  |
+| `factor` | in | How hard a large step is squashed; 0 is not at all |  |  | exponent |  |
 
 ### filt::ink
 
@@ -279,11 +279,11 @@ Resonant Difference Shaping Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff, 0 to 1 -- a spring constant, not hertz. What is stable above 1 depends on res |  |  |  |  |
-| `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region and is clamped short |  |  |  |  |
-| `out` | out | Filtered signal |  |  |  |  |
-| `aout` | out | The filter's velocity, band-pass-ish |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- a spring constant, not hertz. What is stable above 1 depends on res |  | 0 to 1 | spring constant |  |
+| `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region and is clamped short |  | 0 to 0.999 |  |  |
+| `out` | out | Filtered signal |  |  | full scale |  |
+| `aout` | out | The filter's velocity, band-pass-ish |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
 
 ### filt::ink2
@@ -292,10 +292,10 @@ INK Filter ][
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, squared, not hertz |  |  |  |  |
-| `res` | in | Resonance, 0 to 1; what is stable near 1 narrows as the cutoff rises, and is clamped |  |  |  |  |
-| `out` | out | Filtered signal |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, squared, not hertz |  | 0 to 0.999 | fraction of the rate |  |
+| `res` | in | Resonance, 0 to 1; what is stable near 1 narrows as the cutoff rises, and is clamped |  | 0 to 0.999 |  |  |
+| `out` | out | Filtered signal |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
 
 ### filt::ink3
@@ -304,14 +304,14 @@ INK Filter ][
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff, 0 to 1 -- a spring constant, not hertz. What is stable above 1 depends on res |  |  |  |  |
-| `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region and is clamped short |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- a spring constant, not hertz. What is stable above 1 depends on res |  | 0 to 1 | spring constant |  |
+| `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region and is clamped short |  | 0 to 0.999 |  |  |
 | `shape` | in | How much of the feedback goes through a tanh: 0 is none, and the drive rises from there |  |  |  |  |
-| `out` | out | Low pass |  |  |  |  |
-| `out_band` | out | Band pass |  |  |  |  |
-| `out_high` | out | High pass |  |  |  |  |
-| `out_notch` | out | Notch |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `out_band` | out | Band pass |  |  | full scale |  |
+| `out_high` | out | High pass |  |  | full scale |  |
+| `out_notch` | out | Notch |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
 
 ### filt::inkshape
@@ -320,13 +320,13 @@ INK Filter ][
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `aout` | out |  |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `aout` | out | The filter's velocity, band-pass-ish |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
-| `res` | in |  |  |  |  |  |
-| `shaper` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- a spring constant, not hertz |  | 0 to 1 | spring constant |  |
+| `res` | in | Resonance, 0 to 1; 1 is the edge of the stable region |  | 0 to 1 |  |  |
+| `shaper` | in | How hard a large step is squashed; 0 is not at all |  |  | exponent |  |
 
 ### filt::moog
 
@@ -335,12 +335,12 @@ Moog Filter
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `buffer` | state |  |  |  |  |  |
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, not hertz. Clamped: the fit means nothing past 1 |  |  |  |  |
-| `res` | in | Resonance, 0 to 1; 1 self-oscillates. Clamped for the same reason the cutoff is |  |  |  |  |
-| `out_low` | out |  |  |  |  |  |
-| `out_high` | out |  |  |  |  |  |
-| `out_bandpass` | out |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, not hertz. Clamped: the fit means nothing past 1 |  | 0 to 0.999 | fraction of the rate |  |
+| `res` | in | Resonance, 0 to 1; 1 self-oscillates. Clamped for the same reason the cutoff is |  | 0 to 1 |  |  |
+| `out_low` | out | Low pass, the ladder's fourth stage |  |  | full scale |  |
+| `out_high` | out | High pass |  |  | full scale |  |
+| `out_bandpass` | out | Band pass |  |  | full scale |  |
 
 ### filt::rds
 
@@ -348,12 +348,12 @@ Resonant Difference Scaling Filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `out_high` | out |  |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `out_high` | out | The shaped step, before res and cutoff |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
-| `res` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | One-pole coefficient: 1 follows the input exactly |  | 0 to 1 | one-pole coefficient |  |
+| `res` | in | Scales the step by res squared |  | 0 to 1 |  |  |
 
 ### filt::res1pole
 
@@ -361,11 +361,11 @@ Resonant 1-pole LPF
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out | Filtered signal |  |  |  |  |
+| `out` | out | Filtered signal |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, not hertz |  |  |  |  |
-| `res` | in | Resonance, 0 to 1; 1 is self-oscillation and is the edge of the stable region, so it is clamped short |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, not hertz |  | 0 to 0.999 | fraction of the rate |  |
+| `res` | in | Resonance, 0 to 1; 1 is self-oscillation and is the edge of the stable region, so it is clamped short |  | 0 to 0.999 |  |  |
 
 ### filt::res2pole
 
@@ -373,13 +373,13 @@ Resonant 2-pole Chamberlin filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `out_high` | out |  |  |  |  |  |
-| `out_band` | out |  |  |  |  |  |
-| `out_notch` | out |  |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `out_high` | out | High pass |  |  | full scale |  |
+| `out_band` | out | Band pass |  |  | full scale |  |
+| `out_notch` | out | Notch |  |  | full scale |  |
 | `delay` | state |  |  |  |  |  |
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff in hertz; honest to about a sixth of the sample rate, clamped above that |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff in hertz; honest to about a sixth of the sample rate, clamped above that |  |  | Hz |  |
 | `res` | in | Resonance as Q: 0.5 is damped, higher rings. The damping it can ask for is bounded by the cutoff |  |  |  |  |
 
 ### filt::res2pole2
@@ -388,24 +388,24 @@ Resonant 2-pole Chamberlin filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in | Signal in |  |  |  |  |
-| `cutoff` | in | Cutoff in hertz, 0 to half the sample rate |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff in hertz, 0 to half the sample rate |  |  | Hz |  |
 | `res` | in | Resonance; under about 0.5 the poles are clamped, so 0.6 upwards is the usable range |  |  |  |  |
-| `out` | out | Filtered signal |  |  |  |  |
+| `out` | out | Filtered signal |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
 
 ### filt::resgrav
 
-`INK Filter`  Gravity-based low pass
+`INK Filter`  Gravity-based low pass, bang-bang
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `aout` | out |  |  |  |  |  |
+| `out` | out | Low pass |  |  | full scale |  |
+| `aout` | out | The filter's velocity, band-pass-ish |  |  | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
-| `res` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | How hard the output is pulled towards the input, per sample |  |  | full scale per sample |  |
+| `res` | in | Damping, peaking at 1 where there is none |  | 0 to 2 |  |  |
 
 ### filt::resonator
 
@@ -413,11 +413,11 @@ Resonator filter
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `freq` | in |  |  |  |  |  |
-| `fb` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `freq` | in | Where the resonance sits |  |  | Hz |  |
+| `fb` | in | Feedback round the allpass; 1 never decays |  | 0 to 1 |  |  |
 | `last` | state |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `out` | out | Filtered signal |  |  | full scale |  |
 
 ## impulse
 

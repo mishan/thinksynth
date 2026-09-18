@@ -42,10 +42,25 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "Half the step the low pass just took");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* The whole filter is `last += (in - last) * cutoff', a one-pole whose
+       coefficient this is: 1 follows the input exactly and 0 never moves.
+       Two is where it stops settling, but the step is clamped to TH_RANGE
+       first, so past 1 it rings rather than runs away. */
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "One-pole coefficient: 1 follows the input exactly");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "one-pole coefficient");
 
     return 0;
 }

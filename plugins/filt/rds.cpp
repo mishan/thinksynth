@@ -42,11 +42,30 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "The shaped step, before res and cutoff");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "One-pole coefficient: 1 follows the input exactly");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "one-pole coefficient");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    /* `prevdiff' is read at the top of the window and written back unchanged
+       -- the loop never advances it -- so the resonant term it is supposed to
+       carry is always a difference against nothing. What res does in practice
+       is scale the step by res*res. Described as it behaves rather than as it
+       reads; fixing the state would change the sound of the four graphs that
+       use this and wants its own change. */
+    plugin->setArgDesc(args[IN_RES], "Scales the step by res squared");
+    plugin->setArgRange(args[IN_RES], 0, 1);
     return 0;
 }
 

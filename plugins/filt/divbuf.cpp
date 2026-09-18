@@ -50,9 +50,21 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FACTOR] = plugin->regArg("factor", thPlugin::ARG_IN);
+    /* Raised to the fourth power to get the one-pole coefficient, so the
+       useful travel is all in the top of the range. */
+    plugin->setArgDesc(args[IN_FACTOR],
+                       "Cutoff: the fourth power of this is the one-pole "
+                       "coefficient");
+    plugin->setArgRange(args[IN_FACTOR], 0, FACTORMAX);
+    plugin->setArgUnits(args[IN_FACTOR], "one-pole coefficient, to the fourth");
     return 0;
 }
 

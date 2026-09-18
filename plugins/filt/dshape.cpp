@@ -42,12 +42,33 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "The shaped step, before res and cutoff");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "One-pole coefficient: 1 follows the input exactly");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "one-pole coefficient");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    /* Same dead `prevdiff' as filt::rds -- read at the top of the window and
+       written back unchanged -- so res scales the step by res*res rather than
+       resonating. Described as it behaves. */
+    plugin->setArgDesc(args[IN_RES], "Scales the step by res squared");
+    plugin->setArgRange(args[IN_RES], 0, 1);
     args[IN_FACTOR] = plugin->regArg("factor", thPlugin::ARG_IN);
+    /* The step is multiplied by (1 - abs(step)/3)^factor, so 0 leaves it
+       alone and larger exponents squash a big step harder than a small one. */
+    plugin->setArgDesc(args[IN_FACTOR],
+                       "How hard a large step is squashed; 0 is not at all");
+    plugin->setArgUnits(args[IN_FACTOR], "exponent");
 
     return 0;
 }

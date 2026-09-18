@@ -50,14 +50,19 @@ int module_init (thPlugin *plugin)
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff, 0 to 1 -- a spring constant, not hertz. What "
                        "is stable above 1 depends on res");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "spring constant");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 is the edge of the stable "
                        "region and is clamped short");
+    plugin->setArgRange(args[IN_RES], 0, RMAX);
     args[IN_SHAPE] = plugin->regArg("shape", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_SHAPE],
                        "How much of the feedback goes through a tanh: 0 is "
@@ -65,12 +70,16 @@ int module_init (thPlugin *plugin)
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_BAND] = plugin->regArg("out_band", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_BAND], "Band pass");
+    plugin->setArgUnits(args[OUT_BAND], "full scale");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_HIGH], "High pass");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
     args[OUT_NOTCH] = plugin->regArg("out_notch", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_NOTCH], "Notch");
+    plugin->setArgUnits(args[OUT_NOTCH], "full scale");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 

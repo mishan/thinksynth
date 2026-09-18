@@ -25,7 +25,10 @@
 
 #define SQR(x) ((x)*(x))
 
-static const char desc[] = "`INK Filter`  Gravity-based low pass";
+/* filt::ink shipped with this same description and is the proportional one:
+   there the pull is the distance times cutoff squared, here it is a fixed
+   push every sample whatever the distance. */
+static const char desc[] = "`INK Filter`  Gravity-based low pass, bang-bang";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -42,11 +45,32 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_ACCEL] = plugin->regArg("aout", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ACCEL],
+                       "The filter's velocity, band-pass-ish");
+    plugin->setArgUnits(args[OUT_ACCEL], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* Bang-bang rather than proportional: the velocity is pushed by exactly
+       this much every sample, towards the input, whatever the distance. */
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "How hard the output is pulled towards the input, "
+                       "per sample");
+    plugin->setArgUnits(args[IN_CUTOFF], "full scale per sample");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    /* The velocity is multiplied by 1 - (res - 1)^2 every sample, which is a
+       hump: 0 at res 0 and 2, and 1 at res 1, where nothing damps it and the
+       output wanders off. Outside 0 to 2 the multiplier is negative and
+       larger than 1, which is a sign flip every sample and a run-away. */
+    plugin->setArgDesc(args[IN_RES],
+                       "Damping, peaking at 1 where there is none");
+    plugin->setArgRange(args[IN_RES], 0, 2);
     return 0;
 }
 

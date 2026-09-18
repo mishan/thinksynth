@@ -39,15 +39,29 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    /* `period = rate/freq', and the read position wraps at the period, so
+       this is the comb's fundamental. */
     plugin->setArgDesc(args[IN_FREQ], "Delay length spacing");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_FEEDBACK] = plugin->regArg("feedback", thPlugin::ARG_IN);
+    /* `buffer[p] = feedback * buffer[p] + in', so 1 sustains for ever and
+       anything above it grows every pass. */
+    plugin->setArgDesc(args[IN_FEEDBACK],
+                       "How much of each pass is kept; 1 never decays");
+    plugin->setArgRange(args[IN_FEEDBACK], 0, 1);
     args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
     /* `allocate((int)buf_size[0])' -- it sizes a buffer. */
     plugin->setArgStep(args[IN_SIZE], 1);
-    plugin->setArgDesc(args[IN_SIZE], "Buffer size");
+    plugin->setArgDesc(args[IN_SIZE], "Buffer size; must cover the period");
+    plugin->setArgUnits(args[IN_SIZE], "samples");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[INOUT_BUFPOS] = plugin->regArg("bufpos", thPlugin::ARG_STATE);
