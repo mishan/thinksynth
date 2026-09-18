@@ -39,11 +39,25 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* An impulse response for delay::fir, not a signal. Both args come from
+       sample 0, so neither modulates. */
     args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
     /* `(int)(*in_len)[0]' -- the impulse is this many samples long. */
     plugin->setArgStep(args[IN_LEN], 1);
+    plugin->setArgDesc(args[IN_LEN],
+                       "How long the response is; longer is a steeper "
+                       "filter");
+    plugin->setArgUnits(args[IN_LEN], "samples");
     args[IN_CUT] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* A windowed sinc, so this is where the sinc's zero crossings fall: a
+       fraction of the sample rate, like filt::moog's, and not hertz. */
+    plugin->setArgDesc(args[IN_CUT],
+                       "Cutoff, 0 to 0.5 -- a fraction of the sample rate");
+    plugin->setArgRange(args[IN_CUT], 0, 0.5);
+    plugin->setArgUnits(args[IN_CUT], "fraction of the rate");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG],
+                       "A Blackman-windowed sinc, normalised to sum to 1");
     return 0;
 }
 

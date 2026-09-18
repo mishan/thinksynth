@@ -42,10 +42,16 @@ int module_init (thPlugin *plugin)
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
     /* Folded at the rate the synth is running at, not the compile-time one,
        so the answer follows the device. */
-    plugin->setArgDesc(args[IN_FREQ], "Frequency; 0 gives an infinite wavelength");
+    /* Bounded the way every oscillator's frequency is, and for the reason
+       this one exists: what it produces is a wavelength somebody divides by.
+       A zero used to leave here as an infinity, which analysis::pitch reaches
+       on its own -- it answers 0 until it has a period to report. */
+    plugin->setArgDesc(args[IN_FREQ],
+                       "Frequency; bounded to Nyquist at the top and to a "
+                       "very slow wave at the bottom");
     plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
-    plugin->setArgDesc(args[OUT_ARG], "One cycle of it");
+    plugin->setArgDesc(args[OUT_ARG], "One cycle of it, never under two");
     plugin->setArgUnits(args[OUT_ARG], "samples");
     return 0;
 }
@@ -65,7 +71,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     out = out_arg->allocate(argnum);
 
     for(i=0;i<argnum;i++) {
-      out[i] = (1/(*in_freq)[i])*samples;
+      out[i] = (1/thBoundFreq((*in_freq)[i], samples))*samples;
     }
 
 /*    node->SetArg("out", out, windowlen); */

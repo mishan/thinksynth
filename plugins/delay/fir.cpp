@@ -39,11 +39,24 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_IMPULSE] = plugin->regArg("impulse", thPlugin::ARG_IN);
+    /* The whole arg, not one sample of it: its length is the filter's order,
+       which is why the impulse:: family exists and why this convolves at that
+       cost per sample. */
+    plugin->setArgDesc(args[IN_IMPULSE],
+                       "The response to convolve with, usually an impulse:: "
+                       "node");
     args[IN_MIX] = plugin->regArg("mix", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_MIX], "0 is all dry, 1 is all convolved");
+    plugin->setArgRange(args[IN_MIX], 0, 1);
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[INOUT_BUFPOS] = plugin->regArg("bufpos", thPlugin::ARG_STATE);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The convolved signal, mixed with the dry");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     return 0;
 }
 

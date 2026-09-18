@@ -39,13 +39,37 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* An impulse response for delay::fir, not a signal: the output is `len'
+       samples long and is read whole, rather than one sample per window. All
+       four args are read from sample 0 alone, so none of them modulates. */
     args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
     /* `(int)(*in_len)[0]' -- the impulse is this many samples long. */
     plugin->setArgStep(args[IN_LEN], 1);
+    plugin->setArgDesc(args[IN_LEN], "How long the whole response is");
+    plugin->setArgUnits(args[IN_LEN], "samples");
     args[IN_WIDTH] = plugin->regArg("width", thPlugin::ARG_IN);
+    /* Its own zero case: `if (pwidth == 0)' falls back to `pw' as a fraction
+       of the pulse spacing. Writing both means this one wins. */
+    plugin->setArgDesc(args[IN_WIDTH],
+                       "How wide each pulse is; 0 uses pw instead");
+    plugin->setArgUnits(args[IN_WIDTH], "samples");
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PW],
+                       "Pulse width as a fraction of the spacing, when width "
+                       "is 0");
+    plugin->setArgRange(args[IN_PW], 0, 1);
     args[IN_NUM] = plugin->regArg("num", thPlugin::ARG_IN);
+    /* `width = len/num' and `amp = 1/(pwidth*num)', so a num of 0 is a
+       division by zero twice over and the response comes out non-finite.
+       Said here rather than clamped: this is the count of pulses, an integer
+       a caller chooses once, and a 0 is a graph that means nothing rather
+       than a value drifting through a range. */
+    plugin->setArgStep(args[IN_NUM], 1);
+    plugin->setArgDesc(args[IN_NUM],
+                       "How many pulses; must be at least 1");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG],
+                       "The response, scaled so the pulses sum to 1");
 
     return 0;
 }

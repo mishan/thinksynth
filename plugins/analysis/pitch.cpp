@@ -40,9 +40,24 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* Zero until the second rising edge, which is the first time there is a
+       period to measure. Whatever reads this has to cope with that -- a
+       misc::freq2samples fed a zero answers an infinity. */
+    plugin->setArgDesc(args[OUT_ARG],
+                       "The measured pitch, and 0 until it has measured one");
+    plugin->setArgUnits(args[OUT_ARG], "Hz");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    /* Rising zero crossings and nothing else -- no window, no filter -- so
+       anything with harmonics above the fundamental reads high. */
+    plugin->setArgDesc(args[IN_ARG],
+                       "Signal in; the period is counted between rising zero "
+                       "crossings");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FALLOFF] = plugin->regArg("falloff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FALLOFF],
+                       "Registered and never read; see the callback");
 
     return 0;
 }
@@ -89,7 +104,18 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         
         if(sign == 0 && input > 0) /* trigger on the rising edge */
         {
-            freq = samples / wavelength;
+            /* Both operands are integers, so this is integer division and a
+               wavelength of zero is undefined -- a trap on x86 rather than an
+               infinity. It is zero on the first sample of a fresh note, and
+               reached whenever that sample is already above zero: a graph
+               whose oscillator starts positive, with no envelope in front of
+               it, is one edit away. A period shorter than one sample is not a
+               period, so there is nothing to report for it. */
+            if(wavelength > 0)
+            {
+                freq = (float)samples / (float)wavelength;
+            }
+
             wavelength = 0;
         }
         else

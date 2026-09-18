@@ -40,8 +40,20 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FACTOR] = plugin->regArg("factor", thPlugin::ARG_IN);
+    /* `tanh(factor * in)'. Drive, not a mix: 0 is silence rather than a dry
+       signal, 1 is gentle, and tanh bounds the result whatever this is -- so
+       there is nothing here to go out of range. */
+    plugin->setArgDesc(args[IN_FACTOR],
+                       "Drive into the tanh; 0 is silence, 1 is gentle");
+    plugin->setArgUnits(args[IN_FACTOR], "ratio");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The saturated signal");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     return 0;
 }
 
