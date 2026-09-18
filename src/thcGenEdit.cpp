@@ -628,7 +628,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                  *
                  * The brace count is a count rather than a match on the
                  * first `}': an effect's block holds statements, and a
-                 * statement the scan does not recognise may hold braces of
+                 * statement the scan does not recognize may hold braces of
                  * its own. */
                 if (t[j].kind == Tok::WORD && t[j].text == "effect" &&
                     t[j + 1].kind == Tok::STRING)

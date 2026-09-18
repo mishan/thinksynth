@@ -188,7 +188,7 @@ public:
      *
      * setActiveNodes() walks up from the plugins that produce without being
      * asked -- an oscillator, an envelope -- and marks them and everything
-     * downstream, which is the optimisation that makes a hundred voices
+     * downstream, which is the optimization that makes a hundred voices
      * affordable. It assumes such a plugin exists, and for a patch it always
      * does, because a patch that generates no sound is not a patch.
      *
@@ -197,7 +197,7 @@ public:
      * effect may be nothing but a dist::clip, and arithmetic is PASSIVE to a
      * module. Such a graph fires once on whatever recalc flags
      * buildSynthTree left behind and then freezes. There is nothing to
-     * optimise in either case: the graph runs once per window rather than
+     * optimize in either case: the graph runs once per window rather than
      * once per voice. */
     void markAllNodes (void);
 
