@@ -3081,6 +3081,65 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
         "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
         "'fx/echo.dsp' declares no chanarg called 'nonesuch'");
 
+    /* And the writer steps over the clause rather than choking on it.
+     *
+     * thcGenEdit indexes an instrument block statement by statement, and a
+     * statement it cannot read drops the whole block out of the index -- so
+     * an instrument carrying an effect would be one describe() never
+     * mentioned and whose own values could not be edited. What is checked is
+     * that the instrument is still there with its own value in it; the
+     * effect's values are not indexed, which is the GUI half's business. */
+    {
+        std::string path = thUtil::tempFile("gencheck-fxedit-");
+
+        if (path.empty())
+            fail("could not make a scratch file for the effect edit check");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "instrument lead {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    a = 900 ms;\n"
+                       "    effect \"fx/echo.dsp\" {\n"
+                       "        delay = 375 ms;\n"
+                       "    };\n"
+                       "    r = 40 ms;\n"
+                       "};\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = lead; }; };\n";
+            }
+
+            thcGenEdit::Doc doc;
+            std::string why;
+
+            if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK)
+                fail("describe refused a piece with an effect in it: " + why);
+            else if (doc.instruments.size() != 1)
+                fail("an instrument carrying an effect fell out of the "
+                     "index");
+            else
+            {
+                bool sawA = false, sawR = false;
+
+                for (size_t i = 0; i < doc.instruments[0].values.size(); i++)
+                {
+                    const std::string &n = doc.instruments[0].values[i].name;
+
+                    if (n == "a") sawA = true;
+                    if (n == "r") sawR = true;
+                }
+
+                if (!sawA || !sawR)
+                    fail("the values on either side of an effect clause did "
+                         "not both survive the scan");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
     expectReject(plugins, synth, "effect-missing",
         "instrument i { dsp \"amb01.dsp\";"
         " effect \"no-such-effect.dsp\"; };\n"

@@ -613,6 +613,57 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     continue;
                 }
 
+                /* `effect "fx/echo.dsp" { delay = 375 ms; };' -- stepped
+                 * over rather than indexed.
+                 *
+                 * Not indexed because nothing in this editor edits an
+                 * effect's values yet; they are a second chanarg map,
+                 * addressed `fx.', and reaching them is the GUI half of the
+                 * work. Stepped over rather than left to scanParam because
+                 * scanParam would refuse the shape, and refusing anything
+                 * inside the block drops the *whole* block out of the index
+                 * -- so an instrument that carried an effect would become
+                 * one whose own values could not be edited either, and one
+                 * that describe() did not mention.
+                 *
+                 * The brace count is a count rather than a match on the
+                 * first `}': an effect's block holds statements, and a
+                 * statement the scan does not recognise may hold braces of
+                 * its own. */
+                if (t[j].kind == Tok::WORD && t[j].text == "effect" &&
+                    t[j + 1].kind == Tok::STRING)
+                {
+                    size_t k = j + 2;
+
+                    if (isPunct(t[k], '{'))
+                    {
+                        int depth = 1;
+
+                        for (k++; t[k].kind != Tok::END && depth > 0; k++)
+                        {
+                            if (isPunct(t[k], '{'))
+                                depth++;
+                            else if (isPunct(t[k], '}'))
+                                depth--;
+                        }
+
+                        if (depth != 0)
+                        {
+                            shaped = false;
+                            break;
+                        }
+                    }
+
+                    if (!isPunct(t[k], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    j = k + 1;
+                    continue;
+                }
+
                 PIdx p;
                 size_t next = scanParam(t, j, p);
 
