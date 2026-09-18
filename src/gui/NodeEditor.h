@@ -21,7 +21,7 @@
 
 #include "../NodeGraph.h"
 #include "../thVisual.h"
-#include "NodeCanvas.h"
+#include "NodeCanvasWidget.h"
 #include "NodeParams.h"
 #include "NodePalette.h"
 
@@ -458,7 +458,7 @@ private:
     Gtk::Paned outer_{Gtk::Orientation::HORIZONTAL};  /* palette | the rest   */
     Gtk::Paned split_{Gtk::Orientation::HORIZONTAL};  /* canvas  | parameters */
     Gtk::ScrolledWindow scroller_;
-    NodeCanvas canvas_;
+    NodeCanvasWidget canvas_;
     NodeParams params_;
     NodePalette palette_;
     Gtk::Label status_;

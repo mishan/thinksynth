@@ -23,10 +23,10 @@
 #include <vector>
 #include <functional>
 
-#include <gtkmm.h>
+#include <sigc++/sigc++.h>
 
 #include "libthink/thcomposer.h"   /* thcInputEvent */
-#include "GraphCanvas.h"
+#include "CanvasContent.h"
 #include "thcGenEdit.h"
 
 class thcScheduler;
@@ -70,8 +70,14 @@ struct thcStage;
  * Input is not an exception to that: a click goes to the plugin's own
  * state and changes what is playing, which is a performance, not a file
  * edit. Capturing it into the file is a separate, deliberate act.
+ *
+ * It is the content of a canvas and not a widget (CanvasContent.h): it
+ * compiles without a toolkit, the desktop wraps it in
+ * ComposerCanvasWidget (src/gui/) for the controllers and the scroller,
+ * and the browser runs the same class in the mirror worker. The
+ * rectangles it emits and the gestures it takes are in shell pixels.
  */
-class ComposerCanvas : public GraphCanvas
+class ComposerCanvas : public CanvasContent
 {
 public:
     ComposerCanvas (void);
@@ -118,7 +124,7 @@ public:
        is small on purpose. A popover is real widgets at the window's own
        font, with the panel's spin buttons, unit menus and knob bindings
        already working in it, and it costs the drawing nothing. */
-    sigc::signal<void (size_t, size_t, Gdk::Rectangle)> sigParams;
+    sigc::signal<void (size_t, size_t, CanvasRect)> sigParams;
 
     /* A knob node dragged: its name, the new value, and whether this is
        the committing one. Same shape and same reason as sigParams'
@@ -136,7 +142,7 @@ public:
        with six params is genuinely ambiguous, and guessing would be
        worse than asking. */
     sigc::signal<void (std::string, size_t, size_t,
-                       Gdk::Rectangle)> sigBindKnob;
+                       CanvasRect)> sigBindKnob;
 
     /* Which stage is filling the canvas, or NONE. Public so the window
        can label what it is showing and offer to capture it. */
@@ -155,7 +161,7 @@ public:
     bool enlargedArea (double &x, double &y, double &w, double &h) const;
 
     /* Where a stage's box is, in widget pixels. */
-    bool stageRect (size_t chain, size_t stage, Gdk::Rectangle &at) const;
+    bool stageRect (size_t chain, size_t stage, CanvasRect &at) const;
 
     /* Where a knob node's value track is, in widget pixels, and where
        its output port is. False if there is no such knob. */
@@ -183,16 +189,22 @@ public:
     void motionTo (double sx, double sy);
     void releaseAt (double sx, double sy, int button);
 
-protected:
-    void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
-                 int height);
+    void draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+               int height) override;
+    bool keyPressed (Key key) override;
+
+    /* The gestures, in shell pixels: a press, a release and a motion
+       with a button where the shell knows one, and a drag as the offset
+       from where it began, which is how a stage box is carried. The
+       desktop's controllers call these; so does the browser's pointer
+       handling, and pressAt() and friends above are the same calls
+       spelled for a harness. */
     void onPressed (int nPress, double x, double y, int button);
     void onDragBegin (double x, double y);
     void onDragUpdate (double dx, double dy);
     void onDragEnd (double dx, double dy);
     void onReleased (int nPress, double x, double y, int button);
     void onMotion (double x, double y);
-    bool onKey (guint keyval, guint keycode, Gdk::ModifierType state);
 
 private:
     /* One clickable box, laid out by rebuild(). */
@@ -216,12 +228,12 @@ private:
     const Box *boxFor (size_t chain, size_t stage) const;
 
     /* How wide and tall the laid-out rows are, for the base's zoom. */
-    void contentExtent (double &w, double &h) const;
+    void contentExtent (double &w, double &h) const override;
 
     /* Where the params handle is, in box space. */
     static void twistyRect (const Box &b, double &x, double &y, double &s);
 
-    Gdk::Rectangle boxRect (const Box &b) const;
+    CanvasRect boxRect (const Box &b) const;
 
     /* A knob node's value track and its output port, in box space. */
     static void knobTrackRect (const Box &b, double &x0, double &x1,

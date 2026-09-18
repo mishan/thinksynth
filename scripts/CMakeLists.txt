@@ -11,7 +11,7 @@
 
 # think_harness(<name> [EXTRA <source>...])
 function(think_harness name)
-  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST" ""
+  cmake_parse_arguments(H "NODEMODEL;THREADS;VISUALHOST;COMPOSERHOST;NODECANVAS;COMPOSERCANVAS" ""
                         "EXTRA" ${ARGN})
 
   set(sources "${name}.cpp" ${H_EXTRA})
@@ -26,6 +26,21 @@ function(think_harness name)
 
   if(H_COMPOSERHOST)
     list(APPEND sources $<TARGET_OBJECTS:think_composerhost>)
+  endif()
+
+  # A canvas's content (src/CanvasContent.h): the base and the one canvas
+  # asked for. The widget shell around it is gtkmm and comes in through
+  # EXTRA, since a harness that wants a widget links GTKMM itself.
+  if(H_NODECANVAS OR H_COMPOSERCANVAS)
+    list(APPEND sources $<TARGET_OBJECTS:think_canvas>)
+  endif()
+
+  if(H_NODECANVAS)
+    list(APPEND sources $<TARGET_OBJECTS:think_nodecanvas>)
+  endif()
+
+  if(H_COMPOSERCANVAS)
+    list(APPEND sources $<TARGET_OBJECTS:think_composercanvas>)
   endif()
 
   add_executable(${name} ${sources})
@@ -48,6 +63,10 @@ function(think_harness name)
   if(H_COMPOSERHOST)
     target_include_directories(${name} PRIVATE "${PROJECT_SOURCE_DIR}/libthink")
     target_link_libraries(${name} PRIVATE PkgConfig::GLIBMM)
+  endif()
+
+  if(H_NODECANVAS OR H_COMPOSERCANVAS)
+    target_link_libraries(${name} PRIVATE PkgConfig::CAIROMM)
   endif()
 
   if(H_THREADS)
@@ -134,9 +153,9 @@ think_harness(dspprobe  NODEMODEL)
 # The one harness here that needs a display, because what it measures is a real
 # widget's real draw path. A measuring instrument rather than a gate, so it is
 # not in the ctest list below -- run it by hand, under xvfb-run if need be.
-think_harness(canvasbench NODEMODEL VISUALHOST
+think_harness(canvasbench NODEMODEL VISUALHOST NODECANVAS
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp")
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp")
 target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 
 # editorcheck joins up what the other harnesses cover separately: the tap, the
@@ -144,9 +163,9 @@ target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 # holds them together. It needs a display for the same reason canvasbench does
 # -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
 # list below, guarded by whether a display can be had.
-think_harness(editorcheck NODEMODEL VISUALHOST
+think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
@@ -163,10 +182,10 @@ target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
 # and the window brings one up the way the Patch Selector does. Linking it is
 # what makes that path real here rather than stubbed: the harness gets an
 # actual patch manager and the instrument actually lands on a tab.
-think_harness(composercheck COMPOSERHOST VISUALHOST
+think_harness(composercheck COMPOSERHOST VISUALHOST COMPOSERCANVAS
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/ComposerWindow.cpp"
-                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvas.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ComposerCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/PianoRoll.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")

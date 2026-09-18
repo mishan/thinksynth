@@ -71,6 +71,44 @@ public:
     /* ---- audio thread ---- */
     void process(void);
 
+    /* ---- a synth that never renders ----
+     *
+     * A mirror -- the composer view's second scheduler in the browser
+     * (JAM_M6.md, section 2), or a harness holding a piece up against
+     * itself -- needs a thSynth to hand its scheduler, and needs it to
+     * behave like the real one in every way but the sound: instruments
+     * load, chanargs are written and read back, channels come and go.
+     * What it must not do is build a note graph for every note the
+     * scheduler delivers and queue it for an audio thread that is not
+     * there. Stepping a scheduler over an ordinary synth without
+     * rendering was measured filling the 1024-deep command ring and
+     * dropping commands within one fast-forward (SCHEDULER_PLACEMENT.md,
+     * section 4.4) -- and among what it dropped was a SET_CHANNEL, so an
+     * instrument silently failed to load.
+     *
+     * Silent, a synth drops notes at the door: addNote copies nothing
+     * and queues nothing, delNote and clearAll post nothing, and
+     * process() applies the queue and skips the DSP. Everything else is
+     * the same object doing the same thing, so a scheduler over a
+     * silent synth composes the tape a scheduler over a rendering one
+     * composes -- which gencheck holds it to, every seeded piece.
+     *
+     * Set once, before the first load. It is a kind of synth and not a
+     * mode a running one flips: the notes a rendering synth is holding
+     * would never be released, and the ones a silent one dropped would
+     * never arrive. */
+    void setSilent (bool silent);
+    bool silent (void) const { return silent_; }
+
+    /* Commands postCommand could not queue because the ring was full,
+       since construction. Read on the GUI thread, which is the one that
+       posts. The number a mirror watches: a rendering synth drains its
+       ring every window, and a silent one drains it on every step it is
+       given, so on either this should stay at zero, and a page or a
+       harness that finds it moving has found a synth nobody is
+       stepping. */
+    unsigned long droppedCommands (void) const { return dropped_; }
+
     void printChan(int chan);
 
     /* False when the audio thread could not be told -- a full command ring.
@@ -268,6 +306,9 @@ private:
     int windowlen_;
     float masterGain_;  /* see setMasterGain(); accessed atomically */
     long sampleRate_; /* the number of samples per second*/
+
+    bool silent_;               /* see setSilent()                     */
+    unsigned long dropped_;     /* see droppedCommands()               */
 
     thMidiController *controllerHandler_;
 

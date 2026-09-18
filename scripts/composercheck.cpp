@@ -66,7 +66,7 @@
 #include "thcScheduler.h"
 #include "gthPatchfile.h"
 #include "gthSignal.h"
-#include "gui/ComposerCanvas.h"
+#include "gui/ComposerCanvasWidget.h"
 #include "gui/ComposerWindow.h"
 #include "gui/PianoRoll.h"
 
@@ -462,7 +462,7 @@ run (const std::string &pluginPath, const char *genFile)
        popover goes away again. */
     {
         double hx, hy;
-        Gdk::Rectangle before, after;
+        CanvasRect before, after;
 
         win->canvas_->setZoom(0.5);
         pump(2);
@@ -496,8 +496,7 @@ run (const std::string &pluginPath, const char *genFile)
 
             if (!win->canvas_->stageRect(0, 0, after))
                 fail("the stage box went missing");
-            else if (after.get_width() != before.get_width() ||
-                     after.get_height() != before.get_height())
+            else if (after.w != before.w || after.h != before.h)
                 fail("the stage box changed size to show its params");
             else
                 ok("...without the box changing size");
@@ -579,14 +578,14 @@ run (const std::string &pluginPath, const char *genFile)
                asserted is that the drop asks -- the canvas deliberately
                does not choose a param for you, because a stage with six
                of them is six honest answers. */
-            Gdk::Rectangle at;
+            CanvasRect at;
 
             if (!win->canvas_->stageRect(0, 0, at))
                 fail("the first stage has no box to drop a wire on");
             else
             {
-                const double dx = at.get_x() + at.get_width() / 2;
-                const double dy = at.get_y() + at.get_height() / 2;
+                const double dx = at.x + at.w / 2;
+                const double dy = at.y + at.h / 2;
 
                 win->canvas_->pressAt(px, py, 1, 1);
                 pump(1);
@@ -616,8 +615,8 @@ run (const std::string &pluginPath, const char *genFile)
                and which half depended on nothing anyone could see. */
             if (win->canvas_->stageRect(0, 0, at))
             {
-                const double dx = at.get_x() + at.get_width() / 2;
-                const double dy = at.get_y() + at.get_height() / 2;
+                const double dx = at.x + at.w / 2;
+                const double dy = at.y + at.h / 2;
 
                 win->canvas_->pressAt(px, py + 4, 1, 1);
                 pump(1);

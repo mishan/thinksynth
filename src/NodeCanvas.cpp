@@ -19,11 +19,9 @@
 #include "config.h"
 
 /* This file used M_PI with no fallback and compiled anyway, because the
- * gtkmm include chain happens to smuggle one in. That is luck rather than
- * a decision, and it would end the day gtkmm reorganised a header. */
+ * gtkmm include chain happened to smuggle one in. That was luck rather
+ * than a decision, and there is no gtkmm here any more to be lucky with. */
 #include "thMath.h"
-
-#include <gtkmm.h>
 
 #include "think.h"
 
@@ -70,36 +68,9 @@ NodeCanvas::NodeCanvas (void)
       hoverEdge_(-1), dragSlider_(-1),
       drawCount_(0), drawMicros_(0.0)
 {
-    set_draw_func(sigc::mem_fun(*this, &NodeCanvas::onDraw));
-
-    /* Only the first button is wanted: everything here is a left-drag. */
-    click_ = Gtk::GestureClick::create();
-    click_->set_button(1);
-    click_->signal_pressed().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onPressed));
-    click_->signal_released().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onReleased));
-    add_controller(click_);
-
-    /* A second gesture rather than widening the first: GestureClick filters by
-       button, and asking one controller for both would mean every left-drag
-       path testing which button it was. */
-    rightClick_ = Gtk::GestureClick::create();
-    rightClick_->set_button(3);
-    rightClick_->signal_pressed().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onRightPressed));
-    add_controller(rightClick_);
-
-    motion_ = Gtk::EventControllerMotion::create();
-    motion_->signal_motion().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onMotion));
-    motion_->signal_leave().connect(
-        sigc::mem_fun(*this, &NodeCanvas::onLeave));
-    add_controller(motion_);
-
 }
 
-/* What GraphCanvas needs to size and fit the view: the graph's own
+/* What CanvasContent needs to size and fit the view: the graph's own
    extent, before zoom. */
 void NodeCanvas::contentExtent (double &w, double &h) const
 {
@@ -120,7 +91,7 @@ void NodeCanvas::setGraph (NodeGraph *graph)
     m_signal_selected_(-1);
 
     contentResized();
-    queue_draw();
+    requestRedraw();
 }
 
 bool NodeCanvas::isSelected (int box) const
@@ -141,7 +112,7 @@ void NodeCanvas::clearSelection (void)
     selBox_ = -1;
 
     m_signal_selected_(-1);
-    queue_draw();
+    requestRedraw();
 }
 
 /* Selects exactly one box, which is what a plain click means.
@@ -163,7 +134,7 @@ void NodeCanvas::setSelected (int box)
     selBox_ = box;
 
     m_signal_selected_(selBox_);
-    queue_draw();
+    requestRedraw();
 }
 
 /* Right-click: says what is under the pointer and lets the editor decide what
@@ -232,7 +203,7 @@ void NodeCanvas::onPressed (int nPress, double x, double y)
 
         setSelected(slider);
         m_signal_control_(slider, v, false);
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -251,7 +222,7 @@ void NodeCanvas::onPressed (int nPress, double x, double y)
         wireTargetOk_ = false;
 
         setSelected(pb);
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -311,7 +282,7 @@ void NodeCanvas::onPressed (int nPress, double x, double y)
         /* Still worth telling the panel which one was touched. */
         selBox_ = hit;
         m_signal_selected_(selBox_);
-        queue_draw();
+        requestRedraw();
     }
 
     dragBox_ = hit;
@@ -335,7 +306,7 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
         /* The committing emit. Everything before this was live feedback. */
         m_signal_control_(s, (double)graph_->boxes()[s].ctlValue, true);
 
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -348,7 +319,7 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
         wireBox_ = wirePort_ = -1;
         wireTargetBox_ = wireTargetPort_ = -1;
 
-        queue_draw();
+        requestRedraw();
 
         if (toBox < 0)
             return;             /* dropped on nothing; no complaint needed */
@@ -396,7 +367,7 @@ void NodeCanvas::onReleased (int nPress, double x, double y)
         m_signal_selected_(selBox_);
         m_signal_selection_((int)sel_.size());
 
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -456,7 +427,7 @@ void NodeCanvas::onMotion (double x, double y)
             graph_->moveBox(dragBox_, nx, ny);
         }
 
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -466,7 +437,7 @@ void NodeCanvas::onMotion (double x, double y)
         bandX1_ = gx;
         bandY1_ = gy;
 
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -478,7 +449,7 @@ void NodeCanvas::onMotion (double x, double y)
         graph_->setControlValue(dragSlider_, (float)v);
 
         m_signal_control_(dragSlider_, v, false);
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -512,7 +483,7 @@ void NodeCanvas::onMotion (double x, double y)
         wireTargetBox_ = tb;
         wireTargetPort_ = tp;
 
-        queue_draw();
+        requestRedraw();
 
         return;
     }
@@ -533,7 +504,7 @@ void NodeCanvas::onMotion (double x, double y)
         hoverBox_ = hb;
         hoverPort_ = hp;
         hoverEdge_ = he;
-        queue_draw();
+        requestRedraw();
     }
 
     return;
@@ -544,7 +515,7 @@ void NodeCanvas::onLeave (void)
     if (hoverBox_ >= 0 || hoverPort_ >= 0 || hoverEdge_ >= 0)
     {
         hoverBox_ = hoverPort_ = hoverEdge_ = -1;
-        queue_draw();
+        requestRedraw();
     }
 }
 
@@ -1097,8 +1068,8 @@ void NodeCanvas::drawPendingWire (const Cairo::RefPtr<Cairo::Context> &cr)
     }
 }
 
-void NodeCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
-                         int height)
+void NodeCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+                       int height)
 {
     /* See drawCount() in the header. Not conditional: two counters and a clock
        read per frame, against a function that rasterises hundreds of boxes. */

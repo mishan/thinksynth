@@ -246,6 +246,27 @@ the plan; this is where it stands.
   fresher of two readings.
 - Not yet: gate 8.3, two machines on a LAN, by hand.
 
+### M6, so far
+
+On `jam-m6`. [JAM_M6.md](JAM_M6.md) is the plan; this is where it
+stands.
+
+- The engine change the mirror needs: a `thSynth` that never renders
+  (`setSilent`), dropping notes at the door and applying everything
+  else, gated in `gencheck` against a rendering synth over every seeded
+  piece.
+- The desktop's two canvases split into content and shell: what they
+  draw and what a click means is C++ with no toolkit in it, compiled
+  without gtkmm on the include path; the gtk widget around each is a
+  few dozen lines. The same content classes are what the browser will
+  run.
+- The cairo stand-in they will run through: `wasm/cairo2d`, cairo's own
+  API over a display list the page replays on a Canvas2D, in a directory
+  of its own with its own build and test and nothing of this tree on its
+  include path. The browser build draws through it already -- every
+  composer's picture, gated over the whole corpus at two sizes.
+- Not yet: the mirror, the composer tab, the node editor.
+
 ## 1. The three kinds of state
 
 Everything a peer can know about a session is one of three things, and each

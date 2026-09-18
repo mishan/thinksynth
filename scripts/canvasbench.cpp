@@ -62,7 +62,7 @@
 
 #include "think.h"
 #include "NodeGraph.h"
-#include "gui/NodeCanvas.h"
+#include "gui/NodeCanvasWidget.h"
 #include "thVisual.h"
 
 namespace {
@@ -145,10 +145,10 @@ bool benchOne (const string &pluginPath, const char *file, bool fit,
        harness anyone can put under a leak checker. */
     Gtk::Window *windowp = new Gtk::Window();
     Gtk::ScrolledWindow *scroller = Gtk::manage(new Gtk::ScrolledWindow());
-    NodeCanvas *canvasp = Gtk::manage(new NodeCanvas());
+    NodeCanvasWidget *canvasp = Gtk::manage(new NodeCanvasWidget());
 
     Gtk::Window &window = *windowp;
-    NodeCanvas &canvas = *canvasp;
+    NodeCanvasWidget &canvas = *canvasp;
 
     canvas.setGraph(&graph);
 

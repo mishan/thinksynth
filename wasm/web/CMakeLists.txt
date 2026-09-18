@@ -57,9 +57,13 @@ list(PREPEND CMAKE_MODULE_PATH
 # ThinkPlugin.cmake because the table is written here and the list has to
 # reach both; plugins/ is a subdirectory and inherits it.
 #
-# composer_draw is deliberately absent; ThinkPlugin.cmake says why.
+# composer_draw is among them now. It used to be the one export that could
+# not come this way -- a worklet has no canvas and there was no cairo to
+# link -- and what changed is wasm/cairo2d, which is cairo's API over a
+# display list the page replays (JAM_M6.md, section 3). The composers draw
+# through that, unchanged.
 set(THINK_COMPOSER_EXPORTS init create tick receive param_changed input
-                           capture destroy)
+                           capture destroy draw)
 
 set(THINK_COMPOSER_PROTO_init          "int @ (thcComposerInfo *)")
 set(THINK_COMPOSER_PROTO_create        "void *@ (const thcParams *)")
@@ -70,7 +74,20 @@ set(THINK_COMPOSER_PROTO_receive
 set(THINK_COMPOSER_PROTO_param_changed "void @ (void *, int)")
 set(THINK_COMPOSER_PROTO_input         "void @ (void *, const thcInputEvent *)")
 set(THINK_COMPOSER_PROTO_capture       "const char *@ (void *, int)")
+set(THINK_COMPOSER_PROTO_draw
+    "void @ (void *, cairo_t *, double, double)")
 set(THINK_COMPOSER_PROTO_destroy       "void @ (void *)")
+
+# cairo, for the composers' draws and for the canvases later, as a display
+# list the page replays on a Canvas2D. Its own directory, its own build and
+# its own test, and nothing in this tree on its include path: thinksynth
+# uses it the way anyone would, by putting it on the include path. See
+# wasm/cairo2d/README.md.
+#
+# Its test is built here because this is the build with a node beside it,
+# and CI runs it (wasm/cairo2d/test/replaytest.mjs).
+set(CAIRO2D_TESTS ON CACHE BOOL "" FORCE)
+add_subdirectory("${THINK_TOP}/wasm/cairo2d" cairo2d)
 
 include(ThinkEmscripten)
 
@@ -203,11 +220,7 @@ target_include_directories(thinkweb PRIVATE
     "${THINK_TOP}"
     "${THINK_TOP}/src")
 
-# The composers draw nowhere; ThinkPlugin.cmake here says what that costs
-# and what it buys.
-target_compile_definitions(thinkweb PRIVATE THC_NO_DRAW)
-
-target_link_libraries(thinkweb PRIVATE think_objects sigc)
+target_link_libraries(thinkweb PRIVATE think_objects sigc cairo2d)
 
 # .js, not Emscripten's .mjs, for the reason at the top; EXPORT_ES6 below
 # is what makes it a module, whatever it is called.

@@ -19,18 +19,24 @@
 #ifndef NODE_CANVAS_H
 #define NODE_CANVAS_H 1
 
-#include "../NodeGraph.h"
-#include "GraphCanvas.h"
+#include <sigc++/sigc++.h>
+
+#include "NodeGraph.h"
+#include "CanvasContent.h"
 
 /*
  * View of a NodeGraph: draws it, and lets boxes be dragged and the whole thing
  * zoomed.
  *
- * Still no editing -- wires cannot be made or broken here yet. Hit-testing
- * lives in NodeGraph rather than in this class so it can be tested without a
- * display; this widget only converts coordinates and tracks the drag.
+ * Hit-testing lives in NodeGraph rather than in this class so it can be
+ * tested without a display; this class converts coordinates, tracks the
+ * drag, and draws. It is the content of a canvas and not a widget -- see
+ * CanvasContent.h -- so it compiles without a toolkit, and the desktop
+ * wraps it in NodeCanvasWidget (src/gui/) for the controllers and the
+ * scroller. Everything a shell hands in arrives in shell pixels through
+ * the on*() handlers below.
  */
-class NodeCanvas : public GraphCanvas
+class NodeCanvas : public CanvasContent
 {
 public:
     NodeCanvas (void);
@@ -38,7 +44,7 @@ public:
     /* The canvas does not own the graph. */
     void setGraph (NodeGraph *graph);
 
-    /* zoom(), setZoom() and zoomToFit() come from GraphCanvas, which is
+    /* zoom(), setZoom() and zoomToFit() come from CanvasContent, which is
        where the view transform went when the composer's canvas turned out
        to want exactly it and nothing else here. */
 
@@ -177,26 +183,22 @@ public:
     void drawGraph (const Cairo::RefPtr<Cairo::Context> &cr, int width,
                     int height);
 
-protected:
-    /* The draw callback: times drawGraph and keeps the counters. */
-    void onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
-                 int height);
-    /* Input, through controllers. There are no on_*_event vfuncs in GTK4 and
-       no event mask to widen -- a controller receives the kind of thing it is
-       for, and is handed the coordinates rather than being asked to fetch
-       them. */
+    /* The shell's draw: times drawGraph and keeps the counters. */
+    void draw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
+               int height) override;
+
+    /* Input, in shell pixels, from whatever the shell has -- gesture
+       controllers on the desktop, pointer events in a browser, a harness
+       with neither. Every one converts at the door. */
     void onPressed (int nPress, double x, double y);
     void onRightPressed (int nPress, double x, double y);
     void onReleased (int nPress, double x, double y);
     void onMotion (double x, double y);
     void onLeave (void);
 
+protected:
     /* How big the graph is, for the base's zoom-to-fit and sizing. */
-    void contentExtent (double &w, double &h) const;
-
-    Glib::RefPtr<Gtk::GestureClick> click_;
-    Glib::RefPtr<Gtk::GestureClick> rightClick_;
-    Glib::RefPtr<Gtk::EventControllerMotion> motion_;
+    void contentExtent (double &w, double &h) const override;
 
 private:
     void drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,

@@ -29,7 +29,7 @@
 #include "thcScheduler.h"
 #include "ComposerCanvas.h"
 
-#include "../gui-util.h"
+#include "gui-util.h"
 
 /* Row and box geometry. A chain reads left to right at one size; the
  * canvas scrolls rather than shrinks, because a stage box exists to
@@ -70,53 +70,8 @@ ComposerCanvas::ComposerCanvas (void)
       feeding_(false), feedButton_(1), dragKnob_(-1), wireFrom_(-1),
       wireX_(0), wireY_(0), dragBox_(-1), dragDx_(0), dropAt_(-1)
 {
-    set_draw_func(sigc::mem_fun(*this, &ComposerCanvas::onDraw));
-
-    auto click = Gtk::GestureClick::create();
-
-    /* Through a lambda rather than straight to the handler, because
-       which button was pressed is the *controller's* to answer and the
-       signal does not carry it. A plugin that could not tell a primary
-       click from a secondary one would have half an input API -- a Life
-       board wants left to draw and right to erase. */
-    click->signal_pressed().connect(
-        [this, click](int n, double x, double y)
-        { onPressed(n, x, y, (int)click->get_current_button()); });
-    click->signal_released().connect(
-        [this, click](int n, double x, double y)
-        { onReleased(n, x, y, (int)click->get_current_button()); });
-    add_controller(click);
-
-    /* Motion, for painting a plugin's picture by dragging across it.
-       Separate from the drag gesture below because that one exists to
-       move stage boxes around and reports offsets; a plugin wants
-       positions. */
-    auto motion = Gtk::EventControllerMotion::create();
-
-    motion->signal_motion().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onMotion));
-    add_controller(motion);
-
-    /* Escape leaves the enlarged view. A canvas that fills itself with
-       one stage and offers no way back is a trap. */
-    auto keys = Gtk::EventControllerKey::create();
-
-    keys->signal_key_pressed().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onKey), false);
-    add_controller(keys);
-
-    set_focusable(true);
-
-    auto drag = Gtk::GestureDrag::create();
-
-    drag->signal_drag_begin().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onDragBegin));
-    drag->signal_drag_update().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onDragUpdate));
-    drag->signal_drag_end().connect(
-        sigc::mem_fun(*this, &ComposerCanvas::onDragEnd));
-    add_controller(drag);
 }
+
 
 /* The laid-out rows, plus a margin so the rightmost ghost box does not
    sit against the edge. Zero before the first rebuild, which the base
@@ -188,7 +143,7 @@ ComposerCanvas::SetPiece (const thcGenEdit::Doc *doc, thcScheduler *sched)
         }
     }
 
-    queue_draw();
+    requestRedraw();
 }
 
 void
@@ -199,7 +154,7 @@ ComposerCanvas::select (const Selection &sel)
 
     sel_ = sel;
     sigSelection.emit(sel_);
-    queue_draw();
+    requestRedraw();
 }
 
 /* Lay every clickable box out once per piece; drawing and hit testing
@@ -215,7 +170,6 @@ ComposerCanvas::rebuild (void)
         return;
 
     double y = M;
-    double widest = 0;
 
     /* The knob lane, across the top.
      *
@@ -257,7 +211,6 @@ ComposerCanvas::rebuild (void)
         }
 
         boxes_.push_back(b);
-        widest = std::max(widest, b.x + b.w);
 
         if (ki + 1 == doc_->knobs.size())
             y = b.y + KNOB_H + ROW_GAP;
@@ -393,7 +346,6 @@ ComposerCanvas::rebuild (void)
             x += GHOST_W;
         }
 
-        widest = std::max(widest, x);
         y += STAGE_H + ROW_GAP;
     }
 
@@ -408,11 +360,12 @@ ComposerCanvas::rebuild (void)
         b.ghost = true;
         boxes_.push_back(b);
         y += 26;
-        widest = std::max(widest, b.x + b.w);
     }
 
-    set_content_width((int)(widest + M));
-    set_content_height((int)(y + M));
+    /* The size follows from the boxes -- contentExtent() reads them --
+       and SetPiece tells the shell through contentResized(). This used
+       to also set the drawing area's content size, unzoomed, which was
+       a second answer to the same question. */
 }
 
 const ComposerCanvas::Box *
@@ -948,17 +901,17 @@ ComposerCanvas::knobPort (const std::string &name, double &x,
     return true;
 }
 
-/* A box in widget pixels, which is what a popover wants to point at. */
-Gdk::Rectangle
+/* A box in shell pixels, which is what a popover wants to point at. */
+CanvasRect
 ComposerCanvas::boxRect (const Box &b) const
 {
-    return Gdk::Rectangle((int)(b.x * zoom()), (int)(b.y * zoom()),
-                          (int)(b.w * zoom()), (int)(b.h * zoom()));
+    return CanvasRect((int)(b.x * zoom()), (int)(b.y * zoom()),
+                      (int)(b.w * zoom()), (int)(b.h * zoom()));
 }
 
 bool
 ComposerCanvas::stageRect (size_t chain, size_t stage,
-                           Gdk::Rectangle &at) const
+                           CanvasRect &at) const
 {
     const Box *b = boxFor(chain, stage);
 
@@ -1008,8 +961,8 @@ ComposerCanvas::releaseAt (double sx, double sy, int button)
 }
 
 void
-ComposerCanvas::onDraw (const Cairo::RefPtr<Cairo::Context> &cr,
-                        int width, int height)
+ComposerCanvas::draw (const Cairo::RefPtr<Cairo::Context> &cr,
+                      int width, int height)
 {
     cr->set_source_rgb(BG_R, BG_G, BG_B);
     cr->paint();
@@ -1213,9 +1166,9 @@ ComposerCanvas::enlargedRect (double &x, double &y, double &w,
     /* The part of the canvas that can be seen, in the same coordinates
        everything else here uses.
      *
-       The widget's own size is the whole drawing, not the view: this
+       The shell's own size is the whole drawing, not the view: this
        canvas sizes itself to the scaled content and lives in a
-       scroller, so a piece of eight chains makes get_height() eight
+       scroller, so a piece of eight chains makes the widget eight
        chains tall. Laying the enlarged stage out in that put it at the
        top of the content rather than in front of the person -- fine
        while scrolled to the origin, and off-screen the moment they were
@@ -1244,7 +1197,7 @@ ComposerCanvas::setEnlarged (const Selection &sel)
     feeding_ = false;
 
     sigEnlarged.emit(enlarged_);
-    queue_draw();
+    requestRedraw();
 }
 
 /* The one place a gesture becomes a plugin's business.
@@ -1280,7 +1233,7 @@ ComposerCanvas::feedInput (thcInputType type, double x, double y,
     ev.button = button;
 
     s->plugin->input(s->state, &ev);
-    queue_draw();
+    requestRedraw();
 
     return true;
 }
@@ -1330,7 +1283,7 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
             wireFrom_ = k;
             wireX_ = x;
             wireY_ = y;
-            queue_draw();
+            requestRedraw();
             return;
         }
     }
@@ -1392,7 +1345,7 @@ ComposerCanvas::onPressed (int nPress, double sx, double sy, int button)
             box->live != NULL && box->live->plugin->hasDraw())
         {
             setEnlarged(box->what);
-            grab_focus();
+            takeFocus();
             return;
         }
     }
@@ -1438,7 +1391,7 @@ ComposerCanvas::onReleased (int, double sx, double sy, int)
         const Box *over = hit(x, y);
 
         wireFrom_ = -1;
-        queue_draw();
+        requestRedraw();
 
         if (over != NULL && over->what.kind == Selection::STAGE &&
             over->live != NULL && doc_ != NULL &&
@@ -1485,7 +1438,7 @@ ComposerCanvas::onMotion (double sx, double sy)
         if (doc_ != NULL && b.what.index < doc_->knobs.size())
             sigKnob.emit(doc_->knobs[b.what.index].name, b.kv, false);
 
-        queue_draw();
+        requestRedraw();
         return;
     }
 
@@ -1493,7 +1446,7 @@ ComposerCanvas::onMotion (double sx, double sy)
     {
         wireX_ = x;
         wireY_ = y;
-        queue_draw();
+        requestRedraw();
         return;
     }
 
@@ -1501,10 +1454,12 @@ ComposerCanvas::onMotion (double sx, double sy)
         feedInput(THC_IN_DRAG, x, y, feedButton_);
 }
 
+/* Escape leaves the enlarged view. A canvas that fills itself with one
+   stage and offers no way back is a trap. */
 bool
-ComposerCanvas::onKey (guint keyval, guint, Gdk::ModifierType)
+ComposerCanvas::keyPressed (Key key)
 {
-    if (keyval == GDK_KEY_Escape && enlarged_.kind != Selection::NONE)
+    if (key == KEY_ESCAPE && enlarged_.kind != Selection::NONE)
     {
         setEnlarged(Selection());
         return true;
@@ -1564,7 +1519,7 @@ ComposerCanvas::onDragUpdate (double dx, double)
     if (std::abs(dragDx_) < 6 || dropAt_ == (int)d.what.index)
         dropAt_ = -1;
 
-    queue_draw();
+    requestRedraw();
 }
 
 void
@@ -1578,5 +1533,5 @@ ComposerCanvas::onDragEnd (double, double)
     dragBox_ = -1;
     dragDx_ = 0;
     dropAt_ = -1;
-    queue_draw();
+    requestRedraw();
 }

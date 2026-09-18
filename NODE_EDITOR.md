@@ -15,7 +15,8 @@ behaviour and layout.
 |---|---|
 | Arg direction in the plugin API | `thPlugin::ArgDir`, `regArg(name, dir)`, `argIsPort()` |
 | Graph model, layout, hit-testing | `src/NodeGraph.{h,cpp}` |
-| Canvas | `src/gui/NodeCanvas.{h,cpp}` |
+| Canvas: the drawing and the gestures, no toolkit | `src/NodeCanvas.{h,cpp}` over `src/CanvasContent.{h,cpp}` |
+| Canvas: the gtk widget around it | `src/gui/NodeCanvasWidget.{h,cpp}`, `src/gui/GraphCanvas.{h,cpp}` |
 | Position writer | `src/NodeLayout.{h,cpp}` |
 | Everything-else writer | `src/NodeEdit.{h,cpp}` |
 | Parameter panel | `src/gui/NodeParams.{h,cpp}` |
