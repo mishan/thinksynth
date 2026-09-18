@@ -374,3 +374,28 @@ details { margin: 0.8em 0; }
 #editor .cm-scroller { overflow: auto; }
 
 #numbers { min-height: 8em; }
+
+/*
+ * A canvas whose drawing is done in wasm (canvasview.js). The element is
+ * as big as the drawing and this scrolls it, which is the shape a Gtk
+ * scrolled window gives the same canvas on the desktop; the height is a
+ * view's worth, so a piece with twenty chains does not push the keyboard
+ * off the screen.
+ */
+.canvasview {
+    overflow: auto;
+    max-height: 60vh;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: #14161a;
+}
+
+.canvasview canvas {
+    display: block;
+    touch-action: none;         /* a drag paints; it does not pan */
+}
+
+.canvasview canvas:focus-visible {
+    outline: 2px solid var(--held);
+    outline-offset: -2px;
+}

@@ -29,6 +29,14 @@
  * browser could fetch them from, so they are bundled into jam.js with
  * everything they touch. The worklet imports only the module and tape.js
  * and is not bundled.
+ *
+ * Two imports have to be pointed somewhere else. The tape reader and the
+ * cairo stand-in's replayer both live outside this directory -- one in
+ * wasm/, shared with the Node host, the other in wasm/cairo2d, which has
+ * no knowledge of this tree at all -- and the build copies each in beside
+ * the pages under the name the browser loads it by. A module that is
+ * loaded both ways, bundled here and fetched there, therefore imports the
+ * copied name; the plugin below is how the bundler finds the original.
  */
 
 import path from 'node:path';
@@ -45,8 +53,23 @@ if (out === undefined)
     process.exit(2);
 }
 
+const COPIED_IN = {
+    './replay.js': path.join(here, '..', 'cairo2d', 'replay.js'),
+    './tape.js': path.join(here, '..', 'tape.mjs'),
+};
+
+const copiedIn = {
+    name: 'copied-in',
+    setup (build)
+    {
+        build.onResolve({ filter: /^\.\/(replay|tape)\.js$/ }, (args) =>
+            ({ path: COPIED_IN[args.path] }));
+    },
+};
+
 await esbuild.build({
     entryPoints: [path.join(here, 'jam.js')],
+    plugins: [copiedIn],
     bundle: true,
     format: 'esm',
     target: ['es2022'],

@@ -43,6 +43,7 @@ import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
     from './commands.js';
 import { hashOf, instrumentTexts, pieceName, pieceText } from './doc.js';
 import { Editor, colourOf } from './editor.js';
+import { createComposerView } from './composerview.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { setKnob, showKnobs } from './knobs.js';
@@ -50,6 +51,7 @@ import { Mesh } from './mesh.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
 import { Room } from './room.js';
+import { TapeDiff } from './tapediff.js';
 import { tapeLine } from '../tape.mjs';
 
 const $ = (id) => document.getElementById(id);
@@ -93,6 +95,13 @@ let synth = null;
 let audioClock = null;
 let transport = null;
 let roll = null;
+
+/* The piece's picture, drawn by the mirror -- a second instance of the
+   module in a worker, fed the commands this page's worklet is fed
+   (JAM_M6.md, sections 4 and 6) -- and the two tapes held against each
+   other, which is a determinism check a room gets for nothing. */
+let composer = null;
+const diff = new TapeDiff();
 let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
 let maker = null;
@@ -551,6 +560,7 @@ function showNumbers ()
             (transport.running ? `${transportNow().toFixed(3)} s` : 'stopped'));
 
     lines.push(
+        `tape v mirror        ${diff.summary()}`,
         `late commands        ${lateCount} applied late by the worklet` +
         (lateSeen > 0
              ? `; the page saw ${lateSeen}: ` +
@@ -580,6 +590,7 @@ function enable ()
 
 function tape (m)
 {
+    diff.take('worklet', m);
     roll.tape(m);
     transport.report(m, performance.now());
     lateCount = m.late;
@@ -592,6 +603,37 @@ function tape (m)
 
     for (const e of m.events)
         tapeText += tapeLine(e);
+}
+
+/* ---- the composer view ---- */
+
+/* Everything the mirror says: the frames it drew and the gestures its
+   canvas wants sent go to the view, its tape is held against the
+   worklet's, and the rest is a line in the log. */
+function fromMirror (m)
+{
+    if (composer !== null && composer.fromMirror(m))
+        return;
+
+    if (m.type === 'tape')
+        diff.take('mirror', m);
+    else if (m.type === 'log')
+        log(m.text);
+}
+
+function showComposer ()
+{
+    /* A gesture is a command like a knob: stamped with the knob lead,
+       broadcast, and applied at the time it names on every peer, this one
+       included. So a Life board somebody paints on is the same board
+       everywhere from that beat (JAM_M6.md, section 5). */
+    composer ??= createComposerView({
+        toMirror: (m) => synth?.toMirror(m),
+        onGesture: (g) => send(maker.input(g.chain, g.stage, g.kind, g.x,
+                                           g.y, g.w, g.h, g.button)),
+    });
+
+    composer.show(true);
 }
 
 function exportTape ()
@@ -687,7 +729,8 @@ async function start ()
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
         synth = await createSynth(ctx, { windowlen: 256, onLog: log,
-                                         onTape: tape });
+                                         onTape: tape,
+                                         onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }
@@ -728,6 +771,8 @@ async function start ()
     sampleAudioClock();
     setInterval(() => { sampleAudioClock(); showNumbers(); enable(); },
                 1000);
+
+    showComposer();
 
     await loadFromDoc();
     status(`Started. Claim a seat and press Play.`);

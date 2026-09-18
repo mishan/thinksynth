@@ -272,8 +272,11 @@ stands.
 - The composer canvas compiled into the module and drawing the piece,
   and a click on a composer's picture as one more stamped command --
   made where the rectangle was drawn, applied at its time on every peer.
-- Not yet: the mirror's worker and the page's composer tab, and the node
-  editor.
+- The mirror in a worker, the piece's picture on both pages, and the two
+  tapes held against each other and counted -- a determinism check a room
+  gets for nothing. Two browsers in a room paint the same Life board on
+  the same beat.
+- Not yet: the node editor.
 
 ## 1. The three kinds of state
 

@@ -82,8 +82,20 @@ On `jam-m6`, which starts where `game-music` ends:
   the canvas in shell pixels -- and holds each clicked tape against the
   untouched one so that a click that changed nothing cannot pass as
   agreement.
-- Next, in order: the mirror's worker and the tape diff (4), the
-  composer tab (6.3), the node editor (7).
+- **The mirror's worker and the composer tab** (sections 4 and 6.3) are
+  in: `mirror.js`, the worker holding the module with the canvas beside
+  the scheduler it draws from; `host.js`'s second port, which is the tee
+  -- one function, so "fed the messages the worklet is fed" is a
+  property of the code; `canvasview.js`, the page's half of the shared
+  shell, which knows nothing about what it is showing and is what the
+  node editor's canvas will use; and `composerview.js`, the little that
+  is particular to the composer view, on both pages. `tapediff.js` holds
+  the two tapes against each other and both pages show the count.
+  `pagetest` presses on the solo page's view and `jamtest` paints a Life
+  board in a room from one browser and finds the same board in the
+  other, and not the tape of the run nobody painted on -- which is the
+  first half of gate 8.3.
+- Next: the node editor (7), and then 8.4 by hand.
 - A correction to section 0a, found by the gate: **two** composers take
   input, not three. `ca` and `life` do; `evolve` says in its own header
   that interactive evolution wants the `composer_input` ABI and is

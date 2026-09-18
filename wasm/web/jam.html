@@ -43,6 +43,21 @@
 
   <div id="knobs"></div>
 
+  <!-- The piece's picture, drawn by the mirror: a second scheduler in a
+       worker, fed the same commands this page's worklet is fed, holding
+       real composer instances (JAM_M6.md, sections 4 and 6). A gesture on
+       an enlarged picture is a command like a knob -- stamped, sent, and
+       applied at its time on every peer, so what one person paints
+       everybody sees on the same beat. -->
+  <details id="composerview" open>
+    <summary>The composers</summary>
+    <div id="composerscroll" class="canvasview">
+      <canvas id="composer" tabindex="0"></canvas>
+    </div>
+    <div class="row" id="composerstages"></div>
+    <p id="composerstatus" class="hint"></p>
+  </details>
+
   <!-- The instrument, as on the solo page. -->
   <section id="keyboard">
     <div class="row">

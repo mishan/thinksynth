@@ -33,6 +33,11 @@
  * genwav.mjs's for the same piece and the same command stream, and the
  * late count on both is zero.
  *
+ * Then a second room on a piece whose picture is a control: one page
+ * plays, the other enlarges gen::life's board and paints a line across it
+ * with a pointer, and the two tapes have to be one tape -- and not the
+ * tape of the run nobody painted on (JAM_M6.md, section 8.3).
+ *
  * Live rather than offline, because two peers have to agree on a clock
  * and an offline context has none. A headless browser has no sound card,
  * but it renders an AudioContext in real time all the same, and real time
@@ -61,6 +66,12 @@ const nodeBuild = path.resolve(process.argv[3] ??
 
 const PIECE = 'airports.gen';
 const SECONDS = 30;
+
+/* The second half: a piece whose picture is a control, painted on from one
+   page while the other listens (JAM_M6.md, section 8.3). Shorter, because
+   what is under test is agreement and not endurance. */
+const PAINT_PIECE = 'colony.gen';
+const PAINT_SECONDS = 14;
 
 let failures = 0;
 
@@ -96,6 +107,140 @@ if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
     process.stdout.write(`jamtest: no Node module in ${nodeBuild}; build ` +
                          'it first -- see the top of wasm/CMakeLists.txt.\n');
     process.exit(1);
+}
+
+/*
+ * The second room: colony.gen, whose gen::life stage has a picture that is
+ * a control. One page plays; the other enlarges that picture and paints a
+ * line across it with a real pointer.
+ *
+ * Two things have to be true afterwards, and the second is the one that
+ * matters. The two tapes have to be one tape -- a gesture is a command,
+ * stamped and applied at its time on every peer, so a board painted on one
+ * screen is the same board on both. And that tape must NOT be the one
+ * genwav composes from the same piece and the same transport commands,
+ * which is the run nobody painted on: a click that changed nothing would
+ * look exactly like agreement, which is what gen/hands.gen taught this
+ * harness the first time round.
+ */
+async function paintTogether (pages)
+{
+    const [A, B] = pages;
+
+    for (const { label, page } of pages)
+    {
+        await page.goto(`${url}?room=jampaint&name=${label}` +
+                        `&piece=${PAINT_PIECE}`);
+        await page.waitForFunction(
+            () => !document.getElementById('roompanel').hidden,
+            null, { timeout: 15000 });
+        await page.click('#start');
+        await page.waitForFunction(() => window.jam.ready(), null,
+                                   { timeout: 20000 });
+    }
+
+    for (const { page } of pages)
+        await page.waitForFunction(
+            () => window.jam.peers().every((p) => p.path !== 'connecting'),
+            null, { timeout: 15000 }).catch(() => {});
+
+    /* The painter's page: the mirror said what the piece has, and what
+       can be painted on is a button. */
+    await B.page.waitForSelector('#composerstages button', { timeout: 30000 });
+    await B.page.click('#composerstages button');
+    await B.page.waitForFunction(
+        () => /^Painting /.test(
+            document.getElementById('composerstatus').textContent),
+        null, { timeout: 15000 });
+
+    ok(`${B.label} enlarged ` +
+       `${await B.page.textContent('#composerstages button')}`);
+
+    await A.page.evaluate(() => window.jam.play());
+
+    const t0 = Date.now();
+    const at = (ms) => new Promise((r) =>
+        setTimeout(r, Math.max(0, t0 + ms - Date.now())));
+
+    await at(3000);
+
+    /* A line across the enlarged board, with the pointer. The scroller's
+       box and not the canvas's: the element is as big as the whole
+       drawing and the scroller clips it, and the enlarged picture fills
+       what can be seen. */
+    await B.page.locator('#composerscroll').scrollIntoViewIfNeeded();
+
+    const box = await B.page.$eval('#composerscroll', (d) =>
+    {
+        const r = d.getBoundingClientRect();
+
+        return { x: r.x, y: r.y, w: d.clientWidth, h: d.clientHeight };
+    });
+
+    await B.page.mouse.move(box.x + box.w * 0.3, box.y + box.h * 0.5);
+    await B.page.mouse.down();
+
+    for (let i = 1; i <= 8; i++)
+    {
+        await B.page.mouse.move(box.x + box.w * (0.3 + 0.045 * i),
+                                box.y + box.h * 0.5);
+        await new Promise((r) => setTimeout(r, 50));
+    }
+
+    await B.page.mouse.up();
+
+    await at(PAINT_SECONDS * 1000);
+    await A.page.evaluate(() => window.jam.stop());
+    await at(PAINT_SECONDS * 1000 + 3000);
+
+    const results = [];
+
+    for (const { label, page } of pages)
+        results.push({ label, ...(await page.evaluate(() => ({
+            tape: window.jam.tape(),
+            sent: window.jam.sent(),
+        }))) });
+
+    const sent = results.flatMap((r) => r.sent)
+        .filter((c) => c.at >= 0)
+        .sort((a, b) => a.at - b.at);
+    const painted = sent.filter((c) => c.type === 'input');
+    const stopAt = sent.find((c) => c.op === 'stop')?.at;
+
+    if (painted.length === 0)
+    {
+        fail('nothing was painted, so nothing about painting was tested');
+        return;
+    }
+
+    ok(`${painted.length} gestures went out as commands, ` +
+       `stamped ${painted[0].at.toFixed(3)} to ` +
+       `${painted.at(-1).at.toFixed(3)}`);
+
+    if (stopAt === undefined)
+    {
+        fail('no stop was sent in the painted room');
+        return;
+    }
+
+    const tapes = results.map((r) => tapeBefore(r.tape, stopAt));
+
+    if (tapes[0] === tapes[1])
+        ok('a board painted on one screen is the same board on both: ' +
+           `${tapes[0].split('\n').length - 1} events`);
+    else
+        fail(`the painted tapes differ: ` +
+             `${firstDifference(tapes[0], tapes[1])}`);
+
+    const untouched = reference(PAINT_PIECE, nodeBuild,
+                                { commands: sent.filter(
+                                      (c) => c.type !== 'input'),
+                                  knobs: {}, stopAt });
+
+    if (tapes[0] !== untouched)
+        ok('and it is not the tape of the run nobody painted on');
+    else
+        fail('painting the board changed nothing about what it played');
 }
 
 if (!fs.existsSync(path.join(build, 'jam.js')))
@@ -327,6 +472,26 @@ try
                  (r.log ? `\n      ${r.log.trim().split('\n').join('\n      ')}`
                         : ''));
     }
+
+    /* Each page held its worklet's tape against its mirror's, event for
+       event, all the way through: two instances of one module on one
+       stream of commands have to compose one piece, and a room gets that
+       check for nothing (JAM_M6.md, section 4). */
+    for (const r of results)
+    {
+        const line = /tape v mirror\s+(.*)/.exec(r.numbers)?.[1] ?? '';
+        const compared = Number(/of (\d+) event/.exec(line)?.[1] ?? 0);
+
+        if (/^none/.test(line) && compared > 0)
+            ok(`${r.label}'s mirror composed what its worklet composed, ` +
+               `${compared} events`);
+        else
+            fail(`${r.label}: tape against mirror is "${line}"`);
+    }
+
+    /* ---- and now somebody paints on a Life board ---- */
+
+    await paintTogether(pages);
 
     for (const e of errors)
         fail(`page error: ${e}`);

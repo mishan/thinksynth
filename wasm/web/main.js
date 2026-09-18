@@ -61,7 +61,9 @@
  * on is how they stop agreeing.
  */
 
+import { createComposerView } from './composerview.js';
 import { createSynth } from './host.js';
+import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
 import { showKnobs } from './knobs.js';
 import * as patch from './patch.js';
@@ -88,6 +90,19 @@ const sounding = new Map();
    roll of what it has delivered since. */
 let piece = null;
 let roll = null;
+
+/* The composer view: the piece's own picture, drawn by the mirror -- a
+   second scheduler in a worker, fed the messages the worklet is fed, with
+   real composer instances in it (JAM_M6.md, sections 4 and 6). The page's
+   half of it is an element and a pointer; everything else is the same C++
+   the desktop draws with. */
+let composer = null;
+
+/* The worklet's tape against the mirror's. Two instances of one module on
+   one stream of messages have to compose one piece, and this is that claim
+   checked continuously while somebody plays -- for nothing, since both
+   tapes are already being posted. */
+const diff = new TapeDiff();
 
 /* The channels somebody has aimed by hand in this session, as channel ->
    the .patch or .dsp they chose. A piece that loads afterwards keeps
@@ -219,7 +234,8 @@ function showLatency ()
         `synth window     ${synth.windowlen} frames, ` +
         `${ms(synth.windowlen / rate)}\n` +
         `worklet quantum  128 frames, ${ms(128 / rate)}\n` +
-        `octave           Z = ${noteName(keys.lowest)}`;
+        `octave           Z = ${noteName(keys.lowest)}\n` +
+        `tape v mirror    ${diff.summary()}`;
 }
 
 /* ---- the patch, M1 ---- */
@@ -563,7 +579,12 @@ async function start ()
     {
         ctx = new AudioContext({ latencyHint: 'interactive' });
         synth = await createSynth(ctx, { windowlen: 256, onLog: log,
-                                         onTape: (m) => roll.tape(m) });
+                                         onTape: (m) =>
+                                         {
+                                             diff.take('worklet', m);
+                                             roll.tape(m);
+                                         },
+                                         onMirror: fromMirror });
         synth.node.connect(ctx.destination);
         await ctx.resume();
     }
@@ -613,8 +634,42 @@ async function start ()
     else
         await loadPiece();
 
+    showComposer(mode() === 'piece');
+
     showLatency();
     setInterval(showLatency, 500);
+}
+
+/* ---- the composer view ---- */
+
+/* Everything the mirror says. The view takes the frames it draws, the
+   piece it loaded and the gestures its canvas wants sent; the tape is
+   held against the worklet's here, and anything else is a line in the
+   log. */
+function fromMirror (m)
+{
+    if (composer !== null && composer.fromMirror(m))
+        return;
+
+    if (m.type === 'tape')
+        diff.take('mirror', m);
+    else if (m.type === 'log')
+        log(m.text);
+}
+
+function showComposer (on)
+{
+    /* On a solo page there are no peers and no lead to wait out, so a
+       gesture is stamped for the next window, as this page's knobs are.
+       It still goes the long way round -- out as a command, back in at
+       its time -- because that is the one path a piece is composed
+       from. */
+    composer ??= createComposerView({
+        toMirror: (m) => synth?.toMirror(m),
+        onGesture: (g) => synth?.input({ ...g, at: -1 }),
+    });
+
+    composer.show(on);
 }
 
 async function pickMode ()
@@ -628,6 +683,8 @@ async function pickMode ()
 
     if (synth === null)
         return;
+
+    showComposer(piecing);
 
     releaseAll();
 

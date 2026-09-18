@@ -347,20 +347,24 @@ jobs:
       - name: Every seeded piece, against genwav; and every piece audible
         run: node wasm/web/piececheck.mjs
 
-      # Every picture in every shipped piece, drawn through the module and
-      # replayed: the composers' draws are in the browser build now, and
-      # what they produce is a list of ops rather than pixels (JAM_M6.md,
-      # section 3). Each list has to be walkable by the arity table alone
-      # and known to replay.js op for op, and every composer that says it
-      # draws has to have drawn something somewhere in the corpus.
-      - name: Every picture in every piece
+      # Every picture in every shipped piece, and the composer canvas
+      # around them, drawn through the module and replayed: the draws are
+      # in the browser build now, and what they produce is a list of ops
+      # rather than pixels (JAM_M6.md, section 3). Each list has to be
+      # walkable by the arity table alone and known to replay.js op for
+      # op, and every composer that says it draws has to have drawn
+      # something somewhere in the corpus.
+      - name: Every picture in every piece, and the canvas around them
         run: node wasm/web/drawcheck.mjs
 
       # The mirror (JAM_M6.md, section 4): the module twice in one process,
       # one rendering and one with a synth that never renders, both fed the
       # same messages through the same handler, the second stepped to the
       # frame the first's tape batch reached. One tape, for every seeded
-      # piece -- and the mirror dropped nothing and made no sound.
+      # piece -- and the mirror dropped nothing and made no sound. Then
+      # every piece with a picture that is a control, clicked: by script
+      # and through the canvas, each time one tape between the two and
+      # not the untouched one (JAM_M6.md, section 5).
       - name: A mirror composes what the worklet composes
         run: node wasm/web/mirrortest.mjs
 
@@ -386,8 +390,12 @@ jobs:
       # The solo page itself, which nothing above opens: the octave, the
       # sliders a piece's knobs are drawn as, and a computer key held and
       # let go. Both pages share keyboard.js and knobs.js, so this is
-      # where a change to either shows up first.
-      - name: The page's keys and knobs
+      # where a change to either shows up first. Then the composer view
+      # (JAM_M6.md, sections 4 to 6), which has a whole second engine
+      # behind it: the picture arrives from the mirror worker and is
+      # replayed, a stage is enlarged, and a drag on it leaves as a
+      # command and comes back as a board that has changed.
+      - name: The page's keys, knobs and composer view
         working-directory: wasm/web
         run: node pagetest.mjs
 
@@ -403,6 +411,11 @@ jobs:
       # one pressing Play, a knob moved from each side, and one tape
       # between them -- genwav's, under the same commands. Live, because
       # two peers agreeing on a clock is the thing under test.
+      #
+      # Then M6's (JAM_M6.md, section 8.3): a second room on a piece whose
+      # picture is a control, where one page plays and the other paints a
+      # line across gen::life's board with a pointer. One tape between the
+      # two, and not the tape of the run nobody painted on.
       - name: Two browsers, one room
         working-directory: wasm/web
         run: node jamtest.mjs
