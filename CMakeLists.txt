@@ -29,9 +29,18 @@ include(TestBigEndian)
 #
 # Bump lib_major when libthink's ABI changes. ARCHITECTURE.md records what goes
 # wrong when a stale copy with an older soname is left in /usr/local/lib.
+#
+# 7: thPlugin::ArgInfo grew a range and a unit. thPlugin itself is the same
+# size -- ArgInfo lives in a vector -- so MODULE_IFACE_VER did not move and a
+# plugin built against the older header still loads. What did move is the
+# stride of that vector, and getArgName, getArgDir, getArgStep and the rest are
+# inlined into whatever includes thPlugin.h. A binary compiled against this
+# header and linked against a libthink that fills the vector with the older
+# ArgInfo therefore reads every arg at the wrong offset, and reads it silently.
+# That is the case the soname exists to make loud.
 # ---------------------------------------------------------------------------
 
-set(THINK_LIB_MAJOR 6)
+set(THINK_LIB_MAJOR 7)
 set(THINK_LIB_MINOR 0)
 
 # ---------------------------------------------------------------------------

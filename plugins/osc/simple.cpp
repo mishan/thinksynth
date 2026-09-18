@@ -66,15 +66,26 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    /* No range: the wavelength is samples/freq, so the top is Nyquist and
+       that is not a number this call knows. Every hertz arg is the same. */
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMP], "Peak amplitude");
+    plugin->setArgRange(args[IN_AMP], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_AMP], "full scale");
     /* The plugin already had this default, written where nothing
        could read it: `if (amp_max == 0) amp_max = TH_MAX;' */
     plugin->setArgDefault(args[IN_AMP], TH_MAX);
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_PW],
+                       "Pulse width: how much of the cycle is the first half");
+    plugin->setArgRange(args[IN_PW], 0, 1);
     /* The plugin already had this default, written where nothing
        could read it: `if (pw == 0) pw = 0.5;' */
     plugin->setArgDefault(args[IN_PW], 0.5);
     args[IN_WAVEFORM] = plugin->regArg("waveform", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_WAVEFORM], "Which wave");
 
     /* Read `switch ((int)buf_waveform[i])', so it is a selector and not a
        parameter: 3.4 is a triangle and so is 3.9. Saying so is what lets a
@@ -85,20 +96,37 @@ int module_init (thPlugin *plugin)
 
     args[IN_FM] = plugin->regArg("fm", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FM], "FM Input");
+    plugin->setArgRange(args[IN_FM], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_FM], "full scale");
     args[IN_FMAMT] = plugin->regArg("fmamt", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_FMAMT], "Modulation amount");
+    /* `position += 1 + (fm/TH_MAX) * fmamt', so this is how far the phase
+       jumps ahead per sample at full modulation. */
+    plugin->setArgUnits(args[IN_FMAMT], "samples");
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RESET], "Reset position to 0 when this goes to 1");
+    plugin->setArgRange(args[IN_RESET], 0, 1);
     args[IN_MUL] = plugin->regArg("mul", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_MUL], "Multiply the wavelength by this");
+    /* The plugin's own comment on this arg said "Multiply the wavelength by
+       this", which is the wrong way round -- `freq *= mul' multiplies the
+       frequency, and the line below it calls mul a frequency multiplier.
+       dsp/organ0.dsp drives it with drawbar ratios, which only make sense as
+       one. Harvesting an author's words is the rule; carrying an inverted one
+       into a reference is not. */
+    plugin->setArgDesc(args[IN_MUL], "Multiply the frequency by this");
+    plugin->setArgUnits(args[IN_MUL], "ratio");
     /* The plugin already had this default, written where nothing
        could read it: `if (mul) freq *= mul;' -- a 0 multiplies by nothing, which is a 1 */
     plugin->setArgDefault(args[IN_MUL], 1);
 
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The wave");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_SYNC], "Output a 1 when the wave begins its cycle");
+    plugin->setArgRange(args[OUT_SYNC], 0, 1);
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 

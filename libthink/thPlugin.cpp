@@ -131,6 +131,24 @@ void thPlugin::setArgDefault (int index, float value)
     args_[index].hasDefault = true;
 }
 
+void thPlugin::setArgRange (int index, float min, float max)
+{
+    if (index < 0 || index >= (int)args_.size())
+        return;
+
+    args_[index].min = min;
+    args_[index].max = max;
+    args_[index].hasRange = true;
+}
+
+void thPlugin::setArgUnits (int index, const string &units)
+{
+    if (index < 0 || index >= (int)args_.size())
+        return;
+
+    args_[index].units = units;
+}
+
 int thPlugin::moduleLoad (void)
 {
     ModuleInit module_init;

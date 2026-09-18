@@ -256,8 +256,12 @@ int main (int argc, char **argv)
                 ok("a plugin names its selector's values, and that implies a "
                    "step");
 
-            /* An arg nobody said anything about stays continuous, which is
-               what every other arg of every other plugin is. */
+            /* What regArg leaves alone stays alone. `freq' declares a
+               description and a unit and nothing else, so it is still the arg
+               that shows the other four fields defaulting: continuous, no
+               named values, no zero-case default, and no range -- the last
+               because a frequency's ceiling is Nyquist, which module_init
+               does not know the sample rate to compute. */
             int freq = -1;
 
             for (int k = 0; k < p->argCount(); k++)
@@ -266,19 +270,21 @@ int main (int argc, char **argv)
 
             if (freq < 0 || p->getArgStep(freq) != 0 ||
                 !p->getArgValues(freq).empty())
-                fail("an undeclared arg stays continuous", "");
-            else if (!p->getArgDesc(freq).empty() || p->argHasDefault(freq))
-                fail("an undeclared arg has no description and no default",
-                     p->getArgDesc(freq));
+                fail("an arg nobody stepped stays continuous", "");
+            else if (p->argHasDefault(freq) || p->argHasRange(freq))
+                fail("an arg with no declared default or range has neither",
+                     "");
+            else if (p->getArgUnits(freq) != "Hz")
+                fail("freq is declared in hertz", p->getArgUnits(freq));
             else
-                ok("an arg the plugin says nothing about stays continuous, "
-                   "undescribed and without a default");
+                ok("an arg carries what its plugin declared and defaults for "
+                   "the rest");
 
-            /* The description is the plugin author's own trailing comment,
-               moved somewhere a panel can read it. Checked against the text
-               rather than merely for non-emptiness: the point of harvesting
-               these instead of writing them is that they say what the author
-               said. */
+            /* Checked against the text rather than merely for non-emptiness,
+               so that a description cannot quietly become a placeholder.
+               `mul' in particular: the author's own comment said "Multiply the
+               wavelength by this" and the callback does `freq *= mul', so the
+               text here is the corrected one. */
             int mul = -1;
 
             for (int k = 0; k < p->argCount(); k++)
@@ -287,11 +293,13 @@ int main (int argc, char **argv)
 
             if (mul < 0)
                 fail("osc::simple registers mul", "");
-            else if (p->getArgDesc(mul) != "Multiply the wavelength by this")
-                fail("mul carries the comment the plugin already had",
+            else if (p->getArgDesc(mul) != "Multiply the frequency by this")
+                fail("mul says which way round it multiplies",
                      p->getArgDesc(mul));
+            else if (p->getArgUnits(mul) != "ratio")
+                fail("mul is a ratio", p->getArgUnits(mul));
             else
-                ok("an arg's description is the one its author wrote");
+                ok("an arg's description says what the callback does");
 
             /* And the default is the plugin's own zero-case: osc::simple does
                `if (amp_max == 0) amp_max = TH_MAX;', so its amp already had a
@@ -309,6 +317,24 @@ int main (int argc, char **argv)
             else
                 ok("a default is the plugin's own zero-case, not a taste "
                    "judgement");
+
+            /* A range is the span the callback is defined over. pw is a
+               fraction of the cycle, so 0 to 1 and no other numbers are
+               meaningful -- which is a different claim from the 0..127 a
+               thArg carries by construction, and the reason the two are
+               separate fields. */
+            int pw = -1;
+
+            for (int k = 0; k < p->argCount(); k++)
+                if (p->getArgName(k) == "pw")
+                    pw = k;
+
+            if (pw < 0 || !p->argHasRange(pw))
+                fail("osc::simple declares a range for pw", "");
+            else if (p->getArgMin(pw) != 0 || p->getArgMax(pw) != 1)
+                fail("pw runs 0 to 1", "");
+            else
+                ok("an arg carries the span its callback is defined over");
         }
 
         /* The plugin outlives this -- thPluginManager owns it and the synth

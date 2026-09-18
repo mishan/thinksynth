@@ -26,7 +26,10 @@
 
 #define SQR(x) ((x)*(x))
 
-static const char desc[] = "Multiple Parabola Waves";
+/* Not parabolas: a sine plus `waves - 1' ramps, spread either side of freq.
+   osc::multiwave shipped with this same description and is the one that
+   stacks a series. */
+static const char desc[] = "Sums a sine and detuned ramps";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -45,21 +48,50 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_WAVES] = plugin->regArg("waves", thPlugin::ARG_IN);
-    /* `(int)(*in_waves)[0]' -- a count of oscillators. */
+    /* `(int)(*in_waves)[0]' -- a count of oscillators, read once per window
+       from sample 0 and used to size the state, so modulating it is not a
+       thing this does. */
     plugin->setArgStep(args[IN_WAVES], 1);
+    plugin->setArgDesc(args[IN_WAVES], "How many partials to sum");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* The first partial is a sine; the rest are ramps. */
+    plugin->setArgDesc(args[OUT_ARG], "The sum of the partials");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_SYNC] = plugin->regArg("sync", thPlugin::ARG_OUT);
+    /* Sized every window and never written -- see the callback. Declared so
+       that a .dsp wiring it gets a window of zeroes rather than one value. */
+    plugin->setArgDesc(args[OUT_SYNC], "Allocated but never written");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[INOUT_FREQ] = plugin->regArg("freqbuffer", thPlugin::ARG_STATE);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency of the first partial");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMP], "Peak amplitude of the first partial");
+    plugin->setArgRange(args[IN_AMP], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_AMP], "full scale");
     /* The plugin already had this default, written where nothing
        could read it: `if (amp_max == 0) amp_max = TH_MAX;' */
     plugin->setArgDefault(args[IN_AMP], TH_MAX);
+
+    /* Partial j runs at `freq * (1 + sin(j*detunefreq/2pi) * detuneamt)' and
+       at `amp * (ampmul^j + ampadd*j)'. Where osc::multiwave stacks a series,
+       this spreads the partials either side of freq by a sine of their index:
+       detuneamt is the spread, detunefreq how fast it alternates as j rises. */
     args[IN_DETUNEFREQ] = plugin->regArg("detunefreq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_DETUNEFREQ],
+                       "How fast the detune alternates across the partials");
     args[IN_DETUNEAMT] = plugin->regArg("detuneamt", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_DETUNEAMT],
+                       "How far a partial may sit from freq");
+    plugin->setArgUnits(args[IN_DETUNEAMT], "ratio");
     args[IN_AMPMUL] = plugin->regArg("ampmul", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMPMUL],
+                       "Partial j is this to the power of j times amp");
+    plugin->setArgUnits(args[IN_AMPMUL], "ratio");
     args[IN_AMPADD] = plugin->regArg("ampadd", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMPADD], "...plus this times j");
+    plugin->setArgUnits(args[IN_AMPADD], "ratio");
     return 0;
 }
 

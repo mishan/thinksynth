@@ -336,6 +336,7 @@ Documentation
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | the layers, key classes, threading model, audio and MIDI paths |
 | [DSP_FORMAT.md](DSP_FORMAT.md) | the `.dsp` and `.patch` formats, and the rules for writing them |
+| [NODES.md](NODES.md) | every node's args: direction, default, range, units. Generated from the plugins |
 | [AUDIO.md](AUDIO.md) | the output stage: clamping, gain staging, arg initialisation, the harnesses |
 | [NODE_EDITOR.md](NODE_EDITOR.md) | the visual editor's model, behaviour and layout |
 | [VISUALIZERS.md](VISUALIZERS.md) | writing a visual module, and how probes work |

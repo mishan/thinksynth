@@ -205,6 +205,22 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
     if (!p.units.empty())
         tip = "in " + p.units;
 
+    /* The plugin's range, where it declared one. Not p.min and p.max: those
+       are a control's travel and a node arg has none, so this is the only
+       thing that says what filt::moog's cutoff wants against
+       filt::res2pole2's. */
+    if (p.hasRange)
+    {
+        char span[80];
+
+        snprintf(span, sizeof(span), "%g to %g", p.rangeMin, p.rangeMax);
+
+        if (tip.empty())
+            tip = span;
+        else
+            tip += ", " + string(span);
+    }
+
     /* The names beside the number rather than instead of it.
      *
      * A dropdown would be the better widget, and it is what the overview panel

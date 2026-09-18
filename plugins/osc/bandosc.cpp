@@ -42,11 +42,22 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
     
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_BAND] = plugin->regArg("band", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_BAND], "Band Freq");
+    /* Each pulse is one cycle of a sine at this frequency, clamped so it
+       never outruns the wave; the gaps between are silence. */
+    plugin->setArgDesc(args[IN_BAND],
+                       "Frequency of the sine each pulse is cut from");
+    plugin->setArgUnits(args[IN_BAND], "Hz");
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_PW], "Pulse Width");
+    plugin->setArgDesc(args[IN_PW],
+                       "Pulse width: how the silence splits either side");
+    plugin->setArgRange(args[IN_PW], 0, 1);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The wave");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
     return 0;

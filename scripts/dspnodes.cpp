@@ -1,0 +1,404 @@
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * dspnodes -- NODES.md, from the plugins themselves.
+ *
+ *     scripts/dspnodes -p plugins/ -o NODES.md
+ *     scripts/dspnodes -p plugins/ -c NODES.md      # the CI gate
+ *
+ * What a plugin's args are, what they are measured in and what range they
+ * accept lives in the plugin -- setArgDesc, setArgRange, setArgUnits,
+ * setArgDefault, setArgValues. Nothing collected it, so the only way to learn
+ * that filt::moog wants a cutoff from 0 to 1 while filt::res2pole2 wants
+ * hertz was to read both callbacks.
+ *
+ * The catalogue walk is the palette's (NodeCatalog), so the reference covers
+ * exactly what the editor offers, and the metadata is read straight off
+ * thPlugin. Hand-writing any of it would put a second copy beside the first
+ * and let them drift; instead `-c' diffs the committed file against a fresh
+ * one, and the build fails if they differ.
+ *
+ * Exit status is 0, 1 for a comparison that failed or a file that could not be
+ * written, 2 for bad usage.
+ */
+
+#include "config.h"
+
+#include <locale.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include <fstream>
+#include <sstream>
+#include <string>
+#include <vector>
+
+#include "think.h"
+
+#include "NodeCatalog.h"
+
+/* A cell's worth of float: %g, and nothing at all for an arg that declared
+   none. */
+static std::string
+number (float v)
+{
+    char buf[32];
+
+    snprintf(buf, sizeof(buf), "%g", v);
+
+    return buf;
+}
+
+/* `|' ends a cell, so an arg description containing one would rewrite the
+   table. None does; escaping it is a line against the day one does. */
+static std::string
+cell (const std::string &s)
+{
+    std::string out;
+
+    for (size_t i = 0; i < s.size(); i++)
+    {
+        if (s[i] == '|')
+            out += '\\';
+
+        out += s[i];
+    }
+
+    return out;
+}
+
+/* The two directories under plugins/ that are not DSP nodes.
+ *
+ * A composer module is a thcPlugin and a visualizer is the cairo ABI in
+ * VISUALIZERS.md; neither exports module_init, so thPlugin refuses them and
+ * says so on stderr. NodeCatalog walks the directory and cannot tell -- it
+ * knows filenames -- so the list is here, where "what a .dsp can name" is the
+ * question being answered. */
+static bool
+isNodeCategory (const std::string &category)
+{
+    return category != "composer" && category != "visual";
+}
+
+static const char *
+dirName (thPlugin::ArgDir d)
+{
+    switch (d)
+    {
+        case thPlugin::ARG_OUT:   return "out";
+        case thPlugin::ARG_STATE: return "state";
+        default:                  return "in";
+    }
+}
+
+/* One plugin's section. */
+static void
+writePlugin (std::ostream &o, const std::string &spelling, thPlugin *p)
+{
+    o << "### " << spelling << "\n\n";
+
+    if (p == NULL)
+    {
+        o << "Does not load.\n\n";
+        return;
+    }
+
+    if (!p->desc().empty())
+        o << cell(p->desc()) << "\n\n";
+
+    if (p->argCount() == 0)
+    {
+        o << "No args.\n\n";
+        return;
+    }
+
+    o << "| Arg | Dir | Description | Default | Range | Units | Values |\n";
+    o << "|---|---|---|---|---|---|---|\n";
+
+    for (int k = 0; k < p->argCount(); k++)
+    {
+        std::string range;
+
+        if (p->argHasRange(k))
+            range = number(p->getArgMin(k)) + " to " + number(p->getArgMax(k));
+
+        std::string values;
+
+        const vector<string> &names = p->getArgValues(k);
+
+        for (size_t i = 0; i < names.size(); i++)
+        {
+            if (names[i].empty())
+                continue;   /* an index the plugin does not implement */
+
+            if (!values.empty())
+                values += ", ";
+
+            values += number((float)i) + " = " + cell(names[i]);
+        }
+
+        o << "| `" << p->getArgName(k) << "` "
+          << "| " << dirName(p->getArgDir(k)) << " "
+          << "| " << cell(p->getArgDesc(k)) << " "
+          << "| " << (p->argHasDefault(k) ? number(p->getArgDefault(k)) : "")
+          << " | " << range
+          << " | " << cell(p->getArgUnits(k))
+          << " | " << values << " |\n";
+    }
+
+    o << "\n";
+}
+
+static bool
+writeReference (std::ostream &o, const std::string &pluginPath)
+{
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    thPluginManager *pm = synth.getPluginManager();
+
+    if (pm == NULL)
+        return false;
+
+    NodeCatalog cat;
+
+    if (cat.scan(pm->pluginPath()) == 0)
+        return false;
+
+    o << "# Node reference\n"
+         "\n"
+         "Every plugin the build makes, and what each of its args is for.\n"
+         "\n"
+         "**Generated by `scripts/dspnodes`.** Do not edit: run\n"
+         "`cmake --build build --target nodes` after changing any of a\n"
+         "plugin's `setArgDesc`, `setArgRange`, `setArgUnits`,\n"
+         "`setArgDefault` or `setArgValues` calls, or its `setDesc`. CI\n"
+         "regenerates it and fails if the two differ, so the reference\n"
+         "cannot go stale.\n"
+         "\n"
+         "**Dir** is `in` for an arg a .dsp may write or wire, `out` for one\n"
+         "the plugin writes, and `state` for scratch it keeps between windows\n"
+         "-- a delay line's ring, an envelope's position. State is listed for\n"
+         "completeness; it is not a port and nothing may wire it.\n"
+         "\n"
+         "**Default** is what the callback treats a 0 in that arg as meaning,\n"
+         "where it treats one specially at all. **Range** is the span the\n"
+         "callback is defined over, which for a filter is the span its\n"
+         "coefficients stay stable across -- not a control's travel, which is\n"
+         "the .dsp's business. An empty cell is a plugin that has not said.\n"
+         "\n"
+         "The composer modules under `plugins/composer` and the visualizers\n"
+         "under `plugins/visual` are not nodes and are not here; see\n"
+         "GEN_FORMAT.md and VISUALIZERS.md.\n"
+         "\n";
+
+    for (size_t c = 0; c < cat.categories().size(); c++)
+    {
+        const std::string &category = cat.categories()[c];
+
+        if (!isNodeCategory(category))
+            continue;
+
+        const vector<NodeCatalog::Entry> &list = cat.inCategory(category);
+
+        o << "## " << category << "\n\n";
+
+        for (size_t e = 0; e < list.size(); e++)
+        {
+            const std::string path = category + "/" + list[e].name;
+
+            writePlugin(o, list[e].spelling, pm->getOrLoadPlugin(path));
+        }
+    }
+
+    return true;
+}
+
+/* Carriage returns out.
+ *
+ * GitHub's Windows runners set core.autocrlf, so the committed file arrives
+ * there with CRLF while this generator writes LF -- and the comparison then
+ * failed on line 1, printing two copies of "# Node reference" and calling them
+ * different. .gitattributes pins NODES.md to LF, which fixes it for a fresh
+ * checkout; this fixes it for a tree that predates that line. The same two
+ * belts the artwork wears, for the same reason. */
+static std::string
+unixEndings (const std::string &s)
+{
+    std::string out;
+
+    out.reserve(s.size());
+
+    for (size_t i = 0; i < s.size(); i++)
+        if (s[i] != '\r')
+            out += s[i];
+
+    return out;
+}
+
+/* The gate: the committed file against a fresh one, with the first line they
+   part at, because "they differ" is not something anyone can act on. */
+static int
+compare (const std::string &fresh, const std::string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+
+    if (!in)
+    {
+        printf("FAIL  %s: cannot read it\n", path.c_str());
+        return 1;
+    }
+
+    std::ostringstream buf;
+
+    buf << in.rdbuf();
+
+    const std::string committed = unixEndings(buf.str());
+
+    if (committed == fresh)
+    {
+        printf("ok    %s matches the plugins\n", path.c_str());
+        return 0;
+    }
+
+    std::istringstream a(committed), b(fresh);
+    std::string la, lb;
+    int line = 1;
+
+    while (std::getline(a, la) && std::getline(b, lb) && la == lb)
+        line++;
+
+    /* Lengths as well as text. Two lines that print the same and compare
+       differently is exactly what brought this function here, and a reader
+       with no way to see it spent the time twice. */
+    printf("FAIL  %s is out of date at line %d\n"
+           "      committed: %s   (%zu bytes)\n"
+           "      plugins:   %s   (%zu bytes)\n"
+           "      run `cmake --build <build> --target nodes'\n",
+           path.c_str(), line, la.c_str(), la.size(), lb.c_str(), lb.size());
+
+    return 1;
+}
+
+static void
+usage (const char *argv0)
+{
+    printf("usage: %s [-p PATH] [-o FILE | -c FILE]\n"
+           "\n"
+           "  -p, --plugin-path PATH  where to find plugin .so files\n"
+           "  -o, --output FILE       write the reference here (default "
+           "stdout)\n"
+           "  -c, --check FILE        compare FILE against a fresh one and "
+           "fail if they differ\n",
+           argv0);
+}
+
+int
+main (int argc, char **argv)
+{
+    /* Every number below goes out through "%g", which follows LC_NUMERIC.
+     *
+     * A C++ program starts in the C locale unless something calls setlocale,
+     * and nothing here does -- so the committed file and a fresh one agree
+     * today by accident rather than by decision. Pinning it says which:
+     * NODES.md is compared byte for byte by a ctest, and a comma decimal
+     * separator would fail that for everybody in Europe the first time this
+     * gained a dependency that localises. src/main.cpp pins the same thing
+     * for the same reason, and its comment is the long version. */
+    setlocale(LC_NUMERIC, "C");
+
+    std::string pluginPath = PLUGIN_PATH;
+    std::string outFile, checkFile;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (!strcmp(argv[i], "-p") || !strcmp(argv[i], "--plugin-path"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            pluginPath = argv[i];
+        }
+        else if (!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            outFile = argv[i];
+        }
+        else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--check"))
+        {
+            if (++i >= argc) { usage(argv[0]); return 2; }
+            checkFile = argv[i];
+        }
+        else
+        {
+            usage(argv[0]);
+            return !strcmp(argv[i], "-h") || !strcmp(argv[i], "--help") ? 0 : 2;
+        }
+    }
+
+    if (!outFile.empty() && !checkFile.empty())
+    {
+        usage(argv[0]);
+        return 2;
+    }
+
+    if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
+        pluginPath += '/';
+
+    std::ostringstream text;
+
+    if (!writeReference(text, pluginPath))
+    {
+        printf("FAIL  no plugins under %s\n", pluginPath.c_str());
+        return 1;
+    }
+
+    if (!checkFile.empty())
+        return compare(text.str(), checkFile);
+
+    if (outFile.empty())
+    {
+        fputs(text.str().c_str(), stdout);
+        return 0;
+    }
+
+    /* Through a temporary and a rename, so an interrupted regeneration cannot
+       leave the committed reference half-written. */
+    const std::string tmp = outFile + ".new";
+
+    {
+        std::ofstream out(tmp.c_str(), std::ios::binary | std::ios::trunc);
+
+        out << text.str();
+
+        if (!out)
+        {
+            printf("FAIL  cannot write %s\n", tmp.c_str());
+            return 1;
+        }
+    }
+
+    if (!thUtil::replaceFile(tmp, outFile))
+    {
+        printf("FAIL  cannot replace %s\n", outFile.c_str());
+        return 1;
+    }
+
+    printf("wrote %s\n", outFile.c_str());
+
+    return 0;
+}
