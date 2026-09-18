@@ -44,7 +44,13 @@ thcGenLoader::error (int line, const std::string &msg)
 /* ---- pitch names ------------------------------------------------------ */
 
 /* "F3 Ab3 C4" or "F3,Ab3,C4" -> {53, 56, 60}. The one place in the tree
- * that turns pitch text into numbers; plugins receive only the numbers. */
+ * that turns pitch text into numbers; plugins receive only the numbers.
+ *
+ * A `.' is a rest and resolves as -1: an entry that takes its turn and
+ * sounds nothing. Every ladder already filters what it reads to 0..127,
+ * so on one a rest is simply not a degree; a pool that is *cycled* --
+ * gen::euclid's -- reads it as an onset with no note, which is what lets
+ * a pool carry a rhythm as well as a progression. */
 bool
 thcGenLoader::parseNoteList (const std::string &text, std::vector<int> &out,
                              std::string &bad)
@@ -59,6 +65,13 @@ thcGenLoader::parseNoteList (const std::string &text, std::vector<int> &out,
     {
         if (text[i] == ' ' || text[i] == ',' || text[i] == '\t')
         {
+            i++;
+            continue;
+        }
+
+        if (text[i] == '.')
+        {
+            out.push_back(-1);
             i++;
             continue;
         }
@@ -1835,6 +1848,19 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
                 resolved.size() != 1)
             {
                 error(str.line, "'" + pname.text + "' wants one note name");
+                return false;
+            }
+
+            /* One pitch, and a rest is not one: a `.' here would set the
+               param to -1 and a plugin would read a note below the bottom
+               of the keyboard. Said in its own words rather than folded
+               into "wants one note name", because a `.' is good spelling
+               in every note *list* in the file and being told it is not a
+               note name would read as a lie. */
+            if (resolved[0] < 0)
+            {
+                error(str.line, "'" + pname.text + "' wants a note, and a "
+                      "rest is not one");
                 return false;
             }
 

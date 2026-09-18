@@ -44,6 +44,18 @@
  * knows that. See its header for why there are two answers and not one. */
 #include "thMath.h"
 
+/* THE POOL IS A SEQUENCER. With `fills' equal to `steps' every step is
+ * an onset and the pool is simply played in order, one note per step,
+ * wrapping when it runs out -- so a pool of a hundred and twenty-eight
+ * sixteenths is eight bars of arpeggio, and a pool of five notes under
+ * each chord of a four-bar progression is a bass line (orrery.gen). A
+ * `.' in the pool is a rest: it takes its onset and sounds nothing, so
+ * the pool carries the rhythm too, and a ring with every step filled
+ * plus a pool with rests in it is a step sequencer with no other name.
+ * The rest resolves as -1 at the file boundary, like every pitch; the
+ * only thing this plugin knows is that a note below zero is not
+ * played. */
+
 enum { P_STEPS, P_FILLS, P_ROTATE, P_NOTES, P_VEL, P_HOLD, P_PERIOD,
        P_COUNT };
 
@@ -98,7 +110,7 @@ State::reparseNotes (void)
     {
         int n = atoi(s);
 
-        if (n >= 0 && n <= 127)
+        if ((n >= 0 && n <= 127) || n == -1)   /* -1 is a rest        */
             pool[poolLen++] = n;
 
         if ((s = strchr(s, ',')))
@@ -161,17 +173,23 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     if (t->running && st->poolLen &&
         onsetAt(st->pos, steps, (int)get(P_FILLS), (int)get(P_ROTATE)))
     {
-        thcEvent ev = {};
+        const int note = st->pool[st->onsetNum % st->poolLen];
 
-        ev.type = THC_EV_NOTE;
-        ev.at = t->now;
-        ev.channel = 0;                    /* the sink routes            */
-        ev.u.note.note = st->pool[st->onsetNum % st->poolLen];
-        ev.u.note.velocity = (int)get(P_VEL);
-        ev.u.note.duration = get(P_HOLD);
+        st->onsetNum++;                    /* a rest takes its turn too  */
 
-        out->emit(out->ctx, &ev);
-        st->onsetNum++;
+        if (note >= 0)
+        {
+            thcEvent ev = {};
+
+            ev.type = THC_EV_NOTE;
+            ev.at = t->now;
+            ev.channel = 0;                /* the sink routes            */
+            ev.u.note.note = note;
+            ev.u.note.velocity = (int)get(P_VEL);
+            ev.u.note.duration = get(P_HOLD);
+
+            out->emit(out->ctx, &ev);
+        }
     }
 
     st->pos = (st->pos + 1) % steps;

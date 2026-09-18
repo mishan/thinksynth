@@ -1,0 +1,301 @@
+# overworld.gen -- a console's four voices, and a tune written as a grammar.
+#
+# The sound of a home console's overworld: a pulse lead with the same
+# tune echoing under it on a second pulse, a third pulse running
+# arpeggios across the chords, a triangle on the bass, and drums made of
+# noise. Eight bars, a hundred and thirty-eight to the minute, in C, and it
+# comes back around forever because that is what an overworld does.
+#
+# HOW A TUNE IS WRITTEN. gen::lsystem rewrites an axiom and then walks
+# the result as turtle instructions -- F sounds a note, r rests, + and -
+# step up and down a ladder, and _ ties: a step forward with the last
+# note still sounding, so `F__' is a dotted eighth on a sixteenth grid.
+# At depth 0 nothing is rewritten and the axiom *is* the phrase, so a
+# melody is a string of those marks over the C major ladder, and a piece
+# can say exactly what it means one sixteenth at a time. The tune:
+#
+#   C5. B4 C5 G4 E4-- G4--  | A4. G4 A4 C5 G4---- ..
+#   A4. A4 C5 A4 F4-- A4--  | B4. A4 B4 D5 B4-- G4 ..
+#   C5 E5 C5 A4 E5-- C5--   | A4 C5 A4 F4 C5-- A4--
+#   G4. A4 B4 C5 D5 E5 D5 B4| C5-- .. G4 C5-- ....
+#
+# THE ECHO. The oldest trick those composers had: the second pulse plays
+# what the first played a dotted eighth ago, quieter. That is
+# xform::echo with one repeat three sixteenths late and `pass' off, so
+# the second pulse hears only the repeat; the same grammar feeds it, so
+# the two stages are one tune. The Echo knob is how much of the lead's
+# velocity comes back. Take it to the bottom and the console has a
+# channel back. (An earlier draft wrote the echo as the whole tune
+# again with three rests in front of it -- round.gen's lag, a sixteenth
+# at a time. It worked; it is what the plugin is for.)
+#
+# THE ARPEGGIO. gen::euclid with every step an onset is a sequencer,
+# and its pool is what it plays: the ring is sixteen steps of a
+# sixteenth each, one bar, and the pool is a hundred and twenty-eight
+# notes, eight bars of chord tones up and down. The ring is the index
+# and the pool is the progression -- orrery.gen's bass, at four times
+# the speed. The triangle's bass is the same thing on an eighth-note
+# ring with a sixty-four-note pool. A walk moves the arpeggio pulse's
+# width once a beat, which is what a duty sweep was.
+#
+# THE INSTRUMENTS. Three ts1s with the second oscillator faded out are
+# three pulses; the width of the lead's is the Duty knob, reaching into
+# the instrument the way weather.gen's knobs do, and 0.125, 0.25 and
+# 0.5 are the three the hardware had. organ0 with every drawbar on the
+# same triangle and an envelope of a few milliseconds is the triangle.
+# The snare and the hat are both hat0, which is two squares ring-
+# modulated through noise -- the snare tuned low and long, the hat high
+# and short. The kick is bdshaped, which the console did with the
+# triangle and a pitch drop, and it does here with a sine and one.
+#
+# The drums are grammars too, on a one-note ladder: a kick is a phrase
+# with F where the kick lands, and the eighth bar of the snare's is the
+# fill.
+#
+# Only the walk rolls dice, and the seed is pinned for it. Self-
+# contained: open it and press Play.
+
+name "Overworld";
+author "Misha Nasledov";
+description "Two pulses, an arpeggio, a triangle and noise: a console's overworld.";
+
+tempo 138;
+seed 1985;
+
+@duty = 0.25;
+@duty.widget = 1;
+@duty.min = 0.1;
+@duty.max = 0.5;
+@duty.label = "Duty";
+
+@echo = 0.55;
+@echo.widget = 1;
+@echo.min = 0.05;
+@echo.max = 0.9;
+@echo.label = "Echo";
+
+scale cmaj "C4 D4 E4 F4 G4 A4 B4";
+
+# ---- instruments ------------------------------------------------------
+
+# A pulse: one oscillator, the filter parked well above it, the width
+# on the knob.
+instrument pulse {
+    dsp  "ts1.dsp";
+    amp  = 18;
+
+    a    = 1 ms;
+    d    = 60 ms;
+    s    = 0.75;
+    f    = 12000 ms;
+    r    = 40 ms;
+
+    blim   = 1;
+    cutoff = 8;
+    famt   = 1.2;
+    res    = 1.2;
+    pw1    = @duty;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# The same, square, for the echo; it sits under the lead and a square
+# is the hollower of the two.
+instrument pulse_echo {
+    dsp  "ts1.dsp";
+    amp  = 12;
+
+    a    = 1 ms;
+    d    = 60 ms;
+    s    = 0.7;
+    f    = 12000 ms;
+    r    = 40 ms;
+
+    blim   = 1;
+    cutoff = 8;
+    famt   = 1.2;
+    res    = 1.2;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# The arpeggio's pulse: thin, quick, and quiet, because sixteen notes a
+# bar of anything is a lot.
+instrument pulse_arp {
+    dsp  "ts1.dsp";
+    amp  = 10;
+
+    a    = 0 ms;
+    d    = 50 ms;
+    s    = 0.6;
+    f    = 12000 ms;
+    r    = 30 ms;
+
+    blim   = 1;
+    cutoff = 8;
+    famt   = 1.2;
+    res    = 1.2;
+    pw1    = 0.125;
+    pw2    = 0.125;
+    oscmul = 1;
+    oscfade = 0;
+};
+
+# The triangle: four drawbars, all at the fundamental, all triangles,
+# and an envelope that is only there to stop the clicks.
+instrument triangle {
+    dsp  "organ0.dsp";
+    amp  = 26;
+
+    waveform = 3;
+    mul1 = 1;
+    mul2 = 1;
+    mul3 = 1;
+    vmin = 0.5;
+    vmax = 0.5;
+
+    a    = 1 ms;
+    d    = 3 ms;
+    s    = 1;
+    r    = 8 ms;
+};
+
+instrument kick {
+    dsp  "bdshaped.dsp";
+    amp  = 30;
+};
+
+# hat0 as a snare: the squares low, the noise deep in them, a body of
+# a hundred milliseconds and change.
+instrument snare {
+    dsp  "hat0.dsp";
+    amp  = 30;
+
+    freq = 180;
+    freqmul = 1.73;
+    depth1 = 0.6;
+    depth2 = 0.7;
+    attack = 2 ms;
+    clen = 120 ms;
+    olen = 200 ms;
+    midp = 0.35;
+    cutmin = 0.25;
+    cutmax = 0.6;
+};
+
+instrument hat {
+    dsp  "hat0.dsp";
+    amp  = 7;
+
+    freq = 500;
+    freqmul = 1.9;
+    depth1 = 0.9;
+    depth2 = 1;
+    midp = 0.3;
+    clen = 30 ms;
+    olen = 220 ms;
+    cutmin = 0.25;
+    cutmax = 0.5;
+};
+
+# ---- the tune ---------------------------------------------------------
+
+chain lead {
+    stage src gen::lsystem {
+        axiom = "+++++++F__-F+F_---F_--F___++F___+F__-F+F_++F_---F_____rr+F__F++F_--F_--F___++F___+F__-F+F_++F_--F___--F_rr+++F_++F_--F_--F_++++F___--F___--F_++F_--F_--F_++++F___--F___-F__+F+F_+F_+F_+F_-F_--F_+F___rr---F_+++F___rrrr";
+        rules = "";
+        depth = 0;
+        notes = cmaj;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 96;
+    };
+    sink { instrument = pulse; };
+};
+
+# The same grammar, and only its echo, a dotted eighth late, on the
+# second pulse.
+chain echo {
+    stage src gen::lsystem {
+        axiom = "+++++++F__-F+F_---F_--F___++F___+F__-F+F_++F_---F_____rr+F__F++F_--F_--F___++F___+F__-F+F_++F_--F___--F_rr+++F_++F_--F_--F_++++F___--F___--F_++F_--F_--F_++++F___--F___-F__+F+F_+F_+F_+F_-F_--F_+F___rr---F_+++F___rrrr";
+        rules = "";
+        depth = 0;
+        notes = cmaj;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 96;
+    };
+    stage e xform::echo {
+        repeats = 1;  time = 0.75 beats;  decay = @echo;
+        shift = 0;  pass = 0;
+    };
+    sink { instrument = pulse_echo; };
+};
+
+# ---- the accompaniment ------------------------------------------------
+
+# Sixteen sixteenths a bar, and eight bars of chord tones: C C F G Am F
+# G, then C and G in the last.
+chain arp {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "C4 E4 G4 C5 G4 E4 C4 E4 G4 C5 G4 E4 C4 E4 G4 C5  C4 E4 G4 C5 G4 E4 C4 E4 G4 C5 G4 E4 C4 E4 G4 C5  F4 A4 C5 F5 C5 A4 F4 A4 C5 F5 C5 A4 F4 A4 C5 F5  G4 B4 D5 G5 D5 B4 G4 B4 D5 G5 D5 B4 G4 B4 D5 G5  A4 C5 E5 A5 E5 C5 A4 C5 E5 A5 E5 C5 A4 C5 E5 A5  F4 A4 C5 F5 C5 A4 F4 A4 C5 F5 C5 A4 F4 A4 C5 F5  G4 B4 D5 G5 D5 B4 G4 B4 D5 G5 D5 B4 G4 B4 D5 G5  C4 E4 G4 C5 G4 E4 C4 E4 G4 B4 D5 G5 D5 B4 G4 B4";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 74;
+    };
+    sink { instrument = pulse_arp; };
+};
+
+# The arpeggio pulse's width, once a beat, between the thinnest the
+# hardware had and square.
+chain sweep {
+    stage src gen::walk {
+        min = 0.1;  max = 0.5;  step = 0.08;  period = 1 beats;
+    };
+    sink { instrument = pulse_arp; chanarg = "pw1"; };
+};
+
+# Eighths on the triangle: root, octave, root, octave, fifth, and back,
+# under each chord, and a walk up to the top in the last bar.
+chain bass {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "C2 C3 C2 C3 G2 C3 C2 C3  C2 C3 C2 C3 G2 C3 C2 C3  F2 F3 F2 F3 C3 F3 F2 F3  G2 G3 G2 G3 D3 G3 G2 G3  A2 A3 A2 A3 E3 A3 A2 A3  F2 F3 F2 F3 C3 F3 F2 F3  G2 G3 G2 G3 D3 G3 G2 G3  C2 C3 G2 E2 G2 G2 B2 D3";
+        period = 0.5 beats;  hold = 0.45 beats;  vel = 100;
+    };
+    sink { instrument = triangle; };
+};
+
+# ---- the noise --------------------------------------------------------
+
+# One, three, and the and of three; the last bar leaves the pickup out.
+chain kick {
+    stage src gen::lsystem {
+        axiom = "FrrrrrrrFrFrrrrrFrrrrrrrFrFrrrrrFrrrrrrrFrFrrrrrFrrrrrrrFrFrrrrrFrrrrrrrFrFrrrrrFrrrrrrrFrFrrrrrFrrrrrrrFrFrrrrrFrrrrrrrFrrrrrrr";
+        rules = "";
+        depth = 0;
+        notes = "C2";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 110;
+    };
+    sink { instrument = kick; };
+};
+
+# Two and four, and two sixteenths on the way back round.
+chain snare {
+    stage src gen::lsystem {
+        axiom = "rrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrrrrrrrFrFF";
+        rules = "";
+        depth = 0;
+        notes = "D2";
+        step = 0.25 beats;  hold = 0.15 beats;  vel = 104;
+    };
+    sink { instrument = snare; };
+};
+
+# Closed eighths.
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.1 beats;  vel = 48;
+    };
+    sink { instrument = hat; };
+};

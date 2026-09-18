@@ -1,0 +1,276 @@
+# cavern.gen -- seven to the bar, and water that keeps no time.
+#
+# An underground theme: the part of the game where the map stops
+# making sense. A bass that creeps in seven-eight, a heartbeat under
+# it, a tune that comes and goes, a bell that half-remembers the tune,
+# and all of it under a drip that was falling before the music started
+# and pays no attention to it.
+#
+# TWO CLOCKS. Everything that walks is written in beats: the ostinato
+# is a seven-step ring of eighths, the heartbeat is E(3,7) on the same
+# ring -- a three, a two and a two -- and the tune is fifty-six eighths
+# long, eight bars of seven. Change the tempo and they change together.
+# The drip is written in seconds and never was in the bar. It is
+# gen::ca running rule 30, one row every few seconds, over a D minor
+# pentatonic ladder two octaves wide; rule 30 boils, and a birth in the
+# ring is a drop. A ring of twelve from a single centre cell takes a
+# while to fill and then never settles, and because its period shares
+# nothing with the bar, no drop lands where the last one did. That
+# is the whole of the piece's argument: the machine keeps seven, the
+# cave keeps none, and the ear puts them together. The Drip knob is its
+# period, so you can bring the water closer.
+#
+# THE TUNE, in eighths, on the D phrygian ladder -- the flat second is
+# what makes a cave a cave:
+#
+#   A4. Bb4 A4 | F4. D4 . | A4. C5 D5 | Bb4. A4 G4 F4
+#   . D5 C5 A4 | Bb4. G4 Eb4 | D4. F4 A4 | D4. . .
+#
+# It is written the way overworld.gen writes its tune, one grammar with
+# ties in it, and it is written once more: feeding a gen::markov with
+# `pass' off, so the grammar is heard only through what the student
+# makes of it, and the student dreams on a bell, on a period in seconds,
+# quietly, out of time with everything.
+#
+# THE INSTRUMENTS. The ostinato is ts1 with the filter nearly shut and
+# the resonance high, a walk moving the cutoff across a range where the
+# resonance is the note. The tune is amb01 as something between a flute
+# and an ocarina: a sine against a triangle, forty milliseconds of
+# attack, the filter low. The bell is mfm01, two sines in FM with a
+# long decay. The ground is organ0, four sine drawbars on a slow swell,
+# and the Torch knob is how far up the drawbars it leans, reaching into
+# the instrument the way weather.gen's knobs do -- take it up and the
+# cave gets brighter, which is the only thing a torch does.
+#
+# The walk, the markov and the scattered nothing of the automaton
+# (scatter is 0, so the ring is deterministic) -- only the first two
+# roll dice, and the seed is pinned for them. Self-contained: open it
+# and press Play.
+
+name "Cavern";
+author "Misha Nasledov";
+description "A seven-eight ostinato and a heartbeat under a drip that keeps no time.";
+
+tempo 92;
+seed 1986;
+
+# Seconds between rows of the automaton.
+@drip = 2.4;
+@drip.widget = 1;
+@drip.min = 0.4;
+@drip.max = 4;
+@drip.label = "Drip";
+@drip.units = "s";
+
+# How far up the ground's drawbars the sound leans: 0 is the
+# fundamental alone.
+@torch = 0.25;
+@torch.widget = 1;
+@torch.min = 0.02;
+@torch.max = 0.7;
+@torch.label = "Torch";
+
+scale phrygian "D4 Eb4 F4 G4 A4 Bb4 C5";
+scale drops    "D5 F5 G5 A5 C6 D6 F6 G6";
+
+# ---- instruments ------------------------------------------------------
+
+# The ostinato: the filter low, the resonance high, the second
+# oscillator an octave down and mostly out of the way.
+instrument creep {
+    dsp  "ts1.dsp";
+    amp  = 26;
+
+    a    = 2 ms;
+    d    = 220 ms;
+    s    = 0.3;
+    f    = 3000 ms;
+    r    = 140 ms;
+
+    cutoff = 2;
+    famt   = 4;
+    res    = 4;
+    pw1    = 0.5;
+    pw2    = 0.5;
+    oscmul = 0.5;
+    oscfade = 0.3;
+};
+
+instrument heart {
+    dsp  "bdshaped.dsp";
+    amp  = 26;
+};
+
+# hat0 tuned up and rung out: a tick on stone.
+instrument tick {
+    dsp  "hat0.dsp";
+    amp  = 6;
+
+    freq = 2200;
+    freqmul = 2.7;
+    clen = 300 ms;
+    olen = 1400 ms;
+    cutmin = 0.6;
+    cutmax = 0.9;
+};
+
+# Between a flute and an ocarina.
+instrument flute {
+    dsp  "amb01.dsp";
+    amp  = 22;
+
+    a    = 40 ms;
+    d    = 300 ms;
+    s    = 0.6;
+    r    = 380 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 3;
+    lwave = 3;
+    rwave = 0;
+    centerdetune = 0.4;
+    ldetune = -0.6;
+    rdetune = 0.7;
+    centermix = 0.5;
+    sidemix = 0.3;
+
+    res  = 0.5;
+    fmin = 0.15;
+    fmax = 0.5;
+};
+
+# Two sines in FM, struck, and left to ring.
+instrument bell {
+    dsp  "mfm01.dsp";
+    amp  = 16;
+
+    wave1 = 0;
+    wave2 = 0;
+    fmamt = 1.6;
+    filt1 = 0.3;
+    filt2 = 0.2;
+    filtlo = 0.6;
+    filthi = 1;
+    filtres = 0.1;
+
+    a    = 1 ms;
+    d    = 900 ms;
+    s    = 0.05;
+    r    = 1200 ms;
+};
+
+# The ground: organ0, four sine drawbars on a slow swell -- the
+# fundamental, the octave, the twelfth and the double octave -- and the
+# torch is how far up them the sound leans, which is brightness with no
+# filter's edge on it.
+instrument ground {
+    dsp  "organ0.dsp";
+    amp  = 16;
+
+    waveform = 0;
+    mul1 = 2;
+    mul2 = 3;
+    mul3 = 4;
+    vmin = @torch;
+    vmax = @torch;
+
+    a    = 900 ms;
+    d    = 600 ms;
+    s    = 0.85;
+    r    = 1600 ms;
+};
+
+# ---- what keeps seven -------------------------------------------------
+
+# Every eighth of a seven-eight bar, and four bars of pool: the root
+# under everything, a fifth, and a note that moves -- flat second, flat
+# seventh, fourth, sixth.
+chain ostinato {
+    stage src gen::euclid {
+        steps = 7;  fills = 7;  rotate = 0;
+        notes = "D2 D2 A2 D2 F2 D2 Eb2  D2 D2 A2 D2 F2 D2 C3  D2 D2 A2 D2 G2 D2 F2  D2 D2 A2 D2 Bb2 D2 A2";
+        period = 0.5 beats;  hold = 0.3 beats;  vel = 96;
+    };
+    sink { instrument = creep; };
+};
+
+# The ostinato's cutoff, in ts1's units, low enough that the resonance
+# is most of the sound.
+chain squeeze {
+    stage src gen::walk {
+        min = 1.2;  max = 3.5;  step = 0.3;  period = 3.5 beats;
+    };
+    sink { instrument = creep; chanarg = "cutoff"; };
+};
+
+# Three over seven: a two, a two and a three.
+chain heartbeat {
+    stage src gen::euclid {
+        steps = 7;  fills = 3;  rotate = 0;
+        notes = "C2";
+        period = 0.5 beats;  hold = 0.2 beats;  vel = 92;
+    };
+    sink { instrument = heart; };
+};
+
+# Two ticks on fourteen sixteenths, off the heartbeat.
+chain stone {
+    stage src gen::euclid {
+        steps = 14;  fills = 3;  rotate = 5;
+        notes = "A5";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 40;
+    };
+    sink { instrument = tick; };
+};
+
+# ---- the tune ---------------------------------------------------------
+
+chain tune {
+    stage src gen::lsystem {
+        axiom = "++++F__+F_-F_--F__--F_rr++++F__++F_+F_--F__-F-F-F_r+++++F_-F_--F_+F__--F_--F_-F__++F_++F_----F__rrrr";
+        rules = "";
+        depth = 0;
+        notes = phrygian;
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 72;
+    };
+    sink { instrument = flute; };
+};
+
+# The whole tune again, silent, into a student that dreams on a bell.
+chain memory {
+    stage teacher gen::lsystem {
+        axiom = "++++F__+F_-F_--F__--F_rr++++F__++F_+F_--F__-F-F-F_r+++++F_-F_--F_+F__--F_--F_-F__++F_++F_----F__rrrr";
+        rules = "";
+        depth = 0;
+        notes = phrygian;
+        step = 0.5 beats;  hold = 0.45 beats;  vel = 72;
+    };
+    stage student gen::markov {
+        order = 2;  pass = 0;
+        period = 1.7 s;  hold = 1.4 s;  vel = 48;
+    };
+    sink { instrument = bell; };
+};
+
+# ---- what keeps none --------------------------------------------------
+
+# Rule 30 from one centre cell, births only, on the Drip knob.
+chain drip {
+    stage src gen::ca {
+        rule = 30;  width = 12;  scatter = 0;  trigger = 0;
+        notes = drops;
+        period = @drip;  hold = 0.6 s;  vel = 36;
+    };
+    sink { instrument = bell; };
+};
+
+# The ground: D, its fifth, and the octave, on long breaths that never
+# quite line up with the bar.
+chain ground {
+    stage src gen::eno_line {
+        notes = "D2 A2 D3";
+        period = 6.3 s;  jitter = 1.1 s;
+        prob = 0.85;  hold = 7 s;  vel = 60;  vel_jitter = 6;
+    };
+    sink { instrument = ground; };
+};

@@ -1,0 +1,317 @@
+# village.gen -- chords that behave, and a second voice that argues.
+#
+# The town theme: the place in the game where nothing is trying to
+# kill you. A hundred to the minute with a shuffle in it, in G, a tune on a flute with a lower voice under it, a piano comping
+# chords, a bass walking under them, and brushes. It is generative in
+# the two places a town theme can afford to be -- which chords come
+# next, and what the second voice does -- and written where it cannot.
+#
+# THE CHORDS are gen::progression: a walk over the seven chords of G
+# major by a table of where each likes to go, with a cadence forced at
+# the end of every four-chord phrase, so the harmony wanders and always
+# comes home. It emits one root a chord, every two beats, and
+# xform::harmonize spells the chord from the same scale, a third and a
+# fifth below the root so the root stays on top. The bass is the same
+# walk on another chain -- both stages carry `seed = 7', so they roll
+# the same die and agree on every chord without a message between them,
+# orrery.gen's table trick with the table replaced by a seed -- into
+# xform::bassline, which plays root, root, fifth, root-and-hold under
+# each chord in degrees of the same scale. The Walk knob is how often
+# the progression ignores the book.
+#
+# THE TUNE is a depth-0 grammar with ties, eight bars on the G major
+# pentatonic ladder, which is what lets a written tune sit over chords
+# it has not seen: five notes that are consonant with every chord in
+# the key, or near enough. xform::counterpoint hears the same grammar
+# on another chain and puts a lower voice under every note -- first
+# species: in the scale, at a third, fifth, sixth or octave, moving
+# against the tune when it can, and into parallel fifths or octaves
+# only when five notes leave it nothing else. It keeps to the same five
+# notes, for the same reason the tune does. And
+# xform::form takes the flute out for the last two bars of every eight,
+# so the lower voice has the phrase to itself before the tune comes
+# back; the counterpoint keeps going because in its own chain the tune
+# never stopped.
+#
+# THE SHUFFLE is xform::swing on a sixteenth grid, on the tune, the
+# bass and the hats, all bound to one knob: the offbeat sixteenths land
+# late by a third of a sixteenth at 1, and straight at 0. The drums
+# come in after four bars -- xform::form again, four resting bars and
+# then play on -- and go through xform::chance and xform::ratchet, so
+# a hat is sometimes missing and a snare is sometimes a flam, and the
+# hats through xform::level, which is a chain turned down in place.
+#
+# The progression, the chance and the ratchet roll dice; the seed is
+# pinned for them. Self-contained: open it and press Play.
+
+name "Village";
+author "Misha Nasledov";
+description "A town theme: chords that walk and cadence, a tune with a counterpoint under it, and a shuffle.";
+
+tempo 100;
+seed 1990;
+
+# How far the offbeats lean.
+@shuffle = 0.55;
+@shuffle.widget = 1;
+@shuffle.min = 0;
+@shuffle.max = 1;
+@shuffle.label = "Shuffle";
+
+# How often the chords stray from the book.
+@walk = 0.15;
+@walk.widget = 1;
+@walk.min = 0;
+@walk.max = 0.6;
+@walk.label = "Walk";
+
+scale gmaj  "G3 A3 B3 C4 D4 E4 F#4";
+scale gpent "G4 A4 B4 D5 E5";
+
+# ---- instruments ------------------------------------------------------
+
+# amb01 as an electric piano: quick attack, a decay you can hear, sine
+# against triangle.
+instrument keys {
+    dsp  "amb01.dsp";
+    amp  = 18;
+
+    a    = 20 ms;
+    d    = 600 ms;
+    s    = 0.4;
+    r    = 700 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 3;
+    lwave = 3;
+    rwave = 0;
+    centermix = 0.5;
+    sidemix = 0.35;
+
+    res  = 0.5;
+    fmin = 0.1;
+    fmax = 0.4;
+};
+
+# A round bass: a pulse with the octave below faded in.
+instrument bass {
+    dsp  "ts1.dsp";
+    amp  = 26;
+
+    a    = 3 ms;
+    d    = 200 ms;
+    s    = 0.4;
+    f    = 4000 ms;
+    r    = 120 ms;
+
+    cutoff = 2;
+    famt   = 2.5;
+    res    = 1.5;
+    pw1    = 0.4;
+    pw2    = 0.5;
+    oscmul = 0.5;
+    oscfade = 0.35;
+};
+
+# Between a flute and an ocarina; cavern.gen's.
+instrument flute {
+    dsp  "amb01.dsp";
+    amp  = 20;
+
+    a    = 40 ms;
+    d    = 300 ms;
+    s    = 0.6;
+    r    = 350 ms;
+
+    centerwave1 = 0;
+    centerwave2 = 3;
+    lwave = 3;
+    rwave = 0;
+    centerdetune = 0.4;
+    ldetune = -0.6;
+    rdetune = 0.7;
+    centermix = 0.5;
+    sidemix = 0.3;
+
+    res  = 0.5;
+    fmin = 0.15;
+    fmax = 0.5;
+};
+
+# The lower voice: triangles, a slower attack, darker.
+instrument viol {
+    dsp  "amb01.dsp";
+    amp  = 20;
+
+    a    = 70 ms;
+    d    = 400 ms;
+    s    = 0.65;
+    r    = 400 ms;
+
+    centerwave1 = 3;
+    centerwave2 = 3;
+    lwave = 3;
+    rwave = 0;
+    centerdetune = 0.5;
+    ldetune = -0.8;
+    rdetune = 0.9;
+    centermix = 0.5;
+    sidemix = 0.35;
+
+    res  = 0.45;
+    fmin = 0.08;
+    fmax = 0.3;
+};
+
+instrument kick {
+    dsp  "bdshaped.dsp";
+    amp  = 22;
+};
+
+# A brushed snare: hat0 low and short. The hat is hat0 lower still,
+# nearly all noise, with the filter well down: a brush on a ride.
+instrument snare {
+    dsp  "hat0.dsp";
+    amp  = 22;
+
+    freq = 180;
+    freqmul = 1.73;
+    depth1 = 0.6;
+    depth2 = 0.7;
+    attack = 2 ms;
+    clen = 90 ms;
+    olen = 160 ms;
+    midp = 0.35;
+    cutmin = 0.25;
+    cutmax = 0.55;
+};
+
+instrument hat {
+    dsp  "hat0.dsp";
+    amp  = 6;
+
+    freq = 500;
+    freqmul = 1.9;
+    depth1 = 0.9;
+    depth2 = 1;
+    midp = 0.3;
+    clen = 30 ms;
+    olen = 240 ms;
+    cutmin = 0.25;
+    cutmax = 0.5;
+};
+
+# ---- the chords -------------------------------------------------------
+
+# One root every two beats, four to a phrase, spelled down from the
+# root so the root is the top of the voicing.
+chain chords {
+    stage src gen::progression {
+        scale = gmaj;
+        every = 2 beats;  hold = 1.8 beats;  vel = 66;
+        phrase = 4;  wander = @walk;  seed = 7;
+    };
+    stage chord xform::harmonize {
+        scale = gmaj;
+        voices = 3;  step = 2;
+        spread = 0.03 s;
+        taper = 0.9;
+        root = 1;  below = 1;
+    };
+    sink { instrument = keys; };
+};
+
+# The same walk -- same seed -- into a bass pattern: root, root, fifth,
+# root and hold, one chord's worth at a time.
+chain bass {
+    stage src gen::progression {
+        scale = gmaj;
+        every = 2 beats;  hold = 1.8 beats;  vel = 66;
+        phrase = 4;  wander = @walk;  seed = 7;
+    };
+    stage b xform::bassline {
+        scale = gmaj;
+        pattern = "r.r.f.r_";
+        step = 0.25 beats;  hold = 0.2 beats;  vel = 92;
+        octave = -1;  pass = 0;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = @shuffle; };
+    stage f xform::form  { pattern = "...."; bar = 4 beats; mode = 1; };
+    sink { instrument = bass; };
+};
+
+# ---- the tune ---------------------------------------------------------
+
+# Eight bars on five notes; the flute sits out the last two of them.
+chain tune {
+    stage src gen::lsystem {
+        axiom = "++F__-F-F_--F_++F___+F___+F_+F_-F_-F_-F_____rr+++F__+F-F_-F_-F___+F___-F_-F_-F_+F_+F_____rr++++F__-F-F_-F_+F___+F___-F_-F_-F_-F_+F_____rr+F_+F_+F_-F_-F_-F_-F_-F_+F_____rr--F_++F_rrrr";
+        rules = "";
+        depth = 0;
+        notes = gpent;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 84;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = @shuffle; };
+    stage f xform::form  { pattern = "xxx."; bar = 8 beats; mode = 0; };
+    sink { instrument = flute; };
+};
+
+# The same tune, heard only through the voice written under it.
+chain duet {
+    stage src gen::lsystem {
+        axiom = "++F__-F-F_--F_++F___+F___+F_+F_-F_-F_-F_____rr+++F__+F-F_-F_-F___+F___-F_-F_-F_+F_+F_____rr++++F__-F-F_-F_+F___+F___-F_-F_-F_-F_+F_____rr+F_+F_+F_-F_-F_-F_-F_-F_+F_____rr--F_++F_rrrr";
+        rules = "";
+        depth = 0;
+        notes = gpent;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 84;
+    };
+    stage k xform::counterpoint {
+        scale = gpent;
+        below = 1;  taper = 0.8;  pass = 0;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = @shuffle; };
+    sink { instrument = viol; };
+};
+
+# ---- the brushes ------------------------------------------------------
+
+# One and three, after four bars, and now and then not.
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.2 beats;  vel = 96;
+    };
+    stage c xform::chance { prob = 0.9; };
+    stage f xform::form   { pattern = "...."; bar = 4 beats; mode = 1; };
+    sink { instrument = kick; };
+};
+
+# Two and four, sometimes a flam.
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.24 beats;  vel = 88;
+    };
+    stage r xform::ratchet { count = 2;  prob = 0.2;  decay = 0.7; };
+    stage f xform::form    { pattern = "...."; bar = 4 beats; mode = 1; };
+    sink { instrument = snare; };
+};
+
+# Sixteenths, shuffled, one in ten missing, and turned down: hat0 reads
+# velocity as how open the hat is, so xform::level closes the brushes as
+# well as quieting them. The instrument's `amp' is the other level, the
+# one that touches nothing but loudness.
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 40;
+    };
+    stage s xform::swing  { grid = 0.25 beats;  amount = @shuffle; };
+    stage c xform::chance { prob = 0.9; };
+    stage l xform::level  { gain = 0.7; };
+    stage f xform::form   { pattern = "...."; bar = 4 beats; mode = 1; };
+    sink { instrument = hat; };
+};

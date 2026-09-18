@@ -1,15 +1,17 @@
 # The shipped pieces
 
-Seventeen `.gen` files, each of which is meant to be read as well as heard.
+Twenty-four `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
-being impressive; the last three are pieces first and lessons second. The comment at the top of each file is the lesson;
+being impressive; the other ten are pieces first and lessons second. The comment at the top of each file is the lesson;
 this is the index.
 
 Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
 
 `airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
-`ebb.gen`, `round.gen` and `orrery.gen` need nothing else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
+`ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
+`attract.gen`, `village.gen`, `invention.gen` and `belfry.gen` need nothing
+else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
@@ -88,7 +90,7 @@ typo in it.
 
 ## Pieces
 
-Three files where the idea is the music and the mechanism is in service of
+Four files where the idea is the music and the mechanism is in service of
 it. Each carries its own instruments; each header says how it is put
 together, in the same detail as the others.
 
@@ -97,6 +99,25 @@ together, in the same detail as the others.
 | [`ebb.gen`](ebb.gen) | **Two keys and the tide between them.** A C pentatonic cloud that never changes, over a ground that does: two bass chains, one on A and one on F, each with its own control-rate sine, wired so one is empty where the other is full. The piece turns from A minor to F lydian and back on a cycle the `Tide` knob sets, with nothing transposed — only the root moves. One upper voice takes a side and plays the lydian fourth on the F side alone. |
 | [`round.gen`](round.gen) | **A canon on one grammar.** One L-system subject, three entries: straight, six steps later a fifth up, and at half speed an octave and a half down. The lag is written as rests in the axiom, the augmentation as `math::mul` on the `Pace` knob, and the ladders are pentatonic so every lag is consonant. Take the trailing rests off the lead and it becomes a phase piece. |
 | [`orrery.gen`](orrery.gen) | **Gears on one clock, and a bass that reads the chords.** Four Euclidean rings of different sizes in `beats`, a harmonizer spelling the chords by degree, a genetic lead on the `Lift` knob, and two voices swapped under it every thirty-two bars. The bass follows the progression without a message passing between chains: its pool is one four-bar phrase long, five notes under each chord, and the ring is the index. |
+| [`invention.gen`](invention.gen) | **Two voices on a Moog, and the ornaments are rules.** In the spirit of Wendy Carlos: a two-part invention in D minor, a saw lead and a square bass each on their own patch, a harpsichord of broken chords from a pool, and for once an L-system's rules are not empty -- `M`, `T` and `N` in the axiom are rewritten into a mordent, a trill and a turn on whatever note the turtle is standing on. The alto reads the same axiom with the ornaments spelled plain, through `xform::counterpoint`, every other time round, on a `Third` fader. |
+
+## Game music
+
+Six pieces in the idioms of the consoles and cabinets, which were generative
+music before the word: a few voices, a loop, and a chip's tricks for making
+them sound like more. Each is written, where it is written, as a depth-0
+L-system -- an axiom that nothing rewrites is a phrase said one step at a
+time, with rests, and with `_` tying a note across the steps after it. Each
+carries its own instruments.
+
+| piece | the idea |
+| --- | --- |
+| [`overworld.gen`](overworld.gen) | **A console's voices, and the echo.** Two pulses, an arpeggio pulse, a triangle and noise, at a hundred and fifty. The tune is one grammar in sixteenths with ties; the second pulse plays only its echo, a dotted eighth behind, through `xform::echo` on the `Echo` knob. The arpeggio is a sixteen-step ring over a hundred-and-twenty-eight-note pool, and the `Duty` knob is the lead's pulse width, reaching into the instrument. |
+| [`cavern.gen`](cavern.gen) | **Seven to the bar, and water that keeps no time.** An ostinato and a heartbeat on a seven-step ring, a tune in seven-eight on the phrygian ladder, and a markov that hears the tune with the teacher silenced and dreams it on a bell. Over all of it, `gen::ca` running rule 30 in *seconds*, on the `Drip` knob: the machine keeps seven, the cave keeps none. |
+| [`boss.gen`](boss.gen) | **A riff that never moves.** Two bars of sixteenths on E, a tresillo of stabs spelled by `xform::harmonize` from E phrygian, a solo bred by `gen::evolve` on the `Fury` knob, gated by `xform::form` to three phrases in four and rebuilt around the other of two voices every sixteen bars, and a gear of seven sixteenths turning against the four. The hats go through `xform::chance` and `xform::ratchet`. |
+| [`attract.gen`](attract.gen) | **One voice pretending to be a chord.** The arpeggio-chord trick: a sixty-four-step ring of thirty-second notes over a hundred-and-twenty-eight-note pool, one voice sounding a chord a bar. `gen::morph` sweeps the chip's filter between two presets and back through a `*` sink, a walk moves its pulse width, and the tune slides into every note on the `Glide` knob. |
+| [`belfry.gen`](belfry.gen) | **A castle at night.** Harmonic minor with its leading tone, sixteenth arpeggios from a pool, an organ whose triads are three rings in lockstep because a G and a G sharp cannot both be spelled from one scale, a lead with a mordent and a cadence trill written as rules, and a galloping kick. The second pulse is the lead's echo for four bars and the lead in thirds for four, two chains on one instrument through `xform::form`. |
+| [`village.gen`](village.gen) | **Chords that behave, and a second voice that argues.** A town theme with a shuffle. `gen::progression` walks the chords of G major with a cadence every four, spelled by `harmonize` on one chain and played by `xform::bassline` on another that shares its `seed`, so the two agree without a message. A pentatonic tune, and `xform::counterpoint` hearing the same grammar and putting a first-species voice under it. `xform::swing` on the `Shuffle` knob, `xform::form` for the intro and for the bars the flute sits out, `chance`, `ratchet` and `level` on the brushes. |
 
 ## What each piece covers
 
@@ -105,6 +126,14 @@ Plugins: `eno_line` (airports, weather), `euclid` (pulse, loosen, tide),
 (airports, weather), `arp` (hands), `lsystem` (fern, growth, loom), `markov`
 (loom), `ca` (loom), `life` (glider), `evolve` (growth), `morph` (tide),
 `breed` (bloom), `swap` and `reshape` (reshape), `harmonize` (colony).
+invention uses `lsystem` rules as ornaments and `counterpoint`, `level`
+and `form` on its third voice. The game pieces use `lsystem` at depth 0 as
+a sequencer, with ties (all six), `euclid` as one with its pool as the
+progression (all six), `ca` and `markov` in seconds against a clocked bar
+(cavern), `evolve` and `swap` (boss), `morph` through a `*` sink
+(attract), `echo` (overworld), `form` (boss, village), `chance` and
+`ratchet` (boss, village), `swing`, `level`, `progression`, `bassline`
+and `counterpoint` (village).
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it.
 

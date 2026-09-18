@@ -25,7 +25,20 @@
  *            follows `]' resumes where `[' was, so bracketed material
  *            runs in parallel with what comes after. Polyphony falls
  *            out of the grammar.
+ *   _        a tie: step forward in time with the last note still
+ *            sounding, so `F__' is one note three steps long. After a
+ *            rest, or a bracket, there is no last note and it is a
+ *            rest.
+ *   > / <    accent the next note: `accent' more, or less, velocity
+ *            for each mark, so `>>F' is a note hit hard.
  *   others   structure only (the classic X), never heard
+ *
+ * WRITING A TUNE. At depth 0 nothing is rewritten and the axiom is the
+ * phrase, so a melody is these marks over a ladder, one step at a
+ * time, with rests -- which is what the game pieces do (overworld.gen
+ * and the others). The tie is what makes that a fair way to write: a
+ * plugin whose notes were all one length made every tune three stages,
+ * one per note length, the others' notes rubbed out into rests.
  *
  * The whole derived phrase is emitted as one scheduled block, arbitrary
  * seconds into the future, and the tick sleeps until the phrase ends --
@@ -57,7 +70,7 @@
 #include "thMath.h"
 
 enum { P_AXIOM, P_RULES, P_DEPTH, P_NOTES, P_STEP, P_HOLD, P_VEL,
-       P_COUNT };
+       P_ACCENT, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -81,6 +94,8 @@ composer_init (thcComposerInfo *info)
         { "hold",  "time before note-off", THC_PARAM_FLOAT,
           0.01, 60, 0.3, NULL, "s" },
         { "vel",   "velocity", THC_PARAM_INT, 1, 127, 80, NULL, NULL },
+        { "accent", "velocity each > adds and each < takes away",
+          THC_PARAM_INT, 0, 64, 12, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -101,8 +116,9 @@ struct State {
 
     std::string derived;
 
-    /* The interpreted phrase: (step offset, MIDI note). */
-    struct Ev { int at; int midi; };
+    /* The interpreted phrase: (step offset, MIDI note, steps long, net
+       accent marks). */
+    struct Ev { int at; int midi; int len; int accent; };
     std::vector<Ev> phrase;
     int phraseSteps;
 
@@ -247,6 +263,12 @@ State::interpret (void)
     std::vector<Turtle> stack;
     Turtle t = { 0, 0 };
 
+    /* The note a `_' would lengthen: the last F, until a rest or a
+       bracket comes between. And the accent marks waiting for the next
+       F. */
+    int last = -1;
+    int accent = 0;
+
     for (size_t i = 0; i < derived.size(); i++)
     {
         switch (derived[i])
@@ -255,28 +277,49 @@ State::interpret (void)
             {
                 int midi = degreeToMidi(t.degree);
 
-                if (midi >= 0 && phrase.size() < MAX_EVENTS)
-                    phrase.push_back({ t.at, midi });
+                last = -1;
 
+                if (midi >= 0 && phrase.size() < MAX_EVENTS)
+                {
+                    phrase.push_back({ t.at, midi, 1, accent });
+                    last = (int)phrase.size() - 1;
+                }
+
+                accent = 0;
                 t.at++;
                 break;
             }
-            case 'r': t.at++; break;
+            case 'r': t.at++; last = -1; break;
+            case '_':
+                if (last >= 0)
+                    phrase[last].len++;
+
+                t.at++;
+                break;
+            case '>': accent++; break;
+            case '<': accent--; break;
             case '+': t.degree++; break;
             case '-': t.degree--; break;
-            case '[': stack.push_back(t); break;
+            case '[': stack.push_back(t); last = -1; break;
             case ']':
                 if (!stack.empty())
                 {
                     t = stack.back();
                     stack.pop_back();
                 }
+
+                last = -1;
                 break;
             default:  break;             /* structure, never heard      */
         }
 
-        if (t.at + 1 > phraseSteps)
-            phraseSteps = t.at + 1;
+        /* `at' has already stepped past the note it sounded, so it is
+           the phrase's length, not its last index: a phrase of four
+           steps is four steps long and repeats on the fifth, which is
+           what lets one written in beats stay in the bar with a ring
+           beside it. */
+        if (t.at > phraseSteps)
+            phraseSteps = t.at;
     }
 }
 
@@ -329,12 +372,19 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         {
             thcEvent ev = {};
 
+            /* A tied note holds for its extra steps on top of `hold', so
+               the gap `hold' leaves before the next step is the same gap
+               whatever the length. */
+            int vel = (int)get(P_VEL) +
+                      st->phrase[i].accent * (int)get(P_ACCENT);
+
             ev.type = THC_EV_NOTE;
             ev.at = t->now + st->phrase[i].at * step;
             ev.channel = 0;              /* the sink routes             */
             ev.u.note.note = st->phrase[i].midi;
-            ev.u.note.velocity = (int)get(P_VEL);
-            ev.u.note.duration = get(P_HOLD);
+            ev.u.note.velocity = vel < 1 ? 1 : vel > 127 ? 127 : vel;
+            ev.u.note.duration = get(P_HOLD) +
+                                 (st->phrase[i].len - 1) * step;
 
             out->emit(out->ctx, &ev);
         }

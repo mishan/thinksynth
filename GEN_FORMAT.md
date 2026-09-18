@@ -115,6 +115,13 @@ This resolves the question the plugin API left open: pitch pools are not
 strings threaded through param tables — they are declared once and referenced
 by name, and the string form of the param exists only at the file boundary.
 
+A `.` in a note list is a rest. It resolves like a pitch, at load, to a
+value no ladder reads (every plugin that climbs a ladder filters what it is
+given to real pitches), and a pool that is *cycled* — `gen::euclid`'s —
+takes it as an onset that sounds nothing. So `"C4 . E4 ."` is a rhythm as
+well as a pool, which is what lets a ring with every step filled be a step
+sequencer. A `THC_PARAM_NOTE` param, which wants one pitch, refuses it.
+
 ## 4a. Presets are named chanarg vectors
 
 ```
