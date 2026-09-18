@@ -41,7 +41,16 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    /* A straight scale by TH_MAX/MIDIVALMAX, with no clamp: 127 is the top of
+       what MIDI sends, not a bound this enforces. */
+    plugin->setArgDesc(args[IN_ARG],
+                       "A MIDI controller value, 0 to 127; nothing is "
+                       "clamped, so more than 127 passes 1");
+    plugin->setArgRange(args[IN_ARG], 0, MIDIVALMAX);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The same, scaled to 0 to 1");
+    plugin->setArgRange(args[OUT_ARG], 0, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     return 0;
 }

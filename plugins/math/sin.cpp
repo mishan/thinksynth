@@ -41,16 +41,22 @@ int module_init (thPlugin *plugin)
 
     /* Registered nothing at all until now -- hence the "doing things the old,
        slow way" warning on every load, and a box with no ports on it. */
+    /* `sin((index/wavelength) * 2pi) * amp'. Not an oscillator: it keeps no
+       phase of its own, so whatever drives the index decides the pitch. */
     args[IN_INDEX] = plugin->regArg("index", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_INDEX], "Where in the cycle to read");
     args[IN_WAVELENGTH] = plugin->regArg("wavelength", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_WAVELENGTH], "How much index makes one cycle");
     /* The plugin already had this default, written where nothing
        could read it: `if (wavelength == 0) wavelength = 1;' */
     plugin->setArgDefault(args[IN_WAVELENGTH], 1);
     args[IN_AMP] = plugin->regArg("amp", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_AMP], "Peak amplitude");
     /* The plugin already had this default, written where nothing
        could read it: `if (amp == 0) amp = 1;' */
     plugin->setArgDefault(args[IN_AMP], 1);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The sine");
 
     return 0;
 }

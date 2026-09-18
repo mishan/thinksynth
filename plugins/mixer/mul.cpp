@@ -25,7 +25,10 @@
 enum {IN_0, IN_1, OUT_ARG};
 int args[OUT_ARG + 1];
 
-static const char desc[] = "Multiplies two streams";
+/* math::mul shipped with this same description and is the plain product;
+   this divides the second input by full scale first, so it is a signal and
+   a gain rather than two signals. */
+static const char desc[] = "Scales a stream by another, as a gain";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -38,8 +41,24 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_0], "Signal in");
+    plugin->setArgRange(args[IN_0], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_0], "full scale");
     args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    /* `in0 * (in1/TH_MAX)' -- the second input is divided by full scale, so
+       it reads as a gain where math::mul's reads as a second operand. Signed,
+       and not clamped: dsp/hat0.dsp wires a bipolar oscillator in here to ring
+       modulate another, which is the same arithmetic used for a different
+       purpose and is why the range reaches below zero. */
+    plugin->setArgDesc(args[IN_1],
+                       "Gain as a fraction of full scale; a bipolar signal "
+                       "here ring modulates in0");
+    plugin->setArgRange(args[IN_1], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_1], "full scale");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "in0 scaled by in1");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     return 0;
 }

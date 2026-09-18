@@ -38,8 +38,11 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_0], "What to subtract from");
     args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_1], "What to subtract");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "in0 - in1");
 
     return 0;
 }

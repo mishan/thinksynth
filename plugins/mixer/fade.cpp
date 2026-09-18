@@ -38,9 +38,24 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_0], "What a fade of 0 gives");
+    plugin->setArgRange(args[IN_0], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_0], "full scale");
     args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_1], "What a fade of 1 gives");
+    plugin->setArgRange(args[IN_1], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_1], "full scale");
     args[IN_FADE] = plugin->regArg("fade", thPlugin::ARG_IN);
+    /* Linear and unclamped: `in0*(1-fade) + in1*fade', so a fade outside 0
+       to 1 extrapolates past either input rather than stopping there. */
+    plugin->setArgDesc(args[IN_FADE],
+                       "0 is all in0, 1 is all in1; outside that it "
+                       "extrapolates past either rather than stopping");
+    plugin->setArgRange(args[IN_FADE], 0, 1);
     args[OUT] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT], "The crossfade");
+    plugin->setArgRange(args[OUT], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT], "full scale");
 
     return 0;
 }

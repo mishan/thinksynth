@@ -40,8 +40,16 @@ int module_init (thPlugin *plugin)
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_LATCH] = plugin->regArg("latch", thPlugin::ARG_IN);
+    /* Level-triggered, not edge-triggered: it tracks the input for as long as
+       this is above zero, and holds the last value it saw once it is not. */
+    plugin->setArgDesc(args[IN_LATCH],
+                       "Above 0 the output tracks the input; at or below, it "
+                       "holds");
+    plugin->setArgRange(args[IN_LATCH], 0, 1);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The tracked or held value");
     return 0;
 }
 
