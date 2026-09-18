@@ -44,8 +44,10 @@ int module_init (thPlugin *plugin)
     plugin->setArgDesc(args[IN_NOTE],
                        "MIDI note; fractional and out of range are both "
                        "fine, but the answer stops at Nyquist");
+    plugin->setArgUnits(args[IN_NOTE], "semitones");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "Frequency in hertz");
+    plugin->setArgUnits(args[OUT_ARG], "Hz");
 
     return 0;
 }

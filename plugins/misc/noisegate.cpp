@@ -40,10 +40,28 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* The input passed through or replaced by silence -- it does not fade,
+       so an audible signal at the threshold will chatter. */
+    plugin->setArgDesc(args[OUT_ARG], "The input, or nothing");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FALLOFF] = plugin->regArg("falloff", thPlugin::ARG_IN);
+    /* env::followavg's averager, coefficient and all, deciding what counts as
+       the current level. 0.1^falloff, so decades of smoothing rather than a
+       time. */
+    plugin->setArgDesc(args[IN_FALLOFF],
+                       "How the level is averaged: 0 is instantaneous, and "
+                       "each whole number is ten times slower");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "The averaged level below which nothing gets through");
+    plugin->setArgRange(args[IN_CUTOFF], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_CUTOFF], "full scale");
     return 0;
 }
 

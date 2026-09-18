@@ -25,7 +25,9 @@
 enum {IN_0, IN_1, OUT_ARG};
 int args[OUT_ARG + 1];
 
-static const char desc[] = "Adds two streams";
+/* mixer::add shipped with this same description and halves the result. This
+   one is the plain sum, for arithmetic rather than for mixing. */
+static const char desc[] = "Adds two streams, unscaled";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -38,8 +40,11 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_0], "First operand");
     args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_1], "Second operand");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "in0 + in1, unscaled");
 
     return 0;
 }

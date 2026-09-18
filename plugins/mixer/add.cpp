@@ -25,7 +25,9 @@
 enum {IN_0, IN_1, OUT_ARG};
 int args[OUT_ARG + 1];
 
-static const char desc[] = "Adds two streams";
+/* math::add shipped with this same description and is the one that adds:
+   this halves the result so two full-scale signals stay in range. */
+static const char desc[] = "Averages two streams";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -38,8 +40,18 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_0] = plugin->regArg("in0", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_0], "First signal");
+    plugin->setArgRange(args[IN_0], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_0], "full scale");
     args[IN_1] = plugin->regArg("in1", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_1], "Second signal");
+    plugin->setArgRange(args[IN_1], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_1], "full scale");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* `(in0 + in1)/2' -- the mean, not the sum. math::add is the sum. */
+    plugin->setArgDesc(args[OUT_ARG], "The mean of the two, so it stays in range");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     return 0;
 }

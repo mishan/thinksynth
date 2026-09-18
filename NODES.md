@@ -473,9 +473,9 @@ Logical And
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | True when above 0 |  |  |  |  |
+| `in1` | in | True when above 0 |  |  |  |  |
+| `out` | out | 1 when both inputs are above 0, and 0 otherwise |  | 0 to 1 |  |  |
 
 ### logic::not
 
@@ -483,20 +483,20 @@ Logical Not
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | True when above 0 |  |  |  |  |
+| `out` | out | 1 when in is at or below 0, and 0 when it is above |  | 0 to 1 |  |  |
 
 ## math
 
 ### math::add
 
-Adds two streams
+Adds two streams, unscaled
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | First operand |  |  |  |  |
+| `in1` | in | Second operand |  |  |  |  |
+| `out` | out | in0 + in1, unscaled |  |  |  |  |
 
 ### math::div
 
@@ -504,19 +504,19 @@ Divides two streams
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | Numerator |  |  |  |  |
+| `in1` | in | Denominator; 0 is a non-finite result |  |  |  |  |
+| `out` | out | in0 / in1 |  |  |  |  |
 
 ### math::mul
 
-Multiplies two streams
+Multiplies two streams, unscaled
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | First operand |  |  |  |  |
+| `in1` | in | Second operand |  |  |  |  |
+| `out` | out | in0 * in1, unscaled |  |  |  |  |
 
 ### math::sin
 
@@ -524,10 +524,10 @@ Sine Calculation
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `index` | in |  |  |  |  |  |
-| `wavelength` | in |  | 1 |  |  |  |
-| `amp` | in |  | 1 |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `index` | in | Where in the cycle to read |  |  |  |  |
+| `wavelength` | in | How much index makes one cycle | 1 |  |  |  |
+| `amp` | in | Peak amplitude | 1 |  |  |  |
+| `out` | out | The sine |  |  |  |  |
 
 ### math::sub
 
@@ -535,9 +535,9 @@ Subtracts two streams
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | What to subtract from |  |  |  |  |
+| `in1` | in | What to subtract |  |  |  |  |
+| `out` | out | in0 - in1 |  |  |  |  |
 
 ## misc
 
@@ -547,8 +547,8 @@ Converts dB to an amplitude value. Arg should be <= 0.
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `db` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `db` | in | Decibels: 0 is unity, below it attenuates, and above it amplifies -- the plugin's own ceiling of 0 is a convention, not a limit |  |  | dB |  |
+| `out` | out | The gain those decibels mean |  |  | ratio |  |
 
 ### misc::freq2samples
 
@@ -556,8 +556,8 @@ Converts a frequency to wavelength in samples
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `freq` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `freq` | in | Frequency; 0 gives an infinite wavelength |  |  | Hz |  |
+| `out` | out | One cycle of it |  |  | samples |  |
 
 ### misc::latch
 
@@ -566,9 +566,9 @@ Sample and hold
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `latch` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | Signal in |  |  |  |  |
+| `latch` | in | Above 0 the output tracks the input; at or below, it holds |  | 0 to 1 |  |  |
+| `out` | out | The tracked or held value |  |  |  |  |
 
 ### misc::midi2freq
 
@@ -576,8 +576,8 @@ Converts a midi note value to it's respective frequency
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `note` | in | MIDI note; fractional and out of range are both fine, but the answer stops at Nyquist |  |  |  |  |
-| `out` | out | Frequency in hertz |  |  |  |  |
+| `note` | in | MIDI note; fractional and out of range are both fine, but the answer stops at Nyquist |  |  | semitones |  |
+| `out` | out | Frequency in hertz |  |  | Hz |  |
 
 ### misc::midi2range
 
@@ -585,8 +585,8 @@ Maps a midi controller value from 0 to TH_MAX
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | A MIDI controller value, 0 to 127; nothing is clamped, so more than 127 passes 1 |  | 0 to 127 |  |  |
+| `out` | out | The same, scaled to 0 to 1 |  | 0 to 1 | full scale |  |
 
 ### misc::noisegate
 
@@ -594,11 +594,11 @@ Zeros the output if the input goes below a certain level
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
+| `out` | out | The input, or nothing |  | -1 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `falloff` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `falloff` | in | How the level is averaged: 0 is instantaneous, and each whole number is ten times slower |  |  |  |  |
+| `cutoff` | in | The averaged level below which nothing gets through |  | 0 to 1 | full scale |  |
 
 ### misc::print
 
@@ -606,19 +606,19 @@ Prints 'in'
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
+| `in` | in | Printed to stdout, one window at a time |  |  |  |  |
 
 ## mixer
 
 ### mixer::add
 
-Adds two streams
+Averages two streams
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | First signal |  | -1 to 1 | full scale |  |
+| `in1` | in | Second signal |  | -1 to 1 | full scale |  |
+| `out` | out | The mean of the two, so it stays in range |  | -1 to 1 | full scale |  |
 
 ### mixer::fade
 
@@ -626,20 +626,20 @@ Fades between two streams
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `fade` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | What a fade of 0 gives |  | -1 to 1 | full scale |  |
+| `in1` | in | What a fade of 1 gives |  | -1 to 1 | full scale |  |
+| `fade` | in | 0 is all in0, 1 is all in1; outside that it extrapolates past either rather than stopping |  | 0 to 1 |  |  |
+| `out` | out | The crossfade |  | -1 to 1 | full scale |  |
 
 ### mixer::mul
 
-Multiplies two streams
+Scales a stream by another, as a gain
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in0` | in |  |  |  |  |  |
-| `in1` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in0` | in | Signal in |  | -1 to 1 | full scale |  |
+| `in1` | in | Gain as a fraction of full scale; a bipolar signal here ring modulates in0 |  | -1 to 1 | full scale |  |
+| `out` | out | in0 scaled by in1 |  | -1 to 1 | full scale |  |
 
 ## osc
 

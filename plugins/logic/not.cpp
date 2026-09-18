@@ -38,8 +38,13 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* Anything above zero is true; the output is exactly 0 or 1. */
     args[IN] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN], "True when above 0");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG],
+                       "1 when in is at or below 0, and 0 when it is above");
+    plugin->setArgRange(args[OUT_ARG], 0, 1);
     return 0;
 }
 

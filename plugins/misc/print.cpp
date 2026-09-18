@@ -39,6 +39,9 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    /* A whole window of floats to stdout, per node, per window. A debugging
+       tool, and not one to leave in a graph that is going to play. */
+    plugin->setArgDesc(args[IN_ARG], "Printed to stdout, one window at a time");
 
     return 0;
 }

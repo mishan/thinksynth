@@ -40,7 +40,18 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[DB] = plugin->regArg("db", thPlugin::ARG_IN);
+    /* exp(db * 0.11512925), which is 10^(db/20): 0 comes out as 1, -6 as
+       about a half, -60 as a thousandth. Positive decibels work and give a
+       gain above 1, which is why the ceiling is 0 rather than the arithmetic
+       breaking there. */
+    plugin->setArgDesc(args[DB],
+                       "Decibels: 0 is unity, below it attenuates, and above "
+                       "it amplifies -- the plugin's own ceiling of 0 is a "
+                       "convention, not a limit");
+    plugin->setArgUnits(args[DB], "dB");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The gain those decibels mean");
+    plugin->setArgUnits(args[OUT_ARG], "ratio");
     return 0;
 }
 

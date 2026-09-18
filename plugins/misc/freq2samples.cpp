@@ -40,7 +40,13 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    /* Folded at the rate the synth is running at, not the compile-time one,
+       so the answer follows the device. */
+    plugin->setArgDesc(args[IN_FREQ], "Frequency; 0 gives an infinite wavelength");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "One cycle of it");
+    plugin->setArgUnits(args[OUT_ARG], "samples");
     return 0;
 }
 
