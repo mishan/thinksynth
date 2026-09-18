@@ -35,6 +35,22 @@
  * under the melody instead of burying it. `below' stacks downward
  * instead, which turns a melody into the top of its own harmony.
  *
+ * VOICE LEADING. Stacked from the root every time, a progression
+ * jumps: C to F moves three voices up a fourth together, and the ear
+ * hears three chords rather than one line moving. `lead' keeps which
+ * notes are in the chord and changes which octave each is sung in --
+ * every voice goes to the register nearest the voice it replaces, so
+ * the chord that shares a note with the one before it holds that note
+ * where it was and the rest move a step. Which is to say the stage
+ * stops spelling chords and starts writing parts.
+ *
+ * It qualifies `below', which is the one param it touches. Which notes
+ * the chord has is still read off the scale under the melody or over
+ * it, exactly as before; which side of the melody each of them is sung
+ * on is what leading decides, and a voice led across the root is an
+ * inversion rather than a mistake. A piece that needs the melody on
+ * top of its own harmony come what may wants `lead = 0'.
+ *
  * HELD NOTES. A THC_EV_NOTEOFF has to release exactly the pitches its
  * THC_EV_NOTE pressed, so the chord is remembered per sounding root
  * rather than recomputed at release time: `voices' or `scale' moving
@@ -67,8 +83,13 @@
  *   and which can silence another stage's note at that pitch. An empty
  *   chord is now recorded as an empty chord, and releases nothing.
  *
- * DETERMINISM. No randomness at all: the chord is a function of the
- * pitch, the scale and the params. Replay is free.
+ * DETERMINISM. No randomness at all. Without `lead' the chord is a
+ * function of the pitch, the scale and the params, and any one note of
+ * a piece can be answered without having heard the ones before it.
+ * With `lead' it is a function of those and of where the last chord
+ * was put, which is a state a replay from the top rebuilds note for
+ * note and a jump into the middle of a piece does not -- the same
+ * trade every stage that remembers anything makes.
  */
 
 #include <cstdlib>
@@ -80,7 +101,7 @@
 #include "thcomposer.h"
 
 enum { P_SCALE, P_VOICES, P_STEP, P_SPREAD, P_TAPER, P_ROOT, P_BELOW,
-       P_COUNT };
+       P_LEAD, P_SPAN, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -110,8 +131,21 @@ composer_init (thcComposerInfo *info)
           THC_PARAM_FLOAT, 0.1, 1, 0.85, NULL, NULL },
         { "root",   "1: the incoming note sounds too; 0: only the "
           "harmony does", THC_PARAM_INT, 0, 1, 1, NULL, NULL },
-        { "below",  "1: stack downward, so the melody is the top voice",
-          THC_PARAM_INT, 0, 1, 0, NULL, NULL },
+        { "below",  "1: spell the chord under the melody rather than "
+          "over it", THC_PARAM_INT, 0, 1, 0, NULL, NULL },
+
+        /* Off by default, because turning it on revoices every chord a
+           piece has already been written around. A stage nobody has
+           asked anything of plays what it always played. */
+        { "lead",   "1: voice each chord near the one before it, rather "
+          "than stacking it on the root", THC_PARAM_INT, 0, 1, 0, NULL,
+          NULL },
+
+        /* Semitones. Wide enough that the leading has somewhere to go --
+           an inversion is worth several semitones -- and narrow enough
+           that a root an octave down takes its chord with it. */
+        { "span",   "semitones from the root a led voice may sit",
+          THC_PARAM_INT, 0, 48, 12, NULL, NULL },
     };
 
     for (int i = 0; i < P_COUNT; i++)
@@ -164,6 +198,12 @@ struct State {
        is let go, because the second press takes the first chord down
        and the two offs that follow have one chord between them. */
     std::set<int> seen;
+
+    /* Where the voices of the last chord were put, the root's own left
+       out, so `lead' can put the next chord's near them. Kept whether
+       `lead' is on or not: a knob turned mid-piece leads from wherever
+       the stacked chords had got to, rather than from nothing. */
+    std::vector<int> last;
 
     void reparse (void);
 };
@@ -234,6 +274,125 @@ walkTo (const State *st, int note, int n, bool down)
     }
 
     return at;
+}
+
+/* The next pitch of a class, one direction, or -1 off the keyboard. */
+static int
+nextOfClass (int from, int pc, bool down)
+{
+    for (int at = from + (down ? -1 : 1); at >= 0 && at <= 127;
+         at += down ? -1 : 1)
+        if (at % 12 == pc)
+            return at;
+
+    return -1;
+}
+
+/* Put the added voices where the last chord left its own.
+ *
+ * `chord' arrives stacked from the root and leaves revoiced: the same
+ * notes, each in the octave that moves its voice least. What the search
+ * is over is the chord's close-position voicings -- every inversion, at
+ * every octave -- which is what a hand on a keyboard chooses among, and
+ * it chooses the one nearest where the hand already is.
+ *
+ * The root is not in the search. It sounds where the melody put it, so
+ * a led voice may end up under it: that is an inversion, and it is the
+ * reason a progression stops jumping. The no-crossing rule is the added
+ * voices' own -- they come out in order, never two to a pitch -- and the
+ * one placement refused outright is a voice on the root's exact pitch,
+ * which is a unison nobody can hear and a voice wasted.
+ *
+ * `span' is a fence around the root rather than a fixed register, so a
+ * piece that transposes takes its voicing with it and a root that drops
+ * an octave drags the chord after it instead of leaving it up there.
+ * Within the fence the least movement wins; when nothing clears it --
+ * a wide chord and a narrow span -- the least trespass does, because a
+ * chord has to be put somewhere. Ties go first to the voicing nearest
+ * the root and then to the lower of the two, which is a rule rather
+ * than a preference: two voicings that move the voices equally have to
+ * be told apart by something, and the order they happened to be tried
+ * in is the one answer that cannot be read off the file.
+ */
+static void
+leadVoices (const std::vector<int> &prev, int root, bool keep, bool down,
+            int span, std::vector<int> &chord)
+{
+    const int m = (int)chord.size() - 1;
+
+    if (m < 1)
+        return;
+
+    std::vector<int> pc(m), target(m), v(m), best;
+    long bestCost[4] = { 0, 0, 0, 0 };
+
+    for (int i = 0; i < m; i++)
+    {
+        pc[i] = chord[i + 1] % 12;
+
+        /* A voice the last chord did not have -- `voices' turned up
+           while the piece ran -- leads from where the stack would have
+           put it, which is the placement it would have had all along. */
+        target[i] = i < (int)prev.size() ? prev[i] : chord[i + 1];
+    }
+
+    for (int r = 0; r < m; r++)
+    {
+        for (int base = pc[r]; base <= 127; base += 12)
+        {
+            long cost[4] = { 0, 0, 0, 0 };
+            bool ok = true;
+
+            v[0] = base;
+
+            for (int i = 1; i < m && ok; i++)
+            {
+                v[i] = nextOfClass(v[i - 1], pc[(r + i) % m], down);
+                ok = v[i] >= 0;
+            }
+
+            for (int i = 0; i < m && ok; i++)
+            {
+                const int reach = abs(v[i] - root);
+
+                if (keep && v[i] == root)
+                {
+                    ok = false;
+                    break;
+                }
+
+                if (reach > span)
+                    cost[0] += reach - span;
+
+                cost[1] += abs(v[i] - target[i]);
+                cost[2] += reach;
+                cost[3] += v[i];
+            }
+
+            if (!ok)
+                continue;
+
+            bool take = best.empty();
+
+            for (int i = 0; i < 4 && !take; i++)
+            {
+                if (cost[i] != bestCost[i])
+                {
+                    take = cost[i] < bestCost[i];
+                    break;
+                }
+            }
+
+            if (take)
+            {
+                best = v;
+                memcpy(bestCost, cost, sizeof bestCost);
+            }
+        }
+    }
+
+    for (int i = 0; i < (int)best.size(); i++)
+        chord[i + 1] = best[i];
 }
 
 extern "C" THINK_PLUGIN_API void *
@@ -340,9 +499,14 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     const double taper  = p->get(p->ctx, paramIndex[P_TAPER]);
     const bool   keep   = p->get(p->ctx, paramIndex[P_ROOT]) != 0;
     const bool   down   = p->get(p->ctx, paramIndex[P_BELOW]) != 0;
+    const bool   led    = p->get(p->ctx, paramIndex[P_LEAD]) != 0;
+    const int    span   = (int)p->get(p->ctx, paramIndex[P_SPAN]);
 
-    std::vector<State::Voice> pressed;
-    double vel = ev->u.note.velocity;
+    /* Which notes are in the chord: the root, and the scale tones the
+       walk lands on away from it. Settled here and not touched again --
+       `lead' below moves them between octaves and neither adds one nor
+       drops one, so a chord is the same chord however it is voiced. */
+    std::vector<int> chord;
 
     for (int v = 0; v < voices; v++)
     {
@@ -353,6 +517,25 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
            with a unison in it, which sounds like a bug and is one. */
         if (note < 0)
             break;
+
+        chord.push_back(note);
+    }
+
+    /* And where they sound. The stack is the answer with `lead' off,
+       and it is the answer for the first chord either way: leading has
+       nothing to lead from until a chord has been placed. */
+    if (led && !st->last.empty())
+        leadVoices(st->last, root, keep, down, span, chord);
+
+    if (!chord.empty())
+        st->last.assign(chord.begin() + 1, chord.end());
+
+    std::vector<State::Voice> pressed;
+    double vel = ev->u.note.velocity;
+
+    for (int v = 0; v < (int)chord.size(); v++)
+    {
+        const int note = chord[v];
 
         /* `root = 0' drops the melody and keeps its harmony -- but the
            root still had to be walked from, and its velocity still sets

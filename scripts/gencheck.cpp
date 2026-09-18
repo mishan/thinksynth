@@ -5586,6 +5586,13 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
             { "a held chord pressed twice",
               "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
               " voices = 3; step = 2; };\n", true },
+            /* A chord voiced from the one before it: the second
+               press is the first one this stage has led, and it has to
+               release what it led rather than what it would have
+               stacked. */
+            { "a led chord pressed twice",
+              "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
+              " voices = 3; step = 2; lead = 1; };\n", true },
             { "a rolled chord released early",
               "stage h xform::harmonize { scale = \"A2 C3 D3 E3 G3\";"
               " voices = 3; step = 2; spread = 0.5 s; };\n", false },
@@ -7176,6 +7183,297 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
 }
 
 
+/* ---- voice leading (PIECES_PLAN.md 3a) ---------------------------------
+ *
+ * A chord is which notes are in it; a voicing is which octave each of
+ * them is sung in. xform::harmonize only ever had the second one
+ * answer to the first -- stack the degrees on the root, wherever the
+ * root happens to be -- so a progression moved in parallel blocks and
+ * the ear heard three chords rather than three voices. `lead' keeps the
+ * notes and chooses the octaves, and what is asked here is exactly
+ * that split:
+ *
+ * 1. The led chord has the same notes as the stacked one. A stage that
+ *    quietly spelled something else when it was turned on would be a
+ *    second harmonizer wearing this one's name, and no amount of
+ *    smooth voice leading would make up for it.
+ * 2. It moves the voices less. Measured on the tape and compared
+ *    against the stacking, because "sounds smoother" is not a gate.
+ * 3. No voice moves more than a fourth, and one of them holds its
+ *    pitch across a chord change -- the common tone, which is the
+ *    thing a listener actually hears.
+ * 4. `lead = 0' is the stack it always was.
+ * 5. Repeated roots do not drift: the same chord twice running is the
+ *    same voicing twice running.
+ * 6. `span' is a fence around the root. A root an octave down drags
+ *    its chord after it, and a span wide enough to allow it leaves the
+ *    voices where they were.
+ * 7. No voice lands on the root's own pitch, which is a unison and a
+ *    voice thrown away.
+ */
+
+/* The chords of a tape: the notes that arrive together, low to high. */
+static std::vector<std::vector<int> >
+chordsOf (const std::vector<Heard> &h)
+{
+    std::vector<std::vector<int> > out;
+
+    for (size_t i = 0; i < h.size(); i++)
+    {
+        if (out.empty() || h[i].at - h[i - 1].at > 1e-6)
+            out.push_back(std::vector<int>());
+
+        out.back().push_back(h[i].note);
+    }
+
+    for (size_t i = 0; i < out.size(); i++)
+        std::sort(out[i].begin(), out[i].end());
+
+    return out;
+}
+
+/* How far the voices travel from one chord to the next, added up, and
+ * the furthest any single one of them goes.
+ *
+ * The pairing is by register -- the lowest voice of one chord answers
+ * the lowest of the next -- because that is all "a voice" can mean once
+ * the chords are only pitches on a tape, and because a voicing that
+ * crossed its voices to look still would be a worse voicing anyway. */
+static long
+travel (const std::vector<std::vector<int> > &c, int *worst)
+{
+    long sum = 0;
+
+    if (worst)
+        *worst = 0;
+
+    for (size_t i = 1; i < c.size(); i++)
+    {
+        if (c[i].size() != c[i - 1].size())
+            continue;
+
+        for (size_t v = 0; v < c[i].size(); v++)
+        {
+            const int d = abs(c[i][v] - c[i - 1][v]);
+
+            sum += d;
+
+            if (worst && d > *worst)
+                *worst = d;
+        }
+    }
+
+    return sum;
+}
+
+static void
+checkVoiceLeading (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    {
+        const char *need[] = { "harmonize", "euclid", NULL };
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                return;
+            }
+    }
+
+    /* C major from C3, a chord a second, `taper = 1' and no spread so
+       the tape is four plain triads. The roots are C F G C: the
+       progression every first harmony lesson opens with, and the one
+       everybody already knows the answer to -- the C stays put and
+       nothing else goes further than a step. */
+    const char *shape =
+        "chain c {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4;"
+        "    notes = \"%s\"; period = 1 s; hold = 0.9 s; };\n"
+        "  stage h xform::harmonize { scale = \"C3 D3 E3 F3 G3 A3 B3\";"
+        "    voices = %d; step = %d; spread = 0 s; taper = 1;"
+        "    below = %d; lead = %d; span = %d; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+
+    char body[1024];
+
+    /* ---- 1, 4. the same notes, and the stack when nobody asks ---- */
+
+    for (int below = 0; below < 2; below++)
+    {
+        std::vector<std::vector<int> > stacked, led;
+
+        snprintf(body, sizeof(body), shape, "C3 F3 G3 C3", 3, 2, below,
+                 0, 12);
+        stacked = chordsOf(playBody(plugins, synth, "harmonize-stacked",
+                                    body, 3.5));
+
+        snprintf(body, sizeof(body), shape, "C3 F3 G3 C3", 3, 2, below,
+                 1, 12);
+        led = chordsOf(playBody(plugins, synth, "harmonize-led", body,
+                                3.5));
+
+        if (stacked.size() != 4 || led.size() != 4)
+        {
+            fail("voice leading: expected four chords either way, got " +
+                 std::to_string(stacked.size()) + " stacked and " +
+                 std::to_string(led.size()) + " led");
+            return;
+        }
+
+        for (size_t i = 0; i < led.size(); i++)
+        {
+            std::multiset<int> a, b;
+
+            for (size_t v = 0; v < led[i].size(); v++)
+                a.insert(led[i][v] % 12);
+
+            for (size_t v = 0; v < stacked[i].size(); v++)
+                b.insert(stacked[i][v] % 12);
+
+            if (a != b)
+                fail(below ? "voice leading: a led chord below the melody "
+                             "is not the chord the stack spelled"
+                           : "voice leading: a led chord is not the chord "
+                             "the stack spelled");
+        }
+
+        if (below)
+            continue;
+
+        /* The stack, unchanged, note for note: F with two degrees of C
+           major over it is 53 57 60 and has been since the plugin was
+           written. */
+        if (stacked[1].size() != 3 || stacked[1][0] != 53 ||
+            stacked[1][1] != 57 || stacked[1][2] != 60)
+            fail("voice leading: `lead = 0' is no longer the stack it "
+                 "always was");
+
+        /* ---- 2, 3. less movement, and a common tone ---- */
+
+        int worstLed = 0, worstStacked = 0;
+        const long moveLed = travel(led, &worstLed);
+        const long moveStacked = travel(stacked, &worstStacked);
+
+        if (moveLed >= moveStacked)
+            fail("voice leading: the led voicings move the voices " +
+                 std::to_string(moveLed) + " semitones against the "
+                 "stack's " + std::to_string(moveStacked) +
+                 "; leading them is supposed to be the point");
+
+        if (worstLed > 5)
+            fail("voice leading: a led voice moved " +
+                 std::to_string(worstLed) + " semitones, which is further "
+                 "than the fourth C F G C asks of anybody");
+
+        bool common = false;
+
+        for (size_t i = 1; i < led.size() && !common; i++)
+            for (size_t v = 0; v < led[i].size(); v++)
+                if (std::find(led[i - 1].begin(), led[i - 1].end(),
+                              led[i][v]) != led[i - 1].end())
+                    common = true;
+
+        if (!common)
+            fail("voice leading: no voice held its pitch across a chord "
+                 "change, and C F G C has a common tone in it");
+    }
+
+    /* ---- 5. a chord that does not change does not move ---- */
+
+    /* The drift gate. Every chord is placed relative to the one before
+       it, so an error of one octave per chord is a shape this could
+       have and nothing else here would catch: four bars of one chord
+       must be four bars of one voicing. */
+    {
+        snprintf(body, sizeof(body), shape, "C3 C3 C3 C3", 3, 2, 0, 1, 12);
+
+        const std::vector<std::vector<int> > same =
+            chordsOf(playBody(plugins, synth, "harmonize-still", body,
+                              3.5));
+
+        if (same.size() != 4)
+            fail("voice leading: expected four chords, got " +
+                 std::to_string(same.size()));
+        else
+            for (size_t i = 1; i < same.size(); i++)
+                if (same[i] != same[0])
+                    fail("voice leading: one chord, played four times, "
+                         "was voiced differently the second time");
+    }
+
+    /* ---- 6. `span' is a fence around the root ---- */
+
+    /* Two octaves of roots. With a fence of an octave the voices have
+       to follow the root down; with one of four they may stay where
+       they are, and staying is what moves them least. Both answers are
+       right and the param is the difference between them, which is the
+       only way to show it is read at all. */
+    {
+        for (int span = 12; span <= 48; span += 36)
+        {
+            snprintf(body, sizeof(body), shape, "C3 C2 C3 C2", 3, 2, 0, 1,
+                     span);
+
+            const std::vector<std::vector<int> > c =
+                chordsOf(playBody(plugins, synth, "harmonize-span", body,
+                                  3.5));
+
+            if (c.size() != 4 || c[1].size() != 3)
+            {
+                fail("voice leading: the span piece did not play its "
+                     "chords");
+                continue;
+            }
+
+            /* The root is 36 in that chord either way. What is asked
+               is where the two voices over the C3 before it went. */
+            const bool stayed =
+                std::find(c[1].begin(), c[1].end(), 52) != c[1].end() &&
+                std::find(c[1].begin(), c[1].end(), 55) != c[1].end();
+
+            if (span == 12)
+            {
+                for (size_t v = 0; v < c[1].size(); v++)
+                    if (abs(c[1][v] - 36) > 12)
+                        fail("voice leading: a voice sat " +
+                             std::to_string(abs(c[1][v] - 36)) +
+                             " semitones from a root that fenced them "
+                             "to twelve");
+            }
+            else if (!stayed)
+                fail("voice leading: a fence four octaves wide still "
+                     "dragged the voices down after the root");
+        }
+    }
+
+    /* ---- 7. never a unison with the root ---- */
+
+    /* `step = 7' in a seven-note scale puts the second voice an octave
+       over the first, so the chord's other note is the root's own pitch
+       class and the register that moves it least is the root's own.
+       Least movement is not the only rule: a voice on the root is a
+       voice nobody can hear. */
+    {
+        snprintf(body, sizeof(body), shape, "C3 C4 C3 C4", 2, 7, 0, 1, 12);
+
+        const std::vector<std::vector<int> > c =
+            chordsOf(playBody(plugins, synth, "harmonize-unison", body,
+                              3.5));
+
+        if (c.size() != 4)
+            fail("voice leading: the unison piece did not play its "
+                 "chords");
+        else
+            for (size_t i = 0; i < c.size(); i++)
+                if (c[i].size() != 2 || c[i][0] == c[i][1])
+                    fail("voice leading: a led voice landed on the root's "
+                         "own pitch");
+    }
+}
+
 /* ---- variation (PIECES_PLAN.md 2) --------------------------------------
  *
  * The three stages that stop a written line repeating itself exactly:
@@ -7901,6 +8199,7 @@ main (int argc, char *argv[])
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
+    checkVoiceLeading(plugins, &synth);
     checkHeldNotes(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
