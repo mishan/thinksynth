@@ -96,15 +96,50 @@ int NodeCatalog::scan (const string &path)
             categories_.push_back(cat);
     }
 
-    /* readdir order is whatever the filesystem feels like, and a palette that
-       reorders itself between runs is unusable. */
+    index();
+
+    return (int)entries_.size();
+}
+
+int NodeCatalog::take (const vector<string> &spellings)
+{
+    entries_.clear();
+    categories_.clear();
+    byCategory_.clear();
+
+    for (size_t i = 0; i < spellings.size(); i++)
+    {
+        const string::size_type sep = spellings[i].find("::");
+
+        if (sep == string::npos || sep == 0 ||
+            sep + 2 >= spellings[i].size())
+            continue;
+
+        Entry e;
+
+        e.category = spellings[i].substr(0, sep);
+        e.name = spellings[i].substr(sep + 2);
+        e.spelling = spellings[i];
+
+        if (byCategory_.find(e.category) == byCategory_.end())
+            categories_.push_back(e.category);
+
+        entries_.push_back(e);
+        byCategory_[e.category].push_back(e);
+    }
+
+    index();
+
+    return (int)entries_.size();
+}
+
+void NodeCatalog::index (void)
+{
     sort(categories_.begin(), categories_.end());
 
     for (map<string, vector<Entry> >::iterator i = byCategory_.begin();
          i != byCategory_.end(); ++i)
         sort(i->second.begin(), i->second.end(), ByName());
-
-    return (int)entries_.size();
 }
 
 const vector<NodeCatalog::Entry> &

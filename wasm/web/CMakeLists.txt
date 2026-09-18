@@ -217,8 +217,15 @@ add_executable(thinkweb
     "${THINK_TOP}/src/gthSynthSource.cpp"
     "${THINK_TOP}/src/CanvasContent.cpp"
     "${THINK_TOP}/src/ComposerCanvas.cpp"
+    "${THINK_TOP}/src/NodeCanvas.cpp"
+    "${THINK_TOP}/src/NodeGraph.cpp"
+    "${THINK_TOP}/src/NodeEdit.cpp"
+    "${THINK_TOP}/src/NodeLayout.cpp"
+    "${THINK_TOP}/src/NodeCatalog.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
-    thinkweb.cpp)
+    twdraw.cpp
+    thinkweb.cpp
+    thinknode.cpp)
 
 target_include_directories(thinkweb PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -389,7 +396,7 @@ else()
   # nothing and serve the old editor.
   set(JAM_SOURCES jam.js room.js mesh.js editor.js doc.js clock.js commands.js
                   roll.js host.js keyboard.js knobs.js patch.js ../tape.mjs
-                  canvasview.js composerview.js tapediff.js
+                  canvasview.js composerview.js nodeview.js tapediff.js
                   bundle.mjs package-lock.json)
   set(JAM_DEPENDS "")
 

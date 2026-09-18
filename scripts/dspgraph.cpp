@@ -70,6 +70,7 @@
 #include "NodeGraph.h"
 #include "NodeLayout.h"
 
+#include <filesystem>
 #include <fstream>
 #include <sstream>
 #include <set>
@@ -111,6 +112,106 @@ static bool nonLayoutLines (const string &path, vector<string> &out)
 
     return true;
 }
+
+/* ---- both ways at once --------------------------------------------------
+ *
+ * NodeLayout comes in two: over a file, which is what the desktop does, and
+ * over the file's text, which is what a browser tab does -- there the
+ * document *is* the patch (JAM_M6.md, section 7.1). They have to be the
+ * same operation, so every call in the sweep below goes through these and
+ * the two answers are held against each other.
+ */
+namespace both {
+
+static int disagreements = 0;
+static int checked = 0;
+
+static bool slurp (const string &path, string &out)
+{
+    ifstream in(path.c_str(), ios::binary);
+
+    if (!in)
+        return false;
+
+    out.assign((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
+
+    return true;
+}
+
+static bool write (const string &file, const NodeGraph &graph)
+{
+    string text;
+
+    slurp(file, text);
+
+    const bool t = NodeLayout::Text::write(text, graph);
+    const bool r = NodeLayout::write(file, graph);
+
+    string after;
+
+    slurp(file, after);
+    checked++;
+
+    if (t != r || (r && after != text))
+    {
+        printf("FAIL  NodeLayout::write over text and over a file differ\n");
+        disagreements++;
+    }
+
+    return r;
+}
+
+static bool read (const string &file, NodeLayout::PosMap &out)
+{
+    string text;
+    NodeLayout::PosMap fromText;
+
+    slurp(file, text);
+
+    const bool t = NodeLayout::Text::read(text, fromText);
+    const bool r = NodeLayout::read(file, out);
+
+    checked++;
+
+    if (t != r || fromText != out)
+    {
+        printf("FAIL  NodeLayout::read over text and over a file differ\n");
+        disagreements++;
+    }
+
+    return r;
+}
+
+static bool readProbes (const string &file, vector<NodeLayout::ProbeRef> &out)
+{
+    string text;
+    vector<NodeLayout::ProbeRef> fromText;
+
+    slurp(file, text);
+
+    const bool t = NodeLayout::Text::readProbes(text, fromText);
+    const bool r = NodeLayout::readProbes(file, out);
+
+    checked++;
+
+    bool same = t == r && fromText.size() == out.size();
+
+    for (size_t i = 0; same && i < out.size(); i++)
+        same = fromText[i].node == out[i].node &&
+               fromText[i].arg == out[i].arg &&
+               fromText[i].visual == out[i].visual;
+
+    if (!same)
+    {
+        printf("FAIL  NodeLayout::readProbes over text and over a file "
+               "differ\n");
+        disagreements++;
+    }
+
+    return r;
+}
+
+} /* namespace both */
 
 static bool copyFile (const string &from, const string &to)
 {
@@ -1100,7 +1201,9 @@ int main (int argc, char **argv)
          * of every patch in the corpus would start growing a block. */
         if (problems == 0)
         {
-            const string tmp = "/tmp/dspgraph-probe.dsp";
+            const string tmp =
+                (std::filesystem::temp_directory_path() /
+                 "dspgraph-probe.dsp").string();
 
             vector<string> before, after;
 
@@ -1152,7 +1255,7 @@ int main (int argc, char **argv)
 
                 vector<NodeLayout::ProbeRef> got;
 
-                if (!NodeLayout::write(tmp, pg))
+                if (!both::write(tmp, pg))
                 { printf("FAIL  %s: could not write the probe block\n",
                          argv[f]);
                   problems++; }
@@ -1160,12 +1263,12 @@ int main (int argc, char **argv)
                 { printf("FAIL  %s: writing probes changed %d other line(s)\n",
                          argv[f], (int)after.size() - (int)before.size());
                   problems++; }
-                else if (!NodeLayout::write(tmp, pg) ||
+                else if (!both::write(tmp, pg) ||
                          !nonLayoutLines(tmp, after) || before != after)
                 { printf("FAIL  %s: saving probes twice differs from once\n",
                          argv[f]);
                   problems++; }
-                else if (!NodeLayout::readProbes(tmp, got))
+                else if (!both::readProbes(tmp, got))
                 { printf("FAIL  %s: could not read the probe block back\n",
                          argv[f]);
                   problems++; }
@@ -1196,8 +1299,8 @@ int main (int argc, char **argv)
 
                     vector<NodeLayout::ProbeRef> none;
 
-                    if (!NodeLayout::write(tmp, clean) ||
-                        !NodeLayout::readProbes(tmp, none) || !none.empty())
+                    if (!both::write(tmp, clean) ||
+                        !both::readProbes(tmp, none) || !none.empty())
                     { printf("FAIL  %s: a graph with no probes wrote %d probe "
                              "line(s)\n", argv[f], (int)none.size());
                       problems++; }
@@ -1210,7 +1313,11 @@ int main (int argc, char **argv)
         /* layout round-trip, on a copy so the corpus is never touched */
         if (problems == 0)
         {
-            const string tmp = "/tmp/dspgraph-layout.dsp";
+            /* The system's temporary directory, not "/tmp": this is a
+               ctest gate now, and ctest runs it under MSYS2 on Windows. */
+            const string tmp =
+                (std::filesystem::temp_directory_path() /
+                 "dspgraph-layout.dsp").string();
 
             vector<string> before, after;
 
@@ -1227,7 +1334,7 @@ int main (int argc, char **argv)
 
                 g.refreshExtent();
 
-                if (!NodeLayout::write(tmp, g))
+                if (!both::write(tmp, g))
                 { printf("FAIL  %s: layout write failed\n", argv[f]);
                   problems++; }
                 else if (!nonLayoutLines(tmp, after))
@@ -1237,7 +1344,7 @@ int main (int argc, char **argv)
                 { printf("FAIL  %s: writing the layout changed %d other line(s)\n",
                          argv[f], (int)after.size() - (int)before.size());
                   problems++; }
-                else if (!NodeLayout::write(tmp, g) ||
+                else if (!both::write(tmp, g) ||
                          !nonLayoutLines(tmp, after) || before != after)
                 { printf("FAIL  %s: saving twice is not the same as once\n",
                          argv[f]);
@@ -1246,7 +1353,7 @@ int main (int argc, char **argv)
                 {
                     NodeLayout::PosMap pos;
 
-                    NodeLayout::read(tmp, pos);
+                    both::read(tmp, pos);
 
                     /* Read back into a freshly laid-out graph, the way opening
                        the file again would. */
@@ -1338,5 +1445,9 @@ int main (int argc, char **argv)
         printf("  %ld probes written and read back, and every file still "
                "writes none when it has none\n", probeLines);
 
-    return failed;
+    if (total)
+        printf("  %d layout reads and writes made twice, over a file and "
+               "over its text, and the two agree\n", both::checked);
+
+    return failed + both::disagreements;
 }

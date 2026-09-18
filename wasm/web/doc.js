@@ -82,6 +82,71 @@ export function putFile (doc, name, text)
     });
 }
 
+/* An edit to a file, as the smallest splice that turns what is there into
+ * `next': one delete and one insert, in the middle.
+ *
+ * What the node editor's edits go through (JAM_M6.md, section 7.3).
+ * NodeEdit changes a line or two of a .dsp and copies every other byte
+ * through, so the difference is small and local, and a splice is what
+ * lets somebody else be typing in the same file at the same time -- a
+ * whole-file write would take their cursor with it, and would lose their
+ * character if it landed between the read and the write.
+ *
+ * Computed inside the transaction, against the text as it stands at that
+ * moment rather than against whatever the caller last read. That is the
+ * one thing that makes it safe: a splice worked out from a stale text
+ * deletes the wrong range (section 12.5).
+ *
+ * Returns the number of characters replaced, or -1 if there is no such
+ * file.
+ */
+export function spliceFile (doc, name, next)
+{
+    let replaced = -1;
+
+    doc.transact(() =>
+    {
+        const t = files(doc).get(name);
+
+        if (t === undefined)
+            return;
+
+        const was = t.toString();
+
+        if (was === next)
+        {
+            replaced = 0;
+            return;
+        }
+
+        /* The common ends, in characters. Y.Text counts in the same units
+           as a JavaScript string, so these indices are its. */
+        let head = 0;
+
+        while (head < was.length && head < next.length &&
+               was[head] === next[head])
+            head++;
+
+        let tail = 0;
+
+        while (tail < was.length - head && tail < next.length - head &&
+               was[was.length - 1 - tail] === next[next.length - 1 - tail])
+            tail++;
+
+        replaced = was.length - head - tail;
+
+        if (replaced > 0)
+            t.delete(head, replaced);
+
+        const inserted = next.slice(head, next.length - tail);
+
+        if (inserted.length > 0)
+            t.insert(head, inserted);
+    });
+
+    return replaced;
+}
+
 /* The piece's text, or null when the room has none. */
 export function pieceName (doc)
 {

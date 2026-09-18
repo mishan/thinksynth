@@ -399,3 +399,32 @@ details { margin: 0.8em 0; }
     outline: 2px solid var(--held);
     outline-offset: -2px;
 }
+
+/*
+ * The node editor's params panel: a row per arg, wrapping into columns on
+ * anything wider than a phone.
+ */
+.params {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem 1rem;
+    margin-top: 0.5rem;
+}
+
+.paramrow {
+    display: flex;
+    align-items: baseline;
+    gap: 0.4rem;
+    font-size: 0.9rem;
+}
+
+.paramrow input {
+    width: 7rem;
+}
+
+/* What a parameter is when it is not a number to type in: an output the
+   plugin writes, or a value something else drives. */
+.paramwhat {
+    color: var(--dim);
+    font-style: italic;
+}

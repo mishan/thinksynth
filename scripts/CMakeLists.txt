@@ -228,6 +228,11 @@ think_harness(dsplive   NODEMODEL)
 think_harness(dspnew    NODEMODEL)
 think_harness(dspwrite  NODEMODEL)
 
+# One edit, printed: the reference the browser's node editor is compared
+# against (wasm/web/nodecheck.mjs). Not a gate of its own -- it makes no
+# claims -- which is why it is not in the ctest list below.
+think_harness(dspedit   NODEMODEL)
+
 # ---------------------------------------------------------------------------
 # CTest gates. See cmake/RunHarness.cmake for why the file lists are computed
 # at test time rather than at configure time.
@@ -258,6 +263,32 @@ add_test(NAME dspcheck.patch
 
 # Exit status is the number of measurements still exceeding TH_MAX, which
 # should be zero at every voice count.
+# The graph and the layout block, over the whole corpus -- and, since M6,
+# over it twice for the layout: every read and write is made once over a
+# file and once over the same bytes as text (JAM_M6.md, section 7.1).
+add_test(NAME dspgraph
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspgraph>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -P "${_runner}")
+
+# The writer, over the whole corpus -- and, since M6, over it twice: every
+# edit is made once over a file and once over the same bytes as text, and
+# the two have to be the same edit (JAM_M6.md, section 7.1). It was never a
+# ctest gate because it takes a corpus argument; RunHarness.cmake is what
+# that objection was about, and dspcheck has used it all along.
+add_test(NAME dspwrite
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspwrite>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -P "${_runner}")
+
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dsplevel>

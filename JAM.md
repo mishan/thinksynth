@@ -276,7 +276,11 @@ stands.
   tapes held against each other and counted -- a determinism check a room
   gets for nothing. Two browsers in a room paint the same Life board on
   the same beat.
-- Not yet: the node editor.
+- The node editor over the shared document: the desktop's graph, canvas
+  and writer compiled to wasm, the palette and the params panel as HTML,
+  and every edit a splice into the room's `.dsp` -- held, byte for byte,
+  against what the desktop's own writer produces.
+- Not yet: the probes, and the by-hand pass in two browsers.
 
 ## 1. The three kinds of state
 

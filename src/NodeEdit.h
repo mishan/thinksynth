@@ -45,6 +45,18 @@
  *
  * Anything it cannot express, it refuses and says why, rather than writing
  * something that parses to a different number.
+ *
+ * TEXT IN, TEXT OUT. Every edit is a function of the file's text: it takes
+ * the source, changes the bytes it means to change, and hands it back.
+ * Where the text came from is the caller's business. On the desktop it is
+ * a file, and the filename overload of each is the three lines that read
+ * it, call the text one, and write it back -- writing nothing at all when
+ * the edit changed no byte. In a browser tab there is no file: the
+ * document is the patch, the text comes out of a CRDT and the new text
+ * goes back in as a splice (JAM_M6.md, section 7.1). Both get the same
+ * edits, which is the point -- an edit made in a room has to be the edit
+ * the desktop would have made, byte for byte, or the two stop agreeing
+ * about what a patch is.
  */
 
 #include <string>
@@ -174,6 +186,79 @@ public:
        so the old file survives until the new one is complete. */
     static Result createFile (const string &filename, const string &name,
                               const string &author, bool replace, string &why);
+
+
+    /* ---- the same edits, over the text rather than over a file ----
+     *
+     * Every edit below is a function of the patch's bytes, and the ones
+     * above are three lines each of read, call, write. A caller that has
+     * no file -- a browser tab, where the document *is* the patch and the
+     * new text goes back into a CRDT as a splice (JAM_M6.md, section 7.1)
+     * -- calls these.
+     *
+     * A scope of their own rather than overloads: a filename and a patch
+     * are both strings, and `setValue(work_, ...)' with a non-const
+     * `work_' would silently have picked the text one and edited the
+     * filename. Which it did, for about an hour.
+     */
+    struct Text {
+        static Result setValue (string &source, const string &node,
+                                const string &arg, double value,
+                                string &why);
+
+        static Result connect (string &source, const string &node,
+                               const string &arg, const string &srcNode,
+                               const string &srcPort, string &why);
+
+        static Result connectControl (string &source, const string &node,
+                                      const string &arg,
+                                      const string &control, string &why);
+
+        static Result disconnect (string &source, const string &node,
+                                  const string &arg, double value,
+                                  string &why);
+
+        static Result setChanArg (string &source, const string &name,
+                                  double value, string &why);
+
+        static Result addNode (string &source, const string &node,
+                               const string &plugin,
+                               const vector<pair<string, double> > &initial,
+                               string &why);
+
+        /* Without the plugin's own defaults, for a caller that has no
+           catalogue to ask for them. */
+        static Result addNode (string &source, const string &node,
+                               const string &plugin, string &why)
+        {
+            return addNode(source, node, plugin,
+                           vector<pair<string, double> >(), why);
+        }
+
+        static Result removeNode (string &source, const string &node,
+                                  int &removed, string &why);
+
+        static Result addControl (string &source, const string &name,
+                                  double value, double min, double max,
+                                  const string &label, const string &group,
+                                  string &why);
+
+        static Result setControlMeta (string &source, const string &name,
+                                      double min, double max,
+                                      const string &label,
+                                      const string &group, string &why);
+
+        static Result removeControl (string &source, const string &name,
+                                     int &removed, string &why);
+
+        /* A new patch's text. No `replace': nothing exists to be
+           replaced. */
+        static Result createFile (string &source, const string &name,
+                                  const string &author, string &why);
+
+        static Result find (const string &source, const string &node,
+                            const string &arg);
+    };
 
     /* True if `name' is something the lexer will read back as a node name. */
     static bool validName (const string &name);

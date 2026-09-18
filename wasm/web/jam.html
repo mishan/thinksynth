@@ -79,6 +79,26 @@
     <div id="editor"></div>
   </details>
 
+  <!-- The .dsp canvas, over the document: the desktop's node editor, with
+       its graph, its layout and its writer compiled to wasm and run in
+       this page's own instance of the module (JAM_M6.md, section 7). An
+       edit is a splice into the shared file, so it is everybody's edit,
+       and the piece plays it at the next Apply. -->
+  <details id="nodeview">
+    <summary>The instrument</summary>
+    <div class="row">
+      <label>File <select id="nodefile"></select></label>
+      <label>Add <select id="nodepalette"></select></label>
+      <button id="nodeadd">Add node</button>
+      <button id="nodefit">Fit</button>
+      <span id="nodeselected"></span>
+    </div>
+    <div id="nodescroll" class="canvasview">
+      <canvas id="nodecanvas" tabindex="0"></canvas>
+    </div>
+    <div id="nodeparams" class="params"></div>
+  </details>
+
   <details id="detail">
     <summary>The numbers</summary>
     <div class="row">

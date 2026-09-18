@@ -63,19 +63,61 @@ string NodeLayout::keyFor (const NodeGraph &graph, int box)
     return b.name;
 }
 
-bool NodeLayout::read (const string &filename, PosMap &out)
+/* ---- over the text -------------------------------------------------------
+ *
+ * The same three operations over the file's bytes, for a caller with no
+ * file: in a browser tab the document *is* the patch (JAM_M6.md, section
+ * 7.1). The filename versions at the bottom read, call and write.
+ *
+ * A scope of their own rather than overloads, for the reason NodeEdit::Text
+ * gives: a filename and a patch are both strings.
+ */
+
+/* Every line of a text, so the three below can go through a vector the way
+   they went through a file. */
+static void splitLines (const string &all, vector<string> &lines)
+{
+    string cur;
+
+    lines.clear();
+
+    for (size_t i = 0; i < all.size(); i++)
+    {
+        if (all[i] == '\n')
+        {
+            /* getline() leaves a \r on a CRLF file and every caller here
+               compares prefixes, so the two agree by dropping it here. */
+            if (!cur.empty() && cur[cur.size() - 1] == '\r')
+                cur.erase(cur.size() - 1);
+
+            lines.push_back(cur);
+            cur.clear();
+        }
+        else
+            cur += all[i];
+    }
+
+    if (!cur.empty())
+    {
+        if (cur[cur.size() - 1] == '\r')
+            cur.erase(cur.size() - 1);
+
+        lines.push_back(cur);
+    }
+}
+
+bool NodeLayout::Text::read (const string &source, PosMap &out)
 {
     out.clear();
 
-    ifstream in(filename.c_str());
+    vector<string> lines;
 
-    if (!in)
-        return false;
+    splitLines(source, lines);
 
-    string line;
-
-    while (getline(in, line))
+    for (size_t i = 0; i < lines.size(); i++)
     {
+        const string &line = lines[i];
+
         if (line.compare(0, strlen(LAYOUT_TAG), LAYOUT_TAG) != 0)
             continue;
 
@@ -115,19 +157,19 @@ int NodeLayout::apply (const NodeGraph &graph, const PosMap &pos,
     return applied;
 }
 
-bool NodeLayout::readProbes (const string &filename, vector<ProbeRef> &out)
+bool NodeLayout::Text::readProbes (const string &source,
+                                   vector<ProbeRef> &out)
 {
     out.clear();
 
-    ifstream in(filename.c_str());
+    vector<string> lines;
 
-    if (!in)
-        return false;
+    splitLines(source, lines);
 
-    string line;
-
-    while (getline(in, line))
+    for (size_t i = 0; i < lines.size(); i++)
     {
+        const string &line = lines[i];
+
         if (line.compare(0, strlen(PROBE_TAG), PROBE_TAG) != 0)
             continue;
 
@@ -145,50 +187,32 @@ bool NodeLayout::readProbes (const string &filename, vector<ProbeRef> &out)
     return true;
 }
 
-bool NodeLayout::write (const string &filename, const NodeGraph &graph)
+bool NodeLayout::Text::write (string &source, const NodeGraph &graph)
 {
-    /* Read the whole file, drop the old layout lines, append fresh ones.
+    /* Read the whole text, drop the old layout lines, append fresh ones.
      *
      * Note what this does *not* do: it never regenerates a node, an arg or a
      * value from the parsed model. Comments, spacing, `5 ms', and the args
      * buildArgMap() synthesised but nobody wrote are all simply not touched.
      */
-    vector<string> lines;
+    vector<string> lines, kept;
 
-    {
-        ifstream in(filename.c_str());
+    splitLines(source, lines);
 
-        if (!in)
-            return false;
+    for (size_t i = 0; i < lines.size(); i++)
+        if (lines[i].compare(0, strlen(LAYOUT_PFX), LAYOUT_PFX) != 0 &&
+            lines[i].compare(0, strlen(PROBE_PFX), PROBE_PFX) != 0)
+            kept.push_back(lines[i]);
 
-        string line;
-
-        while (getline(in, line))
-            if (line.compare(0, strlen(LAYOUT_PFX), LAYOUT_PFX) != 0 &&
-                line.compare(0, strlen(PROBE_PFX), PROBE_PFX) != 0)
-                lines.push_back(line);
-    }
+    lines.swap(kept);
 
     /* Trailing blank lines would accumulate one per save otherwise. */
     while (!lines.empty() && lines.back().find_first_not_of(" \t\r") == string::npos)
         lines.pop_back();
 
-    /* Into a temporary beside the target, then renamed over it.
-     *
-     * Truncating the real file and writing into it means a crash, a full disk
-     * or a killed process leaves a half-written .dsp -- and that is someone's
-     * patch, possibly the only copy. rename() within a directory is atomic, so
-     * the file ends up either the old one or the new one, never a prefix of
-     * the new one. Beside the target rather than in /tmp, because rename
-     * cannot cross a filesystem. */
-    const string tmp = filename + ".layout-tmp";
+    ostringstream out;
 
     {
-        ofstream out(tmp.c_str());
-
-        if (!out)
-            return false;
-
         for (size_t i = 0; i < lines.size(); i++)
             out << lines[i] << "\n";
 
@@ -231,7 +255,78 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
             out << PROBE_TAG << graph.boxes()[b.attachedTo].name << " "
                 << b.probeArg << " " << b.probeVisual << "\n";
         }
+    }
 
+    source = out.str();
+
+    return true;
+}
+
+/* ---- and over a file ---------------------------------------------------- */
+
+static bool readText (const string &filename, string &all)
+{
+    ifstream in(filename.c_str(), ios::binary);
+
+    if (!in)
+        return false;
+
+    all.assign((istreambuf_iterator<char>(in)), istreambuf_iterator<char>());
+
+    return true;
+}
+
+bool NodeLayout::read (const string &filename, PosMap &out)
+{
+    string source;
+
+    out.clear();
+
+    if (!readText(filename, source))
+        return false;
+
+    return Text::read(source, out);
+}
+
+bool NodeLayout::readProbes (const string &filename, vector<ProbeRef> &out)
+{
+    string source;
+
+    out.clear();
+
+    if (!readText(filename, source))
+        return false;
+
+    return Text::readProbes(source, out);
+}
+
+bool NodeLayout::write (const string &filename, const NodeGraph &graph)
+{
+    string source;
+
+    if (!readText(filename, source))
+        return false;
+
+    if (!Text::write(source, graph))
+        return false;
+
+    /* Into a temporary beside the target, then renamed over it.
+     *
+     * Truncating the real file and writing into it means a crash, a full disk
+     * or a killed process leaves a half-written .dsp -- and that is someone's
+     * patch, possibly the only copy. rename() within a directory is atomic, so
+     * the file ends up either the old one or the new one, never a prefix of
+     * the new one. Beside the target rather than in /tmp, because rename
+     * cannot cross a filesystem. */
+    const string tmp = filename + ".layout-tmp";
+
+    {
+        ofstream out(tmp.c_str());
+
+        if (!out)
+            return false;
+
+        out << source;
         out.flush();
 
         if (!out.good())

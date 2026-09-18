@@ -41,9 +41,11 @@ import * as Y from 'yjs';
 import { AudioClock, TransportClock, frameOfRelayMs } from './clock.js';
 import { Dedupe, KNOB_LEAD, Maker, TRANSPORT_LEAD, apply, isLate }
     from './commands.js';
-import { hashOf, instrumentTexts, pieceName, pieceText } from './doc.js';
+import { fileNames, files, hashOf, instrumentTexts, pieceName, pieceText,
+         readFile } from './doc.js';
 import { Editor, colourOf } from './editor.js';
 import { createComposerView } from './composerview.js';
+import { createNodeView } from './nodeview.js';
 import { createSynth } from './host.js';
 import { Keyboard, TypingKeys, showRange } from './keyboard.js';
 import { setKnob, showKnobs } from './knobs.js';
@@ -102,6 +104,13 @@ let roll = null;
    other, which is a determinism check a room gets for nothing. */
 let composer = null;
 const diff = new TapeDiff();
+
+/* The .dsp canvas over the document (JAM_M6.md, section 7): the page's own
+   instance of the module, the desktop's graph and writer in it, and every
+   edit a splice into the shared file. Made on Start, because it is another
+   instance of a 600 KB module and a room nobody is playing in does not
+   need one. */
+let nodes = null;
 let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
 let maker = null;
@@ -774,6 +783,17 @@ async function start ()
 
     showComposer();
 
+    try
+    {
+        nodes = await createNodeView({ doc, onStatus: status });
+        nodes.offer(fileNames(doc));
+        files(doc).observe(() => nodes.offer(fileNames(doc)));
+    }
+    catch (e)
+    {
+        log(`the instrument canvas did not start: ${e.message}`);
+    }
+
     await loadFromDoc();
     status(`Started. Claim a seat and press Play.`);
 }
@@ -846,6 +866,19 @@ function init ()
         late: () => ({ worklet: lateCount, page: late, seen: lateSeen }),
         margins: () => margins,
         ready: () => synth !== null && piece !== null && clocksReady(),
+
+        /* A file as the document has it now. What a harness checks an edit
+           against, and what one page holds the other's document against
+           (JAM_M6.md, section 8.3). */
+        file: (name) => readFile(doc, name),
+
+        /* The instrument canvas: where its boxes are, so a harness can
+           press on one rather than at a guess, and what it has selected. */
+        node: () => (nodes === null ? null : {
+            boxes: nodes.boxes(),
+            selected: nodes.selected(),
+            box: (i) => nodes.boxAt(i),
+        }),
 
         /* Which half of ready() is not true yet. A harness that waits for
            ready() and gives up has otherwise only a timeout to report,

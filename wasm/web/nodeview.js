@@ -1,0 +1,508 @@
+/*
+ * Copyright (C) 2004-2026 Metaphonic Labs
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General
+ * Public License for more details.
+ *
+ * You should have received a copy of the GNU General
+ * Public License along with this program; if not, write to the
+ * Free Software Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+
+/*
+ * nodeview.js -- the .dsp canvas, over the room's document.
+ *
+ * The page's half of the node editor (JAM_M6.md, section 7.3). The canvas,
+ * the graph, the layout and every edit are the desktop's C++ compiled to
+ * wasm and run in the page's own instance of the module (thinknode.cpp);
+ * what is here is the element, the pointer, the two forms -- the palette
+ * and the params panel -- and the one thing that is genuinely a room's
+ * business: an edit is a splice into the shared document.
+ *
+ * WHAT AN EDIT IS. The canvas decides what a gesture meant and says so;
+ * this asks the module for the patch that gesture implies, and splices the
+ * difference into the file's Y.Text. Nobody's copy of the patch is
+ * authoritative and there is no save: the document is the patch, and the
+ * piece plays it when somebody presses Apply.
+ *
+ * The forms are HTML for the same reason they are gtkmm on the desktop: a
+ * form is the platform's. What is in them -- which args a node has, what a
+ * plugin's ports are, why an edit was refused -- comes from the model, on
+ * both.
+ */
+
+import { createCanvasView } from './canvasview.js';
+import { readFile, spliceFile } from './doc.js';
+
+/* NodeEdit::Result::OK, and the signal kinds thinknode.cpp queues. */
+const OK = 0;
+
+const SIG = {
+    BOX_MOVED: 0,
+    SELECTED: 1,
+    SELECTION: 2,
+    CONNECT: 3,
+    DISCONNECT: 4,
+    REFUSED: 5,
+    CONTROL: 6,
+    CONTEXT: 7,
+    PROBE: 8,
+};
+
+/* NodeGraph::Box kinds, as tw_graph_box_kind reports them. */
+const BOX = { NODE: 0, CONTROL: 1, IO_IN: 2, IO_OUT: 3, PROBE: 4 };
+
+export async function createNodeView ({ doc, root = document,
+                                        onStatus = () => {} })
+{
+    const $ = (id) => root.getElementById(id);
+
+    /* The page's own instance of the module. The worklet's is playing and
+       the mirror's is composing; this one only ever reads and edits text,
+       and it fetches its own wasm because a page can. */
+    const { default: createThinkWeb } = await import('./thinkweb.js');
+
+    const log = [];
+    const M = await createThinkWeb({
+        print: (s) => log.push(s),
+        printErr: (s) => log.push(s),
+    });
+
+    M._tw_catalog_take();
+
+    let file = null;            /* the .dsp this is showing */
+    let watching = null;        /* its Y.Text, while observed */
+    let selected = -1;
+
+    const text = () => (file === null ? '' : readFile(doc, file) ?? '');
+
+    const call = (name, types, args) =>
+        M.UTF8ToString(M.ccall(name, 'number', types, args));
+
+    /* Every edit is the same three steps: ask the module what the patch
+       becomes, splice the difference into the document, and say why if it
+       would not. The rebuild comes back round through the observer, since
+       an edit of anyone else's arrives that way too. */
+    const edit = (name, types, args) =>
+    {
+        const r = M.ccall(name, 'number', types, [text(), ...args]);
+
+        if (r !== OK)
+        {
+            onStatus(`${call('tw_edit_result_text', ['number'], [r])}: ` +
+                     M.UTF8ToString(M._tw_edit_why()));
+            return false;
+        }
+
+        spliceFile(doc, file, M.UTF8ToString(M._tw_edit_text()));
+
+        return true;
+    };
+
+    /* ---- the canvas ---- */
+
+    const view = createCanvasView({
+        scroller: $('nodescroll'),
+        canvas: $('nodecanvas'),
+        send: (m) => toModule(m),
+    });
+
+    /* The shell speaks messages so that the composer view's shell and this
+       one are the same file; here they are answered in the same tick
+       rather than by a worker. */
+    function toModule (m)
+    {
+        switch (m.type)
+        {
+            case 'view':
+                M._tw_node_canvas_viewport(m.x, m.y, m.w, m.h);
+
+                if (m.fit)
+                    M._tw_node_canvas_zoom_to_fit();
+
+                break;
+
+            case 'press':
+                M._tw_node_canvas_press(m.x, m.y, m.button ?? 1,
+                                        m.nPress ?? 1);
+                break;
+
+            case 'motion':
+                M._tw_node_canvas_motion(m.x, m.y);
+                break;
+
+            case 'release':
+                M._tw_node_canvas_release(m.x, m.y, m.button ?? 1);
+                break;
+
+            case 'key':
+                M._tw_node_canvas_key(1);       /* CanvasContent::KEY_ESCAPE */
+                break;
+
+            case 'zoomBy':
+                M._tw_node_canvas_set_zoom(M._tw_node_canvas_zoom() * m.by);
+                break;
+
+            case 'draw':
+                paint();
+                return;
+        }
+
+        drain();
+    }
+
+    /* One frame, straight out of the heap: the same three tables the
+       composer view's worker posts over, read here without a hop. */
+    function paint ()
+    {
+        const w = M._tw_node_canvas_width();
+        const h = M._tw_node_canvas_height();
+
+        if (w <= 0 || h <= 0)
+            return;
+
+        const words = M._tw_node_canvas_draw(w, h);
+
+        if (words <= 0)
+            return;
+
+        const at = M._tw_draw_ops();
+        const ops = M.HEAPF32.subarray(at >> 2, (at >> 2) + words);
+        const strings = [];
+
+        for (let i = 0; i < M._tw_draw_string_count(); i++)
+            strings.push(M.UTF8ToString(M._tw_draw_string(i)));
+
+        view.frame({ ops, strings, surfaces: [], w, h,
+                     width: w, height: h });
+    }
+
+    /* ---- what the canvas decided ----
+     *
+     * The desktop's NodeEditor answers these with an edit, a rebuild or a
+     * line in the status bar. So does this.
+     */
+    function drain ()
+    {
+        const many = M._tw_node_signal_count();
+
+        for (let i = 0; i < many; i++)
+        {
+            const kind = M._tw_node_signal_kind(i);
+            const a = M._tw_node_signal_a(i);
+
+            switch (kind)
+            {
+                case SIG.SELECTED:
+                    selected = a;
+                    showParams();
+                    break;
+
+                /* A wire: from a box's port to another's. The graph knows
+                   which end is which; the names are what the file wants. */
+                case SIG.CONNECT:
+                    connect(a, M._tw_node_signal_b(i),
+                            M._tw_node_signal_c(i), M._tw_node_signal_d(i));
+                    break;
+
+                case SIG.DISCONNECT:
+                    onStatus('Cutting a wire from the canvas is not in yet.');
+                    break;
+
+                case SIG.REFUSED:
+                    onStatus(M.UTF8ToString(M._tw_node_signal_text(i)));
+                    break;
+
+                /* A control's slider: live while it is dragged, spliced
+                   once when it is let go, so a drag across the track is
+                   one edit and not fifty. */
+                case SIG.CONTROL:
+                    if (M._tw_node_signal_b(i) === 1)
+                        edit('tw_edit_set_chanarg', ['string', 'string',
+                                                     'number'],
+                             [call('tw_graph_box_control', ['number'], [a]),
+                              M._tw_node_signal_value(i)]);
+                    break;
+
+                /* A box was dragged: the positions go back into the file's
+                   own layout block, which is where the desktop keeps
+                   them. */
+                case SIG.BOX_MOVED:
+                {
+                    const was = text();
+
+                    if (M.ccall('tw_layout_write', 'number', ['string'],
+                                [was]))
+                        spliceFile(doc, file,
+                                   M.UTF8ToString(M._tw_edit_text()));
+
+                    break;
+                }
+            }
+        }
+
+        if (many > 0)
+            M._tw_node_signals_clear();
+    }
+
+    /* A wire the canvas asked for, in the names the file uses. */
+    function connect (fromBox, fromPort, toBox, toPort)
+    {
+        const toName = call('tw_graph_box_name', ['number'], [toBox]);
+        const toArg = call('tw_graph_port_name', ['number', 'number'],
+                           [toBox, toPort]);
+
+        /* A control is spelled `@name' and a node `node->port'; the
+           writer has one call for each, because guessing from a name that
+           happens to start with an @ is the kind of cleverness that fails
+           on one .dsp. */
+        if (M._tw_graph_box_kind(fromBox) === BOX.CONTROL)
+            edit('tw_edit_connect_control',
+                 ['string', 'string', 'string', 'string'],
+                 [toName, toArg,
+                  call('tw_graph_box_control', ['number'], [fromBox])]);
+        else
+            edit('tw_edit_connect',
+                 ['string', 'string', 'string', 'string', 'string'],
+                 [toName, toArg,
+                  call('tw_graph_box_name', ['number'], [fromBox]),
+                  call('tw_graph_port_name', ['number', 'number'],
+                       [fromBox, fromPort])]);
+    }
+
+    /* ---- the forms ---- */
+
+    /* The palette: every plugin this module was built with, by category.
+       Adding one is an edit like any other -- a node with the plugin's own
+       declared defaults in it. */
+    function showPalette ()
+    {
+        const palette = $('nodepalette');
+
+        palette.replaceChildren();
+
+        for (let c = 0; c < M._tw_catalog_category_count(); c++)
+        {
+            const category = call('tw_catalog_category', ['number'], [c]);
+            const group = document.createElement('optgroup');
+
+            group.label = category;
+
+            const many = M.ccall('tw_catalog_in_category', 'number',
+                                 ['string'], [category]);
+
+            for (let i = 0; i < many; i++)
+            {
+                const option = document.createElement('option');
+
+                option.value = call('tw_catalog_spelling',
+                                    ['string', 'number'], [category, i]);
+                option.textContent = option.value;
+                group.append(option);
+            }
+
+            palette.append(group);
+        }
+    }
+
+    function addNode ()
+    {
+        const plugin = $('nodepalette').value;
+
+        if (file === null || plugin === '')
+            return;
+
+        const name = call('tw_catalog_suggest', ['string'],
+                          [plugin.replace(/^.*::/, '')]);
+
+        if (edit('tw_edit_add_node', ['string', 'string', 'string'],
+                 [name, plugin]))
+            onStatus(`Added ${name} (${plugin}).`);
+    }
+
+    /* The params panel: the selected box's args, with a box to type in for
+       the ones that are a plain number. What each is -- a value, a wire, a
+       control, an output -- is the graph's answer, not this file's. */
+    function showParams ()
+    {
+        const panel = $('nodeparams');
+
+        panel.replaceChildren();
+
+        if (selected < 0)
+        {
+            $('nodeselected').textContent = '';
+            return;
+        }
+
+        const node = call('tw_graph_box_name', ['number'], [selected]);
+        const plugin = call('tw_graph_box_plugin', ['number'], [selected]);
+
+        $('nodeselected').textContent = `${node} — ${plugin}`;
+
+        const many = M._tw_graph_param_count(selected);
+
+        for (let p = 0; p < many; p++)
+        {
+            const name = call('tw_graph_param_name', ['number', 'number'],
+                              [selected, p]);
+            const row = document.createElement('label');
+
+            row.className = 'paramrow';
+            row.append(document.createTextNode(name));
+
+            /* An output is shown and not offered: the plugin writes it,
+               and a box to type in would invite an edit the next window
+               overwrites. A wired parameter has no number of its own. */
+            if (M._tw_graph_param_is_output(selected, p) ||
+                M._tw_graph_param_kind(selected, p) !== 0)
+            {
+                const said = document.createElement('span');
+
+                said.className = 'paramwhat';
+                said.textContent =
+                    M._tw_graph_param_is_output(selected, p)
+                        ? 'an output'
+                        : 'driven';
+                row.append(said);
+            }
+            else
+            {
+                const input = document.createElement('input');
+
+                input.type = 'number';
+                input.step = 'any';
+                input.value = String(M._tw_graph_param_value(selected, p));
+                input.dataset.arg = name;
+                input.addEventListener('change', () =>
+                    edit('tw_edit_set_value',
+                         ['string', 'string', 'string', 'number'],
+                         [node, name, Number(input.value)]));
+                row.append(input);
+            }
+
+            panel.append(row);
+        }
+    }
+
+    /* ---- the file ---- */
+
+    /* Built, laid out, and drawn. Called on opening a file and whenever
+       the document's text for it changes -- which is both this page's
+       edits and everybody else's. */
+    function rebuild ()
+    {
+        const source = text();
+
+        if (source === '')
+            return;
+
+        const boxes = M.ccall('tw_graph_build', 'number', ['string'],
+                              [source]);
+
+        if (boxes <= 0)
+        {
+            onStatus(`${file} does not parse; the canvas is showing what ` +
+                     'last did.');
+            return;
+        }
+
+        M.ccall('tw_graph_apply_layout', 'number', ['string'], [source]);
+
+        /* A selection is an index into the boxes, and a rebuild makes new
+           ones. Kept only when it still names something. */
+        if (selected >= boxes)
+            selected = -1;
+
+        M._tw_node_canvas_select(selected);
+        view.viewport(true);
+        showParams();
+        paint();
+    }
+
+    const show = (name) =>
+    {
+        if (name !== null && name !== file)
+        {
+            watching?.unobserve(rebuild);
+            file = name;
+            watching = doc.getMap('files').get(name);
+            watching?.observe(rebuild);
+            selected = -1;
+            rebuild();
+        }
+
+        view.show($('nodeview').open);
+    };
+
+    showPalette();
+
+    $('nodeadd').addEventListener('click', addNode);
+    $('nodefile').addEventListener('change',
+                                   () => show($('nodefile').value));
+    $('nodefit').addEventListener('click', () =>
+    {
+        M._tw_node_canvas_zoom_to_fit();
+        paint();
+    });
+    $('nodeview').addEventListener('toggle', () => show(null));
+
+    /* The .dsp files in the document, for the selector. */
+    const offer = (names) =>
+    {
+        const select = $('nodefile');
+        const was = select.value;
+
+        select.replaceChildren();
+
+        for (const name of names.filter((n) => n.endsWith('.dsp')))
+        {
+            const option = document.createElement('option');
+
+            option.value = name;
+            option.textContent = name;
+            select.append(option);
+        }
+
+        if (select.options.length === 0)
+            return;
+
+        select.value = names.includes(was) ? was : select.options[0].value;
+        show(select.value);
+    };
+
+    /* Where a box is, in the shell pixels a pointer arrives in: the zoom
+       applied to what the graph says. The page has no other way to know --
+       the layout is the module's -- and a harness that clicked at a guess
+       would be testing its guess. */
+    const boxAt = (i) =>
+    {
+        /* Whether anything on it is a plain number somebody could type
+           into, which is what makes it worth clicking on for a test and
+           for a person. */
+        let settable = false;
+
+        for (let p = 0; p < M._tw_graph_param_count(i); p++)
+            if (M._tw_graph_param_kind(i, p) === 0 &&
+                !M._tw_graph_param_is_output(i, p) &&
+                M._tw_graph_param_has_value(i, p))
+                settable = true;
+
+        return { name: call('tw_graph_box_name', ['number'], [i]),
+                 kind: M._tw_graph_box_kind(i),
+                 settable,
+                 x: M._tw_graph_box_x(i) * M._tw_node_canvas_zoom(),
+                 y: M._tw_graph_box_y(i) * M._tw_node_canvas_zoom() };
+    };
+
+    return { offer, show, rebuild, boxAt,
+             boxes: () => M._tw_graph_box_count(),
+             selected: () => selected };
+}

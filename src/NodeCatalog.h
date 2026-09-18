@@ -81,6 +81,18 @@ public:
     /* Walks `path' for <category>/<plugin>.so. Returns how many it found. */
     int scan (const string &path);
 
+    /* The same catalogue from a list of `category::plugin' spellings rather
+       than from a directory, in any order. Returns how many it took; a
+       spelling with no `::' in it is not one and is skipped.
+     *
+       For a build with no directory to walk: in the browser every plugin is
+       compiled into the one module and found through a table (JAM_M6.md,
+       section 7.1, and wasm/web/CMakeLists.txt). Ports and descriptions
+       still come from describe(), which goes through thPluginManager --
+       there, the same table again. Anything else that knows its own list
+       can use it too. */
+    int take (const vector<string> &spellings);
+
     const vector<string> &categories (void) const { return categories_; }
 
     /* The entries in one category, in name order. */
@@ -107,6 +119,12 @@ public:
                                const vector<string> &taken);
 
 private:
+    /* Sorts the categories and each category's entries. readdir order is
+       whatever the filesystem feels like and a table's order is whoever
+       wrote it, and a palette that reorders itself between runs is
+       unusable either way. */
+    void index (void);
+
     vector<Entry> entries_;
     vector<string> categories_;
     map<string, vector<Entry> > byCategory_;
