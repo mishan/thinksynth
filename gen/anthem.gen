@@ -1,0 +1,329 @@
+# anthem.gen -- a gate on the pad, a pump on the pluck, a riser on the
+# lead, and the bass an octave down for the breakdown.
+#
+# Trance, at a hundred and thirty-two. A supersaw pad holding a chord a
+# bar with a sixteenth-note gate chopping it, plucks arpeggiating the
+# chord tones into a delay, a rolling offbeat bass, a kick and a clap,
+# and a lead that sings the tune over the top with its filter opening
+# over eight bars and slamming shut. Every fourth phrase the drums drop
+# and the bass falls an octave.
+#
+# THE GATE is gen::steps: a row of sixteen ones and zeros a bar on the
+# pad's `amp', so the chord stutters in the rhythm the row says -- the
+# trance gate, which was a sequencer on a volume control before it was
+# a plugin. THE PUMP is gen::pump on the plucks' `amp', a dip on every
+# beat and back up, which is the sidechain the engine cannot build
+# because a channel cannot hear the kick. The Pump knob is its depth.
+#
+# THE RISER is gen::morph looping between two presets on the lead --
+# `closed' and `open', each a cutoff and a resonance -- over thirty-two
+# beats, through a `*' sink, so the filter climbs for eight bars and
+# drops back to closed on the downbeat: the build and the drop, as one
+# looping sweep. THE BREAKDOWN is xform::form on the drums, and
+# xform::transpose on a second copy of the bass line gated to the bars
+# the first sits out, twelve semitones down. The bass is bass.dsp with
+# `hold' shorter than `step', so it retriggers rather than slides.
+#
+# The pad and the lead are supersaw.dsp, and the Width knob is their
+# detune in cents, reaching into both instruments at once. The pad's
+# channel carries fx/hall.dsp and the plucks' carries fx/echo.dsp at a
+# dotted eighth, effect graphs on the channels' sums.
+#
+# The chance rolls dice; the seed is pinned for it. Self-contained: open
+# it and press Play.
+
+name "Anthem";
+author "Misha Nasledov";
+description "Trance: a gated supersaw pad, pumping plucks into a delay, a looping riser, and a breakdown with the bass an octave down.";
+
+tempo 132;
+seed 1999;
+
+# The supersaws' detune, in cents.
+@width = 14;
+@width.widget = 1;
+@width.min = 0;
+@width.max = 40;
+@width.label = "Width";
+
+# How far the plucks duck under each kick.
+@pump = 0.55;
+@pump.widget = 1;
+@pump.min = 0;
+@pump.max = 1;
+@pump.label = "Pump";
+
+scale amin "A3 B3 C4 D4 E4 F4 G4";
+scale tune "A4 B4 C5 D5 E5 F5 G5";
+
+# The two ends of the riser, in supersaw's units.
+preset closed {
+    cutoff = 500;
+    res    = 0.35;
+};
+
+preset open {
+    cutoff = 7000;
+    res    = 0.1;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 30;
+
+    pitch = 190;
+    floor = 48;
+    sweep = 60 ms;
+    decay = 330 ms;
+    click = 0.6;
+    drive = 2.4;
+};
+
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 28;
+
+    color = 1;
+    tone = 1400;
+    res = 0.6;
+    flutter = 95;
+    front = 28 ms;
+    tail = 200 ms;
+    body = 0.7;
+};
+
+instrument hat {
+    dsp  "hat.dsp";
+    amp  = 9;
+
+    color = 0;
+    tone = 9000;
+    res = 0.2;
+    a = 0.5 ms;
+    clen = 45 ms;
+    olen = 300 ms;
+};
+
+# Retriggering, not sliding: the line leaves gaps.
+instrument bass {
+    dsp  "bass.dsp";
+    amp  = 24;
+
+    glide = 0 ms;
+    sub = 0.4;
+    cutoff = 260;
+    depth = 1600;
+    res = 0.5;
+    drive = 2;
+
+    fa = 1 ms;
+    fd = 120 ms;
+    fs = 0.1;
+    fr = 80 ms;
+
+    a = 1 ms;
+    d = 220 ms;
+    s = 0.5;
+    r = 60 ms;
+};
+
+instrument pad {
+    dsp  "supersaw.dsp";
+    amp  = 13;
+
+    detune = @width;
+    cutoff = 800;
+    depth = 1600;
+    res = 0.15;
+    fa = 60 ms;
+    fd = 800 ms;
+    fs = 0.6;
+    fr = 300 ms;
+    a = 40 ms;
+    d = 500 ms;
+    s = 0.85;
+    r = 250 ms;
+
+    effect "fx/hall.dsp" {
+        decay = 0.8;
+        size = 1.2;
+        damping = 4000;
+        mix = 0.25;
+    };
+};
+
+instrument pluck {
+    dsp  "pluck.dsp";
+    amp  = 16;
+
+    mix = 0.4;
+    cutoff = 300;
+    depth = 5000;
+    res = 0.35;
+    fd = 110 ms;
+    d = 240 ms;
+    s = 0.1;
+    r = 70 ms;
+
+    effect "fx/echo.dsp" {
+        delay = 341 ms;
+        spread = 1.5;
+        feedback = 0.45;
+        damping = 3000;
+        mix = 0.3;
+    };
+};
+
+instrument lead {
+    dsp  "supersaw.dsp";
+    amp  = 16;
+
+    detune = @width;
+    cutoff = 2500;
+    depth = 1500;
+    res = 0.2;
+    fa = 5 ms;
+    fd = 300 ms;
+    fs = 0.4;
+    fr = 200 ms;
+    a = 15 ms;
+    d = 300 ms;
+    s = 0.8;
+    r = 300 ms;
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 118;
+    };
+    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = kick; };
+};
+
+chain clap {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 104;
+    };
+    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = clap; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 46;
+    };
+    stage c xform::chance { prob = 0.9; };
+    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = hat; };
+};
+
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.3 beats;  vel = 120;
+    };
+    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = hat; };
+};
+
+# ---- the bass ---------------------------------------------------------
+
+# Offbeat eighths on the chord roots, three phrases in four.
+chain bass {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "A2 A2 A2 A2 F2 F2 F2 F2 C3 C3 C3 C3 G2 G2 G2 G2 A2 A2 A2 A2 F2 F2 F2 F2 G2 G2 G2 G2 G2 G2 G2 G2";
+        period = 0.5 beats;  hold = 0.35 beats;  vel = 104;
+    };
+    stage f xform::form { pattern = "xxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = bass; };
+};
+
+# The same line an octave down, for the phrase the first sits out.
+chain bass_low {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "A2 A2 A2 A2 F2 F2 F2 F2 C3 C3 C3 C3 G2 G2 G2 G2 A2 A2 A2 A2 F2 F2 F2 F2 G2 G2 G2 G2 G2 G2 G2 G2";
+        period = 0.5 beats;  hold = 0.35 beats;  vel = 104;
+    };
+    stage t xform::transpose { semitones = -12; };
+    stage f xform::form { pattern = "...x";  bar = 16 beats;  mode = 0; };
+    sink { instrument = bass; };
+};
+
+# ---- the chords -------------------------------------------------------
+
+# A chord a bar -- Am F C G, Am F G G -- held, and chopped by the gate.
+chain chords {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "A3 F3 C4 G3 A3 F3 G3 G3";
+        period = 4 beats;  hold = 3.9 beats;  vel = 72;
+    };
+    stage h xform::harmonize { scale = amin;  voices = 3;  step = 2;  spread = 0 s;  taper = 0.9;  root = 1;  below = 0; };
+    sink { instrument = pad; };
+};
+
+# The trance gate: sixteen ones and zeros a bar on the pad's amp.
+chain gate {
+    stage src gen::steps {
+        values = "1 0 1 1 0 1 0 1 1 0 1 0 1 1 0 1";
+        period = 0.25 beats;  min = 0;  max = 13;
+    };
+    sink { instrument = pad; chanarg = "amp"; };
+};
+
+# Sixteenth arpeggios over the chord tones, eight bars of pool, into
+# the delay on their channel.
+chain arps {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A3 E4 A4 E4 C4 E4 A4 E4 A3 E4 A4 E4 C4 A4 E4 A4  F3 C4 F4 C4 A3 C4 F4 C4 F3 C4 F4 C4 A3 F4 C4 F4  C4 G4 C5 G4 E4 G4 C5 G4 C4 G4 C5 G4 E4 C5 G4 C5  G3 D4 G4 D4 B3 D4 G4 D4 G3 D4 G4 D4 B3 G4 D4 G4  A3 E4 A4 E4 C4 E4 A4 E4 A3 E4 A4 E4 C4 A4 E4 A4  F3 C4 F4 C4 A3 C4 F4 C4 F3 C4 F4 C4 A3 F4 C4 F4  G3 D4 G4 D4 B3 D4 G4 D4 G3 D4 G4 D4 B3 G4 D4 G4  G3 D4 G4 D4 B3 D4 G4 D4 G3 D4 G4 D4 B3 G4 D4 G4";
+        period = 0.25 beats;  hold = 0.18 beats;  vel = 84;
+    };
+    sink { instrument = pluck; };
+};
+
+# The sidechain on the plucks.
+chain pump {
+    stage src gen::pump {
+        period = 1 beats;  depth = @pump;
+        hold = 0.04 beats;  rise = 0.55 beats;
+        level = 16;  steps = 12;  curve = 1.6;
+    };
+    sink { instrument = pluck; chanarg = "amp"; };
+};
+
+# ---- the lead ---------------------------------------------------------
+
+chain lead {
+    stage src gen::lsystem {
+        axiom = "++++F_____-F_-F___+F___+F_______rrF_++F___+F_____-F_--F___-F___-F_______rrrr-F_+F_+F_____-F_-F___+F___+F_______rrF_++F___-F_____-F_-F___--F___+F_____rr--F___rrrr";
+        rules = "";
+        depth = 0;
+        notes = tune;
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 92;
+    };
+    sink { instrument = lead; };
+};
+
+# Closed to open over eight bars, then straight back: the riser.
+chain riser {
+    stage src gen::morph {
+        from = closed;  to = open;
+        time = 32 beats;  steps = 64;  curve = 1.4;
+        mode = 1;  retrigger = 0;
+    };
+    sink { instrument = lead; chanarg = "*"; };
+};
