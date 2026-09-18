@@ -31,6 +31,16 @@
 static const char desc[] = "Resonant 2-pole Chamberlin filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The stable region, as constants. f is 2 sin(pi fc / fs) and so at most 2;
+   FMAX keeps clear of the top, where the damping bound below collapses. QCEIL
+   caps q when there is no cutoff to derive a bound from, QMIN keeps the
+   determinant strictly inside the unit circle, and QMARGIN is the slack
+   against float rounding. */
+#define FMAX     1.98f
+#define QCEIL    1.90f
+#define QMIN     1e-4f
+#define QMARGIN  0.98f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -51,8 +61,15 @@ int module_init (thPlugin *plugin)
     args[OUT_NOTCH] = plugin->regArg("out_notch", thPlugin::ARG_OUT);
     args[INOUT_DELAY] = plugin->regArg("delay", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff in hertz; honest to about a sixth of the "
+                       "sample rate, clamped above that");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance as Q: 0.5 is damped, higher rings. The "
+                       "damping it can ask for is bounded by the cutoff");
 
     return 0;
 }
@@ -79,13 +96,50 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     inout_delay = mod->getArg(node, args[INOUT_DELAY]);
     delay = inout_delay->allocate(2);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(delay[0]) || !thIsFinite(delay[1]))
+    {
+        delay[0] = 0;
+        delay[1] = 0;
+    }
+
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
     in_res = mod->getArg(node, args[IN_RES]);
 
     for(i=0;i<windowlen;i++) {
-        f = 2*sin(M_PI * (*in_cutoff)[i] / samples);
+        /* Hertz, meaningful up to Nyquist: past that the sine has turned
+           back and names a different filter. */
+        f = 2*sin(M_PI * thClampArg((*in_cutoff)[i], 0.0f, samples / 2.0f)
+                  / samples);
+
+        if (f > FMAX)
+            f = FMAX;
+
         q = 1/((*in_res)[i]*2);
+
+        /* Chamberlin's state matrix has determinant 1 - f*q and trace
+         * 2 - f*f - f*q, so both eigenvalues are inside the unit circle
+         * exactly when f*q > 0 and f*f + 2*f*q < 4. The second binds, and it
+         * bounds the damping: q is 1/(2*res), so it is a *small* res that
+         * asks for a step this explicit integrator cannot take, and res = 0
+         * asks for an infinite one.
+         *
+         * The floor moves with the cutoff, hence a bound on q rather than a
+         * range on the knob. A non-finite q is res = 0, asking for all the
+         * damping there is; it gets all there is. */
+        {
+            float qmax = (f > 0) ? QMARGIN * (4 - f * f) / (2 * f) : QCEIL;
+
+            if (qmax > QCEIL)
+                qmax = QCEIL;
+
+            if (!thIsFinite(q) || q > qmax)
+                q = qmax;
+            else if (q < QMIN)
+                q = QMIN;
+        }
 
         out[i] = delay[1] + f * delay[0];  /* Low Pass */
         highout[i] = (*in_arg)[i] - out[i] - q * delay[0]; /* High Pass */

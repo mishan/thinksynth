@@ -74,7 +74,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_factor = mod->getArg(node, args[IN_FACTOR]); // (1-abs(x^factor))*x
 
     for(i=0; i < (int)windowlen; i++) {
-        wavelength = samples * (1.0/(*in_freq)[i]);
+        wavelength = samples * (1.0/thBoundFreq((*in_freq)[i], samples));
 
         posratio = 2*(position/wavelength)-1;
         out[i] = (1-pow(fabs(posratio), (*in_factor)[i]))*posratio*TH_MAX;

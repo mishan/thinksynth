@@ -141,6 +141,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
         }
 
+        /* A segment of zero samples completes at once rather than dividing
+         * by its own length -- see env::adsr. The attack's one-sample floor
+         * below is not the same thing: it still spends a sample climbing. */
+        if (phase == 0 && val_a <= 0) {
+            phase = 1;
+            position = 0;
+        }
+
+        if (phase == 1 && val_d <= 0) {
+            phase = 2;
+            position = 0;
+        }
+
         switch (phase) {  /* Which phase of the ADSR are we in? */
         case 0:   /* Attack */
             play[i] = 1;  /* Dont kill this note yet! */
@@ -166,6 +179,24 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             break;
         case 2:
             falloff = val_f;
+
+            /* A zero falloff ends the sustain at once rather than dividing
+               by zero -- the reading `r = 0' has always had below. The
+               trigger test is repeated rather than shared because the
+               position it carries into the release is scaled by the falloff,
+               and there is none to scale by. */
+            if (falloff <= 0) {
+                out[i] = 0;
+                play[i] = 0;
+
+                if(val_trigger <= 0) {
+                    phase = 3;
+                    position = 0;
+                }
+
+                break;
+            }
+
             temp = (1 - log(1 + (M_E - 1) *
                             ((position++) / falloff))) * val_s;
             if(temp == 0 || position > falloff) {  /* If there is no D section,
@@ -185,7 +216,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             }
             break;
         case 3:
-            if(val_r == 0 || position >= val_r) {  /* Make it end if it needs
+            if(val_r <= 0 || position >= val_r) {  /* Make it end if it needs
                                                     to */
                 out[i] = 0;
                 play[i] = 0;

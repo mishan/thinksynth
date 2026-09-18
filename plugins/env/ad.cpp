@@ -101,6 +101,19 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                             phase = 0;
             }
                 }
+
+        /* A segment of zero samples completes at once rather than dividing
+         * by its own length -- see env::adsr. */
+        if (phase == 0 && (*in_a)[i] <= 0) {
+            phase = 1;
+            position = 0;
+        }
+
+        if (phase == 1 && (*in_d)[i] <= 0) {
+            phase = 2;
+            position = 0;
+        }
+
         switch (phase) {  /* Which phase of the AD are we in? */
         case 0:   /* Attack */
             temp = (*in_a)[i];

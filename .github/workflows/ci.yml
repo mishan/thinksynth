@@ -314,6 +314,15 @@ jobs:
       - name: Compare
         run: node wasm/compare.mjs --lsb 1 -k compare
 
+      # The piece that goes wrong on purpose, through both hosts. The shipped
+      # pieces under gen/ all render cleanly, so nothing above exercises the
+      # non-finite count or the exit 4 that goes with it -- and compare.mjs
+      # holds the summary lines and the exit statuses identical, which is
+      # exactly what a regression in tw_nonfinite or in genwav.mjs's status
+      # handling would break.
+      - name: The guard's piece, native against wasm
+        run: THINK_DSP_PATH=scripts/guard node wasm/compare.mjs -s 4 scripts/guard/nonfinite.gen
+
       # The room page's bundle and the tests' browsers come from npm; the
       # build wants the first, so this comes before it.
       - name: npm ci

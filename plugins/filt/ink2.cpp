@@ -32,6 +32,13 @@ int args[INOUT_BUFFER + 1];
 static const char desc[] = "INK Filter ][";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The stable region. f is cutoff squared, so the knob's ceiling is 1; QMARGIN
+   is the slack that keeps the q bound derived in the callback inside the
+   region rather than on its edge. */
+#define CMAX     0.999f
+#define QCEIL    0.999f
+#define QMARGIN  0.95f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -42,10 +49,18 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a fraction of the sample rate, "
+                       "squared, not hertz");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; what is stable near 1 narrows as "
+                       "the cutoff rises, and is clamped");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
 
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
 
@@ -71,13 +86,43 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     buf1 = (*inout_buffer)[1];
     buffer = inout_buffer->allocate(2);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(buf0) || !thIsFinite(buf1))
+    {
+        buf0 = 0;
+        buf1 = 0;
+    }
+
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
     in_res = mod->getArg(node, args[IN_RES]);
 
     for(i=0;i<windowlen;i++) {
-        f = SQR((*in_cutoff)[i]);
+        const float cut = thClampMag((*in_cutoff)[i], CMAX);
+
+        f = SQR(cut);
         q = (*in_res)[i];
+
+        /* The state matrix has determinant (1 - f)(1 - f*q) and trace
+         * 2 - f - 2*f*q, so both eigenvalues are inside the unit circle
+         * exactly when 0 < f < 1, q > 0 and 4 - 2f - 3*f*q + f*f*q > 0. The
+         * last is a ceiling on q that comes down as f rises, landing exactly
+         * on the circle at f = q = 1.
+         *
+         * Neither arg was bounded before; past the region the state
+         * diverged. */
+        {
+            float qmax = (f > 0)
+                ? QMARGIN * (4.0f - 2.0f * f) / (f * (3.0f - f))
+                : QCEIL;
+
+            if (qmax > QCEIL)
+                qmax = QCEIL;
+
+            q = thClampArg(q, 0.0f, qmax);
+        }
+
         in = (*in_arg)[i];
 
         buf0 *= 1 - f;

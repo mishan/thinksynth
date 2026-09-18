@@ -1,8 +1,9 @@
 # The output stage
 
-Three pieces of engine behaviour that are easy to break by accident and hard to
-diagnose once broken: the clamp, the limiter, and arg initialisation. All three
-were audible bugs; the reasoning is here so the fixes are not mistaken for
+Four pieces of engine behaviour that are easy to break by accident and hard to
+diagnose once broken: the clamp, the limiter, the per-voice non-finite guard,
+and arg initialisation. All four were audible bugs — the third of them audible
+as nothing at all — and the reasoning is here so the fixes are not mistaken for
 arbitrary choices.
 
 ## Integer wraparound — why `thClampSample()` exists
@@ -106,9 +107,107 @@ dsp/ts1.dsp
 Its exit status is the number of measurements still exceeding `TH_MAX`, which
 should be zero.
 
-**Still open:** the four diverging DSPs are being saved by the limiter rather
-than fixed. Their filters are numerically unstable and want looking at
-separately.
+The four diverging DSPs were being saved by the limiter rather than fixed. Their
+filters were numerically unstable, which is the next section.
+
+## Non-finite samples — why the per-voice guard exists
+
+The limiter saturates an infinity and silences a NaN, which is the right answer
+at the output stage and the wrong place to find out. The damage is done one
+layer up: `thMidiChan` sums every sounding voice into the channel's buffer, and
+a sum with a NaN in it stays NaN for the rest of the window. One bad voice
+therefore took *every* voice on that channel with it, the limiter turned the
+result into silence, and nothing said why.
+
+Two cases found the slow way:
+
+- `filt::res2pole2` with `res` under about 0.5. Its pole magnitude is
+  `1 - w/D`, and `D` crosses zero as `res` approaches 0.5 from above — at DC it
+  *is* zero there — so the filter was asked for a pole outside the unit circle
+  and diverged.
+- `brass.dsp` with `buzz = 0 ms` or `bendl = 0 ms`, which is what
+  `gen/attract.gen` ships. `env::adsr` divided the position by the segment
+  length, so every brass note was a NaN — 62 in the first twenty seconds — and
+  that was not the brass, it was the mix. With both fixed, the same twenty
+  seconds go from a peak of 0.412 with the lead missing to 0.522 with it.
+
+Four things now stand between a diverging graph and a silent render.
+
+**The guard** (`thMidiChan::mixNote`). Before any of a voice is mixed, the
+samples it put on the io node's `out0..outN-1` are scanned. A non-finite one
+anywhere means the voice contributes nothing, the note is retired, and the
+channel says so once per load:
+
+```
+thMidiChan: channel 3 (ladder.dsp): a voice went non-finite; note retired
+```
+
+`thSynth::nonFiniteVoices()` counts them; `genwav` prints the count and exits
+4 — beside 3 for clipping and ahead of it, since a piece that clips is loud and
+a piece with a non-finite voice in it is not the piece. `thSoftLimit` stays the
+backstop: the guard only sees what a voice hands the io node, and a graph can
+still diverge somewhere no channel reads.
+
+**Stability floors in the filters.** `res2pole2`, `res2pole`, `res1pole`,
+`ink`, `ink2`, `ink3`, `divbuf` and `moog` each clamp their coefficients inside
+a region derived from the determinant and trace of their own state matrix,
+written out in the callback. Where the region depends on two args at once —
+`res2pole`'s damping bound narrows as its cutoff rises — the clamp is on the
+coefficient rather than the knob, whose usable range moves.
+
+**A wavelength an oscillator can step through.** Every plugin in `plugins/osc`
+divides the rate by a frequency and then divides by the result, or by a
+fraction of it, so a frequency of zero or an infinity is a division by zero one
+line later. `thBoundFreq` holds a frequency between Nyquist and the slowest
+wave a float `position` can still be stepped through, and the two oscillators
+that split a cycle by a pulse width hold that off both ends, since `pw = 1`
+leaves the second half of the cycle empty and divides by its length anyway.
+`misc::midi2freq` stops just short of Nyquist, not on it: a wavelength of
+exactly two samples is an exact integer, which is the difference between
+approaching that division and landing on it. It also clamps in double —
+narrowing first turns note 4210 into an infinity, and an infinity clamped by
+magnitude comes back as the *bottom* of the range, answering an absurdly high
+note with 0 Hz and silence.
+
+**Zero-length envelope segments are instantaneous.** `env::adsr`, `env::ad` and
+`env::adsfr` complete a zero-length segment at once instead of dividing by its
+length, so `a = 0` means what it reads as and the millisecond workarounds are
+out of the corpus.
+
+**`scripts/dspsweep` is the gate.** Every shipped graph with each declared
+control at its `.min`, its `.max` and three points between, one note at each end
+of the keyboard: 3840 renders over the corpus in under three seconds, failing if
+the guard fired on any of them. One control moves at a time — what goes
+non-finite is a coefficient leaving its own range, not two knobs conspiring. It
+also gates the guard itself over the two graphs in `scripts/guard/`: one
+instrument that cannot help producing a NaN and one that behaves, on two
+channels at once, with the good channel keeping its peak.
+
+Measured against the same corpus with the filters as they were: **205 of the
+3840 cases went non-finite, across 24 of the 82 graphs the gate covers** — the
+corpus less the eleven that reference a plugin the build does not make. Six of
+them (`noargs/bd1`, `noargs/bd2`, `noargs/hat1`, `old/acid00`, `old/analog02`,
+`old/bd9`) did it at their shipped settings, which is to say they had never made
+a sound. Now none do.
+
+A bitwise A/B (`scripts/dspab`, old plugins against new) puts the cost at **23
+of 82 graphs changed, 59 bit-identical**. Eight of the 23 differ by under 1e-5,
+which is the clamp arithmetic reordering a float. Six are the graphs above,
+which used to be silent. The rest were running something outside the range its
+arithmetic is defined over and being saved by a reset, by the output clamp, or
+by nothing: `noargs/ambient-000` and `ambient-001` swing a `res2pole2` cutoff
+*negative* for half of every LFO cycle — |pole| just over 1, every cycle;
+`old/bemu1`, `old/analog03` and `old/5-17-03-1407` drive `ink`'s cutoff from an
+envelope sustaining at eighty times full scale; and `old/bd4`, `old/bd7` and
+`old/bd9` ask an oscillator for a frequency past Nyquist. They sound different
+because what they sounded like was partly divergence.
+
+The bounds are on the *inputs* rather than on the wavelengths the callbacks
+compute from them, deliberately. The oscillators do not all spell that division
+the same way — some are `rate/freq` in double, some `rate * (1.0/freq)` — and
+rounding one into the shape of the other changed what 51 of the 82 rendered,
+by about 1e-7, for no reason at all. Bounding the input leaves an in-range
+frequency bit-for-bit as it was.
 
 ## Uninitialised plugin state — why `allocate()` value-initialises
 
@@ -157,6 +256,7 @@ positives.)
 |---|---|---|
 | `dspcheck` | yes | loads every DSP and patch, plays a chord, overruns polyphony, releases, reloads onto the same channel, tears down; renders each note twice and compares bitwise |
 | `dsplevel` | yes | peak, proportion shaped, gain reduction; exit status is the number of measurements over `TH_MAX` |
+| `dspsweep` | yes | every control of every DSP at both ends of its range and three points between, at both ends of the keyboard; exit status is the number of cases the per-voice guard fired on. With `-g` it also gates the guard itself |
 | `dspstress` | no | a synthetic audio thread calling `process()` while the main thread does what the GUI thread does |
 | `dspab` | no | two renders compared for bitwise identity — used when a change is meant to be inaudible |
 | `dsplive` | no | the only check that tests the actual sound: renders a note twice, once with a control moved halfway through, and asserts the halves before the move are identical while the halves after differ |

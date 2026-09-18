@@ -109,6 +109,23 @@ public:
        stepping. */
     unsigned long droppedCommands (void) const { return dropped_; }
 
+    /* Voices thMidiChan's guard dropped for going non-finite, since
+     * construction. What lets a render report `non-finite voices: 3' rather
+     * than hand back a file that is quiet for no stated reason.
+     *
+     * Written by the audio thread and read by anything, hence the atomic;
+     * a tally, so relaxed ordering suffices. Never reset -- the question is
+     * "did it ever happen". */
+    unsigned long nonFiniteVoices (void) const {
+        return nonFinite_.load(std::memory_order_relaxed);
+    }
+
+    /* Audio thread, from thMidiChan's guard. Public because a channel is not
+       a friend and does not need to be: the counter is write-only from there. */
+    void countNonFiniteVoice (void) {
+        nonFinite_.fetch_add(1, std::memory_order_relaxed);
+    }
+
     void printChan(int chan);
 
     /* False when the audio thread could not be told -- a full command ring.
@@ -309,6 +326,8 @@ private:
 
     bool silent_;               /* see setSilent()                     */
     unsigned long dropped_;     /* see droppedCommands()               */
+
+    std::atomic<unsigned long> nonFinite_;  /* see nonFiniteVoices() */
 
     thMidiController *controllerHandler_;
 

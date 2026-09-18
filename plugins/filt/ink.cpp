@@ -31,6 +31,14 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "`INK Filter`  Gravity-based low pass";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The stable region; see the callback. The determinant of the state matrix is
+   res exactly, and the trace condition is cutoff*cutoff < 2(1+res)/res. CCEIL
+   caps the cutoff when res is zero and there is no bound to derive; CMARGIN is
+   the slack against float rounding. */
+#define RMAX     0.999f
+#define CCEIL    64.0f
+#define CMARGIN  0.98f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -41,11 +49,20 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a spring constant, not hertz. What "
+                       "is stable above 1 depends on res");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 is the edge of the stable "
+                       "region and is clamped short");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
     args[OUT_AOUT] = plugin->regArg("aout", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_AOUT], "The filter's velocity, band-pass-ish");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
@@ -86,10 +103,39 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_cutoff->getBuffer(buf_cut, windowlen);
     in_res->getBuffer(buf_res, windowlen);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(last) || !thIsFinite(accel))
+    {
+        last = 0;
+        accel = 0;
+    }
+
     for(i = 0; i < windowlen; i++) {
         val_arg = buf_in[i];
-        val_cutoff = buf_cut[i];
-        val_res = buf_res[i];
+
+        /* The state is (accel, last), stepped as accel' = res*(accel +
+         * (in - last)*cutoff*cutoff), last' = last + accel'. That matrix has
+         * determinant res and trace res + 1 - res*cutoff*cutoff, so both
+         * eigenvalues are inside the unit circle exactly when 0 <= res < 1 and
+         * cutoff*cutoff < 2(1 + res)/res. The cutoff bound moves with res, so
+         * it cannot be written on the knob.
+         *
+         * The run-away reset below stays -- it catches a signal loud enough to
+         * push the filter out on its own -- but it could not catch a NaN,
+         * since every comparison with one is false. */
+        val_res = thClampArg(buf_res[i], 0.0f, RMAX);
+
+        {
+            float cmax = (val_res > 0)
+                ? sqrtf(CMARGIN * 2.0f * (1.0f + val_res) / val_res)
+                : CCEIL;
+
+            if (cmax > CCEIL)
+                cmax = CCEIL;
+
+            val_cutoff = thClampMag(buf_cut[i], cmax);
+        }
 
         in = val_arg;
         diff = in - last;
@@ -103,8 +149,11 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         accel *= val_res;
         
         /* was abs((int)accel): casting an already-diverged float to int is
-           itself undefined, and abs(INT_MIN) has no result. Stay in float. */
-        if(fabs(accel) > TH_RANGE) { /* more instability protection */
+           itself undefined, and abs(INT_MIN) has no result. Stay in float.
+
+           The finiteness test is first: fabs(NaN) > TH_RANGE is false, so a
+           NaN walked straight through this and out of the filter. */
+        if(!thIsFinite(accel) || fabs(accel) > TH_RANGE) {
             accel = 0;
             last = 0;
         }

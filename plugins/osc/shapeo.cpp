@@ -76,7 +76,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_shape = mod->getArg(node, args[IN_SHAPE]); // Shape Variable
 
     for(i=0; i < (int)windowlen; i++) {
-        wavelength = samples * (1.0/(*in_freq)[i]);
+        wavelength = samples * (1.0/thBoundFreq((*in_freq)[i], samples));
         quarterlength = wavelength/4;
 
         switch(phase) {

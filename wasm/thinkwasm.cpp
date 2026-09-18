@@ -229,6 +229,15 @@ EMSCRIPTEN_KEEPALIVE const float *tw_process (void)
     return synth_->getOutput();
 }
 
+/* Voices thMidiChan's guard dropped for going non-finite, since the module was
+   opened. Behind genwav.mjs's `non-finite voices: N' and its exit 4, which are
+   the native genwav's line and status: the two tools render the same piece, so
+   they report the same failure. */
+EMSCRIPTEN_KEEPALIVE double tw_nonfinite (void)
+{
+    return (double)synth_->nonFiniteVoices();
+}
+
 /* What was delivered since the last clear, as twEvents. */
 EMSCRIPTEN_KEEPALIVE int tw_event_count (void)
 {

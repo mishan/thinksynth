@@ -158,6 +158,102 @@ static inline bool thIsFinite (float sample)
     return (bits & 0x7f800000u) != 0x7f800000u;
 }
 
+/* Clamp a control input into the range a plugin's arithmetic is defined over.
+ *
+ * A .dsp may write any number on any arg, and a node-driven arg carries
+ * whatever that node produced -- infinities and NaNs included. Every
+ * comparison against a NaN is false, so a plain `if (x > hi) x = hi' lets one
+ * through. Non-finite therefore answers `lo', which at every use here is the
+ * inert end of the range: no cutoff, no resonance.
+ */
+static inline float thClampArg (float x, float lo, float hi)
+{
+    if (!thIsFinite(x))
+        return lo;
+
+    if (x < lo)
+        return lo;
+
+    if (x > hi)
+        return hi;
+
+    return x;
+}
+
+/* A frequency bounded to one an oscillator can turn into a wavelength.
+ *
+ * Every oscillator in plugins/osc divides the rate by a frequency and then
+ * divides by the result, or by a fraction of it. Two things break that. A
+ * frequency of zero or an infinity gives a wavelength of infinity or of zero,
+ * and a division by a fraction of zero is 0/0 -- a NaN, which costs the whole
+ * mix (see the guard in thMidiChan::mixNote). A negative one is not a
+ * frequency at all.
+ *
+ * The ceiling is Nyquist: half the rate is the fastest wave the rate carries,
+ * and it is also the wavelength floor of two samples that every caller's
+ * arithmetic needs. The floor is the slowest wave a float `position' can
+ * still be stepped through -- past about 2^24 samples `position++' stops
+ * advancing and the oscillator sticks -- and zero, negative and non-finite
+ * all land on it, which is a wave so slow it is a constant. That is the
+ * honest answer to "no frequency" and the one every caller already handles.
+ *
+ * Deliberately a bound on the frequency rather than on the wavelength the
+ * caller computes from it: the callers do not all spell that division the
+ * same way -- some are `rate/freq' in double, some `rate * (1.0/freq)' --
+ * and rounding one into the shape of the other would change what every
+ * shipped graph renders for no reason. Bounding the input leaves an in-range
+ * frequency bit-for-bit as it was.
+ */
+#define TH_WAVELENGTH_MAX 16777216.0f
+
+/* How near a pulse width may come to collapsing one half of its cycle.
+ *
+ * The oscillators that take a `pw' divide by both `wavelength * pw' and
+ * `wavelength * (1 - pw)', so an empty half is a division by zero. The bounds
+ * are a thousandth of a cycle in from either end, which at the shortest
+ * wavelength this allows is still a tenth of a sample. */
+#define TH_PW_MIN 0.001f
+#define TH_PW_MAX 0.999f
+
+/* The same floor for osc::softsqr2, whose edge length is a fraction of the
+   cycle rather than a second frequency, and which divides by it. */
+#define TH_SW_MIN 0.001f
+
+static inline double thBoundFreq (double freq, unsigned int rate)
+{
+    const double slowest = (double)rate / TH_WAVELENGTH_MAX;
+    const double fastest = (double)rate / 2.0;
+
+    /* In double, and taking a double, because the callers do not agree on
+       which they hold: narrowing one of them here would re-round every
+       frequency in the tree and change what every shipped graph renders.
+     *
+       Written as `not at least' rather than `less than' so that a NaN -- for
+       which every comparison is false -- lands on the floor with the zeroes
+       and the negatives rather than falling through. */
+    if (!(freq >= slowest))
+        return slowest;
+
+    return (freq > fastest) ? fastest : freq;
+}
+
+/* thClampArg for an arg whose sign the callback ignores -- one it squares,
+ * typically. Non-finite answers zero rather than either end.
+ */
+static inline float thClampMag (float x, float hi)
+{
+    if (!thIsFinite(x))
+        return 0.0f;
+
+    if (x > hi)
+        return hi;
+
+    if (x < -hi)
+        return -hi;
+
+    return x;
+}
+
 /* Soft limiter for the master output.
  *
  * thSynth::process sums voices with no headroom management -- and they sum

@@ -22,6 +22,13 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* For the one write(2) in reportNonFinite(). */
+#ifdef _WIN32
+# include <io.h>
+#else
+# include <unistd.h>
+#endif
+
 #include "think.h"
 
 /* Never reset, never reused. See thMidiChan::serial(). */
@@ -52,6 +59,12 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     notecount_ = 0;
     notecount_decay_ = 0;
     argSustain_ = NULL;
+
+    /* See describe(). Until then the guard still drops the voice; it just
+       has nothing to say and nowhere to count. */
+    channum_ = -1;
+    nonFinite_ = NULL;
+    saidNonFinite_ = false;
 
     if (!mod) {
         /* This used to print and then dereference mod anyway. */
@@ -596,6 +609,105 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
     }
 }
 
+/* GUI thread, once, from thSynth::loadTree.
+ *
+ * The line reportNonFinite() writes is built here rather than there, so that
+ * the audio thread's part in saying a voice went non-finite is one write(2) of
+ * a buffer that already exists. */
+void thMidiChan::describe (int channum, const string &graph,
+                           std::atomic<unsigned long> *nonFinite)
+{
+    channum_ = channum;
+    graph_ = graph;
+    nonFinite_ = nonFinite;
+
+    char line[256];
+
+    const int n = snprintf(line, sizeof(line),
+                           "thMidiChan: channel %d (%s): a voice went "
+                           "non-finite; note retired\n", channum_,
+                           graph_.empty() ? "unnamed graph" : graph_.c_str());
+
+    if (n > 0)
+    {
+        const size_t len = (n < (int)sizeof(line)) ? (size_t)n
+                                                   : sizeof(line) - 1;
+
+        message_.assign(line, len);
+    }
+}
+
+/* Audio thread. The io node's outputs and nothing else: plugin state and
+ * intermediate nodes are not what reaches the sum. bufmix_ is the mix loop's
+ * scratch, borrowed -- the loop refills it per channel before use.
+ */
+bool thMidiChan::voiceIsFinite (thSynthTree *tree)
+{
+    if (bufmix_ == NULL)
+    {
+        return true;
+    }
+
+    for (int i = 0; i < channels_; i++)
+    {
+        thArg *arg = resolveIOArg(tree, outindex_[i]);
+
+        if (arg == NULL)
+        {
+            continue;
+        }
+
+        arg->getBuffer(bufmix_, windowlength_);
+
+        for (int j = 0; j < windowlength_; j++)
+        {
+            if (!thIsFinite(bufmix_[j]))
+            {
+                return false;
+            }
+        }
+    }
+
+    return true;
+}
+
+/* Audio thread. */
+void thMidiChan::reportNonFinite (void)
+{
+    if (nonFinite_ != NULL)
+    {
+        nonFinite_->fetch_add(1, std::memory_order_relaxed);
+    }
+
+    if (saidNonFinite_)
+    {
+        return;
+    }
+
+    saidNonFinite_ = true;
+
+    /* One write(2) of a line built on the GUI thread, not an fprintf.
+     *
+     * stdio takes a lock and can allocate on first use, so formatting here
+     * would put both on the audio thread -- and a stderr nobody is draining
+     * would block it outright. describe() does the formatting, at load time;
+     * what is left is one syscall on a buffer that already exists, which is
+     * what a signal handler is allowed to do and so is safe here.
+     *
+     * A short write is ignored. The alternative is a loop on the audio thread
+     * to say something that is already only a diagnostic. */
+    if (!message_.empty())
+    {
+#ifdef _WIN32
+        (void)_write(2, message_.data(), (unsigned int)message_.size());
+#else
+        ssize_t ignored = write(2, message_.data(), message_.size());
+
+        (void)ignored;
+#endif
+    }
+}
+
 /* Audio thread. One note: run it, tap it, apply the pedal, and mix its channels
  * into output_. Returns the note's `play' arg, which is the only thing the two
  * loops in process() do differently with -- one erases from a map and a list,
@@ -640,6 +752,31 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
     if (trigger && (*trigger)[0] == 2 && sustain < 0x40)
     {
         trigger->setValue(0);
+    }
+
+    /* The per-voice non-finite guard, before any of this voice is mixed.
+     *
+     * NaN plus anything is NaN, so a bad voice added into output_ takes every
+     * other voice on the channel with it for the rest of the window, and
+     * thSoftLimit turns that into silence downstream. A voice that went
+     * non-finite therefore contributes nothing, is retired and is counted,
+     * leaving the rest of the mix alone.
+     *
+     * The limiter stays the backstop: this only sees what a voice hands the io
+     * node, and a graph can still diverge somewhere no channel reads. */
+    if (!voiceIsFinite(tree))
+    {
+        reportNonFinite();
+
+        /* Both loops in process() retire from play's last sample. Written
+           through the existing buffer rather than setValue(0), which
+           reallocates to length one -- on the audio thread. */
+        if (play != NULL && play->values() != NULL)
+        {
+            memset(play->values(), 0, play->len() * sizeof(float));
+        }
+
+        return play;
     }
 
     /* channels_ is clamped to TH_MAX_CHANNELS in the constructor, which is what

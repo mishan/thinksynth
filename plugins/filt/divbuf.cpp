@@ -27,6 +27,15 @@
 static const char desc[] = "Cheap IIR-ish Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The whole filter is buffer = in*k + buffer*(1 - k), stable exactly while
+   |1 - k| < 1, that is for k in (0, 2). k is the factor to the fourth power,
+   so the arg's ceiling is the fourth root of 2 and FACTORMAX sits under it.
+
+   dsp/noargs/bd1.dsp drives the factor from an envelope sustaining at a
+   hundred times full scale: k arrived at 1e8 and the graph had never made a
+   sound. */
+#define FACTORMAX 1.18f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -68,8 +77,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_factor = mod->getArg(node, args[IN_FACTOR]);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(buffer))
+        buffer = 0;
+
     for(i=0;i<windowlen;i++) {
-      factor = SQR(SQR((*in_factor)[i]));
+      const float k = thClampMag((*in_factor)[i], FACTORMAX);
+
+      factor = SQR(SQR(k));
 
       buffer = ((*in_arg)[i] * factor) + (buffer * (1-factor));
 

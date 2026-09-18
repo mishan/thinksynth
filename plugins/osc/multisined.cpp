@@ -118,7 +118,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         ampmul = (*in_ampmul)[i];
         ampadd = (*in_ampadd)[i];
 
-        wavelength = samples / freq;
+        wavelength = samples / thBoundFreq(freq, samples);
         out[i] = sin(2 * M_PI * out_last[0]/wavelength) * amp_max;
         if(++(out_last[0]) > wavelength)
             out_last[0] = 0;
@@ -126,7 +126,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         for(j = 1; j < waves; j++)
         {
             wfreq = freq + sin(j * (detunefreq / (2 * M_PI))) * detuneamt * freq;
-            wavelength = samples / wfreq;
+            wavelength = samples / thBoundFreq(wfreq, samples);
             out[i] += ((out_last[j] / wavelength) - .5) * 2 * (amp_max * (pow(ampmul, j) + (ampadd * j)));
 //            out[i] += sin(2 * M_PI * out_last[j] / wavelength) * (amp_max * (pow(ampmul, j) + (ampadd * j)));
             if(++(out_last[j]) > wavelength)

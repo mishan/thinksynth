@@ -113,6 +113,12 @@ think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 
 think_harness(dsplevel)
 think_harness(dspab)
+
+# The non-finite gate: every graph at the corners of every control it
+# declares, plus the engine guard's own claim about what one bad voice costs.
+# See the header of dspsweep.cpp for why the corners are swept one control at
+# a time, and scripts/guard/ for the two fixtures the guard's gate uses.
+think_harness(dspsweep)
 # dspstress runs each level in a forked child with an alarm(2) watchdog, so
 # that a level which segfaults or wedges does not take the run with it. That
 # is fork(), waitpid() and SIGALRM -- none of which Windows has, and the
@@ -289,6 +295,38 @@ add_test(NAME dspwrite
                  -DMODE=dsp
                  -P "${_runner}")
 
+# The non-finite gate over the whole corpus: every control at its .min, its
+# .max and three points between, a note at each end of the keyboard, and the
+# engine's guard asked afterwards whether it caught anything. Thousands of
+# renders, so slower than the other corpus gates.
+add_test(NAME dspsweep
+         COMMAND "${CMAKE_COMMAND}"
+                 -DHARNESS=$<TARGET_FILE:dspsweep>
+                 -DCORPUS=${PROJECT_SOURCE_DIR}/dsp
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/dsp
+                 -DMODE=dsp
+                 -DEXTRA_ARGS=-q
+                 -P "${_runner}")
+
+# The guard's own claim, which no corpus file can make: one instrument that
+# cannot help going non-finite and one that behaves, on two channels at once.
+# Its own test rather than more EXTRA_ARGS on the sweep above, because a path
+# with a space in it does not survive EXTRA_ARGS and this one is a path.
+add_test(NAME dspsweep.guard
+         COMMAND dspsweep -p "${PROJECT_BINARY_DIR}/plugins/"
+                 -g "${PROJECT_SOURCE_DIR}/scripts/guard")
+
+# And the same piece through genwav, for the status and the summary line a
+# script asks about. See cmake/RunGuardPiece.cmake for the three claims.
+add_test(NAME genwav.nonfinite
+         COMMAND "${CMAKE_COMMAND}"
+                 -DGENWAV=$<TARGET_FILE:genwav>
+                 -DPIECE=${PROJECT_SOURCE_DIR}/scripts/guard/nonfinite.gen
+                 -DPLUGIN_DIR=${PROJECT_BINARY_DIR}/plugins/
+                 -DDSP_PATH=${PROJECT_SOURCE_DIR}/scripts/guard
+                 -P "${PROJECT_SOURCE_DIR}/cmake/RunGuardPiece.cmake")
+
 add_test(NAME dsplevel
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dsplevel>
@@ -398,7 +436,7 @@ add_test(NAME editorcheck
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     gencheck
+                     gencheck dspsweep dspsweep.guard genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 
 # The two harnesses that build real widgets need LeakSanitizer told which
