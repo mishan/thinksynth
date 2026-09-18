@@ -50,6 +50,7 @@ flex_target(ThinkLexer
 
 set(THINK_SOURCES
     thArg.cpp
+    thExpr.cpp
     thMidiChan.cpp
     thMidiNote.cpp
     thSynthTree.cpp

@@ -488,6 +488,15 @@ Logical Not
 
 ## math
 
+### math::abs
+
+The magnitude of a stream
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  |  |  |  |
+| `out` | out | in without its sign |  |  |  |  |
+
 ### math::add
 
 Adds two streams, unscaled
@@ -497,6 +506,17 @@ Adds two streams, unscaled
 | `in0` | in | First operand |  |  |  |  |
 | `in1` | in | Second operand |  |  |  |  |
 | `out` | out | in0 + in1, unscaled |  |  |  |  |
+
+### math::clamp
+
+Holds a stream between two others
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  |  |  |  |
+| `lo` | in | The bottom |  |  |  |  |
+| `hi` | in | The top; under lo, the answer is lo below lo and hi above it |  |  |  |  |
+| `out` | out | in, held between lo and hi |  |  |  |  |
 
 ### math::div
 
@@ -508,6 +528,35 @@ Divides two streams
 | `in1` | in | Denominator; 0 is a non-finite result |  |  |  |  |
 | `out` | out | in0 / in1 |  |  |  |  |
 
+### math::exp2
+
+Two raised to the power of a stream
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The power; 1 is an octave up |  |  | octaves |  |
+| `out` | out | 2 to the power of in; a ratio |  |  | ratio |  |
+
+### math::max
+
+The higher of two streams
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in0` | in | First operand |  |  |  |  |
+| `in1` | in | Second operand |  |  |  |  |
+| `out` | out | Whichever of in0 and in1 is higher |  |  |  |  |
+
+### math::min
+
+The lower of two streams
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in0` | in | First operand |  |  |  |  |
+| `in1` | in | Second operand |  |  |  |  |
+| `out` | out | Whichever of in0 and in1 is lower |  |  |  |  |
+
 ### math::mul
 
 Multiplies two streams, unscaled
@@ -517,6 +566,16 @@ Multiplies two streams, unscaled
 | `in0` | in | First operand |  |  |  |  |
 | `in1` | in | Second operand |  |  |  |  |
 | `out` | out | in0 * in1, unscaled |  |  |  |  |
+
+### math::pow
+
+Raises one stream to the power of another
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `base` | in | What is raised |  |  |  |  |
+| `exp` | in | The power; a fraction of a negative base is non-finite |  |  |  |  |
+| `out` | out | base raised to exp |  |  |  |  |
 
 ### math::sin
 

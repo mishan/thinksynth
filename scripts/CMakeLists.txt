@@ -114,6 +114,13 @@ think_harness(dspcheck EXTRA "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp")
 think_harness(dsplevel)
 think_harness(dspab)
 
+# Arithmetic over signals: that a constant expression still folds, that one
+# with a signal in it renders as the nodes it stands for, and that the six
+# function nodes compute what they say. Its own harness because none of those
+# cases is in the corpus and the first two are equivalences rather than
+# loads -- dspcheck can say a file parsed and not that two files agree.
+think_harness(exprcheck)
+
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
 # See the header of dspsweep.cpp for why the corners are swept one control at
@@ -399,6 +406,9 @@ add_test(NAME includecheck COMMAND includecheck)
 add_test(NAME argtype
          COMMAND argtype -p "${PROJECT_BINARY_DIR}/plugins/")
 
+add_test(NAME exprcheck
+         COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
          COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
@@ -455,7 +465,8 @@ add_test(NAME editorcheck
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     gencheck dspsweep dspsweep.guard genwav.nonfinite
+                     exprcheck gencheck dspsweep dspsweep.guard
+                     genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 
 # The two harnesses that build real widgets need LeakSanitizer told which

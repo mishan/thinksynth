@@ -709,6 +709,23 @@ thSynthTree *thSynth::finishParse (const string &what, thSynthTree *tree,
      * already deleted, and a failed parse folds nothing. */
     tree->foldUnits(sampleRate_);
 
+    /* `freq = base->out * 0.5' into the math:: nodes it stands for, before
+       buildArgMap indexes anything: those nodes have args of their own.
+       After foldUnits only because both are parse leftovers and this reads in
+       the order the grammar parked them; no expression may carry a unit.
+     *
+     * A failure here is a plugin that would not load, which fails the file.
+     * The alternative is a graph with an arg reading zero where the author
+     * wrote arithmetic, and silence nobody can account for is the outcome the
+     * guard rails exist to stop. */
+    if (!tree->desugarExprs())
+    {
+        fprintf(stderr, "%s: could not build an expression, discarding\n",
+                what.c_str());
+        delete tree;
+        return NULL;
+    }
+
     tree->buildArgMap(); /* build the index of args */
     tree->setPointers();
 

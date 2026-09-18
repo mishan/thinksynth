@@ -66,6 +66,63 @@ node. Chanargs are declared `@x = <constant>` and written by the GUI and MIDI
 controllers, and nothing can drive one from the graph. So "this parameter varies
 with an LFO" needs no engine work and "the knob moves on its own" does.
 
+### Arithmetic over signals
+
+An arg's right-hand side may be an expression, and its leaves may be signals:
+
+```
+node osc2 osc::simple {
+    freq = freq->out * exp2(@cents / 1200);   # a detune in cents
+};
+node ionode {
+    out0 = (osc1->out + osc2->out) * 0.5;     # the average of two saws
+};
+```
+
+This is **sugar, and the audio path never sees it.** `thSynthTree::desugarExprs`
+rewrites each expression into the `math::` nodes it stands for during
+`finishParse`, before `buildArgMap` indexes anything, so probes, layout,
+`dspcheck`, the wasm build and `thcNodeHost` all see an ordinary graph. There is
+no separate vector case and nothing new to define: the language already says a
+constant is a buffer of constants, so scalar and vector are the same expression
+evaluated per sample.
+
+The nodes are named after the arg they feed — `osc2.freq#1`, `osc2.freq#2`,
+innermost first — so a log or a probe that names one says where it came from.
+`#` starts a comment in this grammar and therefore cannot appear in an authored
+node name, which is what makes the collision unconstructible rather than
+unlikely.
+
+- **An all-constant expression folds at parse, as it always has.** `a = 5 * 2`
+  is one number and no node, which is why this change leaves every shipped file
+  rendering bit for bit as it did.
+- **A single leaf is not an expression.** `in = osc->out` is the `ARG_POINTER`
+  it has always been and `in = @cut` the `ARG_CHANNEL`; only something with an
+  operator or a call in it becomes nodes.
+- **The operators are `+ - * /`.** `%` still means modulo between two numbers
+  and a percentage after one, and is refused over a signal: there is no node
+  for it, and desugaring to something that is nearly a modulo is worse than
+  saying so. `7 % 0` is refused too — an integer division by zero is a signal,
+  not a number, and it used to take the process down with it.
+- **`- x` is `x * -1`**, which is the node that already exists, and it binds to
+  the operand rather than to the rest of the line: `-1 + 2` is `1`, and
+  `a->out * -0.5` is a thing that can be written. The rule used to sit at the
+  top of an expression and scope over everything to its right, which made
+  `-1 + 2` come out `-3` and `a->out * -0.5` a syntax error. Nothing in the
+  corpus wrote one, which is what let it move.
+- **The functions are `pow(a, b)`, `exp2(x)`, `abs(x)`, `min(a, b)`,
+  `max(a, b)` and `clamp(x, lo, hi)`**, each a `math::` plugin a file may also
+  write by hand. Functions rather than a `^` operator, so the language gains no
+  precedence anyone has to remember.
+- **`*` and `/` bind tighter than `+` and `-`**, and all four are
+  right-associative: `a - b - c` is `a - (b - c)`, and a `-` takes the
+  additions after it too, so `1 - 2 + 3` is `-4`. That is what the constant
+  folding has done since the language existed. `exprcheck` pins it rather than
+  fixing it, because fixing it changes what an existing file means.
+- **A unit inside an expression is refused**, signal or not, and so is an
+  expression on a `@chanarg` or on its range — a control is a constant the GUI
+  writes, and a value with two authors is not a thing this format can express.
+
 ### Chanargs and controls
 
 All 206 chanarg declarations in the corpus carry `.widget = 1`, `.min` and
@@ -223,7 +280,9 @@ Two things that only showed up in practice:
   `inmax = th_max` into `inmax = 1` on the first save of any file containing one.
 - **Arithmetic right-hand sides are refused.** An editor that silently replaced
   someone's `a * 2` with a constant would be doing exactly the damage splicing
-  exists to prevent.
+  exists to prevent. That holds for an expression over signals too: the value
+  the parse produced is a graph, and writing that graph back would be
+  re-emitting the model with the author's arithmetic gone.
 - **A label cannot contain a quote.** The lexer's string is `"[^"\n]*"` with no
   escapes at all, so there is no spelling for one.
 - **`@x.min` before `@x` has nothing to modify** — the parser says so and

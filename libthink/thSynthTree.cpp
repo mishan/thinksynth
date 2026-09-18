@@ -74,6 +74,11 @@ thSynthTree::~thSynthTree ()
     /* chanargs_ was never freed -- every `@foo = ...' in every .dsp leaked a
        thArg, once per load. */
     DestroyMap(chanargs_);
+
+    /* Empty after desugarExprs(). Not empty when a parse failed partway, which
+       is the path that has to free them. */
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+        thExprFree(pendingExprs_[i].expr);
 }
 
 /* Bounds-checked accessor for the node index. Ids come out of parsed .dsp
@@ -338,6 +343,189 @@ void thSynthTree::foldUnits (long sampleRate)
     /* Cleared, not kept: this is what makes a second call a no-op rather
        than a second fold. */
     unitFolds_.clear();
+}
+
+void thSynthTree::deferExpr (thNode *node, const string &arg,
+                             thExprNode *expr)
+{
+    if (node == NULL || expr == NULL)
+    {
+        thExprFree(expr);
+        return;
+    }
+
+    dropExpr(node, arg);
+
+    thPendingExpr p;
+
+    p.node = node;
+    p.arg = arg;
+    p.expr = expr;
+
+    pendingExprs_.push_back(p);
+}
+
+void thSynthTree::dropExpr (thNode *node, const string &arg)
+{
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+    {
+        if (pendingExprs_[i].node == node && pendingExprs_[i].arg == arg)
+        {
+            thExprFree(pendingExprs_[i].expr);
+            pendingExprs_.erase(pendingExprs_.begin() + i);
+            return;
+        }
+    }
+}
+
+/* See the declaration. The three things an arg can already be, which is the
+   point -- nothing about the graph an expression becomes is new. */
+struct thSynthTree::ExprRef
+{
+    enum { VALUE, NODE, CHAN } kind;
+
+    float  value;
+    string node, arg;
+
+    ExprRef (void) : kind(VALUE), value(0) { }
+};
+
+void thSynthTree::applyRef (thNode *target, const string &arg,
+                            const ExprRef &r)
+{
+    /* setIndex(-1) for the same reason every grammar action does it: the
+       index belongs to buildArgMap, which has not run yet. */
+    switch (r.kind)
+    {
+    case ExprRef::VALUE:
+        target->setArg(arg, r.value)->setIndex(-1);
+        break;
+
+    case ExprRef::NODE:
+        target->setArg(arg, r.node, r.arg)->setIndex(-1);
+        break;
+
+    case ExprRef::CHAN:
+        target->setArg(arg, r.node)->setIndex(-1);
+        break;
+    }
+}
+
+/* One subexpression into one node, depth first, so `(a + b) * c' numbers the
+   add #1 and the mul #2 -- the order the arithmetic happens in. */
+bool thSynthTree::emitExpr (const thExprNode *e, const string &base,
+                            int &serial, ExprRef &out)
+{
+    if (e == NULL)
+        return false;
+
+    switch (e->kind)
+    {
+    case thExprNode::CONST:
+        out.kind = ExprRef::VALUE;
+        out.value = e->value;
+        return true;
+
+    case thExprNode::NODEREF:
+        out.kind = ExprRef::NODE;
+        out.node = e->node;
+        out.arg = e->arg;
+        return true;
+
+    case thExprNode::CHANREF:
+        out.kind = ExprRef::CHAN;
+        out.node = e->name;
+        return true;
+
+    case thExprNode::OP:
+    case thExprNode::CALL:
+        break;
+    }
+
+    /* Which plugin, how many args and what they are called: thExpr answers
+       it, so that the .gen desugar to come cannot spell an operator
+       differently from this one. */
+    const char *path;
+    const char *argname[3];
+    int arity;
+
+    if (!thExprPlugin(e, path, arity, argname))
+    {
+        if (e->kind == thExprNode::OP)
+            fprintf(stderr, "thSynthTree: no node for operator '%c'\n",
+                    (char)e->op);
+        else
+            fprintf(stderr, "thSynthTree: no node for '%s()'\n",
+                    e->name.c_str());
+
+        return false;
+    }
+
+    thPluginManager *pm = synth_ ? synth_->getPluginManager() : NULL;
+    thPlugin *plug = pm ? pm->getOrLoadPlugin(path) : NULL;
+
+    if (plug == NULL)
+    {
+        fprintf(stderr, "thSynthTree: could not load plugin '%s', which "
+                        "'%s' needs\n", path, base.c_str());
+        return false;
+    }
+
+    /* Children first, so a subexpression's node exists before the node that
+       reads it -- and so the numbering reads bottom up. */
+    ExprRef kid[3];
+
+    for (int i = 0; i < arity; i++)
+        if (!emitExpr(e->kids[i], base, serial, kid[i]))
+            return false;
+
+    /* `#' cannot appear in a .dsp node name -- the lexer starts a comment on
+       one -- so a synthesised node can never collide with an authored one,
+       and anything printing a graph says where this one came from. */
+    char suffix[24];
+
+    snprintf(suffix, sizeof(suffix), "#%d", ++serial);
+
+    thNode *n = new thNode(base + suffix, plug);
+
+    newNode(n, true);
+
+    for (int i = 0; i < arity; i++)
+        applyRef(n, argname[i], kid[i]);
+
+    out.kind = ExprRef::NODE;
+    out.node = n->name();
+    out.arg = "out";
+
+    return true;
+}
+
+bool thSynthTree::desugarExprs (void)
+{
+    bool ok = true;
+
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+    {
+        const thPendingExpr &p = pendingExprs_[i];
+
+        if (p.node == NULL)
+            continue;
+
+        ExprRef r;
+        int serial = 0;
+
+        if (emitExpr(p.expr, p.node->name() + "." + p.arg, serial, r))
+            applyRef(p.node, p.arg, r);
+        else
+            ok = false;
+    }
+
+    for (size_t i = 0; i < pendingExprs_.size(); i++)
+        thExprFree(pendingExprs_[i].expr);
+
+    pendingExprs_.clear();
+
+    return ok;
 }
 
 void thSynthTree::process (unsigned int windowlen)

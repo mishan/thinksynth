@@ -39,6 +39,12 @@ node, arg or tree.
 - **`thPlugin`** — the `dlopen` wrapper. Plugins export `module_init`
   (registers named args, returns integer indices), `module_callback` (the
   per-window DSP) and `module_cleanup`.
+- **`thExprNode`** — an arithmetic expression over signals, alive only between
+  the parse and `thSynthTree::desugarExprs`. `freq->out * exp2(@cents / 1200)`
+  becomes `math::` nodes at load and the audio path sees a graph like any
+  other. An all-constant expression never becomes one of these: the grammar
+  folds it at parse, as it always has. See
+  [DSP_FORMAT.md](DSP_FORMAT.md#arithmetic-over-signals).
 
 Plugins keep their state *in args* — delay lines, filter history, oscillator
 phase. That is not incidental; see [AUDIO.md](AUDIO.md) on why `thArg::allocate()`
