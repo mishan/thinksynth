@@ -58,6 +58,16 @@ public:
        can report the name the user typed. */
     static string resolveDsp (const string &dspName);
 
+    /* Puts `effectName' on `chan' as its channel effect, or takes the
+     * effect off when it is empty. The channel has to have a patch on it
+     * already: an effect belongs to a channel, and loading an instrument
+     * builds a new one.
+     *
+     * Separate from newPatch rather than a second argument to it, because
+     * the two are separate actions in the interface as well: choosing an
+     * effect does not reload the instrument under it. */
+    bool setEffect (int chan, const string &effectName);
+
     /* The same, for the .patch itself.
      *
      * A patch used to be fopen()'d exactly as named, which is why thinkrc had
@@ -80,6 +90,14 @@ public:
         PatchFileInfo info;
 
         string dspFile;
+
+        /* The graph running on this channel's summed voices, or empty.
+         *
+         * Named the way `dspFile' is -- by the name the patch gave, not the
+         * path it resolved to -- so a patch saved afterwards carries the
+         * short name it came with. A channel has at most one. */
+        string effectFile;
+
         string filename;
 
         /* Anything changed since it was loaded or last written.

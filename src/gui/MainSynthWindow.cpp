@@ -752,6 +752,7 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
     tab_vbox->append(*info_frame);
     dsp_frame->set_vexpand(true);
     tab_vbox->append(*dsp_frame);
+    tab_vbox->append(*makeEffectFrame(num));
 
     /* Which node drives each control, so the panel can gather them the way
        the node editor does. */
@@ -830,6 +831,184 @@ void MainSynthWindow::append_tab (const string &tabName, const string &tip,
 
     notebook_.append_page(*page, *makeTabLabel(tabName, tip));
 
+}
+
+/* The channel effect's block. See the header.
+ *
+ * Drawn on every page whether or not the channel has one, and empty when it
+ * does not, because the way to *get* one is the button in it. A block that
+ * appeared only once an effect was loaded would be a control you could not
+ * reach until you had used it.
+ */
+Gtk::Widget *MainSynthWindow::makeEffectFrame (int chan)
+{
+    gthPatchManager *patchMgr = gthPatchManager::instance();
+    gthPatchManager::PatchFile *patch = patchMgr->getPatch(chan);
+
+    Gtk::Frame *frame = manage(new Gtk::Frame);
+    Gtk::Box *body = manage(new Gtk::Box(Gtk::Orientation::VERTICAL));
+
+    frame->set_label("Channel Effect");
+    frame->set_child(*body);
+
+    body->set_spacing(6);
+    body->set_margin_start(6);
+    body->set_margin_end(6);
+    body->set_margin_top(6);
+    body->set_margin_bottom(6);
+
+    const string name = patch ? patch->effectFile : string();
+
+    Gtk::Box *bar = manage(new Gtk::Box(Gtk::Orientation::HORIZONTAL));
+
+    bar->set_spacing(6);
+
+    Gtk::Label *which = manage(new Gtk::Label(
+        name.empty() ? "None \xe2\x80\x94 the channel's voices go out as they "
+                       "are" : name));
+
+    which->set_xalign(0.0);
+    which->set_hexpand(true);
+
+    /* Dimmed rather than absent when there is none: "None" is a state the
+       channel is in, and a label that disappeared would leave the two buttons
+       floating with nothing saying what they act on. */
+    if (name.empty())
+        which->set_sensitive(false);
+
+    bar->append(*which);
+
+    Gtk::Button *choose = manage(new Gtk::Button(name.empty() ? "_Choose\xe2\x80\xa6"
+                                                              : "_Replace\xe2\x80\xa6"));
+
+    choose->set_use_underline(true);
+    choose->signal_clicked().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onEffectBrowse),
+                   chan));
+    bar->append(*choose);
+
+    Gtk::Button *none = manage(new Gtk::Button("_None"));
+
+    none->set_use_underline(true);
+    none->set_sensitive(!name.empty());
+    none->signal_clicked().connect(
+        sigc::bind(sigc::mem_fun(*this, &MainSynthWindow::onEffectRemove),
+                   chan));
+    bar->append(*none);
+
+    /* Nothing to load one onto. An effect belongs to a channel and the
+       channel is the patch, so the buttons say so rather than failing when
+       pressed. */
+    if (patch == NULL)
+    {
+        choose->set_sensitive(false);
+        none->set_sensitive(false);
+        which->set_text("Load a DSP on this channel first");
+    }
+
+    body->append(*bar);
+
+    /* The second parameter panel: the effect's own chanargs, which are a
+       second map -- see thSynth::getChanArg and TH_EFFECT_PREFIX. Same
+       widget as the one above it, differing by the prefix its lookups
+       carry. */
+    thArgMap fxargs = thSynth::instance()->getEffectArgs(chan);
+
+    if (!fxargs.empty())
+    {
+        ArgTable *table = manage(new ArgTable);
+
+        for (thArgMap::iterator j = fxargs.begin(); j != fxargs.end(); j++)
+        {
+            if (j->second == NULL ||
+                j->second->widgetType() != thArg::SLIDER)
+                continue;
+
+            table->insertArg(j->second);
+        }
+
+        table->setChannel(chan);
+        table->setPrefix(TH_EFFECT_PREFIX);
+        table->reflow();
+
+        body->append(*manage(new Gtk::Separator(
+                                 Gtk::Orientation::HORIZONTAL)));
+        body->append(*table);
+    }
+
+    return frame;
+}
+
+/* Everything a change of effect has to do to this window.
+ *
+ * The whole notebook, for the reason onBrowseResponse rebuilds it: a page
+ * holds widgets bound to args on a channel, and the channel's second arg map
+ * has just been replaced. Rebuilding one page is what this looks like it
+ * should do and is not what the window is built to offer. */
+void MainSynthWindow::reloadPages (int chan)
+{
+    clearPages();
+    populate();
+
+    if (chan >= 0)
+        notebook_.set_current_page(chan);
+}
+
+void MainSynthWindow::onEffectBrowse (int chan)
+{
+    Gtk::FileChooserDialog *fileSel =
+        new Gtk::FileChooserDialog(*this, "thinksynth - Load Channel Effect",
+                                   Gtk::FileChooser::Action::OPEN);
+
+    fileSel->set_modal(true);
+    fileSel->add_button("_Cancel", Gtk::ResponseType::CANCEL);
+    fileSel->add_button("_Open", Gtk::ResponseType::OK);
+
+    if (prevDir_ != "")
+        fileSel->set_current_folder(Gio::File::create_for_path(prevDir_));
+
+    fileSel->signal_response().connect(
+        sigc::bind(sigc::mem_fun(*this,
+                                 &MainSynthWindow::onEffectBrowseResponse),
+                   fileSel, chan));
+
+    fileSel->present();
+}
+
+void MainSynthWindow::onEffectBrowseResponse (int response,
+                                              Gtk::FileChooserDialog *fileSel,
+                                              int chan)
+{
+    const string picked = response == Gtk::ResponseType::OK
+                          ? chosenPath(*fileSel) : string();
+
+    closeDialog(fileSel);
+
+    if (picked.empty())
+        return;
+
+    if (!gthPatchManager::instance()->setEffect(chan, picked))
+    {
+        /* The two ways it can go, and the message says both rather than
+           guessing which: a graph that will not parse and a graph that parses
+           and is an instrument are different mistakes with the same symptom
+           here. */
+        showError(this, "Could not load the effect",
+                  picked + "\n\nA syntax error, or it is not an effect graph "
+                  "-- an effect's io node declares in0, which is where the "
+                  "engine puts the channel's audio.");
+        return;
+    }
+
+    reloadPages(chan);
+}
+
+void MainSynthWindow::onEffectRemove (int chan)
+{
+    if (!gthPatchManager::instance()->setEffect(chan, ""))
+        return;
+
+    reloadPages(chan);
 }
 
 /* The strip across the top of a patch page.

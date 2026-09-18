@@ -195,12 +195,19 @@ target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 # holds them together. It needs a display for the same reason canvasbench does
 # -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
 # list below, guarded by whether a display can be had.
+# ArgTable and gthPatchfile join the list for the channel-effect panel: a
+# channel has two chanarg maps and one lookup reaches both, so the panel over
+# the second differs from the panel over the first by a prefix -- and the way
+# that fails is a slider that moves and changes nothing.
 think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ArgTable.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
 target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
@@ -496,9 +503,18 @@ add_test(NAME editorcheck
          COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
 
+# THINK_DSP_PATH for the channel-effect panel: it loads dsp/fx/echo.dsp, and
+# without this the only thing left pointing at a corpus is the compiled-in
+# DSP_PATH, which on a development machine is answered by whatever was last
+# installed to /usr/local -- the same way round the configcheck registration
+# got it wrong.
+set_tests_properties(editorcheck PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     exprcheck statecheck voicecheck fxcheck gencheck dspsweep dspsweep.guard
+                     exprcheck statecheck voicecheck fxcheck gencheck
+                     dspsweep dspsweep.guard
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 

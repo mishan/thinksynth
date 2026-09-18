@@ -78,6 +78,24 @@ protected:
        not about one view of it. */
     Gtk::Widget *makePatchBar (int chan);
 
+    /* The channel effect's block on a patch page: which graph is on the
+     * channel's sum, the two buttons that change that, and a second
+     * parameter panel over the effect's own chanargs.
+     *
+     * A block of its own rather than more rows in DSP Parameters, because an
+     * effect's `@a' and an instrument's are two different numbers and a panel
+     * that ran them together would be saying otherwise. */
+    Gtk::Widget *makeEffectFrame (int chan);
+
+    void onEffectBrowse (int chan);
+    void onEffectBrowseResponse (int response, Gtk::FileChooserDialog *,
+                                 int chan);
+    void onEffectRemove (int chan);
+
+    /* Everything a change of effect has to do to the window: the page is
+       rebuilt, because the second parameter panel is part of it. */
+    void reloadPages (int chan);
+
     void onAmpSlider (Gtk::Scale *scale, int chan);
     void onPatchDirty (int chan, SaveButton *button, int mine);
     void onAmpArgChanged (thArg *arg, int chan);

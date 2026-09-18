@@ -322,13 +322,34 @@ overrides — a preset over that DSP's `@chanargs`:
 
 ```
 dsp ts1.dsp
+effect fx/echo.dsp
 info author Leif Ames
 info title Phat Rip
 cutoff 8.809662
 res 2.854232
+fx.delay 16537.500000
+fx.mix 0.500000
 ```
 
 `src/gui/ArgTable.cpp` renders these as sliders.
+
+`effect` names the channel effect — the graph that runs on the sum of this
+patch's voices, above — and is optional; a patch without one is every patch
+written before there were any. Its parameters are written `fx.<name>`, which
+is how the whole engine addresses an effect's chanargs, so that a patch
+setting `a` and an effect declaring one are two lines and two numbers.
+
+**The order in the file is load-bearing.** An effect's parameters do not exist
+until the effect is on the channel, so `effect` is written above them and the
+reader depends on that rather than tolerating either order — a reader that
+tolerated both would hide a writer that had stopped doing it. `dsp` comes
+first for the same reason one step further back: an effect belongs to a
+channel, and the channel is the instrument.
+
+An unknown `fx.` name is reported and dropped rather than invented. The
+tolerance for names no graph declares belongs to the instrument's side, where
+the corpus has a history of them; an invented effect parameter would land in
+the instrument's map, where nothing would ever read it.
 
 ## 3. Writing a `.dsp`
 

@@ -1002,6 +1002,42 @@ void thSynth::setChanArg (int channum, thArg *arg)
         return;
     }
 
+    /* `fx.delay' is the effect's, and the effect's map holds exactly what its
+     * graph declared -- so a value goes into the arg that is there, and a
+     * name that is not is refused rather than invented.
+     *
+     * Inventing is the right answer on the instrument's side and only there:
+     * .patch files predate arg metadata and half the corpus sets things no
+     * graph declares, so an unknown name is tolerated. An effect has no such
+     * history, and an invented `fx.' arg would land in the *instrument's*
+     * map, where nothing would ever read it.
+     */
+    {
+        const size_t plen = strlen(TH_EFFECT_PREFIX);
+
+        if (arg->name().compare(0, plen, TH_EFFECT_PREFIX) == 0)
+        {
+            thChanEffect *fx = guiEffects_[channum];
+            thArg *target = fx ? fx->getArg(arg->name().substr(plen)) : NULL;
+
+            if (target != NULL && target->type() == thArg::ARG_VALUE &&
+                target->len() == 1 && arg->type() == thArg::ARG_VALUE &&
+                arg->len() == 1)
+            {
+                target->setValue((*arg)[0]);
+            }
+            else
+            {
+                fprintf(stderr, "thSynth::setChanArg: channel %d has no "
+                        "effect parameter called '%s'\n", channum,
+                        arg->name().c_str());
+            }
+
+            delete arg;
+            return;
+        }
+    }
+
     thArg *existing = guiChannels_[channum]->getArg(arg->name());
 
     /* Fast path: changing the value of an arg that is already a single float.

@@ -49,6 +49,7 @@
 
 #include "config.h"
 
+#include <cmath>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdlib>
@@ -98,6 +99,20 @@ static const char *expected[] = {
 };
 
 static const size_t expectedCount = sizeof(expected) / sizeof(expected[0]);
+
+/* Every line of a file, in order. The effect check below cares which line
+   comes before which, not only that both are there. */
+static std::vector<string> fileLines (const string &path)
+{
+    std::vector<string> out;
+    std::ifstream in(path.c_str());
+    string line;
+
+    while (std::getline(in, line))
+        out.push_back(line);
+
+    return out;
+}
 
 static std::vector<string> channelLines (const string &path)
 {
@@ -309,6 +324,92 @@ int main (int argc, char **argv)
         ok(lines.size() == expectedCount,
            "the file still has %zu channel lines after a second load (%zu)",
            expectedCount, lines.size());
+    }
+
+    /* ---- a channel effect survives a .patch --------------------------- */
+
+    /* The chooser in the patch page puts a graph on a channel's sum, and the
+     * only record that it happened is the .patch. So: put one on, move one of
+     * its parameters, write the file, take everything off, read it back, and
+     * see both again.
+     *
+     * The ordering inside the file is the part that can quietly break. An
+     * effect's parameters do not exist until the effect is on the channel, so
+     * `effect' has to be written above them -- and a reader that tolerated
+     * either order would hide a writer that had stopped doing it.
+     */
+    {
+        const int chan = 0;
+
+        patchMgr->unloadPatch(chan);
+
+        const string dsp =
+            thUtil::findDataFile("ts1.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+        const string fx =
+            thUtil::findDataFile("fx/echo.dsp", "dsp", "THINK_DSP_PATH",
+                                 DSP_PATH);
+
+        if (dsp.empty() || fx.empty())
+        {
+            ok(false, "the effect round trip can find ts1.dsp and "
+                      "fx/echo.dsp");
+        }
+        else if (!patchMgr->newPatch(dsp, chan))
+        {
+            ok(false, "the effect round trip can load an instrument");
+        }
+        else
+        {
+            ok(patchMgr->setEffect(chan, fx),
+               "an effect goes onto a channel that has a patch");
+
+            thArg *mix = synth->getChanArg(chan, "fx.mix");
+
+            ok(mix != NULL, "its parameters are reachable under `fx.'");
+
+            if (mix != NULL)
+                mix->setValue(0.75);
+
+            const string file = tmp + "/effect.patch";
+
+            ok(patchMgr->savePatch(file, chan), "the patch writes");
+
+            /* The line, and where it is. */
+            {
+                const std::vector<string> lines = fileLines(file);
+                long effectAt = -1, valueAt = -1;
+
+                for (size_t i = 0; i < lines.size(); i++)
+                {
+                    if (lines[i].compare(0, 7, "effect ") == 0)
+                        effectAt = (long)i;
+
+                    if (lines[i].compare(0, 7, "fx.mix ") == 0)
+                        valueAt = (long)i;
+                }
+
+                ok(effectAt >= 0, "the patch names its effect");
+                ok(valueAt >= 0, "and carries the effect's values");
+                ok(effectAt >= 0 && valueAt > effectAt,
+                   "with the effect above them, which is the order that "
+                   "loads");
+            }
+
+            patchMgr->unloadPatch(chan);
+
+            ok(synth->getEffect(chan) == NULL,
+               "unloading the patch took the effect with it");
+
+            ok(patchMgr->loadPatch(file, chan), "the patch reads back");
+
+            thArg *back = synth->getChanArg(chan, "fx.mix");
+
+            ok(synth->getEffect(chan) != NULL,
+               "and the effect is on the channel again");
+            ok(back != NULL && fabs((*back)[0] - 0.75) < 1e-6,
+               "with the value that was saved (%f)",
+               back ? (double)(*back)[0] : -1.0);
+        }
     }
 
     delete synth;
