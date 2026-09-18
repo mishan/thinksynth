@@ -43,12 +43,27 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The wave");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_PW] = plugin->regArg("pw", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_PW], "Pulse Width");
+    plugin->setArgDesc(args[IN_PW],
+                       "Pulse width: how the flat time splits high to low");
+    plugin->setArgRange(args[IN_PW], 0, 1);
     args[IN_SW] = plugin->regArg("sw", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_SW], "Sine Width");
+    /* `sinewidth = wavelength * sw', and there are two edges, so 0.5 leaves no
+       flat at all -- which is where this differs from osc::softsqr, whose
+       edges are a frequency rather than a fraction. The floor is where the
+       callback clamps: the sine segments divide by their own width, so a zero
+       is a division by zero rather than a square wave. */
+    plugin->setArgDesc(args[IN_SW],
+                       "Edge length as a fraction of the cycle; 0.5 is all "
+                       "edge");
+    plugin->setArgRange(args[IN_SW], TH_SW_MIN, 0.5);
     
     return 0;
 }

@@ -133,8 +133,15 @@ int module_init (thPlugin *plugin)
     }
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "White noise, held for `sample'");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_SAMPLE] = plugin->regArg("sample", thPlugin::ARG_IN);
+    /* `if (++position > sample)' -- how long a drawn value is held, so 0 is
+       a new one every sample and a larger number is a coarser noise. */
+    plugin->setArgDesc(args[IN_SAMPLE], "How long to hold each value");
+    plugin->setArgUnits(args[IN_SAMPLE], "samples");
     return 0;
 }
 

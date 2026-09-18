@@ -244,6 +244,9 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
         float step = 0;
         vector<string> valueNames;
         string desc;
+        string pluginUnits;
+        bool hasRange = false;
+        float rangeMin = 0, rangeMax = 0;
 
         if (p)
         {
@@ -260,6 +263,10 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
                     step = p->getArgStep(k);
                     valueNames = p->getArgValues(k);
                     desc = p->getArgDesc(k);
+                    pluginUnits = p->getArgUnits(k);
+                    hasRange = p->argHasRange(k);
+                    rangeMin = p->getArgMin(k);
+                    rangeMax = p->getArgMax(k);
                     break;
                 }
         }
@@ -271,13 +278,21 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
 
         prm.name = a->first;
         prm.label = arg->label();
-        prm.units = arg->units();
+
+        /* The .dsp's unit wins where there is one: it is about this arg in
+           this patch, and the plugin's is about the arg in general. A node arg
+           has none, which is the case the plugin's exists for. */
+        prm.units = arg->units().empty() ? pluginUnits : arg->units();
+
         prm.comment = arg->comment();
         prm.min = arg->min();
         prm.max = arg->max();
         prm.step = step;
         prm.valueNames = valueNames;
         prm.desc = desc;
+        prm.hasRange = hasRange;
+        prm.rangeMin = rangeMin;
+        prm.rangeMax = rangeMax;
         prm.isPort = isPort;
         prm.isOutput = isOutput;
 

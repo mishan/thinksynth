@@ -43,15 +43,26 @@ class thNode;
  * in a source tree are a thing that actually happens here -- NodePalette's own
  * tooltip tells people to go and delete them.
  *
- * Still 5 after the description and the default were added, and the rule above
- * is why. Those went inside ArgInfo, which lives in a vector -- so thPlugin is
- * the same size and every member is where it was. A plugin touches setDesc,
- * setState and the setArg* calls, and nothing it can reach moved. Adding
- * methods is not a layout change, and the version is for layout changes.
+ * Still 5 after the description, the default, and now the range and units were
+ * added, and the rule above is why. Those went inside ArgInfo, which lives in a
+ * vector -- so thPlugin is the same size and every member is where it was. A
+ * plugin touches setDesc, setState and the setArg* calls; the first two are
+ * inlined here and reach members that did not move, and the rest are
+ * out-of-line in thPlugin.cpp. Adding methods is not a layout change, and the
+ * version is for layout changes.
  *
  * (The other direction -- a plugin built against *this* header loaded by an
  * older libthink -- fails at the link, or at the first call, with an undefined
  * symbol. That is already loud, and no version number would improve it.)
+ *
+ * What growing ArgInfo *does* change is the stride of args_, and the getArg*
+ * accessors below are inlined into whatever includes this header. A host built
+ * against this header and linked against a libthink whose regArg fills the
+ * vector with the older ArgInfo reads every arg at the wrong offset, silently.
+ * That is not this version's business -- it is the library's soname, and
+ * THINK_LIB_MAJOR went to 7 for it. Two numbers, two directions: this one
+ * guards libthink against a stale plugin, and the soname guards a binary
+ * against a stale libthink.
  */
 #define MODULE_IFACE_VER 5
 
@@ -173,8 +184,36 @@ public:
         float def;
         bool hasDefault;
 
+        /* The span of values the callback's arithmetic is defined over, in
+         * whatever `units' says the arg is measured in.
+         *
+         * Not the same claim as thArg's min and max, which are a control's
+         * travel -- a .dsp is free to declare a knob that sweeps a fraction of
+         * what the plugin accepts. This is the plugin's own statement, and the
+         * only one available for a node arg no control drives.
+         *
+         * `has' rather than a sentinel: 0..1 and 0..0 are both ranges a plugin
+         * might mean, and the absence of a range is a third thing.
+         *
+         * Where a stability clamp exists (filt::res2pole2, filt::moog) this is
+         * the clamped span, so a value inside the range is one the filter will
+         * actually run at rather than one it will quietly bend. */
+        float min, max;
+        bool hasRange;
+
+        /* What the numbers are: "Hz", "ms", "samples", "0..1", "dB",
+         * "semitones". Free text, compared by nothing, shown in a tooltip and
+         * in NODES.md.
+         *
+         * The point is filt::moog's cutoff (a fraction of the sample rate)
+         * against filt::res2pole2's (hertz) -- two args with the same name,
+         * the same direction and the same plausible-looking numbers, which
+         * before this could only be told apart by reading both callbacks. */
+        string units;
+
         ArgInfo (const string &n, ArgDir d)
-            : name(n), dir(d), step(0), def(0), hasDefault(false) {}
+            : name(n), dir(d), step(0), def(0), hasDefault(false),
+              min(0), max(0), hasRange(false) {}
     };
 
     typedef int (*Callback)(thNode *,thSynthTree *,unsigned int, unsigned int);
@@ -206,6 +245,11 @@ public:
     /* The value this plugin treats a 0 in that arg as meaning. Only for a
        plugin that genuinely does so -- see ArgInfo::def. */
     void setArgDefault (int index, float value);
+
+    /* The span the callback is defined over, and what the numbers are
+       measured in. See ArgInfo::min and ArgInfo::units. */
+    void setArgRange (int index, float min, float max);
+    void setArgUnits (int index, const string &units);
 
     int argCount (void) const { return (int)args_.size(); };
     string getArgName (int index) const {
@@ -250,6 +294,32 @@ public:
         if (index >= 0 && index < (int)args_.size())
             return args_[index].def;
         return 0;
+    }
+
+    bool argHasRange (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].hasRange;
+        return false;
+    }
+
+    float getArgMin (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].min;
+        return 0;
+    }
+
+    float getArgMax (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].max;
+        return 0;
+    }
+
+    /* Empty for an arg whose plugin said nothing, which is the honest state
+       rather than a gap. By reference, like getArgDesc(). */
+    const string &getArgUnits (int index) const {
+        if (index >= 0 && index < (int)args_.size())
+            return args_[index].units;
+        return noDesc_;
     }
 
     /* Convenience for the editor: a port is anything a .dsp may legitimately

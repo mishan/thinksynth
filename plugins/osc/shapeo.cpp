@@ -43,10 +43,19 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
     
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The wave");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_SHAPE] = plugin->regArg("shape", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_SHAPE], "Shape Variable");
+    /* Each quarter-cycle is (position/quarter)^shape, so 1 is a triangle,
+       under 1 bulges towards a square and over 1 sags towards a spike. */
+    plugin->setArgDesc(args[IN_SHAPE],
+                       "Exponent on each quarter-cycle: 1 is a triangle");
+    plugin->setArgUnits(args[IN_SHAPE], "exponent");
 
     return 0;
 }

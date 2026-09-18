@@ -86,10 +86,17 @@ public:
         float step;
         vector<string> valueNames;
 
-        /* What the arg is for, in the plugin author's words, or empty. 33 args
-           across 11 plugins have one; the other 281 do not, and an empty
-           tooltip is a better answer than one this tree invented. */
+        /* What the arg is for, in the plugin author's words, or empty. An
+           empty tooltip is a better answer than one this tree invented. */
         string desc;
+
+        /* The span the plugin says its callback is defined over, which is not
+           `min' and `max' above: those are a control's travel, declared by the
+           .dsp, and a node arg no control drives has none. Both together are
+           what tells filt::moog's cutoff (0..1, a fraction of the rate) from
+           filt::res2pole2's (hertz). */
+        bool hasRange;
+        float rangeMin, rangeMax;
 
         /* For POINTER, "env->out"; for CHANARG, "@cutoff". Empty otherwise. */
         string source;
@@ -113,6 +120,7 @@ public:
         bool hasValue;
 
         Param (void) : kind(VALUE), value(0), min(0), max(0), step(0),
+                       hasRange(false), rangeMin(0), rangeMax(0),
                        isPort(false), isOutput(false), hasValue(false) { }
     };
 

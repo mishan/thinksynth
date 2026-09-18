@@ -43,9 +43,19 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The wave");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_FREQ], "Frequency");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[IN_FACTOR] = plugin->regArg("factor", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_FACTOR], "(1-abs(x^factor))*x");
+    /* The arg's own comment said `(1-abs(x^factor))*x', which is osc::sinsaw's
+       shaper and not this one's -- there is no `1 -' here. Over a ramp x from
+       -1 to 1, factor 0 is the ramp itself and larger exponents flatten the
+       middle towards a pulse. */
+    plugin->setArgDesc(args[IN_FACTOR], "Shapes the ramp: abs(x)^factor * x");
+    plugin->setArgUnits(args[IN_FACTOR], "exponent");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
     return 0;

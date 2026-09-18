@@ -228,6 +228,18 @@ think_harness(lexcheck COMPOSERHOST THREADS)
 # no corpus and no display: it builds its graphs in C++.
 think_harness(hostcheck)
 
+# NODES.md, out of the plugins themselves. Uses the palette's catalogue walk,
+# so the reference covers exactly what the editor offers.
+think_harness(dspnodes  NODEMODEL)
+
+# `cmake --build <build> --target nodes' after touching a plugin's arg
+# declarations. The ctest below fails if anybody forgets.
+add_custom_target(nodes
+    COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
+            -o "${PROJECT_SOURCE_DIR}/NODES.md"
+    DEPENDS dspnodes plugins
+    COMMENT "Regenerating NODES.md from the plugins")
+
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
 think_harness(dsplive   NODEMODEL)
@@ -308,6 +320,13 @@ add_test(NAME dspsweep
                  -DMODE=dsp
                  -DEXTRA_ARGS=-q
                  -P "${_runner}")
+
+# The committed reference against a fresh one. A plugin whose arg
+# declarations changed without NODES.md being regenerated fails here, which is
+# what keeps the two from drifting.
+add_test(NAME dspnodes
+         COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
+                 -c "${PROJECT_SOURCE_DIR}/NODES.md")
 
 # The guard's own claim, which no corpus file can make: one instrument that
 # cannot help going non-finite and one that behaves, on two channels at once.

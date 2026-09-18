@@ -169,11 +169,45 @@ offset and return garbage silently. The version check exists to make that loud,
 and stale plugin `.so` files in a source tree are a thing that actually happens
 here — `NodePalette`'s own tooltip tells people to go and delete them.
 
-It stayed at 5 when the description and the default were added, and the rule
-above is why: those went *inside* `ArgInfo`, which lives in a vector, so
-`thPlugin` is the same size and every member is where it was. Adding methods is
-not a layout change. The version is for layout changes, and saying which is
-which is the whole value of having one.
+It stayed at 5 when the description and the default were added, and again when
+the range and the units were, and the rule above is why: those went *inside*
+`ArgInfo`, which lives in a vector, so `thPlugin` is the same size and every
+member is where it was. Adding methods is not a layout change. The version is
+for layout changes, and saying which is which is the whole value of having one.
+
+**The library's soname is the other direction, and that one did move.** Growing
+`ArgInfo` changes the stride of the vector behind `regArg`, and `getArgName`,
+`getArgDir` and the rest are inlined into whatever includes `thPlugin.h`. So a
+binary compiled against the new header and linked against a `libthink` that
+fills that vector with the old `ArgInfo` reads every arg at the wrong offset
+and returns garbage without a diagnostic — the failure below, exactly.
+`THINK_LIB_MAJOR` went to 7 for it. `MODULE_IFACE_VER` guards libthink against
+a stale plugin; the soname guards a binary against a stale libthink.
+
+### What an arg says about itself
+
+`regArg` gives an arg a name and a direction; five calls beside it carry the
+rest, and all five are advice — nothing in the audio path reads any of them.
+
+| | |
+|---|---|
+| `setArgDesc` | what the arg is for, as a tooltip fragment |
+| `setArgStep` | 1 where the callback reads `(int)x` |
+| `setArgValues` | the names of those whole numbers, which implies a step |
+| `setArgDefault` | what the callback substitutes when the arg is 0 |
+| `setArgRange` / `setArgUnits` | the span the arithmetic is defined over, and what the numbers are |
+
+A range is not `thArg`'s `min` and `max`. Those are a *control's* travel,
+declared by the `.dsp`, and a node arg no control drives has none; this is the
+plugin's own statement, and for a filter it is the span its coefficients stay
+stable across. Units are what settles `filt::moog`'s cutoff (0 to 1, a fraction
+of the sample rate) against `filt::res2pole2`'s (hertz) — two args with the
+same name, the same direction and the same plausible numbers, which could
+previously only be told apart by reading both callbacks.
+
+`scripts/dspnodes` collects all of it into [NODES.md](NODES.md) by walking the
+palette's catalogue, so the reference covers exactly what the editor offers. A
+ctest regenerates and diffs it, so it cannot go stale.
 
 ## Threading
 
