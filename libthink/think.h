@@ -100,6 +100,15 @@ using namespace std;
 /* Language interface stuff... */
 #define OUTPUTPREFIX "out"
 
+/* How many voices a channel plays at once when its .dsp does not say.
+ *
+ * `node ionode { poly = N; }' overrides it, and 0 means no limit -- which is
+ * what a polymax_ of 0 has always meant to the check in
+ * thMidiChan::process(). Ten is the number the constructor has had all
+ * along; it is here so that a .dsp reading the reference can be told what it
+ * is overriding. */
+#define TH_DEFAULT_POLY 10
+
 /* Upper bound on a DSP's `channels' setting. The value is read straight out of
    a .dsp file and used to size an allocation, so it needs a sanity limit. Ten
    is also the point at which the out0..out9 naming in

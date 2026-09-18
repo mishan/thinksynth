@@ -107,6 +107,16 @@ public:
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
 
+    /* How many voices this channel plays at once: `poly' off the io node,
+     * read once at construction and never written again, so either thread may
+     * ask. 0 is no limit.
+     *
+     * For anything that plays notes and then expects to find them -- a
+     * harness, a panel, a voice display. A poly-limited channel retires down
+     * to its limit, so "I played three, where are they" is a question with a
+     * different answer per graph. */
+    int polyMax (void) const { return polymax_; }
+
     thSynthTree *modnode (void) { return modnode_; }
 
     /* A number no other channel object has ever had.
@@ -202,9 +212,10 @@ private:
     int playindex_;
     int triggerindex_;
 
-    int polymax_;  /* maximum polyphony */
+    int polymax_;  /* maximum polyphony; see TH_DEFAULT_POLY */
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
+
     thArg *argSustain_; /* for the sustain pedal */
 
     unsigned long serial_;

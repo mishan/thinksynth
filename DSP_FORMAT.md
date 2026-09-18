@@ -194,13 +194,14 @@ files that is not really there.
 Direction can be recovered, because the engine's own use of the io node is
 narrow. `thMidiChan::process()` reads exactly three things off it: `OUTPUTPREFIX`
 plus a channel digit for the audio it mixes, `play` to learn the note has ended,
-and `channels` to size the mix. Everything else travels the other way —
+and `channels` to size the mix. `poly` is read once, at construction — see
+below. Everything else travels the other way —
 `thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp, and the
 author's constants are read by whoever wants them.
 
 So an arg is an input to the audio-out half if
 
-- the engine reads it — `out<N>`, `play`, `channels`; or
+- the engine reads it — `out<N>`, `play`, `channels`, `poly`; or
 - **this file wires something into it.**
 
 The second clause is not decoration. 23 args across the corpus are written by a
@@ -213,6 +214,25 @@ Authors also park patch constants in the io block: `res = 0.3` sits there and
 forty other nodes read `ionode->res`. Args with no port on either side — a dozen
 dead constants, mostly typos like `inwav` for `inwave` — belong to the source
 half, where a value the io node offers belongs even when nothing takes it up.
+
+### Voices: `poly`
+
+An io-node constant, read once when the channel is built, that says how many
+voices it plays at once. It was a literal in the engine before it was a
+setting.
+
+```
+node ionode { channels = 2; poly = 2; out0 = vca->out; };
+```
+
+Without it, 10. Over the limit the channel retires voices that are finishing
+first and then the oldest still held, so what survives is always the newest. A
+`poly` of 0 — or of anything negative — is no limit at all, which is what the
+engine's check has always meant by a limit of zero.
+
+`poly = 1` is a monophonic instrument with a retrigger on every note: the
+previous voice is gone rather than slid into, and its release is cut off where
+it stood. `poly = 2` leaves room for one voice sounding and one finishing.
 
 ## 2. The `.patch` format
 

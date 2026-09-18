@@ -55,7 +55,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
         outindex_[i] = -1;
     }
 
-    polymax_ = 10;
+    polymax_ = TH_DEFAULT_POLY;
     notecount_ = 0;
     notecount_decay_ = 0;
     argSustain_ = NULL;
@@ -105,6 +105,29 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
         fprintf(stderr, "thMidiChan::thMidiChan: channel count %d out of "
                 "range, clamping to 1\n", channels_);
         channels_ = 1;
+    }
+
+    /* `poly': how many voices at once, an io-node constant like `channels'
+     * and a literal in this constructor before.
+     *
+     * thNode::getArg rather than thSynthTree::getArg: the latter invents a
+     * zero-valued arg for a name it cannot find, and here a zero is not the
+     * absence of a setting -- it is "no limit". An absent `poly' has to stay
+     * absent, on the prototype the notes are copied from and on the io node
+     * the editor draws.
+     */
+    if (modnode_ && modnode_->IONode()) {
+        const thArg *polyarg = modnode_->IONode()->getArg("poly");
+
+        if (polyarg && polyarg->values()) {
+            polymax_ = (int)polyarg->values()[0];
+
+            /* A negative limit reads as "no limit" through the `polymax_ > 0'
+               test in process(), which is what 0 already means. Spelled here
+               so the two ways of saying it are one number. */
+            if (polymax_ < 0)
+                polymax_ = 0;
+        }
     }
 
     output_ = new float[thOutputSamples(channels_, windowlength_)];

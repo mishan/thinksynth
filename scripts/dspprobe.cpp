@@ -113,7 +113,24 @@ void ok (bool cond, const char *fmt, ...)
 const int NOTES[] = { 60, 64, 67 };
 const int NUM_NOTES = 3;
 
-/* Are all three notes still held?
+/* How many of NOTES this channel will hold at once.
+ *
+ * Three, unless the graph's io node says `poly = N' for a smaller N, in which
+ * case the channel retires down to N and a harness that insisted on finding
+ * three would read the graph as one that publishes nothing. */
+int voicesFor (thSynth &synth, int chan)
+{
+    thMidiChan *c = synth.getChannel(chan);
+
+    if (c == NULL)
+        return NUM_NOTES;
+
+    const int limit = c->polyMax();
+
+    return (limit > 0 && limit < NUM_NOTES) ? limit : NUM_NOTES;
+}
+
+/* Are the notes this channel can hold still held?
  *
  * thMidiChan retires a note the moment its `play' arg reaches zero, which
  * happens inside process() -- so from out here the note is already gone while
@@ -126,14 +143,16 @@ const int NUM_NOTES = 3;
  * it. What happens to a probe during a release is the tap's business and it is
  * covered by construction -- the accumulate is inside both note loops -- not
  * by this. */
-bool allNotesSounding (thSynth &synth, int chan)
+bool allNotesSounding (thSynth &synth, int chan, int voices)
 {
     thMidiChan *c = synth.getChannel(chan);
 
     if (c == NULL)
         return false;
 
-    for (int n = 0; n < NUM_NOTES; n++)
+    /* The newest survive a polyphony limit, so those are the ones to look
+       for: the channel retires from the oldest held voice forward. */
+    for (int n = NUM_NOTES - voices; n < NUM_NOTES; n++)
         if (c->getNote(NOTES[n]) == NULL)
             return false;
 
@@ -290,6 +309,11 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
         for (int n = 0; n < NUM_NOTES; n++)
             synth.addNote(0, (float)NOTES[n], 100);
 
+        /* After the notes are queued and before the first process(): the
+           channel exists from the load, and what is asked of it is two
+           constants read when it was built. */
+        const int voices = voicesFor(synth, 0);
+
         const int windowlen = synth.getWindowlen();
 
         vector<float> tapped(windowlen), reference(windowlen);
@@ -304,7 +328,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
             /* Checked after process() and before the read: once a note has
                been retired the reference is blind and the rest of this run
                would be measuring the harness, not the tap. */
-            if (!allNotesSounding(synth, 0))
+            if (!allNotesSounding(synth, 0, voices))
                 break;
 
             thProbe *probe = synth.probe(slot);
@@ -894,16 +918,20 @@ int main (int argc, char **argv)
         silent += r.silent;
     }
 
-    /* The properties want one file, and it has to be one that loaded. */
+    /* The properties want one file, it has to be one that loaded, and it has
+       to be one that plays all three notes: the scalar case reads a constant
+       summed across the voices and compares it against the constant times
+       three. A `poly = 1' graph would answer with one. */
     for (int f = firstFile; f < argc; f++)
     {
         thSynth look(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
-        thSynthTree *tree = look.parseTree(argv[f]);
 
-        if (tree == NULL)
+        if (look.loadTree(argv[f], 0, 100) == NULL)
             continue;
 
-        delete tree;
+        if (voicesFor(look, 0) < NUM_NOTES)
+            continue;
+
         properties(pluginPath, argv[f]);
         break;
     }
