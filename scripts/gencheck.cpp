@@ -7175,6 +7175,321 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+
+/* ---- variation (PIECES_PLAN.md 2) --------------------------------------
+ *
+ * The three stages that stop a written line repeating itself exactly:
+ * xform::vary, which does one of six things to each note; xform::accent,
+ * which weights a note by where it falls; and gen::euclid's fill pool,
+ * which answers three bars of a riff with a fourth.
+ */
+static void
+checkVariation (const std::map<std::string, thcPlugin *> &plugins,
+                thSynth *synth)
+{
+    {
+        const char *need[] = { "vary", "accent", "euclid", NULL };
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                return;
+            }
+    }
+
+    /* Four sixteenths a second, one pitch, one velocity: the line every
+       test below varies. `%s' is what the vary stage is asked for. */
+    const std::string line =
+        "seed 3;\n"
+        "scale cmaj \"C4 D4 E4 F4 G4 A4 B4\";\n"
+        "chain c {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C4\"; period = 0.5 s; hold = 0.25 s; vel = 90; };\n"
+        "  stage v xform::vary { scale = cmaj; grid = 0.5 s; %s };\n"
+        "  sink { channel = 1; };\n"
+        "};\n";
+
+    auto varied = [&](const char *what, const std::string &params,
+                      double seconds)
+    {
+        std::string body = line;
+
+        body.replace(body.find("%s"), 2, params);
+
+        return playBody(plugins, synth, what, body, seconds);
+    };
+
+    /* Nothing asked for, nothing done: the phrase comes out as it went
+       in. Held against the same piece with no vary stage at all, which
+       is the only statement of "unchanged" worth making. */
+    {
+        std::vector<Heard> through = varied("vary passthrough", "", 2.1);
+        std::vector<Heard> plain = playBody(plugins, synth, "vary plain",
+            "seed 3;\n"
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+            "    notes = \"C4\"; period = 0.5 s; hold = 0.25 s;"
+            "    vel = 90; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 2.1);
+
+        if (through.size() != plain.size() || through.empty())
+            fail("vary: a stage at its defaults changed how many notes "
+                 "there are (" + std::to_string(through.size()) + " against "
+                 + std::to_string(plain.size()) + ")");
+        else
+            for (size_t i = 0; i < through.size(); i++)
+                if (through[i].note != plain[i].note ||
+                    through[i].vel != plain[i].vel ||
+                    !near(through[i].at, plain[i].at) ||
+                    !near(through[i].dur, plain[i].dur))
+                {
+                    fail("vary: a stage at its defaults is not a "
+                         "pass-through");
+                    break;
+                }
+    }
+
+    /* Every probability in turn, at 1, so what each one does is a fact
+       about every note rather than about some of them. */
+    {
+        if (!varied("vary rest", "rest = 1;", 2.1).empty())
+            fail("vary: rest = 1 should leave nothing to hear");
+    }
+
+    {
+        std::vector<Heard> h = varied("vary leap", "leap = 1;", 2.1);
+
+        if (h.empty())
+            fail("vary: leap = 1 dropped the line");
+
+        for (size_t i = 0; i < h.size(); i++)
+            if (h[i].note != 72 && h[i].note != 48)
+            {
+                fail("vary: leap = 1 should move every note an octave, "
+                     "not to " + std::to_string(h[i].note));
+                break;
+            }
+    }
+
+    {
+        std::vector<Heard> h = varied("vary push", "push = 1;", 2.1);
+        bool ok = !h.empty();
+
+        for (size_t i = 0; i < h.size(); i++)
+        {
+            /* Every note is a grid step from where it was written, on
+               one side or the other. */
+            const double from = h[i].at;
+            bool onGrid = false;
+
+            for (double k = 0; k <= 5; k++)
+                if (near(from, k * 0.5 + 0.5) || near(from, k * 0.5 - 0.5))
+                    onGrid = true;
+
+            if (!onGrid)
+                ok = false;
+        }
+
+        if (!ok)
+            fail("vary: push = 1 should move every note one grid step");
+    }
+
+    {
+        std::vector<Heard> h = varied("vary double", "double = 1;", 1.3);
+
+        if (h.size() != 6)
+            fail("vary: double = 1 should say each of three notes twice; "
+                 "heard " + std::to_string(h.size()));
+        else if (!near(h[0].at, 0) || !near(h[0].dur, 0.125) ||
+                 !near(h[1].at, 0.125) || !near(h[1].dur, 0.125) ||
+                 h[1].note != h[0].note)
+            fail("vary: a doubled note should be two halves of itself");
+    }
+
+    {
+        std::vector<Heard> h = varied("vary approach",
+                                      "approach = 1;", 1.3);
+
+        if (h.size() != 6)
+            fail("vary: approach = 1 should put a tone before each of "
+                 "three notes; heard " + std::to_string(h.size()));
+        else
+        {
+            /* The neighbor is a scale step away, the note follows it,
+               and between them they are the note that was written. */
+            if ((h[0].note != 62 && h[0].note != 59) || h[1].note != 60)
+                fail("vary: an approach should be the neighboring scale "
+                     "degree, then the note");
+
+            if (!near(h[0].at, 0) || !near(h[0].dur, 0.0625) ||
+                !near(h[1].at, 0.0625) || !near(h[1].dur, 0.1875))
+                fail("vary: an approach should take the front of the "
+                     "note and no more");
+
+            if (h[0].vel >= h[1].vel)
+                fail("vary: an approach tone should be the lighter of "
+                     "the two");
+        }
+    }
+
+    {
+        std::vector<Heard> h = varied("vary ornament",
+                                      "ornament = 1;", 1.3);
+
+        if (h.size() != 9)
+            fail("vary: ornament = 1 should make three notes of each of "
+                 "three; heard " + std::to_string(h.size()));
+        else if (h[0].note != 60 || h[2].note != 60 ||
+                 (h[1].note != 62 && h[1].note != 59))
+            fail("vary: a mordent is the note, its neighbor, the note");
+        else if (!near(h[0].at, 0) || !near(h[1].at, 0.0625) ||
+                 !near(h[2].at, 0.125) || !near(h[2].dur, 0.125))
+            fail("vary: a mordent should fit inside the note it decorates");
+    }
+
+    /* Same seed, same variation -- twice from the file, and again after
+       a rewind, which is the claim every seeded piece here makes. */
+    {
+        std::string body = line;
+
+        body.replace(body.find("%s"), 2,
+                     "rest = 0.2; leap = 0.2; push = 0.2; double = 0.2;");
+
+        const std::string first =
+            renderBody(plugins, synth, "vary replay", body, 8.0);
+        const std::string again =
+            renderBody(plugins, synth, "vary replay 2", body, 8.0);
+
+        if (first.empty() || first != again)
+        {
+            fail("vary: two renders of one seed composed differently");
+            showDivergence(first, again, "first ", "second");
+        }
+    }
+
+    /* A held note has no length to divide and no end to move, so it goes
+       through whatever the knobs say -- and so does its release. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-varyheld-");
+
+        if (path.empty())
+            fail("could not write the held-note vary piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "seed 3;\n"
+                       "chain c {\n"
+                       "  input midi;\n"
+                       "  stage v xform::vary { rest = 1; };\n"
+                       "  sink { channel = 1; };\n"
+                       "};\n";
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the held-note vary piece did not load");
+            else
+            {
+                int ons = 0, offs = 0;
+                sigc::connection conn = sched.sigDelivered.connect(
+                    [&ons, &offs](const thcEvent &ev)
+                    {
+                        if (ev.type == THC_EV_NOTE)
+                            ons++;
+                        else if (ev.type == THC_EV_NOTEOFF)
+                            offs++;
+                    });
+
+                sched.start();
+
+                thcEvent ev = {};
+
+                ev.type = THC_EV_NOTE;
+                ev.at = sched.now();
+                ev.channel = 0;
+                ev.u.note.note = 60;
+                ev.u.note.velocity = 100;
+                ev.u.note.duration = 0;
+                sched.injectMidiEvent(ev);
+
+                sched.stepTransport(0.1);
+
+                ev.type = THC_EV_NOTEOFF;
+                ev.at = sched.now();
+                sched.injectMidiEvent(ev);
+
+                sched.stepTransport(0.1);
+                sched.stop();
+                conn.disconnect();
+                drainSynth();
+
+                if (ons != 1 || offs != 1)
+                    fail("vary: a held note and its release should pass "
+                         "through even at rest = 1; heard " +
+                         std::to_string(ons) + " on and " +
+                         std::to_string(offs) + " off");
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    /* accent: the pattern's two levels in the right places. Four notes a
+       second under `x.' on a half-second grid is strong, weak, strong,
+       weak. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "accent pattern",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+            "    notes = \"C4\"; period = 0.5 s; hold = 0.2 s;"
+            "    vel = 90; };\n"
+            "  stage a xform::accent { pattern = \"x.\"; grid = 0.5 s;\n"
+            "    strong = 1.2; weak = 0.5; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 2.1);
+
+        if (h.size() != 5)
+            fail("accent: expected five notes in 2.1 s, got " +
+                 std::to_string(h.size()));
+        else if (h[0].vel != 108 || h[1].vel != 45 || h[2].vel != 108 ||
+                 h[3].vel != 45 || h[4].vel != 108)
+            fail("accent: `x.' should weight every other note, and did "
+                 "not");
+    }
+
+    /* And the swell: a straight line across the bar, starting again at
+       the top of the next one. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "accent swell",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+            "    notes = \"C4\"; period = 0.5 s; hold = 0.2 s;"
+            "    vel = 90; };\n"
+            "  stage a xform::accent { bar = 2 s; from = 0.5; to = 1; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 2.1);
+
+        if (h.size() != 5)
+            fail("accent: expected five notes under the swell, got " +
+                 std::to_string(h.size()));
+        else if (h[0].vel != 45 || h[1].vel != 56 || h[2].vel != 68 ||
+                 h[3].vel != 79 || h[4].vel != 45)
+            fail("accent: the swell should climb across the bar and start "
+                 "again at the next one");
+    }
+
+}
+
 /* A piece somebody plays rather than one that plays itself: chains
  * with `input midi' and no generator anywhere. Nothing to render. */
 static bool
@@ -7437,6 +7752,7 @@ main (int argc, char *argv[])
     checkHeldNotes(plugins, &synth);
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
+    checkVariation(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
     checkSilent(plugins, &synth, &silent, genFile);
 
