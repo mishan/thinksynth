@@ -145,21 +145,18 @@ chain follower {
     sink { instrument = answer; };
 };
 
-# The subject at half speed. `twice' is math::mul with the Pace knob on
-# one side and 2 on the other, so the augmentation is arithmetic rather
-# than a second slider that could stop agreeing with the first. Padded
-# with the same six rests as the lead, so its forty-one steps at twice
-# the pace are exactly two of the others' cycles, and the bass meets the
-# lead at the top of every second one.
+# The subject at half speed. The augmentation is arithmetic on the Pace
+# knob rather than a second slider that could stop agreeing with the
+# first. Padded with the same six rests as the lead, so its forty-one
+# steps at twice the pace are exactly two of the others' cycles, and the
+# bass meets the lead at the top of every second one.
 chain ground {
-    stage twice math::mul { in0 = @pace; in1 = 2; };
-
     stage src gen::lsystem {
         axiom = "Xrrrrrr";
         rules = "X=F+F+X--Fr-X+F";
         depth = 3;
         notes = bass_ladder;
-        step = twice->out;  hold = 0.8 s;  vel = 70;
+        step = @pace * 2;  hold = 0.8 s;  vel = 70;
     };
     sink { instrument = low; };
 };

@@ -228,11 +228,11 @@ int main (int argc, char **argv)
      * than fixed: fixing it is a change to what existing files mean, and it
      * belongs to whichever change is willing to measure that.
      *
-     * `2 + 3 * 4' and `0 - 3 * 2' pin the precedence. `-1 + 2' pins where the
-     * unary minus stops -- it is a `factor', so it binds to its operand and
-     * not to the rest of the line -- and `2 * -3' that a negative literal may
-     * follow an operator at all. The .gen parser reads all of these the same
-     * way and gencheck holds the other half of the row.
+     * `2 + 3 * 4' and `0 - 3 * 2' pin the precedence, which nothing used to.
+     * `-1 + 2' pins where the unary minus stops. It used to sit at the top
+     * of an expression and scope over everything after it -- `-(1 + 2)' --
+     * while .gen's parser bound it to its operand; it is a `factor' in both
+     * languages now, and gencheck holds the other half of this row.
      */
     {
         static const struct { const char *rhs; float want; } cases[] = {
@@ -655,7 +655,7 @@ int main (int argc, char **argv)
             { "a modulo by zero", "",
               "node osc osc::simple {\n    mul = 7 % 0;\n};\n" },
 
-            /* `%' spells two things and a `-' can begin a factor, so
+            /* `%' spells two things and a `-' can now begin a factor, so
                `50% - 3' is either the percentage and a subtraction -- which
                carries a unit into arithmetic and is refused, as it always
                was -- or 50 modulo -3, which is 2 and parses. The refusal is

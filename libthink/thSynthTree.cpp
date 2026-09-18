@@ -445,8 +445,8 @@ bool thSynthTree::emitExpr (const thExprNode *e, const string &base,
     }
 
     /* Which plugin, how many args and what they are called: thExpr answers
-       it, so that the .gen desugar to come cannot spell an operator
-       differently from this one. */
+       it for both desugars, so a .dsp and a .gen cannot come to spell the
+       same operator differently. */
     const char *path;
     const char *argname[3];
     int arity;

@@ -105,11 +105,11 @@ unlikely.
   saying so. `7 % 0` is refused too — an integer division by zero is a signal,
   not a number, and it used to take the process down with it.
 - **`- x` is `x * -1`**, which is the node that already exists, and it binds to
-  the operand rather than to the rest of the line: `-1 + 2` is `1`, and
-  `a->out * -0.5` is a thing that can be written. The rule used to sit at the
-  top of an expression and scope over everything to its right, which made
-  `-1 + 2` come out `-3` and `a->out * -0.5` a syntax error. Nothing in the
-  corpus wrote one, which is what let it move.
+  the operand rather than to the rest of the line: `-1 + 2` is `1`. It used to
+  sit at the top of an expression and scope over everything to its right, which
+  made `-1 + 2` come out `-3`, made `a->out * -0.5` a syntax error, and made
+  the same text mean two things depending on whether it was in a `.dsp` or a
+  `.gen`. Nothing in the corpus wrote one, which is what let it move.
 - **The functions are `pow(a, b)`, `exp2(x)`, `abs(x)`, `min(a, b)`,
   `max(a, b)` and `clamp(x, lo, hi)`**, each a `math::` plugin a file may also
   write by hand. Functions rather than a `^` operator, so the language gains no
@@ -118,7 +118,8 @@ unlikely.
   right-associative: `a - b - c` is `a - (b - c)`, and a `-` takes the
   additions after it too, so `1 - 2 + 3` is `-4`. That is what the constant
   folding has done since the language existed. `exprcheck` pins it rather than
-  fixing it, because fixing it changes what an existing file means.
+  fixing it, because fixing it changes what an existing file means — and
+  `gencheck` pins the same list, so the two languages cannot drift apart on it.
 - **A unit inside an expression is refused**, signal or not, and so is an
   expression on a `@chanarg` or on its range — a control is a constant the GUI
   writes, and a value with two authors is not a thing this format can express.

@@ -26,9 +26,10 @@
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
+#include "thcNodeHost.h"
 
 thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
-    : plugins_(plugins), pos_(0), hasSeed_(false), seed_(0)
+    : plugins_(plugins), pos_(0), exprDepth_(0), hasSeed_(false), seed_(0)
 {
 }
 
@@ -207,6 +208,21 @@ noteListToString (const std::vector<int> &notes)
  * includes its quotes: thcGenEdit replaces spans, and what sits between
  * them -- comments, indentation, the author's blank lines -- is never
  * touched. */
+/* True if the last token emitted could be the end of a value, which is what
+   decides whether a `-' after it is a sign or an operator. */
+static bool
+endsAValue (const std::vector<thcGenToken> &out)
+{
+    if (out.empty())
+        return false;
+
+    const thcGenToken &t = out[out.size() - 1];
+
+    return t.kind == thcGenToken::NUMBER || t.kind == thcGenToken::KNOB ||
+           t.kind == thcGenToken::WORD ||
+           (t.kind == thcGenToken::PUNCT && t.text == ")");
+}
+
 bool
 thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
                         std::string &err, int &errLine)
@@ -261,10 +277,18 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
             g.kind = Token::MODSEP;
         else if (t.text == ";" || t.text == "=" || t.text == "{" ||
                  t.text == "}" || t.text == "." || t.text == "%" ||
-                 t.text == "->")
+                 t.text == "->" || t.text == "+" || t.text == "*" ||
+                 t.text == "/" || t.text == "(" || t.text == ")" ||
+                 t.text == ",")
             g.kind = Token::PUNCT;
+        /* `-' fuses onto the number after it -- `= -5' is one token -- but
+           only where nothing before it could have ended a value. `a - 5' and
+           `a -5' are both a subtraction; without the second half of this test
+           the latter lexed as two values in a row, which was an error message
+           about a missing semicolon on a line whose semicolon is right
+           there. */
         else if (t.text == "-" && raw[i + 1].kind == thLexToken::NUMBER &&
-                 raw[i + 1].off == t.end)
+                 raw[i + 1].off == t.end && !endsAValue(out))
         {
             g.kind = Token::NUMBER;
             g.text = "-" + raw[i + 1].text;
@@ -272,6 +296,8 @@ thcGenLoader::tokenize (const std::string &text, std::vector<thcGenToken> &out,
             g.end  = raw[i + 1].end;
             i++;
         }
+        else if (t.text == "-")
+            g.kind = Token::PUNCT;
         else if (t.text == "@" && raw[i + 1].kind == thLexToken::WORD &&
                  raw[i + 1].off == t.end)
         {
@@ -1363,6 +1389,425 @@ thcGenLoader::parseChain (thcScheduler *sched)
  * made. This turns the file into calls and reports what comes back
  * against the line that caused it.
  */
+/* ---- arithmetic over signals -------------------------------------------
+ *
+ * See the declarations in thcGenFile.h. The shape of these three functions
+ * is thinklang.yy's, rule for rule, so that `a - b - c' and `a / b / c'
+ * group the same way in both languages -- right-associative, which is what
+ * .dsp has always done. Reproducing that is the point: one language should
+ * not read two ways depending on which file it is in.
+ *
+ * It did once. `-60 + 100' was 40 here and -160 there, because .dsp put its
+ * unary minus at the top of an expression where it scoped over everything to
+ * the right, and parseExprFactor binds it to its operand. thinklang.yy has a
+ * `factor: SUB factor' now and the two agree; exprcheck and gencheck fold the
+ * same list of expressions so that they go on agreeing.
+ */
+
+/* True if the value about to be read has an operator in it.
+ *
+ * Looks ahead to the `;' at paren depth zero rather than trying the
+ * expression grammar and backtracking: a `.gen' param may be a note list or
+ * a preset name, and a parser that had to fail on those first would report
+ * arithmetic errors about words that were never meant to be arithmetic.
+ *
+ * `->' cannot be mistaken for a minus -- the tokenizer emits it whole -- and
+ * a `-' glued to a number is part of the number, so a bare `-' here is
+ * always a subtraction. */
+bool
+thcGenLoader::aheadIsExpression (void) const
+{
+    /* A call and a parenthesised value carry no operator of their own --
+       `clamp(abs(x), 0.2, 0.8)' is arithmetic with none in it. */
+    if (pos_ < tokens_.size())
+    {
+        const Token &t = tokens_[pos_];
+
+        if (t.kind == Token::PUNCT && t.text == "(")
+            return true;
+
+        if (t.kind == Token::WORD && pos_ + 1 < tokens_.size() &&
+            tokens_[pos_ + 1].kind == Token::PUNCT &&
+            tokens_[pos_ + 1].text == "(")
+            return true;
+    }
+
+    int depth = 0;
+
+    for (size_t i = pos_; i < tokens_.size(); i++)
+    {
+        const Token &t = tokens_[i];
+
+        if (t.kind == Token::END)
+            break;
+
+        if (t.kind != Token::PUNCT)
+            continue;
+
+        if (t.text == "(")
+        { depth++; continue; }
+
+        if (t.text == ")")
+        { depth--; continue; }
+
+        if (depth == 0 && (t.text == ";" || t.text == "}"))
+            break;
+
+        if (t.text == "+" || t.text == "-" || t.text == "*" || t.text == "/")
+            return true;
+    }
+
+    return false;
+}
+
+/* The expression parser's depth, put back on every path out of a frame.
+   See exprDepth_ in the header. */
+namespace {
+    struct ExprDepth
+    {
+        int &n;
+
+        ExprDepth (int &counter) : n(counter) { n++; }
+        ~ExprDepth (void) { n--; }
+    };
+}
+
+static const int TOO_DEEP = 200;
+
+static bool
+isOp (const thcGenToken &t, char c)
+{
+    return t.kind == thcGenToken::PUNCT && t.text.size() == 1 &&
+           t.text[0] == c;
+}
+
+thExprNode *
+thcGenLoader::parseExprFactor (thcScheduler *sched)
+{
+    ExprDepth depth(exprDepth_);
+
+    if (exprDepth_ > TOO_DEEP)
+    {
+        error(peek().line, "this expression is nested too deeply");
+        return NULL;
+    }
+
+    const Token &t = peek();
+
+    if (isOp(t, '('))
+    {
+        take();
+
+        thExprNode *inner = parseExpr(sched);
+
+        if (inner == NULL)
+            return NULL;
+
+        if (!isOp(peek(), ')'))
+        {
+            error(peek().line, "expected ')'");
+            thExprFree(inner);
+            return NULL;
+        }
+
+        take();
+
+        return inner;
+    }
+
+    if (isOp(t, '-'))
+    {
+        /* `- x' is `x * -1', the node that already exists. Reached only
+           where the tokenizer left the `-' standing -- a `-' glued to a
+           number is part of it. */
+        take();
+
+        thExprNode *inner = parseExprFactor(sched);
+
+        if (inner == NULL)
+            return NULL;
+
+        return thExprOp('*', inner, thExprConst(-1));
+    }
+
+    if (t.kind == Token::NUMBER)
+        return thExprConst((float)take().num);
+
+    if (t.kind == Token::KNOB)
+    {
+        Token k = take();
+
+        /* Checked here rather than at the desugar so the error names the
+           line the knob is written on. */
+        if (sched->knob(k.text) == NULL)
+        {
+            error(k.line, "'@" + k.text + "' is not a declared knob");
+            return NULL;
+        }
+
+        return thExprChanRef(k.text);
+    }
+
+    if (t.kind == Token::WORD)
+    {
+        Token w = take();
+
+        if (isOp(peek(), '('))
+        {
+            /* `exp2(@cents / 1200)'. The arity is the function's; a call
+               written with the wrong number of arguments is reported by
+               thExprCall against the name rather than as a stray comma. */
+            take();
+
+            std::vector<thExprNode *> kids;
+            bool bad = false;
+
+            if (!isOp(peek(), ')'))
+                for (;;)
+                {
+                    thExprNode *arg = parseExpr(sched);
+
+                    if (arg == NULL)
+                    { bad = true; break; }
+
+                    kids.push_back(arg);
+
+                    if (!isOp(peek(), ','))
+                        break;
+
+                    take();
+                }
+
+            if (!bad && !isOp(peek(), ')'))
+            {
+                error(peek().line, "expected ')' after " + w.text + "(");
+                bad = true;
+            }
+
+            if (bad)
+            {
+                for (size_t i = 0; i < kids.size(); i++)
+                    thExprFree(kids[i]);
+
+                return NULL;
+            }
+
+            take();
+
+            std::string why;
+            thExprNode *call = thExprCall(w.text, kids, why);
+
+            if (call == NULL)
+                error(w.line, why);
+
+            return call;
+        }
+
+        if (!(peek().kind == Token::PUNCT && peek().text == "->"))
+        {
+            error(w.line, "'" + w.text + "' is not a value here; reading a "
+                  "node is spelled '" + w.text + "->out'");
+            return NULL;
+        }
+
+        take();
+
+        if (peek().kind != Token::WORD)
+        {
+            error(peek().line, "expected an arg name after '" + w.text +
+                  "->'");
+            return NULL;
+        }
+
+        Token a = take();
+
+        return thExprNodeRef(w.text, a.text);
+    }
+
+    error(t.line, "expected a number, a knob or a node's output");
+
+    return NULL;
+}
+
+thExprNode *
+thcGenLoader::parseExprTerm (thcScheduler *sched)
+{
+    ExprDepth depth(exprDepth_);
+
+    if (exprDepth_ > TOO_DEEP)
+    {
+        error(peek().line, "this expression is nested too deeply");
+        return NULL;
+    }
+
+    thExprNode *left = parseExprFactor(sched);
+
+    if (left == NULL)
+        return NULL;
+
+    if (!isOp(peek(), '*') && !isOp(peek(), '/'))
+        return left;
+
+    const Token op = take();
+
+    thExprNode *right = parseExprTerm(sched);
+
+    if (right == NULL)
+    {
+        thExprFree(left);
+        return NULL;
+    }
+
+    return thExprOp(op.text[0], left, right);
+}
+
+thExprNode *
+thcGenLoader::parseExpr (thcScheduler *sched)
+{
+    ExprDepth depth(exprDepth_);
+
+    if (exprDepth_ > TOO_DEEP)
+    {
+        error(peek().line, "this expression is nested too deeply");
+        return NULL;
+    }
+
+    thExprNode *left = parseExprTerm(sched);
+
+    if (left == NULL)
+        return NULL;
+
+    if (!isOp(peek(), '+') && !isOp(peek(), '-'))
+        return left;
+
+    const Token op = take();
+
+    thExprNode *right = parseExpr(sched);
+
+    if (right == NULL)
+    {
+        thExprFree(left);
+        return NULL;
+    }
+
+    return thExprOp(op.text[0], left, right);
+}
+
+bool
+thcGenLoader::emitExpr (thcScheduler *sched, thcNodeHost *host,
+                        const thExprNode *e, const std::string &base,
+                        int &serial, ExprRef &out, int line)
+{
+    if (e == NULL || host == NULL)
+        return false;
+
+    switch (e->kind)
+    {
+    case thExprNode::CONST:
+        out.kind = ExprRef::VALUE;
+        out.value = e->value;
+        return true;
+
+    case thExprNode::NODEREF:
+        out.kind = ExprRef::NODE;
+        out.node = e->node;
+        out.arg = e->arg;
+        return true;
+
+    case thExprNode::CHANREF:
+        out.kind = ExprRef::KNOB;
+        out.knob = sched->knob(e->name);
+
+        /* parseExprFactor has already refused an undeclared knob against the
+           line it is written on, so this is the belt rather than the braces
+           -- but a false with nothing on stderr is the one way a .gen can
+           decline to load and not say why. */
+        if (out.knob == NULL)
+        {
+            error(line, "'@" + e->name + "' is not a declared knob");
+            return false;
+        }
+
+        return true;
+
+    case thExprNode::OP:
+    case thExprNode::CALL:
+        break;
+    }
+
+    /* Which plugin, how many args and what they are called. thExpr answers
+       it for thSynthTree's desugar too, so an operator cannot come to mean
+       one node in a .dsp and another in a .gen. */
+    const char *spelling;
+    const char *argname[3];
+    int arity;
+
+    if (!thExprPlugin(e, spelling, arity, argname))
+    {
+        if (e->kind == thExprNode::OP)
+            error(line, "there is no node for that operator");
+        else
+            error(line, "'" + e->name + "' is not a function");
+
+        return false;
+    }
+
+    /* Children first, so the numbering reads bottom up and a subexpression's
+       node exists before the node that reads it. */
+    ExprRef kid[3];
+
+    for (int i = 0; i < arity; i++)
+        if (!emitExpr(sched, host, e->kids[i], base, serial, kid[i], line))
+            return false;
+
+    char suffix[24];
+
+    snprintf(suffix, sizeof(suffix), "#%d", ++serial);
+
+    const std::string name = base + suffix;
+
+    std::string why;
+
+    if (!host->addNode(name, spelling, why))
+    {
+        error(line, why);
+        return false;
+    }
+
+    for (int i = 0; i < arity; i++)
+    {
+        bool ok = true;
+
+        switch (kid[i].kind)
+        {
+        case ExprRef::VALUE:
+            ok = host->setValue(name, argname[i], kid[i].value, why);
+            break;
+
+        case ExprRef::NODE:
+            ok = host->setWire(name, argname[i], kid[i].node, kid[i].arg,
+                               why);
+            break;
+
+        case ExprRef::KNOB:
+            ok = host->setKnob(name, argname[i], kid[i].knob, why);
+            break;
+        }
+
+        if (!ok)
+        {
+            error(line, why);
+            return false;
+        }
+    }
+
+    out.kind = ExprRef::NODE;
+    out.node = name;
+    out.arg = "out";
+
+    return true;
+}
+
 bool
 thcGenLoader::parseNodeStage (thcScheduler *sched, size_t chain,
                               const std::string &chainName,
@@ -1436,86 +1881,70 @@ thcGenLoader::parseNodeStage (thcScheduler *sched, size_t chain,
             continue;
         }
 
-        const Token &v = peek();
+        /* One expression grammar for all four shapes a node arg can take.
+         *
+         * `freq = 0.05', `in0 = other->out' and `in1 = @depth' come back as
+         * the leaf they are and take the same three calls they always did;
+         * anything with an operator in it becomes the math:: nodes it stands
+         * for, in this chain's own host. See GEN_FORMAT.md 5a: the file used
+         * to have to write those nodes out, three lines at a time. */
+        const int exprLine = peek().line;
 
-        if (v.kind == Token::NUMBER)
+        thExprNode *e = parseExpr(sched);
+
+        if (e == NULL)
         {
-            Token num = take();
-
-            if (!c->nodes->setValue(stageName.text, argName.text, num.num,
-                                    why))
-            {
-                error(num.line, why);
-                ok = false;
-            }
+            ok = false;
+            skipToNextInBlock();
+            continue;
         }
-        else if (v.kind == Token::WORD)
+
+        ExprRef ref;
+        int serial = 0;
+
+        const bool built =
+            emitExpr(sched, c->nodes.get(), e,
+                     stageName.text + "." + argName.text, serial, ref,
+                     exprLine);
+
+        thExprFree(e);
+
+        if (!built)
         {
-            /* `in0 = other->out;' -- the .dsp spelling, unchanged. */
-            Token from = take();
-
-            if (!(peek().kind == Token::PUNCT && peek().text == "->"))
-            {
-                error(from.line, "stage " + stageName.text + ": '" +
-                      argName.text + "' takes a number or a node's output; "
-                      "reading a node is spelled '" + from.text + "->out'");
-                ok = false;
-                skipToNextInBlock();
-                continue;
-            }
-
-            take();
-
-            if (peek().kind != Token::WORD)
-            {
-                error(peek().line, "expected an arg name after '" +
-                      from.text + "->'");
-                ok = false;
-                skipToNextInBlock();
-                continue;
-            }
-
-            Token fromArg = take();
-
-            if (!c->nodes->setWire(stageName.text, argName.text, from.text,
-                                   fromArg.text, why))
-            {
-                error(from.line, why);
-                ok = false;
-            }
+            ok = false;
+            skipToNextInBlock();
+            continue;
         }
-        else if (v.kind == Token::KNOB)
+
+        bool bound = true;
+
+        switch (ref.kind)
         {
+        case ExprRef::VALUE:
+            bound = c->nodes->setValue(stageName.text, argName.text,
+                                       ref.value, why);
+            break;
+
+        case ExprRef::NODE:
+            bound = c->nodes->setWire(stageName.text, argName.text, ref.node,
+                                      ref.arg, why);
+            break;
+
+        case ExprRef::KNOB:
             /* `in1 = @depth;' -- the same knob a stage param binds and
                an instrument chanarg reads, one world further out.
                Leaving nodes out of the namespace phase 2 unified would
                have made an LFO's depth the one number in a piece that
                could not go on a slider. */
-            Token knobTok = take();
-            thArg *knob = sched->knob(knobTok.text);
-
-            if (knob == NULL)
-            {
-                error(knobTok.line, "'@" + knobTok.text +
-                      "' is not a declared knob");
-                ok = false;
-                skipToNextInBlock();
-                continue;
-            }
-
-            if (!c->nodes->setKnob(stageName.text, argName.text, knob, why))
-            {
-                error(knobTok.line, why);
-                ok = false;
-            }
+            bound = c->nodes->setKnob(stageName.text, argName.text, ref.knob,
+                                      why);
+            break;
         }
-        else
+
+        if (!bound)
         {
-            error(v.line, "stage " + stageName.text + ": '" + argName.text +
-                  "' takes a number or a node's output");
+            error(exprLine, why);
             ok = false;
-            skipToNextInBlock();
-            continue;
         }
 
         if (!expectPunct(';'))
@@ -1721,6 +2150,100 @@ thcGenLoader::parseParam (thcScheduler *sched, size_t chainIndex,
 
     if (!expectPunct('='))
         return false;
+
+    /* Arithmetic, before anything else looks at the value.
+     *
+     * A lookahead rather than one parse for every shape, because a param's
+     * value may be a note list, a preset name or an instrument set, none of
+     * which an expression grammar has any business reading. So every
+     * existing spelling stays on the branch it was already on, and the new
+     * one engages only where an operator says so. */
+    if (aheadIsExpression())
+    {
+        const int line = peek().line;
+
+        if (pi->type == THC_PARAM_NOTESET || pi->type == THC_PARAM_STRING ||
+            pi->type == THC_PARAM_PRESET || pi->type == THC_PARAM_INSTRSET)
+        {
+            error(line, "'" + pname.text +
+                  "' is not numeric; arithmetic cannot drive it");
+            return false;
+        }
+
+        thcChain *c = sched->chain(chainIndex);
+
+        if (c == NULL)
+        {
+            error(line, "'" + pname.text + "': no chain to build this in");
+            return false;
+        }
+
+        /* On demand, exactly as a `stage lfo osc::simple' would: arithmetic
+           on a param *is* a dsp stage, written on the line that uses it
+           rather than three lines above. A chain whose only nodes are
+           these gets its host here and nowhere else. */
+        if (!c->nodes)
+            c->nodes.reset(sched->newNodeHost());
+
+        thExprNode *e = parseExpr(sched);
+
+        if (e == NULL)
+            return false;
+
+        ExprRef ref;
+        int serial = 0;
+
+        const bool built =
+            emitExpr(sched, c->nodes.get(), e,
+                     stageName + "." + pname.text, serial, ref, line);
+
+        thExprFree(e);
+
+        if (!built)
+            return false;
+
+        switch (ref.kind)
+        {
+        case ExprRef::VALUE:
+            /* Nothing left but a number, and a number on a duration needs a
+               unit -- the same rule a bare literal meets, since folding is
+               what makes this one a bare literal. An expression with a
+               signal in it carries no unit and is not asked for one, which
+               is what a knob and a node on a duration have always done. */
+            if (pi->isDuration())
+            {
+                error(line, "'" + pname.text +
+                      "' is a duration; write a unit (s, ms or beats)");
+                return false;
+            }
+
+            stage->params.set(idx, ref.value);
+            break;
+
+        case ExprRef::KNOB:
+            sched->bindKnob(stage, idx, ref.knob);
+            break;
+
+        case ExprRef::NODE:
+        {
+            /* Parked like any other `node->arg' on a param: the host cannot
+               resolve the name until the chain has been read to its end. */
+            PendingNodeBind b;
+
+            b.chain = chainIndex;
+            b.stage = stage;
+            b.param = idx;
+            b.node  = ref.node;
+            b.arg   = ref.arg;
+            b.line  = line;
+
+            pendingNodeBinds_.push_back(b);
+            break;
+        }
+        }
+
+        return expectPunct(';');
+    }
 
     const Token &v = peek();
 

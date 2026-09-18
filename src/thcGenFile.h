@@ -24,6 +24,7 @@
 #include <string>
 #include <vector>
 
+#include "thExpr.h"
 #include "thLexer.h"
 
 class thArg;
@@ -83,6 +84,9 @@ struct thcGenToken
  * each error names the file, the line and the thing, and a file with any
  * error loads nothing (the scheduler is left empty, not half-built).
  */
+class thcNodeHost;
+struct thExprNode;
+
 class thcGenLoader
 {
 public:
@@ -158,6 +162,49 @@ private:
     bool parseParam (thcScheduler *sched, size_t chainIndex,
                      thcStage *stage, const std::string &stageName);
 
+    /* ---- arithmetic over signals (GEN_FORMAT.md 5a) ------------------
+     *
+     * `prob = lfo->out * 0.5 + 0.5' and `step = @pace * 2'. The same sugar
+     * .dsp has, over the same thExprNode, desugared into the chain's own
+     * thcNodeHost -- so what a chain gets is the math:: nodes an author
+     * would otherwise have written by hand, which is what §5a said to do
+     * three lines at a time.
+     *
+     * Grouping is .dsp's, right-associative `-' and `/' included, because
+     * one language should not read two ways depending on which file it is
+     * in. See thinklang.yy.
+     *
+     * NULL having reported, on a syntax error. A caller that is not sure
+     * whether it is looking at an expression at all calls parseExpr()
+     * anyway: a bare number, `@knob' or `node->arg' comes back as the leaf
+     * it is, which is what makes the simple cases the degenerate ones
+     * rather than separate code. */
+    /* True if the value at the cursor has an operator in it. See the
+       definition for why a lookahead rather than a try-and-backtrack. */
+    bool aheadIsExpression (void) const;
+
+    thExprNode *parseExpr (thcScheduler *sched);
+    thExprNode *parseExprTerm (thcScheduler *sched);
+    thExprNode *parseExprFactor (thcScheduler *sched);
+
+    /* The math:: nodes `e' stands for, added to `host' and named
+       `<base>#1', `<base>#2'... `out' names where the result is read
+       from: a number, a knob, or a node's output. False having reported. */
+    struct ExprRef
+    {
+        enum { VALUE, NODE, KNOB } kind;
+
+        double       value;
+        std::string  node, arg;
+        thArg       *knob;
+
+        ExprRef (void) : kind(VALUE), value(0), knob(NULL) { }
+    };
+
+    bool emitExpr (thcScheduler *sched, thcNodeHost *host,
+                   const thExprNode *e, const std::string &base,
+                   int &serial, ExprRef &out, int line);
+
     const Token &peek (void) const;
     Token        take (void);
     bool         expectPunct (char c);
@@ -191,6 +238,13 @@ private:
     std::vector<Token> tokens_;
     size_t             pos_;
     std::string        path_;
+
+    /* How deep the three parseExpr functions are, and the most they will go.
+       `a + a + a + ...' recurses once per operator, so a long enough one
+       overflows the stack rather than saying anything. No authored file is
+       within two orders of magnitude of the limit; it is here so a generated
+       or corrupted one gets a message instead of a signal. */
+    int exprDepth_;
 
     std::vector<std::string> errors_;
 

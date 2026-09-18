@@ -94,7 +94,7 @@ THINK_API const thExprFunc *thExprLookup (const std::string &name);
  * names in order. False if there is no node for it -- `%' over signals,
  * which both loaders refuse before reaching here.
  *
- * Here rather than in each loader because there will be two desugars --
+ * Here rather than in each loader because there are two desugars --
  * thSynthTree's for a .dsp and thcGenLoader's for a .gen -- and an operator
  * that meant `math/add' in one and something else in the other would be the
  * one way the two languages could come apart. */
@@ -109,10 +109,11 @@ THINK_API bool thExprPlugin (const thExprNode *e, const char *&path,
  * denominator is a non-finite result, and the guard in thMidiChan reports
  * one at the voice that produced it.
  *
- * That last rule does not reach a .dsp. thinklang.yy folds two numbers in
- * its own action before it ever builds a node, so `a = 1 / 0' is the
- * infinity it has always been, which is what keeps the corpus rendering as
- * it did. Only a caller that builds nodes directly sees the tree. */
+ * That last rule reaches .gen and not .dsp. thinklang.yy folds two numbers
+ * in its own action before it ever builds a node, so `a = 1 / 0' in a .dsp
+ * is the infinity it has always been, which is what keeps the corpus
+ * rendering as it did; .gen has no such shortcut and gets the node. Both
+ * are deliberate, and exprcheck and gencheck pin one each. */
 THINK_API thExprNode *thExprConst   (float value);
 THINK_API thExprNode *thExprNodeRef (const std::string &node,
                                      const std::string &arg);

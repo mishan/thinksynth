@@ -341,22 +341,60 @@ checkGenAdapter (void)
 
     check(aligned, "gen: every token begins where the shared lexer began one");
 
-    /* The refusals .gen has that .dsp does not. `+' is an operator to one
-       language and a stray character to the other, which is exactly the
-       kind of difference that belongs above the lexer rather than in it. */
-    check(!thcGenLoader::tokenize("a = 1 + 2;", gen, err, line) &&
-          err.find("stray character '+'") != std::string::npos,
-          "gen: arithmetic is a stray character", err);
+    /* Arithmetic is .gen's too now (GEN_FORMAT.md 5a), so `+' is an
+       operator to both languages and the adapter passes it through. */
+    check(thcGenLoader::tokenize("a = 1 + 2;", gen, err, line),
+          "gen: arithmetic lexes", err);
 
     check(!thcGenLoader::tokenize("prob = @;", gen, err, line) &&
           err.find("no knob name") != std::string::npos,
           "gen: a bare @ names nothing", err);
 
-    /* `- 5' was never a literal, and folding by span is what keeps it
-       from becoming one. */
-    check(!thcGenLoader::tokenize("shift = - 5;", gen, err, line) &&
-          err.find("stray character '-'") != std::string::npos,
-          "gen: a detached sign is still not a number", err);
+    /* A `-' folds into the number after it only where nothing before it
+       could have ended a value, which is what lets `a - 5' and `a -5' both
+       be a subtraction while `= -5' stays one literal. */
+    {
+        bool fused = false, subtracted = true;
+
+        check(thcGenLoader::tokenize("shift = -5;", gen, err, line),
+              "gen: a sign after `=' lexes", err);
+
+        for (size_t i = 0; i < gen.size(); i++)
+            if (gen[i].kind == thcGenToken::NUMBER && gen[i].num == -5)
+                fused = true;
+
+        check(fused, "gen: `= -5' is one negative number");
+
+        for (int spaced = 0; spaced < 2; spaced++)
+        {
+            const char *src = spaced ? "shift = a - 5;" : "shift = a -5;";
+
+            bool minus = false, five = false;
+
+            check(thcGenLoader::tokenize(src, gen, err, line),
+                  "gen: a subtraction lexes", err);
+
+            for (size_t i = 0; i < gen.size(); i++)
+            {
+                if (gen[i].kind == thcGenToken::PUNCT && gen[i].text == "-")
+                    minus = true;
+
+                if (gen[i].kind == thcGenToken::NUMBER && gen[i].num == 5)
+                    five = true;
+            }
+
+            if (!minus || !five)
+                subtracted = false;
+        }
+
+        check(subtracted,
+              "gen: a `-' after a value is an operator, spaced or not");
+    }
+
+    /* And what is still stray is still stray. */
+    check(!thcGenLoader::tokenize("a = 1 $ 2;", gen, err, line) &&
+          err.find("stray character '$'") != std::string::npos,
+          "gen: a character neither language spells is refused", err);
 }
 
 /* ---- 4. still pure ----------------------------------------------------- */

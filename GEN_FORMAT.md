@@ -345,14 +345,57 @@ in it, and a node never satisfies that. The keyword stays `stage` because
 inside a chain everything is one; what says which world a module comes from is
 the category, exactly as it always was.
 
-**Nothing scales the signal for you.** An oscillator runs −1 to +1 and a `prob`
-wants 0 to 1; `math::mul` and `math::add` are what a patch would use and they
-are right there. Three lines instead of one, in exchange for no hidden mapping
-and no second meaning for the arrow depending on which side it lands on.
+**Nothing scales the signal for you** — but the scaling can be written where
+it is used. An oscillator runs −1 to +1 and a `prob` wants 0 to 1, and a stage
+param or a node arg may say so as arithmetic:
 
-A node arg takes a number, another node's output, or a piece knob
-(`in1 = @depth;`) — the same knob a stage param binds and an instrument chanarg
-reads, one world further out.
+```
+chain bass_a {
+    stage lfo osc::simple { freq = @tide; waveform = 0; amp = 1; };
+
+    stage src gen::eno_line {
+        prob = lfo->out * 0.5 + 0.5;    # was a math::mul into a math::add
+        ...
+    };
+};
+```
+
+This is the same sugar `.dsp` has and it means the same thing: the expression
+becomes the `math::` nodes it stands for, in this chain's own host, named
+`src.prob#1`, `src.prob#2`, innermost first. Nothing is hidden — the nodes are
+the ones an author would otherwise have written by hand, and a chain whose only
+nodes are these gets a host on demand. `+ - * /`, parentheses, and the six
+functions `.dsp` has (`pow`, `exp2`, `abs`, `min`, `max`, `clamp`). Grouping is
+`.dsp`'s — `*` and `/` tighter than `+` and `-`, all four right-associative, a
+unary minus bound to its operand — because one language should not read two
+ways depending on which file it is in. Two parsers say so, `thinklang.yy` and
+the three functions in `thcGenFile.cpp`, so `exprcheck` and `gencheck` fold the
+same list of expressions and compare the answers.
+
+A leaf is a number, a node's output, or a piece knob (`@depth`) — the same knob
+a stage param binds and an instrument chanarg reads, one world further out. An
+expression whose leaves are all numbers folds at parse, so `step = 2 * 3` is a
+number and no node.
+
+What is refused: arithmetic on a param that is not numeric (a note set, a
+preset, an instrument set); a *folded* expression on a duration, which is a
+bare number and needs a unit like any other (an expression with a signal in it
+carries no unit and is not asked for one, exactly as a knob and a node are
+not); a knob that was never declared; a function that does not exist or is
+given the wrong number of arguments.
+
+`%` is not an operator here. It stays the percentage suffix an instrument value
+needs, and `.gen` has no modulo.
+
+Which params the expression path reaches is decided by a lookahead
+(`aheadIsExpression`): a value with an operator, a call or a parenthesis in it
+goes to the expression parser, and every other spelling stays on the branch it
+was already on. That is deliberate — a param's value may be a note list, a
+preset name or an instrument set, and an expression grammar has no business
+reading those. A new `THC_PARAM_*` that is not numeric has to be added to the
+refusal list in `parseParam` by hand; the lookahead cannot tell.
+
+A node arg takes the same expressions, and the same three leaves.
 
 **Families that mean nothing at control rate are refused, by name.** `osc`,
 `env`, `math`, `logic`, `filt` and `misc` are shapes over time, and time at
@@ -493,7 +536,13 @@ param       : WORD "=" value ";"
 value       : NUMBER unit? | CHANARG | STRING | WORD    # WORD = scale or
                                                        #   preset ref
             | WORD "->" WORD                           # a node's output
-nodearg     : WORD "=" (NUMBER | CHANARG | WORD "->" WORD) ";"
+            | expr                                     # 5a
+nodearg     : WORD "=" (NUMBER | CHANARG | WORD "->" WORD | expr) ";"
+expr        : term (("+" | "-") expr)?                 # .dsp's grouping
+term        : factor (("*" | "/") term)?
+factor      : "(" expr ")" | "-" factor | NUMBER | CHANARG
+            | WORD "->" WORD
+            | WORD "(" expr ("," expr)* ")"
 unit        : "s" | "ms" | "beats" | "b"
 sink        : "sink" "{" sinkparam* "}" ";"
 sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
@@ -508,12 +557,37 @@ sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
 `.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `->` is a
 `.dsp` token too and means in a `.gen` exactly what it means in a `.dsp`:
-reading a node's output. `%` reaches `.gen` for one purpose only — the unit suffix an
-instrument value needs when the chanarg it lands on was declared as a
-percentage. Everywhere else in a `.gen` it is a stray character, the way `+`
-is.
+reading a node's output. `+ - * / ( ) ,` are the arithmetic §5a added. `%`
+reaches `.gen` for one purpose only — the unit suffix an instrument value needs
+when the chanarg it lands on was declared as a percentage — and is not the
+modulo it is in a `.dsp`.
+
+A `-` glued to a number is part of it (`= -5` is one token) **unless something
+before it could have ended a value**, so `a - 5` and `a -5` are both a
+subtraction and `= -5` is still one literal.
 
 ## 7. Rules for anything that writes these files
+
+A param whose value is arithmetic is **not editable in place**:
+`thcGenEdit::setParam` refuses one rather than splicing a number across the
+author's expression, the same refusal `NodeEdit` makes on the `.dsp` side.
+Changing one means editing the text.
+
+**Removing a knob rewrites every reference to it, wherever it sits.**
+`thcGenEdit::removeKnob` replaces each `@name` with the value the params were
+hearing — the whole value where the value was just the knob, the reference
+alone where it is a term of something larger, so `step = @pace * 2` becomes
+`step = 0.25 * 2` and keeps the multiplication. The point of the rewriting is
+that deleting a knob cannot leave a dangling `@name` behind, and a file with
+one does not load.
+
+One gap, older than the arithmetic and not closed: a *duration* param bound to
+a knob reads the knob's number as seconds, and a bare number in its place is
+refused by the loader for want of a unit. So removing a knob that drives a
+`step` or a `period` still writes a file that does not load. Which params are
+durations is the plugin's answer, and this writer has no plugin map by design.
+Closing it means handing `removeKnob` the catalogue or having the caller name
+the durations.
 
 The GUI writes `.gen` files by *editing the text* (`src/thcGenEdit.cpp`),
 not by regenerating it from a model — the same decision NodeEdit made for

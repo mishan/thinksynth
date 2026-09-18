@@ -130,16 +130,15 @@ instrument ground {
 
 # ---- the ground -------------------------------------------------------
 
-# A side. `lfo' is at +1 at the top of the tide; `half' and `mid' put
-# that at prob = 1, and the trough at prob = 0.
+# A side. `lfo' is at +1 at the top of the tide; the arithmetic on `prob'
+# puts that at 1, and the trough at 0.
 chain bass_a {
     stage lfo  osc::simple { freq = @tide; waveform = 0; amp = 1; };
-    stage half math::mul   { in0 = lfo->out;  in1 = 0.5; };
-    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
 
     stage src gen::eno_line {
         notes = "A1 A2 E2";  period = 8.6 s;  jitter = 1.8 s;
-        prob = mid->out;  hold = 9 s;  vel = 62;  vel_jitter = 5;
+        prob = lfo->out * 0.5 + 0.5;
+        hold = 9 s;  vel = 62;  vel_jitter = 5;
     };
     sink { instrument = ground; };
 };
@@ -148,12 +147,11 @@ chain bass_a {
 # is full where the A side is empty.
 chain bass_f {
     stage lfo  osc::simple { freq = @tide; waveform = 0; amp = 1; };
-    stage half math::mul   { in0 = lfo->out;  in1 = -0.5; };
-    stage mid  math::add   { in0 = half->out; in1 = 0.5; };
 
     stage src gen::eno_line {
         notes = "F1 F2 C2";  period = 9.7 s;  jitter = 1.8 s;
-        prob = mid->out;  hold = 10 s;  vel = 62;  vel_jitter = 5;
+        prob = lfo->out * -0.5 + 0.5;
+        hold = 10 s;  vel = 62;  vel_jitter = 5;
     };
     sink { instrument = ground; };
 };
