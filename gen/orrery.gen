@@ -30,6 +30,14 @@
 # `spread' rolls each chord over forty milliseconds so it arrives as a
 # strum rather than a block.
 #
+# AND THEY ARE VOICED. The roots jump about -- E3 to C4 to G3 to D4,
+# an octave at a time -- and a chord stacked on each of them jumps with
+# it. `lead' keeps the notes and moves the octaves: every voice goes to
+# the register nearest the voice it replaces, so C major under a root
+# an octave up comes out as G-C-E rather than C-E-G and only one voice
+# has gone anywhere. The chords stop being four positions and start
+# being three lines.
+#
 # THE LEAD IS BRED. gen::evolve keeps a population of sixteen-step
 # phrases on the E minor pentatonic and plays the fittest, and its
 # taste -- how dense, how smooth, how quickly it tires of a phrase -- is
@@ -241,6 +249,7 @@ chain chords {
         spread = 0.04 s;
         taper = 0.85;
         root = 1;  below = 0;
+        lead = 1;  span = 12;
     };
     sink { instrument = keys; };
 };
