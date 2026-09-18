@@ -225,9 +225,11 @@ alongside them.
 
 A node added from the palette arrives carrying whatever defaults its plugin
 declares, so `osc::simple` comes out saying `amp = 1` and `mul = 1` rather than
-leaving the reader to know that the `amp = 0` `buildArgMap` invents means full
-scale. Same sound either way -- those are the plugin's own zero-cases -- and
-`argtype` renders both spellings and compares them to keep that true.
+saying nothing and leaving the reader to know that an unwritten `amp` is full
+scale. `buildArgMap` loads the same numbers into the args the file omits, so
+this is for the reader rather than for the sound; `argtype` renders the arg
+left out, the default written and a literal `0` written, and compares all
+three, to keep that true.
 
 The parameter panel keeps a spin button rather than a list, with the names in
 its tooltip. That column commits on Enter or on focus leaving, and one row
@@ -351,7 +353,7 @@ rest take a corpus argument and are run by hand.
 
 | Harness | Gate | Covers |
 |---|---|---|
-| `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; and that writing a plugin's declared defaults into a node renders bit-identically to leaving them out |
+| `argtype` | yes | a plugin's step, value names, description and default; the pass that carries the type to the control driving it, including the disagreement rule in both visiting orders; the `.dsp` override; that no drag and no written value can land on a hole in a value list or off the step; that a node written with its plugin's declared defaults, with zeroes, and with neither all render bit-identically; and that every declared default is what a bare node of its plugin loads holding |
 | `dspgraph` | no | every wire on a correctly-facing port, no double fan-in, no overlapping boxes, no `ARG_STATE` exposed, hit-testing on boxes and ports, attached controls against their hosts, shared controls laid out before what they drive, io-node args partitioned across the two halves, probe panels |
 | `dspwrite` | no | values and wires cut and restored across the corpus, byte-identical; every control's range, label and group retyped and restored, and every value clamped by a range narrowed past it |
 | `dspnew` | no | builds files from nothing: adds and removes one node of every plugin in the catalogue, retypes a control it just added, writes the range spellings no shipped file uses, then renders audio from what it built |

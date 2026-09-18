@@ -77,7 +77,7 @@ Amplifies and clips the stream
 |---|---|---|---|---|---|---|
 | `out` | out | The clipped signal, stretched back out to fill -1 to 1 |  | -1 to 1 | full scale |  |
 | `in` | in | Signal in |  | -1 to 1 | full scale |  |
-| `clip` | in | Where the top is cut; under full scale is taken as full scale |  | 0 to 1 | full scale |  |
+| `clip` | in | Where the top is cut; under full scale is taken as full scale | 1 | 0 to 1 | full scale |  |
 | `lowclip` | in | How far down the bottom is cut; 0 matches clip |  | 0 to 1 | full scale |  |
 
 ### dist::inksat

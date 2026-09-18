@@ -175,9 +175,10 @@ The parser throws away things a naive re-emit would not restore:
   raw floats, so `a = 5 ms` comes back as `a = 220.5` — correct, unreadable.
   (The lexer hands out `5` and `ms` as two tokens and the grammar keeps them
   that way; the fold happens once, at load. See below.)
-- **Synthesised args.** `buildArgMap()` calls `setArg(name, 0)` for every arg a
-  plugin registered but the `.dsp` did not mention. Re-emitting the in-memory
-  model would write out dozens of `reset = 0;` lines nobody authored.
+- **Synthesised args.** `buildArgMap()` calls `setArg()` for every arg a plugin
+  registered but the `.dsp` did not mention, with 0 or with the plugin's
+  declared default. Re-emitting the in-memory model would write out dozens of
+  `reset = 0;` lines nobody authored.
 - **Arithmetic.** Only 8 right-hand sides across the corpus, but the same
   problem.
 
@@ -252,7 +253,9 @@ Two things that only showed up in practice:
 ### Disconnecting
 
 `disconnect` rewrites the line to `= 0` rather than deleting it. To the engine
-the two are identical, but only the rewrite keeps the line's position,
+the two are identical — `buildArgMap()` fills an absent arg with what the
+callback already substitutes for 0 — but only the rewrite keeps the line's
+position,
 indentation and trailing comment — and only the rewrite makes a reconnect
 restore the file byte for byte. All 3476 connections in the corpus are spelled
 `name->port` with no spaces, so rewriting one reproduces the original text

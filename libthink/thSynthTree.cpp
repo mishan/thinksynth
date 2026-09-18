@@ -422,6 +422,33 @@ void thSynthTree::setActiveNodesHelper(thNode *node)
     }
 }
 
+/* What an arg the file never mentioned holds.
+ *
+ * Zero, but for the 14 args whose callback substitutes something else for a
+ * zero per sample -- `if (amp_max == 0) amp_max = TH_MAX', `if (mul) freq *=
+ * mul', `if (p == 0) peak = TH_MAX'. setArgDefault() transcribes those, so
+ * loading the declaration here puts the number the callback runs on where a
+ * probe and a tooltip can see it.
+ *
+ * Sound is unchanged exactly because a declared default is a transcription:
+ * `amp = 0' and no `amp' line reach the loop as the same value either way.
+ * NodeEdit::disconnect() depends on that too -- it rewrites an arg to `= 0'
+ * rather than deleting the line. scripts/argtype renders all three spellings.
+ *
+ * Inputs only: an output or ARG_STATE arg is allocated and overwritten on the
+ * first window.
+ */
+static float argDefault (const thPlugin *plugin, int index)
+{
+    if (plugin->getArgDir(index) != thPlugin::ARG_IN)
+        return 0;
+
+    if (!plugin->argHasDefault(index))
+        return 0;
+
+    return plugin->getArgDefault(index);
+}
+
 void thSynthTree::buildArgMap (void)
 {
     thNode *curnode;  /* current node and arg in the loops */
@@ -466,10 +493,12 @@ to 0 here and set the index of each node to -1 when it is first created. */
                 for (k = 0; k < registeredargs; k++)
                 {
                     curarg = curnode->getArg(plugin->getArgName(k));
-                    /* if the arg does not exist, set it to 0 */
+                    /* if the arg does not exist, set it to what the plugin
+                       says an unwritten one holds */
                     if (curarg == NULL)
                     {
-                        curarg = curnode->setArg(plugin->getArgName(k), 0);
+                        curarg = curnode->setArg(plugin->getArgName(k),
+                                                 argDefault(plugin, k));
                     }
                     else
                     {

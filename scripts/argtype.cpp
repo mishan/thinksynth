@@ -825,25 +825,125 @@ int main (int argc, char **argv)
         }
     }
 
-    /* ---- writing a default changes the file, not the sound -------------- */
+    /* ---- an arg the file leaves out holds what the plugin declared ------ */
 
-    /* The claim NodeEdit::addNode's comment makes, checked rather than
-     * asserted. A declared default is the value the plugin already substitutes
-     * for 0, so a node that spells it out and a node that leaves it at the zero
-     * buildArgMap() invents must render the same samples. If that ever stops
-     * being true, the defaults have stopped being transcriptions and become
-     * somebody's opinion.
+    /* buildArgMap() used to write 0 into every registered arg a .dsp did not
+     * mention, leaving the callback to substitute per sample. It loads the
+     * declaration now, so a probe and a tooltip see the number the arithmetic
+     * uses.
+     *
+     * Every plugin that declares a default, not a sample: declaration and
+     * loaded arg are two spellings of one number, and they drift only if one
+     * is edited alone.
      */
     {
-        const string plain = scratchPath("argtype-plain.dsp");
-        const string spelt = scratchPath("argtype-spelt.dsp");
+        NodeCatalog cat;
 
-        vector<pair<string, double> > none, initial;
+        cat.scan(pluginPath);
+
+        int checked = 0;
+        bool bad = false;
+
+        for (size_t c = 0; c < cat.categories().size() && !bad; c++)
+        {
+            const vector<NodeCatalog::Entry> &list =
+                cat.inCategory(cat.categories()[c]);
+
+            for (size_t e = 0; e < list.size() && !bad; e++)
+            {
+                NodeCatalog::Entry d;
+
+                /* A plugin that will not load here declares nothing, which is
+                   dspnew's problem and not this one. */
+                if (!cat.describe(list[e].spelling, synth.getPluginManager(),
+                                  d) || d.defaults.empty())
+                    continue;
+
+                if (!writeOrFail(wrap("", "node n " + list[e].spelling +
+                                          " {\n};\n")))
+                { bad = true; break; }
+
+                thSynthTree *tree = synth.parseTree(scratch);
+                thNode *n = tree ? tree->findNode("n") : NULL;
+
+                if (n == NULL)
+                {
+                    fail("a bare node loads", list[e].spelling);
+                    bad = true;
+                }
+
+                for (size_t i = 0; n != NULL && i < d.defaults.size(); i++)
+                {
+                    thArg *a = n->getArg(d.defaults[i].name);
+
+                    if (a == NULL)
+                    {
+                        fail("the omitted arg exists",
+                             list[e].spelling + " " + d.defaults[i].name);
+                        bad = true;
+                    }
+                    else if ((*a)[0] != (float)d.defaults[i].value)
+                    {
+                        char said[128];
+
+                        snprintf(said, sizeof(said),
+                                 "%s %s is %g, not the declared %g",
+                                 list[e].spelling.c_str(),
+                                 d.defaults[i].name.c_str(),
+                                 (double)(*a)[0], d.defaults[i].value);
+
+                        fail("an omitted arg holds its plugin's default", said);
+                        bad = true;
+                    }
+                    else
+                        checked++;
+                }
+
+                delete tree;
+            }
+        }
+
+        if (!bad)
+        {
+            char said[96];
+
+            snprintf(said, sizeof(said),
+                     "%d omitted args load holding what their plugin declared",
+                     checked);
+
+            if (checked == 0)
+                fail("some plugin declares a default", "");
+            else
+                ok(said);
+        }
+    }
+
+    /* ---- writing a default changes the file, not the sound -------------- */
+
+    /* A declared default is a transcription of what the plugin substitutes for
+     * 0, so three spellings of one node -- arg omitted, default written,
+     * literal 0 written -- must render the same samples. If that stops being
+     * true the defaults have become somebody's opinion.
+     *
+     * The literal 0 breaks first and is not hypothetical:
+     * NodeEdit::disconnect() rewrites an arg to `= 0' rather than deleting its
+     * line, so a non-transcribed default would make unwiring change the sound.
+     */
+    {
+        const char *const leaf[3] = { "argtype-plain.dsp",
+                                      "argtype-spelt.dsp",
+                                      "argtype-zeroed.dsp" };
+        string file[3];
+
+        vector<pair<string, double> > written[3];
 
         NodeCatalog::Entry e;
         NodeCatalog cat;
 
         cat.scan(pluginPath);
+
+        for (int i = 0; i < 3; i++)
+            file[i] = scratchPath(leaf[i]);
 
         if (!cat.describe("osc::simple", synth.getPluginManager(), e))
             fail("the catalog describes osc::simple", "");
@@ -852,22 +952,25 @@ int main (int argc, char **argv)
         else
         {
             for (size_t i = 0; i < e.defaults.size(); i++)
-                initial.push_back(make_pair(e.defaults[i].name,
-                                            e.defaults[i].value));
+            {
+                written[1].push_back(make_pair(e.defaults[i].name,
+                                               e.defaults[i].value));
+                written[2].push_back(make_pair(e.defaults[i].name, 0.0));
+            }
 
             string why;
             bool built = true;
 
-            for (int which = 0; which < 2 && built; which++)
+            for (int which = 0; which < 3 && built; which++)
             {
-                const string f = which ? spelt : plain;
+                const string f = file[which];
 
                 remove(f.c_str());
 
                 if (NodeEdit::createFile(f.c_str(), "argtype", "argtype", why)
                         != NodeEdit::OK ||
                     NodeEdit::addNode(f.c_str(), "osc", "osc::simple",
-                                      which ? initial : none, why)
+                                      written[which], why)
                         != NodeEdit::OK ||
                     NodeEdit::connect(f.c_str(), "osc", "freq", "ionode", "note", why)
                         != NodeEdit::OK ||
@@ -878,38 +981,47 @@ int main (int argc, char **argv)
 
             if (built)
             {
-                vector<float> a, b;
+                vector<float> a, b, c;
 
-                if (!render(pluginPath, plain.c_str(), a) ||
-                    !render(pluginPath, spelt.c_str(), b))
-                    fail("both files render", "");
+                if (!render(pluginPath, file[0].c_str(), a) ||
+                    !render(pluginPath, file[1].c_str(), b) ||
+                    !render(pluginPath, file[2].c_str(), c))
+                    fail("all three files render", "");
                 else if (a.empty())
                     fail("the rendered note is not empty", "");
                 else if (a != b)
                     fail("spelling out a plugin's own defaults changed the "
                          "sound", "");
+                else if (a != c)
+                    fail("writing a literal 0 over a defaulted arg changed "
+                         "the sound", "");
                 else
                 {
-                    /* And it did put them in the file, or the comparison above
-                       is comparing a file with itself. */
-                    string text;
+                    /* And it did put them in the files, or the comparisons
+                       above are comparing a file with itself. */
+                    string text[3];
 
-                    ifstream in(spelt.c_str());
+                    for (int i = 0; i < 3; i++)
+                    {
+                        ifstream in(file[i].c_str());
 
-                    text.assign((istreambuf_iterator<char>(in)),
-                                istreambuf_iterator<char>());
+                        text[i].assign((istreambuf_iterator<char>(in)),
+                                       istreambuf_iterator<char>());
+                    }
 
-                    if (text.find("mul = 1;") == string::npos)
-                        fail("the defaults were actually written", text);
+                    if (text[1].find("mul = 1;") == string::npos)
+                        fail("the defaults were actually written", text[1]);
+                    else if (text[2].find("mul = 0;") == string::npos)
+                        fail("the zeroes were actually written", text[2]);
                     else
-                        ok("a node written with its plugin's defaults renders "
-                           "identically to one written without them");
+                        ok("a node written with its plugin's defaults, with "
+                           "zeroes, and with neither all render identically");
                 }
             }
         }
 
-        remove(plain.c_str());
-        remove(spelt.c_str());
+        for (int i = 0; i < 3; i++)
+            remove(file[i].c_str());
     }
 
     /* ---- units are folded at the synth's rate, not the compiler's ------ */

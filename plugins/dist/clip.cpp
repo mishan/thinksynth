@@ -59,6 +59,9 @@ int module_init (thPlugin *plugin)
                        "full scale");
     plugin->setArgRange(args[IN_CLIP], 0, TH_MAX);
     plugin->setArgUnits(args[IN_CLIP], "full scale");
+    /* The floor is what a 0 here means, so it is the default: an unwritten
+       `clip' cuts at full scale, which is not to cut at all. */
+    plugin->setArgDefault(args[IN_CLIP], TH_MAX);
     args[IN_LOWCLIP] = plugin->regArg("lowclip", thPlugin::ARG_IN);
     /* Its own zero case: `if (lowclip < 1) lowclip = clip', so leaving it out
        cuts symmetrically. Written as a magnitude and negated afterwards. */

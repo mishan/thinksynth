@@ -53,12 +53,13 @@ public:
 
     /* An arg the plugin declares a default for, and that default.
      *
-     * Not "a suggested starting value for every arg" -- eight args across five
-     * plugins, each one its own callback already special-cases zero for:
-     * `if (amp_max == 0) amp_max = TH_MAX;'. Those plugins always had a
+     * Not "a suggested starting value for every arg" -- fourteen args across
+     * eleven plugins, each one its own callback already special-cases zero
+     * for: `if (amp_max == 0) amp_max = TH_MAX;'. Those plugins always had a
      * default; it was written where nothing could read it, so a node the editor
      * added came out saying `amp = 0' and left the reader to know that meant
-     * full scale. */
+     * full scale. buildArgMap() loads them now, so this is what a node the
+     * palette adds writes down rather than what makes it work. */
     struct Default {
         string name;
         double value;

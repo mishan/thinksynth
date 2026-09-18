@@ -905,8 +905,11 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
 
     /* The line is rewritten rather than deleted.
      *
-     * To the engine `in = 0;' and no line at all are the same thing --
-     * buildArgMap() invents the arg either way. Keeping the line preserves
+     * To the engine `in = 0;' and no line at all are the same thing. Not
+     * because buildArgMap() writes a zero -- it writes the plugin's declared
+     * default -- but because a declared default is a transcription of what the
+     * callback already substitutes for 0, so the two spellings run on the same
+     * number whichever way round it is stored. Keeping the line preserves
      * whatever trailing comment was on it, and it means a disconnect followed
      * by a reconnect restores the file exactly, because only the right-hand
      * side ever moved. Deleting and re-inserting would put the line somewhere
@@ -1183,12 +1186,11 @@ NodeEdit::Result NodeEdit::Text::addNode (string &source, const string &node,
 
     /* The plugin's declared defaults, written out rather than left implied.
      *
-     * buildArgMap() invents `= 0' for every registered arg a .dsp does not
-     * mention, and several plugins then special-case that zero back to
-     * something else -- osc::simple's amp is full scale at 0 and its mul
-     * multiplies by nothing. Writing them means a node added here comes out
-     * saying what it does, and means the same thing either way: these are the
-     * plugin's own zero-cases, so the sound is identical to leaving them out.
+     * buildArgMap() loads them into every registered arg a .dsp does not
+     * mention, so the file and the engine agree without this -- osc::simple's
+     * amp is full scale either way. Writing them is for the reader: a node
+     * added here comes out saying what it does rather than saying nothing and
+     * meaning full scale. The sound is identical to leaving them out.
 
        An unwritable number is skipped rather than failing the whole add. The
        node is still a valid node without the line, and refusing to add a node
