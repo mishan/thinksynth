@@ -26,7 +26,7 @@ add_custom_target(plugins)
 
 think_add_plugin_category(analysis pitch)
 
-think_add_plugin_category(delay    echo fir allpass)
+think_add_plugin_category(delay    echo fir allpass chorus)
 
 think_add_plugin_category(dist     clip saturate waveman inksat)
 

@@ -63,6 +63,18 @@ description "Seven detuned saws, odd ones left and even ones right, through a fi
     @vibdelay.max = 2000ms;
     @vibdelay.label = "Vibrato Delay";
 
+    # The seven saws are an ensemble that never moves: the beating
+    # between them is fixed the moment the note is placed, because every
+    # one of them is a constant ratio from the same frequency. A chorus
+    # is the beating that does move. Off by default -- seven saws are
+    # already a lot of signal -- and the two together are the sound this
+    # graph is named after when it is asked for it.
+    @chorus = 0;
+    @chorus.widget = 1;
+    @chorus.min = 0;
+    @chorus.max = 1;
+    @chorus.label = "Chorus";
+
     @fa = 20 ms;
     @fa.widget = 1;
     @fa.min = 0;
@@ -172,13 +184,37 @@ node env env::adsr {
     trigger = ionode->trigger;
 };
 
+# One chorus a side, half a cycle apart, which is where the width comes
+# from: the two sides disagree about the pitch rather than about the
+# level. Slow and shallow -- six tenths of a hertz over two milliseconds
+# -- because this is under a detune that is already doing the fast part.
+node chl delay::chorus {
+    in = filtl->out_low;
+    rate = 0.6;
+    depth = 2 ms;
+    delay = 12 ms;
+    taps = 2;
+    mix = @chorus;
+    phase = 0;
+};
+
+node chr delay::chorus {
+    in = filtr->out_low;
+    rate = 0.6;
+    depth = 2 ms;
+    delay = 12 ms;
+    taps = 2;
+    mix = @chorus;
+    phase = 0.5;
+};
+
 node vcal mixer::mul {
-    in0 = filtl->out_low;
+    in0 = chl->out;
     in1 = env->out;
 };
 
 node vcar mixer::mul {
-    in0 = filtr->out_low;
+    in0 = chr->out;
     in1 = env->out;
 };
 

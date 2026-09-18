@@ -1540,6 +1540,269 @@ static void checkAllpass (const string &pluginPath)
                  "at five hundred");
 }
 
+/* ---- delay::chorus ------------------------------------------------------ */
+
+static vector<NodeSpec> chorusGraph (float hz, float rate, float depth,
+                                     float delay, float mix, float taps)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, ch;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };            /* sine */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    ch.name = "ch";
+    ch.spelling = "delay/chorus";
+
+    Value r = { "rate", rate };
+    Value dp = { "depth", depth };
+    Value dl = { "delay", delay };
+    Value mx = { "mix", mix };
+    Value tp = { "taps", taps };
+    Wire  in = { "in", "src", "out" };
+
+    ch.values.push_back(r);
+    ch.values.push_back(dp);
+    ch.values.push_back(dl);
+    ch.values.push_back(mx);
+    ch.values.push_back(tp);
+    ch.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(ch);
+
+    return spec;
+}
+
+/* One bin of a DFT, by hand: the amplitude of the component at `hz' over
+ * `n' samples. An FFT would want a window, a table and a power of two;
+ * a single bin is two sums, and over a whole number of cycles of every
+ * frequency asked about there is no leakage to window away. */
+static double bin (const vector<float> &v, size_t from, size_t n, double hz)
+{
+    double re = 0, im = 0;
+
+    for (size_t i = 0; i < n && from + i < v.size(); i++)
+    {
+        const double w = 2.0 * M_PI * hz * (double)i / TH_DEFAULT_SAMPLES;
+
+        re += (double)v[from + i] * cos(w);
+        im -= (double)v[from + i] * sin(w);
+    }
+
+    return 2.0 * sqrt(re * re + im * im) / (double)n;
+}
+
+static void checkChorus (const string &pluginPath)
+{
+    /* A whole second of a 441 Hz sine and a 3 Hz sweep: both are a whole
+       number of cycles in the window, so every bin below lands on a bin
+       center and nothing leaks into its neighbors. A depth of eight
+       samples puts the modulation index at about a half, where the first
+       sidebands are a quarter of the carrier and the second ones are a
+       thirtieth -- big enough to measure and small enough that "the
+       sidebands are at `rate'" is a statement about the first pair. */
+    const double f0 = 441, rate = 3;
+    const float depth = 8, delay = 220;
+    const unsigned window = TH_DEFAULT_SAMPLES;
+    const size_t from = TH_DEFAULT_SAMPLES / 4;
+
+    /* ---- a sine comes out with sidebands a `rate' either side ---- */
+
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     chorusGraph((float)f0, (float)rate, depth, delay, 1, 1),
+                     "ch", "out", 256, window + (unsigned)from, out, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            const double carrier = bin(out, from, window, f0);
+            const double lower = bin(out, from, window, f0 - rate);
+            const double upper = bin(out, from, window, f0 + rate);
+            const double second = bin(out, from, window, f0 + 2 * rate);
+
+            okOrFail(carrier > 0 && lower / carrier > 0.15 &&
+                     upper / carrier > 0.15 &&
+                     lower / carrier < 0.40 && upper / carrier < 0.40 &&
+                     upper > second * 3,
+                     "delay::chorus: a sine comes out with sidebands a "
+                     "`rate' either side of it",
+                     "carrier " + num(carrier) + ", sidebands " +
+                     num(lower) + " and " + num(upper) + ", second pair " +
+                     num(second));
+        }
+    }
+
+    /* ---- and with none at all when nothing moves ---- */
+
+    /* The control for the check above: the same graph with the tap held
+       still is a plain delay, and a plain delay has no sidebands. Without
+       this, a plugin that rang at 3 Hz for any reason would pass. */
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     chorusGraph((float)f0, (float)rate, 0, delay, 1, 1),
+                     "ch", "out", 256, window + (unsigned)from, out, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            const double carrier = bin(out, from, window, f0);
+            const double upper = bin(out, from, window, f0 + rate);
+
+            okOrFail(carrier > 0 && upper / carrier < 0.01,
+                     "delay::chorus: `depth = 0' is a plain delay, with "
+                     "nothing either side",
+                     "sideband over carrier was " + num(upper / carrier));
+        }
+    }
+
+    /* ---- two taps do not cancel each other ---- */
+
+    /* The reason each tap sits `depth' further back than the last. Two
+       mirrors of one center are as sharp as each other is flat at every
+       instant, and summing them to one output takes the pitch shift
+       away entirely -- a real effect with a real name, and not this one.
+       Staggered, the second tap leaves the first one's sidebands
+       standing. */
+    {
+        vector<float> one, more;
+        string why;
+        bool stands = true;
+        string detail;
+
+        if (!render1(pluginPath,
+                     chorusGraph((float)f0, (float)rate, depth, delay, 1, 1),
+                     "ch", "out", 256, window + (unsigned)from, one, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            const double alone = bin(one, from, window, f0 + rate) /
+                                 bin(one, from, window, f0);
+
+            for (int taps = 2; taps <= 3 && stands; taps++)
+            {
+                if (!render1(pluginPath,
+                             chorusGraph((float)f0, (float)rate, depth,
+                                         delay, 1, (float)taps),
+                             "ch", "out", 256, window + (unsigned)from,
+                             more, why))
+                {
+                    fail("delay::chorus renders", why);
+                    return;
+                }
+
+                const double together = bin(more, from, window, f0 + rate) /
+                                        bin(more, from, window, f0);
+
+                if (!(together > alone * 0.5))
+                {
+                    stands = false;
+                    detail = "one tap put " + num(alone) + " of the "
+                             "carrier into the sideband, " +
+                             num((double)taps) + " put " + num(together);
+                }
+            }
+
+            okOrFail(stands, "delay::chorus: a second and a third tap add "
+                             "to the first rather than cancelling it",
+                     detail);
+        }
+    }
+
+    /* ---- the two identities ---- */
+
+    /* `mix = 0' is a wire: the dry signal is what a mix of nothing
+       leaves, and a graph with the node in it and the knob down has to
+       be the graph without it. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ch", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath,
+                    chorusGraph((float)f0, (float)rate, depth, delay, 0, 3),
+                    watch, 256, 20000, got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = 0; i < got[0].size() && same; i++)
+                if (memcmp(&got[1][i], &got[0][i], sizeof(float)) != 0)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " + num(got[0][i]);
+                }
+
+            okOrFail(same, "delay::chorus: `mix = 0' is the dry signal, to "
+                           "the bit", detail);
+        }
+    }
+
+    /* And a still tap at full mix is the line and nothing else. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ch", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath,
+                    chorusGraph((float)f0, 0, 0, delay, 1, 1), watch, 256,
+                    20000, got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = (size_t)delay; i < got[0].size() && same; i++)
+                if (fabs(got[1][i] - got[0][i - (size_t)delay]) >
+                    TH_MAX * 1e-6)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " +
+                             num(got[0][i - (size_t)delay]);
+                }
+
+            okOrFail(same, "delay::chorus: a tap that does not move is a "
+                           "delay of `delay' samples", detail);
+        }
+    }
+
+    windowsAgree(pluginPath,
+                 chorusGraph((float)f0, (float)rate, depth, delay, 0.5f, 3),
+                 "ch", "out",
+                 "delay::chorus: the same taps at one sample a window and "
+                 "at five hundred");
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -1556,6 +1819,7 @@ int main (int argc, char **argv)
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);
+    checkChorus(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 
