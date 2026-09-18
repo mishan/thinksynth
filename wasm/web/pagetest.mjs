@@ -135,23 +135,26 @@ try
     await page.selectOption('#mode', 'piece');
     await page.selectOption('#piece', PIECE);
 
-    /* Choosing a piece loads it, and Load loads it again -- deliberately,
-       since Load re-reads the .gen in the textarea, which is editable. So
-       there are two loads here and the second replaces the sliders the
-       first drew. Wait for each, or a drag can land on a slider that is
-       about to be thrown away: nothing is asserted, everything passes,
-       and only a machine fast enough to finish the second load in the
-       80 ms after the first ever says so. */
-    const drawn = await page.waitForSelector('#knobs input',
-                                             { timeout: 60000 });
+    /* There are three loads on the way here, and every one of them ends
+       by replacing every element in the knobs row: the mode switch loads
+       what piece mode is about to play, choosing a piece loads that, and
+       Load loads it again -- deliberately, since Load re-reads the .gen
+       in the textarea, which is editable.
 
+       This used to wait for "a slider that is not the one the first load
+       drew", on the reasoning that there were two. There are three, and
+       the handle the wait compares against can already be stale when the
+       wait first runs, in which case it returns at once having waited for
+       nothing. Then the third load lands in the middle of the nudge
+       below, the focused slider is replaced under it, the arrow key goes
+       to <body>, and the value has not moved -- which is what CI printed,
+       on a machine slow enough to let the load get that far behind.
+
+       So the page is asked instead. It knows what it has queued; nothing
+       out here can know it by counting. */
+    await page.waitForSelector('#knobs input', { timeout: 60000 });
     await page.click('#loadpiece');
-    await page.waitForFunction((was) =>
-    {
-        const now = document.querySelector('#knobs input');
-
-        return now !== null && now !== was;
-    }, drawn, { timeout: 60000 });
+    await page.evaluate(() => window.solo.settled());
 
     const knobs = await page.evaluate(() =>
         [...document.querySelectorAll('#knobs input')].map((i) =>

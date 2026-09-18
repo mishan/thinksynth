@@ -830,6 +830,33 @@ window.solo = {
     handleOf: (chain, stage) => composer?.handleOf(chain, stage),
     params: () => composer?.params() ?? [],
 
+    /* Every load asked for so far, finished -- including the redraw each
+       one ends with.
+     *
+       A harness about to press on a slider has to know that no load is
+       still on its way to throwing that slider away: drawKnobs replaces
+       every element in the row, and a load landing between a focus and a
+       keypress leaves the key going to <body>. Counting the loads from
+       outside is what pagetest used to do, and it got the count wrong --
+       choosing a piece is one, the mode switch before it is another, and
+       Load is a third. The page is what knows, so it is what is asked.
+
+       The loop is for a load queued while an earlier one was being
+       waited on: quiet is reassigned by every quietly(), so it is stable
+       only once nothing has been added across an await and a frame. */
+    settled: async () =>
+    {
+        for (let was = null; was !== quiet; )
+        {
+            was = quiet;
+
+            await quiet;
+            await new Promise((go) => requestAnimationFrame(go));
+        }
+
+        return true;
+    },
+
     /* The instrument's graph: where its boxes are, so a harness can press
        on one rather than at a guess, and what it has selected. */
     node: () => (nodes === null ? null : {
