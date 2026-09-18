@@ -139,6 +139,26 @@ public:
         return at;
     }
 
+    /* liveIndex the other way: where scheduler stage `live' sits in the
+       document, or -1 when the chain has no such composer.
+
+       Wanted wherever something that counted the scheduler's stages
+       hands an index back to something that indexes the document -- a
+       page enumerating tw_stage_count and then asking for a stage to be
+       enlarged, say. Going only one way is how an index quietly becomes
+       the wrong kind of index halfway across. */
+    static int docIndex (const Chain &c, int live)
+    {
+        if (live < 0)
+            return -1;
+
+        for (size_t i = 0; i < c.stages.size(); i++)
+            if (!isNodeStage(c.stages[i]) && live-- == 0)
+                return (int)i;
+
+        return -1;
+    }
+
     struct Knob
     {
         std::string name;

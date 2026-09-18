@@ -236,9 +236,20 @@ export function createComposerView ({ root = document, toMirror,
        Folded away, the view asks for no frames: a picture nobody is
        looking at is a piece's worth of drawing per animation frame for
        nobody. */
-    const show = (on) => view.show(on && $('composerview').open);
+    let wanted = false;
 
-    $('composerview').addEventListener('toggle', () => show(true));
+    const show = (on) =>
+    {
+        wanted = on;
+        view.show(on && $('composerview').open);
+    };
+
+    /* The disclosure opening is not the page saying it wants this view --
+       the page says that, and said it last at the mode switch. Read as a
+       yes, it resumed a piece's worth of drawing per animation frame in
+       patch mode, of a piece that is not loaded any more. */
+    $('composerview').addEventListener(
+        'toggle', () => view.show(wanted && $('composerview').open));
 
     return { fromMirror, show, handleOf,
              /* What the popover is showing, for a harness to read. */

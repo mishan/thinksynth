@@ -736,6 +736,37 @@ std::vector<CanvasInput> canvasInputs_;
    Kept because the canvas holds a pointer to it. */
 thcGenEdit::Doc canvasDoc_;
 
+/* ---- the one index a stage has across this boundary ----
+ *
+ * Every tw_* call that names a stage names it by its place in the
+ * *scheduler's* list -- tw_stage_count counts that list, stageAt() reads
+ * it, and the worklet, which applies the commands, has nothing else: it
+ * never calls tw_canvas_show and so has no document to count instead.
+ *
+ * The canvas counts the document, because that is what it draws, and a
+ * dsp node is a stage in the file with no thcStage behind it. So the two
+ * translate here, at the edge, and nowhere else. Read raw in either
+ * direction, a chain with an LFO at the top hands back its neighbour's
+ * params, or paints on the wrong picture, or -- for the last composer in
+ * such a chain -- silently does nothing at all.
+ */
+int liveOf (int chain, int docStage)
+{
+    if (chain < 0 || (size_t)chain >= canvasDoc_.chains.size())
+        return -1;
+
+    return thcGenEdit::liveIndex(canvasDoc_.chains[(size_t)chain],
+                                 (size_t)docStage);
+}
+
+int docOf (int chain, int liveStage)
+{
+    if (chain < 0 || (size_t)chain >= canvasDoc_.chains.size())
+        return -1;
+
+    return thcGenEdit::docIndex(canvasDoc_.chains[(size_t)chain], liveStage);
+}
+
 bool writeFile (const char *path, const char *text)
 {
     FILE *f = fopen(path, "wb");
@@ -892,7 +923,19 @@ EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
     epoch_++;
 
     if (!ok)
+    {
+        /* The canvas holds a thcStage * per box and the load has just
+           freed every one of them. On the way out through the other door
+           the page calls tw_canvas_show, which hands it the new ones; on
+           this one nothing does -- mirror.js only re-shows on a load that
+           worked -- so the draw loop would go on reading the old ones
+           every frame. Emptied here, which is also what is true: there is
+           no piece. */
+        if (canvas_ != NULL)
+            canvas_->SetPiece(NULL, NULL);
+
         return 0;
+    }
 
     /* In the map's order, which is by name: the .gen's own order is not
        kept anywhere, and a page drawing sliders wants some order. */
@@ -1188,7 +1231,7 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
             [](size_t chain, size_t stage, CanvasRect at)
             {
                 canvasParams_.chain = (int)chain;
-                canvasParams_.stage = (int)stage;
+                canvasParams_.stage = liveOf((int)chain, (int)stage);
                 canvasParams_.x = at.x;
                 canvasParams_.y = at.y;
                 canvasParams_.w = at.w;
@@ -1202,7 +1245,7 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
                 CanvasInput in;
 
                 in.chain = (int)chain;
-                in.stage = (int)stage;
+                in.stage = liveOf((int)chain, (int)stage);
                 in.kind = (int)ev.type;
                 in.button = ev.button;
                 in.x = ev.x;
@@ -1429,9 +1472,14 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_chain (void)
 
 EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_stage (void)
 {
-    return canvas_ != NULL &&
-           canvas_->enlarged().kind == ComposerCanvas::Selection::STAGE
-        ? (int)canvas_->enlarged().index : -1;
+    if (canvas_ == NULL ||
+        canvas_->enlarged().kind != ComposerCanvas::Selection::STAGE)
+        return -1;
+
+    /* Out in the scheduler's numbering, which is the only one the page
+       and the worklet share -- see liveOf. */
+    return liveOf((int)canvas_->enlarged().chain,
+                  (int)canvas_->enlarged().index);
 }
 
 /* Where the enlarged picture is, in the content's own coordinates -- the
@@ -1471,9 +1519,16 @@ EMSCRIPTEN_KEEPALIVE void tw_canvas_enlarge (int chain, int stage)
 
     if (chain >= 0)
     {
+        /* In, from the scheduler's numbering to the canvas's: a
+           Selection carries the document's stage number. */
+        const int at = docOf(chain, stage);
+
+        if (at < 0)
+            return;
+
         sel.kind = ComposerCanvas::Selection::STAGE;
         sel.chain = (size_t)chain;
-        sel.index = (size_t)stage;
+        sel.index = (size_t)at;
     }
 
     canvas_->setEnlarged(sel);
