@@ -83,6 +83,14 @@ protected:
        program could not see. */
     bool loadInstrument (const thcInstrument &inst, std::string &why);
 
+    /* And the instrument's effect, on the same terms. An effect is part
+       of a patch here -- the `effect' line in the file and the block on
+       the page -- so it goes through gthPatchManager too, which is also
+       what keeps a reload from rebuilding an effect it already has and
+       emptying its delay line. `effect' empty takes one off. */
+    bool loadEffect (int channel, const std::string &effect,
+                     std::string &why);
+
     /* The way back, for a load that failed after this one succeeded.
        False when the channel would not go, in which case it stays this
        window's to try again. */

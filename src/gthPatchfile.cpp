@@ -173,13 +173,43 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 /* See the header. */
 bool gthPatchManager::setEffect (int chan, const string &effectName)
 {
-    if ((chan < 0) || (chan >= numPatches_) || patches_[chan] == NULL)
+    if ((chan < 0) || (chan >= numPatches_))
         return false;
+
+    /* An effect belongs to a channel and the channel is the patch, so there
+       is nowhere to put one. Asking for none is already true of a channel
+       with nothing on it, and answering false there would fail every
+       instrument that declares no effect. */
+    if (patches_[chan] == NULL)
+        return effectName.empty();
 
     thSynth *synth = thSynth::instance();
 
+    /* Already this graph, still on the channel: leave it alone.
+     *
+     * Not an optimization. Reloading an effect builds a new one, and a new
+     * delay line is an empty delay line -- so a piece reapplied for a reason
+     * that has nothing to do with its sound (renaming a knob's label, moving
+     * a stage) would cut the tail off every repeat and every reverb. The
+     * instrument side already declines to rebuild a graph it recognizes, for
+     * the same reason and in the same words; this is that promise kept for
+     * the second graph on the channel.
+     *
+     * effectFile is the right thing to test against because a channel that
+     * was rebuilt underneath it arrives here with a fresh PatchFile and an
+     * empty one -- see newPatch. */
+    if (!effectName.empty() && patches_[chan]->effectFile == effectName &&
+        synth->getEffect(chan) != NULL)
+        return true;
+
     if (effectName.empty())
     {
+        /* Nothing to take off and nothing recorded: not a change, so not a
+           reason to mark the patch dirty or rebuild every page. */
+        if (patches_[chan]->effectFile.empty() &&
+            synth->getEffect(chan) == NULL)
+            return true;
+
         if (!synth->removeEffect(chan))
             return false;
 
@@ -540,8 +570,15 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     }
 
     /* And the effect's, under the name the rest of the engine addresses them
-       by. A second map, so a patch that sets `a' and an effect that declares
-       one are two lines and two numbers. */
+     * by. A second map, so a patch that sets `a' and an effect that declares
+     * one are two lines and two numbers.
+     *
+     * Only where the `effect' line above was written. Values with no file to
+     * attach them to are values the reader refuses one by one -- it has no
+     * effect on the channel to look their names up in -- so writing them is
+     * writing a patch that complains at itself on every load.
+     */
+    if (!patches_[chan]->effectFile.empty())
     {
         thArgMap fxargs = thSynth::instance()->getEffectArgs(chan);
 

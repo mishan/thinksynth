@@ -989,20 +989,40 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
      * include the effect's, under `fx.', which cannot be written until it is
      * there.
      *
-     * Through the synth directly in both cases, hook or no hook: the hook
-     * exists so the application can put an instrument on a patch tab, and an
-     * effect is not a patch. */
-    if (!inst.effect.empty())
+     * Through the host's hook where there is one, for the reason the
+     * instrument goes through its own: a .patch carries an `effect' line and
+     * the values under it, so an effect the host does not know about is a
+     * patch page offering to choose one that is already there and a save
+     * that writes values with no file to attach them to. Straight through
+     * the synth without a hook, which is what a headless harness wants.
+     *
+     * Asked for on every apply, including the one where the instrument was
+     * kept: the host is the only thing that can tell "the same effect is
+     * already on this channel" from "this channel was rebuilt underneath it",
+     * and gthPatchManager::setEffect does. */
     {
-        const std::string path =
-            thUtil::findDataFile(inst.effect, "dsp", "THINK_DSP_PATH",
-                                 DSP_PATH);
+        bool got;
 
-        if (synth_ == NULL ||
-            synth_->loadEffect((path.empty() ? inst.effect : path).c_str(),
-                               inst.channel) == NULL)
+        if (loadEffect_)
+            got = loadEffect_(inst.channel, inst.effect, why);
+        else if (inst.effect.empty())
+            got = true;
+        else
         {
-            why = "'" + inst.effect + "' did not load as an effect";
+            const std::string path =
+                thUtil::findDataFile(inst.effect, "dsp", "THINK_DSP_PATH",
+                                     DSP_PATH);
+
+            got = synth_ != NULL &&
+                  synth_->loadEffect((path.empty() ? inst.effect
+                                                   : path).c_str(),
+                                     inst.channel) != NULL;
+        }
+
+        if (!got)
+        {
+            if (why.empty())
+                why = "'" + inst.effect + "' did not load as an effect";
 
             if (!unapplyInstrument(index))
                 why += " (and its graph could not be taken off channel " +

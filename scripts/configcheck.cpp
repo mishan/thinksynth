@@ -409,6 +409,89 @@ int main (int argc, char **argv)
             ok(back != NULL && fabs((*back)[0] - 0.75) < 1e-6,
                "with the value that was saved (%f)",
                back ? (double)(*back)[0] : -1.0);
+
+            /* ---- and what a reload must not do ----------------------- */
+
+            /* Asking for the effect that is already there is not a
+             * request to build another one. A new thChanEffect is a new
+             * delay line, and a new delay line is an empty one -- so a
+             * piece reapplied because somebody renamed a knob would cut
+             * the tail off every repeat. The object has to be the same
+             * object. */
+            {
+                thChanEffect *was = synth->getEffect(chan);
+
+                ok(patchMgr->setEffect(chan, fx),
+                   "putting on the effect that is already there succeeds");
+                ok(synth->getEffect(chan) == was,
+                   "and leaves the graph that is running alone, so its "
+                   "tail carries");
+            }
+
+            /* An instrument arriving on the channel takes the effect
+             * with it, and the record of it has to go at the same time:
+             * a patch saved after that would otherwise carry the
+             * effect's values with no `effect' line to attach them to,
+             * and the reader refuses those one by one. */
+            {
+                ok(patchMgr->newPatch(dsp, chan),
+                   "an instrument loads over the patch that had an effect");
+
+                const gthPatchManager::PatchFile *p = patchMgr->getPatch(chan);
+
+                ok(synth->getEffect(chan) == NULL &&
+                   p != NULL && p->effectFile.empty(),
+                   "which takes the effect off and forgets its name");
+
+                const string orphan = tmp + "/orphan.patch";
+
+                ok(patchMgr->savePatch(orphan, chan),
+                   "the patch writes again");
+
+                const std::vector<string> lines = fileLines(orphan);
+                bool sawFx = false;
+
+                for (size_t i = 0; i < lines.size(); i++)
+                    if (lines[i].compare(0, 3, "fx.") == 0)
+                        sawFx = true;
+
+                ok(!sawFx, "with no effect values in it");
+            }
+
+            /* An effect the patch manager was never told about -- which
+             * is what putting one on through the synth alone leaves
+             * behind. Its values must not be written: there is no
+             * `effect' line for them to belong to, so the reader has
+             * nothing to look their names up in and refuses every one.
+             * A patch that complains at itself on every load is worse
+             * than a patch that forgot a delay. */
+            {
+                ok(synth->loadEffect(fx.c_str(), chan) != NULL,
+                   "an effect goes on behind the patch manager's back");
+
+                const string behind = tmp + "/behind.patch";
+
+                ok(patchMgr->savePatch(behind, chan),
+                   "and the patch still writes");
+
+                const std::vector<string> lines = fileLines(behind);
+                bool sawFx = false;
+
+                for (size_t i = 0; i < lines.size(); i++)
+                    if (lines[i].compare(0, 3, "fx.") == 0)
+                        sawFx = true;
+
+                ok(!sawFx,
+                   "without values the file has no `effect' line to hang "
+                   "them on");
+            }
+
+            /* Nothing on the channel at all: asking for no effect is
+               already true of it, which is what every instrument that
+               declares none asks for. */
+            patchMgr->unloadPatch(chan);
+            ok(patchMgr->setEffect(chan, ""),
+               "and `no effect' on an empty channel is not a failure");
         }
     }
 
