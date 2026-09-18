@@ -12,6 +12,14 @@
 # `cutoff' is where it rests, `fmax' is where the filter envelope throws
 # it on each note, and the four `f' times are that envelope. The amp
 # envelope is the usual one, with sustain scaled by velocity.
+#
+# `Cutoff Glide' is a misc::slew on the resting cutoff, and it is there
+# for what a composer does to that knob rather than for what a player
+# does: a gen::walk writing a new cutoff once a period is a staircase,
+# and this is the lag that turns it into a line. A knob nothing moves is
+# a knob nothing lags, so at a fixed cutoff the glide is inaudible by
+# construction -- see the head of plugins/misc/slew.cpp for why a lag
+# starts where its input is.
 
 name "Ladder";
 author "Misha Nasledov";
@@ -34,6 +42,12 @@ description "Two detuned saws and a sub octave through a ladder filter with its 
     @cutoff.min = 0.02;
     @cutoff.max = 1;
     @cutoff.label = "Cutoff";
+
+    @glide = 40 ms;
+    @glide.widget = 1;
+    @glide.min = 0;
+    @glide.max = 2000ms;
+    @glide.label = "Cutoff Glide";
 
     @fmax = 0.6;
     @fmax.widget = 1;
@@ -125,18 +139,6 @@ node osc3 osc::simple {
     waveform = 2;
 };
 
-node saws mixer::fade {
-    in0 = osc1->out;
-    in1 = osc2->out;
-    fade = 0.5;
-};
-
-node mix mixer::fade {
-    in0 = saws->out;
-    in1 = osc3->out;
-    fade = @sub;
-};
-
 # The filter's own envelope, from the floor to the peak and back.
 node fenv env::adsr {
     a = @fa;
@@ -146,16 +148,26 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
+# The resting cutoff, lagged, so a knob that is stepped arrives as a ramp.
+node cutglide misc::slew {
+    in = @cutoff;
+    time = @glide;
+};
+
 node fmap env::map {
     in = fenv->out;
     inmin = 0;
     inmax = th_max;
-    outmin = @cutoff;
+    outmin = cutglide->out;
     outmax = @fmax;
 };
 
+# The two saws averaged, then faded against the sub. This was a pair of
+# mixer::fade nodes -- `(a + b) * 0.5' and `mix*(1 - sub) + sub*osc3' are
+# what each of them computed -- and is the same two multiplies and two
+# adds either way, built at load and named after the arg they feed.
 node filt filt::moog {
-    in = mix->out;
+    in = (osc1->out + osc2->out) * 0.5 * (1 - @sub) + osc3->out * @sub;
     cutoff = fmap->out;
     res = @res;
 };
