@@ -1286,6 +1286,260 @@ static void checkVibrato (const string &pluginPath)
                  "at five hundred");
 }
 
+/* ---- delay::allpass ----------------------------------------------------- */
+
+/* A steady sine into the line, which is how you ask a filter what it
+   does to a frequency. */
+static vector<NodeSpec> allpassSineGraph (float hz, float delay, float gain)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, ap;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };            /* sine */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    ap.name = "ap";
+    ap.spelling = "delay/allpass";
+
+    Value d = { "delay", delay };
+    Value g = { "gain", gain };
+    Wire  in = { "in", "src", "out" };
+
+    ap.values.push_back(d);
+    ap.values.push_back(g);
+    ap.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(ap);
+
+    return spec;
+}
+
+/* And a burst into it, which is how you ask what it does to a room. An
+   env::ad with no attack fires once at the top of the voice and is over
+   in `d' samples, so what follows is the line's own answer. */
+static vector<NodeSpec> allpassBurstGraph (float delay, float gain)
+{
+    vector<NodeSpec> spec = allpassSineGraph(0, delay, gain);
+
+    spec[0].spelling = "env/ad";
+    spec[0].values.clear();
+
+    Value a = { "a", 0 };
+    Value d = { "d", 64 };
+    Value p = { "p", TH_MAX };
+
+    spec[0].values.push_back(a);
+    spec[0].values.push_back(d);
+    spec[0].values.push_back(p);
+
+    return spec;
+}
+
+static double energy (const vector<float> &v, size_t from)
+{
+    double sum = 0;
+
+    for (size_t i = from; i < v.size(); i++)
+        sum += (double)v[i] * v[i];
+
+    return sum;
+}
+
+static void checkAllpass (const string &pluginPath)
+{
+    const float delay = 137, gain = 0.7f;
+
+    /* ---- every frequency comes out at the level it went in ---- */
+
+    /* Which is the whole name of the thing. RMS rather than peak,
+       because the two signals are the same sine at different phases and
+       a sampled peak depends on where the samples fall in the cycle --
+       a quarter of a percent at these frequencies, which is the size of
+       the answer. Over a settled second, whole cycles either way. */
+    {
+        static const float hz[] = { 110, 440, 1000, 5000, 11025 };
+
+        bool flat = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(hz) / sizeof(hz[0]) && flat; c++)
+        {
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+
+            Watch w0 = { "src", "out" };
+            Watch w1 = { "ap", "out" };
+
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath, allpassSineGraph(hz[c], delay, gain),
+                        watch, 256, 44100, got, why))
+            {
+                fail("delay::allpass renders", why);
+                return;
+            }
+
+            const double in = rms(got[0], 4410), out = rms(got[1], 4410);
+
+            if (fabs(out / in - 1) > 0.01)
+            {
+                flat = false;
+                detail = num(hz[c]) + " Hz came out at " +
+                         num(out / in) + " of the level it went in at";
+            }
+        }
+
+        okOrFail(flat, "delay::allpass: every frequency comes out at the "
+                       "level it went in at", detail);
+    }
+
+    /* ---- and it is not a wire ---- */
+
+    /* Flat on its own would be satisfied by a plugin that returned its
+       input. What an allpass does is move it in time, so the output has
+       to be a different signal with the same amplitude -- and with a
+       delay of a third of a cycle, a very different one. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ap", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, allpassSineGraph(110, delay, gain), watch,
+                    256, 20000, got, why))
+            fail("delay::allpass renders", why);
+        else
+        {
+            double apart = 0;
+
+            for (size_t i = 4410; i < got[0].size(); i++)
+                if (fabs(got[0][i] - got[1][i]) > apart)
+                    apart = fabs(got[0][i] - got[1][i]);
+
+            okOrFail(apart > TH_MAX * 0.5,
+                     "delay::allpass: the output is the input moved in "
+                     "time, not the input",
+                     "furthest apart they got was " + num(apart));
+        }
+    }
+
+    /* ---- a burst comes out with the energy it went in with ---- */
+
+    /* Parseval, in the time domain and on the tape: a filter with a flat
+       magnitude response neither adds energy nor loses it, so summing
+       the squares either side is a check on the arithmetic that needs no
+       spectrum. The tail has to have run out first -- 0.7 to the
+       hundredth is nothing -- or this measures the render length. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ap", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, allpassBurstGraph(delay, gain), watch, 256,
+                    40000, got, why))
+            fail("delay::allpass renders", why);
+        else
+        {
+            const double in = energy(got[0], 0), out = energy(got[1], 0);
+
+            okOrFail(in > 0 && fabs(out / in - 1) < 0.001,
+                     "delay::allpass: a burst comes out with the energy it "
+                     "went in with",
+                     "energy out over energy in was " + num(out / in));
+
+            /* And it comes out as a run of echoes a `delay' apart, each
+               quieter than the last. The first block holds the input's
+               own inverted copy, so the comparison starts at the
+               second. */
+            vector<double> block;
+
+            for (size_t b = 0; (b + 1) * (size_t)delay < got[1].size(); b++)
+                block.push_back(peak(vector<float>(
+                    got[1].begin() + (size_t)(b * delay),
+                    got[1].begin() + (size_t)((b + 1) * delay)), 0));
+
+            bool decays = block.size() > 20;
+            string detail = "saw " + num((double)block.size()) + " blocks";
+
+            for (size_t b = 2; b < 20 && b < block.size() && decays; b++)
+                if (!(block[b] < block[b - 1]))
+                {
+                    decays = false;
+                    detail = "echo " + num((double)b) + " was " +
+                             num(block[b]) + " after " + num(block[b - 1]);
+                }
+
+            okOrFail(decays, "delay::allpass: the echoes are `delay' apart "
+                             "and each is quieter than the last", detail);
+        }
+    }
+
+    /* ---- and `gain = 0' is a plain delay ---- */
+
+    /* The identity a graph reaches for when it wants the line and not the
+       allpass, and the one case where the output can be named exactly:
+       the input, `delay' samples ago, to the bit. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ap", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, allpassSineGraph(440, delay, 0), watch, 256,
+                    20000, got, why))
+            fail("delay::allpass renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = (size_t)delay; i < got[0].size() && same; i++)
+                if (memcmp(&got[1][i], &got[0][i - (size_t)delay],
+                           sizeof(float)) != 0)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " +
+                             num(got[0][i - (size_t)delay]);
+                }
+
+            okOrFail(same, "delay::allpass: `gain = 0' is a plain delay of "
+                           "`delay' samples", detail);
+        }
+    }
+
+    windowsAgree(pluginPath, allpassSineGraph(440, delay, gain), "ap", "out",
+                 "delay::allpass: the same tail at one sample a window and "
+                 "at five hundred");
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -1301,6 +1555,7 @@ int main (int argc, char **argv)
     checkSvf(pluginPath);
     checkNoise(pluginPath);
     checkVibrato(pluginPath);
+    checkAllpass(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 

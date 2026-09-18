@@ -39,6 +39,19 @@ Follows the pitch of the input
 
 ## delay
 
+### delay::allpass
+
+Allpass delay (Schroeder)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `delay` | in | How far apart the echoes are; it is also how long the line is |  |  | samples |  |
+| `gain` | in | How much of each echo is fed back and forward; 0 is a plain delay |  | -0.999 to 0.999 |  |  |
+| `out` | out | The input, spread into echoes of the same total energy |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `bufpos` | state |  |  |  |  |  |
+
 ### delay::echo
 
 Echo (echo echo echo)
