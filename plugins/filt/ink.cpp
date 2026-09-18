@@ -50,19 +50,28 @@ int module_init (thPlugin *plugin)
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* 0 to 1 is the part that does not move: above 1 what is stable depends
+       on res, which a single range cannot say. */
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff, 0 to 1 -- a spring constant, not hertz. What "
                        "is stable above 1 depends on res");
+    plugin->setArgRange(args[IN_CUTOFF], 0, 1);
+    plugin->setArgUnits(args[IN_CUTOFF], "spring constant");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 is the edge of the stable "
                        "region and is clamped short");
+    plugin->setArgRange(args[IN_RES], 0, RMAX);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_AOUT] = plugin->regArg("aout", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_AOUT], "The filter's velocity, band-pass-ish");
+    plugin->setArgUnits(args[OUT_AOUT], "full scale");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 

@@ -40,9 +40,23 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FREQ] = plugin->regArg("freq", thPlugin::ARG_IN);
+    /* The coefficient is -(1 - omega)/(1 + omega) with omega = pi*freq/rate,
+       whose magnitude is under 1 for any positive freq -- so this one has no
+       stable region to stay inside, only a frequency to name. */
+    plugin->setArgDesc(args[IN_FREQ], "Where the phase shift passes 90 degrees");
+    plugin->setArgUnits(args[IN_FREQ], "Hz");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* No range. The recurrence is not clamped and an allpass has unity
+       magnitude response only in the steady state, so a transient overshoots
+       whatever came in -- declaring -1 to 1 here would be a promise the
+       callback does not make. */
+    plugin->setArgDesc(args[OUT_ARG], "The input, phase-shifted");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     return 0;
 }
 

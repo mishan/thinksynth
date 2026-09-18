@@ -56,17 +56,30 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_LOW] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_LOW], "Low pass");
+    plugin->setArgUnits(args[OUT_LOW], "full scale");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "High pass");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
     args[OUT_BAND] = plugin->regArg("out_band", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_BAND], "Band pass");
+    plugin->setArgUnits(args[OUT_BAND], "full scale");
     args[OUT_NOTCH] = plugin->regArg("out_notch", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_NOTCH], "Notch");
+    plugin->setArgUnits(args[OUT_NOTCH], "full scale");
     args[INOUT_DELAY] = plugin->regArg("delay", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff in hertz; honest to about a sixth of the "
                        "sample rate, clamped above that");
+    plugin->setArgUnits(args[IN_CUTOFF], "Hz");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    /* No range: the floor moves with the cutoff (see the callback) and there
+       is no ceiling. */
     plugin->setArgDesc(args[IN_RES],
                        "Resonance as Q: 0.5 is damped, higher rings. The "
                        "damping it can ask for is bounded by the cutoff");

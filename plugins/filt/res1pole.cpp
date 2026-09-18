@@ -47,17 +47,23 @@ int module_init (thPlugin *plugin)
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff, 0 to 1 -- a fraction of the sample rate, "
                        "not hertz");
+    plugin->setArgRange(args[IN_CUTOFF], 0, FMAX);
+    plugin->setArgUnits(args[IN_CUTOFF], "fraction of the rate");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 is self-oscillation and is the "
                        "edge of the stable region, so it is clamped short");
+    plugin->setArgRange(args[IN_RES], 0, QMAX);
 
     return 0;
 }

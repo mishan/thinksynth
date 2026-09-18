@@ -58,22 +58,34 @@ int module_init (thPlugin *plugin)
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* A fraction of the rate, against filt::res2pole2's hertz. */
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff, 0 to 1 -- a fraction of the sample rate, "
                        "not hertz. Clamped: the fit means nothing past 1");
+    plugin->setArgRange(args[IN_CUTOFF], 0, FMAX);
+    plugin->setArgUnits(args[IN_CUTOFF], "fraction of the rate");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RES],
                        "Resonance, 0 to 1; 1 self-oscillates. Clamped for "
                        "the same reason the cutoff is");
+    plugin->setArgRange(args[IN_RES], 0, QMAX);
 
     /* These three are what the filter is *for*, and until now they existed
        only as string lookups in the callback -- created on first use, invisible
        to anything asking the plugin what it produces. A .dsp reading
        filt->out_low was therefore reading an output nothing declared. */
     args[OUT_LOW] = plugin->regArg("out_low", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_LOW], "Low pass, the ladder's fourth stage");
+    plugin->setArgUnits(args[OUT_LOW], "full scale");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "High pass");
+    plugin->setArgUnits(args[OUT_HIGH], "full scale");
     args[OUT_BANDPASS] = plugin->regArg("out_bandpass", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_BANDPASS], "Band pass");
+    plugin->setArgUnits(args[OUT_BANDPASS], "full scale");
 
     return 0;
 }

@@ -47,16 +47,25 @@ int module_init (thPlugin *plugin)
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    /* Hertz, against filt::moog's and filt::ink2's fractions of the rate.
+       No numeric range: the ceiling is Nyquist. */
     plugin->setArgDesc(args[IN_CUTOFF],
                        "Cutoff in hertz, 0 to half the sample rate");
+    plugin->setArgUnits(args[IN_CUTOFF], "Hz");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    /* No range either: there is a floor and no ceiling. Below it the pole
+       clamp takes over and every value gives the same filter. */
     plugin->setArgDesc(args[IN_RES],
                        "Resonance; under about 0.5 the poles are clamped, "
                        "so 0.6 upwards is the usable range");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
