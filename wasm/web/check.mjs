@@ -67,6 +67,15 @@ const names = JSON.parse(fs.readFileSync(path.join(dspDir, 'index.json'),
 
 for (const name of names)
 {
+    /* An effect graph has no note to play and is not an instrument; the
+       index carries it so the worklet can be handed it. fxcheck is its
+       gate. */
+    if (name.startsWith('fx/'))
+    {
+        process.stdout.write(`skip  ${name}: an effect graph\n`);
+        continue;
+    }
+
     const text = fs.readFileSync(path.join(dspDir, name), 'utf8');
     const events = [
         { on: true, frame: 0, ...NOTE },

@@ -925,7 +925,10 @@ async function init ()
 
     dspNames = dsps;
     patchNames = patchList;
-    fill($('patch'), dsps, 'ts1.dsp');
+    /* The index carries the effect graphs too, as `fx/<name>', so the
+       worklet is handed them; the patch menu is for graphs that play a
+       note, which an effect does not. */
+    fill($('patch'), dsps.filter((n) => !n.startsWith('fx/')), 'ts1.dsp');
     fill($('piece'), gens, 'ebb.gen');
 
     [$('dsp').value, $('gen').value] = await Promise.all([

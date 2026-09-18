@@ -359,6 +359,26 @@ foreach(f IN LISTS SHIPPED_DSP)
   list(APPEND dsp_names "\"${name}\"")
 endforeach()
 
+# The effect graphs -- dsp/fx/*.dsp -- go into the same list, as
+# `fx/<name>', which is how a piece's `effect' clause spells them and how
+# the loader looks them up under dsp/. The page hands every name in the
+# list to the worklet, so an effect reaches the module the way an
+# instrument does; what treats the list as playable patches -- the patch
+# menu, check.mjs -- skips the `fx/' entries, since an effect is not a
+# note-playing graph (DSP_FORMAT.md, "An effect graph").
+file(GLOB SHIPPED_FX "${THINK_TOP}/dsp/fx/*.dsp")
+list(SORT SHIPPED_FX)
+
+foreach(f IN LISTS SHIPPED_FX)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/dsp/fx/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${f}" "${PROJECT_BINARY_DIR}/dsp/fx/${name}"
+      DEPENDS "${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/dsp/fx/${name}")
+  list(APPEND dsp_names "\"fx/${name}\"")
+endforeach()
+
 list(JOIN dsp_names ", " dsp_names)
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/dsp/index.json"
      CONTENT "[${dsp_names}]\n")
@@ -515,6 +535,13 @@ foreach(f IN LISTS SHIPPED_DSP)
   list(APPEND DIST_DSP_FILES "${PROJECT_BINARY_DIR}/dsp/${name}")
 endforeach()
 install(FILES ${DIST_DSP_FILES} DESTINATION dsp PERMISSIONS ${SITE_FILE_MODE})
+
+set(DIST_FX_FILES "")
+foreach(f IN LISTS SHIPPED_FX)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_FX_FILES "${PROJECT_BINARY_DIR}/dsp/fx/${name}")
+endforeach()
+install(FILES ${DIST_FX_FILES} DESTINATION dsp/fx PERMISSIONS ${SITE_FILE_MODE})
 
 set(DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/index.json")
 foreach(f IN LISTS SHIPPED_GEN)
