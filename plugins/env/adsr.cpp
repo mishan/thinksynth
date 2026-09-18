@@ -43,23 +43,49 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* Times are sample counts. A .dsp writes `200 ms' and thUnits folds it at
+       the rate the synth is running at, so what arrives here is samples;
+       zero-length segments complete at once rather than dividing. */
     args[IN_A] = plugin->regArg("a", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_A], "Attack");
+    plugin->setArgDesc(args[IN_A], "Attack; 0 jumps straight to the peak");
+    plugin->setArgUnits(args[IN_A], "samples");
     args[IN_D] = plugin->regArg("d", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_D], "Decay");
+    plugin->setArgDesc(args[IN_D], "Decay, from the peak down to s");
+    plugin->setArgUnits(args[IN_D], "samples");
     args[IN_S] = plugin->regArg("s", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_S], "Sustain");
+    /* A level, not a time -- the one arg of the four that is not. */
+    plugin->setArgDesc(args[IN_S], "Sustain level; 0 ends the note");
+    plugin->setArgRange(args[IN_S], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_S], "full scale");
     args[IN_R] = plugin->regArg("r", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_R], "Release");
+    plugin->setArgDesc(args[IN_R], "Release; 0 ends the note at once");
+    plugin->setArgUnits(args[IN_R], "samples");
     args[IN_P] = plugin->regArg("p", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_P], "Peak");
+    plugin->setArgDesc(args[IN_P], "Peak level");
+    plugin->setArgRange(args[IN_P], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_P], "full scale");
+    /* `if ((*in_p)[i] == 0) peak = TH_MAX' -- the zero case the plugin
+       already had, written where nothing could read it. */
+    plugin->setArgDefault(args[IN_P], TH_MAX);
     args[IN_TRIGGER] = plugin->regArg("trigger", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_TRIGGER], "Note Trigger");
+    /* Read as `> 0' and `<= 0'. thMidiChan writes 2 for a note released but
+       still held by the sustain pedal, which is why the range is not 0 to 1. */
+    plugin->setArgDesc(args[IN_TRIGGER],
+                       "Note Trigger: 0 released, 1 held, 2 held by the pedal");
+    plugin->setArgRange(args[IN_TRIGGER], 0, 2);
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RESET], "Reset to A phase");
+    plugin->setArgRange(args[IN_RESET], 0, 1);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The envelope");
+    plugin->setArgRange(args[OUT_ARG], 0, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+    /* What thMidiChan retires a voice on: the io node's `play' is wired to
+       one of these, and a window ending at 0 is a note that is over. */
+    plugin->setArgDesc(args[OUT_PLAY], "1 while the note is sounding");
+    plugin->setArgRange(args[OUT_PLAY], 0, 1);
 
     args[INOUT_POSITION] = plugin->regArg("position", thPlugin::ARG_STATE);
 
