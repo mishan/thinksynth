@@ -119,7 +119,7 @@ think_harness(dspab)
 # function nodes compute what they say. Its own harness because none of those
 # cases is in the corpus and the first two are equivalences rather than
 # loads -- dspcheck can say a file parsed and not that two files agree.
-think_harness(exprcheck)
+think_harness(exprcheck NODEMODEL)
 
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.

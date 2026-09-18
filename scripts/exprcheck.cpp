@@ -63,6 +63,8 @@
 #include <vector>
 
 #include "think.h"
+#include "NodeGraph.h"
+#include "NodeEdit.h"
 
 using std::string;
 using std::vector;
@@ -494,6 +496,132 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- the box's text is the graph behind it -------------------------- */
+
+    /* The one lossy step in the whole feature, and three things lean on it.
+     *
+     * thExprText prints the tree the parse produced, and the editor draws
+     * that string in the box. If the string reads back as a different tree,
+     * the box is showing the author arithmetic their patch is not doing --
+     * and §4d's successor, editing the text in place, would write it back.
+     * So each expression here is parsed, printed, and *re-parsed as the same
+     * arg*, and the two files are rendered and compared sample for sample.
+     *
+     * Every operator in this grammar groups to the right, so a left operand
+     * of equal precedence is exactly what needs parentheses: `(a - 1) - 2'
+     * printed as `a - 1 - 2' reads back as `a - (1 - 2)', which is `a + 1'.
+     * The numbers are here for the other half: `%g' reached for an exponent
+     * below 1e-4 and rounded to six significant digits, and the lexer's
+     * number has no exponent and no such rounding.
+     */
+    {
+        static const char *const cases[] = {
+            "(osc1->out - 0.1) - 0.2",
+            "(osc1->out + 0.1) + 0.2",
+            "(osc1->out * 0.5) * 0.5",
+            "(osc1->out / 2) / 2",
+            "osc1->out * 0.0000001",
+            "osc1->out * 1.2345678",
+            "osc1->out * -0.5",
+            "osc1->out - -0.25",
+            "(osc1->out + osc2->out) * 0.5",
+            "clamp(osc1->out * 2, 0 - 0.5, 0.5)",
+            "min(osc1->out, osc2->out) * exp2(0 - 1)",
+        };
+
+        const string common =
+            "node freq misc::midi2freq {\n    note = ionode->note;\n};\n"
+            "\nnode osc1 osc::simple {\n    freq = freq->out;\n"
+            "    waveform = 1;\n};\n"
+            "\nnode osc2 osc::simple {\n    freq = freq->out;\n"
+            "    waveform = 2;\n};\n\n";
+
+        const string wrote = scratchPath("exprcheck-written.dsp");
+        const string shown = scratchPath("exprcheck-shown.dsp");
+
+        int checked = 0;
+        bool bad = false;
+
+        for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]) && !bad; i++)
+        {
+            const string body =
+                "name \"exprcheck\";\n\n" + common +
+                "node ionode {\n    channels = 2;\n    play = 1;\n"
+                "    out0 = " + cases[i] + ";\n"
+                "    out1 = 0;\n};\n\nio ionode;\n";
+
+            if (!writeFile(wrote, body))
+            { bad = true; break; }
+
+            /* What the box would draw. */
+            string text;
+
+            {
+                thSynthTree *tree = synth.parseTree(wrote);
+
+                for (size_t b = 0; tree && b < tree->exprBoxes().size(); b++)
+                    if (tree->exprBoxes()[b].node == "ionode" &&
+                        tree->exprBoxes()[b].arg == "out0")
+                        text = tree->exprBoxes()[b].text;
+
+                delete tree;
+            }
+
+            if (text.empty())
+            {
+                fail("an expression gets a box", cases[i]);
+                bad = true;
+                break;
+            }
+
+            const string echoed =
+                "name \"exprcheck\";\n\n" + common +
+                "node ionode {\n    channels = 2;\n    play = 1;\n"
+                "    out0 = " + text + ";\n"
+                "    out1 = 0;\n};\n\nio ionode;\n";
+
+            if (!writeFile(shown, echoed))
+            { bad = true; break; }
+
+            vector<float> a, b;
+
+            if (!render(pluginPath, wrote, a))
+            {
+                fail("the written expression renders", cases[i]);
+                bad = true;
+            }
+            else if (!render(pluginPath, shown, b))
+            {
+                /* `1e-07' is the shape that fails here: the lexer's number
+                   has no exponent, so the box was drawing text the language
+                   cannot take back. */
+                fail("the box's text parses", string(cases[i]) + " -> " + text);
+                bad = true;
+            }
+            else if (a != b)
+            {
+                fail("the box's text is the graph behind it",
+                     string(cases[i]) + " -> " + text);
+                bad = true;
+            }
+            else
+                checked++;
+        }
+
+        remove(wrote.c_str());
+        remove(shown.c_str());
+
+        if (!bad)
+        {
+            char said[128];
+
+            snprintf(said, sizeof(said),
+                     "%d expressions print as text that re-parses to the same "
+                     "graph", checked);
+            ok(said);
+        }
+    }
+
     /* ---- what is refused ----------------------------------------------- */
 
     {
@@ -629,6 +757,375 @@ int main (int argc, char **argv)
                      checked);
             ok(said);
         }
+    }
+
+    /* ---- the editor draws one box, and refuses to edit into it --------- */
+
+    /* An expression is three math:: nodes by the time the graph is built.
+     * Drawing those would be showing the desugar's working, so NodeGraph
+     * collapses them back into one read-only box: the text, an input per
+     * signal leaf, one output into the arg.
+     */
+    {
+        const string text = wrap(
+            "@cents = 100;\n@cents.widget = 1;\n"
+            "@cents.min = -1200;\n@cents.max = 1200;\n",
+            "node freq misc::midi2freq {\n"
+            "    note = ionode->note;\n"
+            "};\n"
+            "\n"
+            "node osc osc::simple {\n"
+            "    freq = freq->out * exp2(@cents / 1200);\n"
+            "};\n");
+
+        if (!writeFile(scratch, text))
+            ;
+        else
+        {
+            thSynthTree *tree = synth.parseTree(scratch);
+
+            NodeGraph g;
+
+            if (tree == NULL || !g.build(tree))
+                fail("an expression file builds a graph", "");
+            else
+            {
+                g.layout();
+
+                int box = -1, mathBoxes = 0;
+
+                for (size_t i = 0; i < g.boxes().size(); i++)
+                {
+                    if (g.boxes()[i].isExpr)
+                        box = (int)i;
+
+                    /* The nodes the desugar made must not be drawn at all. */
+                    if (g.boxes()[i].name.find('#') != string::npos)
+                        mathBoxes++;
+                }
+
+                if (box < 0)
+                    fail("an expression gets a box", "");
+                else if (mathBoxes != 0)
+                    fail("the nodes behind an expression are not drawn",
+                         "they are");
+                else
+                {
+                    const NodeGraph::Box &b = g.boxes()[box];
+
+                    int ins = 0, outs = 0, wiredIn = 0, wiredOut = 0;
+
+                    for (size_t q = 0; q < b.ports.size(); q++)
+                        (b.ports[q].isInput ? ins : outs)++;
+
+                    for (size_t e = 0; e < g.edges().size(); e++)
+                    {
+                        if (g.edges()[e].toBox == box)
+                            wiredIn++;
+
+                        if (g.edges()[e].fromBox == box)
+                            wiredOut++;
+                    }
+
+                    /* `freq->out' and `@cents': one port each, both wired,
+                       and one wire out into osc.freq. */
+                    if (ins != 2 || outs != 1)
+                        fail("an expression box has a port per leaf and one "
+                             "output", "");
+                    else if (wiredIn != 2 || wiredOut != 1)
+                        fail("every port of an expression box is attached",
+                             "");
+                    else if (b.exprText != "freq->out * exp2(@cents / 1200)")
+                        fail("the box shows the expression", b.exprText);
+                    else if (b.exprNode != "osc" || b.exprArg != "freq")
+                        fail("the box names the arg it feeds", b.name);
+                    else
+                        ok("an expression is one read-only box: its text, a "
+                           "port per leaf, one wire out");
+
+                    /* And no wire may be dragged into it, or out of it. */
+                    int host = -1;
+
+                    for (size_t i = 0; i < g.boxes().size(); i++)
+                        if (g.boxes()[i].name == "freq")
+                            host = (int)i;
+
+                    string why;
+                    int refusals = 0;
+
+                    if (host >= 0 && !g.canConnect(host, 0, box, 0, why))
+                        refusals++;
+
+                    if (host >= 0 && !g.canConnect(box, ins, host, 0, why))
+                        refusals++;
+
+                    /* And not onto the arg the expression drives, either. */
+                    int oscBox = -1, freqPort = -1;
+
+                    for (size_t i = 0; i < g.boxes().size(); i++)
+                        if (g.boxes()[i].name == "osc")
+                            oscBox = (int)i;
+
+                    if (oscBox >= 0)
+                        for (size_t q = 0; q < g.boxes()[oscBox].ports.size();
+                             q++)
+                            if (g.boxes()[oscBox].ports[q].name == "freq")
+                                freqPort = (int)q;
+
+                    if (oscBox >= 0 && freqPort >= 0 && host >= 0 &&
+                        !g.canConnect(host, 0, oscBox, freqPort, why))
+                        refusals++;
+
+                    if (refusals != 3)
+                        fail("an expression refuses every wire into or out "
+                             "of it", "");
+                    else
+                        ok("canConnect refuses a wire into an expression, out "
+                           "of one, and onto the arg one drives");
+                }
+            }
+
+            delete tree;
+        }
+    }
+
+    /* ---- the writer leaves the text alone ------------------------------ */
+
+    /* dspwrite's property over the corpus is that a write of the value
+     * already there changes no byte. An expression has no value to write, so
+     * what has to hold instead is that every edit aimed at one is refused
+     * with the file untouched -- and that the one edit that is allowed,
+     * removing it, is the same `= 0' rewrite disconnect has always done.
+     */
+    {
+        const string file = scratchPath("exprcheck-edit.dsp");
+
+        const string before = wrap("",
+            "node freq misc::midi2freq {\n"
+            "    note = ionode->note;\n"
+            "};\n"
+            "\n"
+            "node osc osc::simple {\n"
+            "    freq = freq->out * 2;\n"
+            "};\n");
+
+        if (!writeFile(file, before))
+            ;
+        else
+        {
+            string why;
+            int refusals = 0;
+
+            if (NodeEdit::setValue(file, "osc", "freq", 440, why) !=
+                    NodeEdit::OK)
+                refusals++;
+
+            if (NodeEdit::connect(file, "osc", "freq", "freq", "out", why) !=
+                    NodeEdit::OK)
+                refusals++;
+
+            string after;
+
+            /* In its own scope, and this is not tidiness. NodeEdit writes a
+               temporary and renames it over the target; Windows refuses a
+               rename onto a file something still has open, so a reader left
+               alive across the disconnect below fails the write with
+               "could not write" on one platform and nowhere else. */
+            {
+                std::ifstream in(file.c_str(), std::ios::binary);
+
+                after.assign((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+            }
+
+            if (refusals != 2)
+                fail("setValue and connect refuse an expression", "");
+            else if (after != before)
+                fail("a refused edit leaves the file alone", "");
+            else if (NodeEdit::disconnect(file, "osc", "freq", 0, why) !=
+                         NodeEdit::OK)
+                fail("disconnect removes an expression", why);
+            else
+            {
+                string gone;
+
+                {
+                    std::ifstream cut(file.c_str(), std::ios::binary);
+
+                    gone.assign((std::istreambuf_iterator<char>(cut)),
+                                std::istreambuf_iterator<char>());
+                }
+
+                if (gone.find("freq = 0;") == string::npos)
+                    fail("disconnect rewrites the arg to 0", gone);
+                else if (gone.find("freq->out * 2") != string::npos)
+                    fail("the expression is gone", gone);
+                else
+                    ok("setValue and connect refuse an expression and change "
+                       "no byte; disconnect rewrites the whole arg to 0");
+            }
+        }
+
+        remove(file.c_str());
+    }
+
+    /* ---- and a node can still be added beside one ---------------------- */
+
+    /* dspnew's property: add a node and remove it again, byte for byte. A
+     * file with an expression in it must not be a file the writer has stopped
+     * being able to touch -- only the expression itself is off limits.
+     */
+    {
+        const string file = scratchPath("exprcheck-add.dsp");
+
+        const string before = wrap("",
+            "node freq misc::midi2freq {\n"
+            "    note = ionode->note;\n"
+            "};\n"
+            "\n"
+            "node osc osc::simple {\n"
+            "    freq = freq->out * 2;\n"
+            "};\n");
+
+        if (!writeFile(file, before))
+            ;
+        else
+        {
+            string why;
+            int removed = 0;
+
+            if (NodeEdit::addNode(file, "extra", "math::abs", why) !=
+                    NodeEdit::OK)
+                fail("a node is added beside an expression", why);
+            else if (NodeEdit::removeNode(file, "extra", removed, why) !=
+                         NodeEdit::OK)
+                fail("and removed again", why);
+            else
+            {
+                string after;
+
+                {
+                    std::ifstream in(file.c_str(), std::ios::binary);
+
+                    after.assign((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+                }
+
+                if (after != before)
+                    fail("add then remove restores the file", "it did not");
+                else
+                    ok("a node added beside an expression and removed again "
+                       "leaves the file byte for byte");
+            }
+        }
+
+        remove(file.c_str());
+    }
+
+    /* ---- removing what an expression reads keeps the arithmetic -------- */
+
+    /* A control and a node are both things an expression can be *part of*,
+     * and both used to take the whole arg with them: the writer found the
+     * reference anywhere in a right-hand side and replaced the entire
+     * right-hand side with 0. Deleting `@detune' turned ladder.dsp's
+     * `freq = freq->out + @detune' into `freq = 0', so the oscillator lost
+     * its pitch rather than its detune, and the edit reported success.
+     *
+     * The reference has to go -- it will not resolve -- and nothing else
+     * does. A control's own value stands in its place; a node's output has
+     * no value to stand in and becomes the 0 a plain binding becomes. A
+     * plain binding is untouched either way, which is what keeps disconnect
+     * and the `= 0' rewrite above saying the same thing they always did.
+     */
+    {
+        const string file = scratchPath("exprcheck-remove.dsp");
+
+        const string before = wrap(
+            "@detune = 1.3;\n@slow = 4 ms;\n",
+            "node freq misc::midi2freq {\n"
+            "    note = ionode->note;\n"
+            "};\n"
+            "\n"
+            "node osc osc::simple {\n"
+            "    freq = freq->out + @detune;\n"
+            "    mul = @detune;\n"
+            "    pw = freq->out * 0.5;\n"
+            "    amp = @slow * 2;\n"
+            "};\n"
+            "\n"
+            "node plain math::abs {\n"
+            "    in = freq->out;\n"
+            "};\n");
+
+        if (!writeFile(file, before))
+            ;
+        else
+        {
+            string why, after;
+            int removed = 0;
+
+            if (NodeEdit::removeControl(file, "detune", removed, why) !=
+                    NodeEdit::OK)
+                fail("a control an expression reads is removed", why);
+            else
+            {
+                {
+                    std::ifstream in(file.c_str(), std::ios::binary);
+
+                    after.assign((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+                }
+
+                if (after.find("freq = freq->out + 1.3;") == string::npos)
+                    fail("the control's value stands in its place", after);
+                else if (after.find("mul = 0;") == string::npos)
+                    fail("a plain binding still becomes 0", after);
+                else if (after.find("@detune") != string::npos)
+                    fail("no reference to the control is left", after);
+                else if (NodeEdit::removeControl(file, "slow", removed,
+                                                 why) != NodeEdit::OK)
+                    fail("a control with a unit is removed", why);
+                else
+                {
+                    std::ifstream in(file.c_str(), std::ios::binary);
+
+                    after.assign((std::istreambuf_iterator<char>(in)),
+                                 std::istreambuf_iterator<char>());
+
+                    /* `4 ms' cannot appear inside an expression, so there is
+                       nothing to stand in and the arg falls back to 0. */
+                    if (after.find("amp = 0;") == string::npos)
+                        fail("a unit-carrying control flattens the arg",
+                             after);
+                    else
+                        ok("removing a control keeps the arithmetic around "
+                           "it, and falls back to 0 where its unit cannot");
+                }
+            }
+
+            if (NodeEdit::removeNode(file, "freq", removed, why) !=
+                    NodeEdit::OK)
+                fail("a node an expression reads is removed", why);
+            else
+            {
+                std::ifstream in(file.c_str(), std::ios::binary);
+
+                after.assign((std::istreambuf_iterator<char>(in)),
+                             std::istreambuf_iterator<char>());
+
+                if (after.find("freq = 0 + 1.3;") == string::npos ||
+                    after.find("pw = 0 * 0.5;") == string::npos)
+                    fail("a removed node leaves the rest of the arithmetic",
+                         after);
+                else if (after.find("in = 0;") == string::npos)
+                    fail("and a plain binding still becomes 0", after);
+                else
+                    ok("removing a node replaces the reference and not the "
+                       "whole arg");
+            }
+        }
+
+        remove(file.c_str());
     }
 
     remove(scratch.c_str());

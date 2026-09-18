@@ -47,6 +47,11 @@
 #define COL_ATTACH    0.27, 0.25, 0.33
 #define COL_CUT       0.90, 0.42, 0.38
 #define COL_CTL_HEAD  0.34, 0.30, 0.44
+
+/* An expression's head, distinct from a node's and from a control's. It is
+   neither: the box is not in the file as a node, and there is nothing on it
+   to turn. */
+#define COL_EXPR_HEAD 0.30, 0.38, 0.32
 #define COL_TRACK     0.16, 0.17, 0.19
 #define COL_FILL      0.62, 0.55, 0.82
 #define COL_HANDLE    0.86, 0.83, 0.94
@@ -731,6 +736,8 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
         cr->set_source_rgb(COL_IO_HEAD);
     else if (b.isControl)
         cr->set_source_rgb(COL_CTL_HEAD);
+    else if (b.isExpr)
+        cr->set_source_rgb(COL_EXPR_HEAD);
     else
         cr->set_source_rgb(COL_HEAD);
     cr->fill();
@@ -754,6 +761,28 @@ void NodeCanvas::drawBox (const Cairo::RefPtr<Cairo::Context> &cr, int index,
 
         /* The one output port still wants drawing, so fall through to the
            port loop rather than returning here. */
+    }
+
+    /* The arithmetic itself, under the title, where a node shows its ports'
+       values. It is the whole content of the box -- there is nothing else to
+       say about an expression, and the ports already name its leaves. Clipped
+       to the box rather than shortened: a long expression running off the
+       edge reads as "there is more of this", which an ellipsis in the middle
+       of someone's arithmetic does not. */
+    if (b.isExpr && !b.exprText.empty())
+    {
+        cr->save();
+        cr->rectangle(b.x + 1, b.y + 20, b.w - 2, b.h - 20);
+        cr->clip();
+
+        cr->select_font_face("monospace", Cairo::ToyFontFace::Slant::NORMAL,
+                             Cairo::ToyFontFace::Weight::NORMAL);
+        cr->set_font_size(9.0);
+        cr->set_source_rgb(COL_TEXT);
+        cr->move_to(b.x + 6, b.y + 20.0 + NodeGraph::exprTextRow() - 4.0);
+        cr->show_text(b.exprText);
+
+        cr->restore();
     }
 
     string corner = b.isControl ? ("@" + b.ctlArg) : b.plugin;

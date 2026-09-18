@@ -31,6 +31,7 @@ thSynthTree::thSynthTree (const string &name, thSynth *synth)
     nodeindex_ = NULL;   /* the destructor delete[]s this */
     name_ = name;
     nodecount_ = 0;
+    made_ = NULL;
 
     synth_ = synth;
 }
@@ -40,6 +41,7 @@ thSynthTree::thSynthTree (const thSynthTree &oldtree)
     ionode_ = NULL;
     nodeindex_ = NULL;   /* the destructor delete[]s this */
     nodecount_ = oldtree.nodeCount();
+    made_ = NULL;
     name_ = oldtree.name();
     desc_ = oldtree.desc();
     synth_ = oldtree.synth();
@@ -490,6 +492,9 @@ bool thSynthTree::emitExpr (const thExprNode *e, const string &base,
 
     newNode(n, true);
 
+    if (made_ != NULL)
+        made_->push_back(n->name());
+
     for (int i = 0; i < arity; i++)
         applyRef(n, argname[i], kid[i]);
 
@@ -511,11 +516,29 @@ bool thSynthTree::desugarExprs (void)
         if (p.node == NULL)
             continue;
 
+        thExprBox box;
+
+        box.node = p.node->name();
+        box.arg = p.arg;
+        box.text = thExprText(p.expr);
+
+        thExprLeaves(p.expr, box.leaves);
+
         ExprRef r;
         int serial = 0;
 
-        if (emitExpr(p.expr, p.node->name() + "." + p.arg, serial, r))
+        made_ = &box.made;
+
+        const bool built = emitExpr(p.expr, box.node + "." + box.arg, serial,
+                                    r);
+
+        made_ = NULL;
+
+        if (built)
+        {
             applyRef(p.node, p.arg, r);
+            exprBoxes_.push_back(box);
+        }
         else
             ok = false;
     }
@@ -526,6 +549,16 @@ bool thSynthTree::desugarExprs (void)
     pendingExprs_.clear();
 
     return ok;
+}
+
+const thExprBox *thSynthTree::exprBoxMaking (const string &name) const
+{
+    for (size_t i = 0; i < exprBoxes_.size(); i++)
+        for (size_t k = 0; k < exprBoxes_[i].made.size(); k++)
+            if (exprBoxes_[i].made[k] == name)
+                return &exprBoxes_[i];
+
+    return NULL;
 }
 
 void thSynthTree::process (unsigned int windowlen)

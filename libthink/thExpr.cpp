@@ -19,6 +19,7 @@
 #include "config.h"
 
 #include <stdio.h>
+#include <stdlib.h>     /* strtof, for the shortest round-tripping decimal */
 #include <math.h>
 
 #include "thExpr.h"
@@ -309,14 +310,70 @@ thExprHasSignal (const thExprNode *e)
     return false;
 }
 
-/* Plain decimal, no exponent, no trailing zeros -- the same shape the
-   grammar accepts, so the text this produces is text a .dsp could hold. */
+static void
+collectLeaves (const thExprNode *e, vector<thExprLeaf> &out)
+{
+    if (e == NULL)
+        return;
+
+    if (e->kind == thExprNode::NODEREF || e->kind == thExprNode::CHANREF)
+    {
+        thExprLeaf leaf;
+
+        leaf.isChan = (e->kind == thExprNode::CHANREF);
+        leaf.node = leaf.isChan ? e->name : e->node;
+        leaf.arg = leaf.isChan ? "" : e->arg;
+
+        for (size_t i = 0; i < out.size(); i++)
+            if (out[i].isChan == leaf.isChan && out[i].node == leaf.node &&
+                out[i].arg == leaf.arg)
+                return;
+
+        out.push_back(leaf);
+
+        return;
+    }
+
+    for (size_t i = 0; i < e->kids.size(); i++)
+        collectLeaves(e->kids[i], out);
+}
+
+void
+thExprLeaves (const thExprNode *e, vector<thExprLeaf> &out)
+{
+    out.clear();
+
+    collectLeaves(e, out);
+}
+
+/* Plain decimal, and the shortest one that reads back as this same float --
+   the shape the grammar accepts, so the text this produces is text a .dsp
+   could hold.
+ *
+ * `%g' was neither. It switches to an exponent outside 1e-4 .. 1e+6, and the
+ * lexer's number is `[0-9]+(\.([0-9]+)?)?' with no exponent at all, so a
+ * small constant came out `1e-07'; and it rounds to six significant digits,
+ * so `1.2345678' came out `1.23457'. Both put a number in the editor's box
+ * that the author did not write and the language cannot take back.
+ *
+ * Widening until strtof agrees rather than picking a fixed precision: 9
+ * digits round-trips every float but writes `0.100000001' for a tenth, and
+ * the first precision that round-trips is both exact and what a reader
+ * expects. A non-finite value matches at once and comes out `inf' or `nan',
+ * which no .dsp can hold either -- but saying so is better than rounding it
+ * to something that looks finite. */
 static string
 number (float v)
 {
-    char buf[64];
+    char buf[512];
 
-    snprintf(buf, sizeof(buf), "%g", (double)v);
+    for (int prec = 0; prec < 45; prec++)
+    {
+        snprintf(buf, sizeof(buf), "%.*f", prec, (double)v);
+
+        if (strtof(buf, NULL) == v)
+            break;
+    }
 
     return string(buf);
 }
@@ -362,13 +419,20 @@ text (const thExprNode *e)
     }
 
     /* Parenthesised where precedence needs it, and on the right of `-' and
-       `/' where associativity does: `a - (b - c)' is not `a - b - c'. */
+       `/' where associativity does: `a - (b - c)' is not `a - b - c'.
+     *
+     * `<=' and not `<' on the left, because every operator in this grammar
+     * groups to the right. A left operand of equal precedence is exactly the
+     * one that needs the parentheses: `(a - 1) - 2' printed as `a - 1 - 2'
+     * reads back as `a - (1 - 2)', which is `a + 1' -- a box showing the
+     * author arithmetic their patch is not doing. A leaf or a call scores 3
+     * and so is never wrapped by this. */
     const int mine = precedence(e);
 
     string left = text(e->kids[0]);
     string right = text(e->kids[1]);
 
-    if (precedence(e->kids[0]) < mine)
+    if (precedence(e->kids[0]) <= mine)
         left = "(" + left + ")";
 
     if (precedence(e->kids[1]) < mine ||

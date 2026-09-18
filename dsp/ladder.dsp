@@ -106,30 +106,22 @@ node freq misc::midi2freq {
     note = ionode->note;
 };
 
-# The second saw a few hertz off the first, so the beat is the same at
-# every pitch; the sub an octave down.
-node freq2 math::add {
-    in0 = freq->out;
-    in1 = @detune;
-};
-
-node subfreq math::mul {
-    in0 = freq->out;
-    in1 = 0.5;
-};
-
 node osc1 osc::simple {
     freq = freq->out;
     waveform = 1;
 };
 
+# The second saw a few hertz off the first, so the beat is the same at
+# every pitch; the sub an octave down. Both were a math:: node apiece and
+# are arithmetic on the arg instead -- the same two nodes, built at load,
+# named after the args they feed.
 node osc2 osc::simple {
-    freq = freq2->out;
+    freq = freq->out + @detune;
     waveform = 1;
 };
 
 node osc3 osc::simple {
-    freq = subfreq->out;
+    freq = freq->out * 0.5;
     waveform = 2;
 };
 
@@ -173,15 +165,10 @@ node drive dist::saturate {
     factor = @drive;
 };
 
-node suscalc math::mul {
-    in0 = ionode->velocity;
-    in1 = @s;
-};
-
 node env env::adsr {
     a = @a;
     d = @d;
-    s = suscalc->out;
+    s = ionode->velocity * @s;
     r = @r;
     p = ionode->velocity;
     trigger = ionode->trigger;

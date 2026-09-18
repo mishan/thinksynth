@@ -138,4 +138,20 @@ THINK_API bool thExprHasSignal (const thExprNode *e);
  * there is nothing for this to have to preserve. */
 THINK_API std::string thExprText (const thExprNode *e);
 
+/* One signal leaf of an expression, as something a wire can come from. */
+struct thExprLeaf
+{
+    bool        isChan;     /* `@name' rather than `node->arg'          */
+    std::string node;       /* the node, or the control's name          */
+    std::string arg;        /* the port; empty for a control            */
+
+    thExprLeaf (void) : isChan(false) { }
+};
+
+/* Every distinct signal leaf, left to right. Distinct because `a->out * 2 +
+ * a->out' reads one output twice and the editor draws one wire, not two --
+ * the same thing the graph does for a node arg bound twice. */
+THINK_API void thExprLeaves (const thExprNode *e,
+                             std::vector<thExprLeaf> &out);
+
 #endif /* TH_EXPR_H */

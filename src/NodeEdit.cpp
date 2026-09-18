@@ -454,6 +454,129 @@ static bool findNodeBlock (const vector<string> &lines, const string &node,
 
 /* Locates `<arg> = <rhs>;' within a block, returning the line and the extent
    of the right-hand side within it. */
+/* True if a right-hand side is arithmetic rather than one of the three shapes
+ * this writer knows how to rewrite: a number (with or without a unit), a
+ * `node->port', or an `@name'.
+ *
+ * Phrased as "not one of the three" rather than "contains an operator",
+ * because `freq->out' contains a `-' and `5 ms' contains a space, and a rule
+ * that hunted for operators would have to unpick both. A writer that cannot
+ * name the shape in front of it must not rewrite it: the value in the file is
+ * the author's arithmetic, and replacing a term of it with a wire is exactly
+ * the re-emission splicing exists to prevent.
+ */
+static bool isExpressionRhs (const string &rhs)
+{
+    const string t = trim(rhs);
+
+    if (t.empty())
+        return false;
+
+    size_t i = 0;
+
+    if (t[0] == '@')
+        i = 1;
+
+    /* A name, or a name->name. */
+    if (i < t.size() && (isalpha((unsigned char)t[i]) || t[i] == '_'))
+    {
+        while (i < t.size() &&
+               (isalnum((unsigned char)t[i]) || t[i] == '_'))
+            i++;
+
+        if (t[0] != '@' && i + 1 < t.size() && t[i] == '-' && t[i + 1] == '>')
+        {
+            i += 2;
+
+            while (i < t.size() &&
+                   (isalnum((unsigned char)t[i]) || t[i] == '_'))
+                i++;
+        }
+
+        return i != t.size();
+    }
+
+    /* A number, optionally signed, optionally with `ms' or `%' after it. */
+    if (t[i] == '-' || t[i] == '+')
+        i++;
+
+    bool digits = false;
+
+    while (i < t.size() && isdigit((unsigned char)t[i]))
+    { i++; digits = true; }
+
+    if (i < t.size() && t[i] == '.')
+    {
+        i++;
+
+        while (i < t.size() && isdigit((unsigned char)t[i]))
+        { i++; digits = true; }
+    }
+
+    if (!digits)
+        return true;
+
+    const string rest = trim(t.substr(i));
+
+    return !(rest.empty() || rest == "ms" || rest == "%");
+}
+
+/* Replaces every whole occurrence of `ref' in `rhs' with `with'.
+ *
+ * `ref' is `@name' for a control, or `node->' for a node -- with takesPort,
+ * in which case the port name after the arrow is part of what goes. False if
+ * there was none, and `out' is then untouched.
+ *
+ * What this is for: removing a control or a node used to replace the entire
+ * right-hand side with `0', which is right when the value *is* the reference
+ * and wrong once it can be a term of something larger. Deleting `@detune'
+ * turned ladder.dsp's `freq = freq->out + @detune' into `freq = 0' -- the
+ * oscillator lost its pitch, not its detune, and the edit reported success.
+ * The reference has to go because it will not resolve; the arithmetic around
+ * it does not.
+ */
+static bool substituteRef (const string &rhs, const string &ref,
+                           bool takesPort, const string &with, string &out)
+{
+    string built;
+    string::size_type taken = 0, at = 0;
+    bool any = false;
+
+    while ((at = rhs.find(ref, taken)) != string::npos)
+    {
+        string::size_type end = at + ref.size();
+
+        if (takesPort)
+            while (end < rhs.size() && isWordChar(rhs[end]))
+                end++;
+
+        /* `myosc->out' is not `osc->out' and `@warmth' is not `@warm'. An
+           arrow with no port after it is not a reference at all. */
+        const bool bounded =
+            (at == 0 || !isWordChar(rhs[at - 1])) &&
+            (takesPort ? end > at + ref.size()
+                       : (end >= rhs.size() || !isWordChar(rhs[end])));
+
+        built += rhs.substr(taken, (bounded ? at : end) - taken);
+
+        if (bounded)
+        {
+            built += with;
+            any = true;
+        }
+
+        taken = end;
+    }
+
+    if (!any)
+        return false;
+
+    built += rhs.substr(taken);
+    out = built;
+
+    return true;
+}
+
 static bool findAssign (const vector<string> &lines, size_t open, size_t close,
                         const string &arg, size_t &line,
                         string::size_type &rhsFrom, string::size_type &rhsTo)
@@ -699,6 +822,17 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
     {
         const string oldRhs = lines[line].substr(from, to - from);
 
+        /* An expression is a graph, not a number with a spelling. Typing
+           over one would drop the author's arithmetic; removing it is
+           disconnect's job. Named separately from the wire case below so the
+           message says which it is. */
+        if (isExpressionRhs(oldRhs))
+        {
+            why = arg + " is the expression `" + trim(oldRhs) +
+                  "'. Remove it first.";
+            return NOT_A_VALUE;
+        }
+
         /* Refuse to turn a connection into a number. Disconnecting is a
            deliberate act and belongs to edge editing, not to typing in a
            box. */
@@ -807,6 +941,15 @@ static NodeEdit::Result bindArg (string &source, const string &node,
         if (trim(lines[line].substr(from, to - from)) == text)
             return NodeEdit::OK;
 
+        /* Wiring into an expression would keep one term of the author's
+           arithmetic and silently drop the rest. Removing the whole thing is
+           a gesture that exists -- disconnect rewrites the arg to `= 0'. */
+        if (isExpressionRhs(lines[line].substr(from, to - from)))
+        {
+            why = arg + " is an expression; disconnect it first";
+            return NodeEdit::REFUSED;
+        }
+
         lines[line] = lines[line].substr(0, from) + text +
                       lines[line].substr(to);
     }
@@ -893,10 +1036,11 @@ NodeEdit::Result NodeEdit::Text::disconnect (string &source, const string &node,
 
     const string oldRhs = trim(lines[line].substr(from, to - from));
 
-    /* Two things count as connected: a node's output, and a control. Since
-       controls became nodes on the canvas, `a = @a' is a wire like any other
-       and cutting it has to work the same way. */
-    if (oldRhs.find("->") == string::npos &&
+    /* Three things count as connected: a node's output, a control, and an
+       expression. Controls became nodes on the canvas, so `a = @a' is a wire
+       like any other; an expression is a whole subgraph, and cutting it is
+       the one edit that can be made to one without rewriting its text. */
+    if (!isExpressionRhs(oldRhs) && oldRhs.find("->") == string::npos &&
         (oldRhs.empty() || oldRhs[0] != '@'))
     {
         why = arg + " is not connected to anything";
@@ -1244,7 +1388,13 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
     /* Anything reading from it has to stop, or the file loads with
        "setPointers: Node x not found!!" and the arg silently reads zero.
        Rewritten to 0 rather than deleted, the same as disconnect(): the line
-       keeps its place and its trailing comment. */
+       keeps its place and its trailing comment.
+
+       Inside arithmetic only the reference is replaced. There is no value a
+       departed node's output could stand for, so it becomes the 0 a plain
+       binding becomes -- but `freq = a->out + @detune' comes back
+       `freq = 0 + @detune' and keeps the control, rather than losing the
+       whole arg to a node that was one term of it. */
     const string ref = node + "->";
 
     for (size_t i = 0; i < lines.size(); i++)
@@ -1278,7 +1428,14 @@ NodeEdit::Result NodeEdit::Text::removeNode (string &source, const string &node,
         while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
             to--;
 
-        lines[i] = lines[i].substr(0, from) + "0" + lines[i].substr(to);
+        const string oldRhs = code.substr(from, to - from);
+        string cut;
+
+        if (!isExpressionRhs(oldRhs) ||
+            !substituteRef(oldRhs, ref, true, "0", cut))
+            cut = "0";
+
+        lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
         removed++;
     }
 
@@ -1814,6 +1971,14 @@ NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &na
 
     splitLines(source, lines, endsWithNewline);
 
+    /* What the control held, to put where an expression was reading it.
+     *
+     * The declared text verbatim rather than a reformatted number, so
+     * `th_max' stays `th_max' and nobody's `0.18' becomes `0.180000'. Empty
+     * when there is nothing an expression could take: a unit, which no
+     * expression may carry, or arithmetic of its own. */
+    string stood;
+
     {
         size_t line = 0;
         string::size_type from = 0, to = 0;
@@ -1823,11 +1988,23 @@ NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &na
             why = "no `@" + name + "' in the file";
             return NO_NODE;
         }
+
+        const string decl = trim(lines[line].substr(from, to - from));
+
+        if (unitsOf(decl).empty() && !isExpressionRhs(decl))
+            stood = decl;
     }
 
     /* Everything reading it stops reading it, for the same reason as
        removeNode: left alone the arg resolves to nothing and silently reads
-       zero, which is a change to the sound nobody asked for. */
+       zero, which is a change to the sound nobody asked for.
+
+       Inside arithmetic it is the reference that goes and not the arg: the
+       control's own value stands in its place, so `freq = freq->out +
+       @detune' becomes `freq = freq->out + 1.3' and the oscillator keeps
+       its pitch. Where the control carried a unit there is nothing to stand
+       in -- an expression may not hold one -- and the arg falls back to the
+       0 it used to get. */
     const string ref = "@" + name;
 
     for (size_t i = 0; i < lines.size(); i++)
@@ -1860,7 +2037,14 @@ NodeEdit::Result NodeEdit::Text::removeControl (string &source, const string &na
         while (to > from && (code[to - 1] == ' ' || code[to - 1] == '\t'))
             to--;
 
-        lines[i] = lines[i].substr(0, from) + "0" + lines[i].substr(to);
+        const string oldRhs = code.substr(from, to - from);
+        string cut;
+
+        if (stood.empty() || !isExpressionRhs(oldRhs) ||
+            !substituteRef(oldRhs, ref, false, stood, cut))
+            cut = "0";
+
+        lines[i] = lines[i].substr(0, from) + cut + lines[i].substr(to);
         removed++;
     }
 

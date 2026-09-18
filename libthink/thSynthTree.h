@@ -73,6 +73,25 @@ struct thPendingExpr
     thExprNode *expr;
 };
 
+/* What an expression was, kept after it has become nodes.
+ *
+ * The desugar is lossy on purpose -- the graph is the truth and the tree is
+ * gone -- but an editor drawing `osc2.freq#1', `osc2.freq#2' and
+ * `osc2.freq#3' as three anonymous math boxes would be showing the compiler's
+ * working rather than the patch. So the text and the leaves survive, and
+ * NodeGraph collapses the lot back into one read-only box.
+ *
+ * Not carried by the copy constructor: a copy is a voice, and a voice has no
+ * editor. */
+struct thExprBox
+{
+    string node;                /* the node whose arg it feeds           */
+    string arg;
+    string text;               /* as a .dsp would write it              */
+    vector<thExprLeaf> leaves;
+    vector<string> made;       /* the synthesised node names            */
+};
+
 class THINK_API thSynthTree {
 public:
     thSynthTree(const string &name, thSynth *synth);
@@ -148,6 +167,13 @@ public:
        creates have args of their own to index. */
     bool desugarExprs (void);
 
+    /* One per expression the desugar rewrote, empty before it runs. See
+       thExprBox. */
+    const vector<thExprBox> &exprBoxes (void) const { return exprBoxes_; }
+
+    /* The record whose synthesised nodes include `name', or NULL. */
+    const thExprBox *exprBoxMaking (const string &name) const;
+
     /* Turns every `5 ms' and `90%' the file wrote into what the engine
        works in, at `sampleRate' samples per second, and forgets them --
        so calling it twice cannot fold twice. Run once, from
@@ -185,6 +211,11 @@ private:
     bool emitExpr (const thExprNode *e, const string &base, int &serial,
                    ExprRef &out);
 
+    /* Where emitExpr records the node names it creates, or NULL outside a
+       desugar. A member rather than another parameter threaded through the
+       recursion, which already carries three. */
+    vector<string> *made_;
+
     int buildSynthTreeHelper (thNode *parent, int nodeid);
     void buildSynthTreeHelper2 (const thArgMap &argtree,
                                 thNode *currentnode);
@@ -204,6 +235,9 @@ private:
     /* Empty except between the parse and desugarExprs(), and not copied, for
        the reasons above. */
     std::vector<thPendingExpr> pendingExprs_;
+
+    /* What desugarExprs() left behind, for the editor. Not copied either. */
+    std::vector<thExprBox> exprBoxes_;
 
     string name_, desc_;
     int nodecount_;      /* counter of thNodes in the thSynthTree, used as the 

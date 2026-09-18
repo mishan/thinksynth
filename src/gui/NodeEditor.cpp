@@ -1948,6 +1948,19 @@ void NodeEditor::onDisconnect (int edge)
 
     const NodeGraph::Edge &ed = graph_.edges()[edge];
 
+    /* A leaf of an expression is not a line in the file -- the arithmetic is,
+       and cutting one term out of it means editing the text. The wire out of
+       an expression is a different matter: its far end is an ordinary arg,
+       and disconnecting that rewrites the arg to `= 0', which removes the
+       whole expression. */
+    if (graph_.boxes()[ed.toBox].isExpr)
+    {
+        setStatus("That is part of an expression. Disconnect " +
+                  graph_.boxes()[ed.toBox].exprNode + "." +
+                  graph_.boxes()[ed.toBox].exprArg + " to remove all of it.");
+        return;
+    }
+
     WireEdit e;
 
     e.node = graph_.boxes()[ed.toBox].name;

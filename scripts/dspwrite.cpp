@@ -990,6 +990,15 @@ int main (int argc, char **argv)
             const NodeGraph::Box &tb = g.boxes()[ed.toBox];
             const NodeGraph::Box &fb = g.boxes()[ed.fromBox];
 
+            /* A wire into or out of an expression box is not a line in the
+               file. Its source is the arithmetic and its destination is a
+               leaf of the arithmetic; neither end is a `node' block, and
+               cutting one means removing the whole expression rather than
+               restoring it afterwards. NodeGraph::canConnect refuses these
+               for the same reason. */
+            if (tb.isExpr || fb.isExpr)
+                continue;
+
             const string arg = tb.ports[ed.toPort].name;
             const string port = fb.ports[ed.fromPort].name;
 

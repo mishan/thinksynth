@@ -178,10 +178,24 @@ void referenceSum (thSynth &synth, int chan, const string &node,
     }
 }
 
-/* Every (node, arg) the graph model calls an output port, which is what a
-   probe is for. Uses NodeGraph rather than the plugin tables directly so that
-   what is checked here is what the editor would offer. */
-void outputPorts (const NodeGraph &g, vector<pair<string, string> > &out)
+/* One output port, under both the names it has.
+ *
+ * They differ for an expression: the canvas and the file call its box
+ * `osc2.freq', and the engine knows the last node of the chain the desugar
+ * built. Arming goes through the box name, which is what the editor holds and
+ * what a `# @probe' line stores; the reference sum reads the note's own tree,
+ * which only knows the other one. */
+struct PortRef
+{
+    string arm;     /* what a probe is armed on  */
+    string ref;     /* what the note's tree calls it */
+    string port;
+};
+
+/* Every output port the graph model has, which is what a probe is for. Uses
+   NodeGraph rather than the plugin tables directly so that what is checked
+   here is what the editor would offer. */
+void outputPorts (const NodeGraph &g, vector<PortRef> &out)
 {
     for (size_t b = 0; b < g.boxes().size(); b++)
     {
@@ -195,7 +209,13 @@ void outputPorts (const NodeGraph &g, vector<pair<string, string> > &out)
             if (bx.ports[p].isInput)
                 continue;
 
-            out.push_back(make_pair(bx.name, bx.ports[p].name));
+            PortRef r;
+
+            r.arm = bx.name;
+            r.ref = bx.isExpr ? bx.exprOutNode : bx.name;
+            r.port = bx.ports[p].name;
+
+            out.push_back(r);
         }
     }
 }
@@ -213,7 +233,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
 
     /* The port list comes off an unowned parse, so building it cannot disturb
        anything a channel is playing. */
-    vector<pair<string, string> > ports;
+    vector<PortRef> ports;
 
     {
         thSynth look(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
@@ -249,7 +269,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
         }
 
         string why;
-        const int slot = synth.armProbe(0, ports[p].first, ports[p].second,
+        const int slot = synth.armProbe(0, ports[p].arm, ports[p].port,
                                         why);
 
         if (slot < 0)
@@ -257,7 +277,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
             /* An output port the tap will not take is a real disagreement
                between the editor and the engine, not a curiosity. */
             printf("FAIL  %s: cannot probe %s.%s -- %s\n", file,
-                   ports[p].first.c_str(), ports[p].second.c_str(),
+                   ports[p].arm.c_str(), ports[p].port.c_str(),
                    why.c_str());
             r.bad++;
             checks++;
@@ -292,7 +312,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
             if (probe == NULL)
             {
                 printf("FAIL  %s: probe on %s.%s disarmed itself\n", file,
-                       ports[p].first.c_str(), ports[p].second.c_str());
+                       ports[p].arm.c_str(), ports[p].port.c_str());
                 r.bad++;
                 checks++;
                 failures++;
@@ -308,7 +328,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
             if ((int)got != windowlen)
             {
                 printf("FAIL  %s: %s.%s published %u of %d samples\n", file,
-                       ports[p].first.c_str(), ports[p].second.c_str(), got,
+                       ports[p].arm.c_str(), ports[p].port.c_str(), got,
                        windowlen);
                 r.bad++;
                 checks++;
@@ -316,7 +336,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
                 break;
             }
 
-            referenceSum(synth, 0, ports[p].first, ports[p].second, windowlen,
+            referenceSum(synth, 0, ports[p].ref, ports[p].port, windowlen,
                          reference);
 
             /* The tap is a window behind: it published what was computed
@@ -348,7 +368,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
                        saying it plainly. */
                     printf("FAIL  %s: %s.%s differs from the reference sum at "
                            "window %d, but no single sample does\n", file,
-                           ports[p].first.c_str(), ports[p].second.c_str(), w);
+                           ports[p].arm.c_str(), ports[p].port.c_str(), w);
                     mismatch = true;
                     r.bad++;
                     checks++;
@@ -358,7 +378,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
 
                 printf("FAIL  %s: %s.%s differs from the reference sum at "
                        "window %d sample %d (%g vs %g)\n", file,
-                       ports[p].first.c_str(), ports[p].second.c_str(), w, at,
+                       ports[p].arm.c_str(), ports[p].port.c_str(), w, at,
                        (double)tapped[at], (double)reference[at]);
                 mismatch = true;
                 r.bad++;
@@ -382,7 +402,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
         if (comparedWindows == 0)
         {
             printf("FAIL  %s: %s.%s published nothing in %d windows\n", file,
-                   ports[p].first.c_str(), ports[p].second.c_str(), windows);
+                   ports[p].arm.c_str(), ports[p].port.c_str(), windows);
             r.bad++;
             failures++;
             continue;
@@ -395,7 +415,7 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
 
         if (!quiet)
             printf("ok    %-28s %s.%-12s %d windows%s\n", file,
-                   ports[p].first.c_str(), ports[p].second.c_str(),
+                   ports[p].arm.c_str(), ports[p].port.c_str(),
                    comparedWindows, anySignal ? "" : "  (silent)");
     }
 
@@ -610,7 +630,7 @@ void properties (const string &pluginPath, const char *file)
 
         s.loadTree(file, 0, 100);
 
-        vector<pair<string, string> > ports;
+        vector<PortRef> ports;
 
         {
             thSynthTree *tree = s.parseTree(file);
@@ -628,7 +648,7 @@ void properties (const string &pluginPath, const char *file)
 
             for (int i = 0; i < TH_MAX_PROBES + 2; i++)
             {
-                if (s.armProbe(0, ports[i].first, ports[i].second, why) >= 0)
+                if (s.armProbe(0, ports[i].arm, ports[i].port, why) >= 0)
                     armed++;
             }
 
@@ -644,8 +664,8 @@ void properties (const string &pluginPath, const char *file)
         if (!ports.empty())
         {
             string why;
-            const int a = s2.armProbe(0, ports[0].first, ports[0].second, why);
-            const int b = s2.armProbe(0, ports[0].first, ports[0].second, why);
+            const int a = s2.armProbe(0, ports[0].arm, ports[0].port, why);
+            const int b = s2.armProbe(0, ports[0].arm, ports[0].port, why);
 
             ok(a >= 0 && a == b,
                "arming the same point twice reuses its slot (%d, %d)", a, b);
@@ -744,7 +764,7 @@ void properties (const string &pluginPath, const char *file)
 
         s.loadTree(file, 0, 100);
 
-        vector<pair<string, string> > ports;
+        vector<PortRef> ports;
 
         {
             thSynthTree *tree = s.parseTree(file);
@@ -758,7 +778,7 @@ void properties (const string &pluginPath, const char *file)
         if (!ports.empty())
         {
             string why;
-            const int slot = s.armProbe(0, ports[0].first, ports[0].second,
+            const int slot = s.armProbe(0, ports[0].arm, ports[0].port,
                                         why);
 
             ok(slot >= 0, "armed before the reload: %s", why.c_str());
@@ -779,7 +799,7 @@ void properties (const string &pluginPath, const char *file)
 
         s.loadTree(file, 0, 100);
 
-        vector<pair<string, string> > ports;
+        vector<PortRef> ports;
 
         {
             thSynthTree *tree = s.parseTree(file);
@@ -793,7 +813,7 @@ void properties (const string &pluginPath, const char *file)
         if (!ports.empty())
         {
             string why;
-            const int slot = s.armProbe(0, ports[0].first, ports[0].second,
+            const int slot = s.armProbe(0, ports[0].arm, ports[0].port,
                                         why);
 
             for (int n = 0; n < NUM_NOTES; n++)

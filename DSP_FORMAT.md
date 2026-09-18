@@ -122,6 +122,14 @@ unlikely.
 - **A unit inside an expression is refused**, signal or not, and so is an
   expression on a `@chanarg` or on its range — a control is a constant the GUI
   writes, and a value with two authors is not a thing this format can express.
+- **The editor draws one read-only box per expression** and refuses to wire
+  into it. `disconnect` removes the whole thing by rewriting the arg to `= 0`.
+  Deleting a control or a node the arithmetic reads replaces *that reference*
+  and leaves the rest standing: delete `@detune` and `freq = freq->out +
+  @detune` becomes `freq = freq->out + 1.3`, the value the control held. A node
+  has no value to stand in and becomes `0`, as does a control whose value
+  carries a unit, since no expression may hold one. See
+  [NODE_EDITOR.md](NODE_EDITOR.md#expressions-are-one-box).
 
 ### Chanargs and controls
 
