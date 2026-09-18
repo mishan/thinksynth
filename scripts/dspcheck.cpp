@@ -45,8 +45,9 @@
 static bool renderNote (const string &pluginPath, const char *file,
                         int windows, vector<float> &out)
 {
-    /* Both renders happen in this one process. osc::static's noise restarts
-       whenever a synth loads it, which the fresh synth below does; the
+    /* Both renders happen in this one process. The noise plugins' generators
+       -- osc::static's and osc::noise's -- restart whenever a synth loads
+       one, which the fresh synth below does; the
        reseed is for anything else that calls rand(), whose second run would
        otherwise continue the sequence and look non-deterministic. */
     srand(1);

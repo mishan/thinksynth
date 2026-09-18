@@ -121,6 +121,12 @@ think_harness(dspab)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
+# The three stateful nodes -- misc::slew, filt::svf, osc::noise -- measured:
+# a step response, a frequency response, a spectral tilt, and for each of them
+# that a window boundary is not an event. Builds its graphs in C++ rather than
+# parsing them, because the inputs it needs are not things the corpus holds.
+think_harness(statecheck)
+
 # The non-finite gate: every graph at the corners of every control it
 # declares, plus the engine guard's own claim about what one bad voice costs.
 # See the header of dspsweep.cpp for why the corners are swept one control at
@@ -409,6 +415,10 @@ add_test(NAME argtype
 add_test(NAME exprcheck
          COMMAND exprcheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
+# Needs the plugins and nothing else: its graphs are built in C++.
+add_test(NAME statecheck
+         COMMAND statecheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
          COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
@@ -465,7 +475,7 @@ add_test(NAME editorcheck
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     exprcheck gencheck dspsweep dspsweep.guard
+                     exprcheck statecheck gencheck dspsweep dspsweep.guard
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 

@@ -404,8 +404,9 @@ here is a fiftieth of a second rather than twenty microseconds — a 4410-sample
 delay is a hundred milliseconds on the audio thread and a minute and a half on
 this one. They would run, and produce numbers, and the numbers would mean
 something no author intended, which is worse than refusing because it looks
-like it worked. `osc::static` is refused for a different reason: it draws from
-a random generator nothing seeds, and a piece using it would not replay.
+like it worked. `osc::static` and `osc::noise` are refused for a different
+reason: they draw from a random generator nothing seeds, and a piece using one
+would not replay.
 
 Nodes step on **transport time**, so a pause freezes them where they are and a
 rewind starts them again from the top. How far an LFO has travelled is a

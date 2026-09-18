@@ -419,6 +419,20 @@ Resonator filter
 | `last` | state |  |  |  |  |  |
 | `out` | out | Filtered signal |  |  | full scale |  |
 
+### filt::svf
+
+State-variable filter: low, band and high
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `cutoff` | in | Cutoff in hertz, 0 to 0.49 of the sample rate; exact at every setting |  |  | Hz |  |
+| `res` | in | Resonance: 0 is flat, 0.99 is a Q of 50. Stable across the whole range |  | 0 to 0.99 | 0..1 |  |
+| `out_low` | out | Low pass, 12 dB an octave |  | -1 to 1 | full scale |  |
+| `out_band` | out | Band pass, peaking at 1 whatever the resonance is |  | -1 to 1 | full scale |  |
+| `out_high` | out | High pass; the three outputs sum to the input |  | -1 to 1 | full scale |  |
+| `last` | state |  |  |  |  |  |
+
 ## impulse
 
 ### impulse::blackman
@@ -667,6 +681,17 @@ Prints 'in'
 |---|---|---|---|---|---|---|
 | `in` | in | Printed to stdout, one window at a time |  |  |  |  |
 
+### misc::slew
+
+One-pole lag
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The signal to chase |  |  |  |  |
+| `time` | in | Time constant: how long to cover 63% of a step. Under one sample passes the input straight through |  |  | samples |  |
+| `out` | out | in, lagged |  |  |  |  |
+| `last` | state |  |  |  |  |  |
+
 ## mixer
 
 ### mixer::add
@@ -760,6 +785,17 @@ Sums sines in a series
 | `pitchadd` | in | ...plus this times j, so partials can be inharmonic |  |  | Hz |  |
 | `ampmul` | in | Partial j is this to the power of j times amp |  |  | ratio |  |
 | `ampadd` | in | ...plus this times j |  |  | ratio |  |
+
+### osc::noise
+
+White, pink or brown noise
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `out` | out | The noise |  | -1 to 1 | full scale |  |
+| `color` | in | Which noise |  |  |  | 0 = White, 1 = Pink, 2 = Brown |
+| `amp` | in | Peak amplitude; pink and brown are about nine decibels quieter than white at the same peak | 1 | 0 to 1 | full scale |  |
+| `last` | state |  |  |  |  |  |
 
 ### osc::shapeo
 
