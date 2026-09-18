@@ -130,7 +130,9 @@ walkUp (const State *st, int note, int n)
 
     while (n > 0)
     {
-        if (++at > 127)
+        /* `octave' can put the root below 0, and a negative index is
+           not a pitch class: bound both ends, as harmonize does. */
+        if (++at < 0 || at > 127)
             return -1;
 
         if (st->pc[at % 12])

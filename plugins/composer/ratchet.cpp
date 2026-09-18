@@ -104,7 +104,20 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
     const int    count = (int)get(P_COUNT_);
     const double decay = get(P_DECAY);
-    const double each  = ev->u.note.duration / count;
+
+    /* A declared range is what a slider is drawn against, not a bound
+       the host enforces -- a .gen writes what it means and weather.gen
+       says why at length. So `count' is whatever the file said, and here
+       it is a divisor: at zero the burst was a note silently deleted,
+       and below zero the same. The dividing only means anything from two
+       up, and anything less passes the note through as it came. */
+    if (count < 2)
+    {
+        out->emit(out->ctx, ev);
+        return;
+    }
+
+    const double each = ev->u.note.duration / count;
 
     double vel = ev->u.note.velocity;
 
