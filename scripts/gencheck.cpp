@@ -7587,6 +7587,59 @@ checkVariation (const std::map<std::string, thcPlugin *> &plugins,
                  "again at the next one");
     }
 
+    /* euclid's fill: three cycles of the riff and a fourth of something
+       else, and the riff picks up where it left off. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "euclid fill",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+            "    notes = \"C4 D4 E4 F4 G4\"; fill = \"C5\"; every = 4;\n"
+            "    period = 0.5 s; hold = 0.2 s; vel = 90; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 9.9);
+
+        if (h.size() != 20)
+            fail("euclid fill: expected twenty notes in five cycles, got " +
+                 std::to_string(h.size()));
+        else
+        {
+            for (size_t i = 12; i < 16; i++)
+                if (h[i].note != 72)
+                {
+                    fail("euclid fill: the fourth cycle should come from "
+                         "the fill pool");
+                    break;
+                }
+
+            /* The riff's five notes against a ring of four: cycle 0 is
+               C D E F, cycle 1 G C D E, cycle 2 F G C D, and cycle 4 --
+               the one after the fill -- opens on D, which is the note it
+               would have opened on had there been no fill at all. */
+            if (h[0].note != 60 || h[4].note != 67 || h[8].note != 65 ||
+                h[16].note != 62)
+                fail("euclid fill: a fill should not move the pool under "
+                     "the cycles around it");
+        }
+    }
+
+    /* every = 0 is the default and never fills, whatever the pool says. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "euclid no fill",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+            "    notes = \"C4\"; fill = \"C5\";\n"
+            "    period = 0.5 s; hold = 0.2 s; vel = 90; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 9.9);
+
+        for (size_t i = 0; i < h.size(); i++)
+            if (h[i].note != 60)
+            {
+                fail("euclid fill: a fill pool with no `every' should "
+                     "never be played");
+                break;
+            }
+    }
 }
 
 /* A piece somebody plays rather than one that plays itself: chains
