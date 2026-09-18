@@ -315,6 +315,16 @@ filter outside the loop. `dsp/fx/echo.dsp` says so where it does it.
 A channel's effect goes on **after** its instrument: loading an instrument
 builds a new channel and the effect belongs to the channel it was put on.
 
+**The same graph can run on the mix.** `thSynth::loadMasterEffect` puts one
+after every channel has been summed and before the master gain and the output
+limiter, where a reverb belongs — one room, rather than one per channel each
+paying for its own — and where a limiter has to be, since what it limits is
+the sum. Nothing about the file changes: `in0` is the mix rather than a
+channel, the chanargs are the graph's own with no prefix at all (there is no
+instrument on the mix to collide with), and the same refusal applies to a
+graph that declares no `in0`. A `.gen` asks for one with a top-level `effect`
+statement; see GEN_FORMAT.md §4b.
+
 ## 2. The `.patch` format
 
 A `.patch` is **not** a graph. It is a reference to a `.dsp` plus flat

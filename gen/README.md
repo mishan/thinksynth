@@ -142,7 +142,7 @@ only as level; `pluck` already was.
 
 | piece | the idea |
 | --- | --- |
-| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel, answered every fourth bar by the ring's `fill` pool; `xform::accent` weighting the bass, which its filter hears as brightness; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes. |
+| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel, answered every fourth bar by the ring's `fill` pool; `xform::accent` weighting the bass, which its filter hears as brightness; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes, over `fx/limiter.dsp` on the mix -- a top-level `effect` statement, which is the one place a limiter can be. |
 | [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad, voice-led so Am F C G moves rather than climbs, chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`, with every eighth bar coming from the ring's `fill` pool; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets, and which `xform::vary` leans into, ornaments and pushes off the grid; `xform::accent` on the hats; the `Width` knob reaching into two supersaws at once. |
 
 ## Voicing
@@ -172,6 +172,13 @@ frequency, which is what `fx/hall.dsp` needed to stop being a bank of combs
 with countable echoes. `delay::chorus` reads a short line at two or three
 places an LFO keeps moving, so the copies drift in and out of tune with the
 original -- a section rather than a player.
+
+An `effect` statement at the top of a piece puts a graph on the **mix**: after
+every channel has been summed, before the master gain and the output limiter.
+It is the same clause an instrument carries and the same object the engine
+runs, in the one place a reverb belongs and the only place a limiter can be --
+what a limiter limits is the sum, and no channel can see it. `fx/limiter.dsp`
+is a peak follower into a gain, and `warehouse.gen` plays through one.
 
 `ladder.dsp` and `brass.dsp` carry a vibrato by default and `supersaw.dsp`
 carries the control at zero; `anthem.gen`'s lead turns it up, and

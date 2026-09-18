@@ -82,6 +82,15 @@ public:
      * stop one note doing. */
     bool process (float *buf, int channels, int windowlen);
 
+    /* The same, on a buffer laid out the other way round: `channels'
+     * whole windows end to end, which is how thSynth keeps the mix.
+     *
+     * Two spellings of one loop rather than an interleave and a copy at
+     * the call site. The master effect is this object on the summed mix
+     * -- same graph, same chanargs, same guard -- and the only thing it
+     * does not share with a channel's is where the samples sit. */
+    bool processPlanar (float *buf, int channels, int windowlen);
+
     /* The effect's own chanargs, kept apart from the instrument's so that an
        instrument's `@a' and an effect's cannot collide. Named `fx.<name>'
        wherever a chanarg is addressed from outside. */
@@ -100,6 +109,11 @@ public:
     int channels (void) const { return channels_; }
 
 private:
+    /* `step' is how far apart two samples of one channel are and `hop'
+       how far apart two channels start: (channels, 1) is interleaved and
+       (1, windowlen) is planar. */
+    bool run (float *buf, int channels, int windowlen, int step, int hop);
+
     void copyChanArgs (void);
     void assignChanArgPointers (void);
     void indexIOArgs (int windowlen);

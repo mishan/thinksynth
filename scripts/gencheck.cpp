@@ -7474,6 +7474,221 @@ checkVoiceLeading (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+/* ---- the graph on the mix (PIECES_PLAN.md 4d) ---------------------------
+ *
+ * A top-level `effect' statement: the same clause an instrument carries,
+ * aimed at the sum of every channel. What the engine does with it is
+ * fxcheck's -- that it is fed the mix, that it runs when nothing is playing,
+ * that it comes off again. What is asked here is the language's half:
+ *
+ * 1. The statement is read and the graph is on the mix, with the values the
+ *    file wrote actually in its args.
+ * 2. A piece that declares none takes off whatever the last one left. A
+ *    session opens pieces one after another; a reverb that outlived the
+ *    piece that asked for it would be somebody else's.
+ * 3. The errors are errors: a chanarg the graph does not declare, two
+ *    statements, a file that is not there.
+ * 4. The writer leaves the statement alone, byte for byte, when an edit
+ *    aimed somewhere else rewrites the file.
+ */
+static void
+checkMasterEffect (const std::map<std::string, thcPlugin *> &plugins,
+                   thSynth *synth)
+{
+    const char *shape =
+        "effect \"fx/limiter.dsp\" {\n"
+        "    drive   = 2;\n"
+        "    ceiling = 0.75;\n"
+        "};\n"
+        "instrument plink {\n"
+        "    dsp \"pluck.dsp\";\n"
+        "    amp = 20;\n"
+        "};\n"
+        "chain c {\n"
+        "  stage src gen::euclid { steps = 2; fills = 2; notes = \"A3 C4\";"
+        "    period = 1 s; hold = 0.5 s; };\n"
+        "  sink { instrument = plink; };\n"
+        "};\n";
+
+    /* ---- 1. the statement puts a graph on the mix ---- */
+
+    {
+        clearChannels(synth);
+        drainSynth();
+
+        const std::string path = thUtil::tempFile("gencheck-master-");
+
+        if (path.empty())
+        {
+            fail("could not write the master-effect piece");
+            return;
+        }
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << shape;
+        }
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t k = 0; k < loader.errors().size(); k++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+            fail("the master-effect piece did not load");
+        }
+        else if (synth->getMasterEffect() == NULL)
+            fail("a piece with an `effect' statement left the mix with no "
+                 "effect on it");
+        else
+        {
+            thArg *drive = synth->getMasterArg("drive");
+            thArg *ceiling = synth->getMasterArg("ceiling");
+
+            if (drive == NULL || ceiling == NULL)
+                fail("the master effect's chanargs are not reachable by "
+                     "name");
+            else if (!near((*drive)[0], 2) || !near((*ceiling)[0], 0.75))
+                fail("the master effect's values are not the ones the piece "
+                     "wrote (drive " + std::to_string((*drive)[0]) +
+                     ", ceiling " + std::to_string((*ceiling)[0]) + ")");
+
+            /* And it plays. A master effect that silenced the piece would
+               pass every check above. */
+            if (render(sched, 4.0, 0.02).find("N ") == std::string::npos)
+                fail("the master-effect piece delivered nothing");
+        }
+
+        /* ---- 2. and the next piece takes it off ---- */
+
+        std::string plain = shape;
+        const size_t at = plain.find("effect \"fx/limiter.dsp\"");
+
+        plain.erase(at, plain.find("};\n", at) + 3 - at);
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << plain;
+        }
+
+        clearChannels(synth);
+        drainSynth();
+
+        {
+            thcScheduler second(synth);
+            thcGenLoader again(plugins);
+
+            if (!again.load(path, &second))
+                fail("the piece without a master effect did not load");
+            else
+            {
+                /* The removal is a command, like every other change to what
+                   the audio thread is running. */
+                drainSynth();
+
+                if (synth->getMasterEffect() != NULL)
+                    fail("a piece that declares no master effect left the "
+                         "last piece's on the mix");
+            }
+        }
+
+        remove(path.c_str());
+        clearChannels(synth);
+        drainSynth();
+    }
+
+    /* ---- 3. the three ways to get it wrong ---- */
+
+    expectReject(plugins, synth, "master-effect-no-such-arg",
+        "effect \"fx/limiter.dsp\" { nonesuch = 1; };\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; }; };",
+        "nonesuch");
+
+    expectReject(plugins, synth, "master-effect-twice",
+        "effect \"fx/limiter.dsp\";\n"
+        "effect \"fx/hall.dsp\";\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; }; };",
+        "two master effects");
+
+    expectReject(plugins, synth, "master-effect-missing",
+        "effect \"fx/nosuchthing.dsp\";\n"
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; }; };",
+        "nosuchthing");
+
+    clearChannels(synth);
+    drainSynth();
+
+    /* ---- 4. the writer leaves it alone ---- */
+
+    /* The statement is nobody's to edit -- what runs on the mix is written
+       by hand -- so what the writer owes it is that an edit aimed at a stage
+       leaves it exactly as it was. The same promise the arrangement gets,
+       and the same gate. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-master-edit-");
+
+        if (path.empty())
+        {
+            fail("could not write the master-effect piece");
+            return;
+        }
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "# a piece with something on its mix\n"
+                << shape;
+        }
+
+        const std::string before = slurp(path);
+        std::string why;
+
+        editOk(thcGenEdit::setParam(path, "c", 0, "period", "2 s", why), why,
+               "editing a stage in a piece with a master effect");
+
+        const std::string after = slurp(path);
+
+        if (after.find("effect \"fx/limiter.dsp\" {\n"
+                       "    drive   = 2;\n"
+                       "    ceiling = 0.75;\n"
+                       "};") == std::string::npos)
+            fail("an edit elsewhere rewrote the master effect statement");
+
+        if (after.find("# a piece with something on its mix") ==
+            std::string::npos)
+            fail("an edit in a piece with a master effect lost a comment");
+
+        if (after.find("period = 2 s") == std::string::npos)
+            fail("the edit itself did not happen");
+
+        if (after == before)
+            fail("the edit wrote nothing at all");
+
+        /* And it still loads, which is the other half of "byte for byte". */
+        clearChannels(synth);
+        drainSynth();
+
+        {
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the edited piece with a master effect no longer loads");
+        }
+
+        remove(path.c_str());
+        clearChannels(synth);
+        drainSynth();
+    }
+}
+
 /* ---- variation (PIECES_PLAN.md 2) --------------------------------------
  *
  * The three stages that stop a written line repeating itself exactly:
@@ -8204,6 +8419,7 @@ main (int argc, char *argv[])
     checkFloor(plugins, &synth);
     checkSections(plugins, &synth);
     checkVariation(plugins, &synth);
+    checkMasterEffect(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
     checkSilent(plugins, &synth, &silent, genFile);
 

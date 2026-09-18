@@ -231,6 +231,30 @@ Writing the graph out inline instead of naming it is the other half of the
 same idea and is not here. By reference alone delivers the self-contained
 file, which is what that step was for.
 
+**And the piece may carry one of its own.**
+
+```
+effect "fx/limiter.dsp" {       # runs on the sum of every channel
+    drive   = 1.2;
+    ceiling = 0.9;
+};
+```
+
+The same clause as a statement of its own, aimed at the mix: it runs after
+every channel has been summed and before the master gain and the output
+limiter. A reverb belongs here rather than on four channels that each pay for
+a room of their own, and a limiter can be nowhere else, because the thing it
+is limiting is the sum.
+
+Its values carry no `fx.` anywhere — that prefix keeps an instrument's
+chanargs and its effect's apart on one channel, and the mix has no instrument
+to collide with. A piece may name at most one, the braces are optional, and
+the filename is searched the way `dsp`'s is.
+
+A piece that declares none takes off whatever the last one left. Opening a
+piece is opening a piece; a reverb that outlived the file that asked for it
+would be the previous piece still playing.
+
 **A value may be a knob.**
 
 ```
@@ -607,7 +631,7 @@ load, play, and do nothing where a bar of silence was meant.
 ```
 genfile     : statement*
 statement   : infostring | tempo | seed | meter | knob | knobmeta | scale
-            | preset | instrument | section | chain
+            | preset | instrument | section | chain | mastereffect
 infostring  : ("name" | "author" | "description") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
@@ -621,6 +645,8 @@ knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
 preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
+mastereffect: "effect" STRING effectblock? ";"           # at most one,
+                                                       #   on the mix
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
 instrstmt   : "dsp" STRING ";"
             | "effect" STRING effectblock? ";"          # at most one

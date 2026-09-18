@@ -225,6 +225,42 @@ public:
        still running and the caller has to try again. */
     bool removeEffect (int channum);
 
+    /* The same graph on the sum of every channel, run after the mix and
+     * before the master gain and the limiter.
+     *
+     * A reverb on four channels is four reverbs; a limiter on a channel is
+     * not limiting the thing that clips. Both want one graph at the end of
+     * the piece, and this is it -- the channel effect's object, its chanarg
+     * map and its non-finite guard, on the buffer getOutput() hands back.
+     *
+     * NULL means the file did not load and nothing changed. The refusal of a
+     * graph with no in0 is loadEffect's, for loadEffect's reason. */
+    thSynthTree *loadMasterEffect (const string &filename);
+
+    /* Takes the master effect off. False only when the command queue is
+       full, in which case it is still running. */
+    bool removeMasterEffect (void);
+
+    thChanEffect *getMasterEffect (void) { return guiMaster_; }
+
+    /* Its chanargs, which are its own for the reason a channel effect's are
+       its own, and named without the `fx.' prefix: nothing else is addressed
+       on the mix, so there is nothing here for them to collide with. */
+    thArgMap getMasterEffectArgs (void)
+    {
+        return guiMaster_ ? guiMaster_->args() : thArgMap();
+    }
+
+    thArg *getMasterArg (const string &argname)
+    {
+        return guiMaster_ ? guiMaster_->getArg(argname) : NULL;
+    }
+
+    /* Writes one of them. Takes ownership of `arg' either way, like
+       setChanArg, and refuses a name the graph did not declare for the
+       reason the `fx.' side of setChanArg refuses one. */
+    void setMasterArg (thArg *arg);
+
     void handleMidiController (unsigned char channel, unsigned int param,
                                unsigned int value);
 
@@ -332,6 +368,10 @@ private:
        hope. Assumes synthMutex_ is already held. */
     void disarmProbesOn (int channum);
 
+    /* The file half of loading an effect graph, shared by the channel's and
+       the mix's. Assumes synthMutex_ is already held. */
+    thSynthTree *parseEffect (const string &filename);
+
     map<string, thSynthTree*> treelist_;
     map<int, string> patchlist_;
     thPluginManager *pluginmanager_;
@@ -356,6 +396,23 @@ private:
      * channel swap destroys it -- so these entries are cleared when a channel
      * goes rather than freed. */
     thChanEffect **guiEffects_;
+
+    /* The graph on the mix. master_ is the audio thread's and is owned by
+     * it -- installed and retired through the command queue, exactly as a
+     * channel is -- and guiMaster_ is the GUI's name for the same object,
+     * so that a slider can reach its args without reading what the audio
+     * thread is reading.
+     *
+     * Unlike guiEffects_, which point at effects their channels own, this
+     * pair is the whole ownership story: there is no channel underneath to
+     * take it down, so the destructor does. */
+    thChanEffect *master_;
+    thChanEffect *guiMaster_;
+
+    /* Whether the divergence above has already been reported for this
+       master effect. Cleared when one is installed, so a graph that is
+       loaded, fails, and is loaded again says so twice and not once. */
+    bool masterSaidSo_;
 
     /* Two views of the same probes, for exactly the reason the channel arrays
        are two: probes_ is written only by applyCommand() on the audio thread,

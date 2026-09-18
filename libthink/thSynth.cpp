@@ -71,6 +71,10 @@ thSynth::thSynth (int windowlen, int samples)
     guiEffects_ = (thChanEffect **)calloc(midiChannelCnt_,
                                           sizeof(thChanEffect *));
 
+    master_ = NULL;
+    guiMaster_ = NULL;
+    masterSaidSo_ = false;
+
     for (int i = 0; i < TH_MAX_PROBES; i++)
     {
         probes_[i] = NULL;
@@ -116,6 +120,10 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     guiEffects_ = (thChanEffect **)calloc(midiChannelCnt_,
                                           sizeof(thChanEffect *));
 
+    master_ = NULL;
+    guiMaster_ = NULL;
+    masterSaidSo_ = false;
+
     for (int i = 0; i < TH_MAX_PROBES; i++)
     {
         probes_[i] = NULL;
@@ -154,6 +162,13 @@ thSynth::~thSynth (void)
        object. */
     vector<thProbe *> doomedProbes;
 
+    /* And effects have it too, with one twist: an effect the audio thread
+       never installed belongs to nobody -- a channel owns its effect only
+       once the swap has been applied -- while the master's may be the same
+       object guiMaster_ names. Collected here and deduplicated below, which
+       answers both. */
+    vector<thChanEffect *> doomedEffects;
+
     thSynthCommand cmd;
 
     while (commands_.pop(cmd))
@@ -161,14 +176,11 @@ thSynth::~thSynth (void)
         delete cmd.note;
         delete cmd.arg;
 
-        /* Straight out, unlike the channel below: an effect that was never
-           applied is reachable from here and from guiEffects_, and only a
-           channel that adopted it ever owns one -- which this command is the
-           proof did not happen. */
-        delete cmd.effect;
-
         if (cmd.channel)
             doomed.push_back(cmd.channel);
+
+        if (cmd.effect)
+            doomedEffects.push_back(cmd.effect);
 
         if (cmd.probe)
             doomedProbes.push_back(cmd.probe);
@@ -214,6 +226,28 @@ thSynth::~thSynth (void)
         /* A reference, not ownership: deleting the channel above takes its
            effect with it. */
         guiEffects_[i] = NULL;
+    }
+
+    /* The master effect has no channel to take it down, so this does.
+       Both names go in the pile above, which may already hold one of them
+       from an unapplied swap. */
+    if (master_)
+        doomedEffects.push_back(master_);
+
+    if (guiMaster_)
+        doomedEffects.push_back(guiMaster_);
+
+    master_ = NULL;
+    guiMaster_ = NULL;
+
+    sort(doomedEffects.begin(), doomedEffects.end());
+    doomedEffects.erase(unique(doomedEffects.begin(), doomedEffects.end()),
+                        doomedEffects.end());
+
+    for (vector<thChanEffect *>::iterator i = doomedEffects.begin();
+         i != doomedEffects.end(); ++i)
+    {
+        delete *i;
     }
 
     sort(doomed.begin(), doomed.end());
@@ -337,6 +371,24 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
         return;
     }
 
+    /* And the master effect addresses no channel at all -- it runs on what
+       the channels summed to -- so it is handled here for the same reason. */
+    if (cmd.type == thSynthCommand::SET_MASTER_EFFECT)
+    {
+        if (master_)
+        {
+            item.kind = thRetired::EFFECT;
+            item.effect = master_;
+
+            if (!retired_.push(item))
+                delete master_;
+        }
+
+        master_ = cmd.effect;
+        masterSaidSo_ = false;
+        return;
+    }
+
     if (cmd.chan < 0 || cmd.chan >= midiChannelCnt_)
     {
         /* Should not happen -- the GUI side range-checks -- but the payload
@@ -404,6 +456,7 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
             break;
 
         case thSynthCommand::SET_PROBE:
+        case thSynthCommand::SET_MASTER_EFFECT:
             /* Handled above, before the channel bounds check. Listed so that
                adding a command type keeps failing to compile here until it is
                dealt with, which is how this switch has stayed honest. */
@@ -1176,9 +1229,10 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     /* The parser is pure; the mutex is for the channel bookkeeping and
        retire queue below, as it always really was. */
-    std::lock_guard<std::mutex> lock(synthMutex_);
-    collectRetired();
-
+    /* No lock and no collectRetired() here: both callers hold the one and
+       have done the other, and synthMutex_ is not recursive -- taking it
+       twice is a deadlock, which is exactly what this function's first
+       draft was. */
     thSynthTree *raw = NULL;
     int parseResult = thParseDsp(this, input, &raw);
 
@@ -1266,58 +1320,13 @@ thSynthTree *thSynth::loadEffect (const string &filename, int channum)
         return NULL;
     }
 
-    std::error_code ec;
-
-    if (!std::filesystem::exists(filename, ec))
-    {
-        fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
-                ec ? ec.message().c_str() : "no such file or directory");
-        return NULL;
-    }
-    else if (std::filesystem::is_directory(filename, ec))
-    {
-        fprintf(stderr, "%s is a directory\n", filename.c_str());
-        return NULL;
-    }
-
-    /* "rb", not "r" -- see loadTree. */
-    FILE *input = fopen(filename.c_str(), "rb");
-
-    if (input == NULL)
-    {
-        fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
-                strerror(errno));
-        return NULL;
-    }
-
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
 
-    thSynthTree *raw = NULL;
-    int parseResult = thParseDsp(this, input, &raw);
-
-    fclose(input);
-
-    /* registerTree false: the thChanEffect below takes ownership. */
-    thSynthTree *tree = finishParse(filename, raw, parseResult, false);
+    thSynthTree *tree = parseEffect(filename);
 
     if (tree == NULL)
-    {
         return NULL;
-    }
-
-    /* An instrument put on as an effect would run every window with nothing
-       driving it and mix whatever an ungated graph produces into the channel
-       for ever. The distinction is one arg -- in0 -- so it is asked rather
-       than assumed from a directory name. */
-    if (!tree->takesInput())
-    {
-        fprintf(stderr, "%s: not an effect graph -- its io node declares no "
-                "%s0, so the engine has nowhere to put the channel's "
-                "audio\n", filename.c_str(), INPUTPREFIX);
-        delete tree;
-        return NULL;
-    }
 
     thMidiChan *chan = guiChannels_[channum];
 
@@ -1349,6 +1358,159 @@ thSynthTree *thSynth::loadEffect (const string &filename, int channum)
     guiEffects_[channum] = fx;
 
     return tree;
+}
+
+/* GUI thread, with synthMutex_ held. The half of loading an effect that is
+ * about the file rather than about where the effect is going: the parse, the
+ * unit fold, the expression desugar and the one question that separates an
+ * effect graph from an instrument.
+ *
+ * Shared by the channel's effect and the mix's, because the two differ in
+ * nothing else. */
+thSynthTree *thSynth::parseEffect (const string &filename)
+{
+    std::error_code ec;
+
+    if (!std::filesystem::exists(filename, ec))
+    {
+        fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
+                ec ? ec.message().c_str() : "no such file or directory");
+        return NULL;
+    }
+    else if (std::filesystem::is_directory(filename, ec))
+    {
+        fprintf(stderr, "%s is a directory\n", filename.c_str());
+        return NULL;
+    }
+
+    /* "rb", not "r" -- see loadTree. */
+    FILE *input = fopen(filename.c_str(), "rb");
+
+    if (input == NULL)
+    {
+        fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
+                strerror(errno));
+        return NULL;
+    }
+
+    /* No lock and no collectRetired() here: both callers hold the one and
+       have done the other, and synthMutex_ is not recursive -- taking it
+       twice is a deadlock, which is exactly what this function's first
+       draft was. */
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDsp(this, input, &raw);
+
+    fclose(input);
+
+    /* registerTree false: the thChanEffect below takes ownership. */
+    thSynthTree *tree = finishParse(filename, raw, parseResult, false);
+
+    if (tree == NULL)
+    {
+        return NULL;
+    }
+
+    /* An instrument put on as an effect would run every window with nothing
+       driving it and mix whatever an ungated graph produces into the channel
+       for ever. The distinction is one arg -- in0 -- so it is asked rather
+       than assumed from a directory name. */
+    if (!tree->takesInput())
+    {
+        fprintf(stderr, "%s: not an effect graph -- its io node declares no "
+                "%s0, so the engine has nowhere to put the channel's "
+                "audio\n", filename.c_str(), INPUTPREFIX);
+        delete tree;
+        return NULL;
+    }
+
+    return tree;
+}
+
+/* GUI thread. The graph on the sum of every channel.
+ *
+ * loadEffect without the channel: there is no instrument to belong to and no
+ * numChannels() to ask, so the effect carries the synth's own channel count
+ * and runs on the buffer the mix is accumulated into. */
+thSynthTree *thSynth::loadMasterEffect (const string &filename)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    thSynthTree *tree = parseEffect(filename);
+
+    if (tree == NULL)
+        return NULL;
+
+    thChanEffect *fx = new thChanEffect(tree, channels_, windowlen_);
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SET_MASTER_EFFECT;
+    cmd.chan = 0;
+    cmd.effect = fx;
+
+    if (!postCommand(cmd))
+    {
+        /* postCommand deleted fx, which owns the tree. */
+        return NULL;
+    }
+
+    guiMaster_ = fx;
+
+    return tree;
+}
+
+/* GUI thread. */
+bool thSynth::removeMasterEffect (void)
+{
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    if (guiMaster_ == NULL)
+        return true;
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SET_MASTER_EFFECT;
+    cmd.chan = 0;
+    cmd.effect = NULL;
+
+    if (!postCommand(cmd))
+        return false;
+
+    guiMaster_ = NULL;
+
+    return true;
+}
+
+/* GUI thread. setChanArg's `fx.' branch, on the mix.
+ *
+ * A value into the arg that is there, and a name the graph did not declare
+ * refused rather than invented -- an invented one would sit in a map nothing
+ * reads, which is worse than being told. */
+void thSynth::setMasterArg (thArg *arg)
+{
+    if (arg == NULL)
+        return;
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    thArg *target = guiMaster_ ? guiMaster_->getArg(arg->name()) : NULL;
+
+    if (target != NULL && target->type() == thArg::ARG_VALUE &&
+        target->len() == 1 && arg->type() == thArg::ARG_VALUE &&
+        arg->len() == 1)
+    {
+        target->setValue((*arg)[0]);
+    }
+    else
+    {
+        fprintf(stderr, "thSynth::setMasterArg: the master effect has no "
+                "parameter called '%s'\n", arg->name().c_str());
+    }
+
+    delete arg;
 }
 
 /* GUI thread. */
@@ -1598,6 +1760,28 @@ void thSynth::process (void)
                 bufferoffset += windowlen_;
             }
         }
+    }
+
+    /* The master effect, on the sum of every channel and before the gain.
+     *
+     * The same object a channel carries -- same graph, same chanargs, same
+     * refusal to hand on a window with a NaN in it -- on a buffer laid out
+     * the other way round, which is the only thing about the mix that is not
+     * a channel. A reverb belongs here rather than on four channels that
+     * each pay for one, and a limiter cannot be anywhere else: what it is
+     * limiting is the sum.
+     *
+     * Before the gain and the limiter because those are the output stage and
+     * this is the last thing in the piece. An effect that fails hands back
+     * what the channels mixed, dry, and says so once per load -- the voices
+     * are summed by now, so there is no bad one left to drop. */
+    if (master_ != NULL &&
+        !master_->processPlanar(output_, channels_, windowlen_) &&
+        !masterSaidSo_)
+    {
+        fprintf(stderr, "thSynth: the master effect went non-finite; the "
+                "mix is going out dry\n");
+        masterSaidSo_ = true;
     }
 
     /* Master gain, then the limiter.

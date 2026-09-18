@@ -1004,7 +1004,7 @@ thcGenEdit::validName (const std::string &name)
        the two mistakes. */
     static const char *reserved[] = {
         "name", "author", "description", "tempo", "seed", "scale",
-        "preset", "instrument", "meter", "section",
+        "preset", "instrument", "meter", "section", "effect",
         "chain", "input", "stage", "sink", "midi",
         "s", "ms", "beats", "b", "bars", NULL
     };

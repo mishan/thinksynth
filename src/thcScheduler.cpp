@@ -562,6 +562,14 @@ thcScheduler::clearChains (void)
        it, and deciding when a channel should be given back is the
        host's business rather than this table's. */
     instruments_.clear();
+
+    /* The master effect goes with the piece for the same reason the table
+       does. What is *loaded* on the mix is taken off by the next load
+       rather than here, because this runs while a piece is being replaced
+       and a gap of silence between two pieces' reverbs is not an
+       improvement on one of them ending. */
+    master_ = thcInstrument();
+    master_.channel = -1;
 }
 
 thArg *
@@ -743,6 +751,17 @@ thcScheduler::instrument (size_t index)
     return index < instruments_.size() ? &instruments_[index] : NULL;
 }
 
+/* A chanarg by name, wherever it lives. */
+thArg *
+thcScheduler::findChanArg (int channel, const std::string &name)
+{
+    if (synth_ == NULL)
+        return NULL;
+
+    return channel < 0 ? synth_->getMasterArg(name)
+                       : synth_->getChanArg(channel, name);
+}
+
 /* The values half of applyInstrument, on a channel whose graph is
  * already up. Split out so that every way of refusing one has a single
  * caller, and that caller can take the graph back down again. */
@@ -787,8 +806,7 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
     for (size_t i = 0; i < inst.args.size(); i++)
     {
         const thcInstrumentArg &a = inst.args[i];
-        thArg *arg = synth_ != NULL
-            ? synth_->getChanArg(inst.channel, a.name) : NULL;
+        thArg *arg = findChanArg(inst.channel, a.name);
 
         /* A .patch invents the arg instead, which it has to: patches
            predate arg metadata and half the corpus sets things no graph
@@ -801,13 +819,18 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
             /* Which of the two graphs the name was aimed at: `fx.delay' is
                the effect's, and saying the instrument declares no `fx.delay'
                would send the reader to the wrong file. */
-            const bool isEffect =
+            const bool prefixed =
                 a.name.compare(0, strlen(TH_EFFECT_PREFIX),
                                TH_EFFECT_PREFIX) == 0;
 
+            /* And on the mix there is only ever one graph, so the names
+               carry no prefix and the file to send the reader to is
+               never in doubt. */
+            const bool isEffect = prefixed || inst.channel < 0;
+
             why = "'" + (isEffect ? inst.effect : inst.dsp) +
                   "' declares no chanarg called '" +
-                  (isEffect ? a.name.substr(strlen(TH_EFFECT_PREFIX))
+                  (prefixed ? a.name.substr(strlen(TH_EFFECT_PREFIX))
                             : a.name) + "'";
             return false;
         }
@@ -873,8 +896,7 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
         std::function<void (thArg *)> push =
             [this, channel, name, units](thArg *from)
             {
-                thArg *dest = synth_ != NULL
-                    ? synth_->getChanArg(channel, name) : NULL;
+                thArg *dest = findChanArg(channel, name);
 
                 if (dest == NULL)
                     return;
@@ -1055,6 +1077,79 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
     }
 
     return true;
+}
+
+/* ---- the graph on the mix ---------------------------------------------- */
+
+void
+thcScheduler::setMasterEffect (const std::string &dsp,
+                               const std::vector<thcInstrumentArg> &args)
+{
+    master_ = thcInstrument();
+    master_.name = "the mix";
+    master_.effect = dsp;
+    master_.args = args;
+    master_.channel = -1;
+}
+
+/* Puts the piece's master effect on, or takes the last piece's off.
+ *
+ * applyInstrument's shape with the instrument left out: there is no graph
+ * underneath to build first and no channel to allocate, so what is left is
+ * the effect and the values on top of it. All or nothing, for the reason
+ * applyInstrument is: a value refused after the graph is up takes the graph
+ * back down, so a caller has two states to think about rather than three.
+ */
+bool
+thcScheduler::applyMasterEffect (std::string &why)
+{
+    if (synth_ == NULL)
+        return true;
+
+    if (master_.effect.empty())
+    {
+        /* Nothing declared takes off whatever was there. A piece that says
+           nothing about the mix means a dry mix, not "keep the last
+           piece's reverb", which is what leaving it would mean in a
+           session where pieces are opened one after another. */
+        if (!synth_->removeMasterEffect())
+        {
+            why = "the audio thread could not be told to drop the master "
+                  "effect";
+            return false;
+        }
+
+        return true;
+    }
+
+    const std::string path =
+        thUtil::findDataFile(master_.effect, "dsp", "THINK_DSP_PATH",
+                             DSP_PATH);
+
+    if (synth_->loadMasterEffect((path.empty() ? master_.effect
+                                               : path).c_str()) == NULL)
+    {
+        why = "'" + master_.effect + "' did not load as an effect";
+        return false;
+    }
+
+    if (!applyValues(master_, why))
+    {
+        if (!unapplyMasterEffect())
+            why += " (and it could not be taken off the mix)";
+
+        return false;
+    }
+
+    return true;
+}
+
+bool
+thcScheduler::unapplyMasterEffect (void)
+{
+    dropKnobConns(-1);
+
+    return synth_ == NULL || synth_->removeMasterEffect();
 }
 
 /* ---- structure edits --------------------------------------------------- */

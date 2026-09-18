@@ -152,15 +152,21 @@ private:
 
     /* One `name = value;' inside an instrument block. `prefix' is empty for
        the instrument's own chanargs and TH_EFFECT_PREFIX for its effect's;
-       see the definition. */
+       see the definition. `where' is what an error calls the block --
+       "instrument pad", or "the master effect". */
     bool parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
-                               const std::string &instName, const Token &key,
+                               const std::string &where, const Token &key,
                                const std::string &prefix);
 
-    /* `effect "echo.dsp" { delay = 375 ms; };' inside one. */
+    /* `effect "echo.dsp" { delay = 375 ms; };' inside one, and the same
+       clause at the top level, where it is the graph on the mix. */
     bool parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
-                                const std::string &instName,
-                                const Token &key);
+                                const std::string &where,
+                                const Token &key,
+                                const std::string &prefix);
+
+    /* `effect "fx/limiter.dsp" { ... };' as a statement of its own. */
+    bool parseMasterEffect (thcScheduler *sched, const Token &key);
     bool parseChain (thcScheduler *sched);
     bool parseStageBlock (thcScheduler *sched, size_t chain,
                           const std::string &chainName);
