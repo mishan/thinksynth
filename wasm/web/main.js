@@ -592,6 +592,12 @@ async function start ()
                                          {
                                              diff.take('worklet', m);
                                              roll.tape(m);
+
+                                             /* What a probe armed here
+                                                is watching, as jam.js
+                                                feeds it: without this
+                                                the scope stays blank. */
+                                             nodes?.feed(m.probes);
                                          },
                                          onMirror: fromMirror });
         synth.node.connect(ctx.destination);
@@ -638,12 +644,17 @@ async function start ()
     $('load').disabled = false;
     $('loadpiece').disabled = false;
 
+    /* The view before the load, not after. A load is answered by the
+       mirror with a `piece' message, and fromMirror has nowhere to put
+       one while composer is still null -- so made afterwards, the first
+       Start went by with the message dropped and the "Paint ..." buttons
+       never appeared. */
+    showComposer(mode() === 'piece');
+
     if (mode() === 'patch')
         await loadPatch();
     else
         await loadPiece();
-
-    showComposer(mode() === 'piece');
 
     try
     {
@@ -694,7 +705,24 @@ function fromMirror (m)
  * editor is too. In piece mode they are the piece's instruments, and an
  * edit is heard at the next Load, which is what the .gen box already
  * means here.
+ *
+ * And the telling is done here too. The room page has a document, and its
+ * observer is what tells the node editor that a file it is showing has
+ * moved -- including when the move was the editor's own, since an edit
+ * there is a splice that comes back round. With no document there is no
+ * observer, and without one a wire cut on the canvas rewrote the text and
+ * the canvas went on drawing the graph from before the cut.
  */
+
+/* Who wants to hear that a file changed, by name. */
+const nodeWatchers = new Map();
+
+function nodeFileChanged (name)
+{
+    for (const onChange of [...(nodeWatchers.get(name) ?? [])])
+        onChange();
+}
+
 const nodeFiles = {
     names: () =>
     {
@@ -715,8 +743,12 @@ const nodeFiles = {
     {
         if (mode() === 'patch')
         {
+            /* Assigning to .value fires nothing, so the `input' listener
+               below -- the only thing watching in patch mode -- never
+               hears an edit the canvas made. Told directly instead. */
             $('dsp').value = next;
             loadPatch();
+            nodeFileChanged(name);
             return;
         }
 
@@ -727,18 +759,31 @@ const nodeFiles = {
         synth?.instrument(name, next);
         $('status').textContent =
             `${name} changed. Load the piece again to hear it.`;
+        nodeFileChanged(name);
     },
 
     /* The text box is the other view of the same patch, so typing in it
-       rebuilds the canvas. */
+       rebuilds the canvas -- and so does an edit made on the canvas,
+       which arrives through nodeFileChanged rather than through an event
+       the box never raises. Piece mode has only the second, which is why
+       it is watched here too and not only in patch mode. */
     watch: (name, onChange) =>
     {
-        if (mode() !== 'patch')
-            return null;
+        let who = nodeWatchers.get(name);
 
-        $('dsp').addEventListener('input', onChange);
+        if (who === undefined)
+            nodeWatchers.set(name, who = new Set());
 
-        return () => $('dsp').removeEventListener('input', onChange);
+        who.add(onChange);
+
+        if (mode() === 'patch')
+            $('dsp').addEventListener('input', onChange);
+
+        return () =>
+        {
+            who.delete(onChange);
+            $('dsp').removeEventListener('input', onChange);
+        };
     },
 };
 
