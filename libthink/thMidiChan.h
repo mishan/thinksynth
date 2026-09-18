@@ -40,6 +40,23 @@ public:
 
     /* ---- GUI thread ---- */
 
+    /* Slot number, graph name and tally: what the non-finite guard in
+     * mixNote() needs to name the graph it dropped a voice from. A channel
+     * knows neither of the first two otherwise.
+     *
+     * The counter is a bare pointer into thSynth rather than a back-reference
+     * to the synth: the guard only writes to it, and thSynth's destructor
+     * frees its channels, so it outlives them.
+     *
+     * Called by thSynth::loadTree after construction, on the GUI thread and
+     * before the channel is queued; never touched again. That is also where
+     * the diagnostic line is formatted, so that the audio thread's whole part
+     * in printing it is one write(2) of bytes that already exist. An
+     * undescribed channel still drops the voice -- it just says and counts
+     * nothing. */
+    void describe (int channum, const string &graph,
+                   std::atomic<unsigned long> *nonFinite);
+
     /* Allocates the note, which means copy-constructing the whole synth tree.
        Deliberately separate from installing it: this is far too expensive to
        do in an audio callback, so the GUI thread builds and thSynth hands the
@@ -137,6 +154,15 @@ private:
     thArg *mixNote (thMidiNote *note, int sustain, thProbe *const *probes,
                     int nprobes);
 
+    /* Audio thread. True if every sample this voice put on the io node's
+       out0..outN-1 is finite -- asked before any of it is mixed, because the
+       sum is where a NaN becomes everybody's problem. */
+    bool voiceIsFinite (thSynthTree *tree);
+
+    /* Audio thread. Counts the voice the guard just dropped, and says so once
+       per channel per load. */
+    void reportNonFinite (void);
+
     /* Hands `note' to the GUI thread to destroy. Falls back to deleting it
        here if the retire queue is full -- that costs RT-safety in a case that
        should not arise, but never correctness. */
@@ -182,6 +208,20 @@ private:
     thArg *argSustain_; /* for the sustain pedal */
 
     unsigned long serial_;
+
+    /* See describe(). -1 and empty for a channel nobody named.
+     *
+     * `message_' is the whole diagnostic line, formatted at load time so that
+     * the audio thread has nothing to do but hand the bytes to write(2). */
+    int channum_;
+    string graph_;
+    string message_;
+    std::atomic<unsigned long> *nonFinite_;
+
+    /* A diverging graph goes non-finite on every window of every note, so
+       the message is printed once and suppressed after. Never reset: loading
+       a patch builds a new channel. */
+    bool saidNonFinite_;
 
     static std::atomic<unsigned long> nextSerial_;
 };

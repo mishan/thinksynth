@@ -453,12 +453,25 @@ async function main (argv0, args)
         }
     }
 
+    /* genwav.cpp's `non-finite voices' line and its exit 4. */
+    const badVoices = M._tw_nonfinite();
+
     if (!quiet)
+    {
         process.stderr.write(
             `${genFile}: ${fixed(samples / frame * dt, 1)} s rendered, ` +
             `${notes} notes, peak ${fixed(peak, 3)}, ` +
             `RMS ${fixed(samples === 0 ? 0 : Math.sqrt(sumsq / samples), 4)}, ` +
             `${clipped} clipped sample${clipped === 1 ? '' : 's'}\n`);
+
+        if (badVoices > 0)
+            process.stderr.write(
+                `${genFile}: non-finite voices: ${badVoices}\n`);
+    }
+
+    /* 4 before 3, as in genwav.cpp. */
+    if (badVoices > 0)
+        return 4;
 
     return clipped > 0 ? 3 : 0;
 }

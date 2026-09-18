@@ -168,7 +168,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         amp_min = -amp_max;
         amp_range = amp_max-amp_min;
 
-        wavelength = samples/freq;
+        wavelength = samples/thBoundFreq(freq, samples);
 
         position += 1 + ((buf_fm[i] / TH_MAX) * buf_fmamt[i]);
         //printf("%f\n", position);
@@ -197,6 +197,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if(pw == 0) {
             pw = 0.5;
         }
+
+        /* Both halves of the cycle divide by their own length below, so
+           neither may be empty. pw = 1 makes `wavelength - halfwave' zero for
+           every wavelength, and a wavelength that is an exact integer -- which
+           is what a frequency of exactly Nyquist gives -- lands `position' on
+           `halfwave' precisely, so the 0/0 is reached rather than merely
+           approached. */
+        pw = thClampArg(pw, TH_PW_MIN, TH_PW_MAX);
 
         halfwave = wavelength * pw;
         if(fmpos < halfwave) {

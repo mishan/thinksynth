@@ -55,8 +55,9 @@
  * out, up to a few seconds, so a long release is in the file rather than
  * cut off at the length you asked for.
  *
- * Exit status is 0, or 3 if any sample reached full scale: a piece that
- * clips is the thing this tool exists to catch, so a script can ask.
+ * Exit status is 0; 3 if any sample reached full scale, which is the thing
+ * this tool exists to catch; and 4, which wins, if the engine's per-voice
+ * guard dropped a voice for going non-finite. Both are in the summary too.
  */
 
 #include "config.h"
@@ -76,6 +77,7 @@
 
 #include "think.h"
 
+#include "libthink/thDynLib.h"
 #include "thcPlugin.h"
 #include "thcScheduler.h"
 #include "thcGenFile.h"
@@ -125,8 +127,37 @@ static void loadComposers (const std::string &pluginDir,
         }
 
         out[p->name()] = p;
+
+        /* Pin the module's mapping, and its dependency closure, for the life
+           of the process: a second dlopen bumps the loader's reference count
+           and this handle is never closed. Without it the dlclose in
+           ~thcPlugin below can drop the last reference to the glib stack --
+           which some cairo builds pull in -- and unmap the once-per-process
+           init heap glib documents as never freed, turning it into
+           LeakSanitizer reports naming "<unknown module>". gencheck makes the
+           same arrangement and says more about why. */
+        thDynLib::open(f.path().string());
     }
 }
+
+/* Frees the composer modules on every path out of main().
+ *
+ * They used to be left for exit() to deal with, on the grounds that this is a
+ * tool rather than a test. It is a test now -- the ctest that renders
+ * scripts/guard/nonfinite.gen through it -- and under the address sanitizer
+ * that shortcut is twenty-five leak reports. */
+struct HeldComposers {
+    std::map<std::string, thcPlugin *> &plugins;
+
+    ~HeldComposers (void)
+    {
+        for (std::map<std::string, thcPlugin *>::iterator i = plugins.begin();
+             i != plugins.end(); ++i)
+        {
+            delete i->second;
+        }
+    }
+};
 
 /* One line per delivered event, in gencheck's spelling minus the
    seventeen digits: N time channel note velocity duration, C for a
@@ -270,6 +301,8 @@ int main (int argc, char **argv)
 
     loadComposers(pluginPath, plugins);
 
+    const HeldComposers held = { plugins };
+
     if (plugins.empty())
     {
         fprintf(stderr, "%s: no composer modules under %s -- build the "
@@ -403,18 +436,29 @@ int main (int argc, char **argv)
         return 1;
     }
 
+    /* Voices thMidiChan::mixNote dropped for going non-finite. Unreported,
+       the render is just quieter than it should be -- or silent, if the piece
+       is one diverging instrument -- and the peak and RMS below are an honest
+       report of the wrong signal. */
+    const unsigned long badVoices = synth.nonFiniteVoices();
+
     if (!quiet)
+    {
         fprintf(stderr, "%s: %.1f s rendered, %zu notes, peak %.3f, "
                 "RMS %.4f, %zu clipped sample%s\n",
                 genFile.c_str(), pcm.size() / (double)frame * dt, notes,
                 peak, pcm.empty() ? 0.0 : sqrt(sumsq / pcm.size()),
                 clipped, clipped == 1 ? "" : "s");
 
-    /* The composer modules are left mapped. dlclose of a draw module drops
-       the last reference to the glib stack on some cairo builds and
-       unmaps a heap glib documents as never freed -- gencheck pins the
-       handles to keep that off the leak checker's report, and this tool
-       is not a test, so it takes the shorter route and lets exit do it. */
+        if (badVoices > 0)
+            fprintf(stderr, "%s: non-finite voices: %lu\n", genFile.c_str(),
+                    badVoices);
+    }
+
+    /* 4 before 3: a piece that clips is loud, a piece with a non-finite
+       voice in it is not the piece. */
+    if (badVoices > 0)
+        return 4;
 
     return clipped > 0 ? 3 : 0;
 }

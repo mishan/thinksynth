@@ -32,6 +32,13 @@ int args[INOUT_LAST + 1];
 static const char desc[] = "`INK Filter`  this algorithm was in my head when I woke up";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The stable region: filt::ink's spring with the restoring force scaled by
+   1 - res/2 and a bounded tanh added. See the callback. */
+#define RMAX     0.999f
+#define CCEIL    64.0f
+#define CMARGIN  0.98f
+#define SHAPEMAX 1e6f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -42,14 +49,28 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a spring constant, not hertz. What "
+                       "is stable above 1 depends on res");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 is the edge of the stable "
+                       "region and is clamped short");
     args[IN_SHAPE] = plugin->regArg("shape", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_SHAPE],
+                       "How much of the feedback goes through a tanh: 0 is "
+                       "none, and the drive rises from there");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Low pass");
     args[OUT_BAND] = plugin->regArg("out_band", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_BAND], "Band pass");
     args[OUT_HIGH] = plugin->regArg("out_high", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_HIGH], "High pass");
     args[OUT_NOTCH] = plugin->regArg("out_notch", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_NOTCH], "Notch");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
@@ -99,11 +120,41 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_res->getBuffer(buf_res, windowlen);
     in_shape->getBuffer(buf_shape, windowlen);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(last) || !thIsFinite(accel))
+    {
+        last = 0;
+        accel = 0;
+    }
+
     for(i = 0; i < windowlen; i++) {
         val_arg = buf_in[i];
-        val_cutoff = buf_cut[i];
-        val_res = buf_res[i];
-        val_shape = buf_shape[i];
+        /* tanh bounds whatever it is handed, so only finiteness is at stake
+           and the ceiling is well above anything a knob offers. */
+        val_shape = thClampMag(buf_shape[i], SHAPEMAX);
+
+        /* Take the tanh out -- bounded by one, so it can push the filter
+         * about but not away -- and this is filt::ink's spring with the
+         * restoring force scaled by k = 1 - res/2: determinant res, trace
+         * res + 1 - res*k*cutoff*cutoff, stable exactly when 0 <= res < 1 and
+         * k*cutoff*cutoff < 2(1 + res)/res.
+         *
+         * Unlike filt::ink this had no protection at all. */
+        val_res = thClampArg(buf_res[i], 0.0f, RMAX);
+
+        {
+            const float k = 1.0f - 0.5f * val_res;
+
+            float cmax = (val_res > 0 && k > 0)
+                ? sqrtf(CMARGIN * 2.0f * (1.0f + val_res) / (val_res * k))
+                : CCEIL;
+
+            if (cmax > CCEIL)
+                cmax = CCEIL;
+
+            val_cutoff = thClampMag(buf_cut[i], cmax);
+        }
 
         diff = val_arg - (1 - 0.5 * val_res) * last + tanh(last * val_shape * (1 - 0.5 * val_res));
         accel += diff * SQR(val_cutoff);

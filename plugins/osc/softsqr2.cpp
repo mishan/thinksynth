@@ -81,9 +81,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     /*  0 = sine from low-hi, 1 = high, 2 = hi-low, 3 = low  */
 
     for(i=0; i < (int)windowlen; i++) {
-        wavelength = samples * (1.0/(*in_freq)[i]);
-        
-        sinewidth = wavelength * (*in_sw)[i];
+        wavelength = samples * (1.0/thBoundFreq((*in_freq)[i], samples));
+
+        /* The two sine segments divide by their own width, so an sw of zero
+           is 0/0 on the first sample of every cycle. Half a cycle each is the
+           other end: past that the flat sections are negative. */
+        sinewidth = wavelength * thClampArg((*in_sw)[i], TH_SW_MIN, 0.5f);
+
         maxsqrwidth = (wavelength - (2*sinewidth)) * (*in_pw)[i];
         minsqrwidth = (wavelength - (2*sinewidth)) * (1-(*in_pw)[i]);
         switch(phase) {

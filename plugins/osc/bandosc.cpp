@@ -81,13 +81,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     for(i = 0; i < (int)windowlen; i++)
     {
-        wavelength = samples * (1.0/(*in_freq)[i]);
-        sinewavelength = samples * (1.0/(*in_band)[i]);
-        
+        wavelength = samples * (1.0/thBoundFreq((*in_freq)[i], samples));
+        sinewavelength = samples * (1.0/thBoundFreq((*in_band)[i], samples));
+
         if(sinewavelength > wavelength) {
             sinewavelength = wavelength; /* otherwise the pitch bends when band is low */
         }
 
+        /* Above zero because thBoundFreq stops at Nyquist, which is a
+           wavelength of two samples: the pulses divide by this. */
         sinewidth = sinewavelength/2;
         pw = (*in_pw)[i];
         maxsqrwidth = (wavelength - sinewavelength) * pw;

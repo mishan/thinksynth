@@ -28,6 +28,19 @@
 static const char desc[] = "Moog Filter";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The coefficients are fitted for cutoff and res in 0..1 and mean nothing
+   outside it: past 1 the cutoff turns the one-pole coefficient inside out and
+   every stage of the ladder diverges. FMAX stops short of 1, where each
+   stage's pole sits exactly on the unit circle.
+
+   BMAX is where the cubic soft clip below stops being a soft clip: y = x -
+   x*x*x/6 turns over at sqrt(2) and changes sign past sqrt(6), so a signal
+   loud enough to push the ladder that far took the filter with it. Clamping at
+   the turning point keeps the saturation monotonic. */
+#define FMAX 0.999f
+#define QMAX 1.0f
+#define BMAX 1.4142135f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -44,8 +57,15 @@ int module_init (thPlugin *plugin)
 
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a fraction of the sample rate, "
+                       "not hertz. Clamped: the fit means nothing past 1");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 self-oscillates. Clamped for "
+                       "the same reason the cutoff is");
 
     /* These three are what the filter is *for*, and until now they existed
        only as string lookups in the callback -- created on first use, invisible
@@ -81,13 +101,21 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     b4 = (*inout_buffer)[4];
     buffer = inout_buffer->allocate(5);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(b0) || !thIsFinite(b1) || !thIsFinite(b2) ||
+        !thIsFinite(b3) || !thIsFinite(b4))
+    {
+        b0 = b1 = b2 = b3 = b4 = 0;
+    }
+
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
     in_res = mod->getArg(node, args[IN_RES]);
 
     for(i = 0; i < windowlen; i++) {
-        float frequency = (*in_cutoff)[i];
-        float res = (*in_res)[i];
+        float frequency = thClampArg((*in_cutoff)[i], 0.0f, FMAX);
+        float res = thClampArg((*in_res)[i], 0.0f, QMAX);
         float in = (*in_arg)[i] / TH_MAX;
 
         // Set coefficients given frequency & resonance [0.0...1.0]
@@ -102,6 +130,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         t2 = b2;  b2 = (b1 + t1) * p - b2 * f;
         t1 = b3;  b3 = (b2 + t2) * p - b3 * f;
         b4 = (b3 + t1) * p - b4 * f;
+        b4 = thClampMag(b4, BMAX);             //see BMAX: keep the clip soft
         b4 = b4 - b4 * b4 * b4 * 0.166667f;    //clipping
         b0 = in;
 

@@ -121,6 +121,23 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
                             phase = 0;
             }
                 }
+
+        /* A segment of zero samples completes at once rather than dividing
+         * by its own length. `a = 0' used to mean position/0: an infinity on
+         * the first sample, then a NaN once the decay's log saw it.
+         *
+         * Two statements, not one: a and d can both be zero, which makes the
+         * envelope a plain gate at the sustain level. */
+        if (phase == 0 && (*in_a)[i] <= 0) {
+            phase = 1;
+            position = 0;
+        }
+
+        if (phase == 1 && (*in_d)[i] <= 0) {
+            phase = 2;
+            position = 0;
+        }
+
         switch (phase) {  /* Which phase of the ADSR are we in? */
         case 0:   /* Attack */
             temp = (*in_a)[i];
@@ -166,7 +183,8 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             temp = (*in_r)[i];
             temp2 = (*in_s)[i];
 
-            if(temp == 0 || position >= temp) {  /* Make it end if it needs to */
+            /* <= rather than ==: a negative time is not a time either. */
+            if(temp <= 0 || position >= temp) {  /* Make it end if it needs to */
                 out[i] = 0;
                 play[i] = 0;
                 phase = 4;

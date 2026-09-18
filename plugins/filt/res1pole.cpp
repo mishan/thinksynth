@@ -27,6 +27,11 @@
 static const char desc[] = "Resonant 1-pole LPF";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
+/* The edges of the stable region, held short of themselves against float
+   rounding. See the callback for where 1 and 1 come from. */
+#define FMAX 0.999f
+#define QMAX 0.999f
+
 void module_cleanup (thPlugin *plugin)
 {
 }
@@ -41,10 +46,18 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff, 0 to 1 -- a fraction of the sample rate, "
+                       "not hertz");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance, 0 to 1; 1 is self-oscillation and is the "
+                       "edge of the stable region, so it is clamped short");
 
     return 0;
 }
@@ -68,14 +81,30 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     buf1 = (*inout_buffer)[1];
     buffer = inout_buffer->allocate(2);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(buf0) || !thIsFinite(buf1))
+    {
+        buf0 = 0;
+        buf1 = 0;
+    }
+
     in_arg = mod->getArg(node, args[IN_ARG]);
     in_cutoff = mod->getArg(node, args[IN_CUTOFF]);
     in_res = mod->getArg(node, args[IN_RES]);
 
     for(i = 0; i < windowlen; i++)
     {
-        f = (*in_cutoff)[i];
-        q = (*in_res)[i];
+        /* Writing g for 1 - f, the state matrix has determinant
+         * g*g + f*q*(2 - f) and trace g*(2 + f*fb); both eigenvalues are
+         * inside the unit circle exactly when 0 < f < 1 and 0 <= q < 1. The
+         * determinant reaches 1 at q = 1 -- the self-oscillation this filter
+         * is liked for, and where it stops coming back.
+         *
+         * Neither arg was bounded before: f = 1 divides by zero on the next
+         * line, and anything past that diverged. */
+        f = thClampArg((*in_cutoff)[i], 0.0f, FMAX);
+        q = thClampArg((*in_res)[i], 0.0f, QMAX);
         fb = q + q/(1.0 - f);
 
         buf0 = buf0 + f * ((*in_arg)[i] - buf0 + fb * (buf0 - buf1));

@@ -25,6 +25,11 @@
 
 #define SQR(x) (x*x)
 
+/* The largest pole magnitude this filter will build, whatever `res' and
+   `cutoff' work out to. Short of 1 by enough that float rounding cannot carry
+   it over. */
+#define QMAX 0.9995f
+
 enum {IN_ARG, IN_CUTOFF, IN_RES, OUT_ARG, INOUT_LAST};
 int args[INOUT_LAST + 1];
 
@@ -41,10 +46,17 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[IN_CUTOFF] = plugin->regArg("cutoff", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_CUTOFF],
+                       "Cutoff in hertz, 0 to half the sample rate");
     args[IN_RES] = plugin->regArg("res", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RES],
+                       "Resonance; under about 0.5 the poles are clamped, "
+                       "so 0.6 upwards is the usable range");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "Filtered signal");
 
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
 
@@ -77,6 +89,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     vibraspeed = (*inout_last)[1];
     out_last = inout_last->allocate(2);
 
+    /* Feedback state: one non-finite input is read back for ever after, so
+       start over rather than stay dead for the life of the note. */
+    if (!thIsFinite(vibrapos) || !thIsFinite(vibraspeed))
+    {
+        vibrapos = 0;
+        vibraspeed = 0;
+    }
+
     out = out_arg->allocate(windowlen);
 
     in_arg = mod->getArg(node, args[IN_ARG]);
@@ -89,8 +109,30 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
     for(streamofs = 0; streamofs < windowlen; streamofs++)
     {
-        w = 2.0*M_PI*buf_cut[streamofs]/samples; // Pole angle
+        /* Hertz. Past Nyquist cos(w) has wrapped and the pole angle names a
+           different filter from the one asked for. */
+        w = 2.0*M_PI*thClampArg(buf_cut[streamofs], 0.0f, samples / 2.0f)
+            / samples;                                          // Pole angle
         q = 1.0-w/(2.0*(buf_res[streamofs]+0.5/(1.0+w))+w-2.0); // Pole magnitude
+
+        /* The poles are q e^(+-iw), so |q| < 1 is the stability condition
+         * itself: the state matrix has determinant q*q and trace 2q cos(w),
+         * and 1 + q*q > |2q cos(w)| holds for every w once |q| < 1 does.
+         *
+         * The coefficients do not respect it. The denominator above crosses
+         * zero as res approaches 0.5 from above -- at DC it is zero there --
+         * so res below about 0.5 asks for |q| >= 1 and the state diverged.
+         *
+         * Clamp the magnitude rather than the resonance: what leaves the
+         * region is a magnitude, and the res that produced it is only out of
+         * range at some cutoffs. Below 0.5 every res gives the same filter,
+         * which the arg description says. A non-finite q is the denominator
+         * landing on zero -- the same case, so the same answer. */
+        if (!thIsFinite(q) || q > QMAX)
+            q = QMAX;
+        else if (q < -QMAX)
+            q = -QMAX;
+
         r = q*q;
         c = r+1.0-2.0*cos(w)*q;
 

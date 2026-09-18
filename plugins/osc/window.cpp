@@ -135,7 +135,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for(i=0; i < (int)windowlen; i++) {
         freq = (*in_freq)[i];
 
-        wavelength = samples/freq;
+        wavelength = samples/thBoundFreq(freq, samples);
 
         if(position > wavelength || (*in_reset)[i] == 1) {
             position -= wavelength;
@@ -148,6 +148,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if(pw == 0) {
             pw = 0.5;
         }
+
+        /* Neither half of the cycle may be empty -- both are divided by their
+           own length below. See osc::simple, which has the same shape. */
+        pw = thClampArg(pw, TH_PW_MIN, TH_PW_MAX);
 
         halfwave = wavelength * pw;
         if(position < halfwave) {

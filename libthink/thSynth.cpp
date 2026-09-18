@@ -79,6 +79,7 @@ thSynth::thSynth (int windowlen, int samples)
 
     silent_ = false;
     dropped_ = 0;
+    nonFinite_ = 0;
 
     /* default path */
     pluginmanager_ = new thPluginManager(PLUGIN_PATH);
@@ -121,6 +122,7 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
 
     silent_ = false;
     dropped_ = 0;
+    nonFinite_ = 0;
 
     pluginmanager_ = new thPluginManager(plugin_path);
 
@@ -1087,6 +1089,12 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
        Deleting the old channel here would free it under a callback that may be
        inside it; the audio thread hands it back once it is unreachable. */
     thMidiChan *newchan = new thMidiChan(tree, amp, windowlen_);
+
+    /* Base name rather than path: the log line has to answer "which
+       instrument", and a full path is the same answer at greater length. */
+    newchan->describe(channum,
+                      std::filesystem::path(filename).filename().string(),
+                      &nonFinite_);
 
     /* Before the swap, not after. A probe's node id was measured against the
        tree that is about to be replaced, and ids are assigned in parse order,

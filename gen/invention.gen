@@ -127,7 +127,7 @@ instrument harpsi {
     dsp  "ts1.dsp";
     amp  = 13;
 
-    a    = 1 ms;
+    a    = 0 ms;
     d    = 160 ms;
     s    = 0.12;
     f    = 3000 ms;

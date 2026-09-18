@@ -170,10 +170,32 @@ export function reference (name, nodeBuildDir,
 
     args.push(path.join(top, 'gen', name));
 
-    const text = execFileSync('node', args,
-                              { cwd: top, encoding: 'utf8',
-                                env: { ...process.env,
-                                       THINK_WASM_BUILD: nodeBuildDir } });
+    let text;
+
+    try
+    {
+        text = execFileSync('node', args,
+                            { cwd: top, encoding: 'utf8',
+                              env: { ...process.env,
+                                     THINK_WASM_BUILD: nodeBuildDir } });
+    }
+    catch (e)
+    {
+        /* genwav.mjs's statuses, which are scripts/genwav's: 4 is a voice the
+           engine's guard dropped for going non-finite, 3 is a render that
+           reached full scale. Either way what came back is a report of
+           something other than the piece, so it is not a tape to hold
+           anything against -- and an execFileSync that merely threw said only
+           that a command had failed. */
+        const why = e.status === 4
+            ? 'a voice went non-finite (genwav exit 4)'
+            : e.status === 3
+              ? 'the render clipped (genwav exit 3)'
+              : `genwav exited ${e.status === undefined ? '?' : e.status}`;
+
+        throw new Error(`reference: ${name}: ${why}` +
+                        `${e.stderr ? `\n${e.stderr}` : ''}`);
+    }
 
     return tapeBefore(text, stopAt === null ? seconds : stopAt);
 }
@@ -413,7 +435,22 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             continue;
         }
 
-        const want = reference(piece.name, nodeBuild);
+        /* A reference that could not be taken fails this piece, not the
+           run. */
+        let want;
+
+        try
+        {
+            want = reference(piece.name, nodeBuild);
+        }
+        catch (e)
+        {
+            failures++;
+            process.stdout.write(`FAIL  ${piece.name.padEnd(14)} ` +
+                                 `${e.message.split('\n')[0]}\n`);
+            continue;
+        }
+
         const cells = [];
 
         for (const shape of SHAPES)

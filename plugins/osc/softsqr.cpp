@@ -93,9 +93,9 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         val_pw = buf_pw[i];
         val_sw = buf_sfreq[i];
 
-        wavelength = samples * (1.0/val_freq);
-        sinewavelength = samples * (1.0/val_sw);
-        
+        wavelength = samples * (1.0/thBoundFreq(val_freq, samples));
+        sinewavelength = samples * (1.0/thBoundFreq(val_sw, samples));
+
         if(sinewavelength > wavelength) {
             sinewavelength = wavelength; /* otherwise the pitch bends when 
                                             sfreq is low */
@@ -103,6 +103,10 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
 
         lendiff = wavelength - sinewavelength;
         sinewidth = sinewavelength/2;
+
+        /* Above zero because thBoundFreq stops at Nyquist, which is a
+           wavelength of two samples: the sine segments divide by this, and an
+           sfreq high enough to collapse the edge to nothing made that 0/0. */
 
         maxsqrwidth = (lendiff) * val_pw;
         minsqrwidth = (lendiff) * (1-val_pw);
