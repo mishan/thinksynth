@@ -321,7 +321,14 @@ bool NodeLayout::write (const string &filename, const NodeGraph &graph)
     const string tmp = filename + ".layout-tmp";
 
     {
-        ofstream out(tmp.c_str());
+        /* Binary, because a .dsp is bytes and not lines. A text-mode
+           stream on Windows turns every \n on its way out into \r\n, so
+           dragging one node rewrote every line ending in the file --
+           while NodeEdit, which writes binary, put them back to \n on the
+           next value edit. The same patch would flip back and forth
+           depending on which kind of edit came last, and a diff of it was
+           the whole file every time. */
+        ofstream out(tmp.c_str(), ios::binary | ios::trunc);
 
         if (!out)
             return false;
