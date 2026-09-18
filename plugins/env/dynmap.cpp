@@ -25,6 +25,10 @@
 enum {IN_INMIN, IN_INMAX, IN_OUTMIN, IN_OUTMAX, IN_ARG, OUT_ARG};
 int args[OUT_ARG + 1];
 
+/* "(dynamic)" as against env::map, whose four bounds were once read only at
+   sample 0. They are not any more -- map fetches its args with getBuffer(),
+   which repeats an arg over the window exactly as operator[] does here -- so
+   the two now compute the same thing by two routes. */
 static const char desc[] = "Maps a stream to a new value range (dynamic)";
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
@@ -37,12 +41,24 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* out = (in - inmin)/(inmax - inmin) * (outmax - outmin) + outmin. It
+       does not clamp, so an input outside inmin..inmax is extrapolated rather
+       than held -- which is how dsp/old/bd9.dsp got a note of 4210 out of a
+       range declared 10 to 52. And inmax == inmin divides by zero. */
     args[IN_INMIN] = plugin->regArg("inmin", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_INMIN], "Bottom of the range coming in");
     args[IN_INMAX] = plugin->regArg("inmax", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_INMAX],
+                       "Top of the range coming in; must differ from inmin");
     args[IN_OUTMIN] = plugin->regArg("outmin", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_OUTMIN], "What inmin comes out as");
     args[IN_OUTMAX] = plugin->regArg("outmax", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_OUTMAX], "What inmax comes out as");
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG],
+                       "The input on the new scale, not clamped to it");
 
     return 0;
 }

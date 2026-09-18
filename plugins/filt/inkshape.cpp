@@ -25,7 +25,10 @@
 
 #define SQR(x) (x*x)
 
-static const char desc[] = "`INK Filter`  Gravity-based low pass";
+/* filt::ink and filt::resgrav shipped with this same description. This one is
+   ink's gravity with the step put through a shaper first -- same spring, and
+   the description says so in ink's own word for it. */
+static const char desc[] = "`INK Filter`  Gravity-based low pass, shaped";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (thPlugin *plugin)

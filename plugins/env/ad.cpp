@@ -23,7 +23,9 @@
 
 #include "think.h"
 
-static const char desc[] = "ADSR Envelope Generator";
+/* An AD, not an ADSR: no sustain, no trigger, and the note is over when the
+   decay is. env::adsr shipped with this same description. */
+static const char desc[] = "AD Envelope Generator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -40,12 +42,31 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_OUT] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_OUT], "The envelope");
+    plugin->setArgRange(args[OUT_OUT], 0, TH_MAX);
+    plugin->setArgUnits(args[OUT_OUT], "full scale");
     args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_PLAY], "1 while the note is sounding");
+    plugin->setArgRange(args[OUT_PLAY], 0, 1);
     args[INOUT_POSITION] = plugin->regArg("position", thPlugin::ARG_STATE);
+    /* No sustain and no trigger: it runs once from `reset' and is over.
+       Times are sample counts -- see env::adsr. Both halves are half a sine
+       rather than the logarithm env::adsr uses. */
     args[IN_A] = plugin->regArg("a", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_A], "Attack; 0 jumps straight to the peak");
+    plugin->setArgUnits(args[IN_A], "samples");
     args[IN_D] = plugin->regArg("d", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_D], "Decay; when it ends, so does the note");
+    plugin->setArgUnits(args[IN_D], "samples");
     args[IN_P] = plugin->regArg("p", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_P], "Peak level");
+    plugin->setArgRange(args[IN_P], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_P], "full scale");
+    /* `if ((*in_p)[i] == 0) peak = TH_MAX' -- the plugin's own zero case. */
+    plugin->setArgDefault(args[IN_P], TH_MAX);
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_RESET], "Start again from the attack");
+    plugin->setArgRange(args[IN_RESET], 0, 1);
 
     return 0;
 }

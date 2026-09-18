@@ -26,7 +26,10 @@
 enum {IN_A, IN_D, IN_S, IN_F, IN_R, IN_P, IN_TRIGGER, IN_RESET, OUT_ARG, OUT_PLAY, INOUT_POSITION };
 int args[INOUT_POSITION + 1];
 
-static const char desc[] = "ADSR Envelope Generator";
+/* An ADSFR: env::adsr with a falloff between the sustain and the release,
+   which is what the extra letter is. Both shipped with the same
+   description. */
+static const char desc[] = "ADSFR Envelope Generator";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 
@@ -45,25 +48,47 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* env::adsr with a fifth segment: the sustain is not flat, it falls over
+       `f' towards nothing, and the release picks up wherever that got to.
+       Times are sample counts -- see env::adsr. */
     args[IN_A] = plugin->regArg("a", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_A], "Attack");
+    plugin->setArgDesc(args[IN_A], "Attack; 0 jumps straight to the peak");
+    plugin->setArgUnits(args[IN_A], "samples");
     args[IN_D] = plugin->regArg("d", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_D], "Decay");
+    plugin->setArgDesc(args[IN_D], "Decay, from the peak down to s");
+    plugin->setArgUnits(args[IN_D], "samples");
     args[IN_S] = plugin->regArg("s", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_S], "Sustain");
+    plugin->setArgDesc(args[IN_S], "Sustain level, where the falloff starts");
+    plugin->setArgRange(args[IN_S], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_S], "full scale");
     args[IN_F] = plugin->regArg("f", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_F], "Falloff");
+    plugin->setArgDesc(args[IN_F],
+                       "Falloff: how long the sustain takes to reach nothing");
+    plugin->setArgUnits(args[IN_F], "samples");
     args[IN_R] = plugin->regArg("r", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_R], "Release");
+    plugin->setArgDesc(args[IN_R], "Release; 0 ends the note at once");
+    plugin->setArgUnits(args[IN_R], "samples");
     args[IN_P] = plugin->regArg("p", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_P], "Peak");
+    plugin->setArgDesc(args[IN_P], "Peak level");
+    plugin->setArgRange(args[IN_P], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_P], "full scale");
+    /* `if (val_p == 0) peak = TH_MAX' -- the plugin's own zero case. */
+    plugin->setArgDefault(args[IN_P], TH_MAX);
     args[IN_TRIGGER] = plugin->regArg("trigger", thPlugin::ARG_IN);
-    plugin->setArgDesc(args[IN_TRIGGER], "Note Trigger");
+    plugin->setArgDesc(args[IN_TRIGGER],
+                       "Note Trigger: 0 released, 1 held, 2 held by the pedal");
+    plugin->setArgRange(args[IN_TRIGGER], 0, 2);
     args[IN_RESET] = plugin->regArg("reset", thPlugin::ARG_IN);
     plugin->setArgDesc(args[IN_RESET], "Reset to A phase");
+    plugin->setArgRange(args[IN_RESET], 0, 1);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The envelope");
+    plugin->setArgRange(args[OUT_ARG], 0, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[OUT_PLAY] = plugin->regArg("play", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_PLAY], "1 while the note is sounding");
+    plugin->setArgRange(args[OUT_PLAY], 0, 1);
 
     args[INOUT_POSITION] = plugin->regArg("position", thPlugin::ARG_STATE);
 

@@ -114,34 +114,34 @@ Applies waveman's waveshaper
 
 ### env::ad
 
-ADSR Envelope Generator
+AD Envelope Generator
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `play` | out |  |  |  |  |  |
+| `out` | out | The envelope |  | 0 to 1 | full scale |  |
+| `play` | out | 1 while the note is sounding |  | 0 to 1 |  |  |
 | `position` | state |  |  |  |  |  |
-| `a` | in |  |  |  |  |  |
-| `d` | in |  |  |  |  |  |
-| `p` | in |  |  |  |  |  |
-| `reset` | in |  |  |  |  |  |
+| `a` | in | Attack; 0 jumps straight to the peak |  |  | samples |  |
+| `d` | in | Decay; when it ends, so does the note |  |  | samples |  |
+| `p` | in | Peak level | 1 | 0 to 1 | full scale |  |
+| `reset` | in | Start again from the attack |  | 0 to 1 |  |  |
 
 ### env::adsfr
 
-ADSR Envelope Generator
+ADSFR Envelope Generator
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `a` | in | Attack |  |  |  |  |
-| `d` | in | Decay |  |  |  |  |
-| `s` | in | Sustain |  |  |  |  |
-| `f` | in | Falloff |  |  |  |  |
-| `r` | in | Release |  |  |  |  |
-| `p` | in | Peak |  |  |  |  |
-| `trigger` | in | Note Trigger |  |  |  |  |
-| `reset` | in | Reset to A phase |  |  |  |  |
-| `out` | out |  |  |  |  |  |
-| `play` | out |  |  |  |  |  |
+| `a` | in | Attack; 0 jumps straight to the peak |  |  | samples |  |
+| `d` | in | Decay, from the peak down to s |  |  | samples |  |
+| `s` | in | Sustain level, where the falloff starts |  | 0 to 1 | full scale |  |
+| `f` | in | Falloff: how long the sustain takes to reach nothing |  |  | samples |  |
+| `r` | in | Release; 0 ends the note at once |  |  | samples |  |
+| `p` | in | Peak level | 1 | 0 to 1 | full scale |  |
+| `trigger` | in | Note Trigger: 0 released, 1 held, 2 held by the pedal |  | 0 to 2 |  |  |
+| `reset` | in | Reset to A phase |  | 0 to 1 |  |  |
+| `out` | out | The envelope |  | 0 to 1 | full scale |  |
+| `play` | out | 1 while the note is sounding |  | 0 to 1 |  |  |
 | `position` | state |  |  |  |  |  |
 
 ### env::adsr
@@ -150,15 +150,15 @@ ADSR Envelope Generator
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `a` | in | Attack |  |  |  |  |
-| `d` | in | Decay |  |  |  |  |
-| `s` | in | Sustain |  |  |  |  |
-| `r` | in | Release |  |  |  |  |
-| `p` | in | Peak |  |  |  |  |
-| `trigger` | in | Note Trigger |  |  |  |  |
-| `reset` | in | Reset to A phase |  |  |  |  |
-| `out` | out |  |  |  |  |  |
-| `play` | out |  |  |  |  |  |
+| `a` | in | Attack; 0 jumps straight to the peak |  |  | samples |  |
+| `d` | in | Decay, from the peak down to s |  |  | samples |  |
+| `s` | in | Sustain level; 0 ends the note |  | 0 to 1 | full scale |  |
+| `r` | in | Release; 0 ends the note at once |  |  | samples |  |
+| `p` | in | Peak level | 1 | 0 to 1 | full scale |  |
+| `trigger` | in | Note Trigger: 0 released, 1 held, 2 held by the pedal |  | 0 to 2 |  |  |
+| `reset` | in | Reset to A phase |  | 0 to 1 |  |  |
+| `out` | out | The envelope |  | 0 to 1 | full scale |  |
+| `play` | out | 1 while the note is sounding |  | 0 to 1 |  |  |
 | `position` | state |  |  |  |  |  |
 
 ### env::dynmap
@@ -167,34 +167,34 @@ Maps a stream to a new value range (dynamic)
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `inmin` | in |  |  |  |  |  |
-| `inmax` | in |  |  |  |  |  |
-| `outmin` | in |  |  |  |  |  |
-| `outmax` | in |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `inmin` | in | Bottom of the range coming in |  |  |  |  |
+| `inmax` | in | Top of the range coming in; must differ from inmin |  |  |  |  |
+| `outmin` | in | What inmin comes out as |  |  |  |  |
+| `outmax` | in | What inmax comes out as |  |  |  |  |
+| `in` | in | Signal in |  |  |  |  |
+| `out` | out | The input on the new scale, not clamped to it |  |  |  |  |
 
 ### env::followavg
 
-Follows the envelope of the input
+Averages the magnitude of the input
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
+| `out` | out | The averaged magnitude |  | 0 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `falloff` | in |  |  |  |  |  |
+| `in` | in | Signal in; its magnitude is followed |  | -1 to 1 | full scale |  |
+| `falloff` | in | 0 is instantaneous; each whole number is ten times slower |  |  |  |  |
 
 ### env::follower
 
-Follows the envelope of the input
+Follows the peaks of the input
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
+| `out` | out | The followed magnitude |  | 0 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `falloff` | in |  |  |  |  |  |
+| `in` | in | Signal in; its magnitude is followed |  | -1 to 1 | full scale |  |
+| `falloff` | in | Each whole number is ten times slower; under about 1 a rise overshoots rather than tracking |  |  |  |  |
 
 ### env::map
 
@@ -202,12 +202,12 @@ Maps a stream to a new value range
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `inmin` | in |  |  |  |  |  |
-| `inmax` | in |  |  |  |  |  |
-| `outmin` | in |  |  |  |  |  |
-| `outmax` | in |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `inmin` | in | Bottom of the range coming in |  |  |  |  |
+| `inmax` | in | Top of the range coming in; must differ from inmin |  |  |  |  |
+| `outmin` | in | What inmin comes out as |  |  |  |  |
+| `outmax` | in | What inmax comes out as |  |  |  |  |
+| `in` | in | Signal in |  |  |  |  |
+| `out` | out | The input on the new scale, not clamped to it |  |  |  |  |
 
 ## filt
 
@@ -316,7 +316,7 @@ INK Filter ][
 
 ### filt::inkshape
 
-`INK Filter`  Gravity-based low pass
+`INK Filter`  Gravity-based low pass, shaped
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|

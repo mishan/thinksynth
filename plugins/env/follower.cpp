@@ -23,7 +23,10 @@
 
 #include "think.h"
 
-static const char desc[] = "Follows the envelope of the input";
+/* A peak follower: it rises by a fraction of the input and falls by a
+   fraction of itself, so it climbs fast and lets go slowly. env::followavg
+   shipped with this same description and is the symmetric one. */
+static const char desc[] = "Follows the peaks of the input";
 thPlugin::State    mystate = thPlugin::ACTIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -40,9 +43,27 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The followed magnitude");
+    plugin->setArgRange(args[OUT_ARG], 0, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[INOUT_LAST] = plugin->regArg("last", thPlugin::ARG_STATE);
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in; its magnitude is followed");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_FALLOFF] = plugin->regArg("falloff", thPlugin::ARG_IN);
+    /* The coefficient is 0.1^falloff, so this is decades of smoothing rather
+       than a time: 3 gives 0.001 and crawls. No range -- larger is only ever
+       slower. Small is not symmetrical with large here: the rise adds
+       `magnitude * coefficient' to what is already there rather than
+       interpolating towards it, so at 0 the coefficient is 1 and a rise
+       *doubles* on a held signal instead of tracking it. Saying "0 is
+       instantaneous" would describe env::followavg, which does interpolate.
+       Negative is worse again -- the coefficient passes 1 and the state
+       rings. */
+    plugin->setArgDesc(args[IN_FALLOFF],
+                       "Each whole number is ten times slower; under about 1 "
+                       "a rise overshoots rather than tracking");
     return 0;
 }
 
