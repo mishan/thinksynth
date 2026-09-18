@@ -82,6 +82,20 @@ public:
     /* Walks `path' for <category>/<plugin>.so. Returns how many it found. */
     int scan (const string &path);
 
+    /* False for the two directories under plugins/ that are not DSP nodes.
+     *
+     * A composer module is a thcPlugin and a visualizer is the cairo ABI in
+     * VISUALIZERS.md; neither exports module_init, so thPlugin refuses them
+     * and says so on stderr. scan() walks the directory and cannot tell --
+     * it knows filenames -- so the list is here, where "what a .dsp can
+     * name" is the question being answered.
+     *
+     * Worth calling before describe() and not only after: describing one
+     * dlopens it, and a visualizer pulls cairo and fontconfig in behind it,
+     * whose one-time allocations LeakSanitizer then reports against whoever
+     * asked. */
+    static bool isNodeCategory (const string &category);
+
     /* The same catalogue from a list of `category::plugin' spellings rather
        than from a directory, in any order. Returns how many it took; a
        spelling with no `::' in it is not one and is skipped.

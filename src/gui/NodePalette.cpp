@@ -161,6 +161,15 @@ void NodePalette::rebuild (void)
     for (size_t c = 0; c < catalog_.categories().size(); c++)
     {
         const string &cat = catalog_.categories()[c];
+
+        /* Not the composer modules and not the visualizers: neither is a
+           node a .dsp can name, and offering one means adding a box whose
+           plugin thPlugin refuses to load. NodeCatalog walks the directory
+           and cannot tell -- it knows filenames -- which is what the
+           predicate is for. */
+        if (!NodeCatalog::isNodeCategory(cat))
+            continue;
+
         const vector<NodeCatalog::Entry> &list = catalog_.inCategory(cat);
 
         Glib::RefPtr<PaletteRow> catRow;

@@ -849,6 +849,13 @@ int main (int argc, char **argv)
             const vector<NodeCatalog::Entry> &list =
                 cat.inCategory(cat.categories()[c]);
 
+            /* Not the composer modules and not the visualizers: neither is
+               a node, and describing one dlopens a library that will not
+               load -- a visualizer's cairo and fontconfig behind it -- for
+               no answer. */
+            if (!NodeCatalog::isNodeCategory(cat.categories()[c]))
+                continue;
+
             for (size_t e = 0; e < list.size() && !bad; e++)
             {
                 NodeCatalog::Entry d;
