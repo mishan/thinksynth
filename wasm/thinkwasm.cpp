@@ -163,6 +163,16 @@ EMSCRIPTEN_KEEPALIVE double tw_now (void)
     return sched_->now();
 }
 
+/* Is the transport still going? A piece whose arrangement closes with
+   `section end;' stops itself when the last section is over, and a host
+   that only watched the clock would spin for ever: stepping a stopped
+   transport moves nothing, so `now' never reaches the length asked
+   for. */
+EMSCRIPTEN_KEEPALIVE int tw_running (void)
+{
+    return sched_->running() ? 1 : 0;
+}
+
 EMSCRIPTEN_KEEPALIVE void tw_step (double dt)
 {
     sched_->stepTransport(dt);

@@ -139,7 +139,7 @@ intsToNotes (const std::string &ints)
 
 ComposerWindow::ComposerWindow (thSynth *synth)
     : synth_(synth), dirty_(false), reloadPending_(false),
-      tempoGuard_(false)
+      shownRunning_(false), tempoGuard_(false)
 {
     selBox_ = NULL;
     kbdBtn_ = NULL;
@@ -1197,6 +1197,8 @@ ComposerWindow::updateTransportButtons (void)
 {
     bool have = sched_->chainCount() > 0;
 
+    shownRunning_ = sched_->running();
+
     playBtn_->set_sensitive(have && !sched_->running());
     pauseBtn_->set_sensitive(have && sched_->running());
     rewindBtn_->set_sensitive(have);
@@ -1318,6 +1320,13 @@ ComposerWindow::onDrawTimer (void)
 {
     if (canvas_ != NULL)
         canvas_->queue_draw();
+
+    /* The transport can stop without anyone pressing Pause: a piece
+       whose arrangement ends (`section end;') stops itself when its last
+       section is over. The toolbar has to say so, and this is the only
+       thing here that runs on its own. */
+    if (sched_->running() != shownRunning_)
+        updateTransportButtons();
 
     return true;
 }

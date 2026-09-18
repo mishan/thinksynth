@@ -441,7 +441,11 @@ render (thcScheduler &sched, double seconds, double step)
        cadence well under the ring's depth keeps it from ever filling; a
        window per step is what a real audio thread does and is also what
        turned a 0.07-second gate into a 28-second one. */
-    while (sched.now() < seconds)
+    /* `sched.running()' as well as the clock: a piece that ends itself
+       -- `section end;' -- stops the transport, and stepTransport on a
+       stopped one does nothing, so the clock would never reach
+       `seconds'. */
+    while (sched.now() < seconds && sched.running())
     {
         sched.stepTransport(step);
 
@@ -6878,6 +6882,299 @@ checkFloor (const std::map<std::string, thcPlugin *> &plugins,
     }
 }
 
+
+/* The arrangement's own lines, for the claim that an edit aimed
+   elsewhere leaves them byte for byte as they were. */
+static std::vector<std::string>
+sectionLines (const std::string &text)
+{
+    std::vector<std::string> out;
+    std::istringstream in(text);
+    std::string line;
+
+    while (std::getline(in, line))
+        if (line.compare(0, 7, "section") == 0)
+            out.push_back(line);
+
+    return out;
+}
+
+/* ---- the arrangement (GEN_FORMAT.md 5c) --------------------------------
+ *
+ * A section is the piece's shape written once, in the order it is played,
+ * instead of an xform::form pattern under every chain. What is checked is
+ * what it claims: which chains are heard when, that a level scales the
+ * velocity rather than merely gating it, that `section end' stops the
+ * transport where it says, that a name no chain answers to is caught at
+ * load, and that an editor's splices leave the arrangement's bytes alone.
+ */
+static void
+checkSections (const std::map<std::string, thcPlugin *> &plugins,
+               thSynth *synth)
+{
+    if (plugins.find("euclid") == plugins.end())
+    {
+        fail("module 'euclid' is missing; build the plugins first");
+        return;
+    }
+
+    /* Two chains a beat apart at 120, four beats to a bar: one bar is two
+       seconds and holds four notes of each. Three bars, each doing
+       something different to them. */
+    const std::string body =
+        "tempo 120;\n"
+        "meter 4;\n"
+        "seed 5;\n"
+        "section one   1 bars { snare = 0; };\n"
+        "section two   1 bars { kick = 0; };\n"
+        "section three 1 bars { kick = 0.5; snare = 0; };\n"
+        "chain kick {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 100; };\n"
+        "  sink { channel = 1; };\n"
+        "};\n"
+        "chain snare {\n"
+        "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+        "    notes = \"D2\"; period = 1 beats; hold = 0.2 beats;\n"
+        "    vel = 80; };\n"
+        "  sink { channel = 2; };\n"
+        "};\n";
+
+    {
+        /* Just under three bars, so the fourth -- which is the first one
+           round again -- is not half in the count. */
+        std::vector<Heard> h = playBody(plugins, synth, "sections", body,
+                                        5.9);
+        size_t kick[3] = { 0, 0, 0 }, snare[3] = { 0, 0, 0 };
+        bool velOk = true;
+
+        for (size_t i = 0; i < h.size(); i++)
+        {
+            const int bar = (int)(h[i].at / 2.0 + 1e-9);
+
+            if (bar < 0 || bar > 2)
+            {
+                fail("sections: a note landed outside the three bars");
+                continue;
+            }
+
+            if (h[i].channel == 0)
+            {
+                kick[bar]++;
+
+                if (h[i].vel != (bar == 2 ? 50 : 100))
+                    velOk = false;
+            }
+            else
+            {
+                snare[bar]++;
+
+                if (h[i].vel != 80)
+                    velOk = false;
+            }
+        }
+
+        if (kick[0] != 4 || kick[1] != 0 || kick[2] != 4)
+            fail("sections: the kick should play the first bar, sit out "
+                 "the second and come back for the third; heard " +
+                 std::to_string(kick[0]) + "/" + std::to_string(kick[1]) +
+                 "/" + std::to_string(kick[2]));
+
+        if (snare[0] != 0 || snare[1] != 4 || snare[2] != 0)
+            fail("sections: the snare should be heard in the second bar "
+                 "only; heard " + std::to_string(snare[0]) + "/" +
+                 std::to_string(snare[1]) + "/" +
+                 std::to_string(snare[2]));
+
+        if (!velOk)
+            fail("sections: a level of 0.5 should halve the velocity and "
+                 "leave every other chain's alone");
+    }
+
+    /* The list cycles: the fourth bar is the first section again. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "sections cycle",
+                                        body, 7.9);
+        size_t kick = 0, snare = 0;
+
+        for (size_t i = 0; i < h.size(); i++)
+            if (h[i].at >= 6.0)
+                (h[i].channel == 0 ? kick : snare)++;
+
+        if (kick != 4 || snare != 0)
+            fail("sections: the list should cycle, so the fourth bar is "
+                 "the first section again");
+    }
+
+    /* `section end;': the piece stops itself where it says it does, and
+       the transport says so. */
+    {
+        const std::string ends =
+            "tempo 120;\n"
+            "meter 4;\n"
+            "section only 1 bars { };\n"
+            "section end;\n"
+            "chain kick {\n"
+            "  stage src gen::euclid { steps = 4; fills = 4; rotate = 0;\n"
+            "    notes = \"C2\"; period = 1 beats; hold = 0.2 beats;\n"
+            "    vel = 100; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n";
+
+        const std::string path = thUtil::tempFile("gencheck-secend-");
+
+        if (path.empty())
+            fail("could not write the section-end piece");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << ends;
+            }
+
+            clearChannels(synth);
+            drainSynth();
+
+            thcScheduler sched(synth);
+            thcGenLoader loader(plugins);
+
+            if (!loader.load(path, &sched))
+                fail("the section-end piece did not load");
+            else
+            {
+                /* render() stops at the end of the piece as well as at
+                   the time asked for; four seconds is twice the
+                   arrangement. */
+                std::vector<Heard> h = notesOf(render(sched, 4.0, 0.02));
+
+                if (h.size() != 4)
+                    fail("section end: one bar of four should deliver four "
+                         "notes and then nothing; delivered " +
+                         std::to_string(h.size()));
+
+                if (sched.running())
+                    fail("section end: the transport did not stop itself");
+
+                if (sched.now() > 2.05)
+                    fail("section end: the transport stopped at " +
+                         std::to_string(sched.now()) + " s, not at the "
+                         "end of the last section");
+            }
+
+            remove(path.c_str());
+        }
+    }
+
+    /* The things a section can get wrong, each by name and line. */
+    expectReject(plugins, synth, "section-no-unit",
+        "section a 8 { };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "write a unit");
+
+    expectReject(plugins, synth, "section-no-such-chain",
+        "section a 8 bars { nope = 0; };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "not a chain in this piece");
+
+    expectReject(plugins, synth, "late-meter",
+        "section a 8 bars { };\nmeter 3;\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "before the first section");
+
+    expectReject(plugins, synth, "after-section-end",
+        "section a 8 bars { };\nsection end;\nsection b 8 bars { };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "nothing comes after");
+
+    expectReject(plugins, synth, "negative-level",
+        "section a 8 bars { c = -1; };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "cannot be negative");
+
+    expectReject(plugins, synth, "duplicate-section",
+        "section a 8 bars { };\nsection a 4 bars { };\n"
+        "chain c { stage s gen::eno_line { }; sink { channel = 1; }; };",
+        "already declared");
+
+    /* And the editor, which does not write an arrangement and must
+       therefore not disturb one. */
+    {
+        const std::string path = thUtil::tempFile("gencheck-secedit-");
+
+        if (path.empty())
+        {
+            fail("could not write the section-editing piece");
+            return;
+        }
+
+        {
+            std::ofstream out(path.c_str(), std::ios::trunc);
+
+            out << "# the arrangement, with a comment in it\n" << body;
+        }
+
+        const std::string before = slurp(path);
+        std::string why;
+
+        /* The panel reads past the arrangement to the chains under it. */
+        thcGenEdit::Doc doc;
+
+        editOk(thcGenEdit::describe(path, doc, why), why,
+               "describe over sections");
+
+        if (doc.chains.size() != 2 || doc.chains[0].name != "kick")
+            fail("describe did not read past the arrangement to the "
+                 "chains under it");
+
+        editOk(thcGenEdit::setTempo(path, 140, why), why,
+               "setTempo over sections");
+        editOk(thcGenEdit::setParam(path, "kick", 0, "vel", "110", why),
+               why, "setParam over sections");
+
+        if (sectionLines(slurp(path)) != sectionLines(before))
+            fail("an edit elsewhere in the file rewrote the arrangement");
+
+        /* A chain a section names cannot quietly go. */
+        if (thcGenEdit::removeChain(path, "kick", why) != thcGenEdit::REFUSED)
+            fail("removing a chain the arrangement names was allowed");
+
+        /* A rename takes the arrangement with it. */
+        editOk(thcGenEdit::renameChain(path, "kick", "boom", why), why,
+               "renameChain under sections");
+
+        const std::string after = slurp(path);
+
+        if (after.find("boom = 0.5") == std::string::npos ||
+            after.find("kick") != std::string::npos)
+            fail("a renamed chain left the arrangement naming the old one");
+
+        if (after.find("# the arrangement, with a comment in it") ==
+            std::string::npos)
+            fail("editing over an arrangement lost a comment");
+
+        clearChannels(synth);
+        drainSynth();
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t k = 0; k < loader.errors().size(); k++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+            fail("the edited arrangement no longer loads");
+        }
+        else if (sched.sections().size() != 3 || sched.endsAfterSections())
+            fail("the edited arrangement did not read back as three "
+                 "cycling sections");
+
+        remove(path.c_str());
+    }
+}
+
 /* A piece somebody plays rather than one that plays itself: chains
  * with `input midi' and no generator anywhere. Nothing to render. */
 static bool
@@ -7139,6 +7436,7 @@ main (int argc, char *argv[])
     checkHarmonyKit(plugins, &synth);
     checkHeldNotes(plugins, &synth);
     checkFloor(plugins, &synth);
+    checkSections(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
     checkSilent(plugins, &synth, &silent, genFile);
 

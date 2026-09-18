@@ -145,6 +145,11 @@ private:
     bool parsePreset (void);
     bool parseInstrument (thcScheduler *sched);
 
+    /* `section drop 16 bars { lead = 1.2; };' and `section end;' --
+       the arrangement, GEN_FORMAT.md §5c. */
+    bool parseSection (thcScheduler *sched);
+    bool parseMeter (void);
+
     /* One `name = value;' inside an instrument block. `prefix' is empty for
        the instrument's own chanargs and TH_EFFECT_PREFIX for its effect's;
        see the definition. */
@@ -239,6 +244,12 @@ private:
        reason. */
     void checkSinkArgs (thcScheduler *sched);
 
+    /* Every chain a section names, against the chains the file
+       declares. After the parse, because a section is written above the
+       chains it changes -- the arrangement reads better at the top, and
+       a name it gets wrong is still a name, so it is still catchable. */
+    void checkSections (thcScheduler *sched);
+
     /* Resolves every parked `param = node->arg' against its chain's
        built node host. After the parse, for the reason the pass above
        is. */
@@ -310,6 +321,17 @@ private:
     };
 
     std::vector<PendingNodeBind> pendingNodeBinds_;
+
+    /* Beats to a bar, for the `bars' a section's length is written in.
+       `sawSection_' is what makes a `meter' below the first section an
+       error rather than a line that quietly did nothing: bars are
+       folded to beats as they are read. */
+    double meter_;
+    bool   sawSection_, sawSectionEnd_;
+
+    /* One per section the file declares, in order, so a name a section
+       gets wrong is reported against the line that got it wrong. */
+    std::vector<int> sectionLines_;
 
     std::string name_, author_, description_;
     bool        hasSeed_;

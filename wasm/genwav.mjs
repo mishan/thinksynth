@@ -370,7 +370,10 @@ async function main (argv0, args)
        by ulps over a long piece. Nothing reads thcTransport::beat, and
        anything that starts to should derive it rather than compare two
        hosts' accumulations for equality. */
-    while (!stopped && M._tw_now() < seconds)
+    /* `_tw_running()' as well as the clock: a piece that ends itself --
+       `section end;' -- stops the transport where it says, and nothing
+       after that would move. */
+    while (!stopped && M._tw_running() && M._tw_now() < seconds)
     {
         const target = M._tw_now() + dt;
 
