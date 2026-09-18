@@ -13,6 +13,12 @@
 # it on each note, and the four `f' times are that envelope. The amp
 # envelope is the usual one, with sustain scaled by velocity.
 #
+# `Vibrato' is a misc::vibrato between the note and the oscillators, and
+# the two knobs beside it are the whole of what makes a wobble sound like
+# a hand rather than an LFO: it waits `Vibrato Delay' after the note
+# starts and then grows in. A note shorter than that delay comes out
+# exactly as it did before there was a vibrato here at all.
+#
 # `Cutoff Glide' is a misc::slew on the resting cutoff, and it is there
 # for what a composer does to that knob rather than for what a player
 # does: a gen::walk writing a new cutoff once a period is a staircase,
@@ -67,6 +73,22 @@ description "Two detuned saws and a sub octave through a ladder filter with its 
     @drive.max = 6;
     @drive.label = "Drive";
 
+    @vibrato = 15;
+    @vibrato.widget = 1;
+    @vibrato.min = 0;
+    @vibrato.max = 100;
+    @vibrato.label = "Vibrato (cents)";
+    @vibrate = 5.5;
+    @vibrate.widget = 1;
+    @vibrate.min = 0.5;
+    @vibrate.max = 12;
+    @vibrate.label = "Vibrato Rate (Hz)";
+    @vibdelay = 300 ms;
+    @vibdelay.widget = 1;
+    @vibdelay.min = 0;
+    @vibdelay.max = 2000ms;
+    @vibdelay.label = "Vibrato Delay";
+
     @fa = 4 ms;
     @fa.widget = 1;
     @fa.min = 0;
@@ -120,8 +142,20 @@ node freq misc::midi2freq {
     note = ionode->note;
 };
 
+# The hand, after the note is placed. Nothing for `Vibrato Delay', then
+# a bend of `Vibrato' cents either way growing in over half that delay
+# again -- so a note shorter than the delay is a note with no vibrato on
+# it, which is what makes this a player's vibrato and not an LFO.
+node vib misc::vibrato {
+    in = freq->out;
+    rate = @vibrate;
+    depth = @vibrato;
+    delay = @vibdelay;
+    rise = @vibdelay * 0.5;
+};
+
 node osc1 osc::simple {
-    freq = freq->out;
+    freq = vib->out;
     waveform = 1;
 };
 
@@ -130,12 +164,12 @@ node osc1 osc::simple {
 # are arithmetic on the arg instead -- the same two nodes, built at load,
 # named after the args they feed.
 node osc2 osc::simple {
-    freq = freq->out + @detune;
+    freq = vib->out + @detune;
     waveform = 1;
 };
 
 node osc3 osc::simple {
-    freq = freq->out * 0.5;
+    freq = vib->out * 0.5;
     waveform = 2;
 };
 

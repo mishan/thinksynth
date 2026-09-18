@@ -692,6 +692,20 @@ One-pole lag
 | `out` | out | in, lagged |  |  |  |  |
 | `last` | state |  |  |  |  |  |
 
+### misc::vibrato
+
+Delayed vibrato
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The signal to bend, a frequency |  |  |  |  |
+| `rate` | in | How fast the bend goes round |  | 0 to 20 | Hz |  |
+| `depth` | in | How far the bend reaches, up and down |  | 0 to 1200 | cents |  |
+| `delay` | in | How long the note is held straight before the bend starts |  |  | samples |  |
+| `rise` | in | How long the bend takes to reach `depth' once it starts; 0 arrives at once |  |  | samples |  |
+| `out` | out | in, bent |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ## mixer
 
 ### mixer::add

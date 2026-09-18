@@ -218,9 +218,18 @@ instrument pluck {
     };
 };
 
+# The one supersaw here that is a lead rather than a pad, and the
+# difference is the attack and this: a bend of a fifth of a semitone,
+# waiting out the first four hundred milliseconds of every note, so the
+# sixteenths are straight and only the held notes at the end of a phrase
+# sing.
 instrument lead {
     dsp  "supersaw.dsp";
     amp  = 16;
+
+    vibrato  = 20;
+    vibrate  = 5.5;
+    vibdelay = 400 ms;
 
     detune = @width;
     cutoff = 2500;
