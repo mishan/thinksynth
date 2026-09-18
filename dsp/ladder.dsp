@@ -154,12 +154,16 @@ node cutglide misc::slew {
     time = @glide;
 };
 
+# How far up the envelope throws the cutoff is scaled by velocity: the
+# peak is the whole distance from the resting cutoff only on a note
+# played hard, so a soft note opens less far as well as sounding
+# quieter.
 node fmap env::map {
     in = fenv->out;
     inmin = 0;
     inmax = th_max;
     outmin = cutglide->out;
-    outmax = @fmax;
+    outmax = cutglide->out + (@fmax - cutglide->out) * ionode->velocity;
 };
 
 # The two saws averaged, then faded against the sub. This was a pair of

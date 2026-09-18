@@ -114,16 +114,19 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
-# One filter a side; the center saw is in both.
+# One filter a side; the center saw is in both. How far the envelope
+# opens them is scaled by velocity, so a line played softly is darker as
+# well as quieter -- which is what makes an accent or a swell audible as
+# tone and not only as level.
 node filtl filt::svf {
     in = (s0->out + s1->out + s3->out + s5->out) * 0.25;
-    cutoff = @cutoff + fenv->out * @depth;
+    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
     res = @res;
 };
 
 node filtr filt::svf {
     in = (s0->out + s2->out + s4->out + s6->out) * 0.25;
-    cutoff = @cutoff + fenv->out * @depth;
+    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
     res = @res;
 };
 

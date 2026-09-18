@@ -140,9 +140,12 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
+# How far the envelope opens the filter is scaled by velocity, which is
+# what makes an accented note of a bass line brighter and not only
+# louder.
 node filt filt::svf {
     in = osc->out * 0.5 * (1 - @sub) + sub->out * 0.5 * @sub;
-    cutoff = @cutoff + fenv->out * @depth;
+    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
     res = @res;
 };
 

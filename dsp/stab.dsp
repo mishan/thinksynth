@@ -83,9 +83,11 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
+# The envelope's reach is scaled by velocity: a stab played softly is a
+# darker stab, not just a smaller one.
 node filt filt::svf {
     in = (s0->out + s1->out + s2->out) * 0.3 + s3->out * 0.3 * @fifth;
-    cutoff = @cutoff + fenv->out * @depth;
+    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
     res = @res;
 };
 
