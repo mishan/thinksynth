@@ -356,6 +356,14 @@ jobs:
       - name: Every picture in every piece
         run: node wasm/web/drawcheck.mjs
 
+      # The mirror (JAM_M6.md, section 4): the module twice in one process,
+      # one rendering and one with a synth that never renders, both fed the
+      # same messages through the same handler, the second stepped to the
+      # frame the first's tape batch reached. One tape, for every seeded
+      # piece -- and the mirror dropped nothing and made no sound.
+      - name: A mirror composes what the worklet composes
+        run: node wasm/web/mirrortest.mjs
+
       # M3's first gate, without a browser: two peers in one process at
       # different windows and rates, on a network of made-up delay and
       # loss, composing every seeded piece from stamped commands -- one

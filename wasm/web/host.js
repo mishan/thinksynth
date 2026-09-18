@@ -191,6 +191,13 @@ export async function createSynth (ctx, { windowlen = 256,
         knob: (knob, value, at = -1) =>
             node.port.postMessage({ type: 'knob', knob, value, at }),
 
+        /* A gesture on a stage's picture, already in the coordinates the
+           composer drew in (JAM_M6.md, section 5). Handed the command
+           itself, since every field of it is one the module wants. */
+        input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1 }) =>
+            node.port.postMessage({ type: 'input', at, chain, stage, kind,
+                                    x, y, w, h, button }),
+
         /* A key, into the piece rather than straight onto a channel: the
            chains that declared `input midi' and sink to this channel
            receive it.

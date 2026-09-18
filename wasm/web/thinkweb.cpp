@@ -82,6 +82,10 @@
 #include "thDynLib.h"
 
 #include "cairo2d.h"
+#include "cairomm/context.h"
+
+#include "ComposerCanvas.h"
+#include "thcGenEdit.h"
 
 #include "twevent.h"
 
@@ -124,8 +128,8 @@ enum CmdType
 };
 
 /* CMD_TRANSPORT's `op', and a Scheduled's. worklet.js spells the first
-   four too; TW_KNOB has its own entry point and never arrives as an op
-   from there. */
+   four too; TW_KNOB and TW_INPUT have entry points of their own and
+   never arrive as an op from there. */
 enum TransportOp
 {
     TW_START,
@@ -133,6 +137,7 @@ enum TransportOp
     TW_REWIND,
     TW_TEMPO,
     TW_KNOB,
+    TW_INPUT,
 };
 
 struct Command
@@ -165,9 +170,22 @@ struct Command
 struct Scheduled
 {
     double at;
-    int    op;                  /* TW_STOP, TW_TEMPO or TW_KNOB        */
+    int    op;                  /* TW_STOP, TW_TEMPO, TW_KNOB, TW_INPUT */
     int    knob;                /* TW_KNOB: an index into knobs_       */
     double value;               /* TW_KNOB's value, TW_TEMPO's bpm     */
+
+    /* TW_INPUT: a gesture on a stage's picture, in the coordinates the
+       draw was handed. The stage is named by chain and stage index --
+       the canvas's own key, and the same on every peer holding the same
+       document revision -- and w and h come along because the ABI
+       requires them: the draw's size is the host's business and an
+       enlarged view is the same draw at a different size. Every peer
+       inverts the same arithmetic and reaches the same cell
+       (JAM_M6.md, section 5). */
+    int    chain, stage;
+    int    kind;                /* thcInputType                        */
+    double x, y, w, h;
+    int    button;
 };
 
 /* Room for this many commands in flight before the queue has to grow. */
@@ -365,6 +383,24 @@ void beginDue (double start, int len)
     sched_->start();
 }
 
+/* A stage by chain and stage index, or NULL. The index pair is the
+   canvas's own key and is the same on every peer holding the same document
+   revision (JAM_M6.md, section 1), so it is what the page names a picture
+   by. Out of range is answered rather than trusted: these indices come off
+   a page. */
+thcStage *stageAt (int chain, int stage)
+{
+    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
+        return NULL;
+
+    const thcChain *c = sched_->chain((size_t)chain);
+
+    if (c == NULL || stage < 0 || (size_t)stage >= c->stages.size())
+        return NULL;
+
+    return c->stages[(size_t)stage].get();
+}
+
 void applyScheduled (const Scheduled &c)
 {
     switch (c.op)
@@ -389,6 +425,40 @@ void applyScheduled (const Scheduled &c)
                 knobs_[c.knob]->setValue((float)c.value);
 
             break;
+
+        case TW_INPUT:
+        {
+            /* Straight into the plugin's own state, at `at', inside the
+               step -- before any stage ticks at or after it, which is
+               the property every scheduler-facing command has here. The
+               stage is named by index, and an index that names nothing
+               is dropped and said rather than applied to a neighbour:
+               these come off a page, and a page's idea of the piece can
+               be a revision behind. */
+            thcStage *st = stageAt(c.chain, c.stage);
+
+            if (st == NULL || st->plugin == NULL || st->state == NULL)
+            {
+                fprintf(stderr, "input for stage %d.%d, which is not "
+                                "there\n", c.chain, c.stage);
+                break;
+            }
+
+            if (!st->plugin->hasInput())
+                break;          /* its picture is not a control */
+
+            thcInputEvent ev = {};
+
+            ev.type = (thcInputType)c.kind;
+            ev.x = c.x;
+            ev.y = c.y;
+            ev.w = c.w;
+            ev.h = c.h;
+            ev.button = c.button;
+
+            st->plugin->input(st->state, &ev);
+            break;
+        }
     }
 }
 
@@ -560,23 +630,100 @@ void collectSinks (void)
    nothing. */
 cairo_t *drawing_ = NULL;
 
-/* A stage by chain and stage index, or NULL. The index pair is the
-   canvas's own key and is the same on every peer holding the same document
-   revision (JAM_M6.md, section 1), so it is what the page names a picture
-   by. Out of range is answered rather than trusted: these indices come off
-   a page. */
-thcStage *stageAt (int chain, int stage)
+/* ---- the composer canvas, in a module ----
+ *
+ * The desktop's ComposerCanvas, compiled again here and given a shell of
+ * page and worker instead of a gtk widget (JAM_M6.md, section 6). What it
+ * draws, what it lays out and what a click on it means are the desktop's,
+ * unchanged; what this class is, is the four answers a shell owes it.
+ *
+ * It lives in the mirror, beside the scheduler whose stages it draws. The
+ * worklet has one of these too -- it is the same module -- and never
+ * touches it.
+ */
+class WebComposerCanvas : public ComposerCanvas
 {
-    if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
-        return NULL;
+public:
+    WebComposerCanvas (void)
+        : dirty_(true), width_(0), height_(0),
+          viewX_(0), viewY_(0), viewW_(0), viewH_(0) {}
 
-    const thcChain *c = sched_->chain((size_t)chain);
+    /* Whether anything has asked to be drawn again since this was last
+       asked. The shell draws on an animation frame when it has, which is
+       what queue_draw buys on the desktop. */
+    bool takeDirty (void)
+    {
+        const bool was = dirty_;
 
-    if (c == NULL || stage < 0 || (size_t)stage >= c->stages.size())
-        return NULL;
+        dirty_ = false;
+        return was;
+    }
 
-    return c->stages[(size_t)stage].get();
-}
+    int width (void) const { return width_; }
+    int height (void) const { return height_; }
+
+    /* What the page can see of the drawing, in shell pixels: the scroll
+       position and the element's size. The enlarged stage is laid out
+       against this, so a canvas that was never told would put it across
+       the whole drawing and somewhere off screen. */
+    void setViewport (double x, double y, double w, double h)
+    {
+        viewX_ = x;
+        viewY_ = y;
+        viewW_ = w;
+        viewH_ = h;
+
+        shellResized();
+        dirty_ = true;
+    }
+
+protected:
+    void requestRedraw (void) override { dirty_ = true; }
+
+    void resizeShell (int w, int h) override
+    {
+        width_ = w;
+        height_ = h;
+        dirty_ = true;
+    }
+
+    bool shellViewport (double &x, double &y, double &w,
+                        double &h) const override
+    {
+        if (viewW_ <= 0.0 || viewH_ <= 0.0)
+            return false;
+
+        x = viewX_;
+        y = viewY_;
+        w = viewW_;
+        h = viewH_;
+
+        return true;
+    }
+
+private:
+    bool dirty_;
+    int width_, height_;
+    double viewX_, viewY_, viewW_, viewH_;
+};
+
+WebComposerCanvas *canvas_ = NULL;
+Cairo::RefPtr<Cairo::Context> canvasContext_;
+
+/* The gestures the canvas took and did not hand to a plugin, waiting for
+   the shell to turn each into a command. See tw_canvas_input_count(). */
+struct CanvasInput
+{
+    int    chain, stage, kind, button;
+    double x, y, w, h;
+};
+
+std::vector<CanvasInput> canvasInputs_;
+
+/* The piece as thcGenEdit reads it back: the authored spellings, the
+   chains and their stages in order, which is what the canvas lays out.
+   Kept because the canvas holds a pointer to it. */
+thcGenEdit::Doc canvasDoc_;
 
 bool writeFile (const char *path, const char *text)
 {
@@ -1037,6 +1184,257 @@ EMSCRIPTEN_KEEPALIVE int tw_draw_surface_stride (int k)
     return drawing_ != NULL ? cairo2d_surface_stride(drawing_, k) : 0;
 }
 
+/* ---- the composer canvas ----
+ *
+ * One canvas per instance, made on the first call. The mirror's is the one
+ * that matters: it draws the stages of the scheduler it shares a heap
+ * with, which are the instances that are composing what is being heard
+ * (JAM_M6.md, section 4).
+ *
+ * The list a draw produces is the same three tables a stage's picture
+ * produces -- tw_draw_ops and its neighbours -- because a stage's picture
+ * is drawn inside the canvas's own list anyway, by the plugin, through the
+ * cairo the canvas handed it.
+ */
+
+/* Show the piece that is loaded. Called after a piece message; nonzero if
+   the .gen described. The worklet never calls this, which is why it is not
+   part of the load. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
+{
+    std::string why;
+
+    if (canvas_ == NULL)
+    {
+        canvas_ = new WebComposerCanvas();
+
+        /* A gesture on an enlarged picture does not reach the plugin from
+           here. It leaves as a command, is stamped, goes round the mesh
+           and comes back at its time -- to this instance as to every
+           other (JAM_M6.md, section 5). Connecting this is what tells the
+           canvas so; the desktop connects nothing and the plugin hears
+           the click at once, as it always has. */
+        canvas_->sigInput.connect(
+            [](size_t chain, size_t stage, const thcInputEvent &ev)
+            {
+                CanvasInput in;
+
+                in.chain = (int)chain;
+                in.stage = (int)stage;
+                in.kind = (int)ev.type;
+                in.button = ev.button;
+                in.x = ev.x;
+                in.y = ev.y;
+                in.w = ev.w;
+                in.h = ev.h;
+
+                canvasInputs_.push_back(in);
+            });
+    }
+
+    if (thcGenEdit::describe(TW_PIECE_FILE, canvasDoc_, why) !=
+        thcGenEdit::OK)
+    {
+        fprintf(stderr, "the composer view cannot read the piece: %s\n",
+                why.c_str());
+        canvas_->SetPiece(NULL, NULL);
+        return 0;
+    }
+
+    canvas_->SetPiece(&canvasDoc_, sched_);
+
+    return 1;
+}
+
+/* Draw it at w x h, and answer with the length of the list. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_draw (int w, int h)
+{
+    if (canvas_ == NULL)
+        return -1;
+
+    if (drawing_ == NULL)
+        drawing_ = cairo2d_create();
+
+    if (!canvasContext_)
+        canvasContext_ = Cairo::Context::create(drawing_);
+
+    cairo2d_begin(drawing_);
+    canvas_->draw(canvasContext_, w, h);
+
+    return cairo2d_op_words(drawing_);
+}
+
+/* The gestures, in shell pixels, as the desktop's controllers deliver
+   them. The conversion to the drawing's own coordinates is the content's,
+   on every platform, which is what stops a click landing somewhere else at
+   a zoom nobody tested at. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_press (double x, double y, int button,
+                                           int nPress)
+{
+    if (canvas_ != NULL)
+        canvas_->pressAt(x, y, button, nPress);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_motion (double x, double y)
+{
+    if (canvas_ != NULL)
+        canvas_->motionTo(x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_release (double x, double y, int button)
+{
+    if (canvas_ != NULL)
+        canvas_->releaseAt(x, y, button);
+}
+
+/* CanvasContent::Key, not a keysym: the shell maps its own spelling to
+   one of these, as the gtk shell maps GDK_KEY_Escape. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_key (int key)
+{
+    return canvas_ != NULL &&
+           canvas_->keyPressed((CanvasContent::Key)key) ? 1 : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_viewport (double x, double y, double w,
+                                              double h)
+{
+    if (canvas_ != NULL)
+        canvas_->setViewport(x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE double tw_canvas_zoom (void)
+{
+    return canvas_ != NULL ? canvas_->zoom() : 1.0;
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_set_zoom (double z)
+{
+    if (canvas_ != NULL)
+        canvas_->setZoom(z);
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_zoom_to_fit (void)
+{
+    if (canvas_ != NULL)
+        canvas_->zoomToFit();
+}
+
+/* How big the drawing is, in shell pixels, for the scroller around it. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_width (void)
+{
+    return canvas_ != NULL ? canvas_->width() : 0;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_height (void)
+{
+    return canvas_ != NULL ? canvas_->height() : 0;
+}
+
+/* ---- the gestures the canvas wants sent ----
+ *
+ * Drained by the shell after every press, drag and release it delivered:
+ * each one becomes an `input' command, stamped and sent, and comes back
+ * to this instance at its time like anyone else's. The shell sends at
+ * most one drag per animation frame, which is the rate a knob's slider
+ * already produces.
+ */
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_input_count (void)
+{
+    return (int)canvasInputs_.size();
+}
+
+EMSCRIPTEN_KEEPALIVE void tw_canvas_inputs_clear (void)
+{
+    canvasInputs_.clear();
+}
+
+#define TW_INPUT_FIELD(name, type, member, empty)                          \
+    EMSCRIPTEN_KEEPALIVE type tw_canvas_input_##name (int k)               \
+    {                                                                      \
+        return k >= 0 && k < (int)canvasInputs_.size()                     \
+            ? canvasInputs_[k].member : empty;                             \
+    }
+
+TW_INPUT_FIELD(chain,  int,    chain,  -1)
+TW_INPUT_FIELD(stage,  int,    stage,  -1)
+TW_INPUT_FIELD(kind,   int,    kind,   -1)
+TW_INPUT_FIELD(button, int,    button,  0)
+TW_INPUT_FIELD(x,      double, x,     0.0)
+TW_INPUT_FIELD(y,      double, y,     0.0)
+TW_INPUT_FIELD(w,      double, w,     0.0)
+TW_INPUT_FIELD(h,      double, h,     0.0)
+
+#undef TW_INPUT_FIELD
+
+/* Which stage the canvas has enlarged, or -1: the one a gesture would
+   reach, and what the page labels the view with. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_chain (void)
+{
+    return canvas_ != NULL &&
+           canvas_->enlarged().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->enlarged().chain : -1;
+}
+
+EMSCRIPTEN_KEEPALIVE int tw_canvas_enlarged_stage (void)
+{
+    return canvas_ != NULL &&
+           canvas_->enlarged().kind == ComposerCanvas::Selection::STAGE
+        ? (int)canvas_->enlarged().index : -1;
+}
+
+/* Where the enlarged picture is, in the content's own coordinates -- the
+   shell multiplies by the zoom to reach its own pixels. Zero width when
+   nothing is enlarged.
+ *
+   Exported because the alternative is a shell that repeats the layout
+   arithmetic and then tests its own copy of it. Same reason the desktop's
+   harnesses can ask. */
+#define TW_ENLARGED(name, which)                                           \
+    EMSCRIPTEN_KEEPALIVE double tw_canvas_enlarged_##name (void)           \
+    {                                                                      \
+        double a[4];                                                       \
+                                                                           \
+        if (canvas_ == NULL || !canvas_->enlargedArea(a[0], a[1], a[2],    \
+                                                      a[3]))               \
+            return 0.0;                                                    \
+                                                                           \
+        return a[which];                                                   \
+    }
+
+TW_ENLARGED(x, 0)
+TW_ENLARGED(y, 1)
+TW_ENLARGED(w, 2)
+TW_ENLARGED(h, 3)
+
+#undef TW_ENLARGED
+
+/* Enlarge a stage, or put it back with a chain below zero. The canvas
+   does this itself on a double click; the page has a button too. */
+EMSCRIPTEN_KEEPALIVE void tw_canvas_enlarge (int chain, int stage)
+{
+    if (canvas_ == NULL)
+        return;
+
+    ComposerCanvas::Selection sel;
+
+    if (chain >= 0)
+    {
+        sel.kind = ComposerCanvas::Selection::STAGE;
+        sel.chain = (size_t)chain;
+        sel.index = (size_t)stage;
+    }
+
+    canvas_->setEnlarged(sel);
+}
+
+/* Has anything asked for a redraw since this was last asked? The shell
+   draws on the next animation frame when it has. */
+EMSCRIPTEN_KEEPALIVE int tw_canvas_dirty (void)
+{
+    return canvas_ != NULL && canvas_->takeDirty() ? 1 : 0;
+}
+
 /* ---- the knobs the piece declared ---- */
 
 EMSCRIPTEN_KEEPALIVE int tw_knob_count (void)
@@ -1172,6 +1570,46 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
     schedule(c);
 }
 
+/* A gesture on a stage's picture, at a transport time.
+ *
+ * One more stamped command, made and sent the way a knob is: applied at
+ * `at' in the step on every peer, the sender included, so a Life board
+ * that was clicked on one screen is the same board everywhere from that
+ * moment (JAM_M6.md, section 5). The clicker hears their own click a knob
+ * lead late, as they hear their own knob.
+ *
+ * `at' below zero is "now", as for a knob on a stopped transport, which
+ * is what a solo page sends.
+ */
+EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
+                                    int kind, double x, double y, double w,
+                                    double h, int button)
+{
+    Scheduled c = {};
+
+    c.at = at;
+    c.op = TW_INPUT;
+    c.chain = chain;
+    c.stage = stage;
+    c.kind = kind;
+    c.x = x;
+    c.y = y;
+    c.w = w;
+    c.h = h;
+    c.button = button;
+
+    schedule(c);
+}
+
+/* Whether a stage's picture is a control -- its module exports
+   composer_input. The canvas asks before it enlarges one. */
+EMSCRIPTEN_KEEPALIVE int tw_stage_takes_input (int chain, int stage)
+{
+    const thcStage *s = stageAt(chain, stage);
+
+    return s != NULL && s->plugin != NULL && s->plugin->hasInput() ? 1 : 0;
+}
+
 /* Every sounding note released, now. */
 EMSCRIPTEN_KEEPALIVE void tw_all_off (void)
 {
@@ -1267,6 +1705,70 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
     }
 
     return block_.data();
+}
+
+/* ---- the mirror ----
+ *
+ * A second instance of this module, in a worker, fed the messages the
+ * worklet is fed, holding real composer instances so that the composer
+ * view has something to draw (JAM_M6.md, section 4). It renders nothing:
+ * its synth is silent, and instead of tw_render it is told how far the
+ * worklet's has got and steps to there.
+ *
+ * Everything else about it is the same object doing the same thing, which
+ * is what makes its tape the worklet's tape -- and what makes the two
+ * tapes worth comparing, since a difference is a determinism bug in the
+ * piece or in this module rather than in the mirror.
+ */
+
+/* Silent from here on: notes stop at the door, the queue is still applied,
+   and process() skips the DSP (thSynth::setSilent). Called straight after
+   tw_create and before any load -- it is a kind of synth, not a mode a
+   running one flips. */
+EMSCRIPTEN_KEEPALIVE void tw_silent (void)
+{
+    synth_->setSilent(true);
+}
+
+/* Step to `toFrame': tw_render without the render.
+ *
+ * The same three calls per window, at the same window boundaries -- both
+ * instances count windows from frame zero and tw_align puts them on one
+ * numbering -- so a command lands in the window it lands in over there.
+ * The window containing `toFrame' is stepped too, because the worklet
+ * that reported it had already applied that window whole before handing
+ * out the frames inside it.
+ *
+ * process() is called here rather than by a gthSynthSource, which is the
+ * thing this instance does not have: it is what drains the command ring,
+ * and a ring nobody drains is what SCHEDULER_PLACEMENT.md section 4.4
+ * measured filling up.
+ *
+ * Returns the frame it reached.
+ */
+EMSCRIPTEN_KEEPALIVE double tw_step (double toFrame)
+{
+    const int len = synth_->getWindowlen();
+
+    while (rendered_ < toFrame)
+    {
+        applyDue(rendered_, len);
+        beginDue(rendered_, len);
+        step(rendered_, len);
+        synth_->process();
+
+        rendered_ += len;
+    }
+
+    return rendered_;
+}
+
+/* Commands this instance could not queue, which on a mirror is the number
+   worth watching: a silent synth drains its ring on every step it is
+   given, so a moving number is a mirror nobody is stepping. */
+EMSCRIPTEN_KEEPALIVE double tw_dropped (void)
+{
+    return (double)synth_->droppedCommands();
 }
 
 /* The frame the next tw_render starts at. */
