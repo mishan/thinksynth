@@ -2959,6 +2959,137 @@ writeUnitlessArg (const std::string &name)
     return path;
 }
 
+/* The second graph an instrument can name: the one that runs on the sum
+ * of its voices rather than the one that makes them.
+ *
+ * What is worth holding down here is the seam, not the effect -- fxcheck
+ * covers what a thChanEffect does. This is that the clause reaches it: the
+ * file is found, the values land in the effect's chanarg map and not the
+ * instrument's, and the two are addressed apart.
+ */
+static void
+checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
+                        thSynth *synth)
+{
+    clearChannels(synth);
+
+    const std::string body =
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    a = 900 ms;\n"
+        "    effect \"fx/echo.dsp\" {\n"
+        "        delay = 250 ms;\n"
+        "        mix = 0.5;\n"
+        "    };\n"
+        "};\n"
+        "chain a { stage s gen::eno_line { };"
+        " sink { instrument = lead; }; };\n";
+
+    std::string path = thUtil::tempFile("gencheck-fx-");
+
+    if (path.empty())
+    {
+        fail("could not make a scratch file for the effect check");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a piece whose instrument carries an effect did not load");
+        }
+        else
+        {
+            thArg *delay = synth->getChanArg(0, "fx.delay");
+            thArg *mix = synth->getChanArg(0, "fx.mix");
+            thArg *a = synth->getChanArg(0, "a");
+
+            if (synth->getEffect(0) == NULL)
+                fail("the effect did not reach the channel");
+            else if (delay == NULL || mix == NULL)
+                fail("the effect's chanargs are not reachable under `fx.'");
+            else if (a == NULL)
+                fail("the instrument's own chanargs went with them");
+            else
+            {
+                /* Folded at the rate the synth was built with, the way
+                   every other duration in this block is. */
+                const float want =
+                    (float)(250.0 * synth->getSampleRate() / 1000.0);
+
+                if (fabs((*delay)[0] - want) > 1.0)
+                    fail("the effect's 250 ms did not fold at the synth's "
+                         "rate");
+
+                if (fabs((*mix)[0] - 0.5) > 1e-6)
+                    fail("the effect's plain number did not land");
+
+                /* Two maps, not one merged: the effect declares `delay' and
+                   the instrument does not, so an unprefixed `delay' has to
+                   find nothing. */
+                if (synth->getChanArg(0, "delay") != NULL)
+                    fail("the effect's chanargs leaked into the "
+                         "instrument's map");
+
+                const float wantA =
+                    (float)(900.0 * synth->getSampleRate() / 1000.0);
+
+                if (fabs((*a)[0] - wantA) > 1.0)
+                    fail("the instrument's own value did not survive its "
+                         "effect");
+            }
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    clearChannels(synth);
+
+    /* ---- and what the clause refuses ---------------------------------- */
+
+    expectReject(plugins, synth, "two-effects",
+        "instrument i { dsp \"amb01.dsp\"; effect \"fx/echo.dsp\";"
+        " effect \"fx/echo.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "names two effects");
+
+    expectReject(plugins, synth, "effect-no-file",
+        "instrument i { dsp \"amb01.dsp\"; effect; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "effect wants a quoted filename");
+
+    /* The message has to name the *effect*, not the instrument's graph:
+       sending the reader to amb01.dsp to look for a `nonesuch' the echo
+       does not declare is one file too many. */
+    expectReject(plugins, synth, "effect-bad-arg",
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"fx/echo.dsp\" { nonesuch = 1; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "'fx/echo.dsp' declares no chanarg called 'nonesuch'");
+
+    expectReject(plugins, synth, "effect-missing",
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"no-such-effect.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "did not load as an effect");
+
+    clearChannels(synth);
+}
+
 static void
 checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
                   thSynth *synth)
@@ -6771,6 +6902,7 @@ main (int argc, char *argv[])
     checkInput(plugins, &synth);
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
+    checkInstrumentEffects(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);

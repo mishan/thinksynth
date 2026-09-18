@@ -297,6 +297,18 @@ struct thcInstrument
 {
     std::string name;
     std::string dsp;
+
+    /* The graph that runs on this channel's summed voices, or empty. Not the
+     * one that makes the notes: the one a delay throw needs, which outlives
+     * the note that fed it -- see DSP_FORMAT.md's "An effect graph".
+     *
+     * Loaded after the instrument, because an effect belongs to a channel and
+     * loading an instrument builds a new one. */
+    std::string effect;
+
+    /* Both graphs' values, in one list. The effect's carry a `fx.' prefix on
+       their names, which is how the engine addresses them, so the one call
+       that writes a chanarg reaches either map. */
     std::vector<thcInstrumentArg> args;
 
     int channel;                /* 0-15, engine numbering; -1 unallocated */

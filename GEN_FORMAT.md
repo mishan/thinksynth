@@ -192,6 +192,41 @@ band.
 happens to take a string. An instrument must be declared before it is
 referenced, like a scale or a preset.
 
+**An instrument may carry an effect.**
+
+```
+instrument pad {
+    dsp    "amb01.dsp";
+    a      = 900 ms;
+
+    effect "fx/echo.dsp" {      # runs on the sum of this channel's voices
+        delay    = 375 ms;
+        feedback = 0.45;
+    };
+};
+```
+
+`effect` names a second graph — not the one that makes the notes, but one that
+runs on the sum of them, once per window, whether or not a note is sounding.
+That last part is what it is for: a delay throw is precisely the part that
+comes out *after* the key came up, and an echo inside an instrument cannot do
+it, because the ring it keeps lives in the voice and the voice is gone.
+DSP_FORMAT.md's "An effect graph" says what such a file looks like — an
+ordinary `.dsp` whose io node declares `in0`.
+
+Its values are the effect's own chanargs, and they are kept apart from the
+instrument's: `@a` on an instrument and `@a` on its effect are two different
+numbers. Everywhere else in the engine an effect's chanarg is spelled
+`fx.<name>` — that is what a sink's `chanarg = "fx.delay"` reaches, and what a
+refusal names. Inside this block the prefix is implied by the braces.
+
+The braces are optional (`effect "fx/echo.dsp";`), the filename is searched
+the same way `dsp`'s is, and an instrument may name at most one. The effect is
+loaded **after** the instrument, because loading an instrument builds a new
+channel and an effect belongs to the channel it was put on — which also means
+a rewind reloads both and the delay line starts empty both times, so a replay
+is still a replay.
+
 Writing the graph out inline instead of naming it is the other half of the
 same idea and is not here. By reference alone delivers the self-contained
 file, which is what that step was for.
@@ -524,7 +559,10 @@ preset      : "preset" WORD "{" presetval* "}" ";"
 presetval   : WORD "=" NUMBER ";"
 instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
 instrstmt   : "dsp" STRING ";"
-            | WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
+            | "effect" STRING effectblock? ";"          # at most one
+            | instrval
+effectblock : "{" instrval* "}"                        # the effect's chanargs
+instrval    : WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
 argunit     : "ms" | "%"                               # what .dsp folds
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"
 input       : "input" "midi" ";"

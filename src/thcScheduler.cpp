@@ -794,8 +794,17 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
            what a piece may reach; see COMPOSITION_HANDOFF.md section 9. */
         if (arg == NULL)
         {
-            why = "'" + inst.dsp + "' declares no chanarg called '" +
-                  a.name + "'";
+            /* Which of the two graphs the name was aimed at: `fx.delay' is
+               the effect's, and saying the instrument declares no `fx.delay'
+               would send the reader to the wrong file. */
+            const bool isEffect =
+                a.name.compare(0, strlen(TH_EFFECT_PREFIX),
+                               TH_EFFECT_PREFIX) == 0;
+
+            why = "'" + (isEffect ? inst.effect : inst.dsp) +
+                  "' declares no chanarg called '" +
+                  (isEffect ? a.name.substr(strlen(TH_EFFECT_PREFIX))
+                            : a.name) + "'";
             return false;
         }
 
@@ -970,6 +979,35 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
                              inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
         {
             why = "'" + inst.dsp + "' did not load";
+            return false;
+        }
+    }
+
+    /* The effect, after the instrument and before the values: loading an
+     * instrument builds a new channel and an effect belongs to a channel, so
+     * this order is the only one that leaves both up -- and the values
+     * include the effect's, under `fx.', which cannot be written until it is
+     * there.
+     *
+     * Through the synth directly in both cases, hook or no hook: the hook
+     * exists so the application can put an instrument on a patch tab, and an
+     * effect is not a patch. */
+    if (!inst.effect.empty())
+    {
+        const std::string path =
+            thUtil::findDataFile(inst.effect, "dsp", "THINK_DSP_PATH",
+                                 DSP_PATH);
+
+        if (synth_ == NULL ||
+            synth_->loadEffect((path.empty() ? inst.effect : path).c_str(),
+                               inst.channel) == NULL)
+        {
+            why = "'" + inst.effect + "' did not load as an effect";
+
+            if (!unapplyInstrument(index))
+                why += " (and its graph could not be taken off channel " +
+                       std::to_string(inst.channel + 1) + ")";
+
             return false;
         }
     }
