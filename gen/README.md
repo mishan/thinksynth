@@ -131,10 +131,19 @@ with an arrangement rather than a texture: a list of `section` statements at
 the top saying, in order, how long each stretch of the piece is and which
 chains it mutes or leans on, and `section end` so the piece stops.
 
+And the two that stop a written line repeating itself exactly: `xform::vary`,
+which does one of six things to each note -- leaves it out, takes it an octave
+away, pushes it off the grid, says it twice, leans into it from the scale, or
+flicks a mordent on it -- and `xform::accent`, which weights a note by where it
+falls, over a pattern and across a bar. `gen::euclid` answers three bars with a
+fourth from its `fill` pool. The filter envelopes in `supersaw`, `stab`, `bass`
+and `ladder` are scaled by velocity, so all of that is heard as tone and not
+only as level; `pluck` already was.
+
 | piece | the idea |
 | --- | --- |
-| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes. |
-| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets; the `Width` knob reaching into two supersaws at once. |
+| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel, answered every fourth bar by the ring's `fill` pool; `xform::accent` weighting the bass, which its filter hears as brightness; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes. |
+| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`, with every eighth bar coming from the ring's `fill` pool; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets, and which `xform::vary` leans into, ornaments and pushes off the grid; `xform::accent` on the hats; the `Width` knob reaching into two supersaws at once. |
 
 ## What each piece covers
 
@@ -151,7 +160,9 @@ progression (all six), `ca` and `markov` in seconds against a clocked bar
 (attract), `echo` (overworld), `form` (boss, village), `chance` and
 `ratchet` (boss, village), `swing`, `level`, `progression`, `bassline`
 and `counterpoint` (village), `steps` and `pump`
-(warehouse, anthem), `transpose` (anthem).
+(warehouse, anthem), `transpose` (anthem), `accent` (warehouse, anthem),
+`vary` (warehouse, anthem), and `euclid`'s `fill` pool (warehouse,
+anthem).
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it.
 

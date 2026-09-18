@@ -19,7 +19,13 @@
 # THE GATE is gen::steps: a row of sixteen ones and zeros a bar on the
 # pad's `amp', so the chord stutters in the rhythm the row says -- the
 # trance gate, which was a sequencer on a volume control before it was
-# a plugin. THE PUMP is gen::pump on the plucks' `amp', a dip on every
+# a plugin. THE HATS ARE WEIGHTED by xform::accent, which leans on a
+# tresillo of the sixteenths and lifts across each bar; the eighth bar
+# of the arpeggio is a fill pool in gen::euclid rather than the eighth
+# bar of the pool, so the run answers itself without leaving the chords;
+# and xform::vary leans the lead into a note from the scale beside it
+# now and then, flicks a mordent, and pushes one note in twenty off the
+# grid. THE PUMP is gen::pump on the plucks' `amp', a dip on every
 # beat and back up, which is the sidechain the engine cannot build
 # because a channel cannot hear the kick. The Pump knob is its depth.
 #
@@ -249,6 +255,11 @@ chain hats {
         period = 0.25 beats;  hold = 0.1 beats;  vel = 46;
     };
     stage c xform::chance { prob = 0.9; };
+    stage a xform::accent {
+        pattern = "x..x..x.x..x..x.";  grid = 0.25 beats;
+        strong = 1.35;  weak = 0.85;
+        bar = 4 beats;  from = 0.9;  to = 1.1;
+    };
     sink { instrument = hat; };
 };
 
@@ -312,6 +323,8 @@ chain arps {
     stage src gen::euclid {
         steps = 16;  fills = 16;  rotate = 0;
         notes = "A3 E4 A4 E4 C4 E4 A4 E4 A3 E4 A4 E4 C4 A4 E4 A4  F3 C4 F4 C4 A3 C4 F4 C4 F3 C4 F4 C4 A3 F4 C4 F4  C4 G4 C5 G4 E4 G4 C5 G4 C4 G4 C5 G4 E4 C5 G4 C5  G3 D4 G4 D4 B3 D4 G4 D4 G3 D4 G4 D4 B3 G4 D4 G4  A3 E4 A4 E4 C4 E4 A4 E4 A3 E4 A4 E4 C4 A4 E4 A4  F3 C4 F4 C4 A3 C4 F4 C4 F3 C4 F4 C4 A3 F4 C4 F4  G3 D4 G4 D4 B3 D4 G4 D4 G3 D4 G4 D4 B3 G4 D4 G4  G3 D4 G4 D4 B3 D4 G4 D4 G3 D4 G4 D4 B3 G4 D4 G4";
+        fill  = "G4 D5 B4 G4 D5 B4 G4 D5 B4 G4 D4 G4 B4 D5 G5 D5";
+        every = 8;
         period = 0.25 beats;  hold = 0.18 beats;  vel = 84;
     };
     sink { instrument = pluck; };
@@ -336,6 +349,10 @@ chain lead {
         depth = 0;
         notes = tune;
         step = 0.25 beats;  hold = 0.22 beats;  vel = 92;
+    };
+    stage v xform::vary {
+        scale = tune;  grid = 0.25 beats;
+        approach = 0.12;  ornament = 0.06;  push = 0.05;
     };
     sink { instrument = lead; };
 };

@@ -39,7 +39,17 @@
 # THE STABS are a sixteen-step ring with rests in the pool -- a step
 # sequencer -- spelled into chords by xform::harmonize, on stab.dsp,
 # through fx/echo.dsp at a dotted eighth: the delay throw, on the
-# channel and not in the voice.
+# channel and not in the voice. Every fourth bar the ring takes its
+# pitches from the `fill' pool instead: the answering bar, written in
+# the stage that plays it. xform::vary throws one stab in twenty an
+# octave, which moves the whole chord, since it happens before the
+# harmonizer.
+#
+# THE BASS IS WEIGHTED. xform::accent leans on the first of every three
+# sixteenths and lifts a little across each bar, and because bass.dsp
+# scales its filter envelope by velocity, an accented note is brighter
+# and not merely louder -- which is the whole of what an accent is on a
+# machine that has no fingers.
 #
 # The hats' accents are gen::steps too, a row of eight levels a beat on
 # the hat's `amp', and one in twelve is missing. The clap sometimes
@@ -261,6 +271,11 @@ chain bass {
         notes = riff;
         step = 0.25 beats;  hold = 0.3 beats;  vel = 100;
     };
+    stage a xform::accent {
+        pattern = "x..x..x.";  grid = 0.25 beats;
+        strong = 1.15;  weak = 0.9;
+        bar = 4 beats;  from = 0.92;  to = 1.08;
+    };
     sink { instrument = bass; };
 };
 
@@ -275,13 +290,17 @@ chain acid {
 
 # ---- the stabs and the pad --------------------------------------------
 
-# A sixteen-step ring with rests in the pool, spelled into A minor.
+# A sixteen-step ring with rests in the pool, spelled into A minor, and
+# every fourth bar the fill pool answers it.
 chain stabs {
     stage src gen::euclid {
         steps = 16;  fills = 16;  rotate = 0;
         notes = "A3 . . A3 . . G3 . . . A3 . C4 . . .";
+        fill  = "A3 . . C4 . . E4 . . A4 . E4 . C4 . .";
+        every = 4;
         period = 0.25 beats;  hold = 0.2 beats;  vel = 96;
     };
+    stage v xform::vary { scale = amin;  grid = 0.25 beats;  leap = 0.05; };
     stage h xform::harmonize { scale = amin;  voices = 3;  step = 2;  spread = 0 s;  taper = 0.85;  root = 1;  below = 0; };
     sink { instrument = stab; };
 };
