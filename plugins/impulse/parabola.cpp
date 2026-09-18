@@ -40,12 +40,28 @@ int module_init (thPlugin *plugin)
     plugin->setDesc (desc);
     plugin->setState (mystate);
 
+    /* An impulse response for delay::fir, not a signal: the output is `len'
+       samples long and read whole. All three args come from sample 0, so none
+       of them modulates. */
     args[IN_LEN] = plugin->regArg("len", thPlugin::ARG_IN);
     /* `(int)(*in_len)[0]' -- the impulse is this many samples long. */
     plugin->setArgStep(args[IN_LEN], 1);
+    plugin->setArgDesc(args[IN_LEN], "How long the whole response is");
+    plugin->setArgUnits(args[IN_LEN], "samples");
     args[IN_MAX] = plugin->regArg("max", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_MAX], "The height of the curve");
+    plugin->setArgUnits(args[IN_MAX], "full scale");
     args[IN_PERCENT] = plugin->regArg("percent", thPlugin::ARG_IN);
+    /* Its own zero case: `if (percent == 0) percent = 1', the whole length.
+       What is left over is silence, split either side. */
+    plugin->setArgDesc(args[IN_PERCENT],
+                       "How much of `len' the curve fills; 0 means all of it");
+    plugin->setArgRange(args[IN_PERCENT], 0, 1);
+    plugin->setArgDefault(args[IN_PERCENT], 1);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The response: a parabola over "
+                       "`percent' of `len', and silence either side");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     return 0;
 }
 

@@ -32,10 +32,10 @@ Follows the pitch of the input
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
+| `out` | out | The measured pitch, and 0 until it has measured one |  |  | Hz |  |
 | `last` | state |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `falloff` | in |  |  |  |  |  |
+| `in` | in | Signal in; the period is counted between rising zero crossings |  | -1 to 1 | full scale |  |
+| `falloff` | in | Registered and never read; see the callback |  |  |  |  |
 
 ## delay
 
@@ -45,14 +45,14 @@ Echo (echo echo echo)
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `size` | in |  |  |  |  |  |
-| `delay` | in |  |  |  |  |  |
-| `feedback` | in |  |  |  |  |  |
-| `dry` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `size` | in | How long the ring is; it has to be at least `delay' |  |  | samples |  |
+| `delay` | in | How far back the tap reads, wrapped into the ring |  |  | samples |  |
+| `feedback` | in | How much of the ring is kept; 1 stops taking input |  | 0 to 1 |  |  |
+| `dry` | in | 0 is all echo, 1 is all input |  | 0 to 1 |  |  |
 | `buffer` | state |  |  |  |  |  |
 | `bufpos` | state |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `out` | out | The tap and the input, mixed by dry |  |  | full scale |  |
 
 ### delay::fir
 
@@ -60,12 +60,12 @@ Applies an impulse response
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `impulse` | in |  |  |  |  |  |
-| `mix` | in |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `impulse` | in | The response to convolve with, usually an impulse:: node |  |  |  |  |
+| `mix` | in | 0 is all dry, 1 is all convolved |  | 0 to 1 |  |  |
 | `buffer` | state |  |  |  |  |  |
 | `bufpos` | state |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `out` | out | The convolved signal, mixed with the dry |  |  | full scale |  |
 
 ## dist
 
@@ -75,10 +75,10 @@ Amplifies and clips the stream
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `out` | out |  |  |  |  |  |
-| `in` | in |  |  |  |  |  |
-| `clip` | in |  |  |  |  |  |
-| `lowclip` | in |  |  |  |  |  |
+| `out` | out | The clipped signal, stretched back out to fill -1 to 1 |  | -1 to 1 | full scale |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `clip` | in | Where the top is cut; under full scale is taken as full scale |  | 0 to 1 | full scale |  |
+| `lowclip` | in | How far down the bottom is cut; 0 matches clip |  | 0 to 1 | full scale |  |
 
 ### dist::inksat
 
@@ -86,9 +86,9 @@ Applies x^(1/y) saturation
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `factor` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `factor` | in | Shapes the curve: the exponent is 1/(factor + 1), and 0 passes the signal through |  | -0.999 to 8 | exponent |  |
+| `out` | out | The saturated signal |  | -1 to 1 | full scale |  |
 
 ### dist::saturate
 
@@ -96,9 +96,9 @@ Applies tanh saturation
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `factor` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `factor` | in | Drive into the tanh; 0 is silence, 1 is gentle |  |  | ratio |  |
+| `out` | out | The saturated signal |  | -1 to 1 | full scale |  |
 
 ### dist::waveman
 
@@ -106,9 +106,9 @@ Applies waveman's waveshaper
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `in` | in |  |  |  |  |  |
-| `gain` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `gain` | in | How much the shaper is softened; larger is gentler, and 0 is not allowed |  | 0.001 to 8 |  |  |
+| `out` | out | The shaped signal |  |  | full scale |  |
 
 ## env
 
@@ -427,9 +427,9 @@ Generates a sine impulse
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `len` | in |  |  |  |  |  |
-| `cutoff` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `len` | in | How long the response is; longer is a steeper filter |  |  | samples |  |
+| `cutoff` | in | Cutoff, 0 to 0.5 -- a fraction of the sample rate |  | 0 to 0.5 | fraction of the rate |  |
+| `out` | out | A Blackman-windowed sinc, normalised to sum to 1 |  |  |  |  |
 
 ### impulse::parabola
 
@@ -437,10 +437,10 @@ Generates a small parabola
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `len` | in |  |  |  |  |  |
-| `max` | in |  |  |  |  |  |
-| `percent` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `len` | in | How long the whole response is |  |  | samples |  |
+| `max` | in | The height of the curve |  |  | full scale |  |
+| `percent` | in | How much of `len' the curve fills; 0 means all of it | 1 | 0 to 1 |  |  |
+| `out` | out | The response: a parabola over `percent' of `len', and silence either side |  |  | full scale |  |
 
 ### impulse::sine
 
@@ -448,10 +448,10 @@ Generates a sine impulse
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `len` | in |  |  |  |  |  |
-| `max` | in |  |  |  |  |  |
-| `percent` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `len` | in | How long the whole response is |  |  | samples |  |
+| `max` | in | The height of the curve |  |  | full scale |  |
+| `percent` | in | How much of `len' the curve fills; 0 means all of it | 1 | 0 to 1 |  |  |
+| `out` | out | The response: half a sine over `percent' of `len', and silence either side |  |  | full scale |  |
 
 ### impulse::square
 
@@ -459,11 +459,11 @@ Generates a square wave impulse
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `len` | in |  |  |  |  |  |
-| `width` | in |  |  |  |  |  |
-| `pw` | in |  |  |  |  |  |
-| `num` | in |  |  |  |  |  |
-| `out` | out |  |  |  |  |  |
+| `len` | in | How long the whole response is |  |  | samples |  |
+| `width` | in | How wide each pulse is; 0 uses pw instead |  |  | samples |  |
+| `pw` | in | Pulse width as a fraction of the spacing, when width is 0 |  | 0 to 1 |  |  |
+| `num` | in | How many pulses; must be at least 1 |  |  |  |  |
+| `out` | out | The response, scaled so the pulses sum to 1 |  |  |  |  |
 
 ## logic
 
@@ -556,8 +556,8 @@ Converts a frequency to wavelength in samples
 
 | Arg | Dir | Description | Default | Range | Units | Values |
 |---|---|---|---|---|---|---|
-| `freq` | in | Frequency; 0 gives an infinite wavelength |  |  | Hz |  |
-| `out` | out | One cycle of it |  |  | samples |  |
+| `freq` | in | Frequency; bounded to Nyquist at the top and to a very slow wave at the bottom |  |  | Hz |  |
+| `out` | out | One cycle of it, never under two |  |  | samples |  |
 
 ### misc::latch
 

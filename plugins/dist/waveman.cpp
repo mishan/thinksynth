@@ -26,6 +26,14 @@
 #include "think.h"
 
 static const char desc[] = "Applies waveman's waveshaper";
+
+/* The shaper divides by `gain + abs(in)' and then by `gain + 1', so a gain of
+   0 is 0/0 on any silent sample and a gain of -1 divides by zero on every
+   sample. Zero is what an arg nobody wrote holds, so a waveman added from the
+   palette and left alone produced NaN for as long as its input was quiet --
+   and one NaN in a voice is the whole mix (see the guard in
+   thMidiChan::mixNote). */
+#define GAIN_MIN 0.001f
 thPlugin::State    mystate = thPlugin::PASSIVE;
 
 void module_cleanup (thPlugin *plugin)
@@ -42,8 +50,20 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_GAIN] = plugin->regArg("gain", thPlugin::ARG_IN);
+    /* Backwards from what the name suggests: it is the denominator of the
+       shaper's first term and a divisor of the whole, so a *larger* gain is a
+       gentler and quieter result. See GAIN_MIN for why it cannot be 0. */
+    plugin->setArgDesc(args[IN_GAIN],
+                       "How much the shaper is softened; larger is gentler, "
+                       "and 0 is not allowed");
+    plugin->setArgRange(args[IN_GAIN], GAIN_MIN, 8);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The shaped signal");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     return 0;
 }
 
@@ -65,7 +85,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for(i = 0; i < windowlen; i++)
     {
         in = (*in_arg)[i] / TH_MAX;
-        gain = (*in_gain)[i];
+        gain = thClampArg((*in_gain)[i], GAIN_MIN, 1e6f);
         out[i] = ((((in / (gain + fabs(in))) + ((1.5 * in) - ((0.7 * in) * (0.6 * in) * (0.5 * in) * (0.4 * in) * (0.3 * in) * (0.2 * in) * (0.1 * in)))) / 3.5) / (gain + 1)) * TH_MAX;
     }
 

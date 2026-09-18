@@ -39,15 +39,41 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_SIZE] = plugin->regArg("size", thPlugin::ARG_IN);
-    /* `(int)(*in_size)[i]' -- a delay line is a whole number of samples. */
+    /* `(int)(*in_size)[i]' -- a delay line is a whole number of samples.
+       Read every sample and used to size the ring, so changing it mid-note
+       reallocates and loses what was in it. A size of 0 passes the input
+       straight through. */
     plugin->setArgStep(args[IN_SIZE], 1);
+    plugin->setArgDesc(args[IN_SIZE],
+                       "How long the ring is; it has to be at least `delay'");
+    plugin->setArgUnits(args[IN_SIZE], "samples");
     args[IN_DELAY] = plugin->regArg("delay", thPlugin::ARG_IN);
+    /* Taken modulo the ring, and negative values walk forward rather than
+       back, so anything outside 0..size is still a defined read -- just not
+       the one it reads as. */
+    plugin->setArgDesc(args[IN_DELAY],
+                       "How far back the tap reads, wrapped into the ring");
+    plugin->setArgUnits(args[IN_DELAY], "samples");
     args[IN_FEEDBACK] = plugin->regArg("feedback", thPlugin::ARG_IN);
+    /* `buffer[p] = feedback*delayed + (1 - feedback)*in', so it is a
+       crossfade into the ring rather than a gain on it: at 1 nothing new
+       goes in and the ring repeats for ever. */
+    plugin->setArgDesc(args[IN_FEEDBACK],
+                       "How much of the ring is kept; 1 stops taking input");
+    plugin->setArgRange(args[IN_FEEDBACK], 0, 1);
     args[IN_DRY] = plugin->regArg("dry", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_DRY],
+                       "0 is all echo, 1 is all input");
+    plugin->setArgRange(args[IN_DRY], 0, 1);
     args[INOUT_BUFFER] = plugin->regArg("buffer", thPlugin::ARG_STATE);
     args[INOUT_BUFPOS] = plugin->regArg("bufpos", thPlugin::ARG_STATE);
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    plugin->setArgDesc(args[OUT_ARG], "The tap and the input, mixed by dry");
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
 
     return 0;
 }

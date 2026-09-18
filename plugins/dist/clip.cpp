@@ -39,9 +39,33 @@ int module_init (thPlugin *plugin)
     plugin->setState (mystate);
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
+    /* Rescaled to fill the range after clipping, so a tighter clip is louder
+       as well as flatter -- it is an amplifier and a limiter at once, which is
+       what the plugin's description means by "amplifies". */
+    plugin->setArgDesc(args[OUT_ARG],
+                       "The clipped signal, stretched back out to fill "
+                       "-1 to 1");
+    plugin->setArgRange(args[OUT_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[OUT_ARG], "full scale");
     args[IN_ARG] = plugin->regArg("in", thPlugin::ARG_IN);
+    plugin->setArgDesc(args[IN_ARG], "Signal in");
+    plugin->setArgRange(args[IN_ARG], TH_MIN, TH_MAX);
+    plugin->setArgUnits(args[IN_ARG], "full scale");
     args[IN_CLIP] = plugin->regArg("clip", thPlugin::ARG_IN);
+    /* Floored at full scale inside the callback -- `if (clip < 1) clip = 1'
+       -- which is what keeps the rescale below from dividing by zero. */
+    plugin->setArgDesc(args[IN_CLIP],
+                       "Where the top is cut; under full scale is taken as "
+                       "full scale");
+    plugin->setArgRange(args[IN_CLIP], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_CLIP], "full scale");
     args[IN_LOWCLIP] = plugin->regArg("lowclip", thPlugin::ARG_IN);
+    /* Its own zero case: `if (lowclip < 1) lowclip = clip', so leaving it out
+       cuts symmetrically. Written as a magnitude and negated afterwards. */
+    plugin->setArgDesc(args[IN_LOWCLIP],
+                       "How far down the bottom is cut; 0 matches clip");
+    plugin->setArgRange(args[IN_LOWCLIP], 0, TH_MAX);
+    plugin->setArgUnits(args[IN_LOWCLIP], "full scale");
 
     return 0;
 }
