@@ -396,6 +396,7 @@ async function loadFromDoc (seed = -1)
 
     drawKnobs();
     showSeats();
+    showNodeChannel();
     enable();
 
     return piece !== null;
@@ -601,6 +602,7 @@ function tape (m)
 {
     diff.take('worklet', m);
     roll.tape(m);
+    nodes?.feed(m.probes);
     transport.report(m, performance.now());
     lateCount = m.late;
 
@@ -628,6 +630,17 @@ function fromMirror (m)
         diff.take('mirror', m);
     else if (m.type === 'log')
         log(m.text);
+}
+
+/* Which channel the instrument on the canvas plays on, which is the
+   channel a tap is armed on. The piece says which .dsp each of its
+   instruments plays and the worklet reports that at the load; the canvas
+   is showing one of those files. Called again after every load, since
+   until one has happened there is nothing to ask. */
+function showNodeChannel ()
+{
+    nodes?.onChannel(piece?.instruments?.find(
+        (i) => i.dsp === $('nodefile').value)?.channel ?? -1);
 }
 
 function showComposer ()
@@ -785,9 +798,22 @@ async function start ()
 
     try
     {
-        nodes = await createNodeView({ doc, onStatus: status });
+        nodes = await createNodeView({
+            doc,
+            onStatus: status,
+            sampleRate: ctx.sampleRate,
+
+            /* A tap is armed in the worklet, which is where the synth
+               that is rendering lives; what comes back is a slot, and the
+               samples arrive with the tape (JAM_M6.md, section 7.4). */
+            probe: (channel, node, arg) => synth.probe(channel, node, arg),
+            unprobe: (slot) => synth.unprobe(slot),
+        });
         nodes.offer(fileNames(doc));
         files(doc).observe(() => nodes.offer(fileNames(doc)));
+
+        showNodeChannel();
+        $('nodefile').addEventListener('change', showNodeChannel);
     }
     catch (e)
     {
@@ -877,6 +903,7 @@ function init ()
         node: () => (nodes === null ? null : {
             boxes: nodes.boxes(),
             selected: nodes.selected(),
+            probes: nodes.probes(),
             box: (i) => nodes.boxAt(i),
         }),
 

@@ -108,11 +108,21 @@ On `jam-m6`, which starts where `game-music` ends:
   over each, and holds every edit against `scripts/dspedit` -- the same
   NodeEdit natively; `jamtest` types a number into a node in one browser
   and finds it in the other's document and in the desktop's own bytes.
-- What is left of section 7: the probes (7.4), which need the visual
-  modules in the bundle -- the piece of section 3 deliberately deferred
-  to here. And of section 8: 8.4, which is two browsers and a person.
-- Smaller things not in, each a line where the page says so: cutting a
-  wire from the canvas, and the composer canvas's params popover.
+- **The probes** (7.4) are in, and with them the visual modules -- the
+  piece of section 3 that was deferred to here. The four join the static
+  bundle, renamed like the composers and drawing through the stand-in;
+  `tw_probe_arm` is `thSynth::armProbe` on the worklet's one thread and
+  the ring is drained after every render, with the samples going to the
+  page in the tape batch; the page opens a display per probe in its own
+  instance and the canvas draws it in a panel, through the painter slot
+  `NodeEditor` fills on the desktop. A right-click on an output port is
+  how somebody asks for one. `nodecheck` runs the whole path headless --
+  a note played, a thousand samples published, a scope drawing them, the
+  canvas drawing the panel -- and `jamtest` arms one in a room.
+- What is left: 8.4, which is two browsers and a person; and the smaller
+  things each page says out loud where they are missing -- cutting a
+  wire from the node canvas, a menu of visual modules rather than the
+  first one, and the composer canvas's params popover.
 - A correction to section 0a, found by the gate: **two** composers take
   input, not three. `ca` and `life` do; `evolve` says in its own header
   that interactive evolution wants the `composer_input` ABI and is

@@ -112,7 +112,7 @@ double dB (double linear)
 
 } /* namespace */
 
-int visual_init (thVisual *visual)
+extern "C" THINK_PLUGIN_API int visual_init (thVisual *visual)
 {
     visual->setName("meter");
     visual->setDesc("Peak and RMS level, in dBFS");
@@ -124,7 +124,7 @@ int visual_init (thVisual *visual)
     return 0;
 }
 
-void *visual_open (thVisual *visual, unsigned int samplerate)
+extern "C" THINK_PLUGIN_API void *visual_open (thVisual *visual, unsigned int samplerate)
 {
     (void)visual;
 
@@ -148,7 +148,7 @@ void *visual_open (thVisual *visual, unsigned int samplerate)
     return m;
 }
 
-int visual_feed (void *inst, const float *samples, unsigned int n)
+extern "C" THINK_PLUGIN_API int visual_feed (void *inst, const float *samples, unsigned int n)
 {
     Meter *m = (Meter *)inst;
 
@@ -192,7 +192,7 @@ int visual_feed (void *inst, const float *samples, unsigned int n)
     return 0;
 }
 
-int visual_draw (void *inst, cairo_t *cr, int w, int h)
+extern "C" THINK_PLUGIN_API int visual_draw (void *inst, cairo_t *cr, int w, int h)
 {
     Meter *m = (Meter *)inst;
 
@@ -285,12 +285,12 @@ int visual_draw (void *inst, cairo_t *cr, int w, int h)
     return 0;
 }
 
-void visual_close (void *inst)
+extern "C" THINK_PLUGIN_API void visual_close (void *inst)
 {
     delete (Meter *)inst;
 }
 
-void visual_cleanup (thVisual *visual)
+extern "C" THINK_PLUGIN_API void visual_cleanup (thVisual *visual)
 {
     (void)visual;
 }

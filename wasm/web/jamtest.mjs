@@ -386,6 +386,50 @@ async function editTogether (pages)
     else
         fail(`the room's edit of ${where.name}.${arg} is not the one the ` +
              'desktop makes');
+
+    /* And a probe: a right-click on an output port arms a tap in the
+       worklet, opens a display in the page's own instance of the module,
+       and hangs a panel on the node (JAM_M6.md, section 7.4). The samples
+       themselves are gated headlessly in nodecheck; what is under test
+       here is that a person can ask for one. */
+    const port = await A.page.evaluate(() =>
+    {
+        const n = window.jam.node();
+
+        for (let i = 0; i < n.boxes; i++)
+        {
+            const b = n.box(i);
+            const out = b.ports.find((p) => !p.isInput);
+
+            if (b.kind === 0 && out)
+                return { ...out, name: b.name, port: out.name };
+        }
+
+        return null;
+    });
+
+    if (port === null)
+    {
+        fail(`nothing in ${file} has an output to probe`);
+        return;
+    }
+
+    const boxesWere = graph.boxes;
+
+    await A.page.mouse.click(box.x + port.x, box.y + port.y,
+                             { button: 'right' });
+    await A.page.waitForFunction(
+        () => window.jam.node().probes > 0, null, { timeout: 15000 })
+        .catch(() => {});
+
+    const after = await A.page.evaluate(() => window.jam.node());
+
+    if (after.probes === 1 && after.boxes === boxesWere + 1)
+        ok(`a right-click on ${port.name}'s port arms a probe and hangs a ` +
+           `panel on ${port.name}`);
+    else
+        fail(`arming a probe left ${after.probes} probes and ` +
+             `${after.boxes} boxes, from ${boxesWere}`);
 }
 
 if (!fs.existsSync(path.join(build, 'jam.js')))
