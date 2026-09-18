@@ -64,6 +64,15 @@ CanvasContent::setZoom (double z)
 {
     z = std::min(std::max(z, (double)ZOOM_MIN), (double)ZOOM_MAX);
 
+    /* Somebody has now said what the zoom is, so the fit that was waiting
+       for a viewport is answered and must not fire later: a deferred fit
+       surviving this came back on the next shellResized() and threw away
+       a zoom the user had chosen in between. Cleared before the early
+       return, because choosing the zoom it is already at is still
+       choosing it. (zoomToFit and zoomToWidth clear it themselves first,
+       so this takes nothing from them.) */
+    fitPending_ = false;
+
     if (z == zoom_)
         return;
 
