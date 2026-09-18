@@ -585,6 +585,49 @@ void thSynthTree::process (unsigned int windowlen)
     }
 }
 
+/* See the header. */
+void thSynthTree::markAllNodes (void)
+{
+    for (NodeMap::const_iterator i = nodes_.begin(); i != nodes_.end(); ++i)
+        if (i->second != NULL)
+            i->second->setRecalc(true);
+}
+
+/* See the header. */
+thArg *thSynthTree::resolveIOArg (int index)
+{
+    if (ionode_ == NULL || index < 0)
+    {
+        return NULL;
+    }
+
+    thArg *arg = getArg(ionode_, index);
+
+    if (arg && arg->type() == thArg::ARG_CHANNEL)
+    {
+        arg = arg->argPtr();
+    }
+
+    return arg;
+}
+
+/* See the header. in0 and not in<N> for any N: a graph that declares in1 and
+   not in0 is a graph with a typo in it, and one that declares neither is an
+   instrument. */
+bool thSynthTree::takesInput (void) const
+{
+    if (ionode_ == NULL)
+    {
+        return false;
+    }
+
+    string name = INPUTPREFIX;
+
+    name += '0';
+
+    return ionode_->getArg(name) != NULL;
+}
+
 void thSynthTree::processHelper (unsigned int windowlen, thNode *node)
 {
     if (node == NULL) {

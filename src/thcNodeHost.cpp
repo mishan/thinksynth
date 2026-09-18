@@ -629,16 +629,15 @@ thcNodeHost::knobUses (void) const
  * There is nothing to optimise here anyway: one window of one sample,
  * fifty times a second, over a handful of nodes. Marking everything is
  * both cheaper to reason about and the only reading that is right.
+ *
+ * The walk itself lives on thSynthTree now, because a channel effect is
+ * the second graph in the tree fed from outside and it has exactly this
+ * problem: an effect may be nothing but a dist::clip.
  */
 void
 thcNodeHost::markAll (void)
 {
-    const thSynthTree::NodeMap &nodes = tree_->nodes();
-
-    for (thSynthTree::NodeMap::const_iterator i = nodes.begin();
-         i != nodes.end(); ++i)
-        if (i->second != NULL)
-            i->second->setRecalc(true);
+    tree_->markAllNodes();
 }
 
 void

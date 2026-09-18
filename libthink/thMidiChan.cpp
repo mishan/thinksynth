@@ -41,6 +41,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     serial_ = nextSerial_.fetch_add(1, std::memory_order_relaxed);
 
     modnode_ = mod;
+    effect_ = NULL;
     windowlength_ = windowlen;
     dirty_ = 1;
     channels_ = 1;
@@ -67,6 +68,7 @@ thMidiChan::thMidiChan (thSynthTree *mod, float amp, int windowlen)
     channum_ = -1;
     nonFinite_ = NULL;
     saidNonFinite_ = false;
+    saidNonFiniteEffect_ = false;
 
     if (!mod) {
         /* This used to print and then dereference mod anyway. */
@@ -179,6 +181,9 @@ thMidiChan::~thMidiChan (void)
     /* We own the tree (see the constructor comment). */
     delete modnode_;
     modnode_ = NULL;
+
+    delete effect_;
+    effect_ = NULL;
 
     delete[] output_;
     output_ = NULL;
@@ -350,6 +355,39 @@ void thMidiChan::setArg (thArg *arg, RetireQueue *retire)
     {
         assignChanArgPointers(modnode_);
     }
+}
+
+/* Audio thread. See the header. */
+void thMidiChan::setEffect (thChanEffect *effect, RetireQueue *retire)
+{
+    thChanEffect *old = effect_;
+
+    if (old == effect)
+    {
+        return;
+    }
+
+    effect_ = effect;
+
+    /* Unreachable from this channel now, so the GUI thread may destroy it --
+       which means tearing down a whole synth tree, the reason nothing here
+       deletes one. */
+    if (old != NULL)
+    {
+        thRetired item;
+
+        item.kind = thRetired::EFFECT;
+        item.effect = old;
+
+        if (retire == NULL || !retire->push(item))
+            delete old;
+    }
+
+    /* An effect runs on silence as readily as on a voice, and the buffer it
+       is handed has to be the silence rather than the last window that was
+       mixed into it. Taking one off leaves the buffer needing one more clear
+       for the same reason. */
+    dirty_ = true;
 }
 
 /* GUI thread.
@@ -781,6 +819,28 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
             diter++;
         }
     }
+
+    /* And then the channel's own graph, on what the voices summed to.
+     *
+     * Every window, whether or not a voice sounded: a delay's tail is
+     * precisely the part that comes out after the last note-off, and an
+     * effect that only ran while something was playing would cut off the one
+     * thing it exists for. dirty_ below is what feeds it the silence -- the
+     * mix loop above sets dirty_ only when it mixes a voice, so without this
+     * the buffer would stop being cleared and the effect would be handed the
+     * last window that was mixed, over and over.
+     *
+     * One tree per window per channel that has one, which is cheaper than a
+     * single voice. */
+    if (effect_ != NULL)
+    {
+        if (!effect_->process(output_, channels_, windowlength_))
+        {
+            reportNonFinite(GUARD_EFFECT);
+        }
+
+        dirty_ = true;
+    }
 }
 
 /* GUI thread, once, from thSynth::loadTree.
@@ -796,11 +856,11 @@ void thMidiChan::describe (int channum, const string &graph,
     nonFinite_ = nonFinite;
 
     char line[256];
+    const char *name = graph_.empty() ? "unnamed graph" : graph_.c_str();
 
-    const int n = snprintf(line, sizeof(line),
-                           "thMidiChan: channel %d (%s): a voice went "
-                           "non-finite; note retired\n", channum_,
-                           graph_.empty() ? "unnamed graph" : graph_.c_str());
+    int n = snprintf(line, sizeof(line),
+                     "thMidiChan: channel %d (%s): a voice went "
+                     "non-finite; note retired\n", channum_, name);
 
     if (n > 0)
     {
@@ -808,6 +868,22 @@ void thMidiChan::describe (int channum, const string &graph,
                                                    : sizeof(line) - 1;
 
         message_.assign(line, len);
+    }
+
+    /* The effect's line names the channel rather than its own file, because
+       describe() is called when the instrument loads and an effect may be put
+       on afterwards or not at all. What it has to say is which channel went
+       quiet, and it says that. */
+    n = snprintf(line, sizeof(line),
+                 "thMidiChan: channel %d (%s): the effect went non-finite; "
+                 "the dry signal is going out instead\n", channum_, name);
+
+    if (n > 0)
+    {
+        const size_t len = (n < (int)sizeof(line)) ? (size_t)n
+                                                   : sizeof(line) - 1;
+
+        effectMessage_.assign(line, len);
     }
 }
 
@@ -846,19 +922,24 @@ bool thMidiChan::voiceIsFinite (thSynthTree *tree)
 }
 
 /* Audio thread. */
-void thMidiChan::reportNonFinite (void)
+void thMidiChan::reportNonFinite (Guard which)
 {
     if (nonFinite_ != NULL)
     {
         nonFinite_->fetch_add(1, std::memory_order_relaxed);
     }
 
-    if (saidNonFinite_)
+    bool &said = (which == GUARD_EFFECT) ? saidNonFiniteEffect_
+                                         : saidNonFinite_;
+    const string &message = (which == GUARD_EFFECT) ? effectMessage_
+                                                    : message_;
+
+    if (said)
     {
         return;
     }
 
-    saidNonFinite_ = true;
+    said = true;
 
     /* One write(2) of a line built on the GUI thread, not an fprintf.
      *
@@ -870,12 +951,12 @@ void thMidiChan::reportNonFinite (void)
      *
      * A short write is ignored. The alternative is a loop on the audio thread
      * to say something that is already only a diagnostic. */
-    if (!message_.empty())
+    if (!message.empty())
     {
 #ifdef _WIN32
-        (void)_write(2, message_.data(), (unsigned int)message_.size());
+        (void)_write(2, message.data(), (unsigned int)message.size());
 #else
-        ssize_t ignored = write(2, message_.data(), message_.size());
+        ssize_t ignored = write(2, message.data(), message.size());
 
         (void)ignored;
 #endif
@@ -940,7 +1021,7 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
      * node, and a graph can still diverge somewhere no channel reads. */
     if (!voiceIsFinite(tree))
     {
-        reportNonFinite();
+        reportNonFinite(GUARD_VOICE);
 
         /* Both loops in process() retire from play's last sample. Written
            through the existing buffer rather than setValue(0), which

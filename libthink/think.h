@@ -100,6 +100,28 @@ using namespace std;
 /* Language interface stuff... */
 #define OUTPUTPREFIX "out"
 
+/* And the other way, for a channel effect.
+ *
+ * An effect graph is an ordinary .dsp whose io node has in0..in<N-1> written
+ * by the engine -- the channel's summed voices -- the way note and velocity
+ * are written into a voice's. Everything else about it is a .dsp: the same
+ * nodes, the same chanargs, the same out0..out<N-1> read back.
+ *
+ * `in' rather than `input' because the io node's other engine arg is `out'
+ * and the pair has to read as a pair. Nothing else on the io node is called
+ * this: a plugin's `in' is a plugin's. */
+#define INPUTPREFIX "in"
+
+/* How a channel effect's chanargs are named from outside.
+ *
+ * `fx.delay' is the effect's `@delay'; a bare `delay' is the instrument's.
+ * The two sets are kept apart rather than merged so that an instrument's `@a'
+ * and an effect's cannot collide -- and a prefix rather than a second
+ * argument to every call, because the places that name a chanarg are strings
+ * in files: a .gen sink's `chanarg', a .patch line, a MIDI controller
+ * binding. */
+#define TH_EFFECT_PREFIX "fx."
+
 /* How many voices a channel plays at once when its .dsp does not say.
  *
  * `node ionode { poly = N; }' overrides it, and 0 means no limit -- which is
@@ -441,6 +463,7 @@ typedef list<thNode *> thNodeList;
 #include "thNode.h"
 #include "thSynthTree.h"
 #include "thMidiNote.h"
+#include "thChanEffect.h"
 #include "thMidiChan.h"
 #include "thMidiControllerConnection.h"
 #include "thMidiController.h"

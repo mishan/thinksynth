@@ -102,6 +102,17 @@ public:
        rather than deleting it under the GUI thread's feet. */
     void setArg (thArg *arg, RetireQueue *retire);
 
+    /* Audio thread: installs the graph that runs on this channel's summed
+     * voices, or NULL to take one off, and retires whatever was there.
+     *
+     * Built on the GUI thread like a channel and a note, and for the same
+     * reason: it parses a file and allocates a tree. */
+    void setEffect (thChanEffect *effect, RetireQueue *retire);
+
+    /* Either thread, with the care every shared pointer here needs. The GUI
+       reads it to reach the effect's chanargs; the audio thread runs it. */
+    thChanEffect *effect (void) const { return effect_; }
+
     const thArgMap &args (void) const { return args_; }
 
     float *output (void) const { return output_; }
@@ -171,9 +182,16 @@ private:
        sum is where a NaN becomes everybody's problem. */
     bool voiceIsFinite (thSynthTree *tree);
 
-    /* Audio thread. Counts the voice the guard just dropped, and says so once
-       per channel per load. */
-    void reportNonFinite (void);
+    /* Audio thread. Counts what the guard just dropped, and says so once per
+       channel per load -- once for a voice and once for the effect, which are
+       two different failures and two different lines.
+     *
+       `which' picks the message describe() formatted; both increment the same
+       counter, because what the counter is for is "this render had a graph
+       that went non-finite in it" and that is true either way. */
+    enum Guard { GUARD_VOICE, GUARD_EFFECT };
+
+    void reportNonFinite (Guard which);
 
     /* Hands `note' to the GUI thread to destroy. Falls back to deleting it
        here if the retire queue is full -- that costs RT-safety in a case that
@@ -204,6 +222,9 @@ private:
 
     bool dirty_;
     thSynthTree *modnode_;
+
+    /* The channel's effect, or NULL. Owned here, installed by setEffect. */
+    thChanEffect *effect_;
     thArgMap args_;
     NoteMap notes_;
     NoteList decaying_;  /* linked list for decaying notes */
@@ -262,12 +283,15 @@ private:
     int channum_;
     string graph_;
     string message_;
+    string effectMessage_;
     std::atomic<unsigned long> *nonFinite_;
 
     /* A diverging graph goes non-finite on every window of every note, so
        the message is printed once and suppressed after. Never reset: loading
-       a patch builds a new channel. */
+       a patch builds a new channel. One flag per message, so an effect that
+       misbehaves is not silenced by a voice that did first. */
     bool saidNonFinite_;
+    bool saidNonFiniteEffect_;
 
     static std::atomic<unsigned long> nextSerial_;
 };

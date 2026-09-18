@@ -82,13 +82,23 @@ static float unLimit (float y)
     return knee + range * atanhf(t);
 }
 
-static bool measure (const string &pluginPath, const char *file, int voices,
-                     int windows, LevelResult &result)
+/* What measure() has to say about a file it did not measure. */
+enum Measured { MEASURED, NOT_LOADED, NOT_AN_INSTRUMENT };
+
+static Measured measure (const string &pluginPath, const char *file,
+                         int voices, int windows, LevelResult &result)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thSynthTree *tree = synth.loadTree(file, 0, 100);
 
-    if (synth.loadTree(file, 0, 100) == NULL)
-        return false;
+    if (tree == NULL)
+        return NOT_LOADED;
+
+    /* A channel effect is a .dsp with no notes in it: what it plays is what
+       the engine feeds it, and a chord played at a graph that has no voices
+       measures silence. fxcheck runs the effect graphs. */
+    if (tree->takesInput())
+        return NOT_AN_INSTRUMENT;
 
     /* A chord rather than repeats of one note: the same note twice would just
        steal itself under the polyphony rules. */
@@ -143,7 +153,7 @@ static bool measure (const string &pluginPath, const char *file, int voices,
             result.peakCutDb = 20.0f * log10f(before / result.peak);
     }
 
-    return true;
+    return MEASURED;
 }
 
 static void usage (const char *argv0)
@@ -207,9 +217,17 @@ int main (int argc, char **argv)
         {
             LevelResult r;
 
-            if (!measure(pluginPath, argv[f], v, windows, r))
+            const Measured got = measure(pluginPath, argv[f], v, windows, r);
+
+            if (got == NOT_LOADED)
             {
                 printf("  (did not load)\n");
+                break;
+            }
+
+            if (got == NOT_AN_INSTRUMENT)
+            {
+                printf("  (a channel effect; fxcheck covers it)\n");
                 break;
             }
 

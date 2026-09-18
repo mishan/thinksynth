@@ -196,8 +196,9 @@ narrow. `thMidiChan::process()` reads exactly three things off it: `OUTPUTPREFIX
 plus a channel digit for the audio it mixes, `play` to learn the note has ended,
 and `channels` to size the mix. `poly` and `mono` are read once, at
 construction — see below. Everything else travels the other way —
-`thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp, and the
-author's constants are read by whoever wants them.
+`thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp,
+`thChanEffect` writes `in<N>`, and the author's constants are read by whoever
+wants them.
 
 So an arg is an input to the audio-out half if
 
@@ -252,6 +253,67 @@ a key going down takes it back off the pedal.
 note that started it, so the lag's state carries across the retune and the
 pitch slides into the new note. `dsp/bass.dsp` is that arrangement end to
 end.
+
+### An effect graph
+
+A `.dsp` whose io node declares **`in0`** is not an instrument. It is a graph
+the engine runs on a *channel's summed voices*, once per window, and the `in0`
+is where it puts them:
+
+```
+node ionode {
+    channels = 2;
+
+    in0 = 0;            # the engine writes these
+    in1 = 0;
+
+    out0 = mix->out;    # and reads these, as it does for a voice
+    out1 = mix->out;
+};
+```
+
+Nothing else about the file is different. The same nodes, the same
+`@chanargs`, the same `out<N>`. `play` means nothing here — an effect never
+ends — and neither do `note`, `velocity` or `trigger`.
+
+**It is a different thing from an instrument and the two are not
+interchangeable.** An instrument has no input; an effect has no envelope and
+never finishes a note. `thSynth::loadEffect` refuses a graph with no `in0`,
+`thSynth::loadTree` will happily load an effect and it will sit there
+silently, and the note-playing harnesses (`dsplevel`, `dspsweep`, `dspprobe`)
+skip a graph that declares `in0` and say so. `scripts/fxcheck` is where effect
+graphs are covered.
+
+**What it writes replaces what it was fed.** The dry signal is the graph's to
+mix:
+
+```
+node wet delay::echo { in = ionode->in0; delay = @delay; dry = 0; };
+node mix mixer::fade { in0 = ionode->in0; in1 = wet->out; fade = @mix; };
+```
+
+which is one node more than a wet/dry control in the engine would be, and it
+is a node the author can see and rewire.
+
+**It runs every window, whether or not a voice sounds.** That is the whole
+point: a delay's tail is exactly the part that comes out after the last
+note-off, which is why `delay::echo` inside an instrument cannot be one — the
+ring lives in the voice and the voice is gone.
+
+**Its `@chanargs` are its own**, kept apart from the instrument's so that an
+instrument's `@a` and an effect's cannot collide. From outside they are named
+`fx.<name>`: `fx.delay` is the effect's, a bare `delay` is the instrument's.
+
+**A graph may not contain a cycle.** Two nodes that read each other resolve as
+a one-window delay — the walk clears each node's recalc flag before it
+recurses — so what the file sounds like would depend on the window length,
+and the window length is the audio device's business rather than the
+author's. This has always been true and effect graphs are where it first
+tempts anybody: a damped feedback path wants exactly that shape. Put the
+filter outside the loop. `dsp/fx/echo.dsp` says so where it does it.
+
+A channel's effect goes on **after** its instrument: loading an instrument
+builds a new channel and the effect belongs to the channel it was put on.
 
 ## 2. The `.patch` format
 

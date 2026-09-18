@@ -182,6 +182,49 @@ public:
 
     void process (unsigned int windowlen);
     void setActiveNodes(void);
+
+    /* Every node runs this window, whether or not anything in the graph
+     * declared itself ACTIVE.
+     *
+     * setActiveNodes() walks up from the plugins that produce without being
+     * asked -- an oscillator, an envelope -- and marks them and everything
+     * downstream, which is the optimisation that makes a hundred voices
+     * affordable. It assumes such a plugin exists, and for a patch it always
+     * does, because a patch that generates no sound is not a patch.
+     *
+     * For a graph whose input comes from *outside* -- the composer's
+     * control-rate host, a channel effect -- that assumption is false. An
+     * effect may be nothing but a dist::clip, and arithmetic is PASSIVE to a
+     * module. Such a graph fires once on whatever recalc flags
+     * buildSynthTree left behind and then freezes. There is nothing to
+     * optimise in either case: the graph runs once per window rather than
+     * once per voice. */
+    void markAllNodes (void);
+
+    /* The io node's arg at `index', with a chanarg dereferenced.
+     *
+     * thSynthTree::getArg(node, int) dereferences an ARG_CHANNEL before its
+     * pointer chase rather than after, so a chase that ends on one comes back
+     * undereferenced; the by-name overload does it at the end. Both callers
+     * -- thMidiChan reading a voice's out<N>, thChanEffect reading an
+     * effect's -- want the arg that holds the samples.
+     *
+     * Deliberately not folded into getArg(node, int) itself: every plugin's
+     * `mod->getArg(node, args[OUT_ARG])' goes through that overload and then
+     * *writes* to what comes back, so teaching it to follow a chanarg pointer
+     * would let a plugin write into a chanarg. Here the result is only
+     * read. */
+    thArg *resolveIOArg (int index);
+
+    /* True if this graph is a channel effect rather than an instrument: its
+     * io node declares in0, which is the arg the engine writes a channel's
+     * summed voices into.
+     *
+     * The two are the same file format and are not interchangeable -- an
+     * effect has no envelope and never ends a note, an instrument has no
+     * input -- so the loaders and the note-playing harnesses ask this rather
+     * than going by which directory a file was found in. */
+    bool takesInput (void) const;
     void buildArgMap (void);
     void setPointers (void);
     void buildNodeIndex (void);

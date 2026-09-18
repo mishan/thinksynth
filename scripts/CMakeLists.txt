@@ -121,6 +121,12 @@ think_harness(dspab)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
+# The graph that runs on a channel's summed voices: that it runs when nothing
+# is playing, that in0 carries the audio, that its chanargs are its own under
+# `fx.', and that it comes and goes with the channel. Loads the shipped effect
+# graphs too, since the note-playing corpus gates skip them.
+think_harness(fxcheck)
+
 # How a channel hands notes to voices: `poly' and `mono' on the io node, the
 # held-key stack behind mono's last-note priority, and the glide a misc::slew
 # carries across a retune. Listens to the channel's output rather than reaching
@@ -430,6 +436,12 @@ add_test(NAME statecheck
 add_test(NAME voicecheck
          COMMAND voicecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
+# The effect path, plus every shipped effect graph as an argument -- they are
+# the ones the note-playing gates skip, so this is where they are covered.
+add_test(NAME fxcheck
+         COMMAND fxcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp")
+
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
          COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
@@ -486,7 +498,7 @@ add_test(NAME editorcheck
 
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     exprcheck statecheck voicecheck gencheck dspsweep dspsweep.guard
+                     exprcheck statecheck voicecheck fxcheck gencheck dspsweep dspsweep.guard
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 

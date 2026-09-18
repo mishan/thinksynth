@@ -566,6 +566,29 @@ bool NodeGraph::build (thSynthTree *tree)
             addPortOnce(src, "velocity", false);
             addPortOnce(src, "trigger", false);
 
+            /* And in<N> for a channel effect, which is what the engine writes
+             * into one instead of a note: the graph reads them the way an
+             * instrument reads `note'.
+             *
+             * Advertised only for a graph that declares in0, because only
+             * such a graph is an effect -- an instrument has no input and
+             * three phantom ports on its midi-in box would be three more
+             * wires nobody can make. Which side they go is decided by the
+             * same rule as everything else here: the engine writes them, so
+             * they are the source's. */
+            if (tree->takesInput())
+            {
+                src.plugin = "channel in";
+
+                for (int c = 0; c < channels; c++)
+                {
+                    char nm[32];
+
+                    snprintf(nm, sizeof(nm), "%s%d", INPUTPREFIX, c);
+                    addPortOnce(src, nm, false);
+                }
+            }
+
             boxes_.push_back(src);
             sourceOfIo[ionode->name()] = (int)boxes_.size() - 1;
         }

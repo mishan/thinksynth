@@ -269,6 +269,23 @@ Result checkFile (const string &pluginPath, const char *file, int windows,
             return r;
         }
 
+        /* A channel effect has no note to play. It is a .dsp, and every
+           structural gate covers it, but this one plays a chord and reads
+           what the voices publish -- and a graph the engine feeds from in0
+           publishes nothing when nobody is feeding it, which is not a
+           failure, it is the wrong question. fxcheck asks the right one. */
+        if (tree->takesInput())
+        {
+            delete tree;
+
+            if (!quiet)
+                printf("      (%s is a channel effect; fxcheck covers it)\n",
+                       file);
+
+            r.bad = -1;
+            return r;
+        }
+
         NodeGraph g;
 
         g.build(tree);

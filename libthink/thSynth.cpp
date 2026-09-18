@@ -68,6 +68,8 @@ thSynth::thSynth (int windowlen, int samples)
     midiChannelCnt_ = TH_MIDI_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
+    guiEffects_ = (thChanEffect **)calloc(midiChannelCnt_,
+                                          sizeof(thChanEffect *));
 
     for (int i = 0; i < TH_MAX_PROBES; i++)
     {
@@ -111,6 +113,8 @@ thSynth::thSynth (const string &plugin_path, int windowlen, int samples)
     midiChannelCnt_ = TH_MIDI_CHANNELS;
     midiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
     guiChannels_ = (thMidiChan **)calloc(midiChannelCnt_, sizeof(thMidiChan *));
+    guiEffects_ = (thChanEffect **)calloc(midiChannelCnt_,
+                                          sizeof(thChanEffect *));
 
     for (int i = 0; i < TH_MAX_PROBES; i++)
     {
@@ -200,6 +204,10 @@ thSynth::~thSynth (void)
 
         midiChannels_[i] = NULL;
         guiChannels_[i] = NULL;
+
+        /* A reference, not ownership: deleting the channel above takes its
+           effect with it. */
+        guiEffects_[i] = NULL;
     }
 
     sort(doomed.begin(), doomed.end());
@@ -214,8 +222,10 @@ thSynth::~thSynth (void)
     DestroyMap(treelist_);
     free(midiChannels_);
     free(guiChannels_);
+    free(guiEffects_);
     midiChannels_ = NULL;
     guiChannels_ = NULL;
+    guiEffects_ = NULL;
 
     delete controllerHandler_;
     delete pluginmanager_;
@@ -244,6 +254,7 @@ bool thSynth::postCommand (const thSynthCommand &cmd)
 
     delete cmd.note;
     delete cmd.channel;
+    delete cmd.effect;
     delete cmd.arg;
     delete cmd.probe;
 
@@ -261,6 +272,7 @@ void thSynth::collectRetired (void)
         {
             case thRetired::NOTE:    delete item.note;    break;
             case thRetired::CHANNEL: delete item.channel; break;
+            case thRetired::EFFECT:  delete item.effect;  break;
             case thRetired::ARG:     delete item.arg;     break;
             case thRetired::PROBE:   delete item.probe;   break;
         }
@@ -389,6 +401,20 @@ void thSynth::applyCommand (const thSynthCommand &cmd)
             /* Handled above, before the channel bounds check. Listed so that
                adding a command type keeps failing to compile here until it is
                dealt with, which is how this switch has stayed honest. */
+            break;
+
+        case thSynthCommand::SET_EFFECT:
+            if (chan)
+            {
+                chan->setEffect(cmd.effect, &retired_);
+            }
+            else if (cmd.effect)
+            {
+                item.kind = thRetired::EFFECT;
+                item.effect = cmd.effect;
+                if (!retired_.push(item))
+                    delete cmd.effect;
+            }
             break;
 
         case thSynthCommand::SET_CHAN_ARG:
@@ -660,6 +686,7 @@ bool thSynth::removeChan (int channum)
             return false;
 
         guiChannels_[channum] = NULL;
+        guiEffects_[channum] = NULL;
         patchlist_[channum] = "";
         controllerHandler_->clearByDestChan(channum);
     }
@@ -1026,6 +1053,18 @@ thArg *thSynth::getChanArg (int channum, const string &argname)
         return NULL;
     }
 
+    /* `fx.delay' is the effect's. Two maps rather than one, so an
+       instrument's `@a' and an effect's cannot collide -- see
+       TH_EFFECT_PREFIX. */
+    const size_t plen = strlen(TH_EFFECT_PREFIX);
+
+    if (argname.compare(0, plen, TH_EFFECT_PREFIX) == 0)
+    {
+        thChanEffect *fx = guiEffects_[channum];
+
+        return fx ? fx->getArg(argname.substr(plen)) : NULL;
+    }
+
     thMidiChan *chan = guiChannels_[channum];
 
     if (!chan)
@@ -1156,12 +1195,144 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
 
     guiChannels_[channum] = newchan;
 
+    /* The channel that is going takes its effect with it, so the GUI's
+       reference to it goes too. An instrument is loaded first and its effect
+       put on afterwards; doing it the other way round loses the effect. */
+    guiEffects_[channum] = NULL;
+
     patchlist_[channum] = filename;
 
     /* make sure there are no midi controllers set up for this channel */
     controllerHandler_->clearByDestChan(channum);
 
     return tree;
+}
+
+/* GUI thread. The graph that runs on a channel's summed voices.
+ *
+ * loadTree's shape, with one fewer object at the end of it: the channel is
+ * already there, so what is built and queued is the effect rather than a
+ * replacement channel. The parse, the unit fold and the expression desugar
+ * are the same ones every .dsp gets -- an effect is a .dsp, and `375 ms'
+ * folds against this synth's rate here for the same reason it does there.
+ */
+thSynthTree *thSynth::loadEffect (const string &filename, int channum)
+{
+    if ((channum < 0) || (channum >= midiChannelCnt_))
+    {
+        fprintf(stderr, "thSynth::loadEffect: no such channel %d\n", channum);
+        return NULL;
+    }
+
+    std::error_code ec;
+
+    if (!std::filesystem::exists(filename, ec))
+    {
+        fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
+                ec ? ec.message().c_str() : "no such file or directory");
+        return NULL;
+    }
+    else if (std::filesystem::is_directory(filename, ec))
+    {
+        fprintf(stderr, "%s is a directory\n", filename.c_str());
+        return NULL;
+    }
+
+    /* "rb", not "r" -- see loadTree. */
+    FILE *input = fopen(filename.c_str(), "rb");
+
+    if (input == NULL)
+    {
+        fprintf(stderr, "couldn't open %s: %s\n", filename.c_str(),
+                strerror(errno));
+        return NULL;
+    }
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    thSynthTree *raw = NULL;
+    int parseResult = thParseDsp(this, input, &raw);
+
+    fclose(input);
+
+    /* registerTree false: the thChanEffect below takes ownership. */
+    thSynthTree *tree = finishParse(filename, raw, parseResult, false);
+
+    if (tree == NULL)
+    {
+        return NULL;
+    }
+
+    /* An instrument put on as an effect would run every window with nothing
+       driving it and mix whatever an ungated graph produces into the channel
+       for ever. The distinction is one arg -- in0 -- so it is asked rather
+       than assumed from a directory name. */
+    if (!tree->takesInput())
+    {
+        fprintf(stderr, "%s: not an effect graph -- its io node declares no "
+                "%s0, so the engine has nowhere to put the channel's "
+                "audio\n", filename.c_str(), INPUTPREFIX);
+        delete tree;
+        return NULL;
+    }
+
+    thMidiChan *chan = guiChannels_[channum];
+
+    if (chan == NULL)
+    {
+        fprintf(stderr, "thSynth::loadEffect: channel %d has no instrument on "
+                "it\n", channum);
+        delete tree;
+        return NULL;
+    }
+
+    thChanEffect *fx = new thChanEffect(tree, chan->numChannels(), windowlen_);
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SET_EFFECT;
+    cmd.chan = channum;
+    cmd.effect = fx;
+
+    /* Publish only once the swap is queued, for the reason loadTree gives:
+       the GUI dropping its reference to something the audio thread was never
+       told about leaves it running with nothing able to reach it. */
+    if (!postCommand(cmd))
+    {
+        /* postCommand deleted fx, which owns the tree. */
+        return NULL;
+    }
+
+    guiEffects_[channum] = fx;
+
+    return tree;
+}
+
+/* GUI thread. */
+bool thSynth::removeEffect (int channum)
+{
+    if ((channum < 0) || (channum >= midiChannelCnt_))
+        return false;
+
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
+    if (guiEffects_[channum] == NULL)
+        return true;
+
+    thSynthCommand cmd;
+
+    cmd.type = thSynthCommand::SET_EFFECT;
+    cmd.chan = channum;
+    cmd.effect = NULL;
+
+    if (!postCommand(cmd))
+        return false;
+
+    guiEffects_[channum] = NULL;
+
+    return true;
 }
 
 /* Make these voids return something and add error checking everywhere! */
