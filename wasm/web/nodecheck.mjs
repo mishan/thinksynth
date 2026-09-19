@@ -290,7 +290,7 @@ process.stdout.write(
    composer canvas, of the other canvas. */
 {
     const { ARITY, OP_NAMES, replay } =
-        await import('../cairo2d/replay.js');
+        await import('cairo-canvas2d');
 
     const nothing = () => {};
     const ctx = new Proxy({}, {

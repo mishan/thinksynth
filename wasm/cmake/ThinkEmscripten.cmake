@@ -108,7 +108,7 @@ target_link_libraries(sigc PUBLIC PkgConfig::SIGC)
 #
 # Only the Node build wants the host's header, and it says so with
 # THINK_NEED_CAIRO. The browser build never looks: it compiles the draws
-# against wasm/cairo2d instead, which records them for the page to replay
+# against cairo-canvas2d instead, which records them for the page to replay
 # (JAM_M6.md, section 3), so it builds where the host has no cairo headers
 # at all. plugins/CMakeLists.txt names the target in both, so the target is
 # always there -- empty when nothing looked.

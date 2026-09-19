@@ -19,6 +19,7 @@
     "playwright": "1.63.0"
   },
   "dependencies": {
+    "cairo-canvas2d": "^0.1.0",
     "codemirror": "^6.0.2",
     "ws": "^8.21.3",
     "y-codemirror.next": "^0.3.6",

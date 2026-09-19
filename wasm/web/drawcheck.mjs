@@ -26,9 +26,9 @@
  * The first half of JAM_M6.md's section 3 gate. Eight composers draw their
  * state -- a Life board, a CA's grid, a Euclid ring -- and until now the
  * browser build left those draws out: there was no canvas in a worklet and
- * no cairo to link. wasm/cairo2d is the cairo they link now, and it records
+ * no cairo to link. cairo-canvas2d is the cairo they link now, and it records
  * rather than rasterises, so what a draw produces here is a list of ops
- * that wasm/cairo2d/replay.js replays on a Canvas2D.
+ * that the package's replay.js replays on a Canvas2D.
  *
  * Each piece is played for a few seconds first, because what these draw is
  * their state and a piece that has not run has none: a markov with an empty
@@ -69,7 +69,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { ARITY, OP_NAMES, replay } from '../cairo2d/replay.js';
+import { ARITY, OP_NAMES, replay } from 'cairo-canvas2d';
 import { instruments, pieces } from './piececheck.mjs';
 import { loadPiece } from './render.mjs';
 

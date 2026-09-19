@@ -19,7 +19,7 @@
 /*
  * The module's one drawing, and the tables the page reads it out of.
  *
- * Everything drawn here is recorded rather than rasterised (wasm/cairo2d):
+ * Everything drawn here is recorded rather than rasterised (cairo-canvas2d):
  * a composer's picture, the composer canvas around it, the node canvas.
  * One recorder for the module, because nothing draws two things at once --
  * the list is read out before the next draw starts -- and because the page

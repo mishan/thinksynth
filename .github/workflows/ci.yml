@@ -340,11 +340,14 @@ jobs:
 
       # The cairo stand-in, on its own terms: what each call records, and
       # whether the opcodes written out in C and in JavaScript still agree.
-      # It is built by the browser build above (wasm/web/CMakeLists.txt).
+      # It comes from npm now, so this is the pinned copy being asked, not
+      # upstream's own CI being taken on trust. It is built by the browser
+      # build above (wasm/web/CMakeLists.txt).
       - name: cairo2d
         run: |
           node build-web/cairo2d/cairo2dtest.js
-          node wasm/cairo2d/test/replaytest.mjs build-web/cairo2d/cairo2dtest.js
+          node wasm/web/node_modules/cairo-canvas2d/test/replaytest.mjs \
+              build-web/cairo2d/cairo2dtest.js
 
       # Every shipped patch, loaded and played through the module.
       - name: Browser build, played from Node

@@ -13,7 +13,7 @@
 # here writes the table from the two properties below.
 #
 # The visuals come this way too now: there is something to draw on, which
-# is wasm/cairo2d, and something to draw -- the probes the node editor arms
+# is cairo-canvas2d, and something to draw -- the probes the node editor arms
 # (JAM_M6.md, section 7.4).
 
 # A wrapper source, and a name to find its row by.
@@ -63,7 +63,7 @@ endfunction()
 # composer_draw comes this way too now. It used to be the one export that
 # could not -- a worklet has no canvas and there was no cairo to link, so
 # the composers were compiled with THC_NO_DRAW and the eight that draw left
-# both the function and their <cairo.h> out. wasm/cairo2d is the cairo they
+# both the function and their <cairo.h> out. cairo-canvas2d is the cairo they
 # link now: the same calls, recorded into a list the page replays
 # (JAM_M6.md, section 3). Its cairo.h is what thcstatic.h includes, so the
 # plugin's own `#include <cairo.h>' finds it already behind its guard.

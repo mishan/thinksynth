@@ -1168,7 +1168,7 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
  * What a composer draws is what the composer view shows: a Life board, a
  * CA's grid, a Euclid ring, drawn by the plugin itself through the same
  * composer_draw the desktop calls (JAM_M6.md, section 3). Here the cairo
- * it draws through is wasm/cairo2d, which records rather than rasterises,
+ * it draws through is cairo-canvas2d, which records rather than rasterises,
  * so a draw is a list of ops the page replays on a Canvas2D.
  *
  * The three tables below -- the ops, the strings they index, the surfaces
