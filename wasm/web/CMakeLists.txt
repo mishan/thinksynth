@@ -584,6 +584,23 @@ foreach(f IN LISTS SHIPPED_FX)
 endforeach()
 install(FILES ${DIST_FX_FILES} DESTINATION dsp/fx PERMISSIONS ${SITE_FILE_MODE})
 
+# And the kit. dsp/index.json names these the same way it names a graph, so
+# the page asks the server for every one of them whatever is installed --
+# and fetch() does not reject on a 404, so a missing wav arrives as the
+# error page's bytes and osc::sample is handed something that is not a
+# RIFF. Nothing throws; the instruments that play a recording just stop
+# making a sound, which is a long way to look from the symptom.
+set(DIST_SAMPLE_FILES "")
+foreach(f IN LISTS SHIPPED_SAMPLES)
+  get_filename_component(name "${f}" NAME)
+  list(APPEND DIST_SAMPLE_FILES "${PROJECT_BINARY_DIR}/dsp/samples/${name}")
+endforeach()
+
+if(DIST_SAMPLE_FILES)
+  install(FILES ${DIST_SAMPLE_FILES}
+          DESTINATION dsp/samples PERMISSIONS ${SITE_FILE_MODE})
+endif()
+
 set(DIST_GEN_FILES "${PROJECT_BINARY_DIR}/gen/index.json")
 foreach(f IN LISTS SHIPPED_GEN)
   get_filename_component(name "${f}" NAME)
