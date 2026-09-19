@@ -31,9 +31,16 @@
 # there is to delay the DRY copy by the same `Delay' the wet one sits
 # at: the moving tap then runs from `Delay' - `Depth' to `Delay' +
 # `Depth' around a dry copy that is fixed at `Delay', and the difference
-# between them passes through zero twice a cycle. `Mix' at a half is
-# what makes the notches infinite, because two copies only cancel when
-# they are the same size.
+# between them passes through zero twice a cycle.
+#
+# HOW DEEP THE NULL GOES IS `Mix' AND `Feedback' TOGETHER. Two copies
+# cancel completely only when they are the same size, which is `Mix' at
+# a half -- but `Feedback' resonates the wet one and nothing resonates
+# the dry, so at the 0.7 this file ships the wet copy is several times
+# the dry at the comb's peaks and the crossing is a dip rather than a
+# null. That is the usual trade and the reason both knobs are on the
+# panel: turn `Feedback' down toward zero for the deep sweep through
+# silence, leave it up for the resonant one that only thins.
 #
 # Off, the dry copy is the input where it arrived, the sweep never
 # crosses, and what comes out is the ordinary flanger. It is the default:
@@ -132,19 +139,42 @@ node wetr delay::chorus {
     phase = 0.5;
 };
 
-# The dry copy, delayed by the tap's center. `gain = 0' on an allpass is
-# a plain delay of `delay' samples -- the cheapest line in the tree that
-# does nothing but wait.
-node fixl delay::allpass {
+# The dry copy, delayed by the tap's center.
+#
+# Another `delay::chorus' and not the cheaper `delay::allpass' with
+# `gain = 0', because allpass truncates its delay to whole samples and a
+# chorus tap reads between them. `Delay' in milliseconds is a whole
+# number of samples only by accident -- 1.5 ms is 66.15 of them at 44100
+# -- so a truncated dry copy sits at 66 while the sweep is centered on
+# 66.15, and the crossing moves to wherever the tap passes 66 instead of
+# landing where the LFO turns around. The null is still a null; the two
+# of them per cycle stop being evenly spaced, by a thousandth of a cycle
+# at the default and three per cent at the 0.2 ms end, where `Delay' has
+# the least of a sample to spare. Matching the node is simpler than
+# reasoning about when that is audible, and it makes the sweep symmetric
+# about the crossing the way the header above says it is.
+#
+# `depth = 0' holds the tap still, so `back' is `delay' exactly; `mix = 1'
+# is the tap alone with none of the input in it, `feedback = 0' leaves
+# the line a plain one.
+node fixl delay::chorus {
     in = ionode->in0;
     delay = @delay;
-    gain = 0;
+    depth = 0;
+    rate = 0;
+    taps = 1;
+    mix = 1;
+    feedback = 0;
 };
 
-node fixr delay::allpass {
+node fixr delay::chorus {
     in = ionode->in1;
     delay = @delay;
-    gain = 0;
+    depth = 0;
+    rate = 0;
+    taps = 1;
+    mix = 1;
+    feedback = 0;
 };
 
 # Which dry copy this is: the input as it arrived, or that one. A switch
