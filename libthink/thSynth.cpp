@@ -161,6 +161,12 @@ thSynth::~thSynth (void)
         delete cmd.note;
         delete cmd.arg;
 
+        /* Straight out, unlike the channel below: an effect that was never
+           applied is reachable from here and from guiEffects_, and only a
+           channel that adopted it ever owns one -- which this command is the
+           proof did not happen. */
+        delete cmd.effect;
+
         if (cmd.channel)
             doomed.push_back(cmd.channel);
 
