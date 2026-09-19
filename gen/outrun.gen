@@ -1,0 +1,356 @@
+# outrun.gen -- synthwave: an arpeggio with a jet going over it.
+#
+# A hundred and four to the minute in E minor. A brass pad whose
+# vibrato arrives after the note does, a supersaw arpeggio through a
+# flanger on its channel, a kick and a gated snare, and a Simmons tom
+# filling every fourth bar.
+#
+# THE ARPEGGIO IS A `gen::' STAGE AND NOT AN `xform::' ONE, which is
+# the one thing in this file that is not obvious and the one that cost
+# a render to find. A chain's stages are either clocked or not, and the
+# file decides which by the namespace it writes: an `xform::' stage
+# runs when an event passes through it, and a `gen::' stage is woken by
+# the transport whether or not anything arrived. An arpeggiator needs
+# both halves -- it hears the chord (three notes, once a bar) and then
+# has to put sixteen steps between that event and the next one -- so
+# written as `xform::arp' it holds a chord and is never asked to say
+# anything about it, and the channel is silent. `gen::arp' after the
+# harmonizer is a stage that is fed and clocked, which is what an
+# arpeggiator is.
+#
+# `pass = 0' is the other half: the chord it was handed does not flow
+# downstream, so what reaches the instrument is the figure and never
+# the block it was made from.
+#
+# THE FLANGER IS ON THE CHANNEL and not in the voice, so the sweep is
+# on the arpeggio rather than on each note of it -- a note that carried
+# its own flanger would start it again sixteen times a bar and the comb
+# would never move. `Through Zero' is on: the dry copy is delayed by
+# the same center the moving tap sweeps around, so the difference
+# between them passes through nothing twice a cycle and the notches
+# slide down to DC on the way. dsp/fx/flanger.dsp says how.
+#
+# The Jet knob is the feedback, and it is signed. Positive puts the
+# comb's peaks on the harmonic series, which reads as a pitch rising;
+# negative moves them between, which is the hollow one. Both are the
+# sound; they are different records.
+#
+# THE SNARE IS GATED, on a channel of its own because a gate is a
+# channel effect: fx/gate.dsp is a room keyed from the dry drum, so it
+# arrives at full size and is cut off where the drum stops instead of
+# fading. The fills are xform::ratchet on a single tom, which turns one
+# hit into three or four when the die says so, and the pitch comes from
+# euclid's fill pool -- four shells, one per fill, so no two fills in a
+# row are the same drum.
+#
+# ONE WALK, THREE CHAINS. gen::progression walks the chords of E minor
+# and the brass, the arpeggio and the bass each run it with `seed = 31',
+# so they agree without a message between them. The brass hears it as a
+# voice-led chord, the arp as something to take apart, the bass as a
+# root and a fifth.
+#
+# The walk, the missing hats and the rolls roll dice; the seed is
+# pinned for them. Self-contained: open it and press Play.
+
+name "Outrun";
+author "Misha Nasledov";
+description "Synthwave: a brass pad with vibrato, a supersaw arpeggio through a flanger, a gated snare and syndrum fills.";
+
+tempo 104;
+seed 1986;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro   8 bars { arp = 0;  bass = 0;  snare = 0;  fills = 0;
+                         hats = 0; };
+section verse  16 bars { fills = 0;  brass = 0.8; };
+section lift    8 bars { brass = 1.1; };
+section chorus 16 bars { arp = 1.1; };
+section break   8 bars { kick = 0;  snare = 0;  hats = 0;  bass = 0;
+                         fills = 0;  brass = 1.1; };
+section last   16 bars { arp = 1.1; };
+section outro   8 bars { arp = 0;  fills = 0;  bass = 0;  snare = 0; };
+section end;
+
+@walk = 0.1;
+@walk.widget = 1;
+@walk.min = 0;
+@walk.max = 0.6;
+@walk.label = "Walk";
+
+# The flanger's resonance, and its sign. Positive puts the comb's peaks
+# on the harmonic series and negative puts them between -- see
+# dsp/fx/flanger.dsp.
+@jet = 0.75;
+@jet.widget = 1;
+@jet.min = -0.95;
+@jet.max = 0.95;
+@jet.label = "Jet";
+
+@sweep = 0.18;
+@sweep.widget = 1;
+@sweep.min = 0.02;
+@sweep.max = 1.5;
+@sweep.label = "Sweep (Hz)";
+
+scale emin "E2 F#2 G2 A2 B2 C3 D3";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 1.1;
+    ceiling = 0.88;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 28;
+
+    pitch = 210;
+    floor = 50;
+    sweep = 55 ms;
+    decay = 320 ms;
+    click = 0.5;
+    drive = 2.4;
+};
+
+# The snare, and the room that is cut off where it stops. On a channel
+# of its own because a gate is a channel effect and this is the drum it
+# is for.
+instrument snare {
+    dsp  "snare.dsp";
+    amp  = 30;
+
+    color   = 1;
+    tone    = 1600;
+    res     = 0.45;
+    a       = 1 ms;
+    d       = 210 ms;
+    tune    = 185;
+    bd      = 90 ms;
+    balance = 0.45;
+
+    effect "fx/gate.dsp" {
+        decay   = 0.86;
+        size    = 1.1;
+        damping = 3800;
+        diffuse = 6 ms;
+        hold    = 3.2;
+        slam    = 70;
+        mix     = 0.55;
+    };
+};
+
+instrument hat {
+    dsp  "hat.dsp";
+    amp  = 16;
+
+    color = 0;
+    tone  = 8500;
+    res   = 0.2;
+    a     = 0.5 ms;
+    clen  = 45 ms;
+    olen  = 300 ms;
+};
+
+# The Simmons tom: a sine an octave down over its sweep, with noise and
+# a click in front of it. The fills are xform::ratchet's doing.
+instrument syndrum {
+    dsp  "syndrum.dsp";
+    amp  = 16;
+
+    drop  = 1;
+    sweep = 200 ms;
+    decay = 460 ms;
+    noise = 0.25;
+    tone  = 2400;
+    click = 0.35;
+    drive = 1.4;
+};
+
+instrument bass {
+    dsp  "bass.dsp";
+    amp  = 30;
+
+    glide  = 20 ms;
+    sub    = 0.5;
+    cutoff = 200;
+    depth  = 1500;
+    res    = 0.6;
+    accent = 0.75;
+    drive  = 2;
+
+    fa = 2 ms;
+    fd = 200 ms;
+    fs = 0.15;
+    fr = 120 ms;
+
+    a = 3 ms;
+    d = 300 ms;
+    s = 0.5;
+    r = 80 ms;
+};
+
+# The pad: a brass patch with the vibrato coming in after the note has
+# started, which is what a player does and what the preset is for.
+instrument brass {
+    dsp  "brass.dsp";
+    amp  = 16;
+
+    buzz     = 90 ms;
+    buzzf    = 28;
+    bend     = -1;
+    bendl    = 20 ms;
+    res      = 2;
+    cutoff   = 4;
+    famt     = 2;
+    oscmul   = 2;
+    oscfade  = 0.25;
+    vibrato  = 22;
+    vibrate  = 5;
+    vibdelay = 320 ms;
+    a        = 30 ms;
+    d        = 400 ms;
+    s        = 0.7;
+    r        = 250 ms;
+};
+
+# Seven saws a few cents apart, arpeggiated, through a flanger on the
+# channel's sum -- the sweep is on the chord and not on each note.
+instrument arp {
+    dsp  "supersaw.dsp";
+    amp  = 13;
+
+    detune = 14;
+    cutoff = 1400;
+    depth  = 2600;
+    res    = 0.25;
+    fa     = 5 ms;
+    fd     = 220 ms;
+    fs     = 0.3;
+    fr     = 200 ms;
+    a      = 5 ms;
+    d      = 260 ms;
+    s      = 0.5;
+    r      = 220 ms;
+
+    effect "fx/flanger.dsp" {
+        rate     = @sweep;
+        delay    = 1.6 ms;
+        depth    = 1.5 ms;
+        feedback = @jet;
+        through  = 1;
+        mix      = 0.5;
+    };
+};
+
+# ---- the drums --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 114;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 110;
+    };
+    sink { instrument = snare; };
+};
+
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.2 beats;  vel = 56;
+    };
+    stage c xform::chance { prob = 0.92; };
+    sink { instrument = hat; };
+};
+
+# The fill: one tom on the last beat of every fourth bar, and
+# xform::ratchet turning it into three or four when the die says so.
+# The pitch pool is four shells, so no two fills are the same drum.
+chain fills {
+    stage src gen::euclid {
+        steps = 1;  fills = 1;  rotate = 0;
+        notes = ".";
+        fill  = "A2 G2 E2 C3";
+        every = 4;
+        period = 4 beats;  hold = 0.3 beats;  vel = 104;
+    };
+    stage r xform::ratchet { count = 4;  prob = 0.7;  decay = 0.8; };
+    sink { instrument = syndrum; };
+};
+
+# ---- the chords -------------------------------------------------------
+
+# One chord a bar, voice-led, on the brass.
+chain brass {
+    stage src gen::progression {
+        scale = emin;
+        every = 4 beats;  hold = 3.6 beats;  vel = 76;
+        phrase = 4;  wander = @walk;  seed = 31;
+    };
+    stage chord xform::harmonize {
+        scale = emin;
+        voices = 3;  step = 2;
+        spread = 0.03 s;
+        taper = 0.9;
+        root = 1;  below = 0;
+        lead = 1;  span = 12;
+    };
+    sink { instrument = brass; };
+};
+
+# The same chords, held and then taken apart: xform::arp steps through
+# whatever is sounding, two octaves of it, in sixteenths. The chord is
+# never heard as a chord on this channel -- what the arp is handed is
+# what it takes to pieces.
+chain arp {
+    stage src gen::progression {
+        scale = emin;
+        every = 4 beats;  hold = 3.6 beats;  vel = 76;
+        phrase = 4;  wander = @walk;  seed = 31;
+    };
+    stage chord xform::harmonize {
+        scale = emin;
+        voices = 3;  step = 2;
+        spread = 0 s;
+        taper = 1;
+        root = 1;  below = 0;
+        lead = 0;  span = 12;
+    };
+    stage a gen::arp {
+        pattern = 2;  octaves = 2;
+        period = 0.25 beats;  hold = 0.22 beats;  vel = 92;
+        pass = 0;
+    };
+    sink { instrument = arp; };
+};
+
+# And the same walk under it, on the one and the offbeat eighths.
+chain bass {
+    stage src gen::progression {
+        scale = emin;
+        every = 4 beats;  hold = 3.6 beats;  vel = 76;
+        phrase = 4;  wander = @walk;  seed = 31;
+    };
+    stage b xform::bassline {
+        scale = emin;
+        pattern = "r.r.r.rf";
+        step = 0.5 beats;  hold = 0.42 beats;  vel = 98;
+        octave = -1;  pass = 0;
+    };
+    sink { instrument = bass; };
+};
