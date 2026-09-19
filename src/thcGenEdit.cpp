@@ -244,6 +244,15 @@ struct InstrumentIdx
     std::string dsp;
 
     std::vector<PIdx> values;
+
+    /* `fx.mix' -> `@w ms', for every value inside the `effect' block that
+       a knob drives. Not PIdx and not in `values': those carry the byte
+       span an edit splices against, and nothing here edits an effect's
+       values -- see the scan below. What this is for is the one question
+       that can be asked about them from outside, which is whether a knob
+       already has hold of the arg a sink is being pointed at. Keyed with
+       the prefix, because that is the name the sink is written with. */
+    std::vector<std::pair<std::string, std::string> > effectKnobs;
 };
 
 struct MetaIdx
@@ -702,6 +711,14 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                  * one whose own values could not be edited either, and one
                  * that describe() did not mention.
                  *
+                 * The one thing taken off the way past is which of these
+                 * values a knob drives. A sink may name `fx.mix' now, the
+                 * loader refuses a sink onto an arg a knob already has, and
+                 * a check that read only `values' would have written a file
+                 * it could not load -- see checkSinkTarget. Names and knobs
+                 * only: no offsets, because an offset is a licence to edit
+                 * and this is not one.
+                 *
                  * The brace count is a count rather than a match on the
                  * first `}': an effect's block holds statements, and a
                  * statement the scan does not recognize may hold braces of
@@ -721,6 +738,28 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                                 depth++;
                             else if (isPunct(t[k], '}'))
                                 depth--;
+                            else if (depth == 1 && k + 2 < t.size() &&
+                                     t[k].kind == Tok::WORD &&
+                                     isPunct(t[k + 1], '=') &&
+                                     t[k + 2].kind == Tok::KNOB)
+                            {
+                                /* To the ';', so that the unit comes with
+                                   it and the refusal quotes the binding
+                                   the way the file spells it. */
+                                size_t last = k + 2;
+
+                                while (last + 1 < t.size() &&
+                                       t[last + 1].kind != Tok::END &&
+                                       !isPunct(t[last + 1], ';') &&
+                                       !isPunct(t[last + 1], '}'))
+                                    last++;
+
+                                in.effectKnobs.push_back(std::make_pair(
+                                    std::string(TH_EFFECT_PREFIX) +
+                                        t[k].text,
+                                    text.substr(t[k + 2].off,
+                                                t[last].end - t[k + 2].off)));
+                            }
                         }
 
                         if (depth != 0)
@@ -2071,6 +2110,7 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
            the authored text, which is where a knob binding is spelled
            `@name'. */
         if (!chanarg.empty() && chanarg != "*")
+        {
             for (size_t i = 0; i < in->values.size(); i++)
                 if (in->values[i].name == chanarg &&
                     !in->values[i].valueText.empty() &&
@@ -2081,6 +2121,21 @@ checkSinkTarget (const Index &ix, int channel, const std::string &instrument,
                           "would fight over it";
                     return thcGenEdit::REFUSED;
                 }
+
+            /* And the effect's, which are kept in a list of their own
+               because the `effect' block is stepped over rather than
+               indexed. A `fx.mix' sink can never match the loop above, so
+               without this the one thing a sink onto an effect knob is
+               refused for is the one thing this writer could not see. */
+            for (size_t i = 0; i < in->effectKnobs.size(); i++)
+                if (in->effectKnobs[i].first == chanarg)
+                {
+                    why = chanarg + " on " + instrument + " is driven by " +
+                          in->effectKnobs[i].second + "; a sink and a knob "
+                          "would fight over it";
+                    return thcGenEdit::REFUSED;
+                }
+        }
 
         if (!above)
         {

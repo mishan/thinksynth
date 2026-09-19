@@ -2122,6 +2122,27 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
         " sink { channel = 1; chanarg = \"cut off\"; }; };",
         "is not a chanarg name");
 
+    /* `fx.' is a prefix and not punctuation a name may contain: what
+       follows it still has to be something a .dsp could declare. */
+    expectReject(plugins, synth, "bad-sink-name-fx",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; chanarg = \"fx.cut off\"; }; };",
+        "is not a chanarg name");
+
+    expectReject(plugins, synth, "bare-fx-prefix",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; chanarg = \"fx.\"; }; };",
+        "is not a chanarg name");
+
+    /* And `fx.*' is not a form. A `*' sink keeps the name the event
+       arrived with, so there is nothing here for a prefix to go in
+       front of -- a composer that wants an effect writes `fx.' on the
+       event itself. */
+    expectReject(plugins, synth, "fx-wildcard",
+        "chain c { stage s gen::eno_line { };"
+        " sink { channel = 1; chanarg = \"fx.*\"; }; };",
+        "is not a chanarg name");
+
     /* --- what it does when it is right --- */
 
     std::string tmp = thUtil::tempFile("gencheck-presets-");
@@ -3149,6 +3170,234 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
         " effect \"no-such-effect.dsp\"; };\n"
         "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
         "did not load as an effect");
+
+    clearChannels(synth);
+}
+
+/* And the other half of the seam: a *sink* aimed at an effect's knob.
+ *
+ * Setting an effect's chanargs in the `effect' block is one thing and
+ * moving one while the piece runs is another, and until this was written
+ * only the first worked: every layer from thcScheduler down already
+ * spoke TH_EFFECT_PREFIX -- thSynth::getChanArg splits on it, the
+ * scheduler's refusal message reads it, an `effect' block's values are
+ * stored behind it -- and the sink's name check took an identifier and
+ * refused the dot. So GEN_FORMAT.md documented `chanarg = "fx.delay"'
+ * and the loader rejected the file, and a Leslie's spin-up or a filter
+ * sweep on a channel effect was a thing a piece could describe and not
+ * perform.
+ *
+ * What is held down here is the whole path in one go, because the parts
+ * were each fine on their own: the file loads, the name survives to
+ * delivery with its prefix intact (the tape is what the piano roll and
+ * the replay gate both read), and the value lands on the *effect's*
+ * `mix' rather than on an instrument chanarg of the same name.
+ *
+ * `mix' is deliberately a name both graphs could plausibly have. amb01
+ * does not declare one, so a value arriving unprefixed would find
+ * nothing and this would pass by accident -- which is why the check
+ * below is that the effect's own arg moved, and not merely that
+ * something did.
+ */
+static void
+checkEffectChanargSink (const std::map<std::string, thcPlugin *> &plugins,
+                        thSynth *synth)
+{
+    clearChannels(synth);
+
+    const std::string body =
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    effect \"fx/echo.dsp\" {\n"
+        "        delay = 250 ms;\n"
+        "        mix = 0.1;\n"
+        "    };\n"
+        "};\n"
+        "chain a { stage s gen::eno_line { };"
+        " sink { instrument = lead; }; };\n"
+        "chain m {\n"
+        "    stage w gen::walk { min = 0.6; max = 0.9; step = 0.3;"
+        " period = 0.25 s; };\n"
+        "    sink { instrument = lead; chanarg = \"fx.mix\"; };\n"
+        "};\n";
+
+    std::string path = thUtil::tempFile("gencheck-fxsink-");
+
+    if (path.empty())
+    {
+        fail("could not make a scratch file for the effect sink check");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a sink aimed at `fx.mix' did not load");
+        }
+        else
+        {
+            thArg *mix = synth->getChanArg(0, "fx.mix");
+
+            if (mix == NULL)
+                fail("the effect's `mix' is not reachable under `fx.'");
+            else
+            {
+                const std::string tape = render(sched, 4.0, 0.02);
+
+                if (tape.find("C ") == std::string::npos)
+                    fail("the walk delivered no chanarg events at all");
+                else if (tape.find("fx.mix") == std::string::npos)
+                    fail("a sink's `fx.' prefix was dropped before "
+                         "delivery");
+
+                /* The block set 0.1 and the walk runs 0.6 to 0.9, so
+                   anything in the walk's range is the walk's doing and
+                   nothing else's. */
+                if ((*mix)[0] < 0.55f || (*mix)[0] > 0.95f)
+                    fail("the effect's `mix' did not move with the walk: "
+                         "it reads " + std::to_string((*mix)[0]));
+
+                /* And it went to the effect rather than being invented
+                   on the instrument's side of the channel. */
+                if (synth->getChanArg(0, "mix") != NULL)
+                    fail("an unprefixed `mix' appeared on the "
+                         "instrument's map");
+            }
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    /* --- and the name that is not there -----------------------------
+     *
+     * An instrument carries two graphs, so "declares no chanarg called
+     * X" has to say which of them was asked. `fx.mix' is the effect's
+     * and the instrument's .dsp was never going to declare it, so a
+     * message naming the .dsp sends the author to a file that cannot
+     * answer -- the same split thcScheduler::writeValues makes over an
+     * `effect' block's own values, and for the same reason.
+     *
+     * The prefix comes off the quoted name too: what has to be gone and
+     * read is `mix' in the effect, and `fx.' is the engine's word for
+     * where to look rather than part of anything declared anywhere. */
+    expectReject(plugins, synth, "fxsink-unknown",
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    effect \"fx/echo.dsp\" { mix = 0.1; };\n"
+        "};\n"
+        "chain m { stage w gen::walk { min = 0; max = 1; step = 0.5;"
+        " period = 0.25 s; };"
+        " sink { instrument = lead; chanarg = \"fx.nosuch\"; }; };\n",
+        "has effect 'fx/echo.dsp', which declares no chanarg called "
+        "'nosuch'");
+
+    /* And the instrument's own args keep the message they had, which is
+       the half that would go quietly if the split were made the wrong
+       way round. */
+    expectReject(plugins, synth, "sink-unknown-instrument",
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    effect \"fx/echo.dsp\" { mix = 0.1; };\n"
+        "};\n"
+        "chain m { stage w gen::walk { min = 0; max = 1; step = 0.5;"
+        " period = 0.25 s; };"
+        " sink { instrument = lead; chanarg = \"nosuch\"; }; };\n",
+        "is 'amb01.dsp', which declares no chanarg called 'nosuch'");
+
+    /* --- and the writer refuses what the loader refuses --------------
+     *
+     * A sink onto an arg a knob already drives is refused by the loader:
+     * both are pushes, so the walk wins every time it fires and the
+     * slider looks dead. thcGenEdit makes the same refusal so that every
+     * state it writes loads -- but it reads the instrument's values off
+     * the index, and the index steps over the `effect' block. So the one
+     * arg a `fx.' sink can name was the one arg the check could not see,
+     * and this is the case that holds the two ends together. */
+    {
+        std::string bound = thUtil::tempFile("gencheck-fxknob-");
+
+        if (bound.empty())
+            fail("could not make a scratch file for the effect knob check");
+        else
+        {
+            std::string why;
+
+            {
+                std::ofstream out(bound.c_str(), std::ios::trunc);
+
+                out << "@w = 0.4;\n@w.min = 0;\n@w.max = 1;\n"
+                       "instrument lead {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    effect \"fx/echo.dsp\" {\n"
+                       "        delay = 250 ms;\n"
+                       "        mix = @w;\n"
+                       "    };\n"
+                       "};\n"
+                       "chain c {\n"
+                       "    stage s gen::eno_line { };\n"
+                       "    sink { instrument = lead; };\n"
+                       "};\n";
+            }
+
+            /* Both writers, since addSink and setSink share the check but
+               not the call site. */
+            if (thcGenEdit::addSink(bound, "c", 1, "lead", "fx.mix", why) ==
+                thcGenEdit::OK)
+                fail("addSink wrote a sink that fights a knob on an "
+                     "effect");
+
+            if (thcGenEdit::setSink(bound, "c", 0, 1, "lead", "fx.mix",
+                                    why) == thcGenEdit::OK)
+                fail("setSink wrote a sink that fights a knob on an "
+                     "effect");
+
+            /* An effect arg no knob drives is still fair game, and so is
+               an instrument arg of the same bare name: the two maps do
+               not see each other, which is the whole reason for the
+               prefix. */
+            editOk(thcGenEdit::addSink(bound, "c", 1, "lead", "fx.delay",
+                                       why), why,
+                   "addSink onto an effect arg no knob drives");
+
+            editOk(thcGenEdit::addSink(bound, "c", 1, "lead", "fmin", why),
+                   why, "addSink onto an instrument arg beside an effect");
+
+            /* And what it wrote loads, which is the claim the refusals
+               above are in aid of. */
+            {
+                thcScheduler sched(synth);
+                thcGenLoader loader(plugins);
+
+                drainSynth();
+
+                if (!loader.load(bound, &sched))
+                {
+                    for (size_t i = 0; i < loader.errors().size(); i++)
+                        fprintf(stderr, "gencheck: %s\n",
+                                loader.errors()[i].c_str());
+
+                    fail("the file after adding effect sinks no longer "
+                         "loads");
+                }
+            }
+
+            std::filesystem::remove(bound);
+        }
+    }
 
     clearChannels(synth);
 }
@@ -8409,6 +8658,7 @@ main (int argc, char *argv[])
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
     checkInstrumentEffects(plugins, &synth);
+    checkEffectChanargSink(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);

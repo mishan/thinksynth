@@ -342,11 +342,21 @@ A chain body holds, in order:
 ```
 sink { instrument = pad; };                     # notes -> the piece's own pad
 sink { instrument = pad; chanarg = "fmin"; };   # values -> that pad's knob
+sink { instrument = pad; chanarg = "fx.mix"; }; # values -> that pad's
+                                                #   *effect's* knob
 sink { channel = 4; };                          # notes -> MIDI channel 4
 sink { channel = 3; chanarg = "cutoff"; };      # values -> a patch knob
 sink { channel = 3; chanarg = "*"; };           # values -> the knob each
                                                 #   event names for itself
 ```
+
+A `chanarg` name is what a `.dsp` could declare — a letter and then letters,
+digits and underscores — optionally behind the `fx.` that names the channel's
+effect rather than its instrument. `fx.` is a prefix and not punctuation a
+name may contain, so `fx.cut off` is refused exactly as `cut off` is. There
+is no `fx.*`: a `*` sink keeps whatever name each event arrived with, so
+there is nothing there for a prefix to go in front of, and a composer that
+wants to reach an effect writes `fx.` on the event itself.
 
 A module may export both, and several do. `gen::markov` trains on what it
 hears and emits its own walk; `gen::life` plays Conway's board and lets an
@@ -679,7 +689,8 @@ sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
                                                        # instrument or
                                                        #   channel, not both
                                                        # channel is 1-16
-                                                       # STRING = a name
+                                                       # STRING = a name,
+                                                       #   "fx." a name,
                                                        #   or "*"
 ```
 
