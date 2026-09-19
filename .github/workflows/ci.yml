@@ -329,9 +329,17 @@ jobs:
       # What the gates need and nothing else. The three build trees together
       # are more than a gigabyte, almost all of it object files and CMake's
       # own state; the binaries, the modules, the loadable plugins and the
-      # site come to about twenty megabytes packed. The .so files are named
+      # site come to about thirty megabytes packed. The .so files are named
       # one directory down because `plugins/' itself is mostly the objects
       # they were linked from.
+      #
+      # libthink.so.7 goes with the two binaries: they are linked against it
+      # and find it by a RUNPATH holding this build tree's absolute path.
+      # That path is the same on every runner in this workflow, so it
+      # resolves in the gate jobs -- but only if the library is there, and
+      # without it genwav and dspedit exit 127 before they do anything. It
+      # is a symlink to libthink.so.7.0, and upload-artifact follows it, so
+      # what arrives is a real file under the name the loader asks for.
       - name: The built trees, for the gates
         uses: actions/upload-artifact@v4
         with:
@@ -340,6 +348,7 @@ jobs:
           path: |
             build/scripts/genwav
             build/scripts/dspedit
+            build/libthink/libthink.so.7
             build/plugins/*/*.so
             build-wasm/thinksynth.mjs
             build-wasm/thinksynth.wasm
