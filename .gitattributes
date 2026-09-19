@@ -34,3 +34,19 @@
 # dspnodes ignores carriage returns when it compares, so this is the belt and
 # that is the braces, exactly as with the artwork. Either alone would do.
 NODES.md text eol=lf
+
+# What GitHub thinks this repository is written in, which without these two
+# lines includes a language it has never used.
+#
+# linguist reads `.dsp' as Faust, which shares the extension and nothing else.
+# These are thinklang -- this tree's own language for a graph of nodes, with
+# its own scanner in libthink -- and 340 kB of them made Faust the third
+# language on the repository page, ahead of CMake. There is no thinklang for
+# linguist to be told instead, so they come out of the count rather than stay
+# in it under another language's name. The `.gen' pieces are already uncounted:
+# linguist has no mapping for that extension at all.
+*.dsp linguist-detectable=false
+
+# And the scanner itself, which is Flex. `.ll' is Flex's C++ suffix and also
+# LLVM IR's, and linguist picks the latter.
+*.ll linguist-language=Lex
