@@ -396,6 +396,34 @@ struct thcChain
     std::unique_ptr<thcNodeHost> nodes;
 };
 
+/* One stretch of the piece, and what it does to the chains (GEN_FORMAT.md
+ * §5c).
+ *
+ * The arrangement a piece used to write one chain at a time, as an
+ * xform::form under each of them: eight patterns of marks that had to be
+ * kept in step by hand, and no way to say "the lead is louder here" at
+ * all. A section says it once, for the whole piece, in the order the
+ * piece is played.
+ *
+ * `levels' is a chain name and what that section does to it: 0 mutes,
+ * anything else scales its notes' velocities, and a chain the section
+ * does not name plays as written. A vector rather than a map because
+ * declaration order is what the file says and what an editor draws.
+ */
+struct thcSection
+{
+    std::string name;
+
+    /* How long it lasts: beats when `beats', else seconds. A length in
+       bars is folded to beats by the loader, through `meter'. */
+    double      length;
+    bool        beats;
+
+    std::vector<std::pair<std::string, double> > levels;
+
+    thcSection (void) : length(0), beats(false) { }
+};
+
 class thcScheduler
 {
 public:
@@ -645,6 +673,43 @@ public:
        a living process rather than restarting a cold one. */
     void setMuted (size_t chain, bool muted);
 
+    /* ---- the arrangement (GEN_FORMAT.md 5c) ----
+     *
+     * The sections, in the order they are played. They cycle for ever
+     * unless `endAfterSections' is set, which is the file's `section
+     * end;': the transport then stops itself once the last one is over.
+     *
+     * The gate sits where the mute sits -- at the end of the chain, not
+     * at the source -- so the generators go on evolving through a
+     * section that silences them, and a section that brings a chain
+     * back rejoins a living process. Which section an event belongs to
+     * is decided by its own `at' and not by when it was emitted, so a
+     * grammar that emits eight bars in one tick is gated bar by bar,
+     * exactly as xform::form is.
+     *
+     * A length in beats is converted through the tempo when it is read,
+     * so an arrangement written in bars holds at one tempo and drifts
+     * under a tempo change -- the same honest limit form has. */
+    void addSection (const thcSection &s);
+    void endAfterSections (bool end);
+
+    const std::vector<thcSection> &sections (void) const
+    {
+        return sections_;
+    }
+
+    bool endsAfterSections (void) const { return endAfter_; }
+
+    /* Where one section sits, in transport seconds at the current
+       tempo: its length, and the whole arrangement's. Zero when the
+       piece has no sections. */
+    double sectionLength (const thcSection &s) const;
+    double sectionsLength (void) const;
+
+    /* Which section `at' falls in, or -1 for a piece with no sections
+       and for a time past the end of one that ends. Cycles otherwise. */
+    int sectionAt (double at) const;
+
     /* Only effective before any stage exists: a seed that changed under
        running instances would be a lie about what they were created
        with. .gen files with a pinned seed call this first. */
@@ -771,15 +836,22 @@ private:
     void deliverDue (double now);
     void sendDueNoteOffs (double now);
     void propagate (thcChain &c, size_t fromStage, const thcEvent &ev);
+
+    /* What the section covering `at' does to this chain: 1 where there
+       are no sections, or where none of them names it. */
+    double sectionLevel (const thcChain &c, double at) const;
+
     void deliver (const thcEvent &ev);           /* -> synth addNote /
                                                     chanarg, derive off  */
     void flushNoteOffs (void);
     void rearmStage (size_t chain, size_t stage);
     unsigned stageSeed (size_t chain, size_t stage) const;
 
-    thSynth               *synth_;
-    std::vector<thcChain>  chains_;
-    sigc::connection       timer_;
+    thSynth                 *synth_;
+    std::vector<thcChain>    chains_;
+    std::vector<thcSection>  sections_;
+    bool                     endAfter_;   /* the file's `section end;'  */
+    sigc::connection         timer_;
 
     /* Piece knobs, owned here; and the signal connections that carry a
        knob's movement to the params bound to it (param_changed forward

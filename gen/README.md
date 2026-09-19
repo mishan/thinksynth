@@ -126,12 +126,15 @@ turned out to need: a monophonic bass that slides (`mono = 1` on the io node
 and a slew on the frequency), effect graphs on a channel's sum for the delay
 throw and the reverb tail, and three composers -- `gen::steps` for a row of
 values to a knob, `gen::pump` for the sidechain a channel cannot hear, and
-`xform::transpose` for the octave down.
+`xform::transpose` for the octave down. They are also the first two pieces
+with an arrangement rather than a texture: a list of `section` statements at
+the top saying, in order, how long each stretch of the piece is and which
+chains it mutes or leans on, and `section end` so the piece stops.
 
 | piece | the idea |
 | --- | --- |
-| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; a four-bar breakdown by `form`. |
-| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`; a rolling offbeat bass that `xform::transpose` drops an octave for the phrase the first copy sits out; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets; the `Width` knob reaching into two supersaws at once. |
+| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes. |
+| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets; the `Width` knob reaching into two supersaws at once. |
 
 ## What each piece covers
 
@@ -162,7 +165,9 @@ a generator's output drawn onto another stage's state (colony),
 hands), `input midi` (hands), clicks on a
 plugin's draw (glider), note sinks, named chanarg sinks (airports,
 weather), the `chanarg = "*"` wildcard (tide, bloom), fan-out to several sinks
-(weather, tide), pinned and unpinned seeds (all of them, both ways).
+(weather, tide), `meter` and `section` -- the arrangement, with `section end`
+closing it (warehouse, anthem), pinned and unpinned seeds (all of them, both
+ways).
 
 See [`../GEN_FORMAT.md`](../GEN_FORMAT.md) for the language and
 [`../COMPOSITION_HANDOFF.md`](../COMPOSITION_HANDOFF.md) for why it is shaped

@@ -394,7 +394,11 @@ int main (int argc, char **argv)
 
     sched.start();
 
-    while (sched.now() < seconds)
+    /* Until the time asked for, or until the piece is over: a piece
+       whose arrangement closes with `section end;' stops its own
+       transport, and a loop that only watched the clock would step a
+       stopped scheduler for the rest of the render. */
+    while (sched.now() < seconds && sched.running())
     {
         sched.stepTransport(dt);
         renderWindow();

@@ -5,8 +5,16 @@
 # and four, sixteenths on a hat with an accent row over them, a bass
 # line on one voice that slides where its notes touch, stabs that throw
 # into a delay, and a pad ducking under the kick the way a sidechain
-# compressor would duck it. Every fourth phrase the kick and the clap
-# drop out for four bars and come back.
+# compressor would duck it.
+#
+# THE PIECE HAS A SHAPE, and it is written at the top: sixty-four bars
+# of `section', in the order they are played -- an intro on the kick and
+# the pad, the bass in, everything, a breakdown with the drums gone, the
+# drop, and eight bars to leave on. A section names the chains it
+# changes: 0 mutes one for those bars, any other number scales its
+# notes' velocities, and a chain it does not name plays as written.
+# `section end' closes the list, so the piece stops rather than looping
+# for ever.
 #
 # THE BASS SLIDES because the instrument is monophonic. bass.dsp has
 # `mono = 1' on its io node, so a note that arrives while the last is
@@ -35,9 +43,7 @@
 #
 # The hats' accents are gen::steps too, a row of eight levels a beat on
 # the hat's `amp', and one in twelve is missing. The clap sometimes
-# rolls, through xform::ratchet. The breakdown is xform::form on the
-# kick and the clap, a pattern of eight four-bar bars with the last one
-# silent.
+# rolls, through xform::ratchet.
 #
 # The chance and the ratchet roll dice; the seed is pinned for them.
 # Self-contained: open it and press Play.
@@ -48,6 +54,20 @@ description "Techno: a monophonic bass that slides, a step-sequenced filter, sta
 
 tempo 124;
 seed 1991;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro  8 bars { clap = 0;  hats_open = 0;  bass = 0;  stabs = 0;
+                        kick = 0.8;  pad = 0.5; };
+section build  8 bars { clap = 0;  stabs = 0;  pad = 0.7; };
+section main  16 bars { };
+section break  8 bars { kick = 0;  clap = 0;  hats_open = 0;  bass = 0;
+                        stabs = 0.8; };
+section drop  16 bars { stabs = 1.1; };
+section outro  8 bars { clap = 0;  bass = 0;  stabs = 0;  hats = 0.7;
+                        hats_open = 0;  pad = 0.8; };
+section end;
 
 # How far the pad ducks under each kick.
 @pump = 0.65;
@@ -179,14 +199,13 @@ instrument pad {
 
 # ---- the drums --------------------------------------------------------
 
-# Every beat, for twenty-eight bars of every thirty-two.
+# Every beat; which bars is the arrangement's business.
 chain kick {
     stage src gen::euclid {
         steps = 4;  fills = 4;  rotate = 0;
         notes = "C2";
         period = 1 beats;  hold = 0.3 beats;  vel = 118;
     };
-    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = kick; };
 };
 
@@ -197,7 +216,6 @@ chain clap {
         period = 1 beats;  hold = 0.3 beats;  vel = 108;
     };
     stage r xform::ratchet { count = 3;  prob = 0.12;  decay = 0.75; };
-    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = clap; };
 };
 

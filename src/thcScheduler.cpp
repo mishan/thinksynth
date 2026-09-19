@@ -381,7 +381,7 @@ thcScheduler::thcScheduler (thSynth *synth)
        belongs to, which puts it ahead of the transport members here
        even though nothing about it is more fundamental. swapped_ is a
        container and needs no mention. */
-    : synth_(synth), controlSynth_(NULL),
+    : synth_(synth), endAfter_(false), controlSynth_(NULL),
       running_(false), transportNow_(0), beat_(0), tempo_(120),
       lastMono_(g_get_monotonic_time()),
       masterSeed_(g_random_int()), pendingSeq_(0), heapSeq_(0),
@@ -535,6 +535,10 @@ thcScheduler::clearChains (void)
     chains_.clear();
     wakeups_.clear();
     pending_.clear();
+
+    /* The arrangement names chains by the names this just took away. */
+    sections_.clear();
+    endAfter_ = false;
 
     /* Knob-to-param connections point into the stages just destroyed;
        the knobs themselves belong to the piece and go with it. */
@@ -1428,6 +1432,109 @@ thcScheduler::setMuted (size_t chain, bool muted)
         chains_[chain].muted = muted;
 }
 
+/* ---- the arrangement --------------------------------------------------
+ *
+ * Three questions, asked in transport seconds: how long a section is,
+ * how long the whole list is, and which one a time falls in. A length
+ * written in beats is converted here, at the tempo the transport is
+ * running now, for the reason the header gives.
+ */
+
+void
+thcScheduler::addSection (const thcSection &s)
+{
+    sections_.push_back(s);
+}
+
+void
+thcScheduler::endAfterSections (bool end)
+{
+    endAfter_ = end;
+}
+
+double
+thcScheduler::sectionLength (const thcSection &s) const
+{
+    if (!s.beats)
+        return s.length;
+
+    return tempo_ > 0 ? s.length * 60.0 / tempo_ : 0;
+}
+
+double
+thcScheduler::sectionsLength (void) const
+{
+    double total = 0;
+
+    for (size_t i = 0; i < sections_.size(); i++)
+        total += sectionLength(sections_[i]);
+
+    return total;
+}
+
+int
+thcScheduler::sectionAt (double at) const
+{
+    const double total = sectionsLength();
+
+    if (sections_.empty() || total <= 0)
+        return -1;
+
+    if (at < 0)
+        at = 0;
+
+    if (at >= total)
+    {
+        /* Past the last one: over, or round again. */
+        if (endAfter_)
+            return -1;
+
+        at = fmod(at, total);
+    }
+
+    double edge = 0;
+
+    for (size_t i = 0; i < sections_.size(); i++)
+    {
+        edge += sectionLength(sections_[i]);
+
+        /* The nudge form makes at a bar line, and for the same reason:
+           a note written on the edge belongs to the section it opens,
+           not to the one it closes. A microsecond is far below anything
+           the scheduler resolves -- a window is twenty-three
+           milliseconds -- and far above the rounding of an edge summed
+           from eight beat-valued lengths. */
+        if (at < edge - 1e-6)
+            return (int)i;
+    }
+
+    return (int)sections_.size() - 1;
+}
+
+double
+thcScheduler::sectionLevel (const thcChain &c, double at) const
+{
+    if (sections_.empty())
+        return 1.0;
+
+    const int i = sectionAt(at);
+
+    /* Past the end of a piece that ends: nothing plays. The transport
+       stops itself there, but a phrase emitted before the end can land
+       after it, and that phrase is not part of the piece. */
+    if (i < 0)
+        return endAfter_ ? 0.0 : 1.0;
+
+    const std::vector<std::pair<std::string, double> > &levels =
+        sections_[i].levels;
+
+    for (size_t k = 0; k < levels.size(); k++)
+        if (levels[k].first == c.name)
+            return levels[k].second;
+
+    return 1.0;                       /* unnamed: as written           */
+}
+
 void
 thcScheduler::setMasterSeed (unsigned seed)
 {
@@ -1525,6 +1632,19 @@ thcScheduler::runStep (void)
 
     deliverDue(transportNow_);
     sendDueNoteOffs(transportNow_);
+
+    /* `section end;': the piece is over when its last section is, and
+     * the transport says so itself rather than waiting to be paused.
+     *
+     * stop() is exactly what is wanted here -- it flushes the offs for
+     * whatever is still sounding, so the releases ring out and a
+     * renderer keeps rendering until they have. What it does not do is
+     * rewind: the transport stays where the piece ended, and Play from
+     * there plays nothing until a rewind, which is what "the piece is
+     * over" means. */
+    if (endAfter_ && !sections_.empty() &&
+        transportNow_ >= sectionsLength())
+        stop();
 }
 
 /* How many times one stage may ask to be woken at a time that has already
@@ -1663,10 +1783,52 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
         if (c.muted)
             return;
 
+        /* The arrangement, applied where the mute is (GEN_FORMAT.md
+         * §5c). The section is the one this event's own `at' falls in.
+         *
+         * A level of 0 mutes the chain for that section: its notes and
+         * its chanargs are both dropped, so a walk or a gate driving a
+         * knob stops pushing and the knob keeps the value it had.
+         *
+         * Two kinds of event go through whatever the level says, and
+         * neither of them is sound. A NOTEOFF: a swallowed off hangs a
+         * voice for the rest of the piece, while an off for a note
+         * nobody holds is a no-op releaseHeld is already written to
+         * cope with -- only one of the two is a bug. And a structure
+         * edit: a swap or a node-arg edit is the piece rebuilding
+         * itself, and one dropped leaves a channel holding a graph the
+         * piece has moved on from, with no later event to catch it up.
+         */
+        const double level = sectionLevel(c, ev.at);
+        thcEvent scaled = ev;
+        const thcEvent *gated = &ev;
+
+        if (level != 1.0 && ev.type != THC_EV_NOTEOFF &&
+            !isStructureEdit(ev.type))
+        {
+            if (level <= 0)
+                return;
+
+            if (ev.type == THC_EV_NOTE)
+            {
+                /* Quieter, or louder, but never absent: a section that
+                   scales a chain still plays it. */
+                double v = ev.u.note.velocity * level + 0.5;
+
+                if (v < 1)
+                    v = 1;
+                else if (v > 127)
+                    v = 127;
+
+                scaled.u.note.velocity = (int)v;
+                gated = &scaled;
+            }
+        }
+
         /* No sinks: the programmatic-chain case; deliver as emitted. */
         if (c.sinks.empty())
         {
-            queuePending(ev, NULL);
+            queuePending(*gated, NULL);
             return;
         }
 
@@ -1689,7 +1851,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
                 (ev.type == THC_EV_CHANARG) != sink.isChanarg())
                 continue;
 
-            thcEvent routed = ev;
+            thcEvent routed = *gated;
 
             routed.channel = sink.channel;
 
@@ -2101,6 +2263,14 @@ thcScheduler::usesBeats (void) const
             if (c.stages[si] && c.stages[si]->params.anyBeats())
                 return true;
     }
+
+    /* And an arrangement written in bars or beats, which is every
+       arrangement worth writing: the tempo decides how long each
+       section lasts, so a piece with one is a piece the tempo reaches
+       even if no stage of it counts beats. */
+    for (size_t i = 0; i < sections_.size(); i++)
+        if (sections_[i].beats)
+            return true;
 
     return false;
 }

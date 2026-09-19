@@ -5,8 +5,16 @@
 # bar with a sixteenth-note gate chopping it, plucks arpeggiating the
 # chord tones into a delay, a rolling offbeat bass, a kick and a clap,
 # and a lead that sings the tune over the top with its filter opening
-# over eight bars and slamming shut. Every fourth phrase the drums drop
-# and the bass falls an octave.
+# over eight bars and slamming shut.
+#
+# THE PIECE HAS A SHAPE, and it is written at the top: eighty bars of
+# `section', in the order they are played -- an intro, a verse, a build,
+# the drop with the lead over it, a breakdown with the drums gone and
+# the bass an octave down, the drop again, and eight bars to leave on. A
+# section names the chains it changes: 0 mutes one for those bars, any
+# other number scales its notes' velocities, and a chain it does not
+# name plays as written. `section end' closes the list, so the piece
+# stops rather than looping for ever.
 #
 # THE GATE is gen::steps: a row of sixteen ones and zeros a bar on the
 # pad's `amp', so the chord stutters in the rhythm the row says -- the
@@ -19,10 +27,11 @@
 # `closed' and `open', each a cutoff and a resonance -- over thirty-two
 # beats, through a `*' sink, so the filter climbs for eight bars and
 # drops back to closed on the downbeat: the build and the drop, as one
-# looping sweep. THE BREAKDOWN is xform::form on the drums, and
-# xform::transpose on a second copy of the bass line gated to the bars
-# the first sits out, twelve semitones down. The bass is bass.dsp with
-# `hold' shorter than `step', so it retriggers rather than slides.
+# looping sweep. THE BREAKDOWN is a section with the drums muted and a
+# second copy of the bass line, twelve semitones down through
+# xform::transpose, in place of the first: the arrangement swaps one
+# chain for the other. The bass is bass.dsp with `hold' shorter than
+# `step', so it retriggers rather than slides.
 #
 # The pad and the lead are supersaw.dsp, and the Width knob is their
 # detune in cents, reaching into both instruments at once. The pad's
@@ -38,6 +47,25 @@ description "Trance: a gated supersaw pad, pumping plucks into a delay, a loopin
 
 tempo 132;
 seed 1999;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+#
+# bass_low is the breakdown's bass and nothing else's, so every section
+# but that one mutes it.
+
+section intro  8 bars { clap = 0;  hats_open = 0;  bass = 0;  arps = 0;
+                        lead = 0;  bass_low = 0;  kick = 0.9;
+                        chords = 0.7; };
+section verse 16 bars { clap = 0;  lead = 0;  bass_low = 0; };
+section build  8 bars { lead = 0;  bass_low = 0; };
+section drop  16 bars { bass_low = 0;  lead = 1.15; };
+section break  8 bars { kick = 0;  clap = 0;  hats = 0;  hats_open = 0;
+                        bass = 0;  arps = 0.8;  lead = 0; };
+section lift  16 bars { bass_low = 0;  lead = 1.2; };
+section outro  8 bars { clap = 0;  hats_open = 0;  bass_low = 0;
+                        lead = 0;  arps = 0.7;  chords = 0.8; };
+section end;
 
 # The supersaws' detune, in cents.
 @width = 14;
@@ -202,7 +230,6 @@ chain kick {
         notes = "C2";
         period = 1 beats;  hold = 0.3 beats;  vel = 118;
     };
-    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = kick; };
 };
 
@@ -212,7 +239,6 @@ chain clap {
         notes = "D2";
         period = 1 beats;  hold = 0.3 beats;  vel = 104;
     };
-    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = clap; };
 };
 
@@ -223,7 +249,6 @@ chain hats {
         period = 0.25 beats;  hold = 0.1 beats;  vel = 46;
     };
     stage c xform::chance { prob = 0.9; };
-    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = hat; };
 };
 
@@ -233,24 +258,22 @@ chain hats_open {
         notes = "F#3";
         period = 0.5 beats;  hold = 0.3 beats;  vel = 120;
     };
-    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = hat; };
 };
 
 # ---- the bass ---------------------------------------------------------
 
-# Offbeat eighths on the chord roots, three phrases in four.
+# Offbeat eighths on the chord roots.
 chain bass {
     stage src gen::euclid {
         steps = 8;  fills = 4;  rotate = 1;
         notes = "A2 A2 A2 A2 F2 F2 F2 F2 C3 C3 C3 C3 G2 G2 G2 G2 A2 A2 A2 A2 F2 F2 F2 F2 G2 G2 G2 G2 G2 G2 G2 G2";
         period = 0.5 beats;  hold = 0.35 beats;  vel = 104;
     };
-    stage f xform::form { pattern = "xxx.";  bar = 16 beats;  mode = 0; };
     sink { instrument = bass; };
 };
 
-# The same line an octave down, for the phrase the first sits out.
+# The same line an octave down, for the breakdown.
 chain bass_low {
     stage src gen::euclid {
         steps = 8;  fills = 4;  rotate = 1;
@@ -258,7 +281,6 @@ chain bass_low {
         period = 0.5 beats;  hold = 0.35 beats;  vel = 104;
     };
     stage t xform::transpose { semitones = -12; };
-    stage f xform::form { pattern = "...x";  bar = 16 beats;  mode = 0; };
     sink { instrument = bass; };
 };
 

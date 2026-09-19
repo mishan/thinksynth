@@ -345,6 +345,12 @@ protected:
     Gtk::Button *playBtn_;
     Gtk::Button *pauseBtn_;
     Gtk::Button *rewindBtn_;
+
+    /* What the toolbar is currently drawn as. A piece whose arrangement
+       closes with `section end;' stops its own transport when the last
+       section is over, and nothing pressed a button to make that
+       happen, so the draw timer watches for the change. */
+    bool shownRunning_;
     Gtk::ToggleButton *editBtn_;
 
     Gtk::Label *tempoLbl_;

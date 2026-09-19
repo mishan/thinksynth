@@ -29,7 +29,8 @@
 #include "thcNodeHost.h"
 
 thcGenLoader::thcGenLoader (const std::map<std::string, thcPlugin *> &plugins)
-    : plugins_(plugins), pos_(0), exprDepth_(0), hasSeed_(false), seed_(0)
+    : plugins_(plugins), pos_(0), exprDepth_(0), meter_(4),
+      sawSection_(false), sawSectionEnd_(false), hasSeed_(false), seed_(0)
 {
 }
 
@@ -480,6 +481,10 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     claimedChannels_.clear();
     pendingSinks_.clear();
     pendingNodeBinds_.clear();
+    sectionLines_.clear();
+    meter_ = 4;
+    sawSection_ = false;
+    sawSectionEnd_ = false;
     pos_ = 0;
     name_.clear();
     author_.clear();
@@ -541,6 +546,9 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
         checkSinkArgs(sched);
 
     if (errors_.empty())
+        checkSections(sched);
+
+    if (errors_.empty())
         bindNodes(sched);
 
     if (!errors_.empty())
@@ -577,6 +585,38 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
     }
 
     return true;
+}
+
+/* Every chain a section names, against the chains the file declares.
+ *
+ * A section names chains by name and is written above them, so the name
+ * cannot be checked as it is read. Left unchecked it would be the
+ * quietest mistake in the language: `section break 4 bars { kik = 0; }'
+ * loads, plays, and does nothing at all -- the breakdown is four more
+ * bars of everything, and nothing anywhere says why.
+ */
+void
+thcGenLoader::checkSections (thcScheduler *sched)
+{
+    const std::vector<thcSection> &secs = sched->sections();
+
+    for (size_t i = 0; i < secs.size(); i++)
+    {
+        const int line = i < sectionLines_.size() ? sectionLines_[i] : 0;
+
+        for (size_t k = 0; k < secs[i].levels.size(); k++)
+        {
+            const std::string &want = secs[i].levels[k].first;
+            bool found = false;
+
+            for (size_t ci = 0; ci < sched->chainCount() && !found; ci++)
+                found = sched->chain(ci)->name == want;
+
+            if (!found)
+                error(line, "section '" + secs[i].name + "' names '" +
+                      want + "', which is not a chain in this piece");
+        }
+    }
 }
 
 /* A sink bound to an instrument names a knob on a graph this piece just
@@ -730,6 +770,18 @@ thcGenLoader::parseStatement (thcScheduler *sched)
     {
         take();
         return parsePreset();
+    }
+
+    if (t.text == "meter")
+    {
+        take();
+        return parseMeter();
+    }
+
+    if (t.text == "section")
+    {
+        take();
+        return parseSection(sched);
     }
 
     if (t.text == "instrument")
@@ -1007,6 +1059,224 @@ thcGenLoader::parsePreset (void)
     }
 
     presets_[nameTok.text] = vec;
+
+    return expectPunct(';');
+}
+
+/* `meter 4;' -- beats to a bar, and nothing else.
+ *
+ * It exists so a section's length can be written in bars, which is how
+ * an arrangement is thought about and counted. Nothing else in the
+ * language reads it: a stage's `period = 1 beats' means a beat here as
+ * it does everywhere.
+ *
+ * Before the first section, for the same reason a seed comes before the
+ * first chain: bars are folded to beats as each section is read, so a
+ * meter below one could not mean what it says.
+ */
+bool
+thcGenLoader::parseMeter (void)
+{
+    const Token &v = peek();
+
+    if (v.kind != Token::NUMBER)
+    {
+        error(v.line, "meter wants a number of beats to a bar");
+        return false;
+    }
+
+    Token n = take();
+
+    if (sawSection_)
+    {
+        error(n.line, "meter must come before the first section");
+        return false;
+    }
+
+    if (n.num <= 0 || n.num != std::floor(n.num) || n.num > 64)
+    {
+        error(n.line, "meter is a whole number of beats, 1 to 64");
+        return false;
+    }
+
+    meter_ = n.num;
+
+    return expectPunct(';');
+}
+
+/* `section drop 16 bars { kick = 1; lead = 1.2; };' and `section end;'
+ *
+ * The arrangement (GEN_FORMAT.md §5c): where the piece goes, written
+ * once and in order, instead of eight xform::form patterns under eight
+ * chains that somebody has to keep in step by hand.
+ *
+ * A length in bars is folded to beats here, through `meter', so the
+ * scheduler has one unit to convert and the tempo means the same thing
+ * to a section as it does to a `period'. `s' is kept for a piece with no
+ * pulse, where a bar is not a thing.
+ *
+ * The chain names inside are not resolved here. An arrangement belongs
+ * at the top of a file, above the chains it arranges, so the names it
+ * gives are almost always forward references; checkSections looks them
+ * up once the file has been read, which is when the answer exists.
+ */
+bool
+thcGenLoader::parseSection (thcScheduler *sched)
+{
+    const Token &n = peek();
+
+    if (n.kind != Token::WORD)
+    {
+        error(n.line, "section wants a name");
+        return false;
+    }
+
+    Token nameTok = take();
+
+    if (sawSectionEnd_)
+    {
+        error(nameTok.line,
+              "nothing comes after 'section end' -- the piece stops there");
+        return false;
+    }
+
+    /* `section end;' -- the list is closed. A section actually called
+       `end' would read as this one to every person who opened the file,
+       so the name is spent. */
+    if (nameTok.text == "end")
+    {
+        if (!(peek().kind == Token::PUNCT && peek().text[0] == ';'))
+        {
+            error(nameTok.line, "'end' closes the section list and cannot "
+                  "be the name of a section");
+            return false;
+        }
+
+        if (!sawSection_)
+        {
+            error(nameTok.line,
+                  "'section end' with no sections before it");
+            return false;
+        }
+
+        sawSectionEnd_ = true;
+        sched->endAfterSections(true);
+
+        return expectPunct(';');
+    }
+
+    for (size_t i = 0; i < sched->sections().size(); i++)
+        if (sched->sections()[i].name == nameTok.text)
+        {
+            error(nameTok.line, "section '" + nameTok.text +
+                  "' is already declared");
+            return false;
+        }
+
+    const Token &lenTok = peek();
+
+    if (lenTok.kind != Token::NUMBER)
+    {
+        error(lenTok.line, "section '" + nameTok.text +
+              "' wants a length");
+        return false;
+    }
+
+    Token len = take();
+
+    if (peek().kind != Token::WORD ||
+        (peek().text != "bars" && peek().text != "beats" &&
+         peek().text != "b" && peek().text != "s"))
+    {
+        error(len.line, "section '" + nameTok.text + "' is a length; "
+              "write a unit (bars, beats or s)");
+        return false;
+    }
+
+    Token unit = take();
+
+    if (len.num <= 0)
+    {
+        error(len.line, "section '" + nameTok.text +
+              "' lasts no time at all");
+        return false;
+    }
+
+    thcSection sec;
+
+    sec.name = nameTok.text;
+    sec.beats = unit.text != "s";
+    sec.length = unit.text == "bars" ? len.num * meter_ : len.num;
+
+    if (!expectPunct('{'))
+        return false;
+
+    while (true)
+    {
+        const Token &t = peek();
+
+        if (t.kind == Token::PUNCT && t.text[0] == '}')
+        {
+            take();
+            break;
+        }
+
+        if (t.kind == Token::END)
+        {
+            error(t.line, "unterminated section '" + sec.name + "'");
+            return false;
+        }
+
+        if (t.kind != Token::WORD)
+        {
+            error(t.line, "section " + sec.name +
+                  ": expected a chain name");
+            return false;
+        }
+
+        Token chain = take();
+
+        for (size_t i = 0; i < sec.levels.size(); i++)
+            if (sec.levels[i].first == chain.text)
+            {
+                error(chain.line, "section " + sec.name + " sets '" +
+                      chain.text + "' twice");
+                return false;
+            }
+
+        if (!expectPunct('='))
+            return false;
+
+        const Token &v = peek();
+
+        if (v.kind != Token::NUMBER)
+        {
+            /* A knob here would make the arrangement something that
+               changes while the piece plays, which is not what a
+               section is: it is the shape the piece has. */
+            error(v.line, "section " + sec.name + ": '" + chain.text +
+                  "' wants a number -- 0 to mute it, 1 as written");
+            return false;
+        }
+
+        Token level = take();
+
+        if (level.num < 0)
+        {
+            error(level.line, "section " + sec.name + ": '" + chain.text +
+                  "' cannot be negative");
+            return false;
+        }
+
+        sec.levels.push_back(std::make_pair(chain.text, level.num));
+
+        if (!expectPunct(';'))
+            return false;
+    }
+
+    sawSection_ = true;
+    sectionLines_.push_back(nameTok.line);
+    sched->addSection(sec);
 
     return expectPunct(';');
 }

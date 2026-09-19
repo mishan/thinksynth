@@ -543,15 +543,79 @@ say that, because every sink would deliver the same value. `*` cannot collide
 with a real name, since a chanarg is a `.dsp` identifier; anything else that
 is not one is refused at load rather than failing silently at delivery.
 
+### 5c. Sections are the arrangement
+
+```
+meter 4;                              # beats to a bar; 4 if unwritten
+
+section intro  8 bars { kick = 0; clap = 0; pad = 0.6; };
+section verse 16 bars { };            # everything as written
+section break  4 bars { kick = 0; bass = 0; hats = 0; };
+section drop  16 bars { lead = 1.2; };
+section end;                          # the piece stops here
+```
+
+A `section` names a stretch of the piece and what that stretch does to the
+chains. A chain named with `0` is **muted** for the section; any other number
+**scales its notes' velocities**; a chain the section does not name plays as
+written. The sections play in the order they appear and then cycle, for ever,
+unless `section end;` closes the list — in which case the transport stops
+itself once the last one is over, and a renderer keeps rendering until the
+tails have rung out.
+
+A length is in `bars`, `beats` (alias `b`) or `s`. `bars` is folded to beats
+through `meter`, which is the only thing `meter` is for — a stage's
+`period = 1 beats` means a beat here as it does everywhere. Both `meter` and
+the sections belong above the chains, and `meter` must come before the first
+section: bars are folded as each section is read, so a `meter` below one could
+not mean what it says.
+
+This is what `xform::form` was standing in for. A `form` stage is a pattern of
+marks under **one** chain, so an arrangement meant eight patterns under eight
+chains, kept in step by hand, and there was no way at all to say "the lead is
+louder here". A section says it once, in the order the piece is played, and
+reads like what it is.
+
+**The gate sits where the mute sits** — at the end of the chain, not at the
+source. The generators go on evolving through a section that silences them, so
+a chain that comes back rejoins a living process rather than restarting a cold
+one, exactly as un-muting does. Which section an event belongs to is decided by
+the event's own time and not by when it was emitted, so a grammar that emits
+eight bars in one tick is gated bar by bar.
+
+A muted chain is muted in full: its chanargs stop too, and a knob one was
+driving keeps the value it had. Two kinds of event go through whatever the
+level says, and neither of them is sound. A note-off, because a swallowed off
+hangs a voice for the rest of the piece while an off for a note nobody holds is
+a no-op the scheduler already copes with. And a structure edit — a `gen::swap`
+or a `gen::reshape` — because that is the piece rebuilding itself, and one
+dropped leaves a channel holding a graph the piece has moved on from with
+nothing later to catch it up.
+
+A section's length in bars or beats is converted through the tempo when it is
+read, so an arrangement holds at one tempo and drifts under a tempo change —
+the same honest limit `form` has, and the reason a piece with sections counts
+as one the tempo control can reach.
+
+Every chain a section names is checked against the chains the file declares,
+once the whole file has been read. A name it gets wrong is the quietest
+mistake the language could have: `section break 4 bars { kik = 0; }` would
+load, play, and do nothing where a bar of silence was meant.
+
 ## 6. Grammar
 
 ```
 genfile     : statement*
-statement   : infostring | tempo | seed | knob | knobmeta | scale
-            | preset | instrument | chain
+statement   : infostring | tempo | seed | meter | knob | knobmeta | scale
+            | preset | instrument | section | chain
 infostring  : ("name" | "author" | "description") STRING ";"
 tempo       : "tempo" NUMBER ";"
 seed        : "seed" NUMBER ";"
+meter       : "meter" NUMBER ";"                       # before any section
+section     : "section" WORD NUMBER seclen "{" seclevel* "}" ";"
+            | "section" "end" ";"                      # closes the list
+seclen      : "bars" | "beats" | "b" | "s"
+seclevel    : WORD "=" NUMBER ";"                      # chain = level
 knob        : CHANARG "=" NUMBER ";"
 knobmeta    : CHANARG "." WORD "=" (NUMBER | STRING) ";"
 scale       : "scale" WORD STRING ";"
@@ -594,7 +658,7 @@ sinkparam   : ("instrument" "=" WORD | "channel" "=" NUMBER
 ```
 
 `CHANARG`, `STRING`, `NUMBER`, `WORD` and the punctuation are the existing
-`.dsp` tokens. `ms` is already a token; `s` and `beats`/`b` join it. `->` is a
+`.dsp` tokens. `ms` is already a token; `s`, `beats`/`b` and `bars` join it. `->` is a
 `.dsp` token too and means in a `.gen` exactly what it means in a `.dsp`:
 reading a node's output. `+ - * / ( ) ,` are the arithmetic §5a added. `%`
 reaches `.gen` for one purpose only — the unit suffix an instrument value needs
@@ -662,6 +726,12 @@ stage, a new chain) contains:
   `instrument = pad` and `channel = 4` replaces that one statement — there is
   no sense in which one can be edited into the other, and a sink left carrying
   both would not load.
+- The arrangement is hand-written: no operation here creates, edits or removes
+  a `section`. What the editor owes it is that no *other* edit can invalidate
+  one — renaming a chain rewrites every section that names it, and removing a
+  chain a section names is refused and says which section. A dangling name in
+  a section is a file that does not load, which is the same reason `removeKnob`
+  rewrites every `@name`.
 - `seed` is written if and only if the user pinned it. A generated file with
   a seed the user never chose silently freezes a piece that was meant to
   breathe.
@@ -687,4 +757,7 @@ stage, a new chain) contains:
 | param `= node->arg`    | the composer-world `ARG_NODE`: the node's live output |
 | `input midi`           | `thcScheduler::injectMidi` routing entry            |
 | `tempo`, `seed`        | transport init; master seed for `reset()` replays   |
+| `section`              | `thcSection` on the scheduler: the gate in `propagate` |
+| `section end`          | the transport stops itself after the last section    |
+| `meter`                | beats to a bar, folding a section's `bars` to beats  |
 | `@knobs` + metadata    | the existing chanarg/param-panel machinery          |

@@ -291,6 +291,27 @@ struct PresetIdx
     std::vector<PresetCompIdx> comps;
 };
 
+/* One `section' statement, and every chain name inside it.
+ *
+ * Nothing here edits a section: an arrangement is written by hand, and
+ * the canvas that will draw one reads it through the loader. It is
+ * indexed for the sake of the two edits that can *invalidate* one --
+ * renaming a chain a section names, and removing it -- because the file
+ * a dangling name leaves behind does not load. The same care removeKnob
+ * takes over `@name'. */
+struct SectionRefIdx
+{
+    std::string chain;
+    size_t nameA, nameB;         /* the chain name inside the block      */
+};
+
+struct SectionIdx
+{
+    std::string name;
+    size_t stmtA, stmtB;
+    std::vector<SectionRefIdx> refs;
+};
+
 struct ChainIdx
 {
     std::string name;
@@ -311,6 +332,7 @@ struct Index
     std::vector<ScaleIdx>      scales;
     std::vector<PresetIdx>     presets;
     std::vector<InstrumentIdx> instruments;
+    std::vector<SectionIdx>    sections;
     std::vector<ChainIdx>      chains;
 
     size_t topInsert;        /* line start of the first token            */
@@ -491,7 +513,11 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
             continue;
         }
 
-        if ((kw == "seed" || kw == "tempo") &&
+        /* `meter' is indexed for one thing only: it is a header
+           statement, so what gets inserted after the header goes after
+           it rather than between it and the tempo above it. Nothing
+           edits it -- the arrangement is written by hand. */
+        if ((kw == "seed" || kw == "tempo" || kw == "meter") &&
             t[i + 1].kind == Tok::NUMBER && isPunct(t[i + 2], ';'))
         {
             MetaIdx m;
@@ -505,7 +531,7 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
 
             if (kw == "seed")
                 ix.seed = m;
-            else
+            else if (kw == "tempo")
                 ix.tempo = m;
 
             ix.headerEnd = m.stmtB;
@@ -582,6 +608,56 @@ buildIndex (const std::string &text, Index &ix, std::string &why)
                     ix.firstPresetOff = pr.stmtA;
 
                 ix.presets.push_back(pr);
+                i = j + 2;
+                continue;
+            }
+
+            i = skipStmt(t, i);
+            continue;
+        }
+
+        /* section <name> <n> <unit> { <chain> = <level>; ... };  and
+           section end; -- indexed for its chain names. */
+        if (kw == "section" && t[i + 1].kind == Tok::WORD)
+        {
+            SectionIdx se;
+
+            se.name = t[i + 1].text;
+            se.stmtA = t[i].off;
+
+            size_t j = i + 2;
+            bool shaped = t[j].kind == Tok::NUMBER &&
+                          t[j + 1].kind == Tok::WORD &&
+                          isPunct(t[j + 2], '{');
+
+            if (shaped)
+            {
+                j += 3;
+
+                while (t[j].kind != Tok::END && !isPunct(t[j], '}'))
+                {
+                    if (t[j].kind != Tok::WORD || !isPunct(t[j + 1], '=') ||
+                        t[j + 2].kind != Tok::NUMBER ||
+                        !isPunct(t[j + 3], ';'))
+                    {
+                        shaped = false;
+                        break;
+                    }
+
+                    SectionRefIdx ref;
+
+                    ref.chain = t[j].text;
+                    ref.nameA = t[j].off;
+                    ref.nameB = t[j].end;
+                    se.refs.push_back(ref);
+                    j += 4;
+                }
+            }
+
+            if (shaped && isPunct(t[j], '}') && isPunct(t[j + 1], ';'))
+            {
+                se.stmtB = t[j + 1].end;
+                ix.sections.push_back(se);
                 i = j + 2;
                 continue;
             }
@@ -928,9 +1004,9 @@ thcGenEdit::validName (const std::string &name)
        the two mistakes. */
     static const char *reserved[] = {
         "name", "author", "description", "tempo", "seed", "scale",
-        "preset", "instrument",
+        "preset", "instrument", "meter", "section",
         "chain", "input", "stage", "sink", "midi",
-        "s", "ms", "beats", "b", NULL
+        "s", "ms", "beats", "b", "bars", NULL
     };
 
     for (int i = 0; reserved[i] != NULL; i++)
@@ -2521,6 +2597,20 @@ thcGenEdit::removeChain (const std::string &filename, const std::string &name,
         return NOT_FOUND;
     }
 
+    /* A section naming a chain that is not there is a file that does not
+       load, so this is refused rather than silently written -- and it
+       says which section, because the fix is an edit to the
+       arrangement and the arrangement is hand-written. The same refusal
+       removeScale makes, for the same reason. */
+    for (size_t i = 0; i < ix.sections.size(); i++)
+        for (size_t k = 0; k < ix.sections[i].refs.size(); k++)
+            if (ix.sections[i].refs[k].chain == name)
+            {
+                why = "section " + ix.sections[i].name + " names " + name +
+                      "; take it out of the arrangement first";
+                return REFUSED;
+            }
+
     std::vector<Edit> edits;
 
     edits.push_back(eraseStmt(text, c->stmtA, c->stmtB));
@@ -2563,6 +2653,16 @@ thcGenEdit::renameChain (const std::string &filename,
     std::vector<Edit> edits;
 
     edits.push_back({ c->nameA, c->nameB, newName });
+
+    /* And every section that names it. A rename that left the
+       arrangement pointing at the old name would write a file that does
+       not load -- removeKnob's rule, applied to the other name a piece
+       can refer to a thing by. */
+    for (size_t i = 0; i < ix.sections.size(); i++)
+        for (size_t k = 0; k < ix.sections[i].refs.size(); k++)
+            if (ix.sections[i].refs[k].chain == oldName)
+                edits.push_back({ ix.sections[i].refs[k].nameA,
+                                  ix.sections[i].refs[k].nameB, newName });
 
     return finish(filename, text, edits, why);
 }
