@@ -1778,6 +1778,70 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
             std::filesystem::remove(below);
         }
     }
+
+    /* A block written on one line, which is a shape a hand-written piece
+       uses freely and this writer used to break. Both of these append a
+       statement to the end of a block, and both found the place by taking
+       the start of the line the closing `}' is on -- which, when
+       something shares that line, is a point *before* the block's own
+       statement. So the sink landed above the chain it belonged to and
+       the param above the stage, at top level, and the file came back
+       "written" and no longer loaded: `unknown statement 'sink''. What is
+       checked is the property, which is that what this writes, loads. */
+    {
+        std::string one = thUtil::tempFile("gencheck-oneline-");
+
+        if (one.empty())
+            fail("could not make a scratch file for the one-liner check");
+        else
+        {
+            {
+                std::ofstream out(one.c_str(), std::ios::trunc);
+
+                out << "instrument pad { dsp \"amb01.dsp\"; };\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = pad; }; };\n";
+            }
+
+            editOk(thcGenEdit::addSink(one, "c", 1, "pad", "res", why), why,
+                   "addSink into a chain written on one line");
+
+            editOk(thcGenEdit::setParam(one, "c", 0, "vel", "80", why), why,
+                   "setParam into a stage written on one line");
+
+            /* Still one line: a writer that reformatted someone's file
+               around its own edit would be an edit nobody asked for. */
+            const std::string after = slurp(one);
+
+            if (after.find("\n    sink") != std::string::npos ||
+                after.find("\n        vel") != std::string::npos)
+                fail("a one-line block was broken across lines: " + after);
+
+            if (after.find("chanarg = \"res\"") == std::string::npos ||
+                after.find("vel = 80") == std::string::npos)
+                fail("the one-line edits did not land: " + after);
+
+            {
+                thcScheduler sched(synth);
+                thcGenLoader loader(plugins);
+
+                drainSynth();
+
+                if (!loader.load(one, &sched))
+                {
+                    for (size_t i = 0; i < loader.errors().size(); i++)
+                        fprintf(stderr, "gencheck: %s\n",
+                                loader.errors()[i].c_str());
+
+                    fail("the file this writer edited on one line no "
+                         "longer loads");
+                }
+            }
+
+            std::filesystem::remove(one);
+        }
+    }
+
     editOk(thcGenEdit::setChainInput(path, "pulse", true, why), why,
            "setChainInput on");
     editOk(thcGenEdit::setChainInput(path, "pulse", false, why), why,
