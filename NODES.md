@@ -794,6 +794,21 @@ Buzzer oscillator
 | `factor` | in | Shapes the ramp: abs(x)^factor * x |  |  | exponent |  |
 | `last` | state |  |  |  |  |  |
 
+### osc::fmop
+
+FM Operator (a sine whose phase is modulated)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `freq` | in | The voice's frequency |  |  | Hz |  |
+| `ratio` | in | This operator runs at `freq' times this | 1 |  | ratio |  |
+| `mod` | in | Modulator in, usually another operator's `out' |  | -1 to 1 | full scale |  |
+| `index` | in | How far `mod' at full scale pushes the phase |  | 0 to 20 | radians |  |
+| `feedback` | in | The operator's own output back into its phase: 0 is a sine, 1 is nearly a sawtooth |  | 0 to 1 | radians |  |
+| `reset` | in | Start the cycle again while this is above zero |  | 0 to 1 |  |  |
+| `out` | out | The operator |  | -1 to 1 | full scale |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::multisined
 
 Sums a sine and detuned ramps

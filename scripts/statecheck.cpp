@@ -1803,6 +1803,354 @@ static void checkChorus (const string &pluginPath)
                  "at five hundred");
 }
 
+/* ---- osc::fmop ---------------------------------------------------------- */
+
+/* What the node claims, and why each one is here rather than left to a
+   reading of the file:
+ *
+ *   - with `index' at zero it is a sine at `freq' times `ratio', which is
+ *     the thing everything else is measured against;
+ *   - a constant on `mod' moves the wave and not its pitch, which is the
+ *     whole difference between this node and `osc::simple's `fm' and the
+ *     reason a DX patch can be written on it at all;
+ *   - two operators at 1:1 with an index of one put their partials where
+ *     Bessel says, which is the claim that `index' is radians of phase
+ *     and not a number of samples;
+ *   - and the same index at two pitches is the same timbre, which
+ *     follows from that and is what a patch is;
+ *   - `feedback' at 1 leans the sine toward a sawtooth;
+ *   - `reset' is a hard sync: the output repeats at the resetting rate
+ *     and not at its own;
+ *   - and a window boundary is not an event.
+ */
+
+/* One operator, free-running, with `mod' held at a constant. */
+static vector<NodeSpec> fmopGraph (float hz, float ratio, float index,
+                                   float mod, float feedback)
+{
+    vector<NodeSpec> spec;
+    NodeSpec op;
+
+    op.name = "op";
+    op.spelling = "osc/fmop";
+
+    Value f = { "freq", hz };
+    Value r = { "ratio", ratio };
+    Value x = { "index", index };
+    Value m = { "mod", mod };
+    Value b = { "feedback", feedback };
+
+    op.values.push_back(f);
+    op.values.push_back(r);
+    op.values.push_back(x);
+    op.values.push_back(m);
+    op.values.push_back(b);
+
+    spec.push_back(op);
+
+    return spec;
+}
+
+/* Two of them, the modulator into the carrier: the whole of a two-op DX
+   patch, and the smallest graph that is not a sine. */
+static vector<NodeSpec> fmopPairGraph (float hz, float modRatio, float index)
+{
+    vector<NodeSpec> spec;
+    NodeSpec m, c;
+
+    m.name = "m";
+    m.spelling = "osc/fmop";
+
+    Value mf = { "freq", hz };
+    Value mr = { "ratio", modRatio };
+
+    m.values.push_back(mf);
+    m.values.push_back(mr);
+
+    c.name = "op";
+    c.spelling = "osc/fmop";
+
+    Value cf = { "freq", hz };
+    Value cr = { "ratio", 1 };
+    Value cx = { "index", index };
+    Wire  cm = { "mod", "m", "out" };
+
+    c.values.push_back(cf);
+    c.values.push_back(cr);
+    c.values.push_back(cx);
+    c.wires.push_back(cm);
+
+    spec.push_back(m);
+    spec.push_back(c);
+
+    return spec;
+}
+
+/* An operator whose `reset' is another oscillator's `sync': hard sync,
+   where the master's rate is the one the ear hears and the slave's is
+   the formant sitting on top of it. */
+static vector<NodeSpec> fmopSyncGraph (float master, float hz)
+{
+    vector<NodeSpec> spec = fmopGraph(hz, 1, 0, 0, 0);
+    NodeSpec src;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", master };
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    Wire reset = { "reset", "src", "sync" };
+
+    spec[0].wires.push_back(reset);
+    spec.insert(spec.begin(), src);
+
+    return spec;
+}
+
+static void checkFmop (const string &pluginPath)
+{
+    /* 441 Hz over a window of exactly one second: every partial measured
+       below is a whole number of cycles in the window, so each lands on a
+       bin center and nothing leaks into its neighbors. A quarter of a
+       second discarded in front, which is longer than anything here takes
+       to settle. */
+    const double f0 = 441;
+    const unsigned window = TH_DEFAULT_SAMPLES;
+    const size_t from = TH_DEFAULT_SAMPLES / 4;
+    const unsigned len = window + (unsigned)from;
+
+    /* ---- index 0 is a sine at freq * ratio ---- */
+
+    {
+        static const float ratios[] = { 0.5f, 1, 2, 3.5f };
+        bool good = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(ratios) / sizeof(ratios[0]) && good; c++)
+        {
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath, fmopGraph((float)f0, ratios[c], 0, 0, 0),
+                         "op", "out", 256, len, out, why))
+            {
+                fail("osc::fmop renders", why);
+                return;
+            }
+
+            const double at = bin(out, from, window, f0 * ratios[c]);
+            const double next = bin(out, from, window, 2 * f0 * ratios[c]);
+
+            if (!(fabs(at - TH_MAX) < 0.01 && next < 0.01))
+            {
+                good = false;
+                detail = "at ratio " + num(ratios[c]) + ": " + num(at) +
+                         " at the fundamental, " + num(next) + " at twice it";
+            }
+        }
+
+        okOrFail(good, "osc::fmop: `index = 0' is a full-scale sine at "
+                       "`freq' times `ratio'", detail);
+    }
+
+    /* ---- a constant on `mod' does not detune it ---- */
+
+    /* The node's reason for existing. `osc::simple's `fm' adds to the
+       phase increment, so a modulator sitting at any DC at all is a
+       permanent change of frequency; this adds to the phase, where a
+       constant is a head start and nothing more. Measured at an index of
+       three, which on the other reading would be a wild mistuning. */
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, fmopGraph((float)f0, 1, 3, TH_MAX, 0),
+                     "op", "out", 256, len, out, why))
+            fail("osc::fmop renders", why);
+        else
+        {
+            const double at = bin(out, from, window, f0);
+            const double next = bin(out, from, window, 2 * f0);
+
+            okOrFail(fabs(at - TH_MAX) < 0.01 && next < 0.01,
+                     "osc::fmop: a `mod' that does not move is a phase "
+                     "offset, not a pitch",
+                     num(at) + " at the fundamental, " + num(next) +
+                     " at twice it");
+        }
+    }
+
+    /* ---- a 1:1 pair at index 1 is where Bessel says ---- */
+
+    /* sin(x + I sin x) is sum over k of J_k(I) sin((1+k)x), and the terms
+       below the fundamental fold back on top of the ones above it, so the
+       nth harmonic comes out at J_{n-1}(I) + (-1)^n J_{n+1}(I). At I = 1
+       that is the four numbers below, and they are the statement that
+       `index' is radians: a node that took a number of samples instead
+       would put its sidebands somewhere else at every pitch but one. */
+    {
+        /* J_0(1) through J_5(1). */
+        static const double J[] = { 0.7651977, 0.4400506, 0.1149035,
+                                    0.0195634, 0.0024766, 0.0002498 };
+        static const double want[] = { J[0] - J[2], J[1] + J[3],
+                                       J[2] - J[4], J[3] + J[5] };
+
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, fmopPairGraph((float)f0, 1, 1),
+                     "op", "out", 256, len, out, why))
+            fail("osc::fmop renders", why);
+        else
+        {
+            bool good = true;
+            string detail;
+
+            for (int n = 1; n <= 4 && good; n++)
+            {
+                const double got = bin(out, from, window, f0 * n);
+
+                if (fabs(got - want[n - 1]) > 0.005)
+                {
+                    good = false;
+                    detail = "partial " + num(n) + " was " + num(got) +
+                             ", Bessel says " + num(want[n - 1]);
+                }
+            }
+
+            okOrFail(good, "osc::fmop: a 1:1 pair at `index = 1' has the "
+                           "partials Bessel gives it", detail);
+        }
+    }
+
+    /* ---- and the same index is the same timbre two octaves down ---- */
+
+    /* What `index' being a ratio of the cycle buys: a patch is a patch
+       and not a note. Two octaves is far enough that a deviation fixed
+       in samples would be four times the index here and audibly a
+       different instrument. 110.25 Hz is f0 / 4, so its partials still
+       land on bin centers. */
+    {
+        vector<float> high, low;
+        string why;
+
+        if (!render1(pluginPath, fmopPairGraph((float)f0, 1, 1),
+                     "op", "out", 256, len, high, why) ||
+            !render1(pluginPath, fmopPairGraph((float)f0 / 4, 1, 1),
+                     "op", "out", 256, len, low, why))
+            fail("osc::fmop renders", why);
+        else
+        {
+            bool good = true;
+            string detail;
+
+            for (int n = 2; n <= 4 && good; n++)
+            {
+                const double a = bin(high, from, window, f0 * n) /
+                                 bin(high, from, window, f0);
+                const double b = bin(low, from, window, f0 / 4 * n) /
+                                 bin(low, from, window, f0 / 4);
+
+                if (fabs(a - b) > 0.01)
+                {
+                    good = false;
+                    detail = "partial " + num(n) + " is " + num(a) +
+                             " of the fundamental at 441 Hz and " + num(b) +
+                             " two octaves down";
+                }
+            }
+
+            okOrFail(good, "osc::fmop: the same `index' is the same timbre "
+                           "at every pitch", detail);
+        }
+    }
+
+    /* ---- feedback leans the sine toward a saw ---- */
+
+    /* y = sin(x + b*y) has harmonics 2*J_n(n*b)/(n*b), which at b = 1 is
+       0.88, 0.353, 0.206, 0.141 -- a fundamental with a tail falling off
+       a little faster than a sawtooth's 1, 1/2, 1/3, 1/4. The node runs
+       that recurrence a sample late and through a two-sample average,
+       which costs the tail a little of its height -- 0.861, 0.327, 0.177,
+       0.111 as measured here -- so what is asserted is the shape rather
+       than the four numbers: a fundamental, three partials under it in
+       order, and the second one between a quarter and a half of the
+       first. At `feedback = 0' there is
+       nothing above the fundamental at all, which is the other half of
+       the claim. */
+    {
+        vector<float> plain, fed;
+        string why;
+
+        if (!render1(pluginPath, fmopGraph((float)f0, 1, 0, 0, 0),
+                     "op", "out", 256, len, plain, why) ||
+            !render1(pluginPath, fmopGraph((float)f0, 1, 0, 0, 1),
+                     "op", "out", 256, len, fed, why))
+            fail("osc::fmop renders", why);
+        else
+        {
+            const double h1 = bin(fed, from, window, f0);
+            const double h2 = bin(fed, from, window, 2 * f0);
+            const double h3 = bin(fed, from, window, 3 * f0);
+            const double h4 = bin(fed, from, window, 4 * f0);
+
+            okOrFail(bin(plain, from, window, 2 * f0) < 0.01 &&
+                     h1 > h2 && h2 > h3 && h3 > h4 &&
+                     h2 / h1 > 0.25 && h2 / h1 < 0.55 &&
+                     h3 / h1 > 0.10 && h3 / h1 < 0.35,
+                     "osc::fmop: `feedback = 1' leans the sine toward a "
+                     "sawtooth",
+                     "partials " + num(h1) + ", " + num(h2) + ", " +
+                     num(h3) + ", " + num(h4));
+        }
+    }
+
+    /* ---- `reset' is a hard sync ---- */
+
+    /* Driven from another oscillator's `sync', the operator starts its
+       cycle again on the master's period whatever its own frequency is,
+       so what comes out repeats at the master's rate and not at its own.
+       630 against 100 shares no factor worth the name, so a slave that
+       ignored the reset would not repeat at 441 samples by accident. */
+    {
+        vector<float> out;
+        string why;
+        const unsigned period = TH_DEFAULT_SAMPLES / 100;
+
+        if (!render1(pluginPath, fmopSyncGraph(100, 630), "op", "out", 256,
+                     len, out, why))
+            fail("osc::fmop renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = from; i + period < out.size() && same; i++)
+                if (fabs(out[i + period] - out[i]) > TH_MAX * 1e-6)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(out[i]) + " against " + num(out[i + period]) +
+                             " a master cycle later";
+                }
+
+            okOrFail(same, "osc::fmop: a `reset' from another oscillator's "
+                           "`sync' makes the output repeat at the master's "
+                           "rate", detail);
+        }
+    }
+
+    windowsAgree(pluginPath, fmopPairGraph((float)f0, 3.5f, 4), "op", "out",
+                 "osc::fmop: the same pair at one sample a window and at "
+                 "five hundred");
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -1820,6 +2168,7 @@ int main (int argc, char **argv)
     checkVibrato(pluginPath);
     checkAllpass(pluginPath);
     checkChorus(pluginPath);
+    checkFmop(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 
