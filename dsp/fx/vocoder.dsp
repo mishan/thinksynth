@@ -19,7 +19,7 @@
 #     };
 #
 # so `in0' is the modulator, which is this channel's own voices, and
-# `side0' is the carrier. GEN_FORMAT.md 4b says what the clause is.
+# `side0' is the carrier. docs/GEN_FORMAT.md says what the clause is.
 #
 # SIXTEEN BANDS, a third of an octave apart, from 180 Hz to 5 kHz. Each
 # band is a `filt::svf' band-pass on the modulator into an
