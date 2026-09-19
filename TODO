@@ -111,22 +111,57 @@ Engine
 Composition
 -----------
 
-- Fitness from the sound itself. `gen::breed` and `gen::evolve` both judge a
+- Fitness from the sound itself. `gen::breed' and `gen::evolve' both judge a
   candidate by arithmetic over the genome -- distance from a target vector,
   distance from the last champion, how much of the corridor got used. What
   neither can do is listen: judging the rendered audio needs a shadow synth
   to render candidates into, off the audio thread and without sounding, and
-  a feature or two pulled out of the result. thSynth::setSilent is most of
-  the machinery already, since the mirror needed the same thing. For `breed`
+  a feature or two pulled out of the result. `thSynth::setSilent' is most of
+  the machinery already, since the mirror needed the same thing. For `breed'
   this is one function replaced and nothing else moved, which is most of the
   argument for having built it the way it is.
 
   It is the last step of the composer plan nobody has taken. Everything
   above it landed: presets, the wildcard sink, morph, the GA over chanarg
-  vectors, the structure edits, `composer_input` and `composer_capture`.
+  vectors, the structure edits, `composer_input' and `composer_capture'.
 
-- Writing a graph out *inline* in a `.gen`, rather than naming a `.dsp` by
-  file. An `instrument` block carries a filename and the chanarg values that
+- A composer that changes the *shape* of an instrument's graph, not just a
+  number in it. `gen::swap' replaces a channel's whole graph by name and
+  `gen::reshape' moves one constant inside the graph that is there; what
+  neither can do is add a node, remove one, or rewire what feeds what.
+  `THC_EV_NODEARG' refuses an arg that is wired to anything -- another node's
+  output, a @chanarg, a note property -- precisely because writing a number
+  over a wire is an add/remove/rewire edit wearing a value edit's clothes,
+  and that is the refusal this would have to replace with a mechanism.
+
+  What it wants is a third structure edit beside `THC_EV_PATCH' and
+  `THC_EV_NODEARG', delivered the way those are: built on the GUI thread,
+  swapped through the command queue, scheduled and sparse and drawn on the
+  roll, so a composer still cannot thrash a graph faster than its event
+  stream flows. The legal moves are already written down --
+  `NodeGraph::canConnect' is the constraint function, so a mutated graph can
+  be well-formed by construction rather than by luck -- and `loadTree' has
+  been a live atomic instrument swap since before any of this existed.
+  `thinklang' is pure, so candidate graphs parse off to one side without
+  touching the live synth, and `NodeEdit' is the one-writer splice seam a
+  program edits text through.
+
+  Past that is the graph as a genome: `breed' and `evolve' over topologies
+  rather than over chanarg vectors, which needs a graph that serializes and
+  the audio-feature fitness above to judge what comes out. Research rather
+  than a next step, and the reason to keep the refusal honest in the
+  meantime.  (docs/UNIFICATION.md, "structural mutation")
+
+- Meta chains: a chain that schedules or chooses among the sections rather
+  than emitting notes, so the form of a piece is composed the way its notes
+  are. `section' landed and is the data half of this; what is missing is
+  something that reads it. The other road -- meta-composers splicing the
+  piece file itself through `thcGenEdit', so a piece rewrites itself and Save
+  publishes what it became -- verifies just as well and reads a great deal
+  stranger. Data first.
+
+- Writing a graph out *inline* in a `.gen', rather than naming a `.dsp' by
+  file. An `instrument' block carries a filename and the chanarg values that
   make it this instrument, which delivered the self-contained piece; putting
   the graph itself in the same file needs the two grammars merged, and the
   merge is still waiting on a payoff rather than blocking one.
@@ -160,12 +195,12 @@ The browser page
   desktop. The scheduler runs in the worklet on numbers taken there, and
   each of these could move that decision:
 
-    * The worst quantum on a slow machine: the busiest pieces (`orrery`,
-      `tide`) plus a chord of note-ons, at 256 and at 128.
-      `wasm/web/bench.mjs` is the harness; what is missing is the machine.
+    * The worst quantum on a slow machine: the busiest pieces (`orrery',
+      `tide') plus a chord of note-ons, at 256 and at 128.
+      `wasm/web/bench.mjs' is the harness; what is missing is the machine.
     * Chrome's and Firefox's main-thread-to-worklet delay on each OS, with
       a real output device rather than an offline context.
-    * Background-tab behaviour through a silent stretch of a piece, in both
+    * Background-tab behavior through a silent stretch of a piece, in both
       browsers.
     * Whether a dedicated worker's timers really are unthrottled in the
       browsers the room targets. Secondary sources only, so far.
