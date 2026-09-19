@@ -1,0 +1,340 @@
+# riviera.gen -- Italo disco: an octave bass with a circuit in it.
+#
+# A hundred and twenty-two to the minute in D minor. Four on the floor,
+# a clap on two and four, an open hat on every offbeat, a bass playing
+# root and octave in eighths, a string machine over it, a clav on the
+# offbeats and an orchestra hit every eighth bar. The records this is
+# made of were cut in Italy for export and had a drum machine, a
+# Solina, a monosynth and one sampled chord between them.
+#
+# THE BASS IS THE PIECE, and the part of it that matters is not the
+# notes. Root, octave, root, octave in eighths is four bars of
+# instruction; what makes it a record is which of those eighths is
+# accented. xform::accent marks one step a beat, and bass.dsp does the
+# rest: a velocity over its `accent' threshold gets more filter
+# envelope and more resonance rather than more level, which is the 303's
+# accent circuit and the reason an accented step on a machine with no
+# fingers sounds *played*. Turn the Accent knob down to 1 and the part
+# is the same notes and no longer the same music.
+#
+# ONE WALK, THREE CHAINS. gen::progression walks the chords of D minor
+# and three chains run that walk with `seed = 19' on each -- the
+# strings spell a chord over the root, xform::bassline turns it into
+# the octave figure a register down, and the clav plays the third and
+# the fifth a register up. Same die, same rolls, no message between
+# them. Change the seed and all three follow.
+#
+# THE CLAV IS WHERE THE GUITAR WOULD BE: `.r.f.r.t' is eighths with
+# every downbeat left out, which is the one rhythmic job a disco record
+# gives a keyboard. Harmonized in thirds, short and dry, because what
+# it is for is the gap between the kick and the snare.
+#
+# THE STRING MACHINE'S CHORUS IS INSIDE THE VOICE and there is none on
+# the channel. A Solina's ensemble is three-phase chorus and nothing
+# else -- it is not an effect the instrument was played through, it is
+# what the instrument is -- so dsp/strings.dsp keeps it in the graph
+# where every note gets its own, and the channel is left alone.
+#
+# THE HIT IS A RECORDING of this tree: dsp/samples/orchhit.wav is
+# `stab' and `brass' struck at the same instant and rendered to a file,
+# and dsp/orchhit.dsp plays it at whatever pitch the piece asks for.
+# Played an octave up it is an octave up and half as long, because
+# that is what reading a recording faster does and is exactly why the
+# sound was worth sampling rather than synthesizing.
+#
+# The walk rolls dice; the seed is pinned for it. Self-contained: open
+# it and press Play.
+
+name "Riviera";
+author "Misha Nasledov";
+description "Italo disco: an octave bass with an accent circuit, a string machine, a clav on the offbeats, and an orchestra hit every eighth bar.";
+
+tempo 122;
+seed 1984;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro   8 bars { clav = 0;  hits = 0;  strings = 0.6;  claps = 0; };
+section verse  16 bars { hits = 0; };
+section lift    8 bars { };
+section chorus 16 bars { strings = 1.1; };
+section break   8 bars { kick = 0;  claps = 0;  hats = 0;  bass = 0;
+                         clav = 0;  strings = 1.1; };
+section last   16 bars { strings = 1.1; };
+section outro   8 bars { clav = 0;  hits = 0;  bass = 0;  claps = 0; };
+section end;
+
+@walk = 0.12;
+@walk.widget = 1;
+@walk.min = 0;
+@walk.max = 0.6;
+@walk.label = "Walk";
+
+# How much louder an accented eighth is than the ones around it. It is
+# a velocity multiplier and not a level: what it buys is the filter.
+@push = 1.3;
+@push.widget = 1;
+@push.min = 1;
+@push.max = 1.8;
+@push.label = "Accent";
+
+scale dmin  "D2 E2 F2 G2 A2 A#2 C3";
+
+# The four notes the hit lands on, one per eight bars.
+scale hits  "D4 F4 A4 D5";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 1.2;
+    ceiling = 0.88;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 26;
+
+    pitch = 190;
+    floor = 48;
+    sweep = 60 ms;
+    decay = 300 ms;
+    click = 0.45;
+    drive = 2.2;
+};
+
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 24;
+
+    color   = 1;
+    tone    = 1400;
+    res     = 0.55;
+    flutter = 95;
+    front   = 28 ms;
+    tail    = 190 ms;
+    body    = 0.55;
+};
+
+instrument hat {
+    dsp  "hat.dsp";
+    amp  = 12;
+
+    color = 0;
+    tone  = 9000;
+    res   = 0.2;
+    a     = 0.5 ms;
+    clen  = 40 ms;
+    olen  = 320 ms;
+};
+
+# One voice, struck rather than slid: the octave figure is two notes
+# that do not touch, so `glide' is short and `hold' is under the step.
+# `accent' is the threshold a velocity has to pass to open the filter
+# further -- the 303's accent circuit, which is what makes an accented
+# step brighter rather than only louder.
+instrument bass {
+    dsp  "bass.dsp";
+    amp  = 32;
+
+    glide    = 8 ms;
+    sub      = 0.45;
+    cutoff   = 210;
+    depth    = 1700;
+    res      = 0.7;
+    accent   = 0.7;
+    accdepth = 2600;
+    accres   = 0.2;
+    drive    = 2.2;
+
+    fa = 2 ms;
+    fd = 150 ms;
+    fs = 0.08;
+    fr = 110 ms;
+
+    a = 2 ms;
+    d = 260 ms;
+    s = 0.45;
+    r = 70 ms;
+};
+
+# The Solina: two saws a few cents apart with the ensemble chorus
+# inside the voice, where a string machine's is.
+instrument strings {
+    dsp  "strings.dsp";
+    amp  = 26;
+
+    detune    = 8;
+    cutoff    = 3200;
+    res       = 0.15;
+    slow      = 0.55;
+    slowdepth = 4 ms;
+    fast      = 6;
+    fastdepth = 0.5 ms;
+    ensemble  = 0.7;
+    a         = 240 ms;
+    d         = 700 ms;
+    s         = 0.8;
+    r         = 800 ms;
+};
+
+instrument clav {
+    dsp  "clav.dsp";
+    amp  = 20;
+
+    pw   = 0.1;
+    tone = 1700;
+    res  = 0.72;
+    body = 0.25;
+    a    = 1 ms;
+    d    = 210 ms;
+    s    = 0.1;
+    r    = 60 ms;
+};
+
+# One recording of a stab and a brass chord at unison, played at the
+# pitch the piece asks for. See dsp/orchhit.dsp.
+instrument hit {
+    dsp  "orchhit.dsp";
+    amp  = 26;
+
+    cutoff = 600;
+    depth  = 9000;
+    snap   = 80 ms;
+    res    = 0.25;
+    d      = 900 ms;
+};
+
+# ---- the floor --------------------------------------------------------
+
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 114;
+    };
+    sink { instrument = kick; };
+};
+
+chain claps {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.25 beats;  vel = 104;
+    };
+    sink { instrument = clap; };
+};
+
+# Open, on the offbeat: the other half of a disco floor.
+chain hats {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.3 beats;  vel = 118;
+    };
+    sink { instrument = hat; };
+};
+
+# ---- the chords -------------------------------------------------------
+
+# One chord a bar, four to a phrase. Three chains walk it with the same
+# seed, so the strings, the bass and the clav agree on the harmony
+# without a message between them.
+chain strings {
+    stage src gen::progression {
+        scale = dmin;
+        every = 4 beats;  hold = 3.8 beats;  vel = 74;
+        phrase = 4;  wander = @walk;  seed = 19;
+    };
+    stage chord xform::harmonize {
+        scale = dmin;
+        voices = 3;  step = 2;
+        spread = 0.04 s;
+        taper = 0.92;
+        root = 1;  below = 0;
+        lead = 1;  span = 12;
+    };
+    sink { instrument = strings; };
+};
+
+# The octave figure: root and octave in eighths, every bar, with one
+# accent a beat. The accent is a velocity, and bass.dsp turns a
+# velocity over its threshold into a brighter note and not a louder
+# one -- the accent circuit, which is the sound this part is for.
+chain bass {
+    stage src gen::progression {
+        scale = dmin;
+        every = 4 beats;  hold = 3.8 beats;  vel = 74;
+        phrase = 4;  wander = @walk;  seed = 19;
+    };
+    stage b xform::bassline {
+        scale = dmin;
+        pattern = "rorororo";
+        step = 0.5 beats;  hold = 0.4 beats;  vel = 84;
+        octave = -1;  pass = 0;
+    };
+    stage a xform::accent {
+        pattern = "x...x...";  grid = 0.5 beats;
+        strong = @push;  weak = 0.85;
+        bar = 4 beats;  from = 1;  to = 1;
+    };
+    sink { instrument = bass; };
+};
+
+# The clav on the offbeats, a third over the chord. Eighths, the
+# downbeat left out, which is where a rhythm guitar would be.
+chain clav {
+    stage src gen::progression {
+        scale = dmin;
+        every = 4 beats;  hold = 3.8 beats;  vel = 74;
+        phrase = 4;  wander = @walk;  seed = 19;
+    };
+    stage b xform::bassline {
+        scale = dmin;
+        pattern = ".r.f.r.t";
+        step = 0.5 beats;  hold = 0.18 beats;  vel = 86;
+        octave = 1;  pass = 0;
+    };
+    stage chord xform::harmonize {
+        scale = dmin;
+        voices = 2;  step = 2;
+        spread = 0 s;
+        taper = 0.8;
+        root = 1;  below = 0;
+        lead = 0;  span = 12;
+    };
+    sink { instrument = clav; };
+};
+
+# ---- the hit ----------------------------------------------------------
+
+# The downbeat of every eighth bar, climbing.
+#
+# The fill pool is what makes it climb, and the reason is worth knowing
+# before reaching for xform::form here. A pool is consumed one entry per
+# onset, so a chain that plays a bar and has seven taken away downstream
+# still advances its pool eight times a round and lands on the same entry
+# every time -- four pitches and a period of eight bars is four steps
+# forward per hit, which is no steps at all. euclid's fill pool moves
+# only on the cycles that fire, so `every = 8' with four pitches in the
+# fill is four different hits, in order, one per eight bars. The main
+# pool is a rest: nothing sounds on the other seven.
+#
+# Which of the four is heard first is the arrangement's business, not
+# this chain's: a section that mutes a chain scales its velocities to
+# nothing, and a chain that was muted still ran and still turned its
+# pool. The hit comes in a third of the way through the piece, three
+# cycles along, on the top note of the four.
+chain hits {
+    stage src gen::euclid {
+        steps = 1;  fills = 1;  rotate = 0;
+        notes = ".";
+        fill  = hits;
+        every = 8;
+        period = 4 beats;  hold = 1 beats;  vel = 106;
+    };
+    sink { instrument = hit; };
+};

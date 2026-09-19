@@ -1,0 +1,334 @@
+# pearl.gen -- synthpop: one chord walk, heard three times at once.
+#
+# A hundred and twelve to the minute in A minor, with the four
+# instruments the style is made of: a DX electric piano comping, a Juno
+# pad under it, a two-operator bass, and a drum machine playing
+# recordings.
+#
+# THE CHORDS ARE ONE WALK, HEARD THREE TIMES. gen::progression walks
+# the seven chords of A minor by a table of where each likes to go and
+# forces a cadence at the end of every four-chord phrase. Three chains
+# run that walk -- the piano's, the pad's and the bass's -- and all
+# three carry `seed = 41', so they roll the same die and agree on every
+# chord without a message between them. What differs is what each does
+# with the root it is handed: the piano spells a chord under it and
+# voices it against the chord before, the pad spells a wider one over
+# it, and xform::bassline plays root, root, octave and fifth in
+# sixteenths underneath. Three parts of one harmony, written once.
+#
+# THE PIANO IS A DX, and that changes how a chord is made quiet. On an
+# FM electric piano velocity goes to the modulator's index rather than
+# to the output, so a note struck harder is *brighter* and only then
+# louder -- it is the whole reason the sound is what it is. So the
+# harmonize stage tapers its voices, which turns the inner notes of a
+# chord down by making them duller, exactly as a hand does.
+#
+# `lead = 1' on that stage is the other half of the comp: each voice is
+# played in the register nearest the voice it replaces in the chord
+# before, so the hand stays where it is and the harmony changes under
+# it. Stacking degrees on a wandering root would move the whole chord
+# every time the root did.
+#
+# THE KIT IS A SAMPLER, one channel, six drums, chosen by note number
+# -- dsp/linn.dsp has the map, and the wavs under dsp/samples are this
+# repository's own drum graphs rendered to files. The parts are written
+# as a row per drum, which is what a drum machine's grid is.
+#
+# THE SNARE IS A SECOND CHANNEL OF THE SAME KIT, and that is not
+# duplication: a channel has one effect, the gate has to be on the
+# snare, and a gate across the whole kit would cut the hats off with
+# it. Same graph, same wav, different thing behind it. fx/gate.dsp is a
+# room keyed from the dry drum, so it arrives at full size and vanishes
+# where the drum stops rather than fading -- the snare sound of the
+# decade, and an accident on somebody's talkback microphone.
+#
+# THE CHORUS IS ON THE CHANNEL and the Juno's own is inside the voice.
+# Both are running. The one in the graph is what makes a single Juno
+# note wide; the one on the channel is what makes six of them a
+# section, because chorusing each voice and summing the results is not
+# the same sound -- the copies of a chord are not the chord's copy.
+#
+# THE SWING is a quarter of the way from a straight sixteenth to a
+# triplet, which a drum machine's knob would call 54%. It is on the
+# hats and on the bass, which is where it can be heard; the kick and
+# the snare are on the beat and have nothing to swing.
+#
+# The walk and the missing hats roll dice; the seed is pinned for them.
+# Self-contained: open it and press Play.
+
+name "Pearl";
+author "Misha Nasledov";
+description "Synthpop: an electric piano comping over a chorused pad, a two-operator bass, and a sampled kit with a gate on the snare.";
+
+tempo 112;
+seed 1983;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro   8 bars { bass = 0;  snare = 0;  claps = 0;  hats = 0;
+                         keys = 0.7; };
+section verse  16 bars { claps = 0; };
+section lift    8 bars { keys = 1.1; };
+section chorus 16 bars { };
+section break   8 bars { kick = 0;  snare = 0;  hats = 0;  bass = 0;
+                         claps = 0;  pad = 0.9; };
+section last   16 bars { keys = 1.1; };
+section outro   8 bars { bass = 0;  snare = 0;  claps = 0;  hats = 0.6;
+                         keys = 0.8; };
+section end;
+
+# How often the chord walk ignores the table it is walking.
+@walk = 0.1;
+@walk.widget = 1;
+@walk.min = 0;
+@walk.max = 0.6;
+@walk.label = "Walk";
+
+# The shuffle, in the units xform::swing counts in: 0 straight, 1 a
+# triplet. A drum machine's knob would call this 54%, which is a
+# quarter of the way from a straight sixteenth to a swung one.
+@swing = 0.25;
+@swing.widget = 1;
+@swing.min = 0;
+@swing.max = 0.6;
+@swing.label = "Swing";
+
+# How long the room on the snare stays open before it is cut off.
+@hold = 3;
+@hold.widget = 1;
+@hold.min = 2;
+@hold.max = 4;
+@hold.label = "Gate Hold";
+
+scale amin "A2 B2 C3 D3 E3 F3 G3";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 1.05;
+    ceiling = 0.88;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+# The DX piano, comping. Velocity goes to the tine's index rather than
+# to the output, so a chord struck harder is brighter -- which is why
+# the harmonize below tapers its voices rather than the piano's level.
+instrument keys {
+    dsp  "epiano.dsp";
+    amp  = 15;
+
+    body     = 2.4;
+    bodyd    = 1100 ms;
+    tine     = 5;
+    tined    = 220 ms;
+    mix      = 0.45;
+    grit     = 0.22;
+    vib      = 5;
+    vibrate  = 4.5;
+    vibdelay = 400 ms;
+    d        = 2400 ms;
+    s        = 0.2;
+    r        = 300 ms;
+};
+
+# The pad, and the chorus its channel sits in. The Juno's own chorus is
+# inside the voice; this one is on the sum of them, which is a section
+# rather than six copies of one player.
+instrument pad {
+    dsp  "juno.dsp";
+    amp  = 16;
+
+    pw      = 0.5;
+    pwdepth = 0.35;
+    pwrate  = 0.35;
+    sub     = 0.5;
+    cutoff  = 620;
+    depth   = 2200;
+    res     = 0.35;
+    fa      = 260 ms;
+    fd      = 1200 ms;
+    fs      = 0.4;
+    chorus  = 0.4;
+    a       = 200 ms;
+    d       = 900 ms;
+    s       = 0.75;
+    r       = 800 ms;
+
+    effect "fx/chorus.dsp" {
+        rate   = 0.5;
+        depth  = 3 ms;
+        delay  = 11 ms;
+        voices = 2;
+        mix    = 0.4;
+    };
+};
+
+# Two operators at 1:1 with a fast index decay, monophonic, gliding.
+instrument bass {
+    dsp  "fmbass.dsp";
+    amp  = 34;
+
+    index = 6.5;
+    id    = 60 ms;
+    is    = 0.1;
+    ratio = 1;
+    grit  = 0.18;
+    glide = 40 ms;
+    a     = 3 ms;
+    d     = 380 ms;
+    s     = 0.5;
+    r     = 90 ms;
+};
+
+# The kit, on one channel: the note number picks the drum. See
+# dsp/linn.dsp for the map.
+instrument kit {
+    dsp  "linn.dsp";
+    amp  = 29;
+
+    tune  = 1;
+    kick  = 1.1;
+    snare = 1;
+    clap  = 0.9;
+    hat   = 0.8;
+};
+
+# And the snare on a channel of its own, because the gate is a channel
+# effect and gating the kit would take the hats with it. Same graph,
+# same wav; what is different is what is behind it.
+instrument snare {
+    dsp  "linn.dsp";
+    amp  = 43;
+
+    tune  = 1;
+    snare = 1;
+    clap  = 0.9;
+
+    effect "fx/gate.dsp" {
+        decay   = 0.82;
+        size    = 0.8;
+        damping = 4200;
+        diffuse = 5 ms;
+        hold    = @hold;
+        slam    = 60;
+        mix     = 0.5;
+    };
+};
+
+# ---- the chords -------------------------------------------------------
+
+# One chord a bar, four to a phrase, voiced against the chord before it
+# rather than stacked on its root: the comping hand stays put and the
+# harmony moves under it.
+chain keys {
+    stage src gen::progression {
+        scale = amin;
+        every = 4 beats;  hold = 3.4 beats;  vel = 80;
+        phrase = 4;  wander = @walk;  seed = 41;
+    };
+    stage chord xform::harmonize {
+        scale = amin;
+        voices = 3;  step = 2;
+        spread = 0.02 s;
+        taper = 0.88;
+        root = 1;  below = 1;
+        lead = 1;  span = 12;
+    };
+    sink { instrument = keys; };
+};
+
+# The same walk on another chain -- same seed, same rolls, no message
+# between them -- spelled wider and turned down: the pad under the
+# piano is the piano's chords an octave of air away.
+chain pad {
+    stage src gen::progression {
+        scale = amin;
+        every = 4 beats;  hold = 3.4 beats;  vel = 80;
+        phrase = 4;  wander = @walk;  seed = 41;
+    };
+    stage chord xform::harmonize {
+        scale = amin;
+        voices = 4;  step = 2;
+        spread = 0 s;
+        taper = 0.95;
+        root = 1;  below = 0;
+        lead = 0;  span = 12;
+    };
+    stage l xform::level { gain = 0.8; };
+    sink { instrument = pad; };
+};
+
+# And the same walk again, as a bass line: root, root, octave, fifth,
+# in sixteenths under whatever chord is up.
+chain bass {
+    stage src gen::progression {
+        scale = amin;
+        every = 4 beats;  hold = 3.4 beats;  vel = 80;
+        phrase = 4;  wander = @walk;  seed = 41;
+    };
+    stage b xform::bassline {
+        scale = amin;
+        pattern = "r..r..o.r..r.f..";
+        step = 0.25 beats;  hold = 0.26 beats;  vel = 104;
+        octave = -1;  pass = 0;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = @swing; };
+    sink { instrument = bass; };
+};
+
+# ---- the kit ----------------------------------------------------------
+
+# One and three.
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.2 beats;  vel = 112;
+    };
+    sink { instrument = kit; };
+};
+
+# Two and four, into the room that is cut off where the drum stops.
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.2 beats;  vel = 108;
+    };
+    sink { instrument = snare; };
+};
+
+# A clap on four with it, which is the other half of that sound.
+chain claps {
+    stage src gen::euclid {
+        steps = 4;  fills = 1;  rotate = 3;
+        notes = "D#2";
+        period = 1 beats;  hold = 0.2 beats;  vel = 96;
+    };
+    sink { instrument = snare; };
+};
+
+# Sixteenths, swung, one in ten missing.
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#2";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 54;
+    };
+    stage s xform::swing { grid = 0.25 beats;  amount = @swing; };
+    stage c xform::chance { prob = 0.9; };
+    sink { instrument = kit; };
+};
+
+# The accents: a row of eight levels on the kit's hat, a beat of
+# sixteenths each time round.
+chain accents {
+    stage src gen::steps {
+        values = "1 0.45 0.65 0.45 0.85 0.45 0.7 0.5";
+        period = 0.25 beats;  min = 0.4;  max = 1;
+    };
+    sink { instrument = kit; chanarg = "hat"; };
+};

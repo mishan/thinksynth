@@ -1,6 +1,6 @@
 # The shipped pieces
 
-Twenty-six `.gen` files, each of which is meant to be read as well as heard.
+Twenty-nine `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
 being impressive; the other twelve are pieces first and lessons second. The comment at the top of each file is the lesson;
@@ -10,8 +10,9 @@ Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
 
 `airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
-`attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`
-and `anthem.gen` need nothing else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
+`attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`,
+`anthem.gen`, `acetate.gen`, `pearl.gen` and `riviera.gen` need nothing else:
+they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
@@ -145,6 +146,19 @@ only as level; `pluck` already was.
 | [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel, answered every fourth bar by the ring's `fill` pool; `xform::accent` weighting the bass, which its filter hears as brightness; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes, over `fx/limiter.dsp` on the mix -- a top-level `effect` statement, which is the one place a limiter can be. |
 | [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad, voice-led so Am F C G moves rather than climbs, chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`, with every eighth bar coming from the ring's `fill` pool; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets, and which `xform::vary` leans into, ornaments and pushes off the grid; `xform::accent` on the hats; the `Width` knob reaching into two supersaws at once. |
 
+## The eighties
+
+Two pieces on the instruments the decade is made of, which the tree did not
+have until recently: a phase-modulation operator (`osc::fmop`) and the DX
+graphs on it, a sampler (`osc::sample`) and a kit of this repository's own
+drums rendered to wavs, a string machine, a Juno pad, a clav and a gated
+reverb. Each carries its own instruments and its own arrangement.
+
+| piece | the idea |
+| --- | --- |
+| [`pearl.gen`](pearl.gen) | **Synthpop.** One chord walk heard three times at once: three chains run `gen::progression` with the same `seed`, and a DX electric piano voice-leads it, a Juno pad spells it wider, and `xform::bassline` puts a two-operator bass under it. The piano's velocity goes to its modulator's index rather than its output, so `harmonize`'s taper makes the inner voices duller and not just quieter. The kit is `osc::sample` on one channel with the note number picking the drum, and the snare is a *second* channel of the same kit, because `fx/gate.dsp` has to be on the snare alone and a channel has one effect. `xform::swing` a quarter of the way to a triplet, on the hats and the bass. |
+| [`riviera.gen`](riviera.gen) | **Italo disco.** Root and octave in eighths with `xform::accent` marking one step a beat, and `bass.dsp` turning a velocity over its threshold into filter envelope and resonance rather than level -- the 303's accent circuit, which is what makes the part sound played. The same walk on three chains again: a Solina whose ensemble chorus lives *inside* the voice because that is what the instrument is, and a clav on `.r.f.r.t`, eighths with the downbeats left out. The orchestra hit is a recording of this tree's own `stab` and `brass` at unison, one per eight bars from `euclid`'s `fill` pool -- which moves only on the cycles that fire, where a pool consumed every bar would land on the same pitch every time. |
+
 ## Voicing
 
 A chord is which notes are in it; a voicing is which octave each of them is
@@ -203,7 +217,10 @@ progression (all six), `ca` and `markov` in seconds against a clocked bar
 and `counterpoint` (village), `steps` and `pump`
 (warehouse, anthem), `transpose` (anthem), `accent` (warehouse, anthem),
 `vary` (warehouse, anthem), and `euclid`'s `fill` pool (warehouse,
-anthem).
+anthem, riviera). pearl and riviera add `progression` walked by three
+chains on one seed (both), `bassline` as an octave figure and as an
+offbeat comp (riviera), `accent` into an instrument's accent circuit
+(riviera) and `swing` on a sixteenth grid (pearl).
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it.
 
@@ -218,8 +235,9 @@ hands), `input midi` (hands), clicks on a
 plugin's draw (glider), note sinks, named chanarg sinks (airports,
 weather), the `chanarg = "*"` wildcard (tide, bloom), fan-out to several sinks
 (weather, tide), `meter` and `section` -- the arrangement, with `section end`
-closing it (warehouse, anthem), pinned and unpinned seeds (all of them, both
-ways).
+closing it (warehouse, anthem, pearl, riviera), two channels of one graph so
+that each can carry its own effect (pearl), pinned and unpinned seeds (all of
+them, both ways).
 
 See [`../GEN_FORMAT.md`](../GEN_FORMAT.md) for the language and
 [`../COMPOSITION_HANDOFF.md`](../COMPOSITION_HANDOFF.md) for why it is shaped
