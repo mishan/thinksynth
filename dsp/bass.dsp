@@ -18,6 +18,21 @@
 # The filter is filt::svf, in hertz, with its cutoff an expression: where
 # `cutoff' rests plus however much of `depth' the filter envelope is
 # asking for.
+#
+# THE ACCENT is the 303's, and it is the reason a bass line written for
+# this file sounds like a performance rather than a sequence. On a real
+# one, the accent switch does not simply turn a step up: it puts a pulse
+# into the filter's envelope and, through a capacitor that has not
+# finished discharging, into the resonance as well. So an accented note
+# is brighter and squelchier than the one before it, and the notes
+# around it are not touched. Here `Accent Threshold' is where a velocity
+# starts counting as one, and everything above it is scaled across the
+# rest of the range -- so a line whose steps sit at 70 and 110 accents
+# the 110s and leaves the 70s alone, which is exactly what `gen::accent'
+# and a `bassline' already write.
+#
+# With `Accent Depth' and `Accent Resonance' at zero this is the graph
+# it was before, note for note.
 
 name "Bass";
 author "Misha Nasledov";
@@ -52,6 +67,24 @@ description "A monophonic bass: overlapping notes slide, separated ones retrigge
     @res.min = 0;
     @res.max = 0.99;
     @res.label = "Resonance";
+
+    @accent = 0.72;
+    @accent.widget = 1;
+    @accent.min = 0.1;
+    @accent.max = 0.95;
+    @accent.label = "Accent Threshold";
+
+    @accdepth = 2200;
+    @accdepth.widget = 1;
+    @accdepth.min = 0;
+    @accdepth.max = 8000;
+    @accdepth.label = "Accent Depth (Hz)";
+
+    @accres = 0.15;
+    @accres.widget = 1;
+    @accres.min = 0;
+    @accres.max = 0.5;
+    @accres.label = "Accent Resonance";
 
     @drive = 2.2;
     @drive.widget = 1;
@@ -140,13 +173,26 @@ node fenv env::adsr {
     trigger = ionode->trigger;
 };
 
+# Nothing below the threshold, and the rest of the velocity range
+# stretched across the whole of the accent. The division is safe at
+# every setting because `Accent Threshold' stops at 0.95.
+node accent math::clamp {
+    in = (ionode->velocity - @accent) / (1 - @accent);
+    lo = 0;
+    hi = 1;
+};
+
 # How far the envelope opens the filter is scaled by velocity, which is
 # what makes an accented note of a bass line brighter and not only
-# louder.
+# louder -- and `Accent Depth' is a second helping of that, on top, for
+# the steps that cross the threshold. The resonance goes up with it,
+# clamped where filt::svf's own range ends, because that is the half of
+# the 303's accent that makes the squelch.
 node filt filt::svf {
     in = osc->out * 0.5 * (1 - @sub) + sub->out * 0.5 * @sub;
-    cutoff = @cutoff + fenv->out * @depth * ionode->velocity;
-    res = @res;
+    cutoff = @cutoff + fenv->out * (@depth + accent->out * @accdepth) *
+             ionode->velocity;
+    res = clamp(@res + accent->out * @accres, 0, 0.99);
 };
 
 node drive dist::saturate {
