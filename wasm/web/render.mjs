@@ -80,7 +80,7 @@ export async function renderDirect (createThinkWeb,
 export async function loadPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},
-                                   seed = -1 })
+                                   samples = {}, seed = -1 })
 {
     const log = [];
     const M = await createThinkWeb({
@@ -93,6 +93,15 @@ export async function loadPiece (createThinkWeb,
     for (const [name, text] of Object.entries(instruments))
         M.ccall('tw_instrument', 'number', ['string', 'string'],
                 [name, text]);
+
+    /* And the wavs, which are bytes rather than text and go in through
+       their own call for that reason -- a wav has a NUL in its header
+       before it has anything else. `samples' is keyed the way the
+       index is, `samples/kick909.wav', because that is the path
+       osc::sample's `file' resolves to and not a basename. */
+    for (const [name, bytes] of Object.entries(samples))
+        M.ccall('tw_sample', 'number', ['string', 'array', 'number'],
+                [name, bytes, bytes.length]);
 
     const ok = M.ccall('tw_piece_load', 'number', ['string', 'number'],
                        [gen, seed]) !== 0;
@@ -111,11 +120,13 @@ export async function loadPiece (createThinkWeb,
 export async function playPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},
+                                   samples = {},
                                    seconds = 60, commands = [] })
 {
     const { M, ok, log, errors, windowlen: took } =
         await loadPiece(createThinkWeb,
-                        { rate, windowlen, block, gen, instruments });
+                        { rate, windowlen, block, gen, instruments,
+                          samples });
 
     if (!ok)
         return { ok, log, errors, tape: '' };
@@ -198,13 +209,15 @@ export function schedule (M, c)
 export async function playAimed (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},
+                                   samples = {},
                                    patchFor = () => null,
                                    chord = [53, 56, 60], seconds = 60,
                                    floor = 0.001 })
 {
     const { M, ok, log, errors } =
         await loadPiece(createThinkWeb,
-                        { rate, windowlen, block, gen, instruments });
+                        { rate, windowlen, block, gen, instruments,
+                          samples });
 
     if (!ok)
         return { ok, log, errors, aimed: [], unaimed: [], listens: [],
@@ -306,12 +319,14 @@ export async function playAimed (createThinkWeb,
  */
 export async function playAt (createThinkWeb,
                               { rate = 48000, windowlen = 256, block = 128,
-                                gen, instruments = {}, patches = {},
+                                gen, instruments = {}, samples = {},
+                                patches = {},
                                 keys = [], seconds = 10 })
 {
     const { M, ok, log, errors } =
         await loadPiece(createThinkWeb,
-                        { rate, windowlen, block, gen, instruments });
+                        { rate, windowlen, block, gen, instruments,
+                          samples });
 
     if (!ok)
         return { ok, log, errors, events: [], peak: 0 };

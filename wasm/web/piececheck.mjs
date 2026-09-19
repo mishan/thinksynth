@@ -106,7 +106,30 @@ export function instruments (buildDir)
 
     for (const name of JSON.parse(
              fs.readFileSync(path.join(dir, 'index.json'), 'utf8')))
+    {
+        /* The index carries the kit as well, and a wav read as utf8 is
+           not a wav any more -- every byte that is not valid UTF-8 comes
+           back as U+FFFD. Those go through samples() below, as bytes. */
+        if (name.startsWith('samples/'))
+            continue;
+
         out[name] = fs.readFileSync(path.join(dir, name), 'utf8');
+    }
+
+    return out;
+}
+
+/* And the wavs, as bytes, keyed by the same index name so that what
+   reaches tw_sample is the path osc::sample's `file' resolves to. */
+export function samples (buildDir)
+{
+    const dir = path.join(buildDir, 'dsp');
+    const out = {};
+
+    for (const name of JSON.parse(
+             fs.readFileSync(path.join(dir, 'index.json'), 'utf8')))
+        if (name.startsWith('samples/'))
+            out[name] = new Uint8Array(fs.readFileSync(path.join(dir, name)));
 
     return out;
 }

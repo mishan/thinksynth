@@ -76,6 +76,15 @@ for (const name of names)
         continue;
     }
 
+    /* And the kit is not a graph at all -- it is the wavs osc::sample
+       plays, carried in the same index because the worklet has to be
+       handed them and cannot fetch. statecheck is their gate. */
+    if (name.startsWith('samples/'))
+    {
+        process.stdout.write(`skip  ${name}: a sample, not a graph\n`);
+        continue;
+    }
+
     const text = fs.readFileSync(path.join(dspDir, name), 'utf8');
     const events = [
         { on: true, frame: 0, ...NOTE },

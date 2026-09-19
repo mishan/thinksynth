@@ -478,8 +478,13 @@ if(THINK_BUILD_HARNESSES)
   add_subdirectory(scripts)
 endif()
 
+# The graphs, and the kit osc::sample plays. Two patterns rather than
+# one: a FILES_MATCHING install takes nothing it was not told about, so
+# `*.dsp' alone shipped a sampler with nothing to sample -- the node
+# looks a wav up under samples/ on the same path a .dsp is looked up on,
+# and on an installed copy that path is this directory.
 install(DIRECTORY dsp/     DESTINATION "${THINK_PKG_DATA_DIR}/dsp"
-        FILES_MATCHING PATTERN "*.dsp")
+        FILES_MATCHING PATTERN "*.dsp" PATTERN "samples/*.wav")
 install(DIRECTORY patches/ DESTINATION "${THINK_PKG_DATA_DIR}/patches"
         FILES_MATCHING PATTERN "*.patch")
 
