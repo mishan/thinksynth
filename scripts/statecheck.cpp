@@ -3348,8 +3348,16 @@ static void checkCompressor (const string &pluginPath)
      * soft knee is for -- the moment a compressor starts working is audible
      * where the curve has a corner in it, and not where it does not.
      */
+    /* 3 dB under it rather than 6, so that the gate has room. The knee
+     * spans the threshold, so over the 24 dB one here the reduction is
+     * (1/ratio - 1) * (x - T + W/2)^2 / 2W -- which at 6 dB under is
+     * 0.5625 dB, and a `more than half a dB' gate then passes on its
+     * last digit. At 3 dB under it is 1.27 dB, and the same gate is
+     * asserting the shape of the curve rather than the arithmetic's
+     * rounding.
+     */
     {
-        const float amp = (float)(TH_MAX * pow(10.0, -26.0 / 20.0));
+        const float amp = (float)(TH_MAX * pow(10.0, -23.0 / 20.0));
         vector<float> hard, soft;
         string why;
 
@@ -3367,11 +3375,11 @@ static void checkCompressor (const string &pluginPath)
             const double corner = dB(peak(hard, hard.size() / 2));
             const double rounded = dB(peak(soft, soft.size() / 2));
 
-            okOrFail(fabs(corner - -26) < 0.5 &&
+            okOrFail(fabs(corner - -23) < 0.5 &&
                      rounded < corner - 0.5 && rounded > corner - 3,
                      "dyn::compressor: a `knee' reaches under the threshold, "
                      "and a corner does not",
-                     "6 dB under the threshold: " + num(corner) +
+                     "3 dB under the threshold: " + num(corner) +
                      " dB with a corner, " + num(rounded) + " dB with 24 dB "
                      "of knee");
         }
