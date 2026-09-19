@@ -4,10 +4,12 @@
 # no MSVC build, and reinforced by the eleven files in the tree that use
 # variable-length arrays.
 #
-# STATUS: all five jobs are real gates and must stay green. What CI does not
-# cover is that hosted runners have no audio device, so the backends are only
-# compiled and linked here, never opened. All three platforms have been run
-# and heard on real hardware; none of that happened here.
+# STATUS: all nine jobs are real gates and must stay green. Four of the nine
+# are the wasm gates, which share the one build job below them and run at
+# once on what it makes. What CI does not cover is that hosted runners have
+# no audio device, so the backends are only compiled and linked here, never
+# opened. All three platforms have been run and heard on real hardware; none
+# of that happened here.
 #
 # RtAudio and RtMidi are NOT installed from the system package manager on any
 # platform here. Ubuntu 24.04 does not carry librtaudio-dev, 22.04 carries
@@ -239,8 +241,16 @@ jobs:
   # implements differently. Such a piece composes differently under libc++,
   # which is macOS as well as wasm, and this is the one job that has both
   # libraries in front of it at once.
-  wasm:
-    name: wasm (emscripten) against native
+  #
+  # This was one job and is now five: a build, and four sets of gates that
+  # run at once on what it made. It was the slowest thing in this workflow
+  # by a factor of two, and compiling was a fifth of it -- the rest was
+  # fifteen independent test scripts run back to back on a four-core runner
+  # that spent most of the time idle. The gates need three trees between
+  # them and none of them writes one, so building once and handing the
+  # trees on is the whole of it.
+  wasm-build:
+    name: wasm (emscripten) build
     runs-on: ubuntu-latest
 
     env:
@@ -255,28 +265,16 @@ jobs:
       # gtkmm, even though only the harness and the plugins are built. gtkmm
       # brings cairo's headers too, which the wasm build compiles the drawing
       # composers against.
+      #
+      # No pulseaudio here: the live-context tests are in the jam job, and
+      # this one opens nothing.
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential cmake ninja-build bison flex pkg-config \
             libgtkmm-4.0-dev libsigc++-3.0-dev \
-            libasound2-dev libjack-jackd2-dev pulseaudio
-
-      # A sound card, of sorts, for jamtest further down. It opens a live
-      # AudioContext in both browsers, because two peers agreeing on a
-      # clock is the thing under test and an offline context has no clock
-      # -- and a runner has no audio device at all. Chromium falls back to
-      # a null sink by itself; Firefox's AudioContext.resume() never
-      # resolves without a backend, so Start never returns and the page
-      # waits for ever with nothing to say about why. One null sink is
-      # enough: nothing here listens to anything.
-      - name: An audio sink for the live-context tests
-        run: |
-          pulseaudio --start --exit-idle-time=-1
-          pactl load-module module-null-sink sink_name=jamtest
-          pactl set-default-sink jamtest
-          pactl info
+            libasound2-dev libjack-jackd2-dev
 
       # The module runs the same on 20, 22 and 24; pinned so that a change of
       # runner image is not what moves the result.
@@ -311,20 +309,10 @@ jobs:
           emcmake cmake -S wasm -B build-wasm -G Ninja
           cmake --build build-wasm
 
-      - name: Compare
-        run: node wasm/compare.mjs --lsb 1 -k compare
-
-      # The piece that goes wrong on purpose, through both hosts. The shipped
-      # pieces under gen/ all render cleanly, so nothing above exercises the
-      # non-finite count or the exit 4 that goes with it -- and compare.mjs
-      # holds the summary lines and the exit statuses identical, which is
-      # exactly what a regression in tw_nonfinite or in genwav.mjs's status
-      # handling would break.
-      - name: The guard's piece, native against wasm
-        run: THINK_DSP_PATH=scripts/guard node wasm/compare.mjs -s 4 scripts/guard/nonfinite.gen
-
-      # The room page's bundle and the tests' browsers come from npm; the
-      # build wants the first, so this comes before it.
+      # Both the room page's bundle and the composers' cairo come from npm,
+      # so this comes before the browser build -- which does not merely want
+      # node_modules but refuses to configure without it (wasm/web/
+      # CMakeLists.txt takes cairo-canvas2d out of there by path).
       - name: npm ci
         working-directory: wasm/web
         run: npm ci
@@ -338,11 +326,114 @@ jobs:
           emcmake cmake -S wasm/web -B build-web -G Ninja
           cmake --build build-web
 
+      # What the gates need and nothing else. The three build trees together
+      # are more than a gigabyte, almost all of it object files and CMake's
+      # own state; the binaries, the modules, the loadable plugins and the
+      # site come to about thirty megabytes packed. The .so files are named
+      # one directory down because `plugins/' itself is mostly the objects
+      # they were linked from.
+      #
+      # libthink.so.7 goes with the two binaries: they are linked against it
+      # and find it by a RUNPATH holding this build tree's absolute path.
+      # That path is the same on every runner in this workflow, so it
+      # resolves in the gate jobs -- but only if the library is there, and
+      # without it genwav and dspedit exit 127 before they do anything. It
+      # is a symlink to libthink.so.7.0, and upload-artifact follows it, so
+      # what arrives is a real file under the name the loader asks for.
+      - name: The built trees, for the gates
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-trees
+          retention-days: 1
+          path: |
+            build/scripts/genwav
+            build/scripts/dspedit
+            build/libthink/libthink.so.7
+            build/plugins/*/*.so
+            build-wasm/thinksynth.mjs
+            build-wasm/thinksynth.wasm
+            build-wasm/plugins/*/*.so
+            build-web/*.js
+            build-web/*.map
+            build-web/*.html
+            build-web/*.css
+            build-web/*.json
+            build-web/*.wasm
+            build-web/dsp
+            build-web/gen
+            build-web/patches
+            build-web/cairo2d/cairo2dtest.js
+            build-web/cairo2d/cairo2dtest.wasm
+
+  # Native genwav against wasm genwav, which is what this job set is named
+  # for. It is the one gate that needs the native plugins.
+  wasm-compare:
+    name: wasm (emscripten) against native
+    runs-on: ubuntu-latest
+    needs: wasm-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        with:
+          native: 'true'
+
+      - name: Compare
+        run: node wasm/compare.mjs --lsb 1 -k compare
+
+      # The piece that goes wrong on purpose, through both hosts. The shipped
+      # pieces under gen/ all render cleanly, so nothing above exercises the
+      # non-finite count or the exit 4 that goes with it -- and compare.mjs
+      # holds the summary lines and the exit statuses identical, which is
+      # exactly what a regression in tw_nonfinite or in genwav.mjs's status
+      # handling would break.
+      - name: The guard's piece, native against wasm
+        run: THINK_DSP_PATH=scripts/guard node wasm/compare.mjs -s 4 scripts/guard/nonfinite.gen
+
+      # The renders, so a difference can be listened to rather than only
+      # read about.
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: wasm-compare
+          path: compare/
+
+  # The gates that drive the browser module from Node: every piece it
+  # composes, every picture it draws, and the editor model it builds.
+  wasm-pieces:
+    name: wasm (emscripten) pieces and draws
+    runs-on: ubuntu-latest
+    needs: wasm-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        with:
+          native: 'true'
+
+      # cairo2d's replayer and drawcheck.mjs's `cairo-canvas2d' are both
+      # npm packages now, not files in this tree.
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
       # The cairo stand-in, on its own terms: what each call records, and
       # whether the opcodes written out in C and in JavaScript still agree.
       # It comes from npm now, so this is the pinned copy being asked, not
-      # upstream's own CI being taken on trust. It is built by the browser
-      # build above (wasm/web/CMakeLists.txt).
+      # upstream's own CI being taken on trust. The module under test is
+      # built by wasm-build (wasm/web/CMakeLists.txt) and arrives with the
+      # trees; the replayer it is held against is in node_modules, which is
+      # why this job runs npm ci above.
       - name: cairo2d
         run: |
           node build-web/cairo2d/cairo2dtest.js
@@ -355,10 +446,13 @@ jobs:
 
       # M2's gate, without a browser: every seeded piece composed by this
       # module at four steps, against the tape genwav.mjs delivers out of
-      # the Node module built above. The wasm-against-wasm gate and the
-      # step-invariance gate in one. Then every shipped piece played the way
-      # the page plays it, held to a peak -- a tape says what was composed
-      # and not whether any of it was audible (AIMING.md, section 5).
+      # the Node module. The wasm-against-wasm gate and the step-invariance
+      # gate in one. Then every shipped piece played the way the page plays
+      # it, held to a peak -- a tape says what was composed and not whether
+      # any of it was audible (AIMING.md, section 5).
+      #
+      # It shards itself across the cores by default; every line names the
+      # shard that wrote it.
       - name: Every seeded piece, against genwav; and every piece audible
         run: node wasm/web/piececheck.mjs
 
@@ -381,6 +475,90 @@ jobs:
       - name: The node editor's model, against the desktop's
         run: node wasm/web/nodecheck.mjs build-web build
 
+  # The page and the worklet, in the two engines the page has to work in.
+  wasm-browsers:
+    name: wasm (emscripten) in browsers
+    runs-on: ubuntu-latest
+    needs: wasm-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
+      # browsertest.mjs plays a phrase through the worklet in Chromium and
+      # in Firefox and holds each against the module run directly, to the
+      # bit, then runs the same piece comparison through the worklet at a
+      # window of 256 and of 128. That is the plumbing between page,
+      # worklet and module -- the messages, the stamps, the quanta -- in
+      # the two engines the page has to work in. The two browsers run at
+      # once and their output interleaves; every line names its browser.
+      - name: Browser build, in browsers
+        working-directory: wasm/web
+        run: |
+          npx playwright install --with-deps chromium firefox
+          node browsertest.mjs ../../build-web ../../build-wasm
+
+      # The solo page itself, which nothing above opens: the octave, the
+      # sliders a piece's knobs are drawn as, and a computer key held and
+      # let go. Both pages share keyboard.js and knobs.js, so this is
+      # where a change to either shows up first. Then the composer view
+      # (JAM_M6.md, sections 4 to 6), which has a whole second engine
+      # behind it: the picture arrives from the mirror worker and is
+      # replayed, a stage is enlarged, and a drag on it leaves as a
+      # command and comes back as a board that has changed.
+      - name: The page's keys, knobs and composer view
+        working-directory: wasm/web
+        run: node pagetest.mjs ../../build-web
+
+  # Two peers agreeing on one piece: the mirror, the protocol, the relay,
+  # and two real browsers in one room.
+  wasm-jam:
+    name: wasm (emscripten) two peers
+    runs-on: ubuntu-latest
+    needs: wasm-build
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends pulseaudio
+
+      # A sound card, of sorts, for jamtest below. It opens a live
+      # AudioContext in both browsers, because two peers agreeing on a
+      # clock is the thing under test and an offline context has no clock
+      # -- and a runner has no audio device at all. Chromium falls back to
+      # a null sink by itself; Firefox's AudioContext.resume() never
+      # resolves without a backend, so Start never returns and the page
+      # waits for ever with nothing to say about why. One null sink is
+      # enough: nothing here listens to anything.
+      - name: An audio sink for the live-context tests
+        run: |
+          pulseaudio --start --exit-idle-time=-1
+          pactl load-module module-null-sink sink_name=jamtest
+          pactl set-default-sink jamtest
+          pactl info
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - uses: ./.github/actions/wasm-trees
+        with:
+          native: 'true'
+
+      - name: npm ci
+        working-directory: wasm/web
+        run: npm ci
+
       # The mirror (JAM_M6.md, section 4): the module twice in one process,
       # one rendering and one with a synth that never renders, both fed the
       # same messages through the same handler, the second stepped to the
@@ -398,30 +576,6 @@ jobs:
       # tape between them, and genwav's tape under the same commands.
       - name: Two peers, one tape
         run: node wasm/web/protocoltest.mjs
-
-      # And with one: browsertest.mjs plays a phrase through the worklet in
-      # Chromium and in Firefox and holds each against the module run
-      # directly, to the bit, then runs the same piece comparison through
-      # the worklet at a window of 256 and of 128. That is the plumbing
-      # between page, worklet and module -- the messages, the stamps, the
-      # quanta -- in the two engines the page has to work in.
-      - name: Browser build, in browsers
-        working-directory: wasm/web
-        run: |
-          npx playwright install --with-deps chromium firefox
-          node browsertest.mjs
-
-      # The solo page itself, which nothing above opens: the octave, the
-      # sliders a piece's knobs are drawn as, and a computer key held and
-      # let go. Both pages share keyboard.js and knobs.js, so this is
-      # where a change to either shows up first. Then the composer view
-      # (JAM_M6.md, sections 4 to 6), which has a whole second engine
-      # behind it: the picture arrives from the mirror worker and is
-      # replayed, a stage is enlarged, and a drag on it leaves as a
-      # command and comes back as a board that has changed.
-      - name: The page's keys, knobs and composer view
-        working-directory: wasm/web
-        run: node pagetest.mjs
 
       # The relay (JAM_M3.md, section 3), driven from Node by the clients
       # the page will be: presence, seats, the clock, signalling, the
@@ -442,18 +596,12 @@ jobs:
       # two, and not the tape of the run nobody painted on. And then the
       # .dsp canvas: one page types a number into a node, and the file in
       # both documents is the one native NodeEdit writes -- which is why
-      # the native build above builds dspedit.
+      # the build job builds dspedit.
       - name: Two browsers, one room
         working-directory: wasm/web
-        run: node jamtest.mjs ../../build-web ../../build-wasm ../../build
-
-      # The renders, so a difference can be listened to rather than only
-      # read about.
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: wasm-compare
-          path: compare/
+        run: |
+          npx playwright install --with-deps chromium firefox
+          node jamtest.mjs ../../build-web ../../build-wasm ../../build
 
   macos:
     name: macos (clang, arm64)

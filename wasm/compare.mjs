@@ -47,7 +47,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 import { seeded as pinsSeed } from './tape.mjs';
@@ -63,18 +63,47 @@ function usage ()
         '  -b, --build DIR    the native build tree (default build/)\n' +
         '  -s, --seconds N    transport length for both (default 60)\n' +
         '  -l, --lsb N        let the WAVs differ by up to N per sample (default 0)\n' +
-        '  -k, --keep DIR     leave the renders here rather than in a temp dir\n');
+        '  -k, --keep DIR     leave the renders here rather than in a temp dir\n' +
+        '  -j, --jobs N       pieces to render at once (default half the cores)\n');
 }
 
+/* stdout is ignored rather than captured: genwav writes the render to the
+   file -o names and nothing here reads its stdout, and an ignored stream
+   cannot fill its pipe and stall the child while this waits for exit. */
 function run (cmd, args, env)
 {
-    const r = spawnSync(cmd, args, { cwd: top, env, encoding: 'latin1',
-                                     maxBuffer: 1 << 26 });
+    return new Promise((resolve, reject) =>
+    {
+        const child = spawn(cmd, args,
+                            { cwd: top, env,
+                              stdio: ['ignore', 'ignore', 'pipe'] });
+        let stderr = '';
 
-    if (r.error)
-        throw r.error;
+        child.stderr.setEncoding('latin1');
+        child.stderr.on('data', (d) => { stderr += d; });
+        child.on('error', reject);
+        child.on('close', (status) => resolve({ status, stderr }));
+    });
+}
 
-    return { status: r.status, stderr: r.stderr };
+/* Runs `task' over every item, `limit' of them in flight. Each task is two
+   renders of one piece, so the process count is twice the limit -- which is
+   why the default below halves the core count rather than using it. */
+async function pool (items, limit, task)
+{
+    const results = new Array(items.length);
+    let next = 0;
+
+    async function worker ()
+    {
+        for (let i = next++; i < items.length; i = next++)
+            results[i] = await task(items[i], i);
+    }
+
+    await Promise.all(Array.from({ length: Math.min(limit, items.length) },
+                                 worker));
+
+    return results;
 }
 
 function pcm (file)
@@ -140,12 +169,13 @@ function seeded (file)
     return pinsSeed(fs.readFileSync(file, 'utf8'));
 }
 
-function main (args)
+async function main (args)
 {
     let build = path.join(top, 'build');
     let seconds = '60';
     let lsb = 0;
     let keep = '';
+    let jobs = Math.max(1, Math.ceil(os.availableParallelism() / 2));
     const pieces = [];
 
     for (let i = 0; i < args.length; i++)
@@ -161,6 +191,9 @@ function main (args)
             lsb = parseInt(args[++i], 10);
         else if ((a === '-k' || a === '--keep') && i + 1 < args.length)
             keep = path.resolve(args[++i]);
+        else if ((a === '-j' || a === '--jobs') && i + 1 < args.length &&
+                 /^[1-9]\d*$/.test(args[i + 1]))
+            jobs = parseInt(args[++i], 10);
         else if (a === '-h' || a === '--help')
         {
             usage();
@@ -202,9 +235,18 @@ function main (args)
 
     env.THINK_DSP_PATH ??= path.join(top, 'dsp');
 
-    let failed = 0, tolerated = 0;
+    /* Each piece is a task, and `jobs' of them are in flight at once. The
+       renders are two processes that share nothing -- separate output
+       files, separate address spaces -- so what they contend for is cores,
+       and a piece's verdict does not depend on which other piece is
+       running beside it.
 
-    for (const [index, gen] of pieces.entries())
+       A finished piece writes its whole block in one call rather than a
+       line at a time: the header names the piece and the lines under it
+       are indented continuations of that name, so they have to stay
+       together to be read at all. Which block comes first varies with
+       which render finished first. */
+    const outcomes = await pool(pieces, jobs, async (gen, index) =>
     {
         const name = path.basename(gen, '.gen');
 
@@ -224,13 +266,14 @@ function main (args)
         const missing = (ext) =>
             ['native', 'wasm'].filter((which) => !fs.existsSync(f(which, ext)));
 
-        const n = run(native, ['-p', path.join(build, 'plugins') + '/',
-                               '-s', seconds, '-o', f('native', 'wav'),
-                               '-t', f('native', 'tape'), rel], env);
-        const w = run(process.execPath,
-                      [path.join(here, 'genwav.mjs'), '-s', seconds,
-                       '-o', f('wasm', 'wav'), '-t', f('wasm', 'tape'), rel],
-                      env);
+        const [n, w] = await Promise.all([
+            run(native, ['-p', path.join(build, 'plugins') + '/',
+                         '-s', seconds, '-o', f('native', 'wav'),
+                         '-t', f('native', 'tape'), rel], env),
+            run(process.execPath,
+                [path.join(here, 'genwav.mjs'), '-s', seconds,
+                 '-o', f('wasm', 'wav'), '-t', f('wasm', 'tape'), rel],
+                env)]);
 
         const problems = [], within = [];
 
@@ -275,19 +318,25 @@ function main (args)
 
         if (problems.length > 0)
         {
-            failed++;
             process.stdout.write(`${label} DIFFERS\n` + lines(problems) +
                                  lines(within));
+            return 'failed';
         }
-        else if (within.length > 0)
+
+        if (within.length > 0)
         {
-            tolerated++;
             process.stdout.write(`${label} within ${lsb} LSB\n` +
                                  lines(within));
+            return 'tolerated';
         }
-        else
-            process.stdout.write(`${label} identical  (${n.stderr.trim()})\n`);
-    }
+
+        process.stdout.write(`${label} identical  (${n.stderr.trim()})\n`);
+
+        return 'identical';
+    });
+
+    const failed = outcomes.filter((o) => o === 'failed').length;
+    const tolerated = outcomes.filter((o) => o === 'tolerated').length;
 
     process.stdout.write(`\n${pieces.length - failed - tolerated} of ` +
                          `${pieces.length} identical` +
@@ -298,4 +347,4 @@ function main (args)
     return failed > 0 ? 1 : 0;
 }
 
-process.exitCode = main(process.argv.slice(2));
+process.exitCode = await main(process.argv.slice(2));

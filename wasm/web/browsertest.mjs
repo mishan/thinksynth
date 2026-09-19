@@ -27,6 +27,10 @@
  * For each browser: serve the site and build the synth exactly as the page
  * does (host.js), but on an OfflineAudioContext. Then twice over.
  *
+ * The two browsers run at the same time, since each is its own process and
+ * what they are held against is rendered once before either starts. Their
+ * output interleaves; every line names its browser.
+ *
  * A patch, which is M1: play a phrase with stamped notes, render, and
  * compare every sample with what render.mjs gets from the same module
  * called from Node. It is one wasm file on both sides, so the two agree to
@@ -202,14 +206,30 @@ if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
 const server = await serve(build, 0);
 const url = `http://127.0.0.1:${server.address().port}/`;
 const dsps = instruments(build);
-let failed = 0;
 
 /* Once, not once per browser: a minute of each piece rendered under Node. */
 const seededPieces = pieces(build).filter((p) => p.seeded);
 const references = new Map(
     seededPieces.map((p) => [p.name, reference(p.name, nodeBuild)]));
 
-for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
+/* And the phrase, for the same reason: what the module renders directly is
+   what both browsers are held against, so it is one render each and not
+   one per browser. */
+const patchTexts = new Map(
+    PATCHES.map((p) => [p, fs.readFileSync(path.join(build, 'dsp', p),
+                                           'utf8')]));
+const patchRefs = new Map(
+    await Promise.all(PATCHES.map(async (p) =>
+        [p, await renderDirect(createThinkWeb,
+                               { rate: RATE, text: patchTexts.get(p),
+                                 events: EVENTS, frames: FRAMES })])));
+
+/* The two browsers at once. They share nothing but the server and the
+   references above, both read-only by now, and each drives its own
+   process -- so the job waits for the slower of the two rather than for
+   the sum. Every line written below names the browser it came from, which
+   is what keeps the interleaved output readable. */
+async function runBrowser (label, type)
 {
     let browser;
 
@@ -221,8 +241,7 @@ for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
     {
         process.stdout.write(`FAIL  ${label}: could not launch -- ` +
                              `${e.message.split('\n')[0]}\n`);
-        failed++;
-        continue;
+        return false;
     }
 
     const page = await browser.newPage();
@@ -235,10 +254,8 @@ for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
 
     for (const patch of PATCHES)
     {
-        const text = fs.readFileSync(path.join(build, 'dsp', patch), 'utf8');
-        const want = await renderDirect(createThinkWeb,
-                                        { rate: RATE, text, events: EVENTS,
-                                          frames: FRAMES });
+        const text = patchTexts.get(patch);
+        const want = patchRefs.get(patch);
         let got;
 
         try
@@ -332,11 +349,15 @@ for (const [label, type] of [['chromium', chromium], ['firefox', firefox]])
         ok = false;
     }
 
-    if (!ok)
-        failed++;
-
     await browser.close();
+
+    return ok;
 }
+
+const failed = (await Promise.all(
+    [['chromium', chromium], ['firefox', firefox]]
+        .map(([label, type]) => runBrowser(label, type))))
+    .filter((ok) => !ok).length;
 
 /* close() alone waits for the browsers' keep-alive connections, which
    outlive the browsers here and keep the process up. */

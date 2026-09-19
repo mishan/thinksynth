@@ -68,8 +68,9 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { seeded, tapeBefore } from '../tape.mjs';
@@ -78,8 +79,35 @@ import { playAimed, playAt, playPiece } from './render.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const top = path.join(here, '..', '..');
-const build = path.resolve(process.argv[2] ?? path.join(top, 'build-web'));
-const nodeBuild = path.resolve(process.argv[3] ??
+
+/* The two build directories stay positional, as they were. `-j' and
+   `--shard' are this file's own and are taken out of the way first, so a
+   caller that passes neither sees the argument list it always saw -- which
+   includes browsertest.mjs, since importing this module runs what is
+   below against its process.argv. */
+const flags = { jobs: Math.max(1, os.availableParallelism()), shard: null };
+const positional = [];
+
+for (let i = 2; i < process.argv.length; i++)
+{
+    const a = process.argv[i];
+    const shard = a === '--shard' && i + 1 < process.argv.length
+        ? /^(\d+)\/(\d+)$/.exec(process.argv[i + 1]) : null;
+
+    if (shard !== null)
+    {
+        flags.shard = { index: Number(shard[1]), count: Number(shard[2]) };
+        i++;
+    }
+    else if ((a === '-j' || a === '--jobs') && i + 1 < process.argv.length &&
+             /^[1-9]\d*$/.test(process.argv[i + 1]))
+        flags.jobs = Number(process.argv[++i]);
+    else
+        positional.push(a);
+}
+
+const build = path.resolve(positional[0] ?? path.join(top, 'build-web'));
+const nodeBuild = path.resolve(positional[1] ??
                                process.env.THINK_WASM_BUILD ??
                                path.join(top, 'build-wasm'));
 
@@ -433,17 +461,27 @@ async function checkAudible (createThinkWeb, dsps, kit, all, buildDir)
     return failures;
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href)
-{
-    if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
-    {
-        process.stdout.write(
-            `piececheck: no Node module in ${nodeBuild}. It is the tape ` +
-            'everything here is compared against;\n            build it ' +
-            'first -- see the top of wasm/CMakeLists.txt.\n');
-        process.exit(1);
-    }
+/* The pieces this process is responsible for. Every Nth from I, rather
+   than a contiguous block: the pieces differ wildly in how long they take
+   to compose -- anthem delivers four thousand events where hands delivers
+   none -- and striding spreads the slow ones over the shards instead of
+   landing them all on one.
 
+   hands.gen's own check is not sharded. It is one fixed piece, and a shard
+   that did not draw it would report it missing rather than skip it, so
+   shard 0 does it and the rest leave it alone. */
+function mine (all, shard)
+{
+    return shard === null
+        ? all
+        : all.filter((_, i) => i % shard.count === shard.index);
+}
+
+/* One process's share of the work: the tape comparison, then hands.gen,
+   then the peak. The three phases and their output are what they were --
+   what changes is only which pieces reach them. */
+async function runShard (shard)
+{
     const { default: createThinkWeb } =
         await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
@@ -452,7 +490,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
     const all = pieces(build);
     let failures = 0;
 
-    for (const piece of all)
+    for (const piece of mine(all, shard))
     {
         if (!piece.seeded)
         {
@@ -514,17 +552,102 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             `${cells.join('   ')}\n`);
     }
 
-    failures += await checkKeys(createThinkWeb, dsps, kit, all);
+    if (shard === null || shard.index === 0)
+        failures += await checkKeys(createThinkWeb, dsps, kit, all);
 
-    process.stdout.write('\n');
-    failures += await checkAudible(createThinkWeb, dsps, kit, all, build);
+    if (shard === null)
+        process.stdout.write('\n');
 
-    process.stdout.write(
-        `\n${failures === 0
-             ? 'every seeded piece composes the same tape in the browser ' +
-               'build as in genwav, at every step; a chord held in ' +
-               'hands.gen is arpeggiated; and every shipped piece sounds ' +
-               "under the page's defaults\n"
-             : `${failures} failed\n`}`);
+    failures += await checkAudible(createThinkWeb, dsps, kit,
+                                   mine(all, shard), build);
+
+    return failures;
+}
+
+/* The shards, run at once, each in its own process -- which is what it
+   takes: the module is wasm on one thread, so two pieces composed in one
+   process take exactly as long as one after the other.
+
+   Every line a shard writes is prefixed with the shard that wrote it.
+   Whose line it is matters here in a way it did not when there was one
+   writer: the shards finish their pieces at their own pace and the output
+   interleaves. Lines are re-assembled before they are prefixed, since a
+   child's stdout arrives in chunks that do not respect them. */
+function runFanOut (count)
+{
+    const children = Array.from({ length: count }, (_, i) =>
+    {
+        const child = spawn(process.execPath,
+                            [fileURLToPath(import.meta.url), build, nodeBuild,
+                             '--shard', `${i}/${count}`],
+                            { stdio: ['ignore', 'pipe', 'inherit'] });
+        const tag = `[${String(i + 1).padStart(String(count).length)}] `;
+        let rest = '';
+
+        child.stdout.setEncoding('utf8');
+        child.stdout.on('data', (d) =>
+        {
+            const parts = (rest + d).split('\n');
+
+            rest = parts.pop();
+
+            for (const line of parts)
+                process.stdout.write(tag + line + '\n');
+        });
+
+        return new Promise((resolve, reject) =>
+        {
+            child.on('error', reject);
+            child.on('close', (status) =>
+            {
+                if (rest !== '')
+                    process.stdout.write(tag + rest + '\n');
+
+                resolve(status);
+            });
+        });
+    });
+
+    return Promise.all(children);
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1]).href)
+{
+    if (!fs.existsSync(path.join(nodeBuild, 'thinksynth.mjs')))
+    {
+        process.stdout.write(
+            `piececheck: no Node module in ${nodeBuild}. It is the tape ` +
+            'everything here is compared against;\n            build it ' +
+            'first -- see the top of wasm/CMakeLists.txt.\n');
+        process.exit(1);
+    }
+
+    /* A shard reports its own failures as its exit status and says nothing
+       about the run as a whole; the parent adds them up and does the
+       talking. `-j 1' is the old single process, output and all. */
+    let failures;
+
+    if (flags.shard === null && flags.jobs > 1)
+    {
+        const statuses = await runFanOut(
+            Math.min(flags.jobs, pieces(build).length));
+
+        /* A shard killed by a signal, or one that threw before it could
+           count anything, exits non-zero without a tally to add: it is at
+           least one failure, and saying so is better than reporting none. */
+        failures = statuses.reduce((n, s) => n + (s === null ? 1 : s), 0);
+    }
+    else
+        failures = await runShard(flags.shard);
+
+    if (flags.shard === null)
+        process.stdout.write(
+            `\n${failures === 0
+                 ? 'every seeded piece composes the same tape in the browser ' +
+                   'build as in genwav, at every step; a chord held in ' +
+                   'hands.gen is arpeggiated; and every shipped piece sounds ' +
+                   "under the page's defaults\n"
+                 : `${failures} failed\n`}`);
+
     process.exitCode = failures;
 }
