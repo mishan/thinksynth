@@ -14,7 +14,7 @@
 
 /* reshape -- past the declared surface, deliberately.
  *
- * The other half of UNIFICATION.md phase 4, at the fine grain. `swap'
+ * The other half of docs/UNIFICATION.md phase 4, at the fine grain. `swap'
  * replaces a channel's whole graph; this changes one constant inside the
  * graph that is already there -- a node's own arg, which the .dsp never
  * offered as a chanarg and which no composer before this could reach.

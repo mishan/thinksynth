@@ -1781,7 +1781,7 @@ static const unsigned TH_MAX_STALLED_WAKES = 8;
  * then a function of how often the host called this: the same file and
  * the same seed gave one piece at a 1024-frame step and another at 256,
  * and two machines with different sound cards could not agree on a piece
- * at all. JAM.md section 3, and SCHEDULER_PLACEMENT.md for the
+ * at all. docs/JAM.md section 3, and SCHEDULER_PLACEMENT.md for the
  * measurements.
  *
  * The chain's nodes move to the wake's time before the stage reads them,
@@ -1898,7 +1898,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
         if (c.muted)
             return;
 
-        /* The arrangement, applied where the mute is (GEN_FORMAT.md
+        /* The arrangement, applied where the mute is (docs/GEN_FORMAT.md
          * §5c). The section is the one this event's own `at' falls in.
          *
          * A level of 0 mutes the chain for that section: its notes and

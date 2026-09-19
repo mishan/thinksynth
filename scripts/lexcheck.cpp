@@ -341,7 +341,7 @@ checkGenAdapter (void)
 
     check(aligned, "gen: every token begins where the shared lexer began one");
 
-    /* Arithmetic is .gen's too now (GEN_FORMAT.md 5a), so `+' is an
+    /* Arithmetic is .gen's too now (docs/GEN_FORMAT.md 5a), so `+' is an
        operator to both languages and the adapter passes it through. */
     check(thcGenLoader::tokenize("a = 1 + 2;", gen, err, line),
           "gen: arithmetic lexes", err);

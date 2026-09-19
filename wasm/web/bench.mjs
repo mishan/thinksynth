@@ -22,7 +22,7 @@
  *
  *   node wasm/web/bench.mjs [BUILD_DIR]
  *
- * The measurement JAM.md's M2 names as the one that could send the
+ * The measurement docs/JAM.md's M2 names as the one that could send the
  * scheduler back out of the worklet. A quantum is 128 frames, 2.67 ms at
  * 48 kHz, and it is a deadline: whatever happens inside process() has to
  * finish inside that or the page hears it. What happens inside it here is

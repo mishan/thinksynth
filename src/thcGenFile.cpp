@@ -1148,7 +1148,7 @@ thcGenLoader::parseMeter (void)
 
 /* `section drop 16 bars { kick = 1; lead = 1.2; };' and `section end;'
  *
- * The arrangement (GEN_FORMAT.md §5c): where the piece goes, written
+ * The arrangement (docs/GEN_FORMAT.md §5c): where the piece goes, written
  * once and in order, instead of eight xform::form patterns under eight
  * chains that somebody has to keep in step by hand.
  *
@@ -1347,7 +1347,7 @@ thcGenLoader::parseSection (thcScheduler *sched)
  *
  *  - A value may be a knob. `fmin = @warmth;' is the same @warmth a
  *    stage param binds to, reaching a composer and an instrument from
- *    one slider -- UNIFICATION.md phase 2, and the reason this block
+ *    one slider -- docs/UNIFICATION.md phase 2, and the reason this block
  *    and the chains below it belong in one file at all. The binding
  *    carries a unit exactly as a literal does, because the number in a
  *    knob is exactly as unitless as the number in a file; what a unit
@@ -1505,7 +1505,7 @@ thcGenLoader::parseEffectSide (thcInstrument &inst, const std::string &where,
  * The second graph an instrument can name: not the one that makes its notes
  * but the one that runs on the sum of them, once per window, whether or not
  * a note is sounding. A delay throw that outlives the note is the case --
- * DSP_FORMAT.md's "An effect graph" says what one is.
+ * docs/DSP_FORMAT.md's "An effect graph" says what one is.
  *
  * Inside the instrument block rather than beside it, because an effect
  * belongs to a channel and it is the instrument that has one. The values are
@@ -2423,7 +2423,7 @@ thcGenLoader::parseNodeStage (thcScheduler *sched, size_t chain,
          * `freq = 0.05', `in0 = other->out' and `in1 = @depth' come back as
          * the leaf they are and take the same three calls they always did;
          * anything with an operator in it becomes the math:: nodes it stands
-         * for, in this chain's own host. See GEN_FORMAT.md 5a: the file used
+         * for, in this chain's own host. See docs/GEN_FORMAT.md 5a: the file used
          * to have to write those nodes out, three lines at a time. */
         const int exprLine = peek().line;
 
@@ -2542,7 +2542,7 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
      *
      * The .dsp spelling, unchanged, which is the same call the arrow
      * makes: a person who has read a patch can read this line, and the
-     * family is right there in it. UNIFICATION.md sketched `dsp::sine',
+     * family is right there in it. docs/UNIFICATION.md sketched `dsp::sine',
      * and the sketch is worse than what it sketched -- `simple' alone
      * does not say which of the plugin directories to look in, and the
      * family is exactly what has to be judged before the module is

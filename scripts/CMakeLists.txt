@@ -257,11 +257,11 @@ think_harness(lexcheck COMPOSERHOST THREADS)
 # The two hosts, diffed. Same graph, same rate, same plugin binaries, cut into
 # windows of one and into a window of two hundred -- which is the difference
 # between what the composer's control-rate host does and what the audio thread
-# does, and the hazard UNIFICATION.md named before phase 3 was written. Needs
+# does, and the hazard docs/UNIFICATION.md named before phase 3 was written. Needs
 # no corpus and no display: it builds its graphs in C++.
 think_harness(hostcheck)
 
-# NODES.md, out of the plugins themselves. Uses the palette's catalogue walk,
+# docs/NODES.md, out of the plugins themselves. Uses the palette's catalogue walk,
 # so the reference covers exactly what the editor offers.
 think_harness(dspnodes  NODEMODEL)
 
@@ -293,9 +293,9 @@ endif()
 # declarations. The ctest below fails if anybody forgets.
 add_custom_target(nodes
     COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
-            -o "${PROJECT_SOURCE_DIR}/NODES.md"
+            -o "${PROJECT_SOURCE_DIR}/docs/NODES.md"
     DEPENDS dspnodes plugins
-    COMMENT "Regenerating NODES.md from the plugins")
+    COMMENT "Regenerating docs/NODES.md from the plugins")
 
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
@@ -379,11 +379,11 @@ add_test(NAME dspsweep
                  -P "${_runner}")
 
 # The committed reference against a fresh one. A plugin whose arg
-# declarations changed without NODES.md being regenerated fails here, which is
+# declarations changed without docs/NODES.md being regenerated fails here, which is
 # what keeps the two from drifting.
 add_test(NAME dspnodes
          COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
-                 -c "${PROJECT_SOURCE_DIR}/NODES.md")
+                 -c "${PROJECT_SOURCE_DIR}/docs/NODES.md")
 
 # The guard's own claim, which no corpus file can make: one instrument that
 # cannot help going non-finite and one that behaves, on two channels at once.

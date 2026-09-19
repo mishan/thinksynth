@@ -26,7 +26,7 @@ target_link_libraries(think_nodemodel PUBLIC think)
 # worth keeping narrow enough to stay true.
 #
 # It links libthink only for thDynLib, the dlopen shim -- there is no reason
-# for a second one of those, and PORTING.md records why the first one exists.
+# for a second one of those, and docs/PORTING.md records why the first one exists.
 # The dependency that matters is the other direction: nothing in libthink and
 # none of the 62 DSP plugins sees cairo, and a visual *module* links neither
 # libthink nor sigc++, which is what stops a visualizer reaching into the graph

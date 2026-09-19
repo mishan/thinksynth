@@ -8,7 +8,7 @@
 # is still plugins/CMakeLists.txt's, read as it stands.
 #
 # Both ABIs come this way now: the DSP plugins a .dsp names, and the
-# composers a .gen names (M2 of JAM.md, the scheduler in the worklet). What
+# composers a .gen names (M2 of docs/JAM.md, the scheduler in the worklet). What
 # each contributes is a wrapper source and a row in the table; CMakeLists.txt
 # here writes the table from the two properties below.
 #

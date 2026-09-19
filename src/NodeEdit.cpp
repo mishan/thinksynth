@@ -213,7 +213,7 @@ static string suffixTextOf (const string &rhs)
  * saved.
  *
  * Four ULP is comfortably more than that gap and comfortably less than any
- * edit a person could mean. (DSP_FORMAT.md records this as one concrete thing
+ * edit a person could mean. (docs/DSP_FORMAT.md records this as one concrete thing
  * the global -ffast-math costs.) */
 static bool sameValue (double a, double b)
 {

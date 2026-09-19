@@ -44,7 +44,7 @@
  * none exists;
  * everything else in the file -- comments, formatting, units, the arithmetic
  * the lexer folds away -- is copied through untouched, because it is never
- * regenerated from the parsed model in the first place. NODE_EDITOR.md
+ * regenerated from the parsed model in the first place. docs/NODE_EDITOR.md
  * discusses why regenerating would be a data-loss hazard.
  */
 

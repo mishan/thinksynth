@@ -20,7 +20,7 @@
  * 1. The shared pitch parser is right, at the values people argue about
  *    (middle C, the octave boundary, flats on C).
  *
- * 2. The loader rejects what GEN_FORMAT.md says it rejects, with the
+ * 2. The loader rejects what docs/GEN_FORMAT.md says it rejects, with the
  *    file and line in the message. Each bad file is generated here --
  *    the corpus cannot contain them, for the same reason argtype builds
  *    its own .dsp files.
@@ -499,7 +499,7 @@ showDivergence (const std::string &a, const std::string &b,
  * So the store keeps two lists and replays both, in order. This is the
  * gate on the second one.
  */
-/* ---- arithmetic over signals (GEN_FORMAT.md 5a) ------------------------
+/* ---- arithmetic over signals (docs/GEN_FORMAT.md 5a) ------------------------
  *
  * `prob = lfo->out * 0.5 + 0.5' is sugar for the math::mul and math::add a
  * chain used to have to spell out three lines at a time. The claim is an
@@ -727,7 +727,7 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
 
     /* ---- and it groups the way a .dsp groups it ------------------------ */
 
-    /* The claim GEN_FORMAT.md 5a makes: one language, whichever file it is
+    /* The claim docs/GEN_FORMAT.md 5a makes: one language, whichever file it is
      * written in. Two parsers say it -- thinklang.yy's rules and the three
      * hand-written functions above -- so the way to hold them together is to
      * ask both the same questions and compare the answers.
@@ -1024,7 +1024,7 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
      * late by up to a step and the next was scheduled from the late one.
      * Two machines with different sound cards composed different pieces
      * from one file and one seed, which is the one failure a jam cannot
-     * see happening (JAM.md section 3). This is what stops it coming
+     * see happening (docs/JAM.md section 3). This is what stops it coming
      * back, and what every new composer meets. */
     sched.reset();
 
@@ -2954,7 +2954,7 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6d. instruments: a piece that carries what it is played on -------- */
 
-/* UNIFICATION.md phase 1. Four claims, each of which fails silently if
+/* docs/UNIFICATION.md phase 1. Four claims, each of which fails silently if
  * nothing watches it:
  *
  * 1. The block parses and the graph actually arrives on a channel. This
@@ -3374,7 +3374,7 @@ checkEffectSide (const std::map<std::string, thcPlugin *> &plugins,
  * spoke TH_EFFECT_PREFIX -- thSynth::getChanArg splits on it, the
  * scheduler's refusal message reads it, an `effect' block's values are
  * stored behind it -- and the sink's name check took an identifier and
- * refused the dot. So GEN_FORMAT.md documented `chanarg = "fx.delay"'
+ * refused the dot. So docs/GEN_FORMAT.md documented `chanarg = "fx.delay"'
  * and the loader rejected the file, and a Leslie's spin-up or a filter
  * sweep on a channel effect was a thing a piece could describe and not
  * perform.
@@ -3746,7 +3746,7 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
     /* ---- knobs reaching into an instrument -------------------------- */
 
-    /* UNIFICATION.md phase 2, and the whole of it: one knob, both sides
+    /* docs/UNIFICATION.md phase 2, and the whole of it: one knob, both sides
      * of the boundary. A stage param bound to a knob is *read* through
      * it; a chanarg cannot be, because what reads a chanarg is the audio
      * graph and the only value it will ever see is the one in its thArg.
@@ -4222,7 +4222,7 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6e. embedded nodes: dsp plugins as chain stages ------------------- */
 
-/* UNIFICATION.md phase 3. Four claims:
+/* docs/UNIFICATION.md phase 3. Four claims:
  *
  * 1. A node's output reaches a composer param, and moves it. The whole
  *    deliverable is "an LFO breathing a chain's density", and a binding
@@ -4680,7 +4680,7 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6f. structure edits: composers reshaping instruments -------------- */
 
-/* UNIFICATION.md phase 4. What has to be true:
+/* docs/UNIFICATION.md phase 4. What has to be true:
  *
  * 1. A swap actually swaps -- the channel is playing a different graph
  *    afterwards, not merely told to.
@@ -7064,7 +7064,7 @@ checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     /* Not a held note, but the same shape of mistake: a value that is not
-       a pitch reaching a sink as one. GEN_FORMAT.md lets a `.' into any
+       a pitch reaching a sink as one. docs/GEN_FORMAT.md lets a `.' into any
        note list and rests the whole idea on every ladder filtering what
        it is handed to 0..127. gen::life climbs a ladder and was the one
        that did not, so a rest in its scale played note -1 on row 0 and
@@ -7347,7 +7347,7 @@ sectionLines (const std::string &text)
     return out;
 }
 
-/* ---- the arrangement (GEN_FORMAT.md 5c) --------------------------------
+/* ---- the arrangement (docs/GEN_FORMAT.md 5c) --------------------------------
  *
  * A section is the piece's shape written once, in the order it is played,
  * instead of an xform::form pattern under every chain. What is checked is

@@ -32,7 +32,7 @@
  *
  *   scripts/dspab -a plugins/ -b plugins/ -B 256 $(find dsp -name '*.dsp')
  *
- * The browser build runs at 256 (JAM.md, section 2). -w counts windows of
+ * The browser build runs at 256 (docs/JAM.md, section 2). -w counts windows of
  * the default length, so both sides render the same number of frames
  * whatever their windows are, and the renders are compared interleaved,
  * since the synth's own window is planar and two lengths of it only line

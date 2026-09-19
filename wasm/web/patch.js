@@ -41,7 +41,7 @@
  * person has chosen by hand -- of nothing else.
  *
  * A .patch is not a graph: it is a `dsp' line, `info' lines and flat
- * `name value[,value]' overrides for that DSP's chanargs (DSP_FORMAT.md,
+ * `name value[,value]' overrides for that DSP's chanargs (docs/DSP_FORMAT.md,
  * section 2). load() does what gthPatchManager::parse does, in the same
  * order -- the .dsp onto the channel, then each override -- at the same
  * level, TH_DEFAULT_CHAN_AMP, which tw_load applies for us.

@@ -57,7 +57,7 @@ struct thcGenToken
     size_t      end;     /* one past where it stops (quotes included)   */
 };
 
-/* Loads a .gen file into a scheduler. See GEN_FORMAT.md for the language.
+/* Loads a .gen file into a scheduler. See docs/GEN_FORMAT.md for the language.
  *
  * A hand-rolled recursive-descent parser rather than the bison/flex
  * additions COMPOSITION_HANDOFF.md §5 originally sketched, and the
@@ -146,7 +146,7 @@ private:
     bool parseInstrument (thcScheduler *sched);
 
     /* `section drop 16 bars { lead = 1.2; };' and `section end;' --
-       the arrangement, GEN_FORMAT.md §5c. */
+       the arrangement, docs/GEN_FORMAT.md §5c. */
     bool parseSection (thcScheduler *sched);
     bool parseMeter (void);
 
@@ -193,7 +193,7 @@ private:
     bool parseParam (thcScheduler *sched, size_t chainIndex,
                      thcStage *stage, const std::string &stageName);
 
-    /* ---- arithmetic over signals (GEN_FORMAT.md 5a) ------------------
+    /* ---- arithmetic over signals (docs/GEN_FORMAT.md 5a) ------------------
      *
      * `prob = lfo->out * 0.5 + 0.5' and `step = @pace * 2'. The same sugar
      * .dsp has, over the same thExprNode, desugared into the chain's own

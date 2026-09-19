@@ -385,7 +385,7 @@ function quietly (what)
 
 /* One row per knob the piece declared, each bound straight to the command
    that moves it. The command carries a frame like every other, so the page
-   is the nearest peer and not a privileged one (JAM.md, section 3). */
+   is the nearest peer and not a privileged one (docs/JAM.md, section 3). */
 function drawKnobs ()
 {
     showKnobs($('knobs'), piece?.knobs ?? [],

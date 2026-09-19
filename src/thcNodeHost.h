@@ -32,7 +32,7 @@ class thSynthTree;
  * The second interpreter: DSP nodes run at control rate, on the GUI
  * thread, for a composer to read.
  *
- * UNIFICATION.md phase 3. The same dlopen'd .so files the audio thread
+ * docs/UNIFICATION.md phase 3. The same dlopen'd .so files the audio thread
  * runs, the same thSynthTree walking them in dependency order, the same
  * `->' wiring between them -- one window of one sample at a time, fifty
  * times a second, so that a piece can put an LFO on a chain's density

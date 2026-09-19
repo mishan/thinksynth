@@ -39,7 +39,7 @@
  *
  * Controls, not chanargs: `name', `author' and `description' are chanargs too
  * and are strings. `.widget' is the line the format already draws between the
- * two (DSP_FORMAT.md).
+ * two (docs/DSP_FORMAT.md).
  *
  * `-g DIR' first runs the guard's own gate over the two graphs in
  * scripts/guard: one that cannot help going non-finite and one that behaves,

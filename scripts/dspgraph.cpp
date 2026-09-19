@@ -87,7 +87,7 @@ static bool overlaps (const NodeGraph::Box &a, const NodeGraph::Box &b)
  * Both prefixes, because probes share the block. Leaving `# @probe' out of the
  * strip would make the "writing the layout changed N other lines" check below
  * fire on every file that has one -- correctly, since they would then be
- * accumulating a line per save, which is precisely the bug DSP_FORMAT.md
+ * accumulating a line per save, which is precisely the bug docs/DSP_FORMAT.md
  * records the layout block already having had once. */
 static bool nonLayoutLines (const string &path, vector<string> &out)
 {
@@ -278,7 +278,7 @@ int main (int argc, char **argv)
         else if (!strcmp(argv[i], "-w"))
         {
             /* Lay out wrapped into bands. Off in the shipped editor -- see
-               NODE_EDITOR.md -- but the code exists, so the invariants have
+               docs/NODE_EDITOR.md -- but the code exists, so the invariants have
                to hold under it too or it is untested code pretending
                otherwise. */
             if (++i >= argc) return 2;

@@ -8,7 +8,7 @@
 # second on the composer's side of the program, where what they modulate
 # is the music rather than the audio.
 #
-# UNIFICATION.md phase 3, and the argument is that a shape over time does
+# docs/UNIFICATION.md phase 3, and the argument is that a shape over time does
 # not care what it is a shape of. `freq = 0.05' is a twenty-second cycle
 # here and a very low note in a patch, and osc::simple cannot tell: it
 # divides by whatever rate it is being run at, which is the whole reason

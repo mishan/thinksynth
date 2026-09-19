@@ -31,7 +31,7 @@
  * A worker rather than the main thread, for three reasons in order: the
  * mirror's job is to receive the same messages the worklet receives, and a
  * worker with the worklet's own handler gets that by construction; a
- * fast-forward runs for seconds and must not freeze the page; and JAM.md's
+ * fast-forward runs for seconds and must not freeze the page; and docs/JAM.md's
  * description of the mirror -- another peer that renders nothing -- is
  * then literally what it is (JAM_M6.md, section 4).
  *

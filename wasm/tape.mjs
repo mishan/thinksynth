@@ -26,7 +26,7 @@
  * the tape; the browser's worklet reads the same struct out of the same
  * module, posts the events to the page, and wasm/web's check prints them
  * with tapeLine() below. M2's gate is that the two files are identical
- * (JAM.md, section 6), which is a claim about the piece and not about two
+ * (docs/JAM.md, section 6), which is a claim about the piece and not about two
  * spellings of a number, so there is one spelling.
  *
  * Nothing here is Node's: a worklet imports this file too.

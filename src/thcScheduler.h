@@ -300,7 +300,7 @@ struct thcInstrument
 
     /* The graph that runs on this channel's summed voices, or empty. Not the
      * one that makes the notes: the one a delay throw needs, which outlives
-     * the note that fed it -- see DSP_FORMAT.md's "An effect graph".
+     * the note that fed it -- see docs/DSP_FORMAT.md's "An effect graph".
      *
      * Loaded after the instrument, because an effect belongs to a channel and
      * loading an instrument builds a new one. */
@@ -408,7 +408,7 @@ struct thcChain
     std::unique_ptr<thcNodeHost> nodes;
 };
 
-/* One stretch of the piece, and what it does to the chains (GEN_FORMAT.md
+/* One stretch of the piece, and what it does to the chains (docs/GEN_FORMAT.md
  * §5c).
  *
  * The arrangement a piece used to write one chain at a time, as an
@@ -529,7 +529,7 @@ public:
         return t == THC_EV_PATCH || t == THC_EV_NODEARG;
     }
 
-    /* ---- structure edits (UNIFICATION.md phase 4) ----
+    /* ---- structure edits (docs/UNIFICATION.md phase 4) ----
      *
      * The services behind THC_EV_PATCH and THC_EV_NODEARG. Both are
      * host-side on purpose: a composer emits an intent and this does
@@ -719,7 +719,7 @@ public:
        a living process rather than restarting a cold one. */
     void setMuted (size_t chain, bool muted);
 
-    /* ---- the arrangement (GEN_FORMAT.md 5c) ----
+    /* ---- the arrangement (docs/GEN_FORMAT.md 5c) ----
      *
      * The sections, in the order they are played. They cycle for ever
      * unless `endAfterSections' is set, which is the file's `section

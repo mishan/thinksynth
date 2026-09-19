@@ -1154,7 +1154,7 @@ validValueText (const std::string &rhs)
     return false;
 }
 
-/* True if a param's current value is arithmetic (GEN_FORMAT.md 5a).
+/* True if a param's current value is arithmetic (docs/GEN_FORMAT.md 5a).
  *
  * The loader's rule, restated: an operator, a call, or a parenthesis. What it
  * is for is the same thing NodeEdit refuses on the .dsp side -- the value in
@@ -1194,7 +1194,7 @@ isExpressionText (const std::string &rhs)
  * behind.
  *
  * Occurrences rather than the whole value. Before arithmetic reached .gen
- * (GEN_FORMAT.md 5a) a param bound to a knob was spelled `@name' and nothing
+ * (docs/GEN_FORMAT.md 5a) a param bound to a knob was spelled `@name' and nothing
  * else, so removeKnob compared the whole right-hand side and that was the
  * same thing. It is not any more: `step = @pace * 2' has to become
  * `step = 0.25 * 2' and keep the multiplication, and comparing the whole

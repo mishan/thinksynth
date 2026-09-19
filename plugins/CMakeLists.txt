@@ -9,7 +9,7 @@
 #   - fft/ holds one .c file that is not a plugin: no module_init, no
 #     module_callback, just fir_filter/iir_filter/gaussian/fft lifted from
 #     Embree & Kimble's C Language Algorithms for DSP. Nothing in the tree
-#     references it. VISUALIZERS.md says why the visualizers did not
+#     references it. docs/VISUALIZERS.md says why the visualizers did not
 #     reuse its FFT: it keeps its twiddle table in a function-static keyed on
 #     the last size asked for, and it calls exit(1) when a calloc fails --
 #     which is a library killing the host process, the exact pattern

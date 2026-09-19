@@ -1,4 +1,4 @@
-# Three-platform CI. See PORTING.md section 4.
+# Three-platform CI. See docs/PORTING.md section 4.
 #
 # Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm, which has
 # no MSVC build, and reinforced by the eleven files in the tree that use
@@ -317,7 +317,7 @@ jobs:
         working-directory: wasm/web
         run: npm ci
 
-      # The browser build (JAM.md, M1 and M2): every plugin and every
+      # The browser build (docs/JAM.md, M1 and M2): every plugin and every
       # composer linked in rather than loaded, with the composer scheduler,
       # for an AudioWorklet -- and the room page (M3), bundled.
       - name: Browser build

@@ -1,6 +1,6 @@
 # thinksynth
 #
-# Replaces autotools + the hand-rolled build.mk. See PORTING.md, "CMake".
+# Replaces autotools + the hand-rolled build.mk. See docs/PORTING.md, "CMake".
 #
 # It began as a deliberately faithful reproduction of what configure.ac and
 # build.mk did rather than an improvement on it, so that the two builds
@@ -27,7 +27,7 @@ include(TestBigEndian)
 # ---------------------------------------------------------------------------
 # Library version
 #
-# Bump lib_major when libthink's ABI changes. ARCHITECTURE.md records what goes
+# Bump lib_major when libthink's ABI changes. docs/ARCHITECTURE.md records what goes
 # wrong when a stale copy with an older soname is left in /usr/local/lib.
 #
 # 7: thPlugin::ArgInfo grew a range and a unit. thPlugin itself is the same
@@ -61,7 +61,7 @@ option(THINK_FAST_MATH "Build with -ffast-math (as autotools did)" OFF)
 
 # Sanitizers are applied globally rather than per-target on purpose. An
 # earlier round of measurements was worthless because the flags reached only
-# the harness and not libthink or the plugins -- see AUDIO.md, "The
+# the harness and not libthink or the plugins -- see docs/AUDIO.md, "The
 # harnesses".
 set(THINK_SANITIZE "" CACHE STRING
     "Sanitizers to build everything with, e.g. address,undefined or thread")

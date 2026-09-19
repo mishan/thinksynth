@@ -36,7 +36,7 @@ class thNode;
  *
  * As it happens those two sit *before* what moved, so the mismatch would
  * probably go unnoticed. "Probably" is the problem: that is precisely the shape
- * of the stale-libthink bug ARCHITECTURE.md describes, where a binary linked
+ * of the stale-libthink bug docs/ARCHITECTURE.md describes, where a binary linked
  * against the wrong library read every header-inlined accessor at the wrong
  * offset and returned garbage without a diagnostic. This check exists to make
  * that loud, and a layout change is what it is for. Stale plugin .so files left
@@ -127,7 +127,7 @@ public:
     /* Everything a plugin can say about one of its args.
      *
      * Direction was the first field and for a long time the only one. This is
-     * the rest of the proposal ARCHITECTURE.md deferred, and the two new fields
+     * the rest of the proposal docs/ARCHITECTURE.md deferred, and the two new fields
      * answer the same question at different resolutions.
      *
      * `step' is 0 for an ordinary continuous parameter and 1 for one that means
@@ -209,7 +209,7 @@ public:
 
         /* What the numbers are: "Hz", "ms", "samples", "0..1", "dB",
          * "semitones". Free text, compared by nothing, shown in a tooltip and
-         * in NODES.md.
+         * in docs/NODES.md.
          *
          * The point is filt::moog's cutoff (a fraction of the sample rate)
          * against filt::res2pole2's (hertz) -- two args with the same name,

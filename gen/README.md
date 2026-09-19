@@ -16,7 +16,7 @@ they carry their own instruments. An `instrument` block names a `.dsp` and the c
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
-once. See §4b of [`../GEN_FORMAT.md`](../GEN_FORMAT.md), and `UNIFICATION.md`
+once. See §4b of [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md), and `../docs/UNIFICATION.md`
 for where this is going.
 
 The rest still name channels, so aim the ones each header lists at patches you
@@ -239,6 +239,6 @@ closing it (warehouse, anthem, pearl, riviera), two channels of one graph so
 that each can carry its own effect (pearl), pinned and unpinned seeds (all of
 them, both ways).
 
-See [`../GEN_FORMAT.md`](../GEN_FORMAT.md) for the language and
+See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) for the language and
 [`../COMPOSITION_HANDOFF.md`](../COMPOSITION_HANDOFF.md) for why it is shaped
 the way it is.

@@ -41,7 +41,7 @@
  * A piece, which is M2: load every seeded .gen, run the transport for a
  * minute at a window of 256 and again at 128, and hold the tape that comes
  * back against the one genwav.mjs delivers under Node for the same seconds.
- * That is M2's gate (JAM.md, section 6), and it is the same comparison
+ * That is M2's gate (docs/JAM.md, section 6), and it is the same comparison
  * piececheck.mjs makes without a browser -- run here through the worklet,
  * the port, and a real audio thread's quanta, which is the part
  * piececheck.mjs cannot see.

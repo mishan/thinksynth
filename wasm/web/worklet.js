@@ -41,7 +41,7 @@
  *
  * No SharedArrayBuffer, so none of the cross-origin isolation it demands:
  * two threads, messages between them, which is the shape the desktop
- * already has (JAM.md, section 3).
+ * already has (docs/JAM.md, section 3).
  */
 
 import createThinkWeb from './thinkweb.js';

@@ -251,7 +251,7 @@ boardToString (const State *st)
 }
 
 /* Degrees only, which is to say 0..127. Every other ladder in the tree
- * filters what it is handed the same way, and GEN_FORMAT.md rests a `.'
+ * filters what it is handed the same way, and docs/GEN_FORMAT.md rests a `.'
  * in a note list on their all doing it: a rest resolves to -1 at load and
  * is simply not a degree. This one pushed whatever strtol returned, so a
  * `.' here became row 0 playing note -1 and the rows above it playing 11,

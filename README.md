@@ -170,8 +170,8 @@ diffs the two note streams byte for byte.
 
 Twenty-six pieces ship, each built around one idea and meant to be read as
 well as heard — [`gen/README.md`](gen/README.md) is the index.
-[`GEN_FORMAT.md`](GEN_FORMAT.md) is the language, and
-[`UNIFICATION.md`](UNIFICATION.md) is where the two languages are going,
+[`docs/GEN_FORMAT.md`](docs/GEN_FORMAT.md) is the language, and
+[`docs/UNIFICATION.md`](docs/UNIFICATION.md) is where the two languages are going,
 and why they keep their `node` and `stage` keywords apart on purpose.
 
 In a browser
@@ -189,7 +189,7 @@ All of it is one AudioWorklet: libthink, all 62 DSP plugins, all 16
 composers and the composer scheduler in one wasm module, with the transport
 stepped by the audio clock itself rather than by a timer. So a page and a
 static file server are the whole of what it takes to hear it.
-[JAM.md](JAM.md) is where this is going: several people playing one piece,
+[docs/JAM.md](docs/JAM.md) is where this is going: several people playing one piece,
 each browser rendering it locally.
 
 Emscripten builds it, at a pinned version — the comparison against the
@@ -278,7 +278,7 @@ piece, each browser rendering the whole of it. The piece's text is shared
 and edited together, with everyone's cursors; Play starts every peer's
 transport at one agreed moment; a knob moved anywhere moves everywhere at
 the same point in the piece; keys play into the seat you took. What
-crosses the network is the score, never the audio. [JAM.md](JAM.md) is
+crosses the network is the score, never the audio. [docs/JAM.md](docs/JAM.md) is
 the design and [JAM_M3.md](JAM_M3.md) the detail of this milestone.
 
 It needs a relay: one small server that holds the document, answers the
@@ -334,14 +334,14 @@ Documentation
 
 | | |
 |---|---|
-| [ARCHITECTURE.md](ARCHITECTURE.md) | the layers, key classes, threading model, audio and MIDI paths |
-| [DSP_FORMAT.md](DSP_FORMAT.md) | the `.dsp` and `.patch` formats, and the rules for writing them |
-| [NODES.md](NODES.md) | every node's args: direction, default, range, units. Generated from the plugins |
-| [AUDIO.md](AUDIO.md) | the output stage: clamping, gain staging, arg initialisation, the harnesses |
-| [NODE_EDITOR.md](NODE_EDITOR.md) | the visual editor's model, behaviour and layout |
-| [VISUALIZERS.md](VISUALIZERS.md) | writing a visual module, and how probes work |
-| [PORTING.md](PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
-| [JAM.md](JAM.md) | playing together in a browser: the plan, milestones and risks |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | the layers, key classes, threading model, audio and MIDI paths |
+| [docs/DSP_FORMAT.md](docs/DSP_FORMAT.md) | the `.dsp` and `.patch` formats, and the rules for writing them |
+| [docs/NODES.md](docs/NODES.md) | every node's args: direction, default, range, units. Generated from the plugins |
+| [docs/AUDIO.md](docs/AUDIO.md) | the output stage: clamping, gain staging, arg initialisation, the harnesses |
+| [docs/NODE_EDITOR.md](docs/NODE_EDITOR.md) | the visual editor's model, behaviour and layout |
+| [docs/VISUALIZERS.md](docs/VISUALIZERS.md) | writing a visual module, and how probes work |
+| [docs/PORTING.md](docs/PORTING.md) | macOS and Windows: decisions, build system, CI, traps |
+| [docs/JAM.md](docs/JAM.md) | playing together in a browser: the plan, milestones and risks |
 | [AIMING.md](AIMING.md) | what a channel sounds like in the page, and who decides it |
-| [PACKAGING.md](PACKAGING.md) | the three install layouts, dependency closure, GTK bundling, Flatpak |
+| [docs/PACKAGING.md](docs/PACKAGING.md) | the three install layouts, dependency closure, GTK bundling, Flatpak |
 | [TODO](TODO) | what is left |

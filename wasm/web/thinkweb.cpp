@@ -22,7 +22,7 @@
  * worklet.js holds one of these and calls a handful of things: load a .dsp
  * or a .gen, press and release a key, move a knob, start the transport,
  * render a block. The synth runs in windows of its own length -- 256 in the
- * browser, JAM.md section 2 -- and a worklet asks for 128-frame quanta;
+ * browser, docs/JAM.md section 2 -- and a worklet asks for 128-frame quanta;
  * gthSynthSource is the ring between the two, the same one the sound card's
  * callback uses on the desktop.
  *
@@ -45,7 +45,7 @@
  * THE SCHEDULER RUNS HERE, stepped once per window by the audio clock
  * itself, which is genwav's loop exactly: step the transport by a window,
  * render the window. SCHEDULER_PLACEMENT.md measured the alternative -- the
- * scheduler on the main thread, ahead of the audio clock -- and JAM.md
+ * scheduler on the main thread, ahead of the audio clock -- and docs/JAM.md
  * section 3 says why this is where it went: the scheduler holds the synth
  * and drives it directly, and much of what it does (the note-offs it
  * derives from durations, the chanarg writes a knob binding makes,
@@ -113,7 +113,7 @@ namespace {
  * Every input is one of these, the page's own included: a knob moved, a key
  * pressed or a transport button has to be applied at the same point in the
  * piece on every peer or their tapes diverge from there on, so the local
- * page has no privileged access to the scheduler (JAM.md, section 3). It is
+ * page has no privileged access to the scheduler (docs/JAM.md, section 3). It is
  * the nearest peer, and its commands take a remote peer's path.
  *
  * A load is the one input that is not stamped. It is a synchronous answer
@@ -273,7 +273,7 @@ void dropStamped (void)
  * thread to put that on, so a key-on spends its render quantum on it --
  * measured at 0.02 to 0.38 ms across the shipped patches, against the
  * 2.67 ms a 128-frame quantum has at 48 kHz. Making a note-on free of
- * allocation is the engine's work, not this file's; JAM.md, section 7, has
+ * allocation is the engine's work, not this file's; docs/JAM.md, section 7, has
  * it as risk 3. What this file keeps off the render path is its own: the
  * queue arrives sorted and has its room already. */
 void applyDue (double start, int len)
@@ -1112,7 +1112,7 @@ EMSCRIPTEN_KEEPALIVE int tw_sink_channel (int k)
  *
  * This is the second half of loading a .patch: a .patch is a `dsp' line
  * and flat `name value[,value]' overrides for that DSP's chanargs
- * (DSP_FORMAT.md, section 2), and gthPatchManager::parse loads the one
+ * (docs/DSP_FORMAT.md, section 2), and gthPatchManager::parse loads the one
  * and then sets the others in exactly this order, at exactly this level
  * -- TH_DEFAULT_CHAN_AMP, which tw_load already applies.
  *
@@ -1944,7 +1944,7 @@ EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
  * time the window's last frame falls on, counted from the origin, and by
  * nothing measured, so the piece is a function of the file and the seed
  * and not of the clock -- which is the property the step-size fix put in
- * the scheduler and this is the first host to lean on (JAM.md, section 3).
+ * the scheduler and this is the first host to lean on (docs/JAM.md, section 3).
  * The scheduler's own commands are applied inside the step, at the time
  * each was stamped for; step() above says why. */
 EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)

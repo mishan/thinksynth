@@ -1,6 +1,6 @@
 # thinksynth for the browser: libthink, every DSP plugin and every composer,
 # with the composer host, linked into one wasm module for an AudioWorklet,
-# and the page that plays it. M1 of JAM.md was the synth in a tab; M2 is the
+# and the page that plays it. M1 of docs/JAM.md was the synth in a tab; M2 is the
 # piece in a tab, which is the scheduler running in the worklet too.
 #
 #   source ~/emsdk/emsdk_env.sh
@@ -263,7 +263,7 @@ const size_t thStaticVisualCount =
 # The composer host is ../cmake/ThinkEmscripten.cmake's list, shared with
 # the Node build. shim/ stands in for glibmm -- see wasm/shim/glibmm.h; the
 # scheduler asks glib for a monotonic clock it does not use here and hangs
-# a timeout that never fires, because the audio clock steps it (JAM.md
+# a timeout that never fires, because the audio clock steps it (docs/JAM.md
 # section 3, and SCHEDULER_PLACEMENT.md for why here and not on the main
 # thread).
 # The composer canvas is the desktop's, compiled again here: one drawing,
@@ -381,7 +381,7 @@ endforeach()
 # list to the worklet, so an effect reaches the module the way an
 # instrument does; what treats the list as playable patches -- the patch
 # menu, check.mjs -- skips the `fx/' entries, since an effect is not a
-# note-playing graph (DSP_FORMAT.md, "An effect graph").
+# note-playing graph (docs/DSP_FORMAT.md, "An effect graph").
 file(GLOB SHIPPED_FX "${THINK_TOP}/dsp/fx/*.dsp")
 list(SORT SHIPPED_FX)
 

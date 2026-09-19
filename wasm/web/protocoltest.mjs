@@ -24,7 +24,7 @@
  *   node wasm/web/protocoltest.mjs [BUILD_DIR] [NODE_BUILD_DIR]
  *
  * M3's first gate (JAM_M3.md, section 8.1), and the "two schedulers in one
- * process" JAM.md's section 5 asks for before any of this gets a UI. No
+ * process" docs/JAM.md's section 5 asks for before any of this gets a UI. No
  * browser, no relay, no sockets: a simulation whose wall clock is a number,
  * with a relay whose clock is another number, and two peers each holding
  * the browser module -- the same wasm the worklet runs -- stepped at a

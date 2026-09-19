@@ -14,7 +14,7 @@
 
 /* swap -- the instrument itself becomes the material.
  *
- * UNIFICATION.md phase 4, at its coarsest and most useful grain: a
+ * docs/UNIFICATION.md phase 4, at its coarsest and most useful grain: a
  * composer that changes *what the channel is*, not what it is playing.
  * Every other composer in this directory emits notes or knob values;
  * this one emits an intent to rebuild a channel around a different

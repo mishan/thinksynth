@@ -14,7 +14,7 @@
 
 /* hostcheck -- the two hosts have to agree.
  *
- * UNIFICATION.md names this hazard before phase 3 is written: "the second
+ * docs/UNIFICATION.md names this hazard before phase 3 is written: "the second
  * interpreter drifts. Control-rate and audio-rate hosts running the same
  * plugin must agree on semantics per sample. A `hostcheck'-style gate --
  * same plugin, same input, both hosts, diff -- belongs in ctest from

@@ -125,7 +125,7 @@ export async function loadPiece (createThinkWeb,
  * per-block calls, the transport stepped once per window inside tw_render
  * exactly as it is under a real audio thread. What comes back is the tape
  * as text, written the way genwav writes it, which is the thing M2's gate
- * compares (JAM.md, section 6). */
+ * compares (docs/JAM.md, section 6). */
 export async function playPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},

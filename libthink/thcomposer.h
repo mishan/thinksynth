@@ -94,7 +94,7 @@ typedef enum {
 
     /* ---- structure edits ---------------------------------------------
      *
-     * UNIFICATION.md phase 4: a composer reshaping the instrument rather
+     * docs/UNIFICATION.md phase 4: a composer reshaping the instrument rather
      * than playing it. The two below are the coarse end and the fine end
      * of the same idea, and both are *intents* -- a plugin says what it
      * wants to be true and the host does it. A composer cannot link
@@ -399,7 +399,7 @@ extern "C" {
      * calls cairo guards both it and its <cairo.h> with THC_NO_DRAW, so
      * a build with no cairo to link -- the browser's, where the scheduler
      * runs in an AudioWorklet that has no canvas and no drawing at all
-     * (JAM.md, sections 3 and 3a) -- compiles the composer without it.
+     * (docs/JAM.md, sections 3 and 3a) -- compiles the composer without it.
      * Absent, it is simply an optional export the module does not offer,
      * which is what thcPlugin::hasDraw already answers for. */
     THINK_PLUGIN_API void composer_draw (void *state, cairo_t *cr,

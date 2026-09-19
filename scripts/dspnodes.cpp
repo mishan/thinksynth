@@ -17,10 +17,10 @@
  */
 
 /*
- * dspnodes -- NODES.md, from the plugins themselves.
+ * dspnodes -- docs/NODES.md, from the plugins themselves.
  *
- *     scripts/dspnodes -p plugins/ -o NODES.md
- *     scripts/dspnodes -p plugins/ -c NODES.md      # the CI gate
+ *     scripts/dspnodes -p plugins/ -o docs/NODES.md
+ *     scripts/dspnodes -p plugins/ -c docs/NODES.md      # the CI gate
  *
  * What a plugin's args are, what they are measured in and what range they
  * accept lives in the plugin -- setArgDesc, setArgRange, setArgUnits,
@@ -192,7 +192,7 @@ writeReference (std::ostream &o, const std::string &pluginPath)
          "\n"
          "The composer modules under `plugins/composer` and the visualizers\n"
          "under `plugins/visual` are not nodes and are not here; see\n"
-         "GEN_FORMAT.md and VISUALIZERS.md.\n"
+         "docs/GEN_FORMAT.md and docs/VISUALIZERS.md.\n"
          "\n";
 
     for (size_t c = 0; c < cat.categories().size(); c++)
@@ -222,7 +222,7 @@ writeReference (std::ostream &o, const std::string &pluginPath)
  * GitHub's Windows runners set core.autocrlf, so the committed file arrives
  * there with CRLF while this generator writes LF -- and the comparison then
  * failed on line 1, printing two copies of "# Node reference" and calling them
- * different. .gitattributes pins NODES.md to LF, which fixes it for a fresh
+ * different. .gitattributes pins docs/NODES.md to LF, which fixes it for a fresh
  * checkout; this fixes it for a tree that predates that line. The same two
  * belts the artwork wears, for the same reason. */
 static std::string
@@ -304,7 +304,7 @@ main (int argc, char **argv)
      * A C++ program starts in the C locale unless something calls setlocale,
      * and nothing here does -- so the committed file and a fresh one agree
      * today by accident rather than by decision. Pinning it says which:
-     * NODES.md is compared byte for byte by a ctest, and a comma decimal
+     * docs/NODES.md is compared byte for byte by a ctest, and a comma decimal
      * separator would fail that for everybody in Europe the first time this
      * gained a dependency that localises. src/main.cpp pins the same thing
      * for the same reason, and its comment is the long version. */

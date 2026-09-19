@@ -161,7 +161,7 @@ export function pieceText (doc)
 }
 
 /* The .dsp files a .gen names: `dsp "amb01.dsp";' in an instrument block
-   and `effect "fx/echo.dsp"' inside it (GEN_FORMAT.md, section 4b). An
+   and `effect "fx/echo.dsp"' inside it (docs/GEN_FORMAT.md, section 4b). An
    effect is a file the loader looks up exactly as it looks up an
    instrument, so a room that carried the one and not the other would
    fail every peer's load. */

@@ -23,7 +23,7 @@
  *
  *   node wasm/web/piececheck.mjs [BUILD_DIR] [NODE_BUILD_DIR]
  *
- * M2's gate, without a browser (JAM.md, section 6). For each shipped piece
+ * M2's gate, without a browser (docs/JAM.md, section 6). For each shipped piece
  * that pins a seed, genwav.mjs renders it under Node out of wasm/'s module
  * -- libthink and the plugins as side modules, the scheduler stepped by a
  * fixed virtual clock in windows of 1024 at 44.1 kHz -- and the browser's
@@ -37,7 +37,7 @@
  * piece composes. That four different step sizes agree is the
  * step-invariance gate: what a piece is must be a function of the file and
  * the seed and not of the host's buffer, or two peers with different sound
- * cards could not play the same piece (JAM.md, section 3).
+ * cards could not play the same piece (docs/JAM.md, section 3).
  *
  * The pieces that pin no seed are skipped and named. They draw their master
  * seed from the host at load and are not meant to repeat -- there is no

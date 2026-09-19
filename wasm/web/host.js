@@ -25,7 +25,7 @@
  * fetch, and its bytes are posted over for the worklet to compile.
  *
  * The bytes, not a compiled WebAssembly.Module. The plan was to compile
- * here and post the module (JAM.md, section 3), and Firefox takes one --
+ * here and post the module (docs/JAM.md, section 3), and Firefox takes one --
  * but Chrome cannot receive a Module on an AudioWorklet's port: it arrives
  * as a messageerror and the worklet never starts. Bytes cross everywhere,
  * and compiling a quarter of a megabyte before the first note is not a
@@ -49,7 +49,7 @@
  * carry a transport time and are applied inside the step at that time, and
  * a begin carries the frame its transport zero falls on: the page is the
  * nearest peer and not a privileged one, and the other peers send the same
- * commands with the same stamps (JAM.md section 3, JAM_M3.md section 1).
+ * commands with the same stamps (docs/JAM.md section 3, JAM_M3.md section 1).
  */
 
 let fetched = null;

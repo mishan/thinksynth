@@ -26,7 +26,7 @@
  *
  * plugins/fft/dsp.c has a working radix-2 -- Embree & Kimble's, from C
  * Language Algorithms for DSP. It is not built, nothing references it, and
- * VISUALIZERS.md said finding out whether it could be reused was a
+ * docs/VISUALIZERS.md said finding out whether it could be reused was a
  * twenty-minute question. The answer is no, for two reasons that are about the
  * shape of it rather than the arithmetic:
  *
@@ -47,7 +47,7 @@
  * kissfft or FFTW would both do, and both are more than a display needs. A
  * spectrum at 1024 bins thirty times a second is 15k butterflies per frame,
  * which is nothing; the reason to take a dependency would be speed, and there
- * is no speed problem to solve. VISUALIZERS.md called it and this is that
+ * is no speed problem to solve. docs/VISUALIZERS.md called it and this is that
  * call carried out.
  *
  * Everything here runs on the GUI thread, like the rest of a visual module.

@@ -6,7 +6,7 @@
 # other reaches inside whatever is there and moves a number the patch
 # never offered.
 #
-# UNIFICATION.md phase 4. The mechanism is the one the plan named before
+# docs/UNIFICATION.md phase 4. The mechanism is the one the plan named before
 # any of it was written: a composer emits an *intent* and the host
 # carries it out. A plugin cannot link libthink and never touches a
 # graph -- `gen::swap' knows nothing about `bell' except that the piece
