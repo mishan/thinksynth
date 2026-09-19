@@ -65,8 +65,14 @@ public:
      *
      * Separate from newPatch rather than a second argument to it, because
      * the two are separate actions in the interface as well: choosing an
-     * effect does not reload the instrument under it. */
-    bool setEffect (int chan, const string &effectName);
+     * effect does not reload the instrument under it.
+     *
+     * `side' is the channel that effect hears besides this one -- the carrier
+     * a vocoder needs, the kick a compressor is keyed from -- or -1, which is
+     * every effect that hears only its own. It belongs to the effect, so a
+     * channel that already has this graph on it with a different side is
+     * rebuilt rather than left alone. */
+    bool setEffect (int chan, const string &effectName, int side = -1);
 
     /* The same, for the .patch itself.
      *
@@ -97,6 +103,12 @@ public:
          * path it resolved to -- so a patch saved afterwards carries the
          * short name it came with. A channel has at most one. */
         string effectFile;
+
+        /* The channel that effect listens to besides this one, in engine
+           numbering, or -1. Saved as a 1-based `side' line beside the
+           `effect' one, because the number a person reads off the mixer is
+           the one they will expect to find in the file. */
+        int effectSide;
 
         string filename;
 

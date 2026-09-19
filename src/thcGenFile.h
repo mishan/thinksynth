@@ -160,10 +160,17 @@ private:
 
     /* `effect "echo.dsp" { delay = 375 ms; };' inside one, and the same
        clause at the top level, where it is the graph on the mix. */
+    /* `sideOK' is false for the master effect, which has no second channel
+       to name: what it hears is every channel already. */
     bool parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
                                 const std::string &where,
                                 const Token &key,
-                                const std::string &prefix);
+                                const std::string &prefix,
+                                bool sideOK);
+
+    /* `side = carrier;' inside one: the other channel that effect hears. */
+    bool parseEffectSide (thcInstrument &inst, const std::string &where,
+                          const Token &key, bool sideOK);
 
     /* `effect "fx/limiter.dsp" { ... };' as a statement of its own. */
     bool parseMasterEffect (thcScheduler *sched, const Token &key);

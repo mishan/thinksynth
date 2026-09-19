@@ -47,6 +47,12 @@
  *      would run every window with nothing driving it; a graph with no in0 is
  *      not an effect and is told so.
  *
+ *   it can hear a second channel.     side0..side<N-1> carry another
+ *      channel's output -- a vocoder's carrier, a compressor's key -- and
+ *      carry *this* window of it, which is what the engine running that
+ *      channel first is for. A channel that would end up waiting on itself
+ *      is refused at load.
+ *
  * Plus the guard: an effect that goes non-finite hands the channel the dry
  * signal rather than a window of NaN, because by then the voices are summed
  * and there is no bad one left to drop.
@@ -182,6 +188,27 @@ static string effect (const string &controls, const string &nodes,
         "    channels = 2;\n"
         "    in0 = 0;\n"
         "    in1 = 0;\n"
+        "    out0 = " + out0 + ";\n"
+        "    out1 = " + out1 + ";\n"
+        "};\n\n" + nodes +
+        "io ionode;\n";
+}
+
+/* The same, declaring side0 and side1 as well: an effect that listens to a
+ * second channel. A file asks for them the way it asks for in<N>, and the
+ * engine writes them only where they were asked for.
+ */
+static string sideEffect (const string &nodes, const string &out0,
+                          const string &out1)
+{
+    return
+        string("name \"fxcheck-side\";\n\n") +
+        "node ionode {\n"
+        "    channels = 2;\n"
+        "    in0 = 0;\n"
+        "    in1 = 0;\n"
+        "    side0 = 0;\n"
+        "    side1 = 0;\n"
         "    out0 = " + out0 + ";\n"
         "    out1 = " + out1 + ";\n"
         "};\n\n" + nodes +
@@ -544,6 +571,155 @@ int main (int argc, char **argv)
                              "loading an instrument takes the channel's "
                              "effect off with it", "");
                 }
+            }
+        }
+    }
+
+    /* ---- a second channel, in side<N> ---------------------------------- */
+
+    /* The whole claim in one number: nothing comes out.
+     *
+     * Channel 0 plays no notes and carries an effect that hands back the
+     * *inverse* of what channel 1 is playing; channel 1 plays a note. The two
+     * are summed by the engine, so if side0 is channel 1's output the mix
+     * cancels to silence, and if it is anything else -- the wrong channel,
+     * the right channel a window late, or zeros -- it does not.
+     *
+     * The window-late case is the one worth naming, because it is what the
+     * engine's channel ordering exists to stop and it is invisible in a peak:
+     * two copies of a note a window apart, one inverted, is not quieter than
+     * one copy. It is a different signal, and this measures the difference.
+     */
+    {
+        const string fx = sideEffect(
+            "node flipl math::sub {\n"
+            "    in0 = 0;\n"
+            "    in1 = ionode->side0;\n"
+            "};\n\n"
+            "node flipr math::sub {\n"
+            "    in0 = 0;\n"
+            "    in1 = ionode->side1;\n"
+            "};\n\n", "flipl->out", "flipr->out");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            double alone = 0, cancelled = 0;
+
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Session s(pluginPath);
+
+                /* The listener on channel 0 and the thing it listens to on
+                   channel 1 -- the way round that needs the reordering, since
+                   the channels run in index order otherwise. */
+                if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                    s.synth.loadTree(instFile, 1, 100) == NULL)
+                {
+                    fail("two instruments load", "");
+                    break;
+                }
+
+                /* Pass 0 is the control: the same graph with no side, so
+                   side0 is zeros and channel 0 contributes nothing. */
+                if (pass == 1 && s.synth.loadEffect(fxFile, 0, 1) == NULL)
+                {
+                    fail("an effect loads with a side channel", "");
+                    break;
+                }
+
+                s.synth.addNote(1, 60, 100);
+                s.run(4);
+
+                const double got = peak(s.take());
+
+                if (pass == 0) alone = got;
+                else cancelled = got;
+            }
+
+            okOrFail(alone > 0 && cancelled < alone * 0.001,
+                     "side0 carries the channel the effect was given, "
+                     "sample for sample and window for window",
+                     "channel 1 alone " + num(alone) + ", against its own "
+                     "inverse " + num(cancelled));
+        }
+    }
+
+    /* A side is the other channel and not this one: an effect that inverts
+     * its side while listening to a channel that is silent leaves the mix
+     * alone, which is the same graph saying the opposite thing. */
+    {
+        const string fx = sideEffect(
+            "node flipl math::sub {\n"
+            "    in0 = 0;\n"
+            "    in1 = ionode->side0;\n"
+            "};\n\n", "flipl->out", "0");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            Session s(pluginPath);
+
+            /* Channel 5 has nothing on it. A side pointing at an empty slot
+               is silence rather than a refusal -- the instrument may yet be
+               loaded onto it, which is what a .gen rewind does. */
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadTree(instFile, 1, 100) == NULL ||
+                s.synth.loadEffect(fxFile, 0, 5) == NULL)
+                fail("an effect loads with a side on an empty channel", "");
+            else
+            {
+                s.synth.addNote(1, 60, 100);
+                s.run(4);
+
+                vector<float> heard = s.take();
+
+                okOrFail(allFinite(heard) && peak(heard) > 0,
+                         "a side naming a channel with nothing on it is "
+                         "silence, not a refusal", "peak " + num(peak(heard)));
+            }
+        }
+    }
+
+    /* And the ring. A channel that hears itself -- directly, or around a
+     * loop of channels that each hear the next -- cannot be run in an order
+     * that satisfies it, so it is refused where it is asked for rather than
+     * sorted out a window at a time on the audio thread.
+     */
+    {
+        const string fx = sideEffect("", "ionode->side0", "ionode->side1");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadTree(instFile, 1, 100) == NULL)
+                fail("two instruments load", "");
+            else
+            {
+                const bool refusedSelf =
+                    s.synth.loadEffect(fxFile, 0, 0) == NULL &&
+                    s.synth.getEffect(0) == NULL;
+
+                /* 0 hears 1, and then 1 asked to hear 0: the two-channel
+                   ring, which is the one a piece would write by accident. */
+                const bool tookFirst =
+                    s.synth.loadEffect(fxFile, 0, 1) != NULL;
+                const bool refusedRing =
+                    s.synth.loadEffect(fxFile, 1, 0) == NULL &&
+                    s.synth.getEffect(1) == NULL;
+
+                /* And a channel that does not exist. */
+                const bool refusedRange =
+                    s.synth.loadEffect(fxFile, 2, 99) == NULL;
+
+                okOrFail(refusedSelf && tookFirst && refusedRing &&
+                         refusedRange,
+                         "a channel may not end up waiting on itself, and a "
+                         "side that is not a channel is refused",
+                         string(refusedSelf ? "" : "it heard itself; ") +
+                         (tookFirst ? "" : "the first leg was refused; ") +
+                         (refusedRing ? "" : "the ring closed; ") +
+                         (refusedRange ? "" : "channel 99 was taken"));
             }
         }
     }

@@ -1439,6 +1439,67 @@ thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
     return expectPunct(';');
 }
 
+/* `side = carrier;' inside an effect block.
+ *
+ * The second thing an effect can hear. An effect is handed the sum of its own
+ * channel's voices and nothing else, which is enough for a delay and not
+ * enough for anything that compares two signals: a vocoder wants a carrier
+ * and a modulator, a compressor keyed off the kick wants the kick. This names
+ * the other one, by instrument, and the engine writes that channel's output
+ * into the effect graph's side0..side<N-1>.
+ *
+ * An instrument, declared before it is named, like a scale or a preset --
+ * which is also what makes a ring impossible to write: an instrument cannot
+ * name itself, because it is not declared until its own block is closed, and
+ * it cannot name a later one at all. The engine refuses a cycle again at
+ * load, because a host may put an effect anywhere.
+ *
+ * The number behind the name is not known yet. Channels are allocated after
+ * the whole file has been read -- see allocateChannels -- so what is recorded
+ * here is the name, and the channel is filled in there with the sinks'.
+ */
+bool
+thcGenLoader::parseEffectSide (thcInstrument &inst, const std::string &where,
+                               const Token &key, bool sideOK)
+{
+    if (!sideOK)
+    {
+        error(key.line, where + " cannot name a side: it is on the mix, "
+              "which is every channel already");
+        return false;
+    }
+
+    if (!inst.side.empty())
+    {
+        error(key.line, where + "'s effect names two sides");
+        return false;
+    }
+
+    if (!expectPunct('='))
+        return false;
+
+    const Token &v = peek();
+
+    if (v.kind != Token::WORD)
+    {
+        error(v.line, where + ": 'side' wants the name of an instrument");
+        return false;
+    }
+
+    Token val = take();
+
+    if (instruments_.find(val.text) == instruments_.end())
+    {
+        error(val.line, where + ": '" + val.text + "' is not a declared "
+              "instrument");
+        return false;
+    }
+
+    inst.side = val.text;
+
+    return expectPunct(';');
+}
+
 /* `effect "echo.dsp" { delay = 375 ms; feedback = 0.45; };'
  *
  * The second graph an instrument can name: not the one that makes its notes
@@ -1460,7 +1521,8 @@ bool
 thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
                                      const std::string &where,
                                      const Token &key,
-                                     const std::string &prefix)
+                                     const std::string &prefix,
+                                     bool sideOK)
 {
     if (!inst.effect.empty())
     {
@@ -1514,6 +1576,18 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
             }
 
             Token inner = take();
+
+            /* A keyword inside the block, for the reason `dsp' and `effect'
+               are keywords outside it: what it names is another instrument
+               rather than a number, and an effect that declared a chanarg
+               called @side would otherwise shadow it. */
+            if (inner.text == "side")
+            {
+                if (!parseEffectSide(inst, where, inner, sideOK))
+                    return false;
+
+                continue;
+            }
 
             if (!parseInstrumentValue(sched, inst, where, inner, prefix))
                 return false;
@@ -1621,7 +1695,7 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
         {
             if (!parseInstrumentEffect(sched, inst,
                                        "instrument " + nameTok.text, key,
-                                       TH_EFFECT_PREFIX))
+                                       TH_EFFECT_PREFIX, true))
                 return false;
 
             continue;
@@ -1675,7 +1749,8 @@ thcGenLoader::parseMasterEffect (thcScheduler *sched, const Token &key)
     master.name = "the mix";
     master.channel = -1;
 
-    if (!parseInstrumentEffect(sched, master, "the master effect", key, ""))
+    if (!parseInstrumentEffect(sched, master, "the master effect", key, "",
+                               false))
         return false;
 
     sched->setMasterEffect(master.effect, master.args);
@@ -3380,6 +3455,32 @@ thcGenLoader::allocateChannels (thcScheduler *sched)
 
         taken[at] = true;
         inst->channel = at;
+    }
+
+    /* And the effects that named a side: the same turn from a name into a
+       number the sinks below get, and it has to happen here for the same
+       reason -- the instrument being listened to may be the one that has
+       just been given a channel.
+
+       The name was checked against the declared instruments when it was
+       read, so a miss here is this loader having a bug rather than the file
+       having an error. */
+    for (size_t i = 0; i < sched->instruments().size(); i++)
+    {
+        thcInstrument *inst = sched->instrument(i);
+
+        if (inst == NULL || inst->side.empty())
+            continue;
+
+        const std::map<std::string, size_t>::const_iterator at =
+            instruments_.find(inst->side);
+        const thcInstrument *of =
+            at != instruments_.end() ? sched->instrument(at->second) : NULL;
+
+        if (of == NULL)
+            continue;
+
+        inst->sideChannel = of->channel;
     }
 
     for (size_t i = 0; i < pendingSinks_.size(); i++)

@@ -154,8 +154,9 @@ ComposerWindow::ComposerWindow (thSynth *synth)
     sched_->setInstrumentUnloader(
         [this](const thcInstrument &inst) { return unloadInstrument(inst); });
     sched_->setEffectLoader(
-        [this](int channel, const std::string &effect, std::string &why)
-        { return loadEffect(channel, effect, why); });
+        [this](int channel, const std::string &effect, int side,
+               std::string &why)
+        { return loadEffect(channel, effect, side, why); });
     sched_->setChannelTaken(
         [this](int channel) { return channelTaken(channel); });
 
@@ -595,7 +596,7 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
 }
 
 bool
-ComposerWindow::loadEffect (int channel, const std::string &effect,
+ComposerWindow::loadEffect (int channel, const std::string &effect, int side,
                             std::string &why)
 {
     gthPatchManager *pm = gthPatchManager::instance();
@@ -610,7 +611,7 @@ ComposerWindow::loadEffect (int channel, const std::string &effect,
        effect the channel already has under the same name, and it takes one
        off when the name is empty -- which is what a piece that dropped its
        `effect' clause means for a channel this window loaded one onto. */
-    if (pm->setEffect(channel, effect))
+    if (pm->setEffect(channel, effect, side))
         return true;
 
     why = effect.empty()

@@ -47,6 +47,15 @@
  * which is one node more than a wet/dry control in the engine would be, and
  * it is a node the author can see and rewire.
  *
+ * It may also hear a second channel. An effect whose io node declares
+ * side0..side<N-1> is given another channel's output there every window --
+ * the carrier a vocoder needs, the kick a compressor is keyed from -- and
+ * which channel that is comes from the `.gen' effect clause's `side' rather
+ * than from the file. The engine runs that channel first, so side<N> carries
+ * the window being mixed and not the one before it, and refuses a cycle at
+ * load. side<N> is read and never written back: what an effect returns is
+ * its own channel's audio.
+ *
  * It runs every window, whether or not a voice sounds. That is the whole
  * point -- a tail has to keep coming out after the last note-off -- and it is
  * why thMidiChan keeps its buffer dirty while an effect is present, so the
@@ -63,13 +72,25 @@ public:
      * `channels' is the channel's, not the graph's: the two can disagree, and
      * what the engine can carry is the smaller of them. `windowlen' sizes the
      * in<N> buffers, which are allocated here so that the audio thread never
-     * has to. */
-    thChanEffect (thSynthTree *tree, int channels, int windowlen);
+     * has to.
+     *
+     * `sideChan' is the channel whose audio this effect listens to besides
+     * its own, or -1. It is carried here rather than on the channel because
+     * it belongs to the effect -- a vocoder wants a carrier, an ordinary
+     * echo does not -- and because thSynth reads it to decide what order to
+     * run the channels in. See side<N> below. */
+    thChanEffect (thSynthTree *tree, int channels, int windowlen,
+                  int sideChan = -1);
     ~thChanEffect ();
 
     /* Audio thread. `buf' is the channel's output -- `channels' channels of
      * `windowlen' samples, interleaved, as thMidiChan mixes it -- and it is
      * read, run through the graph, and written back.
+     *
+     * `side' is the other channel's output, interleaved by `sidechannels',
+     * or NULL where there is none: the audio a vocoder carries, the kick a
+     * compressor is keyed from. It is read into side<N> and never written
+     * back -- what this effect returns is this channel's.
      *
      * A channel this effect has no in<N> for is left alone rather than
      * silenced: a stereo channel through a mono effect keeps its right side
@@ -80,7 +101,8 @@ public:
      * An effect that diverges would otherwise take the channel with it for as
      * long as it is loaded, which is the failure the per-voice guard exists to
      * stop one note doing. */
-    bool process (float *buf, int channels, int windowlen);
+    bool process (float *buf, int channels, int windowlen,
+                  const float *side = NULL, int sidechannels = 0);
 
     /* The same, on a buffer laid out the other way round: `channels'
      * whole windows end to end, which is how thSynth keeps the mix.
@@ -108,11 +130,21 @@ public:
        channel has and what the graph declares in<N> for. */
     int channels (void) const { return channels_; }
 
+    /* The channel this effect hears besides its own, or -1.
+     *
+     * Read by the audio thread every window -- it is what puts the side's
+     * channel in front of this one in thSynth::process, so that side<N>
+     * carries the window that is being mixed rather than the one before it
+     * -- and written never: an effect is built with its side and replaced
+     * to change it, the way it is built with its graph. */
+    int sideChan (void) const { return sideChan_; }
+
 private:
     /* `step' is how far apart two samples of one channel are and `hop'
        how far apart two channels start: (channels, 1) is interleaved and
        (1, windowlen) is planar. */
-    bool run (float *buf, int channels, int windowlen, int step, int hop);
+    bool run (float *buf, int channels, int windowlen, int step, int hop,
+              const float *side, int sidechannels);
 
     void copyChanArgs (void);
     void assignChanArgPointers (void);
@@ -127,6 +159,14 @@ private:
        *creates* the arg when it does not find one. */
     int inindex_[TH_MAX_CHANNELS];
     int outindex_[TH_MAX_CHANNELS];
+
+    /* And where side<N> lives, for the graphs that asked for one. -1 where
+       the file declared none, which is every effect that is not listening to
+       a second channel -- so an echo pays nothing for this and a vocoder
+       pays two buffers. */
+    int sideindex_[TH_MAX_CHANNELS];
+
+    int sideChan_;
 
     int channels_;
 
