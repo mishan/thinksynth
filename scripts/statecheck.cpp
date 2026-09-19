@@ -69,6 +69,7 @@
 #include <string.h>
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -2146,9 +2147,101 @@ static void checkFmop (const string &pluginPath)
         }
     }
 
+    /* ---- the declared range is the slider's and not a law ---- */
+
+    /* `index' carries a range so that a knob knows how far to travel,
+       and the tree's rule is that such a range is advice: a graph may
+       write past it and gets what it asked for. Clamping at the top
+       instead made every index above twenty the same sound, which is a
+       patch quietly turned into a different patch -- and bought nothing,
+       since `mod' is unbounded and the deviation is the product of the
+       two.
+
+       Measured as how far up the spectrum the sidebands get, rather
+       than as "not equal": a 1:1 pair's reach past the carrier goes
+       with its index, so a ceiling on the index is a ceiling on the
+       reach, and a clamp shows up as the two spectra stopping in the
+       same place. Which is exactly what it did: 26 partials either
+       way. */
+    {
+        vector<float> at20, at60;
+        string why;
+
+        if (!render1(pluginPath, fmopPairGraph((float)f0, 1, 20),
+                     "op", "out", 256, len, at20, why) ||
+            !render1(pluginPath, fmopPairGraph((float)f0, 1, 60),
+                     "op", "out", 256, len, at60, why))
+            fail("osc::fmop renders", why);
+        else
+        {
+            int reach20 = 0, reach60 = 0;
+
+            for (int n = 1; n * f0 < 20000; n++)
+            {
+                if (bin(at20, from, window, f0 * n) > 0.01)
+                    reach20 = n;
+
+                if (bin(at60, from, window, f0 * n) > 0.01)
+                    reach60 = n;
+            }
+
+            okOrFail(reach60 > reach20 + 10,
+                     "osc::fmop: an `index' past the declared range is not "
+                     "clamped to it",
+                     "index 20 reaches partial " + num(reach20) +
+                     " and index 60 reaches " + num(reach60));
+        }
+    }
+
+    /* ---- a negative index is none, and a NaN is none ---- */
+
+    /* The floor that is still enforced, and the only part of it that is:
+       both have to land somewhere, and `no modulation' is the reading
+       that leaves a sine rather than a surprise. */
+    {
+        static const float bad[] = { -4, std::numeric_limits<float>::quiet_NaN() };
+        bool good = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(bad) / sizeof(bad[0]) && good; c++)
+        {
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath, fmopPairGraph((float)f0, 1, bad[c]),
+                         "op", "out", 256, len, out, why))
+            {
+                fail("osc::fmop renders", why);
+                return;
+            }
+
+            const double at = bin(out, from, window, f0);
+            const double next = bin(out, from, window, 2 * f0);
+
+            if (!(fabs(at - TH_MAX) < 0.01 && next < 0.01))
+            {
+                good = false;
+                detail = "index " + num(bad[c]) + ": " + num(at) +
+                         " at the fundamental, " + num(next) +
+                         " at twice it";
+            }
+        }
+
+        okOrFail(good, "osc::fmop: an `index' below zero, and one that is "
+                       "not a number, are both no modulation", detail);
+    }
+
     windowsAgree(pluginPath, fmopPairGraph((float)f0, 3.5f, 4), "op", "out",
                  "osc::fmop: the same pair at one sample a window and at "
                  "five hundred");
+
+    /* And again with the feedback loop running, which is the only state
+       this node carries besides the phase: `y1' and `y2' cross a window
+       boundary the same way, and a pair that agreed without them would
+       not have said so. */
+    windowsAgree(pluginPath, fmopGraph((float)f0, 1, 0, 0, 0.9f), "op",
+                 "out", "osc::fmop: the same operator, fed back, at one "
+                 "sample a window and at five hundred");
 }
 
 int main (int argc, char **argv)

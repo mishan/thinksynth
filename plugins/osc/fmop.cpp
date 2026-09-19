@@ -95,7 +95,17 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    or three, a bass is one falling to nothing -- and a two-operator pair
    is already noise by twenty, where the sidebands reach past Nyquist in
    both directions. Declared rather than enforced, like every other
-   range in the tree: the number is a slider's travel and not a law. */
+   range in the tree: the number is a slider's travel and not a law, and
+   the callback below clamps the bottom of it and not the top.
+ *
+   Nothing is bought by clamping the top anyway. `mod' is not bounded --
+   it is whatever the graph put there, and an expression mixing an
+   algorithm's branches will hand over more than full scale as a matter
+   of course -- so the phase deviation this node actually applies is
+   `index * mod', and a ceiling on one factor of a product is not a
+   ceiling on the product. What a big index does is alias, which is a
+   sound and not a fault, and which every other oscillator here is
+   likewise free to make. */
 #define FMOP_INDEX_MAX      20.0f
 
 /* Radians again, and this one *is* enforced, because 1 is where the
@@ -193,7 +203,14 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     for (i = 0; i < windowlen; i++)
     {
         const float ratio = thIsFinite((*in_ratio)[i]) ? (*in_ratio)[i] : 1;
-        const float index = thClampArg((*in_index)[i], 0, FMOP_INDEX_MAX);
+        /* The floor and the NaN, which is all of thClampArg that is
+           wanted here: a negative index is the same timbre with the
+           modulator inverted and is best read as none at all, and a
+           non-finite one has to land somewhere. The ceiling is the
+           slider's -- see FMOP_INDEX_MAX. */
+        const float index = thIsFinite((*in_index)[i])
+                          ? ((*in_index)[i] > 0 ? (*in_index)[i] : 0)
+                          : 0;
         const float fb = thClampArg((*in_feedback)[i], 0,
                                     FMOP_FEEDBACK_MAX);
         const float in = thIsFinite((*in_mod)[i]) ? (*in_mod)[i] : 0;
