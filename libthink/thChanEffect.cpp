@@ -24,16 +24,19 @@
 
 #include "think.h"
 
-thChanEffect::thChanEffect (thSynthTree *tree, int channels, int windowlen)
+thChanEffect::thChanEffect (thSynthTree *tree, int channels, int windowlen,
+                            int sideChan)
 {
     tree_ = tree;
     channels_ = 0;
     scratch_ = NULL;
+    sideChan_ = sideChan;
 
     for (int i = 0; i < TH_MAX_CHANNELS; i++)
     {
         inindex_[i] = -1;
         outindex_[i] = -1;
+        sideindex_[i] = -1;
     }
 
     if (tree_ == NULL || tree_->IONode() == NULL || windowlen <= 0)
@@ -211,23 +214,53 @@ void thChanEffect::indexIOArgs (int windowlen)
         if (arg)
             outindex_[i] = arg->index();
     }
+
+    /* side<N>, for the graphs that asked. Unlike in<N> these are not
+       invented where the file is silent: in<N> is what makes a .dsp an
+       effect at all and every effect has one, while a side is the unusual
+       case, and creating a window-sized buffer on every echo in the tree to
+       hold silence nothing reads is a cost with nothing on the other side of
+       it.
+
+       A file that declares side0 and is given no side channel reads zeros,
+       which is the same thing a vocoder with no carrier should sound like. */
+    for (int i = 0; i < channels_ && i < TH_MAX_CHANNELS; i++)
+    {
+        string name = SIDEPREFIX;
+
+        name += (char)(i + '0');
+
+        if (io->getArg(name) == NULL)
+            continue;
+
+        thArg *arg = io->setArg(name, 0);
+
+        if (arg == NULL)
+            continue;
+
+        arg->allocate(windowlen);
+        sideindex_[i] = arg->index();
+    }
 }
 
 /* Audio thread. */
-bool thChanEffect::process (float *buf, int channels, int windowlen)
+bool thChanEffect::process (float *buf, int channels, int windowlen,
+                            const float *side, int sidechannels)
 {
-    return run(buf, channels, windowlen, channels, 1);
+    return run(buf, channels, windowlen, channels, 1, side, sidechannels);
 }
 
 /* Audio thread. */
 bool thChanEffect::processPlanar (float *buf, int channels, int windowlen)
 {
-    return run(buf, channels, windowlen, 1, windowlen);
+    /* No side on the mix: there is no second channel to name once every
+       channel is already in `buf'. */
+    return run(buf, channels, windowlen, 1, windowlen, NULL, 0);
 }
 
 /* Audio thread. */
 bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
-                        int hop)
+                        int hop, const float *side, int sidechannels)
 {
     if (tree_ == NULL || buf == NULL || scratch_ == NULL || channels_ <= 0 ||
         channels <= 0 || windowlen <= 0)
@@ -251,6 +284,60 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
 
         for (int j = 0; j < windowlen; j++)
             dst[j] = buf[j * step + c * hop];
+    }
+
+    /* And the other channel, where the graph asked for one.
+     *
+     * Three cases, and the middle one is the one worth knowing. A piece
+     * that named a channel gets that channel; a piece that named *none*
+     * gets this one, so that a graph reading side0 always has a signal
+     * there -- a compressor keyed from `side' is an ordinary compressor
+     * until somebody names a kick, which is the same rule dyn::compressor
+     * itself follows for an unwired `side', one level down. And a side
+     * naming a channel with nothing on it is silence, because that is what
+     * that channel is putting out.
+     *
+     * Zeroed rather than left alone in that last case: the side channel can
+     * go away -- an instrument unloaded, a piece closed -- and a buffer
+     * nobody writes any more is the last window of a kick repeating under a
+     * compressor for ever. */
+    for (int c = 0; c < channels_ && c < TH_MAX_CHANNELS; c++)
+    {
+        if (sideindex_[c] < 0)
+            continue;
+
+        thArg *arg = tree_->resolveIOArg(sideindex_[c]);
+
+        if (arg == NULL || arg->values() == NULL ||
+            (int)arg->len() != windowlen)
+            continue;
+
+        float *dst = arg->values();
+
+        if (sideChan_ < 0)
+        {
+            /* Nobody named: this channel, which is what `buf' holds. */
+            const int from = (c < channels) ? c : channels - 1;
+
+            for (int j = 0; j < windowlen; j++)
+                dst[j] = buf[j * step + from * hop];
+
+            continue;
+        }
+
+        if (side == NULL || sidechannels <= 0)
+        {
+            memset(dst, 0, (size_t)windowlen * sizeof(float));
+            continue;
+        }
+
+        /* A mono side into a stereo effect gives both sides the one signal,
+           rather than silence in side1: what a side carries is a key or a
+           carrier, and half of one is not a thing anybody wants. */
+        const int from = (c < sidechannels) ? c : sidechannels - 1;
+
+        for (int j = 0; j < windowlen; j++)
+            dst[j] = side[j * sidechannels + from];
     }
 
     /* Every node, not setActiveNodes(): an effect is entitled to be nothing

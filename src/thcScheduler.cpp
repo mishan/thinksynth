@@ -1030,7 +1030,8 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
         bool got;
 
         if (loadEffect_)
-            got = loadEffect_(inst.channel, inst.effect, why);
+            got = loadEffect_(inst.channel, inst.effect, inst.sideChannel,
+                              why);
         else if (inst.effect.empty())
             got = true;
         else
@@ -1042,7 +1043,7 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
             got = synth_ != NULL &&
                   synth_->loadEffect((path.empty() ? inst.effect
                                                    : path).c_str(),
-                                     inst.channel) != NULL;
+                                     inst.channel, inst.sideChannel) != NULL;
         }
 
         if (!got)

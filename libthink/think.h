@@ -112,6 +112,20 @@ using namespace std;
  * this: a plugin's `in' is a plugin's. */
 #define INPUTPREFIX "in"
 
+/* And the channel an effect listens to besides its own.
+ *
+ * side0..side<N-1> on an effect's io node carry another channel's audio --
+ * the carrier a vocoder needs, the kick a compressor is keyed from -- written
+ * by the engine every window the way in<N> is, and never read back: what an
+ * effect returns is its own channel's.
+ *
+ * A file declares them the way it declares in<N> (`side0 = 0;'), and a graph
+ * that declares none is an effect that hears one channel, which is nearly all
+ * of them. Which channel it is comes from the `.gen' effect clause's `side',
+ * not from the file: the graph is the vocoder, and what is being vocoded is
+ * the piece's business. */
+#define SIDEPREFIX "side"
+
 /* How a channel effect's chanargs are named from outside.
  *
  * `fx.delay' is the effect's `@delay'; a bare `delay' is the instrument's.

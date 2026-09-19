@@ -28,13 +28,23 @@
 # cutoff through a row of eight, which is the step-sequenced filter of
 # the acid box.
 #
-# THE PAD PUMPS. gen::pump emits a dip in the pad's `amp' once a beat --
-# down at the top of the beat, held a moment, back up over most of the
-# beat -- because a channel here cannot hear another and a sidechain
-# has nowhere else to live. The Pump knob is the depth. The pad is
-# supersaw.dsp, seven saws a few cents apart, through fx/hall.dsp: an
-# effect graph on the channel's sum, so the reverb's tail outlives the
-# chord that fed it.
+# THE BASS DUCKS UNDER THE KICK, and the duck is the kick. Its channel
+# carries fx/comp.dsp with `side = kick', which hands the compressor the
+# kick channel's own audio as its key: every kick turns the bass down by
+# what that kick is over the threshold and lets it back up over the
+# release. That is the pump of the record rather than a drawing of one,
+# and the difference is everything a drawing cannot know -- a kick that
+# is quiet, late, missing for a bar, or doubled.
+#
+# THE PAD PUMPS, and it is still drawn. gen::pump emits a dip in the
+# pad's `amp' once a beat -- down at the top of the beat, held a moment,
+# back up over most of the beat -- and it stays here for a reason that
+# is not history: a channel has one effect, and the pad's is fx/hall.dsp.
+# The room is worth more on a pad than the compressor would be, and the
+# composer can duck an `amp' without spending the channel's one graph.
+# The Pump knob is the depth. The pad is supersaw.dsp, seven saws a few
+# cents apart, through that hall: an effect graph on the channel's sum,
+# so the reverb's tail outlives the chord that fed it.
 #
 # AND THE MIX GOES THROUGH A LIMITER, which is the one effect that
 # cannot live on a channel: a top-level `effect' statement puts
@@ -178,6 +188,20 @@ instrument bass {
     d = 300 ms;
     s = 0.6;
     r = 80 ms;
+
+    # And the kick, turning it down. `side' hands this channel's effect
+    # the kick channel's audio, so the duck is the kick's own envelope
+    # rather than a drawing of one -- see the head.
+    effect "fx/comp.dsp" {
+        side = kick;
+
+        threshold = -26;
+        ratio = 6;
+        attack = 3 ms;
+        release = 170 ms;
+        knee = 4;
+        makeup = 2;
+    };
 };
 
 # The stabs, and the delay their channel throws them into.

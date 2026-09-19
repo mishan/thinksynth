@@ -306,6 +306,18 @@ struct thcInstrument
      * loading an instrument builds a new one. */
     std::string effect;
 
+    /* The instrument whose sound that effect hears besides this channel's
+     * own, or empty -- `effect "fx/vocoder.dsp" { side = carrier; }'.
+     *
+     * A name here and a number beside it for the same reason the channel
+     * below is a number: the file names instruments and the engine runs
+     * channels, and the loader is what turns one into the other once every
+     * channel has been allocated. -1 is "no side", which is every effect
+     * that hears only the channel it is on.
+     */
+    std::string side;
+    int sideChannel;
+
     /* Both graphs' values, in one list. The effect's carry a `fx.' prefix on
        their names, which is how the engine addresses them, so the one call
        that writes a chanarg reaches either map. */
@@ -313,7 +325,7 @@ struct thcInstrument
 
     int channel;                /* 0-15, engine numbering; -1 unallocated */
 
-    thcInstrument (void) : channel(-1) {}
+    thcInstrument (void) : sideChannel(-1), channel(-1) {}
 };
 
 /* One placement of a plugin in a chain. */
@@ -592,9 +604,11 @@ public:
      * it had not named, which the next load then refused.
      *
      * Empty takes the effect off, which is what the piece declaring none
-     * means once the host may be holding one from before. */
+     * means once the host may be holding one from before. `side' is the
+     * channel the effect listens to besides its own, or -1; it belongs to
+     * the effect, so a host that swaps one has to carry it across. */
     typedef std::function<bool (int channel, const std::string &effect,
-                                std::string &why)> EffectLoader;
+                                int side, std::string &why)> EffectLoader;
 
     void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
     void setInstrumentUnloader (const InstrumentUnloader &fn)

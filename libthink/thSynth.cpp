@@ -1315,7 +1315,8 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
  * are the same ones every .dsp gets -- an effect is a .dsp, and `375 ms'
  * folds against this synth's rate here for the same reason it does there.
  */
-thSynthTree *thSynth::loadEffect (const string &filename, int channum)
+thSynthTree *thSynth::loadEffect (const string &filename, int channum,
+                                  int sideChan)
 {
     if ((channum < 0) || (channum >= midiChannelCnt_))
     {
@@ -1323,8 +1324,26 @@ thSynthTree *thSynth::loadEffect (const string &filename, int channum)
         return NULL;
     }
 
+    if (sideChan >= midiChannelCnt_)
+    {
+        fprintf(stderr, "thSynth::loadEffect: no such side channel %d\n",
+                sideChan);
+        return NULL;
+    }
+
     std::lock_guard<std::mutex> lock(synthMutex_);
     collectRetired();
+
+    /* Before the parse, because it is a question about the rack rather than
+       about the file, and because refusing it after a successful parse would
+       be the same refusal at greater cost. */
+    if (sideChan >= 0 && sideWouldCycle(channum, sideChan))
+    {
+        fprintf(stderr, "thSynth::loadEffect: channel %d cannot hear channel "
+                "%d -- a channel would be waiting on itself\n", channum + 1,
+                sideChan + 1);
+        return NULL;
+    }
 
     thSynthTree *tree = parseEffect(filename);
 
@@ -1341,7 +1360,8 @@ thSynthTree *thSynth::loadEffect (const string &filename, int channum)
         return NULL;
     }
 
-    thChanEffect *fx = new thChanEffect(tree, chan->numChannels(), windowlen_);
+    thChanEffect *fx = new thChanEffect(tree, chan->numChannels(), windowlen_,
+                                        sideChan);
 
     thSynthCommand cmd;
 
@@ -1361,6 +1381,93 @@ thSynthTree *thSynth::loadEffect (const string &filename, int channum)
     guiEffects_[channum] = fx;
 
     return tree;
+}
+
+/* GUI thread, with synthMutex_ held.
+ *
+ * Each channel hears at most one other, so the graph this walks is a chain
+ * and following it is the whole of the search: from the channel the new
+ * effect would listen to, through whatever that channel's effect listens to,
+ * until it runs out or arrives back at the channel being loaded. The step
+ * count is the belt to the braces -- a ring that does not include `channum'
+ * cannot be built through this function, but a walk that cannot terminate is
+ * not a thing to leave to reasoning.
+ *
+ * guiEffects_ rather than midiChannels_: this runs on the thread that owns
+ * that view, and the two agree except across a queued swap the same thread
+ * posted.
+ */
+bool thSynth::sideWouldCycle (int channum, int sideChan) const
+{
+    int at = sideChan;
+
+    for (int steps = 0; at >= 0 && at < midiChannelCnt_ &&
+                        steps <= midiChannelCnt_; steps++)
+    {
+        if (at == channum)
+            return true;
+
+        thChanEffect *fx = guiEffects_[at];
+
+        at = fx ? fx->sideChan() : -1;
+    }
+
+    return false;
+}
+
+/* Audio thread.
+ *
+ * A side is a "run that one first", and nothing else about the mix cares
+ * what order the channels come in -- they are summed, and addition does not
+ * mind. So the order is the identity until an effect names a side, and then
+ * it is the identity with each side's channel pulled in front of the channel
+ * that named it.
+ *
+ * Each channel hears at most one other, so the dependencies form chains
+ * rather than a tree, and one is walked and emitted deepest-first. A ring is
+ * refused at load; if one arrives here anyway -- two effects loaded across a
+ * swap, say -- `stacked' breaks the walk and what comes out is an order with
+ * one edge unhonored, which is a window of latency on one side rather than a
+ * spin on the audio thread.
+ */
+int thSynth::orderChannels (int *order) const
+{
+    bool done[TH_MIDI_CHANNELS], stacked[TH_MIDI_CHANNELS];
+    int stack[TH_MIDI_CHANNELS];
+    int n = 0;
+
+    for (int i = 0; i < midiChannelCnt_; i++)
+        done[i] = stacked[i] = false;
+
+    for (int i = 0; i < midiChannelCnt_; i++)
+    {
+        int top = 0;
+        int at = i;
+
+        while (at >= 0 && at < midiChannelCnt_ && !done[at] && !stacked[at])
+        {
+            thMidiChan *chan = midiChannels_[at];
+            thChanEffect *fx = chan ? chan->effect() : NULL;
+
+            stacked[at] = true;
+            stack[top++] = at;
+
+            at = fx ? fx->sideChan() : -1;
+        }
+
+        /* Deepest first: the last one pushed is the end of the chain, which
+           is the channel nobody is waiting on. */
+        while (top > 0)
+        {
+            const int c = stack[--top];
+
+            done[c] = true;
+            stacked[c] = false;
+            order[n++] = c;
+        }
+    }
+
+    return n;
 }
 
 /* GUI thread, with synthMutex_ held. The half of loading an effect that is
@@ -1704,8 +1811,17 @@ void thSynth::process (void)
         probeCount++;
     }
 
-    for (int i = 0; i < midiChannelCnt_; i++)
+    /* Not 0..midiChanCount() any more: a channel whose effect names another
+       one as its side has to run after it, so that side<N> carries the window
+       being mixed. With no side anywhere in the rack this is 0..N-1 and
+       nothing about the sum changes. */
+    int order[TH_MIDI_CHANNELS];
+    const int norder = orderChannels(order);
+
+    for (int o = 0; o < norder; o++)
     {
+        const int i = order[o];
+
         /* Gathered per channel, so thMidiChan is handed only the probes that
            concern it and its note loops carry no test beyond the count. Eight
            slots, so this is a fixed eight-iteration scan and not worth
@@ -1739,7 +1855,24 @@ void thSynth::process (void)
                 mixchannels = channels_;
             }
             
-            chan->process(&retired_, taps, ntaps);
+            /* The channel this one's effect listens to, if any: its own
+               output, which the order above has already filled this window.
+               A side pointing at an empty slot is silence rather than an
+               error -- the instrument may yet be loaded onto it. */
+            const float *side = NULL;
+            int sidechannels = 0;
+
+            thChanEffect *fx = chan->effect();
+            const int sidechan = fx ? fx->sideChan() : -1;
+
+            if (sidechan >= 0 && sidechan < midiChannelCnt_ &&
+                midiChannels_[sidechan] != NULL)
+            {
+                side = midiChannels_[sidechan]->output();
+                sidechannels = midiChannels_[sidechan]->numChannels();
+            }
+
+            chan->process(&retired_, taps, ntaps, side, sidechannels);
             chanoutput = chan->output();
 
             if (chanoutput == NULL || mixchannels <= 0) {

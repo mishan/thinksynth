@@ -331,6 +331,42 @@ point: a delay's tail is exactly the part that comes out after the last
 note-off, which is why `delay::echo` inside an instrument cannot be one — the
 ring lives in the voice and the voice is gone.
 
+**It may hear a second channel.** An io node that declares
+`side0`…`side<N-1>` is given another channel's output there, every window,
+beside the `in<N>` that carry its own:
+
+```
+node ionode {
+    channels = 2;
+
+    in0   = 0;          # this channel's voices
+    side0 = 0;          # and the other channel's, if the piece named one
+    side1 = 0;
+
+    out0 = band0->out;
+};
+```
+
+That is the carrier a vocoder needs and the kick a compressor is keyed from —
+the two things an effect cannot do while it hears only the channel it is on.
+Which channel it is comes from the piece rather than from the file: a `.gen`
+says `effect "fx/vocoder.dsp" { side = carrier; };` (GEN_FORMAT.md §4b) and a
+`.patch` writes a `side` line. The graph is the vocoder; what is being vocoded
+is the piece's business.
+
+The engine runs that channel **before** this one, so `side<N>` holds the window
+being mixed and not the one before it. A channel that would end up waiting on
+itself — directly, or around a ring of channels that each hear the next — is
+refused when the effect is loaded. `side<N>` is read and never written back:
+what an effect returns is its own channel's audio.
+
+**Where no side was named, `side<N>` is this channel.** So a graph that reads
+it always has a signal there — a compressor keyed from `side0` is an ordinary
+compressor until a piece names a kick for it, which is why `fx/comp.dsp`
+carries no knob for "is there a side". A side naming a channel with nothing
+loaded on it *is* silence, because that is what an empty channel is putting
+out; the two are different questions with different answers.
+
 **Its `@chanargs` are its own**, kept apart from the instrument's so that an
 instrument's `@a` and an effect's cannot collide. From outside they are named
 `fx.<name>`: `fx.delay` is the effect's, a bare `delay` is the instrument's.
@@ -363,6 +399,7 @@ overrides — a preset over that DSP's `@chanargs`:
 
 ```
 dsp ts1.dsp
+side 3
 effect fx/echo.dsp
 info author Leif Ames
 info title Phat Rip
@@ -380,9 +417,15 @@ written before there were any. Its parameters are written `fx.<name>`, which
 is how the whole engine addresses an effect's chanargs, so that a patch
 setting `a` and an effect declaring one are two lines and two numbers.
 
+`side` is the channel that effect listens to besides this one — the second
+input described above — written 1-based, the way channels are numbered on the
+mixer, and omitted where there is none. A number outside the rack is read as
+no side: what is lost is a sidechain, and the instrument still plays.
+
 **The order in the file is load-bearing.** An effect's parameters do not exist
 until the effect is on the channel, so `effect` is written above them and the
-reader depends on that rather than tolerating either order — a reader that
+reader depends on that rather than tolerating either order — and `side` above
+`effect`, because the side is part of building the effect — a reader that
 tolerated both would hide a writer that had stopped doing it. `dsp` comes
 first for the same reason one step further back: an effect belongs to a
 channel, and the channel is the instrument.

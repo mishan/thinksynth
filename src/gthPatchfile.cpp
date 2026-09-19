@@ -40,7 +40,7 @@ gthPatchManager *gthPatchManager::instance_ = NULL;
 static unsigned patchGeneration = 0;
 
 gthPatchManager::PatchFile::PatchFile (void)
-    : dirty(false), generation(++patchGeneration)
+    : effectSide(-1), dirty(false), generation(++patchGeneration)
 {
 }
 
@@ -171,7 +171,8 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
 }
 
 /* See the header. */
-bool gthPatchManager::setEffect (int chan, const string &effectName)
+bool gthPatchManager::setEffect (int chan, const string &effectName,
+                                 int side)
 {
     if ((chan < 0) || (chan >= numPatches_))
         return false;
@@ -199,6 +200,7 @@ bool gthPatchManager::setEffect (int chan, const string &effectName)
      * was rebuilt underneath it arrives here with a fresh PatchFile and an
      * empty one -- see newPatch. */
     if (!effectName.empty() && patches_[chan]->effectFile == effectName &&
+        patches_[chan]->effectSide == side &&
         synth->getEffect(chan) != NULL)
         return true;
 
@@ -214,6 +216,7 @@ bool gthPatchManager::setEffect (int chan, const string &effectName)
             return false;
 
         patches_[chan]->effectFile.clear();
+        patches_[chan]->effectSide = -1;
     }
     else
     {
@@ -221,10 +224,12 @@ bool gthPatchManager::setEffect (int chan, const string &effectName)
            and an effect is found the same way a graph is: a piece or a patch
            that only loaded from one directory would be one you could not
            send anybody. */
-        if (synth->loadEffect(resolveDsp(effectName).c_str(), chan) == NULL)
+        if (synth->loadEffect(resolveDsp(effectName).c_str(), chan,
+                              side) == NULL)
             return false;
 
         patches_[chan]->effectFile = effectName;
+        patches_[chan]->effectSide = side;
     }
 
     patches_[chan]->dirty = true;
@@ -308,6 +313,13 @@ bool gthPatchManager::parse (const string &filename, int chan)
     bool seen_dsp = false;
     thSynth *synth = thSynth::instance();
     PatchFileArgs arglist;
+
+    /* The channel the effect below listens to besides this one, as a `side'
+       line read before the `effect' it belongs to -- which is the order
+       savePatch writes them in, for the reason the `effect' line gives about
+       coming before its values: the effect is built when its line is read,
+       and its side is part of building it. */
+    int effectSide = -1;
 
     /* Opened by the resolved path, recorded by the name as given -- see
        resolvePatch. A thinkrc that says "leads/SuperRes.patch" stays saying
@@ -445,6 +457,23 @@ bool gthPatchManager::parse (const string &filename, int chan)
 
                 seen_dsp = true;
             }
+            else if (key == "side")
+            {
+                /* 1-based in the file, engine numbering inside: the number a
+                   person reads off the mixer is the one they will expect to
+                   see here. Out of range is no side rather than a refused
+                   patch -- what is lost is a sidechain, and the instrument
+                   still plays.
+
+                   A channel naming itself is the same kind of wrong, and has
+                   to be caught here rather than left to loadEffect: that one
+                   answers a cycle with NULL, and the effect would be dropped
+                   from a patch that is otherwise fine -- and then written
+                   back out without it the next time the patch is saved. */
+                const int n = atoi(values[0].c_str()) - 1;
+
+                effectSide = (n >= 0 && n < numPatches_ && n != chan) ? n : -1;
+            }
             else if (key == "effect")
             {
                 /* After the dsp line and before the `fx.' values, which is
@@ -454,10 +483,11 @@ bool gthPatchManager::parse (const string &filename, int chan)
                    values, which is why the writer decides the order rather
                    than the reader tolerating both. */
                 patches_[chan]->effectFile = values[0];
+                patches_[chan]->effectSide = effectSide;
 
                 const string f = resolveDsp(values[0]);
 
-                if (synth->loadEffect(f.c_str(), chan) == NULL)
+                if (synth->loadEffect(f.c_str(), chan, effectSide) == NULL)
                 {
                     /* Not a failed patch. The instrument is up and playable;
                        what is missing is a delay. Saying so beats refusing a
@@ -467,6 +497,7 @@ bool gthPatchManager::parse (const string &filename, int chan)
                             values[0].c_str());
 
                     patches_[chan]->effectFile.clear();
+                    patches_[chan]->effectSide = -1;
                 }
             }
             else
@@ -537,10 +568,16 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     fprintf(prefsFile, "dsp %s\n", patches_[chan]->dspFile.c_str());
 
     /* Before the values, because the `fx.' ones among them have nowhere to
-       land until the effect is on the channel. */
+       land until the effect is on the channel -- and the side before the
+       effect, because the effect is built when its line is read. */
     if (!patches_[chan]->effectFile.empty())
+    {
+        if (patches_[chan]->effectSide >= 0)
+            fprintf(prefsFile, "side %d\n", patches_[chan]->effectSide + 1);
+
         fprintf(prefsFile, "effect %s\n",
                 patches_[chan]->effectFile.c_str());
+    }
 
     fprintf(prefsFile, "\n");
 

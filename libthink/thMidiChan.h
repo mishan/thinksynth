@@ -74,7 +74,13 @@ public:
 
     void clearAll (RetireQueue *retire);
 
-    /* `probes' are the armed probes pointing at this channel, already filtered
+    /* `side' is the audio the channel's effect listens to besides this one's
+       -- another channel's output, interleaved by `sidechannels', or NULL.
+       Handed in rather than fetched because the channel knows nothing about
+       the others: thSynth holds them, and thSynth is what runs the side's
+       channel first so that this is the window being mixed.
+
+       `probes' are the armed probes pointing at this channel, already filtered
        by thSynth, and already zeroed for this window. They are accumulated
        inside the note loops rather than after process() returns, because a
        note whose envelope ended this window is retired before this call is
@@ -82,7 +88,8 @@ public:
        which is exactly the part of a sound anyone is looking at a scope to
        see. */
     void process (RetireQueue *retire, thProbe *const *probes = NULL,
-                  int nprobes = 0);
+                  int nprobes = 0, const float *side = NULL,
+                  int sidechannels = 0);
 
     /* ---- either, with care ---- */
 

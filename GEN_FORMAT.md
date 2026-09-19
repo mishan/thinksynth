@@ -220,6 +220,40 @@ numbers. Everywhere else in the engine an effect's chanarg is spelled
 `fx.<name>` — that is what a sink's `chanarg = "fx.delay"` reaches, and what a
 refusal names. Inside this block the prefix is implied by the braces.
 
+**An effect may listen to a second channel.**
+
+```
+instrument voice {
+    dsp    "ts1.dsp";
+
+    effect "fx/vocoder.dsp" {
+        side = carrier;         # the other channel this effect hears
+        mix  = 1;
+    };
+};
+```
+
+An effect is handed the sum of its own channel's voices and nothing else,
+which is enough for a delay and not enough for anything that compares two
+signals. `side` names the instrument whose sound goes into the effect graph's
+`side0`…`side<N-1>` — the carrier a vocoder puts the modulator's envelopes
+onto, the kick a compressor is keyed from — while `in0` stays this channel's
+own. DSP_FORMAT.md's "An effect graph" says what the graph declares.
+
+The instrument, not a channel number: channels are an allocation this file
+never spells out. It must be declared before it is named, like a scale or a
+preset, which is also why a ring cannot be written — an instrument is not
+declared until its own block is closed, so it cannot name itself, and it
+cannot name a later one at all. The engine refuses a cycle again when the
+effect is loaded, because a host may put one anywhere.
+
+The engine runs the named channel first, so the side carries the window being
+mixed rather than the one before it. An effect on a channel whose instrument
+names no side reads its own channel in `side0` instead, so a graph written
+around a side is still the graph it is without one — `fx/comp.dsp` is an
+ordinary compressor until a piece hands it a kick. The master effect takes no
+`side`: what it hears is every channel already.
+
 The braces are optional (`effect "fx/echo.dsp";`), the filename is searched
 the same way `dsp`'s is, and an instrument may name at most one. The effect is
 loaded **after** the instrument, because loading an instrument builds a new
@@ -661,7 +695,10 @@ instrument  : "instrument" WORD "{" instrstmt* "}" ";"  # exactly one dsp
 instrstmt   : "dsp" STRING ";"
             | "effect" STRING effectblock? ";"          # at most one
             | instrval
-effectblock : "{" instrval* "}"                        # the effect's chanargs
+effectblock : "{" (effectside | instrval)* "}"         # the effect's chanargs
+effectside  : "side" "=" WORD ";"                      # at most one; an
+                                                       #   instrument, and
+                                                       #   not on the mix
 instrval    : WORD "=" (NUMBER | CHANARG) argunit? ";"  # CHANARG = a knob
 argunit     : "ms" | "%"                               # what .dsp folds
 chain       : "chain" WORD "{" input? stage* sink+ "}" ";"

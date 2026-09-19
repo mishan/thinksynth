@@ -217,8 +217,20 @@ public:
      * A graph whose io node has no in0 is refused. It would run -- every
      * window, on nothing -- and produce whatever a graph with no input
      * produces, which is the failure mode the .dsp/effect distinction exists
-     * to make impossible to reach by accident. */
-    thSynthTree *loadEffect (const string &filename, int channum);
+     * to make impossible to reach by accident.
+     *
+     * `sideChan' is a second channel the effect hears, in its io node's
+     * side0..side<N-1>, or -1 for the usual effect that hears only its own.
+     * That channel is run first, every window, so the side carries what is
+     * being mixed rather than what was mixed last time -- which is why a
+     * channel may not name itself, directly or through a chain of other
+     * channels' sides, and why such a load is refused here rather than
+     * sorted out on the audio thread. A side naming a channel with nothing
+     * on it is not an error: it is silence, and the instrument may yet
+     * arrive. -1 is not silence but this channel's own audio; see
+     * thChanEffect. */
+    thSynthTree *loadEffect (const string &filename, int channum,
+                             int sideChan = -1);
 
     /* Takes the effect off `channum'. True if the audio thread was told;
        false only when the command queue is full, in which case the effect is
@@ -371,6 +383,21 @@ private:
     /* The file half of loading an effect graph, shared by the channel's and
        the mix's. Assumes synthMutex_ is already held. */
     thSynthTree *parseEffect (const string &filename);
+
+    /* GUI thread, with synthMutex_ held. True if putting an effect with
+       `sideChan' onto `channum' would make a channel wait on itself --
+       directly, or around a ring of channels that each hear the next.
+       Walking the GUI's view of the effects, because that is the one the
+       loading thread owns. */
+    bool sideWouldCycle (int channum, int sideChan) const;
+
+    /* Audio thread. What order to run the channels in, so that a channel
+     * named as somebody's side has been mixed before the effect that listens
+     * to it runs. Writes `midiChanCount()' entries into `order' and returns
+     * how many -- which is every live slot, in index order, for a rack with
+     * no side in it, so a piece that uses none sums its channels in exactly
+     * the order it always did. */
+    int orderChannels (int *order) const;
 
     map<string, thSynthTree*> treelist_;
     map<int, string> patchlist_;

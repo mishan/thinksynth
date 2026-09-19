@@ -88,7 +88,7 @@ protected:
        the page -- so it goes through gthPatchManager too, which is also
        what keeps a reload from rebuilding an effect it already has and
        emptying its delay line. `effect' empty takes one off. */
-    bool loadEffect (int channel, const std::string &effect,
+    bool loadEffect (int channel, const std::string &effect, int side,
                      std::string &why);
 
     /* The way back, for a load that failed after this one succeeded.

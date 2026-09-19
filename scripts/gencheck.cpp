@@ -3238,6 +3238,134 @@ checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
     clearChannels(synth);
 }
 
+/* `side = carrier;' inside an effect block: the other channel that effect
+ * hears.
+ *
+ * The seam again rather than the sound -- fxcheck measures what side0
+ * carries. What is held down here is the turn from a name into a number: the
+ * file names an instrument, channels are allocated after the whole file has
+ * been read, and what reaches the engine has to be the channel that
+ * instrument landed on.
+ */
+static void
+checkEffectSide (const std::map<std::string, thcPlugin *> &plugins,
+                 thSynth *synth)
+{
+    clearChannels(synth);
+
+    const std::string body =
+        "instrument carrier {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "};\n"
+        "instrument voice {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    effect \"fx/echo.dsp\" {\n"
+        "        side = carrier;\n"
+        "        mix = 0.5;\n"
+        "    };\n"
+        "};\n"
+        "chain a { stage s gen::eno_line { };"
+        " sink { instrument = carrier; }; };\n"
+        "chain b { stage t gen::eno_line { };"
+        " sink { instrument = voice; }; };\n";
+
+    std::string path = thUtil::tempFile("gencheck-side-");
+
+    if (path.empty())
+    {
+        fail("could not make a scratch file for the side check");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a piece whose effect names a side did not load");
+        }
+        else if (sched.instruments().size() != 2)
+            fail("the side piece did not declare two instruments");
+        else
+        {
+            const thcInstrument &carrier = sched.instruments()[0];
+            const thcInstrument &voice = sched.instruments()[1];
+            thChanEffect *fx = synth->getEffect(voice.channel);
+
+            if (voice.side != "carrier")
+                fail("the effect's `side' did not survive the parse");
+            else if (voice.sideChannel != carrier.channel)
+                fail("the side was not resolved to the carrier's channel");
+            else if (fx == NULL)
+                fail("the effect did not reach the channel");
+            else if (fx->sideChan() != carrier.channel)
+                fail("the channel the engine heard is not the one the file "
+                     "named");
+
+            /* And the carrier keeps its own effect -- which is none. A side
+               is a listener, not a routing change. */
+            if (synth->getEffect(carrier.channel) != NULL)
+                fail("naming a channel as a side put an effect on it");
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    clearChannels(synth);
+
+    /* ---- and what the clause refuses ---------------------------------- */
+
+    /* Declared before it is named, like a scale or a preset -- which is what
+       makes a ring impossible to write here, since an instrument is not
+       declared until its own block is closed. */
+    expectReject(plugins, synth, "side-unknown",
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"fx/echo.dsp\" { side = nobody; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "is not a declared instrument");
+
+    expectReject(plugins, synth, "side-self",
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"fx/echo.dsp\" { side = i; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "is not a declared instrument");
+
+    expectReject(plugins, synth, "side-twice",
+        "instrument a { dsp \"amb01.dsp\"; };\n"
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"fx/echo.dsp\" { side = a; side = a; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "names two sides");
+
+    expectReject(plugins, synth, "side-number",
+        "instrument a { dsp \"amb01.dsp\"; };\n"
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"fx/echo.dsp\" { side = 2; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "wants the name of an instrument");
+
+    /* The mix hears every channel already; there is no second one to name. */
+    expectReject(plugins, synth, "side-on-master",
+        "instrument a { dsp \"amb01.dsp\"; };\n"
+        "effect \"fx/echo.dsp\" { side = a; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = a; }; };",
+        "cannot name a side");
+
+    clearChannels(synth);
+}
+
 /* And the other half of the seam: a *sink* aimed at an effect's knob.
  *
  * Setting an effect's chanargs in the `effect' block is one thing and
@@ -8722,6 +8850,7 @@ main (int argc, char *argv[])
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
     checkInstrumentEffects(plugins, &synth);
+    checkEffectSide(plugins, &synth);
     checkEffectChanargSink(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);

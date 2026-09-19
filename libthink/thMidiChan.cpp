@@ -705,7 +705,7 @@ void thMidiChan::copyChanArgs (thSynthTree *tree)
 }
 
 void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
-                          int nprobes)
+                          int nprobes, const float *side, int sidechannels)
 {
     if (output_ == NULL || bufmix_ == NULL || bufamp_ == NULL ||
         windowlength_ <= 0)
@@ -834,7 +834,8 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
      * single voice. */
     if (effect_ != NULL)
     {
-        if (!effect_->process(output_, channels_, windowlength_))
+        if (!effect_->process(output_, channels_, windowlength_, side,
+                              sidechannels))
         {
             reportNonFinite(GUARD_EFFECT);
         }
