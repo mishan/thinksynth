@@ -474,7 +474,8 @@ add_test(NAME fxcheck
                  "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/hall.dsp"
                  "${PROJECT_SOURCE_DIR}/dsp/fx/chorus.dsp"
-                 "${PROJECT_SOURCE_DIR}/dsp/fx/limiter.dsp")
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/limiter.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/flanger.dsp")
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
