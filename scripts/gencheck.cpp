@@ -7309,6 +7309,105 @@ checkVariation (const std::map<std::string, thcPlugin *> &plugins,
             fail("vary: a doubled note should be two halves of itself");
     }
 
+    /* And the second half is still sounding a moment after it starts.
+     *
+     * The tape above says two notes whatever the scheduler then does
+     * with them, which is why this is a check of its own. The off
+     * derived for the first half falls due at exactly the instant the
+     * second half is pressed, and a step that delivered its ons before
+     * draining its offs released the note it had just made: thMidiChan
+     * keys its voices by pitch, so the off found the new voice rather
+     * than the one it was written for. What sounded was one note and a
+     * release stub.
+     *
+     * Asserted on the voice, because the voice is the only place the
+     * difference shows -- and through an instrument rather than a bare
+     * channel, because a `channel = ' sink delivers to whatever graph is
+     * loaded there and a scratch synth has none. */
+    {
+        clearChannels(synth);
+
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+        std::string tmp = thUtil::tempFile("gencheck-double-");
+
+        if (tmp.empty())
+            fail("vary: the doubled-note check could not make a scratch "
+                 "file");
+        else
+        {
+            {
+                std::ofstream out(tmp.c_str(), std::ios::trunc);
+
+                /* One note, a second long, split into two halves that
+                   meet at 0.5 s. Long enough that the instant they meet
+                   is nowhere near either end of the note. */
+                out << "seed 3;\n"
+                    << "instrument pad { dsp \"amb01.dsp\"; };\n"
+                    << "chain c {\n"
+                    << "  stage src gen::euclid { steps = 1; fills = 1;"
+                    << " rotate = 0;\n"
+                    << "    notes = \"C4\"; period = 4 s; hold = 1 s;"
+                    << " vel = 90; };\n"
+                    << "  stage v xform::vary { grid = 0.5 s;"
+                    << " double = 1; };\n"
+                    << "  sink { instrument = pad; };\n"
+                    << "};\n";
+
+                if (!out.good())
+                    fail("vary: the doubled-note check could not write " +
+                         tmp);
+            }
+
+            const thcInstrument *pad = NULL;
+
+            if (!loader.load(tmp, &sched))
+            {
+                for (size_t i = 0; i < loader.errors().size(); i++)
+                    fprintf(stderr, "gencheck: %s\n",
+                            loader.errors()[i].c_str());
+
+                fail("vary: the doubled-note piece did not load");
+            }
+            else if ((pad = sched.instrument("pad")) == NULL)
+                fail("vary: the doubled-note piece lost its instrument");
+            else
+            {
+                sched.start();
+
+                /* To 0.6 s: past the instant the halves meet, and well
+                   short of where the second one ends. */
+                for (int i = 0; i < 30; i++)
+                {
+                    sched.stepTransport(0.02);
+                    drainSynth();
+                }
+
+                /* Read before stop(), which flushes the offs for
+                   everything still sounding -- including the voice this
+                   is about. */
+                thMidiChan *c = synth->getChannel(pad->channel);
+                thMidiNote *v = c != NULL ? c->getNote(60) : NULL;
+                thNode *io = v != NULL ? v->synthTree()->IONode() : NULL;
+                thArg *trigger = io != NULL ? io->getArg("trigger") : NULL;
+
+                if (trigger == NULL)
+                    fail("vary: a doubled note left no voice sounding at "
+                         "all halfway through its second half");
+                else if ((*trigger)[0] != 1)
+                    fail("vary: the second half of a doubled note was "
+                         "released the instant it began");
+
+                sched.stop();
+                drainSynth();
+            }
+
+            std::filesystem::remove(tmp);
+        }
+
+        clearChannels(synth);
+    }
+
     {
         std::vector<Heard> h = varied("vary approach",
                                       "approach = 1;", 1.3);

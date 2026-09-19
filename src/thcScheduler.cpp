@@ -1630,6 +1630,25 @@ thcScheduler::runStep (void)
                 chains_[i].stages[si]->params.pollNodes();
         }
 
+    /* Offs due at this instant before the ons due at it, then the offs
+     * this step derived itself.
+     *
+     * A note-off falling due at exactly `now' belongs to a note that
+     * started before it, so it has to reach the synth ahead of any on
+     * at the same instant: thMidiChan keys its voices by pitch, and
+     * releaseNote() silences whatever is sounding at that pitch *now*
+     * rather than the voice the off was written for. A note split into
+     * back-to-back halves puts an off and the next on at exactly the
+     * same instant by construction -- xform::vary's `double', and
+     * xform::ratchet's whole subdivision -- and with the ons first the
+     * off released the half that had only just begun. What sounded was
+     * one note and a release stub, on a tape that says two.
+     *
+     * The second call is for the offs deliverDue() has just pushed: a
+     * note whose duration is shorter than the step is already over by
+     * the end of it, and the first call could not have seen an off that
+     * did not exist yet. */
+    sendDueNoteOffs(transportNow_);
     deliverDue(transportNow_);
     sendDueNoteOffs(transportNow_);
 
