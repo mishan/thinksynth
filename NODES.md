@@ -65,6 +65,7 @@ Chorus (moving taps on a short delay)
 | `mix` | in | 0 is the dry signal, 1 is the moving taps alone |  | 0 to 1 |  |  |
 | `taps` | in | How many readers, spread across half the LFO's cycle | 2 | 1 to 3 |  |  |
 | `phase` | in | Where this node's LFO starts, as a fraction of its cycle |  | 0 to 1 |  |  |
+| `feedback` | in | How much of the taps goes back into the line: 0 is a chorus, and either end is a flanger |  | -0.95 to 0.95 |  |  |
 | `out` | out | The signal and its moving copies |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
 | `state` | state |  |  |  |  |  |

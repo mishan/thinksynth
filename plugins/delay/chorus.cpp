@@ -62,6 +62,18 @@
  * here: a cubic would cost four reads a tap to fix a treble loss that a
  * quarter-percent-detuned copy of the signal buries anyway.
  *
+ * FEEDBACK MAKES IT A FLANGER, and nothing else has to change. The taps'
+ * average goes back into the line's write, so one reflection becomes a
+ * resonance: the comb's peaks sharpen, and with `delay' under a couple of
+ * hundred samples and `depth' most of it the sweep is the jet-engine sound
+ * rather than an ensemble. Negative feedback inverts what is written and
+ * moves the peaks to where the notches were -- odd harmonics only, which is
+ * the hollow half of the sound and the reason the arg is signed.
+ *
+ * The loop's gain at a peak is 1/(1 - |feedback|), so the ceiling is short
+ * of 1 (see CHORUS_FEEDBACK_MAX) and the output is louder than the input by
+ * that much wherever the comb peaks. That is what `mix' is for.
+ *
  * SIZED FROM ITS ARGS, so `delay' and `depth' together size the line
  * and moving either one mid-note hands the reader a fresh, empty buffer.
  * `delay::echo' makes the same trade with `size' for the same reason:
@@ -77,7 +89,7 @@
 #include "think.h"
 
 enum {IN_ARG, IN_RATE, IN_DEPTH, IN_DELAY, IN_MIX, IN_TAPS, IN_PHASE,
-      OUT_ARG, INOUT_BUFFER, INOUT_STATE};
+      IN_FEEDBACK, OUT_ARG, INOUT_BUFFER, INOUT_STATE};
 int args[INOUT_STATE + 1];
 
 static const char desc[] = "Chorus (moving taps on a short delay)";
@@ -91,6 +103,15 @@ thPlugin::State    mystate = thPlugin::ACTIVE;
    `delay' and `depth' size an allocation. */
 #define CHORUS_RATE_MAX   10.0f
 #define CHORUS_TAPS_MAX   3
+
+/* Where the feedback stops.
+ *
+ * The loop's gain at a comb peak is 1/(1 - |feedback|), so 1 is a comb that
+ * does not converge: the ringing at the peaks grows until the window guard
+ * catches it. 0.95 is a peak twenty times the input, which is already more
+ * resonance than a flanger is usually asked for, and it is a number the
+ * arithmetic can hold. */
+#define CHORUS_FEEDBACK_MAX 0.95f
 
 void module_cleanup (thPlugin *plugin)
 {
@@ -142,6 +163,22 @@ int module_init (thPlugin *plugin)
                        "Where this node's LFO starts, as a fraction of "
                        "its cycle");
     plugin->setArgRange(args[IN_PHASE], 0, 1);
+    args[IN_FEEDBACK] = plugin->regArg("feedback", thPlugin::ARG_IN);
+    /* The taps' average back into the line's write, which turns the comb
+       from one reflection into a resonance -- and turns this node into a
+       flanger. Negative inverts what is written, so the comb's peaks land
+       where its notches were: the odd-harmonic series, which is the hollow
+       half of the sound.
+
+       It raises the level, and that is arithmetic rather than a fault: the
+       peaks are 1/(1 - |feedback|) times the input, so 0.9 is ten of them.
+       `mix' and the channel's own level are what that is for. */
+    plugin->setArgDesc(args[IN_FEEDBACK],
+                       "How much of the taps goes back into the line: 0 is a "
+                       "chorus, and either end is a flanger");
+    plugin->setArgRange(args[IN_FEEDBACK], -CHORUS_FEEDBACK_MAX,
+                        CHORUS_FEEDBACK_MAX);
+
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
     plugin->setArgDesc(args[OUT_ARG], "The signal and its moving copies");
     plugin->setArgUnits(args[OUT_ARG], "full scale");
@@ -159,7 +196,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     float *out;
     float *buffer, *state;
     thArg *in_arg, *in_rate, *in_depth, *in_delay, *in_mix, *in_taps;
-    thArg *in_phase;
+    thArg *in_phase, *in_feedback;
     thArg *out_arg;
     thArg *inout_buffer, *inout_state;
     unsigned int i;
@@ -173,6 +210,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     in_mix = mod->getArg(node, args[IN_MIX]);
     in_taps = mod->getArg(node, args[IN_TAPS]);
     in_phase = mod->getArg(node, args[IN_PHASE]);
+    in_feedback = mod->getArg(node, args[IN_FEEDBACK]);
 
     inout_buffer = mod->getArg(node, args[INOUT_BUFFER]);
     inout_state = mod->getArg(node, args[INOUT_STATE]);
@@ -196,6 +234,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         float delay = thClampArg((*in_delay)[i], 0, (float)samples / 4);
         int taps = (int)thClampArg((*in_taps)[i], 1, CHORUS_TAPS_MAX);
         const float offset = thClampArg((*in_phase)[i], 0, 1);
+        /* thClampMag and not thClampArg: the inert end of a signed gain is
+           the middle, not the bottom. thClampArg answers a non-finite with
+           `lo', which here is -0.95 -- the loudest inverted comb the node
+           has -- and the line is its own input, so one NaN on the arg would
+           stay in it. delay::allpass clamps its `gain' the same way. */
+        const float feedback = thClampMag((*in_feedback)[i],
+                                          CHORUS_FEEDBACK_MAX);
         unsigned int len;
         float wet = 0;
         int t;
@@ -209,13 +254,13 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         if (at >= len)
             at = 0;
 
-        buffer[at] = thIsFinite(in) ? in : 0;
-
         /* A knob at zero is a graph paying for nothing. The line is
            still written and the LFO still turns -- so the knob can come
            up mid-note onto a line with something in it, rather than
-           onto a fresh silence -- and only the reading is skipped. */
-        for (t = 0; t < taps && mix > 0; t++)
+           onto a fresh silence -- and only the reading is skipped.
+           `feedback' needs the taps whatever `mix' says: what it writes
+           into the line is what makes the next window's comb. */
+        for (t = 0; t < taps && (mix > 0 || feedback != 0); t++)
         {
             /* Across half the cycle -- see the head for why not all of
                it. One tap is a doubler, two is the sound the name is
@@ -247,7 +292,23 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
             wet += a + (b - a) * frac;
         }
 
-        out[i] = in + ((wet / taps) - in) * mix;
+        wet /= taps;
+
+        /* Read first, then written: every tap is at least one sample back,
+           so the order does not move a sample at `feedback = 0' -- and at
+           anything else this is the loop, the taps' average added to what
+           is coming in.
+
+           Guarded, because the line is its own input from here: one sample
+           that is not a number would otherwise circulate for as long as the
+           note lasts. */
+        {
+            const float back = in + feedback * wet;
+
+            buffer[at] = thIsFinite(back) ? back : 0;
+        }
+
+        out[i] = in + (wet - in) * mix;
 
         at = (at + 1) % len;
         phase += rate / (float)samples;

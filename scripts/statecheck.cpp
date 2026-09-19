@@ -1593,6 +1593,54 @@ static vector<NodeSpec> chorusGraph (float hz, float rate, float depth,
     return spec;
 }
 
+/* A click into one tap that does not move: the comb, with nothing else in
+ * it. `mix = 1' so the output is the tap alone, `rate' and `depth' zero so
+ * the tap sits exactly `delay' samples back, and one tap so the loop gain is
+ * the knob rather than the knob over the number of readers.
+ *
+ * env::ad with no attack is the burst delay::allpass uses for the same job.
+ */
+static vector<NodeSpec> chorusClickGraph (float delay, float feedback)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, ch;
+
+    src.name = "src";
+    src.spelling = "env/ad";
+
+    Value a = { "a", 0 };
+    Value d = { "d", 32 };
+    Value p = { "p", TH_MAX };
+
+    src.values.push_back(a);
+    src.values.push_back(d);
+    src.values.push_back(p);
+
+    ch.name = "ch";
+    ch.spelling = "delay/chorus";
+
+    Value r = { "rate", 0 };
+    Value dp = { "depth", 0 };
+    Value dl = { "delay", delay };
+    Value mx = { "mix", 1 };
+    Value tp = { "taps", 1 };
+    Value fb = { "feedback", feedback };
+    Wire  in = { "in", "src", "out" };
+
+    ch.values.push_back(r);
+    ch.values.push_back(dp);
+    ch.values.push_back(dl);
+    ch.values.push_back(mx);
+    ch.values.push_back(tp);
+    ch.values.push_back(fb);
+    ch.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(ch);
+
+    return spec;
+}
+
 /* One bin of a DFT, by hand: the amplitude of the component at `hz' over
  * `n' samples. An FFT would want a window, a table and a power of two;
  * a single bin is two sums, and over a whole number of cycles of every
@@ -1807,11 +1855,190 @@ static void checkChorus (const string &pluginPath)
         }
     }
 
+    /* ---- and `feedback' makes it a flanger ---- */
+
+    /* The tap's output back into the line's write, which turns one
+     * reflection into a resonance. With the LFO stopped it is a plain comb
+     * and the claim can be read straight off the samples: a click comes back
+     * every `delay' samples for as long as the loop holds it, each repeat
+     * `feedback' times the one before.
+     *
+     * Peaks per block rather than single samples because env::ad's burst is
+     * thirty-two samples wide; the block is the delay, so a block holds one
+     * repeat.
+     */
+    {
+        const float tap = 200, fb = 0.9f;
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, chorusClickGraph(tap, fb), "ch", "out", 256,
+                     (unsigned)(tap * 9), got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            vector<double> repeat;
+
+            /* From `tap', which is where the first one lands: the output is
+               the tap alone at `mix = 1', so nothing is heard before it. */
+            for (size_t b = 1; (b + 1) * (size_t)tap <= got.size(); b++)
+                repeat.push_back(peak(vector<float>(
+                    got.begin() + b * (size_t)tap,
+                    got.begin() + (b + 1) * (size_t)tap), 0));
+
+            bool rings = repeat.size() > 6 && repeat[0] > 0;
+            string detail = "saw " + num((double)repeat.size()) + " repeats";
+
+            for (size_t b = 1; b < repeat.size() && rings; b++)
+                if (fabs(repeat[b] - repeat[b - 1] * fb) > repeat[0] * 0.01)
+                {
+                    rings = false;
+                    detail = "repeat " + num((double)b) + " was " +
+                             num(repeat[b]) + ", wanted " +
+                             num(repeat[b - 1] * fb);
+                }
+
+            okOrFail(rings, "delay::chorus: `feedback' rings a click every "
+                            "`delay' samples, each repeat `feedback' of the "
+                            "last", detail);
+        }
+    }
+
+    /* And the sign of it, which is the difference between the two flangers.
+     * Negative feedback writes the inverse back, so every other repeat comes
+     * out upside down -- the comb's peaks move to where its notches were,
+     * which is the hollow one.
+     */
+    {
+        const float tap = 200;
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath, chorusClickGraph(tap, -0.9f), "ch", "out",
+                     256, (unsigned)(tap * 5), got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            bool alternates = true;
+            string detail;
+
+            for (size_t b = 1; b < 4 && alternates; b++)
+            {
+                /* The extreme of the block, sign and all: the repeats are
+                   the same shape and only their polarity is in question. */
+                double top = 0;
+
+                for (size_t i = b * (size_t)tap;
+                     i < (b + 1) * (size_t)tap && i < got.size(); i++)
+                    if (fabs(got[i]) > fabs(top))
+                        top = got[i];
+
+                /* The first repeat is the input read back once and has not
+                   been through the feedback at all, so it is upright; each
+                   trip after it carries the sign again. */
+                if ((b % 2 == 1) ? !(top > 0) : !(top < 0))
+                {
+                    alternates = false;
+                    detail = "repeat " + num((double)b) + " peaked at " +
+                             num(top);
+                }
+            }
+
+            okOrFail(alternates, "delay::chorus: negative `feedback' flips "
+                                 "every other repeat", detail);
+        }
+    }
+
+    /* ---- and a `feedback' that is not a number is no feedback ---- */
+
+    /* The inert end of a signed gain is the middle. thClampArg answers a
+     * non-finite with `lo', which for this arg is -0.95 -- so the reading
+     * that let a NaN through the door would turn the loudest inverted comb
+     * the node has on, and the line being its own input would keep it on.
+     * Against `feedback = 0' sample for sample, because "inert" is not a
+     * level here, it is the other render exactly.
+     */
+    {
+        const float tap = 200;
+        vector<float> off, nan;
+        string why;
+
+        if (!render1(pluginPath, chorusClickGraph(tap, 0), "ch", "out", 256,
+                     (unsigned)(tap * 5), off, why) ||
+            !render1(pluginPath,
+                     chorusClickGraph(tap,
+                                      std::numeric_limits<float>::quiet_NaN()),
+                     "ch", "out", 256, (unsigned)(tap * 5), nan, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            double worst = 0;
+
+            for (size_t i = 0; i < off.size() && i < nan.size(); i++)
+                if (fabs(off[i] - nan[i]) > worst)
+                    worst = fabs(off[i] - nan[i]);
+
+            okOrFail(off.size() == nan.size() && peak(off, 0) > 0 &&
+                     worst == 0,
+                     "delay::chorus: a `feedback' that is not a number is "
+                     "no feedback, and not the bottom of its range",
+                     "off by " + num(worst) + " at worst");
+        }
+    }
+
+    /* ---- the tap is read between samples ---- */
+
+    /* Which is what fx/flanger.dsp's through-zero copy rests on: its dry
+     * copy is a second delay::chorus held still at `Delay', and it is the
+     * same node as the sweeping one precisely so that the two agree on
+     * where `Delay' is. `Delay' in milliseconds is a whole number of
+     * samples only by accident -- 1.5 ms is 66.15 of them at 44100 -- so a
+     * node that truncated would center the sweep somewhere the tap does
+     * not turn around.
+     *
+     * Half a sample back is exactly half of each neighbour, because the
+     * read is linear between the two. Exactly: the same two samples are
+     * being averaged, so there is no rounding to allow for.
+     */
+    {
+        const float tap = 200;
+        vector<float> lo, mid, hi;
+        string why;
+
+        if (!render1(pluginPath, chorusClickGraph(tap, 0), "ch", "out", 256,
+                     (unsigned)(tap * 3), lo, why) ||
+            !render1(pluginPath, chorusClickGraph(tap + 0.5f, 0), "ch", "out",
+                     256, (unsigned)(tap * 3), mid, why) ||
+            !render1(pluginPath, chorusClickGraph(tap + 1, 0), "ch", "out",
+                     256, (unsigned)(tap * 3), hi, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            double worst = 0;
+
+            for (size_t i = 0; i < mid.size() && i < lo.size() &&
+                               i < hi.size(); i++)
+                if (fabs((double)mid[i] - ((double)lo[i] + hi[i]) / 2) > worst)
+                    worst = fabs((double)mid[i] - ((double)lo[i] + hi[i]) / 2);
+
+            okOrFail(peak(mid, 0) > 0 && worst < 1e-3,
+                     "delay::chorus: a tap half a sample back is half of "
+                     "each neighbour, so a fractional `delay' is one",
+                     "off by " + num(worst) + " at worst");
+        }
+    }
+
     windowsAgree(pluginPath,
                  chorusGraph((float)f0, (float)rate, depth, delay, 0.5f, 3),
                  "ch", "out",
                  "delay::chorus: the same taps at one sample a window and "
                  "at five hundred");
+
+    /* The line is its own input with feedback on it, so a window boundary
+       has one more thing to get wrong. */
+    windowsAgree(pluginPath, chorusClickGraph(delay, 0.8f), "ch", "out",
+                 "delay::chorus: the same comb, fed back, at one sample a "
+                 "window and at five hundred");
 }
 
 /* ---- osc::fmop ---------------------------------------------------------- */
