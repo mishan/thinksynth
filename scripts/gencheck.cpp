@@ -3282,6 +3282,123 @@ checkEffectChanargSink (const std::map<std::string, thcPlugin *> &plugins,
 
     std::filesystem::remove(path);
 
+    /* --- and the name that is not there -----------------------------
+     *
+     * An instrument carries two graphs, so "declares no chanarg called
+     * X" has to say which of them was asked. `fx.mix' is the effect's
+     * and the instrument's .dsp was never going to declare it, so a
+     * message naming the .dsp sends the author to a file that cannot
+     * answer -- the same split thcScheduler::writeValues makes over an
+     * `effect' block's own values, and for the same reason.
+     *
+     * The prefix comes off the quoted name too: what has to be gone and
+     * read is `mix' in the effect, and `fx.' is the engine's word for
+     * where to look rather than part of anything declared anywhere. */
+    expectReject(plugins, synth, "fxsink-unknown",
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    effect \"fx/echo.dsp\" { mix = 0.1; };\n"
+        "};\n"
+        "chain m { stage w gen::walk { min = 0; max = 1; step = 0.5;"
+        " period = 0.25 s; };"
+        " sink { instrument = lead; chanarg = \"fx.nosuch\"; }; };\n",
+        "has effect 'fx/echo.dsp', which declares no chanarg called "
+        "'nosuch'");
+
+    /* And the instrument's own args keep the message they had, which is
+       the half that would go quietly if the split were made the wrong
+       way round. */
+    expectReject(plugins, synth, "sink-unknown-instrument",
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    effect \"fx/echo.dsp\" { mix = 0.1; };\n"
+        "};\n"
+        "chain m { stage w gen::walk { min = 0; max = 1; step = 0.5;"
+        " period = 0.25 s; };"
+        " sink { instrument = lead; chanarg = \"nosuch\"; }; };\n",
+        "is 'amb01.dsp', which declares no chanarg called 'nosuch'");
+
+    /* --- and the writer refuses what the loader refuses --------------
+     *
+     * A sink onto an arg a knob already drives is refused by the loader:
+     * both are pushes, so the walk wins every time it fires and the
+     * slider looks dead. thcGenEdit makes the same refusal so that every
+     * state it writes loads -- but it reads the instrument's values off
+     * the index, and the index steps over the `effect' block. So the one
+     * arg a `fx.' sink can name was the one arg the check could not see,
+     * and this is the case that holds the two ends together. */
+    {
+        std::string bound = thUtil::tempFile("gencheck-fxknob-");
+
+        if (bound.empty())
+            fail("could not make a scratch file for the effect knob check");
+        else
+        {
+            std::string why;
+
+            {
+                std::ofstream out(bound.c_str(), std::ios::trunc);
+
+                out << "@w = 0.4;\n@w.min = 0;\n@w.max = 1;\n"
+                       "instrument lead {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    effect \"fx/echo.dsp\" {\n"
+                       "        delay = 250 ms;\n"
+                       "        mix = @w;\n"
+                       "    };\n"
+                       "};\n"
+                       "chain c {\n"
+                       "    stage s gen::eno_line { };\n"
+                       "    sink { instrument = lead; };\n"
+                       "};\n";
+            }
+
+            /* Both writers, since addSink and setSink share the check but
+               not the call site. */
+            if (thcGenEdit::addSink(bound, "c", 1, "lead", "fx.mix", why) ==
+                thcGenEdit::OK)
+                fail("addSink wrote a sink that fights a knob on an "
+                     "effect");
+
+            if (thcGenEdit::setSink(bound, "c", 0, 1, "lead", "fx.mix",
+                                    why) == thcGenEdit::OK)
+                fail("setSink wrote a sink that fights a knob on an "
+                     "effect");
+
+            /* An effect arg no knob drives is still fair game, and so is
+               an instrument arg of the same bare name: the two maps do
+               not see each other, which is the whole reason for the
+               prefix. */
+            editOk(thcGenEdit::addSink(bound, "c", 1, "lead", "fx.delay",
+                                       why), why,
+                   "addSink onto an effect arg no knob drives");
+
+            editOk(thcGenEdit::addSink(bound, "c", 1, "lead", "fmin", why),
+                   why, "addSink onto an instrument arg beside an effect");
+
+            /* And what it wrote loads, which is the claim the refusals
+               above are in aid of. */
+            {
+                thcScheduler sched(synth);
+                thcGenLoader loader(plugins);
+
+                drainSynth();
+
+                if (!loader.load(bound, &sched))
+                {
+                    for (size_t i = 0; i < loader.errors().size(); i++)
+                        fprintf(stderr, "gencheck: %s\n",
+                                loader.errors()[i].c_str());
+
+                    fail("the file after adding effect sinks no longer "
+                         "loads");
+                }
+            }
+
+            std::filesystem::remove(bound);
+        }
+    }
+
     clearChannels(synth);
 }
 

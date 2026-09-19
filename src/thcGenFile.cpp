@@ -671,9 +671,24 @@ thcGenLoader::checkSinkArgs (thcScheduler *sched)
 
         if (!sched->chanArgExists(inst->channel, s.chanarg))
         {
-            error(p.line, "instrument '" + p.instrument + "' is '" +
-                  inst->dsp + "', which declares no chanarg called '" +
-                  s.chanarg + "'");
+            /* Which of the two graphs the name was aimed at. `fx.mix' is
+               the effect's, and naming the instrument's .dsp here would
+               send the author to a file that was never going to declare
+               it -- the same split, for the same reason, that
+               thcScheduler::writeValues makes over an `effect' block's
+               own values. The prefix comes off the quoted name too: what
+               the author has to go and read is `mix' in the effect. */
+            const size_t plen = strlen(TH_EFFECT_PREFIX);
+            const bool prefixed =
+                s.chanarg.compare(0, plen, TH_EFFECT_PREFIX) == 0;
+
+            error(p.line, prefixed
+                  ? "instrument '" + p.instrument + "' has effect '" +
+                    inst->effect + "', which declares no chanarg called '" +
+                    s.chanarg.substr(plen) + "'"
+                  : "instrument '" + p.instrument + "' is '" +
+                    inst->dsp + "', which declares no chanarg called '" +
+                    s.chanarg + "'");
             continue;
         }
 
@@ -3185,7 +3200,7 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
             const std::string bare =
                 prefixed ? chanarg.substr(plen) : chanarg;
 
-            bool ok = !prefixed && chanarg == "*";
+            bool ok = chanarg == "*";
 
             if (!ok && !bare.empty() &&
                 ((bare[0] >= 'a' && bare[0] <= 'z') ||
