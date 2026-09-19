@@ -141,6 +141,26 @@ Applies waveman's waveshaper
 | `gain` | in | How much the shaper is softened; larger is gentler, and 0 is not allowed |  | 0.001 to 8 |  |  |
 | `out` | out | The shaped signal |  |  | full scale |  |
 
+## dyn
+
+### dyn::compressor
+
+Compressor with a threshold, ratio, attack and release
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `out` | out | The input, turned down where it was over the threshold |  | -1 to 1 | full scale |  |
+| `gain` | out | How far it is turning the signal down right now, in dB and never above zero -- a meter, or a control |  | -60 to 0 | dB |  |
+| `state` | state |  |  |  |  |  |
+| `in` | in | Signal in; this is what is turned down |  | -1 to 1 | full scale |  |
+| `side` | in | The key: what the level is measured from. Wire another signal here for a sidechain; leave it alone and `in' keys itself |  | -1 to 1 | full scale |  |
+| `threshold` | in | The level above which the key is turned down, in dB from full scale | -20 | -60 to 0 | dB |  |
+| `ratio` | in | How much of each dB over the threshold gets through: 4 means 4 dB in for 1 dB out. Under 1 reads as 1 | 4 | 1 to 20 | ratio |  |
+| `attack` | in | How long the reduction takes to cover 63% of its way down. Under one sample is instantaneous |  |  | samples |  |
+| `release` | in | And 63% of its way back up, once the key has fallen under the threshold again |  |  | samples |  |
+| `knee` | in | How many dB either side of the threshold the corner is rounded over: 0 is a corner |  | 0 to 24 | dB |  |
+| `makeup` | in | Added to the output afterwards, to put back what the compression took off |  | 0 to 24 | dB |  |
+
 ## env
 
 ### env::ad

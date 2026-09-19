@@ -2981,6 +2981,414 @@ static void checkSample (const string &pluginPath)
     std::filesystem::remove_all(dir, ec);
 }
 
+/* ---- dyn::compressor ----------------------------------------------------
+ *
+ * Three things a compressor has to be true about, and they are three
+ * different measurements.
+ *
+ * The STATIC CURVE is what `threshold' and `ratio' mean: a steady signal so
+ * many dB over the threshold comes out that many dB over, divided by the
+ * ratio. Measured on a sine, well after the attack and with a release long
+ * enough that the gain has settled.
+ *
+ * The ATTACK is what `attack' means: the 63% time of the gain's step. That
+ * needs a step in the level rather than a note, so the input is a square
+ * lifted by its own amplitude -- 0 for half a cycle and full scale for the
+ * other half -- and what is watched is the `gain' output, in dB, where the
+ * exponential is an exponential rather than something an envelope has
+ * already shaped.
+ *
+ * The KEY is what `side' means: the same quiet signal, with and without a
+ * loud key wired in. Only one of them ducks.
+ */
+
+/* `in' is a sine, and the compressor is the only other node. */
+static vector<NodeSpec> compSineGraph (float amp, float hz, float threshold,
+                                       float ratio, float attack,
+                                       float release, float makeup,
+                                       float knee)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, comp;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", amp };
+    Value w = { "waveform", 0 };           /* sine */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    comp.name = "comp";
+    comp.spelling = "dyn/compressor";
+
+    Value t = { "threshold", threshold };
+    Value r = { "ratio", ratio };
+    Value at = { "attack", attack };
+    Value re = { "release", release };
+    Value k = { "knee", knee };
+    Value m = { "makeup", makeup };
+    Wire  in = { "in", "src", "out" };
+
+    comp.values.push_back(t);
+    comp.values.push_back(r);
+    comp.values.push_back(at);
+    comp.values.push_back(re);
+    comp.values.push_back(k);
+    comp.values.push_back(m);
+    comp.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(comp);
+
+    return spec;
+}
+
+/* A level step: a square at `hz' plus its own amplitude, so the signal is
+ * silence for half a cycle and full scale for the other half. `keyed' puts
+ * it on `side' and leaves `in' a quiet sine instead, which is the sidechain.
+ */
+static vector<NodeSpec> compStepGraph (float hz, float threshold, float ratio,
+                                       float attack, float release,
+                                       bool keyed, float quiet)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, lift, quietSrc, comp;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", (float)(TH_MAX * 0.5) };
+    Value w = { "waveform", 2 };           /* square */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    lift.name = "lift";
+    lift.spelling = "math/add";
+
+    Value half = { "in1", (float)(TH_MAX * 0.5) };
+    Wire  from = { "in0", "src", "out" };
+
+    lift.values.push_back(half);
+    lift.wires.push_back(from);
+
+    quietSrc.name = "quiet";
+    quietSrc.spelling = "osc/simple";
+
+    Value qf = { "freq", 220 };
+    Value qa = { "amp", quiet };
+    Value qw = { "waveform", 0 };
+
+    quietSrc.values.push_back(qf);
+    quietSrc.values.push_back(qa);
+    quietSrc.values.push_back(qw);
+
+    comp.name = "comp";
+    comp.spelling = "dyn/compressor";
+
+    Value t = { "threshold", threshold };
+    Value r = { "ratio", ratio };
+    Value at = { "attack", attack };
+    Value re = { "release", release };
+    Value k = { "knee", 0 };
+
+    comp.values.push_back(t);
+    comp.values.push_back(r);
+    comp.values.push_back(at);
+    comp.values.push_back(re);
+    comp.values.push_back(k);
+
+    if (keyed)
+    {
+        Wire in = { "in", "quiet", "out" };
+        Wire side = { "side", "lift", "out" };
+
+        comp.wires.push_back(in);
+        comp.wires.push_back(side);
+    }
+    else
+    {
+        Wire in = { "in", "lift", "out" };
+
+        comp.wires.push_back(in);
+    }
+
+    spec.push_back(src);
+    spec.push_back(lift);
+    spec.push_back(quietSrc);
+    spec.push_back(comp);
+
+    return spec;
+}
+
+/* dB from full scale, which is the unit every number in this plugin is
+   written in. */
+static double dB (double linear)
+{
+    return linear > 1e-9 ? 20 * log10(linear) : -180;
+}
+
+static void checkCompressor (const string &pluginPath)
+{
+    const float rate = (float)TH_DEFAULT_SAMPLES;
+
+    /* ---- the static curve --------------------------------------------- */
+
+    /* 12 dB over a -20 dB threshold at 4:1 comes out 3 dB over. A long
+     * release and a settled second half, because what is being measured is
+     * where the gain ends up and not how it got there.
+     */
+    {
+        const double want = -20 + 12.0 / 4;
+        const float amp = (float)(TH_MAX * pow(10.0, -8.0 / 20.0));
+        vector<float> got;
+        string why;
+
+        if (!render1(pluginPath,
+                     compSineGraph(amp, 440, -20, 4, rate / 1000,
+                                   rate / 5, 0, 0),
+                     "comp", "out", 256, (unsigned)(rate / 2), got, why))
+            fail("dyn::compressor renders", why);
+        else
+        {
+            const double heard = dB(peak(got, got.size() / 2));
+
+            okOrFail(allFinite(got) && fabs(heard - want) < 1,
+                     "dyn::compressor: 12 dB over the threshold at 4:1 comes "
+                     "out 3 dB over",
+                     "wanted " + num(want) + " dB, heard " + num(heard));
+        }
+    }
+
+    /* And under the threshold nothing happens at all -- the same graph, a
+       quiet sine, out at the level it went in. Makeup is where an output
+       that is not the input comes from, so it is here too. */
+    {
+        const float amp = (float)(TH_MAX * pow(10.0, -30.0 / 20.0));
+        vector<float> plain, lifted;
+        string why;
+
+        if (!render1(pluginPath,
+                     compSineGraph(amp, 440, -20, 4, rate / 1000, rate / 5,
+                                   0, 0),
+                     "comp", "out", 256, (unsigned)(rate / 4), plain, why) ||
+            !render1(pluginPath,
+                     compSineGraph(amp, 440, -20, 4, rate / 1000, rate / 5,
+                                   6, 0),
+                     "comp", "out", 256, (unsigned)(rate / 4), lifted, why))
+            fail("dyn::compressor renders", why);
+        else
+        {
+            const double quiet = dB(peak(plain, plain.size() / 2));
+            const double loud = dB(peak(lifted, lifted.size() / 2));
+
+            okOrFail(fabs(quiet - -30) < 0.5 && fabs(loud - quiet - 6) < 0.5,
+                     "dyn::compressor: under the threshold it does nothing, "
+                     "and `makeup' is added afterwards",
+                     "in at -30 dB, out at " + num(quiet) + " dB, and " +
+                     num(loud) + " dB with 6 dB of makeup");
+        }
+    }
+
+    /* ---- the attack is the 63% time of the gain ------------------------ */
+
+    /* A step from silence to full scale against a -20 dB threshold at 4:1 is
+     * a reduction of 15 dB. One attack time after the step the gain has to
+     * be 63% of the way there, and four of them all but arrived -- which is
+     * what an exponential is, and is the claim `attack' makes on a panel.
+     */
+    {
+        const float attack = rate / 100;           /* 10 ms */
+        const double full = (1.0 / 4 - 1) * 20;    /* -15 dB */
+        vector<float> gain;
+        string why;
+
+        if (!render1(pluginPath,
+                     compStepGraph(4, -20, 4, attack, rate / 2, false, 0),
+                     "comp", "gain", 256, (unsigned)(rate / 2), gain, why))
+            fail("dyn::compressor renders", why);
+        else
+        {
+            /* Where the square went up, found rather than assumed: the
+               oscillator's phase at sample zero is its own business, and the
+               first sample of a ten-millisecond attack has only moved a
+               thirtieth of a dB -- so what is looked for is the gain
+               *starting* to move, from a sample where it had let go. */
+            long step = -1;
+
+            for (size_t i = 1; i < gain.size() && step < 0; i++)
+                if (gain[i] < -1e-3 && gain[i - 1] >= -1e-3)
+                    step = (long)i;
+
+            const size_t one = (size_t)(step + (long)attack);
+            const size_t four = (size_t)(step + 4 * (long)attack);
+
+            if (step < 0 || four >= gain.size())
+                fail("dyn::compressor: the level step is in the window",
+                     "step at " + num((double)step));
+            else
+            {
+                const double at1 = gain[one] / full;
+                const double at4 = gain[four] / full;
+
+                okOrFail(fabs(at1 - 0.63) < 0.05 && at4 > 0.97 && at4 <= 1.01,
+                         "dyn::compressor: `attack' is the 63% time of the "
+                         "gain step, and four of them is arrival",
+                         "one attack in " + num(at1 * 100) + "%, four in " +
+                         num(at4 * 100) + "%");
+            }
+        }
+    }
+
+    /* The release is the same exponential the other way: the gain comes back
+       to nothing once the key falls under the threshold. Measured at the end
+       of the silent half cycle, which is many release times long. */
+    {
+        const float release = rate / 200;          /* 5 ms */
+        vector<float> gain;
+        string why;
+
+        if (!render1(pluginPath,
+                     compStepGraph(4, -20, 4, rate / 1000, release, false, 0),
+                     "comp", "gain", 256, (unsigned)(rate / 2), gain, why))
+            fail("dyn::compressor renders", why);
+        else
+        {
+            double worst = 0, back = 0;
+
+            /* The last sample before the square rises again, which is the
+               end of a silent half cycle. */
+            for (size_t i = 1; i < gain.size(); i++)
+            {
+                if (gain[i] < worst)
+                    worst = gain[i];
+
+                if (gain[i] < -1e-3 && gain[i - 1] >= -1e-3)
+                    back = gain[i - 1];
+            }
+
+            okOrFail(worst < -14 && fabs(back) < 0.1,
+                     "dyn::compressor: the gain lets go again once the key "
+                     "is under the threshold",
+                     "it pulled down " + num(worst) + " dB and came back to " +
+                     num(back));
+        }
+    }
+
+    /* ---- the key ------------------------------------------------------- */
+
+    /* The same quiet sine, twice: once alone, and once with a full-scale key
+     * on `side'. Only the second ducks, and it ducks by what the key is over
+     * the threshold -- which is the whole of a sidechain.
+     */
+    {
+        const float quiet = (float)(TH_MAX * pow(10.0, -24.0 / 20.0));
+        const vector<NodeSpec> spec =
+            compStepGraph(2, -20, 4, rate / 1000, rate / 200, true, quiet);
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        vector<float> alone;
+        string why;
+
+        Watch w0 = { "comp", "out" };
+        Watch w1 = { "comp", "gain" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        /* `quiet' out of the same graph is the signal before the compressor
+           -- the control, measured rather than assumed. */
+        if (!render1(pluginPath, spec, "quiet", "out", 256,
+                     (unsigned)(rate / 2), alone, why) ||
+            !render(pluginPath, spec, watch, 256, (unsigned)(rate / 2), got,
+                    why))
+            fail("dyn::compressor renders", why);
+        else
+        {
+            const vector<float> &out = got[0];
+            const vector<float> &gain = got[1];
+
+            /* Which samples are "key up" and which are "key down" is the
+               gain's own answer, so this does not depend on where the square
+               happened to start. Settled samples only: the ramps between are
+               the attack and the release, which the checks above are for. */
+            double ducked = 0, open = 0;
+
+            for (size_t i = 0; i < out.size() && i < gain.size(); i++)
+            {
+                if (gain[i] < -14.5 && fabs(out[i]) > ducked)
+                    ducked = fabs(out[i]);
+
+                if (gain[i] > -0.1 && fabs(out[i]) > open)
+                    open = fabs(out[i]);
+            }
+
+            okOrFail(fabs(dB(peak(alone, 0)) - -24) < 0.5 &&
+                     fabs(dB(open) - -24) < 0.5 &&
+                     fabs(dB(ducked) - (-24 - 15)) < 1,
+                     "dyn::compressor: a key on `side' ducks a quiet `in', "
+                     "and lets go of it again",
+                     "in at " + num(dB(peak(alone, 0))) + " dB, out at " +
+                     num(dB(open)) + " dB with the key down and " +
+                     num(dB(ducked)) + " dB with it up");
+        }
+    }
+
+    /* ---- the knee ------------------------------------------------------ */
+
+    /* A signal under the threshold and inside the knee. With a corner it is
+     * untouched, because it is under the threshold; with the corner rounded
+     * over 24 dB it is already being turned down a little, which is what a
+     * soft knee is for -- the moment a compressor starts working is audible
+     * where the curve has a corner in it, and not where it does not.
+     */
+    {
+        const float amp = (float)(TH_MAX * pow(10.0, -26.0 / 20.0));
+        vector<float> hard, soft;
+        string why;
+
+        if (!render1(pluginPath,
+                     compSineGraph(amp, 440, -20, 4, rate / 1000, rate / 5,
+                                   0, 0),
+                     "comp", "out", 256, (unsigned)(rate / 4), hard, why) ||
+            !render1(pluginPath,
+                     compSineGraph(amp, 440, -20, 4, rate / 1000, rate / 5,
+                                   0, 24),
+                     "comp", "out", 256, (unsigned)(rate / 4), soft, why))
+            fail("dyn::compressor renders", why);
+        else
+        {
+            const double corner = dB(peak(hard, hard.size() / 2));
+            const double rounded = dB(peak(soft, soft.size() / 2));
+
+            okOrFail(fabs(corner - -26) < 0.5 &&
+                     rounded < corner - 0.5 && rounded > corner - 3,
+                     "dyn::compressor: a `knee' reaches under the threshold, "
+                     "and a corner does not",
+                     "6 dB under the threshold: " + num(corner) +
+                     " dB with a corner, " + num(rounded) + " dB with 24 dB "
+                     "of knee");
+        }
+    }
+
+    /* And the state survives a window boundary, like every other stateful
+       node here: the gain is a one-pole filter, and a one-pole filter that
+       forgets where it was at the end of a window is a different sound at
+       every buffer size. */
+    windowsAgree(pluginPath,
+                 compSineGraph((float)(TH_MAX * 0.5), 220, -20, 4,
+                               rate / 1000, rate / 100, 0, 6),
+                 "comp", "out",
+                 "dyn::compressor: the same signal at one sample a window "
+                 "and at five hundred");
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -3000,6 +3408,7 @@ int main (int argc, char **argv)
     checkChorus(pluginPath);
     checkFmop(pluginPath);
     checkSample(pluginPath);
+    checkCompressor(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 

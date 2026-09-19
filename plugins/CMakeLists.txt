@@ -30,6 +30,8 @@ think_add_plugin_category(delay    echo fir allpass chorus)
 
 think_add_plugin_category(dist     clip saturate waveman inksat)
 
+think_add_plugin_category(dyn      compressor)
+
 think_add_plugin_category(env      adsr adsfr ad dynmap follower followavg map)
 
 think_add_plugin_category(filt     allpass comb resonator ink ink2 ink3
