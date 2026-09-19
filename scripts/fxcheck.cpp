@@ -247,6 +247,20 @@ static bool allFinite (const vector<float> &v)
     return true;
 }
 
+/* Does this graph ask for a second channel? A file that declares side0 is
+   one whose point is the side -- and the shipped-graph loop below has to
+   give it one, since a vocoder with no carrier is a vocoder doing nothing.
+   Read off the text rather than off the loaded tree: what is wanted is the
+   author's declaration, and the engine invents nothing here. */
+static bool declaresSide (const string &path)
+{
+    std::ifstream in(path.c_str(), std::ios::binary);
+    string text((std::istreambuf_iterator<char>(in)),
+                std::istreambuf_iterator<char>());
+
+    return text.find(string(SIDEPREFIX) + "0") != string::npos;
+}
+
 /* ---- a session ---------------------------------------------------------- */
 
 struct Session
@@ -644,38 +658,65 @@ int main (int argc, char **argv)
         }
     }
 
-    /* A side is the other channel and not this one: an effect that inverts
-     * its side while listening to a channel that is silent leaves the mix
-     * alone, which is the same graph saying the opposite thing. */
+    /* What is in side0 when a piece named no side: this channel.
+     *
+     * A graph reading side0 therefore always has a signal there, which is
+     * what lets fx/comp.dsp be an ordinary compressor and a sidechain
+     * compressor without a knob to say which. Measured with an effect that
+     * is nothing but `out0 = side0': with nobody named it changes nothing,
+     * and with an empty channel named it is silence -- because that is what
+     * an empty channel is putting out, and the two are different questions.
+     */
     {
-        const string fx = sideEffect(
-            "node flipl math::sub {\n"
-            "    in0 = 0;\n"
-            "    in1 = ionode->side0;\n"
-            "};\n\n", "flipl->out", "0");
+        const string fx = sideEffect("", "ionode->side0", "ionode->side1");
 
         if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
         {
-            Session s(pluginPath);
+            double bare = 0, mine = 0, empty = -1;
 
-            /* Channel 5 has nothing on it. A side pointing at an empty slot
-               is silence rather than a refusal -- the instrument may yet be
-               loaded onto it, which is what a .gen rewind does. */
-            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
-                s.synth.loadTree(instFile, 1, 100) == NULL ||
-                s.synth.loadEffect(fxFile, 0, 5) == NULL)
-                fail("an effect loads with a side on an empty channel", "");
-            else
+            for (int pass = 0; pass < 3; pass++)
             {
-                s.synth.addNote(1, 60, 100);
+                Session s(pluginPath);
+
+                if (s.synth.loadTree(instFile, 0, 100) == NULL)
+                {
+                    fail("the instrument loads", "");
+                    break;
+                }
+
+                /* Pass 0 has no effect at all, which is the level the other
+                   two are read against. */
+                if (pass == 1 && s.synth.loadEffect(fxFile, 0) == NULL)
+                {
+                    fail("an effect loads with no side named", "");
+                    break;
+                }
+
+                /* Channel 5 has nothing on it. */
+                if (pass == 2 && s.synth.loadEffect(fxFile, 0, 5) == NULL)
+                {
+                    fail("an effect loads with a side on an empty channel",
+                         "");
+                    break;
+                }
+
+                s.synth.addNote(0, 60, 100);
                 s.run(4);
 
-                vector<float> heard = s.take();
+                const double got = peak(s.take());
 
-                okOrFail(allFinite(heard) && peak(heard) > 0,
-                         "a side naming a channel with nothing on it is "
-                         "silence, not a refusal", "peak " + num(peak(heard)));
+                if (pass == 0) bare = got;
+                else if (pass == 1) mine = got;
+                else empty = got;
             }
+
+            okOrFail(bare > 0 && fabs(mine - bare) < bare * 0.001 &&
+                     empty >= 0 && empty < 1e-6,
+                     "an effect that names no side hears its own channel "
+                     "there, and one that names an empty channel hears "
+                     "silence",
+                     "bare " + num(bare) + ", unnamed side " + num(mine) +
+                     ", empty side " + num(empty));
         }
     }
 
@@ -966,6 +1007,77 @@ int main (int argc, char **argv)
         okOrFail(allFinite(heard) && peak(heard) > 0,
                  shipped[i] + " runs a note through and stays finite",
                  "peak " + num(peak(heard)));
+
+        /* And again with a carrier, for the ones that asked for one. A
+         * graph that declares side0 is a graph whose whole job is the
+         * second channel -- a vocoder with no carrier has nothing to put
+         * the modulator's envelopes onto -- so loading it without one says
+         * nothing about whether it works.
+         *
+         * Twice, against the same graph given a side that is an empty
+         * channel rather than against no side at all: both renders carry
+         * channel 1's own note in the mix, both run the same graph, and
+         * the only thing that differs between them is what the effect was
+         * handed. What is measured is therefore the side and nothing else.
+         *
+         * A difference rather than a level, because the effect's share of
+         * the mix is not the mix: the carrier is in there at full size
+         * either way, and a vocoder's output against a square wave is a
+         * few per cent of it. Subtracting says exactly how much of what
+         * came out came from the side.
+         */
+        if (!declaresSide(shipped[i]))
+            continue;
+
+        vector<float> both[2];
+
+        for (int pass = 0; pass < 2; pass++)
+        {
+            Session c(pluginPath);
+
+            if (c.synth.loadTree(instFile, 0, 100) == NULL ||
+                c.synth.loadTree(instFile, 1, 100) == NULL)
+            {
+                fail("two instruments load", "");
+                break;
+            }
+
+            /* Channel 5 has nothing on it, so pass 1 is the same effect
+               fed a side of silence. */
+            if (c.synth.loadEffect(shipped[i], 0, pass == 0 ? 1 : 5) == NULL)
+            {
+                fail(shipped[i] + " loads with a side channel", "");
+                break;
+            }
+
+            c.synth.addNote(0, 60, 100);
+            c.synth.addNote(1, 67, 100);
+            c.run(4);
+            c.synth.delNote(0, 60);
+            c.synth.delNote(1, 67);
+            c.run(8);
+
+            both[pass] = c.take();
+
+            if (!allFinite(both[pass]))
+            {
+                fail(shipped[i] + " stays finite with a side channel", "");
+                break;
+            }
+        }
+
+        double came = 0;
+        const double whole = peak(both[0]);
+
+        for (size_t j = 0; j < both[0].size() && j < both[1].size(); j++)
+            if (fabs(both[0][j] - both[1][j]) > came)
+                came = fabs(both[0][j] - both[1][j]);
+
+        okOrFail(whole > 0 && came > whole * 0.01,
+                 shipped[i] + " puts the channel on `side' into what it "
+                 "hands back",
+                 "the side is worth " + num(came) + " against a mix of " +
+                 num(whole));
     }
 
     remove(instFile.c_str());

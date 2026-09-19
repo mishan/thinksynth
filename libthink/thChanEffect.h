@@ -56,6 +56,12 @@
  * load. side<N> is read and never written back: what an effect returns is
  * its own channel's audio.
  *
+ * Where no side was named, side<N> is *this* channel. A graph that reads it
+ * therefore always has a signal there -- a compressor keyed from side0 is an
+ * ordinary compressor until a piece names a kick for it -- which is the rule
+ * dyn::compressor follows for an unwired `side' one level down, and the
+ * reason no graph here carries a knob for "is there a side or not".
+ *
  * It runs every window, whether or not a voice sounds. That is the whole
  * point -- a tail has to keep coming out after the last note-off -- and it is
  * why thMidiChan keeps its buffer dirty while an effect is present, so the

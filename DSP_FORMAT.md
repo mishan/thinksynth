@@ -357,9 +357,15 @@ is the piece's business.
 The engine runs that channel **before** this one, so `side<N>` holds the window
 being mixed and not the one before it. A channel that would end up waiting on
 itself — directly, or around a ring of channels that each hear the next — is
-refused when the effect is loaded. A side naming a channel with nothing on it
-is silence rather than an error, and `side<N>` is read and never written back:
+refused when the effect is loaded. `side<N>` is read and never written back:
 what an effect returns is its own channel's audio.
+
+**Where no side was named, `side<N>` is this channel.** So a graph that reads
+it always has a signal there — a compressor keyed from `side0` is an ordinary
+compressor until a piece names a kick for it, which is why `fx/comp.dsp`
+carries no knob for "is there a side". A side naming a channel with nothing
+loaded on it *is* silence, because that is what an empty channel is putting
+out; the two are different questions with different answers.
 
 **Its `@chanargs` are its own**, kept apart from the instrument's so that an
 instrument's `@a` and an effect's cannot collide. From outside they are named

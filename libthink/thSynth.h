@@ -227,7 +227,8 @@ public:
      * channels' sides, and why such a load is refused here rather than
      * sorted out on the audio thread. A side naming a channel with nothing
      * on it is not an error: it is silence, and the instrument may yet
-     * arrive. */
+     * arrive. -1 is not silence but this channel's own audio; see
+     * thChanEffect. */
     thSynthTree *loadEffect (const string &filename, int channum,
                              int sideChan = -1);
 

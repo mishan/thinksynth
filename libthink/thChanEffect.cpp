@@ -286,11 +286,21 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
             dst[j] = buf[j * step + c * hop];
     }
 
-    /* And the other channel, where the graph asked for one and the engine
-       has one to give. Zeroed rather than left alone where it does not: the
-       side channel can go away -- an instrument unloaded, a piece closed --
-       and a buffer nobody writes any more is the last window of a kick
-       repeating under a compressor for ever. */
+    /* And the other channel, where the graph asked for one.
+     *
+     * Three cases, and the middle one is the one worth knowing. A piece
+     * that named a channel gets that channel; a piece that named *none*
+     * gets this one, so that a graph reading side0 always has a signal
+     * there -- a compressor keyed from `side' is an ordinary compressor
+     * until somebody names a kick, which is the same rule dyn::compressor
+     * itself follows for an unwired `side', one level down. And a side
+     * naming a channel with nothing on it is silence, because that is what
+     * that channel is putting out.
+     *
+     * Zeroed rather than left alone in that last case: the side channel can
+     * go away -- an instrument unloaded, a piece closed -- and a buffer
+     * nobody writes any more is the last window of a kick repeating under a
+     * compressor for ever. */
     for (int c = 0; c < channels_ && c < TH_MAX_CHANNELS; c++)
     {
         if (sideindex_[c] < 0)
@@ -303,6 +313,17 @@ bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
             continue;
 
         float *dst = arg->values();
+
+        if (sideChan_ < 0)
+        {
+            /* Nobody named: this channel, which is what `buf' holds. */
+            const int from = (c < channels) ? c : channels - 1;
+
+            for (int j = 0; j < windowlen; j++)
+                dst[j] = buf[j * step + from * hop];
+
+            continue;
+        }
 
         if (side == NULL || sidechannels <= 0)
         {

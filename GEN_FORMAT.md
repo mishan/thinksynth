@@ -248,8 +248,11 @@ cannot name a later one at all. The engine refuses a cycle again when the
 effect is loaded, because a host may put one anywhere.
 
 The engine runs the named channel first, so the side carries the window being
-mixed rather than the one before it. The master effect takes no `side`: what
-it hears is every channel already.
+mixed rather than the one before it. An effect on a channel whose instrument
+names no side reads its own channel in `side0` instead, so a graph written
+around a side is still the graph it is without one — `fx/comp.dsp` is an
+ordinary compressor until a piece hands it a kick. The master effect takes no
+`side`: what it hears is every channel already.
 
 The braces are optional (`effect "fx/echo.dsp";`), the filename is searched
 the same way `dsp`'s is, and an instrument may name at most one. The effect is
