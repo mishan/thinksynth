@@ -492,6 +492,62 @@ int main (int argc, char **argv)
             patchMgr->unloadPatch(chan);
             ok(patchMgr->setEffect(chan, ""),
                "and `no effect' on an empty channel is not a failure");
+
+            /* A `side' naming the channel the patch is being read onto.
+             * Nothing the program writes says that -- savePatch only ever
+             * writes back a side the engine accepted -- but a hand-edited
+             * file or one moved to another channel can, and loadEffect
+             * answers a channel waiting on itself with NULL. Taken at its
+             * word that would drop the effect out of a patch that is
+             * otherwise fine, and the next save would write the file back
+             * without it: a bad number on one line, and the delay is gone
+             * from disk. The side is what is wrong, so the side is what is
+             * dropped. */
+            {
+                patchMgr->unloadPatch(chan);
+
+                const string self = tmp + "/selfside.patch";
+                std::ofstream out(self.c_str(), std::ios::trunc);
+
+                /* The order savePatch writes: the dsp, then the side, then
+                   the effect the side belongs to. 1-based in the file, so
+                   channel 0 names itself as 1. */
+                out << "dsp " << dsp << "\n"
+                    << "side " << (chan + 1) << "\n"
+                    << "effect " << fx << "\n";
+                out.close();
+
+                ok(patchMgr->loadPatch(self, chan),
+                   "a patch whose `side' names its own channel loads");
+                ok(synth->getEffect(chan) != NULL,
+                   "with the effect on the channel rather than dropped");
+
+                const gthPatchManager::PatchFile *p = patchMgr->getPatch(chan);
+
+                ok(p != NULL && p->effectSide == -1,
+                   "and no side, which is where an unusable one lands");
+
+                /* And so it survives the round trip that would have lost
+                   it: written back out, the file still names the effect. */
+                const string again = tmp + "/selfside-again.patch";
+
+                ok(patchMgr->savePatch(again, chan), "it writes back");
+
+                const std::vector<string> lines = fileLines(again);
+                bool sawEffect = false, sawSide = false;
+
+                for (size_t i = 0; i < lines.size(); i++)
+                {
+                    if (lines[i].compare(0, 7, "effect ") == 0)
+                        sawEffect = true;
+
+                    if (lines[i].compare(0, 5, "side ") == 0)
+                        sawSide = true;
+                }
+
+                ok(sawEffect, "still naming its effect");
+                ok(!sawSide, "and without the side it could not honour");
+            }
         }
     }
 

@@ -463,10 +463,16 @@ bool gthPatchManager::parse (const string &filename, int chan)
                    person reads off the mixer is the one they will expect to
                    see here. Out of range is no side rather than a refused
                    patch -- what is lost is a sidechain, and the instrument
-                   still plays. */
+                   still plays.
+
+                   A channel naming itself is the same kind of wrong, and has
+                   to be caught here rather than left to loadEffect: that one
+                   answers a cycle with NULL, and the effect would be dropped
+                   from a patch that is otherwise fine -- and then written
+                   back out without it the next time the patch is saved. */
                 const int n = atoi(values[0].c_str()) - 1;
 
-                effectSide = (n >= 0 && n < numPatches_) ? n : -1;
+                effectSide = (n >= 0 && n < numPatches_ && n != chan) ? n : -1;
             }
             else if (key == "effect")
             {
