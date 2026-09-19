@@ -17,8 +17,7 @@
  */
 
 /*
- * clock.js -- three clocks and the two maps between them (JAM_M3.md,
- * section 6).
+ * clock.js -- three clocks and the two maps between them.
  *
  * The relay's clock is what a room agrees on: Play names an origin in
  * relay milliseconds, and every peer turns that into a frame of its own

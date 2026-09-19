@@ -61,14 +61,14 @@
 extern "C" {
 #endif
 
-/* 2: phase 4 put `patch' and `nodearg' in thcEvent's union, and
- * nodearg is two pointers and a float where the widest arm had been
- * sixteen bytes -- so thcEvent itself grew, and a .so built against
- * version 1 has a smaller one. The host reads what a sink is handed by
- * dereferencing the pointer at *its* size, which is a read off the end
- * of a v1 plugin's event. The gate in thcPlugin::moduleLoad turns that
- * into a refusal at load with both numbers printed, which is the whole
- * reason the byte is checked before anything is called.
+/* 2: `patch' and `nodearg' joined thcEvent's union, and nodearg is two
+ * pointers and a float where the widest arm had been sixteen bytes -- so
+ * thcEvent itself grew, and a .so built against version 1 has a smaller
+ * one. The host reads what a sink is handed by dereferencing the pointer
+ * at *its* size, which is a read off the end of a v1 plugin's event. The
+ * gate in thcPlugin::moduleLoad turns that into a refusal at load with
+ * both numbers printed, which is the whole reason the byte is checked
+ * before anything is called.
  *
  * Note the difference from the additive changes below: an enum gaining
  * a value keeps every existing value's number and every existing
@@ -94,13 +94,13 @@ typedef enum {
 
     /* ---- structure edits ---------------------------------------------
      *
-     * docs/UNIFICATION.md phase 4: a composer reshaping the instrument rather
-     * than playing it. The two below are the coarse end and the fine end
-     * of the same idea, and both are *intents* -- a plugin says what it
-     * wants to be true and the host does it. A composer cannot link
-     * libthink and never touches a graph; that is the same bargain a
-     * sink already expresses, and it is what keeps graph pointers out of
-     * plugin code.
+     * A composer reshaping the instrument rather than playing it, which
+     * docs/UNIFICATION.md sets out in full. The two below are the coarse
+     * end and the fine end of the same idea, and both are *intents* -- a
+     * plugin says what it wants to be true and the host does it. A
+     * composer cannot link libthink and never touches a graph; that is
+     * the same bargain a sink already expresses, and it is what keeps
+     * graph pointers out of plugin code.
      *
      * Being events is the whole rate-limit. A structure edit is
      * scheduled, sparse, replayed with the seed, and drawn on the roll
@@ -133,12 +133,11 @@ typedef enum {
     /* One constant inside that instrument's graph becomes this.
      *
      * `node' and `arg' name a node and an arg *in the .dsp* -- not a
-     * chanarg. That is the entire point, and the line COMPOSITION_HANDOFF
-     * §9 drew: a chanarg is the surface a patch chose to expose, and the
-     * reach of every composer up to now. This is the other mechanism §9
-     * promised rather than a widening of that one, and a piece using it
-     * is reaching past what the instrument declared -- deliberately,
-     * visibly, and on the piece's own say-so.
+     * chanarg. That is the entire point: a chanarg is the surface a patch
+     * chose to expose, and the reach of every composer up to now. This is
+     * a second mechanism rather than a widening of that one, and a piece
+     * using it is reaching past what the instrument declared --
+     * deliberately, visibly, and on the piece's own say-so.
      *
      * The edit lands on the channel's prototype tree, which the audio
      * thread never reads, so the lifecycle promise above holds here too
@@ -221,13 +220,13 @@ typedef enum {
      * chain walking a set of them -- all of it needs something to refer
      * to, splice and save. This is that something, and it is the *only*
      * reach a composer has into an instrument: the args a patch chose to
-     * declare, no deeper. See COMPOSITION_HANDOFF.md §9.
+     * declare, no deeper.
      *
      * Appended rather than slotted in beside NOTESET on purpose -- an
      * enum whose existing values keep their numbers is an additive
-     * change, and needed no interface bump of its own. (The interface
-     * is at 2 as of phase 4, for a reason that is about thcEvent's
-     * size rather than about this enum -- see COMPOSER_IFACE_VER.) */
+     * change, and needed no interface bump of its own. (The interface is
+     * at 2, for a reason that is about thcEvent's size rather than about
+     * this enum -- see COMPOSER_IFACE_VER.) */
     THC_PARAM_PRESET,
 
     /* The instruments a piece declares, by name. The string a plugin
@@ -289,13 +288,11 @@ typedef struct {
 /* A gesture the host is passing on, for composers whose state is worth
  * touching directly.
  *
- * COMPOSITION_HANDOFF.md §7 argued for this twice and named the same
- * motivating case both times: `composer_draw' is draw-only, and the
- * things it draws -- a CA's grid, a Life board, a Euclid ring -- are
- * exactly the things a person wants to reach into. Interactive
- * evolution wants it too (the user as the fitness function), and a
- * param is a poor substitute: params are continuous knobs, and
- * selection is an event.
+ * The motivating case: `composer_draw' is draw-only, and the things it
+ * draws -- a CA's grid, a Life board, a Euclid ring -- are exactly the
+ * things a person wants to reach into. Interactive evolution wants it
+ * too (the user as the fitness function), and a param is a poor
+ * substitute: params are continuous knobs, and selection is an event.
  *
  * The coordinates are the ones composer_draw was handed, in the same
  * space and the same units, so a plugin maps a click by inverting the
@@ -396,12 +393,12 @@ extern "C" {
        piano roll is the host's job and needs nothing from the plugin.
      *
      * The one export a host may have nowhere to put. A plugin whose draw
-     * calls cairo guards both it and its <cairo.h> with THC_NO_DRAW, so
-     * a build with no cairo to link -- the browser's, where the scheduler
+     * calls cairo guards both it and its <cairo.h> with THC_NO_DRAW, so a
+     * build with no cairo to link -- the browser's, where the scheduler
      * runs in an AudioWorklet that has no canvas and no drawing at all
-     * (docs/JAM.md, sections 3 and 3a) -- compiles the composer without it.
-     * Absent, it is simply an optional export the module does not offer,
-     * which is what thcPlugin::hasDraw already answers for. */
+     * (docs/JAM.md) -- compiles the composer without it. Absent, it is
+     * simply an optional export the module does not offer, which is what
+     * thcPlugin::hasDraw already answers for. */
     THINK_PLUGIN_API void composer_draw (void *state, cairo_t *cr,
                                          double w, double h);
 
@@ -415,10 +412,10 @@ extern "C" {
     /* Optional, and the other half of composer_input: what the plugin's
        touchable state currently is, as text a .gen file can carry.
      *
-     * Deliberately not the opaque serialize/deserialize blob §7
-     * sketched for a trained Markov table. This returns the value of one
-     * of the plugin's *own params* -- `index' says which -- so a host
-     * writes it back through the ordinary param path and the file stays
+     * Deliberately not an opaque serialize/deserialize blob of the kind a
+     * trained Markov table would want. This returns the value of one of
+     * the plugin's *own params* -- `index' says which -- so a host writes
+     * it back through the ordinary param path and the file stays
      * something a person can read and edit. It works because the state
      * worth clicking is usually small and already has a spelling: a Life
      * board is a pattern, and a pattern is a string.

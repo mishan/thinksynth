@@ -23,9 +23,9 @@
  * NodeGraph, NodeEdit, NodeLayout and NodeCatalog are 4.8k lines that took
  * a corpus to get right -- the io node as two boxes, feedback arcs,
  * attached controls, splices that keep every comment -- and they include
- * only libthink, so they compile here unchanged (JAM_M6.md, section 7).
- * What is in this file is the way in: build a graph from a patch's text,
- * read what is in it, edit it, and hand the new text back.
+ * only libthink, so they compile here unchanged. What is in this file is
+ * the way in: build a graph from a patch's text, read what is in it, edit
+ * it, and hand the new text back.
  *
  * Everything here takes and returns TEXT. In a room the document is the
  * patch: the text comes out of a CRDT and the new text goes back in as a
@@ -132,9 +132,8 @@ int answer (NodeEdit::Result r)
 /* ---- the canvas ----
  *
  * The desktop's NodeCanvas, with the same four answers a shell owes a
- * CanvasContent (JAM_M6.md, section 6.1) -- the composer canvas's shell in
- * thinkweb.cpp is the same class of thing, and the page's half of both is
- * one file, canvasview.js.
+ * CanvasContent -- the composer canvas's shell in thinkweb.cpp is the same
+ * class of thing, and the page's half of both is one file, canvasview.js.
  */
 class WebNodeCanvas : public NodeCanvas
 {
@@ -204,7 +203,7 @@ Cairo::RefPtr<Cairo::Context> canvasContext_;
  * engine, and an instance of a visual module. The first is the canvas's,
  * the second is the worklet's (thinkweb.cpp), and the third is here --
  * the page's instance holds the modules and feeds them the samples the
- * worklet posts over (JAM_M6.md, section 7.4).
+ * worklet posts over.
  *
  * The canvas knows where a panel is and not what goes in one, so it asks
  * for the body to be painted through a slot it is given; what fills that
@@ -248,8 +247,8 @@ thVisual *visualModule (const std::string &name)
 
 /* What the canvas has decided since the page last asked. The desktop's
    NodeEditor answers these signals with an edit, a rebuild or a line in
-   the status bar; the page does the same, and this is how they reach it
-   (JAM_M6.md, section 7.2).
+   the status bar; the page does the same, and this is how they reach
+   it.
  *
  * A queue rather than a callback per signal because a message to a page is
  * not a function call: what the shell does with each is its own business,
@@ -729,7 +728,7 @@ EMSCRIPTEN_KEEPALIVE int tw_graph_param_has_value (int b, int p)
  * document moves under this: between one edit and the next, somebody else
  * may have typed in the same file. The new text is computed against what
  * the page had at the moment it asked, and the splice is computed inside
- * the transaction (JAM_M6.md, section 12.5).
+ * the transaction.
  */
 
 EMSCRIPTEN_KEEPALIVE const char *tw_edit_text (void)

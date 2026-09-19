@@ -17,9 +17,9 @@
  */
 
 /*
- * room.js -- the page's side of the relay's room socket (JAM_M3.md,
- * section 3.3): hello, who is here, seats, the clock, signalling, and the
- * relayed path for gestures the mesh could not carry.
+ * room.js -- the page's side of the relay's room socket: hello, who is
+ * here, seats, the clock, signalling, and the relayed path for gestures
+ * the mesh could not carry.
  *
  * One object, events out, a few calls in. It knows nothing about music:
  * `transport' and `relayed' carry whatever they are given.
@@ -30,7 +30,7 @@ import { RelayClock } from './clock.js';
 export const PROTOCOL = 1;
 
 /* How often the relay is pinged, in milliseconds. Once a second is what a
-   background tab is throttled to anyway (JAM_M3.md, section 6.1). */
+   background tab is throttled to anyway. */
 const PING_EVERY = 1000;
 
 export class Room

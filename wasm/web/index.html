@@ -20,7 +20,7 @@
   </select></label>
 </div>
 
-<!-- M1: one .dsp, played from the keyboard. -->
+<!-- Patch mode: one .dsp, played from the keyboard. -->
 <section id="patchmode">
   <div class="row">
     <label>Patch <select id="patch"></select></label>
@@ -28,8 +28,8 @@
   </div>
 </section>
 
-<!-- M2: a .gen, composed by the scheduler in the worklet. The keyboard
-     still plays, into whatever chains asked for `input midi'. -->
+<!-- Piece mode: a .gen, composed by the scheduler in the worklet. The
+     keyboard still plays, into whatever chains asked for `input midi'. -->
 <section id="piecemode" hidden>
   <div class="row">
     <label>Piece <select id="piece"></select></label>
@@ -48,12 +48,12 @@
        composer's own drawing inside its box, the sinks in their channel's
        colour. It is the desktop's composer canvas, compiled to wasm and
        drawn by a second scheduler in a worker that is fed the same
-       messages the worklet is fed (JAM_M6.md, sections 4 and 6). Double-
-       click a stage whose picture is a control -- a Life board, a CA's
-       present row -- to enlarge it, then paint on it; Escape puts it
-       back. What a gesture reaches is not the picture in front of you but
-       a command, applied at its time in the piece here and on every peer,
-       which is why what you painted appears a moment later. -->
+       messages the worklet is fed. Double- click a stage whose picture is
+       a control -- a Life board, a CA's present row -- to enlarge it,
+       then paint on it; Escape puts it back. What a gesture reaches is
+       not the picture in front of you but a command, applied at its time
+       in the piece here and on every peer, which is why what you painted
+       appears a moment later. -->
   <details id="composerview" open>
     <summary>The piece</summary>
     <div id="composerscroll" class="canvasview">
@@ -69,8 +69,8 @@
   </details>
 
   <!-- What a stage's params handle asks for: what that stage is playing,
-       beside the box that is playing it. Read-only in M6 -- the canvas
-       reports and the document writes (JAM_M6.md, section 1). -->
+       beside the box that is playing it. Read-only -- the canvas
+       reports and the document writes. -->
   <div id="composerparams" class="popover" hidden></div>
 
   <div id="knobs"></div>
@@ -79,9 +79,9 @@
        instruments, the channels its sinks name and left to the reader, the
        channels it takes `input midi' on, and wherever the keys are aimed.
        A channel the piece named and put nothing on is filled from the
-       defaults the desktop's first run uses (AIMING.md, patch.js), so the
-       piece sounds the same here in any order of clicks; one the piece
-       aimed itself says so and has nothing to choose.
+       defaults the desktop's first run uses, so the piece sounds the same
+       here in any order of clicks; one the piece aimed itself says so and
+       has nothing to choose.
 
        Channel numbers here are the file's, 1-16, since that is what a
        person reading the piece's comment will be looking for; the engine
@@ -96,11 +96,11 @@
 
 <!-- The instrument as a graph: the desktop's node editor, with its
      canvas, its layout and its writer compiled to wasm and run in this
-     page's own instance of the module (JAM_M6.md, section 7). In patch
-     mode it edits the .dsp in the box below and reloads it, so an edit is
-     heard at once; in piece mode it edits one of the piece's instruments,
-     which the next Load plays. Right-click a node's output to watch it
-     with a meter or a scope. -->
+     page's own instance of the module. In patch mode it edits the .dsp in
+     the box below and reloads it, so an edit is heard at once; in piece
+     mode it edits one of the piece's instruments, which the next Load
+     plays. Right-click a node's output to watch it with a meter or a
+     scope. -->
 <details id="nodeview">
   <summary>The instrument, as a graph</summary>
   <div class="row">

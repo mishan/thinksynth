@@ -100,9 +100,9 @@ public:
     void bindKnob (int index, thArg *knob);
     thArg *knobBinding (int index) const;
 
-    /* `step = lfo->out' -- the composer-world ARG_NODE, which v2
-       deliberately did not have and phase 3 of the unification is
-       about. It arrives as one more thing get() reads through, exactly
+    /* `step = lfo->out' -- the composer-world ARG_NODE, which v2 of the
+       format deliberately did not have and embedded DSP nodes need. It
+       arrives as one more thing get() reads through, exactly
        as a knob does, because that is what it is: an embedded DSP
        node's output buffer is a thArg, and a control signal is a value
        somebody reads at the moment they want it.
@@ -408,8 +408,8 @@ struct thcChain
     std::unique_ptr<thcNodeHost> nodes;
 };
 
-/* One stretch of the piece, and what it does to the chains (docs/GEN_FORMAT.md
- * §5c).
+/* One stretch of the piece, and what it does to the chains
+ * (docs/GEN_FORMAT.md).
  *
  * The arrangement a piece used to write one chain at a time, as an
  * xform::form under each of them: eight patterns of marks that had to be
@@ -444,11 +444,11 @@ public:
 
     /* ---- building chains ----
      *
-     * Programmatic for now: the .gen loader (milestone 4 in the handoff's
-     * build order) will sit on top of exactly these calls. addStage
-     * creates the instance immediately, with a seed derived from the
-     * master seed and the stage's position, so the same seed and the
-     * same construction order replay the same piece. */
+     * Programmatic: the .gen loader sits on top of exactly these calls
+     * and adds nothing of its own. addStage creates the instance
+     * immediately, with a seed derived from the master seed and the
+     * stage's position, so the same seed and the same construction
+     * order replay the same piece. */
     size_t    addChain (const std::string &name);
 
     /* `asGenerator' is the stage's declared role -- gen:: or xform:: in
@@ -529,7 +529,7 @@ public:
         return t == THC_EV_PATCH || t == THC_EV_NODEARG;
     }
 
-    /* ---- structure edits (docs/UNIFICATION.md phase 4) ----
+    /* ---- structure edits ----
      *
      * The services behind THC_EV_PATCH and THC_EV_NODEARG. Both are
      * host-side on purpose: a composer emits an intent and this does
@@ -800,8 +800,7 @@ public:
        step; and a host that has to apply a command at an exact time
        steps to that time, applies it, and steps on, which is what makes
        "applied at `at' on every peer" the same on peers whose windows
-       are not aligned (JAM_M3.md, section 2). A time at or before now
-       is a step of nothing. */
+       are not aligned. A time at or before now is a step of nothing. */
     void stepTransportTo (double t);
 
     /* Route a live MIDI note into a chain's receive() path (Markov
@@ -1085,9 +1084,8 @@ private:
 
     /* True while an injectMidi* call is propagating on a stopped
        transport; what falls out of the chains is delivered immediately
-       rather than parked in pending_ behind a frozen clock. Decided
-       (the handoff had it flagged): an arpeggio on a stopped transport
-       should still sound. */
+       rather than parked in pending_ behind a frozen clock: an arpeggio
+       on a stopped transport should still sound. */
     bool injectingLive_;
 
     mutable std::vector<thcEvent> peekCache_;

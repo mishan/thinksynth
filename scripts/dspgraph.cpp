@@ -129,7 +129,7 @@ static int exitCode (int failures)
  *
  * NodeLayout comes in two: over a file, which is what the desktop does, and
  * over the file's text, which is what a browser tab does -- there the
- * document *is* the patch (JAM_M6.md, section 7.1).
+ * document *is* the patch.
  *
  * The file overloads are the text ones wrapped -- NodeLayout::read is
  * readText + Text::read, and write is readText + Text::write + an atomic

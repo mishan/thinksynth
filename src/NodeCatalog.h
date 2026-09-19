@@ -101,11 +101,10 @@ public:
        spelling with no `::' in it is not one and is skipped.
      *
        For a build with no directory to walk: in the browser every plugin is
-       compiled into the one module and found through a table (JAM_M6.md,
-       section 7.1, and wasm/web/CMakeLists.txt). Ports and descriptions
-       still come from describe(), which goes through thPluginManager --
-       there, the same table again. Anything else that knows its own list
-       can use it too. */
+       compiled into the one module and found through a table (built by
+       wasm/web/CMakeLists.txt). Ports and descriptions still come from
+       describe(), which goes through thPluginManager -- there, the same
+       table again. Anything else that knows its own list can use it too. */
     int take (const vector<string> &spellings);
 
     const vector<string> &categories (void) const { return categories_; }

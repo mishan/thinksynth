@@ -68,7 +68,7 @@ using std::string;
  * it is handed a node in a graph and expected to write an arg. A scope has no
  * node, writes no arg, and needs a drawing context and a history instead.
  * Overloading one onto the other would make every visualizer pretend to be a
- * graph node, which is exactly what §1 of docs/VISUALIZERS.md decided against.
+ * graph node, which is exactly what docs/VISUALIZERS.md decided against.
  *
  * These are loaded by the GUI, not by the parser. A .dsp cannot name one and
  * the engine never sees one.

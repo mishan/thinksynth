@@ -19,12 +19,12 @@
 /*
  * nodeview.js -- the .dsp canvas, over the room's document.
  *
- * The page's half of the node editor (JAM_M6.md, section 7.3). The canvas,
- * the graph, the layout and every edit are the desktop's C++ compiled to
- * wasm and run in the page's own instance of the module (thinknode.cpp);
- * what is here is the element, the pointer, the two forms -- the palette
- * and the params panel -- and the one thing that is genuinely a room's
- * business: an edit is a splice into the shared document.
+ * The page's half of the node editor. The canvas, the graph, the layout
+ * and every edit are the desktop's C++ compiled to wasm and run in the
+ * page's own instance of the module (thinknode.cpp); what is here is the
+ * element, the pointer, the two forms -- the palette and the params panel
+ * -- and the one thing that is genuinely a room's business: an edit is a
+ * splice into the shared document.
  *
  * WHAT AN EDIT IS. The canvas decides what a gesture meant and says so;
  * this asks the module for the patch that gesture implies, and hands the
@@ -92,7 +92,7 @@ export async function createNodeView ({ files, root = document,
     /* The probes armed on this patch: the slot the worklet gave back, the
        display this instance opened for it, and what it is watching. A
        probe is not in the file -- it is a display -- so these are rebuilt
-       against the graph after every change (JAM_M6.md, section 7.4). */
+       against the graph after every change. */
     const probes = [];
 
     /* Which channel the piece put this instrument on, and so which one a

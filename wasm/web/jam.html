@@ -45,10 +45,10 @@
 
   <!-- The piece's picture, drawn by the mirror: a second scheduler in a
        worker, fed the same commands this page's worklet is fed, holding
-       real composer instances (JAM_M6.md, sections 4 and 6). A gesture on
-       an enlarged picture is a command like a knob -- stamped, sent, and
-       applied at its time on every peer, so what one person paints
-       everybody sees on the same beat. -->
+       real composer instances. A gesture on an enlarged picture is a
+       command like a knob -- stamped, sent, and applied at its time on
+       every peer, so what one person paints everybody sees on the same
+       beat. -->
   <details id="composerview" open>
     <summary>The composers</summary>
     <div id="composerscroll" class="canvasview">
@@ -59,8 +59,8 @@
   </details>
 
   <!-- What a stage's params handle asks for: what that stage is playing,
-       beside the box that is playing it. Read-only in M6 -- the canvas
-       reports and the document writes (JAM_M6.md, section 1). -->
+       beside the box that is playing it. Read-only -- the canvas
+       reports and the document writes. -->
   <div id="composerparams" class="popover" hidden></div>
 
   <!-- The instrument, as on the solo page. -->
@@ -86,9 +86,9 @@
 
   <!-- The .dsp canvas, over the document: the desktop's node editor, with
        its graph, its layout and its writer compiled to wasm and run in
-       this page's own instance of the module (JAM_M6.md, section 7). An
-       edit is a splice into the shared file, so it is everybody's edit,
-       and the piece plays it at the next Apply. -->
+       this page's own instance of the module. An edit is a splice into
+       the shared file, so it is everybody's edit, and the piece plays it
+       at the next Apply. -->
   <details id="nodeview">
     <summary>The instrument</summary>
     <div class="row">

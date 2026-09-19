@@ -158,9 +158,9 @@ public:
        Connected, the canvas emits this INSTEAD of calling the plugin.
        That is the browser: in a room a click is a command, stamped and
        applied at a time on every peer including the one that made it, so
-       the plugin hears it when the command comes due rather than when
-       the finger went down (JAM_M6.md, section 5). Unconnected -- the
-       desktop -- the plugin is called here, where it always was.
+       the plugin hears it when the command comes due rather than when the
+       finger went down. Unconnected -- the desktop -- the plugin is
+       called here, where it always was.
      *
        Either way the arithmetic that decides which stage was hit, whether
        the point is inside its picture, and what x, y, w and h are is this

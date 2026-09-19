@@ -50,7 +50,7 @@
 #include <new>
 
 /* The cairo a visual draws through is cairo-canvas2d, which records rather
-   than rasterises (JAM_M6.md, section 3). */
+   than rasterises. */
 #include <cairo.h>
 
 #include "thVisual.h"

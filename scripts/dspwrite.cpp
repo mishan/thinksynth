@@ -130,7 +130,7 @@ static int exitCode (int failures)
  * Every edit NodeEdit offers comes in two: one over a file, which is what
  * the desktop does, and one over the file's text, which is what a browser
  * tab does -- there the document *is* the patch and there is no file at
- * all (JAM_M6.md, section 7.1).
+ * all.
  *
  * The two cannot drift apart, and it is worth being exact about why: the
  * file overloads *are* the text ones, wrapped. NodeEdit::setValue is

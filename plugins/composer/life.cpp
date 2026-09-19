@@ -26,17 +26,17 @@
  * between a glider and a block is one cell. So this is the first plugin
  * to export composer_input: click a cell in the canvas's enlarged view
  * and it toggles, drag to paint a row of them, right-drag to erase, and
- * the next generation takes it from there. That is COMPOSITION_HANDOFF.md §7's argument for
- * the entry point, arriving for exactly the case §7 named -- clicks on
- * the plugin's own draw area, which was draw-only.
+ * the next generation takes it from there. That is the case the entry
+ * point was argued for -- clicks on the plugin's own draw area, which was
+ * draw-only.
  *
  * The board is an ordinary THC_PARAM_STRING, written the way Life
- * patterns have always been written: `.' dead, `O' alive, `/' ends a
- * row. So a piece can ship a glider, `composer_capture' can hand a
- * clicked board back as the same text, and the whole thing round-trips
- * through the file with no opaque blob and no ABI for saving state --
- * which is the question §7 filed under composer_serialize and this
- * plugin gets to duck, because a Life board already has a spelling.
+ * patterns have always been written: `.' dead, `O' alive, `/' ends a row.
+ * So a piece can ship a glider, `composer_capture' can hand a clicked
+ * board back as the same text, and the whole thing round-trips through
+ * the file with no opaque blob and no ABI for saving state -- which is
+ * the question composer_serialize is the future answer to and this plugin
+ * gets to duck, because a Life board already has a spelling.
  *
  * And it *listens*. A note arriving from upstream lights the cell it
  * names, which is the same edit a click makes, arriving from the piece

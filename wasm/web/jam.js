@@ -17,7 +17,7 @@
  */
 
 /*
- * jam.js -- the room page (JAM_M3.md, section 7).
+ * jam.js -- the room page.
  *
  * Several people, one piece, each browser rendering the whole of it. The
  * score crosses the network; the audio never does. What this page does
@@ -60,7 +60,7 @@ const $ = (id) => document.getElementById(id);
 
 const VELOCITY = 100;
 
-/* How many clock samples Play waits for (JAM_M3.md, section 7). */
+/* How many clock samples Play waits for. */
 const ENOUGH_SAMPLES = 4;
 
 /* Where the relay is: the URL's `relay', then the build's config.json,
@@ -99,17 +99,16 @@ let transport = null;
 let roll = null;
 
 /* The piece's picture, drawn by the mirror -- a second instance of the
-   module in a worker, fed the commands this page's worklet is fed
-   (JAM_M6.md, sections 4 and 6) -- and the two tapes held against each
-   other, which is a determinism check a room gets for nothing. */
+   module in a worker, fed the commands this page's worklet is fed --
+   and the two tapes held against each other, which is a determinism
+   check a room gets for nothing. */
 let composer = null;
 const diff = new TapeDiff();
 
-/* The .dsp canvas over the document (JAM_M6.md, section 7): the page's own
-   instance of the module, the desktop's graph and writer in it, and every
-   edit a splice into the shared file. Made on Start, because it is another
-   instance of a 600 KB module and a room nobody is playing in does not
-   need one. */
+/* The .dsp canvas over the document: the page's own instance of the
+   module, the desktop's graph and writer in it, and every edit a splice
+   into the shared file. Made on Start, because it is another instance of a
+   600 KB module and a room nobody is playing in does not need one. */
 let nodes = null;
 let keyboard = null;
 let keys = null;                /* the computer keyboard as a musical one */
@@ -183,7 +182,7 @@ function frameOfOrigin (relayMs)
 }
 
 /* getOutputTimestamp() beside the ping: the same second, the same
-   sixteen kept (JAM_M3.md, section 6.2). */
+   sixteen kept. */
 function sampleAudioClock ()
 {
     if (ctx === null || ctx.state !== 'running')
@@ -212,7 +211,7 @@ async function send (cmd)
     mesh.broadcast(cmd);
 
     /* A start goes by the room socket too: the one command a peer must
-       not miss, and what a joiner is told (JAM_M3.md, section 5.3). */
+       not miss, and what a joiner is told. */
     if (cmd.type === 'transport')
         room.transport(cmd);
 
@@ -294,10 +293,10 @@ async function applyOne (from, cmd)
 /* The load a start asks for: the document at the revision the start
    names, then the piece into the worklet with the start's seed.
  *
- * The document may not have caught up with the sender yet (JAM_M3.md,
- * section 4.3): wait for updates, re-hashing on each, until it matches or
- * the origin has passed, at which point it is late and counted -- a
- * counted divergence rather than a silent one. */
+ * The document may not have caught up with the sender yet: wait for
+ * updates, re-hashing on each, until it matches or the origin has passed,
+ * at which point it is late and counted -- a counted divergence rather
+ * than a silent one. */
 async function loadFor (cmd)
 {
     const deadline = room.clock.localOf(cmd.origin);
@@ -361,7 +360,7 @@ async function loadFromDoc (seed = -1)
     /* And then the aiming, in that order, for the reason the solo page
        aims in that order: a channel the piece named and put nothing on
        sounds through the defaults and never through what this page did
-       before (AIMING.md, sections 3 and 4.4).
+       before.
      *
        It is this page's and not the room's. Nothing here is in the
        document and nothing is on the tape, so two peers may hear a
@@ -648,7 +647,7 @@ function showComposer ()
     /* A gesture is a command like a knob: stamped with the knob lead,
        broadcast, and applied at the time it names on every peer, this one
        included. So a Life board somebody paints on is the same board
-       everywhere from that beat (JAM_M6.md, section 5). */
+       everywhere from that beat. */
     composer ??= createComposerView({
         toMirror: (m) => synth?.toMirror(m),
         onGesture: (g) => send(maker.input(g.chain, g.stage, g.kind, g.x,
@@ -812,7 +811,7 @@ async function start ()
         nodes = await createNodeView({
             /* In a room the files are the document's, and a write is a
                splice: nobody's copy is authoritative and there is no
-               save (JAM_M6.md, section 7.3). */
+               save. */
             files: {
                 read: (name) => readFile(doc, name),
                 write: (name, next) => spliceFile(doc, name, next),
@@ -830,7 +829,7 @@ async function start ()
 
             /* A tap is armed in the worklet, which is where the synth
                that is rendering lives; what comes back is a slot, and the
-               samples arrive with the tape (JAM_M6.md, section 7.4). */
+               samples arrive with the tape. */
             probe: (channel, node, arg) => synth.probe(channel, node, arg),
             unprobe: (slot) => synth.unprobe(slot),
         });
@@ -918,9 +917,9 @@ function init ()
         margins: () => margins,
         ready: () => synth !== null && piece !== null && clocksReady(),
 
-        /* A file as the document has it now. What a harness checks an edit
-           against, and what one page holds the other's document against
-           (JAM_M6.md, section 8.3). */
+        /* A file as the document has it now. What a harness checks an
+           edit against, and what one page holds the other's document
+           against. */
         file: (name) => readFile(doc, name),
 
         /* The instrument canvas: where its boxes are, so a harness can

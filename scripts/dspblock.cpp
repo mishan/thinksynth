@@ -2,8 +2,8 @@
  * dspblock -- does the audio path survive a device block size that is not
  * the synth's window length?
  *
- * This is the regression test for the bug docs/PORTING.md section 1 describes.
- * The old JACK callback did:
+ * This is the regression test for the bug docs/PORTING.md describes. The old
+ * JACK callback did:
  *
  *     int copy = ((int)nframes < l) ? (int)nframes : l;
  *     for (int k = 0; k < copy; k++) buf[k] = thClampSample(synthbuffer[k]);

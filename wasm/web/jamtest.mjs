@@ -23,20 +23,19 @@
  *   cd wasm/web && npm ci && npx playwright install chromium firefox
  *   node jamtest.mjs [BUILD_DIR] [NODE_BUILD_DIR]
  *
- * M3's second gate (JAM_M3.md, section 8.2), and the wasm-against-wasm
- * gate from M2 with the network in between. A relay and a site are
- * started; a Chromium page and a Firefox page join the same room, each
- * with a live AudioContext; one presses Play; both run a seeded piece for
- * SECONDS of wall clock while this script moves a knob from each side and
- * changes the tempo from one; then both hand over the tape they
- * delivered. Passes when the tapes are identical to each other and to
- * genwav.mjs's for the same piece and the same command stream, and the
- * late count on both is zero.
+ * The room's second gate: the wasm-against-wasm comparison with the network
+ * in between. A relay and a site are started; a Chromium page and a Firefox
+ * page join the same room, each with a live AudioContext; one presses Play;
+ * both run a seeded piece for SECONDS of wall clock while this script moves
+ * a knob from each side and changes the tempo from one; then both hand over
+ * the tape they delivered. Passes when the tapes are identical to each
+ * other and to genwav.mjs's for the same piece and the same command stream,
+ * and the late count on both is zero.
  *
  * Then a second room on a piece whose picture is a control: one page
  * plays, the other enlarges gen::life's board and paints a line across it
  * with a pointer, and the two tapes have to be one tape -- and not the
- * tape of the run nobody painted on (JAM_M6.md, section 8.3).
+ * tape of the run nobody painted on.
  *
  * And then the other half of that gate: one page opens an instrument on
  * the .dsp canvas, clicks a node and types a number into it. The document
@@ -72,15 +71,15 @@ const nodeBuild = path.resolve(process.argv[3] ??
                                path.join(top, 'build-wasm'));
 
 /* The desktop's own build, for scripts/dspedit: the reference an edit made
-   in a room is held against (JAM_M6.md, section 8.3). */
+   in a room is held against. */
 const nativeBuild = path.resolve(process.argv[4] ?? path.join(top, 'build'));
 
 const PIECE = 'airports.gen';
 const SECONDS = 30;
 
 /* The second half: a piece whose picture is a control, painted on from one
-   page while the other listens (JAM_M6.md, section 8.3). Shorter, because
-   what is under test is agreement and not endurance. */
+   page while the other listens. Shorter, because what is under test is
+   agreement and not endurance. */
 const PAINT_PIECE = 'colony.gen';
 const PAINT_SECONDS = 14;
 
@@ -255,7 +254,7 @@ async function paintTogether (pages)
 }
 
 /*
- * The .dsp canvas, in a room (JAM_M6.md, sections 7.3 and 8.3).
+ * The .dsp canvas, in a room.
  *
  * One page opens an instrument on the canvas, clicks a node and types a
  * number into it. Three things have to be true. The document has to change
@@ -390,9 +389,9 @@ async function editTogether (pages)
     /* And a probe: a right-click on an output port offers the displays
        this build has, and picking one arms a tap in the worklet, opens
        that display in the page's own instance of the module, and hangs a
-       panel on the node (JAM_M6.md, section 7.4). The samples themselves
-       are gated headlessly in nodecheck; what is under test here is that
-       a person can ask for one, and take it away again. */
+       panel on the node. The samples themselves are gated headlessly in
+       nodecheck; what is under test here is that a person can ask for
+       one, and take it away again. */
     const port = await A.page.evaluate(() =>
     {
         const n = window.jam.node();
@@ -619,10 +618,10 @@ try
         fail(`a knob moved before Play was stamped ${stopped?.at}`);
 
     /* And an edit in flight at the Play: A composes from a revision B has
-       not seen yet, so B's start waits for the update before it loads
-       (JAM_M3.md, section 4.3), and whatever arrives while it waits has
-       to survive the wait rather than be cleared by the load or the arm.
-       A comment, so the piece composes exactly as it did. */
+       not seen yet, so B's start waits for the update before it loads,
+       and whatever arrives while it waits has to survive the wait rather
+       than be cleared by the load or the arm. A comment, so the piece
+       composes exactly as it did. */
     await A.page.click('.cm-content');
     await A.page.keyboard.press('Control+Home');
     await A.page.keyboard.type('# an edit in flight at the Play\n');
@@ -749,7 +748,7 @@ try
     /* Each page held its worklet's tape against its mirror's, event for
        event, all the way through: two instances of one module on one
        stream of commands have to compose one piece, and a room gets that
-       check for nothing (JAM_M6.md, section 4). */
+       check for nothing. */
     for (const r of results)
     {
         const line = /tape v mirror\s+(.*)/.exec(r.numbers)?.[1] ?? '';

@@ -23,13 +23,12 @@
  *
  *   node wasm/web/piececheck.mjs [BUILD_DIR] [NODE_BUILD_DIR]
  *
- * M2's gate, without a browser (docs/JAM.md, section 6). For each shipped piece
- * that pins a seed, genwav.mjs renders it under Node out of wasm/'s module
- * -- libthink and the plugins as side modules, the scheduler stepped by a
- * fixed virtual clock in windows of 1024 at 44.1 kHz -- and the browser's
- * module composes the same seconds with the scheduler stepped by the audio
- * clock in windows of 256 and of 128, at 48 kHz and at 44.1. The tapes must
- * be the same tape.
+ * The tape gate, without a browser. For each shipped piece that pins a seed,
+ * genwav.mjs renders it under Node out of wasm/'s module -- libthink and the
+ * plugins as side modules, the scheduler stepped by a fixed virtual clock in
+ * windows of 1024 at 44.1 kHz -- and the browser's module composes the same
+ * seconds with the scheduler stepped by the audio clock in windows of 256 and
+ * of 128, at 48 kHz and at 44.1. The tapes must be the same tape.
  *
  * Two gates in one, which is why it is one comparison. That two different
  * wasm builds of the same tree agree is the wasm-against-wasm gate: nothing
@@ -37,7 +36,7 @@
  * piece composes. That four different step sizes agree is the
  * step-invariance gate: what a piece is must be a function of the file and
  * the seed and not of the host's buffer, or two peers with different sound
- * cards could not play the same piece (docs/JAM.md, section 3).
+ * cards could not play the same piece (docs/JAM.md).
  *
  * The pieces that pin no seed are skipped and named. They draw their master
  * seed from the host at load and are not meant to repeat -- there is no
@@ -56,9 +55,9 @@
  * and a half thousand notes in two minutes at a peak of 0.000, and its
  * tape is perfect. So the last check plays every shipped piece the way
  * the page plays it, the defaults aimed at the channels the piece left to
- * the reader (AIMING.md, section 5), and asks for a peak. A shipped piece
- * that is silent under the page's defaults fails the build, which is the
- * property the report that started all this was missing.
+ * the reader, and asks for a peak. A shipped piece that is silent under
+ * the page's defaults fails the build, which is the property the report
+ * that started all this was missing.
  *
  * What this cannot see is the browser: the worklet, its messages, and the
  * quanta a real audio thread asks for. browsertest.mjs runs the same tape

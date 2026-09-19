@@ -23,12 +23,12 @@
  *
  *   node wasm/web/drawcheck.mjs [BUILD_DIR]
  *
- * The first half of JAM_M6.md's section 3 gate. Eight composers draw their
- * state -- a Life board, a CA's grid, a Euclid ring -- and until now the
- * browser build left those draws out: there was no canvas in a worklet and
- * no cairo to link. cairo-canvas2d is the cairo they link now, and it records
- * rather than rasterises, so what a draw produces here is a list of ops
- * that the package's replay.js replays on a Canvas2D.
+ * The first half of the drawing gate. Eight composers draw their state -- a
+ * Life board, a CA's grid, a Euclid ring -- and until now the browser build
+ * left those draws out: there was no canvas in a worklet and no cairo to
+ * link. cairo-canvas2d is the cairo they link now, and it records rather than
+ * rasterises, so what a draw produces here is a list of ops that the
+ * package's replay.js replays on a Canvas2D.
  *
  * Each piece is played for a few seconds first, because what these draw is
  * their state and a piece that has not run has none: a markov with an empty
@@ -58,9 +58,9 @@
  * wrong in the enlarged view, and the two sizes here are the ones the
  * canvas actually uses -- a stage's box, and an enlarged stage.
  *
- * What this cannot see is whether the picture is right. Nothing headless
- * can; JAM_M6.md section 8.4 is two browsers and a person. What it can see
- * is everything between the composer and the canvas.
+ * What this cannot see is whether the picture is right. Nothing headless can;
+ * that wants two browsers and a person. What it can see is everything between
+ * the composer and the canvas.
  *
  * Exit status is the number of failures.
  */
@@ -286,10 +286,10 @@ for (const piece of all)
         }
 
     /* And the canvas around them: the desktop's ComposerCanvas, compiled
-       into this module and drawing the same piece through the same cairo
-       (JAM_M6.md, section 6). One list for the whole view, with each
-       stage's picture inside it, drawn by the plugin through the context
-       the canvas handed it. */
+       into this module and drawing the same piece through the same
+       cairo. One list for the whole view, with each stage's picture
+       inside it, drawn by the plugin through the context the canvas
+       handed it. */
     if (!M._tw_canvas_show())
         fail(`${piece.name}: the composer canvas could not read the piece`);
     else

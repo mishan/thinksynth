@@ -1,7 +1,7 @@
 # thinksynth for the browser: libthink, every DSP plugin and every composer,
 # with the composer host, linked into one wasm module for an AudioWorklet,
-# and the page that plays it. M1 of docs/JAM.md was the synth in a tab; M2 is the
-# piece in a tab, which is the scheduler running in the worklet too.
+# and the page that plays it: the synth in a tab, and then the piece in a
+# tab, which is the scheduler running in the worklet too (docs/JAM.md).
 #
 #   source ~/emsdk/emsdk_env.sh
 #   emcmake cmake -S wasm/web -B build-web
@@ -18,8 +18,8 @@
 # What comes out, in the build directory, is the whole site: index.html,
 # main.js, worklet.js, thinkweb.js and .wasm, the shipped .dsp, .gen and
 # .patch files the page offers, each directory with an index.json listing
-# it, and jam.html with its bundled jam.js -- the room page, M3, which is
-# the one thing here with dependencies (`npm ci' in this directory, once).
+# it, and jam.html with its bundled jam.js -- the room page, which is the
+# one thing here with dependencies (`npm ci' in this directory, once).
 #
 # The build directory can be served as it is, and `serve.mjs' does. For
 # putting it somewhere else there is
@@ -60,8 +60,8 @@ list(PREPEND CMAKE_MODULE_PATH
 # composer_draw is among them now. It used to be the one export that could
 # not come this way -- a worklet has no canvas and there was no cairo to
 # link -- and what changed is cairo-canvas2d, which is cairo's API over a
-# display list the page replays (JAM_M6.md, section 3). The composers draw
-# through that, unchanged.
+# display list the page replays. The composers draw through that,
+# unchanged.
 set(THINK_COMPOSER_EXPORTS init create tick receive param_changed input
                            capture destroy draw)
 
@@ -80,7 +80,7 @@ set(THINK_COMPOSER_PROTO_destroy       "void @ (void *)")
 
 # And what a visual module may export, with the same treatment: a probe's
 # display is a module like any other (src/thVisual.h), and the page opens
-# one per armed probe (JAM_M6.md, section 7.4).
+# one per armed probe.
 set(THINK_VISUAL_EXPORTS init open feed draw close cleanup)
 
 set(THINK_VISUAL_PROTO_init    "int @ (thVisual *)")
@@ -262,12 +262,10 @@ const size_t thStaticVisualCount =
 
 # The composer host is ../cmake/ThinkEmscripten.cmake's list, shared with
 # the Node build. shim/ stands in for glibmm -- see wasm/shim/glibmm.h; the
-# scheduler asks glib for a monotonic clock it does not use here and hangs
-# a timeout that never fires, because the audio clock steps it (docs/JAM.md
-# section 3, and SCHEDULER_PLACEMENT.md for why here and not on the main
-# thread).
-# The composer canvas is the desktop's, compiled again here: one drawing,
-# one behaviour, two shells (JAM_M6.md, section 6). CanvasContent is its
+# scheduler asks glib for a monotonic clock it does not use here and hangs a
+# timeout that never fires, because the audio clock steps it rather than the
+# main thread (docs/JAM.md). The composer canvas is the desktop's, compiled
+# again here: one drawing, one behaviour, two shells. CanvasContent is its
 # base; what it draws through is cairo2d's cairomm face, and what it never
 # sees is a toolkit -- the first Gtk:: that got into either would fail this
 # build, which is the guard the split exists for.
@@ -484,12 +482,12 @@ list(JOIN patch_names ", " patch_names)
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/patches/index.json"
      CONTENT "[${patch_names}]\n")
 
-# The room page's script is bundled (JAM_M3.md, section 4.2): it has an
-# editor, a CRDT and a provider, which come from node_modules and go
-# nowhere a browser could fetch them from. So the room page wants `npm ci'
-# run in this directory first, once; the solo page does not -- and a tree
-# without node_modules configures and builds the solo page rather than
-# refusing to configure at all.
+# The room page's script is bundled: it has an editor, a CRDT and a
+# provider, which come from node_modules and go nowhere a browser could
+# fetch them from. So the room page wants `npm ci' run in this directory
+# first, once; the solo page does not -- and a tree without node_modules
+# configures and builds the solo page rather than refusing to configure at
+# all.
 if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/esbuild")
   message(STATUS
     "wasm/web: no node_modules, so no room page. Run `npm ci' in "

@@ -23,25 +23,23 @@
  *
  *   node wasm/web/protocoltest.mjs [BUILD_DIR] [NODE_BUILD_DIR]
  *
- * M3's first gate (JAM_M3.md, section 8.1), and the "two schedulers in one
- * process" docs/JAM.md's section 5 asks for before any of this gets a UI. No
- * browser, no relay, no sockets: a simulation whose wall clock is a number,
- * with a relay whose clock is another number, and two peers each holding
- * the browser module -- the same wasm the worklet runs -- stepped at a
- * window and a rate of its own: 256 at 48 kHz for one, 1024 at 44.1 kHz for
- * the other, their blocks out of phase. Between them, the modules the page
- * itself uses: clock.js makes the maps, commands.js makes and applies the
- * commands.
+ * The room's first gate: two schedulers in one process, which is what the
+ * design asks for before any of this gets a UI. No browser, no relay, no
+ * sockets: a simulation whose wall clock is a number, with a relay whose
+ * clock is another number, and two peers each holding the browser module --
+ * the same wasm the worklet runs -- stepped at a window and a rate of its
+ * own: 256 at 48 kHz for one, 1024 at 44.1 kHz for the other, their blocks
+ * out of phase. Between them, the modules the page itself uses: clock.js
+ * makes the maps, commands.js makes and applies the commands.
  *
  * A script presses Play on one peer, moves a knob from each side at times
- * of its own, changes the tempo from each side, and stops. Every command
- * is stamped with the transport time it applies at and sent ahead of it,
- * and every peer, the sender included, applies it at that time inside the
- * step. So the two tapes must be one tape -- and both must be the tape
- * genwav.mjs delivers under Node from the same piece and the same command
- * stream, stepped in windows of 1024 from transport zero with no origin
- * and no network at all. That is property 4 of JAM_M3.md section 2, and
- * with it property 1: a command applied at a window boundary rather than at
+ * of its own, changes the tempo from each side, and stops. Every command is
+ * stamped with the transport time it applies at and sent ahead of it, and
+ * every peer, the sender included, applies it at that time inside the step.
+ * So the two tapes must be one tape -- and both must be the tape genwav.mjs
+ * delivers under Node from the same piece and the same command stream,
+ * stepped in windows of 1024 from transport zero with no origin and no
+ * network at all. A command applied at a window boundary rather than at
  * its stamp would agree on one machine and part on two.
  *
  * Then the second half: the same script with the delay raised past the
@@ -528,11 +526,11 @@ async function session (createThinkWeb, piece, dsps, network, seed)
     return { ok: true, peers, knob, stamped, stopAt, net, relay };
 }
 
-/* How far each peer's origin frame is from where the origin truly fell
-   on its output, in milliseconds. The tapes do not depend on this -- a
+/* How far each peer's origin frame is from where the origin truly fell on
+   its output, in milliseconds. The tapes do not depend on this -- a
    transport time is frames from the origin, wherever the origin is -- but
-   the peers being in time with each other by ear does (JAM_M3.md, risk
-   2), and it is what clock.js is for. */
+   the peers being in time with each other by ear does, and it is what
+   clock.js is for. */
 function originError (peer, startCmd)
 {
     const trueMs = startCmd.origin - RELAY_OFFSET;         /* sim time */

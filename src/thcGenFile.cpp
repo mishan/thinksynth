@@ -200,9 +200,9 @@ noteListToString (const std::vector<int> &notes)
  *    unit suffix an instrument value needs when the chanarg it lands on
  *    was declared as a percentage. The parser refuses it everywhere
  *    else. `->' crosses the same way and for a better reason: it is the
- *    .dsp spelling for reading a node's output, and phase 3 gives a
- *    .gen nodes to read. One arrow, one meaning, both languages -- the
- *    shared lexer has always handed it back whole (longest match, so it
+ *    .dsp spelling for reading a node's output, and a .gen has nodes to
+ *    read. One arrow, one meaning, both languages -- the shared lexer
+ *    has always handed it back whole (longest match, so it
  *    was never `-' then `>'), and .gen simply stopped refusing it.
  *
  * Every token still carries its byte span, and a STRING's span still
@@ -988,12 +988,12 @@ thcGenLoader::parseScale (void)
 
 /* `preset warm { res = 0.8; fmin = 0.06; };'
  *
- * A named vector of chanarg values -- the noun COMPOSITION_HANDOFF.md §9
- * says tier 2 was missing. A patch's declared chanargs are a vector of
- * floats, and a vector of floats is something a morph can interpolate, a
- * GA can breed and a file can save; without a name for one, every
- * composer that wants to move a timbre has to carry the whole vector in
- * its own params.
+ * A named vector of chanarg values -- a *preset*, and the noun a composer
+ * needs before it can move a timbre at all. A patch's declared chanargs
+ * are a vector of floats, and a vector of floats is something a morph can
+ * interpolate, a GA can breed and a file can save; without a name for
+ * one, every composer that wants to move a timbre has to carry the whole
+ * vector in its own params.
  *
  * Deliberately plain numbers. A knob inside a preset would make it not a
  * vector but an expression that happens to have a value right now, and
@@ -1148,7 +1148,7 @@ thcGenLoader::parseMeter (void)
 
 /* `section drop 16 bars { kick = 1; lead = 1.2; };' and `section end;'
  *
- * The arrangement (docs/GEN_FORMAT.md §5c): where the piece goes, written
+ * The arrangement (docs/GEN_FORMAT.md): where the piece goes, written
  * once and in order, instead of eight xform::form patterns under eight
  * chains that somebody has to keep in step by hand.
  *
@@ -1347,9 +1347,9 @@ thcGenLoader::parseSection (thcScheduler *sched)
  *
  *  - A value may be a knob. `fmin = @warmth;' is the same @warmth a
  *    stage param binds to, reaching a composer and an instrument from
- *    one slider -- docs/UNIFICATION.md phase 2, and the reason this block
- *    and the chains below it belong in one file at all. The binding
- *    carries a unit exactly as a literal does, because the number in a
+ *    one slider, and the reason this block and the chains below it
+ *    belong in one file at all. The binding carries a unit exactly as a
+ *    literal does, because the number in a
  *    knob is exactly as unitless as the number in a file; what a unit
  *    means is checked where the value lands, in
  *    thcScheduler::applyInstrument.
@@ -1915,11 +1915,11 @@ thcGenLoader::parseChain (thcScheduler *sched)
  * no scales -- everything a node can be told is a number, and the three
  * spellings here are the three ways a piece has of naming one.
  *
- * The knob is the one thing a .dsp body cannot say, and phase 2 is why
- * it is here: a knob means the same thing on both sides of the
- * composer/instrument boundary, and leaving the nodes out of that would
- * have made an LFO's depth the one number in a piece that could not go
- * on a slider.
+ * The knob is the one thing a .dsp body cannot say, and one binding
+ * namespace across both languages is why it is here: a knob means the
+ * same thing on both sides of the composer/instrument boundary, and
+ * leaving the nodes out of that would have made an LFO's depth the one
+ * number in a piece that could not go on a slider.
  *
  * The host does the loading and the refusing: whether a category means
  * anything one sample at a time is its judgement, argued where it is
@@ -2470,7 +2470,7 @@ thcGenLoader::parseNodeStage (thcScheduler *sched, size_t chain,
         case ExprRef::KNOB:
             /* `in1 = @depth;' -- the same knob a stage param binds and
                an instrument chanarg reads, one world further out.
-               Leaving nodes out of the namespace phase 2 unified would
+               Leaving nodes out of that shared namespace would
                have made an LFO's depth the one number in a piece that
                could not go on a slider. */
             bound = c->nodes->setKnob(stageName.text, argName.text, ref.knob,
@@ -2550,9 +2550,10 @@ thcGenLoader::parseStageBlock (thcScheduler *sched, size_t chain,
      * being checked is not a marker.
      *
      * Still spelled `stage', because inside a chain everything is, and
-     * §0 of the plan is emphatic that the day a `node' can appear where
-     * a `stage' goes the wrong intuitions about order and lifetime come
-     * with it. What tells the two apart is the category, as it always
+     * docs/UNIFICATION.md is emphatic that the day a `node' can appear
+     * where a `stage' goes, the wrong intuitions about order and
+     * lifetime come with it. What tells the two apart is the category,
+     * as it always
      * was: `gen' and `xform' are the two ends of the composer ABI, and
      * anything else is a plugin family from the other world.
      *

@@ -24,8 +24,8 @@
  *
  * The .dsp canvas in a room is the desktop's NodeGraph, NodeEdit,
  * NodeLayout and NodeCatalog compiled to wasm and run over the document's
- * text (JAM_M6.md, section 7). Two things have to be true of that, and
- * they are different things.
+ * text. Two things have to be true of that, and they are different
+ * things.
  *
  * The first is that the model still works when it is the browser running
  * it: every shipped .dsp builds a graph with boxes and ports in it, the
@@ -283,11 +283,11 @@ process.stdout.write(
 
 /* ---- and the canvas over every one of them ------------------------------ */
 
-/* The other half of JAM_M6.md's section 3 gate: the node canvas, which is
-   the desktop's, drawn over every shipped .dsp through the cairo stand-in.
-   The list has to be walkable by the arity table alone and known to
-   replay.js op for op -- the same three questions drawcheck asks of the
-   composer canvas, of the other canvas. */
+/* The other half of the drawing gate: the node canvas, which is the
+   desktop's, drawn over every shipped .dsp through the cairo stand-in. The
+   list has to be walkable by the arity table alone and known to replay.js
+   op for op -- the same three questions drawcheck asks of the composer
+   canvas, of the other canvas. */
 {
     const { ARITY, OP_NAMES, replay } =
         await import('cairo-canvas2d');
@@ -439,11 +439,11 @@ process.stdout.write(
 
 /* ---- probes: a tap, a module, and a panel -------------------------------
  *
- * The whole of what a probe is, end to end and headless (JAM_M6.md,
- * section 7.4). A .dsp is loaded on a channel and a note played; the synth
- * taps one arg of one node and publishes what it sees; the samples are fed
- * to a visual module, which draws; and the canvas has a panel for it,
- * which is a box like any other and is drawn with the rest of the graph.
+ * The whole of what a probe is, end to end and headless. A .dsp is loaded
+ * on a channel and a note played; the synth taps one arg of one node and
+ * publishes what it sees; the samples are fed to a visual module, which
+ * draws; and the canvas has a panel for it, which is a box like any other
+ * and is drawn with the rest of the graph.
  *
  * In a page these are three instances of this module -- the worklet taps,
  * the page displays -- and the samples cross as a message. Here they are

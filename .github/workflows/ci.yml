@@ -1,4 +1,4 @@
-# Three-platform CI. See docs/PORTING.md section 4.
+# Three-platform CI. See docs/PORTING.md.
 #
 # Windows is MinGW-w64 via MSYS2, not MSVC. That is forced by gtkmm, which has
 # no MSVC build, and reinforced by the eleven files in the tree that use
@@ -317,9 +317,9 @@ jobs:
         working-directory: wasm/web
         run: npm ci
 
-      # The browser build (docs/JAM.md, M1 and M2): every plugin and every
-      # composer linked in rather than loaded, with the composer scheduler,
-      # for an AudioWorklet -- and the room page (M3), bundled.
+      # The browser build: every plugin and every composer linked in rather
+      # than loaded, with the composer scheduler, for an AudioWorklet --
+      # and the room page, bundled.
       - name: Browser build
         run: |
           source ~/emsdk/emsdk_env.sh
@@ -444,12 +444,12 @@ jobs:
       - name: Browser build, played from Node
         run: node wasm/web/check.mjs
 
-      # M2's gate, without a browser: every seeded piece composed by this
+      # The tape gate, without a browser: every seeded piece composed by this
       # module at four steps, against the tape genwav.mjs delivers out of
       # the Node module. The wasm-against-wasm gate and the step-invariance
       # gate in one. Then every shipped piece played the way the page plays
       # it, held to a peak -- a tape says what was composed and not whether
-      # any of it was audible (AIMING.md, section 5).
+      # any of it was audible.
       #
       # It shards itself across the cores by default; every line names the
       # shard that wrote it.
@@ -459,19 +459,19 @@ jobs:
       # Every picture in every shipped piece, and the composer canvas
       # around them, drawn through the module and replayed: the draws are
       # in the browser build now, and what they produce is a list of ops
-      # rather than pixels (JAM_M6.md, section 3). Each list has to be
-      # walkable by the arity table alone and known to replay.js op for
-      # op, and every composer that says it draws has to have drawn
-      # something somewhere in the corpus.
+      # rather than pixels. Each list has to be walkable by the arity
+      # table alone and known to replay.js op for op, and every composer
+      # that says it draws has to have drawn something somewhere in the
+      # corpus.
       - name: Every picture in every piece, and the canvas around them
         run: node wasm/web/drawcheck.mjs
 
-      # The node editor's model, through the module (JAM_M6.md, section 7):
-      # every shipped .dsp built into a graph, the palette of plugins this
-      # module was compiled with, and an edit of each patch held against
-      # the one scripts/dspedit makes natively -- byte for byte, because a
-      # .dsp somebody changes in a browser is a .dsp somebody else opens in
-      # the editor.
+      # The node editor's model, through the module: every shipped .dsp
+      # built into a graph, the palette of plugins this module was compiled
+      # with, and an edit of each patch held against the one
+      # scripts/dspedit makes natively -- byte for byte, because a .dsp
+      # somebody changes in a browser is a .dsp somebody else opens in the
+      # editor.
       - name: The node editor's model, against the desktop's
         run: node wasm/web/nodecheck.mjs build-web build
 
@@ -510,11 +510,11 @@ jobs:
       # The solo page itself, which nothing above opens: the octave, the
       # sliders a piece's knobs are drawn as, and a computer key held and
       # let go. Both pages share keyboard.js and knobs.js, so this is
-      # where a change to either shows up first. Then the composer view
-      # (JAM_M6.md, sections 4 to 6), which has a whole second engine
-      # behind it: the picture arrives from the mirror worker and is
-      # replayed, a stage is enlarged, and a drag on it leaves as a
-      # command and comes back as a board that has changed.
+      # where a change to either shows up first. Then the composer view,
+      # which has a whole second engine behind it: the picture arrives
+      # from the mirror worker and is replayed, a stage is enlarged, and
+      # a drag on it leaves as a command and comes back as a board that
+      # has changed.
       - name: The page's keys, knobs and composer view
         working-directory: wasm/web
         run: node pagetest.mjs ../../build-web
@@ -559,44 +559,43 @@ jobs:
         working-directory: wasm/web
         run: npm ci
 
-      # The mirror (JAM_M6.md, section 4): the module twice in one process,
-      # one rendering and one with a synth that never renders, both fed the
-      # same messages through the same handler, the second stepped to the
-      # frame the first's tape batch reached. One tape, for every seeded
-      # piece -- and the mirror dropped nothing and made no sound. Then
-      # every piece with a picture that is a control, clicked: by script
-      # and through the canvas, each time one tape between the two and
-      # not the untouched one (JAM_M6.md, section 5).
+      # The mirror: the module twice in one process, one rendering and one
+      # with a synth that never renders, both fed the same messages through
+      # the same handler, the second stepped to the frame the first's tape
+      # batch reached. One tape, for every seeded piece -- and the mirror
+      # dropped nothing and made no sound. Then every piece with a picture
+      # that is a control, clicked: by script and through the canvas, each
+      # time one tape between the two and not the untouched one.
       - name: A mirror composes what the worklet composes
         run: node wasm/web/mirrortest.mjs
 
-      # M3's first gate, without a browser: two peers in one process at
+      # The room's first gate, without a browser: two peers in one process at
       # different windows and rates, on a network of made-up delay and
       # loss, composing every seeded piece from stamped commands -- one
       # tape between them, and genwav's tape under the same commands.
       - name: Two peers, one tape
         run: node wasm/web/protocoltest.mjs
 
-      # The relay (JAM_M3.md, section 3), driven from Node by the clients
-      # the page will be: presence, seats, the clock, signalling, the
-      # relayed fallback, and the shared document reaching two providers.
+      # The relay, driven from Node by the clients the page will be:
+      # presence, seats, the clock, signalling, the relayed fallback, and
+      # the shared document reaching two providers.
       - name: The relay
         working-directory: wasm/web
         run: node relaytest.mjs
 
-      # M3's second gate (JAM_M3.md, section 8.2): a Chromium page and a
-      # Firefox page in one room on a relay, each with a live AudioContext,
-      # one pressing Play, a knob moved from each side, and one tape
-      # between them -- genwav's, under the same commands. Live, because
-      # two peers agreeing on a clock is the thing under test.
+      # The room's second gate: a Chromium page and a Firefox page in one
+      # room on a relay, each with a live AudioContext, one pressing Play, a
+      # knob moved from each side, and one tape between them -- genwav's,
+      # under the same commands. Live, because two peers agreeing on a clock
+      # is the thing under test.
       #
-      # Then M6's (JAM_M6.md, section 8.3): a second room on a piece whose
-      # picture is a control, where one page plays and the other paints a
-      # line across gen::life's board with a pointer. One tape between the
-      # two, and not the tape of the run nobody painted on. And then the
-      # .dsp canvas: one page types a number into a node, and the file in
-      # both documents is the one native NodeEdit writes -- which is why
-      # the build job builds dspedit.
+      # Then the composer view's: a second room on a piece whose picture is
+      # a control, where one page plays and the other paints a line across
+      # gen::life's board with a pointer. One tape between the two, and not
+      # the tape of the run nobody painted on. And then the .dsp canvas: one
+      # page types a number into a node, and the file in both documents is
+      # the one native NodeEdit writes -- which is why the build job builds
+      # dspedit.
       - name: Two browsers, one room
         working-directory: wasm/web
         run: |

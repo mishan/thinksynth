@@ -388,7 +388,7 @@ void writePng (thVisual &visual, void *inst, const string &what)
        a status and writes nothing, visualcheck goes on to report its checks
        green, and the only sign that -o did nothing is an empty directory the
        reader has to think to look in. That is exactly how this was found --
-       by following §6 step 4 with a path that did not exist yet. */
+       by passing -o a path that did not exist yet. */
     const cairo_status_t st = cairo_surface_write_to_png(surf, name.c_str());
 
     if (st != CAIRO_STATUS_SUCCESS && !pngFailed)

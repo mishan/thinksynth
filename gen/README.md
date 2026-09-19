@@ -16,7 +16,7 @@ they carry their own instruments. An `instrument` block names a `.dsp` and the c
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
-once. See §4b of [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md), and `../docs/UNIFICATION.md`
+once. See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md), and `../docs/UNIFICATION.md`
 for where this is going.
 
 The rest still name channels, so aim the ones each header lists at patches you

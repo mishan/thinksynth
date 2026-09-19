@@ -22,7 +22,7 @@
  * worklet.js holds one of these and calls a handful of things: load a .dsp
  * or a .gen, press and release a key, move a knob, start the transport,
  * render a block. The synth runs in windows of its own length -- 256 in the
- * browser, docs/JAM.md section 2 -- and a worklet asks for 128-frame quanta;
+ * browser, docs/JAM.md -- and a worklet asks for 128-frame quanta;
  * gthSynthSource is the ring between the two, the same one the sound card's
  * callback uses on the desktop.
  *
@@ -44,16 +44,16 @@
  *
  * THE SCHEDULER RUNS HERE, stepped once per window by the audio clock
  * itself, which is genwav's loop exactly: step the transport by a window,
- * render the window. SCHEDULER_PLACEMENT.md measured the alternative -- the
- * scheduler on the main thread, ahead of the audio clock -- and docs/JAM.md
- * section 3 says why this is where it went: the scheduler holds the synth
- * and drives it directly, and much of what it does (the note-offs it
- * derives from durations, the chanarg writes a knob binding makes,
- * instrument application at load and rewind) never appears on the tape, so
- * a bridge carrying it would be a bridge whose bugs the tape cannot see.
+ * render the window. The alternative -- the scheduler on the main thread,
+ * ahead of the audio clock -- was measured and rejected, and docs/JAM.md
+ * says why this is where it went: the scheduler holds the synth and drives
+ * it directly, and much of what it does (the note-offs it derives from
+ * durations, the chanarg writes a knob binding makes, instrument
+ * application at load and rewind) never appears on the tape, so a bridge
+ * carrying it would be a bridge whose bugs the tape cannot see.
  *
  * The tape it does deliver is posted back for the page to draw, and is what
- * M2's gate compares against genwav's for the same piece and the same
+ * the tape gate compares against genwav's for the same piece and the same
  * seconds. twevent.h is its layout, shared with the Node host so there is
  * one spelling of an event rather than two.
  */
@@ -112,14 +112,14 @@ namespace {
  *
  * Every input is one of these, the page's own included: a knob moved, a key
  * pressed or a transport button has to be applied at the same point in the
- * piece on every peer or their tapes diverge from there on, so the local
- * page has no privileged access to the scheduler (docs/JAM.md, section 3). It is
- * the nearest peer, and its commands take a remote peer's path.
+ * piece on every peer or their tapes diverge from there on, so the local page
+ * has no privileged access to the scheduler (docs/JAM.md). It is the nearest
+ * peer, and its commands take a remote peer's path.
  *
  * A load is the one input that is not stamped. It is a synchronous answer
- * -- did this parse? -- and in M2 a piece is loaded before its transport
- * runs, so there is no point in the piece for the stamp to name. M4's
- * apply-at-bar rule is where an edit acquires a beat. */
+ * -- did this parse? -- and a piece is loaded before its transport runs, so
+ * there is no point in the piece for the stamp to name. The apply-at-bar
+ * rule still to come is where an edit acquires a beat. */
 enum CmdType
 {
     CMD_NOTE_ON,        /* the keyboard, straight to the loaded .dsp */
@@ -153,22 +153,22 @@ struct Command
 };
 
 /* A command for the scheduler, stamped in transport seconds rather than
-   frames (JAM_M3.md, section 1). A window is 5 ms and two peers' windows
-   are not aligned to each other or to the origin, so a knob applied "at
-   the top of the window containing t" lands at different transport times
-   on different peers, and a composer that reads it at a tick between
-   those two times composes two different pieces. So these are applied at
-   `at' inside the step: the transport is stepped to `at', which runs the
-   stages that tick at or before it, the command is applied, and the step
-   goes on. The same on every peer, whatever its window or its rate.
+   frames. A window is 5 ms and two peers' windows are not aligned to
+   each other or to the origin, so a knob applied "at the top of the
+   window containing t" lands at different transport times on different
+   peers, and a composer that reads it at a tick between those two times
+   composes two different pieces. So these are applied at `at' inside the
+   step: the transport is stepped to `at', which runs the stages that
+   tick at or before it, the command is applied, and the step goes on.
+   The same on every peer, whatever its window or its rate.
 
    `at' below zero means the top of the next window, which is what the
    solo page sends and what a peer sends while the transport is stopped.
    Those sort ahead of every stamped one and are applied first in the
    step; they are never late, because "now" cannot have gone by. One with
    a time that has already passed is applied at once and counted (late_):
-   the tape has parted from the other peers' from that time on, and M3's
-   job is to make that visible (JAM_M3.md, section 1). */
+   the tape has parted from the other peers' from that time on, and the
+   room page's job is to make that visible. */
 struct Scheduled
 {
     double at;
@@ -182,8 +182,7 @@ struct Scheduled
        document revision -- and w and h come along because the ABI
        requires them: the draw's size is the host's business and an
        enlarged view is the same draw at a different size. Every peer
-       inverts the same arithmetic and reaches the same cell
-       (JAM_M6.md, section 5). */
+       inverts the same arithmetic and reaches the same cell. */
     int    chain, stage;
     int    kind;                /* thcInputType                        */
     double x, y, w, h;
@@ -211,10 +210,9 @@ int                    late_;
    the transport has never been started. Transport time at the end of a
    window is (frame - originFrame_) / rate_ exactly, and the step is taken
    to that rather than by adding a window's length each time, so the clock
-   does not drift from the frames by a rounding error per window
-   (JAM_M3.md, section 2, property 3). A begin sets it to the frame it was
-   asked for; a resume sets it so that the transport continues from where
-   it stopped. */
+   does not drift from the frames by a rounding error per window. A begin
+   sets it to the frame it was asked for; a resume sets it so that the
+   transport continues from where it stopped. */
 double originFrame_ = -1;
 
 /* A begin waiting for its frame: at the window that frame falls in the
@@ -231,9 +229,9 @@ thcGenLoader        *loader_;
 std::vector<thArg *> knobs_;
 
 /* The channels the loaded piece's sinks name that no instrument of its
-   own occupies -- the ones a reader is being asked to aim (AIMING.md,
-   section 4.1). Collected at the load, like knobs_: a sink's channel is
-   fixed once allocateChannels has run. */
+   own occupies -- the ones a reader is being asked to aim. Collected at
+   the load, like knobs_: a sink's channel is fixed once
+   allocateChannels has run. */
 std::vector<int>     sinks_;
 
 /* "channel:name" for every chanarg override that named something the tree
@@ -267,15 +265,15 @@ void dropStamped (void)
 /* Everything due before the end of the window about to be rendered, whose
    first frame is `start'.
  *
- * addNote is the desktop's GUI-thread call, and on the desktop it runs on
- * the GUI thread: it takes the synth's lock, uncontended here, and builds
- * the note's copy of the graph, which allocates. A worklet has no other
- * thread to put that on, so a key-on spends its render quantum on it --
- * measured at 0.02 to 0.38 ms across the shipped patches, against the
- * 2.67 ms a 128-frame quantum has at 48 kHz. Making a note-on free of
- * allocation is the engine's work, not this file's; docs/JAM.md, section 7, has
- * it as risk 3. What this file keeps off the render path is its own: the
- * queue arrives sorted and has its room already. */
+ * addNote is the desktop's GUI-thread call, and on the desktop it runs on the
+ * GUI thread: it takes the synth's lock, uncontended here, and builds the
+ * note's copy of the graph, which allocates. A worklet has no other thread to
+ * put that on, so a key-on spends its render quantum on it -- measured at 0.02
+ * to 0.38 ms across the shipped patches, against the 2.67 ms a 128-frame
+ * quantum has at 48 kHz. Making a note-on free of allocation is the engine's
+ * work, not this file's; docs/JAM.md, has it as risk 3. What this file keeps
+ * off the render path is its own: the queue arrives sorted and has its room
+ * already. */
 void applyDue (double start, int len)
 {
     size_t k = 0;
@@ -387,9 +385,8 @@ void beginDue (double start, int len)
 
 /* A stage by chain and stage index, or NULL. The index pair is the
    canvas's own key and is the same on every peer holding the same document
-   revision (JAM_M6.md, section 1), so it is what the page names a picture
-   by. Out of range is answered rather than trusted: these indices come off
-   a page. */
+   revision, so it is what the page names a picture by. Out of range is
+   answered rather than trusted: these indices come off a page. */
 thcStage *stageAt (int chain, int stage)
 {
     if (sched_ == NULL || chain < 0 || (size_t)chain >= sched_->chainCount())
@@ -628,9 +625,9 @@ void collectSinks (void)
 /* ---- the composer canvas, in a module ----
  *
  * The desktop's ComposerCanvas, compiled again here and given a shell of
- * page and worker instead of a gtk widget (JAM_M6.md, section 6). What it
- * draws, what it lays out and what a click on it means are the desktop's,
- * unchanged; what this class is, is the four answers a shell owes it.
+ * page and worker instead of a gtk widget. What it draws, what it lays
+ * out and what a click on it means are the desktop's, unchanged; what
+ * this class is, is the four answers a shell owes it.
  *
  * It lives in the mirror, beside the scheduler whose stages it draws. The
  * worklet has one of these too -- it is the same module -- and never
@@ -924,7 +921,7 @@ EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
  * else has claimed, and what "nothing else" means is exactly that hook
  * (thcGenFile.cpp, allocateChannels). genwav installs none, so a piece
  * loaded here must find the same channels free or its tape would name
- * different ones -- and the tape is what M2's gate compares. The cost is
+ * different ones -- and the tape is what the gate compares. The cost is
  * that a piece takes channel 0 from the .dsp the keyboard was playing,
  * which is why the page has the two as modes rather than side by side. A
  * keyboard still reaches a piece: through `input midi', as tw_midi_on, the
@@ -932,9 +929,8 @@ EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
 /* `seed' is the master seed to compose from when the piece pins none, or
    below zero to draw one, as the desktop does. Two peers composing from
    different seeds are playing different pieces, so in a room the one who
-   presses Play picks it and everyone loads with it (JAM_M3.md, section
-   5.3). A piece that pins its own is not moved by this: the loader sets
-   the file's after. */
+   presses Play picks it and everyone loads with it. A piece that pins
+   its own is not moved by this: the loader sets the file's after. */
 EMSCRIPTEN_KEEPALIVE int tw_piece_load (const char *text, double seed)
 {
     delivery_.disconnect();
@@ -1089,10 +1085,10 @@ EMSCRIPTEN_KEEPALIVE int tw_listens (int channel)
  *
  * What a channel sounds like is the piece's to decide, and where the
  * piece is silent on the matter it is the page's defaults -- never what
- * the page did before (AIMING.md, section 3). This is the question the
- * page has to ask to keep that rule: gen/fern.gen declares no instrument
- * and sinks to two channels, and a page that puts nothing on them renders
- * three and a half thousand notes at a peak of zero.
+ * the page did before. This is the question the page has to ask to keep
+ * that rule: gen/fern.gen declares no instrument and sinks to two
+ * channels, and a page that puts nothing on them renders three and a half
+ * thousand notes at a peak of zero.
  *
  * The engine's numbering, as everything here is. A .gen file writes
  * `channel = 4' and the loader hands over 3.
@@ -1110,11 +1106,11 @@ EMSCRIPTEN_KEEPALIVE int tw_sink_channel (int k)
 /* A chanarg on the tree loaded on `channel', through the path the
  * application's slider uses. Nonzero if it was set.
  *
- * This is the second half of loading a .patch: a .patch is a `dsp' line
- * and flat `name value[,value]' overrides for that DSP's chanargs
- * (docs/DSP_FORMAT.md, section 2), and gthPatchManager::parse loads the one
- * and then sets the others in exactly this order, at exactly this level
- * -- TH_DEFAULT_CHAN_AMP, which tw_load already applies.
+ * This is the second half of loading a .patch: a .patch is a `dsp' line and
+ * flat `name value[,value]' overrides for that DSP's chanargs
+ * (docs/DSP_FORMAT.md), and gthPatchManager::parse loads the one and then
+ * sets the others in exactly this order, at exactly this level --
+ * TH_DEFAULT_CHAN_AMP, which tw_load already applies.
  *
  * A name the tree does not declare is ignored, as tw_knob ignores an
  * index outside the list, and said rather than passed over: an override
@@ -1167,9 +1163,9 @@ EMSCRIPTEN_KEEPALIVE int tw_chanarg (int channel, const char *name,
  *
  * What a composer draws is what the composer view shows: a Life board, a
  * CA's grid, a Euclid ring, drawn by the plugin itself through the same
- * composer_draw the desktop calls (JAM_M6.md, section 3). Here the cairo
- * it draws through is cairo-canvas2d, which records rather than rasterises,
- * so a draw is a list of ops the page replays on a Canvas2D.
+ * composer_draw the desktop calls. Here the cairo it draws through is
+ * cairo-canvas2d, which records rather than rasterises, so a draw is a list
+ * of ops the page replays on a Canvas2D.
  *
  * The three tables below -- the ops, the strings they index, the surfaces
  * they blit -- stay valid until the next draw. The page reads them out of
@@ -1240,8 +1236,7 @@ EMSCRIPTEN_KEEPALIVE int tw_stage_draw (int chain, int stage, double w,
  *
  * One canvas per instance, made on the first call. The mirror's is the one
  * that matters: it draws the stages of the scheduler it shares a heap
- * with, which are the instances that are composing what is being heard
- * (JAM_M6.md, section 4).
+ * with, which are the instances that are composing what is being heard.
  *
  * The list a draw produces is the same three tables a stage's picture
  * produces -- tw_draw_ops and its neighbours -- because a stage's picture
@@ -1263,9 +1258,9 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_show (void)
         /* A gesture on an enlarged picture does not reach the plugin from
            here. It leaves as a command, is stamped, goes round the mesh
            and comes back at its time -- to this instance as to every
-           other (JAM_M6.md, section 5). Connecting this is what tells the
-           canvas so; the desktop connects nothing and the plugin hears
-           the click at once, as it always has. */
+           other. Connecting this is what tells the canvas so; the desktop
+           connects nothing and the plugin hears the click at once, as it
+           always has. */
         /* A stage's params handle was clicked. The canvas says which
            stage and where its box is; what a form looks like is the
            page's business, on this platform as on the desktop. */
@@ -1723,8 +1718,8 @@ EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
  * One more stamped command, made and sent the way a knob is: applied at
  * `at' in the step on every peer, the sender included, so a Life board
  * that was clicked on one screen is the same board everywhere from that
- * moment (JAM_M6.md, section 5). The clicker hears their own click a knob
- * lead late, as they hear their own knob.
+ * moment. The clicker hears their own click a knob lead late, as they
+ * hear their own knob.
  *
  * `at' below zero is "now", as for a knob on a stopped transport, which
  * is what a solo page sends.
@@ -1751,14 +1746,14 @@ EMSCRIPTEN_KEEPALIVE void tw_input (double at, int chain, int stage,
 
 /* ---- a stage's parameters ----
  *
- * What the params popover shows (JAM_M6.md, section 4). The canvas asks
- * for one and says where to put it; what goes in it is a form, and a form
- * is the platform's -- so the page builds it out of these.
+ * What the params popover shows. The canvas asks for one and says where
+ * to put it; what goes in it is a form, and a form is the platform's --
+ * so the page builds it out of these.
  *
- * Read-only in M6. The canvas reports rather than edits, and editing the
- * piece from it is the step after this one (section 11): on the desktop a
- * param goes through thcGenEdit into the file, and in a room the text in
- * the editor is the piece.
+ * Read-only. The canvas reports rather than edits, and editing the piece
+ * from it is the step after this one: on the desktop a param goes through
+ * thcGenEdit into the file, and in a room the text in the editor is the
+ * piece.
  */
 
 static const thcPlugin::ParamInfo *paramAt (int chain, int stage, int p)
@@ -1938,15 +1933,15 @@ EMSCRIPTEN_KEEPALIVE void tw_events_clear (void)
    in each are applied just before it, and then the transport is stepped
    across it.
  *
- * That order is genwav's, and it has to be: a command is meant to be in
- * force for the window it lands in, and what the step delivers is meant to
- * sound in the window it is delivered for. The step is to the transport
- * time the window's last frame falls on, counted from the origin, and by
- * nothing measured, so the piece is a function of the file and the seed
- * and not of the clock -- which is the property the step-size fix put in
- * the scheduler and this is the first host to lean on (docs/JAM.md, section 3).
- * The scheduler's own commands are applied inside the step, at the time
- * each was stamped for; step() above says why. */
+ * That order is genwav's, and it has to be: a command is meant to be in force
+ * for the window it lands in, and what the step delivers is meant to sound in
+ * the window it is delivered for. The step is to the transport time the
+ * window's last frame falls on, counted from the origin, and by nothing
+ * measured, so the piece is a function of the file and the seed and not of the
+ * clock -- which is the property the step-size fix put in the scheduler and
+ * this is the first host to lean on (docs/JAM.md). The scheduler's own commands
+ * are applied inside the step, at the time each was stamped for; step() above
+ * says why. */
 EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
 {
     const int len = synth_->getWindowlen();
@@ -1985,7 +1980,7 @@ EMSCRIPTEN_KEEPALIVE const float *tw_render (int frames)
  * (thSynth.h). The desktop's editor drains that ring on a frame tick and
  * feeds a visual module; here the worklet drains it after every render and
  * posts the samples to the page with the tape batch, and the page's own
- * instance of the module holds the visuals (JAM_M6.md, section 7.4).
+ * instance of the module holds the visuals.
  *
  * The worklet's thread is the only thread this module has, so armProbe --
  * a GUI-thread call -- is made on it, and the ring is drained on it too,
@@ -2053,9 +2048,9 @@ EMSCRIPTEN_KEEPALIVE const float *tw_probe_samples (void)
  *
  * A second instance of this module, in a worker, fed the messages the
  * worklet is fed, holding real composer instances so that the composer
- * view has something to draw (JAM_M6.md, section 4). It renders nothing:
- * its synth is silent, and instead of tw_render it is told how far the
- * worklet's has got and steps to there.
+ * view has something to draw. It renders nothing: its synth is silent,
+ * and instead of tw_render it is told how far the worklet's has got and
+ * steps to there.
  *
  * Everything else about it is the same object doing the same thing, which
  * is what makes its tape the worklet's tape -- and what makes the two
@@ -2083,8 +2078,7 @@ EMSCRIPTEN_KEEPALIVE void tw_silent (void)
  *
  * process() is called here rather than by a gthSynthSource, which is the
  * thing this instance does not have: it is what drains the command ring,
- * and a ring nobody drains is what SCHEDULER_PLACEMENT.md section 4.4
- * measured filling up.
+ * and a ring nobody drains was measured filling up.
  *
  * Returns the frame it reached.
  */

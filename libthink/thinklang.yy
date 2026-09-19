@@ -56,9 +56,9 @@ static thExprNode *thOperand (const YYSTYPE *v);
 %}
 
 /* Pure: no globals anywhere in the generated parser, a context threaded
- * through yyparse, yylex and yyerror instead. This is step one of the
- * .gen/.dsp reconciliation plan (COMPOSITION_HANDOFF.md paragraph 8) and
- * worth having regardless: the old parser could not run twice at once,
+ * through yyparse, yylex and yyerror instead. The first move toward one
+ * scanner behind both the .gen and the .dsp grammars, and worth having
+ * regardless: the old parser could not run twice at once,
  * and every caller had to know the global-assignment ritual. */
 %define api.pure full
 %param { thParseContext *ctx }

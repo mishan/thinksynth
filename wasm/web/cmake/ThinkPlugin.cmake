@@ -8,13 +8,12 @@
 # is still plugins/CMakeLists.txt's, read as it stands.
 #
 # Both ABIs come this way now: the DSP plugins a .dsp names, and the
-# composers a .gen names (M2 of docs/JAM.md, the scheduler in the worklet). What
+# composers a .gen names, since the scheduler runs in the worklet too. What
 # each contributes is a wrapper source and a row in the table; CMakeLists.txt
 # here writes the table from the two properties below.
 #
-# The visuals come this way too now: there is something to draw on, which
-# is cairo-canvas2d, and something to draw -- the probes the node editor arms
-# (JAM_M6.md, section 7.4).
+# The visuals come this way too now: there is something to draw on, which is
+# cairo-canvas2d, and something to draw -- the probes the node editor arms.
 
 # A wrapper source, and a name to find its row by.
 #
@@ -61,12 +60,12 @@ endfunction()
 # it would be. THINK_COMPOSER_EXPORTS and the prototypes are CMakeLists.txt's.
 #
 # composer_draw comes this way too now. It used to be the one export that
-# could not -- a worklet has no canvas and there was no cairo to link, so
-# the composers were compiled with THC_NO_DRAW and the eight that draw left
-# both the function and their <cairo.h> out. cairo-canvas2d is the cairo they
-# link now: the same calls, recorded into a list the page replays
-# (JAM_M6.md, section 3). Its cairo.h is what thcstatic.h includes, so the
-# plugin's own `#include <cairo.h>' finds it already behind its guard.
+# could not -- a worklet has no canvas and there was no cairo to link, so the
+# composers were compiled with THC_NO_DRAW and the eight that draw left both
+# the function and their <cairo.h> out. cairo-canvas2d is the cairo they link
+# now: the same calls, recorded into a list the page replays. Its cairo.h is
+# what thcstatic.h includes, so the plugin's own `#include <cairo.h>' finds
+# it already behind its guard.
 function(think_add_composer name)
   set(src "${CMAKE_CURRENT_SOURCE_DIR}/composer/${name}.cpp")
   set(wrapper "${PROJECT_BINARY_DIR}/static/composer_${name}.cpp")

@@ -12,9 +12,9 @@
  * Public License for more details.
  */
 
-/* arp -- the plugin the handoff kept promising: it has to know what is
- * held NOW, which is the one thing duration-carrying events cannot say
- * and the reason THC_EV_NOTEOFF exists.
+/* arp -- the plugin THC_EV_NOTEOFF exists for: it has to know what is
+ * held NOW, which is the one thing a duration-carrying event cannot
+ * say.
  *
  * receive() maintains the held set from either kind of press: a live
  * key (duration <= 0) is held until its NOTEOFF; a composed note

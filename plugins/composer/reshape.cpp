@@ -14,20 +14,20 @@
 
 /* reshape -- past the declared surface, deliberately.
  *
- * The other half of docs/UNIFICATION.md phase 4, at the fine grain. `swap'
+ * The fine-grained half of a composer reshaping the instrument. `swap'
  * replaces a channel's whole graph; this changes one constant inside the
  * graph that is already there -- a node's own arg, which the .dsp never
  * offered as a chanarg and which no composer before this could reach.
  *
- * That is the point, and it is worth being plain about. Every composer
- * up to here has been held to the args a patch chose to declare, and
- * COMPOSITION_HANDOFF.md §9 spent a paragraph arguing that the limit was
- * encapsulation rather than a missing feature: "an instrument's mutation
- * surface is what it declares". It also said the way past it would be a
- * *different mechanism* rather than a widening of that one, and this is
- * the different mechanism. A structure edit is not a chanarg with more
- * reach; it is an intent, scheduled, drawn on the roll, replayed from
- * the seed, and written in the piece where a reader can see it.
+ * That is the point, and it is worth being plain about. Every composer up
+ * to here has been held to the args a patch chose to declare, on the
+ * argument that the limit was encapsulation rather than a missing
+ * feature: an instrument's mutation surface is what it declares. The way
+ * past that limit is a *different mechanism* rather than a widening of
+ * the old one, and this is the different mechanism. A structure edit is
+ * not a chanarg with more reach; it is an intent, scheduled, drawn on the
+ * roll, replayed from the seed, and written in the piece where a reader
+ * can see it.
  *
  * Which means the consent moved rather than vanished. A patch still
  * declares what it wants played with; a piece that reaches deeper has

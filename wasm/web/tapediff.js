@@ -21,15 +21,15 @@
  *
  * Two instances of the same module, on the same messages, composing the
  * same piece: that is what the mirror is for, and it is a claim that can
- * be checked continuously and for free while somebody plays (JAM_M6.md,
- * section 4). The two tapes arrive in batches, from two threads, at
- * different times -- the mirror is a batch behind by construction -- so
- * what is held here is one queue per side and the comparison happens on
- * whatever both have delivered.
+ * be checked continuously and for free while somebody plays. The two
+ * tapes arrive in batches, from two threads, at different times -- the
+ * mirror is a batch behind by construction -- so what is held here is
+ * one queue per side and the comparison happens on whatever both have
+ * delivered.
  *
  * Zero, continuously, is a determinism check the jam gets for nothing.
- * Non-zero is a number worth showing and, in M6, nothing more: a resync is
- * a fast-forward, which is M4's machinery.
+ * Non-zero is a number worth showing and, for now, nothing more: a resync
+ * is a fast-forward, and nothing here fast-forwards yet.
  *
  * An epoch is a run: a rewind or a load bumps it, and the two sides bump
  * it at the same point in the stream but not at the same moment. So an

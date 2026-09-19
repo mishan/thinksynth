@@ -43,8 +43,8 @@ target_link_libraries(think_visualhost PUBLIC think PkgConfig::CAIRO)
 # modules and the scheduler that drives them. Its own object library for the
 # same reason the other two are -- it needs glibmm (the scheduler runs off a
 # Glib timeout and the monotonic clock) but not gtkmm, and the replay-
-# determinism harness planned in the handoff wants to link exactly this,
-# headlessly, without a toolkit.
+# determinism harness (scripts/gencheck) links exactly this, headlessly,
+# without a toolkit.
 #
 # Deliberately in src/ rather than libthink/: composers are loaded by the
 # GUI and never by the parser, and the scheduler touches the synth only
@@ -66,8 +66,8 @@ target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
 
 # The two canvases' content -- what they draw and what a click on them
 # means -- with no toolkit in it, so the same classes compile to wasm and run
-# in the browser under a different shell (JAM_M6.md, section 6; the header
-# of CanvasContent.h says how). Three object libraries rather than one:
+# in the browser under a different shell (the header of CanvasContent.h
+# says how). Three object libraries rather than one:
 # the node canvas needs the graph model and the composer canvas needs the
 # composer host, and a harness that wants one should not have to link the
 # other's dependencies to get it. None of them links gtkmm, and that is the

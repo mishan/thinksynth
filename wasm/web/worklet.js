@@ -29,8 +29,8 @@
  * What a message means is engine.js's, not this file's: the mirror is
  * another instance of this module fed the same stream, and one switch over
  * message types is what makes "the same stream" mean the same thing on
- * both (JAM_M6.md, section 4). What is left here is the worklet's own --
- * instantiating, rendering, and the tape.
+ * both. What is left here is the worklet's own -- instantiating,
+ * rendering, and the tape.
  *
  * The traffic the other way is the tape: what the scheduler delivered, the
  * transport's position, and the epoch a rewind bumps. It goes in batches
@@ -41,7 +41,7 @@
  *
  * No SharedArrayBuffer, so none of the cross-origin isolation it demands:
  * two threads, messages between them, which is the shape the desktop
- * already has (docs/JAM.md, section 3).
+ * already has (docs/JAM.md).
  */
 
 import createThinkWeb from './thinkweb.js';
@@ -65,7 +65,7 @@ globalThis.performance ??= { now: () => currentTime * 1000 };
  * piece that pins one never looks. Nothing in this module is cryptographic.
  * (When there are peers, an unpinned seed will have to be agreed rather
  * than drawn -- two peers composing from different seeds are playing
- * different pieces -- but that is a message, and messages are M3.) */
+ * different pieces -- but that is a message, and this module has none.) */
 globalThis.crypto ??= {
     getRandomValues (view)
     {
@@ -90,8 +90,7 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         /* The probes armed here, by slot, and what each has published
            since the last batch. A probe is a tap on one arg of one node
-           of whatever is loaded on a channel; the page displays it
-           (JAM_M6.md, section 7.4). */
+           of whatever is loaded on a channel; the page displays it. */
         this.probes = new Set();
         this.taps = new Map();
         this.epoch = 0;         /* the epoch this.events belong to */
@@ -267,7 +266,7 @@ class ThinkProcessor extends AudioWorkletProcessor
 
         /* And the channels its sinks name that it put no instrument of
            its own on: the ones the page has to aim, or the piece is
-           composed and nothing sounds (AIMING.md, section 4.1). */
+           composed and nothing sounds. */
         const sinks = [];
 
         for (let i = 0; i < this.M._tw_sink_count(); i++)
@@ -305,7 +304,7 @@ class ThinkProcessor extends AudioWorkletProcessor
 
             /* Said once, because the mirror has to start counting frames
                where this does or the frame in a tape batch means nothing
-               to it (JAM_M6.md, section 4). */
+               to it. */
             this.port.postMessage({ type: 'aligned', frame: currentFrame });
         }
 

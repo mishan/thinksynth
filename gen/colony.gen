@@ -69,7 +69,7 @@
 # scale here is pentatonic, so two degrees up is a fourth and four is a
 # seventh: every stack is open and nothing can clash.
 #
-# THE INSTRUMENT MOVES TOO. Underneath, phase 4's two structure edits:
+# THE INSTRUMENT MOVES TOO. Underneath, the two structure edits:
 # `gen::swap' rebuilds the pad's channel around a different instrument
 # every forty-five seconds, and `gen::reshape' reaches inside whatever is
 # there and sweeps a constant the patch never declared. The notes above

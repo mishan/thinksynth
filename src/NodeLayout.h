@@ -76,8 +76,8 @@ public:
     /* ---- over the text ----
      *
      * The same three, of a patch's bytes rather than of a file: what a
-     * browser tab has, where the document *is* the patch (JAM_M6.md,
-     * section 7.1). The file versions below read, call and write.
+     * browser tab has, where the document *is* the patch. The file
+     * versions below read, call and write.
      *
      * A scope of their own rather than overloads, for the reason
      * NodeEdit::Text gives: a filename and a patch are both strings, and

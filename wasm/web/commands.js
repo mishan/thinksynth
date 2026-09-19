@@ -17,8 +17,8 @@
  */
 
 /*
- * commands.js -- what crosses the network, and how every peer applies it
- * (JAM_M3.md, sections 5.3 and 5.4).
+ * commands.js -- what crosses the network, and how every peer applies
+ * it.
  *
  * A command is a plain object: `type', `at' in transport seconds, `from'
  * the peer that made it, `seq' that peer's counter, and the fields of its
@@ -45,7 +45,7 @@
  */
 
 /* Starting values, in seconds, both shown on the page and both
-   adjustable there (JAM_M3.md, section 1). */
+   adjustable there. */
 export const KNOB_LEAD = 0.150;
 export const TRANSPORT_LEAD = 0.500;
 
@@ -112,7 +112,7 @@ export class Maker
        own key and is the same on every peer holding the same revision of
        the document. The coordinates are draw's, not the page's: the
        conversion is done by the code that drew the rectangle, on every
-       platform (JAM_M6.md, section 5). */
+       platform. */
     input (chain, stage, kind, x, y, w, h, button = 1)
     {
         return this.make('input', { chain, stage, kind, x, y, w, h, button },
@@ -120,7 +120,7 @@ export class Maker
     }
 
     /* A key. Stamped with now and no lead: direct mode plays it on
-       arrival, wherever that falls (JAM_M3.md, section 5.4). */
+       arrival, wherever that falls. */
     note (seat, note, velocity)
     {
         return this.make('note', { seat, note, velocity }, 0);
@@ -252,8 +252,9 @@ export async function apply (cmd, { synth, frameOfOrigin, listens, load })
             break;
 
         /* Direct mode: played in the next window, whenever it arrived.
-           The stamp is on the wire for the record and for M4's quantised
-           mode, which is where it starts to mean something. */
+           The stamp is on the wire for the record and for the quantised
+           mode still to come, which is where it starts to mean
+           something. */
         case 'note':
             if (listens.has(cmd.seat))
                 synth.midiOn(cmd.note, cmd.velocity, -1, cmd.seat);

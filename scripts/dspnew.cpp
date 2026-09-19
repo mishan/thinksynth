@@ -207,11 +207,10 @@ int main (int argc, char **argv)
     /* ---- the same catalogue, handed over rather than found ----
      *
      * A build with the plugins compiled in has no directory to walk and a
-     * table instead (JAM_M6.md, section 7.1). What take() makes of that
-     * table has to be what scan() makes of the directory, or the palette in
-     * a browser offers a different set of nodes from the one on the
-     * desktop -- in a different order, which is worse, because it looks
-     * right. */
+     * table instead. What take() makes of that table has to be what scan()
+     * makes of the directory, or the palette in a browser offers a
+     * different set of nodes from the one on the desktop -- in a different
+     * order, which is worse, because it looks right. */
     {
         vector<string> spellings;
 

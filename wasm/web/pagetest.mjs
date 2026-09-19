@@ -36,16 +36,15 @@
  * this page has: the composer view, and the instrument's graph. What sounds is
  * browsertest.mjs's business and jamtest.mjs's; this is about the page.
  *
- * And then the composer view (JAM_M6.md, sections 4 to 6), which is the
- * one thing here with a whole second engine behind it: the piece's picture
- * is drawn by the mirror -- another instance of the module, in a worker,
- * fed the messages the worklet is fed -- and comes over as a list of ops
- * the page replays on a Canvas2D. What is checked is the round trip a
- * finger makes: the picture arrives and is replayed, a stage whose picture
- * is a control can be enlarged, a drag on it leaves as a command and comes
- * back as a board that has changed, and Escape puts it back. The transport
- * is left stopped for that, so that nothing but the drag could have
- * changed what is drawn.
+ * And then the composer view, which is the one thing here with a whole
+ * second engine behind it: the piece's picture is drawn by the mirror --
+ * another instance of the module, in a worker, fed the messages the
+ * worklet is fed -- and comes over as a list of ops the page replays on a
+ * Canvas2D. What is checked is the round trip a finger makes: the picture
+ * arrives and is replayed, a stage whose picture is a control can be
+ * enlarged, a drag on it leaves as a command and comes back as a board
+ * that has changed, and Escape puts it back. The transport is left stopped
+ * for that, so that nothing but the drag could have changed what is drawn.
  *
  * Exit status is the number of failures.
  */
@@ -387,8 +386,7 @@ try
     /* The node editor on the solo page, which has no shared document: the
        files are whatever the page is playing, and an edit rewrites the
        .dsp in the text box and reloads it -- the canvas and the box being
-       two views of one text, as they are in the desktop's editor
-       (JAM_M6.md, section 7.3). */
+       two views of one text, as they are in the desktop's editor. */
     await page.selectOption('#mode', 'patch');
     await page.evaluate(() =>
     {

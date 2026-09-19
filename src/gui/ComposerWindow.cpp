@@ -2995,12 +2995,12 @@ ComposerWindow::buildStageSelection (size_t ci, size_t si)
 /* What a sink plays, as a control.
  *
  * A piece that declares instruments should be steered by their names --
- * that is the whole of what phase 1 bought -- but `channel = N' is still
- * in the language for driving a patch the piece does not own, so the
- * last entry is that. The spinner comes alive only for that entry: the
- * channel behind an instrument is an allocation nobody chose, and
- * showing an editable number for it would invite somebody to change it
- * into a collision.
+ * that is the whole of what carrying an instrument bought -- but `channel
+ * = N' is still in the language for driving a patch the piece does not
+ * own, so the last entry is that. The spinner comes alive only for that
+ * entry: the channel behind an instrument is an allocation nobody chose,
+ * and showing an editable number for it would invite somebody to change
+ * it into a collision.
  *
  * A piece with no instruments gets the spinner it always had and no
  * drop-down at all. One choice is not a choice.

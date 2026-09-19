@@ -22,12 +22,12 @@
  * wasm/twevent.h is the other half: the C struct these offsets are of, and
  * the collector both Emscripten hosts hand their delivered events to.
  *
- * Two callers, on purpose. genwav.mjs renders a .gen under Node and prints
- * the tape; the browser's worklet reads the same struct out of the same
- * module, posts the events to the page, and wasm/web's check prints them
- * with tapeLine() below. M2's gate is that the two files are identical
- * (docs/JAM.md, section 6), which is a claim about the piece and not about two
- * spellings of a number, so there is one spelling.
+ * Two callers, on purpose. genwav.mjs renders a .gen under Node and prints the
+ * tape; the browser's worklet reads the same struct out of the same module,
+ * posts the events to the page, and wasm/web's check prints them with
+ * tapeLine() below. The gate is that the two files are identical, which is
+ * a claim about the piece and not about two spellings of a number, so
+ * there is one spelling.
  *
  * Nothing here is Node's: a worklet imports this file too.
  */

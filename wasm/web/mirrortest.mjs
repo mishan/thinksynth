@@ -23,13 +23,13 @@
  *
  *   node wasm/web/mirrortest.mjs [BUILD_DIR]
  *
- * The first half of JAM_M6.md's section 8.2 gate. The composer view needs
- * real composer instances to draw, and the ones that sound are in the
- * worklet, on the audio thread, in another realm. So the mirror: a second
- * instance of the module, fed the messages host.js posts to the worklet,
- * with a synth that never renders (thSynth::setSilent) and tw_step in
- * place of tw_render. If it composes what the worklet composes, its
- * pictures are the pictures of the piece that is sounding.
+ * The first half of the composer-view gate. The composer view needs real
+ * composer instances to draw, and the ones that sound are in the worklet, on
+ * the audio thread, in another realm. So the mirror: a second instance of the
+ * module, fed the messages host.js posts to the worklet, with a synth that
+ * never renders (thSynth::setSilent) and tw_step in place of tw_render. If it
+ * composes what the worklet composes, its pictures are the pictures of the
+ * piece that is sounding.
  *
  * What makes that plausible is that neither side has a message handler of
  * its own: engine.js is the one switch, and both instances are driven
@@ -182,7 +182,7 @@ function clicks (name)
  * enlarged stage, check the point is inside its picture, convert to the
  * coordinates the draw was handed. What it does NOT do here is call the
  * plugin: sigInput is connected, so each gesture comes back out as a
- * record for the shell to stamp and send (JAM_M6.md, section 5).
+ * record for the shell to stamp and send.
  *
  * So the coordinates every peer will apply are the ones the code that
  * drew the rectangle worked out, which is the property that makes a
@@ -338,8 +338,7 @@ async function run (piece, dsps, { clicking = false, canvas = false } = {})
 
     /* And the clicks, if this run is the clicked one: one more stamped
        command, applied at `at' inside the step on both instances -- the
-       one that sounds and the one that will be drawn (JAM_M6.md, section
-       5). */
+       one that sounds and the one that will be drawn. */
     let gestures = [];
 
     if (clicking && control !== null && !canvas)
@@ -421,8 +420,7 @@ async function run (piece, dsps, { clicking = false, canvas = false } = {})
     }
 
     /* The reason the silent synth exists: a scheduler stepped over a synth
-       nobody drains fills the command ring inside one fast-forward
-       (SCHEDULER_PLACEMENT.md, section 4.4). */
+       nobody drains fills the command ring inside one fast-forward. */
     if (mirror.M._tw_dropped() !== 0)
     {
         fail(`${piece.name}: the mirror dropped ` +
@@ -470,13 +468,13 @@ for (const piece of pieces(build))
     if (plain === null || plain.control === null)
         continue;
 
-    /* And the same piece with three clicks on the stage whose picture is
-       a control. Two things have to be true of it: the mirror still
-       composed what the renderer composed -- an input is a command and
-       lands at the same point in the piece on both -- and the tape is
-       *not* the unclicked one. A click that changed nothing would look
-       exactly like agreement, which is the lesson gen/hands.gen taught
-       (JAM_M6.md, section 8.3). */
+    /* And the same piece with three clicks on the stage whose picture
+       is a control. Two things have to be true of it: the mirror
+       still composed what the renderer composed -- an input is a
+       command and lands at the same point in the piece on both -- and
+       the tape is *not* the unclicked one. A click that changed
+       nothing would look exactly like agreement, which is the lesson
+       gen/hands.gen taught. */
     const clicked = await run(piece, dsps, { clicking: true });
 
     if (clicked !== null && clicked.tape === plain.tape)

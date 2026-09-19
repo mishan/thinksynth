@@ -503,9 +503,9 @@ int main (int argc, char **argv)
      * thExprText prints the tree the parse produced, and the editor draws
      * that string in the box. If the string reads back as a different tree,
      * the box is showing the author arithmetic their patch is not doing --
-     * and §4d's successor, editing the text in place, would write it back.
-     * So each expression here is parsed, printed, and *re-parsed as the same
-     * arg*, and the two files are rendered and compared sample for sample.
+     * and editing the text in place would write it back. So each expression
+     * here is parsed, printed, and *re-parsed as the same arg*, and the two
+     * files are rendered and compared sample for sample.
      *
      * Every operator in this grammar groups to the right, so a left operand
      * of equal precedence is exactly what needs parentheses: `(a - 1) - 2'

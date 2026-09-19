@@ -23,13 +23,13 @@
  *
  *   node wasm/web/relaytest.mjs
  *
- * What the relay promises (JAM_M3.md, section 3), each checked: a hello is
- * answered with who is here and told to the others; a seat is first-claim
- * and released on close; a ping is answered with the relay's clock; a
- * signal reaches the one peer it names and nobody else; a relayed gesture
- * reaches one or everyone; a transport start is kept for a joiner; and
- * the document a room is seeded with reaches both providers, an edit on
- * one reaches the other, and both hash to the same revision.
+ * What the relay promises, each checked: a hello is answered with who is
+ * here and told to the others; a seat is first-claim and released on
+ * close; a ping is answered with the relay's clock; a signal reaches the
+ * one peer it names and nobody else; a relayed gesture reaches one or
+ * everyone; a transport start is kept for a joiner; and the document a
+ * room is seeded with reaches both providers, an edit on one reaches the
+ * other, and both hash to the same revision.
  *
  * Exit status is the number of failures.
  */
