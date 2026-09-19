@@ -249,7 +249,7 @@ export function firstDifference (want, got)
  * The piece declares no instruments, so a patch goes on the channel first;
  * without one the figure is composed and nothing sounds.
  */
-async function checkKeys (createThinkWeb, dsps, all)
+async function checkKeys (createThinkWeb, dsps, kit, all)
 {
     const piece = all.find((p) => p.name === 'hands.gen');
 
@@ -266,6 +266,7 @@ async function checkKeys (createThinkWeb, dsps, all)
     const r = await playAt(createThinkWeb, {
         gen: piece.text,
         instruments: dsps,
+        samples: kit,
         patches: { [CHANNEL]: dsps['rpiano0.dsp'] },
         keys: [
             ...CHORD.map((note) => ({ at: 1, channel: CHANNEL, note,
@@ -372,7 +373,7 @@ const FLOOR = 0.001;
  * has been heard; one that has not been heard in a minute of transport is
  * not going to be saved by the rest of it.
  */
-async function checkAudible (createThinkWeb, dsps, all, buildDir)
+async function checkAudible (createThinkWeb, dsps, kit, all, buildDir)
 {
     const patchFor = defaults(buildDir, dsps);
     let failures = 0;
@@ -381,6 +382,7 @@ async function checkAudible (createThinkWeb, dsps, all, buildDir)
     {
         const r = await playAimed(createThinkWeb,
                                   { gen: piece.text, instruments: dsps,
+                                    samples: kit,
                                     patchFor, seconds: SECONDS,
                                     floor: FLOOR });
 
@@ -446,6 +448,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
         await import(pathToFileURL(path.join(build, 'thinkweb.js')).href);
 
     const dsps = instruments(build);
+    const kit = samples(build);
     const all = pieces(build);
     let failures = 0;
 
@@ -481,6 +484,7 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             const r = await playPiece(createThinkWeb,
                                       { ...shape, gen: piece.text,
                                         instruments: dsps,
+                                        samples: kit,
                                         seconds: SECONDS });
             const at = `${shape.rate / 1000}k/${shape.windowlen}`;
 
@@ -510,10 +514,10 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href)
             `${cells.join('   ')}\n`);
     }
 
-    failures += await checkKeys(createThinkWeb, dsps, all);
+    failures += await checkKeys(createThinkWeb, dsps, kit, all);
 
     process.stdout.write('\n');
-    failures += await checkAudible(createThinkWeb, dsps, all, build);
+    failures += await checkAudible(createThinkWeb, dsps, kit, all, build);
 
     process.stdout.write(
         `\n${failures === 0
