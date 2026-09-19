@@ -69,9 +69,13 @@
 #include <string.h>
 
 #include <cmath>
+#include <filesystem>
 #include <limits>
 #include <string>
+#include <system_error>
 #include <vector>
+
+#include "thUtil.h"
 
 #include "think.h"
 
@@ -117,12 +121,15 @@ static string num (double v)
 
 struct Wire   { const char *arg, *fromNode, *fromArg; };
 struct Value  { const char *arg; float value; };
+/* The one arg in the tree that is not a number: osc::sample's `file'. */
+struct Text   { const char *arg; const char *value; };
 
 struct NodeSpec
 {
     const char *name;
     const char *spelling;              /* "filt/svf" */
     vector<Value> values;
+    vector<Text>  texts;
     vector<Wire>  wires;
 };
 
@@ -152,6 +159,9 @@ buildGraph (thSynth &synth, thSynthTree &tree, const vector<NodeSpec> &spec,
 
         for (size_t v = 0; v < spec[i].values.size(); v++)
             n->setArg(spec[i].values[v].arg, spec[i].values[v].value);
+
+        for (size_t t = 0; t < spec[i].texts.size(); t++)
+            n->setTextArg(spec[i].texts[t].arg, spec[i].texts[t].value);
 
         for (size_t w = 0; w < spec[i].wires.size(); w++)
             n->setArg(spec[i].wires[w].arg, spec[i].wires[w].fromNode,
@@ -2244,6 +2254,353 @@ static void checkFmop (const string &pluginPath)
                  "sample a window and at five hundred");
 }
 
+/* ---- osc::sample -------------------------------------------------------- */
+
+/* The node that plays a file, and the only one here whose input is not a
+ * number. What is claimed:
+ *
+ *   - at `freq = root' a file comes out frame for frame, exactly, with no
+ *     interpolation happening at all -- which is the property a drum
+ *     machine rests on and the one that catches an off-by-one in the
+ *     playhead;
+ *   - at twice `freq' it is half as long, which is what makes `root' a
+ *     root note rather than a rate;
+ *   - `play' is 1 for exactly as long as there is file and 0 after, so a
+ *     graph can wire it straight to its io node and have the note be the
+ *     sample's own length;
+ *   - `loop' takes the last N frames again, forever, and the wrap lands
+ *     on a frame rather than between two;
+ *   - a file that is not there is silence and not a crash;
+ *   - and a window boundary is not an event.
+ *
+ * The file is written here rather than shipped: what these want is a ramp
+ * whose every frame is known in advance, and a ramp is not a sound
+ * anybody would put in a kit.
+ */
+
+/* Sixteen-bit mono RIFF, little-endian, assembled byte by byte -- the
+   same discipline the reader in plugins/osc/sampleslot.h keeps, and for
+   the same reason: a struct write here would be the one place this
+   harness stopped being true on a big-endian host. */
+static bool writeWav (const string &path, const vector<float> &frames,
+                      unsigned rate)
+{
+    FILE *f = fopen(path.c_str(), "wb");
+
+    if (f == NULL)
+        return false;
+
+    const unsigned long bytes = (unsigned long)frames.size() * 2;
+    unsigned char h[44];
+    size_t at = 0;
+
+    struct P {
+        static void u32 (unsigned char *p, unsigned long v) {
+            p[0] = (unsigned char)(v & 0xff);
+            p[1] = (unsigned char)((v >> 8) & 0xff);
+            p[2] = (unsigned char)((v >> 16) & 0xff);
+            p[3] = (unsigned char)((v >> 24) & 0xff);
+        }
+        static void u16 (unsigned char *p, unsigned v) {
+            p[0] = (unsigned char)(v & 0xff);
+            p[1] = (unsigned char)((v >> 8) & 0xff);
+        }
+    };
+
+    memcpy(h + at, "RIFF", 4);              at += 4;
+    P::u32(h + at, 36 + bytes);             at += 4;
+    memcpy(h + at, "WAVE", 4);              at += 4;
+    memcpy(h + at, "fmt ", 4);              at += 4;
+    P::u32(h + at, 16);                     at += 4;
+    P::u16(h + at, 1);                      at += 2;   /* PCM      */
+    P::u16(h + at, 1);                      at += 2;   /* mono     */
+    P::u32(h + at, rate);                   at += 4;
+    P::u32(h + at, rate * 2);               at += 4;
+    P::u16(h + at, 2);                      at += 2;   /* align    */
+    P::u16(h + at, 16);                     at += 2;   /* bits     */
+    memcpy(h + at, "data", 4);              at += 4;
+    P::u32(h + at, bytes);                  at += 4;
+
+    fwrite(h, 1, at, f);
+
+    for (size_t i = 0; i < frames.size(); i++)
+    {
+        double v = frames[i] * 32767.0;
+        int q = (int)((v < 0) ? v - 0.5 : v + 0.5);
+        unsigned char b[2];
+
+        if (q > 32767)  q = 32767;
+        if (q < -32768) q = -32768;
+
+        P::u16(b, (unsigned)(q & 0xffff));
+        fwrite(b, 1, 2, f);
+    }
+
+    fclose(f);
+
+    return true;
+}
+
+/* The ramp every case below plays: RAMP_LEN frames, frame i holding
+   i / RAMP_LEN, so a sample's value *is* its index and a comparison says
+   which frame came out rather than merely that something did. */
+#define RAMP_LEN 1000
+
+static vector<NodeSpec> sampleGraph (const char *file, float freq, float root,
+                                     float loop, float start)
+{
+    vector<NodeSpec> spec;
+    NodeSpec smp;
+
+    smp.name = "smp";
+    smp.spelling = "osc/sample";
+
+    Text f = { "file", file };
+    Value fr = { "freq", freq };
+    Value rt = { "root", root };
+    Value lp = { "loop", loop };
+    Value st = { "start", start };
+
+    smp.texts.push_back(f);
+    smp.values.push_back(fr);
+    smp.values.push_back(rt);
+    smp.values.push_back(lp);
+    smp.values.push_back(st);
+
+    spec.push_back(smp);
+
+    return spec;
+}
+
+static void checkSample (const string &pluginPath)
+{
+    /* A directory of its own, with the `samples/' the node looks under,
+       and THINK_DSP_PATH pointed at it -- which is the same search a
+       .dsp goes through, so this exercises the lookup and not a path
+       the harness handed over. */
+    const string dir = thUtil::tempFile("statecheck-samples-");
+
+    if (dir.empty())
+    {
+        fail("osc::sample: could not make a scratch directory", "");
+        return;
+    }
+
+    std::filesystem::remove(dir);
+
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir + "/samples", ec);
+
+    if (ec)
+    {
+        fail("osc::sample: could not make a scratch directory", ec.message());
+        return;
+    }
+
+    vector<float> ramp(RAMP_LEN), want(RAMP_LEN);
+
+    for (int i = 0; i < RAMP_LEN; i++)
+    {
+        ramp[i] = (float)i / RAMP_LEN;
+
+        /* What the file will hand back, which is not quite what went in:
+           a 16-bit wav is written by multiplying by 32767 and rounding,
+           and read by dividing by 32768. Comparing against the round
+           trip rather than against the original lets every check below
+           be exact -- a tolerance wide enough to swallow a quantization
+           step is also wide enough to swallow a playhead half a frame
+           out, which is the mistake these exist to catch. */
+        want[i] = (float)((double)(int)(ramp[i] * 32767.0 + 0.5) / 32768.0);
+    }
+
+    if (!writeWav(dir + "/samples/ramp.wav", ramp, TH_DEFAULT_SAMPLES))
+    {
+        fail("osc::sample: could not write the scratch wav", "");
+        std::filesystem::remove_all(dir, ec);
+        return;
+    }
+
+#ifdef _WIN32
+    _putenv_s("THINK_DSP_PATH", dir.c_str());
+#else
+    setenv("THINK_DSP_PATH", dir.c_str(), 1);
+#endif
+
+    /* ---- frame for frame at freq = root ---- */
+
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "smp", "out" };
+        Watch w1 = { "smp", "play" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, sampleGraph("ramp.wav", 440, 440, 0, 0),
+                    watch, 256, RAMP_LEN + 500, got, why))
+            fail("osc::sample renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (int i = 0; i < RAMP_LEN && same; i++)
+                if (got[0][i] != want[i])
+                {
+                    same = false;
+                    detail = "frame " + num((double)i) + ": " +
+                             num(got[0][i]) + " against " + num(want[i]);
+                }
+
+            okOrFail(same, "osc::sample: at `freq = root' the file comes out "
+                           "frame for frame", detail);
+
+            /* ---- and `play' is the file's own length ---- */
+
+            bool held = true;
+
+            for (int i = 0; i < RAMP_LEN && held; i++)
+                if (got[1][i] != 1)
+                {
+                    held = false;
+                    detail = "`play' was " + num(got[1][i]) + " at frame " +
+                             num((double)i) + ", inside the file";
+                }
+
+            for (size_t i = RAMP_LEN; i < got[1].size() && held; i++)
+                if (got[1][i] != 0)
+                {
+                    held = false;
+                    detail = "`play' was " + num(got[1][i]) + " at frame " +
+                             num((double)i) + ", past the end";
+                }
+
+            okOrFail(held, "osc::sample: `play' is 1 for exactly the frames "
+                           "the file has", detail);
+        }
+    }
+
+    /* ---- an octave up is half as long ---- */
+
+    /* Which is the whole of what `root' means: the file is read at
+       freq/root frames a sample, so 880 against a root of 440 takes half
+       the time and every other frame comes out. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "smp", "out" };
+        Watch w1 = { "smp", "play" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, sampleGraph("ramp.wav", 880, 440, 0, 0),
+                    watch, 256, RAMP_LEN, got, why))
+            fail("osc::sample renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (int i = 0; i < RAMP_LEN / 2 && same; i++)
+                if (got[0][i] != want[i * 2])
+                {
+                    same = false;
+                    detail = "frame " + num((double)i) + ": " +
+                             num(got[0][i]) + " against frame " +
+                             num((double)(i * 2)) + "'s " + num(want[i * 2]);
+                }
+
+            okOrFail(same && got[1][RAMP_LEN / 2 + 2] == 0,
+                     "osc::sample: at twice `root' it is half as long",
+                     detail.empty() ? "`play' did not drop at the halfway "
+                                      "mark" : detail);
+        }
+    }
+
+    /* ---- the loop takes the last frames again ---- */
+
+    /* `loop = 200' means the last two hundred frames repeat, so after
+       frame 999 the playhead is at 800 and the output is the ramp's top
+       fifth over and over. Landing on a frame rather than between two is
+       what stops the wrap clicking, and a ramp is the signal that shows
+       it: any error puts a step in a straight line. */
+    {
+        vector<float> out;
+        string why;
+        const int loop = 200;
+
+        if (!render1(pluginPath,
+                     sampleGraph("ramp.wav", 440, 440, (float)loop, 0),
+                     "smp", "out", 256, RAMP_LEN * 3, out, why))
+            fail("osc::sample renders", why);
+        else
+        {
+            bool wraps = true;
+            string detail;
+
+            for (size_t i = RAMP_LEN; i < out.size() && wraps; i++)
+            {
+                const int at = RAMP_LEN - loop +
+                               (int)((i - RAMP_LEN) % (size_t)loop);
+
+                if (out[i] != want[at])
+                {
+                    wraps = false;
+                    detail = "frame " + num((double)i) + ": " +
+                             num(out[i]) + " against frame " +
+                             num((double)at) + "'s " + num(want[at]);
+                }
+            }
+
+            okOrFail(wraps, "osc::sample: `loop' takes the last frames again, "
+                            "landing on one", detail);
+        }
+    }
+
+    /* ---- and a file that is not there is silence ---- */
+
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "smp", "out" };
+        Watch w1 = { "smp", "play" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, sampleGraph("nosuchthing.wav", 440, 440, 0, 0),
+                    watch, 256, 2000, got, why))
+            fail("osc::sample renders", why);
+        else
+        {
+            bool quiet = true;
+
+            for (size_t i = 0; i < got[0].size() && quiet; i++)
+                if (got[0][i] != 0 || got[1][i] != 0)
+                    quiet = false;
+
+            okOrFail(quiet, "osc::sample: a file that is not there is silence "
+                            "with `play' down, not a crash", "");
+        }
+    }
+
+    windowsAgree(pluginPath, sampleGraph("ramp.wav", 331, 440, 200, 17),
+                 "smp", "out",
+                 "osc::sample: the same playback at one sample a window and "
+                 "at five hundred");
+
+    std::filesystem::remove_all(dir, ec);
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -2262,6 +2619,7 @@ int main (int argc, char **argv)
     checkAllpass(pluginPath);
     checkChorus(pluginPath);
     checkFmop(pluginPath);
+    checkSample(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 

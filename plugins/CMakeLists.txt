@@ -49,7 +49,7 @@ think_add_plugin_category(misc     latch noisegate midi2freq midi2range
 think_add_plugin_category(mixer    add fade mul)
 
 think_add_plugin_category(osc      static simple sinsaw buzzer softsqr softsqr2
-                                   fmop
+                                   fmop sample
                                    bandosc shapeo multiwave multisined window
                                    noise)
 

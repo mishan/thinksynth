@@ -856,6 +856,22 @@ White, pink or brown noise
 | `amp` | in | Peak amplitude; pink and brown are about nine decibels quieter than white at the same peak | 1 | 0 to 1 | full scale |  |
 | `last` | state |  |  |  |  |  |
 
+### osc::sample
+
+Sample Player (a wav at a voice's pitch)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `file` | in | The wav to play, found under samples/ on THINK_DSP_PATH |  |  |  |  |
+| `freq` | in | The note to play it at |  |  | Hz |  |
+| `root` | in | The frequency the file was recorded at; `root = freq' plays it unpitched | 261.63 |  | Hz |  |
+| `start` | in | Where in the file a hit begins |  |  | samples |  |
+| `loop` | in | How many frames at the end repeat; 0 is a one-shot |  |  | samples |  |
+| `trigger` | in | Start again from `start' when this rises above 0 |  | 0 to 1 |  |  |
+| `out` | out | The file |  | -1 to 1 | full scale |  |
+| `play` | out | 1 while there is file left, so a one-shot's note can be the sample's own length |  | 0 to 1 |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### osc::shapeo
 
 Shaped oscillator

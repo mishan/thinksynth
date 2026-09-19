@@ -119,6 +119,13 @@ void NodeParams::addRow (Gtk::Grid *grid, int row, const NodeGraph::Param &p)
                changing the channel would not touch it. */
             tip = "Comes from the note being played.";
         }
+        else if (p.kind == NodeGraph::Param::TEXT)
+        {
+            /* A name, not a number, so there is nothing here a slider or
+               a controller could do. `source' already carries it with
+               its quotes on, which is what the file says. */
+            tip = "A name the plugin resolves. Edit it in the file.";
+        }
         else
         {
             /* In most DSPs every setting worth touching is a chanarg, so

@@ -27,9 +27,15 @@ function(think_add_plugin category name)
 
   target_compile_definitions(${target} PRIVATE PLUGIN_BUILD)
 
+  # PROJECT_BINARY_DIR for config.h, which is where the compiled-in
+  # DSP_PATH lives -- osc::sample needs it to find a wav the way
+  # gthPatchfile finds a .dsp, and a plugin that could not see it would
+  # have to be handed the path by the host it is not allowed to know
+  # about.
   target_include_directories(${target} PRIVATE
       "${PROJECT_SOURCE_DIR}"
       "${PROJECT_SOURCE_DIR}/libthink"
+      "${PROJECT_BINARY_DIR}"
       "${PROJECT_BINARY_DIR}/libthink")
 
   target_link_libraries(${target} PRIVATE think PkgConfig::SIGC m)

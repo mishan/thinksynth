@@ -351,6 +351,17 @@ void NodeGraph::collectParams (thSynthTree *tree, thNode *n, Box &b)
                 prm.source = "@" + arg->argPtrName();
                 break;
 
+            /* Not a number, so `hasValue' stays false and nothing offers
+               to slide it. The quotes are in `source' because what the
+               file holds is `file = "linn_kick.wav"' and the quotes are
+               part of that -- a panel showing linn_kick.wav without them
+               would read as a bare word, which is the one thing the
+               grammar does not accept there. */
+            case thArg::ARG_TEXT:
+                prm.kind = Param::TEXT;
+                prm.source = "\"" + arg->text() + "\"";
+                break;
+
             case thArg::ARG_VALUE:
             default:
                 prm.kind = Param::VALUE;

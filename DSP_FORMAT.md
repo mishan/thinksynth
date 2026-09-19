@@ -66,6 +66,37 @@ node. Chanargs are declared `@x = <constant>` and written by the GUI and MIDI
 controllers, and nothing can drive one from the graph. So "this parameter varies
 with an LFO" needs no engine work and "the knob moves on its own" does.
 
+### One arg is a name and not a number
+
+```
+node kick osc::sample {
+    file = "kick808.wav";       # a quoted name, not a value
+    freq = freq->out;
+    root = freq->out;
+};
+```
+
+`osc::sample` has to be told which file to play, and a filename is not a
+number. The right-hand side of a node arg may therefore be a quoted string,
+which makes that arg an `ARG_TEXT`: it holds the name the file wrote, and it
+holds a single zero where the numbers would be, so anything that reads it
+without asking what kind of arg it is — an expression that names it, a probe
+armed on it, a panel drawing it — reads a 0 rather than whatever was on the
+heap. Only the plugin that declared it looks at the name.
+
+**It is not a control, and cannot become one.** A number is a thing a slider
+moves, a MIDI controller reaches, a preset stores and `gen::walk` sweeps; a
+filename is none of those. So there is no `@file` and no `file = @kit` — the
+grammar takes a literal string there and nothing else, and the node editor
+shows the name rather than offering a box to type a number into. A kit is
+therefore one `osc::sample` node per drum, each gated by the note it answers
+to, rather than one node with its filename swept.
+
+For the same reason a string cannot appear inside arithmetic, be wired from
+another node's output, or carry a unit. The one other place the grammar has
+always read a quoted string — `@x.label = "Cutoff"` — is metadata about a
+control and not a value either.
+
 ### Arithmetic over signals
 
 An arg's right-hand side may be an expression, and its leaves may be signals:

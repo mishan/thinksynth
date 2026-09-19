@@ -36,6 +36,11 @@ public:
                    const string &value);
     thArg *setArg (const string &name, const string &chanarg);
 
+    /* The quoted-name case, which needs a name of its own because the
+       one above already takes two strings and means a chanarg
+       reference. See thArg::ARG_TEXT. */
+    thArg *setTextArg (const string &name, const string &text);
+
     int addArgToIndex (thArg *arg);
 
     void setArgCount (int argcnt) { argCount_ = argcnt; };

@@ -465,6 +465,18 @@ static bool findNodeBlock (const vector<string> &lines, const string &node,
  * the author's arithmetic, and replacing a term of it with a wire is exactly
  * the re-emission splicing exists to prevent.
  */
+/* `file = "kick808.wav"' -- the one right-hand side that is neither a
+   number, a wire nor arithmetic. It is refused everywhere a number would
+   be written, and it is worth telling apart from an expression so the
+   message can say what is actually there: "disconnect it first" is
+   advice that does not apply to a name. */
+static bool isTextRhs (const string &rhs)
+{
+    const string t = trim(rhs);
+
+    return t.size() >= 2 && t[0] == '"' && t[t.size() - 1] == '"';
+}
+
 static bool isExpressionRhs (const string &rhs)
 {
     const string t = trim(rhs);
@@ -905,6 +917,13 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
            over one would drop the author's arithmetic; removing it is
            disconnect's job. Named separately from the wire case below so the
            message says which it is. */
+        if (isTextRhs(oldRhs))
+        {
+            why = arg + " is the name " + trim(oldRhs) +
+                  ", not a number. Edit it in the file.";
+            return NOT_A_VALUE;
+        }
+
         if (isExpressionRhs(oldRhs))
         {
             why = arg + " is the expression `" + trim(oldRhs) +
@@ -1027,6 +1046,12 @@ static NodeEdit::Result bindArg (string &source, const string &node,
         /* Wiring into an expression would keep one term of the author's
            arithmetic and silently drop the rest. Removing the whole thing is
            a gesture that exists -- disconnect rewrites the arg to `= 0'. */
+        if (isTextRhs(lines[line].substr(from, to - from)))
+        {
+            why = arg + " is a name, and nothing can be wired to one";
+            return NodeEdit::REFUSED;
+        }
+
         if (isExpressionRhs(lines[line].substr(from, to - from)))
         {
             why = arg + " is an expression; disconnect it first";
