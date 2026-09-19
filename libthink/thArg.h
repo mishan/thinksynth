@@ -131,8 +131,10 @@ public:
        "" and can say so, which is what osc::sample does. */
     const string &text (void) const { return text_; }
 
-    /* Retypes the arg. The zero-length value buffer is deliberate: see
-       the note on ARG_TEXT above. */
+    /* Retypes the arg, and gives it a one-element buffer holding 0 so that
+       anything reading it as a number gets one: see the note on ARG_TEXT
+       above, and thArg::setText for why the buffer is allocated rather
+       than left empty. */
     void setText (const string &text);
 
     void setLabel (const string &label) { label_ = label; };

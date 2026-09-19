@@ -43,6 +43,18 @@
  * the file and then silence with `play' at 0, which ends the note rather
  * than hanging it.
  *
+ * WHAT THAT COSTS, said plainly because the paragraph above is an
+ * argument about when and not about how much. The first window to name a
+ * file does a fopen, a whole decode, an O(n) resample and a map insert,
+ * all on the thread that is supposed to be handing back a buffer -- so
+ * the first note on a long sample is a dropout in the live synth, and
+ * free under genwav, which has no deadline. It is a one-off per file per
+ * synth and the kit this tree ships is six short drums, which is why it
+ * is worth paying rather than worth a soname bump. If it ever stops
+ * being worth paying, the fix is a pass over the graph at load that asks
+ * each osc::sample node for its `file' and primes the table off the
+ * audio thread; nothing here would have to change for that to work.
+ *
  * A FAILURE IS CACHED TOO. Without that, a graph naming a file that is
  * not there would stat() once per window per voice forever and print a
  * line each time. The entry is remembered with no frames in it, which is
@@ -146,6 +158,20 @@ static inline unsigned long thWavU32 (const unsigned char *p)
            ((unsigned long)p[2] << 16) | ((unsigned long)p[3] << 24);
 }
 
+/* The most frames this reader will hand back, which is the most osc::sample
+ * can address: the playhead is a float, and past 2^24 a float can no longer
+ * hold a frame index and its fraction. About six minutes at 44.1 kHz. It is
+ * TH_WAVELENGTH_MAX for that reason and not by coincidence -- thBoundFreq's
+ * floor is the same limit on the same arithmetic.
+ *
+ * It is a refusal rather than a truncation because the two things that reach
+ * it are a genuinely long file, where playing the first six minutes and
+ * saying nothing would be the wrong answer, and a header whose sample rate
+ * is not a sample rate, where a 244-byte file claiming 1 Hz asks for a
+ * hundred seconds of audio. Both want to be told about.
+ */
+#define THINK_SAMPLE_FRAMES_MAX ((size_t)TH_WAVELENGTH_MAX)
+
 /* Reads `path' into `out', mono, resampled to `rate'. False and an empty
    `out' on anything it does not understand; `why' says which. */
 static inline bool thWavRead (const std::string &path, unsigned rate,
@@ -158,6 +184,22 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
     if (f == NULL)
     {
         why = "could not be opened";
+        return false;
+    }
+
+    /* How many bytes there actually are, so that a `data' chunk header
+       claiming more than the file holds cannot size an allocation. A
+       truncated or corrupt wav is a thing that happens; reserving the
+       4 GB its length field asks for is not a thing that should. */
+    long fileBytes = 0;
+
+    if (fseek(f, 0, SEEK_END) == 0)
+        fileBytes = ftell(f);
+
+    if (fileBytes < 0 || fseek(f, 0, SEEK_SET) != 0)
+    {
+        fclose(f);
+        why = "could not be measured";
         return false;
     }
 
@@ -241,9 +283,36 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
                 return false;
             }
 
+            /* The multiplications are widened before they are done rather
+               than after. Both are bounded by the checks above -- `bytes'
+               is 4 at the most and `channels' is 8 -- so neither can
+               overflow in fact, but a multiply of two narrow operands
+               assigned to a wide one is a shape worth not writing: it is
+               right here only because of a bound five lines up, and the
+               next person to widen that bound should not have to notice. */
             const unsigned bytes = bits / 8;
-            const unsigned long stride = bytes * channels;
-            const unsigned long count = stride ? len / stride : 0;
+            const unsigned long stride = (unsigned long)bytes * channels;
+
+            /* Against what the file holds, not just against what its
+               header claims. `len' is a 32-bit field an author can put
+               anything in, and it used to size the reserve below on its
+               own: a 244-byte file declaring 0xfffffff0 asked for 8.6 GB,
+               which a host with overcommit hands over and a 32-bit
+               emscripten heap does not. */
+            const long here = ftell(f);
+            const unsigned long left =
+                (here >= 0 && fileBytes > here)
+                    ? (unsigned long)(fileBytes - here) : 0;
+            const unsigned long have = (len < left) ? len : left;
+            const unsigned long count = stride ? have / stride : 0;
+
+            if (count > THINK_SAMPLE_FRAMES_MAX)
+            {
+                fclose(f);
+                why = "is longer than this reader plays";
+                return false;
+            }
+
             std::vector<float> raw;
 
             raw.reserve(count);
@@ -263,7 +332,7 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
 
                 for (unsigned c = 0; c < channels; c++)
                 {
-                    const unsigned char *p = &frame[c * bytes];
+                    const unsigned char *p = &frame[(size_t)c * bytes];
 
                     if (format == 3)
                     {
@@ -299,7 +368,19 @@ static inline bool thWavRead (const std::string &path, unsigned rate,
             /* A file at another rate, by ratio, once. Linear, which is
                what the playback does between frames anyway. */
             const double ratio = (double)rate / (double)fileRate;
-            const size_t n = (size_t)((double)raw.size() * ratio);
+            const double want = (double)raw.size() * ratio;
+
+            /* `fileRate' is whatever the header said, so `want' is not
+               bounded by anything the file actually contains: 1 Hz turns a
+               hundred frames into a hundred seconds. Checked in double,
+               before the cast, because the cast is what would lose it. */
+            if (!(want <= (double)THINK_SAMPLE_FRAMES_MAX))
+            {
+                why = "is longer than this reader plays once resampled";
+                return false;
+            }
+
+            const size_t n = (size_t)want;
 
             out.frames.resize(n ? n : 1);
 

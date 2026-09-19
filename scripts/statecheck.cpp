@@ -2282,6 +2282,20 @@ static void checkFmop (const string &pluginPath)
    same discipline the reader in plugins/osc/sampleslot.h keeps, and for
    the same reason: a struct write here would be the one place this
    harness stopped being true on a big-endian host. */
+/* A wav whose header says something the file does not back up: `declared'
+ * bytes in the `data' chunk however many frames actually follow, and
+ * whatever `rate' is asked for however absurd.
+ *
+ * Both numbers size an allocation in the reader, and neither is bounded by
+ * anything in the file, so both are worth a case. A `data' length of
+ * 0xfffffff0 on a two-hundred-byte file used to reserve 8.6 GB -- which a
+ * host with overcommit hands over and a 32-bit emscripten heap answers
+ * with an uncaught bad_alloc -- and a sample rate of 1 turns a hundred
+ * frames into a hundred seconds of audio on the way in.
+ */
+static bool writeOddWav (const string &path, size_t frames,
+                         unsigned long declared, unsigned rate);
+
 static bool writeWav (const string &path, const vector<float> &frames,
                       unsigned rate)
 {
@@ -2345,6 +2359,63 @@ static bool writeWav (const string &path, const vector<float> &frames,
    i / RAMP_LEN, so a sample's value *is* its index and a comparison says
    which frame came out rather than merely that something did. */
 #define RAMP_LEN 1000
+
+/* See the declaration above. Deliberately not writeWav with arguments:
+   what this writes is a header that is wrong, and a writer that can do
+   both is a writer somebody edits the wrong half of. */
+static bool writeOddWav (const string &path, size_t frames,
+                         unsigned long declared, unsigned rate)
+{
+    FILE *f = fopen(path.c_str(), "wb");
+
+    if (f == NULL)
+        return false;
+
+    const unsigned long bytes = (unsigned long)frames * 2;
+    unsigned char h[44];
+    size_t at = 0;
+
+    struct P {
+        static void u32 (unsigned char *p, unsigned long v) {
+            p[0] = (unsigned char)(v & 0xff);
+            p[1] = (unsigned char)((v >> 8) & 0xff);
+            p[2] = (unsigned char)((v >> 16) & 0xff);
+            p[3] = (unsigned char)((v >> 24) & 0xff);
+        }
+        static void u16 (unsigned char *p, unsigned v) {
+            p[0] = (unsigned char)(v & 0xff);
+            p[1] = (unsigned char)((v >> 8) & 0xff);
+        }
+    };
+
+    memcpy(h + at, "RIFF", 4);              at += 4;
+    P::u32(h + at, 36 + bytes);             at += 4;
+    memcpy(h + at, "WAVE", 4);              at += 4;
+    memcpy(h + at, "fmt ", 4);              at += 4;
+    P::u32(h + at, 16);                     at += 4;
+    P::u16(h + at, 1);                      at += 2;   /* PCM      */
+    P::u16(h + at, 1);                      at += 2;   /* mono     */
+    P::u32(h + at, rate);                   at += 4;
+    P::u32(h + at, rate * 2);               at += 4;
+    P::u16(h + at, 2);                      at += 2;   /* align    */
+    P::u16(h + at, 16);                     at += 2;   /* bits     */
+    memcpy(h + at, "data", 4);              at += 4;
+    /* The lie, or the truth when the caller passes 0. */
+    P::u32(h + at, declared ? declared : bytes);   at += 4;
+
+    fwrite(h, 1, at, f);
+
+    for (size_t i = 0; i < frames; i++)
+    {
+        /* Something audible, so that a file the reader *should* play is
+           not confused with one it refused. */
+        const unsigned char b[2] = { 0x00, 0x10 };
+
+        fwrite(b, 1, 2, f);
+    }
+
+    return fclose(f) == 0;
+}
 
 static vector<NodeSpec> sampleGraph (const char *file, float freq, float root,
                                      float loop, float start)
@@ -2590,6 +2661,88 @@ static void checkSample (const string &pluginPath)
 
             okOrFail(quiet, "osc::sample: a file that is not there is silence "
                             "with `play' down, not a crash", "");
+        }
+    }
+
+    /* ---- a header that says more than the file holds ---- */
+
+    /* Every one of these is silence rather than a crash, which is the same
+       promise the missing file above makes. They are rendered rather than
+       reasoned about because what they are guarding is an allocation: the
+       sizes come out of the header, and the only way to know a bound is
+       enforced is to hand it a number past the bound. */
+    {
+        static const struct { const char *file; const char *what;
+                              size_t frames; unsigned long declared;
+                              unsigned rate; bool plays; } odd[] = {
+            /* Claims ~4 GB of data and holds four hundred bytes. Read: the
+               frames that are there are real and get played, and only the
+               length field was nonsense. */
+            { "hugelen.wav",  "a `data' length past the end of the file",
+              200, 0xfffffff0UL, TH_DEFAULT_SAMPLES, true },
+            /* Claims twice the frames it has: the honest truncation, which
+               is a thing a half-written file really is. Read, for the same
+               reason. */
+            { "trunc.wav",    "a `data' length twice the frames there are",
+              200, 800UL, TH_DEFAULT_SAMPLES, true },
+            /* One hertz: resampling to the synth's rate asks for forty
+               thousand times as many frames as the file has, which is past
+               what the playhead can address. Refused. */
+            { "slowrate.wav", "a sample rate of 1 Hz",
+              1000, 0, 1, false },
+        };
+
+        for (size_t c = 0; c < sizeof(odd) / sizeof(odd[0]); c++)
+        {
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+
+            Watch w0 = { "smp", "out" };
+            Watch w1 = { "smp", "play" };
+
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!writeOddWav(dir + "/samples/" + odd[c].file,
+                             odd[c].frames, odd[c].declared, odd[c].rate))
+            {
+                fail("osc::sample: could not write the scratch wav", "");
+                continue;
+            }
+
+            if (!render(pluginPath, sampleGraph(odd[c].file, 440, 440, 0, 0),
+                        watch, 256, 2000, got, why))
+            {
+                fail(string("osc::sample: ") + odd[c].what +
+                     " brought the render down", why);
+                continue;
+            }
+
+            /* Which of the two answers, and not merely "it did not
+               crash": a host that overcommits hands over the 8.6 GB the
+               bad length asks for and carries on, so a case that only
+               asserted survival would pass on the code that had no bound
+               at all. `hugelen' and `trunc' hold real frames and have to
+               come out sounding; the length that cannot be played has to
+               come out silent. */
+            bool sounded = false, finite = true;
+
+            for (size_t i = 0; i < got[0].size(); i++)
+            {
+                if (!thIsFinite(got[0][i]) || !thIsFinite(got[1][i]))
+                    finite = false;
+
+                if (got[0][i] != 0 || got[1][i] != 0)
+                    sounded = true;
+            }
+
+            okOrFail(finite && sounded == odd[c].plays,
+                     string("osc::sample: ") + odd[c].what +
+                     (odd[c].plays ? " plays the frames that are there"
+                                   : " is refused, and is silence"),
+                     finite ? (sounded ? "it sounded" : "it was silent")
+                            : "a sample was not a number");
         }
     }
 
