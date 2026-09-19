@@ -723,6 +723,25 @@ WORD ASSIGN expression
 
     free($1.str);
 }
+|
+WORD ASSIGN STRING
+{
+    /* A quoted name on a node arg, which is not a number and is not
+       trying to be one. One plugin wants this -- osc::sample, whose
+       `file' is a wav to find on THINK_DSP_PATH -- and the shape of the
+       need is why it is a value here rather than a chanarg: a filename
+       cannot be swept by a slider, stored in a preset or reached by a
+       MIDI controller, so the control machinery has nothing to offer it.
+     *
+       `@x.label = "..."' has taken a STRING since the language existed;
+       this is the same token in the one other place it reads. */
+    ctx->tree->dropExpr(ctx->node, $1.str);
+
+    ctx->node->setTextArg($1.str, $3.str)->setIndex(-1);
+
+    free($1.str);
+    free($3.str);
+}
 ;
 
 plugname:

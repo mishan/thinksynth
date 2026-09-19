@@ -641,7 +641,12 @@ export async function createNodeView ({ files, root = document,
                 said.textContent =
                     M._tw_graph_param_is_output(selected, p)
                         ? 'an output'
-                        : 'driven';
+                        /* 4 is NodeGraph::Param::TEXT -- a quoted name,
+                           which nothing drives and nothing can type a
+                           number into. */
+                        : M._tw_graph_param_kind(selected, p) === 4
+                            ? 'a name'
+                            : 'driven';
                 row.append(said);
             }
             else

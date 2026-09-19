@@ -37,9 +37,24 @@ public:
     thArg  (void);
     ~thArg (void);
 
-    enum ArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE };
-    /* immidiate value, pointer to another node, pointer to a channel arg, or
-       pointer to a note arg. */
+    enum ArgType { ARG_VALUE = 0, ARG_POINTER, ARG_CHANNEL, ARG_NOTE,
+                   ARG_TEXT };
+    /* immidiate value, pointer to another node, pointer to a channel arg,
+       pointer to a note arg, or a quoted name.
+     *
+     * ARG_TEXT is last on purpose: the four before it are what every
+     * `switch (type())' in the tree was written against, and a value
+     * inserted among them would renumber the rest. It is also the only
+     * one whose `values_' is not what it is for -- a text arg holds one
+     * zero, so a plugin or a graph that reads it as a number reads a 0
+     * rather than whatever was on the heap, and only the plugin that
+     * declared it looks at text().
+     *
+     * What a text arg is for is a name the callback has to resolve once:
+     * osc::sample's `file'. It is not a control. A number is a thing a
+     * slider can move, a MIDI controller can reach and a preset can
+     * store; a filename is none of those, and nothing in the editor or
+     * the GUI offers to set one. */
 
     enum WidgetType { HIDE = 0, SLIDER, CHANARG };
     
@@ -110,6 +125,17 @@ public:
 
     ArgType type (void) const { return type_; }
     WidgetType widgetType (void) const { return widgetType_; }
+
+    /* The quoted name a .dsp wrote, and empty for every other kind of
+       arg -- so a plugin that asks for one and was handed a number sees
+       "" and can say so, which is what osc::sample does. */
+    const string &text (void) const { return text_; }
+
+    /* Retypes the arg, and gives it a one-element buffer holding 0 so that
+       anything reading it as a number gets one: see the note on ARG_TEXT
+       above, and thArg::setText for why the buffer is allocated rather
+       than left empty. */
+    void setText (const string &text);
 
     void setLabel (const string &label) { label_ = label; };
     void setGroup (const string &group) { group_ = group; };
@@ -213,6 +239,8 @@ protected:
     float step_;
     vector<string> valueNames_;
     bool typedByFile_;
+
+    string text_;            /* ARG_TEXT's value; empty for everything else */
 
     string label_;
     string group_;           /* This will be displayed in the UI */

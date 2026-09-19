@@ -135,6 +135,25 @@ thArg *thNode::setArg (const string &name, const string &chanarg)
     return arg;
 }
 
+thArg *thNode::setTextArg (const string &name, const string &text)
+{
+    thArgMap::const_iterator i = args_.find(name);
+    thArg *arg;
+
+    if (i != args_.end() && i->second) {
+        arg = i->second;
+        arg->setText(text);
+    }
+    else {
+        arg = new thArg(name, 0.0f);
+        arg->setText(text);
+        args_[name] = arg;
+        arg->setIndex(addArgToIndex(arg));
+    }
+
+    return arg;
+}
+
 /* Makes `slots' a valid subscript count for argindex_.
  *
  * This was written out by hand in four places, and every one of them assigned

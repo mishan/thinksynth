@@ -66,8 +66,10 @@ public:
      * value goes through the .dsp text, not through here. */
     struct Param {
         /* Where the value comes from. Mirrors thArg::ArgType; kept separate so
-           this header needs nothing from libthink. */
-        enum Kind { VALUE = 0, POINTER, CHANARG, NOTE };
+           this header needs nothing from libthink. TEXT is last for the
+           reason thArg::ARG_TEXT is: a value inserted among the four
+           would renumber what every caller was written against. */
+        enum Kind { VALUE = 0, POINTER, CHANARG, NOTE, TEXT };
 
         string name;
         string label;       /* human name from the .dsp, or empty */
@@ -98,8 +100,10 @@ public:
         bool hasRange;
         float rangeMin, rangeMax;
 
-        /* For POINTER, "env->out"; for CHANARG, "@cutoff"; for an arg the
-           file wrote as arithmetic, the expression. Empty otherwise. */
+        /* For POINTER, "env->out"; for CHANARG, "@cutoff"; for TEXT, the
+           quoted name with its quotes on, since that is what the file
+           says and there is nothing else to show; for an arg the file
+           wrote as arithmetic, the expression. Empty otherwise. */
         string source;
 
         /* True when `source' is an expression rather than a single wire.

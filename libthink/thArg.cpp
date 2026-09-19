@@ -132,6 +132,7 @@ thArg::thArg (const thArg *copyArg)
     }
 
     comment_ = copyArg->comment_;
+    text_ = copyArg->text_;
     label_ = copyArg->label_;
     group_ = copyArg->group_;
     units_ = copyArg->units_;
@@ -298,6 +299,31 @@ void thArg::setArg(const string &name, const string &chanarg)
     argPtrName_ = chanarg;
 
     type_ = ARG_CHANNEL;
+}
+
+/* A quoted name, and a single zero where the numbers would be.
+ *
+ * The zero is the load-bearing half. Everything that walks a graph reads
+ * an arg's buffer without asking what kind of arg it is -- an expression
+ * that happens to name this one, a probe armed on it, the editor drawing
+ * a value -- and the answer has to be a number even though the arg is
+ * not one. Leaving values_ NULL would make operator[] answer 0 anyway
+ * (it checks len_), but allocate() is what the rest of the class
+ * assumes, and a buffer that exists is cheaper to reason about than one
+ * that is conditionally absent.
+ *
+ * The name is copied rather than shared. A thArg is copy-constructed
+ * once per arg per note, so a shared string would be a shared allocation
+ * on the audio thread's side of the fence.
+ */
+void thArg::setText (const string &text)
+{
+    text_ = text;
+    type_ = ARG_TEXT;
+
+    float *v = allocate(1);
+
+    v[0] = 0;
 }
 
 void thArg::getBuffer (float *buffer, unsigned int size)
