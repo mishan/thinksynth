@@ -454,7 +454,23 @@ jobs:
 
   macos:
     name: macos (clang, arm64)
-    runs-on: macos-14
+    # Sequoia rather than Sonoma, and the version is the whole point of the
+    # line. Homebrew bottles per macOS release and drops the oldest as it
+    # goes: as of 2026-09-19 glib, glibmm, gtk4, gtkmm4 and pangomm have
+    # arm64_sequoia and arm64_tahoe bottles and no arm64_sonoma one. A
+    # macos-14 runner therefore *compiles* the whole GTK stack, which turned
+    # a five-minute install step into three quarters of an hour of building
+    # dependencies before the first line of ours.
+    #
+    # Nothing announces this; the job just gets slower. When it does again,
+    # check which tags the formulae still carry --
+    #
+    #     curl -s https://formulae.brew.sh/api/formula/gtk4.json |
+    #         python3 -c 'import json,sys;
+    #         print(sorted(json.load(sys.stdin)["bottle"]["stable"]["files"]))'
+    #
+    # -- and move this label to one they cover.
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
