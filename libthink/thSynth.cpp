@@ -1228,11 +1228,14 @@ thSynthTree * thSynth::loadTree (const string &filename, int channum, float amp)
     }
 
     /* The parser is pure; the mutex is for the channel bookkeeping and
-       retire queue below, as it always really was. */
-    /* No lock and no collectRetired() here: both callers hold the one and
-       have done the other, and synthMutex_ is not recursive -- taking it
-       twice is a deadlock, which is exactly what this function's first
-       draft was. */
+       retire queue below, as it always really was.
+
+       Unlike parseEffect(), this is a public entry point and every caller
+       is outside the class -- thcScheduler, gthPatchfile, thinkweb, the
+       harnesses -- so there is nobody above it holding synthMutex_. */
+    std::lock_guard<std::mutex> lock(synthMutex_);
+    collectRetired();
+
     thSynthTree *raw = NULL;
     int parseResult = thParseDsp(this, input, &raw);
 
