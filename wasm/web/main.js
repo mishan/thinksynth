@@ -659,6 +659,17 @@ async function start ()
     }
     catch (e)
     {
+        /* The same teardown the start above does, and for the same reason:
+           by here the context holds the audio device and a worklet, and a
+           browser allows only so many. A file that 404s is exactly the
+           failure somebody retries -- fix the server, press Start again --
+           so this is the path that would leak one context per attempt. */
+        if (ctx !== null)
+            ctx.close().catch(() => {});
+
+        ctx = null;
+        synth = null;
+
         $('status').textContent = `Could not start: ${e.message}`;
         log(e.message);
         $('detail').open = true;

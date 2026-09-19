@@ -73,13 +73,16 @@ if (!fs.existsSync(dist))
     process.exit(1);
 }
 
-/* A file, with something in it. An install that made the directory and
-   copied nothing would otherwise pass the existence test. */
+/* A regular file, with something in it. An install that made the directory
+   and copied nothing would otherwise pass the existence test -- and so would
+   a name that resolved to the directory itself. */
 const present = (rel) =>
 {
     try
     {
-        return fs.statSync(path.join(dist, rel)).size > 0;
+        const st = fs.statSync(path.join(dist, rel));
+
+        return st.isFile() && st.size > 0;
     }
     catch
     {
@@ -125,23 +128,123 @@ for (const dir of ['dsp', 'gen', 'patches'])
         ok(`${dir}/index.json: all ${names.length} named file(s) are here`);
 }
 
-/* ---- and what the page asks for without being told ---------------------
+/* ---- and what the pages ask for without being told ---------------------
  *
- * The module, the worklet and the page itself are named in the HTML and in
- * import statements rather than in an index, so no loop above reaches them.
- * A dist missing one of these is a blank page rather than a quiet gap, but
- * the check costs a stat.
+ * The module, the worklet and the page's own scripts are named in the HTML
+ * and in import statements rather than in an index, so no loop above
+ * reaches them.
+ *
+ * Walked rather than listed. A list here would be a third hand-kept copy of
+ * what the site is made of -- after the install rules and the source list --
+ * and the bug this file exists for is two such copies disagreeing. So the
+ * .html files are the seed and everything is followed from there: a page's
+ * <script src>, a module's imports, the URLs handed to addModule and to
+ * new Worker, and the plain-string fetches. Add a module to the page and
+ * this finds it without being told.
+ *
+ * `esm' marks the patterns whose string is an ES module specifier, where a
+ * bare name is an npm package the bundler already resolved into the file --
+ * not something the server answers for. In a URL or a fetch a bare name is
+ * just a relative path, and is.
  */
-const ROOT = ['index.html', 'main.js', 'worklet.js', 'host.js', 'engine.js',
-              'thinkweb.js', 'thinkweb.wasm', 'config.json', 'style.css',
-              'patch.js', 'jam.html', 'jam.js'];
+const REFS = [
+    { esm: false,
+      re: /<(?:script|link|img)[^>]*?(?:src|href)\s*=\s*["']([^"']+)["']/gi },
+    { esm: true,  re: /\bfrom\s*["']([^"']+)["']/g },
+    { esm: true,  re: /\bimport\s*\(\s*["']([^"']+)["']\s*\)/g },
+    { esm: false,
+      re: /\bnew\s+URL\s*\(\s*["']([^"']+)["']\s*,\s*import\.meta\.url\s*\)/g },
+    /* Both quotes, because the bundler rewrites the page's own ' to ".
+       No ${ or `, so a computed URL -- `dsp/${name}' -- is left alone:
+       what those name is in an index, and the loops above have it. */
+    { esm: false, re: /\bfetch\s*\(\s*"([^"${}`]+)"\s*\)/g },
+    { esm: false, re: /\bfetch\s*\(\s*'([^'${}`]+)'\s*\)/g },
+    { esm: false, re: /["']([\w./-]+\.wasm)["']/g },
+];
 
-const missingRoot = ROOT.filter((n) => !present(n));
+/* Only what this server would have to answer for. An absolute URL belongs
+   to somebody else; a bare ES specifier is a package. */
+const local = (spec, esm) =>
+{
+    if (/^[a-z][a-z0-9+.-]*:/i.test(spec) || spec.startsWith('//') ||
+        spec.startsWith('#'))
+        return false;
 
-if (missingRoot.length)
-    fail(`the dist is missing ${missingRoot.join(', ')}`);
+    if (esm)
+        return spec.startsWith('./') || spec.startsWith('../') ||
+               spec.startsWith('/');
+
+    return true;
+};
+
+const seeds = fs.existsSync(dist)
+    ? fs.readdirSync(dist).filter((n) => n.endsWith('.html'))
+    : [];
+
+const seen = new Set(seeds);
+const queue = [...seeds];
+const broken = [];
+
+while (queue.length)
+{
+    const from = queue.shift();
+
+    if (!/\.(html|js|mjs)$/.test(from) || !present(from))
+        continue;
+
+    const text = fs.readFileSync(path.join(dist, from), 'utf8');
+
+    for (const { re, esm } of REFS)
+    {
+        re.lastIndex = 0;
+
+        let m;
+
+        while ((m = re.exec(text)) !== null)
+        {
+            const spec = m[1].split(/[?#]/)[0];
+
+            if (!spec || !local(spec, esm))
+                continue;
+
+            /* Relative to the file that named it, then back to a name the
+               server would see. */
+            const rel = path.posix.normalize(
+                path.posix.join(path.posix.dirname(from), spec));
+
+            if (rel.startsWith('..') || seen.has(rel))
+                continue;
+
+            seen.add(rel);
+
+            if (present(rel))
+                queue.push(rel);
+            else
+                broken.push(`${rel} (named by ${from})`);
+        }
+    }
+}
+
+/* The walk starts at whatever .html is here, so a dist that lost a page
+   loses its subtree from the walk rather than failing it -- the remaining
+   pages still resolve, and the count quietly drops. The entry points are
+   therefore named: two of them, which is a short enough list to keep by
+   hand where the module graph was not. */
+const PAGES = ['index.html', 'jam.html'];
+const missingPages = PAGES.filter((n) => !present(n));
+
+if (missingPages.length)
+    fail(`the dist has no ${missingPages.join(', ')} to load`);
 else
-    ok(`the page's own ${ROOT.length} file(s) are here`);
+    ok(`the ${PAGES.length} page(s) are here`);
+
+if (seeds.length === 0)
+    fail('the dist has no .html in it, so there is no page to load');
+else if (broken.length)
+    fail(`${broken.length} file(s) the pages name are not in the dist: ` +
+         broken.slice(0, 8).join(', ') + (broken.length > 8 ? ', ...' : ''));
+else
+    ok(`the pages and everything they load: ${seen.size} file(s), all here`);
 
 /* ---- the kit, specifically --------------------------------------------
  *
