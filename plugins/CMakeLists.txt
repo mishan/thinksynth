@@ -92,6 +92,8 @@ think_add_composer(level)
 think_add_composer(steps)
 think_add_composer(pump)
 think_add_composer(transpose)
+think_add_composer(vary)
+think_add_composer(accent)
 
 # The exception that proves the no-cairo rule: a module with a
 # composer_draw (euclid's onset ring, lsystem's contour, evolve's
