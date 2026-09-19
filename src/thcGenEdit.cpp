@@ -158,6 +158,42 @@ lineStartOf (const std::string &text, size_t pos)
     return nl == std::string::npos ? 0 : nl + 1;
 }
 
+/* Where a statement appended to a block goes, and whether it gets a line
+ * of its own.
+ *
+ * `bodyClose' is the block's `}'. When everything before it on its line is
+ * blank the block is written across several lines and the statement goes
+ * above the brace, indented. When something shares that line the block is
+ * a one-liner -- `chain c { stage s gen::eno_line { }; };' -- and the
+ * start of the line is *before* the statement the block belongs to.
+ * Inserting there puts the new statement above its own block at top
+ * level, where the loader reads it as a statement it does not know and
+ * the file no longer loads. So a one-liner stays a one-liner and the text
+ * goes just inside the brace instead.
+ *
+ * addPresetValue has drawn this distinction all along, over a preset
+ * written the same way round. These are the other two blocks this writer
+ * appends a statement to.
+ */
+static size_t
+endOfBlock (const std::string &text, size_t bodyClose, bool &ownLine)
+{
+    const size_t ls = lineStartOf(text, bodyClose);
+
+    ownLine = text.find_first_not_of(" \t", ls) >= bodyClose;
+
+    return ownLine ? ls : bodyClose;
+}
+
+/* A space of our own only where there is not one already, so `{ a = 1; }'
+   and `{ a = 1;}' both come out readable. */
+static std::string
+gapBefore (const std::string &text, size_t at)
+{
+    return (at > 0 && (text[at - 1] == ' ' || text[at - 1] == '\t'))
+        ? "" : " ";
+}
+
 /* Remove a statement and, when it sat on a line of its own, the line --
  * indentation and newline included. When something else shares the line
  * (another statement, or a trailing comment worth keeping), only the
@@ -2004,16 +2040,21 @@ sinkTarget (int channel, const std::string &instrument)
 
 static std::string
 sinkText (int channel, const std::string &instrument,
-          const std::string &chanarg)
+          const std::string &chanarg, bool ownLine)
 {
     std::ostringstream s;
 
-    s << "    sink { " << sinkTarget(channel, instrument);
+    if (ownLine)
+        s << "    ";
+
+    s << "sink { " << sinkTarget(channel, instrument);
 
     if (!chanarg.empty())
         s << " chanarg = \"" << chanarg << "\";";
 
-    s << " };\n";
+    /* A trailing space rather than a newline inside a one-liner: what
+       follows is the block's own `}'. */
+    s << " };" << (ownLine ? "\n" : " ");
 
     return s.str();
 }
@@ -2568,7 +2609,7 @@ thcGenEdit::addChain (const std::string &filename, const std::string &name,
 
     block << "\nchain " << name << " {\n"
           << stageText(stageName, category, plugin, params)
-          << sinkText(channel, instrument, "")
+          << sinkText(channel, instrument, "", true)
           << "};\n";
 
     std::vector<Edit> edits;
@@ -2917,9 +2958,14 @@ thcGenEdit::setParam (const std::string &filename, const std::string &chain,
             indent = text.substr(ls, s.params[0].stmtA - ls);
     }
 
-    size_t at = lineStartOf(text, s.bodyClose);
+    bool ownLine = true;
+    const size_t at = endOfBlock(text, s.bodyClose, ownLine);
 
-    edits.push_back({ at, at, indent + param + " = " + valueText + ";\n" });
+    edits.push_back({ at, at,
+                      ownLine
+                          ? indent + param + " = " + valueText + ";\n"
+                          : gapBefore(text, at) + param + " = " +
+                            valueText + "; " });
 
     return finish(filename, text, edits, why);
 }
@@ -2951,11 +2997,14 @@ thcGenEdit::addSink (const std::string &filename, const std::string &chain,
     if (r != OK)
         return r;
 
-    size_t at = lineStartOf(text, c->bodyClose);
+    bool ownLine = true;
+    const size_t at = endOfBlock(text, c->bodyClose, ownLine);
 
     std::vector<Edit> edits;
 
-    edits.push_back({ at, at, sinkText(channel, instrument, chanarg) });
+    edits.push_back({ at, at,
+                      (ownLine ? "" : gapBefore(text, at)) +
+                      sinkText(channel, instrument, chanarg, ownLine) });
 
     return finish(filename, text, edits, why);
 }
