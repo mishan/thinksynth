@@ -1,0 +1,341 @@
+# boombox.gen -- electro: a string machine talking.
+#
+# A hundred and twelve to the minute in C minor, with the kit the
+# records were made on and one thing the tree could not do until an
+# effect could hear a second channel. An 808 kick with a decay in
+# seconds, congas syncopated against it, a cowbell on every other bar,
+# a two-operator bass, and over all of it a vocoder.
+#
+# THE VOCODER IS TWO CHANNELS AND NEITHER OF THEM IS WHAT YOU HEAR.
+# `pads' is a string machine holding a chord: that is the CARRIER, the
+# sound that actually comes out. `voice' is a ts1 line in sixteenths:
+# that is the MODULATOR, and it is never heard at all -- fx/vocoder.dsp
+# sits on its channel and replaces everything the channel plays with
+# sixteen bands of the carrier, each turned up and down by how loud the
+# modulator is in the same band. What comes off the voice channel is
+# the pads wearing the line's rhythm and shape.
+#
+# `side = pads' is what makes that possible, and it is the whole reason
+# this piece is here: an effect used to be handed the sum of its own
+# channel's voices and nothing else, so a vocoder -- which needs two
+# signals and is nothing with one -- could not be written. The engine
+# runs the carrier's channel first, so the band the vocoder reads is
+# the window being mixed and not the one before it.
+#
+# THE MODULATOR'S LEVEL IS A DRIVE. Nothing on the voice channel
+# reaches the mix except through the vocoder, so `amp' there is not a
+# volume: it is how hard the line pushes the followers, and it is set
+# where the bands open properly rather than where the ts1 would sound
+# right on its own. The Talk knob is the output the other side of them.
+#
+# BOTH FACTORS ARE AMPLITUDES, which is worth knowing before turning
+# any of this up. A band's output is the carrier's level in that band
+# times the modulator's, so the effect is quadratic in the gain
+# staging: halving either channel quarters the result. That is why the
+# Talk knob's travel is wide and why the carrier is mixed loud enough
+# to be a carrier.
+#
+# THE CARRIER IS ALSO A PAD, mixed to be heard on its own as well as
+# through the bands. A record with one string machine on it had to do
+# the same thing.
+#
+# THE COWBELL IS xform::form, which riviera.gen deliberately does not
+# use for its orchestra hit: what form takes away here is bars of a
+# pattern that carries no pitch, so nothing is left standing in the
+# wrong place when a bar is dropped. A pool of pitches consumed by
+# onsets that form removes later is the case that goes wrong.
+#
+# The walk and the missing hats roll dice; the seed is pinned for them.
+# Self-contained: open it and press Play.
+
+name "Boombox";
+author "Misha Nasledov";
+description "Electro: an 808 kit, a two-operator bass, and a vocoder whose carrier is the string machine on the next channel.";
+
+tempo 112;
+seed 1982;
+meter 4;
+
+# ---- the arrangement --------------------------------------------------
+
+section intro   8 bars { voice = 0;  bass = 0;  bell = 0;  congas = 0;
+                         hats = 0.6; };
+section verse  16 bars { bell = 0; };
+section talk   16 bars { voice = 1.15; };
+section break   8 bars { kick = 0;  snare = 0;  hats = 0;  bass = 0;
+                         congas = 0;  voice = 1.1; };
+section drop   16 bars { bell = 1.1; };
+section outro   8 bars { voice = 0;  bell = 0;  bass = 0;  congas = 0; };
+section end;
+
+@walk = 0.08;
+@walk.widget = 1;
+@walk.min = 0;
+@walk.max = 0.6;
+@walk.label = "Walk";
+
+# How much of the carrier gets through the bands. The vocoder's output
+# is a sum of sixteen band-passes and starts quiet; this is its level.
+@talk = 16;
+@talk.widget = 1;
+@talk.min = 0;
+@talk.max = 64;
+@talk.label = "Talk";
+
+# How wide each of the vocoder's bands is, which is how much the
+# carrier keeps of its own shape between the modulator's formants.
+@bands = 0.89;
+@bands.widget = 1;
+@bands.min = 0.7;
+@bands.max = 0.97;
+@bands.label = "Band Q";
+
+scale cmin  "C3 D3 D#3 F3 G3 G#3 A#3";
+scale riff  "C2 D#2 F2 G2 A#2";
+scale congas "F3 A#3 C4";
+
+# ---- the mix ----------------------------------------------------------
+
+effect "fx/limiter.dsp" {
+    drive   = 0.9;
+    ceiling = 0.88;
+    smooth  = 1.5;
+};
+
+# ---- instruments ------------------------------------------------------
+
+# The long one. An 808 kick is a sine with a pitch drop and a decay
+# measured in seconds, which is why the records made with it are mixed
+# around it rather than over it.
+instrument kick {
+    dsp  "kick808.dsp";
+    amp  = 22;
+
+    tune  = 50;
+    drop  = 0.55;
+    sweep = 50 ms;
+    decay = 850 ms;
+    click = 0.35;
+    drive = 1.4;
+};
+
+instrument snare {
+    dsp  "snare808.dsp";
+    amp  = 18;
+
+    tune   = 185;
+    ratio  = 1.83;
+    bd     = 90 ms;
+    snappy = 0.6;
+    tone   = 1900;
+    nd     = 160 ms;
+};
+
+instrument hat {
+    dsp  "hat808.dsp";
+    amp  = 20;
+
+    freq   = 800;
+    pmul   = 1.47;
+    spread = 320;
+    tone   = 9500;
+    res    = 0.3;
+    clen   = 50 ms;
+    olen   = 360 ms;
+};
+
+instrument bell {
+    dsp  "cowbell.dsp";
+    amp  = 12;
+
+    tune     = 587;
+    interval = 1.44;
+    tone     = 720;
+    res      = 0.7;
+    decay    = 240 ms;
+    click    = 0.35;
+};
+
+# The tuned drums, one graph, `note' choosing the shell.
+instrument conga {
+    dsp  "conga808.dsp";
+    amp  = 22;
+};
+
+instrument bass {
+    dsp  "fmbass.dsp";
+    amp  = 26;
+
+    index = 7;
+    id    = 55 ms;
+    is    = 0.08;
+    ratio = 1;
+    grit  = 0.2;
+    glide = 25 ms;
+    a     = 3 ms;
+    d     = 300 ms;
+    s     = 0.5;
+    r     = 80 ms;
+};
+
+# The carrier. It is heard on its own as well as through the vocoder --
+# a pad and a carrier are the same signal here, which is what a record
+# with one string machine on it had to do too.
+instrument pads {
+    dsp  "strings.dsp";
+    amp  = 24;
+
+    detune    = 9;
+    cutoff    = 3600;
+    res       = 0.15;
+    slow      = 0.5;
+    slowdepth = 4 ms;
+    fast      = 6;
+    fastdepth = 0.5 ms;
+    ensemble  = 0.7;
+    a         = 180 ms;
+    d         = 700 ms;
+    s         = 0.85;
+    r         = 700 ms;
+};
+
+# The modulator, which is never heard. What comes off this channel is
+# the vocoder's output: the pads' spectrum with this line's envelopes
+# on it, band by band. `res' stays at or over 1 -- ts1's filter is a
+# two-pole whose pole magnitude passes 1 under about a half, and a NaN
+# on one channel is a NaN in the mix.
+instrument voice {
+    dsp  "ts1.dsp";
+    amp  = 90;
+
+    blim    = 0.5;
+    res     = 1.5;
+    cutoff  = 6;
+    famt    = 3;
+    oscmul  = 0.5;
+    oscfade = 0.25;
+    a       = 5 ms;
+    d       = 60 ms;
+    s       = 0.9;
+    r       = 60 ms;
+
+    effect "fx/vocoder.dsp" {
+        side      = pads;
+        res       = @bands;
+        speed     = 2.2;
+        hiss      = 5000;
+        sibilance = 0.6;
+        level     = @talk;
+    };
+};
+
+# ---- the kit ----------------------------------------------------------
+
+# Four on the bar it is not: the kick lands on one, the second
+# sixteenth after two, and the second after three. Sixteen steps and a
+# pool with rests in it is a step sequencer, which is what an 808 is.
+chain kick {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "C2 . . C2 . . C2 . . . C2 . . . . .";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 116;
+    };
+    sink { instrument = kick; };
+};
+
+chain snare {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.2 beats;  vel = 104;
+    };
+    sink { instrument = snare; };
+};
+
+# Sixteenths, one in seven missing.
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 52;
+    };
+    stage c xform::chance { prob = 0.86; };
+    sink { instrument = hat; };
+};
+
+# Three shells, syncopated against the kick.
+chain congas {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = ". . F3 . . A#3 . . C4 . . . F3 . A#3 .";
+        period = 0.25 beats;  hold = 0.15 beats;  vel = 92;
+    };
+    sink { instrument = conga; };
+};
+
+# The cowbell, on every other bar. xform::form is the right tool here
+# and not in the hit's chain in riviera.gen: what it takes away is bars
+# of a pattern that does not carry a pitch, so nothing is left standing
+# in the wrong place when a bar is dropped.
+chain bell {
+    stage src gen::euclid {
+        steps = 8;  fills = 8;  rotate = 0;
+        notes = "A#3 . A#3 . A#3 . . A#3";
+        period = 0.5 beats;  hold = 0.15 beats;  vel = 86;
+    };
+    stage f xform::form { pattern = "x."; bar = 4 beats; mode = 0; };
+    sink { instrument = bell; };
+};
+
+# ---- the bass ---------------------------------------------------------
+
+# Sixteenths on five notes, monophonic, with a short glide where two
+# notes touch.
+chain bass {
+    stage src gen::lsystem {
+        axiom = "Fr+Fr-FrrF+F-rFrr++F-rFr--FrrF+Fr-F";
+        rules = "";
+        depth = 0;
+        notes = riff;
+        step = 0.25 beats;  hold = 0.28 beats;  vel = 100;
+    };
+    sink { instrument = bass; };
+};
+
+# ---- the chords and the voice -----------------------------------------
+
+# Two bars a chord, held: the carrier has to be sounding for the
+# vocoder to have anything to shape.
+chain pads {
+    stage src gen::progression {
+        scale = cmin;
+        every = 8 beats;  hold = 7.8 beats;  vel = 72;
+        phrase = 4;  wander = @walk;  seed = 23;
+    };
+    stage chord xform::harmonize {
+        scale = cmin;
+        voices = 3;  step = 2;
+        spread = 0.03 s;
+        taper = 0.92;
+        root = 1;  below = 0;
+        lead = 1;  span = 12;
+    };
+    sink { instrument = pads; };
+};
+
+# And the line that shapes it. Eighths with rests, on the same chords a
+# register up; what is heard is the pads wearing this rhythm.
+chain voice {
+    stage src gen::progression {
+        scale = cmin;
+        every = 8 beats;  hold = 7.8 beats;  vel = 72;
+        phrase = 4;  wander = @walk;  seed = 23;
+    };
+    stage b xform::bassline {
+        scale = cmin;
+        pattern = "r.rr.t.f.r.r.t..";
+        step = 0.25 beats;  hold = 0.22 beats;  vel = 104;
+        octave = 1;  pass = 0;
+    };
+    sink { instrument = voice; };
+};
