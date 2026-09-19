@@ -82,7 +82,14 @@ mkdir -p "$OUT"
 scratch=$(mktemp -d)
 trap 'rm -rf "$scratch"' EXIT INT TERM
 
-echo "$kit" | while read -r name graph note vel secs; do
+# Redirected rather than piped. The `exit 1' below has always ended this
+# script -- the loop's non-zero status is the pipeline's, and `set -e' acts
+# on it -- but it ended it at one remove, through a subshell and a shell
+# option, and this script has already lost a failure to exactly that shape
+# once. A here-document keeps the loop in this shell, so the exit is the
+# exit, the EXIT trap runs on the way out, and a line added to the body
+# later can count what it rendered without the count vanishing at `done'.
+while read -r name graph note vel secs; do
     [ -n "$name" ] || continue
 
     # One note, at the top of the render, and nothing after it. `hold' is
@@ -135,6 +142,8 @@ EOF
              "lower its velocity in the table" >&2
         exit 1
     fi
-done
+done <<KIT
+$kit
+KIT
 
 echo "makekit: $OUT is the tree's own kit"
