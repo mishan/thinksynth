@@ -38,6 +38,13 @@
 # exactly as long as the drum sounds, since a one-shot's `play' output is
 # the file's own length and a second of silence on the end of a kick is a
 # second the note goes on for.
+#
+# The graph column may name SEVERAL, joined with `+': `stab+brass' plays
+# both at the same note at the same instant and records the pair. That is
+# what an orchestra hit is -- an orchestra playing one chord, recorded --
+# and it is a thing a sampler can do that a graph cannot, because what
+# comes out is one sound rather than two channels that a piece has to
+# keep in step.
 
 set -e
 
@@ -69,12 +76,13 @@ fi
 # graph that plays it sets that -- so the number is chosen to be clean
 # rather than to match the others.
 kit="
-kick909       kick909  C2   96  0.42
-snare         snare    C3  110  0.22
-clap          clap     C3  110  0.22
-hat_closed    hat0     C4   40  0.32
-hat_open      hat0     C4  110  0.85
-bd10          bd10     C2   45  0.22
+kick909       kick909      C2   96  0.42
+snare         snare        C3  110  0.22
+clap          clap         C3  110  0.22
+hat_closed    hat0         C4   40  0.32
+hat_open      hat0         C4  110  0.85
+bd10          bd10         C2   45  0.22
+orchhit       stab+brass   C4   70  1.10
 "
 
 mkdir -p "$OUT"
@@ -104,24 +112,42 @@ description "one hit of $graph, for dsp/samples/";
 seed 1;
 
 scale one "$note";
+EOF
 
-instrument drum {
-    dsp "$graph.dsp";
+    # One instrument and one chain per graph named, so `stab+brass' is
+    # both of them hitting the same note together. `hold' is short
+    # because a drum ends its own note; a graph that sustains needs a
+    # longer one, which is why it is a variable and not a constant.
+    hold=0.05
+    case "$graph" in
+        *+*) hold=0.9 ;;
+    esac
+
+    n=0
+
+    for one in $(echo "$graph" | tr '+' ' '); do
+        n=$((n + 1))
+
+        cat >> "$scratch/one.gen" <<EOF
+
+instrument drum$n {
+    dsp "$one.dsp";
     amp = 127;
 };
 
-chain hit {
+chain hit$n {
     stage src gen::lsystem {
         axiom = "F";
         depth = 0;
         notes = one;
         step = 600 s;
-        hold = 0.05 s;
+        hold = $hold s;
         vel = $vel;
     };
-    sink { instrument = drum; };
+    sink { instrument = drum$n; };
 };
 EOF
+    done
 
     # -m, because osc::sample is mono and sums a stereo file on the way
     # in anyway; every drum graph in the tree writes the same signal to
