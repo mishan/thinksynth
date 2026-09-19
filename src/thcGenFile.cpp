@@ -3158,22 +3158,44 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
 
             chanarg = argTok.text;
 
-            /* `*' or an identifier, and nothing else. A chanarg is
-               declared in a .dsp as `@name', so anything that could not
-               be written there cannot be delivered to either -- and a
-               sink pointed at "cut off" would otherwise fail silently at
-               delivery time, which is a long way from the typo. */
-            bool ok = chanarg == "*";
+            /* `*', an identifier, or an identifier behind the `fx.'
+               that names the channel's effect rather than its
+               instrument. A chanarg is declared in a .dsp as `@name', so
+               anything that could not be written there cannot be
+               delivered to either -- and a sink pointed at "cut off"
+               would otherwise fail silently at delivery time, which is a
+               long way from the typo.
+             *
+               The prefix is TH_EFFECT_PREFIX, the same spelling a
+               .patch line and a MIDI binding use, and the same one an
+               `effect' block's values are already stored under. It is
+               the only punctuation allowed in here: `fx.' is something
+               the engine puts in front of a name rather than part of
+               one, which is why stripping it and checking what is left
+               is the whole rule.
+             *
+               `fx.*' is not a form. A `*' sink keeps whatever name the
+               event arrived with -- see thcSink::namesItsOwn -- so there
+               is no name here for the prefix to go in front of, and a
+               composer that wants to reach an effect writes the prefix
+               on the event. */
+            const size_t plen = strlen(TH_EFFECT_PREFIX);
+            const bool prefixed =
+                chanarg.compare(0, plen, TH_EFFECT_PREFIX) == 0;
+            const std::string bare =
+                prefixed ? chanarg.substr(plen) : chanarg;
 
-            if (!ok && !chanarg.empty() &&
-                ((chanarg[0] >= 'a' && chanarg[0] <= 'z') ||
-                 (chanarg[0] >= 'A' && chanarg[0] <= 'Z')))
+            bool ok = !prefixed && chanarg == "*";
+
+            if (!ok && !bare.empty() &&
+                ((bare[0] >= 'a' && bare[0] <= 'z') ||
+                 (bare[0] >= 'A' && bare[0] <= 'Z')))
             {
                 ok = true;
 
-                for (size_t i = 1; i < chanarg.size(); i++)
+                for (size_t i = 1; i < bare.size(); i++)
                 {
-                    const char c = chanarg[i];
+                    const char c = bare[i];
 
                     if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
                           (c >= '0' && c <= '9') || c == '_'))
@@ -3184,8 +3206,9 @@ thcGenLoader::parseSinkBlock (thcScheduler *sched, size_t chain)
             if (!ok)
             {
                 error(argTok.line, "'" + chanarg + "' is not a chanarg name; "
-                      "write the name a patch declares, or \"*\" to let "
-                      "each event name its own");
+                      "write the name a patch declares, \"" +
+                      TH_EFFECT_PREFIX + "\" and the name its effect "
+                      "declares, or \"*\" to let each event name its own");
                 return false;
             }
         }
