@@ -454,7 +454,23 @@ jobs:
 
   macos:
     name: macos (clang, arm64)
-    runs-on: macos-14
+    # Sequoia rather than Sonoma, and the version is the whole point of the
+    # line. Homebrew bottles per macOS release and drops the oldest as it
+    # goes: as of 2026-09-19 glib, glibmm, gtk4, gtkmm4 and pangomm have
+    # arm64_sequoia and arm64_tahoe bottles and no arm64_sonoma one. A
+    # macos-14 runner therefore *compiles* the whole GTK stack, which turned
+    # a five-minute install step into three quarters of an hour of building
+    # dependencies before the first line of ours.
+    #
+    # Nothing announces this; the job just gets slower. When it does again,
+    # check which tags the formulae still carry --
+    #
+    #     curl -s https://formulae.brew.sh/api/formula/gtk4.json |
+    #         python3 -c 'import json,sys;
+    #         print(sorted(json.load(sys.stdin)["bottle"]["stable"]["files"]))'
+    #
+    # -- and move this label to one they cover.
+    runs-on: macos-15
 
     steps:
       - uses: actions/checkout@v4
@@ -474,64 +490,6 @@ jobs:
           brew install cmake ninja pkg-config bison flex gtkmm4 \
                        adwaita-icon-theme librsvg
 
-      # The same break the ucrt64 job holds glib2 and gtk4 back for, one
-      # package manager along: glib 2.90.0 (homebrew-core since 2026-09-14)
-      # moved GEmblem and GDBusActionGroup to G_DECLARE_FINAL_TYPE, which
-      # expands the class struct to an *unnamed* one --
-      #
-      #     typedef struct { GObjectClass parent_class; } GEmblemClass;
-      #
-      # -- while giomm still hand-writes `using GEmblemClass = struct
-      # _GEmblemClass;'. Two system headers, one name, two types, and every
-      # translation unit that includes <gtkmm.h> dies. Nothing we compile
-      # reaches it and there is nothing to upgrade into: Homebrew's newest
-      # glibmm is 2.88.1, and upstream's fix is in glibmm 2.90.0, which
-      # homebrew-core has not taken yet.
-      #
-      # Only glib here, where ucrt64 needs gtk4 held too: the third type,
-      # GdkCursor, went final in GTK 4.24 and Homebrew is still on 4.22.4.
-      #
-      # 2.88.3 is the last release before the change, and safe to put back
-      # under what stays current -- every C++ binding here was bottled
-      # before 2.90 landed and so was built against 2.88 anyway. If one of
-      # them did reach for a symbol only 2.90 has, the smoke test and ctest
-      # below are what would say so, loudly.
-      #
-      # The API index has no older versions in it, so this goes through the
-      # tap, fetched shallow at the commit where glib.rb was still 2.88.3.
-      # The bottle comes from ghcr as usual; nothing is built from source.
-      #
-      # Drop this step once homebrew-core ships a glibmm built against glib
-      # 2.90; the build will simply stop needing it.
-      - name: Hold glib where glibmm still compiles
-        env:
-          # The commit before "glib 2.90.0": glib.rb at 2.88.3, bottled.
-          # In full, because a fetch by object name wants the whole 40 --
-          # an abbreviation is a ref to git, and there is no such ref.
-          GLIB_PIN: a6afb6c533be34a6148cf138984506944bc5170b
-        run: |
-          set -e
-          export HOMEBREW_NO_INSTALL_FROM_API=1
-          tap="$(brew --repo homebrew/core)"
-          mkdir -p "$tap"
-          git -C "$tap" init -q
-          git -C "$tap" remote add origin \
-              https://github.com/Homebrew/homebrew-core 2>/dev/null || true
-          git -C "$tap" fetch -q --depth 1 origin "$GLIB_PIN"
-          git -C "$tap" checkout -q FETCH_HEAD
-          brew uninstall --ignore-dependencies glib
-          brew install glib
-          # Explicitly, because the runner image turns out to keep 2.88.3
-          # in the Cellar already: `brew install' then finds it there,
-          # says "already installed, it's just not linked", and leaves it
-          # that way -- no glib-2.0.pc, so gtkmm-4.0.pc cannot resolve and
-          # the configure below fails looking for gtkmm rather than glib.
-          brew link --overwrite glib
-          # And the step says whether it worked, rather than leaving the
-          # configure to discover it three steps later.
-          brew list --versions glib
-          pkg-config --modversion glib-2.0 gtkmm-4.0
-
       # Apple ships bison 2.3 and flex 2.5.35 in /usr/bin. The grammar needs
       # bison 3 (--defines=), and Homebrew's are keg-only, so they have to be
       # put on PATH explicitly. This catches everyone exactly once.
@@ -544,6 +502,12 @@ jobs:
         run: |
           bison --version | head -1
           flex --version
+          # The two that skewed apart and took the job with them. Printed
+          # here so that the next time Homebrew moves one of them without
+          # the other, the log says which rather than leaving Configure to
+          # report it as a missing gtkmm.
+          brew list --versions glib glibmm gtk4 gtkmm4
+          pkg-config --modversion glib-2.0 glibmm-2.68 gtkmm-4.0
 
       - name: Configure
         run: cmake -S . -B build -G Ninja
