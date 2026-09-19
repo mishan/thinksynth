@@ -1949,6 +1949,85 @@ static void checkChorus (const string &pluginPath)
         }
     }
 
+    /* ---- and a `feedback' that is not a number is no feedback ---- */
+
+    /* The inert end of a signed gain is the middle. thClampArg answers a
+     * non-finite with `lo', which for this arg is -0.95 -- so the reading
+     * that let a NaN through the door would turn the loudest inverted comb
+     * the node has on, and the line being its own input would keep it on.
+     * Against `feedback = 0' sample for sample, because "inert" is not a
+     * level here, it is the other render exactly.
+     */
+    {
+        const float tap = 200;
+        vector<float> off, nan;
+        string why;
+
+        if (!render1(pluginPath, chorusClickGraph(tap, 0), "ch", "out", 256,
+                     (unsigned)(tap * 5), off, why) ||
+            !render1(pluginPath,
+                     chorusClickGraph(tap,
+                                      std::numeric_limits<float>::quiet_NaN()),
+                     "ch", "out", 256, (unsigned)(tap * 5), nan, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            double worst = 0;
+
+            for (size_t i = 0; i < off.size() && i < nan.size(); i++)
+                if (fabs(off[i] - nan[i]) > worst)
+                    worst = fabs(off[i] - nan[i]);
+
+            okOrFail(off.size() == nan.size() && peak(off, 0) > 0 &&
+                     worst == 0,
+                     "delay::chorus: a `feedback' that is not a number is "
+                     "no feedback, and not the bottom of its range",
+                     "off by " + num(worst) + " at worst");
+        }
+    }
+
+    /* ---- the tap is read between samples ---- */
+
+    /* Which is what fx/flanger.dsp's through-zero copy rests on: its dry
+     * copy is a second delay::chorus held still at `Delay', and it is the
+     * same node as the sweeping one precisely so that the two agree on
+     * where `Delay' is. `Delay' in milliseconds is a whole number of
+     * samples only by accident -- 1.5 ms is 66.15 of them at 44100 -- so a
+     * node that truncated would center the sweep somewhere the tap does
+     * not turn around.
+     *
+     * Half a sample back is exactly half of each neighbour, because the
+     * read is linear between the two. Exactly: the same two samples are
+     * being averaged, so there is no rounding to allow for.
+     */
+    {
+        const float tap = 200;
+        vector<float> lo, mid, hi;
+        string why;
+
+        if (!render1(pluginPath, chorusClickGraph(tap, 0), "ch", "out", 256,
+                     (unsigned)(tap * 3), lo, why) ||
+            !render1(pluginPath, chorusClickGraph(tap + 0.5f, 0), "ch", "out",
+                     256, (unsigned)(tap * 3), mid, why) ||
+            !render1(pluginPath, chorusClickGraph(tap + 1, 0), "ch", "out",
+                     256, (unsigned)(tap * 3), hi, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            double worst = 0;
+
+            for (size_t i = 0; i < mid.size() && i < lo.size() &&
+                               i < hi.size(); i++)
+                if (fabs((double)mid[i] - ((double)lo[i] + hi[i]) / 2) > worst)
+                    worst = fabs((double)mid[i] - ((double)lo[i] + hi[i]) / 2);
+
+            okOrFail(peak(mid, 0) > 0 && worst < 1e-3,
+                     "delay::chorus: a tap half a sample back is half of "
+                     "each neighbour, so a fractional `delay' is one",
+                     "off by " + num(worst) + " at worst");
+        }
+    }
+
     windowsAgree(pluginPath,
                  chorusGraph((float)f0, (float)rate, depth, delay, 0.5f, 3),
                  "ch", "out",

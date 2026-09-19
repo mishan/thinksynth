@@ -234,8 +234,12 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         float delay = thClampArg((*in_delay)[i], 0, (float)samples / 4);
         int taps = (int)thClampArg((*in_taps)[i], 1, CHORUS_TAPS_MAX);
         const float offset = thClampArg((*in_phase)[i], 0, 1);
-        const float feedback = thClampArg((*in_feedback)[i],
-                                          -CHORUS_FEEDBACK_MAX,
+        /* thClampMag and not thClampArg: the inert end of a signed gain is
+           the middle, not the bottom. thClampArg answers a non-finite with
+           `lo', which here is -0.95 -- the loudest inverted comb the node
+           has -- and the line is its own input, so one NaN on the arg would
+           stay in it. delay::allpass clamps its `gain' the same way. */
+        const float feedback = thClampMag((*in_feedback)[i],
                                           CHORUS_FEEDBACK_MAX);
         unsigned int len;
         float wet = 0;
