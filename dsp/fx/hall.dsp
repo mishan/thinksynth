@@ -1,13 +1,18 @@
 # Hall -- a reverb on a channel's sum, from combs and a lowpass.
 #
-# Schroeder's arrangement, more or less: four comb filters in parallel
-# on each side, their delays chosen to share no factor so the echoes do
-# not pile up on one another, summed and darkened by a lowpass, and
-# mixed with the dry. The right side's combs are seven percent longer
-# than the left's, which is the whole of the stereo. `Decay' is the
-# combs' feedback; `Size' scales every delay together, which is the
-# difference between a room and a hall. filt::comb takes its delay as a
-# frequency, so `Size' divides.
+# Schroeder's arrangement: four comb filters in parallel on each side,
+# their delays chosen to share no factor so the echoes do not pile up on
+# one another, summed and darkened by a lowpass, diffused by two allpass
+# delays in series, and mixed with the dry. The right side's combs are
+# seven percent longer than the left's, which is the whole of the stereo.
+# `Decay' is the combs' feedback; `Size' scales every delay together,
+# which is the difference between a room and a hall. filt::comb takes
+# its delay as a frequency, so `Size' divides there and multiplies in
+# the allpasses, which take samples.
+#
+# The combs are where the tail comes from and the allpasses are what
+# makes it a tail rather than a chord -- see the head of
+# plugins/delay/allpass.cpp for why a bank of combs alone can only ring.
 #
 # This is an effect graph -- `in0' on the io node -- and it runs on the
 # channel's summed voices every window, which is what lets the tail
@@ -34,6 +39,18 @@ description "A comb-filter reverb for a channel, with a damped tail.";
     @damping.min = 400;
     @damping.max = 16000;
     @damping.label = "Damping (Hz)";
+
+    # The allpasses' own length, which is what "diffusion" means when a
+    # reverb offers it: how far apart the echoes each one spreads its
+    # input into are. Short is a plate and long is a corridor. A unit
+    # cannot be written inside arithmetic -- `5ms * @size' is an error
+    # the grammar makes on purpose -- so the milliseconds are declared
+    # here, folded to samples at load, and multiplied there.
+    @diffuse = 5 ms;
+    @diffuse.widget = 1;
+    @diffuse.min = 1 ms;
+    @diffuse.max = 25 ms;
+    @diffuse.label = "Diffusion";
 
     @mix = 0.25;
     @mix.widget = 1;
@@ -75,15 +92,34 @@ node dampr filt::svf {
     res = 0;
 };
 
+# And the two a side that turn a comb bank into a room. Four combs make
+# four echoes a round, which in the first tenth of a second is a handful
+# of slaps anybody can count; each allpass spreads every one of them into
+# a run of its own a few milliseconds apart, without touching the level
+# of a single frequency. On this graph's impulse response that took the
+# first quarter of a second from twenty-two echoes to three hundred, and
+# halved the peak, because the same energy stopped arriving all at once.
+# `Size' scales them along with the combs.
+# The second of each pair is a third of the first, and the right side is
+# a few percent off the left, for the reason the combs are: two lines the
+# same length are one line twice as loud. The gain is Schroeder's 0.7 and
+# is not a knob -- it sets how much of each echo goes round again, and
+# every value of it is allpass, so there is nothing to tune by ear.
+node apl0 delay::allpass { in = dampl->out_low;  delay = @diffuse * @size;         gain = 0.7; };
+node apl1 delay::allpass { in = apl0->out;       delay = @diffuse * @size * 0.34;  gain = 0.7; };
+
+node apr0 delay::allpass { in = dampr->out_low;  delay = @diffuse * @size * 1.08;  gain = 0.7; };
+node apr1 delay::allpass { in = apr0->out;       delay = @diffuse * @size * 0.38;  gain = 0.7; };
+
 node mixl mixer::fade {
     in0 = ionode->in0;
-    in1 = dampl->out_low;
+    in1 = apl1->out;
     fade = @mix;
 };
 
 node mixr mixer::fade {
     in0 = ionode->in1;
-    in1 = dampr->out_low;
+    in1 = apr1->out;
     fade = @mix;
 };
 

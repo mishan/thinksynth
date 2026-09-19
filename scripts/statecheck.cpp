@@ -956,6 +956,853 @@ static void checkNoise (const string &pluginPath)
                  "five hundred");
 }
 
+/* ---- misc::vibrato ------------------------------------------------------ */
+
+/* A frequency that does not move, into the thing that moves it. That is
+   every use of this node: `in' is what the note is and `out' is what the
+   note does, and neither wants a source with a shape of its own. */
+static vector<NodeSpec> vibratoGraph (float in, float rate, float depth,
+                                      float delay, float rise)
+{
+    vector<NodeSpec> spec;
+    NodeSpec vib;
+
+    vib.name = "vib";
+    vib.spelling = "misc/vibrato";
+
+    Value i = { "in", in };
+    Value r = { "rate", rate };
+    Value d = { "depth", depth };
+    Value l = { "delay", delay };
+    Value g = { "rise", rise };
+
+    vib.values.push_back(i);
+    vib.values.push_back(r);
+    vib.values.push_back(d);
+    vib.values.push_back(l);
+    vib.values.push_back(g);
+
+    spec.push_back(vib);
+
+    return spec;
+}
+
+/* The same bend, on the frequency of a sine, which is what a graph wires
+   it to. What the oscillator does with it is the end-to-end claim: a
+   wobble in `out' that no oscillator ever read would measure just as
+   well and mean nothing. */
+static vector<NodeSpec> vibratoSineGraph (float in, float rate, float depth)
+{
+    vector<NodeSpec> spec = vibratoGraph(in, rate, depth, 0, 0);
+    NodeSpec osc;
+
+    osc.name = "osc";
+    osc.spelling = "osc/simple";
+
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };            /* sine */
+    Wire  f = { "freq", "vib", "out" };
+
+    osc.values.push_back(a);
+    osc.values.push_back(w);
+    osc.wires.push_back(f);
+
+    spec.push_back(osc);
+
+    return spec;
+}
+
+/* Where a rising signal crosses zero, to a fraction of a sample. The
+   spacing of these is an instantaneous frequency, which is the only way
+   to ask an oscillator what note it is playing. */
+static vector<double> upCrossings (const vector<float> &v)
+{
+    vector<double> out;
+
+    for (size_t i = 1; i < v.size(); i++)
+        if (v[i - 1] <= 0 && v[i] > 0)
+            out.push_back((double)i - 1 +
+                          (double)(-v[i - 1]) / (v[i] - v[i - 1]));
+
+    return out;
+}
+
+static void checkVibrato (const string &pluginPath)
+{
+    const double rate = 5, depth = 100, carrier = 440;
+    const double cycle = TH_DEFAULT_SAMPLES / rate;
+    const double up = pow(2.0, depth / 1200.0);
+
+    /* ---- the bend is `depth' cents, either way ---- */
+
+    /* Four LFO cycles, so the extremes are reached whatever the phase
+       does at the start. A cent is a thousandth of a semitone and the
+       arithmetic is one exp2 in float: a thousandth of the bend is a
+       loose tolerance for it and a tight one for anything else. */
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, vibratoGraph(carrier, rate, depth, 0, 0),
+                     "vib", "out", 256, (unsigned)(cycle * 4), out, why))
+            fail("misc::vibrato renders", why);
+        else
+        {
+            double top = 0, bottom = out.empty() ? 0 : out[0];
+
+            for (size_t i = 0; i < out.size(); i++)
+            {
+                if (out[i] > top)
+                    top = out[i];
+
+                if (out[i] < bottom)
+                    bottom = out[i];
+            }
+
+            okOrFail(fabs(top / carrier - up) < 0.001 &&
+                     fabs(bottom / carrier - 1 / up) < 0.001,
+                     "misc::vibrato: the bend reaches `depth' cents either "
+                     "way",
+                     "wanted " + num(carrier * up) + " and " +
+                     num(carrier / up) + ", got " + num(top) + " and " +
+                     num(bottom));
+        }
+    }
+
+    /* ---- and it goes round at `rate' ---- */
+
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, vibratoGraph(carrier, rate, depth, 0, 0),
+                     "vib", "out", 256, (unsigned)(cycle * 6), out, why))
+            fail("misc::vibrato renders", why);
+        else
+        {
+            /* The bend either side of the note, whose crossings are the
+               LFO's own -- `out' itself never reaches zero. */
+            vector<float> bend;
+
+            for (size_t i = 0; i < out.size(); i++)
+                bend.push_back((float)(out[i] - carrier));
+
+            const vector<double> at = upCrossings(bend);
+            bool even = at.size() >= 5;
+            string detail = "saw " + num((double)at.size()) + " cycles";
+
+            for (size_t i = 1; i < at.size() && even; i++)
+                if (fabs(at[i] - at[i - 1] - cycle) > 1)
+                {
+                    even = false;
+                    detail = "cycle " + num((double)i) + " was " +
+                             num(at[i] - at[i - 1]) + " samples, wanted " +
+                             num(cycle);
+                }
+
+            okOrFail(even, "misc::vibrato: one cycle of the bend every "
+                           "1/`rate' seconds", detail);
+        }
+    }
+
+    /* ---- cents, not hertz ---- */
+
+    /* The whole reason the arithmetic is an exponent. Two notes two
+       octaves apart bend by the same *interval*, which means the two
+       outputs divided by their own inputs are one signal. A vibrato in
+       hertz passes every other check on this list and fails this one. */
+    {
+        vector<float> low, high;
+        string why;
+
+        if (!render1(pluginPath, vibratoGraph(110, rate, depth, 0, 0),
+                     "vib", "out", 256, (unsigned)cycle, low, why) ||
+            !render1(pluginPath, vibratoGraph(440, rate, depth, 0, 0),
+                     "vib", "out", 256, (unsigned)cycle, high, why))
+            fail("misc::vibrato renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = 0; i < low.size() && i < high.size(); i++)
+                if (fabs(low[i] / 110.0 - high[i] / 440.0) > 1e-6)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(low[i] / 110.0) + " against " +
+                             num(high[i] / 440.0);
+                    break;
+                }
+
+            okOrFail(same, "misc::vibrato: the same interval at every "
+                           "pitch, which is what cents buy", detail);
+        }
+    }
+
+    /* ---- the note is held straight for `delay' ---- */
+
+    {
+        const double delay = TH_DEFAULT_SAMPLES / 2;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     vibratoGraph(carrier, rate, depth, (float)delay, 0),
+                     "vib", "out", 256,
+                     (unsigned)(delay + cycle), out, why))
+            fail("misc::vibrato renders", why);
+        else
+        {
+            bool straight = true, moved = false;
+            string detail;
+
+            for (size_t i = 0; i < out.size(); i++)
+            {
+                if (i <= (size_t)delay && out[i] != (float)carrier)
+                {
+                    straight = false;
+                    detail = "sample " + num((double)i) + " of " +
+                             num(delay) + " was already " + num(out[i]);
+                    break;
+                }
+
+                if (i > (size_t)delay && fabs(out[i] - carrier) > 1)
+                    moved = true;
+            }
+
+            okOrFail(straight && moved,
+                     "misc::vibrato: nothing bends until `delay' is up, and "
+                     "then it does", detail);
+        }
+    }
+
+    /* ---- and grows into it over `rise' ---- */
+
+    /* Cycle by cycle: each one has to reach further than the one before
+       it, and the ones after the ramp has finished have to reach the
+       whole way. A ramp that jumped, or one that never arrived, is a
+       different sequence of peaks from this one. */
+    {
+        const double rise = cycle * 2;               /* two LFO cycles */
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     vibratoGraph(carrier, rate, depth, 0, (float)rise),
+                     "vib", "out", 256, (unsigned)(cycle * 8), out, why))
+            fail("misc::vibrato renders", why);
+        else
+        {
+            vector<double> reach;
+
+            for (size_t c = 0; c * cycle < out.size(); c++)
+            {
+                double top = 0;
+
+                for (size_t i = (size_t)(c * cycle);
+                     i < out.size() && i < (size_t)((c + 1) * cycle); i++)
+                    if (out[i] - carrier > top)
+                        top = out[i] - carrier;
+
+                reach.push_back(top);
+            }
+
+            bool growing = reach.size() >= 6;
+            string detail;
+
+            for (size_t c = 1; c < reach.size() && c < 3 && growing; c++)
+                if (reach[c] <= reach[c - 1])
+                {
+                    growing = false;
+                    detail = "cycle " + num((double)c) + " reached " +
+                             num(reach[c]) + " after " + num(reach[c - 1]);
+                }
+
+            /* Two cycles of ramp, so by the fourth the bend is whole. */
+            for (size_t c = 3; c < reach.size() && growing; c++)
+                if (fabs(reach[c] - carrier * (up - 1)) > 0.5)
+                {
+                    growing = false;
+                    detail = "cycle " + num((double)c) + " reached " +
+                             num(reach[c]) + ", wanted " +
+                             num(carrier * (up - 1));
+                }
+
+            okOrFail(growing, "misc::vibrato: the bend grows over `rise' "
+                              "and stays there afterwards", detail);
+        }
+    }
+
+    /* ---- on a sine, which is what a graph wires it to ---- */
+
+    /* The end-to-end claim: an oscillator reading this plays a note whose
+       own frequency is `depth' cents either way. Measured off the sine's
+       zero crossings, which is how you would measure a real one. */
+    {
+        const double wide = 200;
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, vibratoSineGraph(220, rate, (float)wide),
+                     "osc", "out", 256, (unsigned)(cycle * 4), out, why))
+            fail("misc::vibrato on a sine renders", why);
+        else
+        {
+            const vector<double> at = upCrossings(out);
+            double fastest = 0, slowest = 1e9;
+
+            for (size_t i = 1; i < at.size(); i++)
+            {
+                const double hz = TH_DEFAULT_SAMPLES / (at[i] - at[i - 1]);
+
+                if (hz > fastest)
+                    fastest = hz;
+
+                if (hz < slowest)
+                    slowest = hz;
+            }
+
+            /* One period at a time, so the measurement is of the average
+               over that period rather than of the peak of the bend -- the
+               LFO moves under it. A percent of the interval is what that
+               costs at these numbers. */
+            const double want = pow(2.0, wide / 1200.0);
+
+            okOrFail(at.size() > 100 &&
+                     fabs(fastest / 220.0 - want) < 0.01 &&
+                     fabs(slowest / 220.0 - 1 / want) < 0.01,
+                     "misc::vibrato: a sine reading it plays `depth' cents "
+                     "either side of its note",
+                     "wanted " + num(220 * want) + " and " +
+                     num(220 / want) + ", measured " + num(fastest) +
+                     " and " + num(slowest));
+        }
+    }
+
+    windowsAgree(pluginPath, vibratoGraph(carrier, rate, depth, 1000, 1000),
+                 "vib", "out",
+                 "misc::vibrato: the same bend at one sample a window and "
+                 "at five hundred");
+}
+
+/* ---- delay::allpass ----------------------------------------------------- */
+
+/* A steady sine into the line, which is how you ask a filter what it
+   does to a frequency. */
+static vector<NodeSpec> allpassSineGraph (float hz, float delay, float gain)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, ap;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };            /* sine */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    ap.name = "ap";
+    ap.spelling = "delay/allpass";
+
+    Value d = { "delay", delay };
+    Value g = { "gain", gain };
+    Wire  in = { "in", "src", "out" };
+
+    ap.values.push_back(d);
+    ap.values.push_back(g);
+    ap.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(ap);
+
+    return spec;
+}
+
+/* And a burst into it, which is how you ask what it does to a room. An
+   env::ad with no attack fires once at the top of the voice and is over
+   in `d' samples, so what follows is the line's own answer. */
+static vector<NodeSpec> allpassBurstGraph (float delay, float gain)
+{
+    vector<NodeSpec> spec = allpassSineGraph(0, delay, gain);
+
+    spec[0].spelling = "env/ad";
+    spec[0].values.clear();
+
+    Value a = { "a", 0 };
+    Value d = { "d", 64 };
+    Value p = { "p", TH_MAX };
+
+    spec[0].values.push_back(a);
+    spec[0].values.push_back(d);
+    spec[0].values.push_back(p);
+
+    return spec;
+}
+
+static double energy (const vector<float> &v, size_t from)
+{
+    double sum = 0;
+
+    for (size_t i = from; i < v.size(); i++)
+        sum += (double)v[i] * v[i];
+
+    return sum;
+}
+
+static void checkAllpass (const string &pluginPath)
+{
+    const float delay = 137, gain = 0.7f;
+
+    /* ---- every frequency comes out at the level it went in ---- */
+
+    /* Which is the whole name of the thing. RMS rather than peak,
+       because the two signals are the same sine at different phases and
+       a sampled peak depends on where the samples fall in the cycle --
+       a quarter of a percent at these frequencies, which is the size of
+       the answer. Over a settled second, whole cycles either way. */
+    {
+        static const float hz[] = { 110, 440, 1000, 5000, 11025 };
+
+        bool flat = true;
+        string detail;
+
+        for (size_t c = 0; c < sizeof(hz) / sizeof(hz[0]) && flat; c++)
+        {
+            vector<Watch> watch;
+            vector< vector<float> > got;
+            string why;
+
+            Watch w0 = { "src", "out" };
+            Watch w1 = { "ap", "out" };
+
+            watch.push_back(w0);
+            watch.push_back(w1);
+
+            if (!render(pluginPath, allpassSineGraph(hz[c], delay, gain),
+                        watch, 256, 44100, got, why))
+            {
+                fail("delay::allpass renders", why);
+                return;
+            }
+
+            const double in = rms(got[0], 4410), out = rms(got[1], 4410);
+
+            if (fabs(out / in - 1) > 0.01)
+            {
+                flat = false;
+                detail = num(hz[c]) + " Hz came out at " +
+                         num(out / in) + " of the level it went in at";
+            }
+        }
+
+        okOrFail(flat, "delay::allpass: every frequency comes out at the "
+                       "level it went in at", detail);
+    }
+
+    /* ---- and it is not a wire ---- */
+
+    /* Flat on its own would be satisfied by a plugin that returned its
+       input. What an allpass does is move it in time, so the output has
+       to be a different signal with the same amplitude -- and with a
+       delay of a third of a cycle, a very different one. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ap", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, allpassSineGraph(110, delay, gain), watch,
+                    256, 20000, got, why))
+            fail("delay::allpass renders", why);
+        else
+        {
+            double apart = 0;
+
+            for (size_t i = 4410; i < got[0].size(); i++)
+                if (fabs(got[0][i] - got[1][i]) > apart)
+                    apart = fabs(got[0][i] - got[1][i]);
+
+            okOrFail(apart > TH_MAX * 0.5,
+                     "delay::allpass: the output is the input moved in "
+                     "time, not the input",
+                     "furthest apart they got was " + num(apart));
+        }
+    }
+
+    /* ---- a burst comes out with the energy it went in with ---- */
+
+    /* Parseval, in the time domain and on the tape: a filter with a flat
+       magnitude response neither adds energy nor loses it, so summing
+       the squares either side is a check on the arithmetic that needs no
+       spectrum. The tail has to have run out first -- 0.7 to the
+       hundredth is nothing -- or this measures the render length. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ap", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, allpassBurstGraph(delay, gain), watch, 256,
+                    40000, got, why))
+            fail("delay::allpass renders", why);
+        else
+        {
+            const double in = energy(got[0], 0), out = energy(got[1], 0);
+
+            okOrFail(in > 0 && fabs(out / in - 1) < 0.001,
+                     "delay::allpass: a burst comes out with the energy it "
+                     "went in with",
+                     "energy out over energy in was " + num(out / in));
+
+            /* And it comes out as a run of echoes a `delay' apart, each
+               quieter than the last. The first block holds the input's
+               own inverted copy, so the comparison starts at the
+               second. */
+            vector<double> block;
+
+            for (size_t b = 0; (b + 1) * (size_t)delay < got[1].size(); b++)
+                block.push_back(peak(vector<float>(
+                    got[1].begin() + (size_t)(b * delay),
+                    got[1].begin() + (size_t)((b + 1) * delay)), 0));
+
+            bool decays = block.size() > 20;
+            string detail = "saw " + num((double)block.size()) + " blocks";
+
+            for (size_t b = 2; b < 20 && b < block.size() && decays; b++)
+                if (!(block[b] < block[b - 1]))
+                {
+                    decays = false;
+                    detail = "echo " + num((double)b) + " was " +
+                             num(block[b]) + " after " + num(block[b - 1]);
+                }
+
+            okOrFail(decays, "delay::allpass: the echoes are `delay' apart "
+                             "and each is quieter than the last", detail);
+        }
+    }
+
+    /* ---- and `gain = 0' is a plain delay ---- */
+
+    /* The identity a graph reaches for when it wants the line and not the
+       allpass, and the one case where the output can be named exactly:
+       the input, `delay' samples ago, to the bit. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ap", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath, allpassSineGraph(440, delay, 0), watch, 256,
+                    20000, got, why))
+            fail("delay::allpass renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = (size_t)delay; i < got[0].size() && same; i++)
+                if (memcmp(&got[1][i], &got[0][i - (size_t)delay],
+                           sizeof(float)) != 0)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " +
+                             num(got[0][i - (size_t)delay]);
+                }
+
+            okOrFail(same, "delay::allpass: `gain = 0' is a plain delay of "
+                           "`delay' samples", detail);
+        }
+    }
+
+    windowsAgree(pluginPath, allpassSineGraph(440, delay, gain), "ap", "out",
+                 "delay::allpass: the same tail at one sample a window and "
+                 "at five hundred");
+}
+
+/* ---- delay::chorus ------------------------------------------------------ */
+
+static vector<NodeSpec> chorusGraph (float hz, float rate, float depth,
+                                     float delay, float mix, float taps)
+{
+    vector<NodeSpec> spec;
+    NodeSpec src, ch;
+
+    src.name = "src";
+    src.spelling = "osc/simple";
+
+    Value f = { "freq", hz };
+    Value a = { "amp", TH_MAX };
+    Value w = { "waveform", 0 };            /* sine */
+
+    src.values.push_back(f);
+    src.values.push_back(a);
+    src.values.push_back(w);
+
+    ch.name = "ch";
+    ch.spelling = "delay/chorus";
+
+    Value r = { "rate", rate };
+    Value dp = { "depth", depth };
+    Value dl = { "delay", delay };
+    Value mx = { "mix", mix };
+    Value tp = { "taps", taps };
+    Wire  in = { "in", "src", "out" };
+
+    ch.values.push_back(r);
+    ch.values.push_back(dp);
+    ch.values.push_back(dl);
+    ch.values.push_back(mx);
+    ch.values.push_back(tp);
+    ch.wires.push_back(in);
+
+    spec.push_back(src);
+    spec.push_back(ch);
+
+    return spec;
+}
+
+/* One bin of a DFT, by hand: the amplitude of the component at `hz' over
+ * `n' samples. An FFT would want a window, a table and a power of two;
+ * a single bin is two sums, and over a whole number of cycles of every
+ * frequency asked about there is no leakage to window away. */
+static double bin (const vector<float> &v, size_t from, size_t n, double hz)
+{
+    double re = 0, im = 0;
+
+    for (size_t i = 0; i < n && from + i < v.size(); i++)
+    {
+        const double w = 2.0 * M_PI * hz * (double)i / TH_DEFAULT_SAMPLES;
+
+        re += (double)v[from + i] * cos(w);
+        im -= (double)v[from + i] * sin(w);
+    }
+
+    return 2.0 * sqrt(re * re + im * im) / (double)n;
+}
+
+static void checkChorus (const string &pluginPath)
+{
+    /* A whole second of a 441 Hz sine and a 3 Hz sweep: both are a whole
+       number of cycles in the window, so every bin below lands on a bin
+       center and nothing leaks into its neighbors. A depth of eight
+       samples puts the modulation index at about a half, where the first
+       sidebands are a quarter of the carrier and the second ones are a
+       thirtieth -- big enough to measure and small enough that "the
+       sidebands are at `rate'" is a statement about the first pair. */
+    const double f0 = 441, rate = 3;
+    const float depth = 8, delay = 220;
+    const unsigned window = TH_DEFAULT_SAMPLES;
+    const size_t from = TH_DEFAULT_SAMPLES / 4;
+
+    /* ---- a sine comes out with sidebands a `rate' either side ---- */
+
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     chorusGraph((float)f0, (float)rate, depth, delay, 1, 1),
+                     "ch", "out", 256, window + (unsigned)from, out, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            const double carrier = bin(out, from, window, f0);
+            const double lower = bin(out, from, window, f0 - rate);
+            const double upper = bin(out, from, window, f0 + rate);
+            const double second = bin(out, from, window, f0 + 2 * rate);
+
+            okOrFail(carrier > 0 && lower / carrier > 0.15 &&
+                     upper / carrier > 0.15 &&
+                     lower / carrier < 0.40 && upper / carrier < 0.40 &&
+                     upper > second * 3,
+                     "delay::chorus: a sine comes out with sidebands a "
+                     "`rate' either side of it",
+                     "carrier " + num(carrier) + ", sidebands " +
+                     num(lower) + " and " + num(upper) + ", second pair " +
+                     num(second));
+        }
+    }
+
+    /* ---- and with none at all when nothing moves ---- */
+
+    /* The control for the check above: the same graph with the tap held
+       still is a plain delay, and a plain delay has no sidebands. Without
+       this, a plugin that rang at 3 Hz for any reason would pass. */
+    {
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath,
+                     chorusGraph((float)f0, (float)rate, 0, delay, 1, 1),
+                     "ch", "out", 256, window + (unsigned)from, out, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            const double carrier = bin(out, from, window, f0);
+            const double upper = bin(out, from, window, f0 + rate);
+
+            okOrFail(carrier > 0 && upper / carrier < 0.01,
+                     "delay::chorus: `depth = 0' is a plain delay, with "
+                     "nothing either side",
+                     "sideband over carrier was " + num(upper / carrier));
+        }
+    }
+
+    /* ---- two taps do not cancel each other ---- */
+
+    /* The reason each tap sits `depth' further back than the last. Two
+       mirrors of one center are as sharp as each other is flat at every
+       instant, and summing them to one output takes the pitch shift
+       away entirely -- a real effect with a real name, and not this one.
+       Staggered, the second tap leaves the first one's sidebands
+       standing. */
+    {
+        vector<float> one, more;
+        string why;
+        bool stands = true;
+        string detail;
+
+        if (!render1(pluginPath,
+                     chorusGraph((float)f0, (float)rate, depth, delay, 1, 1),
+                     "ch", "out", 256, window + (unsigned)from, one, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            const double alone = bin(one, from, window, f0 + rate) /
+                                 bin(one, from, window, f0);
+
+            for (int taps = 2; taps <= 3 && stands; taps++)
+            {
+                if (!render1(pluginPath,
+                             chorusGraph((float)f0, (float)rate, depth,
+                                         delay, 1, (float)taps),
+                             "ch", "out", 256, window + (unsigned)from,
+                             more, why))
+                {
+                    fail("delay::chorus renders", why);
+                    return;
+                }
+
+                const double together = bin(more, from, window, f0 + rate) /
+                                        bin(more, from, window, f0);
+
+                if (!(together > alone * 0.5))
+                {
+                    stands = false;
+                    detail = "one tap put " + num(alone) + " of the "
+                             "carrier into the sideband, " +
+                             num((double)taps) + " put " + num(together);
+                }
+            }
+
+            okOrFail(stands, "delay::chorus: a second and a third tap add "
+                             "to the first rather than cancelling it",
+                     detail);
+        }
+    }
+
+    /* ---- the two identities ---- */
+
+    /* `mix = 0' is a wire: the dry signal is what a mix of nothing
+       leaves, and a graph with the node in it and the knob down has to
+       be the graph without it. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ch", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath,
+                    chorusGraph((float)f0, (float)rate, depth, delay, 0, 3),
+                    watch, 256, 20000, got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = 0; i < got[0].size() && same; i++)
+                if (memcmp(&got[1][i], &got[0][i], sizeof(float)) != 0)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " + num(got[0][i]);
+                }
+
+            okOrFail(same, "delay::chorus: `mix = 0' is the dry signal, to "
+                           "the bit", detail);
+        }
+    }
+
+    /* And a still tap at full mix is the line and nothing else. */
+    {
+        vector<Watch> watch;
+        vector< vector<float> > got;
+        string why;
+
+        Watch w0 = { "src", "out" };
+        Watch w1 = { "ch", "out" };
+
+        watch.push_back(w0);
+        watch.push_back(w1);
+
+        if (!render(pluginPath,
+                    chorusGraph((float)f0, 0, 0, delay, 1, 1), watch, 256,
+                    20000, got, why))
+            fail("delay::chorus renders", why);
+        else
+        {
+            bool same = true;
+            string detail;
+
+            for (size_t i = (size_t)delay; i < got[0].size() && same; i++)
+                if (fabs(got[1][i] - got[0][i - (size_t)delay]) >
+                    TH_MAX * 1e-6)
+                {
+                    same = false;
+                    detail = "sample " + num((double)i) + ": " +
+                             num(got[1][i]) + " against " +
+                             num(got[0][i - (size_t)delay]);
+                }
+
+            okOrFail(same, "delay::chorus: a tap that does not move is a "
+                           "delay of `delay' samples", detail);
+        }
+    }
+
+    windowsAgree(pluginPath,
+                 chorusGraph((float)f0, (float)rate, depth, delay, 0.5f, 3),
+                 "ch", "out",
+                 "delay::chorus: the same taps at one sample a window and "
+                 "at five hundred");
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
@@ -970,6 +1817,9 @@ int main (int argc, char **argv)
     checkSlew(pluginPath);
     checkSvf(pluginPath);
     checkNoise(pluginPath);
+    checkVibrato(pluginPath);
+    checkAllpass(pluginPath);
+    checkChorus(pluginPath);
 
     printf("\n%d failure(s)\n", failed);
 

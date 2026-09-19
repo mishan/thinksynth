@@ -36,6 +36,12 @@
 # effect graph on the channel's sum, so the reverb's tail outlives the
 # chord that fed it.
 #
+# AND THE MIX GOES THROUGH A LIMITER, which is the one effect that
+# cannot live on a channel: a top-level `effect' statement puts
+# fx/limiter.dsp on the sum of every channel, after the mix and before
+# the engine's soft clip. Four channels each under their own ceiling
+# still add up to whatever they add up to.
+#
 # THE STABS are a sixteen-step ring with rests in the pool -- a step
 # sequencer -- spelled into chords by xform::harmonize, on stab.dsp,
 # through fx/echo.dsp at a dotted eighth: the delay throw, on the
@@ -95,6 +101,22 @@ section end;
 
 scale amin "A2 B2 C3 D3 E3 F3 G3";
 scale riff "A1 C2 D2 E2 G2";
+
+# ---- the mix ----------------------------------------------------------
+
+# The last thing in the piece: a limiter on the sum of every channel,
+# after the mix and before the engine's own soft clip. A kick, a bass and
+# a pad that all peak on the same downbeat are what a master bus is for,
+# and no per-channel effect can do anything about it -- what is clipping
+# is the sum, and the sum is the one signal no channel can see. `drive'
+# pushes into the ceiling rather than the ceiling coming down to the
+# signal, which is the difference between a mix that is louder and one
+# that is quieter and duller.
+effect "fx/limiter.dsp" {
+    drive   = 1.4;
+    ceiling = 0.85;
+    smooth  = 1.5;
+};
 
 # ---- instruments ------------------------------------------------------
 

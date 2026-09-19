@@ -216,14 +216,29 @@ void thChanEffect::indexIOArgs (int windowlen)
 /* Audio thread. */
 bool thChanEffect::process (float *buf, int channels, int windowlen)
 {
+    return run(buf, channels, windowlen, channels, 1);
+}
+
+/* Audio thread. */
+bool thChanEffect::processPlanar (float *buf, int channels, int windowlen)
+{
+    return run(buf, channels, windowlen, 1, windowlen);
+}
+
+/* Audio thread. */
+bool thChanEffect::run (float *buf, int channels, int windowlen, int step,
+                        int hop)
+{
     if (tree_ == NULL || buf == NULL || scratch_ == NULL || channels_ <= 0 ||
         channels <= 0 || windowlen <= 0)
     {
         return true;
     }
 
-    /* In, de-interleaved. thMidiChan mixes its voices interleaved by the
-       channel count; a graph wants one buffer per channel. */
+    /* In, one buffer per channel, which is what a graph wants and what
+       neither caller has: thMidiChan mixes its voices interleaved by the
+       channel count and thSynth sums its channels one whole window after
+       another. */
     for (int c = 0; c < channels_ && c < channels; c++)
     {
         thArg *arg = tree_->resolveIOArg(inindex_[c]);
@@ -235,7 +250,7 @@ bool thChanEffect::process (float *buf, int channels, int windowlen)
         float *dst = arg->values();
 
         for (int j = 0; j < windowlen; j++)
-            dst[j] = buf[j * channels + c];
+            dst[j] = buf[j * step + c * hop];
     }
 
     /* Every node, not setActiveNodes(): an effect is entitled to be nothing
@@ -272,7 +287,7 @@ bool thChanEffect::process (float *buf, int channels, int windowlen)
         const float *src = scratch_ + (size_t)c * windowlen;
 
         for (int j = 0; j < windowlen; j++)
-            buf[j * channels + c] = src[j];
+            buf[j * step + c * hop] = src[j];
     }
 
     return true;

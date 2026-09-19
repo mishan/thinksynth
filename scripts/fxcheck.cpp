@@ -612,6 +612,151 @@ int main (int argc, char **argv)
         }
     }
 
+    /* ---- the same graph on the mix -------------------------------------- */
+
+    /* A master effect is this object with no channel under it: it is handed
+     * what every channel summed to, after the mix and before the master gain
+     * and the limiter. What is asked here is the part that is not the
+     * channel's -- that it is fed the *sum*, that its output replaces it,
+     * that it runs with nothing playing, and that it comes off again.
+     */
+    {
+        const int delay = 5000;
+
+        const string fx = effect(
+            "", string(
+            "node ring delay::echo {\n"
+            "    in = ionode->in0;\n"
+            "    size = 20000;\n"
+            "    delay = ") + num(delay) + ";\n"
+            "    feedback = 0;\n"
+            "    dry = 0;\n"
+            "};\n\n"
+            "node both math::add {\n"
+            "    in0 = ionode->in0;\n"
+            "    in1 = ring->out;\n"
+            "};\n\n", "both->out", "both->out");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, fx))
+        {
+            Session s(pluginPath);
+
+            /* Two channels, so "the sum" is a sum. A master effect that
+               reached one channel's buffer instead of the mix would repeat
+               one of these notes and not the other. */
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadTree(instFile, 1, 100) == NULL)
+                fail("two instruments load", "");
+            else if (s.synth.loadMasterEffect(fxFile) == NULL)
+                fail("the effect loads onto the mix", "");
+            else
+            {
+                s.synth.addNote(0, 60, 100);
+                s.synth.addNote(1, 67, 100);
+                s.run(2);
+                s.synth.delNote(0, 60);
+                s.synth.delNote(1, 67);
+                s.run(10);
+
+                vector<float> heard = s.take();
+
+                const long dry = firstAbove(heard, 0.01);
+
+                vector<float> tail(heard.begin() + delay / 2, heard.end());
+
+                const long wet = firstAbove(tail, 0.01);
+                const long at = wet < 0 ? -1 : wet + delay / 2;
+
+                okOrFail(dry >= 0 && at > 0 && labs(at - dry - delay) < 64,
+                         "a master effect is fed the sum of every channel, "
+                         "and what it returns is what goes out",
+                         "the mix arrived at " + num((double)dry) +
+                         " and came back at " + num((double)at) +
+                         ", wanted " + num((double)(dry + delay)));
+
+                /* The repeat lands long after both notes were released,
+                   which is the tail a master reverb is for. */
+                okOrFail(at > 2 * TH_DEFAULT_WINDOW_LENGTH,
+                         "a master effect runs when no voice is sounding",
+                         "");
+
+                /* And off again: what the audio thread hears after the
+                   removal is the mix, undelayed and unrepeated. */
+                if (!s.synth.removeMasterEffect())
+                    fail("the master effect comes off", "");
+                else
+                {
+                    s.run(1);            /* the swap is a command       */
+                    s.take();
+
+                    s.synth.addNote(0, 60, 100);
+                    s.run(2);
+                    s.synth.delNote(0, 60);
+                    s.run(10);
+
+                    vector<float> after = s.take();
+                    vector<float> quiet(after.begin() + delay / 2,
+                                        after.end());
+
+                    okOrFail(peak(after) > 0 && firstAbove(quiet, 0.01) < 0,
+                             "a master effect comes off again, and the mix "
+                             "stops being delayed",
+                             "peak " + num(peak(after)));
+                }
+            }
+        }
+    }
+
+    /* An instrument is not an effect here either: the graph has no in0, so
+       there is nowhere for the mix to go. */
+    {
+        if (writeFile(instFile, instrument("")))
+        {
+            Session s(pluginPath);
+
+            okOrFail(s.synth.loadMasterEffect(instFile) == NULL,
+                     "a graph with no in0 is not a master effect either",
+                     "");
+        }
+    }
+
+    /* And the guard: a master effect that diverges hands back the mix it was
+       given. There is no bad voice to drop by then -- every channel is
+       already summed -- so the choice is the dry mix or a window of NaN. */
+    {
+        const string bad = effect(
+            "", string(
+            "node blow math::div {\n"
+            "    in0 = 1;\n"
+            "    in1 = 0;\n"
+            "};\n\n"
+            "node mix math::add {\n"
+            "    in0 = ionode->in0;\n"
+            "    in1 = blow->out;\n"
+            "};\n\n"), "mix->out", "mix->out");
+
+        if (writeFile(instFile, instrument("")) && writeFile(fxFile, bad))
+        {
+            Session s(pluginPath);
+
+            if (s.synth.loadTree(instFile, 0, 100) == NULL ||
+                s.synth.loadMasterEffect(fxFile) == NULL)
+                fail("the pair loads", "");
+            else
+            {
+                s.synth.addNote(0, 60, 100);
+                s.run(4);
+
+                vector<float> heard = s.take();
+
+                okOrFail(allFinite(heard) && peak(heard) > 0,
+                         "a master effect that goes non-finite hands back "
+                         "the mix rather than a window of NaN",
+                         "peak " + num(peak(heard)));
+            }
+        }
+    }
+
     /* ---- the shipped effect graphs ------------------------------------- */
 
     /* They are not in the corpus gates: those play notes, and an effect has

@@ -26,7 +26,7 @@ add_custom_target(plugins)
 
 think_add_plugin_category(analysis pitch)
 
-think_add_plugin_category(delay    echo fir)
+think_add_plugin_category(delay    echo fir allpass chorus)
 
 think_add_plugin_category(dist     clip saturate waveman inksat)
 
@@ -44,7 +44,7 @@ think_add_plugin_category(math     add sub mul div sin
                                    pow exp2 abs min max clamp)
 
 think_add_plugin_category(misc     latch noisegate midi2freq midi2range
-                                   freq2samples print decibel slew)
+                                   freq2samples print decibel slew vibrato)
 
 think_add_plugin_category(mixer    add fade mul)
 

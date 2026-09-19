@@ -447,7 +447,10 @@ add_test(NAME voicecheck
 # the ones the note-playing gates skip, so this is where they are covered.
 add_test(NAME fxcheck
          COMMAND fxcheck -p "${PROJECT_BINARY_DIR}/plugins/"
-                 "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp")
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/hall.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/chorus.dsp"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/limiter.dsp")
 
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck

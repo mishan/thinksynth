@@ -651,6 +651,38 @@ public:
     bool unapplyInstrument (size_t index);
     bool unapply (const thcInstrument &what);
 
+    /* ---- the graph on the mix ------------------------------------------
+     *
+     * A top-level `effect' statement: the same object a channel carries,
+     * on the sum of every channel, run after the mix and before the master
+     * gain. A reverb on four channels is four reverbs paying for one room,
+     * and a limiter on a channel is not limiting the thing that clips.
+     *
+     * Held as a thcInstrument with no `dsp' and a channel of -1, which is
+     * what "the mix rather than a channel" is spelled as everywhere below:
+     * the values, their units and their knob bindings are exactly an
+     * instrument's, and reusing the record is what keeps them one
+     * implementation rather than two that drift.
+     *
+     * The application has no chooser for it yet; when it grows one it wants
+     * a hook here, beside setEffectLoader and for its reason. Until then a
+     * piece's master effect goes straight through the synth, which is what
+     * a headless render wants and what the app does correctly by accident:
+     * there is no patch tab for the mix to disagree with. */
+    void setMasterEffect (const std::string &dsp,
+                          const std::vector<thcInstrumentArg> &args);
+
+    const thcInstrument &masterEffect (void) const { return master_; }
+
+    /* Puts it on, or -- with nothing declared -- takes off whatever the
+       last piece left. Called once per load, after the instruments, for
+       the reason they are applied after the channels are allocated: it is
+       the last thing the file says about what the sound goes through. */
+    bool applyMasterEffect (std::string &why);
+
+    /* And takes it off again, which is what a failed load owes. */
+    bool unapplyMasterEffect (void);
+
     /* How many instruments are waiting to be taken off a channel that
        would not let go.
      *
@@ -815,6 +847,11 @@ private:
     bool applyValues (const thcInstrument &inst, std::string &why);
     bool writeValues (const thcInstrument &inst, std::string &why);
 
+    /* A chanarg by name, on a channel or on the mix. `channel < 0' is the
+       master effect's map, which is the one place in here that a negative
+       channel means something rather than being a mistake. */
+    thArg *findChanArg (int channel, const std::string &name);
+
     /* The one way an instrument comes off a channel, so the first
        attempt and every retry cannot drift apart. */
     bool takeOff (const thcInstrument &inst);
@@ -931,6 +968,10 @@ private:
        vector rather than a map: declaration order is what the loader
        allocates channels in, and what the editor draws. */
     std::vector<thcInstrument> instruments_;
+
+    /* The piece's master effect. `effect' empty means it has none, which
+       is also what takes a previous piece's off. */
+    thcInstrument master_;
     InstrumentLoader           loadDsp_;
     InstrumentUnloader         unloadDsp_;
     EffectLoader               loadEffect_;

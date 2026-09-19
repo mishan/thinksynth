@@ -542,6 +542,22 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
             applied++;
         }
 
+    /* And the graph on the mix, after the instruments for the reason they
+       come after the channels: it is the last thing the file says about
+       where the sound goes. Applied even when the file declares none,
+       because that is what takes the last piece's off. */
+    bool master = false;
+
+    if (errors_.empty())
+    {
+        std::string why;
+
+        if (sched->applyMasterEffect(why))
+            master = !sched->masterEffect().effect.empty();
+        else
+            error(0, "the master effect: " + why);
+    }
+
     if (errors_.empty())
         checkSinkArgs(sched);
 
@@ -570,6 +586,10 @@ thcGenLoader::load (const std::string &path, thcScheduler *sched)
          * of errors that explains why the load failed at all. The
          * scheduler keeps the instrument and retries on its own clock;
          * this is only the telling. */
+        if (master && !sched->unapplyMasterEffect())
+            error(0, "the master effect is still on the mix; the audio "
+                  "thread could not be told to drop it");
+
         while (applied > 0)
             if (!sched->unapplyInstrument(--applied))
                 error(applied < instrumentLines_.size()
@@ -788,6 +808,13 @@ thcGenLoader::parseStatement (thcScheduler *sched)
     {
         take();
         return parseInstrument(sched);
+    }
+
+    if (t.text == "effect")
+    {
+        Token key = take();
+
+        return parseMasterEffect(sched, key);
     }
 
     if (t.text == "chain")
@@ -1326,7 +1353,7 @@ thcGenLoader::parseSection (thcScheduler *sched)
  */
 bool
 thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
-                                    const std::string &instName,
+                                    const std::string &where,
                                     const Token &key,
                                     const std::string &prefix)
 {
@@ -1335,8 +1362,7 @@ thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
     for (size_t i = 0; i < inst.args.size(); i++)
         if (inst.args[i].name == name)
         {
-            error(key.line, "instrument " + instName + " sets '" + name +
-                  "' twice");
+            error(key.line, where + " sets '" + name + "' twice");
             return false;
         }
 
@@ -1347,8 +1373,8 @@ thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
 
     if (v.kind != Token::NUMBER && v.kind != Token::KNOB)
     {
-        error(v.line, "instrument " + instName + ": '" + name +
-              "' wants a number or a knob");
+        error(v.line, where + ": '" + name + "' wants a number or a "
+              "knob");
         return false;
     }
 
@@ -1417,12 +1443,13 @@ thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
  */
 bool
 thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
-                                     const std::string &instName,
-                                     const Token &key)
+                                     const std::string &where,
+                                     const Token &key,
+                                     const std::string &prefix)
 {
     if (!inst.effect.empty())
     {
-        error(key.line, "instrument " + instName + " names two effects");
+        error(key.line, where + " names two effects");
         return false;
     }
 
@@ -1430,8 +1457,7 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
 
     if (v.kind != Token::STRING)
     {
-        error(v.line, "instrument " + instName +
-              ": effect wants a quoted filename");
+        error(v.line, where + ": effect wants a quoted filename");
         return false;
     }
 
@@ -1439,8 +1465,7 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
 
     if (file.text.empty())
     {
-        error(file.line, "instrument " + instName +
-              ": effect wants a filename");
+        error(file.line, where + ": effect wants a filename");
         return false;
     }
 
@@ -1462,22 +1487,20 @@ thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
 
             if (t.kind == Token::END)
             {
-                error(t.line, "unterminated effect in instrument '" +
-                      instName + "'");
+                error(t.line, "unterminated effect in " + where);
                 return false;
             }
 
             if (t.kind != Token::WORD)
             {
-                error(t.line, "instrument " + instName +
-                      ": expected a chanarg name inside effect");
+                error(t.line, where + ": expected a chanarg name inside "
+                      "effect");
                 return false;
             }
 
             Token inner = take();
 
-            if (!parseInstrumentValue(sched, inst, instName, inner,
-                                      TH_EFFECT_PREFIX))
+            if (!parseInstrumentValue(sched, inst, where, inner, prefix))
                 return false;
         }
     }
@@ -1581,13 +1604,16 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
            would otherwise shadow it. */
         if (key.text == "effect")
         {
-            if (!parseInstrumentEffect(sched, inst, nameTok.text, key))
+            if (!parseInstrumentEffect(sched, inst,
+                                       "instrument " + nameTok.text, key,
+                                       TH_EFFECT_PREFIX))
                 return false;
 
             continue;
         }
 
-        if (!parseInstrumentValue(sched, inst, nameTok.text, key, ""))
+        if (!parseInstrumentValue(sched, inst, "instrument " + nameTok.text,
+                                  key, ""))
             return false;
     }
 
@@ -1606,6 +1632,40 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
     instrumentLines_.push_back(nameTok.line);
 
     return expectPunct(';');
+}
+
+/* `effect "fx/limiter.dsp" { ceiling = 0.9; };' at the top level.
+ *
+ * The same clause an instrument carries, aimed at the mix instead of at a
+ * channel: after every voice on every channel has been summed and before the
+ * master gain and the limiter. A reverb belongs here -- one room rather than
+ * one per channel, each paying for its own -- and a limiter can be nowhere
+ * else, since the thing it is limiting is the sum.
+ *
+ * Its values carry no `fx.' prefix. That prefix exists to keep an
+ * instrument's chanargs and its effect's apart on one channel, and on the mix
+ * there is no instrument to collide with.
+ */
+bool
+thcGenLoader::parseMasterEffect (thcScheduler *sched, const Token &key)
+{
+    if (!sched->masterEffect().effect.empty())
+    {
+        error(key.line, "the piece names two master effects");
+        return false;
+    }
+
+    thcInstrument master;
+
+    master.name = "the mix";
+    master.channel = -1;
+
+    if (!parseInstrumentEffect(sched, master, "the master effect", key, ""))
+        return false;
+
+    sched->setMasterEffect(master.effect, master.args);
+
+    return true;
 }
 
 bool

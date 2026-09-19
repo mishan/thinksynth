@@ -39,6 +39,36 @@ Follows the pitch of the input
 
 ## delay
 
+### delay::allpass
+
+Allpass delay (Schroeder)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `delay` | in | How far apart the echoes are; it is also how long the line is |  |  | samples |  |
+| `gain` | in | How much of each echo is fed back and forward; 0 is a plain delay |  | -0.999 to 0.999 |  |  |
+| `out` | out | The input, spread into echoes of the same total energy |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `bufpos` | state |  |  |  |  |  |
+
+### delay::chorus
+
+Chorus (moving taps on a short delay)
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | Signal in |  | -1 to 1 | full scale |  |
+| `rate` | in | How fast the taps move |  | 0 to 10 | Hz |  |
+| `depth` | in | How far each tap swings either side of `delay' |  |  | samples |  |
+| `delay` | in | Where the taps sit when their LFO is at zero |  |  | samples |  |
+| `mix` | in | 0 is the dry signal, 1 is the moving taps alone |  | 0 to 1 |  |  |
+| `taps` | in | How many readers, spread across half the LFO's cycle | 2 | 1 to 3 |  |  |
+| `phase` | in | Where this node's LFO starts, as a fraction of its cycle |  | 0 to 1 |  |  |
+| `out` | out | The signal and its moving copies |  |  | full scale |  |
+| `buffer` | state |  |  |  |  |  |
+| `state` | state |  |  |  |  |  |
+
 ### delay::echo
 
 Echo (echo echo echo)
@@ -691,6 +721,20 @@ One-pole lag
 | `time` | in | Time constant: how long to cover 63% of a step. Under one sample passes the input straight through |  |  | samples |  |
 | `out` | out | in, lagged |  |  |  |  |
 | `last` | state |  |  |  |  |  |
+
+### misc::vibrato
+
+Delayed vibrato
+
+| Arg | Dir | Description | Default | Range | Units | Values |
+|---|---|---|---|---|---|---|
+| `in` | in | The signal to bend, a frequency |  |  |  |  |
+| `rate` | in | How fast the bend goes round |  | 0 to 20 | Hz |  |
+| `depth` | in | How far the bend reaches, up and down |  | 0 to 1200 | cents |  |
+| `delay` | in | How long the note is held straight before the bend starts |  |  | samples |  |
+| `rise` | in | How long the bend takes to reach `depth' once it starts; 0 arrives at once |  |  | samples |  |
+| `out` | out | in, bent |  |  |  |  |
+| `state` | state |  |  |  |  |  |
 
 ## mixer
 

@@ -67,6 +67,26 @@ description "Made for brass";
     @oscfade.max = 1;
     @oscfade.label = "Osc Fade";
 
+    # The player's other hand. A brass note is placed, held, and only
+    # then leaned on, so nothing bends for `Vibrato Delay' -- which is
+    # longer than most of the notes this graph is asked for, and that is
+    # the point: the short ones are as straight as they ever were.
+    @vibrato = 20;
+    @vibrato.min = 0;
+    @vibrato.max = 100;
+    @vibrato.widget = 1;
+    @vibrato.label = "Vibrato (cents)";
+    @vibrate = 5;
+    @vibrate.min = 0.5;
+    @vibrate.max = 12;
+    @vibrate.widget = 1;
+    @vibrate.label = "Vibrato Rate (Hz)";
+    @vibdelay = 350 ms;
+    @vibdelay.min = 0;
+    @vibdelay.max = 2000ms;
+    @vibdelay.widget = 1;
+    @vibdelay.label = "Vibrato Delay";
+
     @a = 8 ms;
     @a.widget = 1;
     @a.min = 0;
@@ -118,6 +138,17 @@ node bendcalc2 math::add {
 
 node freq misc::midi2freq {
     note = bendcalc2->out;
+};
+
+# The bend goes to the oscillators and not to the filter: a cutoff that
+# followed the vibrato would take the whole timbre round with it, which
+# is a siren rather than a player.
+node vib misc::vibrato {
+    in = freq->out;
+    rate = @vibrate;
+    depth = @vibrato;
+    delay = @vibdelay;
+    rise = @vibdelay * 0.5;
 };
 
 node cutcalc math::mul {
@@ -173,7 +204,7 @@ node env env::adsr {
 };
 
 node freqmul math::mul {
-    in0 = freq->out;
+    in0 = vib->out;
     in1 = @oscmul;
 };
 
@@ -196,7 +227,7 @@ node map1 env::map {
 };
 
 node osc osc::simple {
-    freq = freq->out;
+    freq = vib->out;
     waveform = 1;
     pw = @pw1;
 };

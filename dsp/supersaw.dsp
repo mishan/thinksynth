@@ -13,7 +13,8 @@
 #
 # A filt::svf lowpass with its own envelope opens on the attack and sits
 # where `Cutoff' says; the amp envelope is slow on purpose. This is a pad
-# and a lead in one, and the difference is the attack.
+# and a lead in one, and the difference is the attack -- and `Vibrato',
+# which is off here and is what a piece turns up when it wants the lead.
 
 name "Supersaw";
 author "Misha Nasledov";
@@ -42,6 +43,37 @@ description "Seven detuned saws, odd ones left and even ones right, through a fi
     @res.min = 0;
     @res.max = 0.9;
     @res.label = "Resonance";
+
+    # Off, because the motion in a pad is its detune and a second one
+    # would fight it. A piece playing this as a lead turns it up: one
+    # line, and the seven saws bend together.
+    @vibrato = 0;
+    @vibrato.widget = 1;
+    @vibrato.min = 0;
+    @vibrato.max = 100;
+    @vibrato.label = "Vibrato (cents)";
+    @vibrate = 5.5;
+    @vibrate.widget = 1;
+    @vibrate.min = 0.5;
+    @vibrate.max = 12;
+    @vibrate.label = "Vibrato Rate (Hz)";
+    @vibdelay = 300 ms;
+    @vibdelay.widget = 1;
+    @vibdelay.min = 0;
+    @vibdelay.max = 2000ms;
+    @vibdelay.label = "Vibrato Delay";
+
+    # The seven saws are an ensemble that never moves: the beating
+    # between them is fixed the moment the note is placed, because every
+    # one of them is a constant ratio from the same frequency. A chorus
+    # is the beating that does move. Off by default -- seven saws are
+    # already a lot of signal -- and the two together are the sound this
+    # graph is named after when it is asked for it.
+    @chorus = 0;
+    @chorus.widget = 1;
+    @chorus.min = 0;
+    @chorus.max = 1;
+    @chorus.label = "Chorus";
 
     @fa = 20 ms;
     @fa.widget = 1;
@@ -96,15 +128,28 @@ node freq misc::midi2freq {
     note = ionode->note;
 };
 
+# The bend, before the spread, so all seven saws take it together and
+# the detune between them is untouched -- a vibrato that moved each saw
+# by its own amount would be a chorus rather than a vibrato. Nothing
+# happens for `Vibrato Delay', which is what keeps it off the front of
+# every note.
+node vib misc::vibrato {
+    in = freq->out;
+    rate = @vibrate;
+    depth = @vibrato;
+    delay = @vibdelay;
+    rise = @vibdelay * 0.5;
+};
+
 # The spread: three steps of `Detune' cents each way, as ratios -- the
 # ones below divide by the ratio the ones above multiply by.
-node s0 osc::simple { freq = freq->out;                               waveform = 1; };
-node s1 osc::simple { freq = freq->out * exp2(@detune / 1200);        waveform = 1; };
-node s2 osc::simple { freq = freq->out / exp2(@detune / 1200);        waveform = 1; };
-node s3 osc::simple { freq = freq->out * exp2(@detune * 2 / 1200);    waveform = 1; };
-node s4 osc::simple { freq = freq->out / exp2(@detune * 2 / 1200);    waveform = 1; };
-node s5 osc::simple { freq = freq->out * exp2(@detune * 3 / 1200);    waveform = 1; };
-node s6 osc::simple { freq = freq->out / exp2(@detune * 3 / 1200);    waveform = 1; };
+node s0 osc::simple { freq = vib->out;                                waveform = 1; };
+node s1 osc::simple { freq = vib->out * exp2(@detune / 1200);         waveform = 1; };
+node s2 osc::simple { freq = vib->out / exp2(@detune / 1200);         waveform = 1; };
+node s3 osc::simple { freq = vib->out * exp2(@detune * 2 / 1200);     waveform = 1; };
+node s4 osc::simple { freq = vib->out / exp2(@detune * 2 / 1200);     waveform = 1; };
+node s5 osc::simple { freq = vib->out * exp2(@detune * 3 / 1200);     waveform = 1; };
+node s6 osc::simple { freq = vib->out / exp2(@detune * 3 / 1200);     waveform = 1; };
 
 node fenv env::adsr {
     a = @fa;
@@ -139,13 +184,37 @@ node env env::adsr {
     trigger = ionode->trigger;
 };
 
+# One chorus a side, half a cycle apart, which is where the width comes
+# from: the two sides disagree about the pitch rather than about the
+# level. Slow and shallow -- six tenths of a hertz over two milliseconds
+# -- because this is under a detune that is already doing the fast part.
+node chl delay::chorus {
+    in = filtl->out_low;
+    rate = 0.6;
+    depth = 2 ms;
+    delay = 12 ms;
+    taps = 2;
+    mix = @chorus;
+    phase = 0;
+};
+
+node chr delay::chorus {
+    in = filtr->out_low;
+    rate = 0.6;
+    depth = 2 ms;
+    delay = 12 ms;
+    taps = 2;
+    mix = @chorus;
+    phase = 0.5;
+};
+
 node vcal mixer::mul {
-    in0 = filtl->out_low;
+    in0 = chl->out;
     in1 = env->out;
 };
 
 node vcar mixer::mul {
-    in0 = filtr->out_low;
+    in0 = chr->out;
     in1 = env->out;
 };
 

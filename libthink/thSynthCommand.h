@@ -42,6 +42,7 @@ struct thSynthCommand {
         SET_CHANNEL,    /* install `channel' (may be NULL) on `chan'       */
         SET_CHAN_ARG,   /* install `arg' on `chan', replacing by name      */
         SET_EFFECT,     /* install `effect' (may be NULL) on `chan'        */
+        SET_MASTER_EFFECT, /* install `effect' (may be NULL) on the mix     */
         SET_PROBE       /* install `probe' (may be NULL) in `probeSlot'    */
     };
 

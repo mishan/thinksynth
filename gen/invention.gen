@@ -27,9 +27,12 @@
 #
 # THE VOICES. The lead is ladder.dsp, a graph written for this piece:
 # two saws a hertz and a bit apart so they beat, a square an octave
-# under them, and the tree's four-pole ladder filter with an envelope of
-# its own that opens on every attack -- the monophonic lead of the early
-# seventies, spelled as nodes. The Bite knob is where that envelope
+# under them, the tree's four-pole ladder filter with an envelope of its
+# own that opens on every attack, and a vibrato that waits three hundred
+# milliseconds before it starts -- which on a line of sixteenths means
+# only the long notes get one. Its channel runs fx/chorus.dsp, which is
+# the box that turned one Moog into a section on the record this is in
+# the spirit of. The Bite knob is where that envelope
 # throws the filter on each note, reaching into the instrument. The bass is ts1 with a square and its
 # sub-octave, the filter low. The continuo is ts1 as a harpsichord: a
 # thin pulse, a millisecond of attack and a short decay, playing broken
@@ -99,6 +102,19 @@ instrument lead {
     fmax   = @bite;
     res    = 0.5;
     drive  = 1.8;
+
+    # The ensemble the record this is in the spirit of was made with: a
+    # Moog is one voice however it is played, and what turned it into a
+    # section was a box like this one on the way out. Half wet, slow, and
+    # on the channel rather than in the voice -- a chorus per note would
+    # be one section per note.
+    effect "fx/chorus.dsp" {
+        rate   = 0.5;
+        depth  = 3 ms;
+        delay  = 14 ms;
+        voices = 2;
+        mix    = 0.45;
+    };
 };
 
 # A square and its sub-octave, the filter low and snapping; the notes
