@@ -625,23 +625,57 @@ async function start ()
 
     /* The instruments a piece may name, before any piece asks for one: a
        worklet has no file system of its own and cannot fetch. All at once,
-       since nothing here waits on anything else. */
+       since nothing here waits on anything else.
+
+       Through a helper that looks at the status, because fetch does not:
+       a 404 is a response like any other and `text()' and `arrayBuffer()'
+       both resolve on one. Taken at face value that hands the module the
+       error page -- a graph that will not parse, or bytes that are not a
+       RIFF -- and the failure surfaces as an instrument that makes no
+       sound rather than as a file that is not on the server. A dist that
+       shipped dsp/index.json without dsp/samples/ is what that looked
+       like: the drums silently stopped and the synthesized voices played
+       on. */
+    /* Declared out here because dspTexts below is built from them. */
     const graphs = textDsps();
-    const texts = await Promise.all(
-        graphs.map((name) => fetch(`dsp/${name}`).then((r) => r.text())));
+    let texts;
 
-    graphs.forEach((name, i) => synth.instrument(name, texts[i]));
+    try
+    {
+        texts = await Promise.all(
+            graphs.map((name) => served(name).then((r) => r.text())));
 
-    /* And the kit, as bytes. osc::sample looks a file up on the same
-       path a .dsp is looked up on, so a wav has to be in the worklet's
-       MEMFS before the first note that plays one -- and a worklet can no
-       more fetch a wav than it can fetch a graph. */
-    const kit = sampleNames();
-    const wavs = await Promise.all(
-        kit.map((name) => fetch(`dsp/${name}`)
-                              .then((r) => r.arrayBuffer())));
+        graphs.forEach((name, i) => synth.instrument(name, texts[i]));
 
-    kit.forEach((name, i) => synth.sample(name, new Uint8Array(wavs[i])));
+        /* And the kit, as bytes. osc::sample looks a file up on the same
+           path a .dsp is looked up on, so a wav has to be in the worklet's
+           MEMFS before the first note that plays one -- and a worklet can no
+           more fetch a wav than it can fetch a graph. */
+        const kit = sampleNames();
+        const wavs = await Promise.all(
+            kit.map((name) => served(name).then((r) => r.arrayBuffer())));
+
+        kit.forEach((name, i) => synth.sample(name, new Uint8Array(wavs[i])));
+    }
+    catch (e)
+    {
+        /* The same teardown the start above does, and for the same reason:
+           by here the context holds the audio device and a worklet, and a
+           browser allows only so many. A file that 404s is exactly the
+           failure somebody retries -- fix the server, press Start again --
+           so this is the path that would leak one context per attempt. */
+        if (ctx !== null)
+            ctx.close().catch(() => {});
+
+        ctx = null;
+        synth = null;
+
+        $('status').textContent = `Could not start: ${e.message}`;
+        log(e.message);
+        $('detail').open = true;
+        $('start').disabled = false;
+        return;
+    }
 
     /* And kept, because they are also what a .patch's `dsp' line is
        resolved against: patch.js fetches the .patch and no more, since
@@ -946,6 +980,21 @@ function sampleNames ()
 function textDsps ()
 {
     return dspNames.filter((n) => !n.startsWith('samples/'));
+}
+
+/* One of the names above, off the server, with the status looked at.
+   fetch rejects when the request could not be made and not when the
+   answer was a 404 -- so without this a name the index carries and the
+   site does not ship comes back as the error page's bytes, and what
+   fails is the instrument rather than the fetch. */
+async function served (name)
+{
+    const r = await fetch(`dsp/${name}`);
+
+    if (!r.ok)
+        throw new Error(`dsp/${name}: ${r.status} ${r.statusText}`);
+
+    return r;
 }
 
 /* The shipped .patch files by relative name, `leads/SuperRes.patch' --

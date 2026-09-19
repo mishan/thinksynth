@@ -326,6 +326,23 @@ jobs:
           emcmake cmake -S wasm/web -B build-web -G Ninja
           cmake --build build-web
 
+      # And the packaged site, which is the thing a person actually loads.
+      # `dist' is an install of the tree above, and an install rule is a
+      # second, hand-kept list of what the site is made of -- dsp/samples
+      # fell through the gap between that list and dsp/index.json, and the
+      # page answered by playing its synthesized instruments and none of
+      # its sampled ones. distcheck.mjs holds the packaged tree against
+      # what its own indexes and pages ask for.
+      #
+      # Here rather than in a gate job below: `--install' needs the build
+      # tree's CMake state, and the artifact carries the site's files and
+      # not that.
+      - name: The packaged site has what it promises
+        run: |
+          source ~/emsdk/emsdk_env.sh
+          cmake --build build-web --target dist
+          node wasm/web/distcheck.mjs
+
       # What the gates need and nothing else. The three build trees together
       # are more than a gigabyte, almost all of it object files and CMake's
       # own state; the binaries, the modules, the loadable plugins and the
