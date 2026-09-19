@@ -185,7 +185,15 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
         else
             grown = 1.0f;
 
-        out[i] = in * (float)exp2(grown * depth *
+        /* `grown' widened before it is multiplied, not after. The whole
+           expression is a double one -- a double sine over a double
+           1200 -- so a float product here is a narrowing on the way
+           into it and nothing else, and it is what CodeQL reads as a
+           multiplication that could overflow the type it is done in
+           before it reaches the type it is wanted in. It could not:
+           `grown' is 0..1 and `depth' is clamped to VIBRATO_BEND_MAX.
+           The cast says so without having to be believed. */
+        out[i] = in * (float)exp2((double)grown * depth *
                                   sin(2.0 * M_PI * (double)phase) / 1200.0);
 
         /* The age stops counting once there is nothing left to count
