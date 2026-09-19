@@ -4,16 +4,36 @@
 # and the site.
 #
 # wasm-build makes them once and uploads what the gates actually read --
-# see the upload step there for why that is twenty megabytes and not a
+# see the upload step there for why that is thirty megabytes and not a
 # gigabyte. Every gate job starts with this.
 #
-# The chmod is not a detail: upload-artifact does not carry a file's mode,
-# so genwav and dspedit come back without their execute bit and every gate
-# that runs one fails with EACCES. The .so files do not need it -- they are
-# opened, not executed.
+# `native' is for the jobs that run genwav or dspedit, and what it turns on
+# is the two things a binary built in another job needs and a downloaded
+# file does not have:
+#
+#   The runtime libraries. genwav, dspedit, libthink and the plugins are
+#   linked against libglibmm, libsigc++ and cairo, which reach the build
+#   job through libgtkmm-4.0-dev and libsigc++-3.0-dev and are on no
+#   runner by default. Without them the binaries exit 127 before doing
+#   anything, and the gate reports every piece as differing rather than as
+#   broken. These are the spellings the build job uses: the runtime
+#   packages have other names on other releases, and guessing at names is
+#   what this workflow's header warns about at length.
+#
+#   The execute bit, which upload-artifact has not always carried.
+#
+# The browser gates need neither -- they run no native binary -- and this
+# is the longest job of the four, so it does not pay for an apt install it
+# has no use for.
 
 name: The built wasm trees
 description: Download build/, build-wasm/ and build-web/ from the wasm-build job
+
+inputs:
+  native:
+    description: Also prepare build/ to run genwav and dspedit
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -22,5 +42,20 @@ runs:
       with:
         name: wasm-trees
 
-    - shell: bash
-      run: chmod +x build/scripts/genwav build/scripts/dspedit
+    - if: inputs.native == 'true'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          libgtkmm-4.0-dev libsigc++-3.0-dev
+        chmod +x build/scripts/genwav build/scripts/dspedit
+
+        # Said here rather than found out by a gate. A binary that cannot
+        # load exits 127, and compare.mjs reads that as every piece
+        # differing -- twenty-two failures that say nothing about the one
+        # missing file behind them.
+        if ldd build/scripts/genwav | grep "not found"; then
+          echo "genwav cannot load the libraries above; the gates that run"
+          echo "it will all fail and none of them will say why."
+          exit 1
+        fi

@@ -380,6 +380,8 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        with:
+          native: 'true'
 
       - name: Compare
         run: node wasm/compare.mjs --lsb 1 -k compare
@@ -416,6 +418,8 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        with:
+          native: 'true'
 
       # cairo2d's replayer and drawcheck.mjs's `cairo-canvas2d' are both
       # npm packages now, not files in this tree.
@@ -548,6 +552,8 @@ jobs:
           node-version: 24
 
       - uses: ./.github/actions/wasm-trees
+        with:
+          native: 'true'
 
       - name: npm ci
         working-directory: wasm/web
