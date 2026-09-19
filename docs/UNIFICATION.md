@@ -427,7 +427,7 @@ the same modules that modulate sound.
 > `gen::swap` and `gen::reshape` emit them, `gen/reshape.gen` is the
 > piece, GEN_FORMAT.md §5b is the spec. Notes worth keeping:
 >
-> - **Intents out, services in**, exactly as §9 of the handoff sketched.
+> - **Intents out, services in**, exactly as sketched.
 >   A composer emits "this channel becomes `bell'" and the host does it;
 >   no plugin holds a graph, and `bell' reaches the plugin as a resolved
 >   name in a `THC_PARAM_INSTRSET` -- the same bargain a scale and a
@@ -504,7 +504,7 @@ the same modules that modulate sound.
 > convergence below -- `breed` and `evolve` over graphs, with the render
 > pipeline as the fitness function. Those want a mutation vocabulary
 > (`NodeGraph::canConnect`), a genome that serialises, and a shadow synth
-> to judge it, which is the research branch the handoff files them under.
+> to judge it, which is research rather than a next step.
 > What is proven here is the thing they were waiting on: an edit can be
 > scheduled, delivered, drawn, replayed and refused.
 >

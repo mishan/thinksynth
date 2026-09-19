@@ -22,7 +22,7 @@ the .dsp's business. An empty cell is a plugin that has not said.
 
 The composer modules under `plugins/composer` and the visualizers
 under `plugins/visual` are not nodes and are not here; see
-GEN_FORMAT.md and VISUALIZERS.md.
+docs/GEN_FORMAT.md and docs/VISUALIZERS.md.
 
 ## analysis
 

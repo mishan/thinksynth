@@ -10,7 +10,7 @@
 # that graph's defaults -- a .patch, said in the language the piece is
 # written in -- and the sinks below bind to the name rather than to a
 # channel number nobody agreed on. The channel underneath is the
-# loader's business. See UNIFICATION.md.
+# loader's business. See docs/UNIFICATION.md.
 
 name "Airports";
 author "Misha Nasledov";

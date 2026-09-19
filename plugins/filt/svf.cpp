@@ -25,7 +25,7 @@
  * wants hertz; filt::ds wants a fraction again; filt::res2pole's resonance
  * has a floor of about 0.5 below which it is clamped. Every one of those is
  * defensible on its own and the set is not learnable. This is the one to
- * reach for, and the reference in NODES.md is what makes the difference
+ * reach for, and the reference in docs/NODES.md is what makes the difference
  * visible.
  *
  * The arithmetic is the topology-preserving transform (Zavalishin; the

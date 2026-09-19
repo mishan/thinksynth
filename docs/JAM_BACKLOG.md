@@ -63,8 +63,8 @@ broadcast peer of section 4.1, so it is built once and early.
   per peer, and diff every peer's tape against every other's, which is
   the determinism check at scale and the only load result that matters.
 - A relay carrying 50 rooms of the above.
-- Document convergence under 12 peers editing at once, with the hash
-  rule from JAM_M3.md section 4.3 holding.
+- Document convergence under 12 peers editing at once, with the
+  document's hash rule holding.
 - A late-join storm: 100 spectators arriving in ten seconds, each
   fast-forwarding, once section 2 exists.
 - Clock spread across peers under load, since a loaded relay answers

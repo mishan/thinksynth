@@ -22,13 +22,13 @@
  *
  *   node wasm/web/bench.mjs [BUILD_DIR]
  *
- * The measurement JAM.md's M2 names as the one that could send the
- * scheduler back out of the worklet. A quantum is 128 frames, 2.67 ms at
- * 48 kHz, and it is a deadline: whatever happens inside process() has to
- * finish inside that or the page hears it. What happens inside it here is
- * the synth's render, the scheduler's step once per window, every note that
- * step delivered being built into the graph, and -- since the player is
- * still playing -- a chord's worth of note-ons on top.
+ * The one measurement that could send the scheduler back out of the
+ * worklet. A quantum is 128 frames, 2.67 ms at 48 kHz, and it is a
+ * deadline: whatever happens inside process() has to finish inside that or
+ * the page hears it. What happens inside it here is the synth's render, the
+ * scheduler's step once per window, every note that step delivered being
+ * built into the graph, and -- since the player is still playing -- a
+ * chord's worth of note-ons on top.
  *
  * So each piece is run twice: as it is, and with a six-note chord pressed
  * and released over and over, which is the same thing a key costs and the

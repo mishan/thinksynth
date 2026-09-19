@@ -53,10 +53,9 @@
  * it, call the text one, and write it back -- writing nothing at all when
  * the edit changed no byte. In a browser tab there is no file: the
  * document is the patch, the text comes out of a CRDT and the new text
- * goes back in as a splice (JAM_M6.md, section 7.1). Both get the same
- * edits, which is the point -- an edit made in a room has to be the edit
- * the desktop would have made, byte for byte, or the two stop agreeing
- * about what a patch is.
+ * goes back in as a splice. Both get the same edits, which is the point --
+ * an edit made in a room has to be the edit the desktop would have made,
+ * byte for byte, or the two stop agreeing about what a patch is.
  */
 
 #include <string>
@@ -194,8 +193,7 @@ public:
      * Every edit below is a function of the patch's bytes, and the ones
      * above are three lines each of read, call, write. A caller that has
      * no file -- a browser tab, where the document *is* the patch and the
-     * new text goes back into a CRDT as a splice (JAM_M6.md, section 7.1)
-     * -- calls these.
+     * new text goes back into a CRDT as a splice -- calls these.
      *
      * A scope of their own rather than overloads: a filename and a patch
      * are both strings, and `setValue(work_, ...)' with a non-const

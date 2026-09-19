@@ -22,8 +22,7 @@
  * The shell, and nothing but: an element, a scroller, the pointer, the
  * keyboard, the wheel, and replaying the list that comes back. Everything
  * that decides what the canvas looks like or what a click means is the
- * C++ the desktop runs -- one drawing, one behaviour, two shells
- * (JAM_M6.md, section 6).
+ * C++ the desktop runs -- one drawing, one behaviour, two shells.
  *
  * It does not care which canvas it is showing or where the drawing is
  * done. `send' takes a message somewhere -- the mirror worker for the
@@ -51,7 +50,7 @@ import { replay } from './replay.js';
 
 /* A drag sends at most one motion per animation frame. A pointer moves
    faster than a mesh wants, and a knob's slider already produces about
-   this rate (JAM_M6.md, section 5). */
+   this rate. */
 export function createCanvasView ({ scroller, canvas, send,
                                     fitOnShow = true,
                                     onFrame = () => {} })
@@ -173,7 +172,7 @@ export function createCanvasView ({ scroller, canvas, send,
        screen, and none at all when it is not: what a composer draws is
        its state, which moves whether or not anybody touched the canvas,
        and a hidden tab that went on asking would cost a piece's worth of
-       drawing for nobody (JAM_M6.md, section 6.3). */
+       drawing for nobody. */
     const tick = () =>
     {
         if (!running)

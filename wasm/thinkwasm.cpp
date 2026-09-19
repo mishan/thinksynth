@@ -180,7 +180,7 @@ EMSCRIPTEN_KEEPALIVE void tw_step (double dt)
 
 /* To an exact transport time: how a command stamped with one is applied
    where it falls inside a window rather than at the window's end
-   (genwav.mjs's -c, and JAM_M3.md section 2). */
+   (genwav.mjs's -c). */
 EMSCRIPTEN_KEEPALIVE void tw_step_to (double t)
 {
     sched_->stepTransportTo(t);
@@ -190,8 +190,8 @@ EMSCRIPTEN_KEEPALIVE void tw_step_to (double t)
  *
  * The browser host stamps these with a time and holds them; here the
  * caller steps to the time and then applies, so the same command stream
- * gives the same tape from either host, which is what M3's harness
- * compares. */
+ * gives the same tape from either host, which is what the room's
+ * harnesses compare. */
 
 /* The index of a piece knob by name -- the order the browser host numbers
    them in, which is the scheduler's map order -- or -1. */

@@ -32,15 +32,16 @@ class thSynthTree;
  * The second interpreter: DSP nodes run at control rate, on the GUI
  * thread, for a composer to read.
  *
- * UNIFICATION.md phase 3. The same dlopen'd .so files the audio thread
- * runs, the same thSynthTree walking them in dependency order, the same
+ * DSP plugins as chain stages, which docs/UNIFICATION.md sets out. The
+ * same dlopen'd .so files the audio thread runs, the same thSynthTree
+ * walking them in dependency order, the same
  * `->' wiring between them -- one window of one sample at a time, fifty
  * times a second, so that a piece can put an LFO on a chain's density
  * and an envelope on its dynamics. "The same modules that modulate
  * sound", pointed at the composition instead.
  *
- * Second interpreter and not a shortcut into thSynth, and §0 of the plan
- * is why. Audio is per window on the audio callback; this is sparse and
+ * Second interpreter and not a shortcut into thSynth, deliberately.
+ * Audio is per window on the audio callback; this is sparse and
  * on the GUI thread. Sharing the host would mean one of those two
  * columns bending, and the day it bends is the day a composer's LFO is
  * running inside the audio callback.
@@ -128,22 +129,19 @@ public:
                   const std::string &fromNode, const std::string &fromArg,
                   std::string &why);
 
-    /* `in1 = @depth;' -- a piece knob driving a node's arg.
-     *
-     * The same knob a stage param binds to and an instrument chanarg
-     * reads, reaching one world further. Phase 2 made a knob mean the
-     * same thing on both sides of the composer/instrument boundary;
-     * leaving the nodes out of that would have made the depth of an
-     * LFO the one number in a piece that could not be put on a slider.
-     *
-     * A copy per window rather than a signal connection, and the same
-     * argument the instrument bindings make in reverse: what reads a
-     * node arg is the tree, on this host's clock, so the value has to
-     * be *there* when the window fires rather than delivered whenever a
-     * hand moved. Fifty copies a second of a handful of floats is not a
-     * cost worth being clever about. */
-    bool setKnob (const std::string &node, const std::string &arg,
-                  thArg *knob, std::string &why);
+    /* `in1 = @depth;' -- a piece knob driving a node's arg. * * The same
+    knob a stage param binds to and an instrument chanarg * reads,
+    reaching one world further. One binding namespace makes a * knob mean
+    the same thing on both sides of the * composer/instrument boundary; *
+    leaving the nodes out of that would have made the depth of an * LFO
+    the one number in a piece that could not be put on a slider. * * A
+    copy per window rather than a signal connection, and the same *
+    argument the instrument bindings make in reverse: what reads a * node
+    arg is the tree, on this host's clock, so the value has to * be
+    *there* when the window fires rather than delivered whenever a * hand
+    moved. Fifty copies a second of a handful of floats is not a * cost
+    worth being clever about. */ bool setKnob (const std::string &node,
+    const std::string &arg, thArg *knob, std::string &why);
 
     /* Wires the synthetic io node and hands the tree to the engine's own
        builder. Nothing steps before this. */

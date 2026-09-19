@@ -257,11 +257,11 @@ think_harness(lexcheck COMPOSERHOST THREADS)
 # The two hosts, diffed. Same graph, same rate, same plugin binaries, cut into
 # windows of one and into a window of two hundred -- which is the difference
 # between what the composer's control-rate host does and what the audio thread
-# does, and the hazard UNIFICATION.md named before phase 3 was written. Needs
-# no corpus and no display: it builds its graphs in C++.
+# does, and the hazard docs/UNIFICATION.md named before either host existed.
+# Needs no corpus and no display: it builds its graphs in C++.
 think_harness(hostcheck)
 
-# NODES.md, out of the plugins themselves. Uses the palette's catalogue walk,
+# docs/NODES.md, out of the plugins themselves. Uses the palette's catalogue walk,
 # so the reference covers exactly what the editor offers.
 think_harness(dspnodes  NODEMODEL)
 
@@ -293,9 +293,9 @@ endif()
 # declarations. The ctest below fails if anybody forgets.
 add_custom_target(nodes
     COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
-            -o "${PROJECT_SOURCE_DIR}/NODES.md"
+            -o "${PROJECT_SOURCE_DIR}/docs/NODES.md"
     DEPENDS dspnodes plugins
-    COMMENT "Regenerating NODES.md from the plugins")
+    COMMENT "Regenerating docs/NODES.md from the plugins")
 
 think_harness(dspgraph  NODEMODEL)
 think_harness(dsplayout NODEMODEL)
@@ -337,10 +337,10 @@ add_test(NAME dspcheck.patch
                  -P "${_runner}")
 
 # Exit status is the number of measurements still exceeding TH_MAX, which
-# should be zero at every voice count.
-# The graph and the layout block, over the whole corpus -- and, since M6,
-# over it twice for the layout: every read and write is made once over a
-# file and once over the same bytes as text (JAM_M6.md, section 7.1).
+# should be zero at every voice count. The graph and the layout block,
+# over the whole corpus -- and twice over for the layout: every read and
+# write is made once over a file and once over the same bytes as text,
+# which is what a browser tab has instead of a file.
 add_test(NAME dspgraph
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspgraph>
@@ -350,11 +350,11 @@ add_test(NAME dspgraph
                  -DMODE=dsp
                  -P "${_runner}")
 
-# The writer, over the whole corpus -- and, since M6, over it twice: every
-# edit is made once over a file and once over the same bytes as text, and
-# the two have to be the same edit (JAM_M6.md, section 7.1). It was never a
-# ctest gate because it takes a corpus argument; RunHarness.cmake is what
-# that objection was about, and dspcheck has used it all along.
+# The writer, over the whole corpus -- and twice over: every edit is made
+# once over a file and once over the same bytes as text, and the two have to
+# be the same edit. It was never a ctest gate because it takes a corpus
+# argument; RunHarness.cmake is what that objection was about, and dspcheck
+# has used it all along.
 add_test(NAME dspwrite
          COMMAND "${CMAKE_COMMAND}"
                  -DHARNESS=$<TARGET_FILE:dspwrite>
@@ -379,11 +379,11 @@ add_test(NAME dspsweep
                  -P "${_runner}")
 
 # The committed reference against a fresh one. A plugin whose arg
-# declarations changed without NODES.md being regenerated fails here, which is
+# declarations changed without docs/NODES.md being regenerated fails here, which is
 # what keeps the two from drifting.
 add_test(NAME dspnodes
          COMMAND dspnodes -p "${PROJECT_BINARY_DIR}/plugins/"
-                 -c "${PROJECT_SOURCE_DIR}/NODES.md")
+                 -c "${PROJECT_SOURCE_DIR}/docs/NODES.md")
 
 # The guard's own claim, which no corpus file can make: one instrument that
 # cannot help going non-finite and one that behaves, on two channels at once.

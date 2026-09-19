@@ -113,7 +113,7 @@ int module_init (thPlugin *plugin)
     args[IN_FILE] = plugin->regArg("file", thPlugin::ARG_IN);
     /* A quoted name in the .dsp -- `file = "kick808.wav";' -- which is
        the one arg in the tree that is not a number. See thArg::ARG_TEXT
-       and DSP_FORMAT.md. It cannot be a control, an expression or a
+       and docs/DSP_FORMAT.md. It cannot be a control, an expression or a
        wire: a filename is not a thing a slider moves, so a kit is one
        node per drum rather than one node with the name swept. */
     plugin->setArgDesc(args[IN_FILE],

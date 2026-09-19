@@ -44,7 +44,7 @@
  * none exists;
  * everything else in the file -- comments, formatting, units, the arithmetic
  * the lexer folds away -- is copied through untouched, because it is never
- * regenerated from the parsed model in the first place. NODE_EDITOR.md
+ * regenerated from the parsed model in the first place. docs/NODE_EDITOR.md
  * discusses why regenerating would be a data-loss hazard.
  */
 
@@ -76,8 +76,8 @@ public:
     /* ---- over the text ----
      *
      * The same three, of a patch's bytes rather than of a file: what a
-     * browser tab has, where the document *is* the patch (JAM_M6.md,
-     * section 7.1). The file versions below read, call and write.
+     * browser tab has, where the document *is* the patch. The file
+     * versions below read, call and write.
      *
      * A scope of their own rather than overloads, for the reason
      * NodeEdit::Text gives: a filename and a patch are both strings, and

@@ -32,11 +32,11 @@
  *
  *   scripts/dspab -a plugins/ -b plugins/ -B 256 $(find dsp -name '*.dsp')
  *
- * The browser build runs at 256 (JAM.md, section 2). -w counts windows of
- * the default length, so both sides render the same number of frames
- * whatever their windows are, and the renders are compared interleaved,
- * since the synth's own window is planar and two lengths of it only line
- * up frame by frame.
+ * The browser build runs at 256 (docs/JAM.md). -w counts windows of the
+ * default length, so both sides render the same number of frames whatever
+ * their windows are, and the renders are compared interleaved, since the
+ * synth's own window is planar and two lengths of it only line up frame by
+ * frame.
  *
  * Exit status is the number of files that differ. Note that a DSP using
  * osc::static is only deterministic because each render builds a fresh

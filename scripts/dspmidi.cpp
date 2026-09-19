@@ -16,14 +16,14 @@
  *
  * A third phase covers the ordering inside gthMidiQueue::drain, which clears
  * notified_ *before* the pop loop rather than after. Clearing after leaves a
- * window -- between the pop loop's last failed pop and the store -- in which a
- * push sees notified_ still set, skips its emit(), and strands a message until
- * the next one arrives.
+ * window -- between the pop loop's last failed pop and the store -- in which
+ * a push sees notified_ still set, skips its emit(), and strands a message
+ * until the next one arrives.
  *
  * That window is about two instructions wide, and racing for it does not work:
  * the flood phase was run against a deliberately inverted build and did not
  * catch it in 60,000 messages, because hitting two instructions from another
- * thread on a 20us cadence essentially does not happen. So phase 3 does not
+ * thread on a 20us cadence essentially does not happen. So this does not
  * race. gthMidiQueue::setDrainHook calls into the harness at precisely that
  * point, and the harness pushes from another thread while standing there.
  * Deterministic in both directions: it passes every run as the code stands,
@@ -90,7 +90,7 @@ struct Checker {
     }
 };
 
-/* Phase 3: the drain-window ordering, deliberately rather than by racing.
+/* The drain-window ordering, held down deliberately rather than by racing.
  *
  * gthMidiQueue::drain clears notified_ before the pop loop. Cleared after, a
  * push landing between the last failed pop and the store sees the flag still

@@ -22,7 +22,7 @@
  * Both pages draw the same row and moved it the same way; what differs is
  * where a move goes, which is the one callback. Nothing here reaches for a
  * synth: a knob move is a command like every other, so the page that made
- * it is the nearest peer and not a privileged one (JAM.md, section 3).
+ * it is the nearest peer and not a privileged one (docs/JAM.md).
  */
 
 /* The value beside a slider, to the precision a slider is worth. */

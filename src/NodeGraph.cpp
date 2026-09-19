@@ -2366,7 +2366,7 @@ float NodeGraph::sliderValueAt (int box, double x) const
  *
  * Out of line and returning a reference to a static empty string rather than by
  * value: this is asked once per control per frame while a visualizer redraws
- * the canvas, and NODE_EDITOR.md's whole argument for redrawing everything
+ * the canvas, and docs/NODE_EDITOR.md's whole argument for redrawing everything
  * rests on that frame costing 0.8 ms. */
 const string &NodeGraph::Box::ctlValueName (void) const
 {
@@ -2396,7 +2396,7 @@ const string &NodeGraph::Box::ctlValueName (void) const
  *
  * A loop rather than two more members, because the alternative is state that
  * can disagree with the list beside it, and six emptiness tests per box per
- * frame is nothing against the 0.8 ms NODE_EDITOR.md measures a whole canvas
+ * frame is nothing against the 0.8 ms docs/NODE_EDITOR.md measures a whole canvas
  * repaint at. */
 float NodeGraph::Box::ctlDrawMin (void) const
 {

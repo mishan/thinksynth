@@ -66,8 +66,8 @@ string NodeLayout::keyFor (const NodeGraph &graph, int box)
 /* ---- over the text -------------------------------------------------------
  *
  * The same three operations over the file's bytes, for a caller with no
- * file: in a browser tab the document *is* the patch (JAM_M6.md, section
- * 7.1). The filename versions at the bottom read, call and write.
+ * file: in a browser tab the document *is* the patch. The filename
+ * versions at the bottom read, call and write.
  *
  * A scope of their own rather than overloads, for the reason NodeEdit::Text
  * gives: a filename and a patch are both strings.

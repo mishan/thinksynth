@@ -19,10 +19,10 @@
 /*
  * main.js -- the page.
  *
- * Two things to play. A patch is one .dsp, which is M1. A piece is a .gen:
- * the scheduler in the worklet composes it, the knobs it declared are
- * sliders, and what it delivers comes back as the tape and is drawn on a
- * roll. That is M2.
+ * Two things to play. A patch is one .dsp, played from the keyboard. A piece
+ * is a .gen: the scheduler in the worklet composes it, the knobs it declared
+ * are sliders, and what it delivers comes back as the tape and is drawn on a
+ * roll.
  *
  * They are modes and not two panels side by side, because a piece takes the
  * channels it asks for and the first of those is channel 0, where the
@@ -34,13 +34,12 @@
  *
  * WHAT A CHANNEL SOUNDS LIKE is the piece's to say, and where the piece is
  * silent on it, the defaults' -- never what the page did before. A piece
- * whose sinks name channels is asking the reader to aim them, which nine
- * of the shipped seventeen do, and a page that aimed nothing played them
+ * whose sinks name channels is asking the reader to aim them, which nine of
+ * the shipped seventeen do, and a page that aimed nothing played them
  * through whatever the last mode had left lying there, or through nothing
- * at all. So a load is followed by the aiming and never preceded by it,
- * and the aiming is a function of the piece and of what somebody chose by
- * hand. patch.js holds the rule, the defaults and the .patch reader;
- * AIMING.md is the whole argument.
+ * at all. So a load is followed by the aiming and never preceded by it, and
+ * the aiming is a function of the piece and of what somebody chose by hand.
+ * patch.js holds the rule, the defaults and the .patch reader.
  *
  * TWO KINDS OF FINGER, ONE PATH. There is an on-screen keyboard
  * (keyboard.js) and there is the computer keyboard, and both go through
@@ -94,14 +93,13 @@ let roll = null;
 
 /* The composer view: the piece's own picture, drawn by the mirror -- a
    second scheduler in a worker, fed the messages the worklet is fed, with
-   real composer instances in it (JAM_M6.md, sections 4 and 6). The page's
-   half of it is an element and a pointer; everything else is the same C++
-   the desktop draws with. */
+   real composer instances in it. The page's half of it is an element and
+   a pointer; everything else is the same C++ the desktop draws with. */
 let composer = null;
 
-/* The instrument as a graph (JAM_M6.md, section 7): the desktop's node
-   editor over whichever .dsp this page is playing. Made on Start, since
-   it is another instance of the module. */
+/* The instrument as a graph: the desktop's node editor over whichever
+   .dsp this page is playing. Made on Start, since it is another
+   instance of the module. */
 let nodes = null;
 
 /* The worklet's tape against the mirror's. Two instances of one module on
@@ -120,7 +118,7 @@ const aimed = new Map();
 /* What is on each channel now, as patch.js reported putting it there:
    channel -> { patch, dsp, title }, or the piece's own instrument by
    name. Only to draw the row; nothing is decided from it, because
-   deciding from what the page did before is the bug (AIMING.md). */
+   deciding from what the page did before is the bug. */
 let placed = new Map();
 
 function log (text)
@@ -244,7 +242,7 @@ function showLatency ()
         `tape v mirror    ${diff.summary()}`;
 }
 
-/* ---- the patch, M1 ---- */
+/* ---- the patch ---- */
 
 async function loadPatch ()
 {
@@ -284,15 +282,15 @@ async function pickPatch ()
     await loadPatch();
 }
 
-/* ---- the piece, M2 ---- */
+/* ---- the piece ---- */
 
 /* The piece, and then the aiming.
  *
  * That order, and it is the whole of the fix: the piece declares what it
  * can, the page fills what the piece left to the reader, and what was on
- * a channel a moment ago decides nothing (AIMING.md, section 4.4). Both
- * inside one quietly(), because the aiming builds graphs on the audio
- * thread exactly as the load does and the context is already down.
+ * a channel a moment ago decides nothing. Both inside one quietly(),
+ * because the aiming builds graphs on the audio thread exactly as the
+ * load does and the context is already down.
  */
 async function loadPiece ()
 {
@@ -385,7 +383,7 @@ function quietly (what)
 
 /* One row per knob the piece declared, each bound straight to the command
    that moves it. The command carries a frame like every other, so the page
-   is the nearest peer and not a privileged one (JAM.md, section 3). */
+   is the nearest peer and not a privileged one (docs/JAM.md). */
 function drawKnobs ()
 {
     showKnobs($('knobs'), piece?.knobs ?? [],

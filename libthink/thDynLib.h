@@ -101,7 +101,7 @@ extern const char *const thStaticComposers[];
 extern const size_t       thStaticComposerCount;
 
 /* And the visual modules, likewise: what a host that would have scanned
-   plugins/visual/ reads instead (JAM_M6.md, section 7.4). */
+   plugins/visual/ reads instead. */
 extern const char *const thStaticVisuals[];
 extern const size_t       thStaticVisualCount;
 #endif

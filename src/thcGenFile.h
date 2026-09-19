@@ -57,18 +57,18 @@ struct thcGenToken
     size_t      end;     /* one past where it stops (quotes included)   */
 };
 
-/* Loads a .gen file into a scheduler. See GEN_FORMAT.md for the language.
+/* Loads a .gen file into a scheduler. See docs/GEN_FORMAT.md for the language.
  *
  * A hand-rolled recursive-descent parser rather than the bison/flex
- * additions COMPOSITION_HANDOFF.md §5 originally sketched, and the
- * deviation is deliberate. thinklang.yy builds a thSynthTree as it goes
- * and folds `ms' into *samples* inside the grammar -- engine semantics a
- * .gen value must not inherit. And the loader has to resolve stage names
- * against thcPlugin and build thcScheduler chains, both of which live in
- * src/, which libthink cannot see; a shared grammar would have meant a
- * neutral AST in libthink plus a second walker here. Recursive descent
- * also says what is wrong by name and line far better than yacc does,
- * which for a file format people hand-write is most of the job.
+ * additions to thinklang.yy, and the deviation is deliberate.
+ * thinklang.yy builds a thSynthTree as it goes and folds `ms' into
+ * *samples* inside the grammar -- engine semantics a .gen value must not
+ * inherit. And the loader has to resolve stage names against thcPlugin
+ * and build thcScheduler chains, both of which live in src/, which
+ * libthink cannot see; a shared grammar would have meant a neutral AST
+ * in libthink plus a second walker here. Recursive descent also says
+ * what is wrong by name and line far better than yacc does, which for a
+ * file format people hand-write is most of the job.
  *
  * The *lexical* layer is shared, and that is the half worth sharing. It
  * began here as a faithful copy of thinklex.ll's rules -- cheap to write
@@ -146,7 +146,7 @@ private:
     bool parseInstrument (thcScheduler *sched);
 
     /* `section drop 16 bars { lead = 1.2; };' and `section end;' --
-       the arrangement, GEN_FORMAT.md §5c. */
+       the arrangement, docs/GEN_FORMAT.md. */
     bool parseSection (thcScheduler *sched);
     bool parseMeter (void);
 
@@ -193,13 +193,13 @@ private:
     bool parseParam (thcScheduler *sched, size_t chainIndex,
                      thcStage *stage, const std::string &stageName);
 
-    /* ---- arithmetic over signals (GEN_FORMAT.md 5a) ------------------
+    /* ---- arithmetic over signals (docs/GEN_FORMAT.md) -------------------
      *
-     * `prob = lfo->out * 0.5 + 0.5' and `step = @pace * 2'. The same sugar
-     * .dsp has, over the same thExprNode, desugared into the chain's own
-     * thcNodeHost -- so what a chain gets is the math:: nodes an author
-     * would otherwise have written by hand, which is what §5a said to do
-     * three lines at a time.
+     * `prob = lfo->out * 0.5 + 0.5' and `step = @pace * 2'. The same
+     * sugar .dsp has, over the same thExprNode, desugared into the
+     * chain's own thcNodeHost -- so what a chain gets is the math:: nodes
+     * an author would otherwise have written by hand, three lines at a
+     * time.
      *
      * Grouping is .dsp's, right-associative `-' and `/' included, because
      * one language should not read two ways depending on which file it is

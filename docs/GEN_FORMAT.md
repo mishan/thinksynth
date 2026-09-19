@@ -153,7 +153,7 @@ preset that cannot be morphed towards, bred from or saved under a name, which
 is the whole reason the noun exists.
 
 This is the limit of a composer's reach into an instrument: the args the patch
-chose to declare, and no deeper. See `COMPOSITION_HANDOFF.md` §9.
+chose to declare, and no deeper.
 
 ## 4b. Instruments are what the piece is played on
 
@@ -574,8 +574,8 @@ sounding voice on the opening tick.
 **A node-arg edit** changes one constant *inside* the graph — a node in the
 `.dsp` and one of its args, which is emphatically not a chanarg. §4a says the
 args a patch declares are the whole of a composer's reach, and that stays true
-of chanargs; this is the different mechanism `COMPOSITION_HANDOFF.md` §9
-promised rather than a widening of that one. The consent moved rather than
+of chanargs. Reaching past the declared surface is a different mechanism
+rather than a widening of that one, deliberately. The consent moved rather than
 vanished: a piece reaching this deep has said so in a line anyone can read.
 
 Only an arg that is **already a constant** may be set. Anything wired is

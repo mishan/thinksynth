@@ -40,10 +40,10 @@
  * value's authored unit is preserved because the caller writes the whole
  * right-hand side and never sees a folded number.
  *
- * GEN_FORMAT.md §7's writer's rules bind what gets *written into* the
- * spans: durations always carry a unit, knob bindings are spelled @name,
- * a stage added by the GUI writes every param the plugin registers, and
- * seed appears if and only if the user pinned one.
+ * docs/GEN_FORMAT.md's writer's rules bind what gets *written into* the
+ * spans: durations always carry a unit, knob bindings are spelled @name, a
+ * stage added by the GUI writes every param the plugin registers, and seed
+ * appears if and only if the user pinned one.
  *
  * Everything operates on a file, NodeEdit-style, because the editor
  * keeps its edits in a work copy and publishes on Save -- the same flow
@@ -108,8 +108,8 @@ public:
         std::vector<Sink> sinks;
     };
 
-    /* A `stage' whose category is neither gen nor xform is a DSP node
-       run at control rate, not a composer -- see GEN_FORMAT.md §5a. */
+    /* A `stage' whose category is neither gen nor xform is a DSP node run
+       at control rate, not a composer -- see docs/GEN_FORMAT.md. */
     static bool isNodeStage (const Stage &s)
     {
         return s.category != "gen" && s.category != "xform";

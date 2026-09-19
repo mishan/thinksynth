@@ -14,12 +14,12 @@
 
 /* swap -- the instrument itself becomes the material.
  *
- * UNIFICATION.md phase 4, at its coarsest and most useful grain: a
- * composer that changes *what the channel is*, not what it is playing.
- * Every other composer in this directory emits notes or knob values;
- * this one emits an intent to rebuild a channel around a different
- * graph, and the host does it through the same patch-load path a person
- * clicking in the Patch Selector uses.
+ * A composer reshaping the instrument, at its coarsest and most useful
+ * grain: a composer that changes *what the channel is*, not what it is
+ * playing. Every other composer in this directory emits notes or knob
+ * values; this one emits an intent to rebuild a channel around a
+ * different graph, and the host does it through the same patch-load path
+ * a person clicking in the Patch Selector uses.
  *
  * It touches no graph and could not: a composer cannot link libthink,
  * and the only thing it knows about an instrument is its name -- handed

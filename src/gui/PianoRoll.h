@@ -73,8 +73,8 @@ private:
 
     /* A structure edit: the piece rebuilding its own instrument.
      *
-     * Drawn because everything schedulable is drawn -- that is the rule
-     * phase 4 inherited rather than invented, and it is what makes an
+     * Drawn because everything schedulable is drawn -- a rule structure
+     * edits inherited rather than invented, and it is what makes an
      * edit debuggable: you watch one arrive instead of wondering why
      * the sound changed. Kept as text because that is what it is; a
      * swap has no value to plot. */

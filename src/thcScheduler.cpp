@@ -810,10 +810,10 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
 
         /* A .patch invents the arg instead, which it has to: patches
            predate arg metadata and half the corpus sets things no graph
-           declares. A piece file has no such history, and an arg name
-           the graph does not know is a typo every time -- so it is said
-           rather than swallowed. The declared surface is the whole of
-           what a piece may reach; see COMPOSITION_HANDOFF.md section 9. */
+           declares. A piece file has no such history, and an arg name the
+           graph does not know is a typo every time -- so it is said rather
+           than swallowed. The declared surface is the whole of what a
+           piece may reach. */
         if (arg == NULL)
         {
             /* Which of the two graphs the name was aimed at: `fx.delay' is
@@ -1307,12 +1307,12 @@ thcScheduler::channelOf (int channel) const
 /* One constant inside the graph on this channel.
  *
  * Not a chanarg. A chanarg is the surface a patch chose to expose, and
- * the whole of what every composer up to now could reach;
- * COMPOSITION_HANDOFF.md section 9 said the way past it would be a
- * different mechanism rather than a widening of that one, and this is
- * the different mechanism. A piece doing this is reaching into somebody
- * else's graph -- on its own say-so, in an event anybody can see on the
- * roll, and only as often as the event stream flows.
+ * the whole of what every composer up to now could reach. The way past it
+ * is a different mechanism rather than a widening of that one, and this
+ * is that different mechanism. A piece doing this is
+ * reaching into somebody else's graph -- on its own say-so, in an event
+ * anybody can see on the roll, and only as often as the event stream
+ * flows.
  *
  * It lands on the channel's *prototype* tree: the one thMidiChan builds
  * each new voice from, and the one thMidiChan.cpp says in as many words
@@ -1772,17 +1772,17 @@ static const unsigned TH_MAX_STALLED_WAKES = 8;
 
 /* The stages whose time has come, each ticked at the time it asked for.
  *
- * `now' is where the transport got to; a wake at or before it runs with
- * the transport reading the wake's own time, not `now'. Composers
- * schedule from what they are handed -- thirteen of the sixteen in the
- * tree return `t->now + period' -- so handing them the end of the step
- * made every wake late by up to a step, and the next was scheduled from
- * the late one, so the lateness compounded. What a piece composed was
- * then a function of how often the host called this: the same file and
- * the same seed gave one piece at a 1024-frame step and another at 256,
- * and two machines with different sound cards could not agree on a piece
- * at all. JAM.md section 3, and SCHEDULER_PLACEMENT.md for the
- * measurements.
+ * `now' is where the transport got to; a wake at or before it runs with the
+ * transport reading the wake's own time, not `now'. Composers schedule from
+ * what they are handed -- thirteen of the sixteen in the tree return
+ * `t->now + period' -- so handing them the end of the step made every wake
+ * late by up to a step, and the next was scheduled from the late one, so
+ * the lateness compounded. What a piece composed was then a function of how
+ * often the host called this: the same file and the same seed gave one
+ * piece at a 1024-frame step and another at 256, and two machines with
+ * different sound cards could not agree on a piece at all -- which is the
+ * finding that had to be fixed before a room full of peers could compose
+ * the same piece. docs/JAM.md has the design.
  *
  * The chain's nodes move to the wake's time before the stage reads them,
  * for the same reason and to the same end: a param reading `lfo->out'
@@ -1898,8 +1898,8 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
         if (c.muted)
             return;
 
-        /* The arrangement, applied where the mute is (GEN_FORMAT.md
-         * §5c). The section is the one this event's own `at' falls in.
+        /* The arrangement, applied where the mute is. The section is the
+         * one this event's own `at' falls in.
          *
          * A level of 0 mutes the chain for that section: its notes and
          * its chanargs are both dropped, so a walk or a gate driving a

@@ -31,9 +31,9 @@
  * A worker rather than the main thread, for three reasons in order: the
  * mirror's job is to receive the same messages the worklet receives, and a
  * worker with the worklet's own handler gets that by construction; a
- * fast-forward runs for seconds and must not freeze the page; and JAM.md's
- * description of the mirror -- another peer that renders nothing -- is
- * then literally what it is (JAM_M6.md, section 4).
+ * fast-forward runs for seconds and must not freeze the page; and docs/JAM.md's
+ * description of the mirror -- another peer that renders nothing -- is then
+ * literally what it is.
  *
  * What it sends back: its own tape, for the page to hold against the
  * worklet's, and display lists -- the composer canvas lives here too, next
@@ -166,8 +166,7 @@ function sendGestures ()
 
     /* And the params popover, if a stage's handle was clicked. Read here
        rather than asked for later, because the page has no scheduler to
-       read them from: this instance is where the piece is (JAM_M6.md,
-       section 4). */
+       read them from: this instance is where the piece is. */
     if (!M._tw_canvas_params_wanted())
         return;
 
@@ -332,8 +331,8 @@ function receive (m)
 
             /* To the width, and the scroller takes the rest: a piece is
                a row per chain and a tall one fitted both ways is a
-               quarter-scale picture nobody can read (JAM_M6.md, section
-               6.3; CanvasContent::zoomToWidth). */
+               quarter-scale picture nobody can read
+               (CanvasContent::zoomToWidth). */
             if (m.fit)
                 M._tw_canvas_zoom_to_width();
 

@@ -18,9 +18,9 @@
  * The reference the browser's node editor is held against. It makes a
  * single NodeEdit change to a .dsp and writes the result to stdout, so
  * that wasm/web/nodecheck.mjs can ask the module for the same edit and
- * compare the bytes (JAM_M6.md, section 7). Everything it does, the
- * editor's own harnesses already cover; what it adds is a way to *say*
- * what the answer should be from outside the process.
+ * compare the bytes. Everything it does, the editor's own harnesses
+ * already cover; what it adds is a way to *say* what the answer should
+ * be from outside the process.
  *
  * Nothing is written back: the file on disk is not touched.
  *

@@ -22,7 +22,7 @@
 # channel has. Load amb01.dsp on it as well and res, fmin and fmax come
 # alive too. A patch that declares none of them ignores those components:
 # the chanargs a patch exposes are the whole of what a piece may reach,
-# deliberately. See COMPOSITION_HANDOFF.md, section 9.
+# deliberately.
 
 name "Tide";
 author "Misha Nasledov";

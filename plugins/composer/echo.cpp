@@ -28,13 +28,13 @@
  * goes on as well: off, and this stage is only the echoes, which is how
  * a second instrument gets them on its own channel.
  *
- * COMPOSITION_HANDOFF.md §3b called an echo "emit future copies", and it
- * is: no clock, no buffer, a copy of the event with a later `at'. What
- * makes it more than one line is a held note, whose repeats are held
- * too and need releasing when the key comes up: the release goes out
- * `repeats' times as well, each as late as its on was -- and a pitch
- * pressed twice before that release takes the first press's repeats
- * down as the second's go up, there being only one off to come.
+ * An echo is the plainest transformer there is: no clock, no buffer, a copy
+ * of the event with a later `at'. What makes it more than one line is a
+ * held note, whose repeats are held too and need releasing when the key
+ * comes up: the release goes out `repeats' times as well, each as late as
+ * its on was -- and a pitch pressed twice before that release takes the
+ * first press's repeats down as the second's go up, there being only one
+ * off to come.
  *
  * DETERMINISM. Nothing random; the copies are arithmetic.
  */

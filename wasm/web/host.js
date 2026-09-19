@@ -24,20 +24,20 @@
  * things it understands. The wasm is fetched here, since a worklet cannot
  * fetch, and its bytes are posted over for the worklet to compile.
  *
- * The bytes, not a compiled WebAssembly.Module. The plan was to compile
- * here and post the module (JAM.md, section 3), and Firefox takes one --
- * but Chrome cannot receive a Module on an AudioWorklet's port: it arrives
- * as a messageerror and the worklet never starts. Bytes cross everywhere,
- * and compiling a quarter of a megabyte before the first note is not a
- * cost anyone hears.
+ * The bytes, not a compiled WebAssembly.Module. The plan was to compile here
+ * and post the module (docs/JAM.md), and Firefox takes one -- but Chrome
+ * cannot receive a Module on an AudioWorklet's port: it arrives as a
+ * messageerror and the worklet never starts. Bytes cross everywhere, and
+ * compiling a quarter of a megabyte before the first note is not a cost
+ * anyone hears.
  *
  * THE MIRROR, when the caller asks for one: a worker holding the same
  * module with a synth that never renders, fed every message this posts to
  * the worklet and stepped to the frame each tape batch reached. It is
  * where the composer view's real composer instances live, and it draws
- * them (mirror.js, JAM_M6.md section 4). Everything it says comes back
- * through `onMirror'; anything the page wants to tell it -- the view's
- * size, a pointer, a request for a frame -- goes through `toMirror'.
+ * them (mirror.js). Everything it says comes back through `onMirror';
+ * anything the page wants to tell it -- the view's size, a pointer, a
+ * request for a frame -- goes through `toMirror'.
  *
  * The tee is here and not at each call site on purpose: "the mirror is fed
  * the messages the worklet is fed" is then a property of one function
@@ -46,10 +46,10 @@
  * Everything the page does to the synth carries the point it applies at
  * (thinkweb.cpp); -1, the default, is "the next window", which is how a key
  * pressed now is played. A key carries a frame. A knob, a stop and a tempo
- * carry a transport time and are applied inside the step at that time, and
- * a begin carries the frame its transport zero falls on: the page is the
+ * carry a transport time and are applied inside the step at that time, and a
+ * begin carries the frame its transport zero falls on: the page is the
  * nearest peer and not a privileged one, and the other peers send the same
- * commands with the same stamps (JAM.md section 3, JAM_M3.md section 1).
+ * commands with the same stamps (docs/JAM.md).
  */
 
 let fetched = null;
@@ -239,8 +239,8 @@ export async function createSynth (ctx, { windowlen = 256,
             post({ type: 'transport', op, value, frame }),
 
         /* From the top, with transport zero at `frame' exactly: what a
-           room's Play is, on every peer, at the frame its origin falls on
-           (JAM_M3.md, section 1). */
+           room's Play is, on every peer, at the frame its origin falls
+           on. */
         begin: (frame) => post({ type: 'begin', frame }),
 
         /* 'stop' or 'tempo' at a transport time, applied inside the step
@@ -253,8 +253,8 @@ export async function createSynth (ctx, { windowlen = 256,
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
 
         /* A gesture on a stage's picture, already in the coordinates the
-           composer drew in (JAM_M6.md, section 5). Handed the command
-           itself, since every field of it is one the module wants. */
+           composer drew in. Handed the command itself, since every field
+           of it is one the module wants. */
         input: ({ at = -1, chain, stage, kind, x, y, w, h, button = 1 }) =>
             post({ type: 'input', at, chain, stage, kind, x, y, w, h,
                    button }),

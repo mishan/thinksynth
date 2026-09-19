@@ -32,12 +32,11 @@
  * the teacher sounds alongside the dream, 0 and the teacher is silent
  * -- a generator you hear only through the student's ears.
  *
- * What is learned does not survive the instance: reset() wipes the
- * table, which is the honest meaning of "replay the piece" for a
- * learner (COMPOSITION_HANDOFF.md §7; composer_serialize is the future
- * answer for a trained voice worth keeping). Determinism holds because
- * the teacher is deterministic and the sampling draws from the
- * instance seed.
+ * What is learned does not survive the instance: reset() wipes the table,
+ * which is the honest meaning of "replay the piece" for a learner
+ * (composer_serialize is the future answer for a trained voice worth
+ * keeping). Determinism holds because the teacher is deterministic and the
+ * sampling draws from the instance seed.
  */
 
 #include <algorithm>

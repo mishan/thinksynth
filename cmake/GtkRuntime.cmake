@@ -1,4 +1,4 @@
-# The GTK runtime data files -- PACKAGING.md, "The data files the closure
+# The GTK runtime data files -- docs/PACKAGING.md, "The data files the closure
 # cannot see".
 #
 # file(GET_RUNTIME_DEPENDENCIES) walks the *link* graph, so it collects DLLs

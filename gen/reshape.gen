@@ -6,8 +6,9 @@
 # other reaches inside whatever is there and moves a number the patch
 # never offered.
 #
-# UNIFICATION.md phase 4. The mechanism is the one the plan named before
-# any of it was written: a composer emits an *intent* and the host
+# A composer reshaping the instrument, which docs/UNIFICATION.md sets out
+# in full. The mechanism is the one the plan named before any of it was
+# written: a composer emits an *intent* and the host
 # carries it out. A plugin cannot link libthink and never touches a
 # graph -- `gen::swap' knows nothing about `bell' except that the piece
 # declared something by that name, handed to it already resolved the way
@@ -37,15 +38,15 @@
 # whatever is sounding stays sounding and the next voice is the new one.
 #
 # `reshape' IS THE LINE BEING CROSSED, and it is worth reading slowly.
-# Every composer before this one was held to a patch's declared chanargs
-# -- COMPOSITION_HANDOFF.md section 9 argued at length that the limit
-# was encapsulation rather than a missing feature. `reshape' names a
-# node in the .dsp and one of *its* args: `fmap.inmax' is not a chanarg,
-# was never offered, and until phase 4 nothing in the composer world
-# could have said its name. Section 9 also said the way past would be a
-# different mechanism rather than a widening of the old one, and this is
-# it. The consent moved rather than vanished: a piece reaching this deep
-# has said so in a line anyone can read, in a file they can diff.
+# Every composer before this one was held to a patch's declared chanargs,
+# on the argument that the limit was encapsulation rather than a missing
+# feature. `reshape' names a node in the .dsp and one of *its* args:
+# `fmap.inmax' is not a chanarg, was never offered, and until structure
+# edits arrived nothing in the composer world could have said its name.
+# The way past the limit is a different mechanism rather than a widening
+# of the old one, and this is it. The consent moved rather than vanished:
+# a piece reaching this deep has said so in a line anyone can read, in a
+# file they can diff.
 #
 # Channels: the loader hands one to each declared instrument, so `voice'
 # is on the first free one and `bell' and `glass' sit on their own until

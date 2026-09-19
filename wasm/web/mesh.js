@@ -17,7 +17,7 @@
  */
 
 /*
- * mesh.js -- the gesture path between peers (JAM_M3.md, section 5).
+ * mesh.js -- the gesture path between peers.
  *
  * One RTCPeerConnection per pair, the peer with the smaller id offering,
  * offer, answer and ICE candidates through the room socket's `signal'.
@@ -33,7 +33,7 @@
  * rather than mysterious.
  */
 
-/* STUN, for a candidate the other side can reach. TURN is M5's. */
+/* STUN, for a candidate the other side can reach. TURN is for later. */
 const ICE = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
 
 /* How long a pair gets to open its channel before the relay carries it. */

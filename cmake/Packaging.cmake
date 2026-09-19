@@ -1,4 +1,4 @@
-# Packaging -- see PACKAGING.md. The layout itself is decided in
+# Packaging -- see docs/PACKAGING.md. The layout itself is decided in
 # cmake/Layout.cmake, which has to run before the subdirectories so their
 # install() calls can use it; this half needs the targets to exist, so it runs
 # last.
@@ -197,7 +197,7 @@ include(GtkRuntime)
 # anything signed afterwards invalidates the seal.
 #
 # This does NOT make the download open on someone else's Mac by itself -- see
-# PACKAGING.md. An ad-hoc signature has no Developer ID behind it, and a
+# docs/PACKAGING.md. An ad-hoc signature has no Developer ID behind it, and a
 # quarantined app without one is still refused. It is the difference between a
 # package that cannot work and a package that needs the quarantine flag
 # cleared, which is a thing a user can actually do.

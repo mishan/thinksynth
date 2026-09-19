@@ -12,10 +12,9 @@
 # whatever you leave behind, so a block dropped in front of the glider is
 # a wall, and one cell taken out of a blinker is silence.
 #
-# gen::life is the first module to export composer_input, which is
-# COMPOSITION_HANDOFF.md section 7's argument arriving for the case it
-# named: composer_draw was draw-only, and the things it draws are exactly
-# the things a person wants to reach into.
+# gen::life is the first module to export composer_input, for exactly the
+# case that entry point was argued for: composer_draw was draw-only, and
+# the things it draws are exactly the things a person wants to reach into.
 #
 # What you click is a *performance*. It changes what is playing and it is
 # gone on reload. To keep an arrangement, select the stage and press

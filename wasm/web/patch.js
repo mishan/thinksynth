@@ -30,21 +30,21 @@
  * notes at a peak of zero -- or sounded, by accident, through whatever
  * the last thing the page did had left on the channel.
  *
- * THE RULE (AIMING.md, section 3). What a channel sounds like is decided
- * by the piece and, where the piece is silent on the matter, by the
- * defaults below. Never by what the page did before. The same piece
- * sounds the same on any device in any order of clicks.
+ * THE RULE. What a channel sounds like is decided by the piece and,
+ * where the piece is silent on the matter, by the defaults below. Never
+ * by what the page did before. The same piece sounds the same on any
+ * device in any order of clicks.
  *
  * So the order is: the piece first, then the aiming. aim() is called
  * after every load, with the channels the worklet says the piece named
  * and put nothing on, and it is a function of the piece and of what the
  * person has chosen by hand -- of nothing else.
  *
- * A .patch is not a graph: it is a `dsp' line, `info' lines and flat
- * `name value[,value]' overrides for that DSP's chanargs (DSP_FORMAT.md,
- * section 2). load() does what gthPatchManager::parse does, in the same
- * order -- the .dsp onto the channel, then each override -- at the same
- * level, TH_DEFAULT_CHAN_AMP, which tw_load applies for us.
+ * A .patch is not a graph: it is a `dsp' line, `info' lines and flat `name
+ * value[,value]' overrides for that DSP's chanargs (docs/DSP_FORMAT.md).
+ * load() does what gthPatchManager::parse does, in the same order -- the .dsp
+ * onto the channel, then each override -- at the same level,
+ * TH_DEFAULT_CHAN_AMP, which tw_load applies for us.
  *
  * The .dsp a patch names is not fetched here. The page already fetches
  * every shipped .dsp at Start, to hand to the worklet as the instruments

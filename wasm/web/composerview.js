@@ -139,8 +139,7 @@ export function createComposerView ({ root = document, toMirror,
 
             /* A press, drag or release the canvas took on an enlarged
                picture, already in the coordinates that picture was drawn
-               in. What happens to it is the page's (JAM_M6.md, section
-               5). */
+               in. What happens to it is the page's. */
             case 'input':
                 onGesture(m);
                 return true;
@@ -158,11 +157,11 @@ export function createComposerView ({ root = document, toMirror,
 
     /* ---- a stage's parameters ----
      *
-     * What it is playing, beside the box that is playing it. Read-only in
-     * M6: the canvas reports rather than edits, and editing the piece
-     * from it is the step after this one -- on the desktop a param goes
-     * through thcGenEdit into the file, and in a room the text in the
-     * editor is the piece (JAM_M6.md, sections 1 and 11).
+     * What it is playing, beside the box that is playing it. Read-only: the
+     * canvas reports rather than edits, and editing the piece from it is
+     * the step after this one -- on the desktop a param goes through
+     * thcGenEdit into the file, and in a room the text in the editor is the
+     * piece.
      */
     const showParams = (m) =>
     {

@@ -31,20 +31,18 @@
  * what they are held against is rendered once before either starts. Their
  * output interleaves; every line names its browser.
  *
- * A patch, which is M1: play a phrase with stamped notes, render, and
- * compare every sample with what render.mjs gets from the same module
- * called from Node. It is one wasm file on both sides, so the two agree to
- * the bit or the plumbing between them is wrong -- the module handed to
- * the worklet, the messages, the stamps, the 128-frame quanta, the
- * de-interleave.
+ * A patch: play a phrase with stamped notes, render, and compare every sample
+ * with what render.mjs gets from the same module called from Node. It is one
+ * wasm file on both sides, so the two agree to the bit or the plumbing
+ * between them is wrong -- the module handed to the worklet, the messages,
+ * the stamps, the 128-frame quanta, the de-interleave.
  *
- * A piece, which is M2: load every seeded .gen, run the transport for a
- * minute at a window of 256 and again at 128, and hold the tape that comes
- * back against the one genwav.mjs delivers under Node for the same seconds.
- * That is M2's gate (JAM.md, section 6), and it is the same comparison
- * piececheck.mjs makes without a browser -- run here through the worklet,
- * the port, and a real audio thread's quanta, which is the part
- * piececheck.mjs cannot see.
+ * A piece: load every seeded .gen, run the transport for a minute at a window
+ * of 256 and again at 128, and hold the tape that comes back against the one
+ * genwav.mjs delivers under Node for the same seconds. That is the tape gate,
+ * and it is the same comparison piececheck.mjs makes without a browser -- run
+ * here through the worklet, the port, and a real audio thread's quanta, which
+ * is the part piececheck.mjs cannot see.
  *
  * Offline rather than live because offline is repeatable; the live path
  * differs only in who asks for the next quantum and when.
@@ -75,8 +73,9 @@ const RATE = 48000;
 const FRAMES = RATE * 2;
 const PATCHES = ['ts1.dsp', 'hat0.dsp', 'amb01.dsp'];
 
-/* The two windows M2's gate names. 256 is the page's; 128 is a window as
-   short as the quantum, which is where a step-size bug would show first. */
+/* The two windows the tape gate names. 256 is the page's; 128 is a window
+   as short as the quantum, which is where a step-size bug would show
+   first. */
 const WINDOWS = [256, 128];
 
 const nodeBuild = path.resolve(process.argv[3] ??

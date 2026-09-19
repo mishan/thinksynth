@@ -39,11 +39,10 @@
  * scrolled window (src/gui/GraphCanvas.h), which creates the gesture
  * controllers and forwards them to the handlers below. In the browser
  * it is a <canvas> element with pointer events, over the same class
- * compiled to wasm, drawing through the cairo stand-in (JAM_M6.md,
- * sections 3 and 6). One drawing and one behaviour, two shells: a box
- * is drawn and a click is decided by the one piece of code that
- * exists to do it, on every platform, and the shell is thin enough to
- * be written twice.
+ * compiled to wasm, drawing through the cairo stand-in. One drawing
+ * and one behaviour, two shells: a box is drawn and a click is
+ * decided by the one piece of code that exists to do it, on every
+ * platform, and the shell is thin enough to be written twice.
  *
  * The guard on that promise is the build: the content classes compile
  * with no toolkit on the include path (src/CMakeLists.txt,

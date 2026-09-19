@@ -352,12 +352,9 @@ PianoRoll::onDraw (const Cairo::RefPtr<Cairo::Context> &cr, int width,
     }
 
     /* chanarg strip: one diamond per event, value = height in strip.
-       Normalized 0-1 for now; the honest range is the arg's declared
-       .min/.max, once param metadata is reachable from here (noted in
-       the handoff as a known gap). */
-    for (const ArgTick &a : argTicks_)
-    {
-        double x = timeToX(a.at, width);
+    Normalized 0-1 for now; the honest range is the arg's declared
+    .min/.max, once param metadata is reachable from here. */ for (const
+    ArgTick &a : argTicks_) { double x = timeToX(a.at, width);
 
         if (x < 0 || x > width)
             continue;

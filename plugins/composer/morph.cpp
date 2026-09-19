@@ -20,11 +20,12 @@
  * a piece can open an instrument out over four minutes and close it again
  * -- the same machinery that drives a melody, pointed at a filter.
  *
- * Every component moves at once, which is why the sink it wants is
- * `chanarg = "*"': an ordinary chanarg sink names one knob and overwrites
- * whatever the event carried, and a vector delivered that way would
- * arrive as one knob taking every component's value in turn. See §9 of
- * COMPOSITION_HANDOFF.md for why a preset is a noun at all.
+ * Every component moves at once, which is why the sink it wants is `chanarg
+ * = "*"': an ordinary chanarg sink names one knob and overwrites whatever
+ * the event carried, and a vector delivered that way would arrive as one
+ * knob taking every component's value in turn. A preset is a noun for
+ * exactly this: a vector of chanarg values worth naming, interpolating
+ * between and saving.
  *
  * Two roles, one plugin, and they are genuinely different pieces of
  * music:

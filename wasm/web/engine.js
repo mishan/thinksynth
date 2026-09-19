@@ -19,11 +19,10 @@
 /*
  * engine.js -- what a message means to an instance of the module.
  *
- * One switch: a `load', `instrument', `chanarg', `piece', `transport',
- * `begin', `at', `knob', `input', `midion', `midioff', `on', `off' or
- * `alloff' message, turned into the tw_ call that applies it. It used to live in
- * worklet.js, and moved here when there were two instances to apply it to
- * (JAM_M6.md, section 4).
+ * One switch: a `load', `instrument', `chanarg', `piece', `transport', `begin',
+ * `at', `knob', `input', `midion', `midioff', `on', `off' or `alloff' message,
+ * turned into the tw_ call that applies it. It used to live in worklet.js, and
+ * moved here when there were two instances to apply it to.
  *
  * The two are the worklet, which renders, and the mirror, which is the
  * same module in a worker with a synth that never renders -- fed the same
@@ -133,11 +132,11 @@ export function apply (M, m, host = NOWHERE)
             return true;
 
         case 'input':
-            /* A gesture on a stage's picture, at a transport time. The
-               coordinates are the ones the composer's own draw was
-               handed, with the size it was drawn at, so every instance
-               inverts the same arithmetic and reaches the same cell
-               (JAM_M6.md, section 5). */
+            /* A gesture on a stage's picture, at a transport time.
+               The coordinates are the ones the composer's own draw
+               was handed, with the size it was drawn at, so every
+               instance inverts the same arithmetic and reaches the
+               same cell. */
             M._tw_input(m.at, m.chain, m.stage, m.kind, m.x, m.y, m.w, m.h,
                         m.button ?? 1);
             return true;

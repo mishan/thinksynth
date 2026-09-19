@@ -17,13 +17,13 @@
  */
 
 /*
- * editor.js -- the shared document, edited (JAM_M3.md, section 4.2).
+ * editor.js -- the shared document, edited.
  *
  * CodeMirror 6 over the room's Y.Doc through y-codemirror.next: one
  * editor, a tab per file, and everyone's cursors with their names on them.
  * The document is text and the editor is a view of it; the piece and its
  * .dsp files are the files in the map, and a tab appears when a file
- * does. No language mode in M3.
+ * does. No language mode yet.
  *
  * This is the first thing on the page with a dependency, and the reason
  * the room page is bundled (bundle.mjs) where the solo page is not.

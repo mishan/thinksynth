@@ -32,7 +32,7 @@
 # lags -- so a `Speed' that is set once and left is a cabinet already at
 # that speed, with no ramp. The ramp is a *change*, which wants a
 # composer on the knob; and a sink cannot address one yet.
-# GEN_FORMAT.md documents `chanarg = "fx.speed"' for exactly this, but
+# docs/GEN_FORMAT.md documents `chanarg = "fx.speed"' for exactly this, but
 # the sink's validator in thcGenFile.cpp takes an identifier and refuses
 # the dot, so a .gen can set this effect's knobs in its `effect' block
 # and cannot automate them.

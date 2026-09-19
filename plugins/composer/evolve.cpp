@@ -45,10 +45,9 @@
  *              freezing on one. Set it to zero to get the freeze back
  *              on purpose (an ostinato is a choice too).
  *
- * This is the autonomous shape from COMPOSITION_HANDOFF.md §7: fitness
- * the plugin computes. The interactive shape -- the user as fitness
- * function -- wants the composer_input ABI addition and is deliberately
- * not attempted here.
+ * This is the autonomous shape: fitness the plugin computes. The
+ * interactive shape -- the user as fitness function -- wants the
+ * composer_input ABI addition and is deliberately not attempted here.
  *
  * DETERMINISM. Every random draw comes from the instance's seeded PRNG,
  * so the same piece converges down the same path every replay. reset()

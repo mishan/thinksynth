@@ -53,3 +53,14 @@ node_modules/
 # the flatpak note above describes. Without `-k' the renders go to a temp
 # dir and none of this arises.
 /compare/
+
+# Working notes that were never meant to be merged. The plan documents that
+# drove a branch -- a milestone's detail, a measurement write-up, a handoff
+# -- are worth having on disk while the branch is open and are a liability
+# afterwards: the code grew section references into them, and a reference
+# into a document nobody maintains is worse than no reference at all. What
+# survived them is in docs/ and in TODO.
+docs/COMPOSITION_HANDOFF.md
+docs/SCHEDULER_PLACEMENT.md
+docs/JAM_M3.md
+docs/JAM_M6.md

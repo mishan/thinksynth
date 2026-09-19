@@ -1,4 +1,4 @@
-# Packaging -- see PACKAGING.md.
+# Packaging -- see docs/PACKAGING.md.
 #
 # Three shapes, one rule: the binary has to find its plugins, DSPs and patches
 # without anything being configured, because on macOS and Windows there is no

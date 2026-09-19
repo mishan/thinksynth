@@ -19,9 +19,8 @@
  * does applies here verbatim: a population, tournament selection,
  * single-point crossover, per-gene mutation, elites carried unchanged,
  * and the current champion *played* every cycle -- emitted as
- * THC_EV_CHANARG events so what you hear is the search. This is tier 2 of
- * COMPOSITION_HANDOFF.md §9 and the autonomous shape of §7: fitness the
- * plugin computes.
+ * THC_EV_CHANARG events so what you hear is the search. The autonomous
+ * shape of the idea: fitness is something the plugin computes.
  *
  * The interesting difference from evolve is where the genome's bounds
  * come from. A phrase's genes are degrees on a pitch ladder the piece
@@ -33,8 +32,8 @@
  * naming two gives the corridor between them. Nothing here can invent a
  * component neither preset mentions.
  *
- * That is §9's first principle -- the declared surface is consent --
- * arriving as arithmetic rather than as a rule someone has to remember.
+ * That is the declared surface as consent, arriving as arithmetic rather
+ * than as a rule someone has to remember.
  *
  * The fitness function is taste with a number on it, and says so:
  *
@@ -52,9 +51,10 @@
  *            its seed and stay there.
  *
  * Audio-feature fitness -- judging the sound rather than the vector --
- * is the shadow-synth service at staging step 5, deliberately not here.
- * What this needs to become that is a different fitness() and nothing
- * else, which is most of the argument for building it this way first.
+ * wants a shadow synth to render candidates into, and is deliberately not
+ * here. What this needs to become that is a different fitness() and
+ * nothing else, which is most of the argument for building it this way
+ * first.
  *
  * All randomness from the per-instance seed, so a replay is exact.
  */

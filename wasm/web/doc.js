@@ -17,7 +17,7 @@
  */
 
 /*
- * doc.js -- the shared document's shape (JAM_M3.md, section 4).
+ * doc.js -- the shared document's shape.
  *
  * One Y.Doc per room:
  *
@@ -85,12 +85,12 @@ export function putFile (doc, name, text)
 /* An edit to a file, as the smallest splice that turns what is there into
  * `next': one delete and one insert, in the middle.
  *
- * What the node editor's edits go through (JAM_M6.md, section 7.3).
- * NodeEdit changes a line or two of a .dsp and copies every other byte
- * through, so the difference is small and local, and a splice is what
- * lets somebody else be typing in the same file at the same time -- a
- * whole-file write would take their cursor with it, and would lose their
- * character if it landed between the read and the write.
+ * What the node editor's edits go through. NodeEdit changes a line or
+ * two of a .dsp and copies every other byte through, so the difference
+ * is small and local, and a splice is what lets somebody else be typing
+ * in the same file at the same time -- a whole-file write would take
+ * their cursor with it, and would lose their character if it landed
+ * between the read and the write.
  *
  * Computed inside the transaction, against the text as it stands at that
  * moment rather than against whatever the caller last read. That is the
@@ -161,10 +161,9 @@ export function pieceText (doc)
 }
 
 /* The .dsp files a .gen names: `dsp "amb01.dsp";' in an instrument block
-   and `effect "fx/echo.dsp"' inside it (GEN_FORMAT.md, section 4b). An
-   effect is a file the loader looks up exactly as it looks up an
-   instrument, so a room that carried the one and not the other would
-   fail every peer's load. */
+   and `effect "fx/echo.dsp"' inside it (docs/GEN_FORMAT.md). An effect is a
+   file the loader looks up exactly as it looks up an instrument, so a room
+   that carried the one and not the other would fail every peer's load. */
 export function dspNames (genText)
 {
     const names = new Set();
@@ -190,8 +189,7 @@ export function instrumentTexts (doc)
 
 /* The revision Apply names: SHA-256 over every file, in name order, each
    as its name, a NUL, its text, a NUL. A Yjs document has no revision
-   number, and a load must load the same text on every peer (JAM_M3.md,
-   section 4.3). Hex. */
+   number, and a load must load the same text on every peer. Hex. */
 export async function hashOf (doc)
 {
     const parts = [];

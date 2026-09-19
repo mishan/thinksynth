@@ -33,7 +33,7 @@
 #
 # dspnodes ignores carriage returns when it compares, so this is the belt and
 # that is the braces, exactly as with the artwork. Either alone would do.
-NODES.md text eol=lf
+docs/NODES.md text eol=lf
 
 # What GitHub thinks this repository is written in, which without these two
 # lines includes a language it has never used.

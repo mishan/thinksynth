@@ -124,8 +124,8 @@ export async function loadPiece (createThinkWeb,
  * The worklet's loop with the audio taken out: the same module, the same
  * per-block calls, the transport stepped once per window inside tw_render
  * exactly as it is under a real audio thread. What comes back is the tape
- * as text, written the way genwav writes it, which is the thing M2's gate
- * compares (JAM.md, section 6). */
+ * as text, written the way genwav writes it, which is the thing the tape
+ * gate compares. */
 export async function playPiece (createThinkWeb,
                                  { rate = 48000, windowlen = 256,
                                    block = 128, gen, instruments = {},
@@ -189,13 +189,13 @@ export function schedule (M, c)
 /* A piece played the way the page plays it: loaded, then aimed, then
  * listened to.
  *
- * The page's rule, in Node (AIMING.md, section 3): what a channel sounds
- * like is the piece's to decide, and where the piece is silent on it, the
- * page's defaults'. So the piece goes in first, the module says which
- * channels its sinks named and its own instruments did not take, and
- * `patchFor' is asked what belongs on each -- the same question patch.js
- * asks for the page, with the same answer, resolved by the caller because
- * only the caller can read a file.
+ * The page's rule, in Node: what a channel sounds like is the piece's to
+ * decide, and where the piece is silent on it, the page's defaults'. So
+ * the piece goes in first, the module says which channels its sinks named
+ * and its own instruments did not take, and `patchFor' is asked what
+ * belongs on each -- the same question patch.js asks for the page, with
+ * the same answer, resolved by the caller because only the caller can
+ * read a file.
  *
  * `patchFor(channel)' returns `{ name, dsp, args }': the .dsp's text and
  * the chanarg overrides to set on it afterwards, which is a .patch. null
@@ -310,7 +310,7 @@ export async function playAimed (createThinkWeb,
 /* A piece played *at*: keys held down and let go, into whatever chains
  * declared `input midi' on the channel they arrive on.
  *
- * The other half of M2's command path. A composed note declares how long it
+ * The other half of the command path. A composed note declares how long it
  * lasts and the scheduler derives its release; a key held down has no idea
  * how long it will be held, so it goes in with a duration of zero and the
  * release is its own event -- which is why the composer ABI has a

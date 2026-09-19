@@ -20,7 +20,7 @@
  * 1. The shared pitch parser is right, at the values people argue about
  *    (middle C, the octave boundary, flats on C).
  *
- * 2. The loader rejects what GEN_FORMAT.md says it rejects, with the
+ * 2. The loader rejects what docs/GEN_FORMAT.md says it rejects, with the
  *    file and line in the message. Each bad file is generated here --
  *    the corpus cannot contain them, for the same reason argtype builds
  *    its own .dsp files.
@@ -309,7 +309,8 @@ static void
 checkValidation (const std::map<std::string, thcPlugin *> &plugins,
                  thSynth *synth)
 {
-    /* A duration with no unit: the whole point of §2 of the format. */
+    /* A duration with no unit: a value carries its unit or it is a load
+       error, which is the whole point of the format's time rules. */
     expectReject(plugins, synth, "bare-duration",
         "chain c { stage s gen::eno_line { period = 20; };"
         " sink { channel = 1; }; };",
@@ -499,7 +500,7 @@ showDivergence (const std::string &a, const std::string &b,
  * So the store keeps two lists and replays both, in order. This is the
  * gate on the second one.
  */
-/* ---- arithmetic over signals (GEN_FORMAT.md 5a) ------------------------
+/* ---- arithmetic over signals (docs/GEN_FORMAT.md 5a) ------------------------
  *
  * `prob = lfo->out * 0.5 + 0.5' is sugar for the math::mul and math::add a
  * chain used to have to spell out three lines at a time. The claim is an
@@ -727,7 +728,7 @@ checkExpressions (const std::map<std::string, thcPlugin *> &plugins,
 
     /* ---- and it groups the way a .dsp groups it ------------------------ */
 
-    /* The claim GEN_FORMAT.md 5a makes: one language, whichever file it is
+    /* The claim docs/GEN_FORMAT.md 5a makes: one language, whichever file it is
      * written in. Two parsers say it -- thinklang.yy's rules and the three
      * hand-written functions above -- so the way to hold them together is to
      * ask both the same questions and compare the answers.
@@ -1024,8 +1025,8 @@ checkReplay (const std::map<std::string, thcPlugin *> &plugins,
      * late by up to a step and the next was scheduled from the late one.
      * Two machines with different sound cards composed different pieces
      * from one file and one seed, which is the one failure a jam cannot
-     * see happening (JAM.md section 3). This is what stops it coming
-     * back, and what every new composer meets. */
+     * see happening (docs/JAM.md). This is what stops it coming back, and
+     * what every new composer meets. */
     sched.reset();
 
     const std::string coarse = render(sched, 180.0, 1024.0 / 44100.0);
@@ -2098,9 +2099,9 @@ checkEdits (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6. presets, the wildcard sink, and morph -------------------------- */
 
-/* Tier 2 of COMPOSITION_HANDOFF.md §9: the piece composes the instrument
- * as well as the notes. Three things have to hold together for that, and
- * none of them is provable from any other section here.
+/* The piece composes the instrument as well as the notes.
+ * Three things have to hold together for that, and none of them is
+ * provable from any other section here.
  *
  * A preset has to arrive at the plugin resolved -- the same bargain
  * NOTESET made, and the reason no composer has ever parsed a note name.
@@ -2491,9 +2492,9 @@ checkPresets (const std::map<std::string, thcPlugin *> &plugins,
  * alone, and a board somebody clicked replays given the same clicks,
  * which is the boundary live MIDI already has.
  *
- * The clicks are scripted rather than real, for exactly the reason §7
- * gives about learned composers: a gate that needed a mouse would not be
- * a gate. What is driven is the ABI, not the widget -- composercheck is
+ * The clicks are scripted rather than real, for the same reason a learned
+ * composer is driven by its params: a gate that needed a mouse would not
+ * be a gate. What is driven is the ABI, not the widget -- composercheck is
  * where the widget gets pressed.
  */
 static void
@@ -2954,8 +2955,8 @@ checkTempoAndRevival (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6d. instruments: a piece that carries what it is played on -------- */
 
-/* UNIFICATION.md phase 1. Four claims, each of which fails silently if
- * nothing watches it:
+/* A piece that carries what it is played on. Four claims, each of which
+ * fails silently if nothing watches it:
  *
  * 1. The block parses and the graph actually arrives on a channel. This
  *    is the one that needs a real thSynth with a real plugin path, which
@@ -3374,7 +3375,7 @@ checkEffectSide (const std::map<std::string, thcPlugin *> &plugins,
  * spoke TH_EFFECT_PREFIX -- thSynth::getChanArg splits on it, the
  * scheduler's refusal message reads it, an `effect' block's values are
  * stored behind it -- and the sink's name check took an identifier and
- * refused the dot. So GEN_FORMAT.md documented `chanarg = "fx.delay"'
+ * refused the dot. So docs/GEN_FORMAT.md documented `chanarg = "fx.delay"'
  * and the loader rejected the file, and a Leslie's spin-up or a filter
  * sweep on a channel effect was a thing a piece could describe and not
  * perform.
@@ -3746,15 +3747,13 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
     /* ---- knobs reaching into an instrument -------------------------- */
 
-    /* UNIFICATION.md phase 2, and the whole of it: one knob, both sides
-     * of the boundary. A stage param bound to a knob is *read* through
-     * it; a chanarg cannot be, because what reads a chanarg is the audio
-     * graph and the only value it will ever see is the one in its thArg.
-     * So this binding is a push, and the thing to hold down is that the
-     * push happens -- at load, and again on every move, through the
-     * unit the binding was written with. */
-    {
-        std::string path = thUtil::tempFile("gencheck-instr-knob-");
+    /* One knob, both sides of the boundary, and the whole of it. A stage
+    * param bound to a knob is *read* through * it; a chanarg cannot be,
+    because what reads a chanarg is the audio * graph and the only value
+    it will ever see is the one in its thArg. * So this binding is a push,
+    and the thing to hold down is that the * push happens -- at load, and
+    again on every move, through the * unit the binding was written with.
+    */ { std::string path = thUtil::tempFile("gencheck-instr-knob-");
 
         if (path.empty())
             fail("could not make a scratch file for the knob-binding check");
@@ -3826,7 +3825,8 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
                              "through the unit");
 
                     /* The same knob, still driving the composer's side.
-                       That is the sentence phase 2 is about. */
+                       That is the sentence one binding namespace is
+                       about. */
                     thcChain *c = sched.chain(0);
 
                     if (c == NULL || c->stages.empty())
@@ -4222,7 +4222,7 @@ checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6e. embedded nodes: dsp plugins as chain stages ------------------- */
 
-/* UNIFICATION.md phase 3. Four claims:
+/* DSP plugins as chain stages. Four claims:
  *
  * 1. A node's output reaches a composer param, and moves it. The whole
  *    deliverable is "an LFO breathing a chain's density", and a binding
@@ -4637,7 +4637,7 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
         "cannot write it");
 
     /* A knob cannot write one either -- the same end of the arrow,
-       reached from the namespace phase 2 unified. */
+       reached from the shared binding namespace. */
     expectReject(plugins, synth, "knob-at-an-output",
         "@depth = 0.5;\n@depth.min = 0;\n@depth.max = 1;\n"
         "chain c { stage lfo osc::simple { freq = 1; out = @depth; };"
@@ -4680,7 +4680,7 @@ checkNodes (const std::map<std::string, thcPlugin *> &plugins,
 
 /* ---- 6f. structure edits: composers reshaping instruments -------------- */
 
-/* UNIFICATION.md phase 4. What has to be true:
+/* Composers reshaping instruments. What has to be true:
  *
  * 1. A swap actually swaps -- the channel is playing a different graph
  *    afterwards, not merely told to.
@@ -7064,7 +7064,7 @@ checkHeldNotes (const std::map<std::string, thcPlugin *> &plugins,
     }
 
     /* Not a held note, but the same shape of mistake: a value that is not
-       a pitch reaching a sink as one. GEN_FORMAT.md lets a `.' into any
+       a pitch reaching a sink as one. docs/GEN_FORMAT.md lets a `.' into any
        note list and rests the whole idea on every ladder filtering what
        it is handed to 0..127. gen::life climbs a ladder and was the one
        that did not, so a rest in its scale played note -1 on row 0 and
@@ -7347,7 +7347,7 @@ sectionLines (const std::string &text)
     return out;
 }
 
-/* ---- the arrangement (GEN_FORMAT.md 5c) --------------------------------
+/* ---- the arrangement (docs/GEN_FORMAT.md 5c) --------------------------------
  *
  * A section is the piece's shape written once, in the order it is played,
  * instead of an xform::form pattern under every chain. What is checked is
@@ -8684,14 +8684,14 @@ checkCorpus (const std::map<std::string, thcPlugin *> &plugins,
  *
  * The composer view in the browser is a second scheduler over a second
  * synth, fed the commands the worklet is fed, holding real composer
- * instances for their pictures (JAM_M6.md). That synth must not render
- * -- there is no audio thread behind it -- and must otherwise be the
- * synth the scheduler expects: instruments load, chanargs read back,
- * channels come and go. thSynth::setSilent is that, and this is the claim
- * it rests on: every seeded piece composes the same tape over a silent
- * synth as over a rendering one. A silent synth that dropped a
- * SET_CHANNEL, or answered a chanarg differently, would part the picture
- * from the sound here, before it ever parted them on a page.
+ * instances for their pictures. That synth must not render -- there is no
+ * audio thread behind it -- and must otherwise be the synth the scheduler
+ * expects: instruments load, chanargs read back, channels come and go.
+ * thSynth::setSilent is that, and this is the claim it rests on: every
+ * seeded piece composes the same tape over a silent synth as over a
+ * rendering one. A silent synth that dropped a SET_CHANNEL, or answered a
+ * chanarg differently, would part the picture from the sound here, before
+ * it ever parted them on a page.
  */
 static void
 checkSilent (const std::map<std::string, thcPlugin *> &plugins,
@@ -8761,10 +8761,10 @@ checkSilent (const std::map<std::string, thcPlugin *> &plugins,
         }
     }
 
-    /* The reason the mode exists (SCHEDULER_PLACEMENT.md, section 4.4):
-       a synth stepped without rendering dropped commands within one
-       fast-forward. Twenty pieces of a minute each, over a ring drained
-       as a mirror drains it, and nothing may have fallen off. */
+    /* The reason the mode exists: a synth stepped without rendering
+       dropped commands within one fast-forward. Twenty pieces of a
+       minute each, over a ring drained as a mirror drains it, and
+       nothing may have fallen off. */
     if (silent->droppedCommands() != 0)
         fail("the silent synth dropped " +
              std::to_string(silent->droppedCommands()) +

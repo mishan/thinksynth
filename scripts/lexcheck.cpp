@@ -341,7 +341,7 @@ checkGenAdapter (void)
 
     check(aligned, "gen: every token begins where the shared lexer began one");
 
-    /* Arithmetic is .gen's too now (GEN_FORMAT.md 5a), so `+' is an
+    /* Arithmetic is .gen's too now (docs/GEN_FORMAT.md 5a), so `+' is an
        operator to both languages and the adapter passes it through. */
     check(thcGenLoader::tokenize("a = 1 + 2;", gen, err, line),
           "gen: arithmetic lexes", err);
@@ -400,10 +400,10 @@ checkGenAdapter (void)
 /* ---- 4. still pure ----------------------------------------------------- */
 
 /* thinklang was made reentrant so a background evaluator could parse
- * candidate instruments while the live synth plays (COMPOSITION_HANDOFF.md
- * §8 step 1, §9 tier 3). The lexer is the half of that with state in it --
- * a scanner, a buffer, a line count -- and it now has two callers instead
- * of one, so the property is worth a tripwire rather than an assurance.
+ * candidate instruments while the live synth plays. The lexer is the half
+ * of that with state in it -- a scanner, a buffer, a line count -- and it
+ * now has two callers instead of one, so the property is worth a tripwire
+ * rather than an assurance.
  *
  * Sixteen threads lexing different text at once must each get what they
  * would have got alone. A scanner per call is what makes that true; a

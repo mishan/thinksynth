@@ -59,7 +59,7 @@ void gthMidiQueue::drain (void)
      * queue, which costs one pipe write and a loop iteration that finds
      * nothing.
      *
-     * dspmidi's phase 3 holds this down: it pushes from another thread from
+     * dspmidi holds this down: it pushes from another thread from
      * inside the hook below, which is the instant this store protects. Move
      * the store beneath the hook and that check fails every run. */
     notified_.store(false, std::memory_order_release);

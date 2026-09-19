@@ -73,18 +73,17 @@ public:
 
     /* ---- a synth that never renders ----
      *
-     * A mirror -- the composer view's second scheduler in the browser
-     * (JAM_M6.md, section 2), or a harness holding a piece up against
-     * itself -- needs a thSynth to hand its scheduler, and needs it to
-     * behave like the real one in every way but the sound: instruments
-     * load, chanargs are written and read back, channels come and go.
-     * What it must not do is build a note graph for every note the
-     * scheduler delivers and queue it for an audio thread that is not
-     * there. Stepping a scheduler over an ordinary synth without
-     * rendering was measured filling the 1024-deep command ring and
-     * dropping commands within one fast-forward (SCHEDULER_PLACEMENT.md,
-     * section 4.4) -- and among what it dropped was a SET_CHANNEL, so an
-     * instrument silently failed to load.
+     * A mirror -- the composer view's second scheduler in the browser, or
+     * a harness holding a piece up against itself -- needs a thSynth to
+     * hand its scheduler, and needs it to behave like the real one in
+     * every way but the sound: instruments load, chanargs are written and
+     * read back, channels come and go. What it must not do is build a
+     * note graph for every note the scheduler delivers and queue it for
+     * an audio thread that is not there. Stepping a scheduler over an
+     * ordinary synth without rendering was measured filling the 1024-deep
+     * command ring and dropping commands within one fast-forward -- and
+     * among what it dropped was a SET_CHANNEL, so an instrument silently
+     * failed to load.
      *
      * Silent, a synth drops notes at the door: addNote copies nothing
      * and queues nothing, delNote and clearAll post nothing, and

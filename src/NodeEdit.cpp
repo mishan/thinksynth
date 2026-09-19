@@ -213,7 +213,7 @@ static string suffixTextOf (const string &rhs)
  * saved.
  *
  * Four ULP is comfortably more than that gap and comfortably less than any
- * edit a person could mean. (DSP_FORMAT.md records this as one concrete thing
+ * edit a person could mean. (docs/DSP_FORMAT.md records this as one concrete thing
  * the global -ffast-math costs.) */
 static bool sameValue (double a, double b)
 {
@@ -669,9 +669,9 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
  * Every edit below works on the file's text and nothing else: lines in,
  * lines out, and a Result. Where the text came from is somebody else's
  * business -- a file on the desktop, a CRDT in a browser tab where the
- * document *is* the patch and there is no file at all (JAM_M6.md, section
- * 7.1). The filename overloads at the bottom of this file are the file
- * case, and they are three lines each.
+ * document *is* the patch and there is no file at all. The filename
+ * overloads at the bottom of this file are the file case, and they are
+ * three lines each.
  *
  * This was always the shape of the code; what it lacked was the seam. The
  * bodies below are unchanged except for their first and last step.

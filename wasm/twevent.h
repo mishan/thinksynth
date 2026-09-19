@@ -19,12 +19,12 @@
 /*
  * The tape, laid out for JavaScript to read straight out of the heap.
  *
- * Both Emscripten hosts deliver one: thinkwasm.cpp under Node, for
- * genwav.mjs, and thinkweb.cpp in the worklet, for the page. M2's gate is
- * that the two tapes are the same tape (JAM.md, section 6), which they can
- * only be if they are spelled the same way -- so the spelling is here,
- * once, rather than twice. wasm/tape.mjs is the other half: the offsets
- * below, read from JavaScript, and the line each event prints as.
+ * Both Emscripten hosts deliver one: thinkwasm.cpp under Node, for genwav.mjs,
+ * and thinkweb.cpp in the worklet, for the page. The gate is that the two
+ * tapes are the same tape, which they can only be if they are spelled the
+ * same way -- so the spelling is here, once, rather than twice.
+ * wasm/tape.mjs is the other half: the offsets below, read from JavaScript, and
+ * the line each event prints as.
  */
 
 #ifndef TH_WASM_EVENT_H

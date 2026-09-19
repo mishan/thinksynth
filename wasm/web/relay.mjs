@@ -19,7 +19,7 @@
 
 /*
  * relay.mjs -- the room's server: the document, the clock, who is here,
- * and the way peers find each other (JAM_M3.md, section 3).
+ * and the way peers find each other.
  *
  *   node wasm/web/relay.mjs [--port 8787] [--tree DIR]
  *
@@ -42,7 +42,7 @@
  *
  * A room is made when the first peer arrives and seeded with a shipped
  * piece -- the .gen, and every .dsp it names, from the tree -- and kept
- * for an hour after the last one leaves. Persistence is M5's.
+ * for an hour after the last one leaves. Nothing is persisted.
  */
 
 import fs from 'node:fs';

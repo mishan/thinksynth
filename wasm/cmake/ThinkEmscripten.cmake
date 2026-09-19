@@ -108,10 +108,10 @@ target_link_libraries(sigc PUBLIC PkgConfig::SIGC)
 #
 # Only the Node build wants the host's header, and it says so with
 # THINK_NEED_CAIRO. The browser build never looks: it compiles the draws
-# against cairo-canvas2d instead, which records them for the page to replay
-# (JAM_M6.md, section 3), so it builds where the host has no cairo headers
-# at all. plugins/CMakeLists.txt names the target in both, so the target is
-# always there -- empty when nothing looked.
+# against cairo-canvas2d instead, which records them for the page to
+# replay, so it builds where the host has no cairo headers at all.
+# plugins/CMakeLists.txt names the target in both, so the target is always
+# there -- empty when nothing looked.
 add_library(PkgConfig::CAIRO INTERFACE IMPORTED GLOBAL)
 
 if(THINK_NEED_CAIRO)
@@ -141,7 +141,8 @@ set(THINK_PKG_LIB_DIR "${CMAKE_INSTALL_LIBDIR}")
 # be borrowed the way libthink/ and plugins/ are, since that file builds the
 # application. Named here once for the two builds that compile it
 # themselves -- wasm/ for Node and wasm/web/ for the worklet -- so the two
-# wasm hosts M2's gate compares cannot be built from different source sets.
+# wasm hosts the tape gate compares cannot be built from different source
+# sets.
 # glib.cpp and shim/ stand in for glibmm; see shim/glibmm.h.
 set(THINK_COMPOSERHOST_SOURCES
     "${THINK_TOP}/src/thcPlugin.cpp"
