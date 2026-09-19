@@ -240,5 +240,4 @@ that each can carry its own effect (pearl), pinned and unpinned seeds (all of
 them, both ways).
 
 See [`../docs/GEN_FORMAT.md`](../docs/GEN_FORMAT.md) for the language and
-[`../COMPOSITION_HANDOFF.md`](../COMPOSITION_HANDOFF.md) for why it is shaped
-the way it is.
+[`../docs/UNIFICATION.md`](../docs/UNIFICATION.md) for where it is going.

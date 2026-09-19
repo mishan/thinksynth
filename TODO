@@ -108,6 +108,31 @@ Engine
   works today; "the knob moves on its own" needs engine work.
 
 
+Composition
+-----------
+
+- Fitness from the sound itself. `gen::breed` and `gen::evolve` both judge a
+  candidate by arithmetic over the genome -- distance from a target vector,
+  distance from the last champion, how much of the corridor got used. What
+  neither can do is listen: judging the rendered audio needs a shadow synth
+  to render candidates into, off the audio thread and without sounding, and
+  a feature or two pulled out of the result. thSynth::setSilent is most of
+  the machinery already, since the mirror needed the same thing. For `breed`
+  this is one function replaced and nothing else moved, which is most of the
+  argument for having built it the way it is.
+
+  It is the last step of the composer plan nobody has taken. Everything
+  above it landed: presets, the wildcard sink, morph, the GA over chanarg
+  vectors, the structure edits, `composer_input` and `composer_capture`.
+
+- Writing a graph out *inline* in a `.gen`, rather than naming a `.dsp` by
+  file. An `instrument` block carries a filename and the chanarg values that
+  make it this instrument, which delivered the self-contained piece; putting
+  the graph itself in the same file needs the two grammars merged, and the
+  merge is still waiting on a payoff rather than blocking one.
+  (docs/UNIFICATION.md)
+
+
 Node editor
 -----------
 
@@ -129,4 +154,18 @@ The browser page
   channel the piece neither names nor listens on are silent with nothing in
   the page to say why. A `tw_loaded(channel)' export beside tw_sink_channel
   would settle both, and would let the key channel take a default too.
-  (AIMING.md, wasm/web/main.js)
+  (wasm/web/main.js)
+
+- Four measurements the browser build has only ever been given on a fast
+  desktop. The scheduler runs in the worklet on numbers taken there, and
+  each of these could move that decision:
+
+    * The worst quantum on a slow machine: the busiest pieces (`orrery`,
+      `tide`) plus a chord of note-ons, at 256 and at 128.
+      `wasm/web/bench.mjs` is the harness; what is missing is the machine.
+    * Chrome's and Firefox's main-thread-to-worklet delay on each OS, with
+      a real output device rather than an offline context.
+    * Background-tab behaviour through a silent stretch of a piece, in both
+      browsers.
+    * Whether a dedicated worker's timers really are unthrottled in the
+      browsers the room targets. Secondary sources only, so far.

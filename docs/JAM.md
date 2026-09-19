@@ -128,8 +128,7 @@ starts where that ends:
   declares no instruments, so the page fills the channels it names from
   the same four patches the desktop's first run loads, and offers each of
   them as a row to aim by hand — the piece first and the aiming after, so
-  what a channel sounds like is never what the page did before
-  ([`AIMING.md`](AIMING.md)).
+  what a channel sounds like is never what the page did before.
 - `wasm/twevent.h` and `wasm/tape.mjs` are one spelling of an event,
   shared by the Node host and the browser's: M2's gate is that two tapes
   are the same tape, which is a claim about the piece and not about two
@@ -181,10 +180,9 @@ starts where that ends:
 
 ### M3, so far
 
-On `jam-m3`, which starts where `jam-m2` ends. [JAM_M3.md](JAM_M3.md) is
-the plan; this is where it stands.
+On `jam-m3`, which starts where `jam-m2` ends. Where it stands:
 
-- The scheduler seam, as JAM_M3.md section 2 now describes it: a stop, a
+- The scheduler seam: a stop, a
   tempo or a knob is stamped with the transport time it applies at and
   applied at that time inside the step, the transport stepped to it
   exactly, on every peer whatever its window or rate; a start is armed at
@@ -248,8 +246,7 @@ the plan; this is where it stands.
 
 ### M6, so far
 
-On `jam-m6`. [JAM_M6.md](JAM_M6.md) is the plan; this is where it
-stands.
+On `jam-m6`. Where it stands:
 
 - The engine change the mirror needs: a `thSynth` that never renders
   (`setSilent`), dropping notes at the door and applying everything
@@ -392,8 +389,8 @@ Decisions, and why:
 
 **The scheduler runs in the worklet.** This reverses the first draft of this
 plan, which had it on the main thread stepped ahead of the audio clock.
-[SCHEDULER_PLACEMENT.md](SCHEDULER_PLACEMENT.md) measured both and the
-reasons are these. The scheduler holds a `thSynth *` and calls it directly,
+Both were measured and the reasons are these. The scheduler holds a
+`thSynth *` and calls it directly,
 and much of what it does never appears on the tape: the note-offs it derives
 from durations, the chanarg writes a knob binding makes, instrument
 application at load and rewind, the flushes at stop. A main-thread
@@ -539,8 +536,8 @@ ping / pong { sent, received }
 
 Everything carries `at`, a transport time, not a wall-clock millisecond,
 so a message is meaningful on a peer whose clock differs by whatever the
-estimate missed. [JAM_M3.md](JAM_M3.md) fixes the unit as transport
-seconds, the scheduler's own clock, with beats derived from it.
+estimate missed. The unit is transport seconds, the scheduler's own clock,
+with beats derived from it.
 
 ## 5. Seats and editing
 
@@ -620,8 +617,7 @@ nothing in a worklet draws. It arrives with the mirror, in M6.
 sync, data channels, seats, knobs and direct-mode notes. *Done when* two
 browsers on one machine share a piece, both can edit it, and their tapes are
 identical from the same origin. Then the same across two machines on one
-LAN, with the round trip shown. The detailed plan, including the scheduler
-seam it needs from M2, is [JAM_M3.md](JAM_M3.md).
+LAN, with the round trip shown.
 
 **M4 — edits and arrivals.** The apply-at-bar rule from section 5, with its
 harness first. Late join by fast-forward. Quantised and play-ahead modes.
