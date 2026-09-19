@@ -45,3 +45,11 @@ repo/
 
 # The browser build's test harness (wasm/web/package.json) installs here.
 node_modules/
+
+# wasm/compare.mjs renders every piece twice, natively and through the
+# module, and `-k DIR' leaves the pair on disk rather than in a temp dir --
+# which is what CI passes, as `-k compare'. That is 458 MB of wav for the
+# shipped corpus, and it went into a commit and onto master exactly the way
+# the flatpak note above describes. Without `-k' the renders go to a temp
+# dir and none of this arises.
+/compare/
