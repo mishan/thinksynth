@@ -251,14 +251,30 @@ static bool allFinite (const vector<float> &v)
    one whose point is the side -- and the shipped-graph loop below has to
    give it one, since a vocoder with no carrier is a vocoder doing nothing.
    Read off the text rather than off the loaded tree: what is wanted is the
-   author's declaration, and the engine invents nothing here. */
+   author's declaration, and the engine invents nothing here.
+
+   A comment is not a declaration, though, and a header explaining what
+   side0 is for is the likeliest place in the file to write it down. `#'
+   runs to the end of its line in this grammar, so dropping what follows one
+   leaves exactly the lines the parser would have read. */
 static bool declaresSide (const string &path)
 {
     std::ifstream in(path.c_str(), std::ios::binary);
-    string text((std::istreambuf_iterator<char>(in)),
-                std::istreambuf_iterator<char>());
+    const string want = string(SIDEPREFIX) + "0";
+    string line;
 
-    return text.find(string(SIDEPREFIX) + "0") != string::npos;
+    while (std::getline(in, line))
+    {
+        const string::size_type hash = line.find('#');
+
+        if (hash != string::npos)
+            line.erase(hash);
+
+        if (line.find(want) != string::npos)
+            return true;
+    }
+
+    return false;
 }
 
 /* ---- a session ---------------------------------------------------------- */
@@ -1030,6 +1046,7 @@ int main (int argc, char **argv)
             continue;
 
         vector<float> both[2];
+        bool rendered = true;
 
         for (int pass = 0; pass < 2; pass++)
         {
@@ -1039,6 +1056,7 @@ int main (int argc, char **argv)
                 c.synth.loadTree(instFile, 1, 100) == NULL)
             {
                 fail("two instruments load", "");
+                rendered = false;
                 break;
             }
 
@@ -1047,6 +1065,7 @@ int main (int argc, char **argv)
             if (c.synth.loadEffect(shipped[i], 0, pass == 0 ? 1 : 5) == NULL)
             {
                 fail(shipped[i] + " loads with a side channel", "");
+                rendered = false;
                 break;
             }
 
@@ -1062,9 +1081,17 @@ int main (int argc, char **argv)
             if (!allFinite(both[pass]))
             {
                 fail(shipped[i] + " stays finite with a side channel", "");
+                rendered = false;
                 break;
             }
         }
+
+        /* One of the two renders never happened, and its failure has been
+           counted already. Measuring a difference against the empty vector
+           it left behind would only report a second, emptier way to say the
+           same thing. */
+        if (!rendered)
+            continue;
 
         double came = 0;
         const double whole = peak(both[0]);
