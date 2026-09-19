@@ -65,6 +65,15 @@ const dspDir = path.join(build, 'dsp');
 const names = JSON.parse(fs.readFileSync(path.join(dspDir, 'index.json'),
                                          'utf8'));
 
+/* The kit, as bytes, handed to every render below. A graph with an
+   osc::sample node in it -- dsp/linn.dsp, dsp/orchhit.dsp -- has nothing
+   to play without them, and a sampler with no file is silence, which is
+   exactly what this gate calls a failure. */
+const kit = Object.fromEntries(
+    names.filter((n) => n.startsWith('samples/'))
+         .map((n) => [n, new Uint8Array(fs.readFileSync(
+                            path.join(dspDir, n)))]));
+
 for (const name of names)
 {
     /* An effect graph has no note to play and is not an instrument; the
@@ -76,6 +85,15 @@ for (const name of names)
         continue;
     }
 
+    /* And the kit is not a graph at all -- it is the wavs osc::sample
+       plays, carried in the same index because the worklet has to be
+       handed them and cannot fetch. statecheck is their gate. */
+    if (name.startsWith('samples/'))
+    {
+        process.stdout.write(`skip  ${name}: a sample, not a graph\n`);
+        continue;
+    }
+
     const text = fs.readFileSync(path.join(dspDir, name), 'utf8');
     const events = [
         { on: true, frame: 0, ...NOTE },
@@ -83,7 +101,8 @@ for (const name of names)
     ];
 
     const a = await renderDirect(createThinkWeb,
-                                 { rate: RATE, text, events, frames: FRAMES });
+                                 { rate: RATE, text, events, samples: kit,
+                                   frames: FRAMES });
 
     if (!a.ok)
     {
@@ -102,7 +121,8 @@ for (const name of names)
     }
 
     const b = await renderDirect(createThinkWeb,
-                                 { rate: RATE, text, events, frames: FRAMES });
+                                 { rate: RATE, text, events, samples: kit,
+                                   frames: FRAMES });
     const same = Buffer.from(a.out.buffer).equals(Buffer.from(b.out.buffer));
 
     if (bad > 0)

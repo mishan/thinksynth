@@ -156,8 +156,18 @@ const OK = 0;
 /* ---- every shipped patch, as a graph ------------------------------------ */
 
 const dspDir = path.join(build, 'dsp');
+
+/* The index carries the kit as well, as `samples/<name>' -- the wavs
+   osc::sample plays. The page hands the worklet every name in the list
+   because a worklet cannot fetch, so they are in there with the patches;
+   everything that treats the list as patches filters them out, and this
+   reads every entry as text and builds a graph from it. `fx/' stays: an
+   effect is a real .dsp with a real graph in it, which is the difference.
+   Without this the wavs come back as `stray character' and seven patches
+   that are not patches fail to build. */
 const names = JSON.parse(fs.readFileSync(path.join(dspDir, 'index.json'),
-                                         'utf8'));
+                                         'utf8'))
+    .filter((n) => !n.startsWith('samples/'));
 
 let graphs = 0, boxes = 0, edits = 0;
 

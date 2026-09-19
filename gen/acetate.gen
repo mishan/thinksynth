@@ -1,0 +1,198 @@
+# acetate.gen -- a kit that is recordings, and an orchestra that is one note.
+#
+# An acetate is a one-off record, cut so somebody can hear what the tape
+# sounds like coming off a needle. This piece is the tree hearing itself
+# that way: every drum in it is a recording of one of this repository's
+# own drum graphs, played back by `osc::sample', and the chord that
+# answers the turnaround is a recording of `stab' and `brass' hitting C4
+# together. Nothing here is synthesized at the moment you hear it. That
+# is the whole subject.
+#
+# WHY THAT IS WORTH A PIECE. A sampler is not a better oscillator, and a
+# piece that used one to play a sine would be a waste of a node. What it
+# is, is the only instrument that can play a thing that already happened
+# -- and the two halves of this piece are the two ways that mattered in
+# the decade it comes from. The kit is a machine playing short recordings
+# of drums, which is a LinnDrum: the timing is a sequencer's and the
+# sounds are not. The hit is one recording of many instruments,
+# transposed by a key, which is a Fairlight: it is an orchestra doing
+# something no orchestra can do.
+#
+# THE HIT GETS SHORTER AS IT CLIMBS, and that is not a bug to work
+# around. `orchhit.dsp' reads its file at `freq / root' frames a sample,
+# so the F above the root is a fifth up and two thirds as long; the
+# turnaround's last hit is the highest and the shortest, which is why it
+# lands as a stab rather than a chord. Every record that used this sound
+# has that property and none of them apologized for it.
+#
+# THE BASS IS NOT SAMPLED, deliberately. A record like this had a real
+# bass on it and the drum machine was the thing that was not, so the one
+# synthesized voice is the one holding the bottom. `bass.dsp' is
+# monophonic and slides where the steps overlap.
+#
+# Everything a chain rolls dice for is seeded, so this is a piece and not
+# a process. Self-contained: open it and press Play.
+
+name "Acetate";
+author "Misha Nasledov";
+description "A sampled kit and a sampled orchestra: the tree played back off a record.";
+
+seed 4409;
+
+# A sixteenth at about 104 bpm, which is where a Linn pattern sits before
+# anybody decided it should be faster.
+@pace = 0.144;
+@pace.widget = 1;
+@pace.min = 0.07;
+@pace.max = 0.3;
+@pace.label = "Pace";
+@pace.units = "s";
+
+# The General MIDI drum map, which is what dsp/linn.dsp reads its zones
+# from -- `r' is a rest, so the axioms below are patterns and not
+# melodies.
+scale kick   "C2";
+scale snare  "D2";
+scale clap   "D#2";
+scale hatc   "F#2";
+scale hato   "A#2";
+
+# Four notes of an F minor turnaround for the hit, climbing. The last is
+# the highest, and so the shortest: see the head.
+scale hits   "F3 G#3 C4 F4";
+
+scale low    "F1 F1 C2 F1 D#1 F1 G#1 C2";
+
+instrument kit {
+    dsp "linn.dsp";
+    amp = 46;
+
+    tune  = 1;
+    kick  = 1.1;
+    snare = 1;
+    clap  = 0.8;
+    hat   = 0.9;
+};
+
+instrument hit {
+    dsp "orchhit.dsp";
+    amp = 30;
+
+    cutoff = 500;
+    depth  = 9000;
+    snap   = 70 ms;
+    res    = 0.25;
+    d      = 800 ms;
+};
+
+instrument bass {
+    dsp "bass.dsp";
+    amp = 34;
+
+    glide  = 40 ms;
+    sub    = 0.5;
+    cutoff = 180;
+    depth  = 1600;
+    res    = 0.75;
+    drive  = 2;
+
+    a = 4 ms;
+    d = 260 ms;
+    s = 0.5;
+    r = 70 ms;
+};
+
+# One chain per drum rather than one pattern with every note in it: a
+# Linn's grid is a row per voice, and so is this. They share `Pace', so
+# dragging it moves the whole kit at once.
+chain kickline {
+    stage src gen::lsystem {
+        axiom = "Frrrrrrrrr rrFrrr";
+        depth = 0;
+        notes = kick;
+        step = @pace;  hold = 0.05 s;  vel = 116;
+    };
+    sink { instrument = kit; };
+};
+
+chain snareline {
+    stage src gen::lsystem {
+        axiom = "rrrrFrrrrr rrFrrr";
+        depth = 0;
+        notes = snare;
+        step = @pace;  hold = 0.05 s;  vel = 110;
+    };
+    sink { instrument = kit; };
+};
+
+# The clap doubles the snare on the backbeat, which is what a drum
+# machine record does when the snare on its own is too polite.
+chain clapline {
+    stage src gen::lsystem {
+        axiom = "rrrrFrrrrr rrrrrr";
+        depth = 0;
+        notes = clap;
+        step = @pace;  hold = 0.05 s;  vel = 92;
+    };
+    sink { instrument = kit; };
+};
+
+# Eighths, humanized a little, with the open hat on the last sixteenth of
+# the bar -- the one place a Linn pattern always breathes.
+chain hatline {
+    stage src gen::lsystem {
+        axiom = "FrFrFrFrFr FrFrFr";
+        depth = 0;
+        notes = hatc;
+        step = @pace;  hold = 0.05 s;  vel = 70;
+    };
+    stage h xform::humanize { time = 0.006 s;  vel = 9; };
+    sink { instrument = kit; };
+};
+
+chain openhat {
+    stage src gen::lsystem {
+        axiom = "rrrrrrrrrr rrrrrF";
+        depth = 0;
+        notes = hato;
+        step = @pace;  hold = 0.05 s;  vel = 104;
+    };
+    sink { instrument = kit; };
+};
+
+# The turnaround. Sixty-four steps -- four bars -- with the four hits on
+# the last one, so it arrives where a phrase ends and not on a grid.
+chain turnaround {
+    stage src gen::lsystem {
+        axiom = "rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrF+F+F+F";
+        depth = 0;
+        notes = hits;
+        step = @pace;  hold = 0.4 s;  vel = 104;
+    };
+    sink { instrument = hit; };
+};
+
+# Eighths, overlapping where the line wants to slide: `hold' longer than
+# `step' is what bass.dsp reads as a slide rather than a retrigger.
+chain bassline {
+    stage src gen::lsystem {
+        axiom = "F+Fr+F-F+FrF-F";
+        depth = 0;
+        notes = low;
+        step = @pace * 2;  hold = 0.3 s;  vel = 104;
+    };
+    stage a xform::accent {
+        pattern = "x..x";  grid = @pace * 2;  strong = 1.12;  weak = 0.88;
+    };
+    sink { instrument = bass; };
+};
+
+# The bass filter opens and closes over a period that lines up with none
+# of the phrases, so the same eight notes do not arrive the same way
+# twice. In bass.dsp's units: hertz.
+chain sweep {
+    stage src gen::walk {
+        min = 120;  max = 900;  step = 90;  period = 3.1 s;
+    };
+    sink { instrument = bass;  chanarg = "cutoff"; };
+};

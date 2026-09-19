@@ -379,6 +379,31 @@ foreach(f IN LISTS SHIPPED_FX)
   list(APPEND dsp_names "\"fx/${name}\"")
 endforeach()
 
+# And the kit -- dsp/samples/*.wav -- as `samples/<name>', which is how
+# osc::sample's `file' arg is looked up (thUtil::findDataFile under
+# `samples/'). They go in the same list for the same reason the effect
+# graphs do: the page hands every name in it to the worklet, and a
+# worklet cannot fetch. What differs is that these are bytes rather than
+# text, so main.js fetches them as ArrayBuffers and hands them over
+# through tw_sample rather than tw_instrument, and everything that treats
+# the list as playable patches skips them along with the `fx/' entries.
+#
+# dsp/samples/ is generated -- scripts/makekit.sh renders the tree's own
+# drum graphs into it -- so a tree that has never run it simply has no
+# samples here, and the glob is empty rather than wrong.
+file(GLOB SHIPPED_SAMPLES "${THINK_TOP}/dsp/samples/*.wav")
+list(SORT SHIPPED_SAMPLES)
+
+foreach(f IN LISTS SHIPPED_SAMPLES)
+  get_filename_component(name "${f}" NAME)
+  add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/dsp/samples/${name}"
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "${f}" "${PROJECT_BINARY_DIR}/dsp/samples/${name}"
+      DEPENDS "${f}")
+  list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/dsp/samples/${name}")
+  list(APPEND dsp_names "\"samples/${name}\"")
+endforeach()
+
 list(JOIN dsp_names ", " dsp_names)
 file(CONFIGURE OUTPUT "${PROJECT_BINARY_DIR}/dsp/index.json"
      CONTENT "[${dsp_names}]\n")

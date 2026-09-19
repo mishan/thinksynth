@@ -207,6 +207,12 @@ export async function createSynth (ctx, { windowlen = 256,
            ask for. A worklet cannot fetch, so the page hands these over. */
         instrument: (name, text) => post({ type: 'instrument', name, text }),
 
+        /* And a wav under the name an osc::sample node's `file' will ask
+           for, which is `samples/kick909.wav' -- the index.json entry,
+           since that is the path and not the basename. Bytes, because it
+           is not text. */
+        sample: (name, bytes) => post({ type: 'sample', name, bytes }),
+
         /* One chanarg of whatever is loaded on a channel, at the value a
            .patch overrides it to. The other half of load(), in that
            order: patch.js does the two together, as

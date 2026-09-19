@@ -626,15 +626,27 @@ async function start ()
     /* The instruments a piece may name, before any piece asks for one: a
        worklet has no file system of its own and cannot fetch. All at once,
        since nothing here waits on anything else. */
+    const graphs = textDsps();
     const texts = await Promise.all(
-        dspNames.map((name) => fetch(`dsp/${name}`).then((r) => r.text())));
+        graphs.map((name) => fetch(`dsp/${name}`).then((r) => r.text())));
 
-    dspNames.forEach((name, i) => synth.instrument(name, texts[i]));
+    graphs.forEach((name, i) => synth.instrument(name, texts[i]));
+
+    /* And the kit, as bytes. osc::sample looks a file up on the same
+       path a .dsp is looked up on, so a wav has to be in the worklet's
+       MEMFS before the first note that plays one -- and a worklet can no
+       more fetch a wav than it can fetch a graph. */
+    const kit = sampleNames();
+    const wavs = await Promise.all(
+        kit.map((name) => fetch(`dsp/${name}`)
+                              .then((r) => r.arrayBuffer())));
+
+    kit.forEach((name, i) => synth.sample(name, new Uint8Array(wavs[i])));
 
     /* And kept, because they are also what a .patch's `dsp' line is
        resolved against: patch.js fetches the .patch and no more, since
        these are already here. */
-    dspTexts = Object.fromEntries(dspNames.map((name, i) => [name, texts[i]]));
+    dspTexts = Object.fromEntries(graphs.map((name, i) => [name, texts[i]]));
 
     /* And the default patches, before anything needs one. The aiming runs
        inside quietly(), with the context suspended, and patchText fetches
@@ -918,7 +930,22 @@ let dspTexts = {};
  * index. */
 function playableDsps ()
 {
-    return dspNames.filter((n) => !n.startsWith('fx/'));
+    return dspNames.filter((n) => !n.startsWith('fx/') &&
+                                  !n.startsWith('samples/'));
+}
+
+/* The index carries the kit too, as `samples/<name>' -- the wavs
+   osc::sample plays. They are not text, are not graphs and are not
+   playable, so everything above filters them out and start() below
+   fetches them as bytes instead. */
+function sampleNames ()
+{
+    return dspNames.filter((n) => n.startsWith('samples/'));
+}
+
+function textDsps ()
+{
+    return dspNames.filter((n) => !n.startsWith('samples/'));
 }
 
 /* The shipped .patch files by relative name, `leads/SuperRes.patch' --

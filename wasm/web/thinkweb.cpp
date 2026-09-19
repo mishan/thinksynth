@@ -877,6 +877,40 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
     return writeFile(path.c_str(), text) ? 1 : 0;
 }
 
+/* And the same for a wav, which is the one shipped file that is not text.
+ *
+ * osc::sample looks a file up with thUtil::findDataFile under `samples/',
+ * so what it wants is bytes at /dsp/samples/<name> -- the same MEMFS the
+ * .dsp files above are written into, by the same page, before the first
+ * piece is loaded. `name' carries the `samples/' on it, the way
+ * tw_instrument's carries an `fx/', because both are index.json entries
+ * and index.json lists a path rather than a basename.
+ *
+ * A length and a pointer rather than a string: a wav has a NUL in its
+ * header before it has anything else in it. */
+EMSCRIPTEN_KEEPALIVE int tw_sample (const char *name, const char *bytes,
+                                    int len)
+{
+    const std::string path = std::string(TW_DSP_DIR) + "/" + name;
+
+    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
+         slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+
+    if (bytes == NULL || len < 0)
+        return 0;
+
+    FILE *f = fopen(path.c_str(), "wb");
+
+    if (f == NULL)
+        return 0;
+
+    const bool whole =
+        fwrite(bytes, 1, (size_t)len, f) == (size_t)len;
+
+    return (fclose(f) == 0 && whole) ? 1 : 0;
+}
+
 /* A .gen, as text. Nonzero if it parsed and built; tw_error_count and
    tw_error say what did not, in the loader's own words and with line
    numbers, because a piece is something a person is editing.

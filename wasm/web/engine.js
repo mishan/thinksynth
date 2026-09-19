@@ -69,6 +69,16 @@ export function apply (M, m, host = NOWHERE)
                     [m.name, m.text]);
             return true;
 
+        case 'sample':
+            /* The one shipped file that is not text: a wav, for
+               osc::sample. `array' rather than `string' because a wav
+               has a NUL in its header before it has anything else, and
+               a length beside it for the same reason. */
+            M.ccall('tw_sample', 'number',
+                    ['string', 'array', 'number'],
+                    [m.name, m.bytes, m.bytes.length]);
+            return true;
+
         case 'chanarg':
             /* The overrides half of a .patch (patch.js). `array' is the
                only pointer ccall takes, so the floats cross as the bytes

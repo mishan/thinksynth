@@ -265,6 +265,30 @@ think_harness(hostcheck)
 # so the reference covers exactly what the editor offers.
 think_harness(dspnodes  NODEMODEL)
 
+# `cmake --build <build> --target kit' fills dsp/samples/ with the wavs
+# osc::sample plays, by rendering the tree's own drum graphs through
+# genwav. Not a test and not part of `all': it writes into the *source*
+# tree, which is a thing a build should only ever do when asked.
+#
+# The wavs are committed, because a clone that has to run a target before
+# a piece will sound is a clone that does not work. This target is for
+# regenerating them after a drum graph changes.
+#
+# UNIX only: it is a shell script, and the alternative -- a second copy
+# of the same list in CMake -- is a list that goes stale. Nothing depends
+# on it, so a Windows build is missing a convenience and not a step.
+if(UNIX)
+  add_custom_target(kit
+      COMMAND "${CMAKE_COMMAND}" -E env
+              "GENWAV=$<TARGET_FILE:genwav>"
+              "PLUGINS=${PROJECT_BINARY_DIR}/plugins"
+              "DSP=${PROJECT_SOURCE_DIR}/dsp"
+              "OUT=${PROJECT_SOURCE_DIR}/dsp/samples"
+              "${PROJECT_SOURCE_DIR}/scripts/makekit.sh"
+      DEPENDS genwav plugins
+      COMMENT "Rendering dsp/samples/ from the tree's own drum graphs")
+endif()
+
 # `cmake --build <build> --target nodes' after touching a plugin's arg
 # declarations. The ctest below fails if anybody forgets.
 add_custom_target(nodes

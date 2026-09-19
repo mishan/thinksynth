@@ -96,6 +96,7 @@ static void usage (const char *argv0)
            "  -s, --seconds N         how long to run the transport (default 120)\n"
            "  -o, --output FILE       write the audio here, 16-bit PCM WAV\n"
            "  -t, --tape FILE         write the delivered events here (- for stdout)\n"
+           "  -m, --mono              sum the channels into one, for a sample\n"
            "  -q, --quiet             no summary\n",
            argv0);
 }
@@ -241,6 +242,7 @@ int main (int argc, char **argv)
 
     std::string pluginPath = PLUGIN_PATH;
     std::string genFile, wavFile, tapeFile;
+    bool mono = false;
     double seconds = 120;
     bool quiet = false;
 
@@ -266,6 +268,8 @@ int main (int argc, char **argv)
             if (++i >= argc) { usage(argv[0]); return 2; }
             tapeFile = argv[i];
         }
+        else if (!strcmp(argv[i], "-m") || !strcmp(argv[i], "--mono"))
+            mono = true;
         else if (!strcmp(argv[i], "-q") || !strcmp(argv[i], "--quiet"))
             quiet = true;
         else if (!strcmp(argv[i], "-h") || !strcmp(argv[i], "--help"))
@@ -433,8 +437,42 @@ int main (int argc, char **argv)
         sumsq += (double)pcm[i] * pcm[i];
     }
 
+    /* Summed rather than left as a stereo pair, for one caller:
+       scripts/makekit.sh, which renders the tree's own drums into
+       dsp/samples/ for osc::sample to play. That node is mono -- a voice
+       has one output, and a graph that wants two instantiates two nodes
+       -- so it sums a stereo file itself on the way in. Doing it here
+       instead halves what the repository carries and loses nothing,
+       since every drum graph in the tree writes the same signal to both
+       sides anyway.
+
+       Averaged, not added: two sides of the same signal have to come out
+       at the level they went in. */
+    int outChannels = channels;
+
+    if (mono && channels > 1)
+    {
+        std::vector<float> summed;
+
+        summed.reserve(pcm.size() / (size_t)channels);
+
+        for (size_t i = 0; i + (size_t)channels <= pcm.size();
+             i += (size_t)channels)
+        {
+            double sum = 0;
+
+            for (int c = 0; c < channels; c++)
+                sum += pcm[i + (size_t)c];
+
+            summed.push_back((float)(sum / channels));
+        }
+
+        pcm.swap(summed);
+        outChannels = 1;
+    }
+
     if (!wavFile.empty() &&
-        !writeWav(wavFile, pcm, channels, TH_DEFAULT_SAMPLES))
+        !writeWav(wavFile, pcm, outChannels, TH_DEFAULT_SAMPLES))
     {
         fprintf(stderr, "%s: cannot write %s\n", argv[0], wavFile.c_str());
         return 1;
