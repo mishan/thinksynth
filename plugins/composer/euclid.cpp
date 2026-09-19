@@ -54,10 +54,28 @@
  * plus a pool with rests in it is a step sequencer with no other name.
  * The rest resolves as -1 at the file boundary, like every pitch; the
  * only thing this plugin knows is that a note below zero is not
- * played. */
+ * played.
+ *
+ * AND EVERY `every'-TH CYCLE IS A FILL. A second pool, `fill', and the
+ * cycle count: with `every = 4' the fourth time round the ring takes its
+ * pitches from `fill' instead of `notes', which is a drum fill -- or a
+ * turnaround, or the bar of the riff that answers the other three --
+ * written in the stage that plays it rather than as a second chain under
+ * a gate. `every = 0', the default, never fills.
+ *
+ * A FILL IS AN OVERLAY. The main pool goes on turning through a fill
+ * cycle exactly as though it had played it, so every cycle that is not a
+ * fill plays the note it would have played had there been no fill at
+ * all. That is what makes `every' safe to add to a piece that is already
+ * written: a pool of a hundred and twenty-eight notes laid over an
+ * eight-bar progression stays with the chords, where a pool that stood
+ * still through each fill would walk away from them a bar at a time. The
+ * fill pool keeps its own place, and moves only on a fill, so a pool of
+ * two bars' worth alternates between two fills rather than repeating
+ * one. */
 
-enum { P_STEPS, P_FILLS, P_ROTATE, P_NOTES, P_VEL, P_HOLD, P_PERIOD,
-       P_COUNT };
+enum { P_STEPS, P_FILLS, P_ROTATE, P_NOTES, P_FILL, P_EVERY, P_VEL,
+       P_HOLD, P_PERIOD, P_COUNT };
 
 static int paramIndex[P_COUNT];
 
@@ -73,6 +91,10 @@ composer_init (thcComposerInfo *info)
           0, 63, 0, NULL, NULL },
         { "notes",  "pitch pool, cycled through the onsets",
           THC_PARAM_NOTESET, 0, 0, 0, "60", NULL },
+        { "fill",   "pitch pool for the fill cycles",
+          THC_PARAM_NOTESET, 0, 0, 0, "60", NULL },
+        { "every",  "play the fill pool every nth cycle; 0 never",
+          THC_PARAM_INT, 0, 64, 0, NULL, NULL },
         { "vel",    "velocity", THC_PARAM_INT, 1, 127, 96, NULL, NULL },
         { "hold",   "time before note-off", THC_PARAM_FLOAT,
           0.01, 60, 0.25, NULL, "s" },
@@ -97,25 +119,62 @@ struct State {
     int              pool[128];
     int              poolLen;
 
+    /* The fill pool and its own place in the queue, and which time round
+       the ring this is -- counted from the first, so `every = 4' fills
+       on cycles 3, 7, 11 and the first three bars are the riff. */
+    int              fill[128];
+    int              fillLen;
+    int              fillNum;
+    int              cycle;
+
     void reparseNotes (void);
+    void reparseFill (void);
+
+    /* Is this cycle a fill? Asked by tick and by the draw, so the ring
+       and the sound cannot disagree about it. */
+    bool filling (void) const;
 };
 
-void
-State::reparseNotes (void)
+/* One pool, from a resolved list of MIDI numbers. */
+static int
+parsePool (const char *s, int *out)
 {
-    const char *s = params->get_string(params->ctx, paramIndex[P_NOTES]);
+    int len = 0;
 
-    poolLen = 0;
-    while (s && *s && poolLen < 128)
+    while (s && *s && len < 128)
     {
         int n = atoi(s);
 
         if ((n >= 0 && n <= 127) || n == -1)   /* -1 is a rest        */
-            pool[poolLen++] = n;
+            out[len++] = n;
 
         if ((s = strchr(s, ',')))
             s++;
     }
+
+    return len;
+}
+
+void
+State::reparseNotes (void)
+{
+    poolLen = parsePool(params->get_string(params->ctx,
+                                           paramIndex[P_NOTES]), pool);
+}
+
+void
+State::reparseFill (void)
+{
+    fillLen = parsePool(params->get_string(params->ctx,
+                                           paramIndex[P_FILL]), fill);
+}
+
+bool
+State::filling (void) const
+{
+    const int every = (int)params->get(params->ctx, paramIndex[P_EVERY]);
+
+    return every > 0 && fillLen > 0 && (cycle + 1) % every == 0;
 }
 
 /* Whether step i of E(fills, steps) carries an onset. This is the
@@ -143,7 +202,10 @@ composer_create (const thcParams *params)
     st->params = params;
     st->pos = 0;
     st->onsetNum = 0;
+    st->fillNum = 0;
+    st->cycle = 0;
     st->reparseNotes();
+    st->reparseFill();
 
     return st;
 }
@@ -153,6 +215,8 @@ composer_param_changed (void *state, int index)
 {
     if (index == paramIndex[P_NOTES])
         static_cast<State *>(state)->reparseNotes();
+    else if (index == paramIndex[P_FILL])
+        static_cast<State *>(state)->reparseFill();
 }
 
 extern "C" THINK_PLUGIN_API double
@@ -170,12 +234,21 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     if (st->pos >= steps)
         st->pos = 0;
 
-    if (t->running && st->poolLen &&
+    const bool onFill = st->filling();
+
+    if (t->running && (onFill ? st->fillLen : st->poolLen) > 0 &&
         onsetAt(st->pos, steps, (int)get(P_FILLS), (int)get(P_ROTATE)))
     {
-        const int note = st->pool[st->onsetNum % st->poolLen];
+        const int note = onFill ? st->fill[st->fillNum % st->fillLen]
+                                : st->pool[st->onsetNum % st->poolLen];
 
-        st->onsetNum++;                    /* a rest takes its turn too  */
+        /* Both queues move, and a rest takes its turn in each: the main
+           one because a fill is an overlay and not an interruption (see
+           the top of this file), the fill's own only while it plays. */
+        st->onsetNum++;
+
+        if (onFill)
+            st->fillNum++;
 
         if (note >= 0)
         {
@@ -193,6 +266,9 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
     }
 
     st->pos = (st->pos + 1) % steps;
+
+    if (st->pos == 0)
+        st->cycle++;
 
     return t->now + get(P_PERIOD);
 }
@@ -238,7 +314,13 @@ composer_draw (void *state, cairo_t *cr, double w, double h)
 
         if (onsetAt(i, steps, fills, rotate))
         {
-            cairo_set_source_rgba(cr, 1.0, 0.85, 0.3, 0.9);
+            /* A fill cycle is a different ring: the onsets are the same
+               onsets and the notes on them are not, and the picture
+               should not claim otherwise. */
+            if (st->filling())
+                cairo_set_source_rgba(cr, 0.45, 0.8, 1.0, 0.9);
+            else
+                cairo_set_source_rgba(cr, 1.0, 0.85, 0.3, 0.9);
             cairo_arc(cr, x, y, dot, 0, 2 * M_PI);
             cairo_fill(cr);
         }
