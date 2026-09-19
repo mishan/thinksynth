@@ -777,7 +777,18 @@ async function start ()
        start arrives and before its origin. */
     try
     {
-        const names = await (await fetch('dsp/index.json')).json();
+        /* Without the kit: the index carries `samples/<name>' wavs beside
+           the patches, and .text() on a wav is three hundred kilobytes of
+           mojibake fetched on every load and kept in a map nothing looks
+           it up in. The jam page does not hand samples to its worklet at
+           all yet -- see the note in main.js's start(), which fetches
+           them as bytes and passes them through tw_sample -- so an
+           instrument built on osc::sample is silent here. Filtering is
+           what this line can honestly do about that; the rest is its own
+           change. */
+        const names =
+            (await (await fetch('dsp/index.json')).json())
+                .filter((n) => !n.startsWith('samples/'));
         const texts = await Promise.all(
             names.map((n) => fetch(`dsp/${n}`).then((r) => r.text())));
 
