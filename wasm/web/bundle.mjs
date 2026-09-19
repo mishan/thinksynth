@@ -32,13 +32,15 @@
  *
  * Two imports have to be pointed somewhere else. The tape reader and the
  * cairo stand-in's replayer both live outside this directory -- one in
- * wasm/, shared with the Node host, the other in wasm/cairo2d, which has
- * no knowledge of this tree at all -- and the build copies each in beside
- * the pages under the name the browser loads it by. A module that is
- * loaded both ways, bundled here and fetched there, therefore imports the
- * copied name; the plugin below is how the bundler finds the original.
+ * wasm/, shared with the Node host, the other in the cairo-canvas2d
+ * package, which has no knowledge of this tree at all -- and the build
+ * copies each in beside the pages under the name the browser loads it
+ * by. A module that is loaded both ways, bundled here and fetched there,
+ * therefore imports the copied name; the plugin below is how the bundler
+ * finds the original.
  */
 
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -53,8 +55,10 @@ if (out === undefined)
     process.exit(2);
 }
 
+/* The replayer is resolved rather than spelled out, so that the path
+   stays npm's business and not a guess about where node_modules is. */
 const COPIED_IN = {
-    './replay.js': path.join(here, '..', 'cairo2d', 'replay.js'),
+    './replay.js': createRequire(import.meta.url).resolve('cairo-canvas2d'),
     './tape.js': path.join(here, '..', 'tape.mjs'),
 };
 

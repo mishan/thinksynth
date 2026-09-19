@@ -38,7 +38,7 @@
  * What it sends back: its own tape, for the page to hold against the
  * worklet's, and display lists -- the composer canvas lives here too, next
  * to the scheduler it draws from, and what crosses is the list of ops the
- * page replays on a Canvas2D (wasm/cairo2d).
+ * page replays on a Canvas2D (cairo-canvas2d).
  *
  * A gesture goes the other way and comes back round: the page sends the
  * pointer, the canvas here works out which stage it landed on and where in

@@ -260,9 +260,9 @@ stands.
   without gtkmm on the include path; the gtk widget around each is a
   few dozen lines. The same content classes are what the browser will
   run.
-- The cairo stand-in they will run through: `wasm/cairo2d`, cairo's own
-  API over a display list the page replays on a Canvas2D, in a directory
-  of its own with its own build and test and nothing of this tree on its
+- The cairo stand-in they will run through: `cairo-canvas2d`, cairo's own
+  API over a display list the page replays on a Canvas2D, a package of its
+  own with its own build and test and nothing of this tree on its
   include path. The browser build draws through it already -- every
   composer's picture, gated over the whole corpus at two sizes.
 - The mirror: the same module again with a synth that never renders, fed

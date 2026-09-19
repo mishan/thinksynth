@@ -40,9 +40,9 @@ On `jam-m6`, which starts where `game-music` ends:
   cairomm and never gtkmm, which is the guard. All nineteen gates pass,
   composercheck and editorcheck pressing the real widgets; canvasbench
   draws the corpus through the split at the cost it had.
-- **The cairo stand-in** (section 3) is in, as `wasm/cairo2d/`: cairo's
+- **The cairo stand-in** (section 3) is in, as `cairo-canvas2d`: cairo's
   C API and a cairomm face over a recorder, and `replay.js` over a
-  Canvas2D. Its own directory, build, README and test, and no include of
+  Canvas2D. Its own repository, build, README and test, and no include of
   anything in this tree. The browser build compiles the composers' draws
   against it -- `THC_NO_DRAW` is gone -- and `thinkweb` exports the
   chains, the stages, and a stage's picture as the three tables a list
@@ -209,7 +209,7 @@ compiled to wasm, and not a second drawing of anything in JavaScript.
 The whole of what the tree draws with is about thirty-five cairo calls
 -- the toy text API, paths, fills and strokes, dashes, clip, save and
 restore, the transforms, and one image surface for the spectrogram --
-and every one of them maps onto a Canvas2D call. So `wasm/cairo2d/`
+and every one of them maps onto a Canvas2D call. So `cairo-canvas2d`
 holds a `cairo.h` of its own, a cairomm-shaped header over it for the
 canvases, and a `cairo_t` that records a display list the page replays.
 The one call that needs an answer back, text measurement, gets it from
@@ -313,7 +313,7 @@ what makes the mirror an instance rather than a redesign.
 
 ## 3. The cairo stand-in
 
-`wasm/cairo2d/`: `cairo.h`, `cairomm/context.h`, the recorder, the
+`cairo-canvas2d`: `cairo.h`, `cairomm/context.h`, the recorder, the
 replayer, a README and a test. Built into the web module only.
 
 **The surface.** `cairo_t` is a display list under construction. The C
@@ -372,6 +372,11 @@ anything in this tree. thinksynth uses it the way anyone would, by
 putting it on the include path. When it has a second user it is a
 `git subtree split` and a repository of its own; until then it lives
 here, where its only user can keep it honest.
+
+It left. The split was made, and it is
+[cairo-canvas2d](https://github.com/mishan/cairo-canvas2d) on npm; this
+tree installs it like any other dependency. Both halves come from the one
+package because the opcodes are written down twice and have to agree.
 
 **Gates**, in a Node test over the module: every drawing stage of every
 seeded piece produces a non-empty list of known ops at 100×100 and at

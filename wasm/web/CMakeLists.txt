@@ -59,7 +59,7 @@ list(PREPEND CMAKE_MODULE_PATH
 #
 # composer_draw is among them now. It used to be the one export that could
 # not come this way -- a worklet has no canvas and there was no cairo to
-# link -- and what changed is wasm/cairo2d, which is cairo's API over a
+# link -- and what changed is cairo-canvas2d, which is cairo's API over a
 # display list the page replays (JAM_M6.md, section 3). The composers draw
 # through that, unchanged.
 set(THINK_COMPOSER_EXPORTS init create tick receive param_changed input
@@ -91,15 +91,31 @@ set(THINK_VISUAL_PROTO_close   "void @ (void *)")
 set(THINK_VISUAL_PROTO_cleanup "void @ (thVisual *)")
 
 # cairo, for the composers' draws and for the canvases later, as a display
-# list the page replays on a Canvas2D. Its own directory, its own build and
-# its own test, and nothing in this tree on its include path: thinksynth
-# uses it the way anyone would, by putting it on the include path. See
-# wasm/cairo2d/README.md.
+# list the page replays on a Canvas2D. It is cairo-canvas2d, from npm, and
+# thinksynth uses it the way anyone would: the package on the include
+# path, and nothing of this tree on its.
+#
+# Both halves come from the one package because they have to agree. The
+# opcodes are written down twice -- once in cairo2d.h, once in replay.js
+# -- and they carry the arity, so a header a version away from its
+# replayer does not fail to load, it reads operands as opcodes and draws
+# rubbish from the changed op onwards. One version number is what stops
+# that, and it is the lockfile's.
 #
 # Its test is built here because this is the build with a node beside it,
-# and CI runs it (wasm/cairo2d/test/replaytest.mjs).
+# and CI runs it -- against the pinned copy, which is the one that matters
+# to this build rather than whatever upstream's own CI last saw.
+set(CAIRO2D "${CMAKE_CURRENT_SOURCE_DIR}/node_modules/cairo-canvas2d")
+
+if(NOT EXISTS "${CAIRO2D}/CMakeLists.txt")
+  message(FATAL_ERROR
+      "cairo-canvas2d is not installed: run `npm ci` in wasm/web first.\n"
+      "The composers' cairo comes from npm, so the browser build needs "
+      "node_modules before it can configure.")
+endif()
+
 set(CAIRO2D_TESTS ON CACHE BOOL "" FORCE)
-add_subdirectory("${THINK_TOP}/wasm/cairo2d" cairo2d)
+add_subdirectory("${CAIRO2D}" cairo2d)
 
 include(ThinkEmscripten)
 
@@ -329,15 +345,15 @@ add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/tape.js"
     DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/../tape.mjs")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/tape.js")
 
-# And the replayer, which is wasm/cairo2d's: the other half of the cairo
+# And the replayer, which is cairo-canvas2d's: the other half of the cairo
 # stand-in the module draws through, and the only part of it that is
-# JavaScript. It keeps its name there, where its own test reads it, and is
-# served beside the page that replays with it.
+# JavaScript. It keeps its name here, where the page loads it by name, and
+# is served beside the page that replays with it.
 add_custom_command(OUTPUT "${PROJECT_BINARY_DIR}/replay.js"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-            "${THINK_TOP}/wasm/cairo2d/replay.js"
+            "${CAIRO2D}/replay.js"
             "${PROJECT_BINARY_DIR}/replay.js"
-    DEPENDS "${THINK_TOP}/wasm/cairo2d/replay.js")
+    DEPENDS "${CAIRO2D}/replay.js")
 list(APPEND SITE_OUTPUTS "${PROJECT_BINARY_DIR}/replay.js")
 
 # The shipped DSPs -- dsp/*.dsp, not the noargs/ and old/ drawers -- and the

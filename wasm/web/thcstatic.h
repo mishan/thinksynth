@@ -64,7 +64,7 @@
 #include "thcRandom.h"
 #include "thMath.h"
 
-/* The eight composers that draw include this themselves. It is wasm/cairo2d
+/* The eight composers that draw include this themselves. It is cairo-canvas2d
    here -- cairo's API over a display list the page replays (JAM_M6.md,
    section 3) -- and it is included at file scope for the same reason as
    everything above it: a header first seen inside the plugin's namespace
