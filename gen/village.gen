@@ -11,7 +11,14 @@
 # the end of every four-chord phrase, so the harmony wanders and always
 # comes home. It emits one root a chord, every two beats, and
 # xform::harmonize spells the chord from the same scale, a third and a
-# fifth below the root so the root stays on top. The bass is the same
+# fifth below the root, and `lead' then chooses the octave each of them
+# is played in: the register nearest the voice it replaces in the chord
+# before. So the comping hand stays where it is and the harmony changes
+# under it, which is what a pianist does and what a stack of degrees on
+# a wandering root cannot. It is also the one thing that qualifies
+# `below': the notes are still the ones under the root, but a voice led
+# into the register over it is an inversion, and a comp is mostly
+# inversions. The bass is the same
 # walk on another chain -- both stages carry `seed = 7', so they roll
 # the same die and agree on every chord without a message between them,
 # orrery.gen's table trick with the table replaced by a seed -- into
@@ -204,7 +211,7 @@ instrument hat {
 # ---- the chords -------------------------------------------------------
 
 # One root every two beats, four to a phrase, spelled down from the
-# root so the root is the top of the voicing.
+# root and voiced against the chord before it.
 chain chords {
     stage src gen::progression {
         scale = gmaj;
@@ -217,6 +224,7 @@ chain chords {
         spread = 0.03 s;
         taper = 0.9;
         root = 1;  below = 1;
+        lead = 1;  span = 12;
     };
     sink { instrument = keys; };
 };

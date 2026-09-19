@@ -98,7 +98,7 @@ together, in the same detail as the others.
 | --- | --- |
 | [`ebb.gen`](ebb.gen) | **Two keys and the tide between them.** A C pentatonic cloud that never changes, over a ground that does: two bass chains, one on A and one on F, each with its own control-rate sine, wired so one is empty where the other is full. The piece turns from A minor to F lydian and back on a cycle the `Tide` knob sets, with nothing transposed — only the root moves. One upper voice takes a side and plays the lydian fourth on the F side alone. |
 | [`round.gen`](round.gen) | **A canon on one grammar.** One L-system subject, three entries: straight, six steps later a fifth up, and at half speed an octave and a half down. The lag is written as rests in the axiom, the augmentation as `math::mul` on the `Pace` knob, and the ladders are pentatonic so every lag is consonant. Take the trailing rests off the lead and it becomes a phase piece. |
-| [`orrery.gen`](orrery.gen) | **Gears on one clock, and a bass that reads the chords.** Four Euclidean rings of different sizes in `beats`, a harmonizer spelling the chords by degree, a genetic lead on the `Lift` knob, and two voices swapped under it every thirty-two bars. The bass follows the progression without a message passing between chains: its pool is one four-bar phrase long, five notes under each chord, and the ring is the index. |
+| [`orrery.gen`](orrery.gen) | **Gears on one clock, and a bass that reads the chords.** Four Euclidean rings of different sizes in `beats`, a harmonizer spelling the chords by degree and voicing each against the one before it, a genetic lead on the `Lift` knob, and two voices swapped under it every thirty-two bars. The bass follows the progression without a message passing between chains: its pool is one four-bar phrase long, five notes under each chord, and the ring is the index. |
 | [`invention.gen`](invention.gen) | **Two voices on a Moog, and the ornaments are rules.** In the spirit of Wendy Carlos: a two-part invention in D minor, a saw lead and a square bass each on their own patch, a harpsichord of broken chords from a pool, and for once an L-system's rules are not empty -- `M`, `T` and `N` in the axiom are rewritten into a mordent, a trill and a turn on whatever note the turtle is standing on. The alto reads the same axiom with the ornaments spelled plain, through `xform::counterpoint`, every other time round, on a `Third` fader. |
 
 ## Game music
@@ -117,7 +117,7 @@ carries its own instruments.
 | [`boss.gen`](boss.gen) | **A riff that never moves.** Two bars of sixteenths on E, a tresillo of stabs spelled by `xform::harmonize` from E phrygian, a solo bred by `gen::evolve` on the `Fury` knob, gated by `xform::form` to three phrases in four and rebuilt around the other of two voices every sixteen bars, and a gear of seven sixteenths turning against the four. The hats go through `xform::chance` and `xform::ratchet`. |
 | [`attract.gen`](attract.gen) | **One voice pretending to be a chord.** The arpeggio-chord trick: a sixty-four-step ring of thirty-second notes over a hundred-and-twenty-eight-note pool, one voice sounding a chord a bar. `gen::morph` sweeps the chip's filter between two presets and back through a `*` sink, a walk moves its pulse width, and the tune slides into every note on the `Glide` knob. |
 | [`belfry.gen`](belfry.gen) | **A castle at night.** Harmonic minor with its leading tone, sixteenth arpeggios from a pool, an organ whose triads are three rings in lockstep because a G and a G sharp cannot both be spelled from one scale, a lead with a mordent and a cadence trill written as rules, and a galloping kick. The second pulse is the lead's echo for four bars and the lead in thirds for four, two chains on one instrument through `xform::form`. |
-| [`village.gen`](village.gen) | **Chords that behave, and a second voice that argues.** A town theme with a shuffle. `gen::progression` walks the chords of G major with a cadence every four, spelled by `harmonize` on one chain and played by `xform::bassline` on another that shares its `seed`, so the two agree without a message. A pentatonic tune, and `xform::counterpoint` hearing the same grammar and putting a first-species voice under it. `xform::swing` on the `Shuffle` knob, `xform::form` for the intro and for the bars the flute sits out, `chance`, `ratchet` and `level` on the brushes. |
+| [`village.gen`](village.gen) | **Chords that behave, and a second voice that argues.** A town theme with a shuffle. `gen::progression` walks the chords of G major with a cadence every four, spelled by `harmonize` on one chain -- voice-led, so the comping hand stays where it is -- and played by `xform::bassline` on another that shares its `seed`, so the two agree without a message. A pentatonic tune, and `xform::counterpoint` hearing the same grammar and putting a first-species voice under it. `xform::swing` on the `Shuffle` knob, `xform::form` for the intro and for the bars the flute sits out, `chance`, `ratchet` and `level` on the brushes. |
 
 ## The floor
 
@@ -143,7 +143,22 @@ only as level; `pluck` already was.
 | piece | the idea |
 | --- | --- |
 | [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel, answered every fourth bar by the ring's `fill` pool; `xform::accent` weighting the bass, which its filter hears as brightness; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; and sixty-four bars of `section` at the top saying where the piece goes. |
-| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`, with every eighth bar coming from the ring's `fill` pool; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets, and which `xform::vary` leans into, ornaments and pushes off the grid; `xform::accent` on the hats; the `Width` knob reaching into two supersaws at once. |
+| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad, voice-led so Am F C G moves rather than climbs, chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`, with every eighth bar coming from the ring's `fill` pool; a rolling offbeat bass and a second copy an octave down through `xform::transpose` that the arrangement swaps in for the breakdown; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets, and which `xform::vary` leans into, ornaments and pushes off the grid; `xform::accent` on the hats; the `Width` knob reaching into two supersaws at once. |
+
+## Voicing
+
+A chord is which notes are in it; a voicing is which octave each of them is
+sung in. Until now the second answered to the first: `xform::harmonize`
+stacked the degrees on the root, wherever the root happened to be, so a
+progression moved in parallel blocks and the ear heard a row of chords rather
+than a few voices going somewhere. `lead = 1` keeps the notes and chooses the
+octaves -- each voice to the register nearest the voice it replaces in the
+chord before, inside `span` semitones of the root -- which is how a root
+that leaps a fifth can leave two of its three voices standing still.
+
+`village.gen`, `orrery.gen` and `anthem.gen` ask for it. The pieces that
+harmonize a melody rather than a progression -- `colony.gen`, `belfry.gen` --
+do not, because there the chord is meant to follow the line.
 
 ## What each piece covers
 

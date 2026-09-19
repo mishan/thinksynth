@@ -16,6 +16,14 @@
 # name plays as written. `section end' closes the list, so the piece
 # stops rather than looping for ever.
 #
+# THE CHORDS ARE VOICED, not stacked. Am F C G is four roots and the
+# C is a fourth over the F, so a chord built up from each of them
+# climbs and drops a fourth at a time with nothing in between.
+# `lead = 1' on the harmonizer keeps the notes of every chord and
+# picks the octave each is played in -- the one nearest the voice it
+# replaces -- so C comes out as G-C-E under the gate and one voice
+# moves where three used to.
+#
 # THE GATE is gen::steps: a row of sixteen ones and zeros a bar on the
 # pad's `amp', so the chord stutters in the rhythm the row says -- the
 # trance gate, which was a sequencer on a volume control before it was
@@ -304,7 +312,7 @@ chain chords {
         notes = "A3 F3 C4 G3 A3 F3 G3 G3";
         period = 4 beats;  hold = 3.9 beats;  vel = 72;
     };
-    stage h xform::harmonize { scale = amin;  voices = 3;  step = 2;  spread = 0 s;  taper = 0.9;  root = 1;  below = 0; };
+    stage h xform::harmonize { scale = amin;  voices = 3;  step = 2;  spread = 0 s;  taper = 0.9;  root = 1;  below = 0;  lead = 1;  span = 12; };
     sink { instrument = pad; };
 };
 
