@@ -153,6 +153,9 @@ ComposerWindow::ComposerWindow (thSynth *synth)
         { return loadInstrument(inst, why); });
     sched_->setInstrumentUnloader(
         [this](const thcInstrument &inst) { return unloadInstrument(inst); });
+    sched_->setEffectLoader(
+        [this](int channel, const std::string &effect, std::string &why)
+        { return loadEffect(channel, effect, why); });
     sched_->setChannelTaken(
         [this](int channel) { return channelTaken(channel); });
 
@@ -589,6 +592,33 @@ ComposerWindow::loadInstrument (const thcInstrument &inst, std::string &why)
     ownedChannels_.push_back(o);
 
     return true;
+}
+
+bool
+ComposerWindow::loadEffect (int channel, const std::string &effect,
+                            std::string &why)
+{
+    gthPatchManager *pm = gthPatchManager::instance();
+
+    if (pm == NULL)
+    {
+        why = "there is nowhere to load it";
+        return false;
+    }
+
+    /* setEffect answers both halves of this: it declines to rebuild an
+       effect the channel already has under the same name, and it takes one
+       off when the name is empty -- which is what a piece that dropped its
+       `effect' clause means for a channel this window loaded one onto. */
+    if (pm->setEffect(channel, effect))
+        return true;
+
+    why = effect.empty()
+          ? "the effect could not be taken off channel " +
+            std::to_string(channel + 1)
+          : "'" + effect + "' did not load as an effect";
+
+    return false;
 }
 
 bool

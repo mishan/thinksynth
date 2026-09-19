@@ -194,13 +194,15 @@ files that is not really there.
 Direction can be recovered, because the engine's own use of the io node is
 narrow. `thMidiChan::process()` reads exactly three things off it: `OUTPUTPREFIX`
 plus a channel digit for the audio it mixes, `play` to learn the note has ended,
-and `channels` to size the mix. Everything else travels the other way —
-`thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp, and the
-author's constants are read by whoever wants them.
+and `channels` to size the mix. `poly` and `mono` are read once, at
+construction — see below. Everything else travels the other way —
+`thMidiNote` writes note, velocity and trigger, `thMidiChan` creates amp,
+`thChanEffect` writes `in<N>`, and the author's constants are read by whoever
+wants them.
 
 So an arg is an input to the audio-out half if
 
-- the engine reads it — `out<N>`, `play`, `channels`; or
+- the engine reads it — `out<N>`, `play`, `channels`, `poly`, `mono`; or
 - **this file wires something into it.**
 
 The second clause is not decoration. 23 args across the corpus are written by a
@@ -214,6 +216,105 @@ forty other nodes read `ionode->res`. Args with no port on either side — a doz
 dead constants, mostly typos like `inwav` for `inwave` — belong to the source
 half, where a value the io node offers belongs even when nothing takes it up.
 
+### Voices: `poly` and `mono`
+
+Two io-node constants, read once when the channel is built, that say how notes
+become voices. Both were literals in the engine before they were settings.
+
+```
+node ionode { channels = 2; poly = 2; mono = 1; out0 = vca->out; };
+```
+
+**`poly`** is how many voices the channel plays at once; without it, 10. Over
+the limit the channel retires voices that are finishing first and then the
+oldest still held, so what survives is always the newest. A `poly` of 0 — or
+of anything negative — is no limit at all, which is what the engine's check
+has always meant by a limit of zero.
+
+**`mono = 1`** changes what a note *is*. A note arriving while another is
+still held does not start a second voice: it retunes the one that is sounding
+and the new voice is discarded. The retuned voice keeps its envelopes, its
+filter state and the first note's velocity — only the pitch moves. Releasing
+a key falls back to the newest key still down, which is last-note priority,
+and the channel keeps a stack of the keys that are down to do it with.
+
+A note arriving when *nothing* is held is an ordinary new voice, even if the
+previous one is still in its release. That is the whole rule, and it is the
+one a line already knows how to write:
+
+> **overlap is a slide, a gap is a retrigger** — in a `.gen`, `hold` longer
+> than `step` against `hold` shorter than `step`.
+
+A voice the sustain pedal is holding counts as sounding, so it slides too, and
+a key going down takes it back off the pedal.
+
+`mono` on its own is a hard retune: the pitch steps. The glide is a
+`misc::slew` on the frequency **inside the graph** — the voice outlives the
+note that started it, so the lag's state carries across the retune and the
+pitch slides into the new note. `dsp/bass.dsp` is that arrangement end to
+end.
+
+### An effect graph
+
+A `.dsp` whose io node declares **`in0`** is not an instrument. It is a graph
+the engine runs on a *channel's summed voices*, once per window, and the `in0`
+is where it puts them:
+
+```
+node ionode {
+    channels = 2;
+
+    in0 = 0;            # the engine writes these
+    in1 = 0;
+
+    out0 = mix->out;    # and reads these, as it does for a voice
+    out1 = mix->out;
+};
+```
+
+Nothing else about the file is different. The same nodes, the same
+`@chanargs`, the same `out<N>`. `play` means nothing here — an effect never
+ends — and neither do `note`, `velocity` or `trigger`.
+
+**It is a different thing from an instrument and the two are not
+interchangeable.** An instrument has no input; an effect has no envelope and
+never finishes a note. `thSynth::loadEffect` refuses a graph with no `in0`,
+`thSynth::loadTree` will happily load an effect and it will sit there
+silently, and the note-playing harnesses (`dsplevel`, `dspsweep`, `dspprobe`)
+skip a graph that declares `in0` and say so. `scripts/fxcheck` is where effect
+graphs are covered.
+
+**What it writes replaces what it was fed.** The dry signal is the graph's to
+mix:
+
+```
+node wet delay::echo { in = ionode->in0; delay = @delay; dry = 0; };
+node mix mixer::fade { in0 = ionode->in0; in1 = wet->out; fade = @mix; };
+```
+
+which is one node more than a wet/dry control in the engine would be, and it
+is a node the author can see and rewire.
+
+**It runs every window, whether or not a voice sounds.** That is the whole
+point: a delay's tail is exactly the part that comes out after the last
+note-off, which is why `delay::echo` inside an instrument cannot be one — the
+ring lives in the voice and the voice is gone.
+
+**Its `@chanargs` are its own**, kept apart from the instrument's so that an
+instrument's `@a` and an effect's cannot collide. From outside they are named
+`fx.<name>`: `fx.delay` is the effect's, a bare `delay` is the instrument's.
+
+**A graph may not contain a cycle.** Two nodes that read each other resolve as
+a one-window delay — the walk clears each node's recalc flag before it
+recurses — so what the file sounds like would depend on the window length,
+and the window length is the audio device's business rather than the
+author's. This has always been true and effect graphs are where it first
+tempts anybody: a damped feedback path wants exactly that shape. Put the
+filter outside the loop. `dsp/fx/echo.dsp` says so where it does it.
+
+A channel's effect goes on **after** its instrument: loading an instrument
+builds a new channel and the effect belongs to the channel it was put on.
+
 ## 2. The `.patch` format
 
 A `.patch` is **not** a graph. It is a reference to a `.dsp` plus flat
@@ -221,13 +322,34 @@ overrides — a preset over that DSP's `@chanargs`:
 
 ```
 dsp ts1.dsp
+effect fx/echo.dsp
 info author Leif Ames
 info title Phat Rip
 cutoff 8.809662
 res 2.854232
+fx.delay 16537.500000
+fx.mix 0.500000
 ```
 
 `src/gui/ArgTable.cpp` renders these as sliders.
+
+`effect` names the channel effect — the graph that runs on the sum of this
+patch's voices, above — and is optional; a patch without one is every patch
+written before there were any. Its parameters are written `fx.<name>`, which
+is how the whole engine addresses an effect's chanargs, so that a patch
+setting `a` and an effect declaring one are two lines and two numbers.
+
+**The order in the file is load-bearing.** An effect's parameters do not exist
+until the effect is on the channel, so `effect` is written above them and the
+reader depends on that rather than tolerating either order — a reader that
+tolerated both would hide a writer that had stopped doing it. `dsp` comes
+first for the same reason one step further back: an effect belongs to a
+channel, and the channel is the instrument.
+
+An unknown `fx.` name is reported and dropped rather than invented. The
+tolerance for names no graph declares belongs to the instrument's side, where
+the corpus has a history of them; an invented effect parameter would land in
+the instrument's map, where nothing would ever read it.
 
 ## 3. Writing a `.dsp`
 

@@ -168,7 +168,7 @@ Time carries its unit. `period = 19.4 s` is a free-running loop;
 loads every shipped piece, renders it twice through a virtual clock, and
 diffs the two note streams byte for byte.
 
-Twenty-four pieces ship, each built around one idea and meant to be read as
+Twenty-six pieces ship, each built around one idea and meant to be read as
 well as heard — [`gen/README.md`](gen/README.md) is the index.
 [`GEN_FORMAT.md`](GEN_FORMAT.md) is the language, and
 [`UNIFICATION.md`](UNIFICATION.md) is where the two languages are going,

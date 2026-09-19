@@ -2959,6 +2959,196 @@ writeUnitlessArg (const std::string &name)
     return path;
 }
 
+/* The second graph an instrument can name: the one that runs on the sum
+ * of its voices rather than the one that makes them.
+ *
+ * What is worth holding down here is the seam, not the effect -- fxcheck
+ * covers what a thChanEffect does. This is that the clause reaches it: the
+ * file is found, the values land in the effect's chanarg map and not the
+ * instrument's, and the two are addressed apart.
+ */
+static void
+checkInstrumentEffects (const std::map<std::string, thcPlugin *> &plugins,
+                        thSynth *synth)
+{
+    clearChannels(synth);
+
+    const std::string body =
+        "instrument lead {\n"
+        "    dsp \"amb01.dsp\";\n"
+        "    a = 900 ms;\n"
+        "    effect \"fx/echo.dsp\" {\n"
+        "        delay = 250 ms;\n"
+        "        mix = 0.5;\n"
+        "    };\n"
+        "};\n"
+        "chain a { stage s gen::eno_line { };"
+        " sink { instrument = lead; }; };\n";
+
+    std::string path = thUtil::tempFile("gencheck-fx-");
+
+    if (path.empty())
+    {
+        fail("could not make a scratch file for the effect check");
+        return;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    {
+        thcScheduler sched(synth);
+        thcGenLoader loader(plugins);
+
+        drainSynth();
+
+        if (!loader.load(path, &sched))
+        {
+            for (size_t i = 0; i < loader.errors().size(); i++)
+                fprintf(stderr, "gencheck: %s\n", loader.errors()[i].c_str());
+
+            fail("a piece whose instrument carries an effect did not load");
+        }
+        else
+        {
+            thArg *delay = synth->getChanArg(0, "fx.delay");
+            thArg *mix = synth->getChanArg(0, "fx.mix");
+            thArg *a = synth->getChanArg(0, "a");
+
+            if (synth->getEffect(0) == NULL)
+                fail("the effect did not reach the channel");
+            else if (delay == NULL || mix == NULL)
+                fail("the effect's chanargs are not reachable under `fx.'");
+            else if (a == NULL)
+                fail("the instrument's own chanargs went with them");
+            else
+            {
+                /* Folded at the rate the synth was built with, the way
+                   every other duration in this block is. */
+                const float want =
+                    (float)(250.0 * synth->getSampleRate() / 1000.0);
+
+                if (fabs((*delay)[0] - want) > 1.0)
+                    fail("the effect's 250 ms did not fold at the synth's "
+                         "rate");
+
+                if (fabs((*mix)[0] - 0.5) > 1e-6)
+                    fail("the effect's plain number did not land");
+
+                /* Two maps, not one merged: the effect declares `delay' and
+                   the instrument does not, so an unprefixed `delay' has to
+                   find nothing. */
+                if (synth->getChanArg(0, "delay") != NULL)
+                    fail("the effect's chanargs leaked into the "
+                         "instrument's map");
+
+                const float wantA =
+                    (float)(900.0 * synth->getSampleRate() / 1000.0);
+
+                if (fabs((*a)[0] - wantA) > 1.0)
+                    fail("the instrument's own value did not survive its "
+                         "effect");
+            }
+        }
+    }
+
+    std::filesystem::remove(path);
+
+    clearChannels(synth);
+
+    /* ---- and what the clause refuses ---------------------------------- */
+
+    expectReject(plugins, synth, "two-effects",
+        "instrument i { dsp \"amb01.dsp\"; effect \"fx/echo.dsp\";"
+        " effect \"fx/echo.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "names two effects");
+
+    expectReject(plugins, synth, "effect-no-file",
+        "instrument i { dsp \"amb01.dsp\"; effect; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "effect wants a quoted filename");
+
+    /* The message has to name the *effect*, not the instrument's graph:
+       sending the reader to amb01.dsp to look for a `nonesuch' the echo
+       does not declare is one file too many. */
+    expectReject(plugins, synth, "effect-bad-arg",
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"fx/echo.dsp\" { nonesuch = 1; }; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "'fx/echo.dsp' declares no chanarg called 'nonesuch'");
+
+    /* And the writer steps over the clause rather than choking on it.
+     *
+     * thcGenEdit indexes an instrument block statement by statement, and a
+     * statement it cannot read drops the whole block out of the index -- so
+     * an instrument carrying an effect would be one describe() never
+     * mentioned and whose own values could not be edited. What is checked is
+     * that the instrument is still there with its own value in it; the
+     * effect's values are not indexed, which is the GUI half's business. */
+    {
+        std::string path = thUtil::tempFile("gencheck-fxedit-");
+
+        if (path.empty())
+            fail("could not make a scratch file for the effect edit check");
+        else
+        {
+            {
+                std::ofstream out(path.c_str(), std::ios::trunc);
+
+                out << "instrument lead {\n"
+                       "    dsp \"amb01.dsp\";\n"
+                       "    a = 900 ms;\n"
+                       "    effect \"fx/echo.dsp\" {\n"
+                       "        delay = 375 ms;\n"
+                       "    };\n"
+                       "    r = 40 ms;\n"
+                       "};\n"
+                       "chain c { stage s gen::eno_line { };"
+                       " sink { instrument = lead; }; };\n";
+            }
+
+            thcGenEdit::Doc doc;
+            std::string why;
+
+            if (thcGenEdit::describe(path, doc, why) != thcGenEdit::OK)
+                fail("describe refused a piece with an effect in it: " + why);
+            else if (doc.instruments.size() != 1)
+                fail("an instrument carrying an effect fell out of the "
+                     "index");
+            else
+            {
+                bool sawA = false, sawR = false;
+
+                for (size_t i = 0; i < doc.instruments[0].values.size(); i++)
+                {
+                    const std::string &n = doc.instruments[0].values[i].name;
+
+                    if (n == "a") sawA = true;
+                    if (n == "r") sawR = true;
+                }
+
+                if (!sawA || !sawR)
+                    fail("the values on either side of an effect clause did "
+                         "not both survive the scan");
+            }
+
+            std::filesystem::remove(path);
+        }
+    }
+
+    expectReject(plugins, synth, "effect-missing",
+        "instrument i { dsp \"amb01.dsp\";"
+        " effect \"no-such-effect.dsp\"; };\n"
+        "chain c { stage s gen::eno_line { }; sink { instrument = i; }; };",
+        "did not load as an effect");
+
+    clearChannels(synth);
+}
+
 static void
 checkInstruments (const std::map<std::string, thcPlugin *> &plugins,
                   thSynth *synth)
@@ -6518,6 +6708,176 @@ piecesBeside (const std::string &genFile)
     return files;
 }
 
+/* ---- the floor: rows, ducks and transpositions ------------------------ */
+
+/* A chanarg off the tape. */
+struct Knob
+{
+    double at;
+    int    channel;
+    double value;
+};
+
+static std::vector<Knob>
+knobsOf (const std::string &tape)
+{
+    std::vector<Knob> out;
+    std::istringstream lines(tape);
+    std::string line;
+
+    while (std::getline(lines, line))
+    {
+        std::istringstream f(line);
+        std::string tag, name;
+        Knob k;
+
+        if ((f >> tag >> k.at >> k.channel >> name >> k.value) && tag == "C")
+            out.push_back(k);
+    }
+
+    return out;
+}
+
+static std::vector<Knob>
+turnBody (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
+          const char *what, const std::string &body, double seconds)
+{
+    std::vector<Knob> none;
+    const std::string path = thUtil::tempFile("gencheck-floor-");
+
+    if (path.empty())
+    {
+        fail(std::string("could not write the ") + what + " piece");
+        return none;
+    }
+
+    {
+        std::ofstream out(path.c_str(), std::ios::trunc);
+
+        out << body;
+    }
+
+    clearChannels(synth);
+    drainSynth();
+
+    thcScheduler sched(synth);
+    thcGenLoader loader(plugins);
+
+    if (!loader.load(path, &sched))
+    {
+        for (size_t k = 0; k < loader.errors().size(); k++)
+            fprintf(stderr, "gencheck: %s\n", loader.errors()[k].c_str());
+
+        fail(std::string("the ") + what + " piece did not load");
+        remove(path.c_str());
+        return none;
+    }
+
+    std::vector<Knob> heard = knobsOf(render(sched, seconds, 0.02));
+
+    remove(path.c_str());
+    return heard;
+}
+
+/* gen::steps maps a row onto a range and holds on `_'; gen::pump dips a
+ * knob on the beat and comes back; xform::transpose moves a note and its
+ * release by the same amount. */
+static void
+checkFloor (const std::map<std::string, thcPlugin *> &plugins,
+            thSynth *synth)
+{
+    {
+        const char *need[] = { "steps", "pump", "transpose", "euclid", NULL };
+
+        for (int i = 0; need[i] != NULL; i++)
+            if (plugins.find(need[i]) == plugins.end())
+            {
+                fail(std::string("module '") + need[i] +
+                     "' is missing; build the plugins first");
+                return;
+            }
+    }
+
+    /* "1 0 _ 0.5" over 10..20: 20 at 0, 10 at 0.25, nothing at 0.5, 15 at
+       0.75, and the row round again at 1. */
+    {
+        std::vector<Knob> k = turnBody(plugins, synth, "steps",
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::steps { values = \"1 0 _ 0.5\";"
+            "    period = 0.25 s; min = 10; max = 20; };\n"
+            "  sink { instrument = pad; chanarg = \"fmin\"; };\n"
+            "};\n", 1.2);
+
+        /* Three values a row -- the hold sends nothing -- at 0, 0.25 and
+           0.75, and the row round again at 1.0: four inside 1.2 s. */
+        if (k.size() != 4)
+            fail("steps: a four-step row with one hold should send three "
+                 "values a row, four inside 1.2 s; sent " +
+                 std::to_string(k.size()));
+        else if (!near(k[0].value, 20) || !near(k[1].value, 10) ||
+                 !near(k[1].at, 0.25) || !near(k[2].value, 15) ||
+                 !near(k[2].at, 0.75) || !near(k[3].at, 1.0) ||
+                 !near(k[3].value, 20))
+            fail("steps: the row did not map onto min..max in time");
+    }
+
+    /* A duck: the first value of a cycle is level * (1 - depth), the last
+       is back at level, and the values never fall between. */
+    {
+        std::vector<Knob> k = turnBody(plugins, synth, "pump",
+            "instrument pad { dsp \"amb01.dsp\"; };\n"
+            "chain c {\n"
+            "  stage src gen::pump { period = 0.5 s; depth = 0.5;"
+            "    hold = 0.05 s; rise = 0.3 s; level = 40; steps = 10;"
+            "    curve = 1; };\n"
+            "  sink { instrument = pad; chanarg = \"amp\"; };\n"
+            "};\n", 0.95);
+
+        if (k.size() != 20)
+            fail("pump: ten steps a cycle for two cycles should be twenty "
+                 "values; got " + std::to_string(k.size()));
+        else
+        {
+            if (!near(k[0].value, 20) || !near(k[9].value, 40) ||
+                !near(k[10].value, 20) || !near(k[10].at, 0.5))
+                fail("pump: a cycle should start at level * (1 - depth) "
+                     "and end at level, then start again");
+
+            for (size_t i = 1; i < 10; i++)
+                if (k[i].value < k[i - 1].value - 1e-6)
+                    fail("pump: the way back up went down");
+        }
+    }
+
+    /* A transposition moves the note; one pushed off the keyboard is
+       dropped rather than folded. */
+    {
+        std::vector<Heard> h = playBody(plugins, synth, "transpose",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"C4\"; period = 1 s; hold = 0.5 s; };\n"
+            "  stage t xform::transpose { semitones = 7; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 1.5);
+
+        if (h.size() != 2 || h[0].note != 67 || h[1].note != 67)
+            fail("transpose: C4 up seven should be G4");
+
+        h = playBody(plugins, synth, "transpose off the top",
+            "chain c {\n"
+            "  stage src gen::euclid { steps = 1; fills = 1;"
+            "    notes = \"G9\"; period = 1 s; hold = 0.5 s; };\n"
+            "  stage t xform::transpose { semitones = 12; };\n"
+            "  sink { channel = 1; };\n"
+            "};\n", 1.5);
+
+        if (!h.empty())
+            fail("transpose: a note pushed off the keyboard should be "
+                 "dropped, not folded");
+    }
+}
+
 /* A piece somebody plays rather than one that plays itself: chains
  * with `input midi' and no generator anywhere. Nothing to render. */
 static bool
@@ -6771,12 +7131,14 @@ main (int argc, char *argv[])
     checkInput(plugins, &synth);
     checkTempoAndRevival(plugins, &synth);
     checkInstruments(plugins, &synth);
+    checkInstrumentEffects(plugins, &synth);
     checkNodes(plugins, &synth, genFile);
     checkStructureEdits(plugins, &synth, genFile);
     checkColony(plugins, &synth, genFile);
     checkPhrasing(plugins, &synth);
     checkHarmonyKit(plugins, &synth);
     checkHeldNotes(plugins, &synth);
+    checkFloor(plugins, &synth);
     checkCorpus(plugins, &synth, genFile);
     checkSilent(plugins, &synth, &silent, genFile);
 

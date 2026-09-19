@@ -147,6 +147,24 @@ public:
         return guiChannels_[chan]->args();
     }
 
+    /* The effect's chanargs, which are a second set and not merged with the
+       instrument's: an instrument's `@a' and an effect's must not collide.
+       Addressed as `fx.<name>' wherever one map of names is wanted. */
+    thArgMap getEffectArgs (int chan) {
+        if ((chan < 0) || (chan >= midiChannelCnt_) ||
+            (guiEffects_[chan] == NULL))
+            return thArgMap();
+
+        return guiEffects_[chan]->args();
+    }
+
+    thChanEffect *getEffect (int chan) {
+        if ((chan < 0) || (chan >= midiChannelCnt_))
+            return NULL;
+
+        return guiEffects_[chan];
+    }
+
     int getWindowlen (void) const { return windowlen_; }
     void setWindowlen (int);
 
@@ -184,8 +202,28 @@ public:
 
     int midiChanCount (void) const { return midiChannelCnt_; }
 
+    /* A chanarg by name. `fx.<name>' reaches the channel effect's, anything
+       else the instrument's -- see TH_EFFECT_PREFIX. */
     thArg *getChanArg (int channum, const string &argname);
     void setChanArg (int channum, thArg *arg);
+
+    /* The graph that runs on a channel's summed voices, once per window.
+     *
+     * Beside loadTree, and after it: a channel swap takes its effect with it,
+     * so an instrument is loaded first and its effect put on afterwards. The
+     * returned tree is owned by the effect, which is owned by the channel;
+     * NULL means the file did not load, and nothing changed.
+     *
+     * A graph whose io node has no in0 is refused. It would run -- every
+     * window, on nothing -- and produce whatever a graph with no input
+     * produces, which is the failure mode the .dsp/effect distinction exists
+     * to make impossible to reach by accident. */
+    thSynthTree *loadEffect (const string &filename, int channum);
+
+    /* Takes the effect off `channum'. True if the audio thread was told;
+       false only when the command queue is full, in which case the effect is
+       still running and the caller has to try again. */
+    bool removeEffect (int channum);
 
     void handleMidiController (unsigned char channel, unsigned int param,
                                unsigned int value);
@@ -308,6 +346,16 @@ private:
      * array, which is what removes the race. */
     thMidiChan **midiChannels_; /* MIDI channels -- audio thread */
     thMidiChan **guiChannels_;  /* the same channels -- GUI thread */
+
+    /* The GUI's view of each channel's effect, for the same reason
+     * guiChannels_ exists: the audio thread writes thMidiChan::effect_, and
+     * the GUI wants to reach the effect's chanargs without reading what the
+     * other thread is writing.
+     *
+     * A reference rather than ownership -- the channel owns its effect, and a
+     * channel swap destroys it -- so these entries are cleared when a channel
+     * goes rather than freed. */
+    thChanEffect **guiEffects_;
 
     /* Two views of the same probes, for exactly the reason the channel arrays
        are two: probes_ is written only by applyCommand() on the audio thread,

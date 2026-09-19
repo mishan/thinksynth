@@ -61,6 +61,7 @@
 #include "think.h"
 #include "NodeGraph.h"
 #include "gui/NodeEditor.h"
+#include "gui/ArgTable.h"
 
 /* Picked up automatically by LeakSanitizer, the same way visualcheck and
  * dspstress supply theirs -- so this stays a real gate under CI's
@@ -223,6 +224,96 @@ bool drewSomething (thVisual *v, void *inst)
     const int stride = a->get_stride();
 
     return memcmp(a->get_data(), b->get_data(), (size_t)stride * 24) != 0;
+}
+
+/* Every Gtk::Scale under `w', depth first. */
+void collectScales (Gtk::Widget *w, std::vector<Gtk::Scale *> &out)
+{
+    if (w == NULL)
+        return;
+
+    Gtk::Scale *scale = dynamic_cast<Gtk::Scale *>(w);
+
+    if (scale != NULL)
+        out.push_back(scale);
+
+    for (Gtk::Widget *c = w->get_first_child(); c != NULL;
+         c = c->get_next_sibling())
+        collectScales(c, out);
+}
+
+/* The parameter panel over a channel *effect's* chanargs.
+ *
+ * A channel has two chanarg maps, and one lookup reaches both: thSynth::
+ * getChanArg reads `fx.delay' as the effect's. So the patch page draws the
+ * second map with the same widget as the first, differing by the prefix its
+ * lookups carry -- and the way that fails is silently, with a slider that
+ * moves and changes nothing, because the name it looked up was the
+ * instrument's and there is nothing there.
+ *
+ * One arg in the table, so the one scale under it is unambiguous.
+ */
+void checkEffectPanel (thSynth &synth, const string &pluginPath)
+{
+    const string fx =
+        thUtil::findDataFile("fx/echo.dsp", "dsp", "THINK_DSP_PATH", DSP_PATH);
+
+    if (fx.empty())
+    {
+        printf("      (fx/echo.dsp not found; skipping the effect panel)\n");
+        return;
+    }
+
+    ok(synth.loadEffect(fx, 0) != NULL,
+       "an effect loads onto the channel the editor was using");
+
+    thArg *mix = synth.getChanArg(0, "fx.mix");
+
+    ok(mix != NULL, "its parameters are reachable under `fx.'");
+
+    if (mix == NULL)
+        return;
+
+    const float before = (*mix)[0];
+
+    Gtk::Window *win = new Gtk::Window();
+    ArgTable *table = Gtk::manage(new ArgTable);
+
+    table->insertArg(mix);
+    table->setChannel(0);
+    table->setPrefix(TH_EFFECT_PREFIX);
+    table->reflow();
+
+    win->set_child(*table);
+    win->set_default_size(500, 200);
+    win->present();
+
+    pump(0.2);
+
+    std::vector<Gtk::Scale *> scales;
+
+    collectScales(table, scales);
+
+    ok(scales.size() == 1,
+       "the panel drew one slider for the one parameter (%zu)",
+       scales.size());
+
+    if (scales.size() == 1)
+    {
+        const double want = (before < 0.5) ? 0.8 : 0.2;
+
+        scales[0]->set_value(want);
+
+        pump(0.2);
+
+        ok(fabs((double)(*mix)[0] - want) < 1e-6,
+           "moving it moved the effect's parameter and not a name that is "
+           "not there (%f -> %f, wanted %f)", (double)before,
+           (double)(*mix)[0], want);
+    }
+
+    win->set_visible(false);
+    delete win;
 }
 
 int run (const string &pluginPath, const char *file)
@@ -556,6 +647,8 @@ int run (const string &pluginPath, const char *file)
        wrong, and running it under ASan is the only way anyone would find out.
        Gtk::manage means the editor goes with the window. */
     delete window;
+
+    checkEffectPanel(synth, pluginPath);
 
     return failures;
 }

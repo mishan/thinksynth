@@ -191,10 +191,12 @@ static void addPortOnce (NodeGraph::Box &b, const string &name, bool isInput)
 /* Is `name' an arg the engine itself reads off the io node?
  *
  * The io node has no plugin, so nothing declares its directions and they have
- * to be recovered from what the engine does with it. thMidiChan::process()
- * reads exactly three things: OUTPUTPREFIX plus a channel digit for the audio
- * it mixes, `play' to learn the note has finished, and `channels' to size the
- * mix. Those are the io node's real inputs.
+ * to be recovered from what the engine does with it. thMidiChan reads five
+ * things: OUTPUTPREFIX plus a channel digit for the audio it mixes, `play' to
+ * learn the note has finished, `channels' to size the mix, and -- at
+ * construction -- `poly' and `mono', which say how many voices the channel
+ * allocates and whether a second note retunes the first. Those are the io
+ * node's real inputs.
  *
  * Everything else on the io node goes the other way. thMidiNote writes note,
  * velocity and trigger; thMidiChan creates amp; and -- by far the commonest
@@ -208,7 +210,8 @@ static void addPortOnce (NodeGraph::Box &b, const string &name, bool isInput)
  * TH_MAX_CHANNELS notes that ten is where the naming would need two. */
 bool NodeGraph::isIoEngineInput (const string &name)
 {
-    if (name == "play" || name == "channels")
+    if (name == "play" || name == "channels" || name == "poly" ||
+        name == "mono")
         return true;
 
     const string prefix = OUTPUTPREFIX;
@@ -519,7 +522,9 @@ bool NodeGraph::build (thSynthTree *tree)
              * regardless: thMidiChan::process reads OUTPUTPREFIX plus a digit,
              * `play' and `channels'; thMidiNote writes note, velocity and
              * trigger. Anything else the file mentions is still discovered as
-             * before.
+             * before -- `poly' and `mono' among them, which the engine reads
+             * but which a patch that does not set them has no port for and no
+             * use for.
              *
              * Not `amp': patches do read `ionode->amp', but every one of them
              * declares it in the io block first. It is a convention among
@@ -560,6 +565,29 @@ bool NodeGraph::build (thSynthTree *tree)
             addPortOnce(src, "note", false);
             addPortOnce(src, "velocity", false);
             addPortOnce(src, "trigger", false);
+
+            /* And in<N> for a channel effect, which is what the engine writes
+             * into one instead of a note: the graph reads them the way an
+             * instrument reads `note'.
+             *
+             * Advertised only for a graph that declares in0, because only
+             * such a graph is an effect -- an instrument has no input and
+             * three phantom ports on its midi-in box would be three more
+             * wires nobody can make. Which side they go is decided by the
+             * same rule as everything else here: the engine writes them, so
+             * they are the source's. */
+            if (tree->takesInput())
+            {
+                src.plugin = "channel in";
+
+                for (int c = 0; c < channels; c++)
+                {
+                    char nm[32];
+
+                    snprintf(nm, sizeof(nm), "%s%d", INPUTPREFIX, c);
+                    addPortOnce(src, nm, false);
+                }
+            }
 
             boxes_.push_back(src);
             sourceOfIo[ionode->name()] = (int)boxes_.size() - 1;

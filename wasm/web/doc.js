@@ -161,12 +161,15 @@ export function pieceText (doc)
 }
 
 /* The .dsp files a .gen names: `dsp "amb01.dsp";' in an instrument block
-   (GEN_FORMAT.md, section 4a). */
+   and `effect "fx/echo.dsp"' inside it (GEN_FORMAT.md, section 4b). An
+   effect is a file the loader looks up exactly as it looks up an
+   instrument, so a room that carried the one and not the other would
+   fail every peer's load. */
 export function dspNames (genText)
 {
     const names = new Set();
 
-    for (const m of genText.matchAll(/\bdsp\s+"([^"]+)"/g))
+    for (const m of genText.matchAll(/\b(?:dsp|effect)\s+"([^"]+)"/g))
         names.add(m[1]);
 
     return [...names];

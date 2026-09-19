@@ -121,6 +121,19 @@ think_harness(dspab)
 # loads -- dspcheck can say a file parsed and not that two files agree.
 think_harness(exprcheck NODEMODEL)
 
+# The graph that runs on a channel's summed voices: that it runs when nothing
+# is playing, that in0 carries the audio, that its chanargs are its own under
+# `fx.', and that it comes and goes with the channel. Loads the shipped effect
+# graphs too, since the note-playing corpus gates skip them.
+think_harness(fxcheck)
+
+# How a channel hands notes to voices: `poly' and `mono' on the io node, the
+# held-key stack behind mono's last-note priority, and the glide a misc::slew
+# carries across a retune. Listens to the channel's output rather than reaching
+# into thMidiChan, and writes its own .dsp files -- every shipped graph is
+# polyphonic, so the corpus cannot hold these cases.
+think_harness(voicecheck)
+
 # The three stateful nodes -- misc::slew, filt::svf, osc::noise -- measured:
 # a step response, a frequency response, a spectral tilt, and for each of them
 # that a window boundary is not an event. Builds its graphs in C++ rather than
@@ -182,12 +195,19 @@ target_link_libraries(canvasbench PRIVATE PkgConfig::GTKMM)
 # holds them together. It needs a display for the same reason canvasbench does
 # -- real widgets -- but unlike canvasbench it is a gate, so it is in the ctest
 # list below, guarded by whether a display can be had.
+# ArgTable and gthPatchfile join the list for the channel-effect panel: a
+# channel has two chanarg maps and one lookup reaches both, so the panel over
+# the second differs from the panel over the first by a prefix -- and the way
+# that fails is a slider that moves and changes nothing.
 think_harness(editorcheck NODEMODEL VISUALHOST NODECANVAS
               EXTRA "${PROJECT_SOURCE_DIR}/src/gui/GraphCanvas.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeCanvasWidget.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeEditor.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodeParams.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/NodePalette.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ArgTable.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gui/ColumnUtil.cpp"
+                    "${PROJECT_SOURCE_DIR}/src/gthPatchfile.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/Dialogs.cpp"
                     "${PROJECT_SOURCE_DIR}/src/gui/SaveButton.cpp")
 target_link_libraries(editorcheck PRIVATE PkgConfig::GTKMM)
@@ -419,6 +439,16 @@ add_test(NAME exprcheck
 add_test(NAME statecheck
          COMMAND statecheck -p "${PROJECT_BINARY_DIR}/plugins/")
 
+# Needs the plugins and nothing else: it writes its own .dsp files.
+add_test(NAME voicecheck
+         COMMAND voicecheck -p "${PROJECT_BINARY_DIR}/plugins/")
+
+# The effect path, plus every shipped effect graph as an argument -- they are
+# the ones the note-playing gates skip, so this is where they are covered.
+add_test(NAME fxcheck
+         COMMAND fxcheck -p "${PROJECT_BINARY_DIR}/plugins/"
+                 "${PROJECT_SOURCE_DIR}/dsp/fx/echo.dsp")
+
 # Needs no corpus and no display -- it draws to an image surface.
 add_test(NAME visualcheck
          COMMAND visualcheck -p "${PROJECT_BINARY_DIR}/plugins/")
@@ -473,9 +503,18 @@ add_test(NAME editorcheck
          COMMAND editorcheck -p "${PROJECT_BINARY_DIR}/plugins/"
                  "${PROJECT_SOURCE_DIR}/dsp/ts1.dsp")
 
+# THINK_DSP_PATH for the channel-effect panel: it loads dsp/fx/echo.dsp, and
+# without this the only thing left pointing at a corpus is the compiled-in
+# DSP_PATH, which on a development machine is answered by whatever was last
+# installed to /usr/local -- the same way round the configcheck registration
+# got it wrong.
+set_tests_properties(editorcheck PROPERTIES
+    ENVIRONMENT "THINK_DSP_PATH=${PROJECT_SOURCE_DIR}/dsp")
+
 set_tests_properties(dspcheck.dsp dspcheck.patch dsplevel dspblock dspmidi
                      ringcheck visualcheck dspprobe editorcheck argtype
-                     exprcheck statecheck gencheck dspsweep dspsweep.guard
+                     exprcheck statecheck voicecheck fxcheck gencheck
+                     dspsweep dspsweep.guard
                      genwav.nonfinite
                      PROPERTIES TIMEOUT 900)
 

@@ -297,6 +297,18 @@ struct thcInstrument
 {
     std::string name;
     std::string dsp;
+
+    /* The graph that runs on this channel's summed voices, or empty. Not the
+     * one that makes the notes: the one a delay throw needs, which outlives
+     * the note that fed it -- see DSP_FORMAT.md's "An effect graph".
+     *
+     * Loaded after the instrument, because an effect belongs to a channel and
+     * loading an instrument builds a new one. */
+    std::string effect;
+
+    /* Both graphs' values, in one list. The effect's carry a `fx.' prefix on
+       their names, which is how the engine addresses them, so the one call
+       that writes a chanarg reaches either map. */
     std::vector<thcInstrumentArg> args;
 
     int channel;                /* 0-15, engine numbering; -1 unallocated */
@@ -540,11 +552,28 @@ public:
     typedef std::function<bool (const thcInstrument &inst)>
         InstrumentUnloader;
 
+    /* And who puts the instrument's effect on the same channel.
+     *
+     * Beside InstrumentLoader and for the same reason. It was argued once
+     * that an effect could go straight through the synth whether or not the
+     * host had a hook, because "an effect is not a patch" -- and then a
+     * .patch learned to carry one, so it is. Loading it behind the host's
+     * back left gthPatchManager believing the channel had none: the page
+     * offered to choose one where there already was one, its `None' button
+     * was dead, and saving the patch wrote the effect's values under a file
+     * it had not named, which the next load then refused.
+     *
+     * Empty takes the effect off, which is what the piece declaring none
+     * means once the host may be holding one from before. */
+    typedef std::function<bool (int channel, const std::string &effect,
+                                std::string &why)> EffectLoader;
+
     void setInstrumentLoader (const InstrumentLoader &fn) { loadDsp_ = fn; }
     void setInstrumentUnloader (const InstrumentUnloader &fn)
     {
         unloadDsp_ = fn;
     }
+    void setEffectLoader (const EffectLoader &fn) { loadEffect_ = fn; }
 
     /* Is this channel somebody else's?
      *
@@ -832,6 +861,7 @@ private:
     std::vector<thcInstrument> instruments_;
     InstrumentLoader           loadDsp_;
     InstrumentUnloader         unloadDsp_;
+    EffectLoader               loadEffect_;
     ChannelTaken               taken_;
 
     /* Instruments whose channel would not go. Deliberately NOT cleared

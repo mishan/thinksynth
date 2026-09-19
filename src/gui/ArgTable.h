@@ -35,6 +35,16 @@ public:
        the patch has been edited. -1 for none. */
     void setChannel (int chan) { chan_ = chan; }
 
+    /* What to put in front of a parameter's name when looking it up through
+     * the channel.
+     *
+     * Empty for the instrument's own parameters, TH_EFFECT_PREFIX for the
+     * channel effect's. A channel has two chanarg maps and one lookup --
+     * thSynth::getChanArg reads `fx.delay' as the effect's -- so a second
+     * panel over the second map differs from the first by this string and
+     * nothing else. */
+    void setPrefix (const string &prefix) { prefix_ = prefix; }
+
     /* Records a parameter. Nothing is laid out until reflow(). */
     void insertArg (thArg *arg) { insertArg(arg, ""); }
 
@@ -95,6 +105,9 @@ private:
     static int widthFor (double hi, int digits);
 
     int chan_;
+
+    /* See setPrefix. */
+    string prefix_;
 
     std::vector<thArg *> pending_;
     std::map<thArg *, string> inferred_;

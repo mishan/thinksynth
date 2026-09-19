@@ -866,6 +866,14 @@ EMSCRIPTEN_KEEPALIVE int tw_instrument (const char *name, const char *text)
 {
     const std::string path = std::string(TW_DSP_DIR) + "/" + name;
 
+    /* An effect graph is `fx/echo.dsp': a name with a directory in it,
+       looked up under dsp/ the way a piece's `effect' clause spells it.
+       MEMFS does not make parents on a write, so each one is made here,
+       and one that already exists is not an error. */
+    for (size_t slash = path.find('/', strlen(TW_DSP_DIR) + 1);
+         slash != std::string::npos; slash = path.find('/', slash + 1))
+        mkdir(path.substr(0, slash).c_str(), 0777);
+
     return writeFile(path.c_str(), text) ? 1 : 0;
 }
 

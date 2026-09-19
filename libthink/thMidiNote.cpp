@@ -34,6 +34,7 @@ thMidiNote::thMidiNote (thSynthTree *tree, float note, float velocity)
     ionode->setArg("velocity", velocity);
     ionode->setArg("trigger", 1);
 
+    note_ = note;
     noteid_ = (int)note;
 }
 
@@ -47,11 +48,26 @@ thMidiNote::thMidiNote (thSynthTree *tree)
     ionode->setArg("velocity", 0); /* the args are indexed as well */
     ionode->setArg("trigger", 0);
 
+    note_ = 0;
     noteid_ = 0;
 }
 
 thMidiNote::~thMidiNote ()
 {
+}
+
+/* Audio thread. See the header. */
+void thMidiNote::retune (float note)
+{
+    thNode *ionode = synthTree_.IONode();
+
+    if (ionode == NULL)
+        return;
+
+    ionode->setArg("note", note);
+
+    note_ = note;
+    noteid_ = (int)note;
 }
 
 void thMidiNote::process (int length)

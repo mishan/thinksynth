@@ -596,8 +596,24 @@ static bool findAssign (const vector<string> &lines, size_t open, size_t close,
 
             if (leftOk && rightOk)
             {
-                /* only whitespace may precede it on the line */
-                if (trim(code.substr(0, p)).empty())
+                /* What may come before an assignment on its line: nothing,
+                 * the block's own `{', or the `;' that ended the statement
+                 * before it.
+                 *
+                 * The test is here to reject an occurrence that is somebody
+                 * else's right-hand side -- `in = ionode->cutoff;' is not an
+                 * assignment to `cutoff' -- and "nothing precedes it" said
+                 * that correctly only for as long as every node body in the
+                 * corpus put one statement on a line. A node written on one
+                 * line had every arg in it read as absent, whereupon
+                 * insertAssign was asked to add the one that was already
+                 * there.
+                 */
+                const string before = trim(code.substr(0, p));
+                const char last = before.empty() ? '\0'
+                                                 : before[before.size() - 1];
+
+                if (before.empty() || last == '{' || last == ';')
                 {
                     string::size_type eq = code.find('=', after);
 
@@ -788,6 +804,69 @@ static string indentOf (const vector<string> &lines, size_t open, size_t close)
     return "    ";
 }
 
+/* Puts `<arg> = <text>;' inside a node block, wherever that block keeps its
+ * closing brace.
+ *
+ * A node written across several lines gets a line of its own, indented like
+ * the ones around it -- which is what this always did, by inserting above the
+ * line the `}' is on.
+ *
+ * A node written on one line has no such line to insert above: `close' is the
+ * declaration itself, so inserting there put the assignment *above* the node,
+ * outside every block. Depending on what followed, the file then either
+ * stopped parsing or kept parsing with a statement in it that nothing reads --
+ * and the caller was told OK either way. One-line bodies are not a curiosity;
+ * dsp/supersaw.dsp writes seven oscillators as seven one-line nodes precisely
+ * so that they read as seven variations of one line. So the assignment is
+ * spliced in ahead of the closing brace instead, where a reader would have
+ * put it.
+ *
+ * False if the block has no closing brace to splice before, which
+ * findNodeBlock has already ruled out; the caller refuses rather than
+ * returning OK for a write it did not make.
+ */
+static bool insertAssign (vector<string> &lines, size_t open, size_t close,
+                          const string &arg, const string &text)
+{
+    if (open != close)
+    {
+        lines.insert(lines.begin() + close,
+                     indentOf(lines, open, close) + arg + " = " + text + ";");
+
+        return true;
+    }
+
+    /* The brace that closes this node, counted the way findNodeBlock counts
+       it, and over codeOf so that a `}' inside a comment or a string is not
+       mistaken for it. */
+    const string code = codeOf(lines[close]);
+    int depth = 0;
+
+    for (string::size_type k = 0; k < code.size(); k++)
+    {
+        if (code[k] == '{')
+        {
+            depth++;
+            continue;
+        }
+
+        if (code[k] != '}' || --depth != 0)
+            continue;
+
+        /* Indices into codeOf() are indices into the line: it replaces what
+           it removes rather than shortening, up to the comment it drops. */
+        const bool spaced = (k > 0 && (code[k - 1] == ' ' ||
+                                       code[k - 1] == '\t'));
+
+        lines[close] = lines[close].substr(0, k) + (spaced ? "" : " ") +
+                       arg + " = " + text + "; " + lines[close].substr(k);
+
+        return true;
+    }
+
+    return false;
+}
+
 /* ---- the edits --------------------------------------------------------- */
 
 NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
@@ -891,8 +970,12 @@ NodeEdit::Result NodeEdit::Text::setValue (string &source, const string &node,
             return UNWRITABLE;
         }
 
-        lines.insert(lines.begin() + close,
-                     indentOf(lines, open, close) + arg + " = " + text + ";");
+        if (!insertAssign(lines, open, close, arg, text))
+        {
+            why = "the `node " + node + "' block has no closing brace to "
+                  "write " + arg + " before";
+            return UNWRITABLE;
+        }
     }
 
     source = joinLines(lines, endsWithNewline);
@@ -953,9 +1036,12 @@ static NodeEdit::Result bindArg (string &source, const string &node,
         lines[line] = lines[line].substr(0, from) + text +
                       lines[line].substr(to);
     }
-    else
-        lines.insert(lines.begin() + close,
-                     indentOf(lines, open, close) + arg + " = " + text + ";");
+    else if (!insertAssign(lines, open, close, arg, text))
+    {
+        why = "the `node " + node + "' block has no closing brace to write " +
+              arg + " before";
+        return NodeEdit::UNWRITABLE;
+    }
 
     source = joinLines(lines, endsWithNewline);
 

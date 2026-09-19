@@ -494,7 +494,7 @@ void ArgTable::sliderChanged (Gtk::Scale *slider, string name)
     if (chan_ < 0)
         return;
 
-    thArg *arg = thSynth::instance()->getChanArg(chan_, name);
+    thArg *arg = thSynth::instance()->getChanArg(chan_, prefix_ + name);
 
     if (arg == NULL)
         return;
@@ -536,7 +536,7 @@ void ArgTable::choiceChanged (Gtk::DropDown *choice, string name,
     if (row == GTK_INVALID_LIST_POSITION || row >= values.size())
         return;
 
-    thArg *arg = thSynth::instance()->getChanArg(chan_, name);
+    thArg *arg = thSynth::instance()->getChanArg(chan_, prefix_ + name);
 
     if (arg == NULL)
         return;

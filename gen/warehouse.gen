@@ -1,0 +1,290 @@
+# warehouse.gen -- four to the floor, a bass that slides, and a pad that
+# breathes with the kick.
+#
+# Techno, at a hundred and twenty-four. A kick every beat, a clap on two
+# and four, sixteenths on a hat with an accent row over them, a bass
+# line on one voice that slides where its notes touch, stabs that throw
+# into a delay, and a pad ducking under the kick the way a sidechain
+# compressor would duck it. Every fourth phrase the kick and the clap
+# drop out for four bars and come back.
+#
+# THE BASS SLIDES because the instrument is monophonic. bass.dsp has
+# `mono = 1' on its io node, so a note that arrives while the last is
+# still held retunes the voice rather than starting one, and a slew on
+# its frequency turns the retune into a glide. The line is a grammar in
+# sixteenths with `hold' a little longer than `step', so every note
+# overlaps the next and every pair of adjacent notes is a slide; a rest
+# breaks the overlap, and the note after a rest is struck. Where the
+# riff repeats a pitch there is a rest between, because a repeat that
+# overlapped would be one long note. gen::steps walks the filter's
+# cutoff through a row of eight, which is the step-sequenced filter of
+# the acid box.
+#
+# THE PAD PUMPS. gen::pump emits a dip in the pad's `amp' once a beat --
+# down at the top of the beat, held a moment, back up over most of the
+# beat -- because a channel here cannot hear another and a sidechain
+# has nowhere else to live. The Pump knob is the depth. The pad is
+# supersaw.dsp, seven saws a few cents apart, through fx/hall.dsp: an
+# effect graph on the channel's sum, so the reverb's tail outlives the
+# chord that fed it.
+#
+# THE STABS are a sixteen-step ring with rests in the pool -- a step
+# sequencer -- spelled into chords by xform::harmonize, on stab.dsp,
+# through fx/echo.dsp at a dotted eighth: the delay throw, on the
+# channel and not in the voice.
+#
+# The hats' accents are gen::steps too, a row of eight levels a beat on
+# the hat's `amp', and one in twelve is missing. The clap sometimes
+# rolls, through xform::ratchet. The breakdown is xform::form on the
+# kick and the clap, a pattern of eight four-bar bars with the last one
+# silent.
+#
+# The chance and the ratchet roll dice; the seed is pinned for them.
+# Self-contained: open it and press Play.
+
+name "Warehouse";
+author "Misha Nasledov";
+description "Techno: a monophonic bass that slides, a step-sequenced filter, stabs into a delay, and a pad that pumps with the kick.";
+
+tempo 124;
+seed 1991;
+
+# How far the pad ducks under each kick.
+@pump = 0.65;
+@pump.widget = 1;
+@pump.min = 0;
+@pump.max = 1;
+@pump.label = "Pump";
+
+# The bass filter's resonance, in the filter's units.
+@acid = 0.8;
+@acid.widget = 1;
+@acid.min = 0.3;
+@acid.max = 0.95;
+@acid.label = "Acid";
+
+scale amin "A2 B2 C3 D3 E3 F3 G3";
+scale riff "A1 C2 D2 E2 G2";
+
+# ---- instruments ------------------------------------------------------
+
+instrument kick {
+    dsp  "kick909.dsp";
+    amp  = 30;
+
+    pitch = 200;
+    floor = 46;
+    sweep = 70 ms;
+    decay = 360 ms;
+    click = 0.5;
+    drive = 2.6;
+};
+
+instrument clap {
+    dsp  "clap.dsp";
+    amp  = 30;
+
+    color = 1;
+    tone = 1300;
+    res = 0.6;
+    flutter = 90;
+    front = 30 ms;
+    tail = 170 ms;
+    body = 0.6;
+};
+
+instrument hat {
+    dsp  "hat.dsp";
+    amp  = 10;
+
+    color = 0;
+    tone = 8000;
+    res = 0.2;
+    a = 0.5 ms;
+    clen = 50 ms;
+    olen = 380 ms;
+};
+
+# One voice; overlapping notes slide.
+instrument bass {
+    dsp  "bass.dsp";
+    amp  = 24;
+
+    glide = 50 ms;
+    sub = 0.35;
+    cutoff = 180;
+    depth = 1400;
+    res = @acid;
+    drive = 2.4;
+
+    fa = 2 ms;
+    fd = 160 ms;
+    fs = 0.1;
+    fr = 100 ms;
+
+    a = 2 ms;
+    d = 300 ms;
+    s = 0.6;
+    r = 80 ms;
+};
+
+# The stabs, and the delay their channel throws them into.
+instrument stab {
+    dsp  "stab.dsp";
+    amp  = 15;
+
+    detune = 9;
+    fifth = 0.35;
+    cutoff = 500;
+    depth = 3500;
+    res = 0.45;
+    fd = 150 ms;
+    d = 220 ms;
+    r = 90 ms;
+
+    effect "fx/echo.dsp" {
+        delay = 363 ms;
+        spread = 1.5;
+        feedback = 0.5;
+        damping = 2600;
+        mix = 0.35;
+    };
+};
+
+# The pad, and the hall its channel sits in.
+instrument pad {
+    dsp  "supersaw.dsp";
+    amp  = 14;
+
+    detune = 14;
+    cutoff = 500;
+    depth = 1200;
+    res = 0.2;
+    fa = 200 ms;
+    fd = 900 ms;
+    fs = 0.5;
+    fr = 600 ms;
+    a = 300 ms;
+    d = 600 ms;
+    s = 0.85;
+    r = 700 ms;
+
+    effect "fx/hall.dsp" {
+        decay = 0.85;
+        size = 1.4;
+        damping = 3200;
+        mix = 0.3;
+    };
+};
+
+# ---- the drums --------------------------------------------------------
+
+# Every beat, for twenty-eight bars of every thirty-two.
+chain kick {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "C2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 118;
+    };
+    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = kick; };
+};
+
+chain clap {
+    stage src gen::euclid {
+        steps = 4;  fills = 2;  rotate = 1;
+        notes = "D2";
+        period = 1 beats;  hold = 0.3 beats;  vel = 108;
+    };
+    stage r xform::ratchet { count = 3;  prob = 0.12;  decay = 0.75; };
+    stage f xform::form { pattern = "xxxxxxx.";  bar = 16 beats;  mode = 0; };
+    sink { instrument = clap; };
+};
+
+# Sixteenths, one in twelve missing.
+chain hats {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "F#3";
+        period = 0.25 beats;  hold = 0.1 beats;  vel = 50;
+    };
+    stage c xform::chance { prob = 0.92; };
+    sink { instrument = hat; };
+};
+
+# The accents: a row of eight levels on the hat's amp, two beats long.
+chain accents {
+    stage src gen::steps {
+        values = "1 0.4 0.6 0.4 0.9 0.4 0.7 0.4";
+        period = 0.25 beats;  min = 5;  max = 12;
+    };
+    sink { instrument = hat; chanarg = "amp"; };
+};
+
+# Open on the offbeats.
+chain hats_open {
+    stage src gen::euclid {
+        steps = 8;  fills = 4;  rotate = 1;
+        notes = "F#3";
+        period = 0.5 beats;  hold = 0.3 beats;  vel = 120;
+    };
+    sink { instrument = hat; };
+};
+
+# ---- the bass ---------------------------------------------------------
+
+# One bar of sixteenths; hold is longer than step, so adjacent notes
+# slide and a rest is a fresh attack.
+chain bass {
+    stage src gen::lsystem {
+        axiom = "FrFr+++F-Fr--Fr++++F----Fr+++Fr-Fr";
+        rules = "";
+        depth = 0;
+        notes = riff;
+        step = 0.25 beats;  hold = 0.3 beats;  vel = 100;
+    };
+    sink { instrument = bass; };
+};
+
+# The acid box's filter: eight cutoffs, an eighth each, in hertz.
+chain acid {
+    stage src gen::steps {
+        values = "0.15 0.5 0.3 0.9 0.2 0.6 0.35 1";
+        period = 0.5 beats;  min = 120;  max = 1600;
+    };
+    sink { instrument = bass; chanarg = "cutoff"; };
+};
+
+# ---- the stabs and the pad --------------------------------------------
+
+# A sixteen-step ring with rests in the pool, spelled into A minor.
+chain stabs {
+    stage src gen::euclid {
+        steps = 16;  fills = 16;  rotate = 0;
+        notes = "A3 . . A3 . . G3 . . . A3 . C4 . . .";
+        period = 0.25 beats;  hold = 0.2 beats;  vel = 96;
+    };
+    stage h xform::harmonize { scale = amin;  voices = 3;  step = 2;  spread = 0 s;  taper = 0.85;  root = 1;  below = 0; };
+    sink { instrument = stab; };
+};
+
+# One chord every two bars: Am, F, Am, G.
+chain pad {
+    stage src gen::euclid {
+        steps = 4;  fills = 4;  rotate = 0;
+        notes = "A2 F2 A2 G2";
+        period = 8 beats;  hold = 7.9 beats;  vel = 70;
+    };
+    stage h xform::harmonize { scale = amin;  voices = 3;  step = 2;  spread = 0.02 s;  taper = 0.9;  root = 1;  below = 0; };
+    sink { instrument = pad; };
+};
+
+# The sidechain: the pad's amp dips on every beat and comes back.
+chain pump {
+    stage src gen::pump {
+        period = 1 beats;  depth = @pump;
+        hold = 0.05 beats;  rise = 0.6 beats;
+        level = 14;  steps = 12;  curve = 1.6;
+    };
+    sink { instrument = pad; chanarg = "amp"; };
+};

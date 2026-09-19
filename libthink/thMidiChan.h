@@ -102,10 +102,33 @@ public:
        rather than deleting it under the GUI thread's feet. */
     void setArg (thArg *arg, RetireQueue *retire);
 
+    /* Audio thread: installs the graph that runs on this channel's summed
+     * voices, or NULL to take one off, and retires whatever was there.
+     *
+     * Built on the GUI thread like a channel and a note, and for the same
+     * reason: it parses a file and allocates a tree. */
+    void setEffect (thChanEffect *effect, RetireQueue *retire);
+
+    /* Either thread, with the care every shared pointer here needs. The GUI
+       reads it to reach the effect's chanargs; the audio thread runs it. */
+    thChanEffect *effect (void) const { return effect_; }
+
     const thArgMap &args (void) const { return args_; }
 
     float *output (void) const { return output_; }
     int numChannels (void) const { return channels_; }
+
+    /* How this channel allocates voices: `poly' and `mono' off the io node,
+     * read once at construction and never written again, so either thread may
+     * ask.
+     *
+     * For anything that plays notes and then expects to find them -- a
+     * harness, a panel, a voice display. A mono channel answers one note with
+     * one voice however many are played, and a poly-limited one retires down
+     * to its limit, so "I played three, where are they" is a question with a
+     * different answer per graph. polyMax() of 0 is no limit. */
+    int polyMax (void) const { return polymax_; }
+    bool mono (void) const { return mono_; }
 
     thSynthTree *modnode (void) { return modnode_; }
 
@@ -159,17 +182,49 @@ private:
        sum is where a NaN becomes everybody's problem. */
     bool voiceIsFinite (thSynthTree *tree);
 
-    /* Audio thread. Counts the voice the guard just dropped, and says so once
-       per channel per load. */
-    void reportNonFinite (void);
+    /* Audio thread. Counts what the guard just dropped, and says so once per
+       channel per load -- once for a voice and once for the effect, which are
+       two different failures and two different lines.
+     *
+       `which' picks the message describe() formatted; both increment the same
+       counter, because what the counter is for is "this render had a graph
+       that went non-finite in it" and that is true either way. */
+    enum Guard { GUARD_VOICE, GUARD_EFFECT };
+
+    void reportNonFinite (Guard which);
 
     /* Hands `note' to the GUI thread to destroy. Falls back to deleting it
        here if the retire queue is full -- that costs RT-safety in a case that
        should not arise, but never correctness. */
     void retireNote (thMidiNote *note, RetireQueue *retire);
 
+    /* Audio thread. Moves a voice out of notes_ and into decaying_, which is
+       what has to happen to any voice that is no longer the one a new note
+       will be keyed as. Was the body of insertNote's same-pitch collision
+       case; mono needs it for a collision on any pitch. */
+    void decayNote (NoteMap::iterator i);
+
+    /* Audio thread. The voice a mono channel is playing, or NULL.
+     *
+     * Not simply notes_.begin(): a voice whose key has come up is still in
+     * notes_ until its release finishes, and a new note then is a new voice
+     * rather than a slide -- which is the rule that makes `hold' longer than
+     * `step' a slide and shorter a retrigger. So this is the voice that is
+     * still being *held*, by a key or by the pedal, which is a non-zero
+     * trigger. */
+    thMidiNote *monoVoice (void);
+
+    /* Audio thread. The stack of pitches whose keys are down, last-note
+       priority. A pitch already on it is moved to the top rather than
+       repeated, so the stack cannot exceed one entry per distinct pitch. */
+    void monoPush (float note);
+    bool monoPop (float note);
+
     bool dirty_;
     thSynthTree *modnode_;
+
+    /* The channel's effect, or NULL. Owned here, installed by setEffect. */
+    thChanEffect *effect_;
     thArgMap args_;
     NoteMap notes_;
     NoteList decaying_;  /* linked list for decaying notes */
@@ -202,9 +257,21 @@ private:
     int playindex_;
     int triggerindex_;
 
-    int polymax_;  /* maximum polyphony */
+    int polymax_;  /* maximum polyphony; see TH_DEFAULT_POLY */
     int notecount_, notecount_decay_;  /* keeping track of polyphony this way
                                         for now */
+
+    /* `mono = 1' on the io node: a new note while one is held retunes the
+       voice that is sounding instead of starting another. See insertNote. */
+    bool mono_;
+
+    /* The pitches whose keys are down, oldest first, so the top of the stack
+       is the one sounding. A fixed array rather than a vector because this is
+       pushed and popped on the audio thread: the 128 is MIDI's pitch count,
+       and a stack that somehow fills drops its oldest entry rather than
+       growing. */
+    float monoStack_[TH_MONO_STACK];
+    int monoCount_;
     thArg *argSustain_; /* for the sustain pedal */
 
     unsigned long serial_;
@@ -216,12 +283,15 @@ private:
     int channum_;
     string graph_;
     string message_;
+    string effectMessage_;
     std::atomic<unsigned long> *nonFinite_;
 
     /* A diverging graph goes non-finite on every window of every note, so
        the message is printed once and suppressed after. Never reset: loading
-       a patch builds a new channel. */
+       a patch builds a new channel. One flag per message, so an effect that
+       misbehaves is not silenced by a voice that did first. */
     bool saidNonFinite_;
+    bool saidNonFiniteEffect_;
 
     static std::atomic<unsigned long> nextSerial_;
 };

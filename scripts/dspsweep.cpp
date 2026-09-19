@@ -143,11 +143,23 @@ sweepFile (const std::string &pluginPath, const char *file, int windows,
            int points, bool quiet, long &cases)
 {
     thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+    thSynthTree *tree = synth.loadTree(file, 0, 100);
 
-    if (synth.loadTree(file, 0, 100) == NULL)
+    if (tree == NULL)
     {
         printf("FAIL  %s: did not load\n", file);
         return 1;
+    }
+
+    /* A channel effect has no note to sweep: the notes below would sound
+       nothing, and every corner would come back clean for the wrong reason.
+       fxcheck runs the effect graphs. */
+    if (tree->takesInput())
+    {
+        if (!quiet)
+            printf("      %s: a channel effect; fxcheck covers it\n", file);
+
+        return 0;
     }
 
     std::vector<Control> controls;

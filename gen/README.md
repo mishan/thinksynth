@@ -1,17 +1,17 @@
 # The shipped pieces
 
-Twenty-four `.gen` files, each of which is meant to be read as well as heard.
+Twenty-six `.gen` files, each of which is meant to be read as well as heard.
 Fourteen of them exercise every composer plugin in the tree and every ability
 the `.gen` language has, each built around a single idea rather than around
-being impressive; the other ten are pieces first and lessons second. The comment at the top of each file is the lesson;
+being impressive; the other twelve are pieces first and lessons second. The comment at the top of each file is the lesson;
 this is the index.
 
 Open one from the Composer window's menu (**☰ → Open**) and press **Play**.
 
 `airports.gen`, `weather.gen`, `breath.gen`, `reshape.gen`, `colony.gen`,
 `ebb.gen`, `round.gen`, `orrery.gen`, `overworld.gen`, `cavern.gen`, `boss.gen`,
-`attract.gen`, `village.gen`, `invention.gen` and `belfry.gen` need nothing
-else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
+`attract.gen`, `village.gen`, `invention.gen`, `belfry.gen`, `warehouse.gen`
+and `anthem.gen` need nothing else: they carry their own instruments. An `instrument` block names a `.dsp` and the chanarg values that
 make it *this* instrument, a sink binds to the name, and the loader puts it on
 a channel and loads it for you — one file you can send somebody. A piece knob
 can reach in there too, so one slider drives a composer and an instrument at
@@ -119,6 +119,20 @@ carries its own instruments.
 | [`belfry.gen`](belfry.gen) | **A castle at night.** Harmonic minor with its leading tone, sixteenth arpeggios from a pool, an organ whose triads are three rings in lockstep because a G and a G sharp cannot both be spelled from one scale, a lead with a mordent and a cadence trill written as rules, and a galloping kick. The second pulse is the lead's echo for four bars and the lead in thirds for four, two chains on one instrument through `xform::form`. |
 | [`village.gen`](village.gen) | **Chords that behave, and a second voice that argues.** A town theme with a shuffle. `gen::progression` walks the chords of G major with a cadence every four, spelled by `harmonize` on one chain and played by `xform::bassline` on another that shares its `seed`, so the two agree without a message. A pentatonic tune, and `xform::counterpoint` hearing the same grammar and putting a first-species voice under it. `xform::swing` on the `Shuffle` knob, `xform::form` for the intro and for the bars the flute sits out, `chance`, `ratchet` and `level` on the brushes. |
 
+## The floor
+
+Two pieces for a room with a kick in it, and the plugins and graphs the room
+turned out to need: a monophonic bass that slides (`mono = 1` on the io node
+and a slew on the frequency), effect graphs on a channel's sum for the delay
+throw and the reverb tail, and three composers -- `gen::steps` for a row of
+values to a knob, `gen::pump` for the sidechain a channel cannot hear, and
+`xform::transpose` for the octave down.
+
+| piece | the idea |
+| --- | --- |
+| [`warehouse.gen`](warehouse.gen) | **Techno.** A bass line in sixteenths whose `hold` is longer than its `step`, so adjacent notes slide on a one-voice instrument and a rest is a fresh attack; `gen::steps` walking the bass filter's cutoff through eight values, and a row of accents on the hat's `amp`; stabs from a ring with rests in its pool into `fx/echo.dsp` on their channel; a supersaw pad in `fx/hall.dsp` with `gen::pump` ducking it under every kick on the `Pump` knob; a four-bar breakdown by `form`. |
+| [`anthem.gen`](anthem.gen) | **Trance.** A chord a bar on a supersaw pad chopped by a sixteenth-note gate from `gen::steps`; plucks arpeggiating the chord tones into a delay, pumped by `gen::pump`; a rolling offbeat bass that `xform::transpose` drops an octave for the phrase the first copy sits out; a lead whose filter climbs over eight bars and drops, by `gen::morph` looping between two presets; the `Width` knob reaching into two supersaws at once. |
+
 ## What each piece covers
 
 Plugins: `eno_line` (airports, weather), `euclid` (pulse, loosen, tide),
@@ -133,7 +147,8 @@ progression (all six), `ca` and `markov` in seconds against a clocked bar
 (cavern), `evolve` and `swap` (boss), `morph` through a `*` sink
 (attract), `echo` (overworld), `form` (boss, village), `chance` and
 `ratchet` (boss, village), `swing`, `level`, `progression`, `bassline`
-and `counterpoint` (village).
+and `counterpoint` (village), `steps` and `pump`
+(warehouse, anthem), `transpose` (anthem).
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it.
 

@@ -522,7 +522,11 @@ function chooser (channel)
 
     dsps.label = 'dsp';
 
-    for (const name of dspNames)
+    /* Graphs that play a note, which is not every name in the index: the
+       `fx/' entries are there so the worklet can be handed them, and aiming
+       a channel at one would put an ungated effect graph on it as an
+       instrument. Same filter as the patch menu in init(). */
+    for (const name of playableDsps())
         dsps.append(new Option(name, name, false, name === mine));
 
     sel.append(dsps);
@@ -904,6 +908,19 @@ async function pickMode ()
 let dspNames = [];
 let dspTexts = {};
 
+/* The ones among them that play a note.
+ *
+ * The index carries the effect graphs as well, as `fx/<name>', because the
+ * worklet has to be handed every file a piece may name -- but an effect has
+ * no envelope and nothing to trigger it, and putting one on a channel as an
+ * instrument leaves an ungated graph running for as long as it is loaded.
+ * Every menu that picks an instrument asks for this list rather than the
+ * index. */
+function playableDsps ()
+{
+    return dspNames.filter((n) => !n.startsWith('fx/'));
+}
+
 /* The shipped .patch files by relative name, `leads/SuperRes.patch' --
    the names the desktop's thinkrc uses -- for the channels row's menus. */
 let patchNames = [];
@@ -925,7 +942,7 @@ async function init ()
 
     dspNames = dsps;
     patchNames = patchList;
-    fill($('patch'), dsps, 'ts1.dsp');
+    fill($('patch'), playableDsps(), 'ts1.dsp');
     fill($('piece'), gens, 'ebb.gen');
 
     [$('dsp').value, $('gen').value] = await Promise.all([

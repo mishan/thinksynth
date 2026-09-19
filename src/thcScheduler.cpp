@@ -794,8 +794,17 @@ thcScheduler::writeValues (const thcInstrument &inst, std::string &why)
            what a piece may reach; see COMPOSITION_HANDOFF.md section 9. */
         if (arg == NULL)
         {
-            why = "'" + inst.dsp + "' declares no chanarg called '" +
-                  a.name + "'";
+            /* Which of the two graphs the name was aimed at: `fx.delay' is
+               the effect's, and saying the instrument declares no `fx.delay'
+               would send the reader to the wrong file. */
+            const bool isEffect =
+                a.name.compare(0, strlen(TH_EFFECT_PREFIX),
+                               TH_EFFECT_PREFIX) == 0;
+
+            why = "'" + (isEffect ? inst.effect : inst.dsp) +
+                  "' declares no chanarg called '" +
+                  (isEffect ? a.name.substr(strlen(TH_EFFECT_PREFIX))
+                            : a.name) + "'";
             return false;
         }
 
@@ -970,6 +979,55 @@ thcScheduler::applyInstrument (size_t index, std::string &why)
                              inst.channel, TH_DEFAULT_CHAN_AMP) == NULL)
         {
             why = "'" + inst.dsp + "' did not load";
+            return false;
+        }
+    }
+
+    /* The effect, after the instrument and before the values: loading an
+     * instrument builds a new channel and an effect belongs to a channel, so
+     * this order is the only one that leaves both up -- and the values
+     * include the effect's, under `fx.', which cannot be written until it is
+     * there.
+     *
+     * Through the host's hook where there is one, for the reason the
+     * instrument goes through its own: a .patch carries an `effect' line and
+     * the values under it, so an effect the host does not know about is a
+     * patch page offering to choose one that is already there and a save
+     * that writes values with no file to attach them to. Straight through
+     * the synth without a hook, which is what a headless harness wants.
+     *
+     * Asked for on every apply, including the one where the instrument was
+     * kept: the host is the only thing that can tell "the same effect is
+     * already on this channel" from "this channel was rebuilt underneath it",
+     * and gthPatchManager::setEffect does. */
+    {
+        bool got;
+
+        if (loadEffect_)
+            got = loadEffect_(inst.channel, inst.effect, why);
+        else if (inst.effect.empty())
+            got = true;
+        else
+        {
+            const std::string path =
+                thUtil::findDataFile(inst.effect, "dsp", "THINK_DSP_PATH",
+                                     DSP_PATH);
+
+            got = synth_ != NULL &&
+                  synth_->loadEffect((path.empty() ? inst.effect
+                                                   : path).c_str(),
+                                     inst.channel) != NULL;
+        }
+
+        if (!got)
+        {
+            if (why.empty())
+                why = "'" + inst.effect + "' did not load as an effect";
+
+            if (!unapplyInstrument(index))
+                why += " (and its graph could not be taken off channel " +
+                       std::to_string(inst.channel + 1) + ")";
+
             return false;
         }
     }

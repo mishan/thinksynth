@@ -170,6 +170,71 @@ bool gthPatchManager::newPatch (const string &dspName, int chan)
     return r;
 }
 
+/* See the header. */
+bool gthPatchManager::setEffect (int chan, const string &effectName)
+{
+    if ((chan < 0) || (chan >= numPatches_))
+        return false;
+
+    /* An effect belongs to a channel and the channel is the patch, so there
+       is nowhere to put one. Asking for none is already true of a channel
+       with nothing on it, and answering false there would fail every
+       instrument that declares no effect. */
+    if (patches_[chan] == NULL)
+        return effectName.empty();
+
+    thSynth *synth = thSynth::instance();
+
+    /* Already this graph, still on the channel: leave it alone.
+     *
+     * Not an optimization. Reloading an effect builds a new one, and a new
+     * delay line is an empty delay line -- so a piece reapplied for a reason
+     * that has nothing to do with its sound (renaming a knob's label, moving
+     * a stage) would cut the tail off every repeat and every reverb. The
+     * instrument side already declines to rebuild a graph it recognizes, for
+     * the same reason and in the same words; this is that promise kept for
+     * the second graph on the channel.
+     *
+     * effectFile is the right thing to test against because a channel that
+     * was rebuilt underneath it arrives here with a fresh PatchFile and an
+     * empty one -- see newPatch. */
+    if (!effectName.empty() && patches_[chan]->effectFile == effectName &&
+        synth->getEffect(chan) != NULL)
+        return true;
+
+    if (effectName.empty())
+    {
+        /* Nothing to take off and nothing recorded: not a change, so not a
+           reason to mark the patch dirty or rebuild every page. */
+        if (patches_[chan]->effectFile.empty() &&
+            synth->getEffect(chan) == NULL)
+            return true;
+
+        if (!synth->removeEffect(chan))
+            return false;
+
+        patches_[chan]->effectFile.clear();
+    }
+    else
+    {
+        /* Resolved for opening, remembered as given -- resolveDsp's rule,
+           and an effect is found the same way a graph is: a piece or a patch
+           that only loaded from one directory would be one you could not
+           send anybody. */
+        if (synth->loadEffect(resolveDsp(effectName).c_str(), chan) == NULL)
+            return false;
+
+        patches_[chan]->effectFile = effectName;
+    }
+
+    patches_[chan]->dirty = true;
+
+    m_signal_patch_dirty(chan);
+    m_signal_patches_changed();
+
+    return true;
+}
+
 bool gthPatchManager::loadPatch (const string &filename, int chan)
 {
     if ((chan < 0) || (chan >= numPatches_))
@@ -380,13 +445,52 @@ bool gthPatchManager::parse (const string &filename, int chan)
 
                 seen_dsp = true;
             }
+            else if (key == "effect")
+            {
+                /* After the dsp line and before the `fx.' values, which is
+                   the order savePatch writes them in: an effect belongs to a
+                   channel, and its parameters do not exist until it is on
+                   one. A file with them the other way round loses the
+                   values, which is why the writer decides the order rather
+                   than the reader tolerating both. */
+                patches_[chan]->effectFile = values[0];
+
+                const string f = resolveDsp(values[0]);
+
+                if (synth->loadEffect(f.c_str(), chan) == NULL)
+                {
+                    /* Not a failed patch. The instrument is up and playable;
+                       what is missing is a delay. Saying so beats refusing a
+                       patch somebody can still use. */
+                    fprintf(stderr, "%s: could not load the effect '%s'; the "
+                            "patch is loaded without it\n", filename.c_str(),
+                            values[0].c_str());
+
+                    patches_[chan]->effectFile.clear();
+                }
+            }
             else
             {
                 thArg *arg = synth->getChanArg(chan, key);
                 if (arg == NULL)
                 {
-                    thArg *arg = new thArg(key, arglist[key]);
-                    synth->setChanArg(chan, arg);
+                    /* An unknown `fx.' name is not invented. See
+                       thSynth::setChanArg: the tolerance for names no graph
+                       declares belongs to the instrument's side, where the
+                       corpus has a history of them, and an invented one here
+                       would land in a map nothing reads. */
+                    const size_t plen = strlen(TH_EFFECT_PREFIX);
+
+                    if (key.compare(0, plen, TH_EFFECT_PREFIX) == 0)
+                    {
+                        fprintf(stderr, "%s: no effect parameter called "
+                                "'%s'\n", filename.c_str(), key.c_str());
+                    }
+                    else
+                    {
+                        thArg *arg = new thArg(key, arglist[key]);
+                        synth->setChanArg(chan, arg);
+                    }
                 }
                 else
                 {
@@ -430,7 +534,15 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     fprintf(prefsFile,
         "# Thinksynth Patch File\n#\n# Generated by Thinksynth %s\n# %s\n\n",
            PACKAGE_VERSION, ctime(&t));
-    fprintf(prefsFile, "dsp %s\n\n", patches_[chan]->dspFile.c_str());
+    fprintf(prefsFile, "dsp %s\n", patches_[chan]->dspFile.c_str());
+
+    /* Before the values, because the `fx.' ones among them have nowhere to
+       land until the effect is on the channel. */
+    if (!patches_[chan]->effectFile.empty())
+        fprintf(prefsFile, "effect %s\n",
+                patches_[chan]->effectFile.c_str());
+
+    fprintf(prefsFile, "\n");
 
     for (PatchFileInfo::iterator k = patches_[chan]->info.begin();
         k != patches_[chan]->info.end(); k++)
@@ -455,6 +567,25 @@ bool gthPatchManager::savePatch (const string &filename, int chan)
     {
         if (j->second->widgetType() != j->second->HIDE)
             fprintf(prefsFile, "%s %f\n", j->first.c_str(), (*j->second)[0]);
+    }
+
+    /* And the effect's, under the name the rest of the engine addresses them
+     * by. A second map, so a patch that sets `a' and an effect that declares
+     * one are two lines and two numbers.
+     *
+     * Only where the `effect' line above was written. Values with no file to
+     * attach them to are values the reader refuses one by one -- it has no
+     * effect on the channel to look their names up in -- so writing them is
+     * writing a patch that complains at itself on every load.
+     */
+    if (!patches_[chan]->effectFile.empty())
+    {
+        thArgMap fxargs = thSynth::instance()->getEffectArgs(chan);
+
+        for (thArgMap::iterator j = fxargs.begin(); j != fxargs.end(); j++)
+            if (j->second && j->second->widgetType() != j->second->HIDE)
+                fprintf(prefsFile, "%s%s %f\n", TH_EFFECT_PREFIX,
+                        j->first.c_str(), (*j->second)[0]);
     }
 
     fclose(prefsFile);

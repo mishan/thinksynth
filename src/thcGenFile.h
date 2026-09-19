@@ -31,6 +31,7 @@ class thArg;
 class thcPlugin;
 class thcScheduler;
 struct thcStage;
+struct thcInstrument;
 
 /* One token of .gen source, with its byte span. Public rather than a
  * loader detail because thcGenEdit splices files by replacing exact
@@ -143,6 +144,18 @@ private:
     bool parseScale (void);
     bool parsePreset (void);
     bool parseInstrument (thcScheduler *sched);
+
+    /* One `name = value;' inside an instrument block. `prefix' is empty for
+       the instrument's own chanargs and TH_EFFECT_PREFIX for its effect's;
+       see the definition. */
+    bool parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
+                               const std::string &instName, const Token &key,
+                               const std::string &prefix);
+
+    /* `effect "echo.dsp" { delay = 375 ms; };' inside one. */
+    bool parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
+                                const std::string &instName,
+                                const Token &key);
     bool parseChain (thcScheduler *sched);
     bool parseStageBlock (thcScheduler *sched, size_t chain,
                           const std::string &chainName);

@@ -1046,6 +1046,175 @@ thcGenLoader::parsePreset (void)
  * alone delivers the self-contained file, which is what this block was
  * for; inlining is the half that wants the grammar merge.
  */
+/* `a = 900 ms;' or `delay = @throw ms;', inside an instrument block or
+ * inside the effect block within it.
+ *
+ * `prefix' is empty for the instrument's own values and TH_EFFECT_PREFIX for
+ * the effect's, and it goes on the *name*, so that one list of values reaches
+ * two chanarg maps and thcScheduler writes both through the one call it
+ * already makes. `fx.delay' is the string the engine takes.
+ */
+bool
+thcGenLoader::parseInstrumentValue (thcScheduler *sched, thcInstrument &inst,
+                                    const std::string &instName,
+                                    const Token &key,
+                                    const std::string &prefix)
+{
+    const std::string name = prefix + key.text;
+
+    for (size_t i = 0; i < inst.args.size(); i++)
+        if (inst.args[i].name == name)
+        {
+            error(key.line, "instrument " + instName + " sets '" + name +
+                  "' twice");
+            return false;
+        }
+
+    if (!expectPunct('='))
+        return false;
+
+    const Token &v = peek();
+
+    if (v.kind != Token::NUMBER && v.kind != Token::KNOB)
+    {
+        error(v.line, "instrument " + instName + ": '" + name +
+              "' wants a number or a knob");
+        return false;
+    }
+
+    thcInstrumentArg a;
+    Token val = take();
+
+    a.name = name;
+
+    if (val.kind == Token::KNOB)
+    {
+        /* Declared first, like everywhere else a knob is named. */
+        if (sched->knob(val.text) == NULL)
+        {
+            error(val.line, "'@" + val.text + "' is not a declared knob");
+            return false;
+        }
+
+        a.knob  = val.text;
+        a.value = 0;
+    }
+    else
+        a.value = val.num;
+
+    /* The two units the language folds. `s' and `beats' are the
+       composer's units and mean nothing on this side of the
+       boundary: a chanarg is a number the audio thread reads, not a
+       duration the transport schedules. Which unit an arg wants is
+       the arg's own business and is checked when the value lands --
+       here we only record what was written.
+     *
+       A knob binding carries one for exactly the same reason a
+       literal does. The number a knob holds is as unitless as the
+       number in the file, so `a = @attack' with nothing after it
+       would be a slider quietly running in samples; the unit says
+       what the knob's numbers mean, and it is applied on every move
+       rather than once. */
+    if (peek().kind == Token::WORD && peek().text == "ms")
+        a.units = take().text;
+    else if (peek().kind == Token::PUNCT && peek().text[0] == '%')
+    {
+        take();
+        a.units = "%";
+    }
+
+    inst.args.push_back(a);
+
+    return expectPunct(';');
+}
+
+/* `effect "echo.dsp" { delay = 375 ms; feedback = 0.45; };'
+ *
+ * The second graph an instrument can name: not the one that makes its notes
+ * but the one that runs on the sum of them, once per window, whether or not
+ * a note is sounding. A delay throw that outlives the note is the case --
+ * DSP_FORMAT.md's "An effect graph" says what one is.
+ *
+ * Inside the instrument block rather than beside it, because an effect
+ * belongs to a channel and it is the instrument that has one. The values are
+ * the effect's chanargs and are recorded under `fx.' so that they cannot
+ * collide with the instrument's; everything else about them -- units, knob
+ * bindings, when they are checked -- is what a value in this block already
+ * is.
+ *
+ * The braces are optional: an effect with nothing to say is
+ * `effect "echo.dsp";'.
+ */
+bool
+thcGenLoader::parseInstrumentEffect (thcScheduler *sched, thcInstrument &inst,
+                                     const std::string &instName,
+                                     const Token &key)
+{
+    if (!inst.effect.empty())
+    {
+        error(key.line, "instrument " + instName + " names two effects");
+        return false;
+    }
+
+    const Token &v = peek();
+
+    if (v.kind != Token::STRING)
+    {
+        error(v.line, "instrument " + instName +
+              ": effect wants a quoted filename");
+        return false;
+    }
+
+    Token file = take();
+
+    if (file.text.empty())
+    {
+        error(file.line, "instrument " + instName +
+              ": effect wants a filename");
+        return false;
+    }
+
+    inst.effect = file.text;
+
+    if (peek().kind == Token::PUNCT && peek().text[0] == '{')
+    {
+        take();
+
+        while (true)
+        {
+            const Token &t = peek();
+
+            if (t.kind == Token::PUNCT && t.text[0] == '}')
+            {
+                take();
+                break;
+            }
+
+            if (t.kind == Token::END)
+            {
+                error(t.line, "unterminated effect in instrument '" +
+                      instName + "'");
+                return false;
+            }
+
+            if (t.kind != Token::WORD)
+            {
+                error(t.line, "instrument " + instName +
+                      ": expected a chanarg name inside effect");
+                return false;
+            }
+
+            Token inner = take();
+
+            if (!parseInstrumentValue(sched, inst, instName, inner,
+                                      TH_EFFECT_PREFIX))
+                return false;
+        }
+    }
+
+    return expectPunct(';');
+}
+
 bool
 thcGenLoader::parseInstrument (thcScheduler *sched)
 {
@@ -1137,70 +1306,18 @@ thcGenLoader::parseInstrument (thcScheduler *sched)
             continue;
         }
 
-        for (size_t i = 0; i < inst.args.size(); i++)
-            if (inst.args[i].name == key.text)
-            {
-                error(key.line, "instrument " + nameTok.text + " sets '" +
-                      key.text + "' twice");
+        /* A keyword for the same reason `dsp' is one: what it names is a
+           file, and an instrument that declared a chanarg called @effect
+           would otherwise shadow it. */
+        if (key.text == "effect")
+        {
+            if (!parseInstrumentEffect(sched, inst, nameTok.text, key))
                 return false;
-            }
 
-        if (!expectPunct('='))
-            return false;
-
-        const Token &v = peek();
-
-        if (v.kind != Token::NUMBER && v.kind != Token::KNOB)
-        {
-            error(v.line, "instrument " + nameTok.text + ": '" + key.text +
-                  "' wants a number or a knob");
-            return false;
+            continue;
         }
 
-        thcInstrumentArg a;
-        Token val = take();
-
-        a.name = key.text;
-
-        if (val.kind == Token::KNOB)
-        {
-            /* Declared first, like everywhere else a knob is named. */
-            if (sched->knob(val.text) == NULL)
-            {
-                error(val.line, "'@" + val.text + "' is not a declared knob");
-                return false;
-            }
-
-            a.knob  = val.text;
-            a.value = 0;
-        }
-        else
-            a.value = val.num;
-
-        /* The two units the language folds. `s' and `beats' are the
-           composer's units and mean nothing on this side of the
-           boundary: a chanarg is a number the audio thread reads, not a
-           duration the transport schedules. Which unit an arg wants is
-           the arg's own business and is checked when the value lands --
-           here we only record what was written.
-         *
-           A knob binding carries one for exactly the same reason a
-           literal does. The number a knob holds is as unitless as the
-           number in the file, so `a = @attack' with nothing after it
-           would be a slider quietly running in samples; the unit says
-           what the knob's numbers mean, and it is applied on every move
-           rather than once. */
-        if (peek().kind == Token::WORD && peek().text == "ms")
-            a.units = take().text;
-        else if (peek().kind == Token::PUNCT && peek().text[0] == '%')
-        {
-            take();
-            a.units = "%";
-        }
-
-        inst.args.push_back(a);
-
-        if (!expectPunct(';'))
+        if (!parseInstrumentValue(sched, inst, nameTok.text, key, ""))
             return false;
     }
 
