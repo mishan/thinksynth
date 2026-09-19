@@ -1,0 +1,26 @@
+# The three build trees the wasm gates run on, put back where the scripts
+# look for them: build/ for the native genwav and dspedit, build-wasm/ for
+# the Node module the tapes come from, build-web/ for the browser module
+# and the site.
+#
+# wasm-build makes them once and uploads what the gates actually read --
+# see the upload step there for why that is twenty megabytes and not a
+# gigabyte. Every gate job starts with this.
+#
+# The chmod is not a detail: upload-artifact does not carry a file's mode,
+# so genwav and dspedit come back without their execute bit and every gate
+# that runs one fails with EACCES. The .so files do not need it -- they are
+# opened, not executed.
+
+name: The built wasm trees
+description: Download build/, build-wasm/ and build-web/ from the wasm-build job
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/download-artifact@v4
+      with:
+        name: wasm-trees
+
+    - shell: bash
+      run: chmod +x build/scripts/genwav build/scripts/dspedit
