@@ -176,6 +176,19 @@ arrangement.
 | [`outrun.gen`](outrun.gen) | **Synthwave, and why an arpeggiator is a `gen::` stage.** An `xform::` stage runs when an event passes through it and a `gen::` stage is woken by the transport, and an arpeggiator needs both -- it hears a chord once a bar and then has to put sixteen steps between that event and the next -- so `xform::arp` holds a chord it is never asked about and the channel is silent. The flanger is on the channel and not in the voice, through zero, so the sweep is on the figure rather than restarted by every note in it; the `Jet` knob is signed feedback, and the two signs are two different records. |
 | [`riviera.gen`](riviera.gen) | **Italo disco.** Root and octave in eighths with `xform::accent` marking one step a beat, and `bass.dsp` turning a velocity over its threshold into filter envelope and resonance rather than level -- the 303's accent circuit, which is what makes the part sound played. The same walk on three chains again: a Solina whose ensemble chorus lives *inside* the voice because that is what the instrument is, and a clav on `.r.f.r.t`, eighths with the downbeats left out. The orchestra hit is a recording of this tree's own `stab` and `brass` at unison, one per eight bars from `euclid`'s `fill` pool -- which moves only on the cycles that fire, where a pool consumed every bar would land on the same pitch every time. |
 
+## Disco
+
+One piece on the instruments the seventies were played on, which the tree
+grew for it: a kit that sounds struck (`kit_kick`, `kit_snare`, a `kit_hat`
+with `choke = 1` so the closed hat ends the open one), a string section
+beside the string machine, a filter and a tape echo as channel effects, and
+`xform::run` for the pickup into a chord. It carries its own instruments
+and its own arrangement.
+
+| piece | the idea |
+| --- | --- |
+| [`sunrise.gen`](sunrise.gen) | **Moroder.** An octave sequence in sixteenths that runs for seventy-two bars, and a filter on its *channel* rather than in its instrument: `fx/filter.dsp` swept by a `gen::steps` row of seventy-two values, one a bar, drawn in the shape of the arrangement -- shut through the intro, open across the rise, shut and reopening through the break, closing over the outro. The hat is two chains on one channel, closed on the beats and open on the `and`s, each open hat choked by the closed one after it; a shaker carries the sixteenths instead. Four chains carry one sixteen-bar axiom of chord roots -- the Solina spells triads, the section spells them with a scale run into half of them, the pulse arpeggiates them into a delay, and the bass turns each into two bars of root and octave -- and because the whole phrase is emitted at once, `xform::run` can place a pickup *before* the chord it leads to. The section's octave slide lands on the downbeat of the main and of the drop from a ring whose one onset is three beats early. |
+
 ## Voicing
 
 A chord is which notes are in it; a voicing is which octave each of them is
@@ -238,6 +251,8 @@ anthem, riviera). pearl and riviera add `progression` walked by three
 chains on one seed (both), `bassline` as an octave figure and as an
 offbeat comp (riviera), `accent` into an instrument's accent circuit
 (riviera) and `swing` on a sixteenth grid (pearl).
+sunrise adds `run` as a pickup into a chord, `steps` as a sweep row the
+length of the arrangement, and `arp` fed by a harmonizer.
 `life` appears twice and differently: `glider.gen` plays it, `colony.gen`
 feeds it. scratch is `grid` five times over and nothing else: a drum track
 is one row tall, the bass is ties, the hat is accents, and the keys chain
