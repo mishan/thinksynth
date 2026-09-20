@@ -62,6 +62,12 @@ description "A monophonic bass: overlapping notes slide, separated ones retrigge
     @depth.max = 8000;
     @depth.label = "Envelope Depth (Hz)";
 
+    @track = 0;
+    @track.widget = 1;
+    @track.min = 0;
+    @track.max = 2;
+    @track.label = "Key Follow";
+
     @res = 0.8;
     @res.widget = 1;
     @res.min = 0;
@@ -182,6 +188,46 @@ node accent math::clamp {
     hi = 1;
 };
 
+# Where the sub gives up.
+#
+# It plays an octave below the note, so in the bottom octave of the
+# keyboard it plays *below hearing*: at MIDI 24 the note is 32.7 Hz and
+# the sub is 16.4 Hz, and 16 Hz is not a pitch -- it is sixteen pulses a
+# second, and what it does to the sound is put a flutter on it rather
+# than weight underneath it. Measured as the depth of the amplitude
+# modulation left in the 5 to 40 Hz band, a held note came out at 101%
+# at MIDI 24 and at 0% from MIDI 43 up: the instrument turns grainy over
+# an octave and a half and there is nothing in the panel that says so.
+#
+# So the sub fades out below 120 Hz and is gone by 55 Hz -- roughly the
+# bottom octave of a bass guitar, which is where its own octave stops
+# being audible as one. Above 120 Hz nothing here changes at all, which
+# is most of what anything plays. The same clamp scales what is taken
+# off the oscillators above, so the fade does not also make the low
+# notes quieter: as the sub leaves, the rest comes up to meet it.
+#
+# It does not make MIDI 24 clean, and cannot. With the sub gone the
+# note's own fundamental is still 32.7 Hz and still inside that band --
+# 82% of the modulation is left, and all of it is the note. What this
+# buys is the octave between: MIDI 28 to 40 goes from 97-100% to under
+# 17%. Below that, the answer is to play higher.
+node subamt math::clamp {
+    in = (glide->out - 55) / 65;
+    lo = 0;
+    hi = 1;
+};
+
+# `Key Follow' is hertz of cutoff per hertz of pitch, and it is zero, so
+# this graph is the one it was until somebody turns it up. A 303's filter
+# does not track the keyboard and neither did this -- which is why a low
+# note passes eleven harmonics of the saw where a high one barely passes
+# its fundamental, and why the bottom of the keyboard is the bright end
+# of this instrument. That is period-correct and it is also the thing to
+# reach for when a composed line wants the same timbre at every pitch, so
+# it is a control rather than a decision made here. At 1 the cutoff moves
+# with the note exactly; the range goes to 2 because tracking harder than
+# the pitch is a sound as well.
+#
 # How far the envelope opens the filter is scaled by velocity, which is
 # what makes an accented note of a bass line brighter and not only
 # louder -- and `Accent Depth' is a second helping of that, on top, for
@@ -189,8 +235,10 @@ node accent math::clamp {
 # clamped where filt::svf's own range ends, because that is the half of
 # the 303's accent that makes the squelch.
 node filt filt::svf {
-    in = osc->out * 0.5 * (1 - @sub) + sub->out * 0.5 * @sub;
-    cutoff = @cutoff + fenv->out * (@depth + accent->out * @accdepth) *
+    in = osc->out * 0.5 * (1 - @sub * subamt->out) +
+         sub->out * 0.5 * @sub * subamt->out;
+    cutoff = @cutoff + glide->out * @track +
+             fenv->out * (@depth + accent->out * @accdepth) *
              ionode->velocity;
     res = clamp(@res + accent->out * @accres, 0, 0.99);
 };
