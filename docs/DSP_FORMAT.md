@@ -305,6 +305,8 @@ The voices it cuts are released, not silenced, so their tails run under the
 new note's attack — which is what a hat pedal sounds like. `poly` is what
 leaves room for that: a hat wants at least 2, one sounding and one finishing,
 and at `poly = 1` the release is retired the moment the next note lands.
+The choke applies to the whole channel; other drum instruments belong on
+separate channels if they must not cut one another off.
 
 `mono` and `choke` are exclusive and `mono` wins, because retuning the voice
 that is sounding and cutting it off are opposite answers to the same question.
@@ -328,6 +330,11 @@ which is 1 for a key down, 1 for a key up, 1 for a voice the pedal is
 holding, and 0 only for one the choke took. `dsp/hat.dsp`, `dsp/hat0.dsp` and
 `dsp/hat808.dsp` multiply their output and their `play` by it, so a choked hat
 goes quiet over `@pedal` and the voice retires when it does.
+
+The top of `Pedal Close` gives a long release, not an off switch: an
+overlapping hat still fades, and `poly = 2` still limits the channel to two
+voices. An exact return to the old independent hats requires a graph without
+the choke and foot gate.
 
 ### An effect graph
 

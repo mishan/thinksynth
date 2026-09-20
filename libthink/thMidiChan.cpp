@@ -800,14 +800,14 @@ void thMidiChan::process (RetireQueue *retire, thProbe *const *probes,
 
         if (notecount_decay_ > 0) /* there are some notes not being held down */
         {
-            NoteList::iterator iter = decaying_.begin();
-
-            /* more to do */
-            while (iter != decaying_.end() && notecount_decay_ > 0 &&
-                  notecount_ + notecount_decay_ > polymax_)
+            /* decayNote pushes new releases at the front, so the oldest
+               release is at the back. Keep the recent cut audible when a
+               third quick hit exceeds a two-voice choke group's limit. */
+            while (!decaying_.empty() && notecount_decay_ > 0 &&
+                   notecount_ + notecount_decay_ > polymax_)
             {
-                retireNote(*iter, retire);
-                iter = decaying_.erase(iter);
+                retireNote(decaying_.back(), retire);
+                decaying_.pop_back();
                 notecount_decay_--;
             }
         }

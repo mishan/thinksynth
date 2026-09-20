@@ -480,6 +480,37 @@ int main (int argc, char **argv)
         }
     }
 
+    /* With two release slots, three hits in quick succession must keep the
+       newest release under the third attack. An older release is at the back
+       of decaying_, even though the mixer visits the list from the front. */
+    if (writeFile(file, graph("    choke = 1;\n    poly = 2;\n", "freq->out",
+                              "")))
+    {
+        Session s(pluginPath);
+
+        if (!s.load(file))
+            fail("a rapid `choke = 1' graph loads", "");
+        else
+        {
+            s.synth.addNote(0, 60, 20);
+            s.run(1);
+            const double first = rms(s.take());
+
+            s.synth.addNote(0, 72, 80);
+            s.run(1);
+            s.take();
+
+            s.synth.addNote(0, 84, 1);
+            s.run(1);
+            const double third = rms(s.take());
+
+            okOrFail(third > first * 2,
+                     "choke: a third hit keeps the newest release, not the "
+                     "oldest one",
+                     "first " + num(first) + ", third " + num(third));
+        }
+    }
+
     /* And the same two notes on a channel that says nothing about voices keep
        both sounding for ever. That is the control: without it the case above
        would pass on a channel that had simply stopped playing the first

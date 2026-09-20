@@ -158,9 +158,8 @@ node filter filt::ds {
 # velocity. `play' is multiplied by it too, so a choked voice retires as
 # soon as it is quiet rather than sitting out the rest of its decay.
 #
-# A `Pedal Close' at the top of its range is a hat that ignores the
-# pedal: the release outlasts the hat's own envelope, so nothing is ever
-# cut, which is the sound this graph had before it could be.
+# At the top of its range the pedal closes slowly. It still attenuates
+# an overlapping hat, and the channel still limits the pair to two voices.
 node foot env::adsr {
     a = 0;
     d = 0;
