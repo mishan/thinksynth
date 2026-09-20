@@ -3162,6 +3162,26 @@ static void checkSample (const string &pluginPath)
         return;
     }
 
+    /* Three known ramps with different slopes; frame 16 separates them. */
+    const float levels[] = { 0.0625f, 0.125f, 0.1875f };
+    const char *layers[] = { "layer1.wav", "layer2.wav", "layer3.wav" };
+
+    for (unsigned k = 0; k < 3; k++)
+    {
+        vector<float> layerRamp(64);
+
+        for (unsigned i = 0; i < layerRamp.size(); i++)
+            layerRamp[i] = (float)i / 64 * (float)(k + 1) * 0.25f;
+
+        if (!writeWav(dir + "/samples/" + layers[k], layerRamp,
+                      TH_DEFAULT_SAMPLES))
+        {
+            fail("osc::sample: could not write a layer wav", layers[k]);
+            std::filesystem::remove_all(dir, ec);
+            return;
+        }
+    }
+
 #ifdef _WIN32
     _putenv_s("THINK_DSP_PATH", dir.c_str());
 #else
@@ -3413,6 +3433,151 @@ static void checkSample (const string &pluginPath)
                                    : " is refused, and is silence"),
                      finite ? (sounded ? "it sounded" : "it was silent")
                             : "a sample was not a number");
+        }
+    }
+
+    /* ---- velocity boundaries, fallback, and one choice per hit ---- */
+
+    {
+        static const float selects[] = { 0, 0.33334f, 0.66667f, 1 };
+        static const unsigned chosen[] = { 0, 1, 2, 2 };
+        bool good = true;
+        string detail;
+
+        for (unsigned k = 0; k < 4 && good; k++)
+        {
+            vector<NodeSpec> spec = sampleGraph(layers[0], 440, 440, 0, 16);
+            spec[0].texts.push_back(Text{ "file2", layers[1] });
+            spec[0].texts.push_back(Text{ "file3", layers[2] });
+            spec[0].values.push_back(Value{ "select", selects[k] });
+            spec[0].values.push_back(Value{ "trigger", 1 });
+            vector<float> out;
+            string why;
+
+            if (!render1(pluginPath, spec, "smp", "out", 1, 1, out, why))
+            {
+                good = false;
+                detail = why;
+            }
+            else if (fabs(out[0] / TH_MAX - levels[chosen[k]]) > 0.0001f)
+            {
+                good = false;
+                detail = "select " + num(selects[k]) + " gave " +
+                         num(out[0] / TH_MAX);
+            }
+        }
+
+        okOrFail(good, "osc::sample: select chooses the three layers at "
+                       "the split boundaries", detail);
+
+        vector<NodeSpec> spec = sampleGraph(layers[0], 440, 440, 0, 16);
+        spec[0].texts.push_back(Text{ "file2", layers[1] });
+        spec[0].values.push_back(Value{ "select", 1 });
+        spec[0].values.push_back(Value{ "trigger", 1 });
+        vector<float> out;
+        string why;
+
+        if (!render1(pluginPath, spec, "smp", "out", 1, 1, out, why))
+            fail("osc::sample: missing layer fallback renders", why);
+        else
+            okOrFail(fabs(out[0] / TH_MAX - levels[1]) < 0.0001f,
+                     "osc::sample: an empty file3 falls back to file2", "");
+
+        spec[0].texts.clear();
+        spec[0].texts.push_back(Text{ "file", layers[0] });
+
+        if (!render1(pluginPath, spec, "smp", "out", 1, 1, out, why))
+            fail("osc::sample: single-file fallback renders", why);
+        else
+            okOrFail(fabs(out[0] / TH_MAX - levels[0]) < 0.0001f,
+                     "osc::sample: missing file2 and file3 use file", "");
+    }
+
+    /* The alternate counter belongs to the synth, not the voice: send
+       successive edges to two nodes and verify 1, 2, 3, 1. In the same
+       run, every edge is counted once, including after the other voice
+       was last to sound. */
+    {
+        thSynth synth(pluginPath, 1, TH_DEFAULT_SAMPLES);
+        thSynthTree tree("sample-layers", &synth);
+        vector<NodeSpec> spec = sampleGraph(layers[0], 440, 440, 0, 16);
+        spec[0].texts.push_back(Text{ "file2", layers[1] });
+        spec[0].texts.push_back(Text{ "file3", layers[2] });
+        spec[0].values.push_back(Value{ "alternate", 1 });
+        NodeSpec other = spec[0];
+        other.name = "other";
+        spec.push_back(other);
+        string why;
+
+        if (!buildGraph(synth, tree, spec, why))
+            fail("osc::sample: alternate graph loads", why);
+        else
+        {
+            thNode *nodes[] = { tree.findNode("smp"), tree.findNode("other") };
+            bool good = true;
+            string detail;
+
+            for (unsigned hit = 0; hit < 4 && good; hit++)
+            {
+                nodes[0]->setArg("trigger", 0.0f);
+                nodes[1]->setArg("trigger", 0.0f);
+                tree.setActiveNodes();
+                tree.process(1);
+
+                thNode *n = nodes[hit % 2];
+                n->setArg("trigger", 1.0f);
+                tree.setActiveNodes();
+                tree.process(1);
+                const float actual = (*n->getArg("out"))[0] / TH_MAX;
+
+                if (fabs(actual - levels[hit % 3]) > 0.0001f)
+                {
+                    good = false;
+                    detail = "hit " + num(hit) + " gave " + num(actual);
+                }
+            }
+
+            okOrFail(good, "osc::sample: alternate cycles 1, 2, 3, 1 "
+                           "across voices", detail);
+        }
+    }
+
+    {
+        thSynth synth(pluginPath, 1, TH_DEFAULT_SAMPLES);
+        thSynthTree tree("sample-select-latch", &synth);
+        vector<NodeSpec> spec = sampleGraph(layers[0], 440, 440, 0, 16);
+        spec[0].texts.push_back(Text{ "file2", layers[1] });
+        spec[0].texts.push_back(Text{ "file3", layers[2] });
+        string why;
+
+        if (!buildGraph(synth, tree, spec, why))
+            fail("osc::sample: select latch graph loads", why);
+        else
+        {
+            thNode *n = tree.findNode("smp");
+            n->setArg("trigger", 1.0f);
+            n->setArg("select", 0.0f);
+            tree.setActiveNodes();
+            tree.process(1);
+
+            n->setArg("select", 1.0f);
+            tree.setActiveNodes();
+            tree.process(1);
+            const float held = (*n->getArg("out"))[0] / TH_MAX;
+
+            n->setArg("trigger", 0.0f);
+            tree.setActiveNodes();
+            tree.process(1);
+            n->setArg("trigger", 1.0f);
+            tree.setActiveNodes();
+            tree.process(1);
+            const float next = (*n->getArg("out"))[0] / TH_MAX;
+
+            okOrFail(fabs(held - 17.0f / 64 * 0.25f) < 0.0001f &&
+                     fabs(next - levels[2]) < 0.0001f,
+                     "osc::sample: select is latched until the next "
+                     "trigger edge",
+                     "held " + num(held) + ", next " + num(next));
         }
     }
 

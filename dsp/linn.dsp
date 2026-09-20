@@ -1,8 +1,8 @@
 # Linn -- one channel, six drums, chosen by the note number.
 #
 # What a drum machine is, once there is a sampler: a rack of one-shots
-# with a key each. Six `osc::sample' nodes, all fed the same trigger, all
-# reading their own wav, and five of them turned off at any instant by
+# with a key each. Six `osc::sample' nodes, all fed the same trigger, each
+# selecting a wav for its hit, and five of them turned off at any instant by
 # which note arrived. One channel plays the whole kit, so a piece writes
 # a kit part the way it writes a melody -- one chain, one scale of drum
 # notes -- rather than six channels that have to be kept in step.
@@ -12,11 +12,11 @@
 # exported MIDI file since 1991 has meant by these numbers.
 #
 #     ..35  B1 and down   bd10          a second kick, darker
-#     36-37 C2            kick909       the kick
-#     38    D2            snare
+#     36-37 C2            kit kick      the kick
+#     38    D2            kit snare
 #     39-41 D#2           clap
-#     42-45 F#2           hat, closed
-#     46..  A#2 and up    hat, open
+#     42-45 F#2           kit hat, closed
+#     46..  A#2 and up    kit hat, open
 #
 # ZONES AND NOT SIX EXACT NOTES, which is a decision worth writing down
 # because the other way round was written first. A kit that answered only
@@ -46,7 +46,7 @@
 # WHAT IT COSTS. All six nodes run on every window of every voice: the
 # gate turns off the audio, not the work. That is six interpolated reads
 # a sample instead of one, which is a real cost and a small one beside
-# the six file reads it is *not* doing -- the wavs are read once per
+# repeated file reads it is *not* doing -- each wav is read once per
 # synth and shared (see plugins/osc/sampleslot.h). The alternative is a
 # `file' that could be swept by a chanarg, which is a filename decided
 # per sample, which is a different and much worse program.
@@ -72,6 +72,14 @@ description "Six sampled drums on one channel, chosen by the note number.";
     @tune.min = 0.25;
     @tune.max = 4;
     @tune.label = "Tune";
+
+    # Velocity picks one of the soft, mid and hard renders. At zero the
+    # selected layer stays at its quietest; at one it follows the stroke.
+    @layers = 1;
+    @layers.widget = 1;
+    @layers.min = 0;
+    @layers.max = 1;
+    @layers.label = "Layers";
 
     @kick = 1;
     @kick.widget = 1;
@@ -127,14 +135,20 @@ node bd osc::sample {
 };
 
 node kick osc::sample {
-    file = "kick909.wav";
+    file = "kit_kick_soft.wav";
+    file2 = "kit_kick_mid.wav";
+    file3 = "kit_kick_hard.wav";
+    select = ionode->velocity * @layers;
     freq = 261.63;
     root = 261.63 * @tune;
     trigger = ionode->trigger;
 };
 
 node snare osc::sample {
-    file = "snare.wav";
+    file = "kit_snare_soft.wav";
+    file2 = "kit_snare_mid.wav";
+    file3 = "kit_snare_hard.wav";
+    select = ionode->velocity * @layers;
     freq = 261.63;
     root = 261.63 * @tune;
     trigger = ionode->trigger;
@@ -148,14 +162,22 @@ node clap osc::sample {
 };
 
 node hatc osc::sample {
-    file = "hat_closed.wav";
+    # The closed zone never reaches the hard, open-hat render.
+    file = "kit_hat_soft.wav";
+    file2 = "kit_hat_soft.wav";
+    file3 = "kit_hat_mid.wav";
+    select = ionode->velocity * @layers;
     freq = 261.63;
     root = 261.63 * @tune;
     trigger = ionode->trigger;
 };
 
 node hato osc::sample {
-    file = "hat_open.wav";
+    # The open zone starts half-open and reaches the long hard render.
+    file = "kit_hat_mid.wav";
+    file2 = "kit_hat_hard.wav";
+    file3 = "kit_hat_hard.wav";
+    select = ionode->velocity * @layers;
     freq = 261.63;
     root = 261.63 * @tune;
     trigger = ionode->trigger;
