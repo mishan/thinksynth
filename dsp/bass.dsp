@@ -217,16 +217,33 @@ node subamt math::clamp {
     hi = 1;
 };
 
-# `Key Follow' is hertz of cutoff per hertz of pitch, and it is zero, so
-# this graph is the one it was until somebody turns it up. A 303's filter
-# does not track the keyboard and neither did this -- which is why a low
-# note passes eleven harmonics of the saw where a high one barely passes
-# its fundamental, and why the bottom of the keyboard is the bright end
-# of this instrument. That is period-correct and it is also the thing to
-# reach for when a composed line wants the same timbre at every pitch, so
-# it is a control rather than a decision made here. At 1 the cutoff moves
-# with the note exactly; the range goes to 2 because tracking harder than
-# the pitch is a sound as well.
+# `Key Follow', and it is zero, so this graph is the one it was until
+# somebody turns it up. A 303's filter does not track the keyboard and
+# neither did this -- which is why a low note passes eleven harmonics of
+# the saw where a high one barely passes its fundamental, and why the
+# bottom of the keyboard is the bright end of this instrument. That is
+# period-correct and worth keeping as the default; it is also the first
+# thing to reach for when a composed line wants one timbre across two
+# octaves, which a gen:: stage asks for constantly and a player never
+# does.
+#
+# Octaves of cutoff per octave of pitch, not hertz per hertz: a filter
+# follows a keyboard the way a keyboard is laid out, which is
+# exponential, and the additive spelling of this barely moves at all --
+# adding 262 Hz to a cutoff already in the kilohertz is a few per cent.
+# So it is a ratio against the pitch the panel was tuned at, C2 at
+# 65.4 Hz, which is the middle of what a bass plays: at C2 the cutoff is
+# exactly what `Cutoff' says whatever `Key Follow' is, and elsewhere it
+# moves `Key Follow' octaves for every octave of pitch. At 1 the timbre
+# holds: the spectral centroid measured 1.55 times the note across MIDI
+# 48 to 84, against 1.42 falling to 0.51 with this at zero. The range
+# goes to 2 because tracking harder than the pitch is a sound as well.
+#
+# The envelope is inside the multiply rather than beside it, so a
+# tracked filter sweeps from and to the pitch it is tracking. That is
+# what summing the two in the exponential domain does on the instrument
+# this is imitating, and the alternative -- an absolute sweep on top of
+# a relative rest -- is neither.
 #
 # How far the envelope opens the filter is scaled by velocity, which is
 # what makes an accented note of a bass line brighter and not only
@@ -237,9 +254,8 @@ node subamt math::clamp {
 node filt filt::svf {
     in = osc->out * 0.5 * (1 - @sub * subamt->out) +
          sub->out * 0.5 * @sub * subamt->out;
-    cutoff = @cutoff + glide->out * @track +
-             fenv->out * (@depth + accent->out * @accdepth) *
-             ionode->velocity;
+    cutoff = (@cutoff + fenv->out * (@depth + accent->out * @accdepth) *
+              ionode->velocity) * pow(glide->out / 65.4064, @track);
     res = clamp(@res + accent->out * @accres, 0, 0.99);
 };
 
