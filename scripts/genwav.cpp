@@ -163,7 +163,7 @@ struct HeldComposers {
 };
 
 /* One line per delivered event, in gencheck's spelling minus the
-   seventeen digits: N time channel note velocity duration, C for a
+   seventeen digits: N time channel note velocity duration level, C for a
    chanarg, P for a swap, E for a node-arg edit. Channels are the
    engine's, counted from zero; the tape names those channels first. */
 static void writeEvent (FILE *tape, const thcEvent &ev)
@@ -171,9 +171,9 @@ static void writeEvent (FILE *tape, const thcEvent &ev)
     switch (ev.type)
     {
         case THC_EV_NOTE:
-            fprintf(tape, "N %.3f %d %d %d %.3f\n", ev.at, ev.channel,
+            fprintf(tape, "N %.3f %d %d %d %.3f %.3f\n", ev.at, ev.channel,
                     ev.u.note.note, ev.u.note.velocity,
-                    ev.u.note.duration);
+                    ev.u.note.duration, (double)ev.u.note.level);
             break;
         case THC_EV_CHANARG:
             fprintf(tape, "C %.3f %d %s %.4f\n", ev.at, ev.channel,

@@ -397,9 +397,10 @@ render (thcScheduler &sched, double seconds, double step)
             char buf[160];
 
             if (ev.type == THC_EV_NOTE)
-                snprintf(buf, sizeof(buf), "N %.17g %d %d %d %.17g\n",
+                snprintf(buf, sizeof(buf), "N %.17g %d %d %d %.17g %.9g\n",
                          ev.at, ev.channel, ev.u.note.note,
-                         ev.u.note.velocity, ev.u.note.duration);
+                         ev.u.note.velocity, ev.u.note.duration,
+                         (double)ev.u.note.level);
             /* Structure edits are on the tape for the same reason notes
                are: they are what the piece did. A replay gate that
                diffed only the notes would call a piece identical while
@@ -1304,6 +1305,7 @@ checkLiveInput (const std::map<std::string, thcPlugin *> &plugins,
         thcEvent ev = {};
 
         ev.type = THC_EV_NOTE;
+        ev.u.note.level = 1;
         ev.at = sched.now();
         ev.channel = chan;
         ev.u.note.note = note;
@@ -5511,6 +5513,7 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
                 thcEvent key = {};
 
                 key.type = THC_EV_NOTE;
+                key.u.note.level = 1;
                 key.channel = 0;
                 key.u.note.note = 60;
                 key.u.note.velocity = 90;
@@ -5619,6 +5622,7 @@ checkStructureEdits (const std::map<std::string, thcPlugin *> &plugins,
                 thcEvent key = {};
 
                 key.type = THC_EV_NOTE;
+                key.u.note.level = 1;
                 key.channel = 0;
                 key.u.note.note = 60;
                 key.u.note.velocity = 90;
@@ -6645,6 +6649,7 @@ checkColony (const std::map<std::string, thcPlugin *> &plugins,
                 thcEvent key = {};
 
                 key.type = THC_EV_NOTE;
+                key.u.note.level = 1;
                 key.channel = 0;
                 key.u.note.note = 45;
                 key.u.note.velocity = 90;
@@ -6774,7 +6779,7 @@ struct Heard
 {
     double at;
     int    channel, note, vel;
-    double dur;
+    double dur, level;
 };
 
 static std::vector<Heard>
@@ -6790,7 +6795,8 @@ notesOf (const std::string &tape)
         std::string tag;
         Heard h;
 
-        if ((f >> tag >> h.at >> h.channel >> h.note >> h.vel >> h.dur) &&
+        if ((f >> tag >> h.at >> h.channel >> h.note >> h.vel >> h.dur >>
+              h.level) &&
             tag == "N")
             out.push_back(h);
     }
@@ -7047,7 +7053,7 @@ checkPhrasing (const std::map<std::string, thcPlugin *> &plugins,
                 }
     }
 
-    /* level: velocity times gain, clamped to what MIDI has. */
+    /* A fader changes the note's gain without changing how it is played. */
     {
         std::vector<Heard> h = playBody(plugins, synth, "level",
             "chain c {\n"
@@ -7057,8 +7063,8 @@ checkPhrasing (const std::map<std::string, thcPlugin *> &plugins,
             "  sink { channel = 1; };\n"
             "};\n", 5);
 
-        if (h.size() != 1 || h[0].vel != 60)
-            fail("level: gain 0.6 on velocity 100 should be 60");
+        if (h.size() != 1 || h[0].vel != 100 || !near(h[0].level, 0.6))
+            fail("level: gain 0.6 should leave velocity 100 and set level 0.6");
     }
 
     /* ratchet: a burst is `count' notes across the note's own duration,
@@ -7376,6 +7382,7 @@ playHand (const std::map<std::string, thcPlugin *> &plugins, thSynth *synth,
             thcEvent ev = {};
 
             ev.type = hand[next].on ? THC_EV_NOTE : THC_EV_NOTEOFF;
+            ev.u.note.level = 1;
             ev.at = sched.now();
             ev.channel = 0;
             ev.u.note.note = hand[next].note;
@@ -7902,7 +7909,7 @@ sectionLines (const std::string &text)
  * A section is the piece's shape written once, in the order it is played,
  * instead of an xform::form pattern under every chain. What is checked is
  * what it claims: which chains are heard when, that a level scales the
- * velocity rather than merely gating it, that `section end' stops the
+ * voice gain rather than velocity, that `section end' stops the
  * transport where it says, that a name no chain answers to is caught at
  * load, and that an editor's splices leave the arrangement's bytes alone.
  */
@@ -7945,7 +7952,7 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
         std::vector<Heard> h = playBody(plugins, synth, "sections", body,
                                         5.9);
         size_t kick[3] = { 0, 0, 0 }, snare[3] = { 0, 0, 0 };
-        bool velOk = true;
+        bool levelOk = true;
 
         for (size_t i = 0; i < h.size(); i++)
         {
@@ -7961,15 +7968,16 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
             {
                 kick[bar]++;
 
-                if (h[i].vel != (bar == 2 ? 50 : 100))
-                    velOk = false;
+                if (h[i].vel != 100 ||
+                    !near(h[i].level, bar == 2 ? 0.5 : 1.0))
+                    levelOk = false;
             }
             else
             {
                 snare[bar]++;
 
-                if (h[i].vel != 80)
-                    velOk = false;
+                if (h[i].vel != 80 || !near(h[i].level, 1.0))
+                    levelOk = false;
             }
         }
 
@@ -7985,9 +7993,9 @@ checkSections (const std::map<std::string, thcPlugin *> &plugins,
                  std::to_string(snare[1]) + "/" +
                  std::to_string(snare[2]));
 
-        if (!velOk)
-            fail("sections: a level of 0.5 should halve the velocity and "
-                 "leave every other chain's alone");
+        if (!levelOk)
+            fail("sections: a level of 0.5 should halve voice gain and "
+                 "leave velocities unchanged");
     }
 
     /* The list cycles: the fourth bar is the first section again. */
@@ -9293,6 +9301,7 @@ checkRun (const std::map<std::string, thcPlugin *> &plugins,
                 thcEvent ev = {};
 
                 ev.type = THC_EV_NOTE;
+        ev.u.note.level = 1;
                 ev.at = sched.now();
                 ev.channel = 0;
                 ev.u.note.note = 60;
@@ -9661,6 +9670,7 @@ checkVariation (const std::map<std::string, thcPlugin *> &plugins,
                 thcEvent ev = {};
 
                 ev.type = THC_EV_NOTE;
+        ev.u.note.level = 1;
                 ev.at = sched.now();
                 ev.channel = 0;
                 ev.u.note.note = 60;

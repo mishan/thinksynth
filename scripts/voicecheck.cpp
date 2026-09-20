@@ -365,6 +365,77 @@ int main (int argc, char **argv)
     /* Middle C and the C above it, which misc::midi2freq puts at these. */
     const double C4 = 261.6255, C5 = 523.2511;
 
+    /* Per-note gain belongs to the voice mix. Both graphs should see the
+       same velocity, while their channel outputs differ only by the gain. */
+    if (writeFile(file, graph("", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(file, 0, 100) == NULL ||
+            synth.loadTree(file, 1, 100) == NULL)
+            fail("two channels for note gain load", "");
+        else
+        {
+            synth.addNote(0, 60, 40, 1);
+            synth.addNote(1, 60, 40, 0.5);
+
+            for (int i = 0; i < 8; i++)
+                synth.process();
+
+            thMidiChan *full = synth.getChannel(0);
+            thMidiChan *half = synth.getChannel(1);
+            const int len = synth.getWindowlen();
+            const vector<float> a(full->output(), full->output() + len);
+            const vector<float> b(half->output(), half->output() + len);
+            thMidiNote *an = full->getNote(60);
+            thMidiNote *bn = half->getNote(60);
+            thArg *av = an ? an->synthTree()->IONode()->getArg("velocity")
+                           : NULL;
+            thArg *bv = bn ? bn->synthTree()->IONode()->getArg("velocity")
+                           : NULL;
+
+            okOrFail(rms(a) > 0 && near(rms(b), rms(a) * 0.5, 0.01) &&
+                     av && bv && near((*av)[0], (*bv)[0], 0.0001),
+                     "note gain halves the voice output without changing "
+                     "the graph velocity",
+                     "full " + num(rms(a)) + ", half " + num(rms(b)));
+        }
+    }
+
+    if (writeFile(file, graph("    mono = 1;\n", "freq->out", "")))
+    {
+        thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
+                      TH_DEFAULT_SAMPLES);
+
+        if (synth.loadTree(file, 0, 100) == NULL)
+            fail("a mono graph for note gain loads", "");
+        else
+        {
+            auto level = [&]() {
+                for (int i = 0; i < 8; i++)
+                    synth.process();
+
+                thMidiChan *ch = synth.getChannel(0);
+                const int len = synth.getWindowlen();
+                return rms(vector<float>(ch->output(), ch->output() + len));
+            };
+
+            synth.addNote(0, 60, 40, 1);
+            const double first = level();
+            synth.addNote(0, 64, 40, 0.5);
+            const double slid = level();
+            synth.delNote(0, 64);
+            const double back = level();
+
+            okOrFail(first > 0 && near(slid, first * 0.5, 0.03) &&
+                     near(back, first, 0.03),
+                     "mono slides use each held note's gain",
+                     "first " + num(first) + ", slide " + num(slid) +
+                     ", back " + num(back));
+        }
+    }
+
     /* ---- polyphony is what `poly' says -------------------------------- */
 
     /* Three keys at once through a channel that may play one voice. The

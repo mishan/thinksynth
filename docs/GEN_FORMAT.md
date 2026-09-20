@@ -665,8 +665,9 @@ section end;                          # the piece stops here
 
 A `section` names a stretch of the piece and what that stretch does to the
 chains. A chain named with `0` is **muted** for the section; any other number
-**scales its notes' velocities**; a chain the section does not name plays as
-written. The sections play in the order they appear and then cycle, for ever,
+**scales its notes' sound level without changing velocity**; a chain the
+section does not name plays as written. The sections play in the order they
+appear and then cycle, for ever,
 unless `section end;` closes the list — in which case the transport stops
 itself once the last one is over, and a renderer keeps rendering until the
 tails have rung out.

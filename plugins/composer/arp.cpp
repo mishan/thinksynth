@@ -71,6 +71,7 @@ composer_init (thcComposerInfo *info)
 struct Held
 {
     int    note, velocity;
+    float  level;
     double releaseAt;        /* <= 0: held until its NOTEOFF            */
 };
 
@@ -121,6 +122,7 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
 
         h.note = ev->u.note.note;
         h.velocity = ev->u.note.velocity;
+        h.level = ev->u.note.level;
         h.releaseAt = ev->u.note.duration > 0
             ? ev->at + ev->u.note.duration : 0;
 
@@ -215,6 +217,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
         thcEvent ev = {};
 
         ev.type = THC_EV_NOTE;
+        ev.u.note.level = seq[pick].level;
         ev.at = t->now;
         ev.channel = 0;                  /* the sink routes             */
         ev.u.note.note = seq[pick].note;

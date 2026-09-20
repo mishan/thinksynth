@@ -1964,16 +1964,7 @@ thcScheduler::propagate (thcChain &c, size_t fromStage, const thcEvent &ev)
 
             if (ev.type == THC_EV_NOTE)
             {
-                /* Quieter, or louder, but never absent: a section that
-                   scales a chain still plays it. */
-                double v = ev.u.note.velocity * level + 0.5;
-
-                if (v < 1)
-                    v = 1;
-                else if (v > 127)
-                    v = 127;
-
-                scaled.u.note.velocity = (int)v;
+                scaled.u.note.level *= (float)level;
                 gated = &scaled;
             }
         }
@@ -2124,7 +2115,7 @@ thcScheduler::deliver (const thcEvent &ev)
         case THC_EV_NOTE:
         {
             synth_->addNote(ev.channel, ev.u.note.note,
-                            ev.u.note.velocity);
+                            ev.u.note.velocity, ev.u.note.level);
 
             /* A composed note carries its whole life in the duration;
                the off lands exactly there, keyed off the event's own

@@ -155,6 +155,7 @@ typedef struct {
             int    velocity;   /* 1-127                                   */
             double duration;   /* seconds until note-off; <= 0: held
                                   until a matching THC_EV_NOTEOFF        */
+            float  level;      /* voice gain; 1 leaves the sound unchanged */
         } note;
         struct {
             const char *name;  /* @chanarg name; copied by the sink       */

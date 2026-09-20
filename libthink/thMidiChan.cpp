@@ -409,12 +409,13 @@ void thMidiChan::setEffect (thChanEffect *effect, RetireQueue *retire)
  * All this does is allocate. It reads modnode_, which the audio thread never
  * writes -- notes run on their own copies of the tree, not on the prototype.
  */
-thMidiNote *thMidiChan::buildNote (float note, float velocity)
+thMidiNote *thMidiChan::buildNote (float note, float velocity, float level)
 {
     if (modnode_ == NULL)
         return NULL;
 
-    return new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX);
+    return new thMidiNote(modnode_, note, velocity * TH_MAX / MIDIVALMAX,
+                          level);
 }
 
 /* Audio thread. Takes a voice out of notes_ and leaves it sounding in
@@ -477,7 +478,7 @@ thMidiNote *thMidiChan::monoVoice (void)
 }
 
 /* Audio thread. Last-note priority: the top of the stack is what sounds. */
-void thMidiChan::monoPush (float note)
+void thMidiChan::monoPush (float note, float level)
 {
     monoPop(note);
 
@@ -487,10 +488,13 @@ void thMidiChan::monoPush (float note)
     {
         memmove(monoStack_, monoStack_ + 1,
                 (TH_MONO_STACK - 1) * sizeof(float));
+        memmove(monoLevels_, monoLevels_ + 1,
+                (TH_MONO_STACK - 1) * sizeof(float));
         monoCount_ = TH_MONO_STACK - 1;
     }
 
-    monoStack_[monoCount_++] = note;
+    monoStack_[monoCount_] = note;
+    monoLevels_[monoCount_++] = level;
 }
 
 /* Audio thread. True if the pitch was on the stack. */
@@ -502,6 +506,8 @@ bool thMidiChan::monoPop (float note)
             continue;
 
         memmove(monoStack_ + i, monoStack_ + i + 1,
+                (monoCount_ - i - 1) * sizeof(float));
+        memmove(monoLevels_ + i, monoLevels_ + i + 1,
                 (monoCount_ - i - 1) * sizeof(float));
         monoCount_--;
 
@@ -533,7 +539,7 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
     {
         thMidiNote *voice = monoVoice();
 
-        monoPush(midinote->note());
+        monoPush(midinote->note(), midinote->level());
 
         if (voice != NULL)
         {
@@ -543,6 +549,7 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
                glide. */
             notes_.erase(voice->id());
             voice->retune(midinote->note());
+            voice->setLevel(midinote->level());
             notes_[voice->id()] = voice;
 
             /* A key is down again, so the pedal no longer owns this voice.
@@ -636,6 +643,7 @@ void thMidiChan::releaseNote (int note)
                one sounding, in which case the retune is a no-op. */
             notes_.erase(voice->id());
             voice->retune(monoStack_[monoCount_ - 1]);
+            voice->setLevel(monoLevels_[monoCount_ - 1]);
             notes_[voice->id()] = voice;
 
             return;
@@ -1167,7 +1175,7 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
             for (int j = 0; j < windowlength_; j++)
             {
                 output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
-                                  note->fadeGain(j);
+                                  note->level() * note->fadeGain(j);
                 index += channels_;
             }
         }
@@ -1175,7 +1183,8 @@ thArg *thMidiChan::mixNote (thMidiNote *note, int sustain,
         {
             for (int j = 0; j < windowlength_; j++)
             {
-                output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX);
+                output_[index] += bufmix_[j] * (bufamp_[j] / MIDIVALMAX) *
+                                  note->level();
                 index += channels_;
             }
         }

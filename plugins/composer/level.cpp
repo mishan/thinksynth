@@ -12,25 +12,9 @@
  * Public License for more details.
  */
 
-/* level -- a chain, turned down.
- *
- * Every note that passes has its velocity multiplied by `gain'. That
- * is all, and it is here because a piece had no way to say "this
- * chain, quieter" short of editing every generator's `vel' -- and an
- * instrument's `amp' is the whole channel, which two chains may share.
- *
- * Velocity is not only loudness. A patch may read it as brightness,
- * as how open a hat is, as how hard a string was struck; hat0 fades
- * its decay on velocity squared, so a level under a ring of hats closes
- * them as well as quiets them. That is usually what was wanted, and
- * when it is not, `amp' on the instrument is the level that touches
- * nothing else.
- *
- * Bound to a knob, it is a fader on the canvas.
- */
+/* level -- a chain's gain, separate from the instrument's velocity. */
 
 #include <cstddef>
-#include <cmath>
 
 #include "thcomposer.h"
 
@@ -42,7 +26,7 @@ extern "C" THINK_PLUGIN_API int
 composer_init (thcComposerInfo *info)
 {
     static const thcParamDef defs[P_COUNT] = {
-        { "gain", "velocity multiplier", THC_PARAM_FLOAT,
+        { "gain", "note level multiplier", THC_PARAM_FLOAT,
           0, 2, 1, NULL, NULL },
     };
 
@@ -50,7 +34,7 @@ composer_init (thcComposerInfo *info)
         paramIndex[i] = info->register_param(info->host, &defs[i]);
 
     info->set_flags(info->host, THC_TRANSFORMER);
-    info->set_desc(info->host, "Scale the velocity of every note.");
+    info->set_desc(info->host, "Scale the level of every note.");
 
     return 0;
 }
@@ -88,9 +72,6 @@ composer_receive (void *state, const thcEvent *ev, thcEventSink *out)
     }
 
     thcEvent copy = *ev;
-    const int v = (int)floor(ev->u.note.velocity *
-                             p->get(p->ctx, paramIndex[P_GAIN]) + 0.5);
-
-    copy.u.note.velocity = v < 1 ? 1 : v > 127 ? 127 : v;
+    copy.u.note.level *= (float)p->get(p->ctx, paramIndex[P_GAIN]);
     out->emit(out->ctx, &copy);
 }

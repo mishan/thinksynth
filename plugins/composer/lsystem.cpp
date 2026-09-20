@@ -379,6 +379,7 @@ composer_tick (void *state, const thcTransport *t, thcEventSink *out)
                       st->phrase[i].accent * (int)get(P_ACCENT);
 
             ev.type = THC_EV_NOTE;
+            ev.u.note.level = 1;
             ev.at = t->now + st->phrase[i].at * step;
             ev.channel = 0;              /* the sink routes             */
             ev.u.note.note = st->phrase[i].midi;
