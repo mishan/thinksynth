@@ -211,6 +211,61 @@ try
     check(Number(polled.shown) === Number(nudged),
           `and the number box beside it agrees: ${polled.shown}`);
 
+    /* And the poll does not type over the person.
+     *
+       The module's value arrives four times a second whether or not anyone
+       asked, and it used to be written into every box on the panel. A number
+       takes longer than a quarter second to type, so the digits were being
+       replaced by the value that was still there -- an edit that could not be
+       made at all rather than one that failed. Half a number is left in the
+       box here, deliberately unconfirmed. */
+    await page.evaluate(() =>
+        document.querySelector('#params .value').focus());
+
+    await page.keyboard.press('Control+A');
+    await page.keyboard.type('0.12');
+
+    await page.evaluate(() => window.solo.pollChanParams());
+    await page.evaluate(() => window.solo.pollChanParams());
+
+    const typing = await page.evaluate(() =>
+        document.querySelector('#params .value').value);
+
+    check(typing === '0.12',
+          `a half-typed number survives the poll: "${typing}"`);
+
+    /* While it is being typed into, the box is the only thing on the panel
+       that is not showing the module: the slider beside it is the same row
+       and keeps following. */
+    const apart = await page.evaluate(() =>
+    {
+        const box = document.querySelector('#params .value');
+
+        return { shown: box.value, range: box.previousElementSibling.value };
+    });
+
+    check(Number(apart.shown) !== Number(apart.range),
+          `and only that box holds back: box ${apart.shown}, slider ` +
+          `${apart.range}`);
+
+    /* And it is let go of the moment it stops being typed into. Leaving the
+       box is what confirms the number, so this is the edit landing and the
+       box going back to showing what the module has -- which is the same
+       thing, and is why the two agree again. */
+    await page.evaluate(() => document.querySelector('#params .value').blur());
+    await page.evaluate(() => window.solo.pollChanParams());
+
+    const together = await page.evaluate(() =>
+    {
+        const box = document.querySelector('#params .value');
+
+        return { shown: box.value, range: box.previousElementSibling.value };
+    });
+
+    check(Number(together.shown) === Number(together.range),
+          `and the box follows the arg again once it is left alone: box ` +
+          `${together.shown}, slider ${together.range}`);
+
     await page.selectOption('#mode', 'piece');
     await page.selectOption('#piece', PIECE);
 

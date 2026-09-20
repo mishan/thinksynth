@@ -943,6 +943,45 @@ static void checkRate (const string &pluginPath, const string &file)
  *
  * Returns nonzero on a failure, so that a dump that could not be made is not
  * mistaken for an empty panel. */
+/* thPanelSpell over the cases where a second implementation of it goes
+ * wrong, as JSON, for the page's half of the gate to reproduce.
+ *
+ * The panel dump cannot carry this. Its rows hold whatever the fixture's args
+ * happen to be worth, and what the page has to agree about is the rule --
+ * which of two adjacent spellings a value exactly between them gets. printf
+ * rounds such a tie to the even digit; JavaScript's toFixed rounds it up, and
+ * reads the shortest decimal that names a double rather than the double, so a
+ * page spelling its own numbers disagrees here and nowhere else. A tie is not
+ * an exotic input either: a control's travel is powers of ten.
+ */
+static string spellings (void)
+{
+    static const double values[] = {
+        0.25, 0.35, 0.125, 2.5, 500.5, 501.5, 1.005, -0.25, -0.35,
+        0.0001, 0.00005, 882000, 20000.5, 1234.5678, 0, -0.00001,
+        0.1 + 0.2, 1.0 / 3.0, 16.0 / 3.0
+    };
+
+    static const int places[] = { 0, 1, 2, 3, 4 };
+
+    string out = "[";
+
+    for (size_t v = 0; v < sizeof values / sizeof *values; v++)
+        for (size_t d = 0; d < sizeof places / sizeof *places; d++)
+        {
+            char buf[64];
+
+            snprintf(buf, sizeof buf, "%s[%.17g,%d,\"", out == "[" ? "" : ",",
+                     values[v], places[d]);
+
+            out += buf;
+            out += thPanelSpell(values[v], places[d]);
+            out += "\"]";
+        }
+
+    return out + "]\n";
+}
+
 static int dumpTo (const string &dir, const string &pluginPath,
                    const string &instrument)
 {
@@ -974,6 +1013,10 @@ static int dumpTo (const string &dir, const string &pluginPath,
     const string text = thPanelToJson(panel) + "\n";
 
     if (!writeFile((std::filesystem::path(dir) / "panel.json").string(), text))
+        return 1;
+
+    if (!writeFile((std::filesystem::path(dir) / "spell.json").string(),
+                   spellings()))
         return 1;
 
     fputs(text.c_str(), stdout);

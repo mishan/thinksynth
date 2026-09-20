@@ -680,20 +680,35 @@ async function pollParams ()
     if (synth === null || params === null || $('paramview').open === false)
         return;
 
-    const answer = await synth.panelValues(params.panel.rows.length);
+    /* Which panel this poll is about, held across the await.
+     *
+     * showParams() replaces `params' wholesale, and a channel switched while
+     * a poll was in flight brings back the values of the channel that was
+     * there before -- as many of them as that panel had rows. The shape is
+     * not the check for that: two channels carrying the same patch have the
+     * same shape, which is what a shape is for, so the answer would be
+     * applied to the wrong channel's controls and a short one would blank the
+     * rows past its end. The object's identity is the check. */
+    const asked = params;
 
-    if (params === null)
+    const answer = await synth.panelValues(asked.panel.rows.length);
+
+    if (params !== asked)
         return;
 
-    if (answer.shape !== params.panel.shape)
+    if (answer.shape !== asked.panel.shape)
     {
         await showParams();
         return;
     }
 
-    params.panel.rows.forEach((row, i) =>
-        params.setValue(row.id, answer.values[i],
-                        row.kind === 4 /* READONLY */ ? row.text : undefined));
+    /* Values only. A row that holds words -- a note set, an output described
+       rather than measured -- is told nothing by a number, and panel.js is
+       where that is known; passing the description's own text back in every
+       quarter second is how a readout came to be frozen at what it said when
+       the panel opened. */
+    asked.panel.rows.forEach((row, i) =>
+        asked.setValue(row.id, answer.values[i]));
 }
 
 /* ---- starting, and switching ---- */

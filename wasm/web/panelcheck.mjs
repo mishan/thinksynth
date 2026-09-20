@@ -42,6 +42,14 @@
  * and moves nothing, which is what keeps a panel following a knob from
  * reporting an edit nobody made.
  *
+ * And the one rule the page does implement itself. A row arrives spelled,
+ * but a value that moves is spelled on the page as it moves, so panel.js
+ * carries thPanelSpell in JavaScript -- the one piece of the description
+ * that exists twice, and therefore the one that can disagree. Comparing two
+ * C++ dumps cannot see that: both are the same function. So the native side
+ * also writes what it spells a table of awkward numbers as, and panel.js is
+ * held against it.
+ *
  * Exit status is the number of failures.
  */
 
@@ -248,6 +256,30 @@ const edit = (row, text, b = INSTRUMENT) =>
 
     check(r.moved === 1 && shapeNow() === before,
           'applying an edit does not disturb the panel that is open', r.why);
+}
+
+/* The spelling, which the page does for itself.
+ *
+ * printf rounds a tie to the even digit and JavaScript's toFixed rounds it
+ * up, so 0.25 at one decimal is "0.2" in the module and was "0.3" on the
+ * page -- and a slider put back where it started would then read as an edit,
+ * for ever, since the comparison it loses is the catching-up guard. */
+{
+    const { spell } = await import(pathToFileURL(path.join(here, 'panel.js')));
+
+    const table = JSON.parse(
+        fs.readFileSync(path.join(scratch, 'spell.json'), 'utf8'));
+
+    let wrong = null;
+
+    for (const [value, decimals, text] of table)
+        if (spell(value, decimals) !== text && wrong === null)
+            wrong = `${value} at ${decimals}: native "${text}", ` +
+                    `page "${spell(value, decimals)}"`;
+
+    check(table.length > 0 && wrong === null,
+          `panel.js spells all ${table.length} of them as the module does`,
+          wrong ?? '');
 }
 
 fs.rmSync(scratch, { recursive: true, force: true });

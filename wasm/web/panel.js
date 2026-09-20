@@ -47,17 +47,95 @@ export const TEXT = 3;
 export const READONLY = 4;
 export const TOGGLE = 5;
 
+/* A double's exact value, as a sign, a mantissa and a power of two.
+ *
+ * Every double is a dyadic rational and so has a finite decimal expansion.
+ * This is the way to that expansion, and the reason for the BigInt below is
+ * that the expansion runs to 767 digits at its longest and there is nothing
+ * else here that can hold one. */
+const BITS = new DataView(new ArrayBuffer(8));
+
+function exactly (value)
+{
+    BITS.setFloat64(0, value);
+
+    const hi = BITS.getUint32(0), lo = BITS.getUint32(4);
+    const biased = (hi >>> 20) & 0x7ff;
+
+    let mantissa = (BigInt(hi & 0xfffff) << 32n) | BigInt(lo);
+
+    /* A subnormal has no implicit leading one and its exponent is the
+       smallest there is rather than one less than that. */
+    const exponent = biased === 0 ? -1074 : biased - 1075;
+
+    if (biased !== 0)
+        mantissa |= 1n << 52n;
+
+    return { negative: (hi >>> 31) !== 0, mantissa, exponent };
+}
+
 /* The number a row would show, spelled the way the module spells it.
  *
  * thPanelSpell, in JavaScript, and it has to stay that: what leaves here as
  * an edit is compared against what the module has, and a page that wrote its
  * numbers its own way would make every one of those comparisons a near miss
  * -- so a slider dragged back to where it started would count as an edit.
- * toFixed is %.*f with the same rounding.
+ *
+ * Which is why this is not toFixed. The module spells with %.*f, and the two
+ * disagree on a value that falls exactly half way: printf rounds a tie to the
+ * even digit and toFixed rounds it up, so 0.25 at one decimal is "0.2" in the
+ * module and "0.3" on the page, and 500.5 ms is 500 against 501. Ties are not
+ * a curiosity here -- a control's travel is powers of ten and its values land
+ * on them. Nor is toFixed's disagreement always in that direction: it reads
+ * the shortest decimal that names the double rather than the double, so any
+ * rounding of a spelling is the wrong answer for a different reason.
+ *
+ * So the double is taken apart and the rounding done on its exact value, in
+ * integers: value * 10^decimals as a fraction, rounded half to even. That is
+ * what printf's default rounding mode does, digit for digit.
  */
 export function spell (value, decimals)
 {
-    const text = Number(value).toFixed(Math.max(0, Math.min(12, decimals)));
+    const places = Math.max(0, Math.min(12, Math.trunc(decimals) || 0));
+    const v = Number(value);
+
+    /* What %f prints for these, so that a row holding one reads the same in
+       both shells rather than "Infinity" in one of them. */
+    if (Number.isNaN(v))
+        return 'nan';
+
+    if (!Number.isFinite(v))
+        return v < 0 ? '-inf' : 'inf';
+
+    const { negative, mantissa, exponent } = exactly(v);
+
+    const scaled = mantissa * 10n ** BigInt(places);
+
+    let n;
+
+    if (exponent >= 0)
+        n = scaled << BigInt(exponent);         /* an integer already */
+    else
+    {
+        const half = 1n << BigInt(-exponent);
+        const whole = scaled / half;
+        const rest = (scaled % half) * 2n;
+
+        n = (rest > half || (rest === half && (whole & 1n) === 1n))
+            ? whole + 1n : whole;
+    }
+
+    let digits = n.toString();
+
+    if (places > 0)
+    {
+        while (digits.length <= places)
+            digits = '0' + digits;
+
+        digits = digits.slice(0, -places) + '.' + digits.slice(-places);
+    }
+
+    const text = (negative ? '-' : '') + digits;
 
     /* -0 is a value nothing means and every rounding of a small negative
        produces. */
@@ -120,7 +198,16 @@ function makeSlider (row, emit, bound)
     bound.set(row.id, (value) =>
     {
         input.value = value;
-        shown.value = spell(value, row.decimals);
+
+        /* Not into a box someone is typing in.
+         *
+         * The module's value arrives four times a second whether or not this
+         * page asked for it, and half a typed number replaced by the value
+         * that is still there is a number that can never be finished. The
+         * slider beside it keeps following, since it is the box and not the
+         * row that is being edited. */
+        if (document.activeElement !== shown)
+            shown.value = spell(value, row.decimals);
     });
 
     return box;
@@ -143,7 +230,8 @@ function makeNumber (row, emit, bound)
 
     bound.set(row.id, (value) =>
     {
-        input.value = spell(value, row.decimals);
+        if (document.activeElement !== input)
+            input.value = spell(value, row.decimals);
     });
 
     return input;
@@ -199,7 +287,16 @@ function makeText (row, emit, bound)
        a thing to put in front of anyone. */
     input.addEventListener('change', () => emit(input.value));
 
-    bound.set(row.id, (value, text) => { input.value = text; });
+    /* A number has nothing to say about this row. The value poll carries one
+       for every row in the panel, and writing it here put the string
+       "undefined" in the box -- a TEXT row holds words and follows only
+       words, which is the same split PanelView::setText draws on the
+       desktop. Nor over what is being typed. */
+    bound.set(row.id, (value, text) =>
+    {
+        if (text !== undefined && document.activeElement !== input)
+            input.value = text;
+    });
 
     return input;
 }
@@ -210,12 +307,25 @@ function makeReadonly (row, emit, bound)
 {
     const span = document.createElement('span');
 
+    /* Whether this row reads as its number or as words about it.
+     *
+     * Both are READONLY and they follow different things. An output the
+     * plugin writes every window is a number and has to keep up with it; a
+     * row standing in for a wire reads `driven by @cut' and would be
+     * destroyed by having a number spelled over it. The module spells the
+     * first kind itself, so a text that is exactly that spelling is the
+     * number -- and the caller is left with nothing to know. */
+    const words = row.text !== spell(row.value, row.decimals);
+
     span.className = 'paramwhat';
     span.textContent = row.text;
 
     bound.set(row.id, (value, text) =>
     {
-        span.textContent = text ?? spell(value, row.decimals);
+        if (text !== undefined)
+            span.textContent = text;
+        else if (!words)
+            span.textContent = spell(value, row.decimals);
     });
 
     return span;
@@ -275,7 +385,9 @@ function makeRow (row, onEdit, bound)
  * Returns a function that puts a value into one row without calling back:
  * `setValue(id, value, text)'. The panel following the arg is not a person
  * editing it, and the two being told apart is what stops a page reporting an
- * edit nobody made.
+ * edit nobody made. `text' is for the rows that hold words and is left out
+ * for the rest -- a value poll carries numbers and nothing else, and which
+ * rows have any use for one is decided here rather than by the caller.
  *
  * Grouped rows go in a <details> per group, in the order the panel lists
  * them, open to begin with -- a parameter you cannot see is a parameter you
@@ -301,7 +413,19 @@ export function showPanel (box, panel, onEdit)
     if (loose.childElementCount > 0)
         box.append(loose);
 
-    for (const group of panel.groups)
+    /* The groups panel.groups names, then any other group a row turns out to
+       carry. That list is the order to draw them in and not the roll of which
+       there are: drawing only what it names would leave a row off the page
+       altogether, and off `bound' with it, so nothing would ever put a value
+       in it and nothing would say why. The model keeps the two in step; this
+       is the boundary where that stops being something to rely on. */
+    const groups = [...panel.groups];
+
+    for (const row of panel.rows)
+        if (row.group !== '' && !groups.includes(row.group))
+            groups.push(row.group);
+
+    for (const group of groups)
     {
         const block = document.createElement('details');
         const title = document.createElement('summary');
