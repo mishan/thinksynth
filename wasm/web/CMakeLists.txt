@@ -269,6 +269,11 @@ const size_t thStaticVisualCount =
 # base; what it draws through is cairo2d's cairomm face, and what it never
 # sees is a toolkit -- the first Gtk:: that got into either would fail this
 # build, which is the guard the split exists for.
+#
+# PanelModel and ArgPanel are the same move for a parameter panel: what a
+# control is, in as many words as it takes and none of them a widget
+# (src/PanelModel.h). The guard is this line -- they are built here, and
+# nothing here links a toolkit.
 add_executable(thinkweb
     ${STATIC_SOURCES}
     "${PROJECT_BINARY_DIR}/static/registry.cpp"
@@ -281,6 +286,8 @@ add_executable(thinkweb
     "${THINK_TOP}/src/NodeEdit.cpp"
     "${THINK_TOP}/src/NodeLayout.cpp"
     "${THINK_TOP}/src/NodeCatalog.cpp"
+    "${THINK_TOP}/src/PanelModel.cpp"
+    "${THINK_TOP}/src/ArgPanel.cpp"
     ${THINK_COMPOSERHOST_SOURCES}
     twdraw.cpp
     thinkweb.cpp
@@ -320,8 +327,9 @@ target_link_options(thinkweb PRIVATE
 # is a site on its own: serve it, or put it anywhere that serves files.
 #
 set(SITE_SOURCES index.html jam.html style.css main.js keyboard.js knobs.js
-                patch.js host.js roll.js worklet.js engine.js mirror.js
-                canvasview.js composerview.js nodeview.js tapediff.js)
+                panel.js patch.js host.js roll.js worklet.js engine.js
+                mirror.js canvasview.js composerview.js nodeview.js
+                tapediff.js)
 set(SITE_OUTPUTS "")
 
 foreach(f IN LISTS SITE_SOURCES)

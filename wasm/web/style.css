@@ -409,6 +409,137 @@ details { margin: 0.8em 0; }
 }
 
 /*
+ * The instrument's parameters: a row per control, wrapping into as many
+ * columns as the width allows.
+ *
+ * A flow rather than a fixed column count, for the reason the desktop's
+ * panel uses a FlowBox (src/gui/PanelView.cpp): a count guessed from how
+ * many rows there are is a guess at the width, made before anything has
+ * been given one, and it is wrong in both directions. Each row has a
+ * minimum of its own, the wrapping falls out of how many of those fit, and
+ * a narrow window gets one column rather than sliders squeezed to a nub.
+ */
+#params { margin: 0.5rem 0; font-size: 0.9rem; }
+
+/* One grid for the whole block, and each row a subgrid of it.
+ *
+ * Not a grid per row. A row that sizes its own name column starts its
+ * slider wherever its own label happens to end, so a panel of them is a
+ * ragged left edge and no columns at all -- which is what the desktop's two
+ * SizeGroups exist to stop (src/gui/PanelView.h). `max-content' over a
+ * subgrid is the same answer by the same means: the width is measured off
+ * the widest name actually there rather than guessed at in rem.
+ *
+ * Column *pairs*, because that is what a name and a control are, and how
+ * many pairs there are is the wrapping. A media query rather than auto-fill:
+ * auto-fill cannot repeat a pair and keep the subgrid, and a panel is tens
+ * of rows, so two widths and a phone is the whole of it.
+ *
+ * Each block is its own grid, so a group's names line up with each other and
+ * not with the loose rows above them. The desktop's size groups do cross its
+ * expanders; CSS has no way to make two grids agree, and the alternative --
+ * a width in pixels chosen here -- is the guess this is avoiding. */
+.panelrows
+{
+    display: grid;
+    grid-template-columns: max-content minmax(12rem, 1fr);
+    gap: 0.3rem 1.5rem;
+    align-items: center;
+}
+
+@media (min-width: 60em)
+{
+    .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+@media (min-width: 100em)
+{
+    .panelrows
+    {
+        grid-template-columns: max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr)
+                               max-content minmax(12rem, 1fr);
+    }
+}
+
+.panelrow
+{
+    display: grid;
+    grid-template-columns: subgrid;
+    grid-column: span 2;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+/* Right-aligned, so the names make a column down the panel rather than
+   trailing off into the sliders. */
+.panelrow label
+{
+    text-align: right;
+    white-space: nowrap;
+}
+
+/* The slider and its number box, which share the row's second column. */
+.panelcontrol
+{
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+}
+
+/* A slider narrower than this is not draggable in any useful way -- the
+   handle is most of it -- and asking for the width is also what tells the
+   grid how much a row costs, so it is the number the wrapping is decided
+   by. The same 140 pixels the desktop's panel asks for. */
+.panelcontrol input[type="range"]
+{
+    flex: 1 1 140px;
+    min-width: 140px;
+}
+
+.panelrow input[type="number"], .panelrow .value
+{
+    font: 13px ui-monospace, monospace;
+    text-align: right;
+}
+
+/* A group -- an envelope's four controls, a filter's two -- as its own
+   foldable block, open to begin with: a parameter you cannot see is a
+   parameter you will not remember the patch has. */
+.panelgroup { margin: 0.5rem 0; }
+
+.panelgroup > summary
+{
+    cursor: pointer;
+    font-weight: 600;
+}
+
+@media (max-width: 30em)
+{
+    /* Label over control: a name column and a slider in a phone's width
+       leave the slider too short to aim at. One column of the outer grid
+       and one row of the subgrid each, so the name sits above the thing it
+       names. */
+    .panelrows { grid-template-columns: 1fr; }
+
+    .panelrow
+    {
+        grid-column: span 1;
+        grid-template-columns: subgrid;
+        grid-template-rows: auto auto;
+        gap: 0.1rem;
+        margin-bottom: 0.4rem;
+    }
+
+    .panelrow label { text-align: left; }
+    .panelrow > * { grid-column: 1; }
+}
+
+/*
  * The node editor's params panel: a row per arg, wrapping into columns on
  * anything wider than a phone.
  */

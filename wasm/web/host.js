@@ -149,6 +149,8 @@ export async function createSynth (ctx, { windowlen = 256,
                 waiting.delete(m.id);
                 break;
             case 'piece':
+            case 'panel':
+            case 'panelvalues':
                 waiting.get(m.id)?.(m);
                 waiting.delete(m.id);
                 break;
@@ -251,6 +253,51 @@ export async function createSynth (ctx, { windowlen = 256,
         /* `knob' is the index loadPiece reported the knob under; `at' a
            transport time, or -1 for the next window. */
         knob: (knob, value, at = -1) => post({ type: 'knob', knob, value, at }),
+
+        /* A channel's parameters, as the module describes them
+         * (src/PanelModel.h): `{ shape, json }', and a shape of 0 for a
+         * channel with nothing on it. `kind' is thPanel::Kind, `a' the
+         * channel, `b' nonzero for the channel effect's arg map rather
+         * than the instrument's.
+         *
+         * Asked of the worklet alone, and deliberately: what the page
+         * draws is what the thing that sounds holds. */
+        panel: (kind, a, b = 0) =>
+            new Promise((resolve) =>
+            {
+                const id = nextId++;
+
+                waiting.set(id, resolve);
+                node.port.postMessage({ type: 'panel', id, kind, a, b });
+            }),
+
+        /* The values of the panel that is open, and its shape again.
+         *
+         * The cheap half: a panel follows the arg -- a knob, a peer, a
+         * MIDI controller all write behind it -- and this is what the page
+         * polls to keep up. Nothing is serialized and no row is described
+         * again; a shape that has changed is the page's cue to ask for the
+         * description afresh. */
+        panelValues: (rows) =>
+            new Promise((resolve) =>
+            {
+                const id = nextId++;
+
+                waiting.set(id, resolve);
+                node.port.postMessage({ type: 'panelvalues', id, rows });
+            }),
+
+        /* One row of a panel, set to what somebody typed or dragged it to,
+         * as the authored spelling rather than a number -- "4000",
+         * "Square". The module folds it, holds it to the row's range and
+         * refuses what it cannot make sense of.
+         *
+         * A command: posted to every instance, applied by each, including
+         * this page's own (docs/JAM.md). Which is why the panel it names is
+         * named in full, and not by whatever panel happens to be open on
+         * the instance receiving it. */
+        panelEdit: (kind, a, b, row, text) =>
+            post({ type: 'paneledit', kind, a, b, row, text }),
 
         /* A gesture on a stage's picture, already in the coordinates the
            composer drew in. Handed the command itself, since every field

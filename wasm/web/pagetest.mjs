@@ -31,10 +31,17 @@
  * were only ever exercised by hand, on the page a change to either is
  * most likely to break.
  *
- * Small on purpose: the octave, the sliders, a key down and up, and a key
- * typed into a text box, which must play nothing. Then the two canvases
- * this page has: the composer view, and the instrument's graph. What sounds is
- * browsertest.mjs's business and jamtest.mjs's; this is about the page.
+ * The parameter panel is here for the half of it that needs a browser: that
+ * the module's description of a channel's controls became elements, and
+ * that moving one reaches the arg. What the description says, and that it
+ * is the same description the desktop draws, is scripts/panelcheck's and
+ * wasm/web/panelcheck.mjs's.
+ *
+ * Small on purpose: the octave, the sliders, the channel's parameter panel,
+ * a key down and up, and a key typed into a text box, which must play
+ * nothing. Then the two canvases this page has: the composer view, and the
+ * instrument's graph. What sounds is browsertest.mjs's business and
+ * jamtest.mjs's; this is about the page.
  *
  * And then the composer view, which is the one thing here with a whole
  * second engine behind it: the piece's picture is drawn by the mirror --
@@ -130,6 +137,79 @@ try
         () => !document.getElementById('loadpiece').disabled,
         null, { timeout: 60000 });
     check(true, 'the synth started');
+
+    /* ---- the instrument's parameters ---- */
+
+    /* The panel this page has never had. Patch mode, because that is the
+       simplest thing it can be over: one .dsp on one channel, loaded by
+       Start.
+
+       What is checked here is the half that needs a browser -- that the
+       module's description became elements, and that moving one of them
+       reaches the arg. That the description itself is right, and is the
+       same description the desktop draws, is panelcheck's and
+       panelcheck.mjs's. */
+    await page.waitForSelector('#params .panelrow', { timeout: 60000 });
+
+    const chanPanel = await page.evaluate(() => window.solo.chanParams());
+    const drawn = await page.evaluate(() => ({
+        rows: document.querySelectorAll('#params .panelrow').length,
+        groups: document.querySelectorAll('#params .panelgroup').length,
+        sliders: document.querySelectorAll(
+            '#params input[type="range"]').length,
+    }));
+
+    check(chanPanel !== null && drawn.rows === chanPanel.rows.length,
+          `the channel's parameters drew: ${drawn.rows} rows of ` +
+          `${chanPanel?.rows?.length}`);
+
+    check(drawn.groups === chanPanel.groups.length,
+          `and a foldable block per group: ${drawn.groups} of ` +
+          `${chanPanel.groups.length} (${chanPanel.groups.join(', ')})`);
+
+    /* Every row of the .dsp this page loads is a slider; a selector would
+       be a <select> and is counted out here so the claim stays exact. */
+    const ranges = chanPanel.rows.filter((r) => r.kind === 0).length;
+
+    check(drawn.sliders === ranges,
+          `and a slider for each of the ${ranges} that is one`);
+
+    /* A nudge, with the keyboard, because that is a real input event from
+       the browser rather than a synthesised one.
+     *
+       Then the poll, which pushes what the module holds back into the
+       widgets. That is the assertion: if the edit had not reached the arg
+       the slider would snap back to where it was, since the page draws
+       what the module says and never what it typed. */
+    await page.evaluate(() =>
+        document.querySelectorAll('#params input[type="range"]')[0].focus());
+
+    const wasParam = await page.evaluate(() =>
+        document.querySelectorAll('#params input[type="range"]')[0].value);
+
+    await page.keyboard.press('ArrowRight');
+    await page.keyboard.press('ArrowRight');
+
+    const nudged = await page.evaluate(() =>
+        document.querySelectorAll('#params input[type="range"]')[0].value);
+
+    await page.evaluate(() => window.solo.pollChanParams());
+
+    const polled = await page.evaluate(() =>
+    {
+        const range = document.querySelectorAll(
+            '#params input[type="range"]')[0];
+
+        return { value: range.value,
+                 shown: range.nextElementSibling.value };
+    });
+
+    check(nudged !== wasParam && polled.value === nudged,
+          `moving one reaches the arg and survives the poll: ` +
+          `${wasParam} -> ${nudged}, and the module says ${polled.value}`);
+
+    check(Number(polled.shown) === Number(nudged),
+          `and the number box beside it agrees: ${polled.shown}`);
 
     await page.selectOption('#mode', 'piece');
     await page.selectOption('#piece', PIECE);
@@ -504,7 +584,8 @@ site.closeAllConnections();
 site.close();
 
 process.stdout.write(`\n${failures === 0
-                          ? 'the solo page\'s keys, knobs, composer view ' +
-                            'and instrument graph still work\n'
+                          ? 'the solo page\'s keys, knobs, parameters, ' +
+                            'composer view and instrument graph still ' +
+                            'work\n'
                           : `${failures} failed\n`}`);
 process.exitCode = failures;

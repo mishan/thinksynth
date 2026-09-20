@@ -201,17 +201,20 @@ What a control *is* — its rows, its label, what it is worth in the unit it was
 written in, how many decimals are worth showing, which group it belongs to —
 is `thPanel`, in [`src/PanelModel.h`](../src/PanelModel.h). Plain data, no
 toolkit, built from live state by a provider (`src/ArgPanel.cpp` for a
-channel's args) and rendered by a shell (`src/gui/PanelView.cpp` on the
-desktop). It exists because those rules used to live inside a
-widget-building function and had to be written a second time, worse, for the
-browser — which meant an envelope time read `20000 ms` in one and `882000` in
-the other.
+channel's args) and rendered by a shell — `src/gui/PanelView.cpp` on the
+desktop, `wasm/web/panel.js` in the browser, which reaches it through
+`tw_panel_open`/`tw_panel_json`. It exists because those rules used to live
+inside a widget-building function and had to be written a second time,
+worse, for the browser — which meant an envelope time read `20000 ms` in one
+and `882000` in the other.
 
 An edit does not write. A provider turns "row `cutoff`, the person typed 4000"
 into a `thPanelEdit` and says whether it is allowed; the shell delivers it. On
 the desktop that is an immediate `thArg::setValue`; in the browser it is a
 broadcast command, because the local tab has no privileged path to the
-scheduler. `scripts/panelcheck` is the gate, and it needs no display.
+scheduler. `scripts/panelcheck` is the gate, and it needs no display;
+`wasm/web/panelcheck.mjs` is the other one, and diffs the module's
+description of a fixture against the native build's, byte for byte.
 
 ### What an arg says about itself
 

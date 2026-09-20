@@ -41,6 +41,22 @@
  *     scripts/panelcheck -p build/plugins/
  *
  * Exit status is the number of failures.
+ *
+ * `-j' prints the channel's panel instead of checking anything: the rows as
+ * tw_panel_json would hand them to a page. That is the reference
+ * wasm/web/panelcheck.mjs holds the module's own dump against, which is the
+ * gate that keeps one description from becoming two again -- one model, two
+ * builds, byte-identical rows, or the build fails. It writes the fixture
+ * .dsp beside the dump, so the wasm side loads exactly the same text.
+ *
+ * The instrument alone, and not the effect panel checked below it: a
+ * channel effect reaches the browser through a piece's `effect' clause and
+ * there is no way to put one on a bare channel there, so there is nothing
+ * for the other side of the comparison to load. Every rule the model has is
+ * in the instrument's rows anyway; what the effect panel is for is the
+ * prefix, and that is a lookup rather than a description.
+ *
+ *     scripts/panelcheck -p build/plugins/ -j /tmp/panel
  */
 
 #include "config.h"
@@ -322,6 +338,60 @@ static void checkArithmetic (void)
           "a value is truncated, the way `switch ((int)x)' truncates it");
     check(thPanelChoiceIndex(choices, 1) == -1,
           "a value the plugin does not implement selects nothing");
+}
+
+/* The readout the page reads.
+ *
+ * Hand-built rather than taken off a channel, because what is being checked
+ * is the writer and the cases that break one are characters no .dsp in the
+ * corpus has in a label. The panel over a real channel is checked by dumping
+ * it -- `panelcheck -j' -- and diffing that against the same dump out of the
+ * wasm module, which is the gate that keeps the two builds saying the same
+ * thing. */
+static void checkJson (void)
+{
+    thPanel panel;
+    thPanelBuilder build;
+
+    thPanelRow row;
+
+    row.kind = thPanelRow::SLIDER;
+    row.id = "cut\\off";
+    row.label = "He said \"stop\"";
+    row.desc = "one\ttwo\nthree";
+    row.units = "ms";
+    row.value = 0.1;
+    row.text = "0.1000";
+    row.lo = 0;
+    row.hi = 1;
+    row.step = 0.0001;
+    row.decimals = 4;
+    row.valueChars = 7;
+    row.editable = false;
+    row.choices.push_back(make_pair(string("Sine"), 0));
+
+    build.add(row, "", "");
+    build.finish(panel);
+
+    const string json = thPanelToJson(panel);
+
+    check(json.find("\"id\":\"cut\\\\off\"") != string::npos,
+          "a backslash in a row id is escaped", json);
+    check(json.find("\"label\":\"He said \\\"stop\\\"\"") != string::npos,
+          "and so are the quotes in a label", json);
+    check(json.find("\"desc\":\"one\\ttwo\\nthree\"") != string::npos,
+          "and the control characters in a description", json);
+    check(json.find("\"choices\":[{\"name\":\"Sine\",\"value\":0}]") !=
+          string::npos,
+          "a choice is a name and the number it means", json);
+    check(json.find("\"editable\":false") != string::npos,
+          "and a row that is only shown says so", json);
+
+    /* Seventeen significant figures, so a double survives the round trip
+       through text exactly -- which is what a diff between a native dump
+       and a wasm one is asking about. %g's six would hide the last bit. */
+    check(json.find("\"value\":0.10000000000000001") != string::npos,
+          "a value is written to the precision that round-trips", json);
 }
 
 /* ---- the instrument's panel ----------------------------------------- */
@@ -864,13 +934,63 @@ static void checkRate (const string &pluginPath, const string &file)
           "and an edit of it folds at that rate too", to_string(edit.value));
 }
 
+/* `-j': the two panels, printed, and the .dsp text they were built from
+ * written out beside the dump.
+ *
+ * The files as well as the dump, because the other side of the comparison
+ * has to load the same bytes and has no compiled-in copy of them. A
+ * directory rather than a file, for the three of them.
+ *
+ * Returns nonzero on a failure, so that a dump that could not be made is not
+ * mistaken for an empty panel. */
+static int dumpTo (const string &dir, const string &pluginPath,
+                   const string &instrument)
+{
+    std::error_code ec;
+
+    std::filesystem::create_directories(dir, ec);
+
+    if (!writeFile((std::filesystem::path(dir) / "panel.dsp").string(),
+                   INSTRUMENT))
+        return 1;
+
+    /* The level tw_load uses, so that `amp' holds the same number on both
+       sides: it is a row like the rest, and a panel is compared whole. */
+    thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH, TH_DEFAULT_SAMPLES);
+
+    if (synth.loadTree(instrument, 0, TH_DEFAULT_CHAN_AMP) == NULL)
+    {
+        fprintf(stderr, "panelcheck: %s did not load\n", instrument.c_str());
+
+        return 1;
+    }
+
+    ArgPanel argPanel;
+    thPanel panel;
+
+    argPanel.setChannel(0);
+    argPanel.build(panel);
+
+    const string text = thPanelToJson(panel) + "\n";
+
+    if (!writeFile((std::filesystem::path(dir) / "panel.json").string(), text))
+        return 1;
+
+    fputs(text.c_str(), stdout);
+
+    return 0;
+}
+
 int main (int argc, char **argv)
 {
     string pluginPath = PLUGIN_PATH;
+    string dumpDir;
 
     for (int i = 1; i < argc; i++)
         if (!strcmp(argv[i], "-p") && i + 1 < argc)
             pluginPath = argv[++i];
+        else if (!strcmp(argv[i], "-j") && i + 1 < argc)
+            dumpDir = argv[++i];
 
     if (pluginPath.empty() || pluginPath[pluginPath.size() - 1] != '/')
         pluginPath += '/';
@@ -881,7 +1001,18 @@ int main (int argc, char **argv)
     if (!writeFile(instrument, INSTRUMENT) || !writeFile(effect, EFFECT))
         return 1;
 
+    if (!dumpDir.empty())
+    {
+        const int bad = dumpTo(dumpDir, pluginPath, instrument);
+
+        remove(instrument.c_str());
+        remove(effect.c_str());
+
+        return bad;
+    }
+
     checkArithmetic();
+    checkJson();
 
     {
         thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,

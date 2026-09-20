@@ -279,6 +279,25 @@ string thPanelSpell (double value, int decimals);
 int thPanelChoiceIndex (const vector<pair<string, int> > &choices,
                         double value);
 
+/* The whole panel as JSON, which is how it crosses into a page.
+ *
+ * JSON rather than a flat table like twdraw's, and the difference is what is
+ * being read: a drawing is thousands of ops read every frame, and a panel is
+ * tens of rows read once when it opens. So the page's half is a JSON.parse
+ * rather than a marshalling loop with a call per field per row -- the shape
+ * the composer panel's message is hand-built into today, ten accessors at a
+ * time. Values, which do move continuously, go through a separate poll and
+ * never re-serialize.
+ *
+ * Key order is the declaration order below and is not sorted, so the same
+ * panel from two builds is the same bytes and can simply be diffed. Nothing
+ * is omitted for being empty or zero, for the same reason.
+ *
+ * Doubles are written to seventeen significant figures: that is what makes a
+ * double survive the round trip through text exactly, which is what a
+ * comparison between a native dump and a wasm one is asking about. */
+string thPanelToJson (const thPanel &panel);
+
 /* Collects rows, works out their groups, and lays them into a thPanel.
  *
  * Grouping is a rule rather than a layout, which is why it is here and not in
