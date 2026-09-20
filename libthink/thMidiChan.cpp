@@ -428,7 +428,20 @@ void thMidiChan::decayNote (NoteMap::iterator i)
     notes_.erase(i);
     notecount_decay_++; /* we are keeping track of polyphony this way until
                           the advanced cool method is implemented */
-    /* no need to dec notecounter since the new note replaces this one */
+
+    /* And off the held count, because the voice has left notes_.
+     *
+     * This used to be left alone, on the grounds that the new note replaces
+     * this one -- but every caller then counts that new note itself, so the
+     * voice that moved was counted twice until the recount at the end of
+     * process(). The polyphony test runs *before* that recount, so a channel
+     * with `poly' voices held read as `poly + 1' the moment one of them was
+     * struck again, and retired the release it had just started. That is the
+     * opposite of what a `poly' of two is for: dsp/bass.dsp asks for it so a
+     * retrigger does not cut the previous note's release off where it stood,
+     * and the arithmetic was cutting it off. */
+    if (notecount_ > 0)
+        notecount_--;
 }
 
 /* Audio thread. The one voice a mono channel is playing, or NULL. See the
@@ -563,15 +576,6 @@ void thMidiChan::insertNote (thMidiNote *midinote, RetireQueue *retire)
 
             decayNote(dead);
             cut->setArg("trigger", -1);
-
-            /* decayNote leaves notecount_ alone, because the voice it moves
-               is one a new note is taking the place of. Here one note
-               replaces however many were sounding, so they come off the
-               count here instead -- otherwise the polyphony test at the top
-               of process() reads a channel of two voices as a channel of
-               three and retires the release this is all for. */
-            if (notecount_ > 0)
-                notecount_--;
         }
     }
 
