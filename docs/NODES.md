@@ -389,7 +389,8 @@ Moog Filter
 |---|---|---|---|---|---|---|
 | `buffer` | state |  |  |  |  |  |
 | `in` | in | Signal in |  | -1 to 1 | full scale |  |
-| `cutoff` | in | Cutoff, 0 to 1 -- a fraction of the sample rate, not hertz. Clamped: the fit means nothing past 1 |  | 0 to 0.999 | fraction of the rate |  |
+| `cutoff` | in | Cutoff, 0 to 1 -- the fit's own scale, not hertz and not a fraction of the rate; see `cutoffhz'. Clamped: the fit means nothing past 1 |  | 0 to 0.999 | 0..1 |  |
+| `cutoffhz` | in | Cutoff in hertz. Overrides `cutoff' when above 0, which is what it is unless a graph says otherwise |  |  | Hz |  |
 | `res` | in | Resonance, 0 to 1; 1 self-oscillates. Clamped for the same reason the cutoff is |  | 0 to 1 |  |  |
 | `out_low` | out | Low pass, the ladder's fourth stage |  |  | full scale |  |
 | `out_high` | out | High pass |  |  | full scale |  |

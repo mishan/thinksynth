@@ -8,10 +8,16 @@
 # attack and settles to where `cutoff' says -- and a little saturation
 # after the filter, because the filter that clips a little is the sound.
 #
-# The filter's cutoff is normalised, 0 to 1, as filt::moog wants it:
-# `cutoff' is where it rests, `fmax' is where the filter envelope throws
-# it on each note, and the four `f' times are that envelope. The amp
-# envelope is the usual one, with sustain scaled by velocity.
+# The filter's cutoff is in hertz: `cutoff' is where it rests, `fmax' is
+# where the filter envelope throws it on each note, and the four `f'
+# times are that envelope. The amp envelope is the usual one, with
+# sustain scaled by velocity.
+#
+# It used to be filt::moog's own 0 to 1, because that was the only thing
+# the node took. `cutoffhz' is the same cutoff in the units every other
+# filter here uses, and the numbers below are what the fractions this
+# shipped with measure as: 0.18 is 2564 Hz and 0.6 is 14415. What it
+# buys is `Key Follow', which needs a cutoff in the units a pitch is in.
 #
 # `Vibrato' is a misc::vibrato between the note and the oscillators, and
 # the two knobs beside it are the whole of what makes a wobble sound like
@@ -43,11 +49,11 @@ description "Two detuned saws and a sub octave through a ladder filter with its 
     @sub.max = 1;
     @sub.label = "Sub Octave";
 
-    @cutoff = 0.18;
+    @cutoff = 2564;
     @cutoff.widget = 1;
-    @cutoff.min = 0.02;
-    @cutoff.max = 1;
-    @cutoff.label = "Cutoff";
+    @cutoff.min = 30;
+    @cutoff.max = 12000;
+    @cutoff.label = "Cutoff (Hz)";
 
     @glide = 40 ms;
     @glide.widget = 1;
@@ -55,11 +61,17 @@ description "Two detuned saws and a sub octave through a ladder filter with its 
     @glide.max = 2000ms;
     @glide.label = "Cutoff Glide";
 
-    @fmax = 0.6;
+    @fmax = 14415;
     @fmax.widget = 1;
-    @fmax.min = 0.02;
-    @fmax.max = 1;
-    @fmax.label = "Envelope Peak";
+    @fmax.min = 30;
+    @fmax.max = 20000;
+    @fmax.label = "Envelope Peak (Hz)";
+
+    @track = 0;
+    @track.widget = 1;
+    @track.min = 0;
+    @track.max = 2;
+    @track.label = "Key Follow";
 
     @res = 0.45;
     @res.widget = 1;
@@ -220,10 +232,29 @@ node subamt math::clamp {
 # mixer::fade nodes -- `(a + b) * 0.5' and `mix*(1 - sub) + sub*osc3' are
 # what each of them computed -- and is the same two multiplies and two
 # adds either way, built at load and named after the arg they feed.
+#
+# `Key Follow', and it is zero, so this is the filter it was. A seventies
+# lead does not track the keyboard and neither did this; what the control
+# is for is a composed line that wants one timbre across two octaves,
+# which a gen:: stage asks for constantly and a player at a keyboard
+# never does.
+#
+# Octaves of cutoff per octave of pitch, the same shape dsp/bass.dsp
+# uses and for the same reason -- adding hertz to hertz barely moves a
+# cutoff that already sits in the kilohertz. The pitch it is a ratio
+# against is C4, the middle of what a lead plays: there the cutoff is
+# exactly what the envelope asks for whatever this is set to. At 1 the
+# spectral centroid holds between 2.3 and 2.5 times the note from MIDI
+# 48 to 84, against 2.78 falling to 1.75 with this at zero.
+#
+# `vib->out' rather than the bare note, so a tracked cutoff wobbles with
+# the vibrato instead of sitting still underneath it -- and `fmap->out'
+# is inside the multiply, so the envelope sweeps from and to the pitch
+# it is tracking.
 node filt filt::moog {
     in = (osc1->out + osc2->out) * 0.5 * (1 - @sub * subamt->out) +
          osc3->out * @sub * subamt->out;
-    cutoff = fmap->out;
+    cutoffhz = fmap->out * pow(vib->out / 261.626, @track);
     res = @res;
 };
 
