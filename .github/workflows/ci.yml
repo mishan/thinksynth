@@ -283,12 +283,19 @@ jobs:
           node-version: 24
 
       # genwav is the tape every piece gate is compared against; dspedit is
-      # the edit every node-editor gate is compared against. Both are what
-      # the browser build has to agree with.
+      # the edit every node-editor gate is compared against; panelcheck is
+      # the parameter panel every row of the module's is compared against.
+      # All three are what the browser build has to agree with.
+      #
+      # Named here as well as in the upload below, and that is the whole of
+      # the coupling: upload-artifact skips a path that is not there with a
+      # warning nobody reads, so a binary left out of this line arrives as a
+      # missing file in every gate job at once -- which is what
+      # wasm-trees's chmod is loud about.
       - name: Native build
         run: |
           cmake -S . -B build -G Ninja
-          cmake --build build --target genwav dspedit plugins
+          cmake --build build --target genwav dspedit panelcheck plugins
 
       # Most of a gigabyte, so cached on the version.
       - name: Cache emsdk
