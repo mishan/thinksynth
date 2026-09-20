@@ -260,31 +260,31 @@ class ThinkProcessor extends AudioWorkletProcessor
         }
     }
 
-    /* What the page needs to draw a piece: its name, and the knobs it
-       declared, with the range and label each was given. Read once, at the
-       load -- a knob's value moves, but nothing else about it does. */
+    /* What the page needs to draw a piece: its name, and the number and
+       name of each knob it declared.
+     *
+       Two fields, where there were seven. What a knob *is* -- its label,
+       its range, the resolution worth showing it at -- is a panel now
+       (src/KnobPanel.cpp), asked for like any other and drawn by panel.js;
+       what is left here is the pairing a command needs, which is the one
+       thing a panel row is not enough for on its own. A page holding a
+       peer's `knob 3' has to find row "3"; a preset naming `@warmth' has to
+       find the number. */
     piece (ok)
     {
         if (!ok)
             return { errors: loadErrors(this.M), name: '', description: '',
                      knobs: [], instruments: [], listens: [], sinks: [] };
 
-        /* `knob' is the index a command names it by; the list is every
-           knob the piece declared, hidden ones included, so the index is
-           the module's own. */
+        /* Off the panel, so there is one answer to "which knobs are shown"
+           rather than two that have to agree. Hidden knobs keep their
+           numbers and get no row. */
         const knobs = [];
 
-        for (let i = 0; i < this.M._tw_knob_count(); i++)
-            if (this.M._tw_knob_shown(i))
-                knobs.push({
-                    knob:  i,
-                    name:  this.M.UTF8ToString(this.M._tw_knob_name(i)),
-                    label: this.M.UTF8ToString(this.M._tw_knob_label(i)),
-                    min:   this.M._tw_knob_min(i),
-                    max:   this.M._tw_knob_max(i),
-                    step:  this.M._tw_knob_step(i),
-                    value: this.M._tw_knob_value(i),
-                });
+        if (this.M._tw_panel_open(1 /* thPanel::KNOB */, 0, 0) !== 0)
+            for (const row of JSON.parse(
+                     this.M.UTF8ToString(this.M._tw_panel_json())).rows)
+                knobs.push({ knob: Number(row.id), name: row.knob });
 
         /* The instruments by name with the channel each was given, which
            is what a seat is; and the channels the piece takes `input

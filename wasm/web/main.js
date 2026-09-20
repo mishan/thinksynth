@@ -55,7 +55,7 @@
  * octave and a bit from C, Q to P the octave above, with the black keys on
  * the row above each. - and = move both down and up an octave, and move
  * the on-screen keyboard with them. That layout, and the sliders a piece's
- * knobs are drawn as, are keyboard.js's and knobs.js's: the room page
+ * knobs are drawn as, are keyboard.js's and panel.js's: the room page
  * wants them identical, and two copies of a thing two pages have to agree
  * on is how they stop agreeing.
  */
@@ -65,7 +65,6 @@ import { createSynth } from './host.js';
 import { createNodeView } from './nodeview.js';
 import { TapeDiff } from './tapediff.js';
 import { Keyboard, TypingKeys, noteName, showRange } from './keyboard.js';
-import { showKnobs } from './knobs.js';
 import { showPanel } from './panel.js';
 import * as patch from './patch.js';
 import { Roll } from './roll.js';
@@ -339,7 +338,7 @@ async function loadPiece ()
     for (const id of ['play', 'stop', 'rewind'])
         $(id).disabled = piece === null;
 
-    drawKnobs();
+    await drawKnobs();
     showChannels();
     showNodes();
     await showParams();
@@ -386,12 +385,30 @@ function quietly (what)
 }
 
 /* One row per knob the piece declared, each bound straight to the command
-   that moves it. The command carries a frame like every other, so the page
-   is the nearest peer and not a privileged one (docs/JAM.md). */
-function drawKnobs ()
+ * that moves it. The command carries a frame like every other, so the page
+ * is the nearest peer and not a privileged one (docs/JAM.md).
+ *
+ * The same renderer the channel's parameters use, over the same kind of
+ * description (src/KnobPanel.cpp). A knob row's id is the number the
+ * command names it by, which is why the edit is a Number() of it and
+ * nothing here has to hold a second list.
+ */
+async function drawKnobs ()
 {
-    showKnobs($('knobs'), piece?.knobs ?? [],
-              (knob, value) => synth.knob(knob, value));
+    if (synth === null)
+        return;
+
+    const answer = piece === null
+        ? { shape: 0 } : await synth.panel(1 /* thPanel::KNOB */, 0, 0);
+
+    if (answer.shape === 0)
+    {
+        $('knobs').replaceChildren();
+        return;
+    }
+
+    showPanel($('knobs'), JSON.parse(answer.json),
+              (row, text) => synth.knob(Number(row), Number(text)));
 }
 
 /* ---- the channels row ---- */

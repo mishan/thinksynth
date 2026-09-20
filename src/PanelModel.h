@@ -125,7 +125,15 @@ struct thPanelRow
        that does nothing is worse than no row. */
     vector<pair<string, int> > choices;
 
-    string knob;        /* bound to @knob; empty for a plain value */
+    /* The knob this row is read through, and empty for a plain value.
+     *
+     * Two readings, and they are the same one from opposite ends. On a
+     * param row it is the binding -- `fmin = @warmth' -- which is why the
+     * row is shown and not offered: what moves it is the knob. On a KNOB
+     * panel's row it is the knob's own name, because there the row *is* the
+     * knob; the id is the number a command names it by and this is what the
+     * .gen calls it. */
+    string knob;
 
     /* False for an output, a wired param, one bound to a knob. A shell draws
        it all the same -- seeing what a patch produces is half of reading it

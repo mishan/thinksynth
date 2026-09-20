@@ -90,6 +90,7 @@
 #include "thcGenEdit.h"
 
 #include "ArgPanel.h"
+#include "KnobPanel.h"
 
 #include "twevent.h"
 
@@ -1580,49 +1581,25 @@ EMSCRIPTEN_KEEPALIVE int tw_canvas_dirty (void)
     return canvas_ != NULL && canvas_->takeDirty() ? 1 : 0;
 }
 
-/* ---- the knobs the piece declared ---- */
+/* ---- the knobs the piece declared ----
+ *
+ * One accessor, where there were eight. What a knob is -- its label, its
+ * range, the resolution worth showing it at -- is a panel now
+ * (src/KnobPanel.cpp), read through tw_panel_open(KNOB) like any other; all
+ * that is left here is the number a command names one by, which is a panel
+ * row's id and is wanted the other way round when a peer's command arrives.
+ */
 
-EMSCRIPTEN_KEEPALIVE int tw_knob_count (void)
+EMSCRIPTEN_KEEPALIVE int tw_knob_index (const char *name)
 {
-    return (int)knobs_.size();
-}
+    if (name == NULL)
+        return -1;
 
-EMSCRIPTEN_KEEPALIVE const char *tw_knob_name (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->name().c_str() : "";
-}
+    for (size_t i = 0; i < knobs_.size(); i++)
+        if (knobs_[i]->name() == name)
+            return (int)i;
 
-EMSCRIPTEN_KEEPALIVE const char *tw_knob_label (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->label().c_str() : "";
-}
-
-/* 0 for one the piece marked hidden, which a page draws no slider for. */
-EMSCRIPTEN_KEEPALIVE int tw_knob_shown (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() &&
-           knobs_[k]->widgetType() != thArg::HIDE;
-}
-
-EMSCRIPTEN_KEEPALIVE double tw_knob_min (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->min() : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE double tw_knob_max (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->max() : 0;
-}
-
-EMSCRIPTEN_KEEPALIVE double tw_knob_value (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() ? (*knobs_[k])[0] : 0;
-}
-
-/* `@x.step = 1', or 0 for a knob the piece left continuous. */
-EMSCRIPTEN_KEEPALIVE double tw_knob_step (int k)
-{
-    return k >= 0 && k < (int)knobs_.size() ? knobs_[k]->step() : 0;
+    return -1;
 }
 
 /* ---- parameter panels ----
@@ -1647,6 +1624,7 @@ EMSCRIPTEN_KEEPALIVE double tw_knob_step (int k)
  */
 
 static ArgPanel argPanel_;
+static KnobPanel knobPanel_;
 static thPanel openPanel_;
 static std::string panelJson_;
 static std::string panelWhy_;
@@ -1677,6 +1655,14 @@ static bool buildPanel (int kind, int a, int b)
             argPanel_.setPrefix(b != 0 ? TH_EFFECT_PREFIX : "");
 
             return argPanel_.build(openPanel_);
+
+        case thPanel::KNOB:
+            /* No subject: a piece has one set of knobs. knobs_ is the list
+               a command numbers them by, rebuilt at every load, and a row's
+               id is its place in it. */
+            knobPanel_.setKnobs(knobs_);
+
+            return knobPanel_.build(openPanel_);
     }
 
     return false;
@@ -1746,6 +1732,9 @@ EMSCRIPTEN_KEEPALIVE double tw_panel_value (int row)
         case thPanel::CHANARG:
             argPanel_.valueFor(openPanel_.rows[row].id, value);
             break;
+        case thPanel::KNOB:
+            knobPanel_.valueFor(openPanel_.rows[row].id, value);
+            break;
         default:
             break;
     }
@@ -1801,6 +1790,22 @@ EMSCRIPTEN_KEEPALIVE int tw_panel_edit (int kind, int a, int b,
 
             return target.deliver(edit) ? 1 : 0;
         }
+    }
+
+    /* A knob is not set here, and the refusal says so rather than
+     * pretending there is nothing to set.
+     *
+     * Its delivery is tw_knob, which carries a transport time: a knob is
+     * heard, so a move has to land at the same time on every peer or the
+     * peers stop composing the same piece. Applying one immediately here
+     * would be a second door to the same write, opening at a different
+     * moment -- which is exactly the divergence the stamp exists to stop.
+     * The panel describes a knob; the command moves it. */
+    if (kind == thPanel::KNOB)
+    {
+        panelWhy_ = "a knob is moved by a stamped command, not by an edit";
+
+        return 0;
     }
 
     panelWhy_ = "no such panel";
@@ -1890,8 +1895,12 @@ EMSCRIPTEN_KEEPALIVE void tw_at (double at, int op, double value)
     schedule(c);
 }
 
-/* Knob `k' of the loaded piece -- tw_knob_count's numbering -- to `value',
-   at transport time `at'. An index outside the list is ignored. */
+/* Knob `k' of the loaded piece to `value', at transport time `at'.
+ *
+ * `k' is the number a KNOB panel's row carries as its id, which is the
+ * knob's place in the list this module built at the load; tw_knob_index
+ * reads it the other way round, for a command arriving by name. An index
+ * outside the list is ignored. */
 EMSCRIPTEN_KEEPALIVE void tw_knob (double at, int k, double value)
 {
     Scheduled c = {};

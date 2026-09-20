@@ -77,7 +77,7 @@ target_link_libraries(think_composerhost PUBLIC think PkgConfig::GLIBMM)
 # the reason the canvases are: src/PanelModel.h says it at length. The guard
 # is that scripts/panelcheck links this and no gtkmm, so the first Gtk:: here
 # fails to build.
-add_library(think_panel OBJECT PanelModel.cpp ArgPanel.cpp)
+add_library(think_panel OBJECT PanelModel.cpp ArgPanel.cpp KnobPanel.cpp)
 target_include_directories(think_panel PUBLIC
     "${PROJECT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}")

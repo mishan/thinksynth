@@ -27,7 +27,7 @@
  * synth the way host.js does and compares samples, piececheck.mjs never
  * opens a browser at all. Nothing ran main.js. So the two things the solo
  * page and the room page share -- the computer keyboard as a musical one,
- * and the knobs a piece declared as sliders (keyboard.js, knobs.js) --
+ * and the knobs a piece declared as sliders (keyboard.js, panel.js) --
  * were only ever exercised by hand, on the page a change to either is
  * most likely to break.
  *
@@ -286,21 +286,31 @@ try
 
        So the page is asked instead. It knows what it has queued; nothing
        out here can know it by counting. */
-    await page.waitForSelector('#knobs input', { timeout: 60000 });
+    await page.waitForSelector('#knobs input[type="range"]',
+                               { timeout: 60000 });
     await page.click('#loadpiece');
     await page.evaluate(() => window.solo.settled());
 
+    /* Drawn by panel.js off the module's own description of them
+       (src/KnobPanel.cpp), so a row carries the number a command names it
+       by as its id and the value spelled at the resolution its range asks
+       for -- not at whatever three significant figures came to. */
     const knobs = await page.evaluate(() =>
-        [...document.querySelectorAll('#knobs input')].map((i) =>
-            ({ id: i.id, knob: i.dataset.knob,
-               shown: i.previousElementSibling.textContent })));
+        [...document.querySelectorAll('#knobs .panelrow')].map((line) =>
+        {
+            const range = line.querySelector('input[type="range"]');
+
+            return { label: line.querySelector('label').textContent,
+                     value: range.value,
+                     shown: range.nextElementSibling.value };
+        }));
 
     check(knobs.length > 0 &&
-          knobs.every((k) => k.shown !== '' && k.knob !== undefined),
-          `${PIECE}'s knobs drew, each with its index and its value: ` +
-          knobs.map((k) => `${k.id}=${k.shown}`).join(', '));
+          knobs.every((k) => k.shown !== '' && k.label !== ''),
+          `${PIECE}'s knobs drew, each with its label and its value: ` +
+          knobs.map((k) => `${k.label}=${k.shown}`).join(', '));
 
-    /* Moving a slider moves the number beside it -- the span a remote
+    /* Moving a slider moves the number beside it -- the box a remote
        peer's move writes to on the room page as well.
      *
        With the keyboard, because that is a real input event from the
@@ -308,26 +318,28 @@ try
        is a weaker claim about a range input and a poor one to debug.
        Both numbers go in the message, since a slider that did not move
        and a number that did not follow it are different bugs. */
-    await page.focus(`#${knobs[0].id}`);
+    const firstKnob = '#knobs .panelrow input[type="range"]';
 
-    const was = await page.inputValue(`#${knobs[0].id}`);
+    await page.focus(firstKnob);
+
+    const was = await page.inputValue(firstKnob);
 
     await page.keyboard.press('ArrowRight');
 
-    let now = await page.inputValue(`#${knobs[0].id}`);
+    let now = await page.inputValue(firstKnob);
 
     /* At the top of its range there is nowhere rightwards to go. */
     if (now === was)
     {
         await page.keyboard.press('ArrowLeft');
-        now = await page.inputValue(`#${knobs[0].id}`);
+        now = await page.inputValue(firstKnob);
     }
 
     const shown = await page.evaluate(
-        (id) => document.getElementById(id).previousElementSibling.textContent,
-        knobs[0].id);
+        (sel) => document.querySelector(sel).nextElementSibling.value,
+        firstKnob);
 
-    check(now !== was && shown === Number(now).toPrecision(3),
+    check(now !== was && Number(shown) === Number(now),
           `a nudge moves the slider and the number beside it: ` +
           `${was} -> ${now}, showing ${shown}`);
 

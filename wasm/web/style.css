@@ -144,33 +144,12 @@ details { margin: 0.8em 0; }
     margin: 0.8em 0;
 }
 
-#knobs
-{
-    display: grid;
-    grid-template-columns: max-content 1fr max-content;
-    gap: 0.3em 0.8em;
-    align-items: center;
-    margin: 0.8em 0;
-
-    /* The slider is written after the value and drawn between it and the
-       label; dense is what lets a later item fill the gap an earlier one
-       left. Without it every slider would start a row of its own. */
-    grid-auto-flow: row dense;
-}
-
-/* Label, slider, value across. The slider is written last of the three
-   and placed in the middle, and the value is pinned to the end rather than
-   left to flow -- otherwise it takes the middle column and the slider goes
-   to a row of its own. */
-#knobs input { width: 100%; grid-column: 2; }
-#knobs .value { grid-column: 3; }
-
-#knobs .value
-{
-    font: 13px ui-monospace, monospace;
-    min-width: 5em;
-    text-align: right;
-}
+/* The knobs a piece declared, drawn by panel.js the way the channel's
+   parameters are -- same rows, same wrapping, same column pairs. All this
+   has to say is that a knob is a knob and gets a little more room than a
+   parameter, since a piece declares a handful where a patch declares
+   thirty. */
+#knobs { margin: 0.8em 0; }
 
 /* One line per channel the piece touches: its number, then what is on it.
    The numbers are a column of their own so the row reads down as a list of
@@ -269,7 +248,9 @@ details { margin: 0.8em 0; }
 
     #keys { height: 160px; }
 
-    #knobs input { height: 44px; }
+    /* A slider a thumb can find, in the knob strip and in the parameter
+       panel alike -- both are panel.js's rows now. */
+    #knobs input[type="range"], #params input[type="range"] { height: 44px; }
 }
 
 /* ---- a narrow screen ---- */
@@ -283,21 +264,6 @@ details { margin: 0.8em 0; }
     textarea { height: 14em; }
 
     #roll { height: 120px; }
-
-    /* Label and value on one line, the slider across the next: three
-       columns of a phone's width leave the slider too short to aim at. */
-    #knobs
-    {
-        grid-template-columns: 1fr max-content;
-        gap: 0.1em 0.6em;
-    }
-
-    /* Two columns: label and value side by side, and the slider -- which
-       is written after them -- takes the next line whole. The placements
-       above are undone, or the value would want a third column that is
-       not there. */
-    #knobs .value { grid-column: auto; }
-    #knobs input { grid-column: 1 / -1; margin-bottom: 0.6em; }
 
     .hint { display: none; }
 }

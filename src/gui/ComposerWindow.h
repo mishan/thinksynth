@@ -304,8 +304,6 @@ protected:
        so the sections above it keep their state. */
     Gtk::Box *selBox_;
 
-    /* One slider per @knob the piece declares, rebuilt on load. */
-
     /* The node view, above the roll; inline composer_draw replaced the
        old draw strip. */
     ComposerCanvasWidget *canvas_;

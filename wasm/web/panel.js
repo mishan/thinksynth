@@ -28,10 +28,11 @@
  *
  * None of the arithmetic is here, and that is the point. The rows used to be
  * built three times over in this directory, each from a different C ABI and
- * each guessing at the parts it had no access to: knobs.js rounds with
- * toPrecision(3), composerview.js with toPrecision(4), and neither of them
- * has ever known that a duration is stored in samples. A row now carries its
- * own spelling and its own resolution, so there is nothing left to guess.
+ * each guessing at the parts it had no access to: the knob strip rounded
+ * with toPrecision(3), composerview.js rounds with toPrecision(4), and
+ * neither of them has ever known that a duration is stored in samples. A row
+ * now carries its own spelling and its own resolution, so there is nothing
+ * left to guess.
  *
  * An edit does not write either. `onEdit(row, text)' is handed the row's id
  * and the authored spelling, and the caller sends that as a command: the
@@ -361,6 +362,19 @@ function makeRow (row, onEdit, bound)
     const label = document.createElement('label');
 
     line.className = 'panelrow';
+
+    /* The row's identity, on the element.
+     *
+     * A closure holds it for `setValue', but anything looking at the page
+     * from outside -- a harness, another script -- has only the DOM, and
+     * "which knob is this slider" is not a question a label can answer:
+     * the label is what the piece chose to call it. Both of the names a row
+     * has go on, since a command names a knob by its number and a .gen
+     * names it by its word. */
+    line.dataset.row = row.id;
+
+    if (row.knob !== '')
+        line.dataset.knob = row.knob;
 
     /* The unit belongs with the name, not beside the number: it is a
        property of the parameter, the same on every row of it, and it costs

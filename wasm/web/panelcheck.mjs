@@ -42,6 +42,10 @@
  * and moves nothing, which is what keeps a panel following a knob from
  * reporting an edit nobody made.
  *
+ * And then the other provider the module carries: a piece's knobs, whose
+ * rows are numbered by the command that moves them and which tw_panel_edit
+ * refuses outright, because a knob is heard and its delivery is a stamp.
+ *
  * And the one rule the page does implement itself. A row arrives spelled,
  * but a value that moves is spelled on the page as it moves, so panel.js
  * carries thPanelSpell in JavaScript -- the one piece of the description
@@ -109,7 +113,11 @@ const M = await createThinkWeb({
 
 /* thPanel::Kind, and the flag that picks a channel's second arg map. */
 const CHANARG = 0;
+const KNOB = 1;
 const INSTRUMENT = 0;
+
+/* A shipped piece with knobs in it, for the knob panel below. */
+const PIECE = 'airports.gen';
 
 /* The rate and the window the page's own synth is made with (host.js), so
    that a duration folds here exactly as it folded natively -- the one
@@ -280,6 +288,73 @@ const edit = (row, text, b = INSTRUMENT) =>
     check(table.length > 0 && wrong === null,
           `panel.js spells all ${table.length} of them as the module does`,
           wrong ?? '');
+}
+
+/* ---- a piece's knobs --------------------------------------------------- */
+
+/* The other provider that reaches this module, and the one that shows what
+ * describing an edit and delivering it are two things for: a knob is heard,
+ * so a move has to land at the same transport time on every peer, and the
+ * delivery is a stamped command rather than a write. The panel describes it;
+ * tw_knob moves it.
+ */
+{
+    const gen = fs.readFileSync(path.join(top, 'gen', PIECE), 'utf8');
+
+    /* A piece carries its own instruments, and a module has no file system
+       and cannot fetch: the page hands them over before it loads anything
+       and so does this. A piece whose instrument will not resolve does not
+       load, and then there are no knobs to describe. */
+    for (const name of JSON.parse(fs.readFileSync(
+             path.join(build, 'dsp', 'index.json'), 'utf8')))
+    {
+        /* The index carries the kit too, and a wav read as text is not a
+           wav any more. No knob is in one. */
+        if (name.startsWith('samples/'))
+            continue;
+
+        M.ccall('tw_instrument', 'number', ['string', 'string'],
+                [name, fs.readFileSync(path.join(build, 'dsp', name),
+                                       'utf8')]);
+    }
+
+    if (M.ccall('tw_piece_load', 'number', ['string', 'number'],
+                [gen, 4242]) === 0)
+        fail(`${PIECE} loads in the module`);
+    else
+    {
+        ok(`${PIECE} loads in the module`);
+
+        const shape = M._tw_panel_open(KNOB, 0, 0) >>> 0;
+
+        check(shape !== 0, 'the piece has a knob panel');
+
+        const knobs = JSON.parse(M.UTF8ToString(M._tw_panel_json()));
+
+        check(knobs.kind === KNOB && knobs.rows.length > 0,
+              `and it has the piece's knobs: ` +
+              knobs.rows.map((r) => `${r.id}=${r.knob}`).join(', '));
+
+        /* A row id is the number a command names the knob by, and it has
+           to be, because an intent crosses to a peer with no panel open. */
+        check(knobs.rows.every(
+                  (r) => String(M.ccall('tw_knob_index', 'number', ['string'],
+                                        [r.knob])) === r.id),
+              'a row id is the number a command names the knob by');
+
+        /* Not through tw_panel_edit, and the refusal says so rather than
+           quietly doing nothing: applying a knob move immediately here
+           would be a second door to the same write, opening at a different
+           moment on every peer. */
+        const refused = M.ccall(
+            'tw_panel_edit', 'number',
+            ['number', 'number', 'number', 'string', 'string'],
+            [KNOB, 0, 0, knobs.rows[0].id, String(knobs.rows[0].lo)]);
+        const why = M.UTF8ToString(M._tw_panel_why());
+
+        check(refused === 0 && why !== '',
+              'a knob is not set by an edit, and the refusal says why', why);
+    }
 }
 
 fs.rmSync(scratch, { recursive: true, force: true });

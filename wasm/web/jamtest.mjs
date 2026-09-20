@@ -715,10 +715,11 @@ try
         /* The knob names, for genwav, by the index a command names one
            by -- which is the module's numbering over every knob the piece
            declared, hidden ones included, and not the position of the
-           slider on the page. Each slider carries its own index. */
+           slider on the page. Each row carries both: its id is the number
+           and `data-knob' is the word the .gen writes. */
         const knobs = await A.page.evaluate(() => Object.fromEntries(
-            [...document.querySelectorAll('#knobs input')].map(
-                (i) => [i.dataset.knob, i.id.replace(/^knob-/, '')])));
+            [...document.querySelectorAll('#knobs .panelrow')].map(
+                (line) => [line.dataset.row, line.dataset.knob])));
         const want = reference(PIECE, nodeBuild,
                                { commands: sent, knobs, stopAt });
 

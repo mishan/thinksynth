@@ -291,7 +291,15 @@ async function run (piece, dsps, { clicking = false, canvas = false } = {})
     /* A script with something in it for every path a command takes: a
        knob at a transport time, a tempo change, and a stop -- each stamped
        ahead of itself, which is what a peer's command is. */
-    const knobs = rendering.M._tw_knob_count() > 0;
+    /* The piece's knob panel, which is where what a knob is now lives
+       (src/KnobPanel.cpp). A row is one anybody can move, so a piece whose
+       knobs are all hidden has no knob to move here either. */
+    const first = rendering.M._tw_panel_open(1 /* thPanel::KNOB */, 0, 0)
+        ? JSON.parse(
+              rendering.M.UTF8ToString(rendering.M._tw_panel_json())).rows[0]
+        : undefined;
+
+    const knobs = first !== undefined;
 
     /* A knob is moved inside its own range and not to some number
        between nought and one: a piece's knob is in the piece's units, and
@@ -299,15 +307,17 @@ async function run (piece, dsps, { clicking = false, canvas = false } = {})
        the ring for good. Half its range is a knob moved; a hard zero is a
        piece switched off, and a piece switched off composes nothing for
        anything after it to disagree about. */
-    const of = (f) => knobs
-        ? rendering.M._tw_knob_min(0) +
-          (rendering.M._tw_knob_max(0) - rendering.M._tw_knob_min(0)) * f
-        : 0;
+    const of = (f) => knobs ? first.lo + (first.hi - first.lo) * f : 0;
+
+    /* The number the command names it by, which is the row's id and is
+       not always 0: a piece whose first knob is hidden has no row for it
+       and the first movable one is further along. */
+    const which = knobs ? Number(first.id) : 0;
 
     const script = [
-        { type: 'knob', at: 2.0, knob: 0, value: of(0.6) },
+        { type: 'knob', at: 2.0, knob: which, value: of(0.6) },
         { type: 'at', op: 'tempo', at: 4.0, value: 150 },
-        { type: 'knob', at: 6.0, knob: 0, value: of(0.4) },
+        { type: 'knob', at: 6.0, knob: which, value: of(0.4) },
         { type: 'at', op: 'stop', at: 18.0 },
     ];
 

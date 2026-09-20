@@ -31,8 +31,10 @@
  * What is checked here is the description: units unfolded at the synth's
  * rate, decimals that suit the range, a selector's holes, a group of one
  * dissolved, a declared group beating an inferred one, and what a typed value
- * is allowed to become. What is checked in editorcheck is that a PanelView
- * over the same description draws and moves real widgets.
+ * is allowed to become. Then a piece's knobs, which are the other provider
+ * and the one that shows what describing an edit and delivering it are two
+ * things for. What is checked in editorcheck is that a PanelView over the
+ * same description draws and moves real widgets.
  *
  * Builds its own .dsp files: the cases that matter are ones the corpus cannot
  * contain, and one of them -- a selector with a hole in it -- is the case the
@@ -72,6 +74,7 @@
 #include "think.h"
 
 #include "ArgPanel.h"
+#include "KnobPanel.h"
 
 static int failed = 0;
 
@@ -392,6 +395,136 @@ static void checkJson (void)
        and a wasm one is asking about. %g's six would hide the last bit. */
     check(json.find("\"value\":0.10000000000000001") != string::npos,
           "a value is written to the precision that round-trips", json);
+}
+
+/* ---- a piece's knobs ------------------------------------------------ */
+
+/* Built by hand rather than loaded from a .gen.
+ *
+ * A knob is a thArg with a range and a label on it, and what KnobPanel says
+ * about one depends on nothing else -- so a fixture here is four thArgs and
+ * no composer host, no scheduler and no piece. The case that matters is the
+ * one no shipped piece has: a hidden knob in the middle of the list, which
+ * keeps its number and gets no row.
+ */
+static thArg *makeKnob (const char *name, float value, float lo, float hi,
+                        const char *label, bool shown)
+{
+    thArg *knob = new thArg(string(name), value);
+
+    knob->setMin(lo);
+    knob->setMax(hi);
+    knob->setLabel(label);
+    knob->setWidgetType(shown ? thArg::SLIDER : thArg::HIDE);
+
+    return knob;
+}
+
+static void checkKnobs (void)
+{
+    std::vector<thArg *> knobs;
+
+    knobs.push_back(makeKnob("density", 0.85f, 0, 1, "Density", true));
+    knobs.push_back(makeKnob("seedy", 3, 0, 9, "", false));
+    knobs.push_back(makeKnob("warmth", 0.5f, 0, 1, "", true));
+    knobs.push_back(makeKnob("dwell", 7000, 0, 20000, "Dwell", true));
+
+    KnobPanel panel;
+
+    panel.setKnobs(knobs);
+
+    thPanel built;
+
+    check(panel.build(built), "a piece's knobs make a panel");
+    check(built.kind == thPanel::KNOB, "of their own kind");
+
+    /* A row id is the number a command names the knob by, so the hidden
+       one's number is missing rather than closed over. A list that
+       renumbered them would send a command to the wrong knob. */
+    check(idsOf(built) == "0,2,3",
+          "a hidden knob keeps its number and gets no row", idsOf(built));
+
+    const thPanelRow *density = built.find("0");
+
+    if (density == NULL)
+        fail("the first knob has a row", idsOf(built));
+    else
+    {
+        check(density->label == "Density", "the label is the piece's",
+              density->label);
+        check(density->knob == "density" && density->desc == "@density",
+              "and the row carries the name the .gen writes",
+              density->knob + " / " + density->desc);
+        check(density->kind == thPanelRow::SLIDER,
+              "a knob is a slider: a number a hand moves while it plays");
+
+        /* toPrecision(3) on a 0..1 knob is three digits of the four its
+           range is worth. The range says four. */
+        check(density->decimals == 4 && density->text == "0.8500",
+              "and its resolution follows its range",
+              to_string(density->decimals) + " / " + density->text);
+    }
+
+    const thPanelRow *warmth = built.find("2");
+
+    check(warmth && warmth->label == "warmth",
+          "a knob with no label is called what the piece calls it",
+          warmth ? warmth->label : string("(no row)"));
+
+    /* And the other end of the same rule: a knob running to twenty
+       thousand has no decimals worth showing. */
+    const thPanelRow *dwell = built.find("3");
+
+    check(dwell && dwell->decimals == 0 && dwell->text == "7000",
+          "a knob with a wide range shows none",
+          dwell ? dwell->text : string("(no row)"));
+
+    thPanelEdit edit;
+    thPanelResult r = panel.propose("3", "12000", edit);
+
+    check(r.ok && r.changed && edit.value == 12000 &&
+          edit.kind == thPanelEdit::KNOB,
+          "a typed number becomes a knob intent", r.why);
+
+    /* The index a command names it by, which is the whole reason a knob
+       row's id is a number: the intent has to survive being broadcast to a
+       peer with no panel open. */
+    check(edit.a == 3, "carrying the number the command names it by",
+          to_string(edit.a));
+
+    check((double)(*knobs[3])[0] == 7000,
+          "proposing does not write", to_string((double)(*knobs[3])[0]));
+
+    check(panel.deliver(edit) && (double)(*knobs[3])[0] == 12000,
+          "delivering does -- which is what the desktop does with one, and "
+          "what a stamped command does with one in the browser",
+          to_string((double)(*knobs[3])[0]));
+
+    r = panel.propose("3", "12000", edit);
+
+    check(r.ok && !r.changed,
+          "an intent equal to what is there moves nothing", r.why);
+
+    r = panel.propose("3", "99999", edit);
+
+    check(r.ok && edit.value == 20000,
+          "a number past the end of the range is held to it",
+          to_string(edit.value));
+
+    r = panel.propose("3", "loud", edit);
+
+    check(!r.ok, "a value that is not a number is refused", r.why);
+
+    r = panel.propose("dwell", "1", edit);
+
+    check(!r.ok, "and so is a row named by anything but its number", r.why);
+
+    r = panel.propose("9", "1", edit);
+
+    check(!r.ok, "or by a number no knob has", r.why);
+
+    for (size_t i = 0; i < knobs.size(); i++)
+        delete knobs[i];
 }
 
 /* ---- the instrument's panel ----------------------------------------- */
@@ -1056,6 +1189,7 @@ int main (int argc, char **argv)
 
     checkArithmetic();
     checkJson();
+    checkKnobs();
 
     {
         thSynth synth(pluginPath, TH_DEFAULT_WINDOW_LENGTH,
