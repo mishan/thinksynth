@@ -18,6 +18,12 @@ description "Made for brass";
     @buzzf.widget = 1;
     @buzzf.label = "Buzz Frequency";    
 
+    @fall = 0;
+    @fall.min = 0;
+    @fall.max = 1200;
+    @fall.widget = 1;
+    @fall.label = "Fall (cents)";
+
     @bend = -1;
     @bend.min = -24;
     @bend.max = 24;
@@ -151,6 +157,29 @@ node vib misc::vibrato {
     rise = @vibdelay * 0.5;
 };
 
+# The fall at the end of a stab: the player's lip letting go, so the
+# pitch slides down as the note fades. `Fall' is in cents over the whole
+# release, and its gate is a separate envelope rather than the amp's --
+# the amp's peak and sustain are scaled by velocity, so a note held at
+# half an envelope would sit half a fall flat for as long as it lasted.
+# This one is 1 while the key is down and 0 when the release is over, so
+# the note is in tune while it is played and falls only as it goes.
+#
+# At `Fall' of 0 the multiplier is exp2(0), which is 1 to the bit, and
+# this file is what it was.
+node fallgate env::adsr {
+    a = 0;
+    d = 0;
+    s = th_max;
+    r = @r;
+    trigger = ionode->trigger;
+};
+
+node fall math::mul {
+    in0 = vib->out;
+    in1 = exp2(0 - @fall * (1 - fallgate->out) / 1200);
+};
+
 node cutcalc math::mul {
     in0 = freq->out;
     in1 = @cutoff;
@@ -204,7 +233,7 @@ node env env::adsr {
 };
 
 node freqmul math::mul {
-    in0 = vib->out;
+    in0 = fall->out;
     in1 = @oscmul;
 };
 
@@ -227,7 +256,7 @@ node map1 env::map {
 };
 
 node osc osc::simple {
-    freq = vib->out;
+    freq = fall->out;
     waveform = 1;
     pw = @pw1;
 };
