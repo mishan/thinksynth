@@ -283,7 +283,7 @@ Comb Filter
 | `freq` | in | Delay length spacing |  |  | Hz |  |
 | `feedback` | in | How much of each pass is kept; 1 never decays |  | 0 to 1 |  |  |
 | `damp` | in | How much darker each pass is; 0 is a tube and up is a string |  | 0 to 0.95 |  |  |
-| `size` | in | Buffer size; must cover the period |  |  | samples |  |
+| `size` | in | Buffer size, 4 samples to 10 seconds; read once per window; changing clears the line |  |  | samples |  |
 | `out` | out | Filtered signal |  |  | full scale |  |
 | `buffer` | state |  |  |  |  |  |
 | `bufpos` | state |  |  |  |  |  |

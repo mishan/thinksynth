@@ -2445,6 +2445,43 @@ static void checkComb (const string &pluginPath)
                  "comb", "out",
                  "filt::comb: the same ring at one sample a window and at "
                  "five hundred");
+
+    /* Changing size reallocates the delay line. Its one-pole memory must be
+       cleared with it, or silence on the new line starts with an old tail. */
+    {
+        thSynth synth(pluginPath, 1, TH_DEFAULT_SAMPLES);
+        thSynthTree tree("comb-resize", &synth);
+        vector<NodeSpec> spec = combImpulseGraph((float)(rate / 4), 0.9f,
+                                                  0.5f);
+        string why;
+
+        spec[1].values[3].value = 8;
+
+        if (!buildGraph(synth, tree, spec, why))
+            fail("filt::comb resize graph loads", why);
+        else
+        {
+            thNode *comb = tree.findNode("comb");
+            float before = 0;
+
+            for (int i = 0; i < 13; i++)
+            {
+                tree.setActiveNodes();
+                tree.process(1);
+                before = (*comb->getArg("out"))[0];
+            }
+
+            comb->setArg("size", 16.0f);
+            tree.setActiveNodes();
+            tree.process(1);
+
+            const float after = (*comb->getArg("out"))[0];
+
+            okOrFail(before > 0 && after == 0,
+                     "filt::comb: resizing clears the whole feedback state",
+                     "before " + num(before) + ", after " + num(after));
+        }
+    }
 }
 
 /* ---- osc::fmop ---------------------------------------------------------- */

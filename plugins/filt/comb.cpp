@@ -122,7 +122,9 @@ int module_init (thPlugin *plugin)
     /* It sizes the line, read once a window: a line whose length moves
        is a line that empties. */
     plugin->setArgStep(args[IN_SIZE], 1);
-    plugin->setArgDesc(args[IN_SIZE], "Buffer size; must cover the period");
+    plugin->setArgDesc(args[IN_SIZE],
+                       "Buffer size, 4 samples to 10 seconds; read once per "
+                       "window; changing clears the line");
     plugin->setArgUnits(args[IN_SIZE], "samples");
 
     args[OUT_ARG] = plugin->regArg("out", thPlugin::ARG_OUT);
@@ -161,7 +163,7 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     thArg *out_arg;
     thArg *inout_buffer, *inout_bufpos, *inout_damped;
     unsigned int i;
-    unsigned int at, len;
+    unsigned int at, len, oldlen;
     float damped;
 
     out_arg = mod->getArg(node, args[OUT_ARG]);
@@ -177,20 +179,25 @@ int module_callback (thNode *node, thSynthTree *mod, unsigned int windowlen,
     inout_bufpos = mod->getArg(node, args[INOUT_BUFPOS]);
     inout_damped = mod->getArg(node, args[INOUT_DAMPED]);
 
-    /* Read before they are allocated: allocate() hands back a zeroed
-       buffer when the length changed, and these are one element each from
-       the first window on. */
-    at = (unsigned int)(*inout_bufpos)[0];
-    damped = (*inout_damped)[0];
-
+    /* The first callback has not allocated either state buffer yet. */
     bufpos = inout_bufpos->allocate(1);
     lastdamped = inout_damped->allocate(1);
+    at = (unsigned int)*bufpos;
+    damped = *lastdamped;
 
-    /* Sized once a window, from the first sample of the arg: the line is
-       the state, and allocate() empties it whenever the length moves. */
+    /* Size is sampled once per window: reallocating per sample would put
+       repeated heap operations on the audio thread. A changed length starts
+       a new line, including its write head and the lowpass in its loop. */
     len = (unsigned int)thClampArg((*in_size)[0], COMB_SIZE_MIN,
                                    (float)samples * 10);
+    oldlen = inout_buffer->len();
     buffer = inout_buffer->allocate(len);
+
+    if (oldlen != len)
+    {
+        at = 0;
+        damped = 0;
+    }
 
     if (at >= len)
         at = 0;
